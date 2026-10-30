@@ -1,0 +1,720 @@
+#!/usr/bin/env node
+
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter as pathDelimiter, join as pathJoin } from "node:path";
+
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { NetService } from "@synara/shared/Net";
+import {
+  getBooleanFlagValue,
+  optionalBooleanEnvironmentConfig,
+  optionalBooleanFlag,
+  type BooleanFlagInput,
+} from "@synara/shared/cli";
+import { mossDesktopIdentity, resolveMossDesktopFlavor } from "@synara/shared/desktopIdentity";
+import {
+  applyMossProductionPublicConfigEnv,
+  MOSS_PRODUCTION_PUBLIC_CONFIG_FILE,
+  parseMossProductionPublicConfig,
+  type MossProductionPublicConfig,
+} from "@synara/shared/mossProductionPublicConfig";
+import { applyShellEnvironmentHydrationMarker } from "@synara/shared/shell";
+import { Config, Data, Effect, Hash, Layer, Logger, Option, Path, Schema } from "effect";
+import * as ConfigProvider from "effect/ConfigProvider";
+import { Argument, Command, Flag } from "effect/unstable/cli";
+import { ChildProcess } from "effect/unstable/process";
+
+const BASE_SERVER_PORT = 3773;
+const BASE_WEB_PORT = 5733;
+const MAX_HASH_OFFSET = 3000;
+const MAX_PORT = 65535;
+
+export const DEFAULT_MOSS_HOME = Effect.map(Effect.service(Path.Path), (path) =>
+  path.join(homedir(), ".moss"),
+);
+const MODE_ARGS = {
+  dev: [
+    "run",
+    "dev",
+    "--ui=tui",
+    "--filter=@synara/contracts",
+    "--filter=@synara/web",
+    "--filter=@synara/cli",
+    "--parallel",
+  ],
+  "dev:server": ["run", "dev", "--filter=@synara/cli"],
+  "dev:web": ["run", "dev", "--filter=@synara/web"],
+  "dev:desktop": ["run", "dev", "--filter=@synara/desktop", "--filter=@synara/web", "--parallel"],
+} as const satisfies Record<string, ReadonlyArray<string>>;
+
+type DevMode = keyof typeof MODE_ARGS;
+type PortAvailabilityCheck<R = never> = (port: number) => Effect.Effect<boolean, never, R>;
+
+const DEV_RUNNER_MODES = Object.keys(MODE_ARGS) as Array<DevMode>;
+
+class DevRunnerError extends Data.TaggedError("DevRunnerError")<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+const optionalStringConfig = (name: string): Config.Config<string | undefined> =>
+  Config.string(name).pipe(
+    Config.option,
+    Config.map((value) => Option.getOrUndefined(value)),
+  );
+const optionalPortConfig = (name: string): Config.Config<number | undefined> =>
+  Config.port(name).pipe(
+    Config.option,
+    Config.map((value) => Option.getOrUndefined(value)),
+  );
+const optionalIntegerConfig = (name: string): Config.Config<number | undefined> =>
+  Config.int(name).pipe(
+    Config.option,
+    Config.map((value) => Option.getOrUndefined(value)),
+  );
+const optionalUrlConfig = (name: string): Config.Config<URL | undefined> =>
+  Config.url(name).pipe(
+    Config.option,
+    Config.map((value) => Option.getOrUndefined(value)),
+  );
+
+const OffsetConfig = Config.all({
+  portOffset: optionalIntegerConfig("MOSS_PORT_OFFSET"),
+  devInstance: optionalStringConfig("MOSS_DEV_INSTANCE"),
+});
+const HomeConfig = optionalStringConfig("MOSS_HOME");
+const BooleanEnvConfig = Config.all({
+  noBrowser: optionalBooleanEnvironmentConfig("MOSS_NO_BROWSER"),
+  autoBootstrapProjectFromCwd: optionalBooleanEnvironmentConfig(
+    "MOSS_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
+  ),
+  logWebSocketEvents: optionalBooleanEnvironmentConfig("MOSS_LOG_WS_EVENTS"),
+  productionConfig: optionalBooleanEnvironmentConfig("MOSS_DEV_PRODUCTION_CONFIG"),
+});
+
+// The non-secret release manifest the packaged desktop app hands its backend. Dev runs
+// leave Moss sign-in unconfigured unless they opt into it, so a development checkout never
+// talks to the production account service by accident.
+export const DEV_PRODUCTION_PUBLIC_CONFIG_PATH = pathJoin(
+  import.meta.dirname,
+  "..",
+  "apps",
+  "desktop",
+  "resources",
+  MOSS_PRODUCTION_PUBLIC_CONFIG_FILE,
+);
+
+export function readDevProductionPublicConfig(
+  resourcePath: string = DEV_PRODUCTION_PUBLIC_CONFIG_PATH,
+): Effect.Effect<MossProductionPublicConfig, DevRunnerError> {
+  return Effect.try({
+    try: () => parseMossProductionPublicConfig(readFileSync(resourcePath, "utf8")),
+    catch: (cause) =>
+      new DevRunnerError({
+        message: `Could not load the Moss production public config at ${resourcePath}.`,
+        cause,
+      }),
+  });
+}
+
+export const readDevRunnerBooleanEnvironment = (environment: NodeJS.ProcessEnv) => {
+  const definedEnvironment = Object.fromEntries(
+    Object.entries(environment).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    ),
+  );
+  return BooleanEnvConfig.parse(ConfigProvider.fromEnv({ env: definedEnvironment })).pipe(
+    Effect.mapError(
+      (cause) =>
+        new DevRunnerError({
+          message: "Failed to read boolean development-runner configuration.",
+          cause,
+        }),
+    ),
+  );
+};
+
+export function resolveOffset(config: {
+  readonly portOffset: number | undefined;
+  readonly devInstance: string | undefined;
+}): { readonly offset: number; readonly source: string } {
+  if (config.portOffset !== undefined) {
+    if (config.portOffset < 0) {
+      throw new Error(`Invalid MOSS_PORT_OFFSET: ${config.portOffset}`);
+    }
+    return {
+      offset: config.portOffset,
+      source: `MOSS_PORT_OFFSET=${config.portOffset}`,
+    };
+  }
+
+  const seed = config.devInstance?.trim();
+  if (!seed) {
+    return { offset: 0, source: "default ports" };
+  }
+
+  if (/^\d+$/.test(seed)) {
+    return { offset: Number(seed), source: `numeric MOSS_DEV_INSTANCE=${seed}` };
+  }
+
+  const offset = ((Hash.string(seed) >>> 0) % MAX_HASH_OFFSET) + 1;
+  return { offset, source: `hashed MOSS_DEV_INSTANCE=${seed}` };
+}
+
+function resolveBaseDir(
+  baseDir: string | undefined,
+  mode: DevMode,
+  requestedDesktopFlavor?: string | undefined,
+): Effect.Effect<string, never, Path.Path> {
+  return Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const configured = baseDir?.trim();
+
+    if (configured) {
+      return path.resolve(configured);
+    }
+
+    if (mode === "dev:desktop") {
+      const flavor = resolveMossDesktopFlavor({
+        isDevelopment: true,
+        requestedFlavor: requestedDesktopFlavor,
+      });
+      return path.join(homedir(), mossDesktopIdentity(flavor).defaultHomeDirectoryName);
+    }
+
+    return yield* DEFAULT_MOSS_HOME;
+  });
+}
+
+interface CreateDevRunnerEnvInput {
+  readonly mode: DevMode;
+  readonly baseEnv: NodeJS.ProcessEnv;
+  readonly serverOffset: number;
+  readonly webOffset: number;
+  readonly mossHome: string | undefined;
+  readonly authToken: string | undefined;
+  readonly noBrowser: boolean | undefined;
+  readonly autoBootstrapProjectFromCwd: boolean | undefined;
+  readonly logWebSocketEvents: boolean | undefined;
+  readonly host: string | undefined;
+  readonly port: number | undefined;
+  readonly devUrl: URL | undefined;
+  /** Opted-in release manifest; replaces any Moss routing config the shell carried. */
+  readonly productionPublicConfig?: MossProductionPublicConfig | undefined;
+}
+
+export function resolveExplicitWebPort(devUrl: URL): number {
+  if (devUrl.protocol !== "http:") {
+    throw new Error(`Invalid --dev-url protocol: ${devUrl.protocol}; dev:web serves HTTP.`);
+  }
+  if (!devUrl.port) {
+    throw new Error("Invalid --dev-url: an explicit HTTP port is required.");
+  }
+  const port = Number(devUrl.port);
+  if (!Number.isInteger(port) || port < 1 || port > MAX_PORT) {
+    throw new Error(`Invalid --dev-url port: ${devUrl.port}`);
+  }
+  return port;
+}
+
+export function createDevRunnerEnv({
+  mode,
+  baseEnv,
+  serverOffset,
+  webOffset,
+  mossHome,
+  authToken,
+  noBrowser,
+  autoBootstrapProjectFromCwd,
+  logWebSocketEvents,
+  host,
+  port,
+  devUrl,
+  productionPublicConfig,
+}: CreateDevRunnerEnvInput): Effect.Effect<NodeJS.ProcessEnv, never, Path.Path> {
+  return Effect.gen(function* () {
+    const serverPort = port ?? BASE_SERVER_PORT + serverOffset;
+    // An explicit dev URL is also the server's trusted browser origin. The
+    // renderer must listen on that port instead of silently keeping the base
+    // port and producing WebSocket upgrade 403s.
+    const webPort = devUrl ? resolveExplicitWebPort(devUrl) : BASE_WEB_PORT + webOffset;
+    if (webPort === serverPort) {
+      throw new Error(
+        `Invalid development ports: server and web both resolve to ${String(webPort)}.`,
+      );
+    }
+    const resolvedBaseDir = yield* resolveBaseDir(mossHome, mode, baseEnv.MOSS_DESKTOP_FLAVOR);
+    const configuredHost = host ?? "127.0.0.1";
+    // Brackets are URL syntax, not valid listen-host syntax. Keep the bind host
+    // portable while adding brackets back only when constructing an IPv6 URL.
+    const serverHost = configuredHost.replace(/^\[([^\]]+)\]$/, "$1");
+    const clientHost =
+      serverHost === "0.0.0.0" ? "127.0.0.1" : serverHost === "::" ? "::1" : serverHost;
+    const formattedClientHost = clientHost.includes(":")
+      ? `[${clientHost.replace(/^\[|\]$/g, "")}]`
+      : clientHost;
+
+    const output: NodeJS.ProcessEnv = {
+      ...(productionPublicConfig
+        ? applyMossProductionPublicConfigEnv(baseEnv, productionPublicConfig)
+        : baseEnv),
+      MOSS_PORT: String(serverPort),
+      PORT: String(webPort),
+      ELECTRON_RENDERER_PORT: String(webPort),
+      VITE_WS_URL: `ws://${formattedClientHost}:${serverPort}`,
+      VITE_DEV_SERVER_URL: devUrl?.toString() ?? `http://localhost:${webPort}`,
+      MOSS_HOME: resolvedBaseDir,
+      MOSS_HOST: serverHost,
+    };
+
+    const pathKey = process.platform === "win32" ? "Path" : "PATH";
+    const existingPath = output[pathKey] ?? output.PATH ?? "";
+    const inheritedPathIsUsable = existingPath.trim().length > 0;
+    const localBin = pathJoin(homedir(), ".local", "bin");
+    if (localBin.length > 0 && !existingPath.split(pathDelimiter).includes(localBin)) {
+      const augmentedPath =
+        existingPath.length > 0 ? `${localBin}${pathDelimiter}${existingPath}` : localBin;
+      output[pathKey] = augmentedPath;
+      if (pathKey === "Path") {
+        output.PATH = augmentedPath;
+      }
+    }
+    // The dev runner itself is launched from the user's terminal environment.
+    // Tell the child server not to synchronously source the login shell again:
+    // that duplicate probe can block listening for the full timeout when a
+    // shell plugin hangs. An empty inherited PATH remains unmarked so the
+    // server still performs its normal recovery.
+    applyShellEnvironmentHydrationMarker(output, inheritedPathIsUsable);
+
+    if (authToken !== undefined) {
+      output.MOSS_AUTH_TOKEN = authToken;
+    } else {
+      delete output.MOSS_AUTH_TOKEN;
+    }
+
+    if (noBrowser !== undefined) {
+      output.MOSS_NO_BROWSER = noBrowser ? "1" : "0";
+    } else {
+      delete output.MOSS_NO_BROWSER;
+    }
+
+    if (autoBootstrapProjectFromCwd !== undefined) {
+      output.MOSS_AUTO_BOOTSTRAP_PROJECT_FROM_CWD = autoBootstrapProjectFromCwd ? "1" : "0";
+    } else {
+      delete output.MOSS_AUTO_BOOTSTRAP_PROJECT_FROM_CWD;
+    }
+
+    if (logWebSocketEvents !== undefined) {
+      output.MOSS_LOG_WS_EVENTS = logWebSocketEvents ? "1" : "0";
+    } else {
+      delete output.MOSS_LOG_WS_EVENTS;
+    }
+
+    if (mode === "dev") {
+      output.MOSS_MODE = "web";
+      delete output.MOSS_DESKTOP_WS_URL;
+    }
+
+    if (mode === "dev:server" || mode === "dev:web") {
+      output.MOSS_MODE = "web";
+      delete output.MOSS_DESKTOP_WS_URL;
+    }
+
+    return output;
+  });
+}
+
+function portPairForOffset(offset: number): {
+  readonly serverPort: number;
+  readonly webPort: number;
+} {
+  return {
+    serverPort: BASE_SERVER_PORT + offset,
+    webPort: BASE_WEB_PORT + offset,
+  };
+}
+
+const defaultCheckPortAvailability: PortAvailabilityCheck<NetService> = (port) =>
+  Effect.gen(function* () {
+    const net = yield* NetService;
+    return yield* net.isPortAvailableOnLoopback(port);
+  });
+
+interface FindFirstAvailableOffsetInput<R = NetService> {
+  readonly startOffset: number;
+  readonly requireServerPort: boolean;
+  readonly requireWebPort: boolean;
+  readonly checkPortAvailability?: PortAvailabilityCheck<R>;
+}
+
+export function findFirstAvailableOffset<R = NetService>({
+  startOffset,
+  requireServerPort,
+  requireWebPort,
+  checkPortAvailability,
+}: FindFirstAvailableOffsetInput<R>): Effect.Effect<number, DevRunnerError, R> {
+  return Effect.gen(function* () {
+    const checkPort = (checkPortAvailability ??
+      defaultCheckPortAvailability) as PortAvailabilityCheck<R>;
+
+    for (let candidate = startOffset; ; candidate += 1) {
+      const { serverPort, webPort } = portPairForOffset(candidate);
+      const serverPortOutOfRange = serverPort > MAX_PORT;
+      const webPortOutOfRange = webPort > MAX_PORT;
+
+      if (
+        (requireServerPort && serverPortOutOfRange) ||
+        (requireWebPort && webPortOutOfRange) ||
+        (!requireServerPort && !requireWebPort && (serverPortOutOfRange || webPortOutOfRange))
+      ) {
+        break;
+      }
+
+      const checks: Array<Effect.Effect<boolean, never, R>> = [];
+      if (requireServerPort) {
+        checks.push(checkPort(serverPort));
+      }
+      if (requireWebPort) {
+        checks.push(checkPort(webPort));
+      }
+
+      if (checks.length === 0) {
+        return candidate;
+      }
+
+      const availability = yield* Effect.all(checks);
+      if (availability.every(Boolean)) {
+        return candidate;
+      }
+    }
+
+    return yield* new DevRunnerError({
+      message: `No available dev ports found from offset ${startOffset}. Tried server=${BASE_SERVER_PORT}+n web=${BASE_WEB_PORT}+n up to port ${MAX_PORT}.`,
+    });
+  });
+}
+
+interface ResolveModePortOffsetsInput<R = NetService> {
+  readonly mode: DevMode;
+  readonly startOffset: number;
+  readonly hasExplicitServerPort: boolean;
+  readonly hasExplicitDevUrl: boolean;
+  /**
+   * Keep the default desktop checkout single-instance.  Parallel development
+   * must opt in through MOSS_DEV_INSTANCE/MOSS_PORT_OFFSET instead of being
+   * silently moved to an arbitrary free port.
+   */
+  readonly allowImplicitFallback?: boolean;
+  readonly checkPortAvailability?: PortAvailabilityCheck<R>;
+}
+
+export function resolveModePortOffsets<R = NetService>({
+  mode,
+  startOffset,
+  hasExplicitServerPort,
+  hasExplicitDevUrl,
+  allowImplicitFallback = true,
+  checkPortAvailability,
+}: ResolveModePortOffsetsInput<R>): Effect.Effect<
+  { readonly serverOffset: number; readonly webOffset: number },
+  DevRunnerError,
+  R
+> {
+  return Effect.gen(function* () {
+    const checkPort = (checkPortAvailability ??
+      defaultCheckPortAvailability) as PortAvailabilityCheck<R>;
+
+    if (mode === "dev:web") {
+      if (hasExplicitDevUrl) {
+        return { serverOffset: startOffset, webOffset: startOffset };
+      }
+
+      const webOffset = yield* findFirstAvailableOffset({
+        startOffset,
+        requireServerPort: false,
+        requireWebPort: true,
+        checkPortAvailability: checkPort,
+      });
+      if (webOffset !== startOffset) {
+        return yield* new DevRunnerError({
+          message:
+            `MOSS_DEV_WEB_PORT_MISMATCH: web port ${String(BASE_WEB_PORT + webOffset)} is the first available port, ` +
+            `but the server is configured for offset ${String(startOffset)}. ` +
+            "Start both processes with the same MOSS_PORT_OFFSET/MOSS_DEV_INSTANCE, " +
+            "or pass the same --dev-url to both processes to keep WebSocket origins aligned.",
+        });
+      }
+      return { serverOffset: startOffset, webOffset };
+    }
+
+    if (mode === "dev:server") {
+      if (hasExplicitServerPort) {
+        return { serverOffset: startOffset, webOffset: startOffset };
+      }
+
+      const serverOffset = yield* findFirstAvailableOffset({
+        startOffset,
+        requireServerPort: true,
+        requireWebPort: false,
+        checkPortAvailability: checkPort,
+      });
+      return { serverOffset, webOffset: serverOffset };
+    }
+
+    const requireServerPort = !hasExplicitServerPort;
+    const requireWebPort = !hasExplicitDevUrl;
+
+    // A second default desktop runner used to drift to 3774/5734 and leave a
+    // stale-looking process behind.  Fail closed for the canonical checkout;
+    // callers that intentionally run in parallel provide an explicit instance
+    // or offset and retain the old search behavior.
+    if (!allowImplicitFallback && startOffset === 0) {
+      const requiredPorts = [
+        ...(requireServerPort ? [BASE_SERVER_PORT] : []),
+        ...(requireWebPort ? [BASE_WEB_PORT] : []),
+      ];
+      const availability = yield* Effect.all(requiredPorts.map((port) => checkPort(port)));
+      if (!availability.every(Boolean)) {
+        return yield* new DevRunnerError({
+          message:
+            "MOSS_DEV_ALREADY_RUNNING: default Moss desktop ports are already in use; " +
+            "reuse the existing runner or set MOSS_DEV_INSTANCE/MOSS_PORT_OFFSET explicitly for parallel work.",
+        });
+      }
+      return { serverOffset: 0, webOffset: 0 };
+    }
+
+    const sharedOffset = yield* findFirstAvailableOffset({
+      startOffset,
+      requireServerPort,
+      requireWebPort,
+      checkPortAvailability: checkPort,
+    });
+
+    return { serverOffset: sharedOffset, webOffset: sharedOffset };
+  });
+}
+
+interface DevRunnerCliInput {
+  readonly mode: DevMode;
+  readonly mossHome: string | undefined;
+  readonly authToken: string | undefined;
+  readonly noBrowser: BooleanFlagInput;
+  readonly autoBootstrapProjectFromCwd: BooleanFlagInput;
+  readonly logWebSocketEvents: BooleanFlagInput;
+  readonly productionConfig: BooleanFlagInput;
+  readonly host: string | undefined;
+  readonly port: number | undefined;
+  readonly devUrl: URL | undefined;
+  readonly dryRun: boolean;
+  readonly turboArgs: ReadonlyArray<string>;
+}
+
+interface DevRunnerBooleanEnv {
+  readonly noBrowser: boolean | undefined;
+  readonly autoBootstrapProjectFromCwd: boolean | undefined;
+  readonly logWebSocketEvents: boolean | undefined;
+  readonly productionConfig: boolean | undefined;
+}
+
+export function resolveDevRunnerBooleanOverrides(
+  input: Pick<
+    DevRunnerCliInput,
+    "noBrowser" | "autoBootstrapProjectFromCwd" | "logWebSocketEvents" | "productionConfig"
+  >,
+  environment: DevRunnerBooleanEnv,
+): DevRunnerBooleanEnv {
+  return {
+    noBrowser: getBooleanFlagValue(input.noBrowser) ?? environment.noBrowser,
+    autoBootstrapProjectFromCwd:
+      getBooleanFlagValue(input.autoBootstrapProjectFromCwd) ??
+      environment.autoBootstrapProjectFromCwd,
+    logWebSocketEvents:
+      getBooleanFlagValue(input.logWebSocketEvents) ?? environment.logWebSocketEvents,
+    productionConfig: getBooleanFlagValue(input.productionConfig) ?? environment.productionConfig,
+  };
+}
+
+export function runDevRunnerWithInput(input: DevRunnerCliInput) {
+  return Effect.gen(function* () {
+    const { portOffset, devInstance } = yield* OffsetConfig.asEffect().pipe(
+      Effect.mapError(
+        (cause) =>
+          new DevRunnerError({
+            message: "Failed to read MOSS_PORT_OFFSET/MOSS_DEV_INSTANCE configuration.",
+            cause,
+          }),
+      ),
+    );
+
+    const { offset, source } = yield* Effect.try({
+      try: () => resolveOffset({ portOffset, devInstance }),
+      catch: (cause) =>
+        new DevRunnerError({
+          message: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
+    });
+
+    const envOverrides = yield* readDevRunnerBooleanEnvironment(process.env);
+
+    const { serverOffset, webOffset } = yield* resolveModePortOffsets({
+      mode: input.mode,
+      startOffset: offset,
+      hasExplicitServerPort: input.port !== undefined,
+      hasExplicitDevUrl: input.devUrl !== undefined,
+      // The canonical desktop command is one instance by default.  An
+      // explicit port/instance is the documented escape hatch for parallel
+      // worktrees and makes the second process intentional and traceable.
+      allowImplicitFallback: !(
+        input.mode === "dev:desktop" &&
+        portOffset === undefined &&
+        devInstance === undefined &&
+        input.port === undefined &&
+        input.devUrl === undefined
+      ),
+    });
+    const booleanOverrides = resolveDevRunnerBooleanOverrides(input, envOverrides);
+    const productionPublicConfig = booleanOverrides.productionConfig
+      ? yield* readDevProductionPublicConfig()
+      : undefined;
+
+    const env = yield* createDevRunnerEnv({
+      mode: input.mode,
+      baseEnv: process.env,
+      serverOffset,
+      webOffset,
+      mossHome: input.mossHome,
+      authToken: input.authToken,
+      noBrowser: booleanOverrides.noBrowser,
+      autoBootstrapProjectFromCwd: booleanOverrides.autoBootstrapProjectFromCwd,
+      logWebSocketEvents: booleanOverrides.logWebSocketEvents,
+      host: input.host,
+      port: input.port,
+      devUrl: input.devUrl,
+      productionPublicConfig,
+    });
+
+    const selectionSuffix =
+      serverOffset !== offset || webOffset !== offset
+        ? ` selectedOffset(server=${serverOffset},web=${webOffset})`
+        : "";
+
+    yield* Effect.logInfo(
+      `[dev-runner] mode=${input.mode} source=${source}${selectionSuffix} serverPort=${String(env.MOSS_PORT)} webPort=${String(env.PORT)} baseDir=${String(env.MOSS_HOME)}${productionPublicConfig ? " productionConfig=on" : ""}`,
+    );
+
+    if (input.dryRun) {
+      return;
+    }
+
+    const child = yield* ChildProcess.make(
+      "turbo",
+      [...MODE_ARGS[input.mode], ...input.turboArgs],
+      {
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+        env,
+        extendEnv: false,
+        // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
+        shell: process.platform === "win32",
+        // Keep turbo in the same process group so terminal signals (Ctrl+C)
+        // reach it directly. Effect defaults to detached: true on non-Windows,
+        // which would put turbo in a new group and require manual forwarding.
+        detached: false,
+        forceKillAfter: "1500 millis",
+      },
+    );
+
+    const exitCode = yield* child.exitCode;
+    if (exitCode !== 0) {
+      return yield* new DevRunnerError({
+        message: `turbo exited with code ${exitCode}`,
+      });
+    }
+  }).pipe(
+    Effect.mapError((cause) =>
+      cause instanceof DevRunnerError
+        ? cause
+        : new DevRunnerError({
+            message: cause instanceof Error ? cause.message : "dev-runner failed",
+            cause,
+          }),
+    ),
+  );
+}
+
+const devRunnerCli = Command.make("dev-runner", {
+  mode: Argument.choice("mode", DEV_RUNNER_MODES).pipe(
+    Argument.withDescription("Development mode to run."),
+  ),
+  mossHome: Flag.string("home-dir").pipe(
+    Flag.withDescription("Base directory for all Moss data (equivalent to MOSS_HOME)."),
+    Flag.withFallbackConfig(HomeConfig),
+  ),
+  authToken: Flag.string("auth-token").pipe(
+    Flag.withDescription("Auth token (forwards to MOSS_AUTH_TOKEN)."),
+    Flag.withAlias("token"),
+    Flag.withFallbackConfig(optionalStringConfig("MOSS_AUTH_TOKEN")),
+  ),
+  noBrowser: optionalBooleanFlag("no-browser", {
+    description: "Disable browser auto-open (equivalent to MOSS_NO_BROWSER).",
+    negativeName: "browser",
+    negativeDescription: "Enable browser auto-open.",
+  }),
+  autoBootstrapProjectFromCwd: optionalBooleanFlag("auto-bootstrap-project-from-cwd", {
+    description:
+      "Enable project auto-bootstrap (equivalent to MOSS_AUTO_BOOTSTRAP_PROJECT_FROM_CWD).",
+  }),
+  logWebSocketEvents: optionalBooleanFlag("log-websocket-events", {
+    description: "Enable WebSocket event logging (equivalent to MOSS_LOG_WS_EVENTS).",
+    aliases: ["log-ws-events"],
+  }),
+  productionConfig: optionalBooleanFlag("production-config", {
+    description:
+      "Use the release Moss account and model-gateway config from apps/desktop/resources, as a packaged app does (equivalent to MOSS_DEV_PRODUCTION_CONFIG).",
+  }),
+  host: Flag.string("host").pipe(
+    Flag.withDescription("Server host/interface override (forwards to MOSS_HOST)."),
+    Flag.withFallbackConfig(optionalStringConfig("MOSS_HOST")),
+  ),
+  port: Flag.integer("port").pipe(
+    Flag.withSchema(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
+    Flag.withDescription("Server port override (forwards to MOSS_PORT)."),
+    Flag.withFallbackConfig(optionalPortConfig("MOSS_PORT")),
+  ),
+  devUrl: Flag.string("dev-url").pipe(
+    Flag.withSchema(Schema.URLFromString),
+    Flag.withDescription("Web dev URL override (forwards to VITE_DEV_SERVER_URL)."),
+    Flag.withFallbackConfig(optionalUrlConfig("VITE_DEV_SERVER_URL")),
+  ),
+  dryRun: Flag.boolean("dry-run").pipe(
+    Flag.withDescription("Resolve mode/ports/env and print, but do not spawn turbo."),
+    Flag.withDefault(false),
+  ),
+  turboArgs: Argument.string("turbo-arg").pipe(
+    Argument.withDescription("Additional turbo args (pass after `--`)."),
+    Argument.variadic(),
+  ),
+}).pipe(
+  Command.withDescription("Run monorepo development modes with deterministic port/env wiring."),
+  Command.withHandler((input) => runDevRunnerWithInput(input)),
+);
+
+const cliRuntimeLayer = Layer.mergeAll(
+  Logger.layer([Logger.consolePretty()]),
+  NodeServices.layer,
+  NetService.layer,
+);
+
+const runtimeProgram = Command.run(devRunnerCli, { version: "0.0.0" }).pipe(
+  Effect.scoped,
+  Effect.provide(cliRuntimeLayer),
+);
+
+if (import.meta.main) {
+  NodeRuntime.runMain(runtimeProgram);
+}

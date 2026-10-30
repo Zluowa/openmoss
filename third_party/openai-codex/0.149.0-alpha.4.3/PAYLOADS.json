@@ -1,0 +1,330 @@
+{
+  "schemaVersion": 1,
+  "package": "@openai/codex",
+  "baseVersion": "0.149.0-alpha.4.3",
+  "registry": "https://registry.npmjs.org",
+  "archives": [
+    {
+      "id": "launcher",
+      "npmPackage": "@openai/codex",
+      "npmVersion": "0.149.0-alpha.4.3",
+      "archive": "codex-0.149.0-alpha.4.3.tgz",
+      "npmIntegrity": "sha512-GtMed2EaBK7rLT2gLXXH/DU324gEzP7OonJ0tXvY2vyS+RprqObq0WwRNf+r+q26b23VI3yHU5Xj5YxiyoGipw==",
+      "size": 4505,
+      "sha256": "b15ce6178bb35c42a9f7fdb03ec24da4ea74fd0e8d26710e0a443a440acdb648",
+      "files": [
+        {
+          "path": "bin/codex.js",
+          "size": 7236,
+          "sha256": "134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477"
+        },
+        {
+          "path": "package.json",
+          "size": 1152,
+          "sha256": "1c079d54ee492bc5128520da0d19fa16f71548550b739285b46baaaf7f1cf342"
+        },
+        {
+          "path": "README.md",
+          "size": 3334,
+          "sha256": "ba4e1f69ff48386e72a9c5e1edaf76aad64a475c2d51af79ccba6d1128261ba7"
+        }
+      ]
+    },
+    {
+      "id": "darwin-arm64",
+      "npmPackage": "@openai/codex",
+      "npmVersion": "0.149.0-alpha.4.3-darwin-arm64",
+      "archive": "codex-0.149.0-alpha.4.3-darwin-arm64.tgz",
+      "npmIntegrity": "sha512-2NP70Rp1M1rB4XfXfZ1itMCdRejZ/5duiDSWjT71I+lXBYwcd38DmlRdzQhb+bjQobgxMbIMT68gSn1/zjFyag==",
+      "size": 114164273,
+      "sha256": "3adb964df89600b49cc71478c12c9331709403e44602c999dbf2a32bc15d705a",
+      "files": [
+        {
+          "path": "package.json",
+          "size": 527,
+          "sha256": "675592930e1c908a12b1fc3e53923ebf701c6889c92e953471336297586446f5"
+        },
+        {
+          "path": "README.md",
+          "size": 3334,
+          "sha256": "ba4e1f69ff48386e72a9c5e1edaf76aad64a475c2d51af79ccba6d1128261ba7"
+        },
+        {
+          "path": "vendor/aarch64-apple-darwin/bin/codex",
+          "size": 220586512,
+          "sha256": "1acc7d06740f7bff0863f727eb592c2191a2cc3f63341b41800c54e901981c2d"
+        },
+        {
+          "path": "vendor/aarch64-apple-darwin/bin/codex-code-mode-host",
+          "size": 57150048,
+          "sha256": "dc226522f0156697fc6ad53c14d10e74e3b55ccd9105339ea9b9994f303467cb"
+        },
+        {
+          "path": "vendor/aarch64-apple-darwin/codex-package.json",
+          "size": 210,
+          "sha256": "42cf1b5ea2469ef0e5ed4ddd297cb7b35f1b5d5640f13866b96a4a7c411885ef"
+        },
+        {
+          "path": "vendor/aarch64-apple-darwin/codex-path/rg",
+          "size": 4030432,
+          "sha256": "e0f0dbb16c30ba6f282c17c8bdc69c276c01540624465a28d12c10e0282ef9b9"
+        },
+        {
+          "path": "vendor/aarch64-apple-darwin/codex-resources/zsh/bin/zsh",
+          "size": 754208,
+          "sha256": "d0e8e69743e3950855ad6a2d745bd18317c76369136f1922f09cf33b7dc69712"
+        }
+      ]
+    },
+    {
+      "id": "darwin-x64",
+      "npmPackage": "@openai/codex",
+      "npmVersion": "0.149.0-alpha.4.3-darwin-x64",
+      "archive": "codex-0.149.0-alpha.4.3-darwin-x64.tgz",
+      "npmIntegrity": "sha512-G3T53FpgOehKNtxkibbXW9Havrb/X5rDTtwWuPcuh6v0h0sjTsmh8g0QK4Fhac5MqWfSe0gasCpoSbc0D9XywA==",
+      "size": 122095065,
+      "sha256": "bc3a262c4e78b05edd8a7e3a43605cff75168d39012faa9b6909201b519ff62c",
+      "files": [
+        {
+          "path": "package.json",
+          "size": 523,
+          "sha256": "cff9f288eba7e9e51f3f5051b52926973b64a139e87355a9bb1162e42f592399"
+        },
+        {
+          "path": "README.md",
+          "size": 3334,
+          "sha256": "ba4e1f69ff48386e72a9c5e1edaf76aad64a475c2d51af79ccba6d1128261ba7"
+        },
+        {
+          "path": "vendor/x86_64-apple-darwin/bin/codex",
+          "size": 238028560,
+          "sha256": "c3184bc67bcfb70fad7f8790664ec8692ad492bb23ee61eedb667681c6e4991c"
+        },
+        {
+          "path": "vendor/x86_64-apple-darwin/bin/codex-code-mode-host",
+          "size": 59873920,
+          "sha256": "f106cc072c628932d5ac52879227070c521a2a0961518ef97bc84be8f96b145b"
+        },
+        {
+          "path": "vendor/x86_64-apple-darwin/codex-package.json",
+          "size": 209,
+          "sha256": "c524dfbf572ee773ef6ad98362c9ec23060205131ce8bb76745e0e1cf78bb4d7"
+        },
+        {
+          "path": "vendor/x86_64-apple-darwin/codex-path/rg",
+          "size": 4437184,
+          "sha256": "7799c6ea474919437bcc0e1b60cc10e5df52a2f3156c1909a9bd2aa821f8c47c"
+        },
+        {
+          "path": "vendor/x86_64-apple-darwin/codex-resources/zsh/bin/zsh",
+          "size": 762544,
+          "sha256": "27bfc4a8655f0594a7617a9ac4ee33b840f3b02224ea099062d12ae89ab03775"
+        }
+      ]
+    },
+    {
+      "id": "linux-arm64",
+      "npmPackage": "@openai/codex",
+      "npmVersion": "0.149.0-alpha.4.3-linux-arm64",
+      "archive": "codex-0.149.0-alpha.4.3-linux-arm64.tgz",
+      "npmIntegrity": "sha512-jFxv2IZZ3jKk7GPGgCLx3Qb/TuZgSzDOG+FwM+UIai+5IhHIkrNORpUvm0B/sQ4ta7xn8yY0h5JFGtPcCBcbsw==",
+      "size": 118091802,
+      "sha256": "7f2809c8410016f90d8cf0e04ecf01dcd9e05225d060ea97bd5ca734ce05a080",
+      "files": [
+        {
+          "path": "package.json",
+          "size": 525,
+          "sha256": "00baac3cf9430f61948d9a13b833a6dc0ec7221c7e901843759f2e87eb91a8cf"
+        },
+        {
+          "path": "README.md",
+          "size": 3334,
+          "sha256": "ba4e1f69ff48386e72a9c5e1edaf76aad64a475c2d51af79ccba6d1128261ba7"
+        },
+        {
+          "path": "vendor/aarch64-unknown-linux-musl/bin/codex",
+          "size": 222758464,
+          "sha256": "7efca04f79e674c6b63437cb8ac8eb65b2607fd98c238741158e9222e4f00479"
+        },
+        {
+          "path": "vendor/aarch64-unknown-linux-musl/bin/codex-code-mode-host",
+          "size": 53792072,
+          "sha256": "1d8cfc2d0410c4897556e8c650a9c499b8861b2215017d91a92e3d0c59e259cb"
+        },
+        {
+          "path": "vendor/aarch64-unknown-linux-musl/codex-package.json",
+          "size": 216,
+          "sha256": "726a4931e1f6484132b7488449d2089fcdb4a399449cbb1a5381d51abfdb7934"
+        },
+        {
+          "path": "vendor/aarch64-unknown-linux-musl/codex-path/rg",
+          "size": 4506992,
+          "sha256": "e36d0eb52e70696bdf1781392722e05a21bb91d3b7b762ef5ec20e5df2ec687b"
+        },
+        {
+          "path": "vendor/aarch64-unknown-linux-musl/codex-resources/bwrap",
+          "size": 529168,
+          "sha256": "c547cbdc762a70ed216789ffaa4c6c0e7d2beabe32245a498f8e365a9fc8dab4"
+        },
+        {
+          "path": "vendor/aarch64-unknown-linux-musl/codex-resources/zsh/bin/zsh",
+          "size": 878056,
+          "sha256": "7feeacd883e1dc749847936948c378653c80a69ec4a9542f0f126b411882c179"
+        }
+      ]
+    },
+    {
+      "id": "linux-x64",
+      "npmPackage": "@openai/codex",
+      "npmVersion": "0.149.0-alpha.4.3-linux-x64",
+      "archive": "codex-0.149.0-alpha.4.3-linux-x64.tgz",
+      "npmIntegrity": "sha512-+2sB11KGbT8z6bLRMNsQEco44JfnFKjbfd3q+qG296AicWxZqB6hvUxH0XeuxWrfmb/VMhIG/Wlmkry9+4ULSQ==",
+      "size": 125570191,
+      "sha256": "919596e30b2ee1bdb46d75805db523118811462ff636d88074a9fe5f842029d1",
+      "files": [
+        {
+          "path": "package.json",
+          "size": 521,
+          "sha256": "da29f4aa63a91dfb586866a6477cbb09b46f69957355c51fd3f5d4f4098680b4"
+        },
+        {
+          "path": "README.md",
+          "size": 3334,
+          "sha256": "ba4e1f69ff48386e72a9c5e1edaf76aad64a475c2d51af79ccba6d1128261ba7"
+        },
+        {
+          "path": "vendor/x86_64-unknown-linux-musl/bin/codex",
+          "size": 258236032,
+          "sha256": "1c8b7f5221f6779c1e689b00bfa2dd95503f2aa595b9e6c752550ddd8ddf26b6"
+        },
+        {
+          "path": "vendor/x86_64-unknown-linux-musl/bin/codex-code-mode-host",
+          "size": 57886648,
+          "sha256": "b2508df859c8eb75f86df671c2ef02a67fbeb9e13368e877b4408b3de78cf5f3"
+        },
+        {
+          "path": "vendor/x86_64-unknown-linux-musl/codex-package.json",
+          "size": 215,
+          "sha256": "c4fde2674d0e5d782e1507b430a3dc196b70d844f15b8a1a7b0b1532a71f97f9"
+        },
+        {
+          "path": "vendor/x86_64-unknown-linux-musl/codex-path/rg",
+          "size": 5408904,
+          "sha256": "e62198eb19b136b88c330af83647b5a962cb99b6b1f066758568f12de1974849"
+        },
+        {
+          "path": "vendor/x86_64-unknown-linux-musl/codex-resources/bwrap",
+          "size": 529776,
+          "sha256": "77360cb751ccedc5971391444ac86a8a33c15b04d6b4a6fe45f5d25496e62c4c"
+        },
+        {
+          "path": "vendor/x86_64-unknown-linux-musl/codex-resources/zsh/bin/zsh",
+          "size": 898480,
+          "sha256": "67faaaa89242c4a332e16e508a1977cffc24bf7fca31d4411cdfd101f3831ef3"
+        }
+      ]
+    },
+    {
+      "id": "win32-arm64",
+      "npmPackage": "@openai/codex",
+      "npmVersion": "0.149.0-alpha.4.3-win32-arm64",
+      "archive": "codex-0.149.0-alpha.4.3-win32-arm64.tgz",
+      "npmIntegrity": "sha512-iEeOHBNgCOXf34nxijN1Qd2B4xsDWCGJjT4zVxfXcfeetNYv0d1Sm0b4oUnO/cCvq/pfpwex5gMIcSyNnu6Mow==",
+      "size": 130897969,
+      "sha256": "ea26d79e7334348a4854833f2376556d9eca151d26e7a564dbf93db940cd94b1",
+      "files": [
+        {
+          "path": "package.json",
+          "size": 525,
+          "sha256": "2271476bdbdba0668a1d898e4f230f17bf99b64056d901a24b5a9ac18349057d"
+        },
+        {
+          "path": "README.md",
+          "size": 3334,
+          "sha256": "ba4e1f69ff48386e72a9c5e1edaf76aad64a475c2d51af79ccba6d1128261ba7"
+        },
+        {
+          "path": "vendor/aarch64-pc-windows-msvc/bin/codex-code-mode-host.exe",
+          "size": 61833520,
+          "sha256": "bbcc5b2b7b8c2c584395205acb3a8335139e2d77138234b53a6cbb6cbdae5553"
+        },
+        {
+          "path": "vendor/aarch64-pc-windows-msvc/bin/codex.exe",
+          "size": 251769648,
+          "sha256": "0ad364417b25d54e7092d5b6e23df7233401fd8fa46da3d08a683a6d34dc9b5c"
+        },
+        {
+          "path": "vendor/aarch64-pc-windows-msvc/codex-package.json",
+          "size": 226,
+          "sha256": "3d0efe27cf77a969fc18d60241cca279ac3d72655f4d0812337ebc01fc6be4d8"
+        },
+        {
+          "path": "vendor/aarch64-pc-windows-msvc/codex-path/rg.exe",
+          "size": 3859456,
+          "sha256": "d33a29a9ef03c9f4c03be9e8d88498e6e2d2e566d64cdbdef97f9afc8f13120c"
+        },
+        {
+          "path": "vendor/aarch64-pc-windows-msvc/codex-resources/codex-command-runner.exe",
+          "size": 7292208,
+          "sha256": "704f9d6fdfa3d923d33e650a928bd22356f10f88981881ed4e38e391ef306670"
+        },
+        {
+          "path": "vendor/aarch64-pc-windows-msvc/codex-resources/codex-windows-sandbox-setup.exe",
+          "size": 13670192,
+          "sha256": "f88d4b881f98a9602a2e6e06f6d14f062feab90a4234ce3cce4b4bd7d9ab0bb0"
+        }
+      ]
+    },
+    {
+      "id": "win32-x64",
+      "npmPackage": "@openai/codex",
+      "npmVersion": "0.149.0-alpha.4.3-win32-x64",
+      "archive": "codex-0.149.0-alpha.4.3-win32-x64.tgz",
+      "npmIntegrity": "sha512-jdORvXYY/z78pB4mSkFKpoJQ8uxGJd9YO6fPwPelnwtr9zj93nR3u0d2pueTeEevO2UXs+Xs54FbcRWg2fxWzA==",
+      "size": 139895296,
+      "sha256": "21763ca9670660205cb082f36e7631f8b6588cc93e18e7b9402f057b96e3430c",
+      "files": [
+        {
+          "path": "package.json",
+          "size": 521,
+          "sha256": "bdb4bdf0ad57474c43609baf28cf040f83762478b4409679398a45807bae99bc"
+        },
+        {
+          "path": "README.md",
+          "size": 3334,
+          "sha256": "ba4e1f69ff48386e72a9c5e1edaf76aad64a475c2d51af79ccba6d1128261ba7"
+        },
+        {
+          "path": "vendor/x86_64-pc-windows-msvc/bin/codex-code-mode-host.exe",
+          "size": 65882928,
+          "sha256": "3fe2f8a9df484df216209409443840973ec4d80ad5d857b5709276788b53eed7"
+        },
+        {
+          "path": "vendor/x86_64-pc-windows-msvc/bin/codex.exe",
+          "size": 297407280,
+          "sha256": "21f44f04e70d41d011268863d5109f5d7fc2862c14f390083e39ca3398b5ca47"
+        },
+        {
+          "path": "vendor/x86_64-pc-windows-msvc/codex-package.json",
+          "size": 225,
+          "sha256": "dde2a9b343a0a0e0f6ba03aaa835114c872dc14acf629e537078ab94167dd9e0"
+        },
+        {
+          "path": "vendor/x86_64-pc-windows-msvc/codex-path/rg.exe",
+          "size": 4218880,
+          "sha256": "14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680"
+        },
+        {
+          "path": "vendor/x86_64-pc-windows-msvc/codex-resources/codex-command-runner.exe",
+          "size": 8158000,
+          "sha256": "6ff2486fe3a1d5a50b9bae2981837083d443f6eace214dbd40ce9be2db73adfb"
+        },
+        {
+          "path": "vendor/x86_64-pc-windows-msvc/codex-resources/codex-windows-sandbox-setup.exe",
+          "size": 15415600,
+          "sha256": "e5ce5bbd3c274d8954357b8b6bf1151057a764e8357ec33ba086ce6099b9c414"
+        }
+      ]
+    }
+  ]
+}

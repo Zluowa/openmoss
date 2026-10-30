@@ -1,0 +1,116 @@
+/* Observed: exec-shell-container-cecb2c03ae9a.css + app-initial theme aliases. */
+:root {
+  --color-codex-terminal-ansi-black: var(--vscode-terminal-ansiBlack);
+  --color-codex-terminal-ansi-red: var(--vscode-terminal-ansiRed);
+  --color-codex-terminal-ansi-green: var(--vscode-terminal-ansiGreen);
+  --color-codex-terminal-ansi-yellow: var(--vscode-terminal-ansiYellow);
+  --color-codex-terminal-ansi-blue: var(--vscode-terminal-ansiBlue);
+  --color-codex-terminal-ansi-magenta: var(--vscode-terminal-ansiMagenta);
+  --color-codex-terminal-ansi-cyan: var(--vscode-terminal-ansiCyan);
+  --color-codex-terminal-ansi-white: var(--vscode-terminal-ansiWhite);
+  --color-codex-terminal-ansi-bright-black: var(--vscode-terminal-ansiBrightBlack);
+  --color-codex-terminal-ansi-bright-red: var(--vscode-terminal-ansiBrightRed);
+  --color-codex-terminal-ansi-bright-green: var(--vscode-terminal-ansiBrightGreen);
+  --color-codex-terminal-ansi-bright-yellow: var(--vscode-terminal-ansiBrightYellow);
+  --color-codex-terminal-ansi-bright-blue: var(--vscode-terminal-ansiBrightBlue);
+  --color-codex-terminal-ansi-bright-magenta: var(--vscode-terminal-ansiBrightMagenta);
+  --color-codex-terminal-ansi-bright-cyan: var(--vscode-terminal-ansiBrightCyan);
+  --color-codex-terminal-ansi-bright-white: var(--vscode-terminal-ansiBrightWhite);
+}
+
+.ansi-black-fg {
+  color: #000;
+  color: var(--color-codex-terminal-ansi-black) !important;
+}
+.ansi-black-bg {
+  background-color: #000;
+  background-color: var(--color-codex-terminal-ansi-black) !important;
+}
+.ansi-red-fg {
+  color: #f66;
+  color: var(--color-codex-terminal-ansi-red) !important;
+}
+.ansi-red-bg {
+  background-color: #f66;
+  background-color: var(--color-codex-terminal-ansi-red) !important;
+}
+.ansi-green-fg {
+  color: #94f494;
+  color: var(--color-codex-terminal-ansi-green) !important;
+}
+.ansi-green-bg {
+  background-color: #94f494;
+  background-color: var(--color-codex-terminal-ansi-green) !important;
+}
+.ansi-yellow-fg {
+  color: #f4f47b;
+  color: var(--color-codex-terminal-ansi-yellow) !important;
+}
+.ansi-yellow-bg {
+  background-color: #f4f47b;
+  background-color: var(--color-codex-terminal-ansi-yellow) !important;
+}
+.ansi-blue-fg {
+  color: #9e9eff;
+  color: var(--color-codex-terminal-ansi-blue) !important;
+}
+.ansi-blue-bg {
+  background-color: #9e9eff;
+  background-color: var(--color-codex-terminal-ansi-blue) !important;
+}
+.ansi-magenta-fg {
+  color: #db6bdb;
+  color: var(--color-codex-terminal-ansi-magenta) !important;
+}
+.ansi-magenta-bg {
+  background-color: #db6bdb;
+  background-color: var(--color-codex-terminal-ansi-magenta) !important;
+}
+.ansi-cyan-fg {
+  color: #81eeee;
+  color: var(--color-codex-terminal-ansi-cyan) !important;
+}
+.ansi-cyan-bg {
+  background-color: #81eeee;
+  background-color: var(--color-codex-terminal-ansi-cyan) !important;
+}
+.ansi-white-fg {
+  color: #d6d6d6;
+  color: var(--color-codex-terminal-ansi-white) !important;
+}
+.ansi-white-bg {
+  background-color: #d6d6d6;
+  background-color: var(--color-codex-terminal-ansi-white) !important;
+}
+.ansi-bright-black-fg {
+  color: #6e6e6e;
+  color: var(--color-codex-terminal-ansi-bright-black) !important;
+}
+.ansi-bright-red-fg {
+  color: #ffa8a8;
+  color: var(--color-codex-terminal-ansi-bright-red) !important;
+}
+.ansi-bright-green-fg {
+  color: #0f0;
+  color: var(--color-codex-terminal-ansi-bright-green) !important;
+}
+.ansi-bright-yellow-fg {
+  color: #ffffa8;
+  color: var(--color-codex-terminal-ansi-bright-yellow) !important;
+}
+.ansi-bright-blue-fg {
+  color: #9494ff;
+  color: var(--color-codex-terminal-ansi-bright-blue) !important;
+}
+.ansi-bright-magenta-fg {
+  color: #ffb3ff;
+  color: var(--color-codex-terminal-ansi-bright-magenta) !important;
+}
+.ansi-bright-cyan-fg {
+  color: #adffff;
+  color: var(--color-codex-terminal-ansi-bright-cyan) !important;
+}
+.ansi-bright-white-fg {
+  color: #fff;
+  color: var(--color-codex-terminal-ansi-bright-white) !important;
+}

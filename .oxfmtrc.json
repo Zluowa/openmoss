@@ -1,0 +1,21 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    ".plans",
+    "dist",
+    "dist-electron",
+    "release-production-*",
+    "node_modules",
+    "bun.lock",
+    "*.tsbuildinfo",
+    "**/routeTree.gen.ts",
+    "**/.moss/**",
+    "**/.moss-*/**",
+    ".claude",
+    ".moss",
+    "third_party/**",
+    "apps/web/public/mockServiceWorker.js",
+    "apps/web/public/inline-visualization-libs/**"
+  ],
+  "sortPackageJson": {}
+}

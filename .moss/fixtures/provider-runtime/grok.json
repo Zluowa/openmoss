@@ -1,0 +1,151 @@
+{
+  "provider": "grok",
+  "description": "Grok ACP runtime fixture covering assistant text, command approval lifecycle, tool lifecycle, usage, and finish events.",
+  "expectedTypes": ["text", "permission-request", "tool-call", "tool-result", "usage", "finish"],
+  "events": [
+    {
+      "eventId": "raw-grok-text",
+      "provider": "grok",
+      "sessionId": "runtime-session-grok-fixture",
+      "threadId": "thread-grok-fixture",
+      "turnId": "turn-grok-fixture",
+      "createdAt": "2026-07-01T14:35:00.000Z",
+      "launchPlanHash": "sha256:grok-fixture-launch-plan",
+      "type": "content.delta",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "agent_message_chunk"
+        }
+      },
+      "payload": {
+        "streamKind": "assistant_text",
+        "delta": "Grok fixture response"
+      }
+    },
+    {
+      "eventId": "raw-grok-permission-opened",
+      "provider": "grok",
+      "sessionId": "runtime-session-grok-fixture",
+      "threadId": "thread-grok-fixture",
+      "turnId": "turn-grok-fixture",
+      "requestId": "request-grok-command",
+      "createdAt": "2026-07-01T14:35:01.000Z",
+      "launchPlanHash": "sha256:grok-fixture-launch-plan",
+      "type": "request.opened",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "permission_request"
+        }
+      },
+      "payload": {
+        "requestType": "exec_command_approval",
+        "detail": "Run bun run test",
+        "args": {
+          "command": "bun run test"
+        }
+      }
+    },
+    {
+      "eventId": "raw-grok-permission-resolved",
+      "provider": "grok",
+      "sessionId": "runtime-session-grok-fixture",
+      "threadId": "thread-grok-fixture",
+      "turnId": "turn-grok-fixture",
+      "requestId": "request-grok-command",
+      "createdAt": "2026-07-01T14:35:02.000Z",
+      "launchPlanHash": "sha256:grok-fixture-launch-plan",
+      "type": "request.resolved",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "permission_response"
+        }
+      },
+      "payload": {
+        "requestType": "exec_command_approval",
+        "decision": "allow",
+        "resolution": {
+          "scope": "once"
+        }
+      }
+    },
+    {
+      "eventId": "raw-grok-tool-start",
+      "provider": "grok",
+      "sessionId": "runtime-session-grok-fixture",
+      "threadId": "thread-grok-fixture",
+      "turnId": "turn-grok-fixture",
+      "itemId": "item-grok-command",
+      "createdAt": "2026-07-01T14:35:03.000Z",
+      "launchPlanHash": "sha256:grok-fixture-launch-plan",
+      "type": "item.started",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "tool_call"
+        }
+      },
+      "payload": {
+        "itemType": "command_execution",
+        "status": "inProgress",
+        "title": "bun run test",
+        "data": {
+          "command": "bun run test"
+        }
+      }
+    },
+    {
+      "eventId": "raw-grok-tool-done",
+      "provider": "grok",
+      "sessionId": "runtime-session-grok-fixture",
+      "threadId": "thread-grok-fixture",
+      "turnId": "turn-grok-fixture",
+      "itemId": "item-grok-command",
+      "createdAt": "2026-07-01T14:35:04.000Z",
+      "launchPlanHash": "sha256:grok-fixture-launch-plan",
+      "type": "item.completed",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "tool_call_update"
+        }
+      },
+      "payload": {
+        "itemType": "command_execution",
+        "status": "completed",
+        "title": "bun run test",
+        "data": {
+          "exitCode": 0,
+          "output": "pass"
+        }
+      }
+    },
+    {
+      "eventId": "raw-grok-completed",
+      "provider": "grok",
+      "sessionId": "runtime-session-grok-fixture",
+      "threadId": "thread-grok-fixture",
+      "turnId": "turn-grok-fixture",
+      "createdAt": "2026-07-01T14:35:05.000Z",
+      "launchPlanHash": "sha256:grok-fixture-launch-plan",
+      "type": "turn.completed",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "turn_completed"
+        }
+      },
+      "payload": {
+        "state": "completed",
+        "stopReason": "end_turn",
+        "modelUsage": {
+          "model": "grok-4",
+          "inputTokens": 95,
+          "outputTokens": 48
+        }
+      }
+    }
+  ]
+}

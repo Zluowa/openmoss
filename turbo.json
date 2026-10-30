@@ -1,0 +1,112 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "PORT",
+    "VITE_WS_URL",
+    "VITE_DEV_SERVER_URL",
+    "ELECTRON_RENDERER_PORT",
+    "MOSS_OPEN_DEVTOOLS",
+    "MOSS_REMOTE_DEBUGGING_PORT",
+    "MOSS_DISABLE_AUTH_PROTOCOL_REGISTRATION",
+    "MOSS_DESKTOP_USER_DATA_DIR",
+    "MOSS_PRODUCTION_CONFIG_VERSION",
+    "MOSS_MEMFIRE_PHONE_URL",
+    "MOSS_MEMFIRE_PHONE_PUBLISHABLE_KEY",
+    "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL",
+    "MOSS_MEMFIRE_PHONE_PAY_BASE_URL",
+    "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL",
+    "MOSS_SUPABASE_GOOGLE_URL",
+    "MOSS_SUPABASE_GOOGLE_PUBLISHABLE_KEY",
+    "MOSS_SUPABASE_GOOGLE_AUTH_REDIRECT_URL",
+    "MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL",
+    "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL",
+    "MOSS_CLOUD_REGION",
+    "MOSS_SUPABASE_URL",
+    "MOSS_SUPABASE_PUBLISHABLE_KEY",
+    "MOSS_SUPABASE_ANON_KEY",
+    "MOSS_AUTH_REDIRECT_URL",
+    "MOSS_MODEL_GATEWAY_URL",
+    "MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS",
+    "MOSS_REALTIME_RELAY_URL",
+    "MOSS_MODEL_GATEWAY_MODEL",
+    "MOSS_MODEL_GATEWAY_CLAUDE_MODEL",
+    "MOSS_HOME",
+    "MOSS_DESKTOP_WS_URL",
+    "MOSS_BROWSER_HOST_PIPE_PATH",
+    "MOSS_BROWSER_USE_PIPE_PATH",
+    "MOSS_BROWSER_PERF",
+    "MOSS_PROVIDER_RUNTIME_IDLE_STOP_MS",
+    "MOSS_GROK_ACP_DEBUG",
+    "MOSS_WEB_SOURCEMAP",
+    "MOSS_SERVER_SOURCEMAP",
+    "MOSS_DESKTOP_SOURCEMAP",
+    "MOSS_MODE",
+    "MOSS_PORT",
+    "MOSS_NO_BROWSER",
+    "MOSS_AUTH_TOKEN",
+    "MOSS_PUBLIC_URL",
+    "MOSS_ALLOW_INSECURE_REMOTE",
+    "MOSS_LOG_WS_EVENTS",
+    "MOSS_HOST",
+    "MOSS_AUTO_BOOTSTRAP_PROJECT_FROM_CWD",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy"
+  ],
+  "globalPassThroughEnv": [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "dist-electron/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"],
+      "outputs": [],
+      "cache": false
+    },
+    "typecheck:native": {
+      "dependsOn": ["^typecheck:native"],
+      "outputs": [],
+      "cache": false
+    },
+    "typecheck:legacy": {
+      "dependsOn": ["^typecheck:legacy"],
+      "outputs": [],
+      "cache": false
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "passThroughEnv": [
+        "PLAYWRIGHT_BROWSERS_PATH",
+        "GIT_CONFIG_NOSYSTEM",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_TERMINAL_PROMPT",
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "PSModuleAnalysisCachePath",
+        "GIT_CEILING_DIRECTORIES",
+        "LOCALAPPDATA"
+      ],
+      "outputs": []
+    }
+  }
+}

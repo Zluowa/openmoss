@@ -1,0 +1,287 @@
+import "../index.css";
+
+import { ProjectId, ThreadId } from "@synara/contracts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ComponentProps } from "react";
+import { page } from "vitest/browser";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render } from "vitest-browser-react";
+
+import { ProjectPicker } from "./chat/ProjectPicker";
+import { useSpacesUiStore } from "../spacesUiStore";
+import { useStore } from "../store";
+import { initialState } from "../storeState";
+import type { Project, SidebarThreadSummary } from "../types";
+import { useWorkspacePathsStore } from "../workspacePathsStore";
+import { useCreateProjectDialogStore } from "../createProjectDialogStore";
+
+// Moss defaults the bare localization context to zh-CN; these assertions use the
+// English copy, so pin the locale the same way the other picker suites do.
+const localizationTestState = vi.hoisted(() => ({
+  locale: "en" as "en" | "zh-CN",
+}));
+
+vi.mock("~/localization", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/localization")>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      locale: localizationTestState.locale,
+      t: (key: Parameters<typeof actual.translateMoss>[1]) =>
+        actual.translateMoss(localizationTestState.locale, key),
+      format: (
+        key: Parameters<typeof actual.formatMossTranslation>[1],
+        values: Parameters<typeof actual.formatMossTranslation>[2],
+      ) => actual.formatMossTranslation(localizationTestState.locale, key, values),
+    }),
+  };
+});
+
+const PROJECT_ID = ProjectId.makeUnsafe("project-picker-moss");
+const PROJECT_ROOT = "/Users/tester/projects/moss";
+const SELECTED_WORKTREE = "/Users/tester/worktrees/selected/moss";
+
+const project: Project = {
+  id: PROJECT_ID,
+  kind: "project",
+  name: "moss",
+  remoteName: "moss",
+  folderName: "moss",
+  localName: null,
+  cwd: PROJECT_ROOT,
+  defaultModelSelection: null,
+  expanded: true,
+  spaceId: null,
+  scripts: [],
+};
+
+function worktreeThread(id: string, worktreePath: string): SidebarThreadSummary {
+  return {
+    id: ThreadId.makeUnsafe(id),
+    projectId: PROJECT_ID,
+    title: "Work on moss",
+    modelSelection: { provider: "codex", model: "gpt-5.4" },
+    interactionMode: "default",
+    envMode: "worktree",
+    branch: `feature/${id}`,
+    worktreePath,
+    session: null,
+    createdAt: "2026-10-02T10:00:00.000Z",
+    archivedAt: null,
+    latestTurn: null,
+    latestUserMessageAt: null,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    pendingBackgroundWorkCount: 0,
+    hasActionableProposedPlan: false,
+    hasLiveTailWork: false,
+  };
+}
+
+function setThreads(threads: SidebarThreadSummary[]) {
+  useStore.setState({
+    threadIds: threads.map((thread) => thread.id),
+    sidebarThreadSummaryById: Object.fromEntries(threads.map((thread) => [thread.id, thread])),
+  });
+}
+
+const clients: QueryClient[] = [];
+
+beforeEach(() => {
+  localizationTestState.locale = "en";
+  useStore.setState({ ...initialState, projects: [project], threadsHydrated: true });
+  useSpacesUiStore.setState({ activeSpaceId: null });
+  // Home-directory discovery is independent of the registered-project list.
+  useWorkspacePathsStore.setState({ homeDir: null });
+});
+
+afterEach(() => {
+  for (const client of clients.splice(0)) client.clear();
+  useStore.setState(initialState);
+});
+
+async function mountPicker(props: ComponentProps<typeof ProjectPicker> = {}) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { enabled: false, retry: false } },
+  });
+  clients.push(client);
+  return render(
+    <QueryClientProvider client={client}>
+      <ProjectPicker {...props} />
+    </QueryClientProvider>,
+  );
+}
+
+describe("ProjectPicker workspace choices", () => {
+  it("lists a registered project once despite its active thread worktrees", async () => {
+    setThreads([
+      worktreeThread("first", "/Users/tester/worktrees/first/moss"),
+      worktreeThread("second", "/Users/tester/worktrees/second/moss"),
+      worktreeThread("third", "/Users/tester/worktrees/third/moss"),
+    ]);
+    const onSelectProject = vi.fn();
+    const onSelectWorkspaceRoot = vi.fn();
+    const screen = await mountPicker({ onSelectProject, onSelectWorkspaceRoot });
+
+    try {
+      await page.getByTestId("workspace-picker-trigger").click();
+      await expect.element(page.getByPlaceholder("Search projects")).toBeVisible();
+      expect(page.getByRole("option").elements()).toHaveLength(1);
+
+      await page.getByRole("option", { name: "moss", exact: true }).click();
+      expect(onSelectProject).toHaveBeenCalledExactlyOnceWith(PROJECT_ID);
+      expect(onSelectWorkspaceRoot).not.toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  const dotProjectId = ProjectId.makeUnsafe("project-picker-hermes");
+  function addDotProject() {
+    useStore.setState({
+      projects: [
+        project,
+        {
+          ...project,
+          id: dotProjectId,
+          name: ".hermes",
+          remoteName: ".hermes",
+          folderName: ".hermes",
+          cwd: "/Users/tester/.hermes",
+        },
+      ],
+    });
+  }
+
+  it("lists a registered dot-folder project in the chat workspace picker", async () => {
+    addDotProject();
+    const onSelectProject = vi.fn();
+    const onSelectWorkspaceRoot = vi.fn();
+    const screen = await mountPicker({ onSelectProject, onSelectWorkspaceRoot });
+
+    try {
+      await page.getByTestId("workspace-picker-trigger").click();
+      await page.getByRole("option", { name: ".hermes", exact: true }).click();
+      expect(onSelectProject).toHaveBeenCalledExactlyOnceWith(dotProjectId);
+      expect(onSelectWorkspaceRoot).not.toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("lists and selects a registered project whose folder starts with a dot", async () => {
+    addDotProject();
+    const onSelectProject = vi.fn();
+    const screen = await mountPicker({
+      selectionMode: "project",
+      selectedProjectId: dotProjectId,
+      onSelectProject,
+    });
+
+    try {
+      await expect.element(page.getByTestId("project-picker-trigger")).toHaveTextContent(".hermes");
+      await page.getByTestId("project-picker-trigger").click();
+      await page.getByRole("option", { name: ".hermes", exact: true }).click();
+      expect(onSelectProject).toHaveBeenCalledExactlyOnceWith(dotProjectId);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("does not add a project choice when a thread creates another worktree", async () => {
+    const screen = await mountPicker();
+
+    try {
+      await page.getByTestId("workspace-picker-trigger").click();
+      await expect.element(page.getByPlaceholder("Search projects")).toBeVisible();
+      expect(page.getByRole("option").elements()).toHaveLength(1);
+
+      setThreads([worktreeThread("new-worktree", "/Users/tester/worktrees/new/moss")]);
+      // Reopen after the store update so the assertion observes the updated choices.
+      await page.getByTestId("workspace-picker-trigger").click();
+      await expect.element(page.getByPlaceholder("Search projects")).not.toBeInTheDocument();
+      await page.getByTestId("workspace-picker-trigger").click();
+      await expect.element(page.getByPlaceholder("Search projects")).toBeVisible();
+      expect(page.getByRole("option").elements()).toHaveLength(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("keeps the selected worktree available without listing other thread worktrees", async () => {
+    setThreads([
+      worktreeThread("selected", SELECTED_WORKTREE),
+      worktreeThread("other", "/Users/tester/worktrees/other/moss"),
+    ]);
+    const onSelectProject = vi.fn();
+    const onSelectWorkspaceRoot = vi.fn();
+    const screen = await mountPicker({
+      selectedWorkspaceRoot: SELECTED_WORKTREE,
+      onSelectProject,
+      onSelectWorkspaceRoot,
+    });
+
+    try {
+      await expect.element(page.getByTestId("workspace-picker-trigger")).toHaveTextContent("moss");
+      await expect
+        .element(page.getByTestId("workspace-picker-trigger"))
+        .toHaveTextContent(SELECTED_WORKTREE);
+      await page.getByTestId("workspace-picker-trigger").click();
+      await expect.element(page.getByPlaceholder("Search projects")).toBeVisible();
+      expect(page.getByRole("option").elements()).toHaveLength(2);
+      await expect
+        .element(page.getByRole("option", { name: `moss ${SELECTED_WORKTREE}`, exact: true }))
+        .toBeVisible();
+
+      // A raw workspace remains searchable and selectable by its exact path.
+      await page.getByPlaceholder("Search projects").fill(SELECTED_WORKTREE);
+      await vi.waitFor(() => expect(page.getByRole("option").elements()).toHaveLength(1));
+      await page.getByRole("option").click();
+      expect(onSelectWorkspaceRoot).toHaveBeenCalledExactlyOnceWith(SELECTED_WORKTREE);
+      expect(onSelectProject).not.toHaveBeenCalled();
+    } finally {
+      await screen.unmount();
+    }
+  });
+});
+
+describe("ProjectPicker new projects", () => {
+  function installNativeApi(overrides: { pickFolder?: () => Promise<string | null> }) {
+    const previous = Object.getOwnPropertyDescriptor(window, "nativeApi");
+    Object.defineProperty(window, "nativeApi", {
+      configurable: true,
+      value: {
+        dialogs: { pickFolder: overrides.pickFolder ?? (async () => null) },
+      },
+    });
+    return () => {
+      if (previous) Object.defineProperty(window, "nativeApi", previous);
+      else Reflect.deleteProperty(window, "nativeApi");
+    };
+  }
+
+  afterEach(() => {
+    useCreateProjectDialogStore.setState({ isOpen: false });
+  });
+
+  it("opens the shared Create project dialog when there is no folder dialog", async () => {
+    const pickFolder = vi.fn(async () => null);
+    const restore = installNativeApi({ pickFolder });
+    const onCreateProjectFromPath = vi.fn();
+    const screen = await mountPicker({
+      selectionMode: "project",
+      onSelectProject: vi.fn(),
+      onCreateProjectFromPath,
+    });
+    try {
+      await page.getByTestId("project-picker-trigger").click();
+      await page.getByText("New project").click();
+      await vi.waitFor(() => expect(useCreateProjectDialogStore.getState().isOpen).toBe(true));
+      expect(onCreateProjectFromPath).not.toHaveBeenCalled();
+      await expect.element(page.getByPlaceholder("Search projects")).not.toBeInTheDocument();
+    } finally {
+      await screen.unmount();
+      restore();
+    }
+  });
+});

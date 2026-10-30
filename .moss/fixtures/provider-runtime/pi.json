@@ -1,0 +1,103 @@
+{
+  "provider": "pi",
+  "description": "Pi runtime fixture covering assistant text, tool lifecycle, usage, and finish events.",
+  "expectedTypes": ["text", "tool-call", "tool-result", "usage", "finish"],
+  "events": [
+    {
+      "eventId": "raw-pi-text",
+      "provider": "pi",
+      "sessionId": "runtime-session-pi-fixture",
+      "threadId": "thread-pi-fixture",
+      "turnId": "turn-pi-fixture",
+      "createdAt": "2026-07-01T14:37:00.000Z",
+      "launchPlanHash": "sha256:pi-fixture-launch-plan",
+      "type": "content.delta",
+      "raw": {
+        "source": "pi.sdk.event",
+        "payload": {
+          "type": "assistant_message"
+        }
+      },
+      "payload": {
+        "streamKind": "assistant_text",
+        "delta": "Pi fixture response"
+      }
+    },
+    {
+      "eventId": "raw-pi-tool-start",
+      "provider": "pi",
+      "sessionId": "runtime-session-pi-fixture",
+      "threadId": "thread-pi-fixture",
+      "turnId": "turn-pi-fixture",
+      "itemId": "item-pi-tool",
+      "createdAt": "2026-07-01T14:37:01.000Z",
+      "launchPlanHash": "sha256:pi-fixture-launch-plan",
+      "type": "item.started",
+      "raw": {
+        "source": "pi.sdk.event",
+        "payload": {
+          "type": "tool_use"
+        }
+      },
+      "payload": {
+        "itemType": "mcp_tool_call",
+        "status": "inProgress",
+        "title": "List directory",
+        "data": {
+          "name": "filesystem.listDir",
+          "path": "."
+        }
+      }
+    },
+    {
+      "eventId": "raw-pi-tool-done",
+      "provider": "pi",
+      "sessionId": "runtime-session-pi-fixture",
+      "threadId": "thread-pi-fixture",
+      "turnId": "turn-pi-fixture",
+      "itemId": "item-pi-tool",
+      "createdAt": "2026-07-01T14:37:02.000Z",
+      "launchPlanHash": "sha256:pi-fixture-launch-plan",
+      "type": "item.completed",
+      "raw": {
+        "source": "pi.sdk.event",
+        "payload": {
+          "type": "tool_result"
+        }
+      },
+      "payload": {
+        "itemType": "mcp_tool_call",
+        "status": "completed",
+        "title": "List directory",
+        "data": {
+          "output": "3 entries"
+        }
+      }
+    },
+    {
+      "eventId": "raw-pi-completed",
+      "provider": "pi",
+      "sessionId": "runtime-session-pi-fixture",
+      "threadId": "thread-pi-fixture",
+      "turnId": "turn-pi-fixture",
+      "createdAt": "2026-07-01T14:37:03.000Z",
+      "launchPlanHash": "sha256:pi-fixture-launch-plan",
+      "type": "turn.completed",
+      "raw": {
+        "source": "pi.sdk.event",
+        "payload": {
+          "type": "turn_completed"
+        }
+      },
+      "payload": {
+        "state": "completed",
+        "stopReason": "stop",
+        "modelUsage": {
+          "model": "pi-default",
+          "inputTokens": 55,
+          "outputTokens": 28
+        }
+      }
+    }
+  ]
+}

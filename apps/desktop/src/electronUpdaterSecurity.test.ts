@@ -1,0 +1,268 @@
+// FILE: electronUpdaterSecurity.test.ts
+// Purpose: Verifies the Windows updater hardening stays shell-free.
+// Layer: Desktop update runtime tests
+
+import { describe, expect, it, vi } from "vitest";
+
+import { parseDistinguishedName } from "@synara/shared/windowsCertificate";
+import {
+  buildPowerShellExecArgs,
+  buildPowerShellExecutablePath,
+  hardenElectronUpdater,
+  resolveWindowsUpdatePublisherNames,
+  verifyWindowsUpdateCodeSignature,
+} from "./electronUpdaterSecurity";
+
+describe("electronUpdaterSecurity", () => {
+  it("uses the absolute Windows PowerShell executable", () => {
+    expect(buildPowerShellExecutablePath({ SystemRoot: "D:\\Windows" })).toBe(
+      "D:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    );
+  });
+
+  it("runs PowerShell with arguments instead of a shell command", () => {
+    const args = buildPowerShellExecArgs("Get-AuthenticodeSignature test.exe");
+
+    expect(args).toContain("-NoProfile");
+    expect(args).toContain("-NonInteractive");
+    expect(args).toContain("-Command");
+    expect(args.join(" ")).toContain("Get-AuthenticodeSignature test.exe");
+    expect(args.join(" ")).not.toContain("cmd.exe");
+  });
+
+  it("parses distinguished names the same way as builder-util-runtime", () => {
+    const parsed = parseDistinguishedName('CN=Moss, O="Acme, Inc.", OU=Tools\\2C Desktop');
+
+    expect(parsed.get("CN")).toBe("Moss");
+    expect(parsed.get("O")).toBe("Acme, Inc.");
+    expect(parsed.get("OU")).toBe("Tools, Desktop");
+  });
+
+  it("uses only embedded full publisher DNs and never feed-controlled names", () => {
+    expect(
+      resolveWindowsUpdatePublisherNames(
+        ["CN=Feed Controlled, O=Unexpected"],
+        [" CN=Moss, O=Acme Tools ", "CN=Only", ""],
+      ),
+    ).toEqual(["CN=Moss, O=Acme Tools"]);
+    expect(resolveWindowsUpdatePublisherNames(["CN=Feed Controlled, O=Unexpected"], null)).toEqual([
+      "CN=Feed Controlled, O=Unexpected",
+    ]);
+  });
+
+  it("validates a matching full distinguished name through the injected execFile seam", async () => {
+    const execFile = vi.fn((file, args, options, callback) => {
+      callback(
+        null,
+        JSON.stringify({
+          Status: 0,
+          Path: "C:\\Users\\test\\AppData\\Local\\Temp\\MossSetup.exe",
+          SignerCertificate: {
+            Subject: "CN=Moss, O=Acme Tools",
+          },
+        }),
+        "",
+      );
+    });
+
+    const result = await verifyWindowsUpdateCodeSignature(
+      ["CN=Moss, O=Acme Tools"],
+      "C:\\Users\\test\\AppData\\Local\\Temp\\MossSetup.exe",
+      { info: vi.fn(), warn: vi.fn() },
+      {
+        env: { SystemRoot: "C:\\Windows" },
+        execFile,
+      },
+    );
+
+    expect(result).toBeNull();
+    expect(execFile).toHaveBeenCalledWith(
+      "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      expect.arrayContaining(["-NoProfile", "-NonInteractive", "-Command"]),
+      expect.objectContaining({
+        encoding: "utf8",
+        timeout: 20_000,
+        env: expect.objectContaining({ PSModulePath: "" }),
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it("rejects a CN-only publisher allowlist", async () => {
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const result = await verifyWindowsUpdateCodeSignature(
+      ["CN=Moss"],
+      "C:\\Temp\\MossSetup.exe",
+      logger,
+      {
+        env: { SystemRoot: "C:\\Windows" },
+        execFile: vi.fn((_file, _args, _options, callback) => {
+          callback(
+            null,
+            JSON.stringify({
+              Status: 0,
+              Path: "C:\\Temp\\MossSetup.exe",
+              SignerCertificate: { Subject: "CN=Moss, O=Acme Tools" },
+            }),
+            "",
+          );
+        }),
+      },
+    );
+
+    expect(result).toContain("publisherNames: CN=Moss");
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("signed with incorrect certificate"),
+    );
+  });
+
+  it("fails closed when PowerShell cannot verify the signature", async () => {
+    const result = await verifyWindowsUpdateCodeSignature(
+      ["CN=Moss, O=Acme Tools"],
+      "C:\\Temp\\MossSetup.exe",
+      { info: vi.fn(), warn: vi.fn() },
+      {
+        env: { SystemRoot: "C:\\Windows" },
+        execFile: vi.fn((_file, _args, _options, callback) => {
+          callback(Object.assign(new Error("PowerShell unavailable"), { code: "ENOENT" }), "", "");
+        }),
+      },
+    );
+
+    expect(result).toContain("signature verification could not be completed");
+    expect(result).toContain("PowerShell unavailable");
+  });
+
+  it("fails closed when signature output is malformed", async () => {
+    const result = await verifyWindowsUpdateCodeSignature(
+      ["CN=Moss, O=Acme Tools"],
+      "C:\\Temp\\MossSetup.exe",
+      { info: vi.fn(), warn: vi.fn() },
+      {
+        env: { SystemRoot: "C:\\Windows" },
+        execFile: vi.fn((_file, _args, _options, callback) => {
+          callback(null, "not-json", "");
+        }),
+      },
+    );
+
+    expect(result).toContain("signature verification could not be completed");
+  });
+
+  it("fails closed when signature output omits the signed file path", async () => {
+    const result = await verifyWindowsUpdateCodeSignature(
+      ["CN=Moss, O=Acme Tools"],
+      "C:\\Temp\\MossSetup.exe",
+      { info: vi.fn(), warn: vi.fn() },
+      {
+        env: { SystemRoot: "C:\\Windows" },
+        execFile: vi.fn((_file, _args, _options, callback) => {
+          callback(
+            null,
+            JSON.stringify({
+              Status: 0,
+              SignerCertificate: { Subject: "CN=Moss, O=Acme Tools" },
+            }),
+            "",
+          );
+        }),
+      },
+    );
+
+    expect(result).toContain("signature verification could not be completed");
+    expect(result).toContain("no signed file path");
+  });
+
+  it("returns a mismatch summary for an unexpected publisher", async () => {
+    const result = await verifyWindowsUpdateCodeSignature(
+      ["CN=Moss, O=Acme Tools"],
+      "C:\\Temp\\MossSetup.exe",
+      { info: vi.fn(), warn: vi.fn() },
+      {
+        env: { SystemRoot: "C:\\Windows" },
+        execFile: vi.fn((_file, _args, _options, callback) => {
+          callback(
+            null,
+            JSON.stringify({
+              Status: 0,
+              Path: "C:\\Temp\\MossSetup.exe",
+              SignerCertificate: { Subject: "CN=Someone Else, O=Acme Tools" },
+            }),
+            "",
+          );
+        }),
+      },
+    );
+
+    expect(result).toContain("publisherNames: CN=Moss, O=Acme Tools");
+    expect(result).toContain("Someone Else");
+  });
+
+  it("patches electron-updater BaseUpdater spawnSyncLog only on Windows", () => {
+    class FakeBaseUpdater {}
+    const updaterModule = { BaseUpdater: FakeBaseUpdater };
+    const prototype = FakeBaseUpdater.prototype as {
+      spawnSyncLog?: (cmd: string, args?: string[]) => string;
+      __mossSpawnSyncLogPatched?: boolean;
+    };
+
+    hardenElectronUpdater(updaterModule, {}, "darwin");
+    expect("spawnSyncLog" in prototype).toBe(false);
+
+    hardenElectronUpdater(updaterModule, {}, "win32");
+    const instance = {
+      _logger: { info: vi.fn(), error: vi.fn() },
+    };
+    const output = prototype.spawnSyncLog?.call(instance, process.execPath, ["--version"]);
+
+    // node prints vX.Y.Z while bun (the dev runtime) prints X.Y.Z.
+    expect(output).toMatch(/^v?\d+\.\d+\.\d+/);
+    expect(prototype.__mossSpawnSyncLogPatched).toBe(true);
+  });
+
+  it("replaces the NSIS signature verifier on Windows", async () => {
+    const updater = {
+      verifyUpdateCodeSignature: vi.fn(async () => "old verifier"),
+    };
+    const oldVerifier = updater.verifyUpdateCodeSignature;
+
+    hardenElectronUpdater({ BaseUpdater: class {} }, updater, "win32");
+
+    expect(updater.verifyUpdateCodeSignature).not.toBe(oldVerifier);
+    expect(oldVerifier).not.toHaveBeenCalled();
+  });
+
+  it("falls back to feed publisher DNs when no embedded override is supplied", async () => {
+    const updater = {
+      verifyUpdateCodeSignature: vi.fn(
+        async (_publisherNames: string[], _updateFile: string) => "old verifier",
+      ),
+    };
+
+    hardenElectronUpdater({ BaseUpdater: class {} }, updater, "win32");
+
+    const result = await updater.verifyUpdateCodeSignature(
+      ["CN=Feed Publisher, O=Acme Tools"],
+      "C:\\Temp\\MossSetup.exe",
+    );
+    expect(result).not.toContain("no valid embedded publisher subject DN");
+    expect(result).toContain("signature verification could not be completed");
+  });
+
+  it("fails closed before invoking the verifier when the packaged publisher pin is absent", async () => {
+    const updater = {
+      verifyUpdateCodeSignature: vi.fn(
+        async (_publisherNames: string[], _updateFile: string) => "old verifier",
+      ),
+    };
+
+    hardenElectronUpdater({ BaseUpdater: class {} }, updater, "win32", []);
+
+    await expect(
+      updater.verifyUpdateCodeSignature(
+        ["CN=Feed Controlled, O=Unexpected"],
+        "C:\\Temp\\MossSetup.exe",
+      ),
+    ).resolves.toContain("no valid embedded publisher subject DN");
+  });
+});

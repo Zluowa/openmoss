@@ -1,0 +1,19 @@
+{
+  "packageName": "@openai/codex",
+  "packageVersion": "0.153.4",
+  "licenseExpression": "Apache-2.0",
+  "repositoryUrl": "https://github.com/openai/codex",
+  "sourceTag": "rust-v0.153.4",
+  "sourceCommit": "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a",
+  "sourceFiles": {
+    "LICENSE": {
+      "url": "https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/LICENSE",
+      "sha256": "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc"
+    },
+    "NOTICE": {
+      "url": "https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/NOTICE",
+      "sha256": "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915"
+    }
+  },
+  "retrievalPolicy": "Repository-owned release input; never copied from an installed Codex Desktop app."
+}

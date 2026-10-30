@@ -1,0 +1,77 @@
+name: CI
+
+# Public mirror CI. Runs on GitHub-hosted runners, which are free for public
+# repositories. Release builds, signing, and the hosted backend live elsewhere.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Format, lint, typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+
+      - name: Format
+        run: bun run fmt:check
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck --concurrency=1
+
+  unit:
+    name: Unit tests (${{ matrix.lane }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: web-desktop
+            filters: --filter=@synara/web --filter=@synara/desktop
+            test_args: ""
+          - lane: server-1
+            filters: --filter=@synara/cli
+            test_args: -- --shard=1/2
+          - lane: server-2
+            filters: --filter=@synara/cli
+            test_args: -- --shard=2/2
+          - lane: shared
+            filters: --filter=!@synara/web --filter=!@synara/desktop --filter=!@synara/cli
+            test_args: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          electron: "true"
+
+      - name: Install test runtimes
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg imagemagick x11-xserver-utils
+          cd apps/web && ./node_modules/.bin/playwright install chromium
+
+      - name: Test
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: bun run test ${{ matrix.filters }} ${{ matrix.test_args }}

@@ -1,0 +1,16 @@
+diff --git a/dist/index.js b/dist/index.js
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -2946,8 +2946,10 @@
+ 			let result, error;
+ 			let fn = await (resolver ? resolver.call(rpc, method, $functions[method]) : $functions[method]);
+ 			if (optional) fn ||= () => void 0;
+-			if (!fn) error = /* @__PURE__ */ new Error(`[birpc] function "${method}" not found`);
+-			else try {
++			// Unknown method (classically a stray toJSON the receiver tries to invoke):
++			// answer with undefined instead of faulting the whole channel.
++			if (!fn) fn = () => void 0;
++			try {
+ 				result = await fn.apply(bind === "rpc" ? rpc : $functions, args);
+ 			} catch (e) {
+ 				error = e;

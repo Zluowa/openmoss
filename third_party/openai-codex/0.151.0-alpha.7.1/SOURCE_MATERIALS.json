@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "codexVersion": "0.151.0-alpha.7.1",
+  "legalStatus": "engineering-source-closure-present; legal review is outside this build gate",
+  "materials": [
+    {
+      "id": "codex-rust-v0.151.0-alpha.7.1",
+      "path": "sources/codex-rust-v0.151.0-alpha.7.1-source.tar.gz",
+      "size": 12883813,
+      "sha256": "62fccefd66516f9705cb10058e6921d3a599c5f572e7a387fb5535e20304b350",
+      "mediaType": "application/gzip",
+      "repository": "https://github.com/openai/codex",
+      "revision": "ece348ff63c2cf0922eef45fee4c487375117e57",
+      "relevantPaths": [
+        "codex-rs/vendor/bubblewrap",
+        "codex-rs/bwrap",
+        ".github/scripts/install-musl-build-tools.sh",
+        ".github/workflows/rust-release.yml"
+      ]
+    },
+    {
+      "id": "libcap-2.75",
+      "path": "sources/libcap-2.75.tar.xz",
+      "size": 197868,
+      "sha256": "de4e7e064c9ba451d5234dd46e897d7c71c96a9ebf9a0c445bc04f4742d83632",
+      "mediaType": "application/x-xz",
+      "distributionUrl": "https://mirrors.edge.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.75.tar.xz"
+    }
+  ]
+}

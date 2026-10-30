@@ -1,0 +1,63 @@
+/* Clean-room profile motion distilled from the observable Codex profile surface. */
+
+.profile-loading-block {
+  --profile-loading-shimmer-highlight: color-mix(
+    in srgb,
+    var(--color-text-foreground) 8%,
+    transparent
+  );
+  background-color: color-mix(in srgb, var(--color-text-foreground) 5%, transparent);
+  background-image: linear-gradient(
+    90deg,
+    transparent 34%,
+    var(--profile-loading-shimmer-highlight) 50%,
+    transparent 66%
+  );
+  background-position: -100vw 0;
+  background-repeat: no-repeat;
+  background-size: 100vw 100vh;
+  background-attachment: fixed;
+  animation: profile-loading-page-sweep 2.6s steps(48, end) infinite;
+}
+
+.profile-activity-cell {
+  corner-shape: var(--moss-corner-shape, superellipse(1.5));
+  transition: background-color 300ms ease-out;
+}
+
+.profile-activity-cell--animated {
+  animation: profile-activity-cell-reveal 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes profile-loading-page-sweep {
+  to {
+    background-position: 100vw 0;
+  }
+}
+
+@keyframes profile-activity-cell-reveal {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-loading-block {
+    background-image: none;
+    animation: none;
+  }
+
+  .profile-activity-cell {
+    transition: none;
+  }
+
+  .profile-activity-cell--animated {
+    animation: none;
+  }
+}

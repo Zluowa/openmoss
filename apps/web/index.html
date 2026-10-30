@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:*; media-src 'self' data: blob: http://localhost:* http://127.0.0.1:*; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:* https://*.ingest.us.sentry.io wss://moss-cn-realtime-edge.inkcomicai.com wss://moss-global-realtime.inkcomicai.com; worker-src 'self' blob:; frame-src 'self' moss-local-preview: http://localhost:* http://127.0.0.1:*;"
+    />
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="preload" as="image" href="/moss-logo-coral.png" type="image/png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Fonts are optional: preload without blocking the module bootstrap. -->
+    <link
+      id="moss-web-fonts"
+      href="https://fonts.googleapis.com/css2?family=Cal+Sans&family=DM+Sans:ital,opsz,wght@0,9..40,300..800;1,9..40,300..800&family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&family=Inter:opsz,wght@14..32,100..900&display=swap"
+      rel="preload"
+      as="style"
+    />
+    <script src="/font-loader.js" defer></script>
+    <title>Moss</title>
+    <style>
+      /* Boot splash — shown while the JS bundle is parsing and React mounts.
+         It sits outside #root so React cannot clear it before the first real commit. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        /* Prevent a white flash before the app's own styles load. */
+        color-scheme: light dark;
+      }
+      /* Only `html`: an unlayered `body` background here would override the layered
+         `body` rule in index.css that paints the whole-window glass coat. */
+      html {
+        background: transparent;
+      }
+      #root {
+        min-height: 100vh;
+      }
+      .app-boot-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-app-region: drag;
+        pointer-events: none;
+      }
+      .app-boot-splash__icon {
+        width: 112px;
+        height: 112px;
+        opacity: 1;
+        transform: scale(1);
+        animation: app-boot-splash-pulse 2.4s ease-in-out infinite;
+      }
+      @keyframes app-boot-splash-pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(0.98);
+          opacity: 0.85;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .app-boot-splash__icon {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app-boot-splash" class="app-boot-splash" aria-hidden="true">
+      <img
+        class="app-boot-splash__icon"
+        src="/moss-logo-coral.png"
+        alt=""
+        width="112"
+        height="112"
+        decoding="sync"
+        draggable="false"
+      />
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/bootstrap.ts"></script>
+  </body>
+</html>

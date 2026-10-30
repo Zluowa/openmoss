@@ -1,0 +1,423 @@
+{
+  "apps/server/src/account/Layers/MossManagedProvider.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "chmodSync": 1,
+      "lstatSync": 3,
+      "mkdirSync": 2,
+      "readFileSync": 2,
+      "readdirSync": 1,
+      "realpathSync": 1,
+      "rmdirSync": 2,
+      "unlinkSync": 1
+    }
+  },
+  "apps/server/src/account/mossBundledPluginMarketplace.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "chmodSync": 2,
+      "closeSync": 2,
+      "fsyncSync": 1,
+      "lstatSync": 3,
+      "mkdirSync": 1,
+      "openSync": 1,
+      "renameSync": 1,
+      "unlinkSync": 1,
+      "writeFileSync": 1
+    }
+  },
+  "apps/server/src/account/mossCodexAccountCleanup.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "lstatSync": 2
+    }
+  },
+  "apps/server/src/agentGateway/creationCoordinator.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1
+    }
+  },
+  "apps/server/src/agentGateway/startupRecovery.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 2
+    }
+  },
+  "apps/server/src/attachmentStore.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1
+    }
+  },
+  "apps/server/src/betaImport.ts": {
+    "reason": "Startup-only one-way Stable to Beta import; excluded from the streaming hot path.",
+    "references": {
+      "closeSync": 1,
+      "cpSync": 5,
+      "existsSync": 3,
+      "lstatSync": 7,
+      "mkdirSync": 4,
+      "mkdtempSync": 2,
+      "openSync": 1,
+      "readFileSync": 1,
+      "readSync": 1,
+      "readdirSync": 1,
+      "realpathSync": 2,
+      "renameSync": 5,
+      "rmSync": 13,
+      "statSync": 2,
+      "writeFileSync": 1
+    }
+  },
+  "apps/server/src/browserAutomation/browserHostRpcClient.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "closeSync": 1,
+      "readFileSync": 1
+    }
+  },
+  "apps/server/src/codexAuthIo.ts": {
+    "reason": "Shared security algorithm retains synchronous launch/request compatibility; stdout ingress uses the asynchronous interpreter. The bounded read performs at most 257 bytes for managed-home ownership markers.",
+    "references": {
+      "closeSync": 1,
+      "fstatSync": 1,
+      "lstatSync": 1,
+      "openSync": 1,
+      "readFileSync": 1,
+      "readSync": 1,
+      "realpathSync": 1,
+      "statSync": 1
+    }
+  },
+  "apps/server/src/codexHomeIdentity.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "lstatSync": 10,
+      "mkdtempSync": 1,
+      "readdirSync": 2,
+      "realpathSync": 1,
+      "rmdirSync": 1,
+      "statSync": 2
+    }
+  },
+  "apps/server/src/codexProcessEnv.ts": {
+    "reason": "Legacy launch overlay binding and migration reads; callback revalidation uses codexAuthIo async operations.",
+    "references": {
+      "lstatSync": 3,
+      "readFileSync": 2,
+      "readlinkSync": 1
+    }
+  },
+  "apps/server/src/codexWorkingDirectory.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "statSync": 1
+    }
+  },
+  "apps/server/src/computer/ComputerControlState.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "readFileSync": 1
+    }
+  },
+  "apps/server/src/computer/scrollGearingFile.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "readFileSync": 1
+    }
+  },
+  "apps/server/src/config.ts": {
+    "reason": "Startup configuration file existence check.",
+    "references": {
+      "existsSync": 1
+    }
+  },
+  "apps/server/src/device/IosSimulatorBackend.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1
+    }
+  },
+  "apps/server/src/editorAppDiscovery.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "statSync": 2
+    }
+  },
+  "apps/server/src/externalMcp/bridge.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "chmodSync": 1,
+      "closeSync": 4,
+      "existsSync": 5,
+      "fchmodSync": 1,
+      "fstatSync": 1,
+      "fsyncSync": 2,
+      "lstatSync": 4,
+      "openSync": 3,
+      "readFileSync": 3,
+      "readdirSync": 1,
+      "renameSync": 1,
+      "rmSync": 1,
+      "unlinkSync": 1,
+      "writeFileSync": 1
+    }
+  },
+  "apps/server/src/git/Layers/GitManager.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "realpathSync": 1
+    }
+  },
+  "apps/server/src/git/Layers/GitStatusBroadcaster.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "realpathSync": 1
+    }
+  },
+  "apps/server/src/git/Layers/codexTextGenerationIsolation.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "chmodSync": 1,
+      "existsSync": 1,
+      "writeFileSync": 1
+    }
+  },
+  "apps/server/src/git/isRepo.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1
+    }
+  },
+  "apps/server/src/htmlRender/HtmlRender.ts": {
+    "reason": "One-shot preview-browser install path (not the streaming hot path): injectable executable-lookup defaults plus startup read of the bundled Playwright manifest; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1,
+      "readFileSync": 1,
+      "readdirSync": 1
+    }
+  },
+  "apps/server/src/hoolaCanvasBridge.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "chmodSync": 1,
+      "mkdirSync": 1,
+      "readFileSync": 1,
+      "renameSync": 1,
+      "statSync": 1,
+      "unlinkSync": 2,
+      "writeFileSync": 1
+    }
+  },
+  "apps/server/src/hoolaCanvasSegmentsBridge.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "chmodSync": 1,
+      "mkdirSync": 1,
+      "readFileSync": 1,
+      "renameSync": 1,
+      "statSync": 1,
+      "unlinkSync": 2,
+      "writeFileSync": 1
+    }
+  },
+  "apps/server/src/migrationBundleIdentity.ts": {
+    "reason": "Startup-only migration bundle identity verification.",
+    "references": {
+      "readFileSync": 2
+    }
+  },
+  "apps/server/src/open.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "statSync": 3
+    }
+  },
+  "apps/server/src/privatePathPermissions.ts": {
+    "reason": "Private-data startup and synchronous credential-store validation: preserve POSIX descriptor checks; one additional read-only lstat rejects Windows directory junctions before secret I/O.",
+    "references": {
+      "chmodSync": 1,
+      "closeSync": 4,
+      "fchmodSync": 3,
+      "fstatSync": 3,
+      "lstatSync": 2,
+      "mkdirSync": 1,
+      "openSync": 4,
+      "readdirSync": 1
+    }
+  },
+  "apps/server/src/provider/Layers/ProviderService.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1
+    }
+  },
+  "apps/server/src/provider/acp/CursorAcpCommand.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1,
+      "realpathSync": 1
+    }
+  },
+  "apps/server/src/provider/acp/DroidAcpSupport.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1
+    }
+  },
+  "apps/server/src/provider/acp/OmpAcpSupport.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1
+    }
+  },
+  "apps/server/src/provider/claudeEnvironment.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1
+    }
+  },
+  "apps/server/src/provider/claudeProcessEnv.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "readFileSync": 1
+    }
+  },
+  "apps/server/src/provider/codexReferenceOracle.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1,
+      "readFileSync": 1
+    }
+  },
+  "apps/server/src/provider/mcpResultArtifacts.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "statSync": 1
+    }
+  },
+  "apps/server/src/provider/mossMarketplaceAggregation.ts": {
+    "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
+    "references": {
+      "chmodSync": 2,
+      "closeSync": 3,
+      "fsyncSync": 2,
+      "lstatSync": 3,
+      "mkdirSync": 1,
+      "openSync": 2,
+      "readFileSync": 1,
+      "renameSync": 1,
+      "unlinkSync": 2,
+      "writeFileSync": 1
+    }
+  },
+  "apps/server/src/provider/providerAttachmentPaths.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "statSync": 1
+    }
+  },
+  "apps/server/src/provider/providerBinaryResolution.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "existsSync": 1,
+      "readdirSync": 2
+    }
+  },
+  "apps/server/src/provider/providerProcessEnv.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "chmodSync": 1,
+      "mkdirSync": 1
+    }
+  },
+  "apps/server/src/scratchWorkspaces.ts": {
+    "reason": "Legacy scratch-directory permission and descriptor checks; not identified as a streaming blocker.",
+    "references": {
+      "closeSync": 3,
+      "fchmodSync": 2,
+      "fstatSync": 3,
+      "lstatSync": 3,
+      "openSync": 1
+    }
+  },
+  "apps/server/src/terminal/managedTerminalWrappers.ts": {
+    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
+    "references": {
+      "chmodSync": 1,
+      "existsSync": 2,
+      "readFileSync": 2,
+      "unlinkSync": 1,
+      "writeFileSync": 1
+    }
+  },
+  "packages/shared/src/codexConfig.ts": {
+    "reason": "Shared Codex config compatibility reader; existing references frozen pending profiling.",
+    "references": {
+      "existsSync": 1,
+      "readFileSync": 1
+    }
+  },
+  "packages/shared/src/executable.ts": {
+    "reason": "Shared executable resolution boundary; existing discovery references frozen pending profiling.",
+    "references": {
+      "accessSync": 1,
+      "readdirSync": 1,
+      "statSync": 2
+    }
+  },
+  "packages/shared/src/filesystemPlatform.ts": {
+    "reason": "Shared directory durability helper extracted from four existing synchronous marketplace publication/lock paths; preserves POSIX flushes and avoids unsupported Windows directory handles. No new synchronous call sites; regular-file flushes remain in their original budgets.",
+    "references": {
+      "closeSync": 1,
+      "fsyncSync": 1,
+      "openSync": 1
+    }
+  },
+  "packages/shared/src/logging.ts": {
+    "reason": "Shared synchronous rotating log sink (writes, rotation and initialization); existing legacy references frozen pending profiling.",
+    "references": {
+      "appendFileSync": 2,
+      "existsSync": 3,
+      "mkdirSync": 1,
+      "readdirSync": 1,
+      "renameSync": 2,
+      "rmSync": 2,
+      "statSync": 1,
+      "openSync": 2,
+      "writeSync": 1,
+      "closeSync": 1
+    }
+  },
+  "packages/shared/src/loginShellEnvironment.ts": {
+    "reason": "Shared platform login-shell environment probing; existing compatibility/identity references frozen.",
+    "references": {
+      "existsSync": 1,
+      "mkdirSync": 1,
+      "readFileSync": 1,
+      "renameSync": 1,
+      "statSync": 1,
+      "unlinkSync": 1,
+      "writeFileSync": 1
+    }
+  },
+  "packages/shared/src/platformProcess.ts": {
+    "reason": "Shared process boundary executable and working-directory checks; one stat each inside the synchronous pre-spawn plan.",
+    "references": {
+      "statSync": 2
+    }
+  },
+  "packages/shared/src/staticSnapshot.ts": {
+    "reason": "Shared static snapshot validation/loading; existing references frozen pending profiling.",
+    "references": {
+      "existsSync": 3,
+      "mkdirSync": 2,
+      "readFileSync": 1,
+      "readdirSync": 2,
+      "renameSync": 1,
+      "rmSync": 3,
+      "writeFileSync": 1
+    }
+  }
+}

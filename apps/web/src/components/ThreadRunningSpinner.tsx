@@ -1,0 +1,79 @@
+// FILE: ThreadRunningSpinner.tsx
+// Purpose: Shared inline running/pulse spinner for sidebar thread status slots.
+// Layer: Sidebar UI primitive
+// Exports: ThreadRunningSpinner, ThreadBackgroundWorkSpinner
+
+import { useRef } from "react";
+
+import { useTimelineSynchronizedAnimations } from "~/lib/animationTimelineSync";
+import { cn } from "~/lib/utils";
+
+// Codex 26.1007 `Pbi` (the `Nzo` working glyph): a 24px filled donut, track at
+// 30% opacity and a three-quarter ring on top. Sidebar rows paint it at
+// `icon-xs` (14px) in `text-text/70`. The rotation stays on the stepped
+// `animate-spin-stepped` token (index.css) rather than `animate-spin`: this
+// glyph is always on while a thread runs, and a continuous 60 fps spin inside
+// the translucent sidebar forced the whole backdrop-filtered surface + window
+// vibrancy to re-render every frame. Every instance is also pinned to the
+// document timeline origin: N running threads then step in the same frame
+// (one sidebar repaint per step) instead of N frames.
+const SPINNER_TRACK =
+  "M18 12C18 8.68629 15.3137 6 12 6C8.68629 6 6 8.68629 6 12C6 15.3137 8.68629 18 12 18C15.3137 18 18 15.3137 18 12ZM20 12C20 16.4183 16.4183 20 12 20C7.58172 20 4 16.4183 4 12C4 7.58172 7.58172 4 12 4C16.4183 4 20 7.58172 20 12Z";
+const SPINNER_ARC =
+  "M12 4C16.4183 4 20 7.58172 20 12C20 16.4183 16.4183 20 12 20C7.58172 20 4 16.4183 4 12H6C6 15.3137 8.68629 18 12 18C15.3137 18 18 15.3137 18 12C18 8.68629 15.3137 6 12 6V4Z";
+// Dashed ring for background work: 2-unit dashes over a 4.6-unit period.
+const BACKGROUND_CANVAS = 15;
+const BACKGROUND_LINE_WIDTH = 2;
+const BACKGROUND_RADIUS = (BACKGROUND_CANVAS - BACKGROUND_LINE_WIDTH) / 2;
+const BACKGROUND_DASH = "2 2.6";
+
+export function ThreadRunningSpinner({ className }: { className?: string }) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  useTimelineSynchronizedAnimations(svgRef);
+  return (
+    <svg
+      ref={svgRef}
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={cn(
+        "inline-block size-3.5 shrink-0 animate-spin-stepped text-foreground/70 motion-reduce:animate-none",
+        className,
+      )}
+    >
+      <path opacity="0.3" fill="currentColor" d={SPINNER_TRACK} />
+      <path fill="currentColor" d={SPINNER_ARC} />
+    </svg>
+  );
+}
+
+// Quieter sibling for a thread whose turn ended but whose background tasks still run.
+// A grey dashed ring turning at half speed reads as "still going, nothing for you to do",
+// distinct from the live spinner and from the blue unread dot. It shares the 50ms step
+// and timeline origin, so it repaints in the same frames as the running spinners.
+export function ThreadBackgroundWorkSpinner({ className }: { className?: string }) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  useTimelineSynchronizedAnimations(svgRef);
+  return (
+    <svg
+      ref={svgRef}
+      aria-hidden="true"
+      viewBox={`0 0 ${BACKGROUND_CANVAS} ${BACKGROUND_CANVAS}`}
+      fill="none"
+      className={cn(
+        "inline-block size-3 shrink-0 animate-spin-stepped-slow text-muted-foreground/65 motion-reduce:animate-none",
+        className,
+      )}
+    >
+      <circle
+        cx={BACKGROUND_CANVAS / 2}
+        cy={BACKGROUND_CANVAS / 2}
+        r={BACKGROUND_RADIUS}
+        stroke="currentColor"
+        strokeWidth={BACKGROUND_LINE_WIDTH * 0.8}
+        strokeLinecap="round"
+        strokeDasharray={BACKGROUND_DASH}
+      />
+    </svg>
+  );
+}

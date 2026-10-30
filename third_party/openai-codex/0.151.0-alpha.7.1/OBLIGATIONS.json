@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "codexVersion": "0.151.0-alpha.7.1",
+  "releaseDecision": "approved",
+  "decisionScope": "automated engineering evidence and distribution-asset completeness; not legal advice",
+  "runtimePolicy": {
+    "linuxPublicArchitecture": "x64",
+    "linuxLibc": "glibc",
+    "minimumGlibcVersion": "2.38",
+    "maximumZshRequiredGlibcVersion": "2.38",
+    "requiredSharedLibraries": [
+      "libtinfo.so.6",
+      "libm.so.6",
+      "libc.so.6"
+    ],
+    "packageCoordinate": "x86_64-unknown-linux-musl",
+    "requiredRuntimeProbes": [
+      "codex --version",
+      "zsh --version",
+      "zsh -f -c printf",
+      "readelf --version-info zsh"
+    ]
+  },
+  "licenseAssets": [
+    {
+      "path": "licenses/zsh/LICENCE",
+      "sha256": "d06fdf3ef9b1ec69d6b9e170b0a9516fbad3523261ff1668bde3bfea6e0ef5f5"
+    },
+    {
+      "path": "licenses/ripgrep/LICENSE-MIT",
+      "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f"
+    },
+    {
+      "path": "licenses/ripgrep/UNLICENSE",
+      "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c"
+    },
+    {
+      "path": "licenses/bubblewrap/COPYING",
+      "sha256": "b7993225104d90ddd8024fd838faf300bea5e83d91203eab98e29512acebd69c"
+    },
+    {
+      "path": "licenses/libcap/License",
+      "sha256": "68467e731f4744bd6e0bb69e8df9c3a994e09cd6b203d0c41327ac6d079c581d"
+    },
+    {
+      "path": "licenses/pcre2/LICENCE.md",
+      "sha256": "9cf7ac6976099a1d856826d3ef1b093bd6b84489dc6100628ac79e740cf9885a"
+    }
+  ],
+  "fulfilledEvidence": [
+    {
+      "id": "top-level-codex-apache",
+      "status": "asset-present",
+      "assets": [
+        "LICENSE",
+        "NOTICE",
+        "SOURCE.json"
+      ]
+    },
+    {
+      "id": "runtime-component-inventory",
+      "status": "asset-present",
+      "assets": [
+        "COMPONENTS.cdx.json",
+        "LICENSE_EVIDENCE.json",
+        "PAYLOADS.json"
+      ]
+    },
+    {
+      "id": "named-native-license-texts",
+      "status": "asset-present",
+      "assets": [
+        "licenses/zsh/LICENCE",
+        "licenses/ripgrep/LICENSE-MIT",
+        "licenses/ripgrep/UNLICENSE",
+        "licenses/bubblewrap/COPYING",
+        "licenses/libcap/License",
+        "licenses/pcre2/LICENCE.md"
+      ]
+    },
+    {
+      "id": "linux-bwrap-source-materials",
+      "status": "source-and-rebuild-path-present",
+      "assets": [
+        "SOURCE_MATERIALS.json",
+        "REBUILD.md",
+        "sources/codex-rust-v0.151.0-alpha.7.1-source.tar.gz",
+        "sources/libcap-2.75.tar.xz"
+      ]
+    },
+    {
+      "id": "rust-license-selection-policy",
+      "status": "machine-policy-passed",
+      "evidence": "Selected-license, source-integrity, and text evidence covers 1348 Cargo components; missing-evidence count is 0; strong-copyleft selected count is 0.",
+      "assets": [
+        "COMPONENTS.cdx.json",
+        "LICENSE_EVIDENCE.json"
+      ]
+    },
+    {
+      "id": "linux-zsh-glibc-runtime-policy",
+      "status": "build-probe-required",
+      "evidence": "Public Linux is restricted to glibc x64 with glibc >=2.38. The build runs the exact hash-validated staged and packaged codex and zsh bytes before publication.",
+      "assets": [
+        "OBLIGATIONS.json",
+        "PAYLOADS.json"
+      ]
+    }
+  ],
+  "blockers": []
+}

@@ -1,0 +1,103 @@
+{
+  "provider": "cursor",
+  "description": "Cursor ACP runtime fixture covering assistant text, tool-call lifecycle, usage, and finish events.",
+  "expectedTypes": ["text", "tool-call", "tool-result", "usage", "finish"],
+  "events": [
+    {
+      "eventId": "raw-cursor-text",
+      "provider": "cursor",
+      "sessionId": "runtime-session-cursor-fixture",
+      "threadId": "thread-cursor-fixture",
+      "turnId": "turn-cursor-fixture",
+      "createdAt": "2026-07-01T14:33:00.000Z",
+      "launchPlanHash": "sha256:cursor-fixture-launch-plan",
+      "type": "content.delta",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "agent_message_chunk"
+        }
+      },
+      "payload": {
+        "streamKind": "assistant_text",
+        "delta": "Cursor fixture response"
+      }
+    },
+    {
+      "eventId": "raw-cursor-tool-start",
+      "provider": "cursor",
+      "sessionId": "runtime-session-cursor-fixture",
+      "threadId": "thread-cursor-fixture",
+      "turnId": "turn-cursor-fixture",
+      "itemId": "item-cursor-tool",
+      "createdAt": "2026-07-01T14:33:01.000Z",
+      "launchPlanHash": "sha256:cursor-fixture-launch-plan",
+      "type": "item.started",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "tool_call"
+        }
+      },
+      "payload": {
+        "itemType": "mcp_tool_call",
+        "status": "inProgress",
+        "title": "Read project file",
+        "data": {
+          "name": "filesystem.readFile",
+          "path": ".moss/context/current.md"
+        }
+      }
+    },
+    {
+      "eventId": "raw-cursor-tool-done",
+      "provider": "cursor",
+      "sessionId": "runtime-session-cursor-fixture",
+      "threadId": "thread-cursor-fixture",
+      "turnId": "turn-cursor-fixture",
+      "itemId": "item-cursor-tool",
+      "createdAt": "2026-07-01T14:33:02.000Z",
+      "launchPlanHash": "sha256:cursor-fixture-launch-plan",
+      "type": "item.completed",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "tool_call_update"
+        }
+      },
+      "payload": {
+        "itemType": "mcp_tool_call",
+        "status": "completed",
+        "title": "Read project file",
+        "data": {
+          "output": "ok"
+        }
+      }
+    },
+    {
+      "eventId": "raw-cursor-completed",
+      "provider": "cursor",
+      "sessionId": "runtime-session-cursor-fixture",
+      "threadId": "thread-cursor-fixture",
+      "turnId": "turn-cursor-fixture",
+      "createdAt": "2026-07-01T14:33:03.000Z",
+      "launchPlanHash": "sha256:cursor-fixture-launch-plan",
+      "type": "turn.completed",
+      "raw": {
+        "source": "acp.jsonrpc",
+        "payload": {
+          "type": "turn_completed"
+        }
+      },
+      "payload": {
+        "state": "completed",
+        "stopReason": "end_turn",
+        "modelUsage": {
+          "model": "auto",
+          "inputTokens": 70,
+          "outputTokens": 35
+        }
+      }
+    }
+  ]
+}

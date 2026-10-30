@@ -1,0 +1,43 @@
+{
+  "name": "@synara/desktop",
+  "version": "1.0.2-beta.1",
+  "private": true,
+  "license": "MIT",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "bun run scripts/dev.mjs",
+    "dev:bundle": "tsdown --watch",
+    "dev:electron": "bun run scripts/dev-electron.mjs",
+    "build": "tsdown",
+    "start": "bun run scripts/start-electron.mjs",
+    "typecheck": "node ../../node_modules/@typescript/native/bin/tsc --noEmit --tsBuildInfoFile node_modules/.cache/typescript-native.tsbuildinfo && bun run typecheck:fixtures",
+    "typecheck:fixtures": "node ../../node_modules/@typescript/native/bin/tsc --project tsconfig.fixtures.json",
+    "typecheck:native": "bun run typecheck",
+    "typecheck:legacy": "tsc --noEmit && tsc --project tsconfig.fixtures.json",
+    "test": "bun run test:vitest",
+    "smoke-test": "node scripts/smoke-test.mjs",
+    "smoke:browser-lifecycle": "bun build scripts/browser-lifecycle-smoke.ts --target=node --external=electron --external=betterwright --external=betterwright/* --external=ws --external=effect --outfile=.smoke/browser-lifecycle.mjs && electron .smoke/browser-lifecycle.mjs",
+    "smoke:browser-viewport": "bun build scripts/browser-viewport-smoke.ts --target=node --external=electron --external=betterwright --outfile=.smoke/browser-viewport.mjs && electron .smoke/browser-viewport.mjs",
+    "test:vitest": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@openai/codex": "0.163.0",
+    "@sentry/electron": "7.18.0",
+    "betterwright": "2.7.3",
+    "effect": "catalog:",
+    "electron": "43.5.0",
+    "electron-updater": "^6.6.2",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@synara/contracts": "workspace:*",
+    "@synara/shared": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/ws": "^8.5.13",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wait-on": "^8.0.2"
+  },
+  "productName": "Moss"
+}

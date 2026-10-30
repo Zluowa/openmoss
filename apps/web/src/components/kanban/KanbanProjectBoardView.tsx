@@ -1,0 +1,429 @@
+// FILE: KanbanProjectBoardView.tsx
+// Purpose: Full 4-column board for one project — drag a Draft card onto In Progress to
+//          dispatch its prompt, or reorder drafts; other moves are derived-only.
+// Layer: UI component (owns the board DndContext)
+// Exports: KanbanProjectBoardView
+
+import {
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  PointerSensor,
+  closestCorners,
+  pointerWithin,
+  useSensor,
+  useSensors,
+  type CollisionDetection,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
+import { useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+
+import {
+  getProviderInstanceOptions,
+  getProviderStartOptions,
+  resolveAssistantDeliveryMode,
+  useAppSettings,
+} from "~/appSettings";
+import { Button } from "~/components/ui/button";
+import { toastManager } from "~/components/ui/toast";
+import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
+import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
+import { resolveProviderSendAvailabilityWithRefresh } from "~/lib/providerAvailability";
+import { localizeProviderSendBlockedReason } from "~/lib/providerUnavailablePresentation";
+import { useTranslation } from "~/localization";
+import {
+  dispatchKanbanDraftCardAsGoal,
+  resolveKanbanDraftDispatchTarget,
+} from "../../lib/kanbanDispatch";
+import { KanbanCardView, type KanbanCardPrLookup } from "./KanbanCardView";
+import { KanbanColumn, parseKanbanColumnDropId } from "./KanbanColumn";
+import { NeedsReviewFilter } from "./NeedsReviewFilter";
+import {
+  reorderDraftCardIdsInFullOrder,
+  resolveDraftDropAction,
+  resolveReviewFoldToggleLabel,
+  shouldShowReviewFoldToggle,
+  type KanbanCard,
+  type KanbanColumnKey,
+  type KanbanProjectBoard,
+} from "./kanban.logic";
+import { useKanbanUiStore } from "../../kanbanUiStore";
+import {
+  createKanbanDraftDispatchSingleFlight,
+  presentKanbanDraftDispatchResult,
+  routeKanbanDraftColumnDrop,
+} from "./KanbanProjectBoardView.logic";
+import type { KanbanCardContextMenuController } from "./useKanbanCardContextMenu";
+
+function resolveDropColumn(board: KanbanProjectBoard, overId: string): KanbanColumnKey | null {
+  const columnDrop = parseKanbanColumnDropId(overId);
+  if (columnDrop) {
+    // Awaiting you is derived-only (D1/S1-P6) — the drop is reported so the
+    // board can explain instead of silently no-op (L1), like the Done column.
+    if (columnDrop.column === "awaitingYou") {
+      return "awaitingYou";
+    }
+    return columnDrop.projectId === board.projectId ? columnDrop.column : null;
+  }
+  // Sortable draft cards are the only non-column droppables on this board.
+  return board.draft.some((card) => card.cardId === overId) ? "draft" : null;
+}
+
+const collisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  if (pointerCollisions.length > 0) {
+    return pointerCollisions;
+  }
+  return closestCorners(args);
+};
+
+export function KanbanProjectBoardView({
+  board,
+  onOpenCard,
+  onCardContextMenu,
+  onNewTask,
+  prByThreadId,
+  nowMs,
+  viewMode,
+}: {
+  board: KanbanProjectBoard;
+  onOpenCard: (card: KanbanCard) => void;
+  onCardContextMenu?: KanbanCardContextMenuController["onCardContextMenu"] | undefined;
+  onNewTask: () => void;
+  prByThreadId: KanbanCardPrLookup;
+  nowMs?: number;
+  /** v2 four-column layout vs classic 3-column escape hatch. */
+  viewMode: "classic" | "v2";
+}) {
+  const { locale, t } = useTranslation();
+  const { settings } = useAppSettings();
+  const assistantDeliveryMode = resolveAssistantDeliveryMode(settings);
+  const providerInstances = useMemo(() => getProviderInstanceOptions(settings), [settings]);
+  const providerStatuses = useProviderStatusesForLocalConfig();
+  const refreshProviderStatuses = useRefreshProviderStatusesNow();
+  const dispatchSingleFlight = useMemo(createKanbanDraftDispatchSingleFlight, []);
+  const setDraftOrder = useKanbanUiStore((state) => state.setDraftOrder);
+  // Reorder against the full persisted order so hidden (filtered-out) cards
+  // keep their slots instead of being dropped from the stored order.
+  const storedDraftOrder = useKanbanUiStore(
+    (state) => state.draftOrderByProjectId[board.projectId],
+  );
+  const persistVisibleMove = (
+    visibleCardIds: readonly string[],
+    activeId: string,
+    overId: string,
+  ) => {
+    const nextOrder = reorderDraftCardIdsInFullOrder(
+      storedDraftOrder,
+      visibleCardIds,
+      activeId,
+      overId,
+    );
+    if (nextOrder) {
+      setDraftOrder(board.projectId, nextOrder);
+    }
+  };
+  const hasRevealedReviewFold = useKanbanUiStore((state) => state.hasRevealedReviewFold);
+  const needsReviewFilter = useKanbanUiStore((state) => state.kanbanNeedsReviewFilter);
+  const setHasRevealedReviewFold = useKanbanUiStore((state) => state.setHasRevealedReviewFold);
+  const [activeCard, setActiveCard] = useState<KanbanCard | null>(null);
+  // A completed drag still emits a click on the source card; swallow exactly that one
+  // so dropping a card never also opens its chat.
+  const suppressClickRef = useRef(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
+  );
+  const handleOpenCard = (card: KanbanCard) => {
+    if (suppressClickRef.current) {
+      return;
+    }
+    onOpenCard(card);
+  };
+
+  const handleDispatchDrop = (card: KanbanCard) =>
+    dispatchSingleFlight.run(card.threadId, async () => {
+      // Menus and drags can outlive the board snapshot they were opened from.
+      // Recheck the live store before preflight and after its asynchronous work.
+      const isAlreadyDispatching = () =>
+        card.isOptimisticDispatch ||
+        Boolean(useKanbanUiStore.getState().optimisticDispatchByThreadId[card.threadId]);
+      if (isAlreadyDispatching()) return;
+      const dispatchTarget = resolveKanbanDraftDispatchTarget({
+        threadId: card.threadId,
+        projectId: card.projectId,
+        thread: card.thread,
+        defaultProvider: settings.defaultProvider,
+        providerInstances,
+      });
+      const sendAvailability = await resolveProviderSendAvailabilityWithRefresh({
+        provider: dispatchTarget.provider,
+        instanceId: dispatchTarget.instanceId,
+        statuses: providerStatuses,
+        refreshStatuses: () => refreshProviderStatuses({ silent: true }),
+      });
+      if (isAlreadyDispatching()) return;
+      if (!sendAvailability.usable) {
+        toastManager.add({
+          type: "error",
+          title: localizeProviderSendBlockedReason(locale, sendAvailability),
+        });
+        return;
+      }
+      // The dispatch marks the optimistic overlay synchronously, so the card jumps
+      // to In Progress before any round-trip; failure results revert it. Drops
+      // dispatch WITH the drafted prompt saved as the thread goal (the AsGoal
+      // variant runs the same open-thread guards as plain dispatch, so
+      // non-dispatchable drops still fall back to opening the chat).
+      const result = await dispatchKanbanDraftCardAsGoal({
+        card,
+        defaultProvider: settings.defaultProvider,
+        assistantDeliveryMode,
+        providerOptions: getProviderStartOptions(settings, dispatchTarget.instanceId),
+        providerInstances,
+      });
+      if (result.kind === "dispatched" && result.deferred) {
+        toastManager.add({
+          type: "info",
+          title: "Chat send in progress",
+          description: "The board stood down; the running chat send owns this turn.",
+        });
+        return;
+      }
+      if (result.kind === "dispatched" && result.warning) {
+        toastManager.add({
+          type: "warning",
+          title: t("kanban.draft.toast.sent"),
+          description: result.warning,
+        });
+        return;
+      }
+      presentKanbanDraftDispatchResult({
+        result,
+        card,
+        t,
+        addToast: (toast) => {
+          toastManager.add(toast);
+        },
+        onOpenCard,
+      });
+    });
+
+  // The card context menu moves through the same single-flight dispatch as a drop.
+  const handleMoveToInProgress = (card: KanbanCard) => handleDispatchDrop(card);
+
+  const handleCardContextMenu = (card: KanbanCard, event: React.MouseEvent) => {
+    // Other columns are derived-only. Drafts requiring the chat composer are
+    // not manual moves either; use the same dispatch eligibility as the drop.
+    const canMoveToInProgress =
+      resolveDraftDropAction(card) === "dispatch" &&
+      !card.isOptimisticDispatch &&
+      !useKanbanUiStore.getState().optimisticDispatchByThreadId[card.threadId];
+    onCardContextMenu?.(
+      card,
+      event,
+      canMoveToInProgress
+        ? [
+            {
+              column: "inProgress",
+              onMove: () => {
+                void handleMoveToInProgress(card);
+              },
+            },
+          ]
+        : [],
+    );
+  };
+
+  // Keyboard reorder for draft cards that can not be dragged: Alt+ArrowUp/Down
+  // moves the focused card one slot, reusing the same order math as a drop.
+  // Other columns are derived-only, so their cards ignore reorder keys.
+  const handleCardKeyDown = (card: KanbanCard, event: ReactKeyboardEvent) => {
+    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) {
+      return;
+    }
+    if (card.column !== "draft") {
+      return;
+    }
+    event.preventDefault();
+    const visibleCardIds = board.draft.map((draftCard) => draftCard.cardId);
+    const index = visibleCardIds.indexOf(card.cardId);
+    const neighbor =
+      event.key === "ArrowUp" ? visibleCardIds[index - 1] : visibleCardIds[index + 1];
+    if (index === -1 || neighbor === undefined) {
+      return;
+    }
+    persistVisibleMove(visibleCardIds, card.cardId, neighbor);
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const card = board.draft.find((candidate) => candidate.cardId === event.active.id) ?? null;
+    setActiveCard(card);
+    suppressClickRef.current = true;
+  };
+
+  const releaseClickSuppression = () => {
+    // The trailing click (if any) fires synchronously after dragend; release on the
+    // next tick so regular clicks keep working when the drop happens off-card.
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 0);
+  };
+
+  const handleDragCancel = () => {
+    setActiveCard(null);
+    releaseClickSuppression();
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    setActiveCard(null);
+    releaseClickSuppression();
+    const { active, over } = event;
+    if (!over) {
+      return;
+    }
+    const activeId = String(active.id);
+    const card = board.draft.find((candidate) => candidate.cardId === activeId);
+    if (!card) {
+      return;
+    }
+    const overId = String(over.id);
+    const targetColumn = resolveDropColumn(board, overId);
+    if (targetColumn === "draft") {
+      const visibleCardIds = board.draft.map((draftCard) => draftCard.cardId);
+      if (overId !== activeId) {
+        if (board.draft.some((draftCard) => draftCard.cardId === overId)) {
+          persistVisibleMove(visibleCardIds, activeId, overId);
+        } else {
+          // Dropped on the column body itself: move to the end.
+          persistVisibleMove(visibleCardIds, activeId, visibleCardIds.at(-1) ?? activeId);
+        }
+      }
+      return;
+    }
+    if (targetColumn === "inProgress" || targetColumn === "done") {
+      routeKanbanDraftColumnDrop({
+        targetColumn,
+        dispatchWithPreflight: () => {
+          // A drag that started before the board re-derived could re-drop a card whose
+          // dispatch is still settling; a second drop must not queue another turn.
+          if (useKanbanUiStore.getState().optimisticDispatchByThreadId[card.threadId]) {
+            return;
+          }
+          void handleDispatchDrop(card);
+        },
+        t,
+        addToast: (toast) => {
+          toastManager.add(toast);
+        },
+      });
+      return;
+    }
+    if (targetColumn === "awaitingYou") {
+      toastManager.add({
+        type: "info",
+        title: "Awaiting you is derived automatically",
+        description: "Cards move here when they need your approval, input, or a retry.",
+      });
+    }
+  };
+
+  const nowMsProps = nowMs !== undefined ? { nowMs } : {};
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={collisionDetection}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
+      <div className="@container/kanban-project flex h-full min-h-0 w-full min-w-0 flex-col">
+        {viewMode === "v2" ? (
+          <div className="flex shrink-0 items-center gap-2 px-4 pb-2">
+            <NeedsReviewFilter />
+            {shouldShowReviewFoldToggle(hasRevealedReviewFold, board.hiddenCount) ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                className="text-ui-xs text-muted-foreground/80 hover:text-foreground"
+                onClick={() => setHasRevealedReviewFold(!hasRevealedReviewFold)}
+              >
+                {resolveReviewFoldToggleLabel(hasRevealedReviewFold, board.hiddenCount)}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        <div
+          data-slot="kanban-project-board-layout"
+          className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-4 @min-[52rem]/kanban-project:flex-row @min-[52rem]/kanban-project:overflow-x-auto @min-[52rem]/kanban-project:overflow-y-hidden"
+        >
+          <KanbanColumn
+            projectId={board.projectId}
+            columnKey="draft"
+            cards={board.draft}
+            onOpenCard={handleOpenCard}
+            onCardContextMenu={handleCardContextMenu}
+            onCardKeyDown={handleCardKeyDown}
+            sortable
+            droppable
+            activeCard={activeCard}
+            onNewCard={onNewTask}
+            prByThreadId={prByThreadId}
+            {...nowMsProps}
+          />
+          <KanbanColumn
+            projectId={board.projectId}
+            columnKey="inProgress"
+            cards={board.inProgress}
+            onOpenCard={handleOpenCard}
+            onCardContextMenu={handleCardContextMenu}
+            droppable
+            activeCard={activeCard}
+            prByThreadId={prByThreadId}
+            {...nowMsProps}
+          />
+          {viewMode === "v2" ? (
+            <KanbanColumn
+              projectId={board.projectId}
+              columnKey="awaitingYou"
+              cards={board.awaitingYou}
+              onOpenCard={handleOpenCard}
+              onCardContextMenu={handleCardContextMenu}
+              // Droppable so a drop onto it produces the explaining toast rather
+              // than silently falling through to empty space (L1).
+              droppable
+              activeCard={activeCard}
+              prByThreadId={prByThreadId}
+              {...nowMsProps}
+            />
+          ) : null}
+          <KanbanColumn
+            projectId={board.projectId}
+            columnKey="done"
+            capDone={viewMode !== "v2" || !needsReviewFilter}
+            cards={board.done}
+            onOpenCard={handleOpenCard}
+            onCardContextMenu={handleCardContextMenu}
+            droppable
+            activeCard={activeCard}
+            prByThreadId={prByThreadId}
+            {...nowMsProps}
+          />
+        </div>
+      </div>
+      <DragOverlay dropAnimation={null}>
+        {activeCard ? (
+          <KanbanCardView card={activeCard} isOverlay prByThreadId={prByThreadId} {...nowMsProps} />
+        ) : null}
+      </DragOverlay>
+    </DndContext>
+  );
+}

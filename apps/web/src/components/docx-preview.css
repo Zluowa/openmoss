@@ -1,0 +1,65 @@
+/*
+ * Moss-owned fallback for consumers that still use the historical
+ * `docx-preview/dist/docx-preview.css` path. docx-preview@0.4 injects the
+ * document-specific rules into the supplied style container, so only the
+ * page shell belongs here.
+ */
+.moss-docx-preview-body > .moss-docx-preview-wrapper {
+  min-height: 100%;
+  display: flex;
+  flex-flow: column;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 1.5rem 1.5rem var(--right-panel-composer-overlay-reserve, 1.5rem);
+  background: var(--color-surface-secondary, var(--color-muted)) !important;
+}
+
+.moss-docx-preview-body .moss-docx-preview-wrapper > section.moss-docx-preview {
+  margin: 0 !important;
+  border: 1px solid transparent;
+  background: white !important;
+  box-shadow: var(--elevation-prominent, 0 4px 16px 0 rgb(0 0 0 / 5%));
+  transform-origin: top center;
+  border-radius: 0;
+  zoom: var(--moss-docx-preview-zoom, 1);
+  position: relative;
+  overflow: hidden;
+  flex: none;
+}
+
+.moss-docx-preview::selection,
+.moss-docx-preview ::selection {
+  color: currentColor;
+}
+
+.moss-docx-preview ins {
+  background: var(--color-codex-diff-added, #dcfce7);
+  text-decoration: underline;
+}
+
+.moss-docx-preview del {
+  background: var(--color-codex-diff-deleted, #fee2e2);
+  text-decoration: line-through;
+}
+
+.moss-docx-preview [data-paged-annotation-ask-for-edit="true"],
+.moss-docx-preview [data-paged-annotation-ask-for-edit="true"] *,
+[data-docx-preview="true"] [data-paged-annotation-ask-for-edit="true"],
+[data-docx-preview="true"] [data-paged-annotation-ask-for-edit="true"] * {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Segoe UI", sans-serif !important;
+  font-size: 12px !important;
+  letter-spacing: -0.3px !important;
+  line-height: 18px !important;
+  white-space: nowrap !important;
+}
+
+.moss-docx-preview [data-paged-annotation-ask-for-edit-label="true"],
+[data-docx-preview="true"] [data-paged-annotation-ask-for-edit-label="true"] {
+  font-weight: 400 !important;
+}
+
+.moss-docx-preview [data-paged-annotation-ask-for-edit-shortcut="true"],
+[data-docx-preview="true"] [data-paged-annotation-ask-for-edit-shortcut="true"] {
+  font-weight: 500 !important;
+}

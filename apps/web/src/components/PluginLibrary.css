@@ -1,0 +1,100 @@
+.plugin-library-grid-container {
+  container-type: inline-size;
+}
+
+/* Codex directory grid: two 40px-apart columns of 68px rows with no row gap;
+   rows bleed their hover surface 10px past each column edge. */
+.plugin-library-plugin-grid {
+  display: grid;
+  grid-template-columns: repeat(1, minmax(0, 1fr));
+  column-gap: 2.5rem;
+  row-gap: 0;
+}
+
+.plugin-library-plugin-row {
+  min-height: 68px;
+}
+
+.text-token-text-secondary {
+  color: var(--color-token-text-secondary);
+}
+
+.text-base.text-token-text-secondary {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+@container (width >= 581px) {
+  .plugin-library-plugin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plugin-library-motion {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+.plugin-library-header {
+  height: 46px;
+}
+
+.plugin-library-card-icon {
+  width: 36px;
+  height: 36px;
+}
+
+.plugin-library-detail-icon {
+  width: 60px;
+  height: 60px;
+}
+
+.plugin-library-one-line {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+.plugin-library-import-dialog {
+  overflow: hidden;
+  min-width: 0;
+  max-width: min(100%, 42rem);
+}
+
+.plugin-library-import-dialog [data-slot="dialog-panel"],
+.plugin-library-import-dialog [data-slot="scroll-area-viewport"] {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.plugin-library-import-dialog [role="alert"] > span,
+.plugin-library-import-dialog [role="status"] > span,
+.plugin-library-import-dialog [data-testid="plugin-import-source-panel"] p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-import-stepper {
+  background: color-mix(in srgb, var(--color-background) 78%, transparent);
+}
+
+.plugin-import-preview {
+  min-width: 0;
+  max-width: 100%;
+  max-height: 260px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 639px) {
+  .plugin-library-import-dialog {
+    max-height: calc(100dvh - 3rem);
+  }
+
+  .plugin-import-stepper {
+    gap: 0.35rem;
+  }
+}

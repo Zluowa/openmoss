@@ -1,0 +1,10 @@
+bun.lock text eol=lf
+
+# Audited third-party license texts are stored byte-for-byte; their upstream
+# whitespace and line endings are covered by the compliance hashes.
+third_party/openai-codex/0.144.2/** -text -whitespace
+third_party/openai-codex/0.147.0/** -text -whitespace
+third_party/openai-codex/0.150.0-alpha.8/** -text -whitespace
+third_party/openai-codex/0.151.0-alpha.7.1/** -text -whitespace
+third_party/openai-codex/0.153.4/** -text -whitespace
+third_party/openai-codex/0.163.0/** -text -whitespace

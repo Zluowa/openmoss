@@ -1,0 +1,141 @@
+import { Schema } from "effect";
+
+import {
+  SpaceCreatedPayload as ContractsSpaceCreatedPayloadSchema,
+  SpaceMetaUpdatedPayload as ContractsSpaceMetaUpdatedPayloadSchema,
+  SpaceOrderUpdatedPayload as ContractsSpaceOrderUpdatedPayloadSchema,
+  SpaceDeletedPayload as ContractsSpaceDeletedPayloadSchema,
+  ProjectCreatedPayload as ContractsProjectCreatedPayloadSchema,
+  ProjectMetaUpdatedPayload as ContractsProjectMetaUpdatedPayloadSchema,
+  ProjectDeletedPayload as ContractsProjectDeletedPayloadSchema,
+  SidebarSectionCreatedPayload as ContractsSidebarSectionCreatedPayloadSchema,
+  SidebarSectionRenamedPayload as ContractsSidebarSectionRenamedPayloadSchema,
+  SidebarSectionCollapsedPayload as ContractsSidebarSectionCollapsedPayloadSchema,
+  SidebarSectionDeletedPayload as ContractsSidebarSectionDeletedPayloadSchema,
+  SidebarSectionOrderUpdatedPayload as ContractsSidebarSectionOrderUpdatedPayloadSchema,
+  SidebarSectionThreadPlacedPayload as ContractsSidebarSectionThreadPlacedPayloadSchema,
+  SidebarSectionProjectPlacedPayload as ContractsSidebarSectionProjectPlacedPayloadSchema,
+  SidebarSectionThreadOrderUpdatedPayload as ContractsSidebarSectionThreadOrderUpdatedPayloadSchema,
+  SidebarProjectsOrderUpdatedPayload as ContractsSidebarProjectsOrderUpdatedPayloadSchema,
+  OrchestrationSidebarOrder as ContractsOrchestrationSidebarOrderSchema,
+  OrchestrationSidebarSection as ContractsOrchestrationSidebarSectionSchema,
+  ThreadTurnCapacityRetryRequestedPayload as ContractsThreadTurnCapacityRetryRequestedPayloadSchema,
+  ThreadMarker,
+  ThreadMarkerId,
+  ThreadId,
+  IsoDateTime,
+  ThreadCreatedPayload as ContractsThreadCreatedPayloadSchema,
+  ThreadArchivedPayload as ContractsThreadArchivedPayloadSchema,
+  ThreadMetaUpdatedPayload as ContractsThreadMetaUpdatedPayloadSchema,
+  ThreadPinnedMessageAddedPayload as ContractsThreadPinnedMessageAddedPayloadSchema,
+  ThreadPinnedMessageRemovedPayload as ContractsThreadPinnedMessageRemovedPayloadSchema,
+  ThreadPinnedMessageDoneSetPayload as ContractsThreadPinnedMessageDoneSetPayloadSchema,
+  ThreadPinnedMessageLabelSetPayload as ContractsThreadPinnedMessageLabelSetPayloadSchema,
+  ThreadRuntimeModeSetPayload as ContractsThreadRuntimeModeSetPayloadSchema,
+  ThreadInteractionModeSetPayload as ContractsThreadInteractionModeSetPayloadSchema,
+  ThreadDeletedPayload as ContractsThreadDeletedPayloadSchema,
+  ThreadUnarchivedPayload as ContractsThreadUnarchivedPayloadSchema,
+  ThreadMessageSentPayload as ContractsThreadMessageSentPayloadSchema,
+  ThreadProposedPlanUpsertedPayload as ContractsThreadProposedPlanUpsertedPayloadSchema,
+  ThreadSessionSetPayload as ContractsThreadSessionSetPayloadSchema,
+  ThreadTurnDiffCompletedPayload as ContractsThreadTurnDiffCompletedPayloadSchema,
+  ThreadRevertedPayload as ContractsThreadRevertedPayloadSchema,
+  ThreadActivityAppendedPayload as ContractsThreadActivityAppendedPayloadSchema,
+  ThreadTurnStartRequestedPayload as ContractsThreadTurnStartRequestedPayloadSchema,
+  ThreadTurnResumeRequestedPayload as ContractsThreadTurnResumeRequestedPayloadSchema,
+  ThreadTurnInterruptRequestedPayload as ContractsThreadTurnInterruptRequestedPayloadSchema,
+  ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
+  ThreadCheckpointRevertRequestedPayload as ContractsThreadCheckpointRevertRequestedPayloadSchema,
+  ThreadConversationRolledBackPayload as ContractsThreadConversationRolledBackPayloadSchema,
+  ThreadConversationRollbackRequestedPayload as ContractsThreadConversationRollbackRequestedPayloadSchema,
+  ThreadMessageEditResendRequestedPayload as ContractsThreadMessageEditResendRequestedPayloadSchema,
+  ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
+  ThreadSidechatActivityRecordedPayload as ContractsThreadSidechatActivityRecordedPayloadSchema,
+  ThreadSidechatExpiredPayload as ContractsThreadSidechatExpiredPayloadSchema,
+} from "@synara/contracts";
+
+// Server-internal alias surface, backed by contract schemas as the source of truth.
+export const SpaceCreatedPayload = ContractsSpaceCreatedPayloadSchema;
+export const SpaceMetaUpdatedPayload = ContractsSpaceMetaUpdatedPayloadSchema;
+export const SpaceOrderUpdatedPayload = ContractsSpaceOrderUpdatedPayloadSchema;
+export const SpaceDeletedPayload = ContractsSpaceDeletedPayloadSchema;
+export const ProjectCreatedPayload = ContractsProjectCreatedPayloadSchema;
+export const ProjectMetaUpdatedPayload = ContractsProjectMetaUpdatedPayloadSchema;
+export const ProjectDeletedPayload = ContractsProjectDeletedPayloadSchema;
+export const SidebarSectionCreatedPayload = ContractsSidebarSectionCreatedPayloadSchema;
+export const SidebarSectionRenamedPayload = ContractsSidebarSectionRenamedPayloadSchema;
+export const SidebarSectionCollapsedPayload = ContractsSidebarSectionCollapsedPayloadSchema;
+export const SidebarSectionDeletedPayload = ContractsSidebarSectionDeletedPayloadSchema;
+export const SidebarSectionOrderUpdatedPayload = ContractsSidebarSectionOrderUpdatedPayloadSchema;
+export const SidebarSectionThreadPlacedPayload = ContractsSidebarSectionThreadPlacedPayloadSchema;
+export const SidebarSectionProjectPlacedPayload = ContractsSidebarSectionProjectPlacedPayloadSchema;
+export const SidebarSectionThreadOrderUpdatedPayload =
+  ContractsSidebarSectionThreadOrderUpdatedPayloadSchema;
+export const SidebarProjectsOrderUpdatedPayload = ContractsSidebarProjectsOrderUpdatedPayloadSchema;
+export const OrchestrationSidebarOrder = ContractsOrchestrationSidebarOrderSchema;
+export const OrchestrationSidebarSection = ContractsOrchestrationSidebarSectionSchema;
+export const ThreadTurnCapacityRetryRequestedPayload =
+  ContractsThreadTurnCapacityRetryRequestedPayloadSchema;
+
+// Marker event payloads are inline in the contract event union; mirror them
+// here for server-side decoding.
+export const ThreadMarkerAddedPayload = Schema.Struct({
+  threadId: ThreadId,
+  marker: ThreadMarker,
+  updatedAt: IsoDateTime,
+});
+export const ThreadMarkerRemovedPayload = Schema.Struct({
+  threadId: ThreadId,
+  markerId: ThreadMarkerId,
+  updatedAt: IsoDateTime,
+});
+export const ThreadMarkerDoneSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  markerId: ThreadMarkerId,
+  done: Schema.Boolean,
+  updatedAt: IsoDateTime,
+});
+export const ThreadMarkerLabelSetPayload = Schema.Struct({
+  threadId: ThreadId,
+  markerId: ThreadMarkerId,
+  label: Schema.NullOr(Schema.String),
+  updatedAt: IsoDateTime,
+});
+
+export const ThreadCreatedPayload = ContractsThreadCreatedPayloadSchema;
+export const ThreadArchivedPayload = ContractsThreadArchivedPayloadSchema;
+export const ThreadMetaUpdatedPayload = ContractsThreadMetaUpdatedPayloadSchema;
+export const ThreadPinnedMessageAddedPayload = ContractsThreadPinnedMessageAddedPayloadSchema;
+export const ThreadPinnedMessageRemovedPayload = ContractsThreadPinnedMessageRemovedPayloadSchema;
+export const ThreadPinnedMessageDoneSetPayload = ContractsThreadPinnedMessageDoneSetPayloadSchema;
+export const ThreadPinnedMessageLabelSetPayload = ContractsThreadPinnedMessageLabelSetPayloadSchema;
+export const ThreadRuntimeModeSetPayload = ContractsThreadRuntimeModeSetPayloadSchema;
+export const ThreadInteractionModeSetPayload = ContractsThreadInteractionModeSetPayloadSchema;
+export const ThreadDeletedPayload = ContractsThreadDeletedPayloadSchema;
+export const ThreadUnarchivedPayload = ContractsThreadUnarchivedPayloadSchema;
+
+export const MessageSentPayloadSchema = ContractsThreadMessageSentPayloadSchema;
+export const ThreadProposedPlanUpsertedPayload = ContractsThreadProposedPlanUpsertedPayloadSchema;
+export const ThreadSessionSetPayload = ContractsThreadSessionSetPayloadSchema;
+export const ThreadTurnDiffCompletedPayload = ContractsThreadTurnDiffCompletedPayloadSchema;
+export const ThreadRevertedPayload = ContractsThreadRevertedPayloadSchema;
+export const ThreadActivityAppendedPayload = ContractsThreadActivityAppendedPayloadSchema;
+
+export const ThreadTurnStartRequestedPayload = ContractsThreadTurnStartRequestedPayloadSchema;
+export const ThreadTurnResumeRequestedPayload = ContractsThreadTurnResumeRequestedPayloadSchema;
+export const ThreadTurnInterruptRequestedPayload =
+  ContractsThreadTurnInterruptRequestedPayloadSchema;
+export const ThreadApprovalResponseRequestedPayload =
+  ContractsThreadApprovalResponseRequestedPayloadSchema;
+export const ThreadCheckpointRevertRequestedPayload =
+  ContractsThreadCheckpointRevertRequestedPayloadSchema;
+export const ThreadConversationRollbackRequestedPayload =
+  ContractsThreadConversationRollbackRequestedPayloadSchema;
+export const ThreadConversationRolledBackPayload =
+  ContractsThreadConversationRolledBackPayloadSchema;
+export const ThreadMessageEditResendRequestedPayload =
+  ContractsThreadMessageEditResendRequestedPayloadSchema;
+export const ThreadSessionStopRequestedPayload = ContractsThreadSessionStopRequestedPayloadSchema;
+export const ThreadSidechatActivityRecordedPayload =
+  ContractsThreadSidechatActivityRecordedPayloadSchema;
+export const ThreadSidechatExpiredPayload = ContractsThreadSidechatExpiredPayloadSchema;

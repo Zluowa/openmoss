@@ -1,0 +1,746 @@
+diff --git a/react.js b/react.js
+--- a/react.js
++++ b/react.js
+@@ -1145,7 +1145,7 @@
+   const {
+     sizes,
+     averageSizes,
+-    props: { estimatedItemSize, getItemType },
++    props: { estimatedItemSize, getEstimatedItemSize, getItemType },
+     scrollingTo
+   } = state;
+   const sizeKnown = state.sizesKnown.get(key);
+@@ -1165,6 +1165,17 @@
+     return size;
+   }
+   const itemType = (_b = resolved == null ? void 0 : resolved.itemType) != null ? _b : getItemType ? (_a3 = getItemType(data, index)) != null ? _a3 : "" : "";
++  // A per-item estimate beats the shared average: rows of one type can differ by an
++  // order of magnitude, and every wrong guess above the viewport is later paid as a
++  // scroll-anchor correction. Measurement still replaces it like any estimate.
++  if (getEstimatedItemSize) {
++    const estimatedSize = getEstimatedItemSize(data, index, itemType);
++    if (estimatedSize !== void 0 && estimatedSize > 0) {
++      size = roundSize(estimatedSize) + ctx.scrollAxisGap;
++      setSize(ctx, key, size, notifyTotalSize);
++      return size;
++    }
++  }
+   if (useAverageSize && !scrollingTo) {
+     const averageSizeForType = (_c = averageSizes[itemType]) == null ? void 0 : _c.avg;
+     if (averageSizeForType !== void 0) {
+@@ -1299,6 +1310,8 @@
+   const contentSize = isHorizontal ? getContentSize(ctx) : void 0;
+   const left = isHorizontal ? toNativeHorizontalOffset(state, offset, contentSize) : 0;
+   const top = isHorizontal ? 0 : offset;
++  // Read before scrolling: afterwards the scroller is at the target either way.
++  const nativeWasAtTarget = !isAnimated && !!((_a3 = state.scrollingTo) == null ? void 0 : _a3.isInitialScroll) && isNativeScrollAtOffset(ctx, offset);
+   scroller.scrollTo({ animated: isAnimated, x: left, y: top });
+   if (isAnimated) {
+     const target = (_b = (_a3 = scroller.getScrollEventTarget) == null ? void 0 : _a3.call(scroller)) != null ? _b : null;
+@@ -1312,6 +1325,11 @@
+     setTimeout(() => {
+       finishScrollTo(ctx);
+     }, 100);
++    // An instant initial scroll to where the scroller already is emits no scroll event, so
++    // nothing checks completion before that 100ms fallback and the list stays hidden.
++    if (nativeWasAtTarget) {
++      checkFinishedScroll(ctx);
++    }
+   }
+ }
+ function listenForScrollEnd(ctx, params) {
+@@ -1367,7 +1385,11 @@
+ }
+ 
+ // src/core/doMaintainScrollAtEnd.ts
+-function doMaintainScrollAtEnd(ctx) {
++function isUnmovedEndFollow(refScroller, request) {
++  const offset = request?.scroller?.getCurrentScrollOffset?.();
++  return request?.scroller === refScroller.current && Number.isFinite(request?.offset) && Math.abs(offset - request.offset) <= 1;
++}
++function doMaintainScrollAtEnd(ctx, pendingFollow) {
+   const state = ctx.state;
+   const {
+     didContainersLayout,
+@@ -1376,7 +1398,10 @@
+     props: { maintainScrollAtEnd }
+   } = state;
+   const isWithinMaintainScrollAtEndThreshold = peek$(ctx, "isWithinMaintainScrollAtEndThreshold");
+-  const shouldMaintainScrollAtEnd = !!(isWithinMaintainScrollAtEndThreshold && maintainScrollAtEnd && didContainersLayout);
++  // A delayed native event can observe newly grown content after our own instant scroll.
++  // Keep ownership only while that exact native offset and scroller remain unchanged.
++  const continuedFollow = pendingFollow ?? state.maintainScrollAtEndRequest;
++  const shouldMaintainScrollAtEnd = !!((isWithinMaintainScrollAtEndThreshold || isUnmovedEndFollow(refScroller, continuedFollow)) && maintainScrollAtEnd && didContainersLayout);
+   if (pendingNativeMVCPAdjust) {
+     state.pendingMaintainScrollAtEnd = shouldMaintainScrollAtEnd;
+     return false;
+@@ -1391,8 +1416,15 @@
+       const pendingState = maintainScrollAtEnd.animated ? "pending-animated" : "pending-instant";
+       const activeState = maintainScrollAtEnd.animated ? "animated" : "instant";
+       state.maintainingScrollAtEnd = pendingState;
++      const scheduledScroller = refScroller.current;
++      const scheduledOffset = scheduledScroller?.getCurrentScrollOffset?.();
++      state.maintainScrollAtEndRequest = { scroller: scheduledScroller, offset: scheduledOffset };
++      // Content may grow before a coalesced native scroll event updates the threshold.
++      // Keep the queued follow if its reader has not moved or disabled following.
+       requestAnimationFrame(() => {
+-        if (peek$(ctx, "isWithinMaintainScrollAtEndThreshold")) {
++        const currentOffset = scheduledScroller?.getCurrentScrollOffset?.();
++        const stayedAtRequestedOffset = scheduledScroller === refScroller.current && Number.isFinite(scheduledOffset) && Math.abs(currentOffset - scheduledOffset) <= 1;
++        if (state.props.maintainScrollAtEnd && (peek$(ctx, "isWithinMaintainScrollAtEndThreshold") || stayedAtRequestedOffset)) {
+           state.maintainingScrollAtEnd = activeState;
+           const scroller = refScroller.current;
+           if (state.props.horizontal && isHorizontalRTL(state)) {
+@@ -1409,12 +1441,15 @@
+               animated: maintainScrollAtEnd.animated
+             });
+           }
++          const completedFollow = { scroller, offset: scroller?.getCurrentScrollOffset?.() };
++          state.maintainScrollAtEndRequest = completedFollow;
+           setTimeout(
+             () => {
+               if (state.maintainingScrollAtEnd === activeState) {
+                 state.maintainingScrollAtEnd = void 0;
++                state.maintainScrollAtEndRequest = void 0;
+                 if (state.pendingMaintainScrollAtEnd) {
+-                  doMaintainScrollAtEnd(ctx);
++                  doMaintainScrollAtEnd(ctx, completedFollow);
+                 }
+               }
+             },
+@@ -1422,6 +1457,7 @@
+           );
+         } else if (state.maintainingScrollAtEnd === pendingState) {
+           state.maintainingScrollAtEnd = void 0;
++          state.maintainScrollAtEndRequest = void 0;
+         }
+       });
+     } else {
+@@ -1708,13 +1744,23 @@
+           anchorPositionForLock = newPosition;
+         }
+       }
+-      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
++      // Data can remove an in-flight scroll target before its measurement finishes.
++      // getId then returns null, which setSize treats as a total-size reset sentinel.
++      // Only a target still present in this data set can contribute size compensation.
++      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId != null && scrollTarget >= 0 && scrollTarget < state.props.data.length) {
+         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
+         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
+         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
+           const diff = newSize - prevSize;
+           if (diff !== 0) {
+-            positionDiff += diff * scrollingToViewPosition;
++            // A shrinking end target may already have clamped to the new native end.
++            // Reapplying its size delta would move it away from that reached target.
++            // Include native bounds: CSS class padding can exceed modeled content geometry.
++            const maxScroll = Math.max(0, getContentSize(ctx) - state.scrollLength);
++            const endTargetAlreadyClamped = diff < 0 && scrollTarget === data.length - 1 && scrollingToViewPosition === 1 && (Math.abs(state.scroll - maxScroll) <= NATIVE_END_CLAMP_EPSILON && calculateOffsetWithOffsetPosition(ctx, calculateOffsetForIndex(ctx, scrollTarget), scrollingTo) >= maxScroll - NATIVE_END_CLAMP_EPSILON || isPinnedAtNativeScrollEnd(ctx, state.scroll, calculateOffsetWithOffsetPosition(ctx, calculateOffsetForIndex(ctx, scrollTarget), scrollingTo)));
++            if (!endTargetAlreadyClamped) {
++              positionDiff += diff * scrollingToViewPosition;
++            }
+             scrollingTo.itemSize = newSize;
+           }
+         }
+@@ -2110,20 +2156,36 @@
+ }
+ 
+ // src/core/initialScroll.ts
++// The native scroll viewport can have class padding that is not represented in
++// the numeric style props. Its bootstrap end target must use the same bounds as
++// an already completed end scroll instead of moving back by that missing inset.
++function getInitialEndClassPadding(ctx, target, index) {
++  const state = ctx.state;
++  if (Platform.OS !== "web" || state.props.horizontal || state.props.useWindowScroll || state.props.data.length === 0 || index !== state.props.data.length - 1 || target.viewPosition !== 1 || !target.preserveForBottomPadding || typeof getComputedStyle !== "function") {
++    return 0;
++  }
++  const node = state.refScroller.current?.getScrollableNode?.();
++  if (!node || typeof node.scrollHeight !== "number") {
++    return 0;
++  }
++  const style = getComputedStyle(node);
++  return Math.max(0, (Number.parseFloat(style.paddingTop) || 0) - (state.props.stylePaddingTop || 0)) + Math.max(0, (Number.parseFloat(style.paddingBottom) || 0) - (state.props.stylePaddingBottom || 0));
++}
+ function dispatchInitialScroll(ctx, params) {
+   const { forceScroll, resolvedOffset, target, waitForCompletionFrame } = params;
+   const requestedIndex = target.index;
+   const index = requestedIndex !== void 0 ? clampScrollIndex(requestedIndex, ctx.state.props.data.length) : void 0;
+   const itemSize = getItemSizeAtIndex(ctx, index);
++  const classPadding = getInitialEndClassPadding(ctx, target, index);
+   scrollTo(ctx, {
+     animated: false,
+     forceScroll,
+     index: index !== void 0 && index >= 0 ? index : void 0,
+     isInitialScroll: true,
+     itemSize,
+-    offset: resolvedOffset,
++    offset: resolvedOffset + classPadding,
+     precomputedWithViewOffset: true,
+-    viewOffset: target.viewOffset,
++    viewOffset: (target.viewOffset || 0) - classPadding,
+     viewPosition: target.viewPosition,
+     waitForInitialScrollCompletionFrame: waitForCompletionFrame
+   });
+@@ -2934,6 +2996,24 @@
+   const requestedTargetOffset = shouldRecomputeEndTarget && index !== void 0 ? calculateOffsetWithOffsetPosition(ctx, calculateOffsetForIndex(ctx, index), scrollingTo) : (_a3 = scrollingTo.targetOffset) != null ? _a3 : clampScrollOffset(ctx, scrollingTo.offset - (scrollingTo.viewOffset || 0), scrollingTo);
+   return clampScrollOffset(ctx, requestedTargetOffset, scrollingTo);
+ }
++// An end-aligned target can sit past what the scroller can reach (footer and bottom
++// padding are added to it), so the offset never matches and an instant scroll would only
++// finish on its 100ms fallback. Being pinned at the native scroll end is arrival.
++function isPinnedAtNativeScrollEnd(ctx, scroll, clampedTargetOffset) {
++  var _a3, _b;
++  if (clampedTargetOffset <= scroll) {
++    return false;
++  }
++  const state = ctx.state;
++  const node = (_b = (_a3 = state.refScroller.current) == null ? void 0 : _a3.getScrollableNode) == null ? void 0 : _b.call(_a3);
++  if (!node || typeof node.scrollHeight !== "number") {
++    return false;
++  }
++  const horizontal = !!state.props.horizontal;
++  const maxNativeOffset = horizontal ? node.scrollWidth - node.clientWidth : node.scrollHeight - node.clientHeight;
++  const nativeOffset = horizontal ? Math.abs(node.scrollLeft) : node.scrollTop;
++  return maxNativeOffset - nativeOffset <= 1 && Math.abs(nativeOffset - scroll) <= 1;
++}
+ function getResolvedScrollCompletionState(ctx, scrollingTo) {
+   const { state } = ctx;
+   const scroll = state.scrollPending;
+@@ -2946,7 +3026,7 @@
+   const canUseAdjustedCompletion = !scrollingTo.animated || Platform.OS === "ios";
+   return {
+     clampedTargetOffset,
+-    isAtResolvedTarget: Math.abs(scroll - maxOffset) < 1 && (diff1 < 1 || canUseAdjustedCompletion && diff2 < 1)
++    isAtResolvedTarget: Math.abs(scroll - maxOffset) < 1 && (diff1 < 1 || canUseAdjustedCompletion && diff2 < 1 || isPinnedAtNativeScrollEnd(ctx, scroll, clampedTargetOffset))
+   };
+ }
+ function checkFinishedScrollFrame(ctx) {
+@@ -2957,12 +3037,58 @@
+   const { state } = ctx;
+   state.animFrameCheckFinishedScroll = void 0;
+   const completionState = getResolvedScrollCompletionState(ctx, scrollingTo);
+-  if (completionState.isAtResolvedTarget && hasScrollCompletionOwnership(state, {
++  if (!completionState.isAtResolvedTarget) {
++    return;
++  }
++  if (hasScrollCompletionOwnership(state, {
+     clampedTargetOffset: completionState.clampedTargetOffset,
+     scrollingTo
+   })) {
+     finishScrollTo(ctx);
++  } else if (isInstantInitialScrollAlreadyApplied(ctx, scrollingTo, completionState.clampedTargetOffset)) {
++    // A target past the native end leaves `state.scroll` ahead of the scroller; settle on
++    // the native offset so later position adjustments start from where the list really is.
++    syncInitialScrollOffset(state, getNativeScrollOffset(ctx));
++    finishScrollTo(ctx);
++  }
++}
++// When every item size is already known, the list mounts at its initial target and the
++// instant scroll moves nothing, so no scroll event ever grants ownership and the list
++// would stay hidden until the 100ms finishScrollTo fallback. The native position being
++// at the target is the arrival the scroll event would have reported.
++function isInstantInitialScrollAlreadyApplied(ctx, scrollingTo, clampedTargetOffset) {
++  if (!scrollingTo.isInitialScroll || scrollingTo.animated) {
++    return false;
+   }
++  return Math.abs(ctx.state.scroll - clampedTargetOffset) <= 1 && isNativeScrollAtOffset(ctx, clampedTargetOffset);
++}
++// The native scroller is at `offset`, or pinned at its end when `offset` lies past what it
++// can reach (an end-aligned target includes footer and bottom padding). Either way an
++// instant scroll there moves nothing and emits no scroll event. The end only counts once
++// the scroller holds the content the list laid out: an unsized scroller is "at its end" too.
++function getScrollableElement(ctx) {
++  var _a3, _b;
++  const node = (_b = (_a3 = ctx.state.refScroller.current) == null ? void 0 : _a3.getScrollableNode) == null ? void 0 : _b.call(_a3);
++  return node && typeof node.scrollTop === "number" ? node : void 0;
++}
++function getNativeScrollOffset(ctx) {
++  const node = getScrollableElement(ctx);
++  return ctx.state.props.horizontal ? Math.abs(node.scrollLeft) : node.scrollTop;
++}
++function isNativeScrollAtOffset(ctx, offset) {
++  const state = ctx.state;
++  const node = getScrollableElement(ctx);
++  if (!node) {
++    return false;
++  }
++  const horizontal = !!state.props.horizontal;
++  const nativeOffset = getNativeScrollOffset(ctx);
++  if (Math.abs(nativeOffset - offset) <= 1) {
++    return true;
++  }
++  const nativeContentSize = horizontal ? node.scrollWidth : node.scrollHeight;
++  const maxNativeOffset = nativeContentSize - (horizontal ? node.clientWidth : node.clientHeight);
++  return offset > nativeOffset && maxNativeOffset - nativeOffset <= 1 && nativeContentSize >= getContentSize(ctx) - 1;
+ }
+ function scrollToFallbackOffset(ctx, offset) {
+   var _a3;
+@@ -4072,7 +4198,8 @@
+ function getIdsInVisibleRange(state, range) {
+   var _a3, _b;
+   const idsInView = [];
+-  const firstVisibleAnchorIndex = (_a3 = range.firstFullyOnScreenIndex) != null ? _a3 : range.startNoBuffer;
++  // Preserve the partially visible row being read, even when a later row is fully visible.
++  const firstVisibleAnchorIndex = (_a3 = range.startNoBuffer) != null ? _a3 : range.firstFullyOnScreenIndex;
+   if (firstVisibleAnchorIndex !== null && firstVisibleAnchorIndex !== void 0 && range.endNoBuffer !== null) {
+     for (let i = firstVisibleAnchorIndex; i <= range.endNoBuffer; i++) {
+       const id = (_b = state.idCache[i]) != null ? _b : getId(state, i);
+@@ -4335,7 +4462,7 @@
+     let startBufferedId = null;
+     let endBuffered = null;
+     let loopStart = (_h = suppressInitialScrollSideEffects ? bootstrapInitialScrollState == null ? void 0 : bootstrapInitialScrollState.targetIndexSeed : void 0) != null ? _h : !dataChanged && startBufferedIdOrig ? indexByKey.get(startBufferedIdOrig) || 0 : 0;
+-    for (let i = loopStart; i >= 0; i--) {
++    for (let i = Math.min(loopStart, data.length - 1); i >= 0; i--) {
+       const id = (_i = idCache[i]) != null ? _i : getId(state, i);
+       const top = positions[i];
+       const size = (_j = sizes.get(id)) != null ? _j : getItemSize(ctx, id, i, data[i]);
+@@ -5743,7 +5870,9 @@
+     width: totalSize
+   } : { height: totalSize, minWidth: otherAxisSize, opacity: readyToRender ? 1 : 0, position: "relative" };
+   if (!readyToRender) {
+-    style.pointerEvents = "none";
++    // Clip hidden rows out of hit testing without changing inherited pointer-events
++    // across the entire item subtree when the initial scroll reveals the list.
++    style.clipPath = "inset(50%)";
+   }
+   if (columnWrapperStyle && numColumns > 1) {
+     const { columnGap, rowGap, gap } = columnWrapperStyle;
+@@ -6898,6 +7027,17 @@
+     }
+   };
+ }
++// Native web layout can still be tall while a virtual-size rebuild holds only
++// estimates. Never clamp a valid rendered offset to that uncommitted estimate.
++function isWithinRenderedScrollBounds(ctx, offset) {
++  const state = ctx.state;
++  if (state.props.useWindowScroll) return false;
++  const node = state.refScroller.current?.getScrollableNode?.();
++  if (!node) return false;
++  const contentLength = state.props.horizontal ? node.scrollWidth : node.scrollHeight;
++  const viewportLength = state.props.horizontal ? node.clientWidth : node.clientHeight;
++  return Number.isFinite(contentLength) && Number.isFinite(viewportLength) && viewportLength > 0 && offset >= 0 && offset <= Math.max(0, contentLength - viewportLength);
++}
+ function onScroll(ctx, event) {
+   var _a3, _b, _c, _d, _e, _f;
+   const state = ctx.state;
+@@ -6924,7 +7064,7 @@
+   state.didFinishInitialScroll && ((_f = state.initialScroll) == null ? void 0 : _f.viewPosition) === 1 && state.scroll > state.scrollLength;
+   state.lastNativeScroll = newScroll;
+   state.lastNativeScrollTime = Date.now();
+-  if (state.scrollingTo && state.scrollingTo.offset >= newScroll) {
++  if (state.scrollingTo && state.scrollingTo.offset >= newScroll && !isWithinRenderedScrollBounds(ctx, newScroll)) {
+     const maxOffset = clampScrollOffset(ctx, newScroll, state.scrollingTo);
+     if (newScroll !== maxOffset && Math.abs(newScroll - maxOffset) > 1) {
+       newScroll = maxOffset;
+@@ -7068,6 +7208,10 @@
+ 
+ // src/core/scrollToEnd.ts
+ function scrollToEnd(ctx, options) {
++  // Handoffs can be queued behind layout. A reader may take over before dispatch.
++  if (options?.shouldScroll?.() === false) {
++    return false;
++  }
+   const state = ctx.state;
+   const data = state.props.data;
+   const index = data.length - 1;
+@@ -7582,6 +7726,7 @@
+     estimatedItemSize = 100,
+     estimatedListSize,
+     extraData,
++    getEstimatedItemSize,
+     getFixedItemSize,
+     getItemType,
+     horizontal,
+@@ -7839,6 +7984,7 @@
+     dataVersion,
+     drawDistance,
+     estimatedItemSize,
++    getEstimatedItemSize: useWrapIfItem(getEstimatedItemSize),
+     getFixedItemSize: useWrapIfItem(getFixedItemSize),
+     getItemType: useWrapIfItem(getItemType),
+     horizontal: !!horizontal,
+diff --git a/react.mjs b/react.mjs
+--- a/react.mjs
++++ b/react.mjs
+@@ -1124,7 +1124,7 @@
+   const {
+     sizes,
+     averageSizes,
+-    props: { estimatedItemSize, getItemType },
++    props: { estimatedItemSize, getEstimatedItemSize, getItemType },
+     scrollingTo
+   } = state;
+   const sizeKnown = state.sizesKnown.get(key);
+@@ -1144,6 +1144,17 @@
+     return size;
+   }
+   const itemType = (_b = resolved == null ? void 0 : resolved.itemType) != null ? _b : getItemType ? (_a3 = getItemType(data, index)) != null ? _a3 : "" : "";
++  // A per-item estimate beats the shared average: rows of one type can differ by an
++  // order of magnitude, and every wrong guess above the viewport is later paid as a
++  // scroll-anchor correction. Measurement still replaces it like any estimate.
++  if (getEstimatedItemSize) {
++    const estimatedSize = getEstimatedItemSize(data, index, itemType);
++    if (estimatedSize !== void 0 && estimatedSize > 0) {
++      size = roundSize(estimatedSize) + ctx.scrollAxisGap;
++      setSize(ctx, key, size, notifyTotalSize);
++      return size;
++    }
++  }
+   if (useAverageSize && !scrollingTo) {
+     const averageSizeForType = (_c = averageSizes[itemType]) == null ? void 0 : _c.avg;
+     if (averageSizeForType !== void 0) {
+@@ -1278,6 +1289,8 @@
+   const contentSize = isHorizontal ? getContentSize(ctx) : void 0;
+   const left = isHorizontal ? toNativeHorizontalOffset(state, offset, contentSize) : 0;
+   const top = isHorizontal ? 0 : offset;
++  // Read before scrolling: afterwards the scroller is at the target either way.
++  const nativeWasAtTarget = !isAnimated && !!((_a3 = state.scrollingTo) == null ? void 0 : _a3.isInitialScroll) && isNativeScrollAtOffset(ctx, offset);
+   scroller.scrollTo({ animated: isAnimated, x: left, y: top });
+   if (isAnimated) {
+     const target = (_b = (_a3 = scroller.getScrollEventTarget) == null ? void 0 : _a3.call(scroller)) != null ? _b : null;
+@@ -1291,6 +1304,11 @@
+     setTimeout(() => {
+       finishScrollTo(ctx);
+     }, 100);
++    // An instant initial scroll to where the scroller already is emits no scroll event, so
++    // nothing checks completion before that 100ms fallback and the list stays hidden.
++    if (nativeWasAtTarget) {
++      checkFinishedScroll(ctx);
++    }
+   }
+ }
+ function listenForScrollEnd(ctx, params) {
+@@ -1346,7 +1364,11 @@
+ }
+ 
+ // src/core/doMaintainScrollAtEnd.ts
+-function doMaintainScrollAtEnd(ctx) {
++function isUnmovedEndFollow(refScroller, request) {
++  const offset = request?.scroller?.getCurrentScrollOffset?.();
++  return request?.scroller === refScroller.current && Number.isFinite(request?.offset) && Math.abs(offset - request.offset) <= 1;
++}
++function doMaintainScrollAtEnd(ctx, pendingFollow) {
+   const state = ctx.state;
+   const {
+     didContainersLayout,
+@@ -1355,7 +1377,10 @@
+     props: { maintainScrollAtEnd }
+   } = state;
+   const isWithinMaintainScrollAtEndThreshold = peek$(ctx, "isWithinMaintainScrollAtEndThreshold");
+-  const shouldMaintainScrollAtEnd = !!(isWithinMaintainScrollAtEndThreshold && maintainScrollAtEnd && didContainersLayout);
++  // A delayed native event can observe newly grown content after our own instant scroll.
++  // Keep ownership only while that exact native offset and scroller remain unchanged.
++  const continuedFollow = pendingFollow ?? state.maintainScrollAtEndRequest;
++  const shouldMaintainScrollAtEnd = !!((isWithinMaintainScrollAtEndThreshold || isUnmovedEndFollow(refScroller, continuedFollow)) && maintainScrollAtEnd && didContainersLayout);
+   if (pendingNativeMVCPAdjust) {
+     state.pendingMaintainScrollAtEnd = shouldMaintainScrollAtEnd;
+     return false;
+@@ -1370,8 +1395,15 @@
+       const pendingState = maintainScrollAtEnd.animated ? "pending-animated" : "pending-instant";
+       const activeState = maintainScrollAtEnd.animated ? "animated" : "instant";
+       state.maintainingScrollAtEnd = pendingState;
++      const scheduledScroller = refScroller.current;
++      const scheduledOffset = scheduledScroller?.getCurrentScrollOffset?.();
++      state.maintainScrollAtEndRequest = { scroller: scheduledScroller, offset: scheduledOffset };
++      // Content may grow before a coalesced native scroll event updates the threshold.
++      // Keep the queued follow if its reader has not moved or disabled following.
+       requestAnimationFrame(() => {
+-        if (peek$(ctx, "isWithinMaintainScrollAtEndThreshold")) {
++        const currentOffset = scheduledScroller?.getCurrentScrollOffset?.();
++        const stayedAtRequestedOffset = scheduledScroller === refScroller.current && Number.isFinite(scheduledOffset) && Math.abs(currentOffset - scheduledOffset) <= 1;
++        if (state.props.maintainScrollAtEnd && (peek$(ctx, "isWithinMaintainScrollAtEndThreshold") || stayedAtRequestedOffset)) {
+           state.maintainingScrollAtEnd = activeState;
+           const scroller = refScroller.current;
+           if (state.props.horizontal && isHorizontalRTL(state)) {
+@@ -1388,12 +1420,15 @@
+               animated: maintainScrollAtEnd.animated
+             });
+           }
++          const completedFollow = { scroller, offset: scroller?.getCurrentScrollOffset?.() };
++          state.maintainScrollAtEndRequest = completedFollow;
+           setTimeout(
+             () => {
+               if (state.maintainingScrollAtEnd === activeState) {
+                 state.maintainingScrollAtEnd = void 0;
++                state.maintainScrollAtEndRequest = void 0;
+                 if (state.pendingMaintainScrollAtEnd) {
+-                  doMaintainScrollAtEnd(ctx);
++                  doMaintainScrollAtEnd(ctx, completedFollow);
+                 }
+               }
+             },
+@@ -1401,6 +1436,7 @@
+           );
+         } else if (state.maintainingScrollAtEnd === pendingState) {
+           state.maintainingScrollAtEnd = void 0;
++          state.maintainScrollAtEndRequest = void 0;
+         }
+       });
+     } else {
+@@ -1687,13 +1723,23 @@
+           anchorPositionForLock = newPosition;
+         }
+       }
+-      if (scrollingToViewPosition && scrollingToViewPosition > 0) {
++      // Data can remove an in-flight scroll target before its measurement finishes.
++      // getId then returns null, which setSize treats as a total-size reset sentinel.
++      // Only a target still present in this data set can contribute size compensation.
++      if (scrollingToViewPosition && scrollingToViewPosition > 0 && targetId != null && scrollTarget >= 0 && scrollTarget < state.props.data.length) {
+         const newSize = getItemSize(ctx, targetId, scrollTarget, state.props.data[scrollTarget]);
+         const prevSize = scrollingTo == null ? void 0 : scrollingTo.itemSize;
+         if (newSize !== void 0 && prevSize !== void 0 && newSize !== prevSize) {
+           const diff = newSize - prevSize;
+           if (diff !== 0) {
+-            positionDiff += diff * scrollingToViewPosition;
++            // A shrinking end target may already have clamped to the new native end.
++            // Reapplying its size delta would move it away from that reached target.
++            // Include native bounds: CSS class padding can exceed modeled content geometry.
++            const maxScroll = Math.max(0, getContentSize(ctx) - state.scrollLength);
++            const endTargetAlreadyClamped = diff < 0 && scrollTarget === data.length - 1 && scrollingToViewPosition === 1 && (Math.abs(state.scroll - maxScroll) <= NATIVE_END_CLAMP_EPSILON && calculateOffsetWithOffsetPosition(ctx, calculateOffsetForIndex(ctx, scrollTarget), scrollingTo) >= maxScroll - NATIVE_END_CLAMP_EPSILON || isPinnedAtNativeScrollEnd(ctx, state.scroll, calculateOffsetWithOffsetPosition(ctx, calculateOffsetForIndex(ctx, scrollTarget), scrollingTo)));
++            if (!endTargetAlreadyClamped) {
++              positionDiff += diff * scrollingToViewPosition;
++            }
+             scrollingTo.itemSize = newSize;
+           }
+         }
+@@ -2089,20 +2135,36 @@
+ }
+ 
+ // src/core/initialScroll.ts
++// The native scroll viewport can have class padding that is not represented in
++// the numeric style props. Its bootstrap end target must use the same bounds as
++// an already completed end scroll instead of moving back by that missing inset.
++function getInitialEndClassPadding(ctx, target, index) {
++  const state = ctx.state;
++  if (Platform.OS !== "web" || state.props.horizontal || state.props.useWindowScroll || state.props.data.length === 0 || index !== state.props.data.length - 1 || target.viewPosition !== 1 || !target.preserveForBottomPadding || typeof getComputedStyle !== "function") {
++    return 0;
++  }
++  const node = state.refScroller.current?.getScrollableNode?.();
++  if (!node || typeof node.scrollHeight !== "number") {
++    return 0;
++  }
++  const style = getComputedStyle(node);
++  return Math.max(0, (Number.parseFloat(style.paddingTop) || 0) - (state.props.stylePaddingTop || 0)) + Math.max(0, (Number.parseFloat(style.paddingBottom) || 0) - (state.props.stylePaddingBottom || 0));
++}
+ function dispatchInitialScroll(ctx, params) {
+   const { forceScroll, resolvedOffset, target, waitForCompletionFrame } = params;
+   const requestedIndex = target.index;
+   const index = requestedIndex !== void 0 ? clampScrollIndex(requestedIndex, ctx.state.props.data.length) : void 0;
+   const itemSize = getItemSizeAtIndex(ctx, index);
++  const classPadding = getInitialEndClassPadding(ctx, target, index);
+   scrollTo(ctx, {
+     animated: false,
+     forceScroll,
+     index: index !== void 0 && index >= 0 ? index : void 0,
+     isInitialScroll: true,
+     itemSize,
+-    offset: resolvedOffset,
++    offset: resolvedOffset + classPadding,
+     precomputedWithViewOffset: true,
+-    viewOffset: target.viewOffset,
++    viewOffset: (target.viewOffset || 0) - classPadding,
+     viewPosition: target.viewPosition,
+     waitForInitialScrollCompletionFrame: waitForCompletionFrame
+   });
+@@ -2913,6 +2975,24 @@
+   const requestedTargetOffset = shouldRecomputeEndTarget && index !== void 0 ? calculateOffsetWithOffsetPosition(ctx, calculateOffsetForIndex(ctx, index), scrollingTo) : (_a3 = scrollingTo.targetOffset) != null ? _a3 : clampScrollOffset(ctx, scrollingTo.offset - (scrollingTo.viewOffset || 0), scrollingTo);
+   return clampScrollOffset(ctx, requestedTargetOffset, scrollingTo);
+ }
++// An end-aligned target can sit past what the scroller can reach (footer and bottom
++// padding are added to it), so the offset never matches and an instant scroll would only
++// finish on its 100ms fallback. Being pinned at the native scroll end is arrival.
++function isPinnedAtNativeScrollEnd(ctx, scroll, clampedTargetOffset) {
++  var _a3, _b;
++  if (clampedTargetOffset <= scroll) {
++    return false;
++  }
++  const state = ctx.state;
++  const node = (_b = (_a3 = state.refScroller.current) == null ? void 0 : _a3.getScrollableNode) == null ? void 0 : _b.call(_a3);
++  if (!node || typeof node.scrollHeight !== "number") {
++    return false;
++  }
++  const horizontal = !!state.props.horizontal;
++  const maxNativeOffset = horizontal ? node.scrollWidth - node.clientWidth : node.scrollHeight - node.clientHeight;
++  const nativeOffset = horizontal ? Math.abs(node.scrollLeft) : node.scrollTop;
++  return maxNativeOffset - nativeOffset <= 1 && Math.abs(nativeOffset - scroll) <= 1;
++}
+ function getResolvedScrollCompletionState(ctx, scrollingTo) {
+   const { state } = ctx;
+   const scroll = state.scrollPending;
+@@ -2925,7 +3005,7 @@
+   const canUseAdjustedCompletion = !scrollingTo.animated || Platform.OS === "ios";
+   return {
+     clampedTargetOffset,
+-    isAtResolvedTarget: Math.abs(scroll - maxOffset) < 1 && (diff1 < 1 || canUseAdjustedCompletion && diff2 < 1)
++    isAtResolvedTarget: Math.abs(scroll - maxOffset) < 1 && (diff1 < 1 || canUseAdjustedCompletion && diff2 < 1 || isPinnedAtNativeScrollEnd(ctx, scroll, clampedTargetOffset))
+   };
+ }
+ function checkFinishedScrollFrame(ctx) {
+@@ -2936,12 +3016,58 @@
+   const { state } = ctx;
+   state.animFrameCheckFinishedScroll = void 0;
+   const completionState = getResolvedScrollCompletionState(ctx, scrollingTo);
+-  if (completionState.isAtResolvedTarget && hasScrollCompletionOwnership(state, {
++  if (!completionState.isAtResolvedTarget) {
++    return;
++  }
++  if (hasScrollCompletionOwnership(state, {
+     clampedTargetOffset: completionState.clampedTargetOffset,
+     scrollingTo
+   })) {
+     finishScrollTo(ctx);
++  } else if (isInstantInitialScrollAlreadyApplied(ctx, scrollingTo, completionState.clampedTargetOffset)) {
++    // A target past the native end leaves `state.scroll` ahead of the scroller; settle on
++    // the native offset so later position adjustments start from where the list really is.
++    syncInitialScrollOffset(state, getNativeScrollOffset(ctx));
++    finishScrollTo(ctx);
++  }
++}
++// When every item size is already known, the list mounts at its initial target and the
++// instant scroll moves nothing, so no scroll event ever grants ownership and the list
++// would stay hidden until the 100ms finishScrollTo fallback. The native position being
++// at the target is the arrival the scroll event would have reported.
++function isInstantInitialScrollAlreadyApplied(ctx, scrollingTo, clampedTargetOffset) {
++  if (!scrollingTo.isInitialScroll || scrollingTo.animated) {
++    return false;
+   }
++  return Math.abs(ctx.state.scroll - clampedTargetOffset) <= 1 && isNativeScrollAtOffset(ctx, clampedTargetOffset);
++}
++// The native scroller is at `offset`, or pinned at its end when `offset` lies past what it
++// can reach (an end-aligned target includes footer and bottom padding). Either way an
++// instant scroll there moves nothing and emits no scroll event. The end only counts once
++// the scroller holds the content the list laid out: an unsized scroller is "at its end" too.
++function getScrollableElement(ctx) {
++  var _a3, _b;
++  const node = (_b = (_a3 = ctx.state.refScroller.current) == null ? void 0 : _a3.getScrollableNode) == null ? void 0 : _b.call(_a3);
++  return node && typeof node.scrollTop === "number" ? node : void 0;
++}
++function getNativeScrollOffset(ctx) {
++  const node = getScrollableElement(ctx);
++  return ctx.state.props.horizontal ? Math.abs(node.scrollLeft) : node.scrollTop;
++}
++function isNativeScrollAtOffset(ctx, offset) {
++  const state = ctx.state;
++  const node = getScrollableElement(ctx);
++  if (!node) {
++    return false;
++  }
++  const horizontal = !!state.props.horizontal;
++  const nativeOffset = getNativeScrollOffset(ctx);
++  if (Math.abs(nativeOffset - offset) <= 1) {
++    return true;
++  }
++  const nativeContentSize = horizontal ? node.scrollWidth : node.scrollHeight;
++  const maxNativeOffset = nativeContentSize - (horizontal ? node.clientWidth : node.clientHeight);
++  return offset > nativeOffset && maxNativeOffset - nativeOffset <= 1 && nativeContentSize >= getContentSize(ctx) - 1;
+ }
+ function scrollToFallbackOffset(ctx, offset) {
+   var _a3;
+@@ -4051,7 +4177,8 @@
+ function getIdsInVisibleRange(state, range) {
+   var _a3, _b;
+   const idsInView = [];
+-  const firstVisibleAnchorIndex = (_a3 = range.firstFullyOnScreenIndex) != null ? _a3 : range.startNoBuffer;
++  // Preserve the partially visible row being read, even when a later row is fully visible.
++  const firstVisibleAnchorIndex = (_a3 = range.startNoBuffer) != null ? _a3 : range.firstFullyOnScreenIndex;
+   if (firstVisibleAnchorIndex !== null && firstVisibleAnchorIndex !== void 0 && range.endNoBuffer !== null) {
+     for (let i = firstVisibleAnchorIndex; i <= range.endNoBuffer; i++) {
+       const id = (_b = state.idCache[i]) != null ? _b : getId(state, i);
+@@ -4314,7 +4441,7 @@
+     let startBufferedId = null;
+     let endBuffered = null;
+     let loopStart = (_h = suppressInitialScrollSideEffects ? bootstrapInitialScrollState == null ? void 0 : bootstrapInitialScrollState.targetIndexSeed : void 0) != null ? _h : !dataChanged && startBufferedIdOrig ? indexByKey.get(startBufferedIdOrig) || 0 : 0;
+-    for (let i = loopStart; i >= 0; i--) {
++    for (let i = Math.min(loopStart, data.length - 1); i >= 0; i--) {
+       const id = (_i = idCache[i]) != null ? _i : getId(state, i);
+       const top = positions[i];
+       const size = (_j = sizes.get(id)) != null ? _j : getItemSize(ctx, id, i, data[i]);
+@@ -5722,7 +5849,9 @@
+     width: totalSize
+   } : { height: totalSize, minWidth: otherAxisSize, opacity: readyToRender ? 1 : 0, position: "relative" };
+   if (!readyToRender) {
+-    style.pointerEvents = "none";
++    // Clip hidden rows out of hit testing without changing inherited pointer-events
++    // across the entire item subtree when the initial scroll reveals the list.
++    style.clipPath = "inset(50%)";
+   }
+   if (columnWrapperStyle && numColumns > 1) {
+     const { columnGap, rowGap, gap } = columnWrapperStyle;
+@@ -6877,6 +7006,17 @@
+     }
+   };
+ }
++// Native web layout can still be tall while a virtual-size rebuild holds only
++// estimates. Never clamp a valid rendered offset to that uncommitted estimate.
++function isWithinRenderedScrollBounds(ctx, offset) {
++  const state = ctx.state;
++  if (state.props.useWindowScroll) return false;
++  const node = state.refScroller.current?.getScrollableNode?.();
++  if (!node) return false;
++  const contentLength = state.props.horizontal ? node.scrollWidth : node.scrollHeight;
++  const viewportLength = state.props.horizontal ? node.clientWidth : node.clientHeight;
++  return Number.isFinite(contentLength) && Number.isFinite(viewportLength) && viewportLength > 0 && offset >= 0 && offset <= Math.max(0, contentLength - viewportLength);
++}
+ function onScroll(ctx, event) {
+   var _a3, _b, _c, _d, _e, _f;
+   const state = ctx.state;
+@@ -6903,7 +7043,7 @@
+   state.didFinishInitialScroll && ((_f = state.initialScroll) == null ? void 0 : _f.viewPosition) === 1 && state.scroll > state.scrollLength;
+   state.lastNativeScroll = newScroll;
+   state.lastNativeScrollTime = Date.now();
+-  if (state.scrollingTo && state.scrollingTo.offset >= newScroll) {
++  if (state.scrollingTo && state.scrollingTo.offset >= newScroll && !isWithinRenderedScrollBounds(ctx, newScroll)) {
+     const maxOffset = clampScrollOffset(ctx, newScroll, state.scrollingTo);
+     if (newScroll !== maxOffset && Math.abs(newScroll - maxOffset) > 1) {
+       newScroll = maxOffset;
+@@ -7047,6 +7187,10 @@
+ 
+ // src/core/scrollToEnd.ts
+ function scrollToEnd(ctx, options) {
++  // Handoffs can be queued behind layout. A reader may take over before dispatch.
++  if (options?.shouldScroll?.() === false) {
++    return false;
++  }
+   const state = ctx.state;
+   const data = state.props.data;
+   const index = data.length - 1;
+@@ -7561,6 +7705,7 @@
+     estimatedItemSize = 100,
+     estimatedListSize,
+     extraData,
++    getEstimatedItemSize,
+     getFixedItemSize,
+     getItemType,
+     horizontal,
+@@ -7818,6 +7963,7 @@
+     dataVersion,
+     drawDistance,
+     estimatedItemSize,
++    getEstimatedItemSize: useWrapIfItem(getEstimatedItemSize),
+     getFixedItemSize: useWrapIfItem(getFixedItemSize),
+     getItemType: useWrapIfItem(getItemType),
+     horizontal: !!horizontal,
+diff --git a/react.d.ts b/react.d.ts
+--- a/react.d.ts
++++ b/react.d.ts
+@@ -223,6 +223,11 @@
+      */
+     getFixedItemSize?: (item: ItemT, index: number, type: TItemType) => number | undefined;
+     /**
++     * Per-item size estimate for items that have not been measured yet. Takes precedence
++     * over the per-type average; measurement replaces it like any other estimate.
++     */
++    getEstimatedItemSize?: (item: ItemT, index: number, type: TItemType) => number | undefined;
++    /**
+      * Returns a stable item type used for pooling and size estimation.
+      */
+     getItemType?: (item: ItemT, index: number) => TItemType;
+@@ -474,6 +479,8 @@
+     size: number;
+ }
+ interface ScrollToEndOptions {
++    /** Recheck ownership immediately before a queued end scroll executes. */
++    shouldScroll?: (() => boolean) | undefined;
+     animated?: boolean;
+     viewOffset?: number;
+ }

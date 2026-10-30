@@ -1,0 +1,160 @@
+{
+  "provider": "claudeAgent",
+  "description": "Claude Agent runtime fixture covering text, MCP tool lifecycle, permission lifecycle, usage, finish, and provider error events.",
+  "expectedTypes": [
+    "text",
+    "tool-call",
+    "tool-result",
+    "permission-request",
+    "usage",
+    "error",
+    "finish"
+  ],
+  "events": [
+    {
+      "eventId": "raw-claude-text",
+      "provider": "claudeAgent",
+      "sessionId": "runtime-session-claude-fixture",
+      "threadId": "thread-claude-fixture",
+      "turnId": "turn-claude-fixture",
+      "createdAt": "2026-07-01T14:31:00.000Z",
+      "launchPlanHash": "sha256:claude-fixture-launch-plan",
+      "type": "content.delta",
+      "raw": {
+        "source": "claude.sdk.message",
+        "payload": {
+          "type": "assistant"
+        }
+      },
+      "payload": {
+        "streamKind": "assistant_text",
+        "delta": "Claude fixture response"
+      }
+    },
+    {
+      "eventId": "raw-claude-tool-start",
+      "provider": "claudeAgent",
+      "sessionId": "runtime-session-claude-fixture",
+      "threadId": "thread-claude-fixture",
+      "turnId": "turn-claude-fixture",
+      "itemId": "item-claude-mcp",
+      "createdAt": "2026-07-01T14:31:01.000Z",
+      "launchPlanHash": "sha256:claude-fixture-launch-plan",
+      "type": "item.started",
+      "raw": {
+        "source": "claude.sdk.message",
+        "payload": {
+          "type": "tool_use"
+        }
+      },
+      "payload": {
+        "itemType": "mcp_tool_call",
+        "status": "inProgress",
+        "title": "Read project file",
+        "data": {
+          "name": "filesystem.readFile",
+          "path": ".moss/context/current.md"
+        }
+      }
+    },
+    {
+      "eventId": "raw-claude-tool-done",
+      "provider": "claudeAgent",
+      "sessionId": "runtime-session-claude-fixture",
+      "threadId": "thread-claude-fixture",
+      "turnId": "turn-claude-fixture",
+      "itemId": "item-claude-mcp",
+      "createdAt": "2026-07-01T14:31:02.000Z",
+      "launchPlanHash": "sha256:claude-fixture-launch-plan",
+      "type": "item.completed",
+      "raw": {
+        "source": "claude.sdk.message",
+        "payload": {
+          "type": "tool_result"
+        }
+      },
+      "payload": {
+        "itemType": "mcp_tool_call",
+        "status": "completed",
+        "title": "Read project file",
+        "data": {
+          "output": "ok"
+        }
+      }
+    },
+    {
+      "eventId": "raw-claude-permission-opened",
+      "provider": "claudeAgent",
+      "sessionId": "runtime-session-claude-fixture",
+      "threadId": "thread-claude-fixture",
+      "turnId": "turn-claude-fixture",
+      "requestId": "request-claude-file-read",
+      "createdAt": "2026-07-01T14:31:03.000Z",
+      "launchPlanHash": "sha256:claude-fixture-launch-plan",
+      "type": "request.opened",
+      "raw": {
+        "source": "claude.sdk.permission",
+        "payload": {
+          "type": "permission_request"
+        }
+      },
+      "payload": {
+        "requestType": "file_read_approval",
+        "detail": "Read .moss/context/current.md",
+        "args": {
+          "path": ".moss/context/current.md"
+        }
+      }
+    },
+    {
+      "eventId": "raw-claude-permission-resolved",
+      "provider": "claudeAgent",
+      "sessionId": "runtime-session-claude-fixture",
+      "threadId": "thread-claude-fixture",
+      "turnId": "turn-claude-fixture",
+      "requestId": "request-claude-file-read",
+      "createdAt": "2026-07-01T14:31:04.000Z",
+      "launchPlanHash": "sha256:claude-fixture-launch-plan",
+      "type": "request.resolved",
+      "raw": {
+        "source": "claude.sdk.permission",
+        "payload": {
+          "type": "permission_response"
+        }
+      },
+      "payload": {
+        "requestType": "file_read_approval",
+        "decision": "allow",
+        "resolution": {
+          "scope": "once"
+        }
+      }
+    },
+    {
+      "eventId": "raw-claude-completed",
+      "provider": "claudeAgent",
+      "sessionId": "runtime-session-claude-fixture",
+      "threadId": "thread-claude-fixture",
+      "turnId": "turn-claude-fixture",
+      "createdAt": "2026-07-01T14:31:05.000Z",
+      "launchPlanHash": "sha256:claude-fixture-launch-plan",
+      "type": "turn.completed",
+      "raw": {
+        "source": "claude.sdk.message",
+        "payload": {
+          "type": "result"
+        }
+      },
+      "payload": {
+        "state": "failed",
+        "stopReason": "error",
+        "modelUsage": {
+          "model": "claude-sonnet-4.5",
+          "inputTokens": 90,
+          "outputTokens": 45
+        },
+        "errorMessage": "fixture provider error"
+      }
+    }
+  ]
+}

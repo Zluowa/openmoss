@@ -1,0 +1,101 @@
+{
+  "provider": "opencode",
+  "description": "OpenCode runtime fixture covering command approval, usage accounting, finish, and runtime error events.",
+  "expectedTypes": ["permission-request", "usage", "finish", "error"],
+  "events": [
+    {
+      "eventId": "raw-opencode-permission-opened",
+      "provider": "opencode",
+      "sessionId": "runtime-session-opencode-fixture",
+      "threadId": "thread-opencode-fixture",
+      "turnId": "turn-opencode-fixture",
+      "requestId": "request-opencode-command",
+      "createdAt": "2026-07-01T14:32:00.000Z",
+      "launchPlanHash": "sha256:opencode-fixture-launch-plan",
+      "type": "request.opened",
+      "raw": {
+        "source": "opencode.sdk.event",
+        "payload": {
+          "type": "permission"
+        }
+      },
+      "payload": {
+        "requestType": "exec_command_approval",
+        "detail": "Run bun test",
+        "args": {
+          "command": "bun test"
+        }
+      }
+    },
+    {
+      "eventId": "raw-opencode-usage",
+      "provider": "opencode",
+      "sessionId": "runtime-session-opencode-fixture",
+      "threadId": "thread-opencode-fixture",
+      "turnId": "turn-opencode-fixture",
+      "createdAt": "2026-07-01T14:32:01.000Z",
+      "launchPlanHash": "sha256:opencode-fixture-launch-plan",
+      "type": "thread.token-usage.updated",
+      "raw": {
+        "source": "opencode.sdk.event",
+        "payload": {
+          "type": "usage"
+        }
+      },
+      "payload": {
+        "usage": {
+          "usedTokens": 120,
+          "usedPercent": 12,
+          "inputTokens": 80,
+          "outputTokens": 40
+        }
+      }
+    },
+    {
+      "eventId": "raw-opencode-completed",
+      "provider": "opencode",
+      "sessionId": "runtime-session-opencode-fixture",
+      "threadId": "thread-opencode-fixture",
+      "turnId": "turn-opencode-fixture",
+      "createdAt": "2026-07-01T14:32:02.000Z",
+      "launchPlanHash": "sha256:opencode-fixture-launch-plan",
+      "type": "turn.completed",
+      "raw": {
+        "source": "opencode.sdk.event",
+        "payload": {
+          "type": "turn_completed"
+        }
+      },
+      "payload": {
+        "state": "completed",
+        "stopReason": "stop",
+        "modelUsage": {
+          "model": "auto"
+        }
+      }
+    },
+    {
+      "eventId": "raw-opencode-error",
+      "provider": "opencode",
+      "sessionId": "runtime-session-opencode-fixture",
+      "threadId": "thread-opencode-fixture",
+      "turnId": "turn-opencode-fixture",
+      "createdAt": "2026-07-01T14:32:03.000Z",
+      "launchPlanHash": "sha256:opencode-fixture-launch-plan",
+      "type": "runtime.error",
+      "raw": {
+        "source": "opencode.sdk.event",
+        "payload": {
+          "type": "error"
+        }
+      },
+      "payload": {
+        "message": "provider crashed",
+        "class": "provider_error",
+        "detail": {
+          "fixture": true
+        }
+      }
+    }
+  ]
+}

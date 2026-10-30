@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "codexVersion": "0.163.0",
+  "releaseDecision": "approved",
+  "decisionScope": "automated engineering evidence and distribution-asset completeness; not legal advice",
+  "runtimePolicy": {
+    "linuxPublicArchitecture": "x64",
+    "linuxLibc": "glibc",
+    "minimumGlibcVersion": "2.38",
+    "maximumVoiceHostGlibcVersion": "2.38",
+    "requiredSharedLibraries": [
+      "libc.so.6",
+      "libdl.so.2",
+      "libgio-2.0.so.0",
+      "libglib-2.0.so.0",
+      "libgobject-2.0.so.0",
+      "libgstapp-1.0.so.0",
+      "libgstaudio-1.0.so.0",
+      "libgstbase-1.0.so.0",
+      "libgstreamer-1.0.so.0",
+      "libm.so.6",
+      "libopus.so.0",
+      "libpthread.so.0",
+      "librt.so.1"
+    ],
+    "packageCoordinate": "x86_64-unknown-linux-musl",
+    "requiredRuntimeProbes": [
+      "codex --version",
+      "codex debug models --bundled",
+      "readelf --version-info codex-voice-host",
+      "readelf --dynamic codex-voice-host"
+    ]
+  },
+  "licenseAssets": [
+    {
+      "path": "licenses/ripgrep/LICENSE-MIT",
+      "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f"
+    },
+    {
+      "path": "licenses/ripgrep/UNLICENSE",
+      "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c"
+    },
+    {
+      "path": "licenses/bubblewrap/COPYING",
+      "sha256": "b7993225104d90ddd8024fd838faf300bea5e83d91203eab98e29512acebd69c"
+    },
+    {
+      "path": "licenses/libcap/License",
+      "sha256": "18eb30b662ed0abeef6ad6ded90a99b30332418d2f71e63dcb4646bbb23b9acc"
+    },
+    {
+      "path": "licenses/pcre2/LICENCE.md",
+      "sha256": "197d8a73ffee0d6b09adba2f9c677b5f5aede24edf89258a68e48248d010d811"
+    },
+    {
+      "path": "licenses/voice/LGPL-2.1.txt",
+      "sha256": "ad2eec519ebd4b5df86ea84dff24ae3bfa2edea846a703b58902dd221ae375db"
+    },
+    {
+      "path": "licenses/voice/Opus.txt",
+      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
+    },
+    {
+      "path": "licenses/voice/PCRE2.md",
+      "sha256": "197d8a73ffee0d6b09adba2f9c677b5f5aede24edf89258a68e48248d010d811"
+    },
+    {
+      "path": "licenses/voice/libffi.txt",
+      "sha256": "17b64dc60f3b6897a60f971e288b973f655c2edcdf08b25f3c3dd5549857881c"
+    },
+    {
+      "path": "licenses/voice/proxy-libintl.txt",
+      "sha256": "d245807f90032872d1438d741ed21e2490e1175dc8aa3afa5ddb6c8e529b58e5"
+    },
+    {
+      "path": "licenses/voice/sljit.txt",
+      "sha256": "5f216505c0f6ea3273caec89e766eef93cdeb7bbb0c429f9360116d7c938feeb"
+    },
+    {
+      "path": "licenses/voice/zlib.txt",
+      "sha256": "e32ff4e00d9d94930537635291da39e7e612703334bf6fde8c7f1686fe8a45a2"
+    }
+  ],
+  "fulfilledEvidence": [
+    {
+      "id": "top-level-codex-apache",
+      "status": "asset-present",
+      "assets": [
+        "LICENSE",
+        "NOTICE",
+        "SOURCE.json"
+      ]
+    },
+    {
+      "id": "runtime-component-inventory",
+      "status": "asset-present",
+      "assets": [
+        "COMPONENTS.cdx.json",
+        "LICENSE_EVIDENCE.json",
+        "PAYLOADS.json"
+      ]
+    },
+    {
+      "id": "named-native-license-texts",
+      "status": "asset-present",
+      "assets": [
+        "licenses/ripgrep/LICENSE-MIT",
+        "licenses/ripgrep/UNLICENSE",
+        "licenses/bubblewrap/COPYING",
+        "licenses/libcap/License",
+        "licenses/pcre2/LICENCE.md",
+        "licenses/voice/LGPL-2.1.txt",
+        "licenses/voice/Opus.txt",
+        "licenses/voice/PCRE2.md",
+        "licenses/voice/libffi.txt",
+        "licenses/voice/proxy-libintl.txt",
+        "licenses/voice/sljit.txt",
+        "licenses/voice/zlib.txt"
+      ]
+    },
+    {
+      "id": "linux-bwrap-source-materials",
+      "status": "source-and-rebuild-path-present",
+      "assets": [
+        "SOURCE_MATERIALS.json",
+        "REBUILD.md",
+        "sources/codex-rust-v0.163.0-source.tar.gz",
+        "sources/libcap-2.75.tar.xz"
+      ]
+    },
+    {
+      "id": "rust-license-selection-policy",
+      "status": "machine-policy-passed",
+      "evidence": "Selected-license, source-integrity, and text evidence covers 1474 Cargo components; missing-evidence count is 0; strong-copyleft selected count is 0.",
+      "assets": [
+        "COMPONENTS.cdx.json",
+        "LICENSE_EVIDENCE.json"
+      ]
+    },
+    {
+      "id": "linux-voice-host-glibc-runtime-policy",
+      "status": "build-probe-required",
+      "evidence": "Public Linux Codex itself is static musl. The bundled voice host is the dynamically linked glibc binary and must stay at glibc <= 2.38. The build runs codex --version and a non-interactive model-catalog smoke before publication.",
+      "assets": [
+        "OBLIGATIONS.json",
+        "PAYLOADS.json"
+      ]
+    }
+  ],
+  "blockers": []
+}

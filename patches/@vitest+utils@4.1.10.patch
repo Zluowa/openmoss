@@ -1,0 +1,102 @@
+diff --git a/dist/serialize.js b/dist/serialize.js
+--- a/dist/serialize.js
++++ b/dist/serialize.js
+@@ -15,11 +15,26 @@
+ }
+ // https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm
+ function serializeValue(val, seen = new WeakMap()) {
++	// Master guard: cross-realm host objects can throw from any accessor below
++	// (FontFaceSet.ready, ServiceWorkerContainer, revoked proxies). A single
++	// unserializable value must never reject the browser runner's rpc channel.
++	try {
++		return serializeValueGuarded(val, seen);
++	} catch (err) {
++		return getUnserializableMessage(err);
++	}
++}
++function serializeValueGuarded(val, seen = new WeakMap()) {
+ 	if (!val || typeof val === "string") {
+ 		return val;
+ 	}
+ 	if (val instanceof Error && "toJSON" in val && typeof val.toJSON === "function") {
+-		const jsonValue = val.toJSON();
++		let jsonValue;
++		try {
++			jsonValue = val.toJSON();
++		} catch (err) {
++			return getUnserializableMessage(err);
++		}
+ 		if (jsonValue && jsonValue !== val && typeof jsonValue === "object") {
+ 			if (typeof val.message === "string") {
+ 				safe(() => jsonValue.message ??= normalizeErrorMessage(val.message));
+@@ -61,8 +76,32 @@
+ 	if (typeof Element !== "undefined" && val instanceof Element) {
+ 		return val.tagName;
+ 	}
+-	if (typeof val.toJSON === "function") {
+-		return serializeValue(val.toJSON(), seen);
++	// Host objects pull the entire DOM (window -> document -> fonts/serviceWorker)
++	// into the graph and explode both payload size and accessor side effects.
++	if (typeof Window !== "undefined" && val instanceof Window) {
++		return "[Window]";
++	}
++	if (typeof Document !== "undefined" && val instanceof Document) {
++		return "[Document]";
++	}
++	if (typeof Navigator !== "undefined" && val instanceof Navigator) {
++		return "[Navigator]";
++	}
++	if (typeof Event !== "undefined" && val instanceof Event) {
++		return `[${val.constructor.name} ${val.type}]`;
++	}
++	let hasToJSON = false;
++	try {
++		hasToJSON = typeof val.toJSON === "function";
++	} catch (err) {
++		return getUnserializableMessage(err);
++	}
++	if (hasToJSON) {
++		try {
++			return serializeValue(val.toJSON(), seen);
++		} catch (err) {
++			return getUnserializableMessage(err);
++		}
+ 	}
+ 	if (seen.has(val)) {
+ 		return seen.get(val);
+@@ -86,8 +125,21 @@
+ 		seen.set(val, clone);
+ 		let obj = val;
+ 		while (obj && obj !== OBJECT_PROTO) {
+-			Object.getOwnPropertyNames(obj).forEach((key) => {
++			let ownPropertyNames;
++			try {
++				ownPropertyNames = Object.getOwnPropertyNames(obj);
++			} catch (err) {
++				// Proxies and cross-realm host objects can throw here; give up on the
++				// prototype chain instead of wedging the browser runner's rpc channel.
++				break;
++			}
++			ownPropertyNames.forEach((key) => {
+ 				if (key in clone) {
++					return;
++				}
++				// A callable toJSON is re-invoked by JSON.stringify on the receiving
++				// side, which dies as an rpc call ("function toJSON not found").
++				if (key === "toJSON" && typeof val[key] === "function") {
+ 					return;
+ 				}
+ 				try {
+@@ -98,7 +150,11 @@
+ 					clone[key] = getUnserializableMessage(err);
+ 				}
+ 			});
+-			obj = Object.getPrototypeOf(obj);
++			try {
++				obj = Object.getPrototypeOf(obj);
++			} catch (err) {
++				break;
++			}
+ 		}
+ 		if (val instanceof Error) {
+ 			safe(() => clone.message = normalizeErrorMessage(val.message));

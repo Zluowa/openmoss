@@ -1,0 +1,147 @@
+// FILE: providerCliProfiles.ts
+// Purpose: Derives stable, shell-neutral command names for provider instances.
+// Layer: Shared provider presentation/runtime utility
+
+import type { ProviderInstanceId, ProviderKind } from "@synara/contracts";
+
+export const PROVIDER_CLI_COMMAND_BY_KIND = {
+  codex: "codex",
+  claudeAgent: "claude",
+  cursor: "cursor-agent",
+  devin: "devin",
+  antigravity: "agy",
+  grok: "grok",
+  droid: "droid",
+  gemini: "gemini",
+  hermes: "hermes",
+  kilo: "kilo",
+  opencode: "opencode",
+  pi: "pi",
+  omp: "omp",
+  kimi: "kimi",
+  minimax: "mcode",
+  zcode: "zcode-acp-server",
+} as const satisfies Record<ProviderKind, string>;
+
+const CLI_COMMAND_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+const RESERVED_CLI_COMMANDS = new Set<string>(Object.values(PROVIDER_CLI_COMMAND_BY_KIND));
+
+export function normalizeProviderCliAlias(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const alias = value.trim();
+  return CLI_COMMAND_PATTERN.test(alias) && !RESERVED_CLI_COMMANDS.has(alias) ? alias : undefined;
+}
+
+function profileSuffix(provider: ProviderKind, instanceId: ProviderInstanceId): string {
+  if (instanceId === provider) return "default";
+  const command = PROVIDER_CLI_COMMAND_BY_KIND[provider];
+  const prefixes = [provider.toLowerCase(), command.toLowerCase()]
+    .flatMap((prefix) => [prefix, prefix.replaceAll("-", "")])
+    .toSorted((left, right) => right.length - left.length);
+  let candidate = String(instanceId);
+  const normalizedCandidate = candidate.toLowerCase();
+  const prefix = prefixes.find(
+    (value) =>
+      normalizedCandidate.startsWith(`${value}_`) || normalizedCandidate.startsWith(`${value}-`),
+  );
+  if (prefix) candidate = candidate.slice(prefix.length + 1);
+  const slug = candidate
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/[_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+  return slug || String(instanceId).toLowerCase();
+}
+
+export function providerCliCommandName(input: {
+  readonly provider: ProviderKind;
+  readonly instanceId: ProviderInstanceId;
+  readonly config?: Readonly<Record<string, unknown>> | undefined;
+}): string {
+  const configured = normalizeProviderCliAlias(input.config?.cliAlias);
+  if (configured) return configured;
+  return `${PROVIDER_CLI_COMMAND_BY_KIND[input.provider]}-${profileSuffix(
+    input.provider,
+    input.instanceId,
+  )}`;
+}
+
+// Login entry points verified against each CLI's authentication documentation.
+// Pi-family /login is a TUI command: never pass it as a model prompt argument.
+export const PROVIDER_AUTHENTICATION = {
+  codex: {
+    args: ["login"],
+    instructions: "Complete the browser sign-in. Moss will check this account afterward.",
+  },
+  claudeAgent: {
+    args: ["auth", "login"],
+    instructions:
+      "Choose your login method and complete the browser sign-in, including any Apple or organization prompts.",
+  },
+  cursor: { args: ["login"], instructions: "Complete the Cursor browser sign-in." },
+  devin: {
+    args: ["auth", "login"],
+    instructions:
+      "Choose your Devin or Windsurf login and follow the browser or enterprise sign-in prompts.",
+  },
+  antigravity: {
+    args: [],
+    instructions:
+      "Follow Antigravity's sign-in prompts. Your browser or system credential store may ask for approval.",
+  },
+  grok: {
+    args: ["login"],
+    instructions: "Complete the Grok browser sign-in or the authorization steps shown below.",
+  },
+  droid: { args: [], instructions: "Follow Droid's startup and browser sign-in prompts." },
+  gemini: { args: [], instructions: "Complete the Gemini browser sign-in or API-key setup." },
+  hermes: { args: ["setup"], instructions: "Follow Hermes setup prompts to finish sign-in." },
+  kilo: {
+    args: ["auth", "login"],
+    instructions: "Choose a model provider, then complete its OAuth or API-key setup.",
+  },
+  opencode: {
+    args: ["auth", "login"],
+    instructions: "Choose a model provider, then complete its OAuth or API-key setup.",
+  },
+  pi: {
+    args: [],
+    instructions:
+      "Complete any startup prompts, then choose Sign-in options to select a model provider and authenticate.",
+    interactiveCommand: "/login",
+  },
+  omp: {
+    args: [],
+    instructions:
+      "Complete any startup prompts, then choose Sign-in options to select a model provider and authenticate.",
+    interactiveCommand: "/login",
+  },
+  kimi: {
+    args: ["login"],
+    instructions:
+      "Open the printed URL, enter the device code, and approve the sign-in with your Kimi account.",
+  },
+  minimax: {
+    args: ["login"],
+    instructions:
+      "Complete the MiniMax browser sign-in. Add --region cn or --region global if your account lives in a specific region.",
+  },
+  zcode: {
+    // `zcode-acp-server <anything>` always starts the stdio bridge: the bin
+    // name is checked before subcommands, so setup must run as `zcode-acp`.
+    executable: "zcode-acp",
+    args: ["setup", "--provider", "bigmodel"],
+    instructions:
+      "Sign in to the ZCode desktop app first; Moss reuses its GLM login. Otherwise paste a GLM Coding Plan API key here (use --provider zai for the international plan).",
+  },
+} as const satisfies Record<
+  ProviderKind,
+  {
+    readonly args: readonly string[];
+    readonly instructions: string;
+    readonly interactiveCommand?: string;
+    /** Sibling bin of the configured binary that owns the sign-in subcommand. */
+    readonly executable?: string;
+  }
+>;

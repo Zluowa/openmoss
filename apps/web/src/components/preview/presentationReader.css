@@ -1,0 +1,188 @@
+.presentation-reader {
+  isolation: isolate;
+}
+.presentation-toolbar-button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+}
+.presentation-toolbar-button:hover,
+.presentation-toolbar-button[aria-pressed="true"] {
+  background: var(--muted);
+  color: var(--foreground);
+}
+.presentation-toolbar-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.presentation-slide-image {
+  position: relative;
+  width: 100%;
+  background: white;
+}
+.presentation-slide-image > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  user-select: none;
+}
+.presentation-main-slide {
+  border-radius: 16px;
+  overflow: hidden;
+}
+.presentation-slide-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0f0f0;
+  color: #737373;
+  font-size: 12px;
+}
+.presentation-stacked-pages {
+  padding: 16px;
+}
+.presentation-stacked-page {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px #0000000d;
+  text-align: left;
+}
+.presentation-stacked-page:focus-visible {
+  outline: 2px solid #0285ff;
+  outline-offset: 3px;
+}
+.presentation-thumbnail-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 166px;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+.presentation-thumbnail-panel {
+  pointer-events: auto;
+  max-height: 100%;
+  width: 166px;
+  overflow: auto;
+  padding: 16px 8px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  backdrop-filter: blur(28px);
+}
+.presentation-thumbnail-rail:not(.presentation-thumbnail-rail-desktop)
+  .presentation-thumbnail-panel {
+  margin-left: 28px;
+  box-shadow: 0 4px 16px #0000001a;
+}
+.presentation-thumbnail {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 4px;
+  border-radius: 16px;
+  text-align: left;
+}
+.presentation-thumbnail:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.presentation-thumbnail[aria-current="page"] {
+  background: #0285ff1a;
+}
+.presentation-thumbnail-number {
+  flex-shrink: 0;
+  width: 18px;
+  padding-top: 2px;
+  text-align: right;
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.presentation-thumbnail[aria-current="page"] .presentation-thumbnail-number {
+  color: #0285ff;
+}
+.presentation-thumbnail .presentation-slide-image {
+  width: 112px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  box-shadow: 0 4px 16px #0000000d;
+}
+.presentation-thumbnail[aria-current="page"] .presentation-slide-image {
+  border-color: #0285ff;
+  box-shadow:
+    0 0 0 1px #0285ff,
+    0 2px 8px #0285ff29,
+    0 4px 16px #0000000d;
+}
+.presentation-thumbnail-stack {
+  position: absolute;
+  left: 8px;
+  display: flex;
+  width: 28px;
+  max-height: 80%;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+  padding: 10px 6px;
+  pointer-events: auto;
+  border-radius: 8px;
+}
+.presentation-thumbnail-stack > span {
+  display: block;
+  flex-shrink: 0;
+  width: 12px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.presentation-thumbnail-stack > span[data-active="true"] {
+  background: var(--foreground);
+}
+.presentation-notes {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  padding: 16px 24px 24px;
+  pointer-events: none;
+}
+.presentation-notes textarea {
+  display: block;
+  width: 100%;
+  height: 104px;
+  resize: none;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--muted) 90%, transparent);
+  backdrop-filter: blur(28px);
+  outline: none;
+  font-size: 14px;
+  pointer-events: auto;
+}
+.presentation-annotation {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  width: min(320px, calc(100% - 48px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--background);
+  box-shadow: 0 4px 24px #00000026;
+}

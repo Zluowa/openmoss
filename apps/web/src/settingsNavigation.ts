@@ -1,0 +1,290 @@
+// FILE: settingsNavigation.ts
+// Purpose: Share the settings topic taxonomy between the main sidebar and the settings screen.
+// Layer: Route/UI support
+// Exports: section ids, nav items, and search normalization helper
+
+import { MCP_CONNECTORS_BETA_FEATURE } from "@synara/shared/betaFeatures";
+
+import { isBetaFeatureOn } from "~/betaFeatures";
+import { KEYBINDINGS_ICON_NAME } from "~/lib/icons";
+
+export const SETTINGS_SECTION_IDS = [
+  "general",
+  "plugins",
+  "import",
+  "profile",
+  "appearance",
+  "notifications",
+  "behavior",
+  "appsnap",
+  "computer",
+  "history",
+  "voice",
+  "shortcuts",
+  "worktrees",
+  "archived",
+  "models",
+  "providers",
+  "skills",
+  "usage",
+  "connectors",
+  "integrations",
+  "advanced",
+] as const;
+
+export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
+export type SettingsNavGroupId = "personal" | "integrations" | "coding" | "system" | "archived";
+
+/**
+ * Deep-link scroll targets inside settings panels. Each id is shared by its DOM owner and callers
+ * that navigate with `?target=…`; the settings route resolves every target after the active panel
+ * mounts.
+ */
+export const SETTINGS_TARGETS = {
+  providerUpdates: "provider-updates",
+  providerInstalls: "provider-installs",
+  environmentPanel: "environment-panel",
+} as const;
+
+export type SettingsNavItem = {
+  id: SettingsSectionId;
+  group: SettingsNavGroupId;
+  label: string;
+  description: string;
+  /** Basename of a SVG under `/central-icons-reversed`. */
+  icon: string;
+  eyebrow: string;
+  /**
+   * Maturity label shown beside the section name, in the sidebar and on the
+   * panel's own heading. Absent for a settled feature; one source so the two
+   * places can never disagree about what is still in beta.
+   */
+  badge?: string;
+};
+
+export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
+  id: SettingsNavGroupId;
+  label: string;
+}> = [
+  { id: "personal", label: "Personal" },
+  { id: "integrations", label: "Integrations" },
+  { id: "coding", label: "Coding" },
+  { id: "system", label: "System" },
+  { id: "archived", label: "Archived" },
+] as const;
+
+/** Sections that exist only where their Beta-only feature is on. */
+const SETTINGS_SECTION_BETA_FEATURES: Partial<Record<SettingsSectionId, string>> = {
+  connectors: MCP_CONNECTORS_BETA_FEATURE,
+};
+
+/** False for a Beta-only section on Stable: no nav entry, search result, or deep link. */
+export function isSettingsSectionAvailable(
+  section: SettingsSectionId,
+  isOn: (feature: string) => boolean = isBetaFeatureOn,
+): boolean {
+  const feature = SETTINGS_SECTION_BETA_FEATURES[section];
+  return feature === undefined || isOn(feature);
+}
+
+const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
+  {
+    id: "general",
+    group: "personal",
+    label: "General",
+    description: "Choose defaults for new chats, navigation, and the Environment panel.",
+    icon: "settings-gear-4",
+    eyebrow: "Workflow defaults",
+  },
+  {
+    id: "import",
+    group: "personal",
+    label: "Import",
+    description: "Import safe setup, projects, skills, and recent chats from supported AI apps.",
+    icon: "arrow-inbox",
+    eyebrow: "Bring existing work",
+  },
+  {
+    id: "profile",
+    group: "personal",
+    label: "Profile",
+    description: "Your local activity, streaks, and a shareable stats card.",
+    icon: "user",
+    eyebrow: "Your stats",
+  },
+  {
+    id: "appearance",
+    group: "personal",
+    label: "Appearance",
+    description: "Customize the theme, typography, density, and time format.",
+    icon: "color-palette",
+    eyebrow: "Visual language",
+  },
+  {
+    id: "notifications",
+    group: "personal",
+    label: "Notifications",
+    description: "Choose how Moss tells you when work finishes or needs attention.",
+    icon: "bell",
+    eyebrow: "Alerts",
+  },
+  {
+    id: "behavior",
+    group: "personal",
+    label: "Chat behavior",
+    description: "Control live responses, follow-ups, review defaults, and safety confirmations.",
+    icon: "settings-slider-hor",
+    eyebrow: "Interaction rules",
+  },
+  {
+    id: "shortcuts",
+    group: "personal",
+    label: "Keybindings",
+    description: "Change, add, or remove the shortcut for every Moss command.",
+    icon: KEYBINDINGS_ICON_NAME,
+    eyebrow: "Key bindings",
+  },
+  {
+    id: "usage",
+    group: "personal",
+    label: "Usage & limits",
+    description: "See remaining quota and credits for every signed-in provider.",
+    icon: "gauge",
+    eyebrow: "Provider limits",
+  },
+  {
+    id: "plugins",
+    group: "integrations",
+    label: "Plugins",
+    description: "Manage plugins, apps, skills, and MCP servers for every agent.",
+    icon: "puzzle",
+    eyebrow: "Plugins and apps",
+  },
+  {
+    id: "appsnap",
+    group: "integrations",
+    label: "AppSnap",
+    description: "Capture another app's frontmost window directly into a task.",
+    icon: "screen-capture",
+    eyebrow: "Screen capture",
+  },
+  {
+    id: "computer",
+    group: "integrations",
+    label: "Computer use",
+    description: "Let agents see and control this computer's desktop, and check backend status.",
+    icon: "computer-use",
+    eyebrow: "Desktop control",
+    badge: "Beta",
+  },
+  {
+    id: "history",
+    group: "integrations",
+    label: "Computer History",
+    description: "Review your encrypted local app and website timeline and privacy controls.",
+    icon: "computer-history",
+    eyebrow: "Local timeline",
+  },
+  {
+    id: "voice",
+    group: "personal",
+    label: "Voice",
+    description: "Realtime voice, microphone, shortcut, and privacy controls.",
+    icon: "voice-settings",
+    eyebrow: "Live conversation",
+  },
+  {
+    id: "connectors",
+    group: "integrations",
+    label: "Connectors",
+    description: "Sign in to Supabase, Linear, Notion, and other services your agents can use.",
+    icon: "connectors-1",
+    eyebrow: "Remote MCP servers",
+  },
+  {
+    id: "integrations",
+    group: "integrations",
+    label: "MCP connections",
+    description: "Give Codex, Claude, and other local agents scoped access to Moss tasks.",
+    icon: "plugin-1",
+    eyebrow: "External agents",
+  },
+  {
+    id: "providers",
+    group: "coding",
+    label: "Agent providers",
+    description: "Choose visible coding agents and manage their installed CLI tools.",
+    icon: "puzzle",
+    eyebrow: "Coding agents",
+  },
+  {
+    id: "models",
+    group: "coding",
+    label: "Models & writing",
+    description:
+      "Choose the source control writing style, Git writing model, and custom model slugs.",
+    icon: "brain",
+    eyebrow: "Model configuration",
+  },
+  {
+    id: "skills",
+    group: "coding",
+    label: "Agent skills",
+    description: "Review reusable workflows discovered across all configured providers.",
+    icon: "building-blocks",
+    eyebrow: "Reusable workflows",
+  },
+  {
+    id: "worktrees",
+    group: "coding",
+    label: "Managed worktrees",
+    description: "Review and clean up isolated workspaces created by Moss.",
+    icon: "branch-simple",
+    eyebrow: "Workspace management",
+  },
+  {
+    id: "advanced",
+    group: "system",
+    label: "System tools",
+    description: "Manage sessions, recovery tools, low-level keybindings, and version details.",
+    icon: "toolbox",
+    eyebrow: "System tools",
+  },
+  {
+    id: "archived",
+    group: "archived",
+    label: "Archived threads",
+    description: "Find and restore threads you previously archived.",
+    icon: "archive",
+    eyebrow: "Thread management",
+  },
+] as const;
+
+export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = ALL_SETTINGS_NAV_ITEMS.filter(
+  (item) => isSettingsSectionAvailable(item.id),
+);
+
+/**
+ * Stable DOM id for a settings row, derived from its (string) title. Shared by the row that
+ * renders the anchor and by the search index that deep-links to it via `?target=…`, so the
+ * two can't drift. Panels stay mounted and render null while inactive, so the slug only needs
+ * to be unique within a section.
+ */
+export function settingRowAnchorId(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `setting-${slug}`;
+}
+
+export function normalizeSettingsSection(value: unknown): SettingsSectionId {
+  if (typeof value !== "string") {
+    return "general";
+  }
+  return (
+    SETTINGS_SECTION_IDS.find(
+      (candidate) => candidate === value && isSettingsSectionAvailable(candidate),
+    ) ?? "general"
+  );
+}

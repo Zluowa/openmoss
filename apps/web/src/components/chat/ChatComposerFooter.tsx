@@ -1,0 +1,411 @@
+import { ProviderInteractionMode } from "@synara/contracts";
+import { type ReactNode } from "react";
+import {
+  BugIcon,
+  ChevronDownIcon,
+  ComposerSendArrowIcon,
+  LayoutSidebarIcon,
+  TasksIcon,
+} from "~/lib/icons";
+import { cn } from "~/lib/utils";
+import type { derivePendingUserInputProgress } from "../../pendingUserInput";
+import type { SessionPhase } from "../../types";
+import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
+import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
+import { ComposerVoiceButton } from "./ComposerVoiceButton";
+import { ComposerVoiceRecorderBar } from "./ComposerVoiceRecorderBar";
+import {
+  COMPOSER_ACTION_CIRCLE_CLASS_NAME,
+  COMPOSER_FOOTER_ROW_CLASS_NAME,
+} from "./composerPickerStyles";
+interface ChatComposerFooterProps {
+  /** Realtime voice slot: when `active`, the controls own the entire action row;
+      otherwise the start/return button renders beside the send controls. */
+  realtimeVoice?: { active: boolean; controls: ReactNode; button: ReactNode } | null;
+  /** `row`: the single-row composer. The footer box becomes `display: contents` so its
+   *  leading and trailing clusters sit beside the editor in the surface's grid. */
+  layout?: "row" | "block";
+  isComposerFooterCompact: boolean;
+  leadingControls: ReactNode;
+  composerPickerControls: ReactNode;
+  contextMeter: ReactNode;
+  interactionMode: ProviderInteractionMode;
+  resetInteractionMode: () => void;
+  sidebarAction: { title: string; label: string; onClick: () => void } | null;
+  voice: {
+    enabled: boolean;
+    recording: boolean;
+    starting: boolean;
+    waitingForAudio: boolean;
+    transcribing: boolean;
+    durationLabel: string;
+    waveformLevels: readonly number[];
+    onCancel: () => void;
+    onSubmit: () => void;
+    onToggle: () => void;
+  };
+  pendingInput: {
+    progress: NonNullable<ReturnType<typeof derivePendingUserInputProgress>>;
+    responding: boolean;
+    answersComplete: boolean;
+  } | null;
+  /** Moss Resume affordance: replaces the whole send/stop cluster when an
+      interrupted Codex turn is resumable (or a resume dispatch is in flight). */
+  resumeControl?: ReactNode;
+  /** Stable send-state marker for Moss visible parity checks. */
+  sendState?: string;
+  submission: {
+    phase: SessionPhase;
+    busy: boolean;
+    connecting: boolean;
+    expired: boolean;
+    hasPendingCacheReview?: boolean;
+    preparingImages: boolean;
+    preparingWorktree: boolean;
+    hasContent: boolean;
+    hasPendingUserInputs: boolean;
+    showPlanFollowUp: boolean;
+    hasPrompt: boolean;
+    onInterrupt: () => void;
+    onImplementInNewThread: () => void;
+  };
+}
+
+export function ChatComposerFooter({
+  realtimeVoice: realtimeVoiceProp,
+  layout: layoutProp,
+  isComposerFooterCompact,
+  leadingControls,
+  composerPickerControls,
+  contextMeter,
+  interactionMode,
+  resetInteractionMode,
+  sidebarAction,
+  voice,
+  pendingInput,
+  resumeControl,
+  sendState,
+  submission,
+}: ChatComposerFooterProps) {
+  // Prop defaults resolve here: an AssignmentPattern in the destructuring makes
+  // the React Compiler bail out on this hot component.
+  const realtimeVoice = realtimeVoiceProp ?? null;
+  const row = (layoutProp ?? "block") === "row";
+  const voiceActive = voice.recording || voice.transcribing;
+  return (
+    <div
+      data-chat-composer-footer={row ? undefined : "true"}
+      data-moss-visible-composer-controls="true"
+      className={cn(
+        row
+          ? "contents"
+          : [
+              "@container",
+              COMPOSER_FOOTER_ROW_CLASS_NAME,
+              isComposerFooterCompact ? "gap-1.5" : "flex-wrap gap-1.5 sm:flex-nowrap sm:gap-0",
+            ],
+      )}
+    >
+      <div
+        data-chat-composer-leading="true"
+        data-moss-visible-composer-leading="true"
+        className={cn(
+          "flex items-center",
+          row
+            ? "col-start-1 row-start-1 shrink-0 gap-0.5"
+            : voiceActive
+              ? "min-w-0 shrink-0 gap-1"
+              : isComposerFooterCompact
+                ? "min-w-0 flex-1 gap-1 overflow-hidden"
+                : "min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
+        )}
+      >
+        {leadingControls}
+
+        {!voice.recording && !voice.transcribing ? (
+          <>
+            {interactionMode !== "default" ? (
+              <Button
+                variant="ghost"
+                className="shrink-0 whitespace-nowrap px-2 text-ui-sm sm:text-ui-sm font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-3"
+                size="sm"
+                type="button"
+                onClick={resetInteractionMode}
+                title={`${interactionMode === "plan" ? "Plan" : "Debug"} mode — click to return to normal build mode`}
+              >
+                {interactionMode === "plan" ? (
+                  <TasksIcon className="size-3.5" />
+                ) : (
+                  <BugIcon className="size-3.5" />
+                )}
+                <span className={row ? "sr-only" : "sr-only sm:not-sr-only"}>
+                  {interactionMode === "plan" ? "Plan" : "Debug"}
+                </span>
+              </Button>
+            ) : null}
+
+            {sidebarAction ? (
+              <Button
+                variant="ghost"
+                className={cn(
+                  "shrink-0 whitespace-nowrap text-ui-sm sm:text-ui-sm font-normal",
+                  row ? COMPOSER_ACTION_CIRCLE_CLASS_NAME : "px-2 sm:px-3",
+                )}
+                size="sm"
+                type="button"
+                onClick={sidebarAction.onClick}
+                title={sidebarAction.title}
+                aria-label={sidebarAction.title}
+              >
+                <LayoutSidebarIcon className="size-3.5" />
+                <span className={row ? "sr-only" : "sr-only sm:not-sr-only"}>
+                  {sidebarAction.label}
+                </span>
+              </Button>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+
+      <div
+        data-chat-composer-actions="right"
+        data-moss-visible-composer-actions="true"
+        data-chat-composer-footer={row ? "true" : undefined}
+        className={cn(
+          "flex items-center gap-2",
+          row
+            ? voiceActive
+              ? "col-start-2 col-end-4 row-start-1 min-w-0"
+              : "col-start-3 row-start-1 shrink-0"
+            : voiceActive
+              ? "min-w-0 flex-1"
+              : "shrink-0",
+        )}
+      >
+        {realtimeVoice?.active ? realtimeVoice.controls : null}
+        {realtimeVoice?.active ? null : contextMeter}
+        {realtimeVoice?.active
+          ? null
+          : !voice.recording && !voice.transcribing
+            ? composerPickerControls
+            : null}
+        {realtimeVoice?.active ? null : voice.enabled && (voice.recording || voice.transcribing) ? (
+          <ComposerVoiceRecorderBar
+            disabled={submission.connecting || submission.busy || submission.expired}
+            isRecording={voice.recording}
+            isWaitingForAudio={voice.waitingForAudio}
+            isTranscribing={voice.transcribing}
+            durationLabel={voice.durationLabel}
+            waveformLevels={voice.waveformLevels}
+            onDiscard={voice.onCancel}
+            onStop={() => {
+              void voice.onSubmit();
+            }}
+          />
+        ) : null}
+        {realtimeVoice?.active ? null : resumeControl ? (
+          resumeControl
+        ) : pendingInput?.progress ? (
+          <Button
+            type="submit"
+            size="sm"
+            className="rounded-full px-4"
+            disabled={
+              pendingInput.responding ||
+              (pendingInput.progress.isLastQuestion
+                ? !pendingInput.answersComplete
+                : !pendingInput.progress.canAdvance)
+            }
+          >
+            {pendingInput.responding
+              ? "Submitting..."
+              : pendingInput.progress.isLastQuestion
+                ? "Submit answers"
+                : "Next question"}
+          </Button>
+        ) : submission.phase === "running" || submission.connecting ? (
+          <>
+            {/* Dictating a follow-up is allowed mid-turn: the transcript lands in the
+                composer and sending it follows the queue/steer behavior. */}
+            {voice.enabled &&
+            !submission.connecting &&
+            !voice.recording &&
+            !voice.transcribing &&
+            !submission.hasPendingUserInputs ? (
+              <ComposerVoiceButton
+                appearance="circle"
+                disabled={submission.busy || submission.expired}
+                isRecording={false}
+                isStarting={voice.starting}
+                isTranscribing={false}
+                durationLabel={voice.durationLabel}
+                onClick={voice.onToggle}
+              />
+            ) : null}
+            {/* While dictating, the recorder bar owns this slot (as it does for the
+                send button); two identical stop squares side by side would be
+                ambiguous. Stop generation returns once the voice note is done. */}
+            {!voice.recording && !voice.transcribing ? (
+              <Button
+                type="button"
+                variant="prominent"
+                size="icon-xs"
+                className={COMPOSER_ACTION_CIRCLE_CLASS_NAME}
+                onClick={submission.onInterrupt}
+                aria-label="Stop generation"
+                title="Stop the current response. On Mac, press Ctrl+C to interrupt."
+                data-moss-visible-stop-control="true"
+              >
+                <span aria-hidden="true" className="block size-2 rounded-[1px] bg-current" />
+              </Button>
+            ) : null}
+          </>
+        ) : !submission.hasPendingUserInputs && !voice.recording && !voice.transcribing ? (
+          submission.showPlanFollowUp ? (
+            submission.hasPrompt ? (
+              <Button
+                type="submit"
+                size="sm"
+                className="h-9 rounded-full px-4 sm:h-8"
+                disabled={
+                  submission.busy ||
+                  submission.connecting ||
+                  submission.expired ||
+                  submission.hasPendingCacheReview
+                }
+              >
+                {submission.connecting || submission.busy ? "Sending..." : "Refine"}
+              </Button>
+            ) : (
+              <div className="flex items-center">
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-9 rounded-l-full rounded-r-none px-4 sm:h-8"
+                  disabled={
+                    submission.busy ||
+                    submission.connecting ||
+                    submission.expired ||
+                    submission.hasPendingCacheReview
+                  }
+                >
+                  {submission.connecting || submission.busy ? "Sending..." : "Implement"}
+                </Button>
+                <Menu>
+                  <MenuTrigger
+                    render={
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-9 rounded-l-none rounded-r-full border-l-white/12 px-2 sm:h-8"
+                        aria-label="Implementation actions"
+                        disabled={
+                          submission.busy ||
+                          submission.connecting ||
+                          submission.expired ||
+                          submission.hasPendingCacheReview
+                        }
+                      />
+                    }
+                  >
+                    <ChevronDownIcon className="size-3.5" />
+                  </MenuTrigger>
+                  <ComposerPickerMenuPopup align="end" side="top">
+                    <MenuItem
+                      disabled={
+                        submission.busy ||
+                        submission.connecting ||
+                        submission.expired ||
+                        submission.hasPendingCacheReview
+                      }
+                      onClick={() => void submission.onImplementInNewThread()}
+                    >
+                      Implement in a new thread
+                    </MenuItem>
+                  </ComposerPickerMenuPopup>
+                </Menu>
+              </div>
+            )
+          ) : (
+            <>
+              {realtimeVoice?.button ?? null}
+              {voice.enabled ? (
+                <ComposerVoiceButton
+                  appearance="circle"
+                  disabled={submission.connecting || submission.busy || submission.expired}
+                  isRecording={voice.recording}
+                  isStarting={voice.starting}
+                  isTranscribing={voice.transcribing}
+                  durationLabel={voice.durationLabel}
+                  onClick={voice.onToggle}
+                />
+              ) : null}
+              <Button
+                type="submit"
+                variant="prominent"
+                size="icon-xs"
+                className={COMPOSER_ACTION_CIRCLE_CLASS_NAME}
+                data-moss-visible-send-control="true"
+                data-moss-visible-send-state={sendState ?? "empty"}
+                disabled={
+                  submission.busy ||
+                  submission.connecting ||
+                  submission.expired ||
+                  submission.hasPendingCacheReview ||
+                  voice.transcribing ||
+                  submission.preparingImages ||
+                  !submission.hasContent
+                }
+                aria-label={
+                  submission.connecting
+                    ? "Connecting"
+                    : voice.transcribing
+                      ? "Transcribing voice note"
+                      : submission.preparingImages
+                        ? "Optimizing image"
+                        : submission.preparingWorktree
+                          ? "Preparing worktree"
+                          : submission.busy
+                            ? "Sending"
+                            : "Send message"
+                }
+                title={
+                  submission.hasPendingCacheReview
+                    ? "Choose how to resume the held message above"
+                    : undefined
+                }
+              >
+                {submission.connecting || submission.busy || submission.preparingImages ? (
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    className="animate-spin"
+                    aria-hidden="true"
+                  >
+                    <circle
+                      cx="7"
+                      cy="7"
+                      r="5.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeDasharray="20 12"
+                    />
+                  </svg>
+                ) : (
+                  <ComposerSendArrowIcon
+                    aria-hidden="true"
+                    className="size-5 shrink-0 translate-y-px"
+                  />
+                )}
+              </Button>
+            </>
+          )
+        ) : null}
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "provider": {
+    "api": "OpenAI Realtime API",
+    "requestedModel": "gpt-realtime-2.1",
+    "verifiedActualModel": "gpt-realtime-2.1"
+  },
+  "generatedAt": "2026-07-29T15:49:46.124Z",
+  "voices": {
+    "arbor": "/realtime-voice-previews/arbor.generated-20260729t154923259z-866a041b.wav",
+    "breeze": "/realtime-voice-previews/breeze.generated-20260729t154923259z-866a041b.wav",
+    "cove": "/realtime-voice-previews/cove.generated-20260729t154923259z-866a041b.wav",
+    "ember": "/realtime-voice-previews/ember.generated-20260729t154923259z-866a041b.wav",
+    "juniper": "/realtime-voice-previews/juniper.generated-20260729t154923259z-866a041b.wav",
+    "maple": "/realtime-voice-previews/maple.generated-20260729t154923259z-866a041b.wav",
+    "sol": "/realtime-voice-previews/sol.generated-20260729t154923259z-866a041b.wav",
+    "spruce": "/realtime-voice-previews/spruce.generated-20260729t154923259z-866a041b.wav",
+    "vale": "/realtime-voice-previews/vale.generated-20260729t154923259z-866a041b.wav"
+  }
+}

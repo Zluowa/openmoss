@@ -1,0 +1,103 @@
+{
+  "provider": "gemini",
+  "description": "Gemini ACP runtime fixture covering assistant text, tool-call lifecycle, usage, and finish events.",
+  "expectedTypes": ["text", "tool-call", "tool-result", "usage", "finish"],
+  "events": [
+    {
+      "eventId": "raw-gemini-text",
+      "provider": "gemini",
+      "sessionId": "runtime-session-gemini-fixture",
+      "threadId": "thread-gemini-fixture",
+      "turnId": "turn-gemini-fixture",
+      "createdAt": "2026-07-01T14:34:00.000Z",
+      "launchPlanHash": "sha256:gemini-fixture-launch-plan",
+      "type": "content.delta",
+      "raw": {
+        "source": "gemini.acp.message",
+        "payload": {
+          "type": "agent_message_chunk"
+        }
+      },
+      "payload": {
+        "streamKind": "assistant_text",
+        "delta": "Gemini fixture response"
+      }
+    },
+    {
+      "eventId": "raw-gemini-tool-start",
+      "provider": "gemini",
+      "sessionId": "runtime-session-gemini-fixture",
+      "threadId": "thread-gemini-fixture",
+      "turnId": "turn-gemini-fixture",
+      "itemId": "item-gemini-tool",
+      "createdAt": "2026-07-01T14:34:01.000Z",
+      "launchPlanHash": "sha256:gemini-fixture-launch-plan",
+      "type": "item.started",
+      "raw": {
+        "source": "gemini.acp.message",
+        "payload": {
+          "type": "tool_call"
+        }
+      },
+      "payload": {
+        "itemType": "mcp_tool_call",
+        "status": "inProgress",
+        "title": "Run web search",
+        "data": {
+          "name": "search.web",
+          "query": "moss harness"
+        }
+      }
+    },
+    {
+      "eventId": "raw-gemini-tool-done",
+      "provider": "gemini",
+      "sessionId": "runtime-session-gemini-fixture",
+      "threadId": "thread-gemini-fixture",
+      "turnId": "turn-gemini-fixture",
+      "itemId": "item-gemini-tool",
+      "createdAt": "2026-07-01T14:34:02.000Z",
+      "launchPlanHash": "sha256:gemini-fixture-launch-plan",
+      "type": "item.completed",
+      "raw": {
+        "source": "gemini.acp.message",
+        "payload": {
+          "type": "tool_call_update"
+        }
+      },
+      "payload": {
+        "itemType": "mcp_tool_call",
+        "status": "completed",
+        "title": "Run web search",
+        "data": {
+          "output": "3 results"
+        }
+      }
+    },
+    {
+      "eventId": "raw-gemini-completed",
+      "provider": "gemini",
+      "sessionId": "runtime-session-gemini-fixture",
+      "threadId": "thread-gemini-fixture",
+      "turnId": "turn-gemini-fixture",
+      "createdAt": "2026-07-01T14:34:03.000Z",
+      "launchPlanHash": "sha256:gemini-fixture-launch-plan",
+      "type": "turn.completed",
+      "raw": {
+        "source": "gemini.acp.message",
+        "payload": {
+          "type": "turn_completed"
+        }
+      },
+      "payload": {
+        "state": "completed",
+        "stopReason": "end_turn",
+        "modelUsage": {
+          "model": "gemini-2.5-pro",
+          "inputTokens": 85,
+          "outputTokens": 42
+        }
+      }
+    }
+  ]
+}

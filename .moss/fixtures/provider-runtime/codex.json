@@ -1,0 +1,102 @@
+{
+  "provider": "codex",
+  "description": "Codex runtime fixture covering assistant text, command lifecycle, usage, and finish events.",
+  "expectedTypes": ["text", "tool-call", "tool-result", "usage", "finish"],
+  "events": [
+    {
+      "eventId": "raw-codex-text",
+      "provider": "codex",
+      "sessionId": "runtime-session-codex-fixture",
+      "threadId": "thread-codex-fixture",
+      "turnId": "turn-codex-fixture",
+      "createdAt": "2026-07-01T14:30:00.000Z",
+      "launchPlanHash": "sha256:codex-fixture-launch-plan",
+      "type": "content.delta",
+      "raw": {
+        "source": "codex.eventmsg",
+        "payload": {
+          "type": "message_delta"
+        }
+      },
+      "payload": {
+        "streamKind": "assistant_text",
+        "delta": "Codex fixture response"
+      }
+    },
+    {
+      "eventId": "raw-codex-command-start",
+      "provider": "codex",
+      "sessionId": "runtime-session-codex-fixture",
+      "threadId": "thread-codex-fixture",
+      "turnId": "turn-codex-fixture",
+      "itemId": "item-codex-command",
+      "createdAt": "2026-07-01T14:30:01.000Z",
+      "launchPlanHash": "sha256:codex-fixture-launch-plan",
+      "type": "item.started",
+      "raw": {
+        "source": "codex.eventmsg",
+        "payload": {
+          "type": "exec_command_begin"
+        }
+      },
+      "payload": {
+        "itemType": "command_execution",
+        "status": "inProgress",
+        "title": "bun test",
+        "data": {
+          "command": "bun test"
+        }
+      }
+    },
+    {
+      "eventId": "raw-codex-command-done",
+      "provider": "codex",
+      "sessionId": "runtime-session-codex-fixture",
+      "threadId": "thread-codex-fixture",
+      "turnId": "turn-codex-fixture",
+      "itemId": "item-codex-command",
+      "createdAt": "2026-07-01T14:30:02.000Z",
+      "launchPlanHash": "sha256:codex-fixture-launch-plan",
+      "type": "item.completed",
+      "raw": {
+        "source": "codex.eventmsg",
+        "payload": {
+          "type": "exec_command_end"
+        }
+      },
+      "payload": {
+        "itemType": "command_execution",
+        "status": "completed",
+        "title": "bun test",
+        "data": {
+          "exitCode": 0,
+          "output": "pass"
+        }
+      }
+    },
+    {
+      "eventId": "raw-codex-completed",
+      "provider": "codex",
+      "sessionId": "runtime-session-codex-fixture",
+      "threadId": "thread-codex-fixture",
+      "turnId": "turn-codex-fixture",
+      "createdAt": "2026-07-01T14:30:03.000Z",
+      "launchPlanHash": "sha256:codex-fixture-launch-plan",
+      "type": "turn.completed",
+      "raw": {
+        "source": "codex.eventmsg",
+        "payload": {
+          "type": "turn_completed"
+        }
+      },
+      "payload": {
+        "state": "completed",
+        "stopReason": "stop",
+        "usage": {
+          "inputTokens": 80,
+          "outputTokens": 40
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "types": ["node", "bun"],
+    "lib": ["ES2023", "esnext.disposable"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
+  },
+  // device-helper-smoke.ts spawns the helper through the server's sandbox
+  // wrapper so the smoke run exercises the same confinement the app applies.
+  // Duplicating that logic here is what would let the two drift.
+  // computer-use-fixtures and inline-visualization verification are Bun-run
+  // canary/fixture families. They deliberately compose the real server (and,
+  // for the latter, shared HTML bootstrap) source instead of a published
+  // package, so including either in this composite project would make tsc
+  // pull those foreign source trees under scripts/tsconfig. Keep these
+  // developer harness entry points outside the package build graph, just as
+  // apps/desktop keeps src/cuaFixtures outside its own composite project.
+  "include": [
+    "**/*.ts",
+    "**/*.d.mts",
+    "../apps/web/src/test/browserCasePartition.ts",
+    "../apps/server/src/provider/mossCatalogSelectionRpc.ts",
+    "../apps/server/src/device/helperSandbox.ts",
+    "../apps/desktop/src/desktopAppIcon.ts",
+    "../packages/shared/src/macosKeychainPolicy.ts"
+  ],
+  "exclude": [
+    "computer-use-fixtures",
+    // This real-server smoke has its own strict, non-composite typecheck.
+    "moss-managed-plugin-smoke.ts",
+    "inlineVisualizationVerificationLayer.ts",
+    "inlineVisualizationVerificationServer.ts",
+    "run-inline-visualization-visual-check.ts",
+    "seed-inline-visualization-fixture.ts"
+  ]
+}
