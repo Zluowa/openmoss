@@ -110,16 +110,9 @@ it.each([false, true])(
                 createdAt: new Date().toISOString(),
               });
             yield* start("manual-message", "user");
-            // Model refresh stderr can arrive before a provider turn ID exists.
-            // It must remain visible without failing or retrying the first start.
-            yield* harness.waitForDomainEvent(
-              (event) =>
-                event.type === "thread.activity-appended" &&
-                event.payload.activity.kind === "runtime.warning" &&
-                JSON.stringify(event.payload.activity.payload).includes(
-                  "failed to refresh available models: timeout waiting for child process to exit",
-                ),
-            );
+            // The fixture writes a model-refresh error to stderr before a provider
+            // turn ID exists. Codex's own model-list retries go to the server log,
+            // not the transcript, and must not fail or retry the first start.
             const manual = yield* harness.waitForThread(
               threadId,
               (thread) =>
@@ -130,6 +123,11 @@ it.each([false, true])(
                 ),
             );
             expect(manual.session?.lastError).toBeNull();
+            expect(
+              manual.activities.filter((activity) =>
+                JSON.stringify(activity.payload).includes("failed to refresh available models"),
+              ),
+            ).toEqual([]);
 
             // Advance only reconciliation's observation clock. The live adapter
             // and its activity watchdog continue using real time.
