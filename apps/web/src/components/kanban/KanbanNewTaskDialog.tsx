@@ -514,7 +514,7 @@ export function KanbanNewTaskDialog({
               selectedProjectId={selectedProjectId}
               onProjectIdChange={setSelectedProjectId}
             />
-            <ChevronRightIcon className="size-3.5 shrink-0 text-muted-foreground/50" aria-hidden />
+            <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground/50" aria-hidden />
             <DialogTitle className="font-system-ui truncate font-medium text-ui leading-none">
               {t("kanban.newTask")}
             </DialogTitle>
@@ -578,7 +578,7 @@ export function KanbanNewTaskDialog({
                 className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground"
                 role="status"
               >
-                <LoaderCircleIcon className="size-3.5 animate-spin" />
+                <LoaderCircleIcon className="size-4 animate-spin" />
                 Optimizing {pendingImageCount === 1 ? "image" : "images"}…
               </div>
             ) : null}

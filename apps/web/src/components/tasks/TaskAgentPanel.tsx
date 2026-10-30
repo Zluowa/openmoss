@@ -81,7 +81,7 @@ export function TaskAgentPanel({
       className="flex min-w-0 items-center gap-2"
       title={`${agentName} · ${model}${location ? ` · in ${fullPath ?? location}` : ""}`}
     >
-      <ProviderIcon provider={provider} className="size-3.5 shrink-0" />
+      <ProviderIcon provider={provider} className="size-4 shrink-0" />
       <span className={cn("min-w-0 text-ui-sm text-foreground", className)}>{text}</span>
     </div>
   );

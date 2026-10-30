@@ -336,7 +336,7 @@ export function ProjectPanel({
             <>
               {agent.overview?.goal?.status === "active" ? (
                 <IconButton type="button" label="Pause goal" onClick={() => void agent.pauseGoal()}>
-                  <PauseIcon className="size-3.5" />
+                  <PauseIcon className="size-4" />
                 </IconButton>
               ) : null}
               {agent.overview?.goal?.status === "paused" ? (
@@ -345,7 +345,7 @@ export function ProjectPanel({
                   label="Resume goal"
                   onClick={() => void agent.resumeGoal()}
                 >
-                  <PlayIcon className="size-3.5" />
+                  <PlayIcon className="size-4" />
                 </IconButton>
               ) : null}
               <IconButton
@@ -354,12 +354,12 @@ export function ProjectPanel({
                 tooltip="Hub settings"
                 onClick={() => setAgentDialogOpen(true)}
               >
-                <SettingsIcon className="size-3.5" />
+                <SettingsIcon className="size-4" />
               </IconButton>
             </>
           ) : null}
           <IconButton type="button" label="Close hub panel" tooltip="Close" onClick={onClose}>
-            <XIcon className="size-3.5" />
+            <XIcon className="size-4" />
           </IconButton>
         </div>
       </div>

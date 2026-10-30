@@ -345,7 +345,7 @@ function DataSpaceWorkspace({
             )}
             onClick={() => void openCreate(false)}
           >
-            <AddPlusIcon aria-hidden className="size-3.5 shrink-0" />
+            <AddPlusIcon aria-hidden className="size-4 shrink-0" />
             新建页面
           </button>
         </div>

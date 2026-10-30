@@ -1035,9 +1035,10 @@ export async function linkOrCopyCodexOverlayEntry(
   // Windows file hard links need no symlink privilege and keep continuation
   // files unified for append-in-place writers (Codex history is appended, not
   // rename-replaced). Auth and other rewrite-replaced private state must keep
-  // following the file NAME, so they never take this path. A cross-volume
-  // source (EXDEV) or a read-only target still falls through to the symlink
-  // path below.
+  // following the file NAME, so they never take this path. Overlays normally
+  // sit on their source's volume (see resolveMossCodexHomeOverlayPath); a
+  // source that is still on another volume (EXDEV), such as a mounted folder,
+  // or a read-only target falls through to the symlink path below.
   if (
     input.type === "file" &&
     platform === "win32" &&
@@ -1082,6 +1083,19 @@ export function prioritizeCodexOverlayEntries(entries: readonly string[]): strin
   return [...sharedStateEntries, ...otherEntries];
 }
 
+/**
+ * A real file with more than one name only shares data another name keeps
+ * alive, so removing this name can never lose it. A file with a single name may
+ * hold the only copy and must never be replaced automatically.
+ */
+function isSharedHardLink(stat: BigIntStats): boolean {
+  return stat.isFile() && stat.nlink > 1n;
+}
+
+function statsIdentifySameFile(left: BigIntStats, right: BigIntStats): boolean {
+  return left.ino !== 0n && left.dev === right.dev && left.ino === right.ino;
+}
+
 async function ensureCodexOverlaySymlink(
   input: {
     readonly entryName: string;
@@ -1092,9 +1106,9 @@ async function ensureCodexOverlaySymlink(
   },
   linker?: CodexOverlayEntryLinker,
 ): Promise<void> {
-  let targetStat: Awaited<ReturnType<typeof fs.lstat>> | undefined;
+  let targetStat: BigIntStats | undefined;
   try {
-    targetStat = await fs.lstat(input.targetPath);
+    targetStat = await fs.lstat(input.targetPath, { bigint: true });
   } catch {
     targetStat = undefined;
   }
@@ -1107,7 +1121,11 @@ async function ensureCodexOverlaySymlink(
     if (
       input.force ||
       targetStat.isSymbolicLink() ||
-      CODEX_OVERLAY_SHARED_STATE_FILES.has(input.entryName)
+      CODEX_OVERLAY_SHARED_STATE_FILES.has(input.entryName) ||
+      // A hard link to anything but the selected source still belongs to the
+      // home it was linked from, typically before CODEX_HOME moved.
+      (isSharedHardLink(targetStat) &&
+        !statsIdentifySameFile(targetStat, await fs.lstat(input.sourcePath, { bigint: true })))
     ) {
       // Account-private state and auth must mirror the selected Codex home so
       // external `codex login` changes are visible.
@@ -1169,6 +1187,8 @@ interface SharedContinuationMigration {
   readonly sourcePath: string;
   readonly targetPath: string;
   readonly action: "create-source" | "link-only";
+  /** The overlay entry only links to another home and is replaced by this migration. */
+  readonly replacesStaleLink?: true;
 }
 
 function sharedContinuationMarkerPath(sourceHomePath: string): string {
@@ -1473,11 +1493,23 @@ async function lstatIfExists(
   }
 }
 
+/** NTFS file ids need all 64 bits; rounded to a number, neighbors can compare equal. */
+async function lstatIdentityIfExists(entryPath: string): Promise<BigIntStats | undefined> {
+  try {
+    return await fs.lstat(entryPath, { bigint: true });
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 function assertSharedContinuationEntryType(input: {
   readonly entryName: string;
   readonly entryPath: string;
   readonly kind: SharedContinuationEntryKind;
-  readonly stat: NonNullable<Awaited<ReturnType<typeof fs.lstat>>>;
+  readonly stat: Pick<BigIntStats, "isDirectory" | "isFile">;
 }): void {
   const matches = input.kind === "dir" ? input.stat.isDirectory() : input.stat.isFile();
   if (!matches) {
@@ -1496,15 +1528,29 @@ async function planSharedContinuationMigration(input: {
   const sourcePath = path.join(input.sourceHomePath, input.entryName);
   const targetPath = path.join(input.overlayHomePath, input.entryName);
   const [sourceStat, targetStat] = await Promise.all([
-    lstatIfExists(sourcePath),
-    lstatIfExists(targetPath),
+    lstatIdentityIfExists(sourcePath),
+    lstatIdentityIfExists(targetPath),
   ]);
 
   if (targetStat?.isSymbolicLink()) {
     if (!codexPathsReferenceSameLocation(await resolvedSymlinkTarget(targetPath), sourcePath)) {
-      throw new Error(
-        `Codex continuation state at ${targetPath} points outside the shared source home; remove or repair the stale link before starting this account.`,
-      );
+      // CODEX_HOME moved. The link owns no data: the previous home keeps it all.
+      if (sourceStat) {
+        assertSharedContinuationEntryType({
+          entryName: input.entryName,
+          entryPath: sourcePath,
+          kind,
+          stat: sourceStat,
+        });
+      }
+      return {
+        entryName: input.entryName,
+        kind,
+        sourcePath,
+        targetPath,
+        action: sourceStat ? "link-only" : "create-source",
+        replacesStaleLink: true,
+      };
     }
     if (sourceStat) {
       assertSharedContinuationEntryType({
@@ -1531,6 +1577,16 @@ async function planSharedContinuationMigration(input: {
       kind,
       stat: targetStat,
     });
+    if (isSharedHardLink(targetStat)) {
+      return {
+        entryName: input.entryName,
+        kind,
+        sourcePath,
+        targetPath,
+        action: "create-source",
+        replacesStaleLink: true,
+      };
+    }
     throw new Error(
       `Codex continuation state '${input.entryName}' exists only in ${input.overlayHomePath}; refusing to migrate legacy state automatically because an active Codex process may still own it. Move it to ${input.sourceHomePath} while Codex is stopped, then retry.`,
     );
@@ -1551,13 +1607,18 @@ async function planSharedContinuationMigration(input: {
 
   // A Windows hard link is a real entry in both homes while remaining the
   // same continuation file: identical inode, never a forked copy.
-  if (
-    kind === "file" &&
-    sourceStat!.ino !== 0 &&
-    sourceStat!.dev === targetStat!.dev &&
-    sourceStat!.ino === targetStat!.ino
-  ) {
+  if (kind === "file" && statsIdentifySameFile(sourceStat!, targetStat!)) {
     return undefined;
+  }
+  if (isSharedHardLink(targetStat!)) {
+    return {
+      entryName: input.entryName,
+      kind,
+      sourcePath,
+      targetPath,
+      action: "link-only",
+      replacesStaleLink: true,
+    };
   }
 
   throw new Error(
@@ -1579,6 +1640,9 @@ async function assertMigrationPreconditionsStillHold(
           `Codex continuation source appeared during preparation at ${migration.sourcePath}; refusing to overwrite unexpected state.`,
         );
       }
+      if (migration.replacesStaleLink) {
+        return;
+      }
       if (targetStat?.isSymbolicLink()) {
         if (
           !codexPathsReferenceSameLocation(
@@ -1597,7 +1661,7 @@ async function assertMigrationPreconditionsStillHold(
       }
       return;
     case "link-only":
-      if (!sourceStat || targetStat) {
+      if (!sourceStat || (targetStat && !migration.replacesStaleLink)) {
         throw new Error(
           `Codex continuation state changed during preparation for ${migration.entryName}; retry after the active writer stops.`,
         );
@@ -1622,6 +1686,20 @@ async function createSharedContinuationSource(
   }
 }
 
+async function removeStaleContinuationLink(migration: SharedContinuationMigration): Promise<void> {
+  const targetStat = await lstatIdentityIfExists(migration.targetPath);
+  if (!targetStat) {
+    return;
+  }
+  if (!targetStat.isSymbolicLink() && !isSharedHardLink(targetStat)) {
+    throw new Error(
+      `Codex continuation state changed during preparation for ${migration.entryName}; retry after the active writer stops.`,
+    );
+  }
+  // unlink removes only this name and never follows a junction into its target.
+  await fs.unlink(migration.targetPath);
+}
+
 async function executeSharedContinuationMigration(
   migration: SharedContinuationMigration,
   linker?: CodexOverlayEntryLinker,
@@ -1633,6 +1711,9 @@ async function executeSharedContinuationMigration(
       break;
     case "link-only":
       break;
+  }
+  if (migration.replacesStaleLink) {
+    await removeStaleContinuationLink(migration);
   }
 
   // SQLite state is shared through CODEX_SQLITE_HOME so every process opens
@@ -1773,9 +1854,9 @@ async function prepareSharedCodexContinuationState(input: {
   return preparedMetadata;
 }
 
-function lstatSyncIfExists(entryPath: string): ReturnType<typeof lstatSync> | undefined {
+function lstatSyncIfExists(entryPath: string): BigIntStats | undefined {
   try {
-    return lstatSync(entryPath);
+    return lstatSync(entryPath, { bigint: true });
   } catch (error) {
     if (isMissingPathError(error)) {
       return undefined;
@@ -2063,9 +2144,7 @@ function selectedCodexOverlaySharesContinuationState(input: {
       kind === "file" &&
       targetStat !== undefined &&
       targetStat.isFile() &&
-      sourceStat.ino !== 0 &&
-      sourceStat.dev === targetStat.dev &&
-      sourceStat.ino === targetStat.ino
+      statsIdentifySameFile(sourceStat, targetStat)
     );
   });
 }
@@ -2151,6 +2230,36 @@ async function removeLegacyCodexOverlaySqliteLinks(overlayHomePath: string): Pro
     const targetPath = path.join(overlayHomePath, entry);
     if ((await fs.lstat(targetPath)).isSymbolicLink()) {
       await fs.rm(targetPath, { force: true });
+    }
+  }
+}
+
+/**
+ * Drops mirrored entries the selected source home no longer has, so an overlay
+ * cannot keep writing through them into the home CODEX_HOME used to name. Only
+ * links are removed; anything Codex wrote into the overlay itself stays.
+ */
+async function removeOrphanedCodexOverlayLinks(input: {
+  readonly sourceHomePath: string;
+  readonly overlayHomePath: string;
+}): Promise<void> {
+  const sourceEntries = new Set(await fs.readdir(input.sourceHomePath));
+  for (const entry of await fs.readdir(input.overlayHomePath)) {
+    if (
+      sourceEntries.has(entry) ||
+      isSharedContinuationEntry(entry) ||
+      isCodexSqliteStateEntry(entry) ||
+      CODEX_ACCOUNT_PRIVATE_STATE_FILES.has(entry)
+    ) {
+      continue;
+    }
+    const targetPath = path.join(input.overlayHomePath, entry);
+    const stat = await fs.lstat(targetPath, { bigint: true });
+    const mirrorsMissingEntry = stat.isSymbolicLink()
+      ? path.basename(await resolvedSymlinkTarget(targetPath)) === entry
+      : isSharedHardLink(stat);
+    if (mirrorsMissingEntry) {
+      await fs.unlink(targetPath);
     }
   }
 }
@@ -2700,6 +2809,9 @@ async function prepareMossCodexHomeOverlayUnlocked(input: {
     // If the source home is partially missing, Codex can still start with the
     // overlay config and create any required state lazily.
   }
+
+  // Best effort: a leftover link that cannot be removed must not block a launch.
+  await removeOrphanedCodexOverlayLinks({ sourceHomePath, overlayHomePath }).catch(() => undefined);
 
   if (accountSegment && !shadowHomePath && !hasDedicatedAccountHome) {
     for (const entry of CODEX_ACCOUNT_PRIVATE_STATE_FILES) {

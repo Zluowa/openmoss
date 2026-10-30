@@ -1,7 +1,6 @@
-// Codex 26.1007 timeline row for native subagents under the parent turn.
-// Source: sites-end-resource-ad39113306e8.js `tk` / `nk`
+// Timeline row for native subagents under the parent turn.
 // i18n: subagents.activity.summary → chat.timeline.subagentStatus.*
-// Marks are `Hu` → app-initial `KOc` (seeded sparkle img, `size-4`).
+// Marks are the seeded sparkle image at `size-4`.
 // This is the in-timeline row, not the sidebar child thread.
 
 import { useTranslation } from "../../localization";
@@ -52,8 +51,7 @@ export function InlineSubagentActivity(props: {
     <span
       data-testid="subagent-activity-inline-group"
       className={cn(
-        // Codex `tk`: `flex min-w-0 items-start gap-1.5 text-base leading-5`.
-        // `text-secondary` here is the 3% surface token, not Codex secondary copy.
+        // `text-secondary` here is the 3% surface token, not secondary copy.
         "flex min-w-0 items-start gap-1.5 text-size-chat leading-5 text-muted-foreground select-none",
         props.className,
       )}

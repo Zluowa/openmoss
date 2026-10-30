@@ -140,7 +140,7 @@ function SubmenuRowFixture({ size }: { size: ComposerPickerSize }) {
 
 describe("composer picker submenu row", () => {
   it.each([
-    ["normal", 1],
+    ["normal", 0.75],
     ["small", 0.75],
   ] as const)(
     "ends a %s row with the chevron and leaves a leading brand mark alone",
@@ -159,10 +159,9 @@ describe("composer picker submenu row", () => {
       const rowStyle = getComputedStyle(row);
       const contentLeft = rowRect.left + parseFloat(rowStyle.paddingLeft);
       const contentRight = rowRect.right - parseFloat(rowStyle.paddingRight);
-      // Pushed to the row's end; its -2px end margin lets it overhang the padding slightly.
-      expect(Math.abs(chevron.getBoundingClientRect().right - contentRight)).toBeLessThanOrEqual(
-        2.5,
-      );
+      // Pushed to the row's end; its -2px end margin and the glyph's optical scale let it overhang
+      // the padding slightly.
+      expect(Math.abs(chevron.getBoundingClientRect().right - contentRight)).toBeLessThanOrEqual(3);
 
       const mark = byTestId("mark");
       expect(getComputedStyle(mark).width).toBe(rem(0.75));

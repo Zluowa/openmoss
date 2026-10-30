@@ -165,7 +165,7 @@ function EditProfileDialogContent({
                   disabled={processing}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  <CentralIcon name="add-image" className="size-3.5" />
+                  <CentralIcon name="add-image" className="size-4" />
                   {processing ? "Processing…" : draftImage ? "Replace photo" : "Upload photo"}
                 </Button>
                 {draftImage && (
@@ -179,7 +179,7 @@ function EditProfileDialogContent({
                       setError(null);
                     }}
                   >
-                    <CentralIcon name="trash-can-simple" className="size-3.5" />
+                    <CentralIcon name="trash-can-simple" className="size-4" />
                     Remove
                   </Button>
                 )}

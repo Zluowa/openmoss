@@ -61,7 +61,7 @@ export function WorkspaceFileEditorHistoryActions(props: WorkspaceFileEditorHist
         disabled={!props.history.canUndo}
         onClick={props.onUndo}
       >
-        <Undo2Icon aria-hidden="true" className="size-3.5" />
+        <Undo2Icon aria-hidden="true" className="size-4" />
       </ChatHeaderIconButton>
       <ChatHeaderIconButton
         type="button"
@@ -71,7 +71,7 @@ export function WorkspaceFileEditorHistoryActions(props: WorkspaceFileEditorHist
         disabled={!props.history.canRedo}
         onClick={props.onRedo}
       >
-        <Redo2Icon aria-hidden="true" className="size-3.5" />
+        <Redo2Icon aria-hidden="true" className="size-4" />
       </ChatHeaderIconButton>
       <ChatHeaderIconButton
         type="button"
@@ -81,7 +81,7 @@ export function WorkspaceFileEditorHistoryActions(props: WorkspaceFileEditorHist
         disabled={!props.canRevert}
         onClick={props.onRevert}
       >
-        <ResetIcon aria-hidden="true" className="size-3.5" />
+        <ResetIcon aria-hidden="true" className="size-4" />
       </ChatHeaderIconButton>
     </>
   );
@@ -163,7 +163,7 @@ export function WorkspaceFileEditorHeader(props: WorkspaceFileEditorHeaderProps)
           title="Close editor"
           onClick={props.onClose}
         >
-          <XIcon aria-hidden="true" className="size-3.5" />
+          <XIcon aria-hidden="true" className="size-4" />
         </ChatHeaderIconButton>
       </div>
     </div>
@@ -212,7 +212,7 @@ export function WorkspaceFileEditorConflictBar(props: WorkspaceFileEditorConflic
     <div className="flex shrink-0 items-center gap-2 border-b border-border bg-[var(--color-background-elevated-secondary)] px-3 py-1.5">
       <TriangleAlertIcon
         aria-hidden="true"
-        className="size-3.5 shrink-0 text-[var(--color-warning)]"
+        className="size-4 shrink-0 text-[var(--color-warning)]"
       />
       <p className="min-w-0 flex-1 truncate text-ui-sm text-foreground/85" title={props.message}>
         {props.message}

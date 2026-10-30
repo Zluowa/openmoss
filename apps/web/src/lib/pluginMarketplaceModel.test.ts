@@ -1,5 +1,5 @@
 // FILE: pluginMarketplaceModel.test.ts
-// Purpose: Frozen Codex add-marketplace form normalization contract.
+// Purpose: Add-marketplace form normalization contract.
 // Layer: Unit test
 
 import { describe, expect, it } from "vitest";

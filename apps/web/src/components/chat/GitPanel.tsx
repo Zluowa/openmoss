@@ -108,9 +108,9 @@ function GitFileRow(props: {
         onClick={() => props.onAction([filePath])}
       >
         {props.actionIcon === "stage" ? (
-          <PlusIcon className="size-3.5" />
+          <PlusIcon className="size-4" />
         ) : (
-          <ResetIcon className="size-3.5" />
+          <ResetIcon className="size-4" />
         )}
       </IconButton>
     </div>
@@ -306,7 +306,7 @@ export function GitPanel(props: {
             className={DOCK_HEADER_ICON_BUTTON_CLASS}
             onClick={refresh}
           >
-            <RefreshCwIcon className="size-3.5" />
+            <RefreshCwIcon className="size-4" />
           </IconButton>
         }
       />

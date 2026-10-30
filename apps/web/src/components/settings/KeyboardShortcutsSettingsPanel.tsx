@@ -117,7 +117,7 @@ export function KeyboardShortcutsResetButton() {
       disabled={isLoading || !customized || isResetting}
       onClick={() => void resetAll()}
     >
-      <ResetIcon className="size-3.5" />
+      <ResetIcon className="size-4" />
       Reset all to defaults
     </Button>
   );

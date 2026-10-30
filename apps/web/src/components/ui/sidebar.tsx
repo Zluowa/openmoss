@@ -21,7 +21,7 @@ import { useIsMobile } from "~/hooks/useMediaQuery";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { Schema } from "effect";
 
-// Codex 26.1007 has no icon rail. The conversation column still needs the
+// The Codex desktop layout has no icon rail. The conversation column still needs the
 // same left inset the previous rail-plus-panel used (about 279px) so a 717px
 // approval card keeps gutters near 131/149. That width is the sidebar itself,
 // so thread titles and "Awaiting approval" are not crushed to make the inset.
@@ -864,7 +864,7 @@ function SidebarGroup({ className, ...props }: React.ComponentProps<"div">) {
 function SidebarGroupLabel({ className, render, ...props }: useRender.ComponentProps<"div">) {
   const defaultProps = {
     className: cn(
-      "flex h-8 shrink-0 items-center rounded-lg px-2 font-medium text-sidebar-foreground text-ui leading-snug outline-hidden ring-ring/60 transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-1 [&>svg,&>[data-slot=central-icon]]:size-4 [&>svg,&>[data-slot=central-icon]]:shrink-0",
+      "flex h-8 shrink-0 items-center rounded-row px-2 font-medium text-sidebar-foreground text-ui leading-snug outline-hidden ring-ring/60 transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-1 [&>svg,&>[data-slot=central-icon]]:size-4 [&>svg,&>[data-slot=central-icon]]:shrink-0",
       "group-data-[collapsible=icon]:-mt-8 group-data-[collapsible=icon]:opacity-0",
       className,
     ),
@@ -933,7 +933,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-xl p-2 text-left text-ui-lg leading-snug outline-hidden ring-ring/60 transition-[width,height,padding] hover:bg-[var(--sidebar-accent)] focus-visible:ring-1 active:bg-[var(--sidebar-accent-active)] active:text-[var(--sidebar-accent-foreground)] disabled:pointer-events-none disabled:opacity-50 menu-item-has-action:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-[var(--sidebar-selected)] data-[active=true]:text-[var(--sidebar-accent-foreground)] data-[state=open]:hover:bg-[var(--sidebar-accent)] group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg,&>[data-slot=central-icon]]:shrink-0",
+  "peer/menu-button flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-row p-2 text-left text-ui-lg leading-snug outline-hidden ring-ring/60 transition-[width,height,padding] hover:bg-[var(--sidebar-accent)] focus-visible:ring-1 active:bg-[var(--sidebar-accent-active)] active:text-[var(--sidebar-accent-foreground)] disabled:pointer-events-none disabled:opacity-50 menu-item-has-action:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-[var(--sidebar-selected)] data-[active=true]:text-[var(--sidebar-accent-foreground)] data-[state=open]:hover:bg-[var(--sidebar-accent)] group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg,&>[data-slot=central-icon]]:shrink-0",
   {
     defaultVariants: {
       size: "default",

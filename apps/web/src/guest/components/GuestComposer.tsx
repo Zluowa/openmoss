@@ -305,7 +305,7 @@ export function GuestComposer({
                     data-moss-visible-attachment-control="true"
                     onClick={() => fileInputRef.current?.click()}
                   >
-                    <PaperclipIcon aria-hidden="true" className="size-3.5" />
+                    <PaperclipIcon aria-hidden="true" className="size-4" />
                   </Button>
                 </>
               }
@@ -318,7 +318,7 @@ export function GuestComposer({
                   aria-label={format("guest.model", { label: modelLabel })}
                   title={modelLabel}
                 >
-                  <ProviderIcon provider={model.provider} className="size-3.5" />
+                  <ProviderIcon provider={model.provider} className="size-4" />
                   <span className="min-w-0 truncate">{modelLabel}</span>
                 </span>
               }

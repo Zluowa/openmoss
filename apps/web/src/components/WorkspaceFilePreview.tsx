@@ -1568,7 +1568,7 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
                   }}
                 >
                   <span className="editor-file-viewer__comment-add-glyph">
-                    <PlusIcon className="size-3.5" />
+                    <PlusIcon className="size-4" />
                   </span>
                 </button>
               ) : null}

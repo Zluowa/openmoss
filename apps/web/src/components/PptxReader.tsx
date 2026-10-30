@@ -95,7 +95,7 @@ export function PptxReader(props: PptxReaderProps) {
           href={downloadUrl}
           download={basenameOfPath(props.filePath)}
         >
-          <DownloadIcon className="size-3.5" />
+          <DownloadIcon className="size-4" />
           Download file
         </a>
       </div>

@@ -206,9 +206,9 @@ describe("TimelineReasoningRow browser parity", () => {
       const chevron = trigger.element().querySelector<HTMLElement>('[data-slot="central-icon"]');
       if (!chevron) throw new Error("settled reasoning chevron missing");
       expect(chevron.getAttribute("class")).toContain("icon-2xs");
-      expect(chevron.getAttribute("class")).toContain("size-3.5");
-      expect(getComputedStyle(chevron).width).toBe("14px");
-      expect(getComputedStyle(chevron).height).toBe("14px");
+      expect(chevron.getAttribute("class")).toContain("size-3");
+      expect(getComputedStyle(chevron).width).toBe("12px");
+      expect(getComputedStyle(chevron).height).toBe("12px");
       // Pointer position survives earlier browser interactions. Establish the
       // resting state before checking the hover-only chevron's hidden style.
       await userEvent.unhover(trigger);

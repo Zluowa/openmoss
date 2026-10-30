@@ -202,7 +202,7 @@ export function PullRequestsUnavailableState({
               "flex items-center gap-1.5 text-muted-foreground",
             )}
           >
-            <TriangleAlertIcon className="size-3.5" />
+            <TriangleAlertIcon className="size-4" />
             <span>
               {rateLimited
                 ? "The list refreshes on its own once the limit resets."

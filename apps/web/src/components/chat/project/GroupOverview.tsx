@@ -246,7 +246,7 @@ export function GroupThreadRow({
           void showRowMenu({ x: rect.right, y: rect.bottom });
         }}
       >
-        <EllipsisIcon className="size-3.5" />
+        <EllipsisIcon className="size-4" />
       </IconButton>
     </div>
   );
@@ -300,7 +300,7 @@ export function GroupPullRequestsSection({
                 void readNativeApi()?.shell.openExternal(row.pullRequest.url);
               }}
             >
-              <GitHubIcon className="size-3.5" />
+              <GitHubIcon className="size-4" />
             </IconButton>
           </div>
         );

@@ -5,12 +5,13 @@
 import { GUEST_NAME_MAX_LENGTH } from "@synara/contracts";
 import { useState, type FormEvent } from "react";
 
-import { MossLogo } from "~/components/SynaraLogo";
+import { MossLogoMark } from "~/components/MossLogoMark";
 import { CHAT_BACKGROUND_CLASS_NAME } from "~/components/chat/composerPickerStyles";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
+import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
 
 import { describeGuestFailure } from "../guestCopy";
 import type { GuestTransport } from "../transport";
@@ -61,13 +62,11 @@ export function GuestNameForm({
         onSubmit={(event) => void submit(event)}
       >
         <div className="flex items-center gap-2">
-          <MossLogo className="size-5" />
+          <MossLogoMark className="size-5" />
           <span className="text-ui font-medium">Moss</span>
         </div>
         <div className="flex flex-col gap-2">
-          <h1 className="text-ui-xl leading-tight font-medium tracking-tight">
-            {t("guest.join.title")}
-          </h1>
+          <h1 className={PAGE_TITLE_CLASS_NAME}>{t("guest.join.title")}</h1>
           <p className="text-ui-sm text-muted-foreground">{t("guest.join.lede")}</p>
         </div>
         <div className="flex flex-col gap-1.5">

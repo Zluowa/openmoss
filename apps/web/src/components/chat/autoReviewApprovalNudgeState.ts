@@ -4,8 +4,8 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createMemoryStorage } from "~/lib/storage";
 
-// INFERRED: the frozen Codex nudge bundle does not prove an eligibility threshold.
-// Count three distinct successful manual approvals; never count rendered/replayed rows.
+// An inferred threshold: count three distinct successful manual approvals; never count
+// rendered/replayed rows.
 export const AUTO_REVIEW_MANUAL_APPROVAL_THRESHOLD = 3;
 export interface AutoReviewThreadPreference {
   approvedRequestKeys: string[];

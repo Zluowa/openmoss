@@ -111,8 +111,7 @@ export function buildTryInChatSeed(
       // Plugins are `@name` mentions backed by a `plugin://name@marketplace`
       // reference; that reference is what makes the composer render the "plugin"
       // chip variant (`resolveMentionChipKind`) instead of a plain path chip. The
-      // plugin's defaultPrompt trails the chip, mirroring Codex's `Ft` builder
-      // (`[@name](uri) ${defaultPrompt}`).
+      // plugin's defaultPrompt trails the chip (`[@name](uri) ${defaultPrompt}`).
       const mentionToken = formatComposerMentionToken(resource.plugin.name);
       const defaultPrompt = resource.plugin.interface?.defaultPrompt;
       const trailing =

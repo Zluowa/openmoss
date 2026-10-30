@@ -791,7 +791,7 @@ function ProviderInstallCommandCard({ install }: { install: ProviderInstallComma
             aria-label={t("settings.providers.install.copyCommandAria")}
             onClick={() => void copyTextToClipboard(install.command)}
           >
-            <CopyIcon className="size-3.5" />
+            <CopyIcon className="size-4" />
           </Button>
         </div>
       </div>
@@ -882,9 +882,9 @@ function ProviderUpdateAction(props: {
       }}
     >
       {props.active ? (
-        <Loader2Icon className="size-3.5 animate-spin" />
+        <Loader2Icon className="size-4 animate-spin" />
       ) : (
-        <DownloadIcon className="size-3.5" />
+        <DownloadIcon className="size-4" />
       )}
       {props.active ? "Updating" : "Update"}
     </Button>
@@ -1380,7 +1380,7 @@ function ProviderAccountsControl(props: {
                 aria-label={`Copy ${cliCommand}`}
                 onClick={() => void copyTextToClipboard(cliCommand)}
               >
-                <CopyIcon className="size-3.5" />
+                <CopyIcon className="size-4" />
               </Button>
             </div>
           </label>
@@ -1580,9 +1580,9 @@ function ProviderAccountsControl(props: {
             onClick={() => void startSignIn(account)}
           >
             {startingSignIn ? (
-              <Loader2Icon className="size-3.5 animate-spin" />
+              <Loader2Icon className="size-4 animate-spin" />
             ) : (
-              <PlayIcon className="size-3.5" />
+              <PlayIcon className="size-4" />
             )}
             Sign in
           </Button>
@@ -1603,7 +1603,7 @@ function ProviderAccountsControl(props: {
                 setSelectedAccountId(provider);
               }}
             >
-              <XIcon className="size-3.5" />
+              <XIcon className="size-4" />
               Remove
             </Button>
           )}
@@ -1722,11 +1722,11 @@ function ProviderAccountsControl(props: {
                 : `Use an existing ${providerLabel} directory as a new account, without moving it.`
             }
           >
-            <FolderOpenIcon className="size-3.5" />
+            <FolderOpenIcon className="size-4" />
             Import directory
           </Button>
           <Button type="button" size="xs" variant="outline" onClick={() => setAddDialogOpen(true)}>
-            <PlusIcon className="size-3.5" />
+            <PlusIcon className="size-4" />
             Add account
           </Button>
         </div>
@@ -1864,7 +1864,7 @@ function ProviderInstanceAdvancedSection(props: { children: ReactNode }) {
         className="mt-3 flex items-center gap-1 text-ui-sm text-muted-foreground"
       >
         Advanced
-        <DisclosureChevron open={open} className="size-3.5 shrink-0" />
+        <DisclosureChevron open={open} className="size-4 shrink-0" />
       </CollapsibleTrigger>
       <CollapsiblePanel>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">{props.children}</div>
@@ -2335,7 +2335,7 @@ export function ProvidersSettingsPanel({
               disabled={refreshingProviders}
               onClick={() => void refreshProviders()}
             >
-              {refreshingProviders ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
+              {refreshingProviders ? <Loader2Icon className="size-4 animate-spin" /> : null}
               {refreshingProviders ? "Checking setup" : "Refresh status"}
             </Button>
           }

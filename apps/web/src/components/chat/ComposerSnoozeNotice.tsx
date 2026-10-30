@@ -38,7 +38,7 @@ export function ComposerSnoozeNotice({
         "squircle flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[inherit] bg-info/8",
       )}
     >
-      <ClockIcon className="size-3.5 shrink-0 text-info" aria-hidden />
+      <ClockIcon className="size-4 shrink-0 text-info" aria-hidden />
       <span className="min-w-0 flex-1 text-ui-sm text-muted-foreground">
         <span className="font-medium text-foreground">
           <SnoozeCountdown snoozedUntil={snoozedUntil} />

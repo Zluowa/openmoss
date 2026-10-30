@@ -919,7 +919,7 @@ describe("production Effect HTTP routes", () => {
     const faviconPath = path.join(projectCwd, "apps", "web", "public", "favicon.svg");
     mkdirSync(path.dirname(faviconPath), { recursive: true });
     const logo =
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>';
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0H16V16H0Z"/></svg>';
     writeFileSync(faviconPath, logo);
     const resolver = await Effect.runPromise(
       makeProjectFaviconResolver.pipe(Effect.provide(NodeServices.layer)),

@@ -36,10 +36,11 @@ export function getAppTypographyScale(
     uiXsPx: clampTypographyPx(basePx * 0.84, 10),
     ui2XsPx: clampTypographyPx(basePx * 0.76, 9),
     uiMetaPx: clampTypographyPx(basePx * 0.84, 10),
-    uiTimestampPx: clampTypographyPx(basePx * 0.72, 8),
-    chatPx: basePx,
-    chatCodePx: clampTypographyPx(basePx - 2, 10),
-    chatMetaPx: clampTypographyPx(basePx * 0.72, 8),
-    chatTinyPx: clampTypographyPx(basePx * 0.66, 8),
+    uiTimestampPx: clampTypographyPx(basePx * 0.76, 9),
+    // Prose reads one step above the chrome, and code one step below prose: 14 and 12 on a 13 base.
+    chatPx: basePx + 1,
+    chatCodePx: clampTypographyPx(basePx - 1, 10),
+    chatMetaPx: clampTypographyPx(basePx * 0.84, 10),
+    chatTinyPx: clampTypographyPx(basePx * 0.76, 9),
   };
 }

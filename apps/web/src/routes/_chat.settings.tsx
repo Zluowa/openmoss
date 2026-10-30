@@ -1751,7 +1751,7 @@ function SettingsRouteView() {
                     disabled={changedSettingLabels.length === 0}
                     onClick={() => void restoreDefaults()}
                   >
-                    <ResetIcon className="size-3.5" />
+                    <ResetIcon className="size-4" />
                     Restore defaults
                   </Button>
                 )}

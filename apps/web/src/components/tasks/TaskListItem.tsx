@@ -104,7 +104,7 @@ export function TaskListItem({
         aria-label={`${isDone ? "Mark as not done" : "Mark as done"}: ${todo.title} (${status.label})`}
         className="flex shrink-0 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
-        <TaskStatusGlyph kind={status.kind} className="size-4.5" />
+        <TaskStatusGlyph kind={status.kind} className="size-4" />
       </button>
 
       <div className="flex min-w-0 flex-1 items-baseline gap-2.5 py-2.5">
@@ -125,7 +125,7 @@ export function TaskListItem({
       {flagsPriority ? <TaskPriorityGlyph priority={todo.priority} /> : null}
       {agent ? (
         <span title={formatModelDisplayName(agent.model) ?? agent.model} className="flex shrink-0">
-          <ProviderIcon provider={agent.provider} className="size-3.5 opacity-80" />
+          <ProviderIcon provider={agent.provider} className="size-4 opacity-80" />
         </span>
       ) : null}
     </div>

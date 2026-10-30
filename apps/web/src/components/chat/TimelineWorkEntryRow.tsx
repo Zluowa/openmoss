@@ -629,7 +629,7 @@ function commandRowDisplay(
       literal: false,
     };
   }
-  // Codex `OC`: an expanded unclassified shell says "Ran command in {elapsed}"
+  // An expanded unclassified shell says "Ran command in {elapsed}"
   // and the argv lives in the Shell card. Collapsed rows still name the command.
   if (resolveCommandVisualKind(command) === "terminal") {
     if (!expanded) {
@@ -1114,8 +1114,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   }
 
   // A turn's subagents fold into one entry that renders as the subagent card.
-  // Codex 26.1007 also draws the chip sentence on an unfolded collab call
-  // (`tk` in sites-end-resource-ad39113306e8.js).
+  // An unfolded collab call also draws the chip sentence.
   if (
     workEntry.itemType === "collab_agent_tool_call" &&
     !workEntry.subagentRun &&
@@ -1399,14 +1398,14 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                     data-work-entry-icon="true"
                   >
                     {webFetchUrl ? (
-                      <LinkChipIcon url={webFetchUrl} className={compact ? "size-3.5" : "size-4"} />
+                      <LinkChipIcon url={webFetchUrl} className={compact ? "size-4" : "size-4"} />
                     ) : isMcpToolRow && LeftIcon === McpIcon && workEntry.mcpServer ? (
                       <McpServerIcon
                         serverName={workEntry.mcpServer}
-                        className={compact ? "size-3.5" : "size-4"}
+                        className={compact ? "size-4" : "size-4"}
                       />
                     ) : (
-                      renderWorkEntryIcon(LeftIcon, compact ? "size-3.5" : "size-4")
+                      renderWorkEntryIcon(LeftIcon, compact ? "size-4" : "size-4")
                     )}
                   </span>
                 ) : null}
@@ -1655,7 +1654,7 @@ export function EditedFileRowContent(props: {
         )}
         data-tool-icon="edit"
       >
-        <PencilIcon className={compact ? "size-3.5" : "size-4"} />
+        <PencilIcon className={compact ? "size-4" : "size-4"} />
       </span>
       <ConversationShimmer
         active={props.active ?? false}
@@ -2031,7 +2030,7 @@ function ToolDetailsDisclosure(props: {
         aria-hidden="true"
         data-tool-detail-chevron="true"
         className={cn(
-          "icon-2xs size-3.5 shrink-0 text-text/60 opacity-0 transition-[opacity,transform]",
+          "icon-2xs size-4 shrink-0 text-text/60 opacity-0 transition-[opacity,transform]",
           "[@media(hover:hover)]:group-hover/tool-row:opacity-100",
           "[@media(hover:hover)]:group-hover/file-row:opacity-100",
           "group-focus-within/tool-row:opacity-100 group-focus-within/file-row:opacity-100",

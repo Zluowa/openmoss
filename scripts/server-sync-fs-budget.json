@@ -104,7 +104,7 @@
   "apps/server/src/codexProcessEnv.ts": {
     "reason": "Legacy launch overlay binding and migration reads; callback revalidation uses codexAuthIo async operations.",
     "references": {
-      "lstatSync": 3,
+      "lstatSync": 2,
       "readFileSync": 2,
       "readlinkSync": 1
     }

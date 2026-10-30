@@ -1,5 +1,5 @@
 // FILE: pluginMarketplaceModel.ts
-// Purpose: Normalize the frozen Codex add-plugin-marketplace form into the native mutation shape.
+// Purpose: Normalize the add-plugin-marketplace form into the native mutation shape.
 // Layer: Web domain model
 // Exports: form/input types and normalizePluginMarketplaceForm
 

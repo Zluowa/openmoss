@@ -32,7 +32,7 @@ export const SearchInput = forwardRef<HTMLInputElement, InputProps>(function Sea
       />
       <SearchIcon
         className={cn(
-          "pointer-events-none absolute top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70",
+          "pointer-events-none absolute top-1/2 size-4 -translate-y-1/2 text-muted-foreground/70",
           shape === "capsule" ? "left-3.5" : "left-2.5",
         )}
         aria-hidden="true"

@@ -445,7 +445,7 @@ function DocxDocument(props: DocxPreviewPanelProps & { src: string }) {
             href={downloadUrl}
             download={fileName}
           >
-            <DownloadIcon className="size-3.5" aria-hidden="true" />
+            <DownloadIcon className="size-4" aria-hidden="true" />
             Download file
           </a>
         </div>

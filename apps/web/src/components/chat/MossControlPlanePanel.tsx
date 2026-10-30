@@ -645,7 +645,7 @@ export function MossLoopLedgerDashboardSurface({
         >
           <RefreshCwIcon
             aria-hidden
-            className={cn("size-3.5", status === "loading" && "animate-spin")}
+            className={cn("size-4", status === "loading" && "animate-spin")}
           />
         </ChatHeaderIconButton>
       </div>
@@ -851,7 +851,7 @@ export function MossControlPlaneSessionList({
         >
           <RefreshCwIcon
             aria-hidden
-            className={cn("size-3.5", model.status === "loading" && "animate-spin")}
+            className={cn("size-4", model.status === "loading" && "animate-spin")}
           />
         </ChatHeaderIconButton>
       </div>

@@ -333,7 +333,7 @@ function LoginLaneCaption({ children }: { readonly children: string }) {
 }
 
 /**
- * The other two sign-in lanes, mirroring Codex desktop's "sign in another way":
+ * The other two sign-in lanes, offered as another way to sign in:
  * Google reaches every vendor over the user's own overseas network; an
  * enterprise key reaches every vendor through the mainland gateway.
  */

@@ -118,7 +118,7 @@ const BROWSER_ACTION_MENU_PANEL_CLASS_NAME = "w-52 min-w-52";
 const BROWSER_ACTION_MENU_ITEM_CLASS_NAME =
   "text-[var(--color-text-foreground)] data-highlighted:text-[var(--color-text-foreground)]";
 const BROWSER_ACTION_MENU_ICON_CLASS_NAME =
-  "inline-flex size-3.5 shrink-0 items-center justify-center text-[var(--color-text-foreground-secondary)] [&>svg]:size-3.5 [&>[data-slot=central-icon]]:size-3.5";
+  "inline-flex size-4 shrink-0 items-center justify-center text-[var(--color-text-foreground-secondary)] [&>svg]:size-4 [&>[data-slot=central-icon]]:size-3.5";
 const EMPTY_BROWSER_ANNOTATIONS: readonly BrowserAnnotationDraft[] = [];
 const NATIVE_BROWSER_OBSCURING_OVERLAY_SELECTOR = [
   NATIVE_SURFACE_MENU_OVERLAY_SELECTOR,
@@ -167,7 +167,7 @@ export function BrowserAnnotationButton(props: {
           />
         }
       >
-        <CentralIcon name="window-cursor" className="size-3.5" />
+        <CentralIcon name="window-cursor" className="size-4" />
       </TooltipTrigger>
       <TooltipPopup side="bottom">
         {props.controller.active
@@ -1738,7 +1738,7 @@ export function BrowserPanel({
               });
             }}
           >
-            <ArrowLeftIcon className="size-3.5" />
+            <ArrowLeftIcon className="size-4" />
           </IconButton>
           <IconButton
             variant="ghost"
@@ -1757,7 +1757,7 @@ export function BrowserPanel({
               });
             }}
           >
-            <ArrowRightIcon className="size-3.5" />
+            <ArrowRightIcon className="size-4" />
           </IconButton>
           <ButtonGroupSeparator />
           <IconButton
@@ -1778,9 +1778,9 @@ export function BrowserPanel({
             }}
           >
             {loading ? (
-              <LoaderCircleIcon className="size-3.5 animate-spin" />
+              <LoaderCircleIcon className="size-4 animate-spin" />
             ) : (
-              <RefreshCwIcon className="size-3.5" />
+              <RefreshCwIcon className="size-4" />
             )}
           </IconButton>
         </ButtonGroup>
@@ -1906,7 +1906,7 @@ export function BrowserPanel({
             title="Copy screenshot"
             onClick={onCopyScreenshotToClipboard}
           >
-            <Camera01Icon className="size-3.5" />
+            <Camera01Icon className="size-4" />
           </IconButton>
           <IconButton
             variant="ghost"
@@ -1916,7 +1916,7 @@ export function BrowserPanel({
             title="Copy link"
             onClick={copyActiveTabLink}
           >
-            <LinkIcon className="size-3.5" />
+            <LinkIcon className="size-4" />
           </IconButton>
         </ButtonGroup>
         <ButtonGroup label="Browser menu">
@@ -1928,7 +1928,7 @@ export function BrowserPanel({
             <MenuTrigger
               render={
                 <IconButton variant="ghost" size="icon-sm" label="Browser actions">
-                  <MoreHorizontalIcon className="size-3.5" />
+                  <MoreHorizontalIcon className="size-4" />
                 </IconButton>
               }
             />

@@ -1,6 +1,4 @@
-// Codex 26.1007 subagent mark.
-// Source: app-initial `KOc` renders `<img class="size-4" src={palette[qOc(seed)]}>`.
-// `nk` in sites-end-resource passes `className: size-4` and `seed`.
+// Subagent mark: a `size-4` image picked from the palette by a seeded index.
 
 import { CODEX_SUBAGENT_SPARKLE_ASSETS } from "./codexSubagentSparkleAssets";
 import { codexSubagentSparkleIndex } from "./codexSubagentSparkleSeed";

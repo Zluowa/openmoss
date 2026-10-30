@@ -363,7 +363,7 @@ function ProviderUsageCard({
           <>
             {usageSummary.usageNotice ? (
               <p className="flex items-start gap-1.5 text-ui leading-relaxed text-amber-600 dark:text-amber-300/90">
-                <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                 <span>{usageSummary.usageNotice}</span>
               </p>
             ) : null}
@@ -580,7 +580,7 @@ export function ProviderUsageSettingsPanel() {
             disabled={isRefreshing}
             onClick={() => refreshMutation.mutate()}
           >
-            <RotateCcwIcon className={cn("size-3.5", isRefreshing && "animate-spin")} />
+            <RotateCcwIcon className={cn("size-4", isRefreshing && "animate-spin")} />
             Refresh
           </Button>
         }

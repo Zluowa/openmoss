@@ -1,4 +1,4 @@
-/* Observed: exec-shell-container-cecb2c03ae9a.css + app-initial theme aliases. */
+/* Terminal ANSI palette aliases. */
 :root {
   --color-codex-terminal-ansi-black: var(--vscode-terminal-ansiBlack);
   --color-codex-terminal-ansi-red: var(--vscode-terminal-ansiRed);

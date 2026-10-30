@@ -22,7 +22,7 @@ import {
 } from "./guestShare.logic";
 
 /**
- * Codex 26.1007 `mrt`: ghost toolbar button, `arrow-up-open-base` at `icon-xs`, label
+ * Ghost toolbar button with the share mark at `icon-xs`, label
  * `codex.sharedSnapshot.shareHeaderButton` ("Share" / "分享"). Moss shares the thread with
  * a guest through the share relay instead of publishing a snapshot.
  */
@@ -75,7 +75,7 @@ export function GuestShareHeaderButton({
               className="relative overflow-visible !text-[rgb(136,137,138)]"
               onClick={open}
             >
-              <ShareOsIcon className="size-3.5" />
+              <ShareOsIcon className="size-4" />
               {dot}
             </ChatHeaderIconButton>
           ) : (
@@ -86,7 +86,7 @@ export function GuestShareHeaderButton({
               className="gap-1.5 px-2 !text-[rgb(136,137,138)]"
               onClick={open}
             >
-              <ShareOsIcon className="size-3.5" />
+              <ShareOsIcon className="size-4" />
               {label}
               {dot}
               {pendingCount > 0 ? (

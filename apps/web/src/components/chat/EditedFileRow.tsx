@@ -30,7 +30,7 @@ interface EditedFileRowProps {
   onReview: () => void;
 }
 
-const MENU_ICON_CLASS_NAME = "size-3.5 shrink-0 text-muted-foreground";
+const MENU_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground";
 const EDITED_FILE_EDITOR_ORDER: ReadonlyArray<EditorId> = [
   "file-manager",
   "vscode",

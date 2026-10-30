@@ -56,7 +56,7 @@ export function ComposerTipRow({
             label="Dismiss tip"
             onClick={onDismiss}
           >
-            <XIcon className="size-3.5" />
+            <XIcon className="size-4" />
           </IconButton>
         </>
       }

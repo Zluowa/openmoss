@@ -5,7 +5,7 @@ import { useTranslation } from "../../localization";
 import { CheckIcon, CopyIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
-// app-initial Dra/Ara/jra, the MCP CodeSnippet path before highlighting.
+// The MCP code snippet shown before highlighting.
 // WebMCP/inline structured results have no sticky actions. Raw output does.
 export function McpCodePane({
   title,
@@ -93,7 +93,7 @@ export function McpCodePane({
   );
 }
 
-// Observed wsi/Dei code-light-20, unchanged path data and 20px canvas.
+// Code mark on a 20px canvas.
 function McpCodeIcon() {
   return (
     <svg
@@ -105,16 +105,12 @@ function McpCodeIcon() {
       className="inline-block shrink-0 align-middle"
     >
       <path
-        d="M4.46951 6.27289C4.68734 5.97727 5.10354 5.91356 5.3992 6.13129C5.69464 6.34921 5.75762 6.76637 5.53982 7.06195L3.32791 10.0639L5.5369 13.0131C5.75668 13.3071 5.69695 13.7237 5.40311 13.9438C5.10923 14.1637 4.69261 14.1037 4.47244 13.81L2.04178 10.5639C1.82214 10.2704 1.8206 9.86789 2.03787 9.57269L4.46951 6.27289Z"
-        fill="currentColor"
-      />{" "}
-      <path
-        d="M14.6053 6.13129C14.9009 5.9136 15.3171 5.97728 15.5349 6.27289L17.9666 9.57269C18.1837 9.86787 18.1823 10.2705 17.9627 10.5639L15.532 13.81C15.312 14.1038 14.8953 14.1635 14.6013 13.9438C14.3074 13.7237 14.2476 13.3071 14.4676 13.0131L16.6765 10.0639L14.4646 7.06195C14.2468 6.76628 14.3096 6.34915 14.6053 6.13129Z"
-        fill="currentColor"
-      />{" "}
-      <path
-        d="M11.0584 6.37347C11.2205 6.04395 11.6194 5.90772 11.949 6.06976C12.2782 6.23191 12.4135 6.63003 12.2517 6.95941L8.94119 13.6928C8.77923 14.0222 8.381 14.1581 8.05154 13.9965C7.72196 13.8345 7.58577 13.4355 7.74783 13.1059L11.0584 6.37347Z"
-        fill="currentColor"
+        d="M5.25 6.5 2.5 10l2.75 3.5M14.75 6.5 17.5 10l-2.75 3.5M11.5 6.25l-3 7.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.33"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
     </svg>
   );

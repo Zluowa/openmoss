@@ -210,7 +210,7 @@ describe("ComposerCodexPowerPicker", () => {
       ).toHaveAttribute("aria-hidden", "true");
       const track = document.querySelector<HTMLElement>(".composer-codex-power__track");
       expect(getComputedStyle(track!).height).toBe("24px");
-      expect(getComputedStyle(track!).borderRadius).toBe("12px");
+      expect(getComputedStyle(track!).borderRadius).toBe("10px");
       expect(getComputedStyle(track!).overflow).toBe("hidden");
       expect(
         document

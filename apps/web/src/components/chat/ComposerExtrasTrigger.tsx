@@ -34,7 +34,7 @@ export function ComposerExtrasTrigger(props: {
       {...{ [COMPOSER_EXTRAS_TRIGGER_ATTRIBUTE]: "" }}
       onClick={props.onToggle}
     >
-      <PlusIcon aria-hidden="true" className="size-3.5" />
+      <PlusIcon aria-hidden="true" className="size-4" />
     </Button>
   );
 }

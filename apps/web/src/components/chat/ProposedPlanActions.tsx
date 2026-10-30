@@ -133,7 +133,7 @@ export const ProposedPlanActions = memo(function ProposedPlanActions({
         className={buttonClassName}
         busy={isDownloading}
       >
-        <ArrowDownIcon className={cn("size-3.5", iconClassName)} />
+        <ArrowDownIcon className={cn("size-4", iconClassName)} />
       </PlanActionButton>
       <PlanActionButton
         label="Export markdown file"
@@ -142,7 +142,7 @@ export const ProposedPlanActions = memo(function ProposedPlanActions({
         className={buttonClassName}
         busy={isExporting}
       >
-        <ArrowUpIcon className={cn("size-3.5", iconClassName)} />
+        <ArrowUpIcon className={cn("size-4", iconClassName)} />
       </PlanActionButton>
       <PlanActionButton
         label={isCopied ? "Copied" : "Copy as markdown"}
@@ -150,7 +150,7 @@ export const ProposedPlanActions = memo(function ProposedPlanActions({
         variant={variant}
         className={buttonClassName}
       >
-        <CopyIcon className={cn("size-3.5", iconClassName)} />
+        <CopyIcon className={cn("size-4", iconClassName)} />
       </PlanActionButton>
     </div>
   );

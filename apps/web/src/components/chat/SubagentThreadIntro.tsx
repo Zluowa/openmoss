@@ -139,7 +139,7 @@ export function SubagentBriefCard({
       className="w-full rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] px-3.5 py-2.5"
     >
       <div className="mb-1 flex min-w-0 items-center gap-1.5 font-system-ui text-ui-sm text-muted-foreground">
-        <BotIcon className="size-3.5 shrink-0" />
+        <BotIcon className="size-4 shrink-0" />
         <span className="shrink-0">Brief from</span>
         <span className="min-w-0 truncate font-medium text-foreground/80">{parentTitle}</span>
         {timestamp ? <span className="ml-auto shrink-0 tabular-nums">{timestamp}</span> : null}

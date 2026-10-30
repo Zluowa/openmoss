@@ -256,7 +256,7 @@ export function GitHubInboxFilterBar({
               />
             }
           >
-            <SortIcon className="size-3.5" />
+            <SortIcon className="size-4" />
           </MenuTrigger>
           <ComposerPickerMenuPopup align="end" className="min-w-44">
             <MenuGroup>
@@ -286,7 +286,7 @@ export function GitHubInboxFilterBar({
               />
             }
           >
-            <FilterIcon className="size-3.5" />
+            <FilterIcon className="size-4" />
             {menuFilterCount > 0 ? (
               <span
                 aria-hidden
@@ -405,7 +405,7 @@ export function GitHubInboxFilterBar({
               />
             }
           >
-            <EllipsisIcon className="size-3.5" />
+            <EllipsisIcon className="size-4" />
           </MenuTrigger>
           <ComposerPickerMenuPopup align="end" className="min-w-44">
             <MenuItem

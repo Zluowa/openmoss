@@ -194,7 +194,7 @@ export function ProviderUsageMenuControl({ provider }: { provider: ProviderKind 
                 />
               }
             >
-              <ProviderIcon provider={provider} tone="header" className="size-3.5 shrink-0" />
+              <ProviderIcon provider={provider} tone="header" className="size-4 shrink-0" />
               <span className="truncate font-normal">{model.primaryRow.remainingLabel}</span>
             </MenuTrigger>
           }

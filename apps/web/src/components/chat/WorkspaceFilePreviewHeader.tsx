@@ -349,7 +349,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
                   )}
                   onClick={() => props.onMarkdownPreviewChange(segment.rendered)}
                 >
-                  <segment.Icon className="size-3.5 shrink-0" />
+                  <segment.Icon className="size-4 shrink-0" />
                   <span className="sr-only">{segment.label}</span>
                 </button>
               );
@@ -365,7 +365,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
             title="Edit file"
             onClick={props.onEditFile}
           >
-            <PencilIcon aria-hidden="true" className="size-3.5" />
+            <PencilIcon aria-hidden="true" className="size-4" />
           </ChatHeaderIconButton>
         ) : null}
 
@@ -378,18 +378,18 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
           >
             <RefreshCwIcon
               aria-hidden="true"
-              className={cn("size-3.5", props.reloading && "animate-spin")}
+              className={cn("size-4", props.reloading && "animate-spin")}
             />
           </ChatHeaderIconButton>
         ) : null}
 
         <Menu>
           <MenuTrigger render={<ChatHeaderIconButton label="More actions" tone="plain" />}>
-            <EllipsisIcon aria-hidden="true" className="size-3.5" />
+            <EllipsisIcon aria-hidden="true" className="size-4" />
           </MenuTrigger>
           <ComposerPickerMenuPopup align="end" side="bottom" className="w-52 min-w-52">
             <MenuItem onClick={() => copyPathToClipboard(openInTarget)}>
-              <CopyIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              <CopyIcon className="size-4 shrink-0 text-muted-foreground" />
               <span>Copy path</span>
             </MenuItem>
             {canCopyContents ? (

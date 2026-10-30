@@ -208,7 +208,7 @@ export function ProjectStep(props: {
               key={result.projectId}
               className="flex h-10 items-center gap-3 rounded-lg bg-foreground/3 px-3.5"
             >
-              <FolderIcon className="size-3.5 shrink-0 text-foreground/70" aria-hidden />
+              <FolderIcon className="size-4 shrink-0 text-foreground/70" aria-hidden />
               <span className="min-w-0 flex-1 truncate text-ui text-foreground">
                 {result.workspaceRoot}
               </span>

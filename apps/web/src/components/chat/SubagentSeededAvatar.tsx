@@ -57,7 +57,7 @@ export function SubagentSeededAvatar({
   return (
     <img
       {...props}
-      className={cn("size-3.5 shrink-0", className)}
+      className={cn("size-4 shrink-0", className)}
       data-avatar-seed={seed}
       data-avatar-palette-index={paletteIndex}
       data-avatar-theme={theme}

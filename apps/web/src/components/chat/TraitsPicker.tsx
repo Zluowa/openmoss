@@ -189,7 +189,7 @@ export function FastModeToggle({
         <Icon
           aria-hidden="true"
           className={cn(
-            "size-3.5",
+            "size-4",
             serving
               ? tone === "accent"
                 ? "text-[var(--color-text-accent)]"
@@ -595,7 +595,7 @@ export const TraitsPicker = memo(function TraitsPicker({
 
   const triggerContent = hideLabel ? (
     <span className="flex min-w-0 items-center gap-1">
-      <SettingsIcon aria-hidden="true" className="size-3.5 shrink-0 opacity-75" />
+      <SettingsIcon aria-hidden="true" className="size-4 shrink-0 opacity-75" />
       {hiddenLabelTitle.length > 0 ? <span className="sr-only">{hiddenLabelTitle}</span> : null}
       <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
     </span>

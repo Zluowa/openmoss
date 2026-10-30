@@ -25,7 +25,7 @@ export function providerModelSupportsAutoRuntimeMode(
   );
 }
 
-// permissions-mode-dropdown imports app-initial's Z8 / dxi documentation target.
+// Documentation target for the permissions-mode dropdown.
 export const RUNTIME_PERMISSIONS_LEARN_MORE_URL =
   "https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it";
 

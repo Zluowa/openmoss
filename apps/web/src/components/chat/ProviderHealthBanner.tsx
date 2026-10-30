@@ -123,7 +123,7 @@ export const ProviderHealthBanner = function ProviderHealthBanner({
               title={t("provider.health.dismiss")}
               onClick={onDismiss}
             >
-              <XIcon className="size-3.5" />
+              <XIcon className="size-4" />
             </IconButton>
           </AlertAction>
         ) : null}

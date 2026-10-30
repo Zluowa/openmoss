@@ -86,7 +86,7 @@ export function XlsxReader(props: Props) {
           href={downloadUrl}
           download={basenameOfPath(props.filePath)}
         >
-          <DownloadIcon className="size-3.5" /> Download file
+          <DownloadIcon className="size-4" /> Download file
         </a>
       </div>
     );

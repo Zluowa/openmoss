@@ -101,7 +101,7 @@ export function GitHubItemHeader({
               state={item.state}
               isDraft={item.isDraft}
               mergeability={item.mergeability}
-              className="size-3.5"
+              className="size-4"
             />
           ),
         }
@@ -109,11 +109,7 @@ export function GitHubItemHeader({
           word: resolveIssueStatePresentation(item).shortLabel,
           colorClass: resolveIssueStatePresentation(item).colorClass,
           glyph: (
-            <IssueStateGlyph
-              state={item.state}
-              stateReason={item.stateReason}
-              className="size-3.5"
-            />
+            <IssueStateGlyph state={item.state} stateReason={item.stateReason} className="size-4" />
           ),
         };
   const repositoryName = item.repository.split("/").pop() ?? item.repository;
@@ -177,7 +173,7 @@ export function GitHubItemHeader({
             >
               {item.headBranch}
             </span>
-            <ArrowRightIcon aria-hidden className="size-3.5 shrink-0" />
+            <ArrowRightIcon aria-hidden className="size-4 shrink-0" />
             <span className={cn(PR_FINE_TEXT_CLASS_NAME, "shrink-0")}>{item.baseBranch}</span>
           </span>
         ) : null}

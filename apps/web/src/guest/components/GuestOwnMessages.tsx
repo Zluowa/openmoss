@@ -97,7 +97,7 @@ function OwnMessageRow({
                   key={file.id}
                   href={resolveAttachmentPreviewUrl(file.id)}
                   download={file.name}
-                  className="rounded-md focus-visible:ring-2 focus-visible:ring-ring"
+                  className="rounded-control focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <FileAttachmentChip file={file} variant="pill" />
                 </a>
@@ -115,7 +115,7 @@ function OwnMessageRow({
         {message.text ? (
           <p
             className={cn(
-              "self-stretch whitespace-pre-wrap text-ui leading-relaxed [overflow-wrap:anywhere]",
+              "self-stretch whitespace-pre-wrap text-chat [overflow-wrap:anywhere]",
               dismissed && "line-through decoration-muted-foreground/50",
             )}
           >
@@ -124,7 +124,7 @@ function OwnMessageRow({
         ) : null}
       </div>
       <p className={cn("flex items-center gap-1 pe-1 text-ui-xs", status.className)} role="status">
-        <StatusIcon className="size-3.5" />
+        <StatusIcon className="size-4" />
         {t(`guest.own.status.${message.status}`)}
       </p>
     </li>
@@ -158,7 +158,7 @@ export function GuestOwnMessages({
           className={cn(COMPOSER_INPUT_SURFACE_CLASS_NAME, "px-3.5 py-3")}
         >
           <p className="flex items-center gap-1.5 text-ui-sm text-muted-foreground">
-            <UsersIcon aria-hidden="true" className="size-3.5 shrink-0" />
+            <UsersIcon aria-hidden="true" className="size-4 shrink-0" />
             <span className="min-w-0 truncate">{heading}</span>
           </p>
           <ol className="mt-2.5 flex flex-col gap-3">

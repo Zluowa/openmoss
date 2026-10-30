@@ -156,7 +156,7 @@ function OpenInPickerFrame(props: OpenInPickerFrameProps) {
               />
             }
           >
-            <ChevronDownIcon aria-hidden="true" className="size-3.5" />
+            <ChevronDownIcon aria-hidden="true" className="size-3" />
           </MenuTrigger>
           {props.menuContent}
         </Menu>
@@ -194,7 +194,7 @@ function OpenInPickerFrame(props: OpenInPickerFrameProps) {
             />
           }
         >
-          <ChevronDownIcon aria-hidden="true" className="size-3.5" />
+          <ChevronDownIcon aria-hidden="true" className="size-3" />
         </MenuTrigger>
         {props.menuContent}
       </Menu>
@@ -214,7 +214,7 @@ function EditorActionOpenInPicker(props: OpenInPickerContentProps) {
       menuLabel={props.menuLabel ?? "Editor options"}
       primaryAction={{
         disabled: !launchers.preferredEditor || !props.openInTarget,
-        icon: PrimaryIcon ? <PrimaryIcon aria-hidden="true" className="size-3.5" /> : null,
+        icon: PrimaryIcon ? <PrimaryIcon aria-hidden="true" className="size-4" /> : null,
         onClick: () => launchers.openInEditor(launchers.preferredEditor),
       }}
       menuContent={
@@ -305,7 +305,7 @@ function OpenInPickerMenuPopup({
           >
             <span className="flex min-w-0 items-center gap-2">
               <span className="shrink-0">
-                <Icon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+                <Icon aria-hidden="true" className="size-4 text-muted-foreground" />
               </span>
               <span className="truncate">{label}</span>
             </span>

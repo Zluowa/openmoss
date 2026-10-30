@@ -14,7 +14,7 @@ import { TaskPriorityGlyph } from "./TaskGlyphs";
 import { TaskDueMenu, TaskPriorityMenu, TaskProjectMenu } from "./TaskPropertyMenus";
 import { formatDueLabel, todoPriorityLabel } from "./tasks.logic";
 
-const PILL_ICON_CLASS = "size-3.5 shrink-0 opacity-70";
+const PILL_ICON_CLASS = "size-4 shrink-0 opacity-70";
 /** An unset property: a round icon-only pill. */
 const EMPTY_PILL_CLASS = "w-7 px-0 sm:w-6";
 

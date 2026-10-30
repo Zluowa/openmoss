@@ -1194,7 +1194,7 @@ export function PluginResourceDetailPage({
         >
           {t("plugins.tabs.plugins")}
         </button>
-        <ChevronRightIcon aria-hidden="true" className="size-3.5 text-muted-foreground/50" />
+        <ChevronRightIcon aria-hidden="true" className="size-4 text-muted-foreground/50" />
         <span
           aria-current="page"
           className="no-drag flex h-7 min-w-0 items-center truncate px-1 text-ui-lg leading-[18px] font-[445] text-foreground"
@@ -1230,7 +1230,7 @@ export function PluginResourceDetailPage({
                     className="flex min-w-0 items-center gap-1.5 text-ui-lg leading-5 text-muted-foreground"
                     data-testid="plugin-detail-developer"
                   >
-                    <BuildingsIcon aria-hidden="true" className="size-3.5 shrink-0" />
+                    <BuildingsIcon aria-hidden="true" className="size-4 shrink-0" />
                     <span className="truncate">
                       {format("plugins.detail.byDeveloper", {
                         developer: effectiveDetail.plugin.interface.developerName,

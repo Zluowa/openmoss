@@ -15,7 +15,7 @@ import {
 import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuTrigger } from "../ui/menu";
 
 /** Leading glyph treatment shared by every "Work in" menu row (16px, muted). */
-const ENV_MENU_ICON_CLASS_NAME = "size-3.5 text-muted-foreground";
+const ENV_MENU_ICON_CLASS_NAME = "size-4 text-muted-foreground";
 
 /**
  * One row of the "Work in" menu: `[glyph] [label …grows] [✓ when selected]`.
@@ -42,7 +42,7 @@ function WorkInMenuItem({
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {selected ? (
-        <CheckIcon className="size-3.5 shrink-0 text-[var(--color-text-foreground)]" />
+        <CheckIcon className="size-4 shrink-0 text-[var(--color-text-foreground)]" />
       ) : null}
     </MenuItem>
   );
@@ -107,7 +107,7 @@ export function ComposerEnvironmentPicker({
           />
         ) : (
           <>
-            {envGlyph("size-3.5")}
+            {envGlyph("size-4")}
             {environmentPresentation.shortLabel}
             <ChevronDownIcon className="size-3 opacity-60" />
           </>

@@ -620,7 +620,7 @@ function RightDockSurface(
                     />
                   }
                 >
-                  <PlusIcon className="size-3.5" />
+                  <PlusIcon className="size-4" />
                 </MenuTrigger>
                 <ComposerPickerMenuPopup align="end" side="bottom" className="w-44 min-w-44">
                   {visibleAddMenuKinds.map((kind) => {
@@ -628,7 +628,7 @@ function RightDockSurface(
                     const label = t(RIGHT_DOCK_LABEL_KEY_BY_KIND[kind]);
                     return (
                       <MenuItem key={kind} onClick={() => props.onAddPane(kind)}>
-                        <Icon className="size-3.5 shrink-0" />
+                        <Icon className="size-4 shrink-0" />
                         <span>{label}</span>
                       </MenuItem>
                     );
@@ -646,7 +646,7 @@ function RightDockSurface(
                 className={DOCK_HEADER_ICON_BUTTON_CLASS}
                 onClick={props.addAction.onClick}
               >
-                <PlusIcon className="size-3.5" />
+                <PlusIcon className="size-4" />
               </IconButton>
             ) : null}
             {panelFullWidth ? (

@@ -109,7 +109,7 @@ export function PullRequestStackPopover({
                     </span>
                   </span>
                   {!current ? (
-                    <ArrowUpRightIcon className="mt-0.5 size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+                    <ArrowUpRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
                   ) : null}
                 </button>
               </div>

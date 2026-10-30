@@ -141,7 +141,7 @@ export function GroupEnvironmentSection(props: {
                   onClick={revealGroupFolder}
                   aria-label={revealLabel}
                 >
-                  <FolderOpenIcon className="size-3.5" />
+                  <FolderOpenIcon className="size-4" />
                   {revealLabel}
                 </Button>
               ) : undefined

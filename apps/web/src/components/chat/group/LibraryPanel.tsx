@@ -342,7 +342,7 @@ export function LibraryPanel({ open, variant, projectId, onClose }: LibraryPanel
             disabled={library.busy}
             onClick={() => pickUploadDirectory(undefined)}
           >
-            <AddPlusIcon className="size-3.5" />
+            <AddPlusIcon className="size-4" />
           </IconButton>
           <IconButton
             type="button"
@@ -350,7 +350,7 @@ export function LibraryPanel({ open, variant, projectId, onClose }: LibraryPanel
             tooltip="History"
             onClick={() => void showLibraryHistory()}
           >
-            <HistoryIcon className="size-3.5" />
+            <HistoryIcon className="size-4" />
           </IconButton>
           <IconButton
             type="button"
@@ -359,13 +359,13 @@ export function LibraryPanel({ open, variant, projectId, onClose }: LibraryPanel
             onClick={() => setFullHeight((current) => !current)}
           >
             {fullHeight ? (
-              <PanelCollapseIcon className="size-3.5" />
+              <PanelCollapseIcon className="size-4" />
             ) : (
-              <PanelExpandIcon className="size-3.5" />
+              <PanelExpandIcon className="size-4" />
             )}
           </IconButton>
           <IconButton type="button" label="Close library" tooltip="Close" onClick={onClose}>
-            <XIcon className="size-3.5" />
+            <XIcon className="size-4" />
           </IconButton>
         </div>
       </div>
@@ -456,7 +456,7 @@ export function LibraryPanel({ open, variant, projectId, onClose }: LibraryPanel
               className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-ui-sm text-muted-foreground transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
               onClick={() => setPreviewPath(null)}
             >
-              <ArrowLeftIcon className="size-3.5 shrink-0" />
+              <ArrowLeftIcon className="size-4 shrink-0" />
               <span className="min-w-0 truncate" title={previewPath}>
                 {previewPath}
               </span>
@@ -484,7 +484,7 @@ export function LibraryPanel({ open, variant, projectId, onClose }: LibraryPanel
                 setHistoryCommits(null);
               }}
             >
-              <ArrowLeftIcon className="size-3.5 shrink-0" />
+              <ArrowLeftIcon className="size-4 shrink-0" />
               <span
                 className="min-w-0 truncate"
                 title={historyScope === "library" ? "Library" : historyPath}
@@ -732,7 +732,7 @@ function LibraryListRow(props: {
             pathValue={entry.name}
             kind={entry.kind}
             expanded={props.expanded}
-            className="size-3.5 shrink-0 opacity-75"
+            className="size-4 shrink-0 opacity-75"
           />
           <span className="min-w-0 truncate font-medium">{entry.name}</span>
         </button>

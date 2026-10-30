@@ -1047,7 +1047,7 @@ export function MossLibrarySurface({
             }}
             className="absolute right-2 top-2 flex size-8 items-center justify-center rounded-full bg-black/30 text-white opacity-0 transition-opacity hover:bg-black/45 focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
           >
-            <EllipsisIcon className="size-3.5" aria-hidden="true" />
+            <EllipsisIcon className="size-4" aria-hidden="true" />
           </button>
           <LibraryCardCheck selected={selected} title={item.title} />
         </div>
@@ -1096,7 +1096,7 @@ export function MossLibrarySurface({
               data-moss-library-thumb
             />
           ) : item.kind === "folder" ? (
-            <FolderIcon className="size-3.5 text-muted-foreground" />
+            <FolderIcon className="size-4 text-muted-foreground" />
           ) : (
             <span className="size-3 rounded-sm bg-muted-foreground/35" />
           )}
@@ -1122,7 +1122,7 @@ export function MossLibrarySurface({
           }}
           className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
         >
-          <EllipsisIcon className="size-3.5" aria-hidden="true" />
+          <EllipsisIcon className="size-4" aria-hidden="true" />
         </button>
         <LibraryCardCheck selected={selected} title={item.title} inline />
       </article>
@@ -1179,7 +1179,7 @@ export function MossLibrarySurface({
               onDone();
             }}
           >
-            <FolderIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+            <FolderIcon className="size-4 text-muted-foreground" aria-hidden="true" />
             <span className="truncate">{folder.title}</span>
           </button>
         ))
@@ -1195,7 +1195,7 @@ export function MossLibrarySurface({
             onDone();
           }}
         >
-          <XIcon className="size-3.5" aria-hidden="true" />
+          <XIcon className="size-4" aria-hidden="true" />
           移出文件夹
         </button>
       ) : null}
@@ -1298,7 +1298,7 @@ export function MossLibrarySurface({
                     : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
                 )}
               >
-                <FilterIcon className="size-3.5" aria-hidden="true" />
+                <FilterIcon className="size-4" aria-hidden="true" />
               </button>
 
               <div className="inline-flex items-center gap-1" role="group" aria-label="视图切换">
@@ -1315,7 +1315,7 @@ export function MossLibrarySurface({
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <AppsIcon className="size-3.5" aria-hidden="true" />
+                  <AppsIcon className="size-4" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
@@ -1330,14 +1330,14 @@ export function MossLibrarySurface({
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <Rows3Icon className="size-3.5" aria-hidden="true" />
+                  <Rows3Icon className="size-4" aria-hidden="true" />
                 </button>
               </div>
 
               <label className="relative min-w-[200px] flex-1 lg:max-w-xs">
                 <span className="sr-only">搜索资料库</span>
                 <SearchIcon
-                  className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                   aria-hidden="true"
                 />
                 <input
@@ -1409,7 +1409,7 @@ export function MossLibrarySurface({
                       : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
                   )}
                 >
-                  <CustomizeIcon className="size-3.5" aria-hidden="true" />
+                  <CustomizeIcon className="size-4" aria-hidden="true" />
                 </button>
                 {sortOpen ? (
                   <div
@@ -1436,7 +1436,7 @@ export function MossLibrarySurface({
                       >
                         <span>{option.labelZh}</span>
                         {option.id === sortId ? (
-                          <SortIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                          <SortIcon className="size-4 opacity-70" aria-hidden="true" />
                         ) : null}
                       </button>
                     ))}
@@ -1454,7 +1454,7 @@ export function MossLibrarySurface({
                         setTrashOpen(true);
                       }}
                     >
-                      <TrashCanIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                      <TrashCanIcon className="size-4 opacity-70" aria-hidden="true" />
                       回收站
                     </button>
                   </div>
@@ -1499,7 +1499,7 @@ export function MossLibrarySurface({
               data-moss-library-filter-panel
               className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-card/40 px-3 py-2 text-ui-xs text-muted-foreground"
             >
-              <FilterIcon className="size-3.5 shrink-0" aria-hidden="true" />
+              <FilterIcon className="size-4 shrink-0" aria-hidden="true" />
               <span>筛选 · 当前分区 {section.labelZh}</span>
               <span className="text-border">·</span>
               <span>排序 {sort.labelZh}</span>
@@ -1540,7 +1540,7 @@ export function MossLibrarySurface({
                   onClick={() => setTrashOpen(false)}
                   className="flex size-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 >
-                  <ArrowLeftIcon className="size-3.5" aria-hidden="true" />
+                  <ArrowLeftIcon className="size-4" aria-hidden="true" />
                 </button>
                 <TrashCanIcon className="size-4 text-muted-foreground" aria-hidden="true" />
                 <h2 className="text-ui-lg font-medium">回收站</h2>
@@ -1648,7 +1648,7 @@ export function MossLibrarySurface({
                   onClick={() => setFolderViewId(null)}
                   className="flex size-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 >
-                  <ArrowLeftIcon className="size-3.5" aria-hidden="true" />
+                  <ArrowLeftIcon className="size-4" aria-hidden="true" />
                 </button>
                 <FolderIcon className="size-4 text-muted-foreground" aria-hidden="true" />
                 <h2 className="text-ui-lg font-medium">{folderViewItem.title}</h2>
@@ -1790,19 +1790,19 @@ export function MossLibrarySurface({
                   onClick={() => runContextAction(entry.id)}
                 >
                   {entry.id === "chat" ? (
-                    <MessageCircleIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                    <MessageCircleIcon className="size-4 opacity-70" aria-hidden="true" />
                   ) : entry.id === "favorite" ? (
-                    <StarIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                    <StarIcon className="size-4 opacity-70" aria-hidden="true" />
                   ) : entry.id === "download" ? (
-                    <DownloadIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                    <DownloadIcon className="size-4 opacity-70" aria-hidden="true" />
                   ) : entry.id === "share" ? (
-                    <LinkIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                    <LinkIcon className="size-4 opacity-70" aria-hidden="true" />
                   ) : entry.id === "rename" ? (
-                    <PencilIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                    <PencilIcon className="size-4 opacity-70" aria-hidden="true" />
                   ) : entry.id === "add-to-folder" ? (
-                    <FolderIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                    <FolderIcon className="size-4 opacity-70" aria-hidden="true" />
                   ) : (
-                    <TrashCanIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                    <TrashCanIcon className="size-4 opacity-70" aria-hidden="true" />
                   )}
                   {entry.labelZh}
                 </button>
@@ -1828,7 +1828,7 @@ export function MossLibrarySurface({
             className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-ui-sm text-foreground transition-colors hover:bg-muted"
             onClick={() => runSelectionAction("chat")}
           >
-            <ChatBubblePlusIcon className="size-3.5" aria-hidden="true" />
+            <ChatBubblePlusIcon className="size-4" aria-hidden="true" />
             开始聊天
           </button>
           <button
@@ -1837,7 +1837,7 @@ export function MossLibrarySurface({
             className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-ui-sm text-foreground transition-colors hover:bg-muted"
             onClick={() => runSelectionAction("download")}
           >
-            <DownloadIcon className="size-3.5" aria-hidden="true" />
+            <DownloadIcon className="size-4" aria-hidden="true" />
             下载
           </button>
           <button
@@ -1846,7 +1846,7 @@ export function MossLibrarySurface({
             className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-ui-sm text-red-500 transition-colors hover:bg-muted"
             onClick={() => runSelectionAction("delete")}
           >
-            <TrashCanIcon className="size-3.5" aria-hidden="true" />
+            <TrashCanIcon className="size-4" aria-hidden="true" />
             删除
           </button>
           <div className="relative">
@@ -1861,7 +1861,7 @@ export function MossLibrarySurface({
                 setSelectionMoreOpen((open) => !open);
               }}
             >
-              <EllipsisIcon className="size-3.5" aria-hidden="true" />
+              <EllipsisIcon className="size-4" aria-hidden="true" />
             </button>
             {selectionMoreOpen ? (
               <div
@@ -1883,7 +1883,7 @@ export function MossLibrarySurface({
                         setSelectionMoreOpen(false);
                       }}
                     >
-                      <StarIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                      <StarIcon className="size-4 opacity-70" aria-hidden="true" />
                       {mossLibraryItemsAllFavorite(items, selectedIds)
                         ? "从收藏夹移除"
                         : "添加到收藏夹"}
@@ -1895,7 +1895,7 @@ export function MossLibrarySurface({
                       className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted"
                       onClick={() => setSelectionMoreView("folders")}
                     >
-                      <FolderIcon className="size-3.5 opacity-70" aria-hidden="true" />
+                      <FolderIcon className="size-4 opacity-70" aria-hidden="true" />
                       添加到文件夹
                     </button>
                   </>
@@ -1913,7 +1913,7 @@ export function MossLibrarySurface({
               setSelectionMoreOpen(false);
             }}
           >
-            <XIcon className="size-3.5" aria-hidden="true" />
+            <XIcon className="size-4" aria-hidden="true" />
           </button>
         </div>
       ) : null}

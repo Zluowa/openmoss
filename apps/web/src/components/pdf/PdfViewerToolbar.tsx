@@ -114,7 +114,7 @@ export const PdfViewerToolbar = function PdfViewerToolbar(props: PdfViewerToolba
               }
             >
               <span className="tabular-nums">{formatZoomPercent(props.scale)}</span>
-              <ChevronDownIcon aria-hidden="true" className="size-3.5 opacity-70" />
+              <ChevronDownIcon aria-hidden="true" className="size-3 opacity-70" />
             </MenuTrigger>
             <ComposerPickerMenuPopup align="end" side="bottom" className="w-40 min-w-40">
               <MenuRadioGroup
@@ -164,7 +164,7 @@ export const PdfViewerToolbar = function PdfViewerToolbar(props: PdfViewerToolba
         ) : null}
         {props.onReload ? (
           <ChatHeaderIconButton label="Reload file from disk" tone="plain" onClick={props.onReload}>
-            <RefreshCwIcon aria-hidden="true" className="size-3.5" />
+            <RefreshCwIcon aria-hidden="true" className="size-4" />
           </ChatHeaderIconButton>
         ) : null}
         <OpenInPicker

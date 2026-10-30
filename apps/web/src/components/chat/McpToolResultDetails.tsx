@@ -547,7 +547,7 @@ export function McpToolResultDetails({
             className="flex min-w-0 items-start gap-2 rounded-lg border border-rose-500/35 bg-rose-500/8 px-3 py-2.5 text-ui-xs text-rose-800 dark:text-rose-100"
             data-mcp-error="true"
           >
-            <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0" />
+            <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
             <p className="min-w-0 break-words">{result.error.message}</p>
           </div>
         </Section>

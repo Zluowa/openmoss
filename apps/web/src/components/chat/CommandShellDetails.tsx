@@ -297,10 +297,8 @@ function RenderedShellOutput(props: {
 function terminalSegmentStyle(segment: TerminalTextSegment): CSSProperties | undefined {
   const style: CSSProperties = {};
 
-  // The frozen Codex bundle stores all active decorations but its `ve` style
-  // helper intentionally renders only `segment.decoration`, the last one.
-  // Blink has no visual branch there, so preserve the state without inventing
-  // a Moss animation that the reference does not show.
+  // Only `segment.decoration`, the last active decoration, is rendered. Blink has
+  // no visual branch here, so the state is preserved without adding an animation.
   switch (segment.decoration) {
     case "bold":
       style.fontWeight = "bold";

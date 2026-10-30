@@ -555,7 +555,8 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
     (match) => `已启用 ${capture(match, 1)} / ${capture(match, 2)} 个技能`,
   ],
   [/^Enable the (.+) skill$/, (match) => `启用 ${capture(match, 1)} 技能`],
-  [/^Enable (.+)$/, (match) => `启用 ${capture(match, 1)}`],
+  // Short labels only: a whole sentence must not come out half translated.
+  [/^Enable ([^.]+)$/, (match) => `启用 ${capture(match, 1)}`],
   [/^From (.+)$/, (match) => `来自 ${capture(match, 1)}`],
 
   // Profile values retain project names, counts, dates, models, and provider labels.

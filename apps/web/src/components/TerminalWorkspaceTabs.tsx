@@ -89,7 +89,7 @@ export default function TerminalWorkspaceTabs({
           size="icon-xs"
           variant="chrome"
         >
-          <XIcon className="size-3.5" />
+          <XIcon className="size-4" />
         </IconButton>
       </div>
     </div>

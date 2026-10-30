@@ -758,8 +758,7 @@ export type ProviderReviewTarget = typeof ProviderReviewTarget.Type;
 export const ProviderApprovalDecision = Schema.Literals([
   "accept",
   "acceptForSession",
-  // Codex `Qr` (`pending-request-item-panel-bd889fcbd56a.js`): a command
-  // prefix rule is `{ acceptWithExecpolicyAmendment: { execpolicy_amendment } }`,
+  // A command prefix rule is `{ acceptWithExecpolicyAmendment: { execpolicy_amendment } }`,
   // not a second `acceptForSession`.
   "acceptWithExecpolicyAmendment",
   "decline",

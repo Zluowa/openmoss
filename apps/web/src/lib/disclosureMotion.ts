@@ -92,7 +92,7 @@ export function disclosureFadeClassName(open: boolean, className?: string) {
 
 /** Chevron rotation paired with the shell motion. */
 export const DISCLOSURE_CHEVRON_MOTION_CLASS =
-  "size-3.5 shrink-0 text-muted-foreground transition-transform duration-220 ease-out motion-reduce:transition-none";
+  "size-3 shrink-0 text-muted-foreground transition-transform duration-220 ease-out motion-reduce:transition-none";
 
 /** Base-ui Collapsible panel height animation using the same timing curve. */
 export const DISCLOSURE_COLLAPSIBLE_PANEL_CLASS =

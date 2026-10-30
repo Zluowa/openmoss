@@ -97,7 +97,7 @@ export const PullRequestRow = function PullRequestRow({
             "flex min-w-0 items-center gap-1.5",
           )}
         >
-          <GitHubItemStateGlyph item={entry} size="sm" className="size-3.5" />
+          <GitHubItemStateGlyph item={entry} size="sm" className="size-4" />
           {showProjectTitle ? (
             <span
               className="flex min-w-0 max-w-[6rem] shrink-0 items-center gap-1"
@@ -136,7 +136,7 @@ export const PullRequestRow = function PullRequestRow({
                   : "opacity-70 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
               )}
             >
-              <PinStatusIcon pinned={isPinned} className="size-3.5" aria-hidden />
+              <PinStatusIcon pinned={isPinned} className="size-4" aria-hidden />
             </button>
           }
         />

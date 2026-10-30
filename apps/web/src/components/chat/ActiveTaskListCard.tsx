@@ -60,7 +60,7 @@ export function ActiveTaskListCard({
             aria-label="Open tasks sidebar"
             title="Open tasks sidebar"
           >
-            <SidebarSimpleIcon className="size-3.5" />
+            <SidebarSimpleIcon className="size-4" />
           </Button>
         </div>
       </ComposerStackedPanelHeaderRow>

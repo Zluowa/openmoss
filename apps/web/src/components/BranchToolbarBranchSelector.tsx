@@ -884,7 +884,7 @@ export function BranchToolbarBranchSelector({
           />
         ) : (
           <>
-            <GitBranchIcon className="size-3.5 shrink-0" />
+            <GitBranchIcon className="size-4 shrink-0" />
             <span className="min-w-0 max-w-[240px] truncate" title={triggerLabel}>
               {triggerLabel}
             </span>
@@ -938,7 +938,7 @@ export function BranchToolbarBranchSelector({
               disabled={isBranchActionPending}
               onClick={openCreateBranchDialog}
             >
-              <PlusIcon className="size-3.5 shrink-0" />
+              <PlusIcon className="size-4 shrink-0" />
               <span className="truncate">{getCreateBranchActionLabel(trimmedBranchQuery)}</span>
             </button>
           </div>

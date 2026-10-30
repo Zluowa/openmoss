@@ -1617,6 +1617,35 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "ASCII background": "ASCII 背景",
   "Show the animated ASCII field on empty chats. Reduced motion keeps the field still.":
     "在空白对话上显示动态 ASCII 图案。减少动态效果时图案保持静止。",
+  "Are you sure you want to quit?": "确定要退出吗？",
+  Quit: "退出",
+  "A chat is still running": "有一个对话正在运行",
+  "Chats are still running": "有多个对话正在运行",
+  "Resume chat automatically": "下次启动时自动继续这个对话",
+  "Resume chats automatically": "下次启动时自动继续这些对话",
+  "Spaces in the rail": "侧边栏中的空间",
+  "Projects in the rail": "侧边栏中的项目",
+  "No projects yet": "暂无项目",
+  "Customize…": "自定义…",
+  "Enable providers across Moss. Disabled providers are hidden from pickers and settings; their saved configuration and existing threads are kept, and running turns continue. Enabling does not install a CLI or sign it in.":
+    "在 Moss 中启用服务商。已停用的服务商不会出现在选择器和设置里，但已保存的配置和现有对话都会保留，正在运行的回合也会继续。启用不会安装 CLI，也不会自动登录。",
+  "Refresh status": "刷新状态",
+  "Checking setup": "正在检查设置",
+  "Setup guide": "设置指南",
+  "Needs sign-in": "需要登录",
+  "Installed · authentication managed by OpenCode": "已安装 · 登录由 OpenCode 管理",
+  "Installed · sign-in not verified": "已安装 · 登录状态未验证",
+  "Search models…": "搜索模型…",
+  "Search starred…": "搜索已收藏…",
+  "Search models": "搜索模型",
+  "Select effort": "选择思考强度",
+  "Share current app": "分享当前应用",
+  "Repository conventions": "仓库约定",
+  "In each project, matches recent change descriptions and change request titles.":
+    "在每个项目中，参照最近的变更说明和变更请求标题。",
+  "Use default UI font is on; theme fonts are not applied.":
+    "已开启使用默认界面字体，主题字体不会生效。",
+  "Accent preview": "强调色预览",
 };
 
 const LOCALIZABLE_ATTRIBUTES = [
@@ -1790,6 +1819,19 @@ export function translateZhCnPresentationText(value: string): string {
     return `将${UI_TEXT[settingLabel] ?? settingLabel}恢复为默认值`;
   }
   if (value === "Pin project") return "固定项目";
+  const quitAppMatch = /^Quit (.+)\?$/.exec(value);
+  if (quitAppMatch) return `退出 ${quitAppMatch[1]}？`;
+  const quitStopsWorkMatch = /^Work in progress will stop when (.+) is closed\.$/.exec(value);
+  if (quitStopsWorkMatch) return `关闭 ${quitStopsWorkMatch[1]} 后，进行中的工作会停止。`;
+  const enabledProvidersMatch = /^(\d+) of (\d+) enabled$/.exec(value);
+  if (enabledProvidersMatch)
+    return `已启用 ${enabledProvidersMatch[1]} / ${enabledProvidersMatch[2]} 个`;
+  const themeSlotMatch = /^System is currently using this (light|dark) slot\.$/.exec(value);
+  if (themeSlotMatch)
+    return `系统当前正在使用这个${themeSlotMatch[1] === "light" ? "浅色" : "深色"}主题。`;
+  const themeSlotUseMatch = /^Used when your system switches to (light|dark)\.$/.exec(value);
+  if (themeSlotUseMatch)
+    return `系统切换到${themeSlotUseMatch[1] === "light" ? "浅色" : "深色"}时使用。`;
   const handoffFromMatch = /^Handoff from (.+)$/.exec(value);
   if (handoffFromMatch) return `来自 ${handoffFromMatch[1]} 的交接`;
   const handoffToMatch = /^Handoff to (.+)$/.exec(value);

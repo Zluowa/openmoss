@@ -135,9 +135,9 @@ export function ChatComposerFooter({
                 title={`${interactionMode === "plan" ? "Plan" : "Debug"} mode — click to return to normal build mode`}
               >
                 {interactionMode === "plan" ? (
-                  <TasksIcon className="size-3.5" />
+                  <TasksIcon className="size-4" />
                 ) : (
-                  <BugIcon className="size-3.5" />
+                  <BugIcon className="size-4" />
                 )}
                 <span className={row ? "sr-only" : "sr-only sm:not-sr-only"}>
                   {interactionMode === "plan" ? "Plan" : "Debug"}
@@ -158,7 +158,7 @@ export function ChatComposerFooter({
                 title={sidebarAction.title}
                 aria-label={sidebarAction.title}
               >
-                <LayoutSidebarIcon className="size-3.5" />
+                <LayoutSidebarIcon className="size-4" />
                 <span className={row ? "sr-only" : "sr-only sm:not-sr-only"}>
                   {sidebarAction.label}
                 </span>
@@ -309,7 +309,7 @@ export function ChatComposerFooter({
                       />
                     }
                   >
-                    <ChevronDownIcon className="size-3.5" />
+                    <ChevronDownIcon className="size-3" />
                   </MenuTrigger>
                   <ComposerPickerMenuPopup align="end" side="top">
                     <MenuItem

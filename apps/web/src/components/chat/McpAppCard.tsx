@@ -279,7 +279,7 @@ export function McpAppCard(props: McpAppCardProps) {
           ref={hostContainerRef}
           className={cn(
             "relative flex min-h-0 w-full min-w-0 flex-col overflow-hidden",
-            // widget.js inline surface: rounded-lg + outline/shadow. Browser
+            // Inline surface: rounded-lg + outline/shadow. Browser
             // srcdoc is the resource itself, so it is visible immediately
             // (desktop webview stays opacity-0 until sandbox-resource-ready).
             ready && snapshot.browserHtml && "mcp-app-card-sandbox bg-surface",

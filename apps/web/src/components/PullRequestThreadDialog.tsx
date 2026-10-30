@@ -251,7 +251,7 @@ function PullRequestThreadDialogContent({
 
         {isResolving ? (
           <div className="flex items-center gap-2 text-muted-foreground text-ui leading-snug">
-            <Spinner className="size-3.5" />
+            <Spinner className="size-4" />
             Resolving pull request...
           </div>
         ) : null}

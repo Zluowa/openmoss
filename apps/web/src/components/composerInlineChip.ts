@@ -154,7 +154,7 @@ export const COMPOSER_INLINE_MENTION_CHIP_INTERACTIVE_CLASS_NAME = composerInlin
 export const COMPOSER_INLINE_CHIP_CLASS_NAME =
   "inline-flex max-w-full select-none items-center gap-0.5 rounded border border-[color:var(--color-border-light)] bg-[var(--sidebar-accent-active)] p-0.5 font-medium text-ui-sm leading-[1.1] text-[var(--color-text-foreground)] align-middle";
 
-export const COMPOSER_INLINE_CHIP_ICON_CLASS_NAME = "size-3.5 shrink-0 opacity-85";
+export const COMPOSER_INLINE_CHIP_ICON_CLASS_NAME = "size-4 shrink-0 opacity-85";
 
 export const COMPOSER_ATTACHMENT_CHIP_CLASS_NAME =
   "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded-full border border-[color:var(--color-border)] bg-[var(--composer-surface)] p-px text-ui-sm font-medium text-[var(--color-text-foreground)]";

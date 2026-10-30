@@ -467,7 +467,7 @@ export function shouldShowImageGenerationLimitBanner(input: {
   );
 }
 
-/** Implements the frozen HO same-day/other-day reset formatter. */
+/** Formats the reset time differently for the same day and for other days. */
 export function formatImageGenerationResetDate(
   resetsAt: number | null | undefined,
   locale: string,

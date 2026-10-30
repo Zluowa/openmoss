@@ -102,7 +102,7 @@ export function PullRequestPrimaryButton({
   const stacked = action.stackCount !== null;
   const label = merging ? (
     <>
-      <LoaderIcon className="size-3.5 animate-spin" />
+      <LoaderIcon className="size-4 animate-spin" />
       <span className={labelClassName}>{stacked ? "Merging stack…" : "Merging…"}</span>
     </>
   ) : (

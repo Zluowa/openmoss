@@ -220,11 +220,11 @@ function StatsBlock({ block }: { readonly block: BlockOf<"stats"> }) {
               )}
             >
               {item.trend === "up" ? (
-                <ArrowUpIcon className="mt-[0.15em] size-3.5 shrink-0" aria-label="up" />
+                <ArrowUpIcon className="mt-[0.15em] size-4 shrink-0" aria-label="up" />
               ) : item.trend === "down" ? (
-                <ArrowDownIcon className="mt-[0.15em] size-3.5 shrink-0" aria-label="down" />
+                <ArrowDownIcon className="mt-[0.15em] size-4 shrink-0" aria-label="down" />
               ) : item.trend === "flat" ? (
-                <MinusIcon className="mt-[0.15em] size-3.5 shrink-0" aria-label="flat" />
+                <MinusIcon className="mt-[0.15em] size-4 shrink-0" aria-label="flat" />
               ) : null}
               {item.detail ? <span className="line-clamp-2">{item.detail}</span> : null}
             </span>

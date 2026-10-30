@@ -18,7 +18,7 @@ import { ConversationShimmer } from "./ConversationShimmer";
 import { useMeasuredElementHeight } from "./useMeasuredElementHeight";
 import { toolActivityBodyClassName } from "./toolActivityLayout";
 
-// tool-activity-disclosure-da11c409681c + app-initial's XV / ActivityHeader.
+// Activity header summary text.
 const SUMMARY_CLASS_NAME =
   "min-w-0 truncate text-size-chat text-text-tertiary/90 group-hover/activity-header:text-default";
 const SUMMARY_HOVER_CLASS_NAME =
@@ -136,7 +136,7 @@ export function ToolActivityDisclosure(props: {
                 className={disclosureChevronClassName(
                   expanded,
                   cn(
-                    "icon-2xs size-3.5 shrink-0 text-text/60 opacity-0",
+                    "icon-2xs size-4 shrink-0 text-text/60 opacity-0",
                     CONVERSATION_DISCLOSURE_CHEVRON_CLASS,
                     "group-focus-visible/activity-header:opacity-100 group-focus-visible/activity-header:text-default",
                     "activity-header-focus:opacity-100 activity-header-focus:text-default",

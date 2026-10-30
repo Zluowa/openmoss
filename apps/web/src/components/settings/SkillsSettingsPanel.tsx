@@ -153,7 +153,7 @@ export function SkillsSettingsPanel() {
                     <span className="inline-flex min-w-0 items-center gap-1.5">
                       <SkillCubeIcon
                         aria-hidden="true"
-                        className="size-3.5 shrink-0 text-muted-foreground"
+                        className="size-4 shrink-0 text-muted-foreground"
                       />
                       <span className="truncate">{group.displayName}</span>
                     </span>

@@ -193,7 +193,7 @@ export function MossDetectedResourcesSection({
                   ))}
                   {busy ? (
                     <span className="inline-flex size-7 items-center justify-center" role="status">
-                      <Spinner className="size-3.5 text-muted-foreground" />
+                      <Spinner className="size-4 text-muted-foreground" />
                     </span>
                   ) : (
                     <Button

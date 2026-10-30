@@ -1,5 +1,5 @@
 // FILE: PluginResourceDetailDialog.browser.tsx
-// Purpose: Locks signed Codex 26.730.61639 plugin-detail geometry and honest row semantics.
+// Purpose: Locks the plugin-detail geometry and honest row semantics.
 // Layer: Browser UI test
 
 import "../index.css";
@@ -155,7 +155,7 @@ describe("PluginResourceDetailPage signed geometry", () => {
       // a single prompt keeps the signed 122px minimum.
       expect(prompt.getBoundingClientRect().height).toBeGreaterThanOrEqual(122);
       expect(prompt.querySelectorAll("button").length).toBe(summary.interface.defaultPrompt.length);
-      expect(getComputedStyle(prompt).borderRadius).toBe("16px");
+      expect(getComputedStyle(prompt).borderRadius).toBe("10px");
       expect(appsSection.getBoundingClientRect().left - content.getBoundingClientRect().left).toBe(
         16,
       );

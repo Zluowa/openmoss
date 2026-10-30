@@ -105,7 +105,7 @@ export function EnvironmentEditorSection({
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="shrink-0">
-                      <Icon aria-hidden className="size-3.5 text-muted-foreground" />
+                      <Icon aria-hidden className="size-4 text-muted-foreground" />
                     </span>
                     <span className="truncate">{label}</span>
                   </span>

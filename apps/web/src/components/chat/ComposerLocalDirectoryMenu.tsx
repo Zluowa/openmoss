@@ -406,10 +406,10 @@ export function ComposerLocalDirectoryMenu(props: {
                 "inline-flex size-5 items-center justify-center",
               )}
             >
-              <ArrowUpIcon className="size-3.5" />
+              <ArrowUpIcon className="size-4" />
             </button>
           ) : (
-            <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+            <FolderIcon className="size-4 shrink-0 text-muted-foreground/70" />
           )}
           <span className="min-w-0 flex-1 truncate text-ui-sm font-medium text-foreground/80">
             {headerLabel}
@@ -555,7 +555,7 @@ function UseCurrentFolderRow(props: {
       }}
       onClick={onActivate}
     >
-      <FolderIcon className="size-3.5 text-muted-foreground/60" />
+      <FolderIcon className="size-4 text-muted-foreground/60" />
       <div className="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
         <span className="shrink-0 text-ui-sm font-medium text-foreground/80">Use this folder</span>
         <span className="truncate text-ui-sm text-muted-foreground/55">{directoryLabel}</span>
@@ -604,9 +604,9 @@ function LocalSearchRow(props: {
       onClick={() => onActivate(entry)}
     >
       {isDirectory ? (
-        <FolderIcon className="size-3.5 text-muted-foreground/60" />
+        <FolderIcon className="size-4 text-muted-foreground/60" />
       ) : (
-        <FileIcon className="size-3.5 text-muted-foreground/60" />
+        <FileIcon className="size-4 text-muted-foreground/60" />
       )}
       <div className="min-w-0 flex flex-1 items-center gap-3">
         <span className="min-w-0 flex-1 truncate text-ui-sm font-medium text-foreground/80">
@@ -646,9 +646,9 @@ function LocalEntryRow(props: {
       onClick={() => onActivate(entry)}
     >
       {isDirectory ? (
-        <FolderIcon className="size-3.5 text-muted-foreground/60" />
+        <FolderIcon className="size-4 text-muted-foreground/60" />
       ) : (
-        <FileIcon className="size-3.5 text-muted-foreground/60" />
+        <FileIcon className="size-4 text-muted-foreground/60" />
       )}
       <div className="min-w-0 flex flex-1 items-center gap-1.5 overflow-hidden">
         <span className="truncate text-ui-sm font-medium text-foreground/80">{entry.name}</span>

@@ -84,7 +84,7 @@ export function ComposerModelPickerRow(props: {
   const starButton = (
     <ModelStarButton
       starred={starred}
-      iconClassName="size-3.5"
+      iconClassName="size-4"
       label={
         starred
           ? `Remove ${row.name} from starred`
@@ -101,7 +101,7 @@ export function ComposerModelPickerRow(props: {
       {row.preset ? (
         <RowProviderIcon
           aria-hidden="true"
-          className={cn("size-3.5 shrink-0", getProviderIconClassName(row.provider))}
+          className={cn("size-4 shrink-0", getProviderIconClassName(row.provider))}
         />
       ) : null}
       <span className={cn("truncate", row.detail !== null && "max-w-[62%] shrink-0")}>

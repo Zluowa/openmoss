@@ -231,7 +231,7 @@ function SourceMark(props: {
 }) {
   const { providerTab } = props;
   if (providerTab === null) {
-    return <StarFilledIcon aria-hidden="true" className="size-3.5 shrink-0 text-foreground" />;
+    return <StarFilledIcon aria-hidden="true" className="size-4 shrink-0 text-foreground" />;
   }
   if (isMossManagedSourceInstanceId(providerTab.instanceId)) {
     return <MossLogo className={cn("size-4", props.dimmed && "opacity-40")} />;
@@ -349,7 +349,7 @@ export function ComposerModelPickerSourceMenu(props: {
                   props.onManageModels?.();
                 }}
               >
-                <SettingsIcon aria-hidden="true" className="size-3.5 shrink-0" />
+                <SettingsIcon aria-hidden="true" className="size-4 shrink-0" />
                 {t("chat.modelPicker.source.manage")}
               </MenuItem>
             </>

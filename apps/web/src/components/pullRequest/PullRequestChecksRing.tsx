@@ -76,7 +76,7 @@ export function PullRequestChecksRing({
     <svg
       viewBox={`0 0 ${VIEW_BOX} ${VIEW_BOX}`}
       // Start segments at 12 o'clock like the reference donut.
-      className={cn("size-3.5 shrink-0 -rotate-90", className)}
+      className={cn("size-4 shrink-0 -rotate-90", className)}
       aria-hidden="true"
     >
       {total === 0 ? (

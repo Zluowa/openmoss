@@ -4,7 +4,7 @@
 
 import type { ReactNode } from "react";
 
-import { MossLogo } from "~/components/SynaraLogo";
+import { MossLogoMark } from "~/components/MossLogoMark";
 import { CHAT_BACKGROUND_CLASS_NAME } from "~/components/chat/composerPickerStyles";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
@@ -40,7 +40,9 @@ export function GuestNotice({
   return (
     <div className={cn("flex h-dvh flex-col text-foreground", CHAT_BACKGROUND_CLASS_NAME)}>
       <div className="m-auto flex w-full max-w-sm flex-col items-center gap-5 px-6 py-10 text-center">
-        <MossLogo className={cn("size-10", busy && "animate-pulse motion-reduce:animate-none")} />
+        <MossLogoMark
+          className={cn("size-10", busy && "animate-pulse motion-reduce:animate-none")}
+        />
         <div className="flex flex-col gap-1.5">
           <p className="text-ui-lg font-medium" role={busy ? "status" : undefined}>
             {title}

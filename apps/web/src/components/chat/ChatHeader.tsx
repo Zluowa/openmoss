@@ -194,7 +194,7 @@ function EditorChatHistoryMenu(props: {
             title={t("chat.header.chatHistory")}
             className="size-5 shrink-0 text-muted-foreground hover:text-foreground"
           >
-            <HistoryIcon className="size-3.5" />
+            <HistoryIcon className="size-4" />
           </IconButton>
         }
       />
@@ -214,11 +214,11 @@ function EditorChatHistoryMenu(props: {
               <ProviderIcon
                 provider={thread.session?.provider ?? thread.modelSelection.provider}
                 tone="header"
-                className="size-3.5 shrink-0"
+                className="size-4 shrink-0"
               />
               <span className="min-w-0 flex-1 truncate">{thread.title}</span>
               {thread.id === props.activeThreadId ? (
-                <CheckIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <CheckIcon className="size-4 shrink-0 text-muted-foreground" />
               ) : (
                 <span className="shrink-0 text-ui-xs text-muted-foreground tabular-nums">
                   {formatRelativeTime(thread.updatedAt ?? thread.createdAt)}
@@ -338,7 +338,7 @@ function EditorRailTabs(props: {
                 title={t("chat.header.new")}
                 className="size-5 shrink-0 text-muted-foreground hover:text-foreground"
               >
-                <PlusIcon className="size-3.5" />
+                <PlusIcon className="size-4" />
               </IconButton>
             }
           />
@@ -349,11 +349,11 @@ function EditorRailTabs(props: {
             className="w-44 min-w-44"
           >
             <MenuItem onClick={props.onNewChat}>
-              <MessageCircleIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              <MessageCircleIcon className="size-4 shrink-0 text-muted-foreground" />
               <span>{t("chat.header.newChat")}</span>
             </MenuItem>
             <MenuItem onClick={newTerminalTab}>
-              <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              <TerminalIcon className="size-4 shrink-0 text-muted-foreground" />
               <span>{t("chat.header.newTerminal")}</span>
             </MenuItem>
           </ComposerPickerMenuPopup>
@@ -677,7 +677,7 @@ export function ChatHeader({
                 >
                   {threadIconKind === "none" ? null : (
                     <span
-                      className="inline-flex size-3.5 shrink-0 items-center justify-center"
+                      className="inline-flex size-4 shrink-0 items-center justify-center"
                       title={
                         threadIconKind === "terminal"
                           ? "Terminal"
@@ -685,9 +685,9 @@ export function ChatHeader({
                       }
                     >
                       {threadIconKind === "terminal" ? (
-                        <TerminalIcon className="size-3.5 text-[var(--color-text-accent)]" />
+                        <TerminalIcon className="size-4 text-[var(--color-text-accent)]" />
                       ) : (
-                        renderProviderIcon(activeProvider, "size-3.5")
+                        renderProviderIcon(activeProvider, "size-4")
                       )}
                     </span>
                   )}
@@ -775,7 +775,7 @@ export function ChatHeader({
                         onClick={() => onContinueHandoff(target)}
                       >
                         {/* opacity-100 opts brand icons out of the option row's 80% icon dim. */}
-                        {renderProviderIcon(target.provider, "size-3.5 shrink-0 opacity-100")}
+                        {renderProviderIcon(target.provider, "size-4 shrink-0 opacity-100")}
                         <span>{target.label}</span>
                       </MenuItem>
                     ))}
@@ -791,7 +791,7 @@ export function ChatHeader({
                     data-handoff-destination="new-thread"
                     onClick={() => onCreateHandoff(target)}
                   >
-                    {renderProviderIcon(target.provider, "size-3.5 shrink-0 opacity-100")}
+                    {renderProviderIcon(target.provider, "size-4 shrink-0 opacity-100")}
                     <span>{target.label}</span>
                   </MenuItem>
                 ))}
@@ -824,7 +824,7 @@ export function ChatHeader({
           />
         ) : null}
 
-        {/* The default Codex 26.1007 thread header is Share, list-circle
+        {/* The default thread header follows the Codex desktop app: Share, list-circle
             (two nodes, each with a line), and the right-panel toggle. That
             cluster has no empty script plus or action divider.
             Projects with configured scripts retain their existing action control.

@@ -20,7 +20,7 @@ export const COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME =
 /**
  * Compact pill trigger for the composer-footer toolbar pickers (environment + branch).
  * Matches `PickerTriggerButton` sizing (ui-sm label) so the project / environment / branch
- * row in the empty-state footer reads as one set. Pair with a `size-3.5` leading icon and a
+ * row in the empty-state footer reads as one set. Pair with a `size-4` leading icon and a
  * `size-3` `ChevronDownIcon` so the three triggers stay on identical icon + chevron sizes.
  * Capsule radius so the hover fill reads as a pill, matching the other toolbar chips.
  */
@@ -202,7 +202,7 @@ export const COMPOSER_PICKER_MENU_POPUP_VIEWPORT_CLASS_NAME =
 export const COMPOSER_PICKER_MENU_OPTION_CLASS_NAME = `[&>svg,&>[data-slot=central-icon]]:-mx-0.5 flex cursor-default select-none items-center ${COMPOSER_PICKER_OPTION_RADIUS_CLASS_NAME} text-ui text-[var(--color-text-foreground)] outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)] data-disabled:opacity-64 [&>svg:not([class*='opacity-']),&>[data-slot=central-icon]:not([class*='opacity-'])]:opacity-80 [&>svg,&>[data-slot=central-icon]]:pointer-events-none [&>svg,&>[data-slot=central-icon]]:shrink-0`;
 
 /** Leading glyph of a menu option: one size for every icon in these popups. */
-export const MENU_ICON_CLASS_NAME = "size-3.5 shrink-0";
+export const MENU_ICON_CLASS_NAME = "size-4 shrink-0";
 
 /** Same as menu options, adapted for select item grid layout. */
 export const COMPOSER_PICKER_SELECT_OPTION_CLASS_NAME = `${COMPOSER_PICKER_MENU_OPTION_CLASS_NAME} grid in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)]`;

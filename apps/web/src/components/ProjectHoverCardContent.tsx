@@ -40,7 +40,7 @@ const ROW_CLASS_NAME = SIDEBAR_HOVER_CARD_ROW_CLASS_NAME;
 // Icons stay one step dimmer than their label so the glyph reads as a quiet
 // affordance, not a peer of the text. Central glyphs paint via bg-current, so
 // the explicit text color here tints them directly.
-const ICON_CLASS_NAME = "size-3.5 shrink-0 text-muted-foreground";
+const ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground";
 
 export function ProjectHoverCardContent({
   name,
@@ -63,13 +63,8 @@ export function ProjectHoverCardContent({
       className={cn("flex w-full flex-col gap-0", SIDEBAR_HOVER_CARD_CONTAINER_PADDING_CLASS_NAME)}
     >
       <div className={cn(ROW_CLASS_NAME, "gap-2.5")}>
-        <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-          <ProjectSidebarIcon
-            cwd={cwd}
-            expanded
-            appearance={appearance}
-            glyphClassName="size-3.5"
-          />
+        <span className="relative inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+          <ProjectSidebarIcon cwd={cwd} expanded appearance={appearance} glyphClassName="size-4" />
         </span>
         <span className="min-w-0 flex-1 truncate font-medium text-foreground">{name}</span>
         <button

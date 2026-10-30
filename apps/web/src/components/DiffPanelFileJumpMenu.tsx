@@ -27,7 +27,7 @@ const DIFF_FILE_JUMP_ICON_SLOT_CLASS_NAME =
   "flex size-4 shrink-0 items-center justify-center text-muted-foreground/60";
 
 const DIFF_FILE_JUMP_FILE_ICON_CLASS_NAME =
-  "size-3.5 text-[var(--color-text-foreground)] opacity-70 dark:opacity-80";
+  "size-4 text-[var(--color-text-foreground)] opacity-70 dark:opacity-80";
 
 function DiffFileJumpRow(props: {
   fileDiff: FileDiffMetadata;
@@ -99,7 +99,7 @@ export function DiffPanelFileJumpMenu(props: {
             label="Jump to file"
             title="Jump to file"
           >
-            <SearchIcon className="size-3.5" />
+            <SearchIcon className="size-4" />
           </IconButton>
         }
       />

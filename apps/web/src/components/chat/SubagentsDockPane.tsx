@@ -192,7 +192,7 @@ function ActiveSubagentRow({
               tooltip="Run in background (ctrl+b)"
               onClick={() => onBackground(item)}
             >
-              <BackgroundTrayIcon className="size-3.5" />
+              <BackgroundTrayIcon className="size-4" />
             </IconButton>
           ) : null}
           {showStop ? (
@@ -201,7 +201,7 @@ function ActiveSubagentRow({
               tooltip="Stop subagent"
               onClick={() => onStop(item)}
             >
-              <StopIcon className="size-3.5" />
+              <StopIcon className="size-4" />
             </IconButton>
           ) : null}
         </div>

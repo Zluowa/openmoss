@@ -1,6 +1,6 @@
 // Shared constants for the Codex-aligned next-message prediction path.
 
-/** Codex's prediction request deadline (cumberbatch `Lq=3e4`). */
+/** How long a prediction request may run. */
 export const NEXT_MESSAGE_PREDICTION_TIMEOUT_MS = 30_000;
 
 /** Transcript fallback bound used when a provider cannot fork its native thread. */

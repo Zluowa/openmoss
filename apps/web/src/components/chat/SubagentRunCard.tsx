@@ -232,7 +232,7 @@ function SubagentRunRowView({
         <ChevronRightIcon
           aria-hidden="true"
           className={cn(
-            "size-3.5 shrink-0 text-muted-foreground/45 opacity-0 transition-opacity group-hover/subagent-row:opacity-100 group-focus-within/subagent-row:opacity-100",
+            "size-4 shrink-0 text-muted-foreground/45 opacity-0 transition-opacity group-hover/subagent-row:opacity-100 group-focus-within/subagent-row:opacity-100",
             !openThread && "invisible",
           )}
         />
@@ -387,8 +387,8 @@ export function SubagentRunCard({ workEntry }: { workEntry: WorkLogEntry }) {
         ) : null}
       </div>
       <DisclosureRegion open={expanded}>
-        {/* Codex `tk` is the chip sentence. Counts and duration stay in the
-            disclosure so the collapsed row matches the inline summary. */}
+        {/* The collapsed row is the chip sentence. Counts and duration stay in the
+            disclosure so that row matches the inline summary. */}
         <div className="ml-4 pb-0.5">
           {header.nestedLabel || header.segments.length > 0 || header.durationLabel ? (
             <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 py-0.5 text-ui-sm text-muted-foreground/75">

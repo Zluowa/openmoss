@@ -1,4 +1,4 @@
-// Codex 26.901.51231 ShimmerText: a one-second masked sweep after 600ms,
+// Text shimmer: a one-second masked sweep after 600ms,
 // repeated every four seconds. Animate the overlay, keeping the text stationary.
 import { useEffect, useRef, type ComponentProps } from "react";
 

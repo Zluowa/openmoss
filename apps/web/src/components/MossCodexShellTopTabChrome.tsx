@@ -138,10 +138,10 @@ const SHELL_TAB_INACTIVE_CLASS = "w-auto max-w-[15.5rem]";
 
 function TabGlyph({ kind }: { kind?: MossShellTab["kind"] }) {
   if (kind === "draft") {
-    return <CompassLineIcon aria-hidden className="size-3.5 shrink-0 text-current/70" />;
+    return <CompassLineIcon aria-hidden className="size-4 shrink-0 text-current/70" />;
   }
   if (kind === "chat") {
-    return <ChatBubbleIcon aria-hidden className="size-3.5 shrink-0 text-current/70" />;
+    return <ChatBubbleIcon aria-hidden className="size-4 shrink-0 text-current/70" />;
   }
   if (kind === "image" || kind === "prompt") {
     return (
@@ -153,7 +153,7 @@ function TabGlyph({ kind }: { kind?: MossShellTab["kind"] }) {
       </span>
     );
   }
-  return <span aria-hidden className="size-3.5 shrink-0 rounded-sm bg-foreground/20" />;
+  return <span aria-hidden className="size-4 shrink-0 rounded-sm bg-foreground/20" />;
 }
 
 /**
@@ -218,7 +218,7 @@ export function MossCodexShellTopTabChrome({
               />
             }
           >
-            <EllipsisIcon className="size-3.5" />
+            <EllipsisIcon className="size-4" />
           </MenuTrigger>
           <MenuPopupBase
             align="start"
@@ -424,7 +424,7 @@ export function MossCodexShellTopTabChrome({
               />
             }
           >
-            <PanelLeftIcon className="size-3.5" />
+            <PanelLeftIcon className="size-4" />
           </TooltipTrigger>
           <TooltipPopup side="bottom">Sidebar</TooltipPopup>
         </Tooltip>
@@ -520,7 +520,7 @@ export function MossCodexShellTopTabChrome({
                   />
                 }
               >
-                <PlusIcon className="size-3.5" />
+                <PlusIcon className="size-4" />
               </TooltipTrigger>
               <TooltipPopup side="bottom">New tab</TooltipPopup>
             </Tooltip>
@@ -547,7 +547,7 @@ export function MossCodexShellTopTabChrome({
                   />
                 }
               >
-                <PlusIcon className="size-3.5" />
+                <PlusIcon className="size-4" />
               </TooltipTrigger>
               <TooltipPopup side="bottom">New tab</TooltipPopup>
             </Tooltip>
@@ -645,7 +645,7 @@ export function MossCodexShellTopTabChrome({
                   />
                 }
               >
-                <ShareIcon className="size-3.5" />
+                <ShareIcon className="size-4" />
                 <span>分享</span>
               </TooltipTrigger>
               <TooltipPopup side="bottom">分享</TooltipPopup>
@@ -666,7 +666,7 @@ export function MossCodexShellTopTabChrome({
                   />
                 }
               >
-                <EllipsisIcon className="size-3.5" />
+                <EllipsisIcon className="size-4" />
               </TooltipTrigger>
               <TooltipPopup side="bottom">More</TooltipPopup>
             </Tooltip>
@@ -686,7 +686,7 @@ export function MossCodexShellTopTabChrome({
                   />
                 }
               >
-                <SparklesIcon className="size-3.5" />
+                <SparklesIcon className="size-4" />
               </TooltipTrigger>
               <TooltipPopup side="bottom">Features</TooltipPopup>
             </Tooltip>
@@ -717,7 +717,7 @@ export function MossCodexShellTopTabChrome({
                   />
                 }
               >
-                <PanelRightCloseIcon className="size-3.5" />
+                <PanelRightCloseIcon className="size-4" />
               </TooltipTrigger>
               <TooltipPopup side="bottom">
                 {onToggleRightSidebar ? "Right sidebar" : "Right sidebar unavailable"}

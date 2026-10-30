@@ -75,8 +75,7 @@ export function TurnHeaderLine(
       <div data-turn-header="live">
         <div
           className={cn(
-            // Codex sites-end `_activeCommentary` on `.loading-shimmer`: the live
-            // "Working for" line, not the faint generic description shimmer.
+            // The live "Working for" line, not the faint generic description shimmer.
             "codex-loading-shimmer codex-loading-shimmer-working -ml-0.5 pb-1 text-size-chat leading-5",
           )}
           style={{ fontSize: props.fontSize }}

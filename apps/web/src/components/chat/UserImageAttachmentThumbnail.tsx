@@ -22,7 +22,7 @@ export const UserImageAttachmentThumbnail = memo(function UserImageAttachmentThu
   return (
     <button
       type="button"
-      className="flex size-15 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border/70 bg-background/82 text-left shadow-[0_1px_0_rgba(255,255,255,0.2)_inset] transition-colors hover:bg-background/94"
+      className="flex size-15 shrink-0 items-center justify-center overflow-hidden rounded-card border border-border/70 bg-background/82 text-left shadow-[0_1px_0_rgba(255,255,255,0.2)_inset] transition-colors hover:bg-background/94"
       aria-label={`Preview ${props.image.name}`}
       title={props.image.name}
       onClick={() => {

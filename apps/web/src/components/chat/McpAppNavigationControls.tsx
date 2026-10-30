@@ -45,7 +45,7 @@ export function McpAppNavigationControls(props: McpAppNavigationControlsProps) {
         }}
         onPointerDown={stopPropagation}
       >
-        <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
+        <ArrowLeftIcon aria-hidden="true" className="size-4" />
       </IconButton>
       <IconButton
         variant="ghost"
@@ -60,7 +60,7 @@ export function McpAppNavigationControls(props: McpAppNavigationControlsProps) {
         }}
         onPointerDown={stopPropagation}
       >
-        <ArrowLeftIcon aria-hidden="true" className="size-3.5 transform -scale-x-100" />
+        <ArrowLeftIcon aria-hidden="true" className="size-4 transform -scale-x-100" />
       </IconButton>
     </div>
   );

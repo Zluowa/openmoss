@@ -7,7 +7,7 @@
 import type { GuestThreadModel } from "@synara/contracts";
 
 import { ProviderIcon } from "~/components/ProviderIcon";
-import { MossLogo } from "~/components/SynaraLogo";
+import { MossLogoMark } from "~/components/MossLogoMark";
 import {
   CHAT_HEADER_CONTROL_CLASS_NAME,
   CHAT_SURFACE_CHIP_ICON_CLASS_NAME,
@@ -63,7 +63,7 @@ export function GuestHeader({
           "gap-2",
         )}
       >
-        <MossLogo className="size-4 shrink-0" aria-label="Moss" />
+        <MossLogoMark className="size-4 shrink-0" aria-label="Moss" />
         <h1 className="min-w-0 flex-1 truncate text-ui font-medium" title={title}>
           {title !== "" ? title : t("guest.page.untitled")}
         </h1>

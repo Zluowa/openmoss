@@ -235,12 +235,12 @@ export function OpenThreadTabStrip(props: {
             // A running thread spins in place of its glyph, like its sidebar row.
             tab.isRunning ? (
               <span role="img" aria-label="Working" className="inline-flex">
-                <ThreadRunningSpinner className="size-3.5" />
+                <ThreadRunningSpinner className="size-4" />
               </span>
             ) : tab.isTerminal ? (
-              <TerminalIcon className="size-3.5 text-[var(--color-text-accent)]" />
+              <TerminalIcon className="size-4 text-[var(--color-text-accent)]" />
             ) : (
-              <ProviderIcon provider={tab.provider} className="size-3.5" />
+              <ProviderIcon provider={tab.provider} className="size-4" />
             ),
           onSelect: () => {
             if (!active) selectTab(tab.threadId);
@@ -266,7 +266,7 @@ export function OpenThreadTabStrip(props: {
                 />
               }
             >
-              <PlusSignIcon className="size-3.5" />
+              <PlusSignIcon className="size-4" />
             </TooltipTrigger>
             <TooltipPopup side="bottom">New thread in this workspace</TooltipPopup>
           </Tooltip>

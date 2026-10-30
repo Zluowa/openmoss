@@ -890,7 +890,7 @@ export function SidebarQuickChat({
                       ) : thread.isPinned ? (
                         <PinFilledIcon aria-hidden="true" className="size-3" />
                       ) : (
-                        <ChatBubbleIcon aria-hidden="true" className="size-3.5" />
+                        <ChatBubbleIcon aria-hidden="true" className="size-4" />
                       )}
                       {thread.unread && !thread.streaming ? (
                         <span
@@ -978,7 +978,7 @@ export function SidebarQuickChat({
                       data-quick-chat-window-control
                       onClick={() => setHistoryOpen(false)}
                     >
-                      <ArrowLeftIcon aria-hidden="true" className="size-3.5" />
+                      <ArrowLeftIcon aria-hidden="true" className="size-4" />
                       <span>{labels.backToChat}</span>
                     </Button>
                     <div
@@ -1048,7 +1048,7 @@ export function SidebarQuickChat({
                             setHistoryOpen(true);
                           }}
                         >
-                          <HistoryIcon aria-hidden="true" className="size-3.5" />
+                          <HistoryIcon aria-hidden="true" className="size-4" />
                           <span>{labels.recentChats}</span>
                         </Button>
                       ) : (
@@ -1063,7 +1063,7 @@ export function SidebarQuickChat({
                           {attaching ? (
                             <ThreadRunningSpinner />
                           ) : (
-                            <ArrowUpRightIcon aria-hidden="true" className="size-3.5" />
+                            <ArrowUpRightIcon aria-hidden="true" className="size-4" />
                           )}
                           <span>{labels.attachToTask}</span>
                         </Button>
@@ -1104,7 +1104,7 @@ export function SidebarQuickChat({
                   {creating ? (
                     <ThreadRunningSpinner />
                   ) : (
-                    <PlusIcon aria-hidden="true" className="size-3.5" />
+                    <PlusIcon aria-hidden="true" className="size-4" />
                   )}
                   <span>{labels.newChat}</span>
                 </button>
@@ -1136,7 +1136,7 @@ export function SidebarQuickChat({
                           ) : thread.isPinned ? (
                             <PinFilledIcon aria-hidden="true" className="size-3" />
                           ) : (
-                            <ChatBubbleIcon aria-hidden="true" className="size-3.5" />
+                            <ChatBubbleIcon aria-hidden="true" className="size-4" />
                           )}
                           {thread.unread && !thread.streaming ? (
                             <span
@@ -1227,7 +1227,7 @@ export function SidebarQuickChat({
                           setHistoryOpen(true);
                         }}
                       >
-                        <HistoryIcon aria-hidden="true" className="size-3.5" />
+                        <HistoryIcon aria-hidden="true" className="size-4" />
                         <span>{labels.viewChatHistory}</span>
                       </Button>
                     </div>

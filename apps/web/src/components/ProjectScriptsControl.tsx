@@ -77,7 +77,7 @@ function ScriptIcon({
   icon: ProjectScriptIcon;
   className?: string;
 }) {
-  const className = classNameProp ?? "size-3.5";
+  const className = classNameProp ?? "size-4";
   if (icon === "test") return <FlaskConicalIcon className={className} />;
   if (icon === "lint") return <ListChecksIcon className={className} />;
   if (icon === "configure") return <SettingsIcon className={className} />;
@@ -254,7 +254,7 @@ export default function ProjectScriptsControl({
                 />
               }
             >
-              <ChevronDownIcon className="size-3.5" />
+              <ChevronDownIcon className="size-3" />
             </MenuTrigger>
             <ComposerPickerMenuPopup align="end" className="min-w-64" sideOffset={8}>
               {scripts.map((script) => {
@@ -294,7 +294,7 @@ export default function ProjectScriptsControl({
                           openEditDialog(script);
                         }}
                       >
-                        <SettingsIcon className="size-3.5" />
+                        <SettingsIcon className="size-4" />
                       </Button>
                     </span>
                   </MenuItem>
@@ -360,7 +360,7 @@ export default function ProjectScriptsControl({
                         />
                       }
                     >
-                      <ScriptIcon icon={icon} className="size-4.5" />
+                      <ScriptIcon icon={icon} className="size-4" />
                     </PopoverTrigger>
                     <PopoverPopup align="start">
                       <div className="grid grid-cols-3 gap-2">

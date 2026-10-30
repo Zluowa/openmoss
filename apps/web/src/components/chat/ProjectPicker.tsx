@@ -591,12 +591,12 @@ export const ProjectPicker = memo(function ProjectPicker({
       >
         <div className="flex min-w-0 items-center gap-2">
           {folder.projectId ? (
-            <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground/70">
+            <span className="relative inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/70">
               <ProjectSidebarIcon
                 cwd={folder.cwd}
                 expanded={false}
                 appearance={folder.appearance}
-                glyphClassName="size-3.5"
+                glyphClassName="size-4"
               />
             </span>
           ) : (
@@ -661,7 +661,7 @@ export const ProjectPicker = memo(function ProjectPicker({
                 icon={
                   <FolderIcon
                     className={cn(
-                      "size-3.5 transition-opacity duration-150 ease-out motion-reduce:transition-none",
+                      "size-4 transition-opacity duration-150 ease-out motion-reduce:transition-none",
                       canResetFromTrigger && "group-hover/project-picker-trigger:opacity-0",
                       resetTriggerFocused && "opacity-0",
                     )}
@@ -681,7 +681,7 @@ export const ProjectPicker = memo(function ProjectPicker({
               aria-label={resetActionLabel}
               title={resetActionLabel}
               className={cn(
-                "group/reset-project pointer-events-none absolute top-1/2 left-1.5 z-10 inline-flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center sm:left-2",
+                "group/reset-project pointer-events-none absolute top-1/2 left-[7px] z-10 inline-flex size-5 -translate-y-1/2 cursor-pointer items-center justify-center sm:left-[9px]",
                 "opacity-0 transition-opacity duration-150 ease-out",
                 "focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70",
                 "group-hover/project-picker-trigger:pointer-events-auto group-hover/project-picker-trigger:opacity-100",

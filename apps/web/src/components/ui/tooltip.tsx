@@ -87,7 +87,7 @@ function TooltipPopup({
             // Structure + type are shared by every tooltip; the variant supplies the
             // surface chrome (frosted card, picker, …) and `className` adds per-tooltip
             // tweaks like max-width or wrapping.
-            "flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) text-ui-sm transition-[width,height,scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
+            "flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) text-ui leading-[1.125rem] transition-[width,height,scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
             variant === "command" ? "font-mono whitespace-pre-wrap" : "text-balance",
             TOOLTIP_SURFACE_BY_VARIANT[variant],
             className,

@@ -12,7 +12,7 @@ function createMenuIconElement(icon: string): HTMLElement | null {
 }
 
 const HIGHLIGHT_CLASS = "bg-[var(--sidebar-accent)]";
-const MENU_CLASS_NAME = `${FLOATING_OVERLAY_SURFACE_CLASS_NAME} fixed z-[10000] min-w-[180px] rounded-xl border border-white/[0.08] shadow-xl animate-in fade-in zoom-in-95`;
+const MENU_CLASS_NAME = `${FLOATING_OVERLAY_SURFACE_CLASS_NAME} fixed z-[10000] min-w-[180px] rounded-popover border border-white/[0.08] shadow-xl animate-in fade-in zoom-in-95`;
 const VIEWPORT_MARGIN = 4;
 /** Small overlap so the pointer never crosses a gap between a row and its submenu. */
 const SUBMENU_OVERLAP = 4;
@@ -194,8 +194,8 @@ export function showContextMenuFallback<T extends string>(
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = isDestructive
-          ? "flex w-full min-h-7 cursor-default select-none items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-ui text-foreground/86 transition-colors"
-          : "flex w-full min-h-7 cursor-default select-none items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-ui text-foreground/86 transition-colors";
+          ? "flex w-full min-h-6 cursor-default select-none items-center gap-1.5 rounded-control px-2 py-0.5 text-left text-ui text-foreground/86 transition-colors"
+          : "flex w-full min-h-6 cursor-default select-none items-center gap-1.5 rounded-control px-2 py-0.5 text-left text-ui text-foreground/86 transition-colors";
 
         const icon = item.icon ? createMenuIconElement(item.icon) : null;
         if (icon) {

@@ -186,7 +186,7 @@ export const Code = defineComponent({
         <div className="iui-codeblock-head">
           <span>{str(props.language) || "code"}</span>
           <button type="button" onClick={copy} aria-label="Copy code">
-            {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+            {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
             {copied ? "Copied" : "Copy"}
           </button>
         </div>

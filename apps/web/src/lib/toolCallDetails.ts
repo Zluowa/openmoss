@@ -46,8 +46,6 @@ export interface WorkLogToolDetails {
 
 export type WorkLogAutomaticApprovalReview = AutomaticApprovalReviewUpdatePayloadData;
 
-// Codex 26.1007 `webview/assets/mcp-tool-item-content-e82cd24a6d3f.js` (`xa`)
-// and `widget-9f8acfe83a1c.js` (`Jl`, i18n `codex.mcpTool.mcpAppTooLarge`).
 // Only the versioned native projection becomes an MCP result or App card.
 export type WorkLogMcpToolResult = CodexMcpToolCallProjectionData & {
   automaticApprovalReviews?: ReadonlyArray<WorkLogAutomaticApprovalReview>;

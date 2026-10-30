@@ -63,7 +63,7 @@ describe("GeneratedImagePreviewPane", () => {
 });
 
 describe("GeneratedImagePreviewIcon", () => {
-  it("keeps the exact 24px stroked Codex tab geometry", () => {
+  it("keeps the exact 24px stroked tab geometry", () => {
     const markup = renderToStaticMarkup(<GeneratedImagePreviewIcon />);
     expect(GENERATED_IMAGE_PREVIEW_ICON_VIEW_BOX).toBe("0 0 24 24");
     expect(markup).toContain('width="24"');

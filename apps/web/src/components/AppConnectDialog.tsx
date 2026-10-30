@@ -144,7 +144,7 @@ export function AppConnectDialog({
   const approvedByAdmin = connector !== null && !disabledByAdmin;
   const connectionStatus = loading ? (
     <span className="flex items-center justify-center gap-2">
-      <RefreshCwIcon className="size-3.5 animate-spin" />
+      <RefreshCwIcon className="size-4 animate-spin" />
       {t("settings.mcp.appConnectModal.loading")}
     </span>
   ) : error !== null ? (
@@ -291,7 +291,7 @@ export function AppConnectDialog({
             >
               {starting ? t("settings.mcp.appConnectModal.finishing") : buttonLabel}
               {(app.isAccessible || browserRequired) && !disabledByAdmin ? (
-                <ExternalLinkIcon className="size-3.5" />
+                <ExternalLinkIcon className="size-4" />
               ) : null}
             </Button>
             {browserRequired && !loading ? (

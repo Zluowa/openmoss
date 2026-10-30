@@ -1,7 +1,6 @@
 // FILE: mcpAppHost.ts
 // Purpose: MCP App host. Electron uses the desktop webview sandbox. A browser
-// without that bridge renders Codex's HTMLIFrameElement path
-// (mcp-sandbox-element.js `x`, widget.js `Jl`) from a fetched or recorded resource.
+// without that bridge renders an HTMLIFrameElement from a fetched or recorded resource.
 
 import { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
@@ -395,7 +394,7 @@ function isMcpAppMobileViewport(): boolean {
 }
 
 function fullscreenFrameZIndex(): string {
-  // Moss's shared mobile SheetViewport owns z-index 50. Keep the frozen
+  // Moss's shared mobile SheetViewport owns z-index 50. Keep the
   // desktop stack at 43, while lifting only the fullscreen App surface above
   // that existing mobile layer so the guest remains readable.
   return isMcpAppMobileViewport() ? "51" : "43";
@@ -1269,9 +1268,9 @@ export class McpAppHostController {
   }
 
   /**
-   * Codex widget.js `Jl` iframe branch. Fetch the resource the same way the
-   * desktop host does; a replayed tool result can still carry the HTML as an
-   * embedded resource when no live `mcpServer/resource/read` session exists.
+   * Iframe branch. Fetch the resource the same way the desktop host does; a
+   * replayed tool result can still carry the HTML as an embedded resource when
+   * no live `mcpServer/resource/read` session exists.
    */
   private async startBrowserFrame(
     descriptor: NonNullable<WorkLogMcpToolResult["app"]>,
@@ -1312,9 +1311,8 @@ export class McpAppHostController {
         return;
       }
       if (resource.state === "no_content") {
-        // Codex widget.js `Jl` only paints a live `mcpServer/resource/read`.
-        // A settled Moss replay has no app-server session, so the same card
-        // uses the tool result's embedded HTML resource instead of an empty frame.
+        // A settled Moss replay has no app-server session to read from, so the
+        // card uses the tool result's embedded HTML resource instead of an empty frame.
         html = embeddedMcpAppHtml(this.projection);
         if (!html) {
           this.setSnapshot({

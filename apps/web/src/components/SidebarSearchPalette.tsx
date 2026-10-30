@@ -94,7 +94,7 @@ const PALETTE_GROUP_LABEL_CLASS =
   "flex items-center justify-between px-2.5 pt-2 pb-1 font-normal text-ui-xs text-muted-foreground/70";
 const PALETTE_ITEM_CLASS =
   "palette-row squircle min-h-[30px] cursor-pointer items-center gap-3 rounded-control px-2.5 py-0 text-foreground data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-foreground sm:min-h-[30px]";
-const PALETTE_ICON_CLASS = "size-3.5 shrink-0 text-muted-foreground";
+const PALETTE_ICON_CLASS = "size-4 shrink-0 text-muted-foreground";
 const PALETTE_TEXT_CLASS = "min-w-0 flex-1 truncate text-ui";
 const PALETTE_META_CLASS = "max-w-[45%] shrink-0 truncate text-ui-meta text-muted-foreground/70";
 const PALETTE_KBD_CLASS = "h-[17px] min-w-0 text-ui-xs";
@@ -705,7 +705,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
         {Icon ? (
           <Icon className={PALETTE_ICON_CLASS} />
         ) : (
-          <span className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="size-4 shrink-0" aria-hidden="true" />
         )}
         <span className={PALETTE_TEXT_CLASS}>{action.label}</span>
         {action.metaLabel ? <span className={PALETTE_META_CLASS}>{action.metaLabel}</span> : null}
@@ -771,7 +771,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                       variant="outline"
                       onClick={() => setImportTargetId(target.instanceId)}
                     >
-                      <SharedProviderIcon provider={target.provider} className="size-[15px]" />
+                      <SharedProviderIcon provider={target.provider} className="size-4" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-ui font-medium">{target.label}</span>
                         <span className="block truncate text-ui-xs text-muted-foreground">
@@ -858,7 +858,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                   props.onModeChange("search");
                 }}
               >
-                <ArrowLeftIcon className="size-3.5" />
+                <ArrowLeftIcon className="size-4" />
               </Button>
               <AutocompletePrimitive.Input
                 autoFocus
@@ -1050,7 +1050,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                             props.onOpenThread(thread.id);
                           }}
                         >
-                          <span className="flex size-3.5 shrink-0 items-center justify-center">
+                          <span className="flex size-4 shrink-0 items-center justify-center">
                             {isGenericChatThreadTitle(thread.title) ? null : (
                               <SharedProviderIcon
                                 provider={thread.provider}
@@ -1145,12 +1145,12 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                           props.onOpenProject(project.id);
                         }}
                       >
-                        <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+                        <span className="relative inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                           <ProjectSidebarIcon
                             cwd={project.cwd}
                             expanded
                             appearance={project.appearance}
-                            glyphClassName="size-3.5"
+                            glyphClassName="size-4"
                           />
                         </span>
                         <span className={PALETTE_TEXT_CLASS}>
@@ -1194,7 +1194,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                               <ThemeIcon className={PALETTE_ICON_CLASS} />
                               <span className={PALETTE_TEXT_CLASS}>{themeCommandItem.label}</span>
                               <span
-                                className="flex size-3.5 shrink-0 items-center justify-center"
+                                className="flex size-4 shrink-0 items-center justify-center"
                                 aria-hidden={!themeCommandItem.isActive}
                               >
                                 {themeCommandItem.isActive ? (
@@ -1244,7 +1244,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                                   : "Light color theme"}
                               </span>
                               <span
-                                className="flex size-3.5 shrink-0 items-center justify-center"
+                                className="flex size-4 shrink-0 items-center justify-center"
                                 aria-hidden={!themeItem.isActive}
                               >
                                 {themeItem.isActive ? (

@@ -4,7 +4,7 @@
 // Layer: Sidebar UI primitive
 // Exports: SidebarIconButton, SidebarIconButtonSize
 // Why: The sidebar had ~7 near-identical `sidebar-icon-button inline-flex size-N`
-//      + `<Icon size-3.5>` buttons, several redundantly wrapped in their own
+//      + `<Icon size-4>` buttons, several redundantly wrapped in their own
 //      Tooltip/MenuTrigger blocks. This collapses them into one variant-driven
 //      button so size, hover tone, tooltip, and the optional menu-trigger element
 //      stay consistent in one place.

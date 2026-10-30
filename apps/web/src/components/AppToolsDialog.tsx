@@ -273,7 +273,7 @@ export function AppToolsDialog({
         <DialogFooter className="border-t border-border/70">
           {canTryNow ? (
             <Button size="sm" onClick={() => onTryNow(app)}>
-              <MessageCircleIcon className="size-3.5" />
+              <MessageCircleIcon className="size-4" />
               Try now
             </Button>
           ) : (
@@ -287,7 +287,7 @@ export function AppToolsDialog({
                 }
               >
                 <Button size="sm" disabled>
-                  <MessageCircleIcon className="size-3.5" />
+                  <MessageCircleIcon className="size-4" />
                   Try now
                 </Button>
               </TooltipTrigger>

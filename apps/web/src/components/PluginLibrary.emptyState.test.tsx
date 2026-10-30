@@ -1,5 +1,5 @@
 // FILE: PluginLibrary.emptyState.test.tsx
-// Purpose: Locks the frozen Codex 26.730.61639 browse/search empty-state DOM and copy.
+// Purpose: Locks the browse/search empty-state DOM and copy.
 // Layer: Web component rendering test
 
 import { readFileSync } from "node:fs";

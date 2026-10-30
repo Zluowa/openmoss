@@ -57,7 +57,7 @@ function QueuedComposerPausedNotice({
           className={
             pause.reason === "stopped"
               ? COMPOSER_STACKED_PANEL_ICON_CLASS_NAME
-              : "size-3.5 shrink-0 text-warning"
+              : "size-4 shrink-0 text-warning"
           }
         />
         <span className="min-w-0 truncate text-ui-sm text-muted-foreground">

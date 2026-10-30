@@ -290,7 +290,7 @@ export function CreateProjectDialog(props: {
                       setFormError(null);
                     }}
                   >
-                    <XIcon className="size-3.5" aria-hidden="true" />
+                    <XIcon className="size-4" aria-hidden="true" />
                   </button>
                 </div>
               ) : hasFolderPicker ? (
@@ -307,7 +307,7 @@ export function CreateProjectDialog(props: {
                     <ComposerPickerSelectPopup align="center">
                       <SelectItem value="this-computer">
                         <span className="flex items-center gap-2">
-                          <DeviceLaptopIcon className="size-3.5" aria-hidden="true" />
+                          <DeviceLaptopIcon className="size-4" aria-hidden="true" />
                           {t("projectSetup.createProject.thisComputer")}
                         </span>
                       </SelectItem>
@@ -323,7 +323,7 @@ export function CreateProjectDialog(props: {
                           (like the reference dialog) but disabled. */}
                       <SelectItem value="add-remote" disabled hideIndicator>
                         <span className="flex items-center gap-2">
-                          <PlusIcon className="size-3.5" aria-hidden="true" />
+                          <PlusIcon className="size-4" aria-hidden="true" />
                           {t("projectSetup.createProject.addRemoteHost")}
                         </span>
                       </SelectItem>

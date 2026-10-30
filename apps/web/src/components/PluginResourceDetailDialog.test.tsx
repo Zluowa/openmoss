@@ -1,5 +1,5 @@
 // FILE: PluginResourceDetailDialog.test.tsx
-// Purpose: Locks the signed Codex 26.730.61639 plugin-detail hierarchy and loading boundary.
+// Purpose: Locks the plugin-detail hierarchy and loading boundary.
 // Layer: Web component rendering test
 
 import type { ProviderPluginDescriptor, ProviderPluginDetail } from "@synara/contracts";

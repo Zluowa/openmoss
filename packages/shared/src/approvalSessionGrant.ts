@@ -32,7 +32,6 @@ export function approvalSessionGrantWidensSessionPolicy(
 }
 
 /**
- * Codex `Yr` (`pending-request-item-panel-bd889fcbd56a.js`):
  * `proposedExecpolicyAmendment` is a single-line argv. Newlines mean there is
  * no prefix rule, so the card must not offer `acceptWithExecpolicyAmendment`.
  */

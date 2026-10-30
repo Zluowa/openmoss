@@ -13,7 +13,7 @@ export const SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME =
   "text-[var(--color-text-foreground)] data-highlighted:text-[var(--color-text-foreground)]";
 
 export const SIDEBAR_CONTEXT_MENU_ICON_CLASS_NAME =
-  "inline-flex size-3.5 shrink-0 items-center justify-center text-[var(--color-text-foreground-secondary)] [&>svg]:size-3.5 [&>[data-slot=central-icon]]:size-3.5";
+  "inline-flex size-4 shrink-0 items-center justify-center text-[var(--color-text-foreground-secondary)] [&>svg]:size-4 [&>[data-slot=central-icon]]:size-3.5";
 
 /** Leading glyph slot; keeps every menu icon on the same box and secondary tone. */
 export function SidebarContextMenuIcon({ icon: Icon }: { icon: LucideIcon }) {

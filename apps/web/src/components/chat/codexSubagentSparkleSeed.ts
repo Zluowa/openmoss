@@ -1,6 +1,4 @@
-// Codex 26.1007 `qOc` (app-initial, next to `KOc`).
-// `n = (n * 31 + char) % 2147483647`, then `n % paletteLength`.
-// The loop index shadows the length parameter; the modulus uses the length.
+// Polynomial string hash: `n = (n * 31 + char) % 2147483647`, then `n % paletteLength`.
 
 const CODEX_SPARKLE_HASH_MODULUS = 2_147_483_647;
 

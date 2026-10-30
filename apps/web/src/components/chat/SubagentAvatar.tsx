@@ -1,4 +1,4 @@
-// Codex 26.1007 subagent mark (`KOc`). The dock and the timeline row share it.
+// Subagent mark. The dock and the timeline row share it.
 // `accentColor` stays on the element for callers that still key off the
 // presentation palette; the glyph itself is the seeded sparkle, not a tint.
 

@@ -18,7 +18,7 @@ import {
   decodeStructuredTextGenerationOutput,
 } from "./textGenerationShared.ts";
 
-// zod's toJSONSchema of Codex's `{suggestion: string.trim().nullable()}` (codex-app 26.1021).
+// The JSON Schema zod produces for `{suggestion: string.trim().nullable()}`.
 const CODEX_PREDICTION_RESPONSE_JSON_SCHEMA =
   '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"suggestion":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["suggestion"],"additionalProperties":false}';
 

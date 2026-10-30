@@ -1,6 +1,6 @@
 import { cn } from "~/lib/utils";
 
-// app-initial pna/KV: offset is on the outer row, indentation is opt-in.
+// Offset is on the outer row, indentation is opt-in.
 export function toolActivityBodyClassName(
   variant: "default" | "grouped" | "flush" = "default",
   indent = false,

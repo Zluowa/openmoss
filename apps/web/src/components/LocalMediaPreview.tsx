@@ -105,25 +105,19 @@ function MediaPlayer({
       <div className="my-3 flex w-full max-w-lg flex-col overflow-hidden rounded-lg bg-surface-elevated-secondary/50 font-sans text-default [--thread-resource-card-row-padding-x:0.75rem] electron:elevation-stroke extension:border extension:border-default extension:bg-background-primary-soft/50 extension:shadow-sm">
         <div className="flex min-w-0 items-center gap-2.5 p-1.5 text-start">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-secondary/92">
-            <svg className="size-6 dark:hidden" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="#3C5CD8" d="M20 9.178a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1Z" />
-              <path
-                fill="#4C6EE2"
-                d="M16 5.178a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0v-12a1 1 0 0 1 1-1Z"
-              />
-              <path fill="#5D7FEC" d="M12 7.178a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0v-8a1 1 0 0 1 1-1Z" />
-              <path fill="#6D91F5" d="M8 3.178a1 1 0 0 1 1 1v16a1 1 0 1 1-2 0v-16a1 1 0 0 1 1-1Z" />
-              <path fill="#7DA2FF" d="M4 9.178a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1Z" />
-            </svg>
-            <svg className="hidden size-6 dark:block" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="#4784E1" d="M20 9.178a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1Z" />
-              <path
-                fill="#6196E9"
-                d="M16 5.178a1 1 0 0 1 1 1v12a1 1 0 1 1-2 0v-12a1 1 0 0 1 1-1Z"
-              />
-              <path fill="#7BA9F0" d="M12 7.178a1 1 0 0 1 1 1v8a1 1 0 1 1-2 0v-8a1 1 0 0 1 1-1Z" />
-              <path fill="#94BBF8" d="M8 3.178a1 1 0 0 1 1 1v16a1 1 0 1 1-2 0v-16a1 1 0 0 1 1-1Z" />
-              <path fill="#AECDFF" d="M4 9.178a1 1 0 0 1 1 1v4a1 1 0 1 1-2 0v-4a1 1 0 0 1 1-1Z" />
+            <svg
+              className="size-6 text-[#3F63D6] dark:text-[#8DB0F5]"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <rect x="2.2" y="9.5" width="1.6" height="5" rx="0.8" />
+              <rect x="5.2" y="7" width="1.6" height="10" rx="0.8" />
+              <rect x="8.2" y="4.5" width="1.6" height="15" rx="0.8" />
+              <rect x="11.2" y="8" width="1.6" height="8" rx="0.8" />
+              <rect x="14.2" y="3" width="1.6" height="18" rx="0.8" />
+              <rect x="17.2" y="6.5" width="1.6" height="11" rx="0.8" />
+              <rect x="20.2" y="9" width="1.6" height="6" rx="0.8" />
             </svg>
           </span>
           <div className="min-w-0 flex-1">

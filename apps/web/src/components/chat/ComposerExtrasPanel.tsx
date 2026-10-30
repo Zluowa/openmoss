@@ -47,7 +47,7 @@ const ROW_FAST = "extras:fast";
 const ROW_BACK = "extras:back";
 const WINDOW_ROW_PREFIX = "extras:window:";
 
-const CHECK = <CheckIcon className="size-3.5 text-foreground/70" />;
+const CHECK = <CheckIcon className="size-4 text-foreground/70" />;
 
 function toggleSecondary(label: string, enabled: boolean): string {
   return `Turn ${label} ${enabled ? "off" : "on"}`;
@@ -148,7 +148,7 @@ export function ComposerExtrasPanel(props: {
                                 openWindows();
                               }}
                             >
-                              <ChevronRightIcon className="size-3.5" />
+                              <ChevronRightIcon className="size-4" />
                             </button>
                           ),
                         }
@@ -157,7 +157,7 @@ export function ComposerExtrasPanel(props: {
                           icon: <WindowIcon className={GLYPH} />,
                           title: "Attach window",
                           secondary: "Capture an open app window",
-                          trailing: <ChevronRightIcon className="size-3.5" />,
+                          trailing: <ChevronRightIcon className="size-4" />,
                         },
                   ]
                 : []),

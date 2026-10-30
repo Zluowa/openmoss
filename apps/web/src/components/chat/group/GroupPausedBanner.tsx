@@ -24,7 +24,7 @@ export function GroupPausedBanner(props: {
         "bg-[var(--sidebar-accent)]/40 px-3 py-2 text-ui text-muted-foreground",
       )}
     >
-      <PauseIcon className="size-3.5 shrink-0" aria-hidden />
+      <PauseIcon className="size-4 shrink-0" aria-hidden />
       <span className="min-w-0 flex-1">This hub is paused.</span>
       <Button
         type="button"

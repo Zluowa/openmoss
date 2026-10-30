@@ -53,20 +53,20 @@ const buttonVariants = cva(
       },
       size: {
         chip: "h-auto gap-1 px-2 py-0.5 text-ui-sm sm:h-auto sm:text-ui-sm [&_svg:not([class*='size-'])]:size-3 sm:[&_svg:not([class*='size-'])]:size-3",
-        default: "h-9 px-[calc(--spacing(3)-1px)] sm:h-8",
-        icon: "size-9 sm:size-8",
+        default: "h-8 px-[calc(--spacing(3)-1px)] sm:h-7",
+        icon: "size-8 sm:size-7",
         "icon-chip":
           "size-6 sm:size-6 [&_svg:not([class*='size-'])]:size-3 sm:[&_svg:not([class*='size-'])]:size-3",
-        "icon-lg": "size-10 sm:size-9",
+        "icon-lg": "size-9 sm:size-8",
         "icon-sm": "size-8 sm:size-7",
         "icon-xl":
-          "size-11 sm:size-10 [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
+          "size-10 sm:size-9 [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
         "icon-xs":
           "size-7 rounded-sm sm:size-6 not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-4 sm:not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-10 px-[calc(--spacing(3.5)-1px)] sm:h-9",
+        lg: "h-9 px-[calc(--spacing(3.5)-1px)] sm:h-8",
         sm: "h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:h-7",
-        xl: "h-11 px-[calc(--spacing(4)-1px)] text-ui-lg sm:h-10 sm:text-ui-lg [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
-        xs: "h-7 gap-1 rounded-sm px-[calc(--spacing(2)-1px)] text-ui-sm sm:h-6 sm:text-ui-xs [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
+        xl: "h-10 px-[calc(--spacing(4)-1px)] text-ui-lg sm:h-9 sm:text-ui-lg [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
+        xs: "h-7 gap-1 rounded-sm px-[calc(--spacing(2)-1px)] text-ui sm:h-6 sm:text-ui [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
       },
       variant: {
         chrome:
@@ -89,10 +89,10 @@ const buttonVariants = cva(
           "border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] text-primary [:hover,[data-pressed]]:border-primary/32 [:hover,[data-pressed]]:bg-primary/4",
         prominent:
           "rounded-full border-transparent bg-[var(--color-text-foreground)] text-[var(--color-background-surface)] transition-[transform,opacity] duration-150 hover:scale-105 disabled:opacity-20 disabled:hover:scale-100",
-        // Neutral filled circle for an icon action beside a `prominent` one (composer +, mic),
-        // so every composer action reads as one set.
+        // Flat circle for an icon action beside a `prominent` one (composer +, mic): it rests
+        // on the sheet and only fills on hover, so the send action is the one solid mark.
         circle:
-          "rounded-full border-transparent bg-[var(--color-background-button-secondary)] text-[var(--color-text-foreground)] transition-colors focus-visible:ring-[color:var(--color-border-focus)]/60 focus-visible:ring-offset-0 [:hover,[data-pressed]]:bg-[var(--color-background-button-secondary-hover)]",
+          "rounded-full border-transparent bg-transparent text-[var(--color-text-foreground)] transition-colors focus-visible:ring-[color:var(--color-border-focus)]/60 focus-visible:ring-offset-0 [:hover,[data-pressed]]:bg-[var(--color-background-button-secondary)]",
         secondary:
           "border-transparent bg-[color-mix(in_srgb,var(--color-text-foreground)_5%,transparent)] text-[var(--color-text-foreground)] [:active,[data-pressed]]:bg-[color-mix(in_srgb,var(--color-text-foreground)_10%,transparent)] [:hover,[data-pressed]]:bg-[color-mix(in_srgb,var(--color-text-foreground)_10%,transparent)]",
         "secondary-outline":

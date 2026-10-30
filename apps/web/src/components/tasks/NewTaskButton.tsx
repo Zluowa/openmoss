@@ -28,7 +28,7 @@ export function NewTaskButton({
             disabled={disabled}
             onClick={onClick}
           >
-            <PlusIcon className="size-3.5" />
+            <PlusIcon className="size-4" />
             New task
           </Button>
         }

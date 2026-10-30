@@ -53,11 +53,11 @@ export function SidebarStatusTrailingGlyph({ status }: { status: ThreadStatusPil
       </span>
     );
   }
-  // Codex 26.1007 `n1` paints `Nzo` (gray `text-text/70` spinner) whenever the
-  // task row is `loading`, including while the awaiting-approval chip is up.
+  // A loading task row paints the gray spinner, including while the
+  // awaiting-approval chip is up.
   // The solid green dot is the host-connection mark, not this slot.
   if (status.label === "Pending Approval" || status.pulse) {
-    // Codex `Nzo` compact: 20px slot, 14px `Pbi` glyph, `text-text/70`.
+    // Compact: 20px slot, 14px glyph, muted ink.
     return (
       <span
         role="img"

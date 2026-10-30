@@ -138,7 +138,7 @@ export function ComposerEffortSliderCard(props: ComposerEffortSliderCardProps) {
               />
             }
           >
-            <ResetIcon aria-hidden="true" className="size-3.5" />
+            <ResetIcon aria-hidden="true" className="size-4" />
           </TooltipTrigger>
           <TooltipPopup side="top" variant="picker">
             {t("chat.effort.reset")}

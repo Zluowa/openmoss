@@ -193,7 +193,7 @@ describe("RealtimeVoiceSessionSurface", () => {
       expect(getComputedStyle(orb).width).toBe("112px");
       expect(getComputedStyle(orbCanvas).filter).toBe("none");
       expect(getComputedStyle(composer).height).toBe("96px");
-      expect(getComputedStyle(composer).borderRadius).toBe("16px");
+      expect(getComputedStyle(composer).borderRadius).toBe("14px");
       expect(getComputedStyle(composer).maxWidth).toBe("900px");
       expect(composer.getBoundingClientRect().width).toBe(900);
       for (const button of controls.querySelectorAll("button")) {

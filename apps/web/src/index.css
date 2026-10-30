@@ -20,27 +20,38 @@
   /* Same 50ms step, half the speed: background work that keeps going without you. */
   --animate-spin-stepped-slow: spin-stepped 2.6s steps(52, end) infinite;
   --font-sans: var(--font-ui-family);
-  /* Weights matched stem-for-stem to Claude's 360 / 460 / 540 / 560 in Inter. */
+  /* Weights matched stem-for-stem to Claude's 360 / 460 / 530 / 560 in Inter. */
   --font-weight-normal: 380;
   --font-weight-medium: 475;
-  --font-weight-semibold: 545;
+  --font-weight-semibold: 535;
   --font-weight-bold: 570;
   /* Font sizes that follow the size chosen in Settings (useAppTypography). The
      fallbacks mirror getAppTypographyScale at DEFAULT_CHAT_FONT_SIZE_PX (13px)
      so isolated browser tests without the app shell resolve the same values. */
   --text-ui: var(--app-font-size-ui, 13px);
+  --text-ui--line-height: calc(19 / 13);
   --text-ui-lg: var(--app-font-size-ui-lg, 14px);
+  --text-ui-lg--line-height: calc(20 / 14);
   /* A page's lede and headline figures: one step above ui-lg, still scaled by Settings. */
   --text-ui-xl: calc(var(--app-font-size-ui-lg, 14px) * 1.3);
   --text-ui-sm: var(--app-font-size-ui-sm, 12px);
+  --text-ui-sm--line-height: calc(17 / 12);
   --text-ui-xs: var(--app-font-size-ui-xs, 11px);
+  --text-ui-xs--line-height: calc(17 / 11);
   --text-ui-2xs: var(--app-font-size-ui-2xs, 10px);
+  --text-ui-2xs--line-height: calc(14 / 10);
   --text-ui-meta: var(--app-font-size-ui-meta, 11px);
-  --text-ui-timestamp: var(--app-font-size-ui-timestamp, 9px);
-  --text-chat: var(--app-font-size-chat, 13px);
-  --text-chat-code: var(--app-font-size-chat-code, 11px);
-  --text-chat-meta: var(--app-font-size-chat-meta, 9px);
-  --text-chat-tiny: var(--app-font-size-chat-tiny, 9px);
+  --text-ui-meta--line-height: calc(17 / 11);
+  --text-ui-timestamp: var(--app-font-size-ui-timestamp, 10px);
+  --text-ui-timestamp--line-height: calc(14 / 10);
+  --text-chat: var(--app-font-size-chat, 14px);
+  --text-chat--line-height: calc(20 / 14);
+  --text-chat-code: var(--app-font-size-chat-code, 12px);
+  --text-chat-code--line-height: calc(17 / 12);
+  --text-chat-meta: var(--app-font-size-chat-meta, 11px);
+  --text-chat-meta--line-height: calc(17 / 11);
+  --text-chat-tiny: var(--app-font-size-chat-tiny, 10px);
+  --text-chat-tiny--line-height: calc(14 / 10);
   --font-display: var(--font-display-family);
   --font-mono: var(--font-mono-family);
   --color-warning-foreground: var(--warning-foreground);
@@ -108,8 +119,8 @@
   /* ─── Corner radius ──────────────────────────────────────────────────────
      One additive scale, after Claude's desktop design system: 4 · 6 · 8 · 10 · 12 · 16.
      Surfaces pick a ROLE below instead of a size, so a menu, a card, or a dialog has the
-     same corner everywhere. Nested corners follow outer − padding (a 12px popover with
-     4px padding holds 8px rows). docs/design/visual-system.md has the full table. */
+     same corner everywhere. Nested corners follow outer − padding (a 10px popover with
+     4px padding holds 6px rows). docs/design/visual-system.md has the full table. */
   --radius-xs: 0.25rem;
   --radius-sm: 0.375rem;
   --radius-md: 0.5rem;
@@ -123,17 +134,17 @@
   /* List rows: sidebar rows, tree rows, compact chips. */
   --radius-row: var(--radius-sm);
   /* Controls: buttons, inputs, selects, tabs, icon buttons, menu options. */
-  --radius-control: var(--radius-md);
+  --radius-control: var(--radius-sm);
   /* Content cards: code blocks, diffs, media, banners, settings groups. */
   --radius-card: var(--radius-lg);
   /* Floating overlays: menus, pickers, popovers, toasts, the window's inset sheet. */
-  --radius-popover: var(--radius-xl);
+  --radius-popover: var(--radius-lg);
   /* Large standalone panels: side cards, docked panels, task cards, drop zones. */
-  --radius-panel: var(--radius-2xl);
+  --radius-panel: var(--radius-lg);
   /* The composer, user message bubbles, dialogs and sheets. */
-  --radius-composer: var(--radius-2xl);
-  --radius-dialog: var(--radius-2xl);
-  --radius-bubble: var(--radius-2xl);
+  --radius-composer: 0.875rem;
+  --radius-dialog: var(--radius-xl);
+  --radius-bubble: var(--radius-lg);
   /* ─── Elevation ──────────────────────────────────────────────────────────
      Claude's two-layer soft shadows in warm ink: a tight contact shadow plus a wide, faint
      ambient one. xs/sm lift cards and the composer, md/lg hover states and panels, xl is
@@ -160,6 +171,11 @@
 @layer base {
   * {
     @apply border-border outline-ring/30;
+  }
+  /* Central draws inside a wider margin than Claude's icons, so the same 16px box read smaller.
+     This enlarges the painted glyph only: boxes, alignment and hit areas stay on the 12/16 scale. */
+  [data-slot="central-icon"] {
+    scale: 1.14;
   }
   body {
     @apply text-foreground relative;
@@ -949,7 +965,7 @@ label:has(> select#reasoning-effort) select {
 .chat-markdown blockquote,
 .chat-markdown pre,
 .chat-markdown table {
-  margin: 0.65rem 0;
+  margin: 0.75em 0;
 }
 
 .chat-markdown ul {
@@ -1037,30 +1053,21 @@ label:has(> select#reasoning-effort) select {
 .chat-markdown h4,
 .chat-markdown h5,
 .chat-markdown h6 {
-  margin: 1.1em 0 0.35em;
-  font-weight: 600;
-  line-height: 1.25;
-  letter-spacing: -0.01em;
+  margin: 1.25em 0 0.5em;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.4286;
 }
 
-.chat-markdown h1 {
-  font-size: 1.75em;
-}
-
+/* A reply is read like a note, not a document: headings barely step above the body. */
+.chat-markdown h1,
 .chat-markdown h2 {
-  font-size: 1.55em;
+  font-size: calc(1em + 0.125rem);
 }
 
-.chat-markdown h3 {
-  font-size: 1.35em;
-}
-
-.chat-markdown h4 {
-  font-size: 1.2em;
-}
-
+.chat-markdown h3,
+.chat-markdown h4,
 .chat-markdown h5 {
-  font-size: 1.1em;
+  font-size: 1em;
 }
 
 .chat-markdown h6 {
@@ -1253,13 +1260,13 @@ label:has(> select#reasoning-effort) select {
   border: none;
   background: transparent;
   padding: 0;
-  line-height: 1.5;
+  line-height: calc(17 / 12);
   font-size: var(--app-font-size-chat-code);
   font-family: inherit;
 }
 
 .chat-markdown .chat-markdown-codeblock {
-  margin: 0.65rem 0;
+  margin: 0.75em 0;
   overflow: hidden;
   border-radius: var(--radius-card);
   background: var(--app-chat-code-surface);
@@ -1274,6 +1281,9 @@ label:has(> select#reasoning-effort) select {
 }
 
 .chat-markdown .chat-markdown-codeblock__lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   min-width: 0;
   overflow: hidden;
   font-family: var(--font-chat-code-family);
@@ -2808,10 +2818,9 @@ label:has(> select#reasoning-effort) select {
   }
 }
 
-/* Codex 26.1007 in-progress commentary shimmer.
-   Source: app.asar app-shared.css `.loading-shimmer` / `@keyframes loading-shimmer`
-   (gradient 0/40/60/100, size 50% 200%, 2s steps(48, end), position -100% → 250%).
-   `.loading-shimmer-working` pins the base to text-secondary and the band to text. */
+/* In-progress commentary shimmer: gradient stops 0/40/60/100, size 50% 200%,
+   2s steps(48, end), position -100% → 250%.
+   `.codex-loading-shimmer-working` pins the resting ink and the band. */
 @keyframes codex-loading-shimmer {
   0% {
     background-position: -100% 0;
@@ -2850,10 +2859,9 @@ label:has(> select#reasoning-effort) select {
   display: inline-block;
 }
 
-/* Codex 26.1007 sites-end `_activeCommentary_1685k_5`: Working for uses
-   `--color-text` at 70% for the resting ink and CanvasText for the band.
-   The generic shimmer (description at 55% plus a white band) disappears
-   on the conversation surface. */
+/* "Working for" uses `--color-text` at 70% for the resting ink and CanvasText
+   for the band. The generic shimmer (description at 55% plus a white band)
+   disappears on the conversation surface. */
 .codex-loading-shimmer-working {
   --loading-shimmer-foreground: var(--color-text);
   --loading-shimmer-base: color-mix(in srgb, var(--color-text) 70%, transparent);
@@ -2874,8 +2882,7 @@ label:has(> select#reasoning-effort) select {
   --shimmer-contrast: var(--loading-shimmer-highlight, #0009);
 }
 
-/* Codex electron approval shell `rJc` variant `transcript-card`
-   (`._Material_9q659_2[data-avatar-overlay-material-variant=transcript-card]`):
+/* Approval shell, modeled on the Codex desktop app's approval card.
    It takes the composer's corner and the theme's popover fill, since it stands in for it. */
 .codex-approval-surface {
   border-radius: var(--radius-composer);
@@ -2897,10 +2904,10 @@ label:has(> select#reasoning-effort) select {
   --color-surface-tertiary: rgb(40, 40, 40);
 }
 
-/* Codex MCP inline app (`Jl` + `Nc`): one `rounded-lg border border-strong`
+/* MCP inline app: one `rounded-lg border border-strong`
    card around the tool header and the frame. `inlineSurface=card` does not
    add a second outline; the sandbox only rounds its bottom corners by
-   `radius-lg - 1px` (`_borderedCardSandbox_10z9p_1`). */
+   `radius-lg - 1px`. */
 .mcp-app-inline-card {
   overflow: hidden;
   border-radius: var(--radius-lg);
@@ -3006,9 +3013,23 @@ label:has(> select#reasoning-effort) select {
 
 .chat-markdown th,
 .chat-markdown td {
-  border: 1px solid var(--border);
-  padding: 0.35rem 0.45rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: calc(0.4375em + 1px) 0;
   text-align: left;
+}
+
+.chat-markdown th + th,
+.chat-markdown td + td {
+  padding-inline-start: 1.5em;
+}
+
+.chat-markdown th {
+  font-weight: var(--font-weight-semibold);
+}
+
+.chat-markdown tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 /* Keep diff chrome aligned with the user-configured code font, not the base mono fallback. */
@@ -3045,7 +3066,7 @@ diffs-container {
   border-top: 1px solid var(--border);
 }
 
-/* Composer surface follows Codex's renderer token path: light uses
+/* Composer surface token path: light uses
    bg-token-input-background/90 + backdrop blur; dark Electron uses the opaque
    dropdown/control token derived from the active chrome theme. */
 :root {
@@ -3746,16 +3767,16 @@ diffs-container {
 /* Density tokens per size modifier (--normal / --small). Width is opt-in below. */
 .composer-picker-menu--normal {
   --picker-menu-body-p: 0.25rem;
-  --picker-option-min-h: 1.625rem;
+  --picker-option-min-h: 1.5rem;
   --picker-option-px: 0.5rem;
   --picker-option-py: 0.0625rem;
-  --picker-option-gap: 0.5rem;
-  --picker-option-icon-size: 1.125rem;
+  --picker-option-gap: 0.375rem;
+  --picker-option-icon-size: 1rem;
   --picker-section-py: 0.375rem;
   --picker-separator-my: 0.25rem;
   --picker-separator-mx: 0.5rem;
   --picker-sub-chevron-ms: auto;
-  --picker-sub-chevron-size: 1rem;
+  --picker-sub-chevron-size: 0.75rem;
   --picker-sub-chevron-opacity: 0.8;
 }
 
@@ -4655,8 +4676,7 @@ html.moss-opaque-surface #root {
   box-shadow: none;
 }
 
-/* Codex 26.901.51231: ShimmerText / cadencedShimmer (app-initial).
-   The label stays still; opposing transforms move a masked copy across it.
+/* Text shimmer: the label stays still; opposing transforms move a masked copy across it.
    ConversationShimmer schedules 1s of motion every 4s after a 600ms delay. */
 @utility codex-text-shimmer {
   --codex-shimmer-foreground: var(--loading-shimmer-foreground, var(--color-codex-description));

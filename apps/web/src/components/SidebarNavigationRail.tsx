@@ -27,16 +27,15 @@ import { cn } from "~/lib/utils";
 // Moss destination catalog and rail ordering. These lived in
 // ~/sidebarNavOrdering before the upstream merge; upstream rewrote that module
 // around its own nav items, so the Moss-owned catalog stays with its only
-// consumer here. Semantics are unchanged from the frozen Codex rail behavior.
+// consumer here. Semantics are unchanged.
 // ---------------------------------------------------------------------------
 
 /**
  * Moss destinations that have a real route or a native surface in this shell.
  *
- * This intentionally omits Finances and product-mode destinations. They exist in
- * the frozen Codex catalog, but Moss has no corresponding capability and must not
- * manufacture an entry for them. The order follows the observed desktop catalog;
- * the fixed rail shell owns Home/History/Mentions/More/Help/Profile.
+ * This intentionally omits Finances and product-mode destinations: Moss has no
+ * corresponding capability and must not manufacture an entry for them. The fixed
+ * rail shell owns Home/History/Mentions/More/Help/Profile.
  */
 export const MOSS_DESTINATION_IDS = [
   "images",
@@ -59,9 +58,8 @@ export type MossDestinationCatalogItem = {
 };
 
 /**
- * Typed Moss adaptation of Codex's `rJi` destination catalog. `visibleByDefault`
- * values are retained from the observed catalog, including entries that Moss
- * keeps behind More through an explicit unpin override below.
+ * Typed destination catalog. `visibleByDefault` holds the catalog default, including
+ * for entries that Moss keeps behind More through an explicit unpin override below.
  */
 export const MOSS_DESTINATION_CATALOG: readonly MossDestinationCatalogItem[] = [
   { id: "images", label: "Images", visibleByDefault: true },
@@ -79,14 +77,14 @@ export const MOSS_DESTINATION_CATALOG: readonly MossDestinationCatalogItem[] = [
 export const DEFAULT_MOSS_DESTINATION_ORDER: readonly MossDestinationId[] =
   MOSS_DESTINATION_CATALOG.map(({ id }) => id);
 
-/** The observed A$t pin fill limit from Codex 26.924.22138. */
+/** How many destinations the rail shows directly, the same limit as the Codex desktop app. */
 export const MAX_DIRECT_DESTINATIONS = 8;
 
 /**
  * The shell has fixed rail slots for Images, Library and Scheduled. Pull
  * requests and Skills remain discoverable in More until a user pins them. An
- * explicit false is significant: A$t only fills visible-by-default entries when
- * the account has no visibility override for that entry.
+ * explicit false is significant: only visible-by-default entries with no visibility
+ * override on the account fill the remaining slots.
  */
 export const DEFAULT_MOSS_DESTINATION_PIN_OVERRIDES: Readonly<
   Partial<Record<MossDestinationId, boolean>>
@@ -147,9 +145,9 @@ export function normalizeMossDestinationOrder(
 }
 
 /**
- * Partition a catalog into direct and More destinations using the observed
- * E$t/A$t rule. Explicitly pinned IDs win first; visible-by-default entries fill
- * the remaining direct slots; every other eligible ID is returned in More.
+ * Partition a catalog into direct and More destinations. Explicitly pinned IDs
+ * win first; visible-by-default entries fill the remaining direct slots; every
+ * other eligible ID is returned in More.
  */
 export function partitionMossDestinations({
   eligibleDestinations = MOSS_DESTINATION_CATALOG,
@@ -169,8 +167,8 @@ export function partitionMossDestinations({
     ),
   );
 
-  // A$t decides membership; E$t emits IDs in the persisted catalog order. Keep
-  // those two steps separate so a pin override never reorders the rail by itself.
+  // Membership and order are separate steps: IDs come out in the persisted catalog
+  // order, so a pin override never reorders the rail by itself.
   for (const id of normalizedOrder) {
     if (directSet.size >= limit) break;
     if (pinnedSet.has(id)) {
@@ -179,7 +177,7 @@ export function partitionMossDestinations({
   }
 
   // Fill remaining direct slots from visibleByDefault entries with no explicit
-  // visibility override, matching A$t's `e[r] == null` check.
+  // visibility override.
   for (const destination of eligible) {
     if (directSet.size >= limit) break;
     if (!destination.visibleByDefault || pinOverrides[destination.id] !== undefined) continue;
@@ -260,7 +258,7 @@ const DestinationPreferences = Schema.Struct({
 });
 const PreferencesByAccount = Schema.Record(Schema.String, DestinationPreferences);
 const EMPTY_PREFERENCES: typeof PreferencesByAccount.Type = {};
-/** Codex 26.924 rail geometry. Keep these values in one place so destination
+/** Rail geometry. Keep these values in one place so destination
  * hosts cannot slowly drift from the shell when the rail is reused. */
 const RAIL_WIDTH_CLASS = "w-[3.25rem]";
 const RAIL_TOP_INSET_CLASS = "h-[46px]";
@@ -355,7 +353,7 @@ function RailUpdateThemeSlot() {
         )}
         onClick={handleDesktopUpdateButtonClick}
       >
-        <ArrowDownLineIcon className="size-[18px]" />
+        <ArrowDownLineIcon className="size-4" />
         {desktopUpdateDownloadPercent !== null ? (
           <span className="absolute -bottom-1 rounded-full bg-[var(--info)] px-1 text-[8px] font-semibold leading-3 text-white tabular-nums">
             {desktopUpdateDownloadPercent}%

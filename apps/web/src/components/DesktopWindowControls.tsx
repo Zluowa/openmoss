@@ -57,7 +57,7 @@ function CaptionGlyph({ glyph }: { glyph: string }) {
 
 function CaptionSvg({ children }: { children: ReactNode }) {
   return (
-    <span aria-hidden="true" className="flex size-3.5 items-center justify-center">
+    <span aria-hidden="true" className="flex size-4 items-center justify-center">
       {children}
     </span>
   );
@@ -119,7 +119,7 @@ export function DesktopWindowControls({ className }: { className?: string }) {
           <CaptionGlyph glyph={GLYPH_MINIMIZE} />
         ) : (
           <CaptionSvg>
-            <MinusIcon className="size-3.5" />
+            <MinusIcon className="size-4" />
           </CaptionSvg>
         )}
       </button>
@@ -141,7 +141,7 @@ export function DesktopWindowControls({ className }: { className?: string }) {
           <CaptionGlyph glyph={isMaximized ? GLYPH_RESTORE : GLYPH_MAXIMIZE} />
         ) : (
           <CaptionSvg>
-            {isMaximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+            {isMaximized ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </CaptionSvg>
         )}
       </button>
@@ -160,7 +160,7 @@ export function DesktopWindowControls({ className }: { className?: string }) {
           <CaptionGlyph glyph={GLYPH_CLOSE} />
         ) : (
           <CaptionSvg>
-            <XIcon className="size-3.5" />
+            <XIcon className="size-4" />
           </CaptionSvg>
         )}
       </button>

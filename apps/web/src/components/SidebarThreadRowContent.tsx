@@ -159,12 +159,9 @@ function renderSubagentLabel(input: {
   );
 }
 
-// Codex 26.1007 `Fzo` approval chip: `bg-chart-green/20 text-chart-green`,
-// `rounded-full`, default `max-w-[150px]`, parent column `max-w-[50%]`.
-// `--color-chart-green` is `#00a240` in light and `#40c977` in dark
-// (`--green-500` / `--green-300` in app-shared CSS). Electron overrides
-// `--text-sm` to 13px, which is `text-ui` here; 12px still fitted
-// "Awaiting app…". The thread title keeps `truncate-fade`.
+// Approval chip, modeled on the Codex desktop app's: green at 20% behind green text,
+// fully rounded, at most 150px and half the row. The text is `text-ui` (13px);
+// 12px still fitted "Awaiting app…". The thread title keeps `truncate-fade`.
 const AWAITING_APPROVAL_CHIP_CLASS =
   "inline-flex min-w-0 max-w-[min(50%,150px)] items-center overflow-hidden rounded-full bg-[color-mix(in_oklab,#00a240_20%,transparent)] py-0.5 pe-2.5 ps-2 text-ui leading-[18px] text-[#00a240] dark:bg-[color-mix(in_oklab,#40c977_20%,transparent)] dark:text-[#40c977]";
 

@@ -337,7 +337,7 @@ export function MossAppConnectDialog({
                 aria-busy={start.isPending || undefined}
                 data-testid="moss-app-connect-continue"
               >
-                {start.isPending ? <Spinner className="size-3.5" /> : null}
+                {start.isPending ? <Spinner className="size-4" /> : null}
                 {stage === "failed" ? t("apps.connect.retry") : t("apps.connect.continue")}
               </Button>
             )}

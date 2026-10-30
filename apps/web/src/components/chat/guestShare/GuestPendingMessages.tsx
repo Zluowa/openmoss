@@ -107,7 +107,7 @@ export function GuestPendingMessages({
           className={cn(COMPOSER_INPUT_SURFACE_CLASS_NAME, "px-3.5 py-3")}
         >
           <p className="flex items-center gap-1.5 text-ui-sm text-muted-foreground">
-            <UsersIcon aria-hidden="true" className="size-3.5 shrink-0" />
+            <UsersIcon aria-hidden="true" className="size-4 shrink-0" />
             <span className="min-w-0 truncate">{heading}</span>
           </p>
           <ol className="mt-2.5 flex flex-col gap-3">
@@ -192,7 +192,7 @@ function GuestPendingMessageRow({
           </div>
         ) : null}
         {message.text ? (
-          <p className="self-stretch whitespace-pre-wrap text-ui leading-relaxed [overflow-wrap:anywhere]">
+          <p className="self-stretch whitespace-pre-wrap text-chat [overflow-wrap:anywhere]">
             {message.text}
           </p>
         ) : null}
@@ -215,7 +215,7 @@ function GuestPendingMessageRow({
           aria-label={format("chat.guestShare.pending.sendNamed", { name: guestName })}
           onClick={() => void onResolve(message.id, "send")}
         >
-          {busy ? <Spinner className="size-3.5" /> : null}
+          {busy ? <Spinner className="size-4" /> : null}
           {t("chat.guestShare.pending.send")}
         </Button>
       </div>

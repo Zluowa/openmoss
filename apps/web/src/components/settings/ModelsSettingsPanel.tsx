@@ -297,7 +297,7 @@ export function ModelsSettingsPanel({
         aria-label={`Remove ${row.slug}`}
         onClick={() => removeCustomModel(row.provider, row.slug)}
       >
-        <XIcon className="size-3.5 text-muted-foreground hover:text-foreground" />
+        <XIcon className="size-4 text-muted-foreground hover:text-foreground" />
       </button>
     </div>
   );
@@ -475,7 +475,7 @@ export function ModelsSettingsPanel({
                   variant="outline"
                   onClick={() => addCustomModel(activeCustomModelProvider)}
                 >
-                  <PlusIcon className="size-3.5" />
+                  <PlusIcon className="size-4" />
                   Add
                 </Button>
               </div>

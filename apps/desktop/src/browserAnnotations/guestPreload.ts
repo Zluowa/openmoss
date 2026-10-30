@@ -1335,7 +1335,7 @@ const OVERLAY_MARKUP = `
     <textarea rows="1" maxlength="${GUEST_ANNOTATION_MAX_COMMENT_LENGTH}" placeholder="Add a comment…" aria-label="Annotation comment"></textarea>
     <button type="button" aria-label="Save annotation" title="Save annotation (Enter)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12 19V5" /><path d="M5 12l7-7 7 7" />
+        <path d="M12 18.5V6" /><path d="M6.5 11.5 12 6l5.5 5.5" />
       </svg>
     </button>
   </section>

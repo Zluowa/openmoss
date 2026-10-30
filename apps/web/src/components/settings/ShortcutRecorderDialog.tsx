@@ -375,18 +375,18 @@ function ShortcutRecorder({
       >
         {problem ? (
           <>
-            <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
+            <TriangleAlertIcon className="mt-px size-4 shrink-0" />
             <span>{problem}</span>
           </>
         ) : resetWarning ? (
           <>
-            <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
+            <TriangleAlertIcon className="mt-px size-4 shrink-0" />
             <span>{resetWarning}</span>
           </>
         ) : recording.status === "ready" && recorded ? (
           conflicts.length > 0 || caution ? (
             <>
-              <TriangleAlertIcon className="mt-px size-3.5 shrink-0" />
+              <TriangleAlertIcon className="mt-px size-4 shrink-0" />
               <span>
                 {conflicts.length > 0
                   ? `${shortcutLabel(recorded)} already runs ${joinLabels([
@@ -399,7 +399,7 @@ function ShortcutRecorder({
             </>
           ) : (
             <>
-              <CircleCheckIcon className="mt-px size-3.5 shrink-0 text-success" />
+              <CircleCheckIcon className="mt-px size-4 shrink-0 text-success" />
               <span className="text-foreground/85">{shortcutLabel(recorded)} is available.</span>
             </>
           )

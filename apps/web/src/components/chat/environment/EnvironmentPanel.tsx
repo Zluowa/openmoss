@@ -316,7 +316,7 @@ export function EnvironmentPanel({
             })
           }
         >
-          <SettingsIcon className="size-3.5" />
+          <SettingsIcon className="size-4" />
         </IconButton>
       </div>
 

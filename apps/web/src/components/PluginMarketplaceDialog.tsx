@@ -1,5 +1,5 @@
 // FILE: PluginMarketplaceDialog.tsx
-// Purpose: Frozen Codex add-plugin-marketplace dialog and settled mutation UI.
+// Purpose: Add-plugin-marketplace dialog and settled mutation UI.
 // Layer: Web component
 // Exports: PluginMarketplaceDialog and its exact mutation result shape
 

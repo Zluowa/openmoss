@@ -200,7 +200,7 @@ export function TimelineReasoningRow(props: {
     "group/activity-header min-w-0 max-w-full self-start items-center gap-1 p-0 text-start";
   const reasoningHeaderDisplayClassName = active ? "inline-block" : "inline-flex";
   const reasoningDisclosureChevronClassName = cn(
-    "icon-2xs size-3.5 shrink-0 text-text/60 !text-[var(--color-text-foreground-secondary,var(--muted-foreground))] opacity-0 transition-transform [@media(hover:hover)]:group-hover/activity-header:opacity-100 [@media(hover:hover)]:group-hover/activity-header:!text-[var(--foreground)] [@media(hover:hover)]:group-hover/activity-header:text-default group-focus-visible/activity-header:opacity-100 group-focus-visible/activity-header:!text-[var(--foreground)] group-focus-visible/activity-header:text-default",
+    "icon-2xs size-3 shrink-0 text-text/60 !text-[var(--color-text-foreground-secondary,var(--muted-foreground))] opacity-0 transition-transform [@media(hover:hover)]:group-hover/activity-header:opacity-100 [@media(hover:hover)]:group-hover/activity-header:!text-[var(--foreground)] [@media(hover:hover)]:group-hover/activity-header:text-default group-focus-visible/activity-header:opacity-100 group-focus-visible/activity-header:!text-[var(--foreground)] group-focus-visible/activity-header:text-default",
     CONVERSATION_DISCLOSURE_CHEVRON_CLASS,
     expanded && "rotate-90 opacity-100",
     reducedMotion && "transition-none duration-0",

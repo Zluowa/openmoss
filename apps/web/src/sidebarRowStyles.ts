@@ -3,17 +3,17 @@
 // Layer: Sidebar UI styling
 // Exports: row dimension, radius, hover/active, header + thread row class names
 
-/** Compact sidebar row height shared by projects, threads, chats, and settings nav. */
+/** Sidebar row height shared by projects, threads, chats, and settings nav: 32px, 34px apart. */
 export const SIDEBAR_ROW_HEIGHT_CLASS_NAME =
-  "min-h-[var(--app-density-row-height,1.75rem)] h-[var(--app-density-row-height,1.75rem)]";
+  "min-h-[var(--app-density-row-height,2rem)] h-[var(--app-density-row-height,2rem)]";
 
-export const SIDEBAR_ROW_RADIUS_CLASS_NAME = "rounded-md";
+export const SIDEBAR_ROW_RADIUS_CLASS_NAME = "rounded-row";
 
 export const SIDEBAR_ROW_PADDING_CLASS_NAME = "px-2 py-[var(--app-density-row-padding-y,0.125rem)]";
 
 export const SIDEBAR_ROW_GAP_CLASS_NAME = "gap-[var(--app-density-row-gap,0.5rem)]";
 
-export const SIDEBAR_ROW_TEXT_CLASS_NAME = "text-ui font-normal";
+export const SIDEBAR_ROW_TEXT_CLASS_NAME = "text-ui-lg font-normal";
 
 export const SIDEBAR_ROW_FOCUS_CLASS_NAME =
   "outline-hidden transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
@@ -39,14 +39,14 @@ export const SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME = "text-foreground/95";
 
 /** A project's display name in sidebar project rows and headers. */
 export const SIDEBAR_PROJECT_NAME_CLASS_NAME = [
-  "min-w-0 flex-1 truncate font-system-ui text-ui font-normal",
+  "min-w-0 flex-1 truncate font-system-ui text-ui-lg font-normal",
   SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
 ].join(" ");
 
 /** Section label ("Threads"/"Pinned" and settings "App"/"Moss"). */ /** Soft grey of section labels ("Projects", "Chats"); also the rail's resting glyph tone. */
 export const SIDEBAR_SECTION_LABEL_TONE_CLASS_NAME = "text-muted-foreground/58";
 
-export const SIDEBAR_SECTION_LABEL_CLASS_NAME = `text-ui font-normal ${SIDEBAR_SECTION_LABEL_TONE_CLASS_NAME}`;
+export const SIDEBAR_SECTION_LABEL_CLASS_NAME = `text-ui-sm font-normal ${SIDEBAR_SECTION_LABEL_TONE_CLASS_NAME}`;
 
 /** Project/chat/settings header rows and settings sidebar nav items. */
 export const SIDEBAR_HEADER_ROW_CLASS_NAME = [

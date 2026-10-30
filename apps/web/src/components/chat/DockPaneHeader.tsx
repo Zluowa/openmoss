@@ -53,7 +53,7 @@ export function DockPaneHeader(props: {
             className={DOCK_HEADER_ICON_BUTTON_CLASS}
             onClick={props.onClose}
           >
-            <XIcon className="size-3.5" />
+            <XIcon className="size-4" />
           </IconButton>
         ) : null}
       </div>

@@ -9,7 +9,7 @@ const DENSITY_SCALE_BY_MODE: Record<UiDensity, number> = {
   spacious: 1.15,
 };
 
-const BASE_ROW_HEIGHT_REM = 1.75;
+const BASE_ROW_HEIGHT_REM = 2;
 const BASE_ROW_PADDING_Y_REM = 0.125;
 const BASE_ROW_GAP_REM = 0.5;
 const BASE_SETTINGS_ROW_PADDING_Y_REM = 0.625;

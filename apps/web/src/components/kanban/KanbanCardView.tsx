@@ -221,7 +221,7 @@ function KanbanCardViewComponent({
         {card.isTerminal ? null : (
           <ProviderIcon
             provider={card.provider}
-            className="size-3.5 shrink-0 opacity-80"
+            className="size-4 shrink-0 opacity-80"
             fallback={
               <span className="size-3.5 shrink-0 rounded-full border border-dashed border-muted-foreground/40" />
             }

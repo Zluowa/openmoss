@@ -20,17 +20,16 @@ import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ApprovalAppDock } from "./ApprovalAppDock";
 import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
-// Codex 26.1007 approval chrome:
-// - desktop shell `rJc` variant `transcript-card` (app-initial `fJc` when `Fd()`):
-//   radius `--radius-4xl-base` 1.5rem, glass fill from `._Material_9q659_2`
-// - header `gJc`: identity `text-size-chat-sm text-secondary`, title `text-size-chat font-medium`
-// - exec body: pending-request-item-panel `rounded-md bg-surface-tertiary font-mono`
+// Approval chrome, modeled on the Codex desktop app's approval card:
+// - shell: 1.5rem radius with a glass fill
+// - header: identity in `text-size-chat-sm text-secondary`, title in `text-size-chat font-medium`
+// - exec body: `rounded-md bg-surface-tertiary font-mono`
 //   (conversation token is white, so the well matches the card)
-// - menu `Aml`: Allow once, then scoped action. Not a second Always allow.
+// - menu: Allow once, then scoped action. Not a second Always allow.
 // i18n: approvalRequestCard.* , execApprovalRequest.shellLabel / .prompt
 
 /**
- * Codex 26.1007 `cJc`: `⏎` / `Esc` sit in a `bg-current/10` keycap.
+ * `⏎` / `Esc` sit in a `bg-current/10` keycap.
  * Primary (Allow) uses the solid-button ink, so the cap reads dark gray on black.
  * Secondary (Deny) uses the default ink, so the cap is a gray chip on the outline.
  */
@@ -194,9 +193,8 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
 
   const allowLabel = computerScope?.allowLabel ?? t("approvalRequestCard.allowOnce");
   const denyLabel = computerScope?.denyLabel ?? t("approvalRequestCard.deny");
-  // Codex `Aml` dropdown (`app-initial` approval card): item 1 is Allow once
-  // (`onApprove` → `accept`). Item 2 is the scoped action. Exec with a prefix
-  // (`Yr` / `Qr`) is "Allow similar commands" → `acceptWithExecpolicyAmendment`.
+  // Approval dropdown: item 1 is Allow once (→ `accept`). Item 2 is the scoped
+  // action. Exec with a prefix is "Allow similar commands" → `acceptWithExecpolicyAmendment`.
   // Patch is "Allow all edits" → `acceptForSession`. Otherwise "Allow this
   // conversation" → `acceptForSession`. "Always allow" is the network
   // leading button, not a second copy of the session grant.
@@ -366,7 +364,7 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
                     />
                   }
                 >
-                  <ChevronDownIcon className="size-3.5" />
+                  <ChevronDownIcon className="size-3" />
                 </MenuTrigger>
                 <ComposerPickerMenuPopup align="end" side="top">
                   <MenuItem onClick={() => respondOnce("accept")}>{allowLabel}</MenuItem>

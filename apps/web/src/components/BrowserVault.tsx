@@ -31,7 +31,7 @@ export function BrowserVaultButton({
         )
       }
     >
-      <Key01Icon className="size-3.5" />
+      <Key01Icon className="size-4" />
     </IconButton>
   );
 }

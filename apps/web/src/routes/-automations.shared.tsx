@@ -278,14 +278,14 @@ export function RunStatusIndicator({
     return (
       <CentralIcon
         name="circle-check"
-        className={cn("size-3.5 shrink-0 text-muted-foreground/70", className)}
+        className={cn("size-4 shrink-0 text-muted-foreground/70", className)}
       />
     );
   }
   return (
     <span
       className={cn(
-        "flex size-3.5 shrink-0 items-center justify-center",
+        "flex size-4 shrink-0 items-center justify-center",
         runStatusDotClassName(status),
         className,
       )}
@@ -1182,7 +1182,7 @@ export function AutomationDialog({
                 <MenuTrigger render={<Button variant="ghost" size="sm" className={CHIP_CLASS} />}>
                   <WorktreeIcon className="size-4" />
                   <span className="capitalize">{form.worktreeMode}</span>
-                  <CentralIcon name="chevron-down-small" className="size-3.5 opacity-60" />
+                  <CentralIcon name="chevron-down-small" className="size-4 opacity-60" />
                 </MenuTrigger>
                 <ComposerPickerMenuPopup align="start" className="w-40">
                   <MenuRadioGroup
@@ -1207,7 +1207,7 @@ export function AutomationDialog({
                 <span className="max-w-[10rem] truncate">
                   {selectedProject?.name ?? "Select project"}
                 </span>
-                <CentralIcon name="chevron-down-small" className="size-3.5 opacity-60" />
+                <CentralIcon name="chevron-down-small" className="size-4 opacity-60" />
               </MenuTrigger>
               <ComposerPickerMenuPopup align="start" className="w-56">
                 <MenuRadioGroup value={form.projectId} onValueChange={chooseProject}>
@@ -1237,7 +1237,7 @@ export function AutomationDialog({
               <MenuTrigger render={<Button variant="ghost" size="sm" className={CHIP_CLASS} />}>
                 <ClockIcon className="size-4" />
                 <span>{formatCadence(schedule)}</span>
-                <CentralIcon name="chevron-down-small" className="size-3.5 opacity-60" />
+                <CentralIcon name="chevron-down-small" className="size-4 opacity-60" />
               </MenuTrigger>
               <ComposerPickerMenuPopup align="start" className="w-56">
                 <MenuGroup>

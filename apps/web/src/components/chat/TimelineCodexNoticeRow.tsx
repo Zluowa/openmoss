@@ -1,10 +1,10 @@
 // Codex timeline notices restored after the upstream merge:
 // stream reconnect, system error, usage limit, and generated-image placeholder.
-// Strings: webview/assets/sites-end-resource-ad39113306e8.js
+// i18n:
 //   localConversation.streamError.reconnecting
 //   localConversation.streamError.serverOverloadedReconnecting
-//   app-primary localConversation.usageLimit.retry
-//   app-initial codex.localTaskRow.systemError
+//   localConversation.usageLimit.retry
+//   codex.localTaskRow.systemError
 //   codex.localConversation.generatedImage
 
 import { useTranslation } from "../../localization";

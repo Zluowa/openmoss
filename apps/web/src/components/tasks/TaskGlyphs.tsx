@@ -129,7 +129,7 @@ export function TaskPriorityGlyph({
     return (
       <svg
         viewBox="0 0 16 16"
-        className={cn("size-3.5 shrink-0 text-status-failure", className)}
+        className={cn("size-4 shrink-0 text-status-failure", className)}
         aria-hidden
       >
         <rect x="1.5" y="1.5" width="13" height="13" rx="3.5" fill="currentColor" />
@@ -146,7 +146,7 @@ export function TaskPriorityGlyph({
     return (
       <svg
         viewBox="0 0 16 16"
-        className={cn("size-3.5 shrink-0 text-muted-foreground/45", className)}
+        className={cn("size-4 shrink-0 text-muted-foreground/45", className)}
         aria-hidden
       >
         <path
@@ -162,7 +162,7 @@ export function TaskPriorityGlyph({
   return (
     <svg
       viewBox="0 0 16 16"
-      className={cn("size-3.5 shrink-0 text-muted-foreground", className)}
+      className={cn("size-4 shrink-0 text-muted-foreground", className)}
       aria-hidden
     >
       <rect x="2" y="9.5" width="2.6" height="4.5" rx=".9" fill="currentColor" />

@@ -396,7 +396,7 @@ function ToastCloseButton({
       }}
       title="Dismiss toast"
     >
-      <XIcon className={compact ? "size-3" : "size-3.5"} />
+      <XIcon className={compact ? "size-3" : "size-4"} />
     </Toast.Close>
   );
 }

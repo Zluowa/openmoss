@@ -381,7 +381,7 @@ export function FloatingBrowserPanel(props: FloatingBrowserPanelProps) {
               className="size-6 cursor-grab rounded-full text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing"
               onPointerDown={(event) => startHandleGesture(event)}
             >
-              <EllipsisIcon className="size-3.5" />
+              <EllipsisIcon className="size-4" />
             </IconButton>
             <div
               className={disclosureWidthClassName(controlsOpen, "w-[50px]")}

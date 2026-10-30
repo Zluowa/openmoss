@@ -35,7 +35,7 @@ export function TaskProgressSteps({
                   : "text-muted-foreground/60",
             )}
           >
-            <span className="flex size-3.5 items-center justify-center" aria-hidden>
+            <span className="flex size-4 items-center justify-center" aria-hidden>
               {step.status === "completed" ? (
                 <CheckIcon className="size-3" />
               ) : step.status === "inProgress" ? (

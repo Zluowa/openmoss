@@ -38,7 +38,7 @@ export function TaskDelegateChatPicker({ chat }: { chat: TaskDelegateChatState }
           <>
             <ProviderIcon
               provider={existingChat.modelSelection.provider}
-              className="size-3.5 shrink-0"
+              className="size-4 shrink-0"
             />
             <span className="min-w-0 truncate">{existingChat.title}</span>
           </>
@@ -63,7 +63,7 @@ export function TaskDelegateChatPicker({ chat }: { chat: TaskDelegateChatState }
                   <span className="flex min-w-0 items-center gap-2">
                     <ProviderIcon
                       provider={thread.modelSelection.provider}
-                      className="size-3.5 shrink-0"
+                      className="size-4 shrink-0"
                     />
                     <span className="min-w-0 truncate">{thread.title}</span>
                     <span className="shrink-0 text-ui-xs text-muted-foreground">

@@ -119,7 +119,7 @@ export function ComposerVoiceRecorderBar(props: ComposerVoiceRecorderBarProps) {
         {props.isTranscribing ? (
           <Loader2Icon aria-hidden="true" className="size-3 animate-spin" />
         ) : (
-          <XIcon aria-hidden="true" className="size-3.5" />
+          <XIcon aria-hidden="true" className="size-4" />
         )}
       </button>
 

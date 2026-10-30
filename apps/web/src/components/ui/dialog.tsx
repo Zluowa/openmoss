@@ -73,7 +73,7 @@ const dialogFieldLabelClassName = "text-ui-sm font-medium text-foreground/80";
  * Inputs inside project dialogs share one fixed height + radius so every control
  * reads as the same size (mirrors EditProfileDialog's field styling).
  */
-const PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME = "h-9 rounded-control border-foreground/12";
+const PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME = "h-8 rounded-control border-foreground/12";
 
 const dialogPanelFieldClassName =
   "[&_[data-slot=textarea-control]]:min-h-24 [&_[data-slot=textarea-control]_[data-slot=textarea]]:px-2.5 [&_[data-slot=textarea-control]_[data-slot=textarea]]:py-2";
@@ -173,7 +173,7 @@ function DialogFooter({
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
-      className={cn("font-heading font-semibold text-lg leading-tight", className)}
+      className={cn("font-heading font-semibold text-ui-lg", className)}
       data-slot="dialog-title"
       {...props}
     />

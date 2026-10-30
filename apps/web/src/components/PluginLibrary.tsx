@@ -862,7 +862,7 @@ function QueryErrorPanel({
           aria-busy={retrying || undefined}
           onClick={onRetry}
         >
-          <RefreshCwIcon className={cn("size-3.5", retrying && "animate-spin")} />
+          <RefreshCwIcon className={cn("size-4", retrying && "animate-spin")} />
           {t("plugins.action.retry")}
         </Button>
       </div>
@@ -883,7 +883,7 @@ function InlineWarning({
       title={title}
       className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/6 px-3 py-2.5 text-ui-sm text-muted-foreground"
     >
-      <CircleAlertIcon className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+      <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
       <div>{children}</div>
     </div>
   );
@@ -1089,7 +1089,7 @@ function PluginRowAction({
         else onInstall();
       }}
     >
-      <PlusIcon className="size-[18px]" />
+      <PlusIcon className="size-4" />
     </Button>
   );
 }
@@ -1168,7 +1168,7 @@ function PluginLibraryBreadcrumb({
       >
         {rootLabel}
       </button>
-      <ChevronRightIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground/50" />
+      <ChevronRightIcon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground/50" />
       <span
         aria-current="page"
         className="no-drag flex h-7 min-w-0 items-center truncate px-1 text-ui-lg leading-[18px] font-[445] text-foreground"
@@ -1191,7 +1191,7 @@ function PluginOriginBadge({ entry }: { entry: PluginEntry }) {
   const Icon = entry.createdByYou || entry.sharedWithYou ? CirclePersonIcon : FolderIcon;
   return (
     <span title={label} aria-label={label} role="img" className="flex shrink-0">
-      <Icon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+      <Icon aria-hidden="true" className="size-4 text-muted-foreground" />
     </span>
   );
 }
@@ -4126,7 +4126,7 @@ function LoadMorePluginsRow({ onVisible }: { readonly onVisible: () => void }) {
       data-testid="plugin-category-load-more"
       className="flex items-center justify-center gap-2 py-4 text-ui text-muted-foreground"
     >
-      <Spinner className="size-3.5" />
+      <Spinner className="size-4" />
       {t("plugins.loading.plugins")}
     </div>
   );

@@ -1,9 +1,9 @@
 // FILE: useFileLineCommenting.ts
 // Purpose: Hover "+" gutter affordance + inline "Local comment" box state and
-//          geometry for the read-only file preview, mirroring Codex's per-line
-//          comment flow. Tracks the hovered line under the pointer and the line
-//          a comment box is currently open against, both in scroll-container
-//          content space so absolute overlays stay anchored while scrolling.
+//          geometry for the read-only file preview. Tracks the hovered line under
+//          the pointer and the line a comment box is currently open against, both
+//          in scroll-container content space so absolute overlays stay anchored
+//          while scrolling.
 // Layer: Chat file-preview interaction controller
 
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";

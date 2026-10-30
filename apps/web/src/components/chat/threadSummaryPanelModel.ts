@@ -186,7 +186,7 @@ function newestFirstWorkLogEntries(
 }
 
 /**
- * Mirrors Codex's current conversation-source grouping: newest user-provided
+ * Conversation-source grouping: newest user-provided
  * files first, then external resources, MCP/tool providers, and web search.
  */
 export function collectThreadSummarySources(input: {

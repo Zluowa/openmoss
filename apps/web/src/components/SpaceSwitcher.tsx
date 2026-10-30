@@ -216,7 +216,7 @@ function SpaceTab(props: {
           />
         }
       >
-        <SpaceIcon icon={props.icon} className="size-3.5" />
+        <SpaceIcon icon={props.icon} className="size-4" />
         {props.activityTone ? <SpaceActivityDot tone={props.activityTone} /> : null}
       </TooltipTrigger>
       <TooltipPopup side="bottom">
@@ -632,7 +632,7 @@ function SpaceSwitcherStrip(props: SpaceSwitcherProps) {
               />
             }
           >
-            <PlusIcon className="size-3.5" />
+            <PlusIcon className="size-4" />
           </TooltipTrigger>
           <TooltipPopup side="bottom">{t("sidebar.newSpace")}</TooltipPopup>
         </Tooltip>

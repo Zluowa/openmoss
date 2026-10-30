@@ -121,7 +121,7 @@ export function GitHubItemFloatingComposer({
                   "max-w-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                 )}
               >
-                <FolderIcon aria-hidden className="size-3.5 shrink-0" />
+                <FolderIcon aria-hidden className="size-4 shrink-0" />
                 <span className="truncate">{projectTitle}</span>
                 <ChevronDownIcon aria-hidden className="size-3 shrink-0" />
               </MenuTrigger>
@@ -140,12 +140,12 @@ export function GitHubItemFloatingComposer({
             </Menu>
           ) : (
             <span className={CHIP_CLASS_NAME} title="Project">
-              <FolderIcon aria-hidden className="size-3.5 shrink-0" />
+              <FolderIcon aria-hidden className="size-4 shrink-0" />
               <span className="truncate">{projectTitle}</span>
             </span>
           )}
           <span className={CHIP_CLASS_NAME} title="Runs in this project's local checkout">
-            <CentralIcon name="macbook-air" className="size-3.5 shrink-0" />
+            <CentralIcon name="macbook-air" className="size-4 shrink-0" />
             {LOCAL_ENVIRONMENT.shortLabel}
           </span>
         </div>

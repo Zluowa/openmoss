@@ -140,7 +140,7 @@ export function UserInputQuestionForm({
               className={NAV_BUTTON_CLASS_NAME}
               aria-label="Previous question"
             >
-              <ChevronLeftIcon className="size-3.5" />
+              <ChevronLeftIcon className="size-4" />
             </button>
             <span className="px-0.5 text-ui-sm tabular-nums">
               {progress.questionIndex + 1} of {questionCount}
@@ -152,7 +152,7 @@ export function UserInputQuestionForm({
               className={NAV_BUTTON_CLASS_NAME}
               aria-label="Next question"
             >
-              <ChevronRightIcon className="size-3.5" />
+              <ChevronRightIcon className="size-4" />
             </button>
           </div>
         ) : null}
@@ -176,7 +176,7 @@ export function UserInputQuestionForm({
                 onSelect={() => handleOptionSelection(activeQuestion.id, option.label)}
                 trailing={
                   isSelected ? (
-                    <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-[var(--color-text-foreground)]" />
+                    <CheckIcon className="mt-0.5 size-4 shrink-0 text-[var(--color-text-foreground)]" />
                   ) : null
                 }
               />

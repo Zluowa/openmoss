@@ -336,7 +336,7 @@ function CommandNoticeBadge(props: { notice: string }) {
       <TooltipTrigger
         render={<span role="img" aria-label={props.notice} className="inline-flex items-center" />}
       >
-        <CircleAlertIcon className="size-3.5 text-warning" />
+        <CircleAlertIcon className="size-4 text-warning" />
       </TooltipTrigger>
       <TooltipPopup
         side="top"
@@ -446,10 +446,10 @@ export function ComposerCommandMenu(props: {
 }
 
 // Files mirror the recap / diff changed-files treatment (FileEntryIcon at
-// size-3.5 with the same dimmed foreground) so a file reads identically whether
+// size-4 with the same dimmed foreground) so a file reads identically whether
 // it appears in a turn summary or in the composer.
 const COMPOSER_COMMAND_ITEM_FILE_ICON_CLASSNAME =
-  "size-3.5 text-[var(--color-text-foreground)] opacity-70 dark:opacity-80";
+  "size-4 text-[var(--color-text-foreground)] opacity-70 dark:opacity-80";
 
 const COMPOSER_COMMAND_ITEM_GLYPH_CLASSNAME = COMPOSER_MENU_PANEL_GLYPH_CLASS_NAME;
 

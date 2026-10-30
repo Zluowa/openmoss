@@ -1,5 +1,5 @@
 // FILE: threadSummaryOutputCreation.logic.ts
-// Purpose: Mirrors Codex's composer-only output creation prompts from thread summary.
+// Purpose: Composer-only output creation prompts from thread summary.
 // Layer: Pure presentation behavior
 
 import type { ThreadSummaryOutputKind } from "./ThreadSummaryPanel";

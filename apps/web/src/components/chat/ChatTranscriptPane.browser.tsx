@@ -162,7 +162,7 @@ describe("ChatTranscriptPane", () => {
       )!;
       const scrollTop = scroll.scrollTop;
       const messageTop = message.getBoundingClientRect().top;
-      expect(getComputedStyle(paragraph).fontSize).toBe("15px");
+      expect(getComputedStyle(paragraph).fontSize).toBe("16px");
       observer.observe(message, {
         subtree: true,
         childList: true,
@@ -190,7 +190,7 @@ describe("ChatTranscriptPane", () => {
           '[data-message-role="assistant"] p',
         );
         expect(currentParagraph?.isConnected).toBe(true);
-        expect(getComputedStyle(currentParagraph!).fontSize).toBe("18px");
+        expect(getComputedStyle(currentParagraph!).fontSize).toBe("19px");
         expect([...mutations, ...observer.takeRecords()].length).toBeGreaterThan(0);
       });
     } finally {

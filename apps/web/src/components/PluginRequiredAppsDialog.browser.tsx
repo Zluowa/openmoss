@@ -1,5 +1,5 @@
 // FILE: PluginRequiredAppsDialog.browser.tsx
-// Purpose: Browser contract for the frozen Codex 6234 multi-app onboarding dialog.
+// Purpose: Browser contract for the multi-app onboarding dialog.
 
 import "../index.css";
 

@@ -1167,7 +1167,7 @@ function buildCodexCssVariables(
     "--color-text-foreground": derivedTokens.textForeground,
     "--color-text-foreground-secondary": derivedTokens.textForegroundSecondary,
     "--color-text-foreground-tertiary": derivedTokens.textForegroundTertiary,
-    // app-initial CSS: electron description and code-block surface aliases.
+    // Description and code-block surface aliases.
     "--vscode-descriptionForeground": derivedTokens.textForegroundTertiary,
     "--vscode-textCodeBlock-background": derivedTokens.buttonSecondaryBackground,
     "--color-text-warning": theme.variant === "dark" ? "#ff8549" : "#e25507",
@@ -1306,7 +1306,7 @@ function getRequiredVariable(variables: Record<string, string>, name: string): s
 }
 
 function buildLightDerivedTokens(theme: ReturnType<typeof buildComputedTheme>) {
-  // Mirrors Codex Electron's light chrome derivation from chrome-theme-C3NmvE0H.js.
+  // Light chrome derivation.
   const controlBase = mixRgb(theme.surface, WHITE, 0.09 + theme.contrast * 0.04);
   const elevatedSecondaryBase = mixRgb(theme.surface, WHITE, 0.08 + theme.contrast * 0.08);
   const elevatedPrimaryBase = mixRgb(theme.surface, WHITE, 0.16 + theme.contrast * 0.12);
@@ -1363,7 +1363,7 @@ function buildLightDerivedTokens(theme: ReturnType<typeof buildComputedTheme>) {
 }
 
 function buildDarkDerivedTokens(theme: ReturnType<typeof buildComputedTheme>) {
-  // Mirrors Codex Electron's dark chrome derivation from chrome-theme-C3NmvE0H.js.
+  // Dark chrome derivation.
   const controlBase = mixRgb(theme.surface, theme.ink, 0.06 + theme.contrast * 0.05);
   const focusBase = mixRgb(theme.accent, WHITE, 0.3 + theme.contrast * 0.15);
   const elevatedPrimaryBase = mixRgb(theme.surface, theme.ink, 0.08 + theme.contrast * 0.08);

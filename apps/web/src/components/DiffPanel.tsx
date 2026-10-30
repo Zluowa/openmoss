@@ -111,7 +111,7 @@ import { type SplitViewPanePanelState } from "../splitViewStore";
 import { formatShortTimestamp } from "../timestampFormat";
 import type { TurnDiffSummary } from "../types";
 
-const EDITOR_DIFF_OPTIONS_MENU_ICON_CLASS_NAME = "size-3.5 shrink-0 text-muted-foreground";
+const EDITOR_DIFF_OPTIONS_MENU_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground";
 
 function EditorDiffOptionsCountBadge(props: { count: number | undefined }) {
   if (typeof props.count !== "number" || props.count <= 0) {
@@ -173,7 +173,7 @@ function EditorDiffOptionsMenu(props: {
               setOptionsOpen(true);
             }}
           >
-            <EllipsisIcon className="size-3.5" />
+            <EllipsisIcon className="size-4" />
           </IconButton>
         }
       />

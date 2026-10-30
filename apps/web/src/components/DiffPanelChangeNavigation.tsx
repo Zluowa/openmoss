@@ -31,7 +31,7 @@ export function DiffPanelChangeNavigationButtons(props: {
         title={withShortcut("Previous change", navigation.previousShortcutLabel)}
         onClick={navigation.onGoToPrevious}
       >
-        <ChevronUpIcon className="size-3.5" />
+        <ChevronUpIcon className="size-3" />
       </IconButton>
       <IconButton
         variant="ghost"
@@ -42,7 +42,7 @@ export function DiffPanelChangeNavigationButtons(props: {
         title={withShortcut("Next change", navigation.nextShortcutLabel)}
         onClick={navigation.onGoToNext}
       >
-        <ChevronDownIcon className="size-3.5" />
+        <ChevronDownIcon className="size-3" />
       </IconButton>
     </>
   );

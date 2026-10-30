@@ -215,15 +215,13 @@ function checksToneIcon(tone: PullRequestChecksTone) {
   const colorClass = PULL_REQUEST_CHECKS_TONE_TEXT_CLASS[tone];
   switch (tone) {
     case "failure":
-      return <CircleAlertIcon className={cn("size-3.5 shrink-0", colorClass)} aria-hidden />;
+      return <CircleAlertIcon className={cn("size-4 shrink-0", colorClass)} aria-hidden />;
     case "pending":
-      return (
-        <Loader2Icon className={cn("size-3.5 shrink-0 animate-spin", colorClass)} aria-hidden />
-      );
+      return <Loader2Icon className={cn("size-4 shrink-0 animate-spin", colorClass)} aria-hidden />;
     case "success":
-      return <CircleCheckIcon className={cn("size-3.5 shrink-0", colorClass)} aria-hidden />;
+      return <CircleCheckIcon className={cn("size-4 shrink-0", colorClass)} aria-hidden />;
     default:
-      return <CircleCheckIcon className="size-3.5 shrink-0 opacity-50" aria-hidden />;
+      return <CircleCheckIcon className="size-4 shrink-0 opacity-50" aria-hidden />;
   }
 }
 
@@ -592,9 +590,9 @@ export function EnvironmentPullRequestSection({
   const rowTrailing = settledState ? (
     <span className={cn("text-muted-foreground", PR_QUIET_INK_CLASS_NAME)}>{stateLabel}</span>
   ) : loading ? (
-    <RefreshCwIcon className="size-3.5 shrink-0 animate-spin opacity-60" aria-hidden />
+    <RefreshCwIcon className="size-4 shrink-0 animate-spin opacity-60" aria-hidden />
   ) : failed ? (
-    <CircleAlertIcon className="size-3.5 shrink-0 text-destructive" aria-hidden />
+    <CircleAlertIcon className="size-4 shrink-0 text-destructive" aria-hidden />
   ) : (
     checksToneIcon(checksSummary.tone)
   );

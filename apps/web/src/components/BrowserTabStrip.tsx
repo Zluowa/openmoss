@@ -133,7 +133,7 @@ export function BrowserTabStrip(props: BrowserTabStripProps) {
             />
           }
         >
-          <PlusIcon className="size-3.5" />
+          <PlusIcon className="size-4" />
         </TooltipTrigger>
         <TooltipPopup>New tab</TooltipPopup>
       </Tooltip>

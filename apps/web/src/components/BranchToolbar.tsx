@@ -245,11 +245,11 @@ export function RuntimeUsageControls({
           >
             <span className="inline-flex items-center gap-1.5">
               {runtimeMode === "full-access" ? (
-                <CentralIcon name="shield-access" className="size-3.5 shrink-0" />
+                <CentralIcon name="shield-access" className="size-4 shrink-0" />
               ) : runtimeMode === "auto" ? (
-                <CentralIcon name="shield-code" className="size-3.5 shrink-0" />
+                <CentralIcon name="shield-code" className="size-4 shrink-0" />
               ) : (
-                <RaisedHandIcon className="size-3.5 shrink-0" />
+                <RaisedHandIcon className="size-4 shrink-0" />
               )}
               <span className={cn("truncate", hideLabel ? "sr-only" : "@max-[480px]:sr-only")}>
                 {runtimePresentation.label}
@@ -587,7 +587,7 @@ export default function BranchToolbar({
 
                 <Collapsible open={rateLimitsOpen} onOpenChange={setRateLimitsOpen}>
                   <MenuItem closeOnClick={false} onClick={() => setRateLimitsOpen((open) => !open)}>
-                    <CentralIcon name="clock" className="size-3.5 text-muted-foreground" />
+                    <CentralIcon name="clock" className="size-4 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">Rate limits remaining</span>
                     <DisclosureChevron
                       open={rateLimitsOpen}
@@ -622,7 +622,7 @@ export default function BranchToolbar({
           </div>
         ) : (
           <span className="inline-flex items-center gap-2 px-1.5 text-ui-sm font-normal text-[var(--color-text-foreground-secondary)]">
-            <WorktreeGlyph className="size-3.5" />
+            <WorktreeGlyph className="size-4" />
             {environmentPresentation.shortLabel}
           </span>
         )}

@@ -39,7 +39,7 @@ export function EnvironmentSidechatsSection({
         <div className="flex items-center justify-between gap-2 pr-2">
           <EnvironmentSectionLabel>Side chats</EnvironmentSectionLabel>
           <IconButton label="Start side chat" tooltip="Start side chat" onClick={onCreate}>
-            <PlusIcon className="size-3.5" />
+            <PlusIcon className="size-4" />
           </IconButton>
         </div>
         {sidechats.map((sidechat) => {
@@ -72,7 +72,7 @@ export function EnvironmentSidechatsSection({
                 className="absolute top-1/2 right-2 -translate-y-1/2 opacity-0 transition-opacity group-hover/sidechat:opacity-100 focus-visible:opacity-100"
                 onClick={() => onDelete(sidechat)}
               >
-                <TrashCanIcon className="size-3.5" />
+                <TrashCanIcon className="size-4" />
               </IconButton>
             </div>
           );

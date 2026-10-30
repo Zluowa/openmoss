@@ -27,7 +27,7 @@ function HandoffEndpoint(props: {
   const summary = resolveThreadModelSummary(props.selection);
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5", props.className)}>
-      <ProviderIcon provider={props.selection.provider} className="size-3.5 shrink-0" />
+      <ProviderIcon provider={props.selection.provider} className="size-4 shrink-0" />
       <span className="truncate">{summary?.modelLabel ?? props.selection.model}</span>
       {summary?.fastMode ? (
         <FastModeBadgeIcon notice={props.fastModeNotice} className="size-3 shrink-0 opacity-75" />
@@ -61,9 +61,9 @@ export const ProviderHandoffDivider = memo(function ProviderHandoffDivider({
           )}
         >
           {failed ? (
-            <CircleAlertIcon className="size-3.5 shrink-0" aria-hidden />
+            <CircleAlertIcon className="size-4 shrink-0" aria-hidden />
           ) : (
-            <HandoffIcon className="size-3.5 shrink-0" aria-hidden />
+            <HandoffIcon className="size-4 shrink-0" aria-hidden />
           )}
           <span className="shrink-0">{failed ? "Handoff failed" : "Context handoff"}</span>
           <HandoffEndpoint

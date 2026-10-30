@@ -80,7 +80,7 @@ export function TerminalScrollToBottom({ terminal }: TerminalScrollToBottomProps
         size="icon-xs"
         variant="outline"
       >
-        <ArrowDownIcon className="size-3.5" />
+        <ArrowDownIcon className="size-4" />
       </IconButton>
     </div>
   );

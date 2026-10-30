@@ -244,8 +244,8 @@ interface PendingApprovalRequest {
   requestedPermissions?: Record<string, unknown>;
   mcpSessionPersistenceAdvertised?: boolean;
   /**
-   * Codex `proposedExecpolicyAmendment` argv. Present only for a single-line
-   * command prefix (`Yr` in pending-request-item-panel).
+   * Codex `proposedExecpolicyAmendment` argv. Present only when the amendment
+   * is a single-line command prefix.
    */
   execpolicyAmendment?: readonly string[];
 }
@@ -255,10 +255,9 @@ function isPermissionApprovalRequest(request: PendingApprovalRequest): boolean {
 }
 
 /**
- * Codex `M7t` / `Qr` (`app-shared` / `pending-request-item-panel`):
- * command approval `result.decision` is the string `accept` | `acceptForSession`
+ * Command approval `result.decision` is the string `accept` | `acceptForSession`
  * | `decline`, or `{ acceptWithExecpolicyAmendment: { execpolicy_amendment } }`
- * when the user picks "Allow similar commands". File-change `$r` only accepts
+ * when the user picks "Allow similar commands". File-change approvals only accept
  * the string forms.
  */
 function codexCommandOrPatchDecision(
@@ -1451,7 +1450,7 @@ export function parseMcpAppResourceReadResponse(input: {
     ) {
       continue;
     }
-    // The frozen host stops at the first supported representation. A blob-only
+    // Stop at the first supported representation. A blob-only
     // supported item is a terminal no-content result; do not search past it.
     if (typeof content?.text !== "string") {
       return { state: "no_content", resourceUri: input.resourceUri };
@@ -5090,10 +5089,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   /**
-   * Codex desktop's composer prediction (cumberbatch): fork the idle parent into an ephemeral
+   * Composer prediction: fork the idle parent into an ephemeral
    * `experimentalPredictionMode` thread so the turn reuses the parent's history, tools and prompt
-   * cache, run one structured turn on it, then unsubscribe. Like Codex
-   * (`fallbackToFreshThread: false`), a rejected fork never falls back to a fresh thread here.
+   * cache, run one structured turn on it, then unsubscribe. With `fallbackToFreshThread: false`,
+   * a rejected fork never falls back to a fresh thread here.
    */
   async predictNextUserMessage(
     threadId: ThreadId,

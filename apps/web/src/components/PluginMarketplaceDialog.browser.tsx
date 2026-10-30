@@ -1,5 +1,5 @@
 // FILE: PluginMarketplaceDialog.browser.tsx
-// Purpose: Browser checks for the frozen Codex add-plugin-marketplace dialog flow.
+// Purpose: Browser checks for the add-plugin-marketplace dialog flow.
 // Layer: Browser UI test
 
 import "../index.css";

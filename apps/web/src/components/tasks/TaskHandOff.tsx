@@ -136,7 +136,7 @@ export function TaskHandOff({
           onClick={() => void handleStart()}
           className={cn("gap-2", isStarting && "cursor-progress")}
         >
-          {isStarting ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : null}
+          {isStarting ? <LoaderCircleIcon className="size-4 animate-spin" /> : null}
           Start
         </TaskActionButton>
       </div>

@@ -201,7 +201,7 @@ function CreateOutputMenu({
         title={label}
         className="flex size-6 items-center justify-center rounded-md text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-[var(--color-text-foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
       >
-        <PlusIcon className="size-3.5" />
+        <PlusIcon className="size-4" />
       </button>
     ) : (
       <button
@@ -229,10 +229,10 @@ function CreateOutputMenu({
       <ComposerPickerMenuPopup align="end" side="bottom" sideOffset={4} className="min-w-44">
         {THREAD_SUMMARY_OUTPUT_OPTIONS.map((option) => (
           <MenuItem key={option.kind} onClick={() => onCreateOutput(option.kind)}>
-            {option.kind === "document" ? <FileIcon className="size-3.5" /> : null}
-            {option.kind === "presentation" ? <Rows3Icon className="size-3.5" /> : null}
-            {option.kind === "spreadsheet" ? <Columns2Icon className="size-3.5" /> : null}
-            {option.kind === "site" ? <GlobeIcon className="size-3.5" /> : null}
+            {option.kind === "document" ? <FileIcon className="size-4" /> : null}
+            {option.kind === "presentation" ? <Rows3Icon className="size-4" /> : null}
+            {option.kind === "spreadsheet" ? <Columns2Icon className="size-4" /> : null}
+            {option.kind === "site" ? <GlobeIcon className="size-4" /> : null}
             {option.label}
           </MenuItem>
         ))}
@@ -260,7 +260,7 @@ function AddSourceMenu({
         title={label}
         className="flex size-6 items-center justify-center rounded-md text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-[var(--color-text-foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
       >
-        <PlusIcon className="size-3.5" />
+        <PlusIcon className="size-4" />
       </button>
     ) : (
       <button
@@ -302,13 +302,13 @@ function AddSourceMenu({
         <ComposerPickerMenuPopup align="end" side="bottom" sideOffset={4} className="min-w-48">
           {onConnectApps ? (
             <MenuItem onClick={onConnectApps}>
-              <AppsIcon className="size-3.5" />
+              <AppsIcon className="size-4" />
               连接应用
             </MenuItem>
           ) : null}
           {onAddSources ? (
             <MenuItem onClick={() => inputRef.current?.click()}>
-              <FileIcon className="size-3.5" />
+              <FileIcon className="size-4" />
               附加文件或文件夹
             </MenuItem>
           ) : null}
@@ -328,10 +328,10 @@ function ThreadSummarySourceIcon({ source }: { source: ThreadSummarySource }) {
       />
     );
   }
-  if (source.kind === "external") return <GlobeIcon className="size-3.5" />;
-  if (source.kind === "tool") return <AppsIcon className="size-3.5" />;
-  if (source.kind === "web") return <WebSearchIcon className="size-3.5" />;
-  return <FileIcon className="size-3.5" />;
+  if (source.kind === "external") return <GlobeIcon className="size-4" />;
+  if (source.kind === "tool") return <AppsIcon className="size-4" />;
+  if (source.kind === "web") return <WebSearchIcon className="size-4" />;
+  return <FileIcon className="size-4" />;
 }
 
 function threadSummarySourceDetail(source: ThreadSummarySource): string {
@@ -454,9 +454,9 @@ export function ThreadSummaryPanelContent({
                 key={artifact.target}
                 icon={
                   artifact.kind === "external" ? (
-                    <GlobeIcon className="size-3.5" />
+                    <GlobeIcon className="size-4" />
                   ) : (
-                    <FileIcon className="size-3.5" />
+                    <FileIcon className="size-4" />
                   )
                 }
                 label={artifact.label}
@@ -507,7 +507,7 @@ export function ThreadSummaryPanelContent({
               subagents.map((subagent) => (
                 <SummaryRow
                   key={subagent.id}
-                  icon={<BotIcon className="size-3.5" />}
+                  icon={<BotIcon className="size-4" />}
                   label={subagent.label}
                   detail={subagent.statusLabel}
                   active={subagent.active}
@@ -530,7 +530,7 @@ export function ThreadSummaryPanelContent({
             {processes.map((process) => (
               <SummaryRow
                 key={process.id}
-                icon={<TerminalIcon className="size-3.5" />}
+                icon={<TerminalIcon className="size-4" />}
                 label={process.label}
                 detail={process.active ? "运行中" : "已完成"}
                 active={process.active}
@@ -586,7 +586,7 @@ export function ThreadSummaryPanelContent({
                   onClick={() => setSourcesSheetOpen(true)}
                 >
                   <span className="flex size-4 shrink-0 items-center justify-center">
-                    <LinkIcon className="size-3.5" />
+                    <LinkIcon className="size-4" />
                   </span>
                   <span>查看全部</span>
                 </button>

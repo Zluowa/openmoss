@@ -81,7 +81,7 @@ export const RateLimitBanner = function RateLimitBanner({
               title="Dismiss rate limit status"
               onClick={onDismiss}
             >
-              <XIcon className="size-3.5" />
+              <XIcon className="size-4" />
             </IconButton>
           </AlertAction>
         ) : null}

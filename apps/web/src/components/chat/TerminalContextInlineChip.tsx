@@ -32,7 +32,7 @@ export function TerminalContextInlineChip(props: TerminalContextInlineChipProps)
             <TerminalIcon
               className={cn(
                 COMPOSER_INLINE_CHIP_ICON_CLASS_NAME,
-                "size-3.5",
+                "size-4",
                 expired && "opacity-100",
               )}
             />

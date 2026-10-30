@@ -102,7 +102,7 @@ export function TaskCard({
             className="-mr-1 shrink-0 text-muted-foreground"
             onClick={onClose}
           >
-            <XIcon className="size-3.5" />
+            <XIcon className="size-4" />
           </IconButton>
         }
       />

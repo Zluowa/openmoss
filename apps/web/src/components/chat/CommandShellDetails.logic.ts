@@ -25,7 +25,7 @@ export interface TerminalTextSegment {
   /** Codex ansiToJson(use_classes: true) class stems, without -fg/-bg. */
   foreground?: string;
   background?: string;
-  /** The frozen Codex renderer styles only the last active decoration. */
+  /** Only the last active decoration is styled. */
   decoration?: TerminalDecoration;
   /** Retained for parity with ansiToJson; rendering uses `decoration`. */
   decorations?: readonly TerminalDecoration[];
@@ -66,7 +66,7 @@ export function resolveCommandShellCopyPayloads(
   };
 }
 
-/** Mirrors Codex's combined Shell clipboard payload (`$ raw-command\noutput`). */
+/** Combined Shell clipboard payload (`$ raw-command\noutput`). */
 export function formatCommandShellCopyPayload(command: string, output: string): string {
   return [command ? `$ ${command}` : "", output].filter(Boolean).join("\n");
 }
@@ -119,9 +119,7 @@ export function normalizeTerminalOutputForRender(text: string): string {
     return "";
   }
 
-  // The Codex bundle applies the backspace cleanup before its carriage-return
-  // pass (`C(ye(text))`). Keep both passes byte-for-byte equivalent to the
-  // readable reverse-engineered implementation below.
+  // The backspace cleanup runs before the carriage-return pass.
   return normalizeCarriageReturns(stripBackspaces(text));
 }
 
@@ -392,7 +390,7 @@ function ansiPaletteColor(index: number): string | undefined {
     return ansiColorVariable(index % 8, index >= 8);
   }
 
-  // The frozen renderer emits the palette class, with no inline RGB fallback.
+  // Emit the palette class, with no inline RGB fallback.
   return `ansi-palette-${index}`;
 }
 

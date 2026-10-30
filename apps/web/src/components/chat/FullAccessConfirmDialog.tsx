@@ -1,4 +1,4 @@
-// Codex permissions-mode-dropdown full-access confirmation surface.
+// Confirmation shown before the permissions mode switches to full access.
 import { RUNTIME_PERMISSIONS_LEARN_MORE_URL } from "~/lib/runtimeMode";
 import { useTranslation } from "~/localization";
 import { CentralIcon } from "~/lib/central-icons";

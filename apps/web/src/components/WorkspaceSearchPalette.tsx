@@ -74,7 +74,7 @@ const GROUP_LABEL_CLASS =
 const ITEM_CLASS =
   "cursor-pointer gap-2 rounded-lg px-2.5 py-1 text-[var(--color-text-foreground)] data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)]";
 
-const ICON_CLASS = "size-3.5 text-[var(--color-text-foreground-secondary)]";
+const ICON_CLASS = "size-4 text-[var(--color-text-foreground-secondary)]";
 
 const MUTED_TEXT_CLASS = "text-[var(--color-text-foreground-tertiary)]";
 

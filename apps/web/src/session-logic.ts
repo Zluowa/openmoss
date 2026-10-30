@@ -95,9 +95,8 @@ function formatDuration(durationMs: number): string {
   return formatClockDuration(Math.round(durationMs / 1_000) * 1_000);
 }
 
-// Codex `mGc` / `i7` (`app-initial-ed5807835d97.js`): narrow Intl units,
-// trim zero units, floor to whole seconds. English stays `1m 23s`; zh-CN is
-// `1分钟 23秒`.
+// Clock format: narrow Intl units, trim zero units, floor to whole seconds.
+// English stays `1m 23s`; zh-CN is `1分钟 23秒`.
 const clockUnitFormatters = new Map<string, Intl.NumberFormat>();
 
 function formatClockUnit(
@@ -133,8 +132,7 @@ export function formatClockDuration(durationMs: number, locale = "en"): string {
   const hours = Math.floor((elapsedSeconds % 86_400) / 3_600);
   const minutes = Math.floor((elapsedSeconds % 3_600) / 60);
   const seconds = elapsedSeconds % 60;
-  // Sub-hour clocks match Codex `mGc` (`1m 23s` / `1分钟 23秒`).
-  // Codex `_Gc` / `mGc` (`trimZeroUnits`): hour-and-longer clocks keep every
+  // Sub-hour clocks read `1m 23s` / `1分钟 23秒`. Hour-and-longer clocks keep every
   // non-zero unit, including leftover minutes and seconds (`1h 22m 49s`,
   // zh-CN `1小时 22分钟 49秒`).
   if (days > 0 || hours > 0) {
@@ -159,7 +157,7 @@ const ZH_CLOCK_UNIT: Record<string, string> = {
 };
 
 // Settled headers are formatted in English compact units first. zh-CN swaps
-// the unit glyphs so `1m 23s` matches Codex `mGc` (`1分钟 23秒`).
+// the unit glyphs so `1m 23s` reads `1分钟 23秒`.
 export function localizeCodexDurationUnits(label: string, locale: string): string {
   if (!locale.toLowerCase().startsWith("zh")) return label;
   return label.replace(

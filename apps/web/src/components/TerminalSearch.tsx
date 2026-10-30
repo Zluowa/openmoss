@@ -166,21 +166,21 @@ export function TerminalSearch({ searchAddon, isOpen, onClose }: TerminalSearchP
           className="size-6 rounded-sm border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/20 hover:text-foreground sm:size-6"
           label="Previous match (Shift+Enter)"
         >
-          <ChevronUpIcon className="size-3.5" />
+          <ChevronUpIcon className="size-3" />
         </IconButton>
         <IconButton
           onClick={() => handleSearch("next")}
           className="size-6 rounded-sm border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/20 hover:text-foreground sm:size-6"
           label="Next match (Enter)"
         >
-          <ChevronDownIcon className="size-3.5" />
+          <ChevronDownIcon className="size-3" />
         </IconButton>
         <IconButton
           onClick={handleClose}
           className="size-6 rounded-sm border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/20 hover:text-foreground sm:size-6"
           label="Close search (Esc)"
         >
-          <XIcon className="size-3.5" />
+          <XIcon className="size-4" />
         </IconButton>
       </div>
     </div>

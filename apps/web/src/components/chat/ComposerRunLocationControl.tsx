@@ -17,7 +17,7 @@ export function ComposerRunLocationControl() {
         data-composer-navigation-target="run-location"
         className={`${COMPOSER_TOOLBAR_PICKER_TRIGGER_CLASS_NAME} shrink-0`}
       >
-        <DeviceLaptopIcon aria-hidden="true" className="size-3.5 shrink-0" />
+        <DeviceLaptopIcon aria-hidden="true" className="size-4 shrink-0" />
         <span className="max-w-40 truncate">{t("composer.cloudFollowUp.local")}</span>
         <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0" />
       </MenuTrigger>

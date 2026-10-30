@@ -703,7 +703,7 @@ function ComposerModelLoadingControl(props: { widthClassName: string }) {
         props.widthClassName,
       )}
     >
-      <RefreshCwIcon aria-hidden="true" className="size-3.5 animate-spin" />
+      <RefreshCwIcon aria-hidden="true" className="size-4 animate-spin" />
       <span className="truncate text-ui-xs">Loading models</span>
     </div>
   );
@@ -3335,8 +3335,8 @@ export default function ChatView({
   const modelPredictionKey =
     activeThreadId && activeLatestTurnId ? `${activeThreadId}:${activeLatestTurnId}` : null;
   // Live completion, mount catch-up, and window-focus recovery all share the
-  // same request path. Domain events are the Moss equivalent of cumberbatch's
-  // turn-completed signal; the key guard still coalesces duplicate delivery.
+  // same request path. Domain events supply the turn-completed signal; the key
+  // guard still coalesces duplicate delivery.
   useEffect(() => {
     const api = readNativeApi();
     if (!api) return;
@@ -6992,7 +6992,7 @@ export default function ChatView({
           COMPOSER_TOOLBAR_TRIGGER_TEXT_CLASS_NAME,
         )}
       >
-        <FolderIcon className="size-3.5 shrink-0" />
+        <FolderIcon className="size-4 shrink-0" />
         <span className="min-w-0 truncate">{activeProjectDisplayName}</span>
       </span>
     ) : null;
@@ -7101,7 +7101,7 @@ export default function ChatView({
             isThreadTemporary && "!text-[var(--color-text-accent)]",
           )}
         >
-          <TemporaryThreadIcon className="size-3.5" />
+          <TemporaryThreadIcon className="size-4" />
           <span className="sr-only sm:not-sr-only">Temporary</span>
         </Button>
       ) : null}
@@ -7661,7 +7661,7 @@ export default function ChatView({
                         className="flex items-center gap-1.5 px-1 text-ui leading-snug text-muted-foreground"
                         role="status"
                       >
-                        <LoaderCircleIcon className="size-3.5 animate-spin" />
+                        <LoaderCircleIcon className="size-4 animate-spin" />
                         Optimizing {pendingComposerImageCount === 1 ? "image" : "images"}…
                       </div>
                     )}

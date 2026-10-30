@@ -21,10 +21,9 @@ import { getMossSourceLayout } from "./mossSourceLayout";
  * - `trusted`: the current command hash matches the recorded trusted hash.
  *
  * Only `trusted` hooks are allowed to spawn a child process at runtime; the
- * hook executor treats `untrusted` and `changed` as skip conditions. This
- * mirrors the Codex settings hook trust flow where a hook is "Disabled until
- * hook is trusted" and returns to review when it is "changed since last
- * trusted".
+ * hook executor treats `untrusted` and `changed` as skip conditions: a hook is
+ * "Disabled until hook is trusted" and returns to review when it is "changed
+ * since last trusted".
  */
 export type MossHookTrustState = "untrusted" | "trusted" | "changed";
 

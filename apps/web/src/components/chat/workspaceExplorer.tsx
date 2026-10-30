@@ -185,7 +185,7 @@ const ExplorerRow = forwardRef<
         <FileEntryIcon
           pathValue={entry.path}
           kind={entry.kind}
-          className="size-3.5 shrink-0 opacity-75"
+          className="size-4 shrink-0 opacity-75"
         />
       )}
       <span className="min-w-0 truncate">{entry.name}</span>
@@ -205,7 +205,7 @@ function ExplorerLoadingRows(props: { depth: number }) {
     >
       {EXPLORER_SKELETON_ROW_WIDTHS.map((width) => (
         <div key={width} className="flex h-5 items-center gap-1.5">
-          <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+          <Skeleton className="size-4 shrink-0 rounded-sm" />
           <Skeleton className={cn("h-3 rounded-full", width)} />
         </div>
       ))}
@@ -418,7 +418,7 @@ function WorkspaceSearchResultRow(props: {
         onEntryContextMenu(entry.path, { x: event.clientX, y: event.clientY });
       }}
     >
-      <FileEntryIcon pathValue={entry.path} kind="file" className="size-3.5 shrink-0 opacity-75" />
+      <FileEntryIcon pathValue={entry.path} kind="file" className="size-4 shrink-0 opacity-75" />
       <div className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden">
         <span className="shrink-0 truncate font-medium">{name}</span>
         {dir ? (

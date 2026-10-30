@@ -452,7 +452,7 @@ function AutomationDetailView() {
               </button>
               <CentralIcon
                 name="chevron-right-small"
-                className="size-3.5 shrink-0 text-muted-foreground"
+                className="size-4 shrink-0 text-muted-foreground"
               />
               <span className="truncate font-heading font-medium">{definition.name}</span>
             </div>
@@ -1279,7 +1279,7 @@ function RunRow({
             onCancel();
           }}
         >
-          <CentralIcon name="stop" className="size-3.5" />
+          <CentralIcon name="stop" className="size-4" />
         </Button>
       ) : null}
       <span className="shrink-0 tabular-nums text-muted-foreground">

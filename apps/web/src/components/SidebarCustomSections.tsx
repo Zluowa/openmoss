@@ -309,7 +309,7 @@ function SortableSidebarCustomSection<
                 onNewChat(section);
               }}
             >
-              <NewThreadIcon className="size-3.5" />
+              <NewThreadIcon className="size-4" />
             </button>
           ) : null}
           <button

@@ -169,7 +169,7 @@ function ThreadErrorBannerContent({
             className="size-6 text-destructive/60 hover:text-destructive sm:size-6"
             onClick={onDismiss}
           >
-            <XIcon className="size-3.5" />
+            <XIcon className="size-4" />
           </IconButton>
         </AlertAction>
       ) : null}

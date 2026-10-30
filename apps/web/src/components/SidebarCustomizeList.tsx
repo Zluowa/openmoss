@@ -114,7 +114,7 @@ function SidebarCustomizeRow({
           {...attributes}
           {...listeners}
         >
-          <DragHandleIcon className="size-3.5" />
+          <DragHandleIcon className="size-4" />
         </button>
       </div>
     </li>

@@ -171,7 +171,7 @@ export const ProviderInstancePicker = memo(function ProviderInstancePicker(
           <PickerTriggerButton
             compact={props.compact ?? false}
             hideLabel={props.hideLabel ?? false}
-            icon={<UserIcon aria-hidden="true" className="size-3.5" />}
+            icon={<UserIcon aria-hidden="true" className="size-4" />}
             label={triggerLabel}
             className="max-w-44"
           />
@@ -236,7 +236,7 @@ export const ProviderInstancePicker = memo(function ProviderInstancePicker(
             props.onManageAccounts();
           }}
         >
-          <SettingsIcon aria-hidden="true" className="size-3.5 text-muted-foreground" />
+          <SettingsIcon aria-hidden="true" className="size-4 text-muted-foreground" />
           {manageLabel(props.provider)}
         </MenuItem>
       </ComposerPickerMenuPopup>

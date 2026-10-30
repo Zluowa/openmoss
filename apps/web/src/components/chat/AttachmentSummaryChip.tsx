@@ -44,7 +44,7 @@ export function AttachmentSummaryChip({
             )}
           >
             <span className="inline-flex h-6 min-w-0 items-center gap-1 rounded-full pl-2 pr-1.5">
-              <Icon className="size-3.5 shrink-0 text-muted-foreground/90" />
+              <Icon className="size-4 shrink-0 text-muted-foreground/90" />
               <span className="truncate">{label}</span>
             </span>
             {onRemove ? (

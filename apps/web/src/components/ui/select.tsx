@@ -46,16 +46,16 @@ const selectTriggerVariants = cva(
           "border-transparent text-[var(--color-text-foreground-secondary)] focus-visible:ring-1 focus-visible:ring-[color:var(--color-border-focus)]/60 data-pressed:bg-[var(--color-background-elevated-secondary)] [:hover,[data-pressed]]:bg-[var(--color-background-elevated-secondary)] [:hover,[data-pressed]]:text-[var(--color-text-foreground)]",
       },
       size: {
-        default: "min-h-9 px-[calc(--spacing(3)-1px)] sm:min-h-8",
-        lg: "min-h-10 px-[calc(--spacing(3)-1px)] sm:min-h-9",
+        default: "min-h-8 px-[calc(--spacing(3)-1px)] sm:min-h-7",
+        lg: "min-h-9 px-[calc(--spacing(3)-1px)] sm:min-h-8",
         sm: "min-h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:min-h-7",
-        xs: "h-7 gap-1 rounded-sm px-[calc(--spacing(2)-1px)] text-ui-sm sm:h-6 sm:text-ui-xs [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
+        xs: "h-7 gap-1 rounded-sm px-[calc(--spacing(2)-1px)] text-ui sm:h-6 sm:text-ui [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
       },
     },
   },
 );
 
-const selectTriggerIconClassName = "-me-1 size-4.5 opacity-80 sm:size-4";
+const selectTriggerIconClassName = "-me-1 size-4 opacity-80 sm:size-4";
 
 interface SelectButtonProps extends useRender.ComponentProps<"button"> {
   size?: VariantProps<typeof selectTriggerVariants>["size"];
@@ -200,7 +200,7 @@ function SelectPopup({
               )}
               data-slot="select-scroll-up-arrow"
             >
-              <ChevronUpIcon className="relative size-4" />
+              <ChevronUpIcon className="relative size-3" />
             </SelectPrimitive.ScrollUpArrow>
             {/* Keep a hard popup viewport cap so long theme lists can always scroll
                 fully to both edges even when the positioner reports a tight height. */}
@@ -219,7 +219,7 @@ function SelectPopup({
               )}
               data-slot="select-scroll-down-arrow"
             >
-              <ChevronDownIcon className="relative size-4" />
+              <ChevronDownIcon className="relative size-3" />
             </SelectPrimitive.ScrollDownArrow>
           </SelectPrimitive.Popup>
         </SelectPrimitive.Positioner>

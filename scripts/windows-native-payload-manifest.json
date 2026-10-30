@@ -5,47 +5,47 @@
       "signingTargets": [
         {
           "path": "Moss.exe",
-          "source": "electron@43.5.0 win32-x64 with generated ASAR integrity"
+          "source": "electron@43.8.1 win32-x64 with generated ASAR integrity"
         },
         {
           "path": "d3dcompiler_47.dll",
           "sha256": "a05f99734f7c4822fefc12b367af21fd0976ed6608752fb1e1e80b6ece7ecbbb",
-          "source": "electron@43.5.0 win32-x64"
+          "source": "electron@43.8.1 win32-x64"
         },
         {
           "path": "dxcompiler.dll",
-          "sha256": "3ede8535b555e15885efb480cd273ec0803ea0dc8d768d4f1be01e9574cf9c98",
-          "source": "electron@43.5.0 win32-x64"
+          "sha256": "b245bcc7887f14f540f7114d90e8b11ee71daf4b3d4e77f228f4b2a18a751b48",
+          "source": "electron@43.8.1 win32-x64"
         },
         {
           "path": "dxil.dll",
           "sha256": "77e039c905030a641e53658a008b74e90635a5ea9b6b79eabd0f2003bdfca59a",
-          "source": "electron@43.5.0 win32-x64"
+          "source": "electron@43.8.1 win32-x64"
         },
         {
           "path": "ffmpeg.dll",
-          "sha256": "1097efa2cfbb707445ccd23edd037e8e833b1a71747e373c32c4646b73088996",
-          "source": "electron@43.5.0 win32-x64"
+          "sha256": "1c26ae8a3e72cc2df7e1601e9981b5eebc0157255b6876f9360642db9e6c5703",
+          "source": "electron@43.8.1 win32-x64"
         },
         {
           "path": "libEGL.dll",
-          "sha256": "ba1ab3b7afa86607f158b74c6eaf7459fb6c3aaaf4a5c1bcbd4aff4e4bac87f2",
-          "source": "electron@43.5.0 win32-x64"
+          "sha256": "6f1231cdf2516923f159bcbec13643553d36096e60437bd15c5f5c123e693aba",
+          "source": "electron@43.8.1 win32-x64"
         },
         {
           "path": "libGLESv2.dll",
-          "sha256": "bd9f9b85e4b375aa3282c7c6c99dcf4f2582dcbe4101682dfe1db62f720d22e9",
-          "source": "electron@43.5.0 win32-x64"
+          "sha256": "7a79ba1d4efdd3886b785a7dcc85c6da44732a08e7ff1682d7b7bdea450528eb",
+          "source": "electron@43.8.1 win32-x64"
         },
         {
           "path": "vk_swiftshader.dll",
-          "sha256": "8fb4c18fe5f01ab386915546fe3d7ed3064a9f75d4488646e0863b04a9e4a230",
-          "source": "electron@43.5.0 win32-x64"
+          "sha256": "5a7aed599604a3a52e74ba9c641fb8a74afba19621fc4eee216b9d32c6c88fe1",
+          "source": "electron@43.8.1 win32-x64"
         },
         {
           "path": "vulkan-1.dll",
-          "sha256": "46f0002b18deae101c18f95c4e2d3e6b0f8944d293ffd3bd2665978458bde73c",
-          "source": "electron@43.5.0 win32-x64"
+          "sha256": "407240da36c7df3e48f23a6f9096207408f0bb2f251f807e203a7b6f21cfff39",
+          "source": "electron@43.8.1 win32-x64"
         }
       ],
       "lateSigningTargets": [

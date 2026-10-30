@@ -96,7 +96,7 @@ function DesktopInlineVisualFrame({
           >
             <CopyTextButton text={html} label="source" className="text-ui-xs" />
             <IconButton label="Reload visual" tooltip="Reload" onClick={reload}>
-              <RotateCcwIcon className="size-3.5" />
+              <RotateCcwIcon className="size-4" />
             </IconButton>
           </div>
         </>

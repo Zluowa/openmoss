@@ -174,8 +174,7 @@ export type PluginDirectoryProvenance =
   | "moss-apps";
 
 /**
- * Codex desktop's directory order (26.1016, observed against a signed-in
- * account): the remote catalog's categories, Productivity first, Other last.
+ * Directory order: the remote catalog's categories, Productivity first, Other last.
  */
 export const CODEX_DIRECTORY_CATEGORY_ORDER: readonly string[] = [
   "Productivity",
@@ -229,7 +228,7 @@ export interface ProviderPluginDirectoryEntry extends CodexPluginDirectoryEntry 
 }
 
 /**
- * Materializes one frozen Codex plugin-list lane without inferring relationship
+ * Materializes one plugin-list lane without inferring relationship
  * provenance from marketplace names or local paths. Remote relationship lanes
  * intentionally carry a null filesystem path and address details by name.
  */

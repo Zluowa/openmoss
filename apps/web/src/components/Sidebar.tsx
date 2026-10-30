@@ -4597,7 +4597,7 @@ export default function Sidebar() {
     () => ({
       newThread: {
         icon: NewThreadIcon,
-        iconClassName: "size-3.5",
+        iconClassName: "size-4",
         label: t("sidebar.nav.newChat"),
         active: false,
         badge: null,
@@ -6212,7 +6212,7 @@ export default function Sidebar() {
                 toggleProjectPinned(project.id);
               }}
             >
-              <PinStatusIcon pinned={isProjectPinned} className="size-3.5" />
+              <PinStatusIcon pinned={isProjectPinned} className="size-4" />
             </button>
             <SidebarSectionToolbar placement="overlay" revealOnHover>
               {renderProjectThreadActions(project)}
@@ -7146,9 +7146,9 @@ export default function Sidebar() {
       tasksSurfaceEnabled,
     ),
   );
-  // Rail labels follow the Codex desktop rail; its zh-CN build names these
-  // destinations 首页/定时任务/图像/资料空间/插件. The upstream "Code review"/"Automations"
-  // wording only survives on destinations the Moss rail hides by default.
+  // The zh-CN rail names these destinations 首页/定时任务/图像/资料空间/插件. The upstream
+  // "Code review"/"Automations" wording only survives on destinations the Moss rail
+  // hides by default.
   const railItemLabel = (id: RailOrderableItemId): string => {
     switch (id) {
       case "home":
@@ -8223,12 +8223,12 @@ export default function Sidebar() {
                     }}
                   >
                     <MenuRadioItem value={VOID_SPACE_KEY}>
-                      <SpaceIcon icon={voidSpace.icon} className="size-3.5" />
+                      <SpaceIcon icon={voidSpace.icon} className="size-4" />
                       <span className="min-w-0 truncate">{voidSpace.name}</span>
                     </MenuRadioItem>
                     {spaces.map((space) => (
                       <MenuRadioItem key={space.id} value={space.id}>
-                        <SpaceIcon icon={space.icon} className="size-3.5" />
+                        <SpaceIcon icon={space.icon} className="size-4" />
                         <span className="min-w-0 truncate">{space.name}</span>
                       </MenuRadioItem>
                     ))}

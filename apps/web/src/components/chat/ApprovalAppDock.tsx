@@ -1,6 +1,5 @@
-// Codex 26.1007 command-approval footer (`transcript-card` action row):
+// Command-approval footer, laid out like the Codex desktop app's:
 // a leading cluster of host-app icons, opposite Deny / Allow once.
-// The glyphs are the shell row from the 26.1007 reference frame.
 import app1 from "../../assets/approval-app-dock/app-1.png";
 import app2 from "../../assets/approval-app-dock/app-2.png";
 import app3 from "../../assets/approval-app-dock/app-3.png";

@@ -125,7 +125,7 @@ export function DeviceControlRail(props: {
                             : "text-muted-foreground",
                       )}
                     >
-                      <Icon className="size-3.5" />
+                      <Icon className="size-4" />
                     </button>
                   }
                 />

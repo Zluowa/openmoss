@@ -350,7 +350,7 @@ function CompactTile({
     >
       <span className="truncate text-ui-sm text-muted-foreground">{tile.lead}</span>
       <span className="flex min-w-0 items-center gap-2">
-        <InboxGlyph icon={tile.icon} projectById={projectById} className="size-[18px]" />
+        <InboxGlyph icon={tile.icon} projectById={projectById} className="size-4" />
         <span className="min-w-0 truncate text-ui-xl font-medium tracking-tight text-foreground tabular-nums">
           {tile.value}
         </span>

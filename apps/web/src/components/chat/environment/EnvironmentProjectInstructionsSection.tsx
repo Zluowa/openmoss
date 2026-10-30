@@ -175,7 +175,7 @@ export function EnvironmentProjectInstructionsSection({
             className="self-start"
             onClick={onCopyToThreadNotes}
           >
-            <CopyIcon className="size-3.5" />
+            <CopyIcon className="size-4" />
             {copyLabel}
           </Button>
         ) : null}

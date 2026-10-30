@@ -57,7 +57,7 @@ export function UnsupportedFilePreview(props: {
             onClick={props.onAttachToChat}
             className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-ui-sm font-medium hover:bg-foreground/8"
           >
-            <PlusIcon className="size-3.5" aria-hidden="true" /> Attach to chat
+            <PlusIcon className="size-4" aria-hidden="true" /> Attach to chat
           </button>
         ) : null}
         <a
@@ -65,7 +65,7 @@ export function UnsupportedFilePreview(props: {
           download={fileName}
           className="inline-flex items-center gap-1.5 rounded-md border border-border bg-[var(--color-background-surface)] px-3 py-1.5 text-ui-sm font-medium text-foreground transition-colors hover:bg-foreground/8"
         >
-          <DownloadIcon className="size-3.5" aria-hidden="true" />
+          <DownloadIcon className="size-4" aria-hidden="true" />
           Download file
         </a>
       </div>

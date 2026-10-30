@@ -257,7 +257,7 @@ export function SidebarGroupsSurface({
         <SidebarMenu className="gap-0.5">
           <SidebarPrimaryAction
             icon={NewThreadIcon}
-            iconClassName="size-3.5"
+            iconClassName="size-4"
             label="New hub"
             // The /hubs route gates on the same root: without it
             // createGroupProject can only fail, so hold the action off.
@@ -353,7 +353,7 @@ export function SidebarGroupsSurface({
                       }}
                     >
                       <CoordinatorGlyph
-                        className={cn("size-3.5 shrink-0", coordinatorAppearance.iconClassName)}
+                        className={cn("size-4 shrink-0", coordinatorAppearance.iconClassName)}
                       />
                       <span
                         className={cn(
@@ -477,7 +477,7 @@ export function SidebarGroupsSurface({
                         });
                       }}
                     >
-                      <FolderOpenIcon className="size-3.5 shrink-0" />
+                      <FolderOpenIcon className="size-4 shrink-0" />
                       <span className="min-w-0 flex-1 truncate">
                         {resolveSidebarProjectRowLabel(project)}
                       </span>

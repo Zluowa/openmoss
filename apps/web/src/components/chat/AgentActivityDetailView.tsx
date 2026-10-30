@@ -74,14 +74,14 @@ export function AgentActivityDetailView({
           style={footerTextStyle}
           onClick={onBack}
         >
-          <ChevronLeftIcon className="size-3.5" />
+          <ChevronLeftIcon className="size-4" />
           <span>Back</span>
         </button>
 
         <div className="mt-3 border-b border-border/55 pb-4">
           <div className="flex min-w-0 items-start gap-3">
             <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-md border border-border/45 bg-background/65 text-muted-foreground/58">
-              <BotIcon className="size-3.5" />
+              <BotIcon className="size-4" />
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

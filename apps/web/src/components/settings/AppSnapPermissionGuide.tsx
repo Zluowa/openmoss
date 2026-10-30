@@ -57,7 +57,7 @@ export function AppSnapPermissionGuide(props: {
       <div className="flex items-center gap-2 border-t border-[color:var(--color-border)] pt-3">
         {props.waiting ? (
           <>
-            <Spinner className="size-3.5" />
+            <Spinner className="size-4" />
             <span className="text-ui-sm text-muted-foreground">
               Watching for the change — this page updates automatically.
             </span>

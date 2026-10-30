@@ -62,7 +62,7 @@ export type ThreadHoverCardContentProps = {
 };
 
 const META_ROW_CLASS_NAME = `${SIDEBAR_HOVER_CARD_ROW_CLASS_NAME} text-foreground/80`;
-const META_ICON_CLASS_NAME = "size-3.5 shrink-0 text-muted-foreground/75";
+const META_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground/75";
 
 function MetaRow({ icon, children }: { icon: ReactNode; children: string }) {
   return (
@@ -140,7 +140,7 @@ function ModelRow({
       {model.fastMode ? (
         <FastModeBadgeIcon
           notice={fastModeNotice}
-          className="size-3.5 shrink-0 text-muted-foreground/75"
+          className="size-4 shrink-0 text-muted-foreground/75"
         />
       ) : null}
       {statusLabel ? (
@@ -197,10 +197,7 @@ export function ThreadHoverCardContent({
           {status ? (
             <MetaRow
               icon={
-                <span
-                  aria-hidden="true"
-                  className="inline-flex size-3.5 items-center justify-center"
-                >
+                <span aria-hidden="true" className="inline-flex size-4 items-center justify-center">
                   <SidebarStatusTrailingGlyph status={status} />
                 </span>
               }
@@ -212,12 +209,12 @@ export function ThreadHoverCardContent({
             <MetaRow
               icon={
                 projectCwd ? (
-                  <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground/75">
+                  <span className="relative inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/75">
                     <ProjectSidebarIcon
                       cwd={projectCwd}
                       expanded={false}
                       appearance={projectAppearance}
-                      glyphClassName="size-3.5"
+                      glyphClassName="size-4"
                     />
                   </span>
                 ) : (
@@ -266,10 +263,7 @@ function DraftPreviewRow({ threadId }: { threadId: ThreadId }) {
   if (!previewText) return null;
   return (
     <div className={cn(SIDEBAR_HOVER_CARD_ROW_CLASS_NAME, "items-start text-muted-foreground")}>
-      <span
-        aria-hidden="true"
-        className="inline-flex size-3.5 shrink-0 items-center justify-center"
-      >
+      <span aria-hidden="true" className="inline-flex size-4 shrink-0 items-center justify-center">
         <SidebarDraftGlyph />
       </span>
       <span className="sr-only">Unsent draft:</span>
@@ -302,7 +296,7 @@ function PullRequestRow({
         if (event.button === 1) onOpen(event, pr.url);
       }}
     >
-      <PrIcon aria-hidden className={`size-3.5 shrink-0 ${presentation.colorClass}`} />
+      <PrIcon aria-hidden className={`size-4 shrink-0 ${presentation.colorClass}`} />
       <span className="min-w-0 truncate">
         <span className={presentation.colorClass}>#{pr.number}</span> {pr.title}
       </span>

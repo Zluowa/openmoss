@@ -50,7 +50,7 @@ const RING_TONE_CLASS_NAME: Record<RailUsageRingTone, { stroke: string; dot: str
 // Geometry in px inside the rail's 36px button. Two tracks take a larger box, thinner
 // strokes and a smaller glyph, so the tracks keep a 2.25px gap and the glyph clears the
 // inner one.
-const SINGLE_RING = { size: 28, stroke: 2.5, svgClassName: "size-7", iconClassName: "size-3.5" };
+const SINGLE_RING = { size: 28, stroke: 2.5, svgClassName: "size-7", iconClassName: "size-4" };
 const DOUBLE_RING = { size: 34, stroke: 2.25, svgClassName: "size-8.5", iconClassName: "size-3" };
 const RING_SPACING = 4.5;
 

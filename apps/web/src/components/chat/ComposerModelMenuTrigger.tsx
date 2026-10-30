@@ -111,7 +111,7 @@ export function ComposerModelMenuTrigger(props: {
             aria-hidden="true"
             className={cn(
               // opacity-100 opts out of the Button base's [&_svg]:opacity-80 dimming.
-              "size-3.5 shrink-0 opacity-100",
+              "size-4 shrink-0 opacity-100",
               getProviderIconClassName(props.provider, "text-[var(--color-text-foreground)]"),
             )}
           />
@@ -140,7 +140,7 @@ export function ComposerModelMenuTrigger(props: {
           {label.showsFastBadge ? (
             <FastModeBadgeIcon
               notice={props.fastModeNotice}
-              className="size-3.5 shrink-0 text-[var(--color-text-foreground)] opacity-100"
+              className="size-4 shrink-0 text-[var(--color-text-foreground)] opacity-100"
             />
           ) : null}
           {label.statusLabel ? (
@@ -149,7 +149,7 @@ export function ComposerModelMenuTrigger(props: {
                 <SettingsIcon
                   aria-hidden="true"
                   className={cn(
-                    "size-3.5 shrink-0 dark:text-muted-foreground/45",
+                    "size-4 shrink-0 dark:text-muted-foreground/45",
                     COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME,
                   )}
                 />

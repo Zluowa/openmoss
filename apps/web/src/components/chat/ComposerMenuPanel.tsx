@@ -25,7 +25,7 @@ export const COMPOSER_MENU_PANEL_GROUP_LABEL_CLASS_NAME =
   "px-2 pt-1 pb-0.5 text-ui-sm font-normal text-muted-foreground/60";
 
 /** Glyph size shared by every panel row icon, whatever the menu. */
-export const COMPOSER_MENU_PANEL_GLYPH_CLASS_NAME = "size-3.5";
+export const COMPOSER_MENU_PANEL_GLYPH_CLASS_NAME = "size-4";
 
 // Single icon column shared by every menu row. Rows differ only by the glyph,
 // its color, and the name — slot geometry stays constant so files, folders,

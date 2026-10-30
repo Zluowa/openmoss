@@ -42,7 +42,7 @@ export const COMPOSER_STACKED_PANEL_ROW_MAIN_CLASS_NAME =
 
 /** Leading icon treatment shared by queue, file-change, and plan rows. */
 export const COMPOSER_STACKED_PANEL_ICON_CLASS_NAME =
-  "size-3.5 shrink-0 text-[var(--color-text-foreground-secondary)]";
+  "size-4 shrink-0 text-[var(--color-text-foreground-secondary)]";
 
 /** Primary stacked-panel label (queue preview, file-change summary). */
 export const COMPOSER_STACKED_PANEL_LABEL_CLASS_NAME = "truncate font-medium text-foreground/85";

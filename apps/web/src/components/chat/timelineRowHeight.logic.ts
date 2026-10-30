@@ -7,7 +7,7 @@
 // Exports: estimateTimelineRowHeight, createTimelineRowHeightEstimator,
 //          rememberTimelineRowHeight, TimelineRowHeightLayout
 
-import { getChatTranscriptUserMessageLineHeightPx } from "./chatTypography";
+import { getChatProseFontSizePx, getChatTranscriptUserMessageLineHeightPx } from "./chatTypography";
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";
 import { USER_MESSAGE_COLLAPSED_MAX_LINES } from "./userMessageCollapse";
 
@@ -26,7 +26,7 @@ export interface TimelineRowHeightLayout {
 // Calibrated against measured rows of real transcripts at the default 13px chat font
 // and the 46rem column: median error about 3%, total transcript height within 1%.
 const GLYPH_WIDTH_EM = 0.5;
-const PROSE_LINE_HEIGHT_EM = 1.7;
+const PROSE_LINE_HEIGHT_EM = 1.5;
 const PARAGRAPH_GAP_EM = 1.4;
 const CODE_LINE_HEIGHT_EM = 1.55;
 const CODE_BLOCK_CHROME_PX = 40;
@@ -102,6 +102,7 @@ export function estimateTimelineRowHeight(
   layout: TimelineRowHeightLayout,
 ): number {
   const { rowWidthPx, chatFontSizePx } = layout;
+  const proseFontSizePx = getChatProseFontSizePx(chatFontSizePx);
   let height: number;
   switch (row.kind) {
     case "message": {
@@ -114,12 +115,12 @@ export function estimateTimelineRowHeight(
         const textPx = estimateTextHeight(
           message.text,
           rowWidthPx * USER_BUBBLE_WIDTH_RATIO,
-          chatFontSizePx,
+          proseFontSizePx,
         );
         height =
           USER_CHROME_PX +
           (textPx > clampPx
-            ? clampPx + USER_SHOW_MORE_MARGIN_PX + chatFontSizePx * USER_SHOW_MORE_EM
+            ? clampPx + USER_SHOW_MORE_MARGIN_PX + proseFontSizePx * USER_SHOW_MORE_EM
             : textPx) +
           ((message.attachments?.length ?? 0) > 0 ? ATTACHMENT_STRIP_PX : 0);
         break;
@@ -127,7 +128,7 @@ export function estimateTimelineRowHeight(
       const changedFiles = row.assistantTurnDiffSummary?.files.length ?? 0;
       height =
         ASSISTANT_CHROME_PX +
-        estimateTextHeight(message.text, rowWidthPx, chatFontSizePx) +
+        estimateTextHeight(message.text, rowWidthPx, proseFontSizePx) +
         (changedFiles > 0
           ? CHANGED_FILES_CARD_PX +
             CHANGED_FILE_ROW_PX * Math.min(changedFiles, MAX_ESTIMATED_CHANGED_FILE_ROWS)
@@ -151,7 +152,7 @@ export function estimateTimelineRowHeight(
     case "proposed-plan":
       height =
         PROPOSED_PLAN_CHROME_PX +
-        estimateTextHeight(row.proposedPlan.planMarkdown, rowWidthPx, chatFontSizePx);
+        estimateTextHeight(row.proposedPlan.planMarkdown, rowWidthPx, proseFontSizePx);
       break;
     case "user-input":
       height = USER_INPUT_ROW_PX + USER_INPUT_EXCHANGE_PX * row.entry.userInputExchange.length;

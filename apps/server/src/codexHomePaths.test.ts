@@ -73,6 +73,56 @@ describe("resolveMossCodexHomeOverlayPath", () => {
     );
   });
 
+  describe("on Windows", () => {
+    const resolveOverlay = (mossHome: string, sourceHome: string, segment?: string) =>
+      resolveMossCodexHomeOverlayPath({ MOSS_HOME: mossHome }, sourceHome, segment, "win32");
+
+    it("keeps the overlay under MOSS_HOME on the source home's volume", () => {
+      assert.equal(
+        resolveOverlay("C:\\Users\\me\\.moss", "c:\\Users\\me\\.codex"),
+        "C:\\Users\\me\\.moss\\codex-home-overlay",
+      );
+      assert.equal(
+        resolveOverlay("D:/moss", "D:\\codex\\home", "work-abc"),
+        path.win32.join("D:/moss", "codex-home-overlay", "accounts", "work-abc"),
+      );
+    });
+
+    it("roots the overlay beside a source home on another volume", () => {
+      const overlay = resolveOverlay("C:\\Users\\me\\.moss", "E:\\Codex\\home");
+
+      assert.match(
+        overlay,
+        /^E:\\Codex\\\.moss\\runtime\\cross-volume-overlays\\[0-9a-f]{12}\\codex-home-overlay$/,
+      );
+      assert.equal(
+        resolveOverlay("C:\\Users\\me\\.moss", "E:\\Codex\\home", "work-abc"),
+        path.win32.join(overlay, "accounts", "work-abc"),
+      );
+    });
+
+    it("gives each Moss home on another volume its own overlay", () => {
+      const stable = resolveOverlay("C:\\Users\\me\\.moss", "E:\\Codex\\home");
+
+      assert.notEqual(resolveOverlay("C:\\Users\\me\\.moss-beta", "E:\\Codex\\home"), stable);
+      assert.equal(resolveOverlay("c:/users/ME/.moss/", "E:\\Codex\\home"), stable);
+    });
+
+    it("keeps the unset MOSS_HOME default on the source home's volume", () => {
+      assert.equal(
+        resolveMossCodexHomeOverlayPath({}, "E:\\Codex\\home", undefined, "win32"),
+        "E:\\Codex\\.moss\\runtime\\codex-home-overlay",
+      );
+    });
+  });
+
+  it("never moves the overlay off MOSS_HOME on other platforms", () => {
+    assert.equal(
+      resolveMossCodexHomeOverlayPath({ MOSS_HOME: "C:\\moss" }, "E:\\codex", undefined, "linux"),
+      path.join("C:\\moss", "codex-home-overlay"),
+    );
+  });
+
   it("does not create a nested account overlay for the explicit default account", () => {
     assert.equal(
       resolveCodexHomeOverlayAccountSegment({
@@ -237,6 +287,32 @@ describe("resolveCodexHomeAllowlistCandidates", () => {
       path.join("/moss/runtime", "codex-home-overlay", "accounts", segment ?? ""),
     ]);
   });
+
+  it.runIf(process.platform === "win32")(
+    "still serves images from the overlay a Moss home on another volume used before",
+    () => {
+      const sourceHome = path.resolve("codex-home");
+      const mossHome = path.parse(sourceHome).root.toUpperCase().startsWith("Z")
+        ? "Y:\\moss"
+        : "Z:\\moss";
+      const env = { CODEX_HOME: sourceHome, MOSS_HOME: mossHome };
+
+      assert.deepEqual(resolveCodexHomeAllowlistCandidates({ env }), [
+        sourceHome,
+        resolveMossCodexHomeOverlayPath(env, sourceHome),
+        path.join(mossHome, "codex-home-overlay"),
+      ]);
+
+      const segment = resolveCodexHomeOverlayAccountSegment({
+        accountId: "work",
+        homePath: sourceHome,
+      });
+      assert.deepEqual(resolveCodexHomeAllowlistCandidates({ env, accountId: "work" }), [
+        resolveMossCodexHomeOverlayPath(env, sourceHome, segment),
+        path.join(mossHome, "codex-home-overlay", "accounts", segment ?? ""),
+      ]);
+    },
+  );
 
   it("keeps a dedicated account home alongside its account overlay", () => {
     const segment = resolveCodexHomeOverlayAccountSegment({

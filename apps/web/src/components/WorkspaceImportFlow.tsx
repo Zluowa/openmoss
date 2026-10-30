@@ -948,7 +948,7 @@ function SelectionTopRow({
         role="img"
         aria-label={info}
       >
-        <InfoIcon className="size-3.5" aria-hidden="true" />
+        <InfoIcon className="size-4" aria-hidden="true" />
       </span>
       <Checkbox
         checked={checked}

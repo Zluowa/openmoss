@@ -65,7 +65,7 @@ function footerTooltipLabel(shortcut: KeybindingShortcut): string {
 }
 
 function EntryIcon(props: { entry: RecentViewDisplayEntry }) {
-  const className = "size-3.5";
+  const className = "size-4";
 
   switch (props.entry.icon.kind) {
     case "terminal":
@@ -121,7 +121,7 @@ export function RecentViewSwitcher(props: {
                     : "text-foreground",
                 )}
               >
-                <div className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+                <div className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
                   <EntryIcon entry={entry} />
                 </div>
                 <span className="min-w-0 flex-1 truncate text-ui">{entry.title}</span>
@@ -138,10 +138,10 @@ export function RecentViewSwitcher(props: {
                 {entry.isSplit || entry.isPinned ? (
                   <div className="flex shrink-0 items-center gap-1.5 text-muted-foreground">
                     {entry.isSplit ? (
-                      <PanelLeftIcon className="size-3.5" aria-label="Split view" />
+                      <PanelLeftIcon className="size-4" aria-label="Split view" />
                     ) : null}
                     {entry.isPinned ? (
-                      <PinFilledIcon className="size-3.5" aria-label="Pinned" />
+                      <PinFilledIcon className="size-4" aria-label="Pinned" />
                     ) : null}
                   </div>
                 ) : null}

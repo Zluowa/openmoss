@@ -218,6 +218,7 @@ import { resolveUserMessageMarkdownText } from "./userMessageTerminalContexts";
 import { splitPromptIntoDisplaySegments } from "~/composer-editor-mentions";
 import {
   getChatMessageFooterTextStyle,
+  getChatProseFontSizePx,
   getChatTranscriptTextStyle,
   getChatTranscriptUserMessageLineHeightPx,
   getChatTranscriptUserMessageTextStyle,
@@ -738,7 +739,7 @@ function WorktreeSetupCard({
   return (
     <div className="w-fit max-w-full rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] px-3.5 py-3 text-size-chat shadow-xs">
       <div className="flex items-center gap-2">
-        <WorktreeIcon className="size-3.5 shrink-0 text-[var(--color-text-foreground-tertiary)]" />
+        <WorktreeIcon className="size-4 shrink-0 text-[var(--color-text-foreground-tertiary)]" />
         <ConversationShimmer
           active={steps.every((step) => step.status !== "error")}
           className="text-ui font-medium"
@@ -3823,7 +3824,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         )}
                       >
                         <div className="flex min-w-0 items-center gap-2.5">
-                          <ChangesIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
+                          <ChangesIcon className="size-4 shrink-0 text-muted-foreground/70" />
                           <div className="min-w-0">
                             <div
                               className="truncate font-normal text-foreground/92"
@@ -4063,7 +4064,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               {row.turnEndMarker.outcome === "stopped" ? (
                 <StopIcon className="size-3 shrink-0" />
               ) : (
-                <CircleAlertIcon className="size-3.5 shrink-0 text-amber-600 dark:text-amber-300/90" />
+                <CircleAlertIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-300/90" />
               )}
               {formatTurnHeaderLabel({ ...row.turnEndMarker, resumedBy: null })}
             </span>
@@ -5052,7 +5053,7 @@ const UserMessageCollapsibleText = memo(function UserMessageCollapsibleText(prop
           type="button"
           data-scroll-anchor-ignore
           className="mt-1 block text-muted-foreground/55 transition-colors duration-150 hover:text-foreground/72"
-          style={{ fontSize: `${props.chatFontSizePx}px` }}
+          style={{ fontSize: `${getChatProseFontSizePx(props.chatFontSizePx)}px` }}
           aria-expanded={props.expanded}
           aria-controls={contentId}
           onClick={props.onToggle}

@@ -22,8 +22,7 @@ export const PICKER_PANEL_PLAIN_SEARCH_HEADER_CLASS_NAME =
   "sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b border-border bg-transparent px-2.5 py-0 *:min-w-0";
 
 /** Leading magnifier in the plain search row. */
-export const PICKER_PANEL_PLAIN_SEARCH_ICON_CLASS_NAME =
-  "size-3.5 shrink-0 text-muted-foreground/55";
+export const PICKER_PANEL_PLAIN_SEARCH_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground/55";
 
 /**
  * Transparent, borderless search field for the plain search row. Pair with the `unstyled`
@@ -37,7 +36,7 @@ export const PICKER_PANEL_PLAIN_SEARCH_INPUT_CLASS_NAME =
 export const PICKER_PANEL_ROW_GEOMETRY_CLASS_NAME = `min-h-7 gap-2 px-1.5 py-0.5 sm:min-h-7 ${COMPOSER_PICKER_OPTION_RADIUS_CLASS_NAME}`;
 
 /** Leading icon (folder, plus, dismiss) inside a plain picker row. */
-export const PICKER_PANEL_ROW_ICON_CLASS_NAME = "size-3.5 shrink-0 text-muted-foreground/70";
+export const PICKER_PANEL_ROW_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground/70";
 
 /** Subtle fill marking the currently selected option row. */
 export const PICKER_PANEL_ROW_SELECTED_CLASS_NAME =

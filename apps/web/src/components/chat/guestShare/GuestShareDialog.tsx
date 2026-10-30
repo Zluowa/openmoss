@@ -223,7 +223,7 @@ function GuestShareStatus({ share, nowMs }: { share: ThreadGuestShare; nowMs: nu
   const tone = resolveGuestShareIndicatorTone(share, nowMs);
   const joined = resolveGuestSharePhase(share, nowMs) === "joined";
   return (
-    <div className="rounded-xl border border-border/70 px-3 py-2.5 text-ui-sm">
+    <div className="rounded-card border border-border/70 px-3 py-2.5 text-ui-sm">
       <div className="flex items-center gap-2 font-medium text-foreground">
         {tone ? (
           <StatusDot

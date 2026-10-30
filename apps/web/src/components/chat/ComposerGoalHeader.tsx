@@ -108,7 +108,7 @@ export function ComposerGoalHeader({
                   onEdit();
                 }}
               >
-                <PencilIcon className="size-3.5" />
+                <PencilIcon className="size-4" />
               </IconButton>
               {canPause ? (
                 <IconButton
@@ -118,9 +118,9 @@ export function ComposerGoalHeader({
                   onClick={() => void onSetPaused(!paused)}
                 >
                   {paused ? (
-                    <PlayOutlineIcon className="size-3.5" />
+                    <PlayOutlineIcon className="size-4" />
                   ) : (
-                    <PauseOutlineIcon className="size-3.5" />
+                    <PauseOutlineIcon className="size-4" />
                   )}
                 </IconButton>
               ) : null}
@@ -130,7 +130,7 @@ export function ComposerGoalHeader({
                 label="Delete goal"
                 onClick={() => void onClear()}
               >
-                <TrashCanIcon className="size-3.5" />
+                <TrashCanIcon className="size-4" />
               </IconButton>
             </div>
           </ComposerStackedPanelRow>

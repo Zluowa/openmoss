@@ -200,7 +200,7 @@ export function RealtimeVoicePreviewPicker({
           disabled={voices.length < 2}
           onClick={() => selectVoice(selectedIndex - 1)}
         >
-          <ChevronLeftIcon aria-hidden="true" className="size-[18px]" />
+          <ChevronLeftIcon aria-hidden="true" className="size-4" />
         </button>
         <div className="flex w-56 flex-col gap-1">
           <p className="text-xl font-semibold">{selectedVoice.displayName}</p>
@@ -213,7 +213,7 @@ export function RealtimeVoicePreviewPicker({
           disabled={voices.length < 2}
           onClick={() => selectVoice(selectedIndex + 1)}
         >
-          <ChevronRightIcon aria-hidden="true" className="size-[18px]" />
+          <ChevronRightIcon aria-hidden="true" className="size-4" />
         </button>
       </div>
 

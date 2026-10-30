@@ -86,7 +86,7 @@ export function ProjectImportProjectCard(props: {
           <span className="flex shrink-0 gap-1">
             {project.providers.map((provider) => (
               <span key={provider} title={IMPORT_PROVIDER_LABELS[provider]}>
-                <ProviderIcon provider={provider} className="size-3.5" />
+                <ProviderIcon provider={provider} className="size-4" />
               </span>
             ))}
           </span>
@@ -147,7 +147,7 @@ export function ProjectImportProjectCard(props: {
                   onCheckedChange={(checked) => props.onSelectionChange([key], checked)}
                   aria-label={`Import ${thread.title || "Untitled conversation"}`}
                 />
-                <ProviderIcon provider={thread.provider} className="size-3.5 shrink-0" />
+                <ProviderIcon provider={thread.provider} className="size-4 shrink-0" />
                 <span className="min-w-0 flex-1 truncate" title={thread.title}>
                   {thread.title || "Untitled conversation"}
                 </span>

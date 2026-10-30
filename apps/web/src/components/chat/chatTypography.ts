@@ -5,6 +5,7 @@
 
 import type { CSSProperties } from "react";
 import { DEFAULT_CHAT_FONT_SIZE_PX, normalizeChatFontSizePx } from "../../appSettings";
+import { getAppTypographyScale } from "../../lib/appTypography";
 
 // Inline mono chip for a command quoted inside a work-row sentence ("Ran `ls`"),
 // matching inline code in chat markdown.
@@ -14,8 +15,8 @@ export const INLINE_COMMAND_CHIP_CLASS_NAME =
 // index.css shares composer corner smoothing; keep the radius as the browser fallback.
 export const USER_MESSAGE_BUBBLE_RADIUS_CLASS_NAME =
   "chat-user-message-bubble squircle rounded-[var(--radius-user-message)]";
-export const USER_MESSAGE_BUBBLE_SHELL_PADDING_CLASS_NAME = "py-2.5";
-export const USER_MESSAGE_BUBBLE_SHELL_HORIZONTAL_PADDING_CLASS_NAME = "px-3.5";
+export const USER_MESSAGE_BUBBLE_SHELL_PADDING_CLASS_NAME = "py-2";
+export const USER_MESSAGE_BUBBLE_SHELL_HORIZONTAL_PADDING_CLASS_NAME = "px-3";
 export const USER_MESSAGE_BUBBLE_SHELL_CHROME_CLASS_NAME = [
   USER_MESSAGE_BUBBLE_SHELL_HORIZONTAL_PADDING_CLASS_NAME,
   USER_MESSAGE_BUBBLE_SHELL_PADDING_CLASS_NAME,
@@ -52,12 +53,21 @@ export function userMessageBubbleBorderClassName(isTemporaryThread: boolean): st
     ? USER_MESSAGE_BUBBLE_TEMPORARY_BORDER_CLASS_NAME
     : USER_MESSAGE_BUBBLE_PLAIN_BORDER_CLASS_NAME;
 }
-// Matches Tailwind `leading-relaxed` (1.625). Shared by the assistant transcript text,
+// Claude's prose leading, 14px on a 20px line. Shared by the assistant transcript text,
 // user message bubbles, and the composer input so every chat surface reads at one leading.
-const CHAT_TRANSCRIPT_LINE_HEIGHT_RATIO = 1.625;
+const CHAT_TRANSCRIPT_LINE_HEIGHT_RATIO = 20 / 14;
+
+/** The size prose renders at for a chosen base size: one step above the chrome. */
+export function getChatProseFontSizePx(chatFontSizePx = DEFAULT_CHAT_FONT_SIZE_PX): number {
+  return getAppTypographyScale(chatFontSizePx).chatPx;
+}
+
+function getLineHeightForFontSizePx(fontSizePx: number): number {
+  return Math.round(fontSizePx * CHAT_TRANSCRIPT_LINE_HEIGHT_RATIO);
+}
 
 export function getChatTranscriptLineHeightPx(chatFontSizePx = DEFAULT_CHAT_FONT_SIZE_PX): number {
-  return normalizeChatFontSizePx(chatFontSizePx) * CHAT_TRANSCRIPT_LINE_HEIGHT_RATIO;
+  return getLineHeightForFontSizePx(getChatProseFontSizePx(chatFontSizePx));
 }
 
 export function getChatTranscriptUserMessageLineHeightPx(
@@ -76,20 +86,18 @@ function buildChatTextStyle(fontSizePx: number, lineHeightPx: number): CSSProper
 export function getChatTranscriptTextStyle(
   chatFontSizePx = DEFAULT_CHAT_FONT_SIZE_PX,
 ): CSSProperties {
-  const normalizedChatFontSizePx = normalizeChatFontSizePx(chatFontSizePx);
   return buildChatTextStyle(
-    normalizedChatFontSizePx,
-    getChatTranscriptLineHeightPx(normalizedChatFontSizePx),
+    getChatProseFontSizePx(chatFontSizePx),
+    getChatTranscriptLineHeightPx(chatFontSizePx),
   );
 }
 
 export function getChatTranscriptUserMessageTextStyle(
   chatFontSizePx = DEFAULT_CHAT_FONT_SIZE_PX,
 ): CSSProperties {
-  const normalizedChatFontSizePx = normalizeChatFontSizePx(chatFontSizePx);
   return buildChatTextStyle(
-    normalizedChatFontSizePx,
-    getChatTranscriptUserMessageLineHeightPx(normalizedChatFontSizePx),
+    getChatProseFontSizePx(chatFontSizePx),
+    getChatTranscriptUserMessageLineHeightPx(chatFontSizePx),
   );
 }
 
@@ -98,5 +106,5 @@ export function getChatMessageFooterTextStyle(
 ): CSSProperties {
   const normalizedChatFontSizePx = normalizeChatFontSizePx(chatFontSizePx);
   const footerFontSizePx = Math.max(8, normalizedChatFontSizePx - 2);
-  return buildChatTextStyle(footerFontSizePx, getChatTranscriptLineHeightPx(footerFontSizePx));
+  return buildChatTextStyle(footerFontSizePx, getLineHeightForFontSizePx(footerFontSizePx));
 }

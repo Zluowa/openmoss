@@ -167,7 +167,7 @@ export function DiffLineBlamePopover(props: {
           {blame && !blame.uncommitted ? (
             <BlameActionButton
               label="Copy sha"
-              icon={<CopyIcon className="size-3.5 shrink-0" />}
+              icon={<CopyIcon className="size-4 shrink-0" />}
               onClick={() => {
                 void navigator.clipboard?.writeText(blame.sha);
                 onClose();
@@ -177,7 +177,7 @@ export function DiffLineBlamePopover(props: {
           {handleReferenceInChat ? (
             <BlameActionButton
               label="Reference line in chat"
-              icon={<MessageCircleIcon className="size-3.5 shrink-0" />}
+              icon={<MessageCircleIcon className="size-4 shrink-0" />}
               onClick={handleReferenceInChat}
             />
           ) : null}

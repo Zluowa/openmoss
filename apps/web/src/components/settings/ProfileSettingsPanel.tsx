@@ -431,9 +431,9 @@ function ModelUsageRow({
       <div className="flex items-center justify-between gap-3 text-ui leading-snug">
         <span className="flex min-w-0 items-center gap-2">
           {provider !== "unknown" ? (
-            <ProviderIcon provider={provider} className="size-3.5 shrink-0" />
+            <ProviderIcon provider={provider} className="size-4 shrink-0" />
           ) : (
-            <CentralIcon name="chart-2" className="size-3.5 shrink-0 text-muted-foreground" />
+            <CentralIcon name="chart-2" className="size-4 shrink-0 text-muted-foreground" />
           )}
           <span className="truncate">{model}</span>
         </span>

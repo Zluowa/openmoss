@@ -488,7 +488,7 @@ export function PullRequestDetailPanel({
                 TOP_BAR_NARROW_LABEL_CLASS_NAME,
               )}
               {menuTrigger(
-                <ChevronDownIcon aria-hidden className="size-3.5" />,
+                <ChevronDownIcon aria-hidden className="size-3" />,
                 cn(
                   CHAT_HEADER_SPLIT_TRAILING_CLASS_NAME,
                   // The halves share one hairline instead of a border: tinted on the filled pair,

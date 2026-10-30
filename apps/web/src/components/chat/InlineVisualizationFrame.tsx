@@ -107,7 +107,7 @@ export function InlineVisualizationFrame(props: {
                 />
               }
             >
-              <Maximize2 className="size-3.5" />
+              <Maximize2 className="size-4" />
             </TooltipTrigger>
             <TooltipPopup side="left">{t("chat.visualReply.openInPanel")}</TooltipPopup>
           </Tooltip>

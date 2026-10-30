@@ -1935,7 +1935,7 @@ export default function GitActionsControl({
               }
               disabled={isGitActionRunning}
             >
-              <ChevronDownIcon aria-hidden="true" className="size-3.5" />
+              <ChevronDownIcon aria-hidden="true" className="size-3" />
             </MenuTrigger>
             <ComposerPickerMenuPopup align="end" side="bottom" className="w-50 min-w-50">
               {gitMenuContent}

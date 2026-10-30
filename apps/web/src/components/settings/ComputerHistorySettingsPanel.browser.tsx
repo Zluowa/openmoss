@@ -647,7 +647,7 @@ describe("ComputerHistorySettingsPanel", () => {
       .element()
       .closest<HTMLElement>('[data-slot="menu-popup"]');
     expect(appModeMenu).not.toBeNull();
-    expect(getComputedStyle(appModeMenu!).borderRadius).toBe("12px");
+    expect(getComputedStyle(appModeMenu!).borderRadius).toBe("10px");
     expect(getComputedStyle(appModeMenu!).backdropFilter).toContain("blur(8px)");
     expect(getComputedStyle(appModeMenu!).boxShadow).toContain("0.5px");
     expect(getComputedStyle(appModeMenu!).minWidth).toBe("220px");
@@ -655,15 +655,13 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(harness.api.computerHistory.listApplications).not.toHaveBeenCalled();
     const addAppButton = page.getByRole("button", { name: "Add app" });
     expect(addAppButton.element().querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 20 20");
-    expect(addAppButton.element().querySelector("path")?.getAttribute("d")).toContain(
-      "M9.33496 16.5V10.665",
-    );
+    expect(addAppButton.element().querySelector("path")?.getAttribute("d")).toContain("M10 3.5v13");
     await addAppButton.click();
     const appSearch = page.getByRole("searchbox", { name: "Search apps" });
     const appPicker = page.getByRole("listbox").element();
     const appSearchIcon = appPicker.querySelector("svg");
     expect(appSearchIcon?.getAttribute("viewBox")).toBe("0 0 16 16");
-    expect(appSearchIcon?.getBoundingClientRect().width).toBe(14);
+    expect(appSearchIcon?.getBoundingClientRect().width).toBe(16);
     expect(appPicker.className).toContain("bg-[var(--color-surface-elevated-secondary)]/90");
     expect(appPicker.className).toContain("ring-[0.5px]");
     expect(appPicker.className).toContain("rounded-xl");
@@ -928,7 +926,7 @@ describe("ComputerHistorySettingsPanel", () => {
     const revealIcon = revealButton.element().querySelector("svg");
     expect(revealIcon?.getAttribute("viewBox")).toBe("0 0 20 20");
     expect(revealIcon?.querySelector("path")?.getAttribute("d")).toContain(
-      "M16.6182 9.33203H3.38184",
+      "M2.75 6.25a2 2 0 0 1 2-2",
     );
     await userEvent.hover(revealButton.element());
     await vi.waitFor(() =>
@@ -948,9 +946,7 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(deleteButton.element().className).toContain("w-5.5");
     const deleteIcon = deleteButton.element().querySelector("svg");
     expect(deleteIcon?.getAttribute("viewBox")).toBe("0 0 20 20");
-    expect(deleteIcon?.querySelector("path")?.getAttribute("d")).toContain(
-      "M10.6299 1.33496C12.0335",
-    );
+    expect(deleteIcon?.querySelector("path")?.getAttribute("d")).toContain("M3.5 5.5h13");
     await userEvent.hover(deleteButton.element());
     await vi.waitFor(() =>
       expect(document.querySelector('[data-slot="tooltip-popup"]')?.textContent).toBe("Delete"),
@@ -1347,7 +1343,7 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(previousExample.element().querySelector("svg")?.getAttribute("viewBox")).toBe(
       "0 0 20 20",
     );
-    expect(previousExample.element().querySelector("svg")?.getBoundingClientRect().width).toBe(15);
+    expect(previousExample.element().querySelector("svg")?.getBoundingClientRect().width).toBe(16);
     expect(nextExample.element().querySelector("svg")?.className.baseVal).toContain("-scale-x-100");
     const carouselTimer = timeoutSpy.mock.calls.find(([, delay]) => delay === 14_000)?.[0];
     expect(carouselTimer).toBeTypeOf("function");

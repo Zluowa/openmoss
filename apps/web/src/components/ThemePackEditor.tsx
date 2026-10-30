@@ -61,7 +61,7 @@ const COLOR_PICKER_COMMIT_DELAY_MS = 220;
 
 /** Borderless text action in the editor's header chrome (Copy, Import). */
 const EDITOR_TEXT_ACTION_CLASS_NAME = cn(
-  "rounded-md px-2 py-1 text-ui leading-snug text-[var(--color-text-foreground-secondary)]",
+  "shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-ui leading-snug text-[var(--color-text-foreground-secondary)]",
   ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
 );
 

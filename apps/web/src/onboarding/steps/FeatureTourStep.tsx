@@ -71,7 +71,7 @@ export function FeatureTourStep() {
             >
               <Icon
                 className={cn(
-                  "size-[15px] shrink-0",
+                  "size-4 shrink-0",
                   selected ? "text-foreground" : "text-muted-foreground/80",
                 )}
                 aria-hidden

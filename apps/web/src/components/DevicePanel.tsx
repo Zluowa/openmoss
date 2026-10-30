@@ -656,7 +656,7 @@ export default function DevicePanel(props: {
                       <span className="ml-auto shrink-0 text-muted-foreground text-ui leading-snug">
                         {entry.detail}
                       </span>
-                      {entry.attached ? <CheckIcon className="size-3.5 shrink-0" /> : null}
+                      {entry.attached ? <CheckIcon className="size-4 shrink-0" /> : null}
                     </span>
                   </MenuItem>
                 ))

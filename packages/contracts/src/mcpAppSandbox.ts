@@ -353,7 +353,7 @@ function hasExactRawPortNames(value: unknown): boolean {
   );
 }
 
-/** Frozen Codex calculation, with non-finite values rejected by the caller. */
+/** Frame height calculation, with non-finite values rejected by the caller. */
 export function resolveMcpAppFrameHeight(input: {
   readonly intrinsicHeight: number | null;
   readonly heightHint?: number;

@@ -241,9 +241,9 @@ function entryFileKeys(entry: WorkLogEntry): ReadonlyArray<string> {
   return [];
 }
 
-// Codex collapsed summaries (sites-end-resource `mv` / `hv`, joined by
-// Intl.ListFormat type "unit") name the kind, not the count. The first segment
-// uses the leading (capitalized) string; later segments use the following form.
+// Collapsed summaries (joined by Intl.ListFormat type "unit") name the kind, not
+// the count. The first segment uses the leading (capitalized) string; later
+// segments use the following form.
 function summaryPartPhrase(part: ToolCallGroupSummaryPart, leading: boolean): string {
   const one = part.count === 1;
   switch (part.category) {

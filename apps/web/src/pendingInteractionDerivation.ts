@@ -29,7 +29,6 @@ export interface PendingApproval {
   /**
    * Codex `item.approvalReason`. When the exec/patch request carries a reason,
    * that sentence is the card title and the command stays in the body.
-   * Source: `pending-request-item-panel-bd889fcbd56a.js` `qr` (`a.approvalReason`).
    */
   approvalReason?: string;
   permissionProfile?: Record<string, unknown>;

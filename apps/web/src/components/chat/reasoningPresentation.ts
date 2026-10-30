@@ -56,8 +56,7 @@ export function reasoningEntryContent(
 }
 
 /**
- * Mirrors Codex's active reasoning heading treatment (`kk` in the readable
- * bundle): a complete first bold heading is removed; an unfinished opening
+ * Active reasoning heading: a complete first bold heading is removed; an unfinished opening
  * `**` is intentionally rendered as no body instead of leaking a fragment.
  */
 export function stripActiveReasoningHeading(value: string): string {
@@ -70,8 +69,7 @@ export function stripActiveReasoningHeading(value: string): string {
 }
 
 /**
- * Mirrors Codex's settled reasoning heading treatment (`U` in the readable
- * bundle). It removes only one conservative heading, never a regex-like or
+ * Settled reasoning heading: removes only one conservative heading, never a regex-like or
  * comment-looking fragment, and leaves malformed markdown untouched.
  */
 export function stripSettledReasoningHeading(value: string): string {

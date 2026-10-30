@@ -17,7 +17,7 @@ import type { GitGlyphName } from "./GitActionsControl.logic";
 
 // Central icons render as masked spans (not <svg>), so size them explicitly here
 // rather than relying on parent `[&>svg]` selectors.
-export const GIT_ACTION_ICON_CLASS = "size-3.5";
+export const GIT_ACTION_ICON_CLASS = "size-4";
 
 const GIT_ACTION_GLYPH: Record<GitGlyphName, LucideIcon> = {
   commit: GitCommitIcon,

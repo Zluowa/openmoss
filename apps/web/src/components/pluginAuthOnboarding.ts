@@ -1,5 +1,5 @@
 // FILE: pluginAuthOnboarding.ts
-// Purpose: Pure frozen-Codex post-install app-auth routing and reconciliation.
+// Purpose: Pure post-install app-auth routing and reconciliation.
 
 import type {
   ProviderAppInfo,

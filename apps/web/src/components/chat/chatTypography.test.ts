@@ -20,8 +20,8 @@ describe("userMessageBubbleBorderClassName", () => {
 });
 
 it("keeps default and customized message measurement in sync with rendered text", () => {
-  expect(getChatTranscriptTextStyle()).toEqual({ fontSize: "13px", lineHeight: "21.125px" });
+  expect(getChatTranscriptTextStyle()).toEqual({ fontSize: "14px", lineHeight: "20px" });
   expect(getChatTranscriptUserMessageTextStyle()).toEqual(getChatTranscriptTextStyle());
-  expect(getChatTranscriptTextStyle(14)).toEqual({ fontSize: "14px", lineHeight: "22.75px" });
+  expect(getChatTranscriptTextStyle(14)).toEqual({ fontSize: "15px", lineHeight: "21px" });
   expect(getChatTranscriptUserMessageTextStyle(14)).toEqual(getChatTranscriptTextStyle(14));
 });

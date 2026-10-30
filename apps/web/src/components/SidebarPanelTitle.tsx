@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 
 /** Panel title type: the UI face at the title size, semibold (titles may use a fixed size). */
 export const SIDEBAR_PANEL_TITLE_CLASS_NAME =
-  "min-w-0 truncate text-[15px] font-semibold text-foreground";
+  "min-w-0 truncate text-[14px] leading-5 font-semibold text-foreground";
 
 export function SidebarPanelTitle({
   title,

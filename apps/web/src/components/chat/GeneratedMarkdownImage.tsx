@@ -189,7 +189,7 @@ function GeneratedMarkdownImageContent(props: GeneratedMarkdownImageProps) {
         <img {...imgProps} alt={accessibleName} className="chat-generated-image__img" />
         <span className="chat-generated-image__overlay" aria-hidden="true">
           <span className="chat-generated-image__overlay-pill chat-generated-image__overlay-pill--expand">
-            <Maximize2 className="size-3.5" />
+            <Maximize2 className="size-4" />
             <span>Expand</span>
           </span>
         </span>
@@ -203,7 +203,7 @@ function GeneratedMarkdownImageContent(props: GeneratedMarkdownImageProps) {
         aria-label="Download generated image"
         title="Download"
       >
-        <DownloadIcon className="size-3.5" aria-hidden="true" />
+        <DownloadIcon className="size-4" aria-hidden="true" />
         <span>Download</span>
       </a>
     </span>

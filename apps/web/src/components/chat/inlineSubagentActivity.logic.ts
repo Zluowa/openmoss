@@ -1,7 +1,5 @@
-// Codex 26.1007 inline subagent sentence.
-// Source: webview/assets/sites-end-resource-ad39113306e8.js `tk`
+// Inline subagent sentence.
 // i18n: subagents.activity.summary
-// Evidence: rea analyze-javascript-application ev_78c29fac01d7ff23357d164b36845b7079f9363a9aa4243d5e953fa64778a731
 
 export type InlineSubagentStatus =
   | "active"

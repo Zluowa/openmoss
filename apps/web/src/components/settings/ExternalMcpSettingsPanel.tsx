@@ -316,7 +316,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
                 onClick={() => setAdvancedOpen((current) => !current)}
               >
                 Review
-                <DisclosureChevron open={advancedOpen} className="ml-1 size-3.5" />
+                <DisclosureChevron open={advancedOpen} className="ml-1 size-4" />
               </Button>
             }
           >
@@ -483,7 +483,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
                 onClick={() => setManualOpen((current) => !current)}
               >
                 Show
-                <DisclosureChevron open={manualOpen} className="ml-1 size-3.5" />
+                <DisclosureChevron open={manualOpen} className="ml-1 size-4" />
               </Button>
             }
           >

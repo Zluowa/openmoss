@@ -1,5 +1,5 @@
 // FILE: PluginRequiredAppsDialog.tsx
-// Purpose: Frozen Codex 6234 multi-app post-install connector onboarding.
+// Purpose: Multi-app post-install connector onboarding.
 
 import { useEffect, useRef } from "react";
 
@@ -162,14 +162,14 @@ export function PluginRequiredAppsDialog({
                   >
                     {connected ? (
                       <>
-                        <CheckIcon className="size-3.5" />
+                        <CheckIcon className="size-4" />
                         {t("plugins.installModal.requiredApps.connected")}
                       </>
                     ) : opened ? (
                       t("plugins.installModal.requiredApps.openedLink")
                     ) : (
                       <>
-                        {launching ? <RefreshCwIcon className="size-3.5 animate-spin" /> : null}
+                        {launching ? <RefreshCwIcon className="size-4 animate-spin" /> : null}
                         {t("plugins.installModal.requiredApps.connect")}
                       </>
                     )}

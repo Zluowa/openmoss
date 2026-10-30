@@ -166,7 +166,7 @@ export function LocalImageErrorCard(props: {
         className="local-image-error__action"
         aria-label={props.downloadAriaLabel ?? "Download image"}
       >
-        <DownloadIcon className="size-3.5" aria-hidden="true" />
+        <DownloadIcon className="size-4" aria-hidden="true" />
         <span>Download</span>
       </a>
     </span>

@@ -25,4 +25,12 @@ describe("PROVIDER_ICON_COMPONENT_BY_PROVIDER", () => {
       seen.add(markup);
     }
   });
+
+  it("keeps the OpenCode mark free of document-wide ids", () => {
+    // A second copy resolves a shared id to the first one, and a hidden first copy blanks it.
+    const Icon = PROVIDER_ICON_COMPONENT_BY_PROVIDER.opencode;
+    const markup = renderToStaticMarkup(<Icon className="size-4" aria-hidden="true" />);
+    expect(markup).toContain("<path");
+    expect(markup).not.toMatch(/\sid=|url\(#/u);
+  });
 });

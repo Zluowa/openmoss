@@ -214,7 +214,7 @@ describe("RealtimeVoiceOnboarding", () => {
     );
 
     try {
-      // The frozen Codex flow records one Next action before the voice picker
+      // The flow records one Next action before the voice picker
       // and one before the Appshots step.
       await page.getByRole("button", { name: "Next", exact: true }).click();
       await expect.element(page.getByRole("heading", { name: "Choose your voice" })).toBeVisible();
@@ -246,8 +246,8 @@ describe("RealtimeVoiceOnboarding", () => {
         canvas: [184, 184],
         close: [24, 24],
         dialog: [480, 520],
-        next: [34, 34],
-        previous: [34, 34],
+        next: [32, 32],
+        previous: [32, 32],
         nextAction: [118, 32],
       });
       const dialogRect = dialog.getBoundingClientRect();

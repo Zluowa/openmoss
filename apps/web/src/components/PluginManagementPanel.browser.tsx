@@ -1,5 +1,5 @@
 // FILE: PluginManagementPanel.browser.tsx
-// Purpose: Locks the frozen Plugins, Apps, and MCP Manage taxonomy and compatibility boundaries.
+// Purpose: Locks the Plugins, Apps, and MCP Manage taxonomy and compatibility boundaries.
 
 import "../index.css";
 
@@ -226,8 +226,8 @@ describe("PluginManagementPanel authoritative tabs", () => {
       const listBox = list.getBoundingClientRect();
       expect(contentBox.width).toBeCloseTo(768, 3);
       expect(headingBox.top).toBeCloseTo(20, 3);
-      expect(headingStyle.fontSize).toBe("24px");
-      expect(headingStyle.fontWeight).toBe("545");
+      expect(headingStyle.fontSize).toBe("20px");
+      expect(headingStyle.fontWeight).toBe("535");
       expect(firstTabBox.height).toBeCloseTo(28, 3);
       expect(searchBox.width).toBeCloseTo(180, 3);
       expect(searchBox.height).toBeCloseTo(32, 3);

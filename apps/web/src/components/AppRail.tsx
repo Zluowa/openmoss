@@ -123,13 +123,13 @@ type AppRailProps = {
 };
 
 /** Rail glyph size, shared with controls rendered into the rail slot (the Help menu). */
-export const APP_RAIL_GLYPH_CLASS_NAME = "size-5";
+export const APP_RAIL_GLYPH_CLASS_NAME = "size-4";
 
 /** Rail button box and active/idle tone, shared with controls rendered into the rail slot.
  *  Idle glyphs rest on the section-label grey; hover and the active item are full ink. */
 export function appRailButtonClassName(active: boolean): string {
   return cn(
-    "size-9 rounded-control",
+    "size-8 rounded-control",
     active
       ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
       : cn(SIDEBAR_SECTION_LABEL_TONE_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),

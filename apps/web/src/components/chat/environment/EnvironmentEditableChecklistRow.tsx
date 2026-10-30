@@ -146,7 +146,7 @@ export function EnvironmentEditableChecklistRow({
       )}
     >
       <Checkbox
-        className="size-3.5 sm:size-3.5"
+        className="size-4 sm:size-4"
         checked={checked}
         onCheckedChange={onToggleDone}
         aria-label={checkboxAriaLabel}

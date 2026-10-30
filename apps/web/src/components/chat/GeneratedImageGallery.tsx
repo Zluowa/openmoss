@@ -29,7 +29,7 @@ import type {
 const GALLERY_GAP_PX = 8;
 const GALLERY_MAX_IMAGES_PER_PAGE = 4;
 
-// Frozen generated-image loading-field constants. The gallery only needs the
+// Generated-image loading-field constants. The gallery only needs the
 // thumbnail/default presentation; the editor/playground variants stay out of A.
 export const GENERATED_IMAGE_PENDING_DOT_SPACING_PX = 12;
 export const GENERATED_IMAGE_PENDING_DOT_OPACITY_AMPLITUDE = 0.16;
@@ -81,7 +81,7 @@ export interface GeneratedImageGalleryLayout {
 }
 
 /**
- * Mirrors the frozen gallery geometry: use natural aspect-ratio tiles while
+ * Gallery geometry: use natural aspect-ratio tiles while
  * they fit, otherwise expose at most four square carousel slots.
  */
 export function deriveGeneratedImageGalleryLayout(input: {

@@ -67,6 +67,20 @@ it("preserves saved Codex on mount, applies and persists Vercel, then restores C
   expect(root.style.getPropertyValue("--color-text-foreground")).toBe("#1a1c1f");
 });
 
+it("keeps Import and Copy on one line when the code theme select takes the row", async () => {
+  await render(
+    <div style={{ width: 360 }}>
+      <ThemePackEditor variant="light" />
+    </div>,
+  );
+  for (const name of ["Import", "Copy"]) {
+    const action = page.getByRole("button", { name, exact: true }).element();
+    const lineHeight = Number.parseFloat(getComputedStyle(action).lineHeight);
+    expect(getComputedStyle(action).whiteSpace).toBe("nowrap");
+    expect(action.getBoundingClientRect().height).toBeLessThan(lineHeight * 2);
+  }
+});
+
 it("previews an inactive light preset and applies it only when the user chooses Use light theme", async () => {
   localStorage.setItem("moss:theme", JSON.stringify({ ...DEFAULT_THEME_STATE, mode: "dark" }));
   await render(<ThemePackEditor variant="light" />);

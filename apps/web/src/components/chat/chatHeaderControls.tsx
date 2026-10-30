@@ -134,7 +134,7 @@ export const CHAT_SURFACE_CHIP_CLASS_NAME = cn(
  * them washes the signal out, which is exactly what a chrome icon wants and a
  * status icon never does.
  */
-export const CHAT_SURFACE_CHIP_GLYPH_CLASS_NAME = "size-3.5 shrink-0";
+export const CHAT_SURFACE_CHIP_GLYPH_CLASS_NAME = "size-4 shrink-0";
 
 /**
  * Icon treatment shared by every chrome chip glyph (the header diff toggle + the
@@ -211,7 +211,7 @@ export const DOCK_TAB_ICON_HOVER_HIDE_CLASS_NAME =
 
 /** Hover glyph: thicker X centered inside the disc. */
 export const DOCK_TAB_CLOSE_GLYPH_CLASS_NAME =
-  "absolute size-3.5 shrink-0 opacity-0 transition-opacity group-hover/dock-tab:opacity-100 group-focus-within/dock-tab:opacity-100";
+  "absolute size-4 shrink-0 opacity-0 transition-opacity group-hover/dock-tab:opacity-100 group-focus-within/dock-tab:opacity-100";
 
 /** Trailing close button for content tabs: a 24px target overlaid on the chip's end with
  *  its own hover disc, so it reads as separate from the (already filled) chip behind it. */

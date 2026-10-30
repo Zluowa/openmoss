@@ -73,11 +73,11 @@ export const FLOATING_OVERLAY_SURFACE_CLASS_NAME = "app-popup-surface";
 
 /**
  * The one page title every rail destination opens on (Inbox, Library, Images, Tasks, Skills,
- * Settings): Claude's page header — 24px on a 32px line, semibold, a hair of negative tracking.
+ * Settings): Claude's page header — 20px on a 25px line, semibold.
  * A fixed size, like dialog titles; secondary copy under it uses the `text-ui` scale.
  */
 export const PAGE_TITLE_CLASS_NAME =
-  "text-[1.5rem] leading-8 font-semibold tracking-[-0.01em] text-foreground";
+  "text-[1.25rem] leading-[1.5625rem] font-semibold text-foreground";
 
 /**
  * Tab material shared by every tab strip (the shell's top tabs, the browser pane's tabs and

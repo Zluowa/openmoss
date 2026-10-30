@@ -122,7 +122,7 @@ function FileAttachmentPillTrigger({
       )}
     >
       <span className="inline-flex h-7 min-w-0 max-w-[16rem] items-center gap-1.5 rounded-full pl-2 pr-2">
-        <FileIcon className="size-3.5 shrink-0 text-muted-foreground/90" />
+        <FileIcon className="size-4 shrink-0 text-muted-foreground/90" />
         <span className="min-w-0 truncate">{file.name}</span>
         <span className="shrink-0 text-muted-foreground/70">{formatBytes(file.sizeBytes)}</span>
         {nonPersisted ? <DraftAttachmentWarningIcon /> : null}

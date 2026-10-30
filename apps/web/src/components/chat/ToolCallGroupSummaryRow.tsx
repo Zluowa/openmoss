@@ -134,11 +134,11 @@ export function ToolCallGroupSummaryRow(
           data-tool-group-icon={liveEntry ? undefined : summary?.iconCategory}
         >
           {showFavicon && iconWebFetchUrl ? (
-            <LinkChipIcon url={iconWebFetchUrl} className="size-3.5" />
+            <LinkChipIcon url={iconWebFetchUrl} className="size-4" />
           ) : Icon === McpIcon && iconEntry?.mcpServer ? (
-            <McpServerIcon serverName={iconEntry.mcpServer} className="size-3.5" />
+            <McpServerIcon serverName={iconEntry.mcpServer} className="size-4" />
           ) : (
-            renderWorkEntryIcon(Icon, "size-3.5")
+            renderWorkEntryIcon(Icon, "size-4")
           )}
         </span>
         <span className="min-w-0 truncate" data-tool-group-live={liveEntry ? "true" : undefined}>

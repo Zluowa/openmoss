@@ -89,7 +89,7 @@ const ReviewFileTreeNodes = memo(function ReviewFileTreeNodes(props: {
                   pathValue={node.path}
                   kind="file"
                   theme={props.resolvedTheme}
-                  className="size-3.5 shrink-0 opacity-80"
+                  className="size-4 shrink-0 opacity-80"
                 />
               }
               label={node.name}
@@ -144,7 +144,7 @@ function ReviewFileTreeLoadingRows() {
           className="flex h-5 items-center gap-1.5"
           style={fileRowIndentStyle(index % 2)}
         >
-          <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+          <Skeleton className="size-4 shrink-0 rounded-sm" />
           <Skeleton className={cn("h-3 rounded-full", width)} />
         </div>
       ))}
@@ -227,7 +227,7 @@ export const ReviewFileTreePanel = function ReviewFileTreePanel(props: {
             title="Hide file tree"
             onClick={props.onClose}
           >
-            <XIcon className="size-3.5" />
+            <XIcon className="size-4" />
           </IconButton>
         ) : null}
       </div>

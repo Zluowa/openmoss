@@ -158,35 +158,31 @@ export const GitCommitIcon: LucideIcon = centralIconWrapper("commits");
 export const GitMergeIcon: LucideIcon = centralIconWrapper("merged");
 export const PushIcon: LucideIcon = centralIconWrapper("cloud-simple-upload");
 /**
- * Codex 26.1007 thread-header mark (`list-circle-light-16`): two nodes,
- * each with a line to the right. The header's handoff control uses this
- * shape; other handoff surfaces keep the transfer arrows.
+ * Thread-header mark: two nodes, each with a line to the right. The header's
+ * handoff control uses this shape; other handoff surfaces keep the transfer arrows.
  */
 export const ListCircleIcon: LucideIcon = ({ className, ...props }) => (
   <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className={className} {...props}>
-    <path
-      fillRule="evenodd"
-      clipRule="evenodd"
-      d="M3.89062 8.81738C5.28506 8.81738 6.41588 9.94837 6.41602 11.3428C6.41602 12.7373 5.28514 13.8682 3.89062 13.8682C2.49611 13.8682 1.36523 12.7373 1.36523 11.3428C1.36537 9.94837 2.49619 8.81738 3.89062 8.81738ZM3.89062 9.86816C3.07609 9.86816 2.41615 10.5283 2.41602 11.3428C2.41602 12.1574 3.076 12.8174 3.89062 12.8174C4.70525 12.8174 5.36523 12.1574 5.36523 11.3428C5.3651 10.5283 4.70516 9.86816 3.89062 9.86816Z"
-    />
-    <path d="M14 10.8174C14.2898 10.8174 14.5253 11.053 14.5254 11.3428C14.5254 11.6327 14.2899 11.8681 14 11.8682H8.66699C8.37704 11.8682 8.1416 11.6327 8.1416 11.3428C8.14173 11.0529 8.37712 10.8174 8.66699 10.8174H14Z" />
-    <path
-      fillRule="evenodd"
-      clipRule="evenodd"
-      d="M3.89062 2.13965C5.28514 2.13965 6.41602 3.27052 6.41602 4.66504C6.41602 6.05956 5.28514 7.19043 3.89062 7.19043C2.49611 7.19043 1.36523 6.05956 1.36523 4.66504C1.36523 3.27052 2.49611 2.13965 3.89062 2.13965ZM3.89062 3.19043C3.076 3.19043 2.41602 3.85042 2.41602 4.66504C2.41602 5.47966 3.076 6.13965 3.89062 6.13965C4.70525 6.13965 5.36523 5.47966 5.36523 4.66504C5.36523 3.85042 4.70525 3.19043 3.89062 3.19043Z"
-    />
-    <path d="M14 4.13965C14.2899 4.13971 14.5254 4.37513 14.5254 4.66504C14.5254 4.95495 14.2899 5.19036 14 5.19043H8.66699C8.37704 5.19043 8.1416 4.95499 8.1416 4.66504C8.1416 4.37509 8.37704 4.13965 8.66699 4.13965H14Z" />
+    <circle cx="4" cy="4.5" r="2" fill="none" stroke="currentColor" strokeWidth="1.1" />
+    <circle cx="4" cy="11.5" r="2" fill="none" stroke="currentColor" strokeWidth="1.1" />
+    <rect x="8" y="4" width="6.5" height="1" rx="0.5" />
+    <rect x="8" y="11" width="6.5" height="1" rx="0.5" />
   </svg>
 );
 /**
- * Codex 26.1007 thread-header Share mark (`arrow-up-open-base-light-16`):
- * an open tray with an arrow leaving it. The Central `share-os` stroke draws
- * the tray sides up beside the shaft, which reads heavier and more closed.
+ * Thread-header Share mark: an open tray with an arrow leaving it. The Central
+ * `share-os` stroke draws the tray sides up beside the shaft, which reads heavier
+ * and more closed.
  */
 export const ShareOsIcon: LucideIcon = ({ className, ...props }) => (
-  <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className={className} {...props}>
-    <path d="M13.3337 8.14162C13.6235 8.14179 13.8582 8.37716 13.8582 8.66701V11.2002C13.8582 12.6684 12.6681 13.8584 11.2 13.8584H4.80054C3.33238 13.8584 2.14136 12.6684 2.14136 11.2002V8.66701C2.14136 8.37706 2.3768 8.14162 2.66675 8.14162C2.9567 8.14162 3.19214 8.37706 3.19214 8.66701V11.2002C3.19214 12.0885 3.91228 12.8086 4.80054 12.8086H11.2C12.0882 12.8086 12.8083 12.0885 12.8083 11.2002V8.66701C12.8083 8.37706 13.0438 8.14162 13.3337 8.14162Z" />
-    <path d="M7.45874 2.47267C7.77339 2.21619 8.22716 2.21609 8.54175 2.47267L8.60718 2.53126L11.2048 5.12892C11.4097 5.33383 11.4095 5.66606 11.2048 5.87111C10.9998 6.07613 10.6677 6.07613 10.4626 5.87111L8.52515 3.93361V9.50001C8.52515 9.78996 8.28971 10.0254 7.99976 10.0254C7.70996 10.0252 7.47437 9.78986 7.47437 9.50001V3.93361L5.53784 5.87111C5.33282 6.07613 5.00068 6.07613 4.79565 5.87111C4.5908 5.66607 4.59069 5.33389 4.79565 5.12892L7.39331 2.53126L7.45874 2.47267Z" />
+  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={className} {...props}>
+    <path
+      d="M2.5 8.5v2.75a2.25 2.25 0 0 0 2.25 2.25h6.5a2.25 2.25 0 0 0 2.25-2.25V8.5M8 10V2.75M5.25 5.5 8 2.75l2.75 2.75"
+      stroke="currentColor"
+      strokeWidth="1.1"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 export const GitHubIcon: LucideIcon = centralIconWrapper("github");
@@ -285,7 +281,7 @@ const TemporaryThreadGlyph = centralIconWrapper("bubble-annotation-5");
 // Dotted "annotation" chat bubble — the temporary thread marker shown on the
 // composer toggle and beside temporary threads in the sidebar.
 export const TemporaryThreadIcon: LucideIcon = ({ className, ...props }) => (
-  <TemporaryThreadGlyph className={cn("size-3.5 shrink-0", className)} {...props} />
+  <TemporaryThreadGlyph className={cn("size-4 shrink-0", className)} {...props} />
 );
 // Central has no soft-wrap glyph; drawn on the same grid in public/moss-icons.
 export const TextWrapIcon: LucideIcon = centralIconWrapper("text-wrap", "moss");

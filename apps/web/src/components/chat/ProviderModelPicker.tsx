@@ -290,7 +290,7 @@ export function ComposerAccountSourceIcon(props: {
   readonly provider: ProviderKind;
   readonly className?: string;
 }) {
-  const className = cn("size-3.5 shrink-0", props.className);
+  const className = cn("size-4 shrink-0", props.className);
   if (props.kind === "moss") {
     return <MossLogo aria-hidden="true" className={className} />;
   }
@@ -1018,7 +1018,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
         <div className="space-y-2 px-2 py-2" aria-label="Loading models">
           {Array.from({ length: 6 }, (_, index) => (
             <div key={index} className="flex items-center gap-2 rounded-md px-2 py-1.5">
-              <Skeleton className="size-3.5 rounded-full" />
+              <Skeleton className="size-4 rounded-full" />
               <Skeleton className={cn("h-3.5 rounded-full", index % 3 === 0 ? "w-24" : "w-32")} />
             </div>
           ))}
@@ -1175,7 +1175,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
           tabIndex={-1}
           className="text-ui-sm flex items-start gap-1.5 px-2 py-2 text-amber-600 dark:text-amber-300/90"
         >
-          <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>Couldn’t load OMP models — check that omp is installed and authenticated</span>
         </div>
       ) : (
@@ -1425,7 +1425,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
                 onAfterSelection?.();
               }}
             >
-              <UserIcon className="size-3.5 text-muted-foreground" />
+              <UserIcon className="size-4 text-muted-foreground" />
               {t("chat.modelSource.connectPersonal")}
             </MenuItem>
           ) : null}
@@ -1883,7 +1883,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(
             aria-hidden="true"
             className={cn(
               // opacity-100 opts out of the Button base's [&_svg]:opacity-80 dimming.
-              "size-3.5 shrink-0 opacity-100",
+              "size-4 shrink-0 opacity-100",
               providerIconClassName(activeProvider, "text-muted-foreground/70"),
               props.activeProviderIconClassName,
             )}

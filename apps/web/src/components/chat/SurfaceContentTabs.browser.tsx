@@ -24,7 +24,7 @@ function mountStrip(widthPx: number, onSelect: (key: string) => void) {
         tabs={TITLES.map((title, index) => ({
           key: `tab-${index}`,
           title,
-          icon: <span aria-hidden className="size-3.5" />,
+          icon: <span aria-hidden className="size-4" />,
           onSelect: () => onSelect(`tab-${index}`),
         }))}
       />
@@ -85,7 +85,7 @@ describe("SurfaceContentTabs overflow", () => {
           tabs={TITLES.slice(0, 2).map((title, index) => ({
             key: `tab-${index}`,
             title,
-            icon: <span aria-hidden className="size-3.5" />,
+            icon: <span aria-hidden className="size-4" />,
             onSelect: () => {},
           }))}
           trailing={

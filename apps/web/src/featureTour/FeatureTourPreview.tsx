@@ -48,11 +48,11 @@ function WorkspacePreview() {
     <div className="flex flex-col gap-2">
       <div className="flex gap-1.5">
         <Chip active>
-          <ProviderIcon provider="codex" className="size-3.5 shrink-0" />
+          <ProviderIcon provider="codex" className="size-4 shrink-0" />
           <span className="truncate">Dashboard</span>
         </Chip>
         <Chip>
-          <ProviderIcon provider="claudeAgent" className="size-3.5 shrink-0" />
+          <ProviderIcon provider="claudeAgent" className="size-4 shrink-0" />
           <span className="truncate">API review</span>
         </Chip>
       </div>
@@ -88,7 +88,7 @@ function AccountsPreview() {
         >
           <ProviderIcon provider={row.provider} className="size-4 shrink-0" />
           <span>{row.name}</span>
-          {row.active ? <CheckIcon className="ms-auto size-3.5 text-primary" /> : null}
+          {row.active ? <CheckIcon className="ms-auto size-4 text-primary" /> : null}
         </div>
       ))}
     </div>
@@ -107,7 +107,7 @@ function ReviewPreview() {
         − Remove the placeholder
       </div>
       <div className="flex items-center gap-2 pt-1 text-muted-foreground">
-        <ProviderIcon provider="claudeAgent" className="size-3.5 shrink-0" />
+        <ProviderIcon provider="claudeAgent" className="size-4 shrink-0" />
         Ask an agent to review
       </div>
     </div>

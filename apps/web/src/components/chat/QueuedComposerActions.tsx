@@ -37,7 +37,7 @@ function QueuedComposerActions({
         <TooltipTrigger
           render={<Button variant="ghost" size="chip" onClick={() => void onSteer(queuedTurn)} />}
         >
-          <SteerIcon className="size-3.5" />
+          <SteerIcon className="size-4" />
           <span>Steer</span>
         </TooltipTrigger>
         <TooltipPopup className="max-w-80 leading-tight">
@@ -52,7 +52,7 @@ function QueuedComposerActions({
         label="Delete queued follow-up"
         onClick={() => onRemove(queuedTurn.id)}
       >
-        <Trash2 className="size-3.5" />
+        <Trash2 className="size-4" />
       </IconButton>
       <Menu>
         <MenuTrigger
@@ -65,7 +65,7 @@ function QueuedComposerActions({
             />
           }
         >
-          <EllipsisIcon className="size-3.5" />
+          <EllipsisIcon className="size-4" />
         </MenuTrigger>
         <ComposerPickerMenuPopup align="end" side="top" sideOffset={6}>
           <MenuItem onClick={() => onEdit(queuedTurn)}>Edit queued follow-up</MenuItem>

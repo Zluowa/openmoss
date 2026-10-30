@@ -204,7 +204,7 @@ export function ProjectImportPanel(props: {
                 setProgress(null);
               }}
             />
-            <ProviderIcon provider={provider} className="size-3.5 shrink-0" />
+            <ProviderIcon provider={provider} className="size-4 shrink-0" />
             <span>{IMPORT_PROVIDER_LABELS[provider]}</span>
           </label>
         ))}
@@ -215,7 +215,7 @@ export function ProjectImportPanel(props: {
           disabled={busy || scanning || providers.length === 0}
           onClick={() => void scan()}
         >
-          {scanning ? <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden /> : null}
+          {scanning ? <LoaderCircleIcon className="size-4 animate-spin" aria-hidden /> : null}
           {scanning ? "Finding projects…" : catalog ? "Scan again" : "Find projects"}
         </Button>
       </div>
@@ -312,7 +312,7 @@ export function ProjectImportPanel(props: {
           {running ? (
             <>
               <div className="flex items-center gap-2">
-                <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden />
+                <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
                 <span>
                   {stopRequested
                     ? "Stopping after this conversation…"
@@ -325,7 +325,7 @@ export function ProjectImportPanel(props: {
             </>
           ) : (
             <p className="flex items-center gap-2">
-              <CheckIcon className="size-3.5 text-success" aria-hidden />
+              <CheckIcon className="size-4 text-success" aria-hidden />
               {completedKeys.size} imported or already present
               {stopRequested
                 ? ". Import stopped; remaining selections are ready to continue."

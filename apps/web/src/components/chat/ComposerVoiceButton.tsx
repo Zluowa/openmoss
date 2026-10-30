@@ -43,13 +43,10 @@ export const ComposerVoiceButton = function ComposerVoiceButton(props: {
       {isBusy ? (
         <Loader2Icon
           aria-hidden="true"
-          className={cn("animate-spin text-primary", circle ? "size-3.5" : "size-4")}
+          className={cn("animate-spin text-primary", circle ? "size-4" : "size-4")}
         />
       ) : (
-        <MicIcon
-          aria-hidden="true"
-          className={cn("text-primary", circle ? "size-3.5" : "size-4")}
-        />
+        <MicIcon aria-hidden="true" className={cn("text-primary", circle ? "size-4" : "size-4")} />
       )}
     </Button>
   );

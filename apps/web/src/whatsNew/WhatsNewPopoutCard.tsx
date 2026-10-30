@@ -135,7 +135,7 @@ export function WhatsNewPopoutCard({
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
           )}
         >
-          <XIcon className="size-3.5" />
+          <XIcon className="size-4" />
         </button>
 
         {/* Hero band: screenshot when the entry supplies one, otherwise a

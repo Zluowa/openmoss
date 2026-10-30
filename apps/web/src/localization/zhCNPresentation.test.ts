@@ -223,4 +223,52 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
       expect(translateZhCnPresentationText(value)).toBe(value);
     }
   });
+
+  it("translates the copy the packaged client still showed in English", () => {
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      ["Are you sure you want to quit?", "确定要退出吗？"],
+      ["Quit", "退出"],
+      ["A chat is still running", "有一个对话正在运行"],
+      ["Chats are still running", "有多个对话正在运行"],
+      ["Resume chat automatically", "下次启动时自动继续这个对话"],
+      ["Resume chats automatically", "下次启动时自动继续这些对话"],
+      ["Spaces in the rail", "侧边栏中的空间"],
+      ["Projects in the rail", "侧边栏中的项目"],
+      ["No projects yet", "暂无项目"],
+      ["Customize…", "自定义…"],
+      [
+        "Enable providers across Moss. Disabled providers are hidden from pickers and settings; their saved configuration and existing threads are kept, and running turns continue. Enabling does not install a CLI or sign it in.",
+        "在 Moss 中启用服务商。已停用的服务商不会出现在选择器和设置里，但已保存的配置和现有对话都会保留，正在运行的回合也会继续。启用不会安装 CLI，也不会自动登录。",
+      ],
+      ["Refresh status", "刷新状态"],
+      ["Checking setup", "正在检查设置"],
+      ["Setup guide", "设置指南"],
+      ["Needs sign-in", "需要登录"],
+      ["Installed · authentication managed by OpenCode", "已安装 · 登录由 OpenCode 管理"],
+      ["Installed · sign-in not verified", "已安装 · 登录状态未验证"],
+      ["Search models…", "搜索模型…"],
+      ["Search starred…", "搜索已收藏…"],
+      ["Search models", "搜索模型"],
+      ["Select effort", "选择思考强度"],
+      ["Share current app", "分享当前应用"],
+      ["Repository conventions", "仓库约定"],
+      [
+        "In each project, matches recent change descriptions and change request titles.",
+        "在每个项目中，参照最近的变更说明和变更请求标题。",
+      ],
+      [
+        "Use default UI font is on; theme fonts are not applied.",
+        "已开启使用默认界面字体，主题字体不会生效。",
+      ],
+      ["Accent preview", "强调色预览"],
+      ["Quit Moss?", "退出 Moss？"],
+      ["Work in progress will stop when Moss is closed.", "关闭 Moss 后，进行中的工作会停止。"],
+      ["9 of 14 enabled", "已启用 9 / 14 个"],
+      ["System is currently using this light slot.", "系统当前正在使用这个浅色主题。"],
+      ["Used when your system switches to dark.", "系统切换到深色时使用。"],
+    ];
+    for (const [english, chinese] of cases) {
+      expect(translateZhCnPresentationText(english)).toBe(chinese);
+    }
+  });
 });

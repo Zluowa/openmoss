@@ -221,7 +221,7 @@ function DiffFileRow(props: {
         pathValue={filePath}
         kind="file"
         theme={props.resolvedTheme}
-        className="size-3.5 shrink-0"
+        className="size-4 shrink-0"
       />
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex min-w-0 items-baseline gap-1.5 overflow-hidden">
@@ -247,7 +247,7 @@ function DiffFilesLoadingRows() {
     <div className="space-y-1 px-1 py-1" role="status" aria-label="Loading changed files...">
       {DIFF_FILE_SKELETON_ROW_WIDTHS.map((width) => (
         <div key={width} className="flex h-8 items-center gap-1.5 px-2">
-          <Skeleton className="size-3.5 shrink-0 rounded-sm" />
+          <Skeleton className="size-4 shrink-0 rounded-sm" />
           <Skeleton className={cn("h-3 rounded-full", width)} />
           <Skeleton className="ml-auto h-3 w-9 shrink-0 rounded-full" />
         </div>
@@ -283,7 +283,7 @@ function DiffFilesSidebar(props: {
   return (
     <aside className="flex min-h-[11rem] w-full shrink-0 flex-col border-b border-border/65 app-content-surface lg:h-full lg:w-56 lg:border-b-0 lg:border-r">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/65 px-3">
-        <DiffIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <DiffIcon className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-ui font-medium text-foreground/86">
           Changed files
         </span>
@@ -618,7 +618,7 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
                   title="Switch project"
                   className="size-6"
                 >
-                  <ChevronDownIcon className="size-3.5" />
+                  <ChevronDownIcon className="size-3" />
                 </ChatHeaderIconButton>
               }
             />
@@ -632,7 +632,7 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
           className="gap-1.5"
           onClick={toggleChatPaneVisible}
         >
-          <PanelRightCloseIcon className="size-3.5" />
+          <PanelRightCloseIcon className="size-4" />
           <span className="sr-only">{chatPaneVisible ? "Hide chat panel" : "Show chat panel"}</span>
         </ChatHeaderButton>
         <ChatHeaderButton
@@ -643,7 +643,7 @@ export function EditorWorkspaceView(props: EditorWorkspaceViewProps) {
           className="w-[5.5rem] gap-1.5"
           onClick={() => guardLeavingEdit(props.onExitEditorView)}
         >
-          <ChatBubbleIcon className="size-3.5" />
+          <ChatBubbleIcon className="size-4" />
           <span className="truncate font-normal">Chat</span>
         </ChatHeaderButton>
       </div>

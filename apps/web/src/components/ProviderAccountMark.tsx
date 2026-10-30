@@ -62,7 +62,7 @@ export function ProviderAccountAvatar(props: {
       )}
       style={accentColor ? ({ "--account-accent": accentColor } as CSSProperties) : undefined}
     >
-      <ProviderIcon provider={props.provider} className={size === "md" ? "size-4.5" : "size-4"} />
+      <ProviderIcon provider={props.provider} className={size === "md" ? "size-4" : "size-4"} />
     </span>
   );
 }

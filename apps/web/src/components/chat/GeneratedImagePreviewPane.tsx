@@ -1585,7 +1585,7 @@ export function GeneratedImagePreviewPane(props: {
                     title={t("chat.generatedImage.preview.dismissCoachmark")}
                     onClick={dismissCoachmark}
                   >
-                    <XIcon className="size-3.5" aria-hidden="true" />
+                    <XIcon className="size-4" aria-hidden="true" />
                   </button>
                   <p className="pe-4 text-base leading-[18px] font-medium tracking-[-0.08px]">
                     {view === "single"

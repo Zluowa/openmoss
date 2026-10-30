@@ -622,7 +622,7 @@ export function ChatTranscriptPane({
                 scrollButtonVisible ? "pointer-events-auto" : "pointer-events-none",
               )}
             >
-              <ArrowDownIcon className="size-3.5" />
+              <ArrowDownIcon className="size-4" />
             </button>
           </div>
         ) : null}

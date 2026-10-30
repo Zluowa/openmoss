@@ -94,9 +94,9 @@ function LocalServerRow({
         className="inline-flex size-6 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground/70 transition-colors hover:bg-[color-mix(in_srgb,var(--destructive)_12%,transparent)] hover:text-destructive data-highlighted:bg-[color-mix(in_srgb,var(--destructive)_12%,transparent)] data-highlighted:text-destructive data-disabled:text-muted-foreground/30 data-disabled:hover:bg-transparent data-disabled:hover:text-muted-foreground/30"
       >
         {stopping ? (
-          <RefreshCwIcon className="size-3.5 animate-spin" />
+          <RefreshCwIcon className="size-4 animate-spin" />
         ) : (
-          <StopFilledIcon className="size-3.5" />
+          <StopFilledIcon className="size-4" />
         )}
       </MenuItem>
     </div>

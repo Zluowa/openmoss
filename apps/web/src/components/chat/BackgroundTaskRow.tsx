@@ -48,9 +48,9 @@ export function BackgroundTaskRow(props: { task: WorkLogBackgroundTask; fontSize
         aria-hidden
       >
         {running ? (
-          <LiveStatusSpinner className="size-3.5 text-sky-600 dark:text-sky-300" />
+          <LiveStatusSpinner className="size-4 text-sky-600 dark:text-sky-300" />
         ) : (
-          <BackgroundTrayIcon className="size-3.5" />
+          <BackgroundTrayIcon className="size-4" />
         )}
       </span>
       <span className="min-w-0 truncate leading-5">

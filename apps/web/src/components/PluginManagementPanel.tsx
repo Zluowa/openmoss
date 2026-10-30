@@ -425,7 +425,7 @@ function AppRow({
               open();
             }}
           >
-            <ExternalLinkIcon className="size-3.5" />
+            <ExternalLinkIcon className="size-4" />
           </Button>
         ) : null}
         <Switch

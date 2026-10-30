@@ -179,7 +179,7 @@ function HeaderCreateMenu({
             data-testid="plugin-library-add-menu"
           >
             <span>{label}</span>
-            <ChevronDownIcon aria-hidden="true" className="size-3.5" />
+            <ChevronDownIcon aria-hidden="true" className="size-3" />
           </Button>
         }
       />

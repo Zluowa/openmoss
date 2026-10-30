@@ -507,10 +507,10 @@ describe("Moss Images browser workflow", () => {
     expect(frame.top).toBe(44);
     expect(composer.width).toBe(768);
     expect(composer.height).toBeLessThanOrEqual(108);
-    expect(composer.top).toBeGreaterThanOrEqual(124);
+    expect(composer.top).toBeGreaterThanOrEqual(116);
     expect(composer.top).toBeLessThanOrEqual(132);
     expect(photos.top - composer.bottom).toBe(32);
-    expect(gallery.top).toBeGreaterThanOrEqual(575);
+    expect(gallery.top).toBeGreaterThanOrEqual(565);
     expect(gallery.top).toBeLessThanOrEqual(600);
     await expect.element(page.getByRole("button", { name: "听写", exact: true })).toBeVisible();
     await expect.element(page.getByRole("button", { name: "听写", exact: true })).toBeDisabled();

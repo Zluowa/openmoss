@@ -92,7 +92,7 @@ export function AsyncUserInputCard({
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="my-2">
       <CollapsibleTrigger className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-ui leading-snug text-muted-foreground hover:bg-muted/50 hover:text-foreground">
-        <CircleQuestionIcon className="size-3.5" aria-hidden="true" />
+        <CircleQuestionIcon className="size-4" aria-hidden="true" />
         {questions.length} {questions.length === 1 ? "question" : "questions"}
         {answered && (
           <>

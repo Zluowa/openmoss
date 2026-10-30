@@ -372,7 +372,7 @@ function AnimatedExample({
               className="inline-flex size-[26px] items-center justify-center rounded-lg border border-border bg-secondary text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onClick={onPrevious}
             >
-              <ComputerHistoryPreviousIcon className="size-[15px]" aria-hidden="true" />
+              <ComputerHistoryPreviousIcon className="size-4" aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -381,7 +381,7 @@ function AnimatedExample({
               onClick={onNext}
             >
               <ComputerHistoryPreviousIcon
-                className="size-[15px] -scale-x-100 transform"
+                className="size-4 -scale-x-100 transform"
                 aria-hidden="true"
               />
             </button>
@@ -531,7 +531,7 @@ function PermissionModeSelect({
       >
         {label}
         <ComputerHistoryChevronDownIcon
-          className="size-3.5 text-muted-foreground"
+          className="size-4 text-muted-foreground"
           aria-hidden="true"
         />
       </MenuTrigger>
@@ -720,7 +720,7 @@ function AppPicker({
     >
       <div className="flex w-full items-center gap-1.5 px-2 py-1">
         <ComputerHistorySearchIcon
-          className="size-3.5 shrink-0 text-muted-foreground"
+          className="size-4 shrink-0 text-muted-foreground"
           aria-hidden="true"
         />
         <Input
@@ -1424,7 +1424,7 @@ export function ComputerHistorySettingsPanel() {
                       disabled={permissionSaving || catalogLoading}
                     >
                       <span className="flex size-6 items-center justify-center text-muted-foreground">
-                        <ComputerHistoryPlusIcon className="size-[18px]" aria-hidden="true" />
+                        <ComputerHistoryPlusIcon className="size-4" aria-hidden="true" />
                       </span>
                       {t("settings.history.addApp")}
                     </Button>
@@ -1513,7 +1513,7 @@ export function ComputerHistorySettingsPanel() {
                         disabled={permissionSaving}
                       >
                         <span className="flex size-6 items-center justify-center text-muted-foreground">
-                          <ComputerHistoryPlusIcon className="size-[18px]" aria-hidden="true" />
+                          <ComputerHistoryPlusIcon className="size-4" aria-hidden="true" />
                         </span>
                         {t("settings.history.addWebsite")}
                       </Button>
@@ -1615,7 +1615,7 @@ export function ComputerHistorySettingsPanel() {
                 onClick={() => void savePermissions()}
               >
                 {permissionSaving ? (
-                  <LoaderIcon className="size-3.5 animate-spin" aria-hidden="true" />
+                  <LoaderIcon className="size-4 animate-spin" aria-hidden="true" />
                 ) : null}
                 {t(permissionInitialSetup ? "settings.history.continue" : "settings.history.done")}
               </Button>
@@ -1652,7 +1652,7 @@ export function ComputerHistorySettingsPanel() {
             }
           >
             {t("settings.history.clearHistory")}
-            <ComputerHistoryChevronDownIcon className="size-3.5" aria-hidden="true" />
+            <ComputerHistoryChevronDownIcon className="size-4" aria-hidden="true" />
           </MenuTrigger>
           <ComposerPickerMenuPopup
             align="end"
@@ -1889,7 +1889,7 @@ export function ComputerHistorySettingsPanel() {
                                             }}
                                           >
                                             <ComputerHistoryFolderIcon
-                                              className="size-3.5"
+                                              className="size-4"
                                               aria-hidden="true"
                                             />
                                           </button>
@@ -1942,7 +1942,7 @@ export function ComputerHistorySettingsPanel() {
                                               t("settings.history.deleteConfirm")
                                             ) : (
                                               <ComputerHistoryTrashIcon
-                                                className="size-3.5"
+                                                className="size-4"
                                                 aria-hidden="true"
                                               />
                                             )}
@@ -2267,7 +2267,7 @@ export function ComputerHistorySettingsPanel() {
                   aria-busy="true"
                   data-testid="computer-history-resume-loading"
                 >
-                  <LoaderIcon className="size-3.5 animate-spin" aria-hidden="true" />
+                  <LoaderIcon className="size-4 animate-spin" aria-hidden="true" />
                   {t("settings.history.resume")}
                 </Button>
               ) : state.recorderState === "running" || state.recorderState === "paused" ? (

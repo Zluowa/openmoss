@@ -168,7 +168,7 @@ export function SelectionNewChatComposer({
                       disabled={busy}
                       onClick={onClose}
                     >
-                      <XIcon className="size-3.5" />
+                      <XIcon className="size-4" />
                     </Button>
                   </div>
                 </div>

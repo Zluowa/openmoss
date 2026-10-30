@@ -188,7 +188,7 @@ function KanbanColumnComponent({
               title="New task"
               onClick={onNewCard}
             >
-              <PlusIcon className="size-3.5" />
+              <PlusIcon className="size-4" />
             </Button>
           ) : null}
           <KanbanStatusIcon column={columnKey} />

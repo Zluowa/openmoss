@@ -828,9 +828,8 @@ export function projectProviderRuntimeActivities(
             ...(event.type === "request.opened" && event.payload.detail
               ? { detail: truncateDetail(event.payload.detail, MAX_ACTIVITY_DATA_STRING_CHARS) }
               : {}),
-            // Codex 26.1007 `qr` titles an exec card with `item.approvalReason`
-            // (`pending-request-item-panel-bd889fcbd56a.js`) and keeps `cmd` in
-            // the body. The reason rides on request args; the command stays `detail`.
+            // An exec approval card is titled with the approval reason and keeps the
+            // command in its body. The reason rides on request args; the command stays `detail`.
             ...(event.type === "request.opened" ? requestedApprovalReason(event) : {}),
             ...(event.type === "request.opened" ? requestedExecpolicyAmendment(event) : {}),
             ...(permissionProfile ? { permissionProfile } : {}),

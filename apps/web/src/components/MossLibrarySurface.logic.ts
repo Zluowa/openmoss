@@ -180,7 +180,7 @@ export function mossLibraryEmptyHeightsForSection(
 /** CLI / agent sources that can deposit generated files into Moss Library. */
 export type MossLibrarySourceCli = "codex" | "claude" | "opencode" | "grok" | "moss" | "other";
 
-/** Card kinds mirroring Codex library item surfaces (doc / image / folder / code). */
+/** Card kinds for library items (doc / image / folder / code). */
 export type MossLibraryItemKind =
   | "document"
   | "image"

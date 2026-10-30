@@ -101,9 +101,9 @@ export function WorkspaceFileDiffEditorPane(props: WorkspaceFileDiffEditorPanePr
               onClick={() => setRenderSideBySide((previous) => !previous)}
             >
               {renderSideBySide ? (
-                <Rows3Icon aria-hidden="true" className="size-3.5" />
+                <Rows3Icon aria-hidden="true" className="size-4" />
               ) : (
-                <Columns2Icon aria-hidden="true" className="size-3.5" />
+                <Columns2Icon aria-hidden="true" className="size-4" />
               )}
             </ChatHeaderIconButton>
           </>

@@ -166,7 +166,7 @@ export default function KanbanView({ projectId }: { projectId: string | null }) 
                 onClick={handleBackToOverview}
                 aria-label="Back to all projects"
               >
-                <ArrowLeftIcon className="size-3.5" />
+                <ArrowLeftIcon className="size-4" />
               </Button>
             ) : null}
             <h2 className="max-w-[clamp(16rem,50vw,40rem)] truncate text-ui-lg font-medium text-foreground">

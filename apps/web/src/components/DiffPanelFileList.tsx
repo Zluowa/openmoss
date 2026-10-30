@@ -24,7 +24,7 @@ export interface DiffFileChatActions {
   onAskWhyChanged: (filePath: string) => void;
 }
 
-const DIFF_FILE_ACTIONS_MENU_ICON_CLASS_NAME = "size-3.5 shrink-0 text-muted-foreground";
+const DIFF_FILE_ACTIONS_MENU_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground";
 
 // Per-file actions menu rendered in the custom header's trailing slot, left of
 // the collapse chevron. Marked with data-diff-header-menu so header clicks on
@@ -44,7 +44,7 @@ function DiffFileHeaderActionsMenu(props: { filePath: string; chatActions: DiffF
             title="File actions"
             className={TOOLBAR_ICON_BUTTON_TONE_CLASS_NAME}
           >
-            <EllipsisIcon className="size-3.5" />
+            <EllipsisIcon className="size-4" />
           </IconButton>
         }
       />

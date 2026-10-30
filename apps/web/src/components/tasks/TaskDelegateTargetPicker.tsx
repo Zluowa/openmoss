@@ -36,7 +36,7 @@ export function TaskDelegateTargetPicker({ runIn }: { runIn: TaskDelegateTargetS
           />
         }
       >
-        <FolderIcon aria-hidden className="size-3.5 shrink-0 opacity-70" />
+        <FolderIcon aria-hidden className="size-4 shrink-0 opacity-70" />
         <span className="min-w-0 truncate">
           {target?.kind === "folder"
             ? folderLabel(target.path)

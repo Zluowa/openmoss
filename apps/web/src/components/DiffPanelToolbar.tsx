@@ -68,7 +68,7 @@ import {
   MenuRadioItem,
   MenuTrigger,
 } from "./ui/menu";
-const DIFF_PANEL_PICKER_ICON_CLASS_NAME = "size-3.5 shrink-0 text-[var(--color-text-foreground)]";
+const DIFF_PANEL_PICKER_ICON_CLASS_NAME = "size-4 shrink-0 text-[var(--color-text-foreground)]";
 
 /** Tighter than EnvironmentRow — dock header has no 16px icon gutter column. */
 const DIFF_PANEL_PICKER_TRIGGER_CLASS_NAME = cn(
@@ -79,7 +79,7 @@ const DIFF_PANEL_PICKER_TRIGGER_CLASS_NAME = cn(
   "hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:bg-[var(--color-background-button-secondary-hover)]",
 );
 
-const DIFF_PANEL_MENU_ICON_CLASS_NAME = "size-3.5 shrink-0 text-muted-foreground";
+const DIFF_PANEL_MENU_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground";
 const INITIAL_VISIBLE_TURN_COUNT = 5;
 const TURN_SHOW_MORE_INCREMENT = 20;
 
@@ -98,7 +98,7 @@ export function DiffPanelCloseButton({ onClose }: { onClose: () => void }) {
           onClose();
         }}
       >
-        <XIcon className="size-3.5" />
+        <XIcon className="size-4" />
       </IconButton>
     </ButtonGroup>
   );
@@ -170,8 +170,8 @@ function resolveScopeMenuIcon(scope: DiffPanelRepoScopeOption | "lastTurn") {
       return <GitBranchIcon className={DIFF_PANEL_MENU_ICON_CLASS_NAME} />;
     case "lastTurn":
       return (
-        <span className="inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-          <PlusMinusIcon className="size-3.5" />
+        <span className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+          <PlusMinusIcon className="size-4" />
         </span>
       );
     default:
@@ -198,7 +198,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
 
   let scopePickerIcon: ReactNode;
   if (props.viewSource.kind === "turn") {
-    scopePickerIcon = <PlusMinusIcon className="size-3.5 text-[var(--color-text-foreground)]" />;
+    scopePickerIcon = <PlusMinusIcon className="size-4 text-[var(--color-text-foreground)]" />;
   } else {
     scopePickerIcon = <ChangesIcon className={DIFF_PANEL_PICKER_ICON_CLASS_NAME} />;
   }
@@ -354,7 +354,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
             title="Reload diff"
             onClick={props.onReload}
           >
-            <RefreshCwIcon className={cn("size-3.5", props.reloading && "animate-spin")} />
+            <RefreshCwIcon className={cn("size-4", props.reloading && "animate-spin")} />
           </IconButton>
 
           <Menu>
@@ -367,7 +367,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
                   label="Diff view options"
                   title="Diff view options"
                 >
-                  <EllipsisIcon className="size-3.5" />
+                  <EllipsisIcon className="size-4" />
                 </IconButton>
               }
             />
@@ -473,7 +473,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
             title={props.fileTreeOpen ? "Hide file tree" : "Show file tree"}
             onClick={props.onToggleFileTree}
           >
-            <FoldersIcon className="size-3.5" />
+            <FoldersIcon className="size-4" />
           </IconButton>
         </ButtonGroup>
 
@@ -499,7 +499,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
           >
             <EnvironmentRowBody
               compact
-              icon={<PlusMinusIcon className="size-3.5 text-[var(--color-text-foreground)]" />}
+              icon={<PlusMinusIcon className="size-4 text-[var(--color-text-foreground)]" />}
               label={<span className="truncate">{turnsMenuLabel}</span>}
               trailing={<EnvironmentRowChevron />}
             />
@@ -528,7 +528,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
                 </MenuRadioItem>
                 {visibleTurnSummaries.map((summary) => (
                   <MenuRadioItem key={summary.turnId} value={summary.turnId}>
-                    <PlusMinusIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                    <PlusMinusIcon className="size-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">
                       Turn {resolveTurnNumber(summary, props.inferredCheckpointTurnCountByTurnId)}
                     </span>

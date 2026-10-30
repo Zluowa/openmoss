@@ -170,7 +170,7 @@ export function ProviderInstanceEnvironmentEditor({
               onClick={() => replaceEntry(index, null)}
               aria-label={`Remove ${entry.name}`}
             >
-              <XIcon className="size-3.5" />
+              <XIcon className="size-4" />
             </Button>
           </div>
         );
@@ -210,7 +210,7 @@ export function ProviderInstanceEnvironmentEditor({
           disabled={!canAddDraft}
           onClick={addDraft}
         >
-          <PlusIcon className="size-3.5" />
+          <PlusIcon className="size-4" />
           Add
         </Button>
       </div>

@@ -14,17 +14,16 @@ export const SETTINGS_SIDEBAR_SECTION_CLASS_NAME = "flex flex-col gap-1";
 
 /** Section labels use an 8px start inset and no vertical padding. */
 export const SETTINGS_SIDEBAR_SECTION_LABEL_CLASS_NAME =
-  "flex items-center justify-between gap-2 pe-0.5 ps-2 text-ui-lg font-medium leading-[18px] text-muted-foreground opacity-75";
+  "flex items-center justify-between gap-2 pe-0.5 ps-2 text-ui-sm font-normal text-muted-foreground opacity-75";
 
 /** Nav row — same chrome as project/chat sidebar header rows. */
 export const SETTINGS_SIDEBAR_ITEM_CLASS_NAME =
-  "flex h-[31px] items-center gap-2 rounded-full px-2 py-[5px] text-ui-lg leading-[21px]";
+  "flex h-8 items-center gap-2 rounded-row px-2 text-ui-lg";
 
-export const SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME =
-  "min-w-0 flex-1 truncate text-ui-lg leading-[21px]";
+export const SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME = "min-w-0 flex-1 truncate text-ui-lg";
 
 /** Inner glyph size; tone is set at each call site to `text-inherit` so the glyph tracks the row text. */
-export const SETTINGS_SIDEBAR_ICON_CLASS_NAME = "size-[18px] shrink-0";
+export const SETTINGS_SIDEBAR_ICON_CLASS_NAME = "size-4 shrink-0";
 
 /**
  * Idle nav rows rest at the same foreground as primary sidebar item rows (thread/project
@@ -39,4 +38,4 @@ export const SETTINGS_SIDEBAR_ROW_FILL_HOVER_CLASS_NAME = [
 
 export const SETTINGS_SIDEBAR_ROW_FILL_ACTIVE_CLASS_NAME = SIDEBAR_ROW_ACTIVE_CLASS_NAME;
 
-export const SETTINGS_SIDEBAR_LIST_GAP_CLASS_NAME = "gap-px";
+export const SETTINGS_SIDEBAR_LIST_GAP_CLASS_NAME = "gap-0.5";

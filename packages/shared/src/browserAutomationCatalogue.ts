@@ -92,9 +92,9 @@ const BROWSER_COMMON_AGENT_GUIDANCE =
   "Controls this thread's shared Moss browser, not chat/desktop. Stop and answer once the outcome is observed.";
 
 /**
- * Shared by every CLI. Official Codex 26.1007.71326 stopped always creating the
- * preferred browser and instead follows a browser or environment the user already
- * named. Tool choice stays with the model; this sentence is the rule.
+ * Shared by every CLI. Follow a browser or environment the user already named
+ * instead of always creating the preferred browser. Tool choice stays with the
+ * model; this sentence is the rule.
  */
 export const EXPLICIT_BROWSER_ENVIRONMENT_GUIDANCE =
   "Explicit browser or environment choice wins: use it; do not create a new default.";

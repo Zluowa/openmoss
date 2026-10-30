@@ -54,7 +54,7 @@ export function SecretRequestCard(props: {
         style={metaStyle}
         data-secret-request-state={display.kind === "pending" ? "pending" : display.outcome}
       >
-        <Icon className="size-3.5 shrink-0" aria-hidden />
+        <Icon className="size-4 shrink-0" aria-hidden />
         <span className="min-w-0 truncate">
           {props.request.label} ·{" "}
           {t(display.kind === "pending" ? "chat.secretRequest.waiting" : display.labelKey)}
@@ -119,7 +119,7 @@ function PendingSecretRequestForm(props: {
 
   return (
     <form
-      className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] p-3"
+      className="flex min-w-0 flex-col gap-2.5 rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] p-3"
       autoComplete="off"
       data-secret-request-state="pending"
       onSubmit={onSubmit}
@@ -127,7 +127,7 @@ function PendingSecretRequestForm(props: {
       <div className="min-w-0 space-y-0.5">
         <label
           htmlFor={inputId}
-          className="block font-medium text-[var(--color-text-foreground)]"
+          className="block text-chat font-medium text-[var(--color-text-foreground)]"
           style={props.textFontSizePx ? { fontSize: `${props.textFontSizePx}px` } : undefined}
         >
           {request.label}
@@ -135,7 +135,7 @@ function PendingSecretRequestForm(props: {
         {/* Where to get the secret is the part the user acts on, so it reads at body size. */}
         <p
           id={reasonId}
-          className="leading-relaxed whitespace-pre-wrap text-[var(--color-text-foreground-secondary)]"
+          className="whitespace-pre-wrap text-chat text-[var(--color-text-foreground-secondary)]"
           style={props.textFontSizePx ? { fontSize: `${props.textFontSizePx}px` } : undefined}
         >
           {request.reason}
@@ -180,7 +180,7 @@ function PendingSecretRequestForm(props: {
           className="flex min-w-0 items-center gap-1.5 text-[var(--color-text-foreground-secondary)]"
           style={props.metaStyle}
         >
-          <LockIcon className="size-3.5 shrink-0" aria-hidden />
+          <LockIcon className="size-4 shrink-0" aria-hidden />
           <span className="min-w-0">{t("chat.secretRequest.privacyNote")}</span>
         </p>
         <Button

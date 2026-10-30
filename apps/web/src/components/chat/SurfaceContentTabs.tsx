@@ -97,7 +97,7 @@ function SortableSurfaceTabChip({
           <DragHandleIcon
             aria-hidden
             className={cn(
-              "absolute size-3.5 text-[var(--color-text-foreground-secondary)] opacity-0 transition-opacity group-hover/dock-tab:opacity-100",
+              "absolute size-4 text-[var(--color-text-foreground-secondary)] opacity-0 transition-opacity group-hover/dock-tab:opacity-100",
               sortable.isDragging && "opacity-100",
             )}
           />
@@ -286,7 +286,7 @@ export function SurfaceContentTabs<Key extends string>(props: {
               />
             }
           >
-            <ChevronDownIcon className="size-3.5" />
+            <ChevronDownIcon className="size-3" />
           </MenuTrigger>
           <ComposerPickerMenuPopup align="end" side="bottom" className="w-64 min-w-48">
             {hiddenTabs.map((tab) => (
@@ -296,9 +296,7 @@ export function SurfaceContentTabs<Key extends string>(props: {
                 onClick={() => tab.onSelect?.()}
                 data-active={tab.key === activeKey ? "" : undefined}
               >
-                <span className="flex size-3.5 shrink-0 items-center justify-center">
-                  {tab.icon}
-                </span>
+                <span className="flex size-4 shrink-0 items-center justify-center">{tab.icon}</span>
                 <span className="min-w-0 truncate">{tab.title}</span>
               </MenuItem>
             ))}

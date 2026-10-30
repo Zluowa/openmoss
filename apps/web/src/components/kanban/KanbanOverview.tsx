@@ -57,7 +57,7 @@ const OverviewProjectColumn = function OverviewProjectColumn({
           <span className="text-ui leading-snug text-muted-foreground/70">
             {projectBoard.totalCount}
           </span>
-          <ChevronRightIcon className="ml-auto size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover/kanban-project:opacity-100 group-focus-visible/kanban-project:opacity-100" />
+          <ChevronRightIcon className="ml-auto size-4 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover/kanban-project:opacity-100 group-focus-visible/kanban-project:opacity-100" />
         </button>
         <Button
           size="icon-xs"
@@ -67,7 +67,7 @@ const OverviewProjectColumn = function OverviewProjectColumn({
           title={`New task in ${projectBoard.projectName}`}
           onClick={() => onNewTask(projectBoard.projectId)}
         >
-          <PlusIcon className="size-3.5" />
+          <PlusIcon className="size-4" />
         </Button>
       </div>
       <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-1">
