@@ -1,5 +1,7 @@
 # Moss
 
+[![CI](https://github.com/Zluowa/openmoss/actions/workflows/ci.yml/badge.svg)](https://github.com/Zluowa/openmoss/actions/workflows/ci.yml)
+
 A desktop workspace for coding agents. Run Codex, Claude, Cursor, Gemini, Antigravity, Grok, OpenCode, Pi, Hermes, Devin, and OMP side by side, with each project's threads, diffs, terminal, browser, and Git tools in one window.
 
 [Download](https://trymoss.com) · [Report an issue](../../issues/new/choose) · [Contributing](CONTRIBUTING.md)
