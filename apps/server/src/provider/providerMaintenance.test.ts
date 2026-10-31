@@ -329,8 +329,10 @@ describe("providerMaintenance", () => {
     it("recognises npm's Windows shim by the package beside it", async () => {
       const directory = "C:\\Users\\Test\\AppData\\Roaming\\npm";
       const { capabilities } = await runWithVirtualFileSystem(
+        // PATH candidates are joined with the host separator (see the PATHEXT test above);
+        // the package manifest beside the shim is always a Windows path.
         new Set([
-          win32.join(directory, "codex"),
+          join(directory, "codex"),
           win32.join(directory, "node_modules", "@openai", "codex", "package.json"),
         ]),
         { binaryPath: "codex", platform: "win32", env: { PATH: directory, PATHEXT: ".CMD" } },
@@ -347,10 +349,11 @@ describe("providerMaintenance", () => {
 
     it("leaves a Windows binary without a package beside it unclassified", async () => {
       const directory = "C:\\tools";
-      const { capabilities } = await runWithVirtualFileSystem(
-        new Set([win32.join(directory, "codex")]),
-        { binaryPath: "codex", platform: "win32", env: { PATH: directory, PATHEXT: ".CMD" } },
-      );
+      const { capabilities } = await runWithVirtualFileSystem(new Set([join(directory, "codex")]), {
+        binaryPath: "codex",
+        platform: "win32",
+        env: { PATH: directory, PATHEXT: ".CMD" },
+      });
 
       assert.strictEqual(capabilities.update, null);
     });
