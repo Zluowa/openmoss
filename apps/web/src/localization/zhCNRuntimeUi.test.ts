@@ -161,6 +161,16 @@ describe("translateZhCnRuntimeUiText", () => {
         "Update timed out after 20 milliseconds. The provider process was stopped.",
       ),
     ).toBe("更新等待 20 毫秒后超时，服务商进程已停止。");
+    expect(translateZhCnRuntimeUiText("Update command exited with code 1.")).toBe(
+      "更新命令已退出，退出码 1。",
+    );
+    expect(
+      translateZhCnRuntimeUiText(
+        "Update timed out after 5 minutes. The provider process was stopped. This install updates through the vendor's own servers, which have no domestic mirror. Reinstalling it with npm lets Moss update it through the mirror.",
+      ),
+    ).toBe(
+      "更新等待 5 分钟后超时，服务商进程已停止。这个智能体用的是官方安装程序，更新要连接海外服务器，没有国内镜像。改用 npm 重新安装后，Moss 就能通过镜像更新它。",
+    );
     expect(
       translateZhCnRuntimeUiText(
         `Could not read 'My Project (draft).md'. Paths with spaces or special characters may need a path mention (@"…") instead of a file attachment.`,

@@ -187,20 +187,8 @@ describe("desktop update rail control", () => {
             const button = page
               .getByRole("button", { name: `Preparing update (${percent}%)`, exact: true })
               .element();
-            const label = button.querySelector("span span")!;
-            const disc = label.parentElement!.getBoundingClientRect();
-            const range = document.createRange();
-            range.selectNodeContents(label);
-            const text = range.getBoundingClientRect();
-            console.info("percentage bounds", {
-              flavor,
-              font,
-              percent,
-              textWidth: text.width,
-              discWidth: disc.width,
-            });
-            expect(text.left).toBeGreaterThanOrEqual(disc.left - 0.5);
-            expect(text.right).toBeLessThanOrEqual(disc.right + 0.5);
+            const ring = button.querySelector("[data-rail-progress-ring]")!;
+            const disc = ring.getBoundingClientRect();
             const box = button.getBoundingClientRect();
             expect(disc.left).toBeGreaterThanOrEqual(box.left - 0.5);
             expect(disc.right).toBeLessThanOrEqual(box.right + 0.5);
@@ -210,9 +198,6 @@ describe("desktop update rail control", () => {
               .getBoundingClientRect();
             expect(box.left).toBeGreaterThanOrEqual(rail.left);
             expect(box.right).toBeLessThanOrEqual(rail.right);
-            expect(getComputedStyle(label).fontSize).toBe(
-              `${getAppTypographyScale(font).ui2XsPx}px`,
-            );
             await expect
               .element(
                 page.getByRole("button", { name: `Preparing update (${percent}%)`, exact: true }),

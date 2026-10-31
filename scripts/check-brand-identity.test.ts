@@ -5,6 +5,7 @@ import {
   findBrandIdentityViolations,
   findLegacyIdentityViolations,
   findPublicRuntimeBrandViolations,
+  findUnreviewedBrandImages,
   findVisualBrandAssetViolations,
   type BrandIdentityRequirement,
 } from "./check-brand-identity";
@@ -247,6 +248,31 @@ describe("Moss brand identity guard", () => {
     expect(findVisualBrandAssetViolations([], approvedDigests)).toHaveLength(1);
   });
 
+  it("rejects the upstream author's name in shipped source", () => {
+    expect(
+      findPublicRuntimeBrandViolations([
+        {
+          path: "apps/desktop/scripts/provision.mjs",
+          contents: 'const id = "com.emanueledipietro.moss";',
+        },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("requires someone to have reviewed every brand image", () => {
+    const approved = new Map([["apps/web/public/app-icons/default.png", "digest"]]);
+    expect(findUnreviewedBrandImages(["apps/web/public/app-icons/default.png"], approved)).toEqual(
+      [],
+    );
+    expect(findUnreviewedBrandImages(["apps/web/public/app-icons/beta.png"], approved)).toEqual([
+      {
+        path: "apps/web/public/app-icons/beta.png",
+        line: null,
+        text: "Brand image has no reviewed digest; look at it, then add its digest.",
+      },
+    ]);
+  });
+
   it("allows the real Moss repository coordinate without allowing product rebranding beside it", () => {
     const path = "apps/marketing/src/lib/seo.ts";
     expect(
@@ -259,6 +285,37 @@ describe("Moss brand identity guard", () => {
         {
           path,
           contents: 'const name = "Synara"; const repo = "https://github.com/Zluowa/moss-synara";',
+        },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("rejects the retired mark's drawing and name wherever a Moss name hides them", () => {
+    const drawing = '<path d="M2.65188 2.1899C-0.63 5.47"/>';
+    expect(
+      findPublicRuntimeBrandViolations([
+        { path: "apps/web/src/assets/mossLogo.ts", contents: drawing },
+      ]),
+    ).toHaveLength(1);
+    expect(
+      findPublicRuntimeBrandViolations([
+        { path: "apps/web/src/guest/favicon.svg", contents: drawing },
+      ]),
+    ).toHaveLength(1);
+    expect(
+      findPublicRuntimeBrandViolations([
+        { path: "apps/web/src/components/SynaraLogo.tsx", contents: "export const MossLogo = 1;" },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("rejects naming the upstream project in release notes", () => {
+    expect(
+      findPublicRuntimeBrandViolations([
+        {
+          path: "apps/web/src/whatsNew/entries.ts",
+          contents:
+            'version: "1.0.0",\n"Upstream release history: Synara 1.0.0 is a Stable release.",',
         },
       ]),
     ).toHaveLength(1);

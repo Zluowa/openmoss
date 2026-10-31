@@ -150,6 +150,8 @@ const ServerProviderStatusWire = Schema.Struct({
       // "unknown" no matter how current the install is. Absent on older servers,
       // where callers must assume a source exists and keep the legacy behavior.
       latestVersionKnowable: Schema.optional(Schema.Boolean),
+      // Where this machine's version checks and updates download from. Absent means official.
+      packageChannel: Schema.optional(Schema.Literals(["official", "cn-mirror"])),
       updateCommand: Schema.NullOr(TrimmedNonEmptyString),
       canUpdate: Schema.Boolean,
       checkedAt: Schema.NullOr(IsoDateTime),
@@ -193,6 +195,8 @@ const ServerProviderStatusSource = Schema.Struct({
       currentVersion: Schema.NullOr(TrimmedNonEmptyString),
       latestVersion: Schema.NullOr(TrimmedNonEmptyString),
       latestVersionKnowable: Schema.optional(Schema.Boolean),
+      // Where this machine's version checks and updates download from. Absent means official.
+      packageChannel: Schema.optional(Schema.Literals(["official", "cn-mirror"])),
       updateCommand: Schema.NullOr(TrimmedNonEmptyString),
       canUpdate: Schema.Boolean,
       checkedAt: Schema.NullOr(IsoDateTime),

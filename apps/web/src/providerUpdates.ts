@@ -14,9 +14,9 @@ import { isProviderKind } from "./providerOrdering";
 
 export const PROVIDER_UPDATE_INITIAL_REFRESH_DELAY_MS = 10_000;
 export const PROVIDER_UPDATE_REFRESH_INTERVAL_MS = 60 * 60 * 1_000;
-// The server stops provider commands after two minutes. This slightly longer
+// The server stops provider commands after five minutes. This slightly longer
 // client watchdog also covers a stalled transport so loading UI always settles.
-export const PROVIDER_UPDATE_REQUEST_TIMEOUT_MS = 2 * 60_000 + 15_000;
+export const PROVIDER_UPDATE_REQUEST_TIMEOUT_MS = 5 * 60_000 + 15_000;
 
 function formatUpdateTimeout(timeoutMs: number): string {
   if (timeoutMs % 60_000 === 0) {

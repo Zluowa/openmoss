@@ -4254,7 +4254,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     mossWindowsPublisherSubject: resolvedBuildConfig.windowsPublisherSubject,
     private: true,
     description: "Moss desktop build",
-    author: "Emanuele Di Pietro",
+    author: "Moss",
     main: "apps/desktop/dist-electron/main.js",
     build: resolvedBuildConfig.buildConfig,
     dependencies: {

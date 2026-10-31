@@ -21,7 +21,7 @@
     },
     "apps/desktop": {
       "name": "@synara/desktop",
-      "version": "1.0.2-beta.1",
+      "version": "1.0.2",
       "dependencies": {
         "@openai/codex": "0.163.0",
         "@sentry/electron": "7.18.0",
@@ -44,7 +44,7 @@
     },
     "apps/server": {
       "name": "@synara/cli",
-      "version": "1.0.2-beta.1",
+      "version": "1.0.2",
       "bin": {
         "moss": "dist/index.mjs",
         "moss-restore-migration-backup": "dist/restoreMigrationBackup.mjs",
@@ -90,7 +90,7 @@
     },
     "apps/web": {
       "name": "@synara/web",
-      "version": "1.0.2-beta.1",
+      "version": "1.0.2",
       "dependencies": {
         "@base-ui/react": "^1.5.0",
         "@dnd-kit/core": "^6.3.1",
@@ -191,7 +191,7 @@
     },
     "packages/contracts": {
       "name": "@synara/contracts",
-      "version": "1.0.2-beta.1",
+      "version": "1.0.2",
       "dependencies": {
         "effect": "catalog:",
       },

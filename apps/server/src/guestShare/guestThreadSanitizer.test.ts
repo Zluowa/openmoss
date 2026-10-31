@@ -3,6 +3,8 @@ import {
   EventId,
   MessageId,
   ProjectId,
+  SECRET_REQUEST_ACTIVITY_KIND,
+  SECRET_REQUEST_RESOLVED_ACTIVITY_KIND,
   ThreadId,
   TurnId,
   type OrchestrationEvent,
@@ -156,6 +158,37 @@ describe("sanitizeGuestThread", () => {
       "pendingInteractions",
     ]) {
       expect(sanitized).not.toHaveProperty(key);
+    }
+  });
+});
+
+describe("secret requests", () => {
+  const secretActivity = (id: string, kind: string): OrchestrationThreadActivity => ({
+    ...activity(id, "turn-1"),
+    tone: "approval",
+    kind,
+    payload: { label: "Cloudflare API token", reason: "For the deploy" },
+  });
+
+  it("keeps them out of a guest's snapshot", () => {
+    const thread = sanitizeGuestThread(
+      makeThread({
+        activities: [
+          activity("a1", "turn-1"),
+          secretActivity("a2", SECRET_REQUEST_ACTIVITY_KIND),
+          secretActivity("a3", SECRET_REQUEST_RESOLVED_ACTIVITY_KIND),
+        ],
+      }),
+    );
+    expect(thread.activities.map((entry) => entry.id)).toEqual(["a1"]);
+  });
+
+  it("does not forward them as they happen", () => {
+    const appended = (entry: OrchestrationThreadActivity) =>
+      event("thread.activity-appended", { threadId: THREAD_ID, activity: entry });
+    expect(sanitizeGuestThreadEvent(appended(activity("a1", "turn-1")))).not.toBeNull();
+    for (const kind of [SECRET_REQUEST_ACTIVITY_KIND, SECRET_REQUEST_RESOLVED_ACTIVITY_KIND]) {
+      expect(sanitizeGuestThreadEvent(appended(secretActivity("a2", kind)))).toBeNull();
     }
   });
 });

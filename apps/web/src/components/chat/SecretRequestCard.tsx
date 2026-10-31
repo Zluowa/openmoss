@@ -15,7 +15,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { CheckIcon, LockIcon, MinusIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
-import { readNativeApi } from "~/nativeApi";
+import { isNativeApiDetached, readNativeApi } from "~/nativeApi";
 
 import {
   secretRequestAnswerInput,
@@ -45,7 +45,8 @@ export function SecretRequestCard(props: {
   const [answered, setAnswered] = useState<SecretRequestOutcome | undefined>(undefined);
   const display = secretRequestDisplay(props.request, answered);
   const metaStyle = props.metaFontSizePx ? { fontSize: `${props.metaFontSizePx}px` } : undefined;
-  if (display.kind === "settled" || props.threadId === undefined) {
+  // Without a Moss server behind the page (a guest's view) nothing could take the answer.
+  if (display.kind === "settled" || props.threadId === undefined || isNativeApiDetached()) {
     const Icon =
       display.kind === "pending" ? LockIcon : display.outcome === "saved" ? CheckIcon : MinusIcon;
     return (

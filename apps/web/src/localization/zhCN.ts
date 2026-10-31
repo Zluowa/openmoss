@@ -8,6 +8,7 @@ import { translateZhCnAccountSettingsText } from "./zhCNAccountSettings";
 import { translateZhCnComputerControlText } from "./zhCNComputerControl";
 import { translateZhCnPullRequestText } from "./zhCNPullRequests";
 import { translateZhCnRuntimeUiText } from "./zhCNRuntimeUi";
+import { translateZhCnSettingsCopyText } from "./zhCNSettingsCopy";
 import { translateZhCnWhatsNewText } from "./zhCNWhatsNew";
 import { translateZhCnWorkspaceUiText } from "./zhCNWorkspaceUi";
 
@@ -1793,6 +1794,7 @@ export function translateZhCnPresentationText(value: string): string {
   if (priorityRealtimeVoiceText) return priorityRealtimeVoiceText;
 
   for (const translateFeatureText of [
+    translateZhCnSettingsCopyText,
     translateZhCnAccountSettingsText,
     translateZhCnRuntimeUiText,
     translateZhCnWorkspaceUiText,

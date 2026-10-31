@@ -2,7 +2,7 @@
 // Purpose: Locks Moss's native product identity while isolating factual upstream coordinates.
 
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
 const characters = (...codes: number[]): string => String.fromCharCode(...codes);
@@ -15,6 +15,9 @@ const incorrectBundleDomain = characters(99, 111, 109, 46, 115, 121, 110, 97, 11
 const retiredFirstDisplayName = characters(84, 51, 67, 111, 100, 101);
 const retiredFirstSpacedDisplayName = `${characters(84, 51)} Code`;
 const retiredCompanyDisplayName = `${characters(84, 51)} ${characters(84, 111, 111, 108, 115)}`;
+
+// The start of the old Y-shaped mark's path data, which a Moss-named file can still carry.
+const retiredMarkDrawing = "M2.65188 2.1899";
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const joinedWithOptionalSeparator = (left: string, right: string): string =>
@@ -150,8 +153,9 @@ const publicIdentityRequirements: readonly BrandIdentityRequirement[] = [
   },
   {
     path: "scripts/build-desktop-artifact.ts",
-    requiredText: ["MOSS_PRODUCTION_BUNDLE_ID"],
-    forbiddenText: ["com.emanueledipietro.synara"],
+    // The author becomes the installer's publisher and copyright line.
+    requiredText: ["MOSS_PRODUCTION_BUNDLE_ID", 'author: "Moss"'],
+    forbiddenText: ["com.emanueledipietro.synara", "Emanuele Di Pietro"],
   },
   {
     path: "scripts/verify-packaged-desktop-startup.ts",
@@ -191,12 +195,18 @@ const publicIdentityRequirements: readonly BrandIdentityRequirement[] = [
 ];
 
 const publicRuntimeRoots = [
+  "apps/cloudflare-apimart-egress/src",
+  "apps/cloudflare-model-gateway/src",
+  "apps/cloudflare-realtime-relay/src",
   "apps/desktop/scripts",
   "apps/desktop/src",
+  "apps/marketing/content",
   "apps/marketing/src",
   "apps/realtime-relay/src",
   "apps/server/scripts",
   "apps/server/src",
+  "apps/share-relay/src",
+  "apps/sms-relay/src",
   "apps/web/src",
   "packages/contracts/src",
   "packages/shared/src",
@@ -209,7 +219,9 @@ const runtimeSourceExtensions = new Set([
   ".js",
   ".jsx",
   ".json",
+  ".mdx",
   ".mjs",
+  ".svg",
   ".swift",
   ".ts",
   ".tsx",
@@ -233,24 +245,6 @@ function collectPublicRuntimeFiles(root: string): BrandIdentityFile[] {
   visit(root);
   return files;
 }
-
-// Exact provenance lines are allowed only on the website's contributor surfaces.
-const runtimeAttributionLines: Readonly<Record<string, readonly string[]>> = {
-  "apps/marketing/src/components/SiteFooter.tsx": [
-    '<a href="https://github.com/Emanuele-web04/synara">Synara</a>',
-  ],
-  "apps/marketing/src/app/sponsor/page.tsx": [
-    '<a className="underline" href="https://github.com/Emanuele-web04/synara">',
-    "Synara and its contributors",
-  ],
-  "apps/marketing/src/app/sponsors/page.tsx": [
-    '<a className="underline" href="https://github.com/Emanuele-web04/synara">',
-    "Synara and its contributors",
-  ],
-};
-
-const upstreamReleaseHistory =
-  "Upstream release history: Synara 1.0.0 is a Stable release. Hubs and the Tasks to-do list remain exclusive to Synara Beta, with separate data and update feeds. Stable does not send Beta diagnostics.";
 
 // Compatibility is not product identity. Each reviewed exception permits one
 // exact line in one file, with the current writer/consumer required alongside
@@ -324,24 +318,6 @@ const runtimeLegacyReadExceptions: readonly {
     ],
     forbiddenUsage: /(?:write|emit)\([^)]*LEGACY_DIAGNOSTIC_ISSUE_PREFIX/,
   },
-  {
-    path: "apps/web/src/whatsNew/entries.ts",
-    line: `"${upstreamReleaseHistory}",`,
-    rationale: "Preserve the factual upstream release history without assigning it to Moss.",
-    requiredText: ['version: "1.0.0"'],
-  },
-  {
-    path: "apps/web/src/localization/zhCNWhatsNew.ts",
-    line: `"${upstreamReleaseHistory}":`,
-    rationale: "Translation lookup for the exact upstream historical attribution.",
-    requiredText: ["上游发布历史："],
-  },
-  {
-    path: "apps/web/src/localization/zhCNWhatsNew.ts",
-    line: '"上游发布历史：Synara 1.0.0 是 Stable 版本。Hubs 和 Tasks 待办列表仍为 Synara Beta 专属，数据和更新源各自独立。Stable 不会发送 Beta 诊断数据。",',
-    rationale: "Exact localized upstream release attribution.",
-    requiredText: [upstreamReleaseHistory],
-  },
 ];
 
 // These identifiers may appear only at reviewed reader sites. Checking every
@@ -386,6 +362,20 @@ export function findPublicRuntimeBrandViolations(
   );
   for (const originalFile of files) {
     const file = { ...originalFile, path: originalFile.path.replaceAll("\\", "/") };
+    if (/synara/i.test(file.path)) {
+      violations.push({
+        path: file.path,
+        line: null,
+        text: "Retired product name is in a file name.",
+      });
+    }
+    if (file.contents.includes(retiredMarkDrawing)) {
+      violations.push({
+        path: file.path,
+        line: findLine(file.contents, retiredMarkDrawing),
+        text: "Retired logo drawing is present; the Moss mark is the coral pinwheel.",
+      });
+    }
     const consumedAttributions = new Set<string>();
     for (const [index, line] of file.contents.split(/\r?\n/).entries()) {
       const trimmed = line.trim();
@@ -405,10 +395,7 @@ export function findPublicRuntimeBrandViolations(
           exception.requiredText.every((text) => file.contents.includes(text)) &&
           !exception.forbiddenUsage?.test(file.contents),
       );
-      if (
-        !consumedAttributions.has(trimmed) &&
-        (runtimeAttributionLines[file.path]?.includes(trimmed) || reviewedLegacyRead)
-      ) {
+      if (!consumedAttributions.has(trimmed) && reviewedLegacyRead) {
         consumedAttributions.add(trimmed);
         continue;
       }
@@ -416,7 +403,7 @@ export function findPublicRuntimeBrandViolations(
       // `@synara/` workspace package scope is the sanctioned post-merge
       // scope, not the retired product name.
       const identityText = (
-        file.path.startsWith("apps/marketing/")
+        file.path.startsWith("apps/marketing/") || file.path === "README.md"
           ? line
               .replaceAll("https://github.com/Zluowa/moss-synara", "")
               .replaceAll("https://api.github.com/repos/Zluowa/moss-synara", "")
@@ -426,7 +413,8 @@ export function findPublicRuntimeBrandViolations(
         // "moss-synara" is the factual wire identity of the Moss <-> Moss Canvas
         // bridge; the companion app (moss-canvas) already implements against it.
         .replaceAll('"moss-synara"', "");
-      if (!/synara/i.test(identityText)) continue;
+      // The upstream author's name counts too: it reaches signing identifiers and installer metadata.
+      if (!/synara|emanuele/i.test(identityText)) continue;
       violations.push({
         path: file.path,
         line: index + 1,
@@ -514,11 +502,217 @@ const approvedMossAssetDigests = new Map<string, string>([
     "apps/marketing/public/moss-workspace-dark.png",
     "5256c855e7bf872f02b802b2c14f9ee2294f518ac999e07526d8a01d25a7db6e",
   ],
+  // Looked at on 2026-10-31: every image here draws the Moss mark or is unrelated to the brand.
   [
-    "assets/prod/readme-screenshot.jpeg",
-    "0b4be139f13dd08885a1aac26fc1f7c623697db157777d16360e985c93d47bcf",
+    "apps/desktop/resources/app-icon-linux.png",
+    "7bafe8cb1d2cd3efccb2bf8927f140e4e36f0262a2c07a5ca2c190ad79cd940f",
+  ],
+  [
+    "apps/desktop/resources/app-icon-macos.png",
+    "7bafe8cb1d2cd3efccb2bf8927f140e4e36f0262a2c07a5ca2c190ad79cd940f",
+  ],
+  [
+    "apps/desktop/resources/app-icon-windows.ico",
+    "e01149655bd6d3b5dd80d0f524b2ca8e3784254c61f4219f3e8e4984dc964ae3",
+  ],
+  [
+    "apps/desktop/resources/dock-icon-dark.png",
+    "3fe7b40d302763fea0bda33dcf311de34963db4a24a1867720a8e9cccd788470",
+  ],
+  [
+    "apps/desktop/resources/dock-icon-moss-black.png",
+    "7bafe8cb1d2cd3efccb2bf8927f140e4e36f0262a2c07a5ca2c190ad79cd940f",
+  ],
+  [
+    "apps/desktop/resources/dock-icon-moss-coral.png",
+    "6a31d902b947494ac3a408c786acdaa80d36a9942996fa00cd6ce1e4000e95ea",
+  ],
+  [
+    "apps/desktop/resources/dock-icon.png",
+    "6a31d902b947494ac3a408c786acdaa80d36a9942996fa00cd6ce1e4000e95ea",
+  ],
+  [
+    "apps/desktop/resources/icon.icns",
+    "589b3262fd16f0d77f7ffa6bf013e6f0eaa7b889b4d68f0fe306abd76f0d2806",
+  ],
+  [
+    "apps/desktop/resources/moss.png",
+    "6a31d902b947494ac3a408c786acdaa80d36a9942996fa00cd6ce1e4000e95ea",
+  ],
+  [
+    "apps/marketing/public/apple-touch-icon.png",
+    "08a421fdee25d66e3a8b0d2669111f08e485bd67229d2c9a7e085c914fbd12f2",
+  ],
+  [
+    "apps/marketing/public/favicon-16x16.png",
+    "d3fb9746d86d6fbbcfdc33eea17b151ae28b9ebae12b72501326a7561a5ad8d3",
+  ],
+  [
+    "apps/marketing/public/favicon-32x32.png",
+    "df82a20cc1f53256f6639c7293638b7b7c99f82c37ff048d9f785c9c05cde7c3",
+  ],
+  [
+    "apps/marketing/public/favicon.ico",
+    "e5f951a68b13e5dc425bbb16c1d2b35aede48f692e70a81089213f57ba80666a",
+  ],
+  [
+    "apps/marketing/public/hero-bg.jpg",
+    "09f05c61e29b1a68a5f0db24dafa7407b3a3f158e2d18c5feff6a195740c747b",
+  ],
+  [
+    "apps/marketing/public/icon.png",
+    "6a31d902b947494ac3a408c786acdaa80d36a9942996fa00cd6ce1e4000e95ea",
+  ],
+  [
+    "apps/marketing/public/moss-app-icon-black.png",
+    "7bafe8cb1d2cd3efccb2bf8927f140e4e36f0262a2c07a5ca2c190ad79cd940f",
+  ],
+  [
+    "apps/marketing/public/moss-app-icon-coral.png",
+    "6a31d902b947494ac3a408c786acdaa80d36a9942996fa00cd6ce1e4000e95ea",
+  ],
+  [
+    "apps/marketing/public/moss-icon.png",
+    "6a31d902b947494ac3a408c786acdaa80d36a9942996fa00cd6ce1e4000e95ea",
+  ],
+  [
+    "apps/web/public/favicon-16x16.png",
+    "d3fb9746d86d6fbbcfdc33eea17b151ae28b9ebae12b72501326a7561a5ad8d3",
+  ],
+  [
+    "apps/web/public/favicon-32x32.png",
+    "df82a20cc1f53256f6639c7293638b7b7c99f82c37ff048d9f785c9c05cde7c3",
+  ],
+  [
+    "apps/web/public/moss-app-icon-black.png",
+    "7bafe8cb1d2cd3efccb2bf8927f140e4e36f0262a2c07a5ca2c190ad79cd940f",
+  ],
+  [
+    "apps/web/public/moss-app-icon-coral.png",
+    "6a31d902b947494ac3a408c786acdaa80d36a9942996fa00cd6ce1e4000e95ea",
+  ],
+  [
+    "apps/web/public/moss-icon.png",
+    "6a31d902b947494ac3a408c786acdaa80d36a9942996fa00cd6ce1e4000e95ea",
+  ],
+  [
+    "apps/web/public/moss-logo-black.png",
+    "0814d21c70570abd97bd6bdcb72102a7cd183e85250418e14427fdfaa3773b4f",
+  ],
+  [
+    "apps/web/public/moss-logo-coral.png",
+    "4108fb0bef47257800629cf253d38b7713582bcdd52fc371098e64b85ce3c4e8",
+  ],
+  [
+    "apps/web/public/moss-logo-mask.png",
+    "f209f898e1aaa5aa9b241be8a50bc2f4077e830d59992fb52a6205ba30417ea8",
+  ],
+  [
+    "apps/web/public/app-icons/beta.png",
+    "58d853611e8485ec81197cbcb09f270b56c962c9271d1255eecaec4a86b55e03",
+  ],
+  [
+    "apps/web/public/app-icons/dark.png",
+    "eca1b1d8af379aaa96d5693bf3d9fab1d6ddaeee159f8952f0cb947e71dcba04",
+  ],
+  [
+    "apps/web/public/app-icons/default.png",
+    "6a31d902b947494ac3a408c786acdaa80d36a9942996fa00cd6ce1e4000e95ea",
+  ],
+  [
+    "apps/web/public/app-icons/icon-group-600-macos.png",
+    "1cf4b53aa6e646ea56a6e2cccf5952d7f159764ac3ac35664ec0021ef2902821",
+  ],
+  [
+    "apps/web/public/app-icons/safari.png",
+    "ecd4f1f1bddd88c65275bd0fba70620645b9317644c85587cf1563dda01d57e2",
+  ],
+  [
+    "assets/beta/beta-macos-1024.png",
+    "21dce04e0769b1cb9b24a4ddbd683bc089a5167b06371902af65b3e2628ce731",
+  ],
+  [
+    "assets/beta/beta-macos-legacy-1024.png",
+    "21dce04e0769b1cb9b24a4ddbd683bc089a5167b06371902af65b3e2628ce731",
+  ],
+  [
+    "assets/beta/beta-universal-1024.png",
+    "d8280805052d32a49971871be829612d04eedd6650f285964a7b9b811336badb",
+  ],
+  [
+    "assets/beta/beta-web-apple-touch-180.png",
+    "3f1fac86cc3986b48d4e3aeb72a29b538f3d5acd94b9cbab577f7dc8ff79b799",
+  ],
+  [
+    "assets/beta/beta-web-favicon-16x16.png",
+    "5fd3cb639a1247465ad192d5fbe4531063d94b96fee1ff1c0368fff9bd43949b",
+  ],
+  [
+    "assets/beta/beta-web-favicon-32x32.png",
+    "2081c034bcabf85ec0e4e5e2001f51840f34467f81f8efad00474bd95615d2f5",
+  ],
+  [
+    "assets/beta/beta-web-favicon.ico",
+    "24b665fc6d67eab693ea2c0bbf04412e78c17a8a4b814a865f02b8285596b66f",
+  ],
+  [
+    "assets/beta/beta-windows.ico",
+    "94eeaa2f495365d7a05dd36ee50a0feb6d8b61e80a0df54e28212de30023ffd6",
+  ],
+  [
+    "assets/dev/blueprint-ios-1024.png",
+    "4c1590acfaf15724e639486afdfa3bdddfeb4c07d7b1ee99107eff79b59013c7",
+  ],
+  [
+    "assets/dev/blueprint-macos-1024.png",
+    "4c1590acfaf15724e639486afdfa3bdddfeb4c07d7b1ee99107eff79b59013c7",
+  ],
+  [
+    "assets/dev/blueprint-universal-1024.png",
+    "4c1590acfaf15724e639486afdfa3bdddfeb4c07d7b1ee99107eff79b59013c7",
+  ],
+  [
+    "assets/dev/blueprint-web-apple-touch-180.png",
+    "bb7da2113b1c6113ff584fe42739c8a8a53271d35f51fdd8306c5da712f3a87d",
+  ],
+  [
+    "assets/dev/blueprint-web-favicon-16x16.png",
+    "b0646cdcbd402e7edb6d079a8ef521f792faee95d9615e9444609d078435d037",
+  ],
+  [
+    "assets/dev/blueprint-web-favicon-32x32.png",
+    "75ac93a5430409d5c5dd16786847211fe2605181d1678e62a559f981034ac88a",
+  ],
+  [
+    "assets/dev/blueprint-web-favicon.ico",
+    "03a050a1f690d2c7b38974ac63ac8d8252d870683053cad11af1e44418f2a320",
+  ],
+  [
+    "assets/dev/blueprint-windows.ico",
+    "6cc76775e0580dfd48c71b417ef2424c88b9301d3020eabaa7ed15f65b55ce6f",
   ],
 ]);
+
+// A file name says nothing about what an image draws, and this script cannot look inside one. So
+// every image in these folders needs a digest above: adding or changing one means someone looked
+// at it. Top level only; each folder holds brand artwork rather than product content.
+const reviewedBrandImageDirectories = [
+  "apps/desktop/resources",
+  "apps/marketing/public",
+  "apps/web/public",
+  "apps/web/public/app-icons",
+  "assets/beta",
+  "assets/dev",
+] as const;
+const brandImageExtensions = new Set([".gif", ".icns", ".ico", ".jpeg", ".jpg", ".png", ".webp"]);
+
+function collectBrandImagePaths(): string[] {
+  return reviewedBrandImageDirectories.flatMap((directory) =>
+    readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && brandImageExtensions.has(extname(entry.name)))
+      .map((entry) => `${directory}/${entry.name}`),
+  );
+}
 
 function findLine(contents: string, value: string): number | null {
   const offset = contents.indexOf(value);
@@ -565,6 +759,19 @@ export function findBrandIdentityViolations(
   return violations;
 }
 
+export function findUnreviewedBrandImages(
+  paths: readonly string[],
+  approvedDigests: ReadonlyMap<string, string> = approvedMossAssetDigests,
+): BrandIdentityViolation[] {
+  return paths
+    .filter((path) => !approvedDigests.has(path))
+    .map((path) => ({
+      path,
+      line: null,
+      text: "Brand image has no reviewed digest; look at it, then add its digest.",
+    }));
+}
+
 export function findVisualBrandAssetViolations(
   files: readonly BrandIdentityBinaryFile[],
   approvedDigests: ReadonlyMap<string, string> = approvedMossAssetDigests,
@@ -590,6 +797,12 @@ export function findVisualBrandAssetViolations(
 }
 
 function main(): void {
+  // The public mirror leaves out the website and carries its own README, so most of what this
+  // check holds to account is not there.
+  if (!existsSync("apps/marketing/src")) {
+    console.log("Moss identity check skipped: this is not the full repository.");
+    return;
+  }
   const textFiles = publicIdentityRequirements.map(({ path }) => ({
     path,
     contents: readFileSync(path, "utf8"),
@@ -604,9 +817,13 @@ function main(): void {
   }));
   const violations = [
     ...findBrandIdentityViolations(textFiles),
-    ...findPublicRuntimeBrandViolations(publicRuntimeRoots.flatMap(collectPublicRuntimeFiles)),
+    ...findPublicRuntimeBrandViolations([
+      ...publicRuntimeRoots.flatMap(collectPublicRuntimeFiles),
+      ...reviewedAttributionFiles.filter(({ path }) => path === "README.md"),
+    ]),
     ...findLegacyIdentityViolations(reviewedAttributionFiles),
     ...findVisualBrandAssetViolations(binaryFiles),
+    ...findUnreviewedBrandImages(collectBrandImagePaths()),
   ];
   if (violations.length === 0) {
     console.log("Moss identity check passed.");

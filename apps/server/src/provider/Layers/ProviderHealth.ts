@@ -144,6 +144,11 @@ import {
 } from "../providerStatusCache";
 import { makeProviderMaintenanceCommandCoordinator } from "../providerMaintenanceCommandCoordinator";
 import {
+  applyProviderPackageChannelEnv,
+  resolveProviderPackageChannel,
+  type ProviderPackageChannel,
+} from "../providerPackageChannel";
+import {
   enrichProviderStatusWithVersionAdvisory,
   compareSemverVersions,
   makeProviderMaintenanceCapabilities,
@@ -274,7 +279,17 @@ export const PROVIDER_HEALTH_PROBE_CONCURRENCY = 4;
 const MAX_REFRESH_REVISION_RETRIES = 1;
 const REFRESH_REVISION_RESCHEDULE_DELAY_MS = 100;
 const PROVIDER_UPDATE_ENABLEMENT_POLL_MS = 100;
-export const PROVIDER_UPDATE_TIMEOUT_MS = 2 * 60_000;
+// Native CLI packages run to a few hundred MB, which takes minutes on a slow domestic line.
+export const PROVIDER_UPDATE_TIMEOUT_MS = 5 * 60_000;
+// Updates that run through a package manager follow the mirror; a vendor's own updater cannot.
+const MIRRORED_UPDATE_LOCK_KEYS: ReadonlySet<string> = new Set([
+  "npm-global",
+  "bun-global",
+  "pnpm-global",
+  "homebrew",
+]);
+const PROVIDER_UPDATE_NO_MIRROR_HINT =
+  "This install updates through the vendor's own servers, which have no domestic mirror. Reinstalling it with npm lets Moss update it through the mirror.";
 
 export function runProviderHealthProbes<A, E, R>(
   probes: ReadonlyArray<Effect.Effect<A, E, R>>,
@@ -3553,6 +3568,9 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
               binaryPath: binaryPath ?? null,
               env: updateEnv,
               platform: process.platform,
+              packageChannel: resolveProviderPackageChannel({
+                providerInstances: settings.providerInstances,
+              }),
             },
           ).pipe(Effect.provideService(FileSystem.FileSystem, fileSystem));
         },
@@ -4113,6 +4131,7 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         readonly command: string;
         readonly args: ReadonlyArray<string>;
         readonly pathPrepend?: string;
+        readonly packageChannel?: ProviderPackageChannel;
       }) {
         const baseEnv = yield* Effect.try({
           try: () =>
@@ -4122,9 +4141,10 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
             }),
           catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
         });
-        const updateEnv = input.pathPrepend
-          ? prependPathEntry(baseEnv, input.pathPrepend)
-          : baseEnv;
+        const updateEnv = applyProviderPackageChannelEnv(
+          input.pathPrepend ? prependPathEntry(baseEnv, input.pathPrepend) : baseEnv,
+          input.packageChannel,
+        );
         const child = yield* spawner.spawn(
           makeEffectProcessCommand(input.command, input.args, {
             env: updateEnv,
@@ -4556,6 +4576,9 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
               command: update.executable,
               args: update.args,
               ...(update.pathPrepend ? { pathPrepend: update.pathPrepend } : {}),
+              ...(capabilities.packageChannel
+                ? { packageChannel: capabilities.packageChannel }
+                : {}),
             }).pipe(
               Effect.scoped,
               Effect.timeoutOption(Duration.millis(providerUpdateTimeoutMs)),
@@ -4601,13 +4624,16 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
             const message = Option.isNone(result)
               ? `Update timed out after ${formatProviderUpdateTimeout(providerUpdateTimeoutMs)}. The provider process was stopped.`
               : `Update command exited with code ${result.value.exitCode}.`;
+            const lacksMirror =
+              capabilities.packageChannel === "cn-mirror" &&
+              !MIRRORED_UPDATE_LOCK_KEYS.has(update.lockKey);
             const providers = yield* setProviderUpdateState(
               target,
               makeUpdateState({
                 status: "failed",
                 startedAt,
                 finishedAt,
-                message,
+                message: lacksMirror ? `${message} ${PROVIDER_UPDATE_NO_MIRROR_HINT}` : message,
                 output: output ? output.slice(0, UPDATE_OUTPUT_MAX_BYTES) : null,
               }),
             );

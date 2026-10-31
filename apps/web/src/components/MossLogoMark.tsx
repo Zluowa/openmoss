@@ -1,11 +1,9 @@
 // FILE: MossLogoMark.tsx
-// Purpose: Render the Moss mark as an inline SVG that inherits `currentColor`.
+// Purpose: The Moss mark as inline SVG, for pages that do not serve `public/moss-logo-coral.png`.
 // Layer: Shared app branding primitive
-// Why: Surfaces that cannot load `/moss-logo-coral.png` (the share relay's guest page only serves
-//      `GUEST_STATIC_DIRS`) need the mark bundled into the script rather than fetched.
 
 import type { SVGProps } from "react";
-import { MOSS_LOGO_PATHS } from "~/assets/mossLogoPath";
+import { MOSS_LOGO_COLOR, MOSS_LOGO_PATH, MOSS_LOGO_VIEW_BOX } from "~/assets/mossLogoPath";
 import { cn } from "~/lib/utils";
 
 export function MossLogoMark({ className, ...props }: SVGProps<SVGSVGElement>) {
@@ -13,16 +11,13 @@ export function MossLogoMark({ className, ...props }: SVGProps<SVGSVGElement>) {
 
   return (
     <svg
-      viewBox="0 0 470 504"
-      fill="none"
+      viewBox={MOSS_LOGO_VIEW_BOX}
       xmlns="http://www.w3.org/2000/svg"
       aria-hidden={ariaLabel ? undefined : true}
       {...props}
-      className={cn("shrink-0 text-foreground", className)}
+      className={cn("shrink-0", className)}
     >
-      {MOSS_LOGO_PATHS.map((path) => (
-        <path key={path} d={path} fill="currentColor" />
-      ))}
+      <path d={MOSS_LOGO_PATH} fill={MOSS_LOGO_COLOR} fillRule="evenodd" />
     </svg>
   );
 }

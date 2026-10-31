@@ -465,8 +465,6 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
         title: "A tour of what changed",
         description:
           "A feature tour introduces the new workspace, provider accounts and review workflow.",
-        details:
-          "Upstream release history: Synara 1.0.0 is a Stable release. Hubs and the Tasks to-do list remain exclusive to Synara Beta, with separate data and update feeds. Stable does not send Beta diagnostics.",
       },
       {
         id: "git-writing",

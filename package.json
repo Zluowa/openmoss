@@ -40,7 +40,7 @@
     "typecheck": "effect-tsgo patch --typescript --typescript-package @typescript/native && turbo run typecheck",
     "typecheck:native": "bun run typecheck",
     "typecheck:legacy": "turbo run typecheck:legacy",
-    "lint": "oxlint --report-unused-disable-directives && bun run server-sync-fs:check",
+    "lint": "oxlint --report-unused-disable-directives && bun run server-sync-fs:check && bun run brand:check",
     "server-sync-fs:check": "node scripts/check-server-sync-fs.ts",
     "test": "turbo run test --concurrency=1",
     "test:compiler": "bun run --cwd apps/web test:compiler",

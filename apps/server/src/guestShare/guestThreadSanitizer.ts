@@ -6,6 +6,8 @@
  * pull-request bookkeeping) is cleared from the snapshot and its events are not forwarded.
  */
 import {
+  SECRET_REQUEST_ACTIVITY_KIND,
+  SECRET_REQUEST_RESOLVED_ACTIVITY_KIND,
   type ModelSelection,
   type OrchestrationEvent,
   type OrchestrationThread,
@@ -34,6 +36,12 @@ export const GUEST_FORWARDED_EVENT_TYPES: ReadonlySet<OrchestrationEvent["type"]
   "thread.meta-updated",
 ]);
 
+/** A secret request is between the owner and the agent: a guest has no way to answer it. */
+const OWNER_ONLY_ACTIVITY_KINDS: ReadonlySet<string> = new Set([
+  SECRET_REQUEST_ACTIVITY_KIND,
+  SECRET_REQUEST_RESOLVED_ACTIVITY_KIND,
+]);
+
 /** Of a metadata update, only the title, the model, and the environment mode reach a guest. */
 function sanitizeMetaUpdated(event: ThreadMetaUpdatedEvent): ThreadMetaUpdatedEvent | null {
   const { threadId, title, modelSelection, envMode, updatedAt } = event.payload;
@@ -53,6 +61,12 @@ function sanitizeMetaUpdated(event: ThreadMetaUpdatedEvent): ThreadMetaUpdatedEv
 /** The event as a guest may see it, or null when it is not forwarded at all. */
 export function sanitizeGuestThreadEvent(event: OrchestrationEvent): OrchestrationEvent | null {
   if (!GUEST_FORWARDED_EVENT_TYPES.has(event.type)) return null;
+  if (
+    event.type === "thread.activity-appended" &&
+    OWNER_ONLY_ACTIVITY_KINDS.has(event.payload.activity.kind)
+  ) {
+    return null;
+  }
   const sanitized = sanitizeOrchestrationEventProviderOptions(event);
   return sanitized.type === "thread.meta-updated" ? sanitizeMetaUpdated(sanitized) : sanitized;
 }
@@ -80,6 +94,9 @@ export function sanitizeGuestThread(thread: OrchestrationThread): OrchestrationT
   } = thread;
   return {
     ...visible,
+    activities: visible.activities.filter(
+      (activity) => !OWNER_ONLY_ACTIVITY_KINDS.has(activity.kind),
+    ),
     branch: null,
     worktreePath: null,
     workingDirectory: null,

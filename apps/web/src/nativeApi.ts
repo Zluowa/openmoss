@@ -25,6 +25,10 @@ export function detachNativeApi(): void {
   nativeApiDetached = true;
 }
 
+export function isNativeApiDetached(): boolean {
+  return nativeApiDetached;
+}
+
 /**
  * Owner-side guest share calls. The share is server state that only the WebSocket
  * surface carries, so this never consults a legacy `window.nativeApi` bridge.

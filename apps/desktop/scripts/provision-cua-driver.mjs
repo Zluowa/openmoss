@@ -49,7 +49,7 @@ const architectures = arch === "universal" ? ["arm64", "x64"] : [arch];
 const artifact = option("--artifact-dir") ?? process.env.MOSS_CUA_ARTIFACT_DIR;
 const signIdentity = option("--sign-identity") ?? process.env.MOSS_CUA_SIGN_IDENTITY;
 /** Stable signing identifier so macOS TCC remembers the driver across rebuilds. */
-const CUA_DRIVER_SIGN_IDENTIFIER = "com.emanueledipietro.moss.cua.driver";
+const CUA_DRIVER_SIGN_IDENTIFIER = "com.moss.desktop.cua.driver";
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const patchPath = fileURLToPath(
   new URL("../patches/cua-driver/0001-moss-native.patch", import.meta.url),

@@ -17,6 +17,7 @@ import {
   normalizeProviderCliAlias,
   providerCliCommandName,
 } from "@synara/shared/providerCliProfiles";
+import { MOSS_CN_NPM_MIRROR_REGISTRY } from "@synara/shared/mossRealmCatalog";
 import { providerImportedDirectoryConfig } from "@synara/shared/providerInstances";
 import { pluralize } from "@synara/shared/text";
 import {
@@ -564,6 +565,14 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
     ],
   },
 ];
+
+/** The same install, downloading from the mainland China mirror. */
+export function withCnMirrorRegistry(command: string): string {
+  return command.replace(
+    /^npm install -g /,
+    `npm install -g --registry=${MOSS_CN_NPM_MIRROR_REGISTRY} `,
+  );
+}
 
 /** The shell command that installs a provider's CLI, when Moss shows one. */
 export function providerInstallCommandFor(provider: ProviderKind): string | null {
@@ -1976,7 +1985,16 @@ function ProviderToolRow(props: {
             <div className="space-y-3">
               <ProviderDocsLinks docs={props.config.docs} />
               {props.config.install ? (
-                <ProviderInstallCommandCard install={props.config.install} />
+                <ProviderInstallCommandCard
+                  install={
+                    props.providerStatus?.versionAdvisory?.packageChannel === "cn-mirror"
+                      ? {
+                          ...props.config.install,
+                          command: withCnMirrorRegistry(props.config.install.command),
+                        }
+                      : props.config.install
+                  }
+                />
               ) : null}
               {showProviderUpdateStatus && updateAdvisory?.status === "behind_latest" ? (
                 <div className="text-ui leading-snug text-muted-foreground">
@@ -2219,13 +2237,7 @@ export function ProvidersSettingsPanel({
                 : failureMessage,
               ...(manualCommand ? { data: { copyText: manualCommand } } : {}),
             });
-            return;
           }
-          toastManager.add({
-            type: "success",
-            title: `${refreshedProvider ? providerStatusDisplayName(refreshedProvider) : PROVIDER_DISPLAY_NAMES[provider]} update finished`,
-            description: "New sessions will use the refreshed provider.",
-          });
         })
         .catch((error: unknown) => {
           toastManager.add({

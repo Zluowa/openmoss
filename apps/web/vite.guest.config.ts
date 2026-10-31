@@ -22,11 +22,24 @@ const port = Number(process.env.MOSS_GUEST_PORT ?? 5734);
 // page; the prune pass then keeps the icons the built bundle names.
 const ICON_DIRECTORIES = [...CENTRAL_ICON_DIRECTORIES, "moss-icons"] as const;
 
+// Transcript components draw the Moss mark from this file in `public/`, which the relays do not
+// serve. Point them at the same mark as a data URL, which the page's CSP allows.
+const APP_MARK_REFERENCE = '"/moss-logo-coral.png"';
+
 /** Dev: `/s/<id>` serves guest.html. Build: `index.html` plus the icons the bundle uses. */
 function guestPagePlugin(): Plugin {
   let outDir = "dist-guest";
+  let markDataUrl = "";
   return {
     name: "moss-guest-page",
+    async buildStart() {
+      const mark = await fs.readFile(path.join(webRoot, "src/guest/favicon.svg"), "utf8");
+      markDataUrl = `"data:image/svg+xml,${encodeURIComponent(mark.trim())}"`;
+    },
+    transform(code) {
+      if (!code.includes(APP_MARK_REFERENCE)) return null;
+      return { code: code.replaceAll(APP_MARK_REFERENCE, markDataUrl), map: null };
+    },
     configResolved(config) {
       outDir = path.resolve(config.root, config.build.outDir);
     },

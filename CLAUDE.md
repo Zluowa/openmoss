@@ -23,6 +23,10 @@ This repository is a VERY EARLY WIP. Proposing sweeping changes that improve lon
 
 If a tradeoff is required, choose correctness and robustness over short-term convenience.
 
+## Brand
+
+The product is Moss everywhere people can see it: UI copy, icons, file names, docs, the website and the README. The mark is the coral pinwheel (`apps/web/public/moss-logo-coral.png`, or `MossLogoMark` where that file is not served). Never add upstream product names or marks. Look at new or merged-in UI as well as reading it, because a Moss-named file can still hold an old drawing. `bun lint` runs `bun run brand:check`; do not widen its exceptions for anything a user can see.
+
 ## Maintainability
 
 Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.

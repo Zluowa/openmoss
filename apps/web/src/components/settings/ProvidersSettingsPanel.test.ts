@@ -7,6 +7,7 @@ import {
   isProviderInstallSettingsDirty,
   providerInstallCommandFor,
   providerInstanceLaunchConfigFor,
+  withCnMirrorRegistry,
 } from "./ProvidersSettingsPanel";
 
 const defaults = AppSettingsSchema.makeUnsafe({});
@@ -116,6 +117,9 @@ describe("providerInstallCommandFor", () => {
       "npm install -g @minimax-ai/code --allow-scripts=@minimax-ai/code,better-sqlite3",
     );
     expect(providerInstallCommandFor("zcode")).toBe("npm install -g zcode-acp-server");
+    expect(withCnMirrorRegistry("npm install -g zcode-acp-server")).toBe(
+      "npm install -g --registry=https://registry.npmmirror.com zcode-acp-server",
+    );
     expect(providerInstallCommandFor("codex")).toBeNull();
     expect(providerInstallCommandFor("hermes")).toBeNull();
   });

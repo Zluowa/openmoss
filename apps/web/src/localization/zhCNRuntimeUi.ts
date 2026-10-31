@@ -491,6 +491,17 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   [/^([\d,]+) chars?$/, (match) => `${match[1]} 个字符`],
   [/^Jump to visible thread ([1-9])$/, (match) => `跳转到可见对话 ${match[1]}`],
 
+  // A vendor updater's failure carries this hint after its reason; translate the two apart.
+  [
+    /^(.+) This install updates through the vendor's own servers, which have no domestic mirror\. Reinstalling it with npm lets Moss update it through the mirror\.$/,
+    (match) =>
+      `${translateZhCnRuntimeUiText(match[1] ?? "")}这个智能体用的是官方安装程序，更新要连接海外服务器，没有国内镜像。改用 npm 重新安装后，Moss 就能通过镜像更新它。`,
+  ],
+  [
+    /^Update command exited with code (-?\d+)\.$/,
+    (match) => `更新命令已退出，退出码 ${match[1]}。`,
+  ],
+
   // Provider-update toast titles and descriptions retain provider names verbatim.
   [/^(\d+) provider updates available$/, (match) => `${match[1]} 个服务商有可用更新`],
   [/^(.+) update available$/, (match) => `${match[1]} 有可用更新`],

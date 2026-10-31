@@ -6,6 +6,7 @@ import type {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import path from "node:path";
 
 import { executableCandidates, hasPathSeparator } from "../executableLookup.ts";
 import {
@@ -15,9 +16,20 @@ import {
   splitPrerelease,
   type ParsedCliVersion,
 } from "./cliVersion.ts";
+import {
+  CN_HOMEBREW_API_DOMAIN,
+  CN_NPM_MIRROR_REGISTRY,
+  HOMEBREW_OFFICIAL_API_DOMAIN,
+  NPM_OFFICIAL_REGISTRY,
+  type ProviderPackageChannel,
+} from "./providerPackageChannel.ts";
 
 const LATEST_VERSION_CACHE_TTL_MS = 60 * 60 * 1_000;
+// A failed lookup must not hide an update for the next hour.
+const LATEST_VERSION_FAILURE_CACHE_TTL_MS = 5 * 60 * 1_000;
 const LATEST_VERSION_TIMEOUT_MS = 4_000;
+// The mirror can take a few seconds on a package it has not cached recently.
+const LATEST_VERSION_MIRROR_TIMEOUT_MS = 10_000;
 const PROVIDER_UPDATE_ACTION_MESSAGE = "Install the update now or review provider settings.";
 
 type ProviderInstallSource = "npm" | "bun" | "pnpm" | "homebrew" | "native" | "unknown";
@@ -39,6 +51,8 @@ export interface ProviderMaintenanceCapabilities {
   readonly packageName: string | null;
   readonly latestVersionSource: ProviderLatestVersionSource | null;
   readonly update: ProviderMaintenanceCommandAction | null;
+  /** Set only when packages come from somewhere other than the official sources. */
+  readonly packageChannel?: ProviderPackageChannel;
 }
 
 export interface ProviderMaintenanceCommandAction {
@@ -56,6 +70,9 @@ export interface ProviderMaintenanceCapabilityResolutionOptions {
   readonly platform?: NodeJS.Platform;
   readonly realCommandPath?: string | null;
   readonly commandDirectory?: string | null;
+  /** npm prefix that holds the package beside a Windows command shim. */
+  readonly npmGlobalPrefix?: string | null;
+  readonly packageChannel?: ProviderPackageChannel;
 }
 
 export interface PackageManagedProviderMaintenanceDefinition {
@@ -191,6 +208,7 @@ export function makeProviderMaintenanceCapabilities(input: {
   readonly updateArgs: ReadonlyArray<string>;
   readonly updateLockKey: string | null;
   readonly updatePathPrepend?: string | null;
+  readonly packageChannel?: ProviderPackageChannel | undefined;
 }): ProviderMaintenanceCapabilities {
   const update =
     input.updateExecutable === null || input.updateLockKey === null
@@ -216,12 +234,14 @@ export function makeProviderMaintenanceCapabilities(input: {
           ? { kind: "npm", name: input.packageName }
           : null,
     update,
+    ...(input.packageChannel === "cn-mirror" ? { packageChannel: input.packageChannel } : {}),
   };
 }
 
 function makeManualOnlyProviderMaintenanceCapabilities(input: {
   readonly provider: ProviderKind;
   readonly packageName: string | null;
+  readonly packageChannel?: ProviderPackageChannel | undefined;
 }): ProviderMaintenanceCapabilities {
   return makeProviderMaintenanceCapabilities({
     provider: input.provider,
@@ -229,21 +249,32 @@ function makeManualOnlyProviderMaintenanceCapabilities(input: {
     updateExecutable: null,
     updateArgs: [],
     updateLockKey: null,
+    packageChannel: input.packageChannel,
   });
+}
+
+function registryArgs(channel: ProviderPackageChannel | undefined): ReadonlyArray<string> {
+  return channel === "cn-mirror" ? [`--registry=${CN_NPM_MIRROR_REGISTRY}`] : [];
 }
 
 function makeNpmGlobalProviderMaintenanceCapabilities(
   definition: PackageManagedProviderMaintenanceDefinition,
-  pathPrepend?: string | null,
-  commandPath?: string | null,
+  options: {
+    readonly pathPrepend?: string | null | undefined;
+    readonly commandPath?: string | null | undefined;
+    readonly npmGlobalPrefix?: string | null | undefined;
+    readonly packageChannel?: ProviderPackageChannel | undefined;
+  },
 ): ProviderMaintenanceCapabilities {
+  const { pathPrepend, commandPath, npmGlobalPrefix, packageChannel } = options;
   if (!definition.npmPackageName) {
     return makeManualOnlyProviderMaintenanceCapabilities({
       provider: definition.provider,
       packageName: null,
+      packageChannel,
     });
   }
-  const globalPrefix = commandPath ? deriveNpmGlobalPrefix(commandPath) : null;
+  const globalPrefix = npmGlobalPrefix ?? (commandPath ? deriveNpmGlobalPrefix(commandPath) : null);
   return makeProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: definition.npmPackageName,
@@ -252,10 +283,12 @@ function makeNpmGlobalProviderMaintenanceCapabilities(
       "install",
       "-g",
       ...(globalPrefix ? ["--prefix", globalPrefix] : []),
+      ...registryArgs(packageChannel),
       ...(definition.npmInstallArgs ?? []),
       `${definition.npmPackageName}@latest`,
     ],
     updateLockKey: "npm-global",
+    packageChannel,
     ...(pathPrepend === undefined ? {} : { updatePathPrepend: pathPrepend }),
   });
 }
@@ -263,19 +296,22 @@ function makeNpmGlobalProviderMaintenanceCapabilities(
 function makeBunGlobalProviderMaintenanceCapabilities(
   definition: PackageManagedProviderMaintenanceDefinition,
   pathPrepend?: string | null,
+  packageChannel?: ProviderPackageChannel,
 ): ProviderMaintenanceCapabilities {
   if (!definition.npmPackageName) {
     return makeManualOnlyProviderMaintenanceCapabilities({
       provider: definition.provider,
       packageName: null,
+      packageChannel,
     });
   }
   return makeProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: definition.npmPackageName,
     updateExecutable: "bun",
-    updateArgs: ["i", "-g", `${definition.npmPackageName}@latest`],
+    updateArgs: ["i", "-g", ...registryArgs(packageChannel), `${definition.npmPackageName}@latest`],
     updateLockKey: "bun-global",
+    packageChannel,
     ...(pathPrepend === undefined ? {} : { updatePathPrepend: pathPrepend }),
   });
 }
@@ -283,19 +319,27 @@ function makeBunGlobalProviderMaintenanceCapabilities(
 function makePnpmGlobalProviderMaintenanceCapabilities(
   definition: PackageManagedProviderMaintenanceDefinition,
   pathPrepend?: string | null,
+  packageChannel?: ProviderPackageChannel,
 ): ProviderMaintenanceCapabilities {
   if (!definition.npmPackageName) {
     return makeManualOnlyProviderMaintenanceCapabilities({
       provider: definition.provider,
       packageName: null,
+      packageChannel,
     });
   }
   return makeProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: definition.npmPackageName,
     updateExecutable: "pnpm",
-    updateArgs: ["add", "-g", `${definition.npmPackageName}@latest`],
+    updateArgs: [
+      "add",
+      "-g",
+      ...registryArgs(packageChannel),
+      `${definition.npmPackageName}@latest`,
+    ],
     updateLockKey: "pnpm-global",
+    packageChannel,
     ...(pathPrepend === undefined ? {} : { updatePathPrepend: pathPrepend }),
   });
 }
@@ -304,11 +348,13 @@ function makeHomebrewProviderMaintenanceCapabilities(
   definition: PackageManagedProviderMaintenanceDefinition,
   homebrewPackage: ProviderHomebrewPackageDefinition | null,
   pathPrepend?: string | null,
+  packageChannel?: ProviderPackageChannel,
 ): ProviderMaintenanceCapabilities {
   if (!homebrewPackage) {
     return makeManualOnlyProviderMaintenanceCapabilities({
       provider: definition.provider,
       packageName: definition.npmPackageName,
+      packageChannel,
     });
   }
 
@@ -326,6 +372,7 @@ function makeHomebrewProviderMaintenanceCapabilities(
         ? ["upgrade", "--cask", homebrewPackage.name]
         : ["upgrade", homebrewPackage.name],
     updateLockKey: "homebrew",
+    packageChannel,
     ...(pathPrepend === undefined ? {} : { updatePathPrepend: pathPrepend }),
   });
 }
@@ -360,6 +407,7 @@ function makeNativeProviderMaintenanceCapabilities(
   installSource: ProviderInstallSource,
   executable?: string | null,
   pathPrepend?: string | null,
+  packageChannel?: ProviderPackageChannel,
 ): ProviderMaintenanceCapabilities | null {
   if (!definition.nativeUpdate) {
     return null;
@@ -374,6 +422,7 @@ function makeNativeProviderMaintenanceCapabilities(
     updateExecutable: executable ?? definition.nativeUpdate.executable,
     updateArgs: definition.nativeUpdate.args(installSource),
     updateLockKey: definition.nativeUpdate.lockKey,
+    packageChannel,
     ...(pathPrepend === undefined ? {} : { updatePathPrepend: pathPrepend }),
   });
 }
@@ -408,10 +457,27 @@ function makeProviderMaintenanceForInstallSource(input: {
   readonly pathPrepend?: string | null;
   /** Path that matched install-source detection, used to pin the install tree. */
   readonly commandPath?: string | null;
+  readonly npmGlobalPrefix?: string | null;
+  readonly packageChannel?: ProviderPackageChannel | undefined;
 }): ProviderMaintenanceCapabilities {
-  const { definition, installSource, homebrewPackage, executable, pathPrepend, commandPath } =
-    input;
+  const {
+    definition,
+    installSource,
+    homebrewPackage,
+    executable,
+    pathPrepend,
+    commandPath,
+    npmGlobalPrefix,
+    packageChannel,
+  } = input;
+  // A CLI's own updater hides which registry it downloads from, so the mirror channel talks to
+  // the package manager that owns the install instead.
+  const mirrorsThroughPackageManager =
+    packageChannel === "cn-mirror" &&
+    definition.npmPackageName !== null &&
+    (installSource === "npm" || installSource === "bun" || installSource === "pnpm");
   if (
+    !mirrorsThroughPackageManager &&
     definition.nativeUpdate?.strategy === "always" &&
     !definition.nativeUpdate.excludedInstallSources?.includes(installSource)
   ) {
@@ -421,10 +487,12 @@ function makeProviderMaintenanceForInstallSource(input: {
         installSource,
         executable,
         pathPrepend,
+        packageChannel,
       ) ??
       makeManualOnlyProviderMaintenanceCapabilities({
         provider: definition.provider,
         packageName: definition.npmPackageName,
+        packageChannel,
       })
     );
   }
@@ -435,32 +503,41 @@ function makeProviderMaintenanceForInstallSource(input: {
         installSource,
         executable,
         pathPrepend,
+        packageChannel,
       ) ??
       makeManualOnlyProviderMaintenanceCapabilities({
         provider: definition.provider,
         packageName: definition.npmPackageName,
+        packageChannel,
       })
     );
   }
   if (installSource === "bun") {
-    return makeBunGlobalProviderMaintenanceCapabilities(definition, pathPrepend);
+    return makeBunGlobalProviderMaintenanceCapabilities(definition, pathPrepend, packageChannel);
   }
   if (installSource === "pnpm") {
-    return makePnpmGlobalProviderMaintenanceCapabilities(definition, pathPrepend);
+    return makePnpmGlobalProviderMaintenanceCapabilities(definition, pathPrepend, packageChannel);
   }
   if (installSource === "npm") {
-    return makeNpmGlobalProviderMaintenanceCapabilities(definition, pathPrepend, commandPath);
+    return makeNpmGlobalProviderMaintenanceCapabilities(definition, {
+      pathPrepend,
+      commandPath,
+      npmGlobalPrefix,
+      packageChannel,
+    });
   }
   if (installSource === "homebrew") {
     return makeHomebrewProviderMaintenanceCapabilities(
       definition,
       homebrewPackage ?? definition.homebrew,
       pathPrepend,
+      packageChannel,
     );
   }
   return makeManualOnlyProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: definition.npmPackageName,
+    packageChannel,
   });
 }
 
@@ -516,11 +593,13 @@ export function resolvePackageManagedProviderMaintenance(
   definition: PackageManagedProviderMaintenanceDefinition,
   options?: ProviderMaintenanceCapabilityResolutionOptions,
 ): ProviderMaintenanceCapabilities {
+  const packageChannel = options?.packageChannel;
   const binaryPath = nonEmptyString(options?.binaryPath);
   if (!binaryPath) {
     return makeManualOnlyProviderMaintenanceCapabilities({
       provider: definition.provider,
       packageName: definition.npmPackageName,
+      packageChannel,
     });
   }
 
@@ -539,6 +618,7 @@ export function resolvePackageManagedProviderMaintenance(
           : {}),
         executable: binaryPath,
         commandPath,
+        packageChannel,
         ...(options?.commandDirectory === undefined
           ? {}
           : { pathPrepend: options.commandDirectory }),
@@ -546,11 +626,24 @@ export function resolvePackageManagedProviderMaintenance(
     }
   }
 
+  const npmGlobalPrefix = nonEmptyString(options?.npmGlobalPrefix);
+  if (npmGlobalPrefix) {
+    return makeProviderMaintenanceForInstallSource({
+      definition,
+      installSource: "npm",
+      executable: binaryPath,
+      npmGlobalPrefix,
+      packageChannel,
+      ...(options?.commandDirectory === undefined ? {} : { pathPrepend: options.commandDirectory }),
+    });
+  }
+
   if (!hasPathSeparator(binaryPath)) {
     return makeProviderMaintenanceForInstallSource({
       definition,
       installSource: "unknown",
       executable: binaryPath,
+      packageChannel,
       ...(options?.commandDirectory === undefined ? {} : { pathPrepend: options.commandDirectory }),
     });
   }
@@ -558,8 +651,32 @@ export function resolvePackageManagedProviderMaintenance(
   return makeManualOnlyProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: definition.npmPackageName,
+    packageChannel,
   });
 }
+
+/**
+ * npm's Windows shims are plain `.cmd` files beside `node_modules`, not symlinks, so the command
+ * path never reveals the package manager. The package sitting next to the shim does.
+ */
+const resolveWindowsNpmGlobalPrefix = Effect.fn("resolveWindowsNpmGlobalPrefix")(function* (
+  definition: PackageManagedProviderMaintenanceDefinition,
+  commandDirectory: string,
+  platform: NodeJS.Platform | undefined,
+) {
+  if (platform !== "win32" || !definition.npmPackageName) {
+    return null;
+  }
+  const fileSystem = yield* FileSystem.FileSystem;
+  const manifestPath = path.win32.join(
+    commandDirectory,
+    "node_modules",
+    ...definition.npmPackageName.split("/"),
+    "package.json",
+  );
+  const exists = yield* fileSystem.exists(manifestPath).pipe(Effect.orElseSucceed(() => false));
+  return exists ? commandDirectory : null;
+});
 
 export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
   "resolveProviderMaintenanceCapabilitiesEffect",
@@ -573,10 +690,16 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
     const realCommandPath =
       nonEmptyString(options?.realCommandPath) ??
       (yield* fileSystem.realPath(binaryPath).pipe(Effect.catch(() => Effect.succeed(binaryPath))));
+    const npmGlobalPrefix = yield* resolveWindowsNpmGlobalPrefix(
+      definition,
+      path.win32.dirname(binaryPath),
+      options?.platform,
+    );
     return resolvePackageManagedProviderMaintenance(definition, {
       ...options,
       binaryPath,
       realCommandPath,
+      npmGlobalPrefix,
     });
   }
 
@@ -599,11 +722,17 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
     const realCommandPath = yield* fileSystem
       .realPath(candidate.path)
       .pipe(Effect.catch(() => Effect.succeed(candidate.path)));
+    const npmGlobalPrefix = yield* resolveWindowsNpmGlobalPrefix(
+      definition,
+      candidate.directory,
+      options?.platform,
+    );
     return resolvePackageManagedProviderMaintenance(definition, {
       ...options,
       binaryPath,
       realCommandPath,
       commandDirectory: candidate.directory,
+      npmGlobalPrefix,
     });
   }
 
@@ -657,18 +786,24 @@ export function createProviderVersionAdvisory(input: {
     canUpdate: capabilities.update !== null,
     checkedAt: input.checkedAt ?? null,
     message: advisory.message,
+    ...(capabilities.packageChannel ? { packageChannel: capabilities.packageChannel } : {}),
   };
 }
 
-const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (packageName: string) {
+function latestVersionTimeoutMs(channel: ProviderPackageChannel | undefined): number {
+  return channel === "cn-mirror" ? LATEST_VERSION_MIRROR_TIMEOUT_MS : LATEST_VERSION_TIMEOUT_MS;
+}
+
+const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (
+  packageName: string,
+  channel: ProviderPackageChannel | undefined,
+) {
+  const registry = channel === "cn-mirror" ? CN_NPM_MIRROR_REGISTRY : NPM_OFFICIAL_REGISTRY;
   return yield* Effect.tryPromise(async () => {
-    const response = await fetch(
-      `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`,
-      {
-        headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(LATEST_VERSION_TIMEOUT_MS),
-      },
-    );
+    const response = await fetch(`${registry}/${encodeURIComponent(packageName)}/latest`, {
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(latestVersionTimeoutMs(channel)),
+    });
     if (!response.ok) {
       return null;
     }
@@ -679,16 +814,18 @@ const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (pack
 
 const fetchHomebrewLatestVersion = Effect.fn("fetchHomebrewLatestVersion")(function* (
   source: ProviderLatestVersionSource,
+  channel: ProviderPackageChannel | undefined,
 ) {
   if (source.kind !== "homebrew" || !source.homebrewKind) {
     return null;
   }
+  const apiDomain = channel === "cn-mirror" ? CN_HOMEBREW_API_DOMAIN : HOMEBREW_OFFICIAL_API_DOMAIN;
   return yield* Effect.tryPromise(async () => {
     const response = await fetch(
-      `https://formulae.brew.sh/api/${source.homebrewKind}/${encodeURIComponent(source.name)}.json`,
+      `${apiDomain}/${source.homebrewKind}/${encodeURIComponent(source.name)}.json`,
       {
         headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(LATEST_VERSION_TIMEOUT_MS),
+        signal: AbortSignal.timeout(latestVersionTimeoutMs(channel)),
       },
     );
     if (!response.ok) {
@@ -712,10 +849,13 @@ export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVers
     return null;
   }
 
-  const cacheKey =
+  const channel = maintenanceCapabilities.packageChannel;
+  // The mirror can lag the official registry, and an account can change lanes mid-session.
+  const cacheKey = `${channel ?? "official"}:${
     source.kind === "homebrew"
       ? `homebrew:${source.homebrewKind ?? "unknown"}:${source.name}`
-      : `npm:${source.name}`;
+      : `npm:${source.name}`
+  }`;
   const cached = latestVersionCache.get(cacheKey);
   const now = DateTime.toEpochMillis(yield* DateTime.now);
   if (cached && cached.expiresAt > now) {
@@ -724,10 +864,11 @@ export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVers
 
   const version =
     source.kind === "homebrew"
-      ? yield* fetchHomebrewLatestVersion(source)
-      : yield* fetchNpmLatestVersion(source.name);
+      ? yield* fetchHomebrewLatestVersion(source, channel)
+      : yield* fetchNpmLatestVersion(source.name, channel);
   latestVersionCache.set(cacheKey, {
-    expiresAt: now + LATEST_VERSION_CACHE_TTL_MS,
+    expiresAt:
+      now + (version === null ? LATEST_VERSION_FAILURE_CACHE_TTL_MS : LATEST_VERSION_CACHE_TTL_MS),
     version,
   });
   return version;

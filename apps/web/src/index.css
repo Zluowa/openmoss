@@ -19,6 +19,9 @@
   --animate-spin-stepped: spin-stepped 1.3s steps(26, end) infinite;
   /* Same 50ms step, half the speed: background work that keeps going without you. */
   --animate-spin-stepped-slow: spin-stepped 2.6s steps(52, end) infinite;
+  /* Rail update button: the arrow keeps rising through its spinning ring. */
+  --animate-update-rise: update-rise 1.4s ease-in-out infinite;
+  --animate-update-pop: update-pop 260ms ease-out backwards;
   --font-sans: var(--font-ui-family);
   /* Weights matched stem-for-stem to Claude's 360 / 460 / 530 / 560 in Inter. */
   --font-weight-normal: 380;
@@ -164,6 +167,28 @@
   @keyframes spin-stepped {
     to {
       transform: rotate(360deg);
+    }
+  }
+  /* `translate` and `scale` rather than `transform`: Central icons already paint at a set scale. */
+  @keyframes update-rise {
+    0% {
+      translate: 0 5px;
+      opacity: 0;
+    }
+    35%,
+    65% {
+      translate: 0 0;
+      opacity: 1;
+    }
+    100% {
+      translate: 0 -5px;
+      opacity: 0;
+    }
+  }
+  @keyframes update-pop {
+    from {
+      scale: 0.6;
+      opacity: 0;
     }
   }
 }

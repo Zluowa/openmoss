@@ -1,12 +1,14 @@
 import { describe, it, assert } from "@effect/vitest";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 
 import { Effect, FileSystem } from "effect";
+import { TestClock } from "effect/testing";
 
 import {
   createProviderVersionAdvisory,
   deriveNpmGlobalPrefix,
   makeProviderMaintenanceCapabilities,
+  resolveLatestProviderVersion,
   resolvePackageManagedProviderMaintenance,
   resolveProviderMaintenanceCapabilitiesEffect,
   withOpenCodeMaintenanceVersion,
@@ -323,7 +325,207 @@ describe("providerMaintenance", () => {
 
       assert.deepStrictEqual(probed, [join("/usr/bin", "codex"), join("/bin", "codex")]);
     });
+
+    it("recognises npm's Windows shim by the package beside it", async () => {
+      const directory = "C:\\Users\\Test\\AppData\\Roaming\\npm";
+      const { capabilities } = await runWithVirtualFileSystem(
+        new Set([
+          win32.join(directory, "codex"),
+          win32.join(directory, "node_modules", "@openai", "codex", "package.json"),
+        ]),
+        { binaryPath: "codex", platform: "win32", env: { PATH: directory, PATHEXT: ".CMD" } },
+      );
+
+      assert.deepStrictEqual(capabilities.update?.args, [
+        "install",
+        "-g",
+        "--prefix",
+        directory,
+        "@openai/codex@latest",
+      ]);
+    });
+
+    it("leaves a Windows binary without a package beside it unclassified", async () => {
+      const directory = "C:\\tools";
+      const { capabilities } = await runWithVirtualFileSystem(
+        new Set([win32.join(directory, "codex")]),
+        { binaryPath: "codex", platform: "win32", env: { PATH: directory, PATHEXT: ".CMD" } },
+      );
+
+      assert.strictEqual(capabilities.update, null);
+    });
   });
+
+  describe("the mainland China mirror channel", () => {
+    const packageChannel = "cn-mirror" as const;
+    const registry = "--registry=https://registry.npmmirror.com";
+
+    it("adds the mirror to npm, bun and pnpm updates", () => {
+      const update = (realCommandPath: string) =>
+        resolvePackageManagedProviderMaintenance(CODEX_DEFINITION, {
+          binaryPath: "codex",
+          realCommandPath,
+          packageChannel,
+        }).update?.args;
+
+      assert.deepStrictEqual(update("/usr/local/lib/node_modules/@openai/codex/bin/codex.js"), [
+        "install",
+        "-g",
+        "--prefix",
+        "/usr/local",
+        registry,
+        "@openai/codex@latest",
+      ]);
+      assert.deepStrictEqual(update("/Users/test/.bun/bin/codex"), [
+        "i",
+        "-g",
+        registry,
+        "@openai/codex@latest",
+      ]);
+      assert.deepStrictEqual(update("/Users/test/.local/share/pnpm/codex"), [
+        "add",
+        "-g",
+        registry,
+        "@openai/codex@latest",
+      ]);
+    });
+
+    it("skips a CLI's own updater when the package manager can use the mirror", () => {
+      const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
+        binaryPath: "opencode",
+        realCommandPath: "/usr/local/lib/node_modules/opencode-ai/bin/opencode",
+        packageChannel,
+      });
+
+      assert.strictEqual(capabilities.update?.executable, "npm");
+      assert.strictEqual(capabilities.update?.lockKey, "npm-global");
+      assert.ok(capabilities.update?.args.includes(registry));
+      assert.strictEqual(capabilities.packageChannel, packageChannel);
+    });
+
+    it("still uses a CLI's own updater when nothing else owns the install", () => {
+      const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
+        binaryPath: "opencode",
+        packageChannel,
+      });
+
+      assert.deepStrictEqual(capabilities.update?.args, ["upgrade"]);
+      assert.strictEqual(capabilities.packageChannel, packageChannel);
+    });
+
+    it("keeps the official channel's commands unchanged", () => {
+      const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
+        binaryPath: "opencode",
+        realCommandPath: "/usr/local/lib/node_modules/opencode-ai/bin/opencode",
+        packageChannel: "official",
+      });
+
+      assert.deepStrictEqual(capabilities.update?.args, ["upgrade", "--method", "npm"]);
+      assert.strictEqual(capabilities.packageChannel, undefined);
+    });
+
+    it("tells the client which channel an advisory came from", () => {
+      const capabilities = resolvePackageManagedProviderMaintenance(CODEX_DEFINITION, {
+        binaryPath: "codex",
+        realCommandPath: "/usr/local/lib/node_modules/@openai/codex/bin/codex.js",
+        packageChannel,
+      });
+
+      const advisory = createProviderVersionAdvisory({
+        provider: "codex",
+        currentVersion: "0.1.0",
+        latestVersion: "0.2.0",
+        maintenanceCapabilities: capabilities,
+      });
+      assert.strictEqual(advisory.packageChannel, packageChannel);
+      assert.ok(advisory.updateCommand?.includes(registry));
+      assert.strictEqual(
+        createProviderVersionAdvisory({ provider: "codex", currentVersion: "0.1.0" })
+          .packageChannel,
+        undefined,
+      );
+    });
+
+    it.effect("looks up the latest version from the channel's registry", () =>
+      Effect.gen(function* () {
+        const requested: string[] = [];
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (async (input: string | URL | Request) => {
+          requested.push(String(input));
+          return new Response(JSON.stringify({ version: "9.9.9" }));
+        }) as unknown as typeof fetch;
+        yield* Effect.addFinalizer(() => Effect.sync(() => (globalThis.fetch = realFetch)));
+
+        const source = { kind: "npm", name: "@test/channel-lookup" } as const;
+        const base = {
+          provider: "codex",
+          packageName: source.name,
+          latestVersionSource: source,
+          update: null,
+        } as const;
+        const official = yield* resolveLatestProviderVersion(base);
+        const mirrored = yield* resolveLatestProviderVersion({ ...base, packageChannel });
+
+        assert.strictEqual(official, "9.9.9");
+        assert.strictEqual(mirrored, "9.9.9");
+        // The channels cache apart, so changing lanes cannot reuse the other registry's answer.
+        assert.deepStrictEqual(requested, [
+          "https://registry.npmjs.org/%40test%2Fchannel-lookup/latest",
+          "https://registry.npmmirror.com/%40test%2Fchannel-lookup/latest",
+        ]);
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("asks the Homebrew mirror on the mirror channel", () =>
+      Effect.gen(function* () {
+        const requested: string[] = [];
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (async (input: string | URL | Request) => {
+          requested.push(String(input));
+          return new Response(JSON.stringify({ version: "1.2.3" }));
+        }) as unknown as typeof fetch;
+        yield* Effect.addFinalizer(() => Effect.sync(() => (globalThis.fetch = realFetch)));
+
+        const version = yield* resolveLatestProviderVersion({
+          provider: "codex",
+          packageName: null,
+          latestVersionSource: { kind: "homebrew", name: "test-cask", homebrewKind: "cask" },
+          update: null,
+          packageChannel,
+        });
+
+        assert.strictEqual(version, "1.2.3");
+        assert.deepStrictEqual(requested, [
+          "https://mirrors.ustc.edu.cn/homebrew-bottles/api/cask/test-cask.json",
+        ]);
+      }).pipe(Effect.scoped),
+    );
+  });
+
+  it.effect("retries a failed version lookup sooner than a successful one", () =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async () => {
+        calls += 1;
+        return new Response("", { status: 503 });
+      }) as unknown as typeof fetch;
+      yield* Effect.addFinalizer(() => Effect.sync(() => (globalThis.fetch = realFetch)));
+
+      const capabilities = {
+        provider: "codex",
+        packageName: "@test/failed-lookup",
+        latestVersionSource: { kind: "npm", name: "@test/failed-lookup" },
+        update: null,
+      } as const;
+      assert.strictEqual(yield* resolveLatestProviderVersion(capabilities), null);
+      assert.strictEqual(yield* resolveLatestProviderVersion(capabilities), null);
+      assert.strictEqual(calls, 1);
+      yield* TestClock.adjust("6 minutes");
+      yield* resolveLatestProviderVersion(capabilities);
+      assert.strictEqual(calls, 2);
+    }).pipe(Effect.scoped),
+  );
 
   it("marks older semver versions as behind latest", () => {
     const advisory = createProviderVersionAdvisory({

@@ -203,6 +203,16 @@ describe("isUpdateVersionAllowedForFlavor", () => {
     expect(isUpdateVersionAllowedForFlavor("v0.8.4-alpha.9", "production")).toBe(false);
   });
 
+  it("moves a production build carrying a beta version number only to a stable release", () => {
+    // Moss 1.0.2-beta.1 shipped as the production flavor, so its next release
+    // has to be stable: another beta would be refused, not offered.
+    const installed = "1.0.2-beta.1";
+    expect(isUpdateVersionAllowedForFlavor("1.0.2", "production")).toBe(true);
+    expect(isUpdateVersionNewer(installed, "1.0.2")).toBe(true);
+    expect(isUpdateVersionAllowedForFlavor("1.0.2-beta.2", "production")).toBe(false);
+    expect(isUpdateVersionAllowedForFlavor("1.0.3-beta.1", "production")).toBe(false);
+  });
+
   it("does not gate development or canary flavors", () => {
     expect(isUpdateVersionAllowedForFlavor("0.8.4-beta.2", "canary")).toBe(true);
     expect(isUpdateVersionAllowedForFlavor("0.8.4", "development")).toBe(true);

@@ -82,8 +82,6 @@ const WHATS_NEW_TEXT: Readonly<Record<string, string>> = {
     "浏览器标签支持中键关闭，地址建议保持可见，导航保留输入框焦点。Unicode 图片下载、已删除文件的搜索结果、资料页日期、通知点击和应用图标持久化都已修正。侧边栏悬停闪烁、原生侧边栏开关的命中判定和侧面板内容溢出问题也已修复。",
   "A feature tour introduces the new workspace, provider accounts and review workflow.":
     "功能导览介绍新工作区、服务商账号和审阅流程。",
-  "Upstream release history: Synara 1.0.0 is a Stable release. Hubs and the Tasks to-do list remain exclusive to Synara Beta, with separate data and update feeds. Stable does not send Beta diagnostics.":
-    "上游发布历史：Synara 1.0.0 是 Stable 版本。Hubs 和 Tasks 待办列表仍为 Synara Beta 专属，数据和更新源各自独立。Stable 不会发送 Beta 诊断数据。",
   "Choose how Git changes are written": "选择 Git 改动的书写方式",
   "Use repository conventions, Conventional Commits or your own instructions for generated commit messages and pull requests.":
     "生成的提交信息和拉取请求可遵循仓库惯例、Conventional Commits 或你的自定义说明。",

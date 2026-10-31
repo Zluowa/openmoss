@@ -93,6 +93,9 @@ export const MOSS_ACCESS_LANE_SPECS: Readonly<Record<MossAccessLane, MossAccessL
   },
 };
 
+/** Where the mainland lanes download agent CLIs from, since they promise to work without a VPN. */
+export const MOSS_CN_NPM_MIRROR_REGISTRY = "https://registry.npmmirror.com";
+
 export function isMossAccessLane(value: unknown): value is MossAccessLane {
   return value === "cn" || value === "global" || value === "enterprise";
 }

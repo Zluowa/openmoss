@@ -289,7 +289,7 @@ import {
   SidebarActivityView,
   SidebarSnoozedThreadsSection,
 } from "./SidebarActivityView";
-import { DesktopUpdateRailButton } from "./DesktopUpdateRailButton";
+import { RailUpdateControl } from "./providerUpdates/RailUpdateControl";
 import { SidebarIconButton, sidebarIconButtonSlotClass } from "./SidebarIconButton";
 import { OneTimeCoachmark, TASKS_COACHMARK } from "./OneTimeCoachmark";
 import { SidebarLeadingIcon } from "./SidebarLeadingIcon";
@@ -7480,13 +7480,14 @@ export default function Sidebar() {
     bottomSlot: (
       <>
         {hasDesktopRail ? <AppRailUsage onOpenUsageSettings={openUsageSettings} /> : null}
-        {showDesktopUpdateButton && desktopUpdateState ? (
-          <DesktopUpdateRailButton
-            state={desktopUpdateState}
-            installing={installingDesktopUpdate}
-            onClick={handleDesktopUpdateButtonClick}
-          />
-        ) : null}
+        <RailUpdateControl
+          desktopUpdate={{
+            state: desktopUpdateState,
+            visible: showDesktopUpdateButton,
+            installing: installingDesktopUpdate,
+            onClick: handleDesktopUpdateButtonClick,
+          }}
+        />
       </>
     ),
     // Codex bottom-left account entry: signed out it leads to /login, signed in it
