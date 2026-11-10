@@ -40,6 +40,8 @@ const report = (install: string | null = randomUUID()) => ({
   ...(install ? { install } : {}),
 });
 const DAY = 86_400_000;
+// Node's `Response.json()` resolves to `unknown`; these tests read the queue's JSON freely.
+type QueueResponse = Omit<Response, "json"> & { json(): Promise<any> };
 function fixture(
   limits: { dailyReportLimit?: number; dailyJobLimit?: number; installDailyLimit?: number } = {},
 ) {
@@ -58,7 +60,7 @@ function fixture(
   });
   return {
     store,
-    handle,
+    handle: handle as (request: Request) => Promise<QueueResponse>,
     advance: (milliseconds: number) => {
       time += milliseconds;
     },

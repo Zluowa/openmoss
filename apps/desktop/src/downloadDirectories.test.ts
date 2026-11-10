@@ -1,10 +1,17 @@
+import * as Path from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { ensureDownloadDirectories, type DownloadDirectoryApp } from "./downloadDirectories";
 
 describe("ensureDownloadDirectories", () => {
   it("creates and publishes both standard picker locations", () => {
-    const paths = { desktop: "C:/profile/Desktop", downloads: "C:/profile/Downloads" } as const;
+    // Absolute on every platform: a drive path such as C:/profile is relative on Linux and macOS,
+    // where it would take the home-folder fallback instead.
+    const paths = {
+      desktop: Path.resolve("/profile", "Desktop"),
+      downloads: Path.resolve("/profile", "Downloads"),
+    } as const;
     const setPath = vi.fn();
     const app: DownloadDirectoryApp = {
       getPath: (name) => paths[name],
