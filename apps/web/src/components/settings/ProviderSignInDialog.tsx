@@ -149,7 +149,7 @@ export default function ProviderSignInDialog(props: {
             {method.instructions} This runs on the Moss server machine for the selected account.
           </DialogDescription>
         </DialogHeader>
-        <div className="h-[min(55vh,28rem)] min-h-48 overflow-hidden rounded-xl border border-border mx-5">
+        <div className="h-[min(55vh,28rem)] min-h-48 overflow-hidden rounded-card border border-border mx-5">
           {config.data?.cwd ? (
             <TerminalViewport
               {...session}

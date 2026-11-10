@@ -16,9 +16,9 @@ export type PullRequestWarningNoteShape = "note" | "callout" | "banner";
 
 const SHAPE_CLASS_NAME: Record<PullRequestWarningNoteShape, string> = {
   /** Inline inside a section that already has padding (the Comments list): tight and compact. */
-  note: "rounded-md px-2 py-1.5",
+  note: "rounded-control px-2 py-1.5",
   /** Standing on its own in a page's stack: the card radius of the surfaces around it. */
-  callout: "rounded-lg px-3 py-2",
+  callout: "rounded-control px-3 py-2",
   /** Full-bleed across the top of a panel: squared off and down to its bottom rule, so it reads
    *  as part of the chrome instead of a card floating inside it. */
   banner: "rounded-none border-x-0 border-t-0 px-3 py-2",

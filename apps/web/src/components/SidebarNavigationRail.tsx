@@ -361,7 +361,7 @@ function RailUpdateThemeSlot() {
       >
         <ArrowDownLineIcon className="size-4" />
         {desktopUpdateDownloadPercent !== null ? (
-          <span className="absolute -bottom-1 rounded-full bg-[var(--info)] px-1 text-[8px] font-semibold leading-3 text-white tabular-nums">
+          <span className="absolute -bottom-1 rounded-full bg-[var(--info)] px-1 text-[8px] font-medium leading-3 text-white tabular-nums">
             {desktopUpdateDownloadPercent}%
           </span>
         ) : null}

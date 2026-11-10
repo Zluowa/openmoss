@@ -4,6 +4,7 @@
 // Exports: CommandShellDetails
 // Depends on: normalized tool output, live activity, shared clipboard/localization primitives
 
+import { Button } from "~/components/ui/button";
 import {
   useCallback,
   useId,
@@ -225,9 +226,11 @@ export function CommandShellDetails(props: {
         >
           <span data-shell-label="true">{t("chat.shell.label")}</span>
           <span className="flex items-center gap-0.5">
-            <button
+            <Button
+              variant="ghost"
+              size="icon-xs"
               type="button"
-              className="inline-flex size-6 items-center justify-center rounded-control-xs text-muted-foreground/75 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              className="transition-colors motion-reduce:transition-none"
               aria-label={contentsCopied ? t("chat.shell.copied") : t("chat.shell.copyContents")}
               title={contentsCopied ? t("chat.shell.copied") : t("chat.shell.copyContents")}
               data-shell-copy="contents"
@@ -239,10 +242,12 @@ export function CommandShellDetails(props: {
               ) : (
                 <CopyIcon className="icon-2xs" />
               )}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
               type="button"
-              className="inline-flex size-6 items-center justify-center rounded-control-xs text-muted-foreground/75 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              className="transition-colors motion-reduce:transition-none"
               aria-label={shellExpanded ? t("chat.shell.collapse") : t("chat.shell.expand")}
               title={shellExpanded ? t("chat.shell.collapse") : t("chat.shell.expand")}
               data-shell-toggle="true"
@@ -255,7 +260,7 @@ export function CommandShellDetails(props: {
               ) : (
                 <ChevronDownIcon className="icon-2xs" />
               )}
-            </button>
+            </Button>
           </span>
         </div>
       )}

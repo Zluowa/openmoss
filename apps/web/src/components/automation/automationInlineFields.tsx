@@ -58,7 +58,7 @@ export function DetailRow({
   readonly children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md px-1.5 py-1.5 text-ui leading-snug">
+    <div className="flex items-center justify-between gap-3 rounded-control px-1.5 py-1.5 text-ui leading-snug">
       <span className="flex shrink-0 items-center gap-1 text-muted-foreground">{label}</span>
       <span className="min-w-0 truncate text-right text-foreground">{children}</span>
     </div>
@@ -96,7 +96,7 @@ export function EditRow({
   readonly children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2 rounded-md py-px pl-1.5 pr-0.5 text-ui leading-snug transition-colors hover:bg-foreground/[0.04]">
+    <div className="flex items-center justify-between gap-2 rounded-control py-px pl-1.5 pr-0.5 text-ui leading-snug transition-colors hover:bg-foreground/[0.04]">
       <span className="flex shrink-0 items-center gap-1 text-muted-foreground">{label}</span>
       {children}
     </div>
@@ -104,7 +104,7 @@ export function EditRow({
 }
 
 export const INLINE_CONTROL_CLASS =
-  "cursor-pointer rounded-md bg-transparent px-2 py-1.5 text-right text-ui leading-snug text-foreground outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60";
+  "cursor-pointer rounded-control bg-transparent px-2 py-1.5 text-right text-ui leading-snug text-foreground outline-none transition-colors focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60";
 
 export function InlineSelect({
   value,

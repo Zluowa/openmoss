@@ -845,7 +845,7 @@ export function SidebarQuickChat({
             role="menu"
             aria-label={labels.recentChats}
             data-testid="quick-chat-recent-card"
-            className="fixed z-[100] w-72 overflow-hidden rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-surface-under)] p-1 text-[var(--color-text-foreground)] shadow-lg [-webkit-app-region:no-drag]"
+            className="fixed z-[100] w-72 overflow-hidden rounded-popover border border-[color:var(--color-border-light)] bg-[var(--color-background-surface-under)] p-1 text-[var(--color-text-foreground)] shadow-lg [-webkit-app-region:no-drag]"
             style={recentPosition}
             onKeyDown={handleRecentKeyDown}
             onMouseEnter={() => {
@@ -881,7 +881,7 @@ export function SidebarQuickChat({
                     role="menuitem"
                     data-quick-chat-recent-focusable="true"
                     data-testid={`quick-chat-recent-${thread.id}`}
-                    className="group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui-sm outline-none hover:bg-[var(--color-background-elevated-secondary)] focus-visible:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-1 focus-visible:ring-ring/60"
+                    className="group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-row px-2 py-1.5 text-left text-ui-sm outline-none hover:bg-[var(--color-background-elevated-secondary)] focus-visible:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-1 focus-visible:ring-ring/60"
                     onClick={() => openRecentThreadInWindow(thread.id)}
                   >
                     <span className="relative flex size-4 shrink-0 items-center justify-center text-muted-foreground">
@@ -926,7 +926,7 @@ export function SidebarQuickChat({
             id={QUICK_CHAT_COACHMARK_ID}
             role="status"
             data-testid="quick-chat-first-use-coachmark"
-            className="fixed z-[100] w-64 rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-surface-under)] p-3 text-[var(--color-text-foreground)] shadow-lg [-webkit-app-region:no-drag]"
+            className="fixed z-[100] w-64 rounded-popover border border-[color:var(--color-border-light)] bg-[var(--color-background-surface-under)] p-3 text-[var(--color-text-foreground)] shadow-lg [-webkit-app-region:no-drag]"
             style={coachmarkPosition}
             onMouseEnter={() => {
               clearRecentTimers();
@@ -934,7 +934,7 @@ export function SidebarQuickChat({
             }}
             onMouseLeave={scheduleHoverSurfaceClose}
           >
-            <div className="mb-2 inline-flex rounded-md bg-info/12 px-1.5 py-0.5 text-ui-timestamp font-semibold tracking-wide text-info">
+            <div className="mb-2 inline-flex rounded-control bg-info/12 px-1.5 py-0.5 text-ui-timestamp font-medium tracking-wide text-info">
               {labels.newFeature}
             </div>
             <p className="text-ui-sm font-semibold leading-5">{labels.coachmarkTitle}</p>
@@ -959,7 +959,7 @@ export function SidebarQuickChat({
             data-quick-chat-dock={placement.dock}
             data-quick-chat-thread-id={activeThreadId ?? undefined}
             data-quick-chat-shortcut-owner="true"
-            className="fixed z-40 flex overflow-hidden rounded-2xl border border-[color:var(--color-border)] bg-[var(--color-background-surface)] text-[var(--color-text-foreground)] shadow-2xl [-webkit-app-region:no-drag]"
+            className="fixed z-40 flex overflow-hidden rounded-popover border border-[color:var(--color-border)] bg-[var(--color-background-surface)] text-[var(--color-text-foreground)] shadow-2xl [-webkit-app-region:no-drag]"
             style={{ left: position.x, top: position.y, width: size.width, height: size.height }}
             onKeyDown={handleWindowKeyDown}
           >
@@ -1022,7 +1022,7 @@ export function SidebarQuickChat({
                         id={`${QUICK_CHAT_WINDOW_ID}-title`}
                         type="button"
                         data-quick-chat-window-control
-                        className="group/title flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left text-ui-lg font-medium outline-none hover:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-1 focus-visible:ring-ring/60"
+                        className="group/title flex min-w-0 items-center gap-1 rounded-row px-1.5 py-1 text-left text-ui-lg font-medium outline-none hover:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-1 focus-visible:ring-ring/60"
                         title={activeTitle}
                         onClick={() => {
                           setShowWelcome(false);
@@ -1097,7 +1097,7 @@ export function SidebarQuickChat({
               >
                 <button
                   type="button"
-                  className="flex min-h-10 shrink-0 items-center gap-2 rounded-lg px-2 text-left text-ui-sm font-medium outline-none hover:bg-[var(--color-background-elevated-secondary)] focus-visible:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-1 focus-visible:ring-ring/60"
+                  className="flex min-h-10 shrink-0 items-center gap-2 rounded-control px-2 text-left text-ui-sm font-medium outline-none hover:bg-[var(--color-background-elevated-secondary)] focus-visible:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-1 focus-visible:ring-ring/60"
                   disabled={creating}
                   onClick={() => void createNewDetachedChat()}
                 >
@@ -1124,7 +1124,7 @@ export function SidebarQuickChat({
                         type="button"
                         aria-pressed={thread.id === activeThreadId}
                         className={cn(
-                          "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui-sm outline-none hover:bg-[var(--color-background-elevated-secondary)] focus-visible:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-1 focus-visible:ring-ring/60",
+                          "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-row px-2 py-1.5 text-left text-ui-sm outline-none hover:bg-[var(--color-background-elevated-secondary)] focus-visible:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-1 focus-visible:ring-ring/60",
                           thread.id === activeThreadId &&
                             "bg-[var(--color-background-elevated-secondary)]",
                         )}
@@ -1310,7 +1310,7 @@ export function SidebarQuickChat({
               <span
                 role="status"
                 data-testid="quick-chat-new-coachmark"
-                className="ml-auto rounded-md bg-info/12 px-1.5 py-0.5 text-ui-timestamp font-semibold tracking-wide text-info group-data-[collapsible=icon]:hidden"
+                className="ml-auto rounded-control bg-info/12 px-1.5 py-0.5 text-ui-timestamp font-medium tracking-wide text-info group-data-[collapsible=icon]:hidden"
               >
                 {labels.newFeature}
               </span>

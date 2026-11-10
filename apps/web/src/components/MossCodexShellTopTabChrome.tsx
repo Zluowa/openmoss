@@ -153,7 +153,7 @@ function TabGlyph({ kind }: { kind?: MossShellTab["kind"] }) {
       </span>
     );
   }
-  return <span aria-hidden className="size-4 shrink-0 rounded-sm bg-foreground/20" />;
+  return <span aria-hidden className="size-4 shrink-0 rounded-control-xs bg-foreground/20" />;
 }
 
 /**
@@ -211,7 +211,7 @@ export function MossCodexShellTopTabChrome({
               <button
                 type="button"
                 className={cn(
-                  "inline-flex size-6 shrink-0 items-center justify-center rounded-md text-current/65 hover:bg-black/[0.08] hover:text-current dark:hover:bg-white/10",
+                  "inline-flex size-6 shrink-0 items-center justify-center rounded-control-xs text-current/65 hover:bg-black/[0.08] hover:text-current dark:hover:bg-white/10",
                 )}
                 aria-label={`More actions for ${activeTitle}`}
                 data-moss-tab-action="more"
@@ -474,7 +474,7 @@ export function MossCodexShellTopTabChrome({
                     <button
                       type="button"
                       className={cn(
-                        "inline-flex size-4 shrink-0 items-center justify-center rounded-sm transition-opacity",
+                        "inline-flex size-4 shrink-0 items-center justify-center rounded-control-xs transition-opacity",
                         active
                           ? "opacity-100 hover:bg-[color-mix(in_srgb,var(--foreground)_8%,transparent)]"
                           : "opacity-0 group-hover/moss-tab:opacity-100",

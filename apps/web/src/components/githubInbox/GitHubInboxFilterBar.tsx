@@ -131,7 +131,7 @@ function KindTabs({
             aria-checked={active}
             aria-label={count === undefined ? tab.label : `${tab.label}, ${count}`}
             className={cn(
-              "flex h-5 items-center gap-1 rounded-md px-1.5 text-ui-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+              "flex h-5 items-center gap-1 rounded-control-xs px-1.5 text-ui-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               active
                 ? CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME
                 : cn(

@@ -31,7 +31,7 @@ vi.mock("./chats", async (importOriginal) => {
 });
 
 const { collectImportChats } = await import("./chats");
-const { probeWorkspaceImport } = await import("./probe");
+const { probeWorkspaceImport, workspaceImportProbeStepTimeoutMs } = await import("./probe");
 const { discoverImportResources } = await import("./resources");
 
 const tempDirs: string[] = [];
@@ -160,6 +160,13 @@ describe("probeWorkspaceImport", () => {
 });
 
 describe("tools-only probe", () => {
+  it("gives the configuration read its own, longer step budget", () => {
+    expect(workspaceImportProbeStepTimeoutMs({})).toBe(12_000);
+    // It runs beside the conversation scan on a cold start; small steps get time to finish.
+    expect(workspaceImportProbeStepTimeoutMs({ toolsOnly: true })).toBe(30_000);
+    expect(workspaceImportProbeStepTimeoutMs({ toolsOnly: true, stepTimeoutMs: 50 })).toBe(50);
+  });
+
   it("skips the chat and project scan and still reports configuration", async () => {
     const home = await seedHome();
     // Would time the probe out if it ran.

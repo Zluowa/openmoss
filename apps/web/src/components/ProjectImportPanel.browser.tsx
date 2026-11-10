@@ -4,6 +4,7 @@ import { ProjectId, ThreadId, type ListProjectImportsResult } from "@moss/contra
 import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const api = vi.hoisted(() => ({
   listProjectImports: vi.fn(),
@@ -412,7 +413,15 @@ describe("project import dialog dismissal", () => {
     );
     useProjectImportDialogStore.getState().openDialog();
     await page.viewport(1100, 850);
-    await render(<ProjectImportDialog />);
+    // The dialog reads agent detection, as it does inside the app's query provider.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, enabled: false } },
+    });
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectImportDialog />
+      </QueryClientProvider>,
+    );
     await page.getByRole("button", { name: /Choose projects/ }).click();
     await page.getByRole("button", { name: "Conversations in Moss" }).click();
     await page.getByRole("button", { name: "Import 2 conversations" }).click();

@@ -5397,7 +5397,7 @@ export default function Sidebar() {
                   render={<button type="button" />}
                   data-thread-selection-safe
                   size="sm"
-                  className="h-7 flex-1 translate-x-0 justify-start rounded-lg pr-2 pl-8 text-left text-ui text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground"
+                  className="h-7 flex-1 translate-x-0 justify-start rounded-control pr-2 pl-8 text-left text-ui text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground"
                   onMouseDown={preventFocusOnMouseDown}
                   onClick={() => {
                     showMoreThreadsForProject(project.cwd, threadListExtraPages);
@@ -5412,7 +5412,7 @@ export default function Sidebar() {
                   data-thread-selection-safe
                   size="sm"
                   className={cn(
-                    "h-7 translate-x-0 justify-start rounded-lg text-left text-ui text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground",
+                    "h-7 translate-x-0 justify-start rounded-control text-left text-ui text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground",
                     // Keep the left indent when "Show less" is the only affordance left.
                     canShowMoreThreads ? "w-auto flex-none px-2" : "flex-1 pr-2 pl-8",
                   )}
@@ -5567,7 +5567,7 @@ export default function Sidebar() {
               aria-pressed={isProjectPinned}
               title={pinActionLabel(project.name, isProjectPinned)}
               className={cn(
-                "sidebar-icon-button absolute left-2 top-1/2 z-20 inline-flex size-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded-sm transition-opacity hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+                "sidebar-icon-button absolute left-2 top-1/2 z-20 inline-flex size-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded-control-xs transition-opacity hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
                 SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
                 isProjectPinned
                   ? "pointer-events-auto opacity-100"
@@ -6303,7 +6303,7 @@ export default function Sidebar() {
   const betaBadge = isBetaDesktopFlavor ? (
     <span
       aria-label="Moss Beta"
-      className="inline-flex shrink-0 items-center rounded-full bg-[var(--beta-pill)] px-1.5 py-0.5 text-ui-xs font-semibold leading-none text-[var(--beta-pill-ink)]"
+      className="inline-flex shrink-0 items-center rounded-full bg-[var(--beta-pill)] px-1.5 py-0.5 text-ui-xs font-medium leading-none text-[var(--beta-pill-ink)]"
     >
       Beta
     </span>
@@ -6777,7 +6777,7 @@ export default function Sidebar() {
           <SidebarContent ref={setSidebarContentElement} className="gap-0 font-system-ui">
             {showArm64IntelBuildWarning && arm64IntelBuildWarningDescription ? (
               <SidebarGroup className="px-2 pt-2 pb-0">
-                <Alert variant="warning" className="rounded-2xl border-warning/40 bg-warning/8">
+                <Alert variant="warning" className="rounded-card border-warning/40 bg-warning/8">
                   <TriangleAlertIcon />
                   <AlertTitle>Intel build on Apple Silicon</AlertTitle>
                   <AlertDescription>{arm64IntelBuildWarningDescription}</AlertDescription>
@@ -6900,7 +6900,9 @@ export default function Sidebar() {
                     </SidebarMenu>
                   </SidebarGroup>
 
-                  <MossbotSidebar compact activeProjectId={null} />
+                  {/* No Mossbot roster here: the 「Mossbot」 entry above opens Mossbot, whose
+                      panel lists the assistants and group chats. A 「Moss」 row right under it
+                      read as the same entry twice. */}
 
                   {activityViewEnabled ? (
                     <SidebarGroup className="px-1.5 py-1.5">
@@ -7013,7 +7015,7 @@ export default function Sidebar() {
                       ) : (
                         <SidebarMenu ref={attachProjectListAutoAnimateRef} className="gap-3">
                           {standardProjects.map((project) => (
-                            <SidebarMenuItem key={project.id} className="rounded-md">
+                            <SidebarMenuItem key={project.id} className="rounded-control">
                               {renderProjectItem(project, null)}
                             </SidebarMenuItem>
                           ))}
@@ -7143,7 +7145,7 @@ export default function Sidebar() {
                               {canShowMoreChatThreads ? (
                                 <SidebarMenuButton
                                   size="sm"
-                                  className="h-7 flex-1 justify-start rounded-lg pr-2 pl-8 text-left text-ui font-normal text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground"
+                                  className="h-7 flex-1 justify-start rounded-control pr-2 pl-8 text-left text-ui font-normal text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground"
                                   onMouseDown={preventFocusOnMouseDown}
                                   onClick={() =>
                                     setChatThreadListExtraPages(
@@ -7158,7 +7160,7 @@ export default function Sidebar() {
                                 <SidebarMenuButton
                                   size="sm"
                                   className={cn(
-                                    "h-7 justify-start rounded-lg text-left text-ui font-normal text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground",
+                                    "h-7 justify-start rounded-control text-left text-ui font-normal text-muted-foreground/79 hover:bg-transparent hover:text-foreground active:bg-transparent active:text-foreground",
                                     // Keep the left indent when "Show less" is the only affordance left.
                                     canShowMoreChatThreads
                                       ? "w-auto flex-none px-2"

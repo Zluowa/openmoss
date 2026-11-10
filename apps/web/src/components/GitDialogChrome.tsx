@@ -121,7 +121,7 @@ export function GitDialogActionRow({
       aria-keyshortcuts={ariaKeyShortcuts}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-ui leading-snug outline-none transition-colors",
+        "flex w-full items-center gap-2.5 rounded-row px-2.5 py-1.5 text-left text-ui leading-snug outline-none transition-colors",
         "hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:bg-[var(--color-background-button-secondary-hover)]",
         highlighted && "bg-[var(--color-background-button-secondary-hover)]",
         disabled && "pointer-events-none opacity-50",

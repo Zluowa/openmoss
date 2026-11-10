@@ -17,20 +17,20 @@ import type {
   ProviderPluginDescriptor,
   ThreadId,
 } from "@moss/contracts";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useRef } from "react";
 
 import {
   getProviderInstanceOptions,
   getProviderStartOptions,
   resolveAssistantDeliveryMode,
-  resolveNewConversationDefaultModelSelection,
   useAppSettings,
 } from "~/appSettings";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { ensureNativeApi } from "~/nativeApi";
 import type { ResourceDetail } from "~/components/PluginResourceDetailDialog";
-import { ensureProjectId } from "./ensureProjectId";
+import { ensureHomeChatProject } from "./chatProjects";
+import { useWorkspacePathsStore } from "~/workspacePathsStore";
 import {
   canInstallPluginToHarness,
   isMossCanonicalMcp,
@@ -156,6 +156,16 @@ export interface CreatorDispatchActionResult {
   readonly dispatch: DraftThreadDispatchResult;
 }
 
+/**
+ * The project a Plugins-page chat (creator, Try in chat) opens in: the focused project, or
+ * else a Home chat in the Moss home folder, like New chat. Never a project made from the
+ * server's working folder (the source checkout in dev, the install folder when packaged).
+ */
+async function resolveChatProjectId(activeProjectId: ProjectId | null): Promise<ProjectId | null> {
+  if (activeProjectId) return activeProjectId;
+  return ensureHomeChatProject(useWorkspacePathsStore.getState());
+}
+
 function readFirstOpenFlag(key: string): boolean {
   try {
     return window.localStorage.getItem(key) === "true";
@@ -179,10 +189,6 @@ export function usePluginResourceActions(input: {
 }) {
   const { settings } = useAppSettings();
   const { handleNewThread } = useHandleNewThread();
-  const defaultModelSelection = useMemo(() => {
-    const selection = resolveNewConversationDefaultModelSelection(settings, input.provider);
-    return input.instanceId ? { ...selection, instanceId: input.instanceId } : selection;
-  }, [input.instanceId, input.provider, settings]);
 
   // Single-flight guard: opening a thread ensures/bootstraps a project and
   // navigates away, so a double-click (or a re-fire before React re-renders)
@@ -201,11 +207,7 @@ export function usePluginResourceActions(input: {
       options?: TryInChatSeedOptions,
     ): Promise<boolean> =>
       runExclusive(async () => {
-        const projectId = await ensureProjectId({
-          activeProjectId: input.activeProjectId,
-          cwd: input.cwd,
-          defaultModelSelection,
-        });
+        const projectId = await resolveChatProjectId(input.activeProjectId);
         if (!projectId) return false;
         const threadId = await handleNewThread(projectId, {
           provider: input.provider,
@@ -223,26 +225,14 @@ export function usePluginResourceActions(input: {
         store.setPrompt(threadId, seed.prompt);
         return true;
       }),
-    [
-      runExclusive,
-      defaultModelSelection,
-      handleNewThread,
-      input.activeProjectId,
-      input.provider,
-      input.instanceId,
-      input.cwd,
-    ],
+    [runExclusive, handleNewThread, input.activeProjectId, input.provider, input.instanceId],
   );
 
   const tryAppInChat = useCallback(
     (app: ProviderAppInfo): Promise<boolean> =>
       runExclusive(async () => {
         if (!app.isAccessible || !app.isEnabled) return false;
-        const projectId = await ensureProjectId({
-          activeProjectId: input.activeProjectId,
-          cwd: input.cwd,
-          defaultModelSelection,
-        });
+        const projectId = await resolveChatProjectId(input.activeProjectId);
         if (!projectId) return false;
         const threadId = await handleNewThread(projectId, {
           provider: input.provider,
@@ -253,15 +243,7 @@ export function usePluginResourceActions(input: {
         useComposerDraftStore.getState().setPrompt(threadId, buildAppComposerMention(app));
         return true;
       }),
-    [
-      runExclusive,
-      defaultModelSelection,
-      handleNewThread,
-      input.activeProjectId,
-      input.provider,
-      input.instanceId,
-      input.cwd,
-    ],
+    [runExclusive, handleNewThread, input.activeProjectId, input.provider, input.instanceId],
   );
 
   // Open a fresh chat with a request already in the composer, for the
@@ -269,11 +251,7 @@ export function usePluginResourceActions(input: {
   const startChatWithPrompt = useCallback(
     (prompt: string): Promise<boolean> =>
       runExclusive(async () => {
-        const projectId = await ensureProjectId({
-          activeProjectId: input.activeProjectId,
-          cwd: input.cwd,
-          defaultModelSelection,
-        });
+        const projectId = await resolveChatProjectId(input.activeProjectId);
         if (!projectId) return false;
         const threadId = await handleNewThread(projectId, {
           provider: input.provider,
@@ -284,15 +262,7 @@ export function usePluginResourceActions(input: {
         useComposerDraftStore.getState().setPrompt(threadId, prompt);
         return true;
       }),
-    [
-      runExclusive,
-      defaultModelSelection,
-      handleNewThread,
-      input.activeProjectId,
-      input.provider,
-      input.instanceId,
-      input.cwd,
-    ],
+    [runExclusive, handleNewThread, input.activeProjectId, input.provider, input.instanceId],
   );
 
   const prepareCanonicalMutation = useCallback(
@@ -423,17 +393,18 @@ export function usePluginResourceActions(input: {
     (
       kind: CreatorKind,
       creatorSkill: { name: string; path: string },
-      options?: { readonly prompt?: string },
+      options?: {
+        readonly prompt?: string;
+        /** The localized first-use request; defaults to Codex's English one. */
+        readonly firstUsePrompt?: string;
+      },
     ): Promise<boolean> =>
       runExclusive(async () => {
-        const projectId = await ensureProjectId({
-          activeProjectId: input.activeProjectId,
-          cwd: input.cwd,
-          defaultModelSelection,
-        });
+        const projectId = await resolveChatProjectId(input.activeProjectId);
         if (!projectId) return false;
         const meta = CREATOR_META[kind];
         const request = options?.prompt?.trim() || null;
+        const firstUsePrompt = options?.firstUsePrompt?.trim() || meta.firstUsePrompt;
         const isFirstOpen = request === null && !readFirstOpenFlag(meta.firstUseKey);
         const threadId = await handleNewThread(projectId, {
           provider: input.provider,
@@ -450,21 +421,13 @@ export function usePluginResourceActions(input: {
           buildCreatorPrompt({
             provider: input.provider,
             skillName: creatorSkill.name,
-            firstUsePrompt: request ?? (isFirstOpen ? meta.firstUsePrompt : null),
+            firstUsePrompt: request ?? (isFirstOpen ? firstUsePrompt : null),
           }),
         );
         if (isFirstOpen) markFirstOpen(meta.firstUseKey);
         return true;
       }),
-    [
-      runExclusive,
-      defaultModelSelection,
-      handleNewThread,
-      input.activeProjectId,
-      input.provider,
-      input.instanceId,
-      input.cwd,
-    ],
+    [runExclusive, handleNewThread, input.activeProjectId, input.provider, input.instanceId],
   );
 
   /**
@@ -485,11 +448,7 @@ export function usePluginResourceActions(input: {
       const pending = (async (): Promise<CreatorDispatchActionResult | null> => {
         const taskWorkspace = resolveCreatorTaskWorkspace(options.taskWorkspace);
         if (!taskWorkspace) return null;
-        const projectId = await ensureProjectId({
-          activeProjectId: input.activeProjectId,
-          cwd: input.cwd,
-          defaultModelSelection,
-        });
+        const projectId = await resolveChatProjectId(input.activeProjectId);
         if (!projectId) return null;
 
         const meta = CREATOR_META[kind];
@@ -539,15 +498,7 @@ export function usePluginResourceActions(input: {
         .catch(() => undefined);
       return pending;
     },
-    [
-      defaultModelSelection,
-      handleNewThread,
-      input.activeProjectId,
-      input.cwd,
-      input.instanceId,
-      input.provider,
-      settings,
-    ],
+    [handleNewThread, input.activeProjectId, input.instanceId, input.provider, settings],
   );
 
   return {

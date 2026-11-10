@@ -57,7 +57,7 @@ describe("ImageGenerationLimitBanner", () => {
     );
 
     expect(markup).toContain(
-      "relative isolate flex w-full overflow-hidden rounded-2xl border bg-surface py-2 ps-3 pe-2 text-ui-lg shadow-xs lg:mx-auto electron:border-0 electron:ring-[0.5px] electron:ring-border-strong border-primary-outline text-default items-center gap-4 max-[400px]:items-start max-[400px]:gap-2",
+      "relative isolate flex w-full overflow-hidden rounded-card border bg-surface py-2 ps-3 pe-2 text-ui-lg shadow-xs lg:mx-auto electron:border-0 electron:ring-[0.5px] electron:ring-border-strong border-primary-outline text-default items-center gap-4 max-[400px]:items-start max-[400px]:gap-2",
     );
     expect(markup).toContain('aria-hidden="true" class="absolute inset-0 -z-10 bg-primary-soft"');
     expect(markup).toContain('height="20" viewBox="0 0 20 20" width="20"');

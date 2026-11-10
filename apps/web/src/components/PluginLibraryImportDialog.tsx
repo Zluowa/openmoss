@@ -172,7 +172,7 @@ function StatusNotice({
   return (
     <div
       className={cn(
-        "flex items-start gap-2 rounded-xl border px-3 py-2.5 text-ui-lg leading-5",
+        "flex items-start gap-2 rounded-card border px-3 py-2.5 text-ui-lg leading-5",
         tone === "error" && "border-destructive/30 bg-destructive/8 text-destructive",
         tone === "warning" &&
           "border-amber-500/30 bg-amber-500/8 text-amber-700 dark:text-amber-300",
@@ -492,7 +492,7 @@ export function PluginLibraryImportDialog({
                       htmlFor={`plugin-import-kind-${option}`}
                       data-testid={`plugin-import-kind-${option}`}
                       className={cn(
-                        "flex min-h-16 min-w-0 cursor-pointer items-center gap-2 rounded-xl border px-3 text-left text-ui-lg transition-colors focus-within:ring-1 focus-within:ring-ring/60",
+                        "flex min-h-16 min-w-0 cursor-pointer items-center gap-2 rounded-control border px-3 text-left text-ui-lg transition-colors focus-within:ring-1 focus-within:ring-ring/60",
                         kind === option
                           ? "border-foreground bg-foreground/5 text-foreground"
                           : "border-border text-muted-foreground hover:bg-muted/40 hover:text-foreground",
@@ -531,7 +531,7 @@ export function PluginLibraryImportDialog({
                 </div>
               </fieldset>
 
-              <div className="rounded-xl border border-dashed border-border px-3 py-4">
+              <div className="rounded-card border border-dashed border-border px-3 py-4">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -650,7 +650,7 @@ export function PluginLibraryImportDialog({
                       {t("plugins.import.conflict.choiceLabel")}
                     </legend>
                     <label
-                      className="flex cursor-pointer items-start gap-2 rounded-lg border border-border px-3 py-2.5 text-ui-lg"
+                      className="flex cursor-pointer items-start gap-2 rounded-control border border-border px-3 py-2.5 text-ui-lg"
                       data-testid="plugin-import-conflict-skip-option"
                     >
                       <input
@@ -671,7 +671,7 @@ export function PluginLibraryImportDialog({
                       </span>
                     </label>
                     <label
-                      className="flex cursor-pointer items-start gap-2 rounded-lg border border-border px-3 py-2.5 text-ui-lg"
+                      className="flex cursor-pointer items-start gap-2 rounded-control border border-border px-3 py-2.5 text-ui-lg"
                       data-testid="plugin-import-conflict-replace-option"
                     >
                       <input
@@ -716,7 +716,7 @@ export function PluginLibraryImportDialog({
               data-testid="plugin-import-preview-panel"
             >
               <div className="grid gap-2 text-ui-lg sm:grid-cols-3">
-                <div className="rounded-xl border border-border bg-muted/20 p-3">
+                <div className="rounded-card border border-border bg-muted/20 p-3">
                   <p className="text-ui-sm text-muted-foreground">
                     {t("plugins.import.preview.source")}
                   </p>
@@ -724,7 +724,7 @@ export function PluginLibraryImportDialog({
                     {candidate.sourceName}
                   </p>
                 </div>
-                <div className="rounded-xl border border-border bg-muted/20 p-3">
+                <div className="rounded-card border border-border bg-muted/20 p-3">
                   <p className="text-ui-sm text-muted-foreground">
                     {t("plugins.import.preview.destination")}
                   </p>
@@ -732,7 +732,7 @@ export function PluginLibraryImportDialog({
                     {candidate.targetRelativePath}
                   </p>
                 </div>
-                <div className="rounded-xl border border-border bg-muted/20 p-3">
+                <div className="rounded-card border border-border bg-muted/20 p-3">
                   <p className="text-ui-sm text-muted-foreground">
                     {t("plugins.import.preview.operation")}
                   </p>
@@ -751,7 +751,7 @@ export function PluginLibraryImportDialog({
                 <p className="mb-1 text-ui-sm font-medium uppercase tracking-wide text-muted-foreground">
                   {t(candidate.metadataLabelKey)}
                 </p>
-                <pre className="plugin-import-preview overflow-auto rounded-xl border border-border bg-muted/30 p-3 text-ui-sm leading-5 text-foreground">
+                <pre className="plugin-import-preview overflow-auto rounded-card border border-border bg-muted/30 p-3 text-ui-sm leading-5 text-foreground">
                   {candidate.previewKey && candidate.previewValues
                     ? format(candidate.previewKey, candidate.previewValues)
                     : candidate.previewText}
@@ -829,7 +829,7 @@ export function PluginLibraryImportDialog({
                   <span>{t("plugins.import.canonicalNotice")}</span>
                 </StatusNotice>
               ) : null}
-              <div className="rounded-xl border border-border bg-muted/20 p-3 text-ui-lg">
+              <div className="rounded-card border border-border bg-muted/20 p-3 text-ui-lg">
                 <p className="font-medium text-foreground">{result.candidate.name}</p>
                 <code className="mt-1 block break-all text-ui-sm text-muted-foreground">
                   {result.candidate.targetRelativePath}

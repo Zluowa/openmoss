@@ -37,7 +37,7 @@ export function AppSnapPermissionGuide(props: {
   ];
 
   return (
-    <div className="space-y-3 rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-background)] p-4">
+    <div className="space-y-3 rounded-card border border-[color:var(--color-border)] bg-[color:var(--color-background)] p-4">
       <ol className="space-y-2.5">
         {steps.map((step, index) => (
           <li

@@ -1257,11 +1257,11 @@ export function MossImagesWorkspace({
         <>
           {" "}
           {currentMarkup && isEditing && (
-            <div className="mb-2 flex items-center gap-2 rounded-xl border border-border p-2 text-ui-sm">
+            <div className="mb-2 flex items-center gap-2 rounded-card border border-border p-2 text-ui-sm">
               <img
                 src={currentMarkup.url}
                 alt="标注预览"
-                className="size-12 rounded-lg object-contain"
+                className="size-12 rounded-card object-contain"
               />
               <span className="flex-1">
                 已附加标注{currentMarkup.comments ? "与评论" : ""}，发送后生成编辑结果
@@ -1284,7 +1284,7 @@ export function MossImagesWorkspace({
           {(activeTab.references.length > 0 || isEditing) && (
             <div className="mb-2 flex flex-wrap gap-2">
               {isEditing && activeImage && (
-                <span className="flex items-center gap-2 rounded-lg border border-border px-2 py-1 text-ui-sm">
+                <span className="flex items-center gap-2 rounded-control border border-border px-2 py-1 text-ui-sm">
                   <img
                     src={activeImage.path}
                     alt="编辑原图"
@@ -1297,7 +1297,7 @@ export function MossImagesWorkspace({
               {activeTab.references.map((reference) => (
                 <span
                   key={reference.id}
-                  className="flex items-center gap-1 rounded-lg border border-border p-1"
+                  className="flex items-center gap-1 rounded-control border border-border p-1"
                 >
                   <img
                     src={reference.url}
@@ -1533,7 +1533,7 @@ export function MossImagesWorkspace({
                   <button
                     type="button"
                     aria-label="上传照片"
-                    className="relative flex h-44 w-36 shrink-0 items-center justify-center rounded-2xl bg-muted text-muted-foreground transition-colors hover:bg-muted/80"
+                    className="relative flex h-44 w-36 shrink-0 items-center justify-center rounded-card bg-muted text-muted-foreground transition-colors hover:bg-muted/80"
                     disabled={!canAttach}
                     onClick={() => fileInputRef.current?.click()}
                   >
@@ -1545,7 +1545,7 @@ export function MossImagesWorkspace({
                       key={reference.id}
                       src={reference.url}
                       alt={`已选照片：${reference.name}`}
-                      className="h-44 w-36 shrink-0 rounded-2xl object-cover"
+                      className="h-44 w-36 shrink-0 rounded-card object-cover"
                     />
                   ))}
                   {jobs
@@ -1556,7 +1556,7 @@ export function MossImagesWorkspace({
                         type="button"
                         key={job.jobId}
                         aria-label={`使用“${job.prompt}”作参考图`}
-                        className="h-44 w-36 shrink-0 overflow-hidden rounded-2xl"
+                        className="h-44 w-36 shrink-0 overflow-hidden rounded-card"
                         disabled={!canAttach}
                         onClick={() => addGeneratedReference(job, 0)}
                       >
@@ -1607,7 +1607,7 @@ export function MossImagesWorkspace({
                     .map((job) => (
                       <div
                         key={job.jobId}
-                        className="group relative overflow-hidden rounded-xl bg-muted"
+                        className="group relative overflow-hidden rounded-card bg-muted"
                       >
                         <button
                           key={job.jobId}
@@ -2030,7 +2030,7 @@ export function MossImagesWorkspace({
                   <img
                     src={mossImagePreviewSource(job, 0)}
                     alt=""
-                    className="aspect-square w-full rounded-md object-cover"
+                    className="aspect-square w-full rounded-control object-cover"
                     loading="lazy"
                     referrerPolicy="no-referrer"
                   />

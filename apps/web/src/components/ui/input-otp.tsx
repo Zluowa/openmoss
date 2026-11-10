@@ -38,8 +38,8 @@ function OtpSlot({
       aria-hidden="true"
       className={cn(
         "relative flex h-11 min-w-0 flex-1 items-center justify-center border border-border bg-background text-ui-lg font-medium tabular-nums text-foreground transition-colors",
-        index === 0 && "rounded-l-xl",
-        index === slotCount - 1 && "rounded-r-xl",
+        index === 0 && "rounded-l-control",
+        index === slotCount - 1 && "rounded-r-control",
         index > 0 && "-ml-px",
         slot.isActive && "z-10 border-foreground ring-2 ring-ring/45",
       )}

@@ -48,7 +48,7 @@ export function KanbanTaskExtrasMenu({
           <Button
             size="icon-sm"
             variant="chrome"
-            className="shrink-0 rounded-md"
+            className="shrink-0 rounded-control"
             aria-label="Task options"
           />
         }

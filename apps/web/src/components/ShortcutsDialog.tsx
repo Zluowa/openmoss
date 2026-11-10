@@ -100,7 +100,7 @@ function ShortcutsDialogContent(props: {
                 setQuery("");
               }
             }}
-            className="rounded-md"
+            className="rounded-control"
             nativeInput
             aria-label="Search shortcuts"
           />
@@ -138,7 +138,7 @@ function ShortcutSection({
       <header className="flex items-baseline justify-between gap-3 px-6 pt-4 pb-2">
         <h3
           className={cn(
-            "text-ui-sm font-semibold",
+            "text-ui-sm font-medium",
             muted ? "text-muted-foreground/70" : "text-muted-foreground",
           )}
         >
@@ -150,7 +150,7 @@ function ShortcutSection({
         {section.entries.map((entry) => (
           <li
             key={entry.id}
-            className="group flex items-center justify-between gap-4 rounded-md px-3 py-1.5 hover:bg-muted/60"
+            className="group flex items-center justify-between gap-4 rounded-control px-3 py-1.5 hover:bg-muted/60"
           >
             <span className="min-w-0 truncate text-ui leading-snug text-foreground">
               {entry.label}

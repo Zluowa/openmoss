@@ -21462,7 +21462,7 @@ describe("ChatView transcript geometry (full app)", () => {
       );
       expect(coachmark.textContent).toContain("Try Canvas view");
       expect(coachmark.className).toContain(
-        "relative max-w-64 !rounded-2xl !border-0 !bg-text-info px-4 py-3 !text-inverse shadow-lg dark:!text-default",
+        "relative max-w-64 !rounded-card !border-0 !bg-text-info px-4 py-3 !text-inverse shadow-lg dark:!text-default",
       );
       expect(coachmark.className).toContain(
         "before:pointer-events-none before:absolute before:-left-1.5 before:top-1/2 before:h-3 before:w-3",

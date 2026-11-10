@@ -207,7 +207,7 @@ it("queues the Tasks hint behind Activity and remembers selection across layouts
   expect(selectTasks).toHaveBeenCalledTimes(2);
 });
 
-it("paints the Tasks coachmark on its accent fill so the copy stays readable", async () => {
+it("shows the Tasks coachmark as Moss's quiet popover, not a solid accent card", async () => {
   useAnnouncementSheetSlotStore.setState({ startupSettled: true });
   localStorage.setItem(activityKey, "seen");
   const screen = await render(
@@ -233,8 +233,12 @@ it("paints the Tasks coachmark on its accent fill so the copy stays readable", a
   await expect.element(copy).toBeVisible();
   const popup = copy.element().closest<HTMLElement>("[data-slot='tooltip-popup']");
   const popupStyle = getComputedStyle(popup!);
-  // The white copy needs the accent fill, not the shared popup surface's gradient fill.
-  expect(popupStyle.backgroundImage).toBe("none");
-  expect(popupStyle.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  // The shared popup surface, ink and muted copy, a medium (not bold) title: no white text
+  // on a solid accent fill (Moss design standard, owner acceptance 2026-11-11).
+  const white = "rgb(255, 255, 255)";
+  expect(getComputedStyle(copy.element()).color).not.toBe(white);
+  const title = page.getByText(TASKS_COACHMARK.title, { exact: true }).element();
+  expect(getComputedStyle(title).color).not.toBe(white);
+  expect(Number(getComputedStyle(title).fontWeight)).toBeLessThan(600);
   expect(popupStyle.backgroundColor).not.toBe(getComputedStyle(copy.element()).color);
 });

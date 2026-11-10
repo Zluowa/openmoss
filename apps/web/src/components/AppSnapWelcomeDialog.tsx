@@ -95,7 +95,7 @@ export function AppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
         open={dialogOpen}
         hero={
           // Same glyph as the AppSnap settings panel this dialog links to.
-          <span className="flex size-16 shrink-0 items-center justify-center rounded-2xl border border-[color:var(--color-border)] bg-muted/30 text-foreground">
+          <span className="flex size-16 shrink-0 items-center justify-center rounded-card border border-[color:var(--color-border)] bg-muted/30 text-foreground">
             <CentralIcon name="screen-capture" className="size-8" />
           </span>
         }

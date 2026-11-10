@@ -127,7 +127,7 @@ export function SettingsEmptyState({
   );
 }
 
-/** Frosted select dropdown panel with settings `rounded-lg` chrome. */
+/** Frosted select dropdown panel with settings `rounded-control` chrome. */
 export function SettingsSelectPopup({
   align: alignProp,
   alignItemWithTrigger: alignItemWithTriggerProp,

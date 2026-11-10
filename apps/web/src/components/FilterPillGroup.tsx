@@ -35,7 +35,7 @@ export function FilterPillGroup<T extends string>({
           // Active uses the shared control-active token (real contrast in both modes) — the
           // elevated-secondary tint is a 2–4% hover wash and disappears on dark surfaces.
           className={cn(
-            "rounded-md px-2.5 py-1 transition-colors",
+            "rounded-control px-2.5 py-1 transition-colors",
             option.value === value
               ? CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME
               : "text-muted-foreground hover:text-foreground",

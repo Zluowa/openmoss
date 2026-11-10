@@ -93,6 +93,8 @@ interface ProjectImportRouteOptions {
   readonly stateDir?: string;
 }
 
+const PROJECT_IMPORT_DISCOVERY_CONCURRENCY = 6;
+
 // The preview stays valid while it is being imported: every import touches the entries it
 // uses, so a long batch never expires halfway through.
 const CATALOG_TTL_MS = 30 * 60 * 1000;
@@ -315,10 +317,13 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
     // Every enabled account is scanned; accounts sharing one store dedupe by
     // source key, keeping the default account's attribution.
     const importSources = resolveProjectImportSources(settings, providers, sourcePaths);
+    const scanStartedAt = performance.now();
+    const discoveryMs: Record<string, number> = {};
     const results = yield* Effect.forEach(
       importSources,
       (source) =>
         projectImportPromise(async () => {
+          const startedAt = performance.now();
           try {
             return {
               provider: source.provider,
@@ -335,9 +340,13 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
               catalog: null,
               error: error instanceof Error ? error.message : String(error),
             };
+          } finally {
+            discoveryMs[source.instanceId] = Math.round(performance.now() - startedAt);
           }
         }),
-      { concurrency: 2 },
+      // Twelve agents' stores, most of them small: reading two at a time made a cold
+      // start wait on each pair in turn. Six at once keeps the burst bounded.
+      { concurrency: PROJECT_IMPORT_DISCOVERY_CONCURRENCY },
     );
     const accountLabels = new Map(
       importSources.flatMap((source) =>
@@ -397,6 +406,13 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
           expiresAt: now + CATALOG_TTL_MS,
         });
     }
+    // A slow first scan in the field should say which agent's store and which part
+    // (finding sessions vs. checking their folders) took the time.
+    yield* Effect.logInfo("project import scan finished", {
+      durationMs: Math.round(performance.now() - scanStartedAt),
+      discoveryMs,
+      sessions: candidates.reduce((total, project) => total + project.threads.length, 0),
+    });
     return {
       projects: candidates.map((project) => ({
         key: project.key,

@@ -620,6 +620,20 @@ describe("Ask", () => {
     expect(createdSidechats).toHaveLength(1);
   });
 
+  it("docks the question composer under the page, so it never covers the description", async () => {
+    await mount(ISSUE_SEARCH);
+    await expect.element(page.getByRole("textbox", { name: "Ask about this issue" })).toBeVisible();
+    const scroll = document.querySelector<HTMLElement>("[data-github-item-scroll]")!;
+    const dock = document.querySelector<HTMLElement>("[data-github-item-composer-dock]")!;
+    expect(scroll).not.toBeNull();
+    expect(dock).not.toBeNull();
+    // The composer has its own row: the scrolling content ends where it begins.
+    expect(scroll.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      dock.getBoundingClientRect().top + 0.5,
+    );
+    expect(getComputedStyle(dock).position).not.toBe("absolute");
+  });
+
   it("keeps side chats from another checkout in the item's thread list", async () => {
     await mount(ISSUE_SEARCH);
     await page.getByRole("button", { name: "Project: Alpha" }).click();

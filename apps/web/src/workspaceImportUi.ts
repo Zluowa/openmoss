@@ -42,6 +42,11 @@ export function presentWorkspaceImportSources(
   return probe.sources.filter((source) => source.present);
 }
 
+/** A present source the server could not read in full: worth one automatic second look. */
+export function workspaceImportProbeNeedsRetry(probe: WorkspaceImportProbeResult): boolean {
+  return probe.sources.some((source) => source.present && source.incomplete === true);
+}
+
 export function workspaceImportSourceLabel(source: WorkspaceImportSourceKind): string {
   switch (source) {
     case "claude":

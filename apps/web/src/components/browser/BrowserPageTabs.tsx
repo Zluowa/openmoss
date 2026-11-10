@@ -38,7 +38,7 @@ function BrowserTabGlyph({ tab }: { tab: BrowserTabState }) {
       <img
         alt=""
         src={tab.faviconUrl}
-        className="size-4 rounded-xs"
+        className="size-4 rounded-inline"
         draggable={false}
         onError={() => setFailedIconUrl(tab.faviconUrl)}
       />

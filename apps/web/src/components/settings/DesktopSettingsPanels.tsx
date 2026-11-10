@@ -340,7 +340,7 @@ export function AppSnapSettingsPanel({
   return (
     <div className="space-y-5">
       <SettingsCard divided={false} className="flex items-center gap-3 px-4 py-3.5">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-[10px] border border-[color:var(--color-border)] bg-[var(--color-background-control)] text-foreground">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-[var(--color-background-control)] text-foreground">
           <CentralIcon name="screen-capture" className="size-5" />
         </span>
         <div className="min-w-0 space-y-0.5">
@@ -543,7 +543,11 @@ function LeaveBetaDialog({
 
 function BetaChannelMark() {
   return (
-    <img src="/app-icons/beta.png" alt="Moss Beta" className="mt-0.5 size-9 shrink-0 rounded-xl" />
+    <img
+      src="/app-icons/beta.png"
+      alt="Moss Beta"
+      className="mt-0.5 size-9 shrink-0 rounded-control"
+    />
   );
 }
 
@@ -682,7 +686,7 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2">
             <p className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>Moss Beta</p>
-            <span className="inline-flex items-center rounded-full bg-[var(--beta-pill)] px-1.5 py-0.5 text-ui-xs font-semibold leading-none text-[var(--beta-pill-ink)]">
+            <span className="inline-flex items-center rounded-full bg-[var(--beta-pill)] px-1.5 py-0.5 text-ui-xs font-medium leading-none text-[var(--beta-pill-ink)]">
               Beta
             </span>
             {state.installed && state.version ? (

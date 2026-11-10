@@ -38,7 +38,7 @@ const IDENTITY_TONE: Record<LocalServerIdentityTone, LocalServerIdentityToneToke
     folder: "text-muted-foreground/45",
   },
   browser: {
-    primary: "text-ui-lg font-semibold text-foreground",
+    primary: "text-ui-lg font-medium text-foreground",
     meta: "text-ui text-muted-foreground",
     address: "",
     separator: "text-muted-foreground/40",

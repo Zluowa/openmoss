@@ -54,7 +54,7 @@ export function ProviderAccountAvatar(props: {
     <span
       data-accent={accentColor}
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-lg bg-muted/60 ring-1 ring-border/70",
+        "flex shrink-0 items-center justify-center rounded-control bg-muted/60 ring-1 ring-border/70",
         accentColor &&
           "bg-[color-mix(in_srgb,var(--account-accent)_14%,transparent)] ring-[color-mix(in_srgb,var(--account-accent)_45%,transparent)]",
         size === "md" ? "size-9" : "size-8",

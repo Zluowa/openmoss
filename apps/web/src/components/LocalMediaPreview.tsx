@@ -82,7 +82,7 @@ function MediaPlayer({
           </div>
         ) : (
           <video
-            className="my-3 block h-auto max-h-[min(48vh,32rem)] max-w-[min(100%,44rem)] rounded-md object-contain shadow-md"
+            className="my-3 block h-auto max-h-[min(48vh,32rem)] max-w-[min(100%,44rem)] rounded-control object-contain shadow-md"
             src={src}
             title={fileName}
             aria-label={fileName}
@@ -102,9 +102,9 @@ function MediaPlayer({
       className="flex h-full min-h-40 items-center justify-center overflow-auto p-6"
       data-media-preview="audio"
     >
-      <div className="my-3 flex w-full max-w-lg flex-col overflow-hidden rounded-lg bg-surface-elevated-secondary/50 font-sans text-default [--thread-resource-card-row-padding-x:0.75rem] electron:elevation-stroke extension:border extension:border-default extension:bg-background-primary-soft/50 extension:shadow-sm">
+      <div className="my-3 flex w-full max-w-lg flex-col overflow-hidden rounded-card bg-surface-elevated-secondary/50 font-sans text-default [--thread-resource-card-row-padding-x:0.75rem] electron:elevation-stroke extension:border extension:border-default extension:bg-background-primary-soft/50 extension:shadow-sm">
         <div className="flex min-w-0 items-center gap-2.5 p-1.5 text-start">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-surface-secondary/92">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-surface-secondary/92">
             <svg
               className="size-6 text-[#3F63D6] dark:text-[#8DB0F5]"
               viewBox="0 0 24 24"
@@ -157,7 +157,7 @@ function MediaPlayer({
               </Button>
             ) : null}
             <a
-              className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
+              className="inline-flex size-8 items-center justify-center rounded-control text-muted-foreground hover:bg-foreground/5 hover:text-foreground"
               href={downloadUrl}
               download={fileName}
               aria-label={`Download ${fileName}`}

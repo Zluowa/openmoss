@@ -112,8 +112,8 @@ export function PagePublishPanel(props: {
           <span
             className={
               published
-                ? "rounded-sm bg-success/12 px-1.5 py-0.5 text-ui-xs text-success"
-                : "rounded-sm bg-muted px-1.5 py-0.5 text-ui-xs text-muted-foreground"
+                ? "rounded-inline bg-success/12 px-1.5 py-0.5 text-ui-xs text-success"
+                : "rounded-inline bg-muted px-1.5 py-0.5 text-ui-xs text-muted-foreground"
             }
           >
             {published ? "已发布" : "未发布"}

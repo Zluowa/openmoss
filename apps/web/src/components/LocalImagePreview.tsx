@@ -224,7 +224,7 @@ export function LocalImagePreview(props: {
           alt={props.alt}
           data-translation-skip="true"
           className={cn(
-            "local-image-preview__img max-h-full max-w-full rounded-sm object-contain shadow-sm",
+            "local-image-preview__img max-h-full max-w-full rounded-inline object-contain shadow-sm",
             isSvg && "h-full w-full bg-white p-3",
             status === "loading" && "opacity-0",
             props.imageClassName,

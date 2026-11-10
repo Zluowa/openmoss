@@ -229,7 +229,7 @@ function SharedPage(props: {
           {view.title || copy.untitled}
         </h1>
         {!editing && (
-          <span className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-ui-xs text-muted-foreground">
+          <span className="shrink-0 rounded-inline bg-muted px-1.5 py-0.5 text-ui-xs text-muted-foreground">
             {view.mode === "site" ? copy.site : editable ? copy.editor.role : copy.role[view.role]}
           </span>
         )}

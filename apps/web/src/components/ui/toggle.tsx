@@ -18,7 +18,7 @@ const toggleVariants = cva(
         default: "h-8 min-w-8 px-[calc(--spacing(2)-1px)] sm:h-7 sm:min-w-7",
         lg: "h-9 min-w-9 px-[calc(--spacing(2.5)-1px)] sm:h-8 sm:min-w-8",
         sm: "h-8 min-w-8 px-[calc(--spacing(1.5)-1px)] sm:h-7 sm:min-w-7",
-        xs: "h-7 min-w-7 px-[calc(--spacing(1)-1px)] sm:h-6 sm:min-w-6 rounded-sm [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
+        xs: "h-7 min-w-7 px-[calc(--spacing(1)-1px)] sm:h-6 sm:min-w-6 rounded-control-xs [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
       },
       variant: {
         default: "border-transparent",

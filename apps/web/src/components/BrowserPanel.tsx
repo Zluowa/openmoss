@@ -477,20 +477,20 @@ function BrowserRuntimePreview(props: { title: string; detail: string }) {
       role="status"
       aria-live="polite"
     >
-      <div className="w-full max-w-sm rounded-xl border border-border/60 bg-card/70 p-4 shadow-sm">
+      <div className="w-full max-w-sm rounded-card border border-border/60 bg-card/70 p-4 shadow-sm">
         <div className="mb-4 flex items-center gap-3">
-          <Skeleton className="size-9 rounded-lg" />
+          <Skeleton className="size-9 rounded-control" />
           <div className="min-w-0 flex-1 space-y-2">
             <Skeleton className="h-3.5 w-2/3 rounded-full" />
             <Skeleton className="h-2.5 w-full rounded-full" />
           </div>
         </div>
         <div className="space-y-2">
-          <Skeleton className="h-20 w-full rounded-lg" />
+          <Skeleton className="h-20 w-full rounded-card" />
           <div className="grid grid-cols-3 gap-2">
-            <Skeleton className="h-8 rounded-md" />
-            <Skeleton className="h-8 rounded-md" />
-            <Skeleton className="h-8 rounded-md" />
+            <Skeleton className="h-8 rounded-control" />
+            <Skeleton className="h-8 rounded-control" />
+            <Skeleton className="h-8 rounded-control" />
           </div>
         </div>
         <div className="mt-4 min-w-0 text-center">
@@ -2045,7 +2045,7 @@ export function BrowserPanel({
                     onChooseSuggestion(suggestion);
                   }}
                 >
-                  <span className="flex size-4 shrink-0 items-center justify-center rounded-sm bg-background/80">
+                  <span className="flex size-4 shrink-0 items-center justify-center rounded-control-xs bg-background/80">
                     {suggestion.kind === "navigate" ? (
                       <ExternalLinkIcon className="size-3 text-muted-foreground" />
                     ) : suggestion.faviconUrl ? (

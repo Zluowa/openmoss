@@ -91,7 +91,7 @@ export function PptxReader(props: PptxReaderProps) {
         <TriangleAlertIcon className="size-5" />
         <p>Unable to preview {basenameOfPath(props.filePath)}.</p>
         <a
-          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-ui-sm font-medium"
+          className="inline-flex items-center gap-1.5 rounded-control border px-3 py-1.5 text-ui-sm font-medium"
           href={downloadUrl}
           download={basenameOfPath(props.filePath)}
         >

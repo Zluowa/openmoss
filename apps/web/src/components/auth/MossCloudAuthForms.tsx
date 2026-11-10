@@ -67,7 +67,7 @@ function focusFirstInvalid(
 const formClassName = "flex min-w-0 flex-col gap-5";
 const fieldClassName = "flex min-w-0 flex-col gap-2";
 const linkClassName =
-  "rounded-sm font-medium text-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/60";
+  "rounded-inline font-medium text-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/60";
 
 export function MossCloudSignInForm({
   pending,
@@ -148,7 +148,7 @@ export function MossCloudSignInForm({
             <span className="text-ui-lg font-medium leading-none">Email</span>
             <div
               aria-label={`Email: ${email}`}
-              className="flex min-h-10 min-w-0 items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2 sm:min-h-9"
+              className="flex min-h-10 min-w-0 items-center justify-between gap-3 rounded-control border border-border bg-background px-3 py-2 sm:min-h-9"
               role="group"
             >
               <span className="min-w-0 truncate text-ui-lg text-foreground">{email}</span>

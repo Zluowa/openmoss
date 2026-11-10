@@ -54,6 +54,24 @@ export interface WorkspaceImportSourceProbeEvent {
  */
 export const WORKSPACE_IMPORT_PROBE_STEP_TIMEOUT_MS = 12_000;
 
+/**
+ * Settings → Import's configuration read (`toolsOnly`) runs beside the conversation scan,
+ * which has the disk to itself for a while on a cold start. Its steps are small, so they
+ * get longer to finish rather than coming back as zeros: still well inside the RPC's 60 s.
+ */
+export const WORKSPACE_IMPORT_TOOLS_PROBE_STEP_TIMEOUT_MS = 30_000;
+
+export function workspaceImportProbeStepTimeoutMs(
+  context: Pick<WorkspaceImportProbeContext, "stepTimeoutMs" | "toolsOnly">,
+): number {
+  return (
+    context.stepTimeoutMs ??
+    (context.toolsOnly
+      ? WORKSPACE_IMPORT_TOOLS_PROBE_STEP_TIMEOUT_MS
+      : WORKSPACE_IMPORT_PROBE_STEP_TIMEOUT_MS)
+  );
+}
+
 type StepOutcome<T> = (
   | { readonly kind: "done"; readonly value: T }
   | { readonly kind: "timedOut" }
@@ -102,7 +120,7 @@ async function probeSource(
     env: context.env,
   } as const;
   const startedAt = performance.now();
-  const timeoutMs = context.stepTimeoutMs ?? WORKSPACE_IMPORT_PROBE_STEP_TIMEOUT_MS;
+  const timeoutMs = workspaceImportProbeStepTimeoutMs(context);
   const timedOutSteps: string[] = [];
   const failedSteps: string[] = [];
   const stepDurationsMs: Record<string, number> = {};

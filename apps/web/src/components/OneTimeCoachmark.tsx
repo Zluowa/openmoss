@@ -79,19 +79,17 @@ export function OneTimeCoachmark({
         side={visible ? "right" : tooltipSide}
         align={visible ? "start" : "center"}
         sideOffset={visible ? 8 : 4}
-        className={cn(
-          // The shared popup surface paints its fill from unlayered CSS (`.app-popup-surface`),
-          // which outranks a plain utility: without `!` the accent fill lost and the white
-          // copy rendered on a white card, reading as an empty popup.
-          visible &&
-            "max-w-64 border-[var(--color-text-accent)] ![background:var(--color-text-accent)] text-white shadow-lg",
-        )}
+        // Moss's quiet popover (moss-design-standard): the shared popup surface and hairline,
+        // ink text, medium title, muted line. No accent fill, white text or heavy shadow.
+        className={cn(visible && "max-w-64")}
         viewportClassName={cn(visible && "px-3 py-2.5")}
       >
         {visible ? (
           <div className="text-left">
-            <div className="text-ui leading-snug font-semibold">{title}</div>
-            <div className="mt-0.5 text-ui-sm leading-4 text-white/85">{description}</div>
+            <div className="text-ui leading-snug font-medium text-foreground">{title}</div>
+            <div className="mt-0.5 text-ui-sm leading-snug text-muted-foreground">
+              {description}
+            </div>
           </div>
         ) : (
           tooltip

@@ -117,7 +117,7 @@ function ConnectorShelf(props: { title: string; children: ReactNode }) {
   );
 }
 
-const CONNECTOR_ROW_CLASS_NAME = "flex w-full min-w-0 items-center gap-3 rounded-xl px-3 py-2.5";
+const CONNECTOR_ROW_CLASS_NAME = "flex w-full min-w-0 items-center gap-3 rounded-row px-3 py-2.5";
 
 function ConnectorRowText(props: { title: string; description: ReactNode }) {
   return (

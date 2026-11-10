@@ -66,6 +66,12 @@
   flex-shrink: 0;
   --mossbot-group-portrait: 13px;
 }
+/* In a sidebar row the face sits in the standard 16px leading slot, like every other row icon. */
+.mossbot-sidebar-row .mossbot-row-avatar {
+  width: var(--spacing-ui-icon-sm);
+  height: var(--spacing-ui-icon-sm);
+  --mossbot-group-portrait: 10px;
+}
 .mossbot-list-avatar,
 .mossbot-list-item .mossbot-group-avatar {
   width: var(--spacing-control);

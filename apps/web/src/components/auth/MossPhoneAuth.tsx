@@ -167,7 +167,7 @@ export function MossPhoneLoginForm({
       {!challenge ? (
         <div className={fieldClassName}>
           <Label htmlFor="moss-phone-number">手机号</Label>
-          <div className="flex min-w-0 items-center rounded-xl border border-input bg-background focus-within:ring-2 focus-within:ring-ring/60">
+          <div className="flex min-w-0 items-center rounded-control border border-input bg-background focus-within:ring-2 focus-within:ring-ring/60">
             <span className="shrink-0 border-r border-border/70 px-3 text-ui-lg text-muted-foreground">
               +86
             </span>
@@ -195,7 +195,7 @@ export function MossPhoneLoginForm({
         </div>
       ) : (
         <>
-          <div className="flex min-h-10 items-center justify-between gap-3 rounded-xl border border-border bg-background px-3 py-2">
+          <div className="flex min-h-10 items-center justify-between gap-3 rounded-control border border-border bg-background px-3 py-2">
             <span className="text-ui-lg text-foreground">{challenge.phoneNumber}</span>
             <Button disabled={pending} onClick={changePhone} size="xs" type="button" variant="link">
               更换手机号
@@ -436,7 +436,7 @@ export function MossPhoneAccountPage() {
             <AlertDescription>无法加载手机号账号，请重试。</AlertDescription>
           </Alert>
         ) : !session ? (
-          <section className="rounded-xl border border-dashed p-5 text-ui-lg text-muted-foreground">
+          <section className="rounded-card border border-dashed p-5 text-ui-lg text-muted-foreground">
             当前未登录。{" "}
             <Link className="font-medium text-foreground hover:underline" to="/login">
               前往登录
@@ -457,7 +457,7 @@ export function MossPhoneAccountPage() {
               </p>
             </section>
 
-            <section className="rounded-xl border border-border/70 p-4">
+            <section className="rounded-card border border-border/70 p-4">
               <h2 className="text-ui-lg font-medium">国内账号服务</h2>
               <p className="mt-1 text-ui-lg leading-6 text-muted-foreground">
                 短信验证由提市科技的阿里云服务处理，账号与积分数据独立存储在 Moss 项目中。
@@ -467,7 +467,7 @@ export function MossPhoneAccountPage() {
             <MossAccessLanesPanel />
 
             <MossPayPanel />
-            <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
+            <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-card border p-4">
               <div className="min-w-0">
                 <h2 className="text-ui-lg font-medium">用量与充值</h2>
                 <p className="mt-1 text-ui-lg text-muted-foreground">

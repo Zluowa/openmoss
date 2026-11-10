@@ -99,12 +99,12 @@ const PlanSidebar = function PlanSidebar({
           {/* Tasks */}
           {activeTaskList && activeTaskList.tasks.length > 0 ? (
             <div className="space-y-1">
-              <p className="mb-2 text-ui-xs font-semibold text-muted-foreground/40">Steps</p>
+              <p className="mb-2 text-ui-xs font-medium text-muted-foreground/40">Steps</p>
               {activeTaskList.tasks.map((task) => (
                 <div
                   key={`${task.status}:${task.task}`}
                   className={cn(
-                    "flex items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors duration-200",
+                    "flex items-start gap-2.5 rounded-control px-2.5 py-2 transition-colors duration-200",
                     task.status === "inProgress" &&
                       "bg-[color-mix(in_srgb,var(--color-accent-blue)_5%,transparent)]",
                     task.status === "completed" &&
@@ -142,12 +142,12 @@ const PlanSidebar = function PlanSidebar({
                   open={proposedPlanExpanded}
                   className="size-3 text-muted-foreground/40"
                 />
-                <span className="text-ui-xs font-semibold text-muted-foreground/40 group-hover:text-muted-foreground/60">
+                <span className="text-ui-xs font-medium text-muted-foreground/40 group-hover:text-muted-foreground/60">
                   {planTitle ?? "Full Plan"}
                 </span>
               </button>
               <DisclosureRegion open={proposedPlanExpanded}>
-                <div className="rounded-lg border border-border/50 bg-background/50 p-3">
+                <div className="rounded-card border border-border/50 bg-background/50 p-3">
                   <ChatMarkdown
                     text={displayedPlanMarkdown ?? ""}
                     cwd={markdownCwd}

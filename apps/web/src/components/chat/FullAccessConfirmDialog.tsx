@@ -42,7 +42,7 @@ export function FullAccessConfirmDialog(props: {
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="space-y-4 px-4 py-2">
-          <ul className="space-y-3 rounded-2xl bg-foreground/5 px-4 py-3">
+          <ul className="space-y-3 rounded-card bg-foreground/5 px-4 py-3">
             {(["files", "terminal", "internet"] as const).map((capability) => (
               <li key={capability}>
                 <div className="text-ui-lg font-semibold">

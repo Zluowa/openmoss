@@ -1,4 +1,5 @@
 // Adapted from OpenMaus @ 58378e8 (Apache-2.0). See third_party/openmaus/UI-PORTS.md.
+import { Button } from "~/components/ui/button";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RoomBot } from "./host";
 import { MentionTextarea } from "./MentionTextarea";
@@ -170,14 +171,17 @@ export function Composer({
             disabled={disabled}
           />
           {working && (
-            <button
+            <Button
+              variant="secondary"
+              size="icon"
+              shape="capsule"
               type="button"
               onClick={onStop}
               aria-label={t("Stop group")}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground"
+              className="shrink-0"
             >
               <Square size={14} />
-            </button>
+            </Button>
           )}
           <ComposerSendButton
             compact={false}

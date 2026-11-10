@@ -41,7 +41,7 @@ export type ComposerInlineChipTone = "accent" | "neutral";
 
 const COMPOSER_INLINE_CHIP_FILL_CLASS_NAME: Record<ComposerInlineChipFill, string> = {
   plain: "",
-  soft: "rounded-md px-2 py-0.5 -translate-y-px",
+  soft: "rounded-control px-2 py-0.5 -translate-y-px",
 };
 
 const COMPOSER_INLINE_CHIP_TONE_TEXT_CLASS_NAME: Record<ComposerInlineChipTone, string> = {
@@ -102,7 +102,7 @@ export const COMPOSER_INLINE_CHIP_LABEL_CLASS_NAME = "inline select-none";
 
 // ── Agent token (per-model color is set inline at render time) ─────────
 export const COMPOSER_INLINE_AGENT_CHIP_CLASS_NAME = cn(
-  "inline-flex max-w-full select-none items-center gap-0.5 font-medium rounded-md px-1.5 py-0.5 align-baseline",
+  "inline-flex max-w-full select-none items-center gap-0.5 font-medium rounded-control px-1.5 py-0.5 align-baseline",
   COMPOSER_INLINE_CHIP_SIDE_GAP_CLASS_NAME,
   COMPOSER_EDITOR_TEXT_CLASS_NAME,
   COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME,

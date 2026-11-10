@@ -122,7 +122,7 @@ export function MossPayOrderDialog({
               ) : (
                 <div
                   aria-label={t("mossPay.order.generatingQr")}
-                  className="size-[220px] animate-pulse rounded-lg border bg-muted"
+                  className="size-[220px] animate-pulse rounded-card border bg-muted"
                 />
               ))}
             {children ? <div className="mt-4 w-full">{children}</div> : null}

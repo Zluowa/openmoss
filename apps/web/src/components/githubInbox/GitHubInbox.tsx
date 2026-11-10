@@ -217,7 +217,7 @@ function ListSkeleton() {
   return (
     <div className="space-y-0.5" aria-busy="true" aria-label="Loading code review">
       {Array.from({ length: 7 }, (_, index) => (
-        <Skeleton key={index} className="h-[4.75rem] w-full rounded-lg" />
+        <Skeleton key={index} className="h-[4.75rem] w-full rounded-card" />
       ))}
     </div>
   );

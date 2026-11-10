@@ -2,6 +2,7 @@
 // Purpose: Codex-compatible outputs, background work, and conversation-source summary.
 // Layer: Chat shell presentation
 
+import { Button } from "~/components/ui/button";
 import { useId, useRef, useState, type ReactNode } from "react";
 
 import {
@@ -195,14 +196,16 @@ function CreateOutputMenu({
   const label = "创建文件或站点";
   const trigger =
     variant === "icon" ? (
-      <button
+      <Button
+        variant="ghost"
+        size="icon-xs"
         type="button"
         aria-label={label}
         title={label}
-        className="flex size-6 items-center justify-center rounded-control text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-[var(--color-text-foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+        className="transition-colors"
       >
         <PlusIcon className="size-4" />
-      </button>
+      </Button>
     ) : (
       <button
         type="button"
@@ -254,14 +257,16 @@ function AddSourceMenu({
   const label = "附加文件或连接应用";
   const trigger =
     variant === "icon" ? (
-      <button
+      <Button
+        variant="ghost"
+        size="icon-xs"
         type="button"
         aria-label={label}
         title={label}
-        className="flex size-6 items-center justify-center rounded-control text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-[var(--color-text-foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+        className="transition-colors"
       >
         <PlusIcon className="size-4" />
-      </button>
+      </Button>
     ) : (
       <button
         type="button"

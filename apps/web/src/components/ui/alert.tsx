@@ -6,7 +6,7 @@ import { cn } from "~/lib/utils";
 // The leading icon is a Central glyph (a masked `span[data-slot=central-icon]`) or, for brand
 // marks, an `<svg>`; the icon column, its sizing and tint key off either.
 const alertVariants = cva(
-  "relative grid w-full items-start gap-x-2 gap-y-0.5 rounded-xl border text-card-foreground has-[>:is(svg,[data-slot=central-icon])]:has-data-[slot=alert-action]:grid-cols-[calc(var(--spacing)*4)_1fr_auto] has-[>:is(svg,[data-slot=central-icon])]:grid-cols-[calc(var(--spacing)*4)_1fr] has-data-[slot=alert-action]:grid-cols-[1fr_auto] has-[>:is(svg,[data-slot=central-icon])]:gap-x-2 [&>:is(svg,[data-slot=central-icon])]:h-lh [&>:is(svg,[data-slot=central-icon])]:w-4",
+  "relative grid w-full items-start gap-x-2 gap-y-0.5 rounded-card border text-card-foreground has-[>:is(svg,[data-slot=central-icon])]:has-data-[slot=alert-action]:grid-cols-[calc(var(--spacing)*4)_1fr_auto] has-[>:is(svg,[data-slot=central-icon])]:grid-cols-[calc(var(--spacing)*4)_1fr] has-data-[slot=alert-action]:grid-cols-[1fr_auto] has-[>:is(svg,[data-slot=central-icon])]:gap-x-2 [&>:is(svg,[data-slot=central-icon])]:h-lh [&>:is(svg,[data-slot=central-icon])]:w-4",
   {
     defaultVariants: {
       variant: "default",
@@ -27,7 +27,7 @@ const alertVariants = cva(
       size: {
         default: "px-3.5 py-3 text-ui leading-snug",
         // Dense inline callout for panel chrome (source control / diff errors).
-        sm: "rounded-md px-2.5 py-1.5 text-ui leading-snug",
+        sm: "rounded-control px-2.5 py-1.5 text-ui leading-snug",
       },
     },
   },

@@ -144,7 +144,7 @@ function TemplatePreview({ template }: { template: SpaceTemplate }) {
     return null;
   }, [source, template.title]);
   return (
-    <div className="flex h-[130px] items-center justify-center overflow-hidden rounded-md bg-[var(--color-background-elevated-secondary)]">
+    <div className="flex h-[130px] items-center justify-center overflow-hidden rounded-control bg-[var(--color-background-elevated-secondary)]">
       {preview ?? <Icon className="size-6 text-muted-foreground" aria-hidden />}
     </div>
   );
@@ -241,7 +241,7 @@ export function TemplatePickerDialog(props: {
               data-template-id={template.id}
               disabled={busy !== null}
               onClick={() => void pick(template)}
-              className="flex w-full flex-col gap-2 rounded-lg border border-border p-2 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              className="flex w-full flex-col gap-2 rounded-card border border-border p-2 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             >
               <TemplatePreview template={template} />
               <span className="flex items-center gap-1.5 px-1">

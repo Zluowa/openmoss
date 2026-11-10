@@ -781,7 +781,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                       role="radio"
                       aria-checked={importTarget?.instanceId === target.instanceId}
                       aria-label={`${target.label}, ${PROVIDER_DISPLAY_NAMES[target.provider]}`}
-                      className="h-auto min-h-11 w-full min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left aria-checked:bg-muted aria-checked:hover:bg-muted/80 sm:h-auto sm:w-full"
+                      className="h-auto min-h-11 w-full min-w-0 justify-start gap-2 rounded-row px-3 py-2 text-left aria-checked:bg-muted aria-checked:hover:bg-muted/80 sm:h-auto sm:w-full"
                       variant="outline"
                       onClick={() => setImportTargetId(target.instanceId)}
                     >
@@ -834,7 +834,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                 </p>
               </div>
               {importError ? (
-                <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-ui leading-snug text-destructive">
+                <p className="rounded-control border border-destructive/20 bg-destructive/5 px-3 py-2 text-ui leading-snug text-destructive">
                   {importError}
                 </p>
               ) : null}
@@ -1314,14 +1314,14 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                         <div className={PALETTE_STATUS_CLASS}>No matching folders.</div>
                       ) : null}
                       {willCreateMissingFolder ? (
-                        <div className="palette-row squircle mx-3 mb-2 rounded-lg border border-dashed border-[color:var(--color-border)] px-3 py-2 text-ui text-muted-foreground">
+                        <div className="palette-row squircle mx-3 mb-2 rounded-card border border-dashed border-[color:var(--color-border)] px-3 py-2 text-ui text-muted-foreground">
                           Press Enter to create{" "}
                           <span className="text-foreground">{trimmedQuery}</span> and add it as a
                           project.
                         </div>
                       ) : null}
                       {addProjectError ? (
-                        <div className="palette-row squircle mx-3 mb-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2 text-ui text-destructive">
+                        <div className="palette-row squircle mx-3 mb-2 rounded-row border border-destructive/20 bg-destructive/5 px-3 py-2 text-ui text-destructive">
                           {addProjectError}
                         </div>
                       ) : null}

@@ -70,14 +70,14 @@ function MembershipCatalogSkeleton() {
     >
       {["basic", "plus", "pro", "max"].map((key) => (
         <article
-          className="flex min-h-[560px] flex-col rounded-2xl border border-border/70 bg-background px-7 py-7"
+          className="flex min-h-[560px] flex-col rounded-card border border-border/70 bg-background px-7 py-7"
           key={key}
         >
           <div className="flex items-start justify-between gap-3">
-            <Skeleton className="h-7 w-24 rounded-lg" />
+            <Skeleton className="h-7 w-24 rounded-control" />
             <Skeleton className="h-5 w-12 rounded-full" />
           </div>
-          <Skeleton className="mt-10 h-12 w-40 rounded-lg" />
+          <Skeleton className="mt-10 h-12 w-40 rounded-control" />
           <Skeleton className="mt-5 h-4 w-44 rounded-full" />
           <Skeleton className="mt-8 h-11 w-full rounded-full" />
           <div className="mt-8 space-y-4">
@@ -105,14 +105,14 @@ function MembershipBusinessSkeleton() {
     >
       {["current", "business"].map((key) => (
         <article
-          className="flex min-h-[560px] flex-col rounded-2xl border border-border/70 bg-background px-7 py-7"
+          className="flex min-h-[560px] flex-col rounded-card border border-border/70 bg-background px-7 py-7"
           key={key}
         >
           <div className="flex items-start justify-between gap-3">
-            <Skeleton className="h-7 w-32 rounded-lg" />
+            <Skeleton className="h-7 w-32 rounded-control" />
             <Skeleton className="h-5 w-5 rounded-full" />
           </div>
-          <Skeleton className="mt-16 h-12 w-40 rounded-lg" />
+          <Skeleton className="mt-16 h-12 w-40 rounded-control" />
           <Skeleton className="mt-8 h-4 w-48 rounded-full" />
           <div className="mt-8 space-y-4">
             <Skeleton className="h-4 w-40 rounded-full" />
@@ -162,7 +162,7 @@ function PersonalPlanCard({
   return (
     <article
       className={cn(
-        "flex min-w-0 flex-col rounded-2xl border bg-background px-6 py-7",
+        "flex min-w-0 flex-col rounded-card border bg-background px-6 py-7",
         "border-border/70 md:min-h-[620px]",
       )}
       data-plan-code={plan.code}
@@ -183,7 +183,7 @@ function PersonalPlanCard({
           {t("mossPay.catalog.perMonth")}
         </span>
       </div>
-      <p className="mt-4 min-h-10 text-[15px] leading-5 font-medium">{lead}</p>
+      <p className="mt-4 min-h-10 text-ui-lg leading-5 font-medium">{lead}</p>
       <button
         className={cn(
           "mt-5 flex h-11 w-full items-center justify-center rounded-full border px-4 text-ui-lg font-medium transition-colors",
@@ -346,15 +346,17 @@ export function MossMembershipPage({
       data-testid="moss-membership-page"
     >
       <header className="drag-region relative z-10 flex h-[46px] shrink-0 items-center border-b border-border/55 bg-background pl-[92px] pr-6">
-        <button
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-ui-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        <Button
+          variant="ghost"
+          size="default"
+          className="transition-colors"
           data-testid="moss-membership-back"
           onClick={handleBack}
           type="button"
         >
           <ArrowLeftIcon aria-hidden="true" className="size-4" />
           {t("mossPay.membership.back")}
-        </button>
+        </Button>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto" data-testid="moss-membership-scroll">
@@ -460,7 +462,7 @@ export function MossMembershipPage({
               id="moss-membership-business"
               role="tabpanel"
             >
-              <article className="flex min-h-[560px] flex-col rounded-2xl border border-border/70 bg-background px-7 py-7">
+              <article className="flex min-h-[560px] flex-col rounded-card border border-border/70 bg-background px-7 py-7">
                 <h2 className="text-[26px] font-semibold tracking-[-0.025em]">{currentPlanName}</h2>
                 {currentPlan ? (
                   <p className="mt-16 text-[42px] leading-none font-semibold tracking-[-0.04em]">
@@ -474,7 +476,7 @@ export function MossMembershipPage({
                     {t("mossPay.membership.personalPlan")}
                   </p>
                 )}
-                <p className="mt-8 text-ui-lg font-semibold">
+                <p className="mt-8 text-ui-lg font-medium">
                   {format("mossPay.membership.currentSummary", { plan: currentPlanName })}
                 </p>
                 {currentPlan ? (
@@ -501,7 +503,7 @@ export function MossMembershipPage({
                   {t("mossPay.membership.currentButton")}
                 </button>
               </article>
-              <article className="flex min-h-[560px] flex-col rounded-2xl border border-blue-300/70 bg-blue-50/70 px-7 py-7 text-slate-950 dark:border-blue-700/70 dark:bg-blue-950/25 dark:text-foreground">
+              <article className="flex min-h-[560px] flex-col rounded-card border border-blue-300/70 bg-blue-50/70 px-7 py-7 text-slate-950 dark:border-blue-700/70 dark:bg-blue-950/25 dark:text-foreground">
                 <div className="flex items-start justify-between gap-3">
                   <h2
                     className="text-[26px] font-semibold tracking-[-0.025em]"
@@ -524,7 +526,7 @@ export function MossMembershipPage({
                   {t("mossPay.membership.businessLead")}
                 </p>
                 <button
-                  className="mt-auto h-11 w-full cursor-default rounded-full bg-blue-600 text-ui-lg font-semibold text-white opacity-55"
+                  className="mt-auto h-11 w-full cursor-default rounded-full bg-blue-600 text-ui-lg font-medium text-white opacity-55"
                   data-testid="moss-membership-business-unavailable"
                   disabled
                   type="button"
@@ -576,7 +578,7 @@ export function MossMembershipPage({
                   .toSorted((left, right) => left.sortOrder - right.sortOrder)
                   .map((pointPackage) => (
                     <article
-                      className="rounded-2xl border border-border/70 bg-background p-5"
+                      className="rounded-card border border-border/70 bg-background p-5"
                       key={pointPackage.code}
                     >
                       <h3 className="text-base font-semibold">{pointPackage.displayName}</h3>

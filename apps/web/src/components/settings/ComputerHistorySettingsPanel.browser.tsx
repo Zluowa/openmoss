@@ -498,7 +498,7 @@ describe("ComputerHistorySettingsPanel", () => {
       .getByTestId("computer-history-off-state")
       .element()
       .querySelector("section");
-    expect(offSurface?.className).toContain("rounded-2xl");
+    expect(offSurface?.className).toContain("rounded-card");
     expect(offSurface?.className).toContain("bg-[var(--color-background-panel)]");
     await expect.element(page.getByRole("button", { name: "Turn on" })).toBeVisible();
     expect(page.getByRole("button", { name: "Turn on" }).element().className).toContain("!h-6");
@@ -681,7 +681,7 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(appSearchIcon?.getBoundingClientRect().width).toBe(16);
     expect(appPicker.className).toContain("bg-[var(--color-surface-elevated-secondary)]/90");
     expect(appPicker.className).toContain("ring-[0.5px]");
-    expect(appPicker.className).toContain("rounded-xl");
+    expect(appPicker.className).toContain("rounded-popover");
     expect(getComputedStyle(appPicker).backdropFilter).toContain("blur(8px)");
     expect(getComputedStyle(appPicker).boxShadow).toContain("0.5px");
     await vi.waitFor(() =>
@@ -805,7 +805,7 @@ describe("ComputerHistorySettingsPanel", () => {
     );
     expect(resumeButton.element().className).toContain("!py-0.5");
     const settingsSurface = page.getByTestId("computer-history-settings").element();
-    expect(settingsSurface.firstElementChild?.className).toContain("rounded-2xl");
+    expect(settingsSurface.firstElementChild?.className).toContain("rounded-card");
     expect(settingsSurface.firstElementChild?.className).toContain("border");
     expect(settingsSurface.firstElementChild?.getAttribute("style")).toContain(
       "background-color: var(--color-background-panel, var(--color-background-primary-soft-alpha))",
@@ -828,7 +828,7 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(
       page.getByTestId("computer-history-history-section").element().firstElementChild?.className,
     ).toContain("min-h-toolbar");
-    expect(timeline.element().parentElement?.className).toContain("rounded-2xl");
+    expect(timeline.element().parentElement?.className).toContain("rounded-card");
     expect(timeline.element().parentElement?.className).toContain(
       "bg-[var(--color-background-panel)]",
     );

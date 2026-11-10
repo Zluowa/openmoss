@@ -209,7 +209,7 @@ function PdfPageIndicator({
         value={draft}
         inputMode="numeric"
         aria-label="Current page"
-        className="h-6 w-8 rounded-sm border border-border/60 bg-transparent text-center text-ui-sm text-foreground tabular-nums outline-none focus-visible:border-[color:var(--color-border-focus)]"
+        className="h-6 w-8 rounded-control-xs border border-border/60 bg-transparent text-center text-ui-sm text-foreground tabular-nums outline-none focus-visible:border-[color:var(--color-border-focus)]"
         onChange={(event) => setDraft(event.target.value.replace(/[^0-9]/g, ""))}
         onBlur={commit}
         onKeyDown={(event) => {

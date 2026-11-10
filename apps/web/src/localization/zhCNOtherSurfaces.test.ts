@@ -236,6 +236,7 @@ describe("project import in zh-CN", () => {
       ["History only", "仅历史记录"],
       ["Choose projects", "选择项目"],
       ["Not found: Cursor, Gemini.", "没有找到：Cursor, Gemini。"],
+      ["No conversations yet: Devin.", "还没有对话：Devin。"],
       [
         "Not found: Cursor · 2 can't be copied (Antigravity).",
         "没有找到：Cursor · 2 个无法复制（Antigravity）。",

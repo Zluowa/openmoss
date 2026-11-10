@@ -5,7 +5,8 @@
 // Layer: Pull request presentation
 // Exports: PullRequestTimelineTab
 
-import { formatRelativeTime } from "~/lib/relativeTime";
+import { formatTimeAgo } from "~/lib/timeFormat";
+import { useTranslation } from "~/localization";
 import {
   buildPullRequestTimelineEvents,
   type GitHubItemTimelineSource,
@@ -20,6 +21,7 @@ export function PullRequestTimelineTab({
   detail: GitHubItemTimelineSource;
   noun?: "pull request" | "issue";
 }) {
+  const { locale } = useTranslation();
   const events = buildPullRequestTimelineEvents(detail, noun);
   return (
     <div className="h-full overflow-y-auto px-5 py-5">
@@ -29,7 +31,7 @@ export function PullRequestTimelineTab({
             <span className="absolute -left-[1.55rem] top-1 size-2 rounded-full border border-border bg-background" />
             <div className="font-medium">{event.title}</div>
             <div className={cn(PR_META_TEXT_CLASS_NAME, "text-muted-foreground")}>
-              {formatRelativeTime(event.at)}
+              {formatTimeAgo(event.at, { locale })}
             </div>
             {event.body ? (
               <p

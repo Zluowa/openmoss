@@ -18,7 +18,8 @@ import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPop
 import { IconButton } from "~/components/ui/icon-button";
 import { Menu, MenuTrigger } from "~/components/ui/menu";
 import { ArrowLeftIcon, ArrowRightIcon, ChevronDownIcon } from "~/lib/icons";
-import { formatRelativeTime } from "~/lib/relativeTime";
+import { formatTimeAgo } from "~/lib/timeFormat";
+import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
 import { GitHubLabelChips } from "./GitHubLabelChips";
 import { PullRequestActorLabel } from "./PullRequestActorLabel";
@@ -55,11 +56,6 @@ export type GitHubItemHeaderItem =
       HeaderFields | "state" | "stateReason" | "assignees"
     >);
 
-function relativeTimeAgo(iso: string): string {
-  const relative = formatRelativeTime(iso);
-  return relative === "now" ? "just now" : `${relative} ago`;
-}
-
 /** Returns a narrow layout from the detail to the list; leads the detail page's top bar. */
 export function GitHubItemBackButton({
   onBack,
@@ -91,6 +87,7 @@ export function GitHubItemHeader({
   stateMenu?: ReactNode;
   className?: string;
 }) {
+  const { locale } = useTranslation();
   const state =
     item.kind === "pullRequest"
       ? {
@@ -166,7 +163,7 @@ export function GitHubItemHeader({
       >
         <PullRequestActorLabel actor={item.author} className="font-medium text-foreground" />
         <span title={new Date(item.createdAt).toLocaleString()}>
-          {relativeTimeAgo(item.createdAt)}
+          {formatTimeAgo(item.createdAt, { locale })}
         </span>
         {item.kind === "pullRequest" ? (
           <span className="flex min-w-0 items-center gap-1.5">

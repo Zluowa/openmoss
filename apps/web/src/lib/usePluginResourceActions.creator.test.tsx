@@ -8,15 +8,15 @@ import { resetComposerDraftStore } from "~/composerDraftStoreTestFixtures";
 import { usePluginResourceActions } from "./usePluginResourceActions";
 
 const dispatchDraftThread = vi.hoisted(() => vi.fn());
-const ensureProjectId = vi.hoisted(() => vi.fn());
+const ensureHomeChatProject = vi.hoisted(() => vi.fn());
 const handleNewThread = vi.hoisted(() => vi.fn());
 const settings = vi.hoisted(() => ({ enableAssistantStreaming: false }));
 
 vi.mock("./draftThreadDispatch", () => ({
   dispatchDraftThread,
 }));
-vi.mock("./ensureProjectId", () => ({
-  ensureProjectId,
+vi.mock("./chatProjects", () => ({
+  ensureHomeChatProject,
 }));
 vi.mock("~/hooks/useHandleNewThread", () => ({
   useHandleNewThread: () => ({ handleNewThread }),
@@ -26,11 +26,6 @@ vi.mock("~/appSettings", () => ({
   getProviderStartOptions: vi.fn(() => ({ codex: { binaryPath: "codex" } })),
   resolveAssistantDeliveryMode: (value: { enableAssistantStreaming: boolean }) =>
     value.enableAssistantStreaming ? "streaming" : "buffered",
-  resolveNewConversationDefaultModelSelection: () => ({
-    provider: "codex",
-    instanceId: "codex",
-    model: "gpt-5.6-sol",
-  }),
   useAppSettings: () => ({ settings }),
 }));
 vi.mock("~/nativeApi", () => ({
@@ -46,9 +41,97 @@ afterEach(() => {
   cleanup();
   resetComposerDraftStore();
   dispatchDraftThread.mockReset();
-  ensureProjectId.mockReset();
+  ensureHomeChatProject.mockReset();
   handleNewThread.mockReset();
   localStorage.removeItem("moss-has-opened-plugin-creator-prefill-v1");
+  localStorage.removeItem("moss-has-opened-skill-creator-prefill-v1");
+});
+
+function registerDraftOnNewThread(threadId: ThreadId) {
+  handleNewThread.mockImplementation(async (id: ProjectId) => {
+    useComposerDraftStore.getState().registerDraftThread(threadId, {
+      projectId: id,
+      envMode: "local",
+      runtimeMode: "approval-required",
+      interactionMode: "default",
+    });
+    return threadId;
+  });
+}
+
+describe("Creator chat project", () => {
+  it("opens in a Home chat when no project is focused, never a project from the server folder", async () => {
+    const home = ProjectId.makeUnsafe("home-chat");
+    const threadId = ThreadId.makeUnsafe("creator-home-thread");
+    ensureHomeChatProject.mockResolvedValue(home);
+    registerDraftOnNewThread(threadId);
+    const { result } = renderHook(() =>
+      usePluginResourceActions({
+        activeProjectId: null,
+        provider: "codex",
+        instanceId: "codex",
+        // The server's own working folder (dev checkout / install folder).
+        cwd: "C:/DevTemp/moss-wt/owner-dev",
+      }),
+    );
+
+    let started = false;
+    await act(async () => {
+      started = await result.current.createViaCreator("plugin", CREATOR, {
+        prompt: "帮我创建一个插件",
+      });
+    });
+
+    expect(started).toBe(true);
+    expect(ensureHomeChatProject).toHaveBeenCalledTimes(1);
+    expect(handleNewThread).toHaveBeenCalledWith(home, {
+      provider: "codex",
+      providerInstanceId: "codex",
+      fresh: true,
+    });
+  });
+
+  it("uses the focused project when there is one", async () => {
+    const projectId = ProjectId.makeUnsafe("focused-project");
+    registerDraftOnNewThread(ThreadId.makeUnsafe("creator-project-thread"));
+    const { result } = renderHook(() =>
+      usePluginResourceActions({
+        activeProjectId: projectId,
+        provider: "codex",
+        instanceId: "codex",
+        cwd: "/repo/project",
+      }),
+    );
+    await act(async () => {
+      await result.current.createViaCreator("plugin", CREATOR);
+    });
+    expect(ensureHomeChatProject).not.toHaveBeenCalled();
+    expect(handleNewThread.mock.calls[0]?.[0]).toBe(projectId);
+  });
+
+  it("seeds the skill creator with the localized first-use request", async () => {
+    const threadId = ThreadId.makeUnsafe("skill-creator-thread");
+    ensureHomeChatProject.mockResolvedValue(ProjectId.makeUnsafe("home-chat"));
+    registerDraftOnNewThread(threadId);
+    const skillCreator = { name: "skill-creator", path: "/managed/skill-creator/SKILL.md" };
+    const { result } = renderHook(() =>
+      usePluginResourceActions({
+        activeProjectId: null,
+        provider: "codex",
+        instanceId: "codex",
+        cwd: null,
+      }),
+    );
+    await act(async () => {
+      await result.current.createViaCreator("skill", skillCreator, {
+        firstUsePrompt: "帮我创建一个技能",
+      });
+    });
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
+      prompt: "/skill-creator 帮我创建一个技能",
+      skills: [skillCreator],
+    });
+  });
 });
 
 describe("explicit Creator dispatch", () => {
@@ -67,7 +150,7 @@ describe("explicit Creator dispatch", () => {
         taskWorkspace: "relative/workspace",
       }),
     ).resolves.toBeNull();
-    expect(ensureProjectId).not.toHaveBeenCalled();
+    expect(ensureHomeChatProject).not.toHaveBeenCalled();
     expect(handleNewThread).not.toHaveBeenCalled();
     expect(dispatchDraftThread).not.toHaveBeenCalled();
   });
@@ -75,7 +158,6 @@ describe("explicit Creator dispatch", () => {
   it("seeds the creator skill and dispatches into the explicit task workspace", async () => {
     const projectId = ProjectId.makeUnsafe("project-creator");
     const threadId = ThreadId.makeUnsafe("creator-thread");
-    ensureProjectId.mockResolvedValue(projectId);
     handleNewThread.mockImplementation(async (id: typeof projectId) => {
       useComposerDraftStore.getState().registerDraftThread(threadId, {
         projectId: id,

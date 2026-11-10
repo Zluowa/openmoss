@@ -59,6 +59,7 @@ import {
   reduceWorkspaceImportProbe,
   workspaceImportCategoryCounts,
   workspaceImportDefaultCategories,
+  workspaceImportProbeNeedsRetry,
   workspaceImportSourceLabel,
   workspaceImportToolsSelectionState,
   toggleWorkspaceImportCategory,
@@ -197,8 +198,28 @@ export function WorkspaceImportFlow({
         cancelled = true;
       };
     }
-    void api.server
-      .probeWorkspaceImport(includeConversations ? {} : { scope: "tools" })
+    const probeOnce = () =>
+      api.server.probeWorkspaceImport(includeConversations ? {} : { scope: "tools" });
+    // On a cold start the first read can run out of time while the conversation scan has
+    // the disk. The steps it cut off keep running on the server and warm the cache, so
+    // one quiet second look usually returns the real counts: only then show what is left.
+    const probeWithOneRetry = async () => {
+      let first: Awaited<ReturnType<typeof probeOnce>> | null = null;
+      try {
+        first = await probeOnce();
+        if (!workspaceImportProbeNeedsRetry(first)) return first;
+      } catch (error) {
+        if (cancelled) throw error;
+      }
+      if (cancelled) throw new Error("cancelled");
+      try {
+        return await probeOnce();
+      } catch (error) {
+        if (first) return first;
+        throw error;
+      }
+    };
+    void probeWithOneRetry()
       .then((probe) => {
         if (cancelled) return;
         setState(reduceWorkspaceImportProbe(probe));
@@ -388,7 +409,7 @@ export function WorkspaceImportFlow({
     <div className={cn("space-y-8", variant === "dialog" && "px-5 pb-3 pt-1")}>
       {state.step === "loading" || state.step === "importing" ? (
         <div
-          className="flex items-center gap-3 rounded-xl border border-border/70 bg-background/30 px-4 py-5 text-ui-lg text-muted-foreground"
+          className="flex items-center gap-3 rounded-card border border-border/70 bg-background/30 px-4 py-5 text-ui-lg text-muted-foreground"
           role="status"
         >
           <Spinner className="size-4" />
@@ -400,7 +421,7 @@ export function WorkspaceImportFlow({
 
       {state.step === "error" ? (
         <div
-          className="rounded-xl border border-destructive/35 bg-destructive/5 px-4 py-4 text-ui-lg text-destructive"
+          className="rounded-card border border-destructive/35 bg-destructive/5 px-4 py-4 text-ui-lg text-destructive"
           role="alert"
         >
           <p>{state.error ?? t("import.error.apply")}</p>
@@ -418,7 +439,7 @@ export function WorkspaceImportFlow({
           role="status"
         >
           <span>
-            {format("import.partial", {
+            {format(includeConversations ? "import.partial" : "import.partial.tools", {
               sources: incompleteSources
                 .map((source) => source.displayName ?? workspaceImportSourceLabel(source.source))
                 .join("、"),
@@ -431,7 +452,7 @@ export function WorkspaceImportFlow({
       ) : null}
 
       {state.step === "empty" ? (
-        <div className="rounded-xl border border-dashed border-border px-5 py-10 text-center text-ui-lg text-muted-foreground">
+        <div className="rounded-card border border-dashed border-border px-5 py-10 text-center text-ui-lg text-muted-foreground">
           <FoldersIcon className="mx-auto mb-3 size-7 opacity-60" />
           <p>{t("import.empty")}</p>
         </div>
@@ -644,7 +665,7 @@ function SourceRow({
   const provider = providerForSource(source.source);
   return (
     <div className="flex items-center gap-3 px-4 py-3.5">
-      <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-foreground/5">
+      <div className="flex size-10 shrink-0 items-center justify-center rounded-control bg-foreground/5">
         <ProviderIcon provider={provider} className="size-5" aria-hidden="true" />
       </div>
       <div className="min-w-0 flex-1">
@@ -737,7 +758,7 @@ function ImportSelectionDialog({
           ) : null}
           {isComplete && result ? (
             <div className="space-y-3" role="status">
-              <div className="space-y-2 rounded-xl border border-emerald-500/35 bg-emerald-500/8 px-4 py-3">
+              <div className="space-y-2 rounded-card border border-emerald-500/35 bg-emerald-500/8 px-4 py-3">
                 <div className="flex items-center gap-2 text-ui-lg font-medium text-emerald-600 dark:text-emerald-400">
                   <CircleCheckIcon className="size-4" />
                   {t("import.modal.complete")}
@@ -751,7 +772,7 @@ function ImportSelectionDialog({
                   </p>
                 ) : null}
               </div>
-              <div className="overflow-hidden rounded-xl border border-border/90 bg-background/20">
+              <div className="overflow-hidden rounded-card border border-border/90 bg-background/20">
                 <SelectionGroupRow
                   icon={SettingsIcon}
                   title={t("import.modal.tools")}
@@ -787,7 +808,7 @@ function ImportSelectionDialog({
               </div>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-border/90 bg-background/20">
+            <div className="overflow-hidden rounded-card border border-border/90 bg-background/20">
               {error ? (
                 <div
                   className="border-b border-destructive/30 bg-destructive/5 px-3 py-2 text-ui-sm text-destructive"
@@ -911,7 +932,7 @@ function SelectionGroupRow({
         onClick={onExpand}
         aria-expanded={expanded}
       >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/5">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-foreground/5">
           <Icon className="size-4 text-muted-foreground" />
         </span>
         <span className="min-w-0 flex-1">
@@ -948,8 +969,8 @@ function SelectionChildRow({
 }) {
   const Icon = TOOL_CATEGORY_ICONS[category];
   return (
-    <label className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-foreground/5">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/5">
+    <label className="flex cursor-pointer items-center gap-3 rounded-control px-3 py-2 hover:bg-foreground/5">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-foreground/5">
         <Icon className="size-4 text-muted-foreground" />
       </span>
       <span className="min-w-0 flex-1 text-ui-lg text-foreground">{label}</span>
@@ -988,7 +1009,7 @@ function SelectionTopRow({
         disabled && "opacity-55",
       )}
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/5">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-foreground/5">
         <Icon className="size-4 text-muted-foreground" />
       </span>
       <span className="min-w-0 flex-1">
@@ -1115,7 +1136,7 @@ function SyncCustomizeDialog({
             return (
               <label
                 key={category}
-                className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-foreground/5"
+                className="flex cursor-pointer items-center gap-3 rounded-control px-3 py-2 hover:bg-foreground/5"
               >
                 <Checkbox
                   checked={draft.has(category)}
@@ -1163,11 +1184,11 @@ function ImportReviewDialog({
         </DialogHeader>
         <div className="max-h-[min(52vh,20rem)] overflow-y-auto px-4 pb-2">
           {items.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border px-3 py-5 text-ui-lg text-muted-foreground">
+            <div className="rounded-card border border-dashed border-border px-3 py-5 text-ui-lg text-muted-foreground">
               {hasHistoricalWarnings ? t("import.attention.safeCopy") : t("import.review.empty")}
             </div>
           ) : (
-            <div className="divide-y divide-border/70 rounded-lg border border-border/80">
+            <div className="divide-y divide-border/70 rounded-card border border-border/80">
               {items.map((item) => (
                 <div
                   key={`${item.source}:${item.category}:${item.name}:${item.action}:${item.reason ?? ""}`}

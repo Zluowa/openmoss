@@ -285,7 +285,7 @@ function AppshotsStep({
             what&rsquo;s on screen.
           </p>
         </div>
-        <div className="w-full max-w-md overflow-hidden rounded-2xl border border-border bg-popover text-left">
+        <div className="w-full max-w-md overflow-hidden rounded-popover border border-border bg-popover text-left">
           <div className="flex items-center justify-between gap-4 px-4 py-3">
             <div className="min-w-0 flex-1">
               <p className="text-ui-lg font-medium text-foreground">Use Appshots</p>

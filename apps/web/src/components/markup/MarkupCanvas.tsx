@@ -186,7 +186,7 @@ export function MarkupCanvas(props: {
           rows={1}
           value={textDraft.value}
           placeholder={t("markup.textPlaceholder")}
-          className="absolute min-w-32 resize-none rounded-[4px] border-0 bg-white/90 px-1.5 py-0.5 font-semibold outline-none [field-sizing:content] placeholder:font-normal placeholder:text-neutral-400"
+          className="absolute min-w-32 resize-none rounded-inline border-0 bg-white/90 px-1.5 py-0.5 font-medium outline-none [field-sizing:content] placeholder:font-normal placeholder:text-neutral-400"
           style={{
             left: textDraft.at.x - 6,
             top: textDraft.at.y - 3,

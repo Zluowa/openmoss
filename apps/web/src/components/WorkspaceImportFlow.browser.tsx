@@ -63,7 +63,9 @@ describe("WorkspaceImportFlow probe errors", () => {
   });
 
   it("shows a short message instead of the RPC timeout, and 重试 probes again", async () => {
+    // The first look and its automatic second look both fail; 重试 then succeeds.
     nativeApi.probeWorkspaceImport
+      .mockRejectedValueOnce(new Error(RAW_TIMEOUT))
       .mockRejectedValueOnce(new Error(RAW_TIMEOUT))
       .mockResolvedValueOnce({ sources: [source({})], requiresSourceChoice: false });
 
@@ -76,7 +78,7 @@ describe("WorkspaceImportFlow probe errors", () => {
     await page.getByRole("button", { name: "重试" }).click();
 
     await expect.element(page.getByText("Claude Code").first()).toBeVisible();
-    expect(nativeApi.probeWorkspaceImport).toHaveBeenCalledTimes(2);
+    expect(nativeApi.probeWorkspaceImport).toHaveBeenCalledTimes(3);
     expect(document.body.textContent).not.toContain("没能读取本地 AI 应用的数据。");
   });
 
@@ -94,5 +96,22 @@ describe("WorkspaceImportFlow probe errors", () => {
     await expect.element(page.getByText("Codex 的数据没来得及读完，数量可能偏少。")).toBeVisible();
     await expect.element(page.getByText("Claude Code").first()).toBeVisible();
     await expect.element(page.getByRole("button", { name: "重试" })).toBeVisible();
+    // It looked once more on its own before saying so.
+    expect(nativeApi.probeWorkspaceImport).toHaveBeenCalledTimes(2);
+  });
+
+  it("looks again once on its own when the first read could not finish", async () => {
+    nativeApi.probeWorkspaceImport
+      .mockResolvedValueOnce({
+        sources: [source({ skillCount: 0, chatCount: 0, incomplete: true })],
+        requiresSourceChoice: false,
+      })
+      .mockResolvedValueOnce({ sources: [source({ skillCount: 3 })], requiresSourceChoice: false });
+
+    await renderFlow();
+
+    await expect.element(page.getByText("3 个技能", { exact: false }).first()).toBeVisible();
+    expect(nativeApi.probeWorkspaceImport).toHaveBeenCalledTimes(2);
+    expect(document.body.textContent).not.toContain("没来得及读完");
   });
 });

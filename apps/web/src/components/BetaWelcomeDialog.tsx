@@ -127,7 +127,7 @@ export function BetaWelcomeDialog() {
     <AnnouncementSheet
       open={open && !storage.acknowledged}
       waitForOnboarding={false}
-      hero={<img src="/app-icons/beta.png" alt="" className="size-16 rounded-2xl" />}
+      hero={<img src="/app-icons/beta.png" alt="" className="size-16 rounded-card" />}
       title="Welcome to Moss Beta"
       description="New features land here first, before they reach Moss."
       details={
@@ -135,7 +135,7 @@ export function BetaWelcomeDialog() {
           <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
             {WELCOME_POINTS.map((point) => (
               <li key={point.icon} className="flex items-center gap-3">
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--beta-accent)_14%,transparent)] text-[var(--beta-accent)]">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-control bg-[color-mix(in_srgb,var(--beta-accent)_14%,transparent)] text-[var(--beta-accent)]">
                   <CentralIcon name={point.icon} className="size-4" />
                 </span>
                 <span className="text-ui text-foreground">{point.text}</span>
@@ -145,7 +145,7 @@ export function BetaWelcomeDialog() {
           {status ? (
             <p
               className={cn(
-                "m-0 flex items-center gap-2 rounded-xl px-3 py-2.5 text-ui",
+                "m-0 flex items-center gap-2 rounded-card px-3 py-2.5 text-ui",
                 status.className,
               )}
             >

@@ -79,7 +79,7 @@ function MockupSurface({ variant }: { variant: ThemeVariant }) {
   return (
     <div aria-hidden className="absolute inset-0" style={{ backgroundColor: colors.backdrop }}>
       <div
-        className="absolute bottom-0 flex flex-col rounded-t-lg"
+        className="absolute bottom-0 flex flex-col rounded-t-control"
         style={{
           left: MOCKUP_LAYOUT.panelInsetX,
           right: MOCKUP_LAYOUT.panelInsetX,
@@ -109,7 +109,7 @@ function MockupSurface({ variant }: { variant: ThemeVariant }) {
           />
         </div>
         <div
-          className="min-h-0 flex-1 rounded-t-md"
+          className="min-h-0 flex-1 rounded-t-control"
           style={{
             marginLeft: MOCKUP_LAYOUT.cardInsetX,
             marginRight: MOCKUP_LAYOUT.cardInsetX,
@@ -202,7 +202,7 @@ export function ThemeModePicker({
                   : "border-transparent group-hover:border-foreground/25",
               )}
             >
-              <div className="relative aspect-[10/7] w-full overflow-hidden rounded-lg">
+              <div className="relative aspect-[10/7] w-full overflow-hidden rounded-card">
                 <ThemeModeMockup mode={choice.value} />
               </div>
             </div>

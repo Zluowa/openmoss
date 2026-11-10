@@ -27,7 +27,7 @@ export function ProjectFolderList(props: {
   return (
     <ul
       aria-labelledby={props.labelledBy}
-      className="divide-y divide-foreground/10 overflow-hidden rounded-xl border border-foreground/12"
+      className="divide-y divide-foreground/10 overflow-hidden rounded-card border border-foreground/12"
     >
       {props.folders.map((folder, index) => (
         <li key={folder} className="flex min-h-12 items-center gap-2.5 px-3.5 py-1.5">

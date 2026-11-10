@@ -123,7 +123,7 @@ function BrowseTabButton({
       tabIndex={active ? 0 : -1}
       ref={buttonRef}
       className={cn(
-        "inline-flex h-7 items-center rounded-md px-2.5 text-ui-sm font-medium transition-colors plugin-library-motion",
+        "inline-flex h-7 items-center rounded-control px-2.5 text-ui-sm font-medium transition-colors plugin-library-motion",
         active
           ? "bg-[var(--color-background-button-secondary)] text-foreground"
           : "text-muted-foreground hover:text-foreground",
@@ -522,7 +522,7 @@ export function PluginLibraryHeader({
             role="tablist"
             aria-label={labels.browseAria}
             aria-orientation="horizontal"
-            className="inline-flex h-8 items-center rounded-lg bg-[var(--color-background-elevated-secondary)] p-0.5"
+            className="inline-flex h-8 items-center rounded-control bg-[var(--color-background-elevated-secondary)] p-0.5"
           >
             {BROWSE_TABS.map((tab) => (
               <BrowseTabButton
@@ -541,13 +541,15 @@ export function PluginLibraryHeader({
         )
       ) : (
         <nav aria-label={labels.manage} className="flex min-w-0 items-center gap-1 text-ui">
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
-            className="rounded-md px-1.5 py-1 text-muted-foreground transition-colors hover:bg-[var(--sidebar-accent)] hover:text-foreground plugin-library-motion"
+            className="transition-colors plugin-library-motion"
             onClick={onExitManage}
           >
             {labels.plugins}
-          </button>
+          </Button>
           <span aria-hidden="true" className="text-muted-foreground/50">
             /
           </span>
@@ -634,7 +636,7 @@ export function PluginLibrarySectionHeader({
             type="button"
             onClick={onOpen}
             data-testid={testId}
-            className="group/section-link flex min-w-0 items-center gap-0.5 rounded-md text-left outline-none transition-colors hover:text-foreground/75 focus-visible:ring-2 focus-visible:ring-ring"
+            className="group/section-link flex min-w-0 items-center gap-0.5 rounded-row text-left outline-none transition-colors hover:text-foreground/75 focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span className="truncate">{title}</span>
             <ChevronRightIcon
@@ -668,7 +670,7 @@ export function PluginLibraryCardIconBox({
   return (
     <span
       className={cn(
-        "plugin-library-card-icon flex shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-card ring-1 ring-border/70 ring-inset",
+        "plugin-library-card-icon flex shrink-0 items-center justify-center overflow-hidden rounded-control bg-card ring-1 ring-border/70 ring-inset",
         className,
       )}
       data-testid="plugin-library-card-icon"
@@ -689,7 +691,7 @@ export function PluginLibraryDetailIconBox({
   return (
     <span
       className={cn(
-        "plugin-library-detail-icon flex shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-card",
+        "plugin-library-detail-icon flex shrink-0 items-center justify-center overflow-hidden rounded-card bg-card",
         bordered && "ring-1 ring-border/70 ring-inset",
       )}
       data-testid="plugin-library-detail-icon"
@@ -861,7 +863,7 @@ export function PluginLibraryRow({
       id={domId}
       data-search-result-active={active || undefined}
       className={cn(
-        "plugin-library-plugin-row group -mx-2.5 flex items-center gap-3 rounded-xl px-2.5 transition-colors plugin-library-motion hover:bg-foreground/[0.04] focus-within:bg-foreground/[0.04]",
+        "plugin-library-plugin-row group -mx-2.5 flex items-center gap-3 rounded-row px-2.5 transition-colors plugin-library-motion hover:bg-foreground/[0.04] focus-within:bg-foreground/[0.04]",
         active && "bg-foreground/[0.06] ring-1 ring-foreground/15",
       )}
     >
@@ -871,7 +873,7 @@ export function PluginLibraryRow({
         data-plugin-library-focus-key={focusKey}
         onClick={(event) => onOpen(event.currentTarget)}
         className={cn(
-          "flex min-w-0 flex-1 cursor-pointer items-center gap-3 self-stretch rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "flex min-w-0 flex-1 cursor-pointer items-center gap-3 self-stretch rounded-row text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
           dimmed && "opacity-60",
         )}
       >
@@ -921,7 +923,7 @@ export function PluginLibraryExpandRow({
       aria-expanded={expanded}
       onClick={onToggle}
       data-testid="plugin-library-expand-row"
-      className="mt-1 flex min-h-9 w-full items-center gap-3 rounded-[10px] py-1.5 text-left text-ui-lg leading-relaxed text-muted-foreground outline-none transition-colors plugin-library-motion hover:text-foreground focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      className="mt-1 flex min-h-9 w-full items-center gap-3 rounded-row py-1.5 text-left text-ui-lg leading-relaxed text-muted-foreground outline-none transition-colors plugin-library-motion hover:text-foreground focus-visible:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
     >
       {!expanded && icons ? <span className="flex shrink-0 -space-x-1.5">{icons}</span> : null}
       <span className="min-w-0 truncate">{expanded ? expandedLabel : collapsedLabel}</span>

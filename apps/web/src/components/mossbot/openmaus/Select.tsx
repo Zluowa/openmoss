@@ -4,12 +4,12 @@ import { ChevronDown } from "./icons";
 import { cn } from "~/lib/utils";
 
 const VARIANTS = {
-  field: "rounded-lg border border-border/40 bg-muted text-foreground",
+  field: "rounded-control border border-border/40 bg-muted text-foreground",
   pill: "h-8 rounded-full border border-border/40 bg-muted/60 font-medium text-foreground hover:bg-muted",
   ghost:
-    "h-7 rounded-lg border-[0.5px] [border-color:var(--settings-edge,color-mix(in_srgb,var(--foreground)_8%,transparent))] bg-transparent text-foreground hover:bg-foreground/[0.06] [field-sizing:content]",
+    "h-7 rounded-control border-[0.5px] [border-color:var(--settings-edge,color-mix(in_srgb,var(--foreground)_8%,transparent))] bg-transparent text-foreground hover:bg-foreground/[0.06] [field-sizing:content]",
   quiet:
-    "rounded-md bg-foreground/[0.05] text-foreground outline-none hover:bg-foreground/[0.08] focus-visible:ring-[1.5px] focus-visible:ring-ring",
+    "rounded-control bg-foreground/[0.05] text-foreground outline-none hover:bg-foreground/[0.08] focus-visible:ring-[1.5px] focus-visible:ring-ring",
 } as const;
 
 const GHOST = { select: "pl-2.5 pr-[18px] text-ui-sm", chevron: "right-1" };

@@ -201,7 +201,11 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
 
   if (!props.active) return null;
 
-  const projects = projectsQuery.data?.projects ?? [];
+  // Only real projects: the snapshot also holds chat containers (Home, standalone chats),
+  // studios and groups, whose titles are chat names rather than projects.
+  const projects = (projectsQuery.data?.projects ?? []).filter(
+    (project) => project.kind === "project",
+  );
   const canCreate =
     name.trim().length > 0 &&
     (allProjects || selectedProjects.size > 0) &&
@@ -280,7 +284,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
                     <label
                       key={project.id}
                       className={cn(
-                        "flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2 text-ui leading-snug transition-colors",
+                        "flex cursor-pointer items-center justify-between gap-3 rounded-control border px-3 py-2 text-ui leading-snug transition-colors",
                         checked ? "border-foreground/30 bg-muted/70" : "border-border/70",
                       )}
                     >
@@ -471,7 +475,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
               </Button>
             }
           >
-            <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/70 bg-muted/30 p-3 text-ui-sm leading-relaxed">
+            <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-card border border-border/70 bg-muted/30 p-3 text-ui-sm leading-relaxed">
               {setupPrompt}
             </pre>
           </SettingsRow>
@@ -509,7 +513,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
                       Copy
                     </Button>
                   </div>
-                  <pre className="overflow-x-auto rounded-lg border border-border/70 bg-muted/30 p-3 text-ui-sm leading-relaxed">
+                  <pre className="overflow-x-auto rounded-card border border-border/70 bg-muted/30 p-3 text-ui-sm leading-relaxed">
                     {setup.setupCommand}
                   </pre>
                 </div>
@@ -526,7 +530,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
                     Copy
                   </Button>
                 </div>
-                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/70 bg-muted/30 p-3 text-ui-sm leading-relaxed">
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-card border border-border/70 bg-muted/30 p-3 text-ui-sm leading-relaxed">
                   {manualConfiguration.value}
                 </pre>
               </div>
@@ -552,7 +556,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
             }
           >
             {paired ? (
-              <div className="mt-3 rounded-lg border border-border/70 bg-muted/30 p-3 text-ui leading-relaxed text-muted-foreground">
+              <div className="mt-3 rounded-card border border-border/70 bg-muted/30 p-3 text-ui leading-relaxed text-muted-foreground">
                 {examplePrompt}
               </div>
             ) : null}

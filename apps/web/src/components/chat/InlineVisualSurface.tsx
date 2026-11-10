@@ -29,7 +29,7 @@ export function InlineVisualSurface({
   return (
     <section
       className={cn(
-        "min-w-0 rounded-2xl border px-4 py-3.5",
+        "min-w-0 rounded-card border px-4 py-3.5",
         highlighted
           ? "border-[color:color-mix(in_srgb,var(--chart-accent)_55%,transparent)]"
           : "border-[color:var(--rule)]",

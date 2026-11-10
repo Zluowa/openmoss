@@ -39,7 +39,7 @@ export function FeatureSection({ feature, className }: FeatureSectionProps) {
       {hasMedia && (
         <div className="flex flex-col gap-1.5">
           {feature.image !== undefined && (
-            <div className="overflow-hidden rounded-lg border border-border/60 bg-muted/40">
+            <div className="overflow-hidden rounded-card border border-border/60 bg-muted/40">
               <img
                 src={feature.image}
                 alt={feature.imageAlt ?? ""}

@@ -33,7 +33,7 @@ function Start(props: {
       type="button"
       disabled={props.disabled}
       onClick={props.onClick}
-      className="flex flex-col items-start gap-1.5 rounded-[10px] border border-border bg-card p-3 text-left transition-colors hover:bg-accent disabled:opacity-50"
+      className="flex flex-col items-start gap-1.5 rounded-card border border-border bg-card p-3 text-left transition-colors hover:bg-accent disabled:opacity-50"
     >
       <Icon className="size-4 text-muted-foreground" aria-hidden />
       <span className="text-ui font-medium">{props.label}</span>

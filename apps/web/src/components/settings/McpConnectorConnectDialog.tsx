@@ -253,7 +253,7 @@ export function McpConnectorConnectDialog(props: {
                     {" "}
                     <button
                       type="button"
-                      className="rounded-sm text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
+                      className="rounded-inline text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
                       onClick={() => {
                         const url = target.docsUrl;
                         if (url) void ensureNativeApi().shell.openExternal(url);
@@ -278,7 +278,7 @@ export function McpConnectorConnectDialog(props: {
                       {target.appSetupUrl ? (
                         <button
                           type="button"
-                          className="rounded-sm text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
+                          className="rounded-inline text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
                           onClick={() => {
                             const url = target.appSetupUrl;
                             if (url) void ensureNativeApi().shell.openExternal(url);
@@ -338,7 +338,7 @@ export function McpConnectorConnectDialog(props: {
                       {target.apiKey.setupUrl ? (
                         <button
                           type="button"
-                          className="rounded-sm text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
+                          className="rounded-inline text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
                           onClick={() => {
                             const url = target.apiKey?.setupUrl;
                             if (url) void ensureNativeApi().shell.openExternal(url);

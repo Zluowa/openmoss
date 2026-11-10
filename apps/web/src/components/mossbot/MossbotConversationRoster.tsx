@@ -13,6 +13,13 @@ import { usePinnedProjectAgentsStore } from "~/pinnedProjectAgentsStore";
 import { useStore } from "~/store";
 import { PinIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { SidebarLeadingIcon } from "~/components/SidebarLeadingIcon";
+import {
+  SIDEBAR_HEADER_ROW_CLASS_NAME,
+  SIDEBAR_ROW_ACTIVE_CLASS_NAME,
+  SIDEBAR_ROW_HOVER_CLASS_NAME,
+  SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
+} from "~/sidebarRowStyles";
 import { MossbotAvatar } from "./MossbotAvatar";
 import { MossbotGroupAvatar } from "./MossbotGroupAvatar";
 import { MossbotAssistantMenu } from "./MossbotAssistantMenu";
@@ -66,7 +73,8 @@ function ConversationRow({
     date && Number.isFinite(date.getTime())
       ? new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(date)
       : null;
-  // The sidebar list is Moss's own one-line rows; the landing list adds the preview.
+  // The sidebar list is Moss's standard sidebar row (the same as 「新对话」 and 「Mossbot」:
+  // sm button, 14px text, 16px leading slot); the landing list adds the preview.
   if (sidebar) {
     return (
       <SidebarMenuItem
@@ -76,13 +84,22 @@ function ConversationRow({
         onContextMenu={openMenu}
       >
         <SidebarMenuButton
+          size="sm"
           isActive={active}
           disabled={disabled}
           aria-current={active ? "page" : undefined}
-          className="mossbot-assistant-row gap-2"
+          className={cn(
+            "mossbot-assistant-row",
+            SIDEBAR_HEADER_ROW_CLASS_NAME,
+            active
+              ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
+              : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
+          )}
           onClick={onOpen}
         >
-          {avatar}
+          <SidebarLeadingIcon size="sm" tone="text-inherit">
+            {avatar}
+          </SidebarLeadingIcon>
           <span className="min-w-0 flex-1 truncate">{name}</span>
           {pinned && (
             <PinIcon className="size-3 shrink-0 text-muted-foreground" aria-label={t("Pinned")} />

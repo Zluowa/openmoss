@@ -29,7 +29,7 @@ const SLOT_SIZE = {
    * keeps the same box — the Activity bell renders its own shell (unread dot +
    * controlled onboarding tooltip) and reuses this token instead of hardcoding it.
    */
-  header: "size-6 rounded-md",
+  header: "size-6 rounded-control-xs",
   /** Surface picker row. */
   lg: "size-7",
 } as const;

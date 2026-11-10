@@ -17,7 +17,7 @@ export function RoomEmpty({
           <BotAvatar key={bot.id} bot={bot} state="happy" size={44} animated={false} />
         ))}
       </div>
-      <div className="text-ui-lg font-semibold text-foreground">{name}</div>
+      <div className="text-ui-lg font-medium text-foreground">{name}</div>
       <div className="max-w-[380px] text-ui text-muted-foreground">{hint}</div>
     </div>
   );

@@ -146,7 +146,7 @@ export function QrCode({ value, size = 180 }: { value: string; size?: number }) 
   }, [value, size]);
   if (failed) {
     return (
-      <p className="rounded-lg border border-dashed p-4 text-center text-ui-sm text-muted-foreground">
+      <p className="rounded-card border border-dashed p-4 text-center text-ui-sm text-muted-foreground">
         {t("mossPay.qr.failed")}
       </p>
     );
@@ -154,7 +154,7 @@ export function QrCode({ value, size = 180 }: { value: string; size?: number }) 
   if (!dataUrl) {
     return (
       <div
-        className="animate-pulse rounded-lg border bg-muted"
+        className="animate-pulse rounded-control border bg-muted"
         style={{ width: size, height: size }}
       />
     );
@@ -162,7 +162,7 @@ export function QrCode({ value, size = 180 }: { value: string; size?: number }) 
   return (
     <img
       alt={t("mossPay.qr.alt")}
-      className="rounded-lg border bg-white"
+      className="rounded-control border bg-white"
       height={size}
       src={dataUrl}
       width={size}
@@ -176,7 +176,7 @@ function MossQuotaSkeleton({ compact = false }: { readonly compact?: boolean }) 
     <div
       aria-busy="true"
       aria-label={t("mossPay.quota.switching")}
-      className={cn("space-y-3", compact ? "mt-4" : "mt-4 rounded-lg bg-muted/50 p-3")}
+      className={cn("space-y-3", compact ? "mt-4" : "mt-4 rounded-card bg-muted/50 p-3")}
       data-testid="moss-quota-skeleton"
       role="status"
     >
@@ -204,15 +204,15 @@ function MossPayCatalogSkeleton() {
       role="status"
     >
       {["one", "two", "three", "four"].map((key) => (
-        <div className="rounded-2xl border bg-card p-4" key={key}>
+        <div className="rounded-card border bg-card p-4" key={key}>
           <Skeleton className="h-4 w-24 rounded-full" />
-          <Skeleton className="mt-5 h-8 w-28 rounded-lg" />
+          <Skeleton className="mt-5 h-8 w-28 rounded-control" />
           <div className="mt-4 space-y-2">
             <Skeleton className="h-3 w-32 rounded-full" />
             <Skeleton className="h-3 w-28 rounded-full" />
             <Skeleton className="h-3 w-24 rounded-full" />
           </div>
-          <Skeleton className="mt-5 h-8 w-full rounded-lg" />
+          <Skeleton className="mt-5 h-8 w-full rounded-row" />
         </div>
       ))}
     </div>
@@ -384,7 +384,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                     : formatMossPayCount(quota.creditBalance, locale)}
                 </p>
               ) : (
-                <Skeleton className="ml-auto mt-1 h-6 w-14 rounded-lg" />
+                <Skeleton className="ml-auto mt-1 h-6 w-14 rounded-control-xs" />
               )}
             </div>
           ) : null}
@@ -393,7 +393,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
         {showCatalog ? (
           <>
             <div className="mt-5 grid gap-3 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-              <div className="min-w-0 rounded-2xl bg-foreground p-4 text-background shadow-sm">
+              <div className="min-w-0 rounded-card bg-foreground p-4 text-background shadow-sm">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-ui-sm font-medium text-background/65">
@@ -407,7 +407,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                           formatMossPayCount(quota.creditBalance, locale)
                         )
                       ) : quotaLoading || accountLoading ? (
-                        <Skeleton className="h-9 w-24 rounded-lg bg-background/20" />
+                        <Skeleton className="h-9 w-24 rounded-control bg-background/20" />
                       ) : (
                         t("mossPay.quota.unknown")
                       )}
@@ -431,7 +431,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                   )}
                 </div>
               </div>
-              <div className="min-w-0 rounded-2xl border bg-background p-4">
+              <div className="min-w-0 rounded-card border bg-background p-4">
                 <p className="text-ui-sm font-medium text-muted-foreground">
                   {t("mossPay.catalog.paymentMethod")}
                 </p>
@@ -443,7 +443,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                   />
                 ) : (
                   <p
-                    className="mt-2 truncate text-base font-semibold"
+                    className="mt-2 truncate text-base font-medium"
                     data-testid="moss-payment-method"
                   >
                     {rail?.displayName ?? t("mossPay.catalog.paymentMethodUnavailable")}
@@ -472,7 +472,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
             </div>
             <div
               aria-label={t("mossPay.catalog.tabsLabel")}
-              className="mt-5 inline-flex max-w-full rounded-xl border bg-background p-1"
+              className="mt-5 inline-flex max-w-full rounded-row border bg-background p-1"
               role="tablist"
             >
               {(["plans", "usage"] as const).map((tab) => {
@@ -481,7 +481,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                   <button
                     aria-selected={selected}
                     className={cn(
-                      "min-h-9 rounded-lg px-4 text-ui-sm transition-colors",
+                      "min-h-9 rounded-control px-4 text-ui-sm transition-colors",
                       selected
                         ? "bg-foreground font-medium text-background"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -512,7 +512,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
             <AlertDescription>{safeMossPayErrorMessage(quotaQuery.error, locale)}</AlertDescription>
           </Alert>
         ) : quota ? (
-          <div className="mt-4 space-y-3 rounded-lg bg-muted/50 p-3">
+          <div className="mt-4 space-y-3 rounded-card bg-muted/50 p-3">
             <div aria-labelledby="moss-pay-text-quota-heading">
               <div className="flex items-center justify-between text-ui-sm text-muted-foreground">
                 <span id="moss-pay-text-quota-heading">
@@ -703,7 +703,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
           </AlertDescription>
         </Alert>
       ) : showCatalog && activeOrderNo && order && !orderSettled ? (
-        <div className="mt-4 flex flex-col items-center gap-3 rounded-lg border p-4">
+        <div className="mt-4 flex flex-col items-center gap-3 rounded-card border p-4">
           {rail?.kind === "hosted" || order.checkoutUrl ? (
             <>
               <p className="text-ui-lg font-medium">
@@ -762,7 +762,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
             <div>
               <div className="flex items-end justify-between gap-4">
                 <div>
-                  <p className="text-base font-semibold text-foreground">
+                  <p className="text-base font-medium text-foreground">
                     {t("mossPay.catalog.plans")}
                   </p>
                   <p className="mt-1 text-ui-sm text-muted-foreground">
@@ -780,11 +780,11 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                   .filter((plan) => plan.monthlyPriceCny > 0)
                   .map((plan) => (
                     <article
-                      className="flex min-w-0 flex-col rounded-2xl border bg-card p-4"
+                      className="flex min-w-0 flex-col rounded-card border bg-card p-4"
                       key={plan.code}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <p className="min-w-0 truncate text-ui-lg font-semibold">
+                        <p className="min-w-0 truncate text-ui-lg font-medium">
                           {plan.displayName}
                         </p>
                         {quota?.planCode === plan.code ? (
@@ -837,10 +837,10 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
           ) : null}
 
           {!packageCost && catalog.pointPackages.length > 0 ? (
-            <div className="rounded-2xl border bg-muted/20 p-4">
+            <div className="rounded-card border bg-muted/20 p-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-base font-semibold text-foreground">
+                  <p className="text-base font-medium text-foreground">
                     {t("mossPay.catalog.points")}
                   </p>
                   <p className="mt-1 text-ui-sm text-muted-foreground">
@@ -854,7 +854,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
               <div className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {catalog.pointPackages.map((pkg) => (
                   <div
-                    className="flex min-w-0 flex-col rounded-xl border bg-background p-3"
+                    className="flex min-w-0 flex-col rounded-card border bg-background p-3"
                     key={pkg.code}
                   >
                     <p className="truncate text-ui-lg font-medium">{pkg.displayName}</p>

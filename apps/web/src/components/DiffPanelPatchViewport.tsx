@@ -113,7 +113,7 @@ export const DiffPanelPatchViewport = memo(
           <p className="text-ui-sm text-muted-foreground/75">{props.renderablePatch.reason}</p>
           <pre
             className={cn(
-              "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-ui-sm leading-relaxed text-muted-foreground/90",
+              "max-h-[72vh] rounded-card border border-border/70 bg-background/70 p-3 font-mono text-ui-sm leading-relaxed text-muted-foreground/90",
               props.diffWordWrap
                 ? "overflow-auto whitespace-pre-wrap wrap-break-word"
                 : "overflow-auto",

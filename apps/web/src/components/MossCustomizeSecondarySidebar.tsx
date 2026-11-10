@@ -181,7 +181,7 @@ export function MossCustomizeSecondarySidebar({
                 >
                   <span
                     aria-hidden
-                    className="inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-row bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] text-ui-xs font-semibold text-muted-foreground"
+                    className="inline-flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-row bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] text-ui-xs font-medium text-muted-foreground"
                   >
                     {row.glyph}
                   </span>

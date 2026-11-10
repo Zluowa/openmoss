@@ -139,6 +139,10 @@ describe("MossbotConversationRoster rows", () => {
     expect(row.element().getAttribute("data-slot")).toBe("sidebar-menu-button");
     // No preview line or time under the name in the sidebar.
     expect(row.element().textContent).toBe("Personal assistant");
+    // The standard sidebar row: 14px text and the 16px leading slot, like 「Mossbot」 above it.
+    expect(row.element().className).toContain("text-ui");
+    expect(row.element().className).not.toContain("text-ui-lg");
+    expect(row.element().querySelector(":scope > span.size-4 .mossbot-row-avatar")).not.toBeNull();
   });
 
   it("keeps the landing list's preview rows", async () => {

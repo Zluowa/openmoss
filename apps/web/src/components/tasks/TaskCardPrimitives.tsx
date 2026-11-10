@@ -26,7 +26,7 @@ export function TaskWell({ className, children }: { className?: string; children
   return (
     <div
       className={cn(
-        "flex flex-col gap-1.5 rounded-2xl bg-[var(--color-background-button-secondary)] px-3.5 py-3",
+        "flex flex-col gap-1.5 rounded-card bg-[var(--color-background-button-secondary)] px-3.5 py-3",
         className,
       )}
     >

@@ -1,3 +1,4 @@
+import { Button } from "~/components/ui/button";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -167,7 +168,7 @@ export function PdfPageAnnotations(props: {
       {highlight ? (
         <div
           data-testid="artifact-pdf-annotation-highlight"
-          className="pointer-events-none absolute rounded-sm border border-blue-500 bg-blue-500/10"
+          className="pointer-events-none absolute rounded-inline border border-blue-500 bg-blue-500/10"
           style={{
             left: `${highlight.x * 100}%`,
             top: `${highlight.y * 100}%`,
@@ -179,7 +180,7 @@ export function PdfPageAnnotations(props: {
       {selection && !draft ? (
         <button
           type="button"
-          className="pointer-events-auto absolute z-10 whitespace-nowrap rounded-lg border border-border bg-popover px-2.5 py-1.5 text-ui-sm text-popover-foreground shadow-md"
+          className="pointer-events-auto absolute z-10 whitespace-nowrap rounded-popover border border-border bg-popover px-2.5 py-1.5 text-ui-sm text-popover-foreground shadow-md"
           style={{
             left: `${Math.min(selection.rect.x, 0.7) * 100}%`,
             top: `calc(${(selection.rect.y + selection.rect.height) * 100}% + 6px)`,
@@ -196,7 +197,7 @@ export function PdfPageAnnotations(props: {
             <form
               role="dialog"
               aria-label="PDF annotation"
-              className="fixed z-50 flex w-[294px] flex-col gap-2 rounded-xl border border-border bg-popover p-3 text-popover-foreground shadow-xl"
+              className="fixed z-50 flex w-[294px] flex-col gap-2 rounded-popover border border-border bg-popover p-3 text-popover-foreground shadow-xl"
               style={{ left: draftLeft, top: draftTop }}
               onPointerDown={(event) => event.stopPropagation()}
               onKeyDown={(event) => {
@@ -230,28 +231,25 @@ export function PdfPageAnnotations(props: {
                 ref={draftRef}
                 aria-label="PDF annotation comment"
                 placeholder="Describe a change or ask a question"
-                className="min-h-20 resize-none rounded-md bg-transparent text-ui-lg outline-none"
+                className="min-h-20 resize-none rounded-control bg-transparent text-ui-lg outline-none"
                 value={body}
                 onChange={(event) => setBody(event.target.value)}
               />
               <div className="flex justify-end gap-2">
-                <button
+                <Button
+                  variant="ghost"
+                  size="sm"
                   type="button"
-                  className="rounded-md px-2 py-1 text-ui-sm hover:bg-foreground/5"
                   onClick={() => {
                     setDraft(null);
                     setBody("");
                   }}
                 >
                   Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!body.trim()}
-                  className="rounded-md bg-primary px-2 py-1 text-ui-sm text-primary-foreground disabled:opacity-40"
-                >
+                </Button>
+                <Button variant="default" size="sm" type="submit" disabled={!body.trim()}>
                   Add comment
-                </button>
+                </Button>
               </div>
             </form>,
             document.body,

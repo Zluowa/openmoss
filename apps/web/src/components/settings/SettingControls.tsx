@@ -41,7 +41,7 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
             size="icon-xs"
             variant="ghost"
             aria-label={format("settings.resetSettingToDefault", { label: displayLabel })}
-            className="size-5 rounded-lg p-0 text-muted-foreground hover:text-foreground"
+            className="size-5 rounded-control-xs p-0 text-muted-foreground hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();
               onClick();

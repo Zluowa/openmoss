@@ -495,6 +495,8 @@ export interface PluginManagementPanelProps extends PluginManagementPanelTabData
   readonly renderTabSupplement?:
     | ((tab: PluginLibraryManageTab, query: string) => ReactNode)
     | undefined;
+  /** Like `renderTabSupplement`, above the tab's list (Settings' "Import from your CLIs"). */
+  readonly renderTabLead?: ((tab: PluginLibraryManageTab, query: string) => ReactNode) | undefined;
 }
 
 // Codex's settings page always offers Plugins / Apps / MCP / Skills.
@@ -730,6 +732,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
   const visibleBuiltInApps = builtInAppRows.filter((row) => matches(row.title, row.subtitle));
 
   const tabSupplement = props.renderTabSupplement?.(tab, query) ?? null;
+  const tabLead = props.renderTabLead?.(tab, query) ?? null;
   let content;
   if (tab === "apps") {
     content =
@@ -936,6 +939,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
             role="tabpanel"
             aria-labelledby={`plugin-manage-tab-${tab}`}
           >
+            {tabLead ? <div className="mb-6">{tabLead}</div> : null}
             {tabContent}
             {tabSupplement ? <div className="mt-8">{tabSupplement}</div> : null}
             {tab === "mcps" && props.mcpFooter ? (

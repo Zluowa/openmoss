@@ -290,7 +290,7 @@ export function CreateProjectDialog(props: {
             <div
               aria-labelledby={sourceFolderLabelId}
               className={cn(
-                "rounded-xl border border-foreground/10 bg-foreground/[0.025] px-3.5 py-3 transition-colors",
+                "rounded-card border border-foreground/10 bg-foreground/[0.025] px-3.5 py-3 transition-colors",
                 isDropTarget && "border-[color:var(--color-border-focus)] bg-foreground/6",
               )}
             >
@@ -307,7 +307,7 @@ export function CreateProjectDialog(props: {
                     type="button"
                     aria-label={t("projectSetup.createProject.removeFolder")}
                     disabled={submitting}
-                    className="-me-1 shrink-0 cursor-pointer rounded-sm p-1 text-muted-foreground/55 transition-colors hover:text-foreground disabled:opacity-50"
+                    className="-me-1 shrink-0 cursor-pointer rounded-inline p-1 text-muted-foreground/55 transition-colors hover:text-foreground disabled:opacity-50"
                     onClick={() => {
                       setFolderPath("");
                       setPickedPath(null);
@@ -322,7 +322,7 @@ export function CreateProjectDialog(props: {
                   <Select value="this-computer" onValueChange={() => {}}>
                     <SelectTrigger
                       aria-label={t("projectSetup.createProject.locationPicker")}
-                      className="h-auto w-auto gap-1.5 rounded-lg border-0 bg-transparent px-2 py-1 text-ui shadow-none hover:bg-foreground/4 focus-visible:border-foreground/30"
+                      className="h-auto w-auto gap-1.5 rounded-control border-0 bg-transparent px-2 py-1 text-ui shadow-none hover:bg-foreground/4 focus-visible:border-foreground/30"
                     >
                       <SelectValue>
                         {t("projectSetup.createProject.addFolderOnComputer")}

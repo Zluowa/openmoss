@@ -146,7 +146,7 @@ export function ProfileContent({
       </header>
 
       {/* Stat tiles */}
-      <div className="grid grid-cols-2 divide-x divide-y divide-border/50 overflow-hidden rounded-2xl border border-border/60 sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
+      <div className="grid grid-cols-2 divide-x divide-y divide-border/50 overflow-hidden rounded-card border border-border/60 sm:grid-cols-3 lg:grid-cols-5 lg:divide-y-0">
         <StatTile
           label="Lifetime tokens"
           value={tokensPending ? null : formatCompact(tokenStats?.lifetimeTotalTokens ?? null)}
@@ -194,7 +194,7 @@ export function ProfileContent({
           </div>
         </div>
         {tokensPending ? (
-          <Skeleton className="h-32 w-full rounded-lg" />
+          <Skeleton className="h-32 w-full rounded-card" />
         ) : (
           <ActivityHeatmap
             cells={heatmap.cells}
@@ -265,7 +265,7 @@ export function ProfileContent({
                   className="flex items-center justify-between gap-3"
                 >
                   <span className="flex min-w-0 items-center gap-2.5">
-                    <span className="flex size-5 shrink-0 items-center justify-center rounded-md bg-muted/60">
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-control-xs bg-muted/60">
                       <CentralIcon
                         name={skill.kind === "agent" ? "agent" : "building-blocks"}
                         className="size-3"
@@ -457,11 +457,11 @@ function ProfileSkeleton() {
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-3 w-24" />
       </div>
-      <Skeleton className="h-[72px] w-full rounded-2xl" />
-      <Skeleton className="h-24 w-full rounded-lg" />
+      <Skeleton className="h-[72px] w-full rounded-card" />
+      <Skeleton className="h-24 w-full rounded-card" />
       <div className="grid w-full gap-7 md:grid-cols-2">
-        <Skeleton className="h-40 w-full rounded-lg" />
-        <Skeleton className="h-40 w-full rounded-lg" />
+        <Skeleton className="h-40 w-full rounded-card" />
+        <Skeleton className="h-40 w-full rounded-card" />
       </div>
     </div>
   );

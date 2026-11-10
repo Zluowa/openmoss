@@ -7,6 +7,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestCommentComposer, GitHubCommentTarget, GitHubCommentMutation
 
+import { Button } from "~/components/ui/button";
 import { GLASS_RAISED_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 import type { PullRequestDetailInput } from "@moss/contracts";
 import { useRef, useState } from "react";
@@ -101,16 +102,19 @@ export function PullRequestCommentComposer({
           "font-system-ui min-w-0 flex-1 resize-none bg-transparent py-1.5 outline-none placeholder:text-muted-foreground disabled:opacity-60",
         )}
       />
-      <button
+      <Button
+        variant="default"
+        size="icon-sm"
+        shape="capsule"
         type="button"
         disabled={!canSubmit}
         aria-label="Post comment"
         title="Post comment"
         onClick={() => void submit()}
-        className="flex size-7 shrink-0 items-center justify-center self-end rounded-full bg-primary text-primary-foreground transition-opacity disabled:opacity-35"
+        className="shrink-0 self-end transition-opacity"
       >
         <ArrowUpIcon className="size-4" />
-      </button>
+      </Button>
     </div>
   );
 }

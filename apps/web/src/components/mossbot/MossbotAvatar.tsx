@@ -140,7 +140,7 @@ export function MossbotAvatarPicker(props: {
           aria-pressed={selectedKey === avatar.key}
           onClick={() => props.onChange(avatar.key)}
           className={cn(
-            "mossbot-avatar-choice grid size-12 place-items-center rounded-xl border border-transparent hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "mossbot-avatar-choice grid size-12 place-items-center rounded-card border border-transparent hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             selectedKey === avatar.key && "border-foreground/15 bg-foreground/5",
           )}
         >

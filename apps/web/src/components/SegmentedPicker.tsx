@@ -66,12 +66,12 @@ export function SegmentedPicker<T extends string>({
       <div
         role="radiogroup"
         aria-label={ariaLabel}
-        className="sidebar-segmented-picker relative isolate inline-flex w-full rounded-lg p-0.5"
+        className="sidebar-segmented-picker relative isolate inline-flex w-full rounded-row p-0.5"
       >
         {thumb ? (
           <div
             aria-hidden
-            className="sidebar-segmented-thumb pointer-events-none absolute -inset-y-[1.5px] z-0 rounded-md transition-[left,width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
+            className="sidebar-segmented-thumb pointer-events-none absolute -inset-y-[1.5px] z-0 rounded-control transition-[left,width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
             style={thumb}
           />
         ) : null}
@@ -86,7 +86,7 @@ export function SegmentedPicker<T extends string>({
               disabled={disabled || option.disabled}
               title={option.title}
               className={cn(
-                "relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-md px-2.5 py-1 text-ui-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50",
+                "relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-control px-2.5 py-1 text-ui-sm font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50",
                 active
                   ? "text-[var(--color-text-foreground)]"
                   : "text-[var(--color-text-foreground-secondary)] hover:text-[var(--color-text-foreground)]",

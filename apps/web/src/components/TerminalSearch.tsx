@@ -153,31 +153,31 @@ export function TerminalSearch({ searchAddon, isOpen, onClose }: TerminalSearchP
           onClick={() => setCaseSensitive((v) => !v)}
           label="Match case"
           className={cn(
-            "size-6 rounded-sm border-transparent bg-transparent shadow-none sm:size-6",
+            "size-6 rounded-control-xs border-transparent bg-transparent shadow-none sm:size-6",
             caseSensitive
               ? "bg-primary/20 text-foreground"
               : "text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground",
           )}
         >
-          <span className="text-ui-xs font-bold leading-none">Aa</span>
+          <span className="text-ui-xs font-medium leading-none">Aa</span>
         </IconButton>
         <IconButton
           onClick={() => handleSearch("previous")}
-          className="size-6 rounded-sm border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/20 hover:text-foreground sm:size-6"
+          className="size-6 rounded-control-xs border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/20 hover:text-foreground sm:size-6"
           label="Previous match (Shift+Enter)"
         >
           <ChevronUpIcon className="size-3" />
         </IconButton>
         <IconButton
           onClick={() => handleSearch("next")}
-          className="size-6 rounded-sm border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/20 hover:text-foreground sm:size-6"
+          className="size-6 rounded-control-xs border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/20 hover:text-foreground sm:size-6"
           label="Next match (Enter)"
         >
           <ChevronDownIcon className="size-3" />
         </IconButton>
         <IconButton
           onClick={handleClose}
-          className="size-6 rounded-sm border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/20 hover:text-foreground sm:size-6"
+          className="size-6 rounded-control-xs border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/20 hover:text-foreground sm:size-6"
           label="Close search (Esc)"
         >
           <XIcon className="size-4" />

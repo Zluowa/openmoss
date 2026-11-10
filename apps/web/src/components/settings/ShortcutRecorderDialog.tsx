@@ -325,7 +325,7 @@ function ShortcutRecorder({
           <CentralIcon name="shortcut" className="size-5" />
         </div>
         <div className="min-w-0 space-y-0.5">
-          <DialogTitle className="truncate text-[15px]">{row.label}</DialogTitle>
+          <DialogTitle className="truncate text-ui-lg">{row.label}</DialogTitle>
           <DialogDescription className="text-ui-sm">
             {binding ? "Press new keys to change its shortcut." : "Choose the keys that run it."}
           </DialogDescription>
@@ -339,7 +339,7 @@ function ShortcutRecorder({
         role="group"
         aria-label={recorded ? `Shortcut ${shortcutLabel(recorded)}` : "Type a shortcut"}
         aria-describedby={statusId}
-        className="flex min-h-[88px] items-center justify-center gap-2 rounded-xl border border-[color:var(--color-border)] bg-muted px-3 shadow-[inset_0_1px_3px_rgba(0,0,0,0.12)] outline-none dark:shadow-[inset_0_1px_3px_rgba(0,0,0,0.5)]"
+        className="flex min-h-[88px] items-center justify-center gap-2 rounded-card border border-[color:var(--color-border)] bg-muted px-3 shadow-[inset_0_1px_3px_rgba(0,0,0,0.12)] outline-none dark:shadow-[inset_0_1px_3px_rgba(0,0,0,0.5)]"
       >
         {isPreviewing ? (
           <>

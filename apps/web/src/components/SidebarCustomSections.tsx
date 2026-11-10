@@ -242,7 +242,7 @@ function SortableSidebarCustomSection<
         transition,
       }}
       className={cn(
-        "group/collapsible relative rounded-md",
+        "group/collapsible relative rounded-control",
         isDragging ? "z-20 opacity-80" : null,
         isOver && !isDragging ? "ring-1 ring-primary/40" : null,
       )}
@@ -300,7 +300,7 @@ function SortableSidebarCustomSection<
           {onNewChat ? (
             <button
               type="button"
-              className="absolute right-8 top-1/2 z-10 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/project-header:opacity-100"
+              className="absolute right-8 top-1/2 z-10 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded-control-xs text-muted-foreground/70 opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover/project-header:opacity-100"
               aria-label={`New chat in ${section.name}`}
               data-sidebar-section-new-chat
               onPointerDown={(event) => event.stopPropagation()}

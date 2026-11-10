@@ -93,7 +93,7 @@ export function RealtimeVoiceEmptyState(props: {
       {showHint ? (
         <section
           aria-label={t("realtimeVoice.hint.label")}
-          className="flex w-full flex-col gap-2 rounded-[10px] border border-border bg-[var(--color-background-surface)] p-3 text-left"
+          className="flex w-full flex-col gap-2 rounded-card border border-border bg-[var(--color-background-surface)] p-3 text-left"
           data-moss-realtime-voice-hint="true"
         >
           <p className="text-ui font-medium text-foreground">{t("realtimeVoice.hint.label")}</p>

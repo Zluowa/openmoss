@@ -49,7 +49,7 @@ const selectTriggerVariants = cva(
         default: "min-h-control px-ui-pad-md py-1",
         lg: "min-h-control-lg px-ui-pad-lg py-2",
         sm: "min-h-control-sm gap-1.5 px-ui-pad-sm py-0.5 [&_svg:not([class*='size-'])]:size-ui-icon-sm",
-        xs: "min-h-control-xs gap-1 rounded-sm px-ui-pad-xs py-0.5 text-ui-sm sm:text-ui-sm [&_svg:not([class*='size-'])]:size-ui-icon-sm",
+        xs: "min-h-control-xs gap-1 rounded-control-xs px-ui-pad-xs py-0.5 text-ui-sm sm:text-ui-sm [&_svg:not([class*='size-'])]:size-ui-icon-sm",
       },
     },
   },

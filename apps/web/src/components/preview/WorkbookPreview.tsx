@@ -1,3 +1,4 @@
+import { Button } from "~/components/ui/button";
 import {
   useCallback,
   useEffect,
@@ -315,7 +316,7 @@ export function WorkbookPreview({
       >
         <input
           aria-label="Cell or range address"
-          className="w-20 rounded-md bg-transparent px-1 py-1 text-ui-sm outline-none focus:ring-1 focus:ring-ring"
+          className="w-20 rounded-control bg-transparent px-1 py-1 text-ui-sm outline-none focus:ring-1 focus:ring-ring"
           value={address}
           onChange={(event) => setAddress(event.target.value)}
           onBlur={() => setAddress(selectedAddress)}
@@ -368,14 +369,16 @@ export function WorkbookPreview({
           )}
         />
         {onAnnotate ? (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             onClick={annotate}
-            className="shrink-0 rounded px-2 py-1 hover:bg-muted"
+            className="shrink-0"
             aria-label="Attach selected range to chat"
           >
             Ask about this
-          </button>
+          </Button>
         ) : null}
         <select
           aria-label="Spreadsheet zoom"
@@ -502,7 +505,7 @@ export function WorkbookPreview({
               aria-selected={item === sheet}
               onClick={() => changeSheet(index)}
               className={cn(
-                "h-7 max-w-52 shrink-0 truncate rounded-lg px-2 py-1 text-ui-lg",
+                "h-7 max-w-52 shrink-0 truncate rounded-control px-2 py-1 text-ui-lg",
                 item === sheet
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/60",

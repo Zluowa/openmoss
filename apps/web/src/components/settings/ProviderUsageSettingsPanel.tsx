@@ -237,7 +237,7 @@ function MossUsageCard({ state }: { state: MossUsageState }) {
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-[color:var(--color-border)] bg-muted/60">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-muted/60">
               <MossLogo className="size-4" />
             </span>
             <h3 id={providerNameId} className="truncate text-ui-lg font-semibold text-foreground">
@@ -268,10 +268,10 @@ function MossUsageSkeletonCard() {
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-[color:var(--color-border)] bg-muted/60">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-muted/60">
               <MossLogo className="size-4" />
             </span>
-            <span className="text-ui-lg font-semibold text-foreground">Moss</span>
+            <span className="text-ui-lg font-medium text-foreground">Moss</span>
           </div>
           <Skeleton className="h-5 w-16 rounded-full" />
         </div>
@@ -330,13 +330,13 @@ function ProviderUsageCard({
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-lg border border-[color:var(--color-border)] bg-muted/60">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-muted/60">
               <ProviderIcon provider={provider} className="size-4" />
             </span>
             <div className="min-w-0 space-y-0.5">
               <h3
                 id={providerNameId}
-                className="block truncate text-ui-lg font-semibold text-foreground"
+                className="block truncate text-ui-lg font-medium text-foreground"
               >
                 {providerName}
               </h3>

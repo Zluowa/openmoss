@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import {
@@ -7,6 +8,7 @@ import {
   DialogPopup,
   DialogTitle,
 } from "~/components/ui/dialog";
+import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { ProjectImportPanel } from "./ProjectImportPanel";
 import { useProjectImportDialogStore } from "./projectImportDialogStore";
 
@@ -15,6 +17,7 @@ export function ProjectImportDialog() {
   const close = useProjectImportDialogStore((store) => store.closeDialog);
   const initialProviders = useProjectImportDialogStore((store) => store.initialProviders);
   const [busy, setBusy] = useState(false);
+  const providerStatuses = useQuery(serverConfigQueryOptions()).data?.providers;
   return (
     <Dialog
       open={open}
@@ -33,6 +36,7 @@ export function ProjectImportDialog() {
           {open ? (
             <ProjectImportPanel
               onBusyChange={setBusy}
+              providerStatuses={providerStatuses}
               {...(initialProviders ? { initialProviders } : {})}
             />
           ) : null}

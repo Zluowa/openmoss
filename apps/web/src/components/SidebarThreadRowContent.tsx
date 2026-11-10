@@ -106,7 +106,7 @@ function ProviderAvatarWithTerminal({
                 {terminalCount > 1 ? (
                   <span
                     className={cn(
-                      "text-[8px] font-semibold leading-none tabular-nums",
+                      "text-[8px] font-medium leading-none tabular-nums",
                       badgeColorClass,
                     )}
                   >

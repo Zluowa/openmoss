@@ -7,17 +7,17 @@ import { SIDEBAR_SECTION_LABEL_CLASS_NAME } from "./sidebarRowStyles";
 import { SOFT_SURFACE_FILL_CLASS_NAME } from "./surfaceStyles";
 
 /** Corner radius for top-level settings boxes: cards, empty states, dropdown panels. */
-export const SETTINGS_RADIUS_CLASS_NAME = "rounded-xl";
+export const SETTINGS_RADIUS_CLASS_NAME = "rounded-card";
 
 /** One step inside {@link SETTINGS_RADIUS_CLASS_NAME}, for anything that sits within a card
  *  (inset lists, rows) or is too small to carry the card radius (chips, drag handles) — a
  *  24px control with the card's 12px radius would read as a circle. */
-export const SETTINGS_INSET_RADIUS_CLASS_NAME = "rounded-lg";
+export const SETTINGS_INSET_RADIUS_CLASS_NAME = "rounded-control";
 
 /** The inset radius forced over a component's own default (Select triggers, segmented chips,
  *  inputs, menu options all ship a radius of their own). Written as a literal because Tailwind
  *  scans source text for candidates — a template-built `!${...}` class emits no CSS at all. */
-export const SETTINGS_CONTROL_RADIUS_CLASS_NAME = "rounded-lg!";
+export const SETTINGS_CONTROL_RADIUS_CLASS_NAME = "rounded-control!";
 
 /** Same border token as Button `outline` / `chrome-outline` variants. */
 export const SETTINGS_CONTROL_BORDER_CLASS_NAME = "border border-[color:var(--color-border)]";

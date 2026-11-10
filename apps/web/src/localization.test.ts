@@ -381,8 +381,9 @@ describe("translateMoss", () => {
     expect(
       formatMossTranslation("zh-CN", "localConversation.userStoppedAfter", { time: "3秒" }),
     ).toBe("你在 3秒 后停止了");
-    expect(formatMossTranslation("zh-CN", "localConversation.workingFor", { time: "1秒" })).toBe(
-      "工作了 1秒",
+    // Live and settled read alike: 已工作.
+    expect(formatMossTranslation("zh-CN", "localConversation.workingFor", { time: "1 秒" })).toBe(
+      "已工作 1 秒",
     );
     expect(
       formatMossTranslation("zh-CN", "chat.todoPlan.pillProgress", {

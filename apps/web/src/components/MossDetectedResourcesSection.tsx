@@ -14,9 +14,9 @@
 
 import type { MossResourceImportProvider, MossResourceImportResource } from "@moss/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
-import { McpIcon, PlusIcon, SkillCubeIcon } from "~/lib/icons";
+import { CheckIcon, McpIcon, PlusIcon, SkillCubeIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
 import { ensureNativeApi } from "~/nativeApi";
 import {
@@ -86,6 +86,17 @@ export function groupDetectedResources(
   return grouped.toSorted((left, right) => left.name.localeCompare(right.name));
 }
 
+function isActionablePlan(plan: {
+  readonly operations: ReadonlyArray<{ readonly action: string }>;
+}): boolean {
+  return plan.operations.some(
+    (operation) =>
+      operation.action === "copy" || operation.action === "merge" || operation.action === "replace",
+  );
+}
+
+const EMPTY_KEYS: ReadonlySet<string> = new Set();
+
 function useDetectedResources({
   cwd,
   search,
@@ -110,6 +121,19 @@ function useDetectedResources({
     retry: false,
   });
 
+  // Rows imported in this visit (or found to be in Moss already), per import folder. The
+  // inventory lists what each CLI has, so a row stays listed after it has been imported.
+  const [importedByCwd, setImportedByCwd] = useState<ReadonlyMap<string, ReadonlySet<string>>>(
+    () => new Map(),
+  );
+  const imported = importedByCwd.get(cwd ?? "") ?? EMPTY_KEYS;
+  const markImported = (keys: ReadonlyArray<string>) =>
+    setImportedByCwd((previous) => {
+      const next = new Map(previous);
+      next.set(cwd ?? "", new Set([...(previous.get(cwd ?? "") ?? []), ...keys]));
+      return next;
+    });
+
   const adopt = useMutation({
     mutationFn: async (group: DetectedResourceGroup) => {
       const api = ensureNativeApi().provider;
@@ -118,17 +142,12 @@ function useDetectedResources({
         resourceIds: [group.source.id],
         kinds: [group.kind],
       });
-      const actionable = planned.plan.operations.some(
-        (operation) =>
-          operation.action === "copy" ||
-          operation.action === "merge" ||
-          operation.action === "replace",
-      );
-      if (!actionable) return { group, adopted: false };
+      if (!isActionablePlan(planned.plan)) return { group, adopted: false };
       await api.resourceImportApply({ cwd: cwd ?? "", plan: planned.plan });
       return { group, adopted: true };
     },
     onSuccess: ({ group, adopted }) => {
+      markImported([group.key]);
       toastManager.add({
         type: "success",
         title: format(adopted ? "plugins.detected.adopted" : "plugins.detected.alreadyManaged", {
@@ -160,7 +179,38 @@ function useDetectedResources({
     );
   }, [inventoryQuery.data, kind, search]);
 
-  return { groups, adopt };
+  const importAll = useMutation({
+    mutationFn: async (targets: ReadonlyArray<DetectedResourceGroup>) => {
+      const api = ensureNativeApi().provider;
+      const planned = await api.resourceImportPlan({
+        cwd: cwd ?? "",
+        resourceIds: targets.map((group) => group.source.id),
+        kinds: [...new Set(targets.map((group) => group.kind))],
+      });
+      if (isActionablePlan(planned.plan)) {
+        await api.resourceImportApply({ cwd: cwd ?? "", plan: planned.plan });
+      }
+      return targets;
+    },
+    onSuccess: (targets) => {
+      markImported(targets.map((group) => group.key));
+      toastManager.add({
+        type: "success",
+        title: format("plugins.detected.importedAll", { count: targets.length }),
+      });
+      void queryClient.invalidateQueries({ queryKey });
+    },
+    onError: (cause) => {
+      console.warn("[moss] resource import failed", cause);
+      toastManager.add({
+        type: "error",
+        title: t("plugins.detected.importAllFailed"),
+        description: t("plugins.detected.failedDescription"),
+      });
+    },
+  });
+
+  return { groups, adopt, importAll, imported };
 }
 
 export function MossDetectedResourcesSection({
@@ -258,9 +308,11 @@ export function MossDetectedResourcesSettingsList({
   readonly kind: "skill" | "mcp";
 }) {
   const { t, format } = useTranslation();
-  const { groups, adopt } = useDetectedResources({ cwd, search, kind });
+  const { groups, adopt, importAll, imported } = useDetectedResources({ cwd, search, kind });
   if (cwd === null || groups.length === 0) return null;
   const Icon = kind === "mcp" ? McpIcon : SkillCubeIcon;
+  const pending = groups.filter((group) => !imported.has(group.key));
+  const busy = adopt.isPending || importAll.isPending;
   return (
     <section
       className="flex flex-col gap-3"
@@ -271,21 +323,38 @@ export function MossDetectedResourcesSettingsList({
           : "plugins.detected.settingsTitle.skills",
       )}
     >
-      <div className="flex flex-col gap-0.5">
-        <h3 className="text-ui-lg font-medium text-foreground">
-          {t(
-            kind === "mcp"
-              ? "plugins.detected.settingsTitle.mcp"
-              : "plugins.detected.settingsTitle.skills",
-          )}
-        </h3>
-        <p className="truncate text-ui-sm text-muted-foreground">
-          {t("plugins.detected.settingsSubtitle")}
-        </p>
+      <div className="flex items-end justify-between gap-3">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h3 className="text-ui-lg font-medium text-foreground">
+            {t(
+              kind === "mcp"
+                ? "plugins.detected.settingsTitle.mcp"
+                : "plugins.detected.settingsTitle.skills",
+            )}
+          </h3>
+          <p className="truncate text-ui-sm text-muted-foreground">
+            {t("plugins.detected.settingsSubtitle")}
+          </p>
+        </div>
+        {pending.length > 1 ? (
+          <Button
+            variant="outline"
+            size="xs"
+            className="shrink-0"
+            disabled={busy}
+            onClick={() => importAll.mutate(pending)}
+          >
+            {importAll.isPending ? <Spinner className="size-3.5" /> : null}
+            {format("plugins.detected.importAll", { count: pending.length })}
+          </Button>
+        ) : null}
       </div>
       <div className="flex flex-col divide-y divide-border/60 overflow-hidden rounded-card border border-border/70">
         {groups.map((group) => {
-          const busy = adopt.isPending && adopt.variables?.key === group.key;
+          const rowBusy =
+            (adopt.isPending && adopt.variables?.key === group.key) ||
+            (importAll.isPending && importAll.variables?.includes(group) === true);
+          const done = imported.has(group.key);
           return (
             <div
               key={group.key}
@@ -316,16 +385,23 @@ export function MossDetectedResourcesSettingsList({
                     {provider}
                   </Badge>
                 ))}
-                <Button
-                  variant="outline"
-                  size="xs"
-                  aria-label={format("plugins.detected.importAria", { name: group.name })}
-                  disabled={adopt.isPending}
-                  onClick={() => adopt.mutate(group)}
-                >
-                  {busy ? <Spinner className="size-3.5" /> : null}
-                  {t("plugins.detected.import")}
-                </Button>
+                {done ? (
+                  <span className="inline-flex h-6 items-center gap-1 px-2 text-ui-sm text-muted-foreground">
+                    <CheckIcon aria-hidden="true" className="size-3.5" />
+                    {t("plugins.detected.imported")}
+                  </span>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    aria-label={format("plugins.detected.importAria", { name: group.name })}
+                    disabled={busy}
+                    onClick={() => adopt.mutate(group)}
+                  >
+                    {rowBusy ? <Spinner className="size-3.5" /> : null}
+                    {t("plugins.detected.import")}
+                  </Button>
+                )}
               </div>
             </div>
           );

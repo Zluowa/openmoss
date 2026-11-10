@@ -3,6 +3,7 @@
 // Layer: Chat presentation component
 // Depends on: agentActivity.logic and ChatMarkdown
 
+import { Button } from "~/components/ui/button";
 import { pluralize } from "@moss/shared/text";
 import { type CSSProperties, type ReactNode } from "react";
 import { BotIcon, ChevronLeftIcon } from "~/lib/icons";
@@ -67,16 +68,18 @@ export function AgentActivityDetailView({
       style={scrollStyle}
     >
       <div className={cn(CHAT_COLUMN_FRAME_CLASS_NAME, "px-1")}>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           data-scroll-anchor-ignore
-          className="inline-flex items-center gap-1.5 rounded-control px-1.5 py-1 text-muted-foreground/70 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground"
+          className="transition-colors"
           style={footerTextStyle}
           onClick={onBack}
         >
           <ChevronLeftIcon className="size-4" />
           <span>Back</span>
-        </button>
+        </Button>
 
         <div className="mt-3 border-b border-border/55 pb-4">
           <div className="flex min-w-0 items-start gap-3">

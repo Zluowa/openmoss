@@ -165,7 +165,7 @@ export function SafariAccessOnboarding({
                         onClick={() => {
                           void run("revealApp");
                         }}
-                        className="rounded-sm underline decoration-muted-foreground/40 underline-offset-[3px] transition-colors hover:text-foreground hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60"
+                        className="rounded-inline underline decoration-muted-foreground/40 underline-offset-[3px] transition-colors hover:text-foreground hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-60"
                       >
                         Show app in Finder
                       </button>{" "}

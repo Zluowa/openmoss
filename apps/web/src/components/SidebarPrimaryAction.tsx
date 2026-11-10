@@ -79,7 +79,7 @@ export function SidebarPrimaryAction({
       <span className="truncate">{label}</span>
       {badge ? (
         <span
-          className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-md bg-muted px-1 text-ui-xs font-medium text-muted-foreground"
+          className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-control-xs bg-muted px-1 text-ui-xs font-medium text-muted-foreground"
           aria-label={badge.accessibleLabel}
           title={badge.accessibleLabel}
         >

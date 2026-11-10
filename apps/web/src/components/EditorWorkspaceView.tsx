@@ -247,7 +247,7 @@ function DiffFilesLoadingRows() {
     <div className="space-y-1 px-1 py-1" role="status" aria-label="Loading changed files...">
       {DIFF_FILE_SKELETON_ROW_WIDTHS.map((width) => (
         <div key={width} className="flex h-8 items-center gap-1.5 px-2">
-          <Skeleton className="size-4 shrink-0 rounded-sm" />
+          <Skeleton className="size-4 shrink-0 rounded-control-xs" />
           <Skeleton className={cn("h-3 rounded-full", width)} />
           <Skeleton className="ml-auto h-3 w-9 shrink-0 rounded-full" />
         </div>

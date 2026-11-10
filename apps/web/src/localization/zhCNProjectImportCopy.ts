@@ -100,6 +100,7 @@ export const translateZhCnProjectImportCopyText = phraseTranslator(PROJECT_IMPOR
   ],
   [/^Not found: (.+) · (\d+) can't be copied \((.+)\)\.$/, "没有找到：$1 · $2 个无法复制（$3）。"],
   [/^Not found: (.+)\.$/, "没有找到：$1。"],
+  [/^No conversations yet: (.+)\.$/, "还没有对话：$1。"],
   [/^(\d+) can't be copied \((.+)\)\.$/, "$1 个无法复制（$2）。"],
   [
     /^Found (\d+) (.+?) conversations? that can't be copied: (.+) keeps them encrypted\.$/,

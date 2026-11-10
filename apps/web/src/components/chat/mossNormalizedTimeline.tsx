@@ -3,6 +3,7 @@
 // Layer: Web chat control-plane presentation helper
 // Exports: normalized event hook, work-entry/timeline derivation, lightweight timeline component
 
+import { Button } from "~/components/ui/button";
 import {
   isToolLifecycleItemType,
   type MossNormalizedSessionEvent,
@@ -1111,16 +1112,18 @@ function MossNormalizedEventScopeBanner({
         <span className="ml-2 text-muted-foreground">{scope.label}</span>
       </div>
       {scope.onClear ? (
-        <button
+        <Button
+          variant="outline"
+          size="xs"
           aria-label="Return Events to active thread scope"
-          className="rounded border border-border/70 px-2 py-1 text-ui-sm text-muted-foreground transition-colors enabled:hover:text-foreground disabled:opacity-60"
+          className="transition-colors"
           data-moss-normalized-session-scope-clear=""
           disabled={clearDisabled}
           onClick={scope.onClear}
           type="button"
         >
           Active thread
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -1286,15 +1289,17 @@ function MossNormalizedEventTimelineRow({
           <span className="text-ui-sm tabular-nums text-muted-foreground">
             {formatTimelineTime(entry.createdAt)}
           </span>
-          <button
+          <Button
+            variant="outline"
+            size="xs"
             aria-label={`Inspect ${entry.toolTitle ?? entry.label}`}
-            className="rounded border border-border/70 px-1.5 py-0.5 text-ui-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="transition-colors"
             data-moss-normalized-event-inspect={String(entry.id)}
             onClick={() => onInspect(String(entry.id))}
             type="button"
           >
             Inspect
-          </button>
+          </Button>
         </div>
       </div>
       {entry.preview ? (
@@ -1353,15 +1358,17 @@ function MossNormalizedEventDetailInspector({
             </div>
           ) : null}
         </div>
-        <button
+        <Button
+          variant="outline"
+          size="xs"
           aria-label="Close normalized event detail"
-          className="rounded border border-border/70 px-2 py-1 text-ui-sm text-muted-foreground transition-colors hover:text-foreground"
+          className="transition-colors"
           data-moss-normalized-event-detail-close=""
           onClick={onClose}
           type="button"
         >
           Close
-        </button>
+        </Button>
       </div>
       {detail.permissionActionShell ? (
         <div className="mt-3">
@@ -1648,9 +1655,11 @@ function MossNormalizedPermissionActionShellMetadata({
         {state.disabledReason}
       </span>
       {state.intents.map((intent) => (
-        <button
+        <Button
+          variant="outline"
+          size="xs"
           aria-label={`${intent.label} permission`}
-          className="rounded border border-border/70 px-1.5 py-0.5 text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          className="disabled:cursor-not-allowed"
           data-permission-action-disabled-reason={intent.disabledReason}
           data-permission-action-intent={intent.intent}
           disabled={!intent.enabled}
@@ -1659,7 +1668,7 @@ function MossNormalizedPermissionActionShellMetadata({
           type="button"
         >
           {intent.label}
-        </button>
+        </Button>
       ))}
     </div>
   );

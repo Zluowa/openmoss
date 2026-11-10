@@ -46,7 +46,7 @@ export function TaskQuickAdd({
   };
 
   return (
-    <label className="flex min-h-10.5 items-center gap-3 rounded-xl px-3">
+    <label className="flex min-h-10.5 items-center gap-3 rounded-card px-3">
       <svg viewBox="0 0 18 18" fill="none" aria-hidden className="size-4.5 shrink-0">
         <circle
           cx="9"

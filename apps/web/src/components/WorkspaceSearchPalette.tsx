@@ -72,7 +72,7 @@ const GROUP_LABEL_CLASS =
 // Row text sizes live on the inner spans (the item base carries a sm:text-ui-lg
 // that would win over an item-level override).
 const ITEM_CLASS =
-  "cursor-pointer gap-2 rounded-lg px-2.5 py-1 text-[var(--color-text-foreground)] data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)]";
+  "cursor-pointer gap-2 rounded-row px-2.5 py-1 text-[var(--color-text-foreground)] data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)]";
 
 const ICON_CLASS = "size-4 text-[var(--color-text-foreground-secondary)]";
 

@@ -149,6 +149,8 @@ import { closeSettings, openSettings, type PluginSettingsTab } from "~/settingsD
 import type { MossBuiltInAppId } from "@moss/shared/mossBuiltInApps";
 import { openMossBuiltInAppPanel } from "~/lib/mossBuiltInAppPanels";
 import { mossBuiltInAppViews } from "./settings/mossBuiltInAppsPresentation";
+import { resolveServerChatWorkspaceRoot } from "~/lib/serverWorkspacePaths";
+import { useWorkspacePathsStore } from "~/workspacePathsStore";
 import { SidebarHeaderNavigationControls } from "./SidebarHeaderNavigationControls";
 import {
   useDesktopTopBarTrafficLightGutterClassName,
@@ -1658,6 +1660,19 @@ export function PluginLibrary({
         serverCwd: serverConfigQuery.data?.cwd ?? null,
       });
 
+  // Where "Import" writes (`<cwd>/.moss`): the focused project, or else the Moss home
+  // folder that Home chats run in. Never the server's working folder, which is the source
+  // checkout in dev and the install folder when packaged.
+  const homeChatHomeDir = useWorkspacePathsStore((state) => state.homeDir);
+  const homeChatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
+  const importCwd =
+    focusedProject?.kind === "project" && focusedProject.cwd.trim()
+      ? focusedProject.cwd
+      : resolveServerChatWorkspaceRoot({
+          homeDir: homeChatHomeDir,
+          chatWorkspaceRoot: homeChatWorkspaceRoot,
+        });
+
   useEffect(() => {
     setRetainedPluginAuthSession(null);
   }, [discoveryCwd, providerThreadId, selectedProvider, selectedProviderInstanceId]);
@@ -2908,7 +2923,7 @@ export function PluginLibrary({
           ? { prompt: t("plugins.create.creatorPrompt") }
           : kind === "app"
             ? { prompt: t("plugins.create.appCreatorPrompt") }
-            : undefined,
+            : { firstUsePrompt: t("plugins.create.skillCreatorPrompt") },
       )
       .then((started) => {
         // Like Codex: the new chat with the creator attached is where the user goes next,
@@ -3956,10 +3971,10 @@ export function PluginLibrary({
                     handleCopyPath(t("plugins.detail.label.path"), path)
                   }
                   mcpServers={mcpServers}
-                  renderTabSupplement={(tab, query) =>
+                  renderTabLead={(tab, query) =>
                     tab === "mcps" || tab === "skills" ? (
                       <MossDetectedResourcesSettingsList
-                        cwd={discoveryCwd}
+                        cwd={importCwd}
                         search={query}
                         kind={tab === "mcps" ? "mcp" : "skill"}
                       />
@@ -4254,7 +4269,7 @@ export function PluginLibrary({
                           />
                         ) : (
                           <div className="flex flex-col gap-8">
-                            <MossDetectedResourcesSection cwd={discoveryCwd} search={searchValue} />
+                            <MossDetectedResourcesSection cwd={importCwd} search={searchValue} />
                             <SkillsGrid
                               canListSkills={canListSkills}
                               providerLabel={providerLabel}

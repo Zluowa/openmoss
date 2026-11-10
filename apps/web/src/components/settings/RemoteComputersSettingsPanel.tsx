@@ -289,7 +289,7 @@ export function RemoteComputersSettingsPanel({ active }: { readonly active: bool
             >
               <DeviceLaptopIcon className="size-ui-icon shrink-0 text-muted-foreground" />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-ui-lg font-semibold">{state.connection.displayName}</p>
+                <p className="truncate text-ui-lg font-medium">{state.connection.displayName}</p>
                 <p className="truncate text-ui text-muted-foreground">{state.connection.origin}</p>
                 <p role="status" className="mt-1 text-ui-sm text-muted-foreground">
                   {t(REMOTE_COMPUTER_STATUS_KEYS[state.status])}

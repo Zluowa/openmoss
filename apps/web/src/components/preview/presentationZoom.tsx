@@ -33,7 +33,7 @@ export function PresentationZoom({
     >
       <MenuTrigger
         aria-label="Zoom"
-        className="inline-flex h-7 items-center gap-1 rounded-lg px-2 text-ui-sm tabular-nums hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
+        className="inline-flex h-7 items-center gap-1 rounded-control px-2 text-ui-sm tabular-nums hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
       >
         {percent}%<ChevronDownIcon className="size-3" />
       </MenuTrigger>
@@ -42,7 +42,7 @@ export function PresentationZoom({
           <input
             aria-label="Zoom percentage"
             inputMode="numeric"
-            className="w-20 rounded-md border border-border bg-transparent px-2 py-1 text-ui-lg outline-none focus:border-ring"
+            className="w-20 rounded-control border border-border bg-transparent px-2 py-1 text-ui-lg outline-none focus:border-ring"
             value={custom}
             onChange={(event) => setCustom(event.target.value)}
             onKeyDown={(event) => {

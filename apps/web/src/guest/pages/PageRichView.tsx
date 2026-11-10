@@ -25,7 +25,7 @@ function renderLeaf(node: PageRichNode, key: number): ReactNode {
   let content: ReactNode = node.text ?? "";
   if (node.code === true) {
     content = (
-      <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[0.9em]">{content}</code>
+      <code className="rounded-inline bg-muted px-1 py-0.5 font-mono text-[0.9em]">{content}</code>
     );
   }
   if (node.bold === true) content = <strong>{content}</strong>;
@@ -138,7 +138,7 @@ function renderNode(
   if (heading) {
     const level = Number(heading[1]);
     const className = cn(
-      "font-semibold text-foreground",
+      "font-medium text-foreground",
       level === 1 && "mt-6 text-[1.6em] leading-tight",
       level === 2 && "mt-5 text-[1.3em] leading-snug",
       level >= 3 && "mt-4 text-[1.1em]",
@@ -333,7 +333,7 @@ export function PageRichView(props: {
     }
   }
   return (
-    <div className="flex flex-col gap-2 text-[15px] leading-relaxed text-foreground">
+    <div className="flex flex-col gap-2 text-ui-lg leading-relaxed text-foreground">
       {nodes === null ? <MarkdownFallback content={props.content} /> : renderChildren(nodes, props)}
     </div>
   );

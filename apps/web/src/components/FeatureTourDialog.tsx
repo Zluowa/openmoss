@@ -166,13 +166,15 @@ function FeatureTourSlides({
           className="-ms-1.5 flex gap-0.5 pt-2 max-sm:basis-full max-sm:justify-center sm:me-auto sm:pt-0"
         >
           {slides.map((item, position) => (
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              shape="capsule"
               key={item.id}
               type="button"
               aria-label={`Show ${item.title}`}
               aria-current={position === index ? "step" : undefined}
               onClick={() => setIndex(position)}
-              className="flex size-7 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span
                 className={cn(
@@ -180,7 +182,7 @@ function FeatureTourSlides({
                   position === index ? "w-5 bg-foreground" : "w-1.5 bg-muted-foreground/30",
                 )}
               />
-            </button>
+            </Button>
           ))}
         </nav>
       }

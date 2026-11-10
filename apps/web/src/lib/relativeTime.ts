@@ -1,6 +1,7 @@
 // FILE: relativeTime.ts
-// Purpose: Compact locale-aware relative-time labels ("now", "5m", "3h", "2d", "1w", "5mo") for
-//          thread and pull request lists, plus the snooze countdown label.
+// Purpose: Compact locale-aware relative-time labels ("now", "5m", "3h", "2d", "1w", "5mo"; zh-CN
+//          "刚刚", "5 分钟", "3 小时", …) for thread, pull request and task lists, the same units
+//          for elapsed work ("Worked for 4m"), plus the snooze countdown label.
 // Layer: Web UI utility
 
 import type { MossLocaleCode } from "~/appSettings";
@@ -8,9 +9,11 @@ import type { MossLocaleCode } from "~/appSettings";
 export function formatRelativeTime(
   iso: string,
   localeOrNow: MossLocaleCode | number = "en",
+  /** The clock to measure against when a locale is passed as the second argument. */
+  now?: number,
 ): string {
   const locale = typeof localeOrNow === "string" ? localeOrNow : "en";
-  const nowMs = typeof localeOrNow === "number" ? localeOrNow : Date.now();
+  const nowMs = typeof localeOrNow === "number" ? localeOrNow : (now ?? Date.now());
   const diff = Math.max(0, nowMs - new Date(iso).getTime());
   const minutes = Math.floor(diff / 60_000);
   const isZhCn = locale === "zh-CN";
@@ -30,6 +33,18 @@ export function formatRelativeTime(
   }
   const years = Math.floor(days / 365);
   return isZhCn ? `${years} 年` : `${years}y`;
+}
+
+/**
+ * How long work has run since `startIso`, in the same units as `formatRelativeTime` so one page
+ * never mixes "4h" with "4 小时" or a clock-style "1小时 2分钟". Under a minute reads "<1m" /
+ * "不到 1 分钟" instead of "now", which would not make sense after "Worked for".
+ */
+export function formatElapsedSpan(startIso: string, locale: MossLocaleCode, nowMs: number): string {
+  const label = formatRelativeTime(startIso, locale, nowMs);
+  if (label === "now") return "<1m";
+  if (label === "刚刚") return "不到 1 分钟";
+  return label;
 }
 
 /** Countdown label for a snoozed thread ("28 min left", "1 hr 28 min left", "2 days 1 hr left"). */

@@ -23,8 +23,8 @@ import { ProfileAvatar } from "./ProfileAvatar";
 // Inputs and footer buttons share one fixed height + radius so every control in
 // the dialog reads as the same size. The visible border keeps the fields legible
 // even when unfocused (the default --input border is ~6% and reads as "no box").
-const fieldControlClassName = "h-9 rounded-xl border-foreground/12";
-const dialogButtonClassName = "h-11 rounded-lg px-4";
+const fieldControlClassName = "h-9 rounded-control border-foreground/12";
+const dialogButtonClassName = "h-11 rounded-control px-4";
 
 interface EditProfileDialogProps {
   readonly open: boolean;
@@ -215,7 +215,7 @@ function EditProfileDialogContent({
         </div>
 
         {/* Fields */}
-        <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border/60">
+        <div className="divide-y divide-border/60 overflow-hidden rounded-card border border-border/60">
           <Field label="Display name">
             <InputGroup className={fieldControlClassName}>
               <InputGroupInput

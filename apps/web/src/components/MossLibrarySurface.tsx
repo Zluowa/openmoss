@@ -136,7 +136,7 @@ function LibraryCardThumb({
     return <FolderIcon className="size-7 text-muted-foreground" aria-hidden="true" />;
   }
   return (
-    <span className="rounded-md bg-background/40 px-2 py-1 text-ui-2xs uppercase tracking-wide text-muted-foreground">
+    <span className="rounded-control bg-background/40 px-2 py-1 text-ui-2xs uppercase tracking-wide text-muted-foreground">
       {item.kind}
     </span>
   );
@@ -217,7 +217,7 @@ function LibraryCardTitle({
       autoFocus
       data-moss-library-rename-input
       aria-label={t("library.action.rename")}
-      className="w-full rounded-md border border-border/70 bg-background px-1.5 py-0.5 text-ui-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+      className="w-full rounded-row border border-border/70 bg-background px-1.5 py-0.5 text-ui-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
@@ -236,7 +236,7 @@ function LibraryCardTitle({
 
 /** Shared tile look — skeleton and empty-state placeholders must be pixel-identical
  *  so the single skeleton→content swap never pops (Codex single-phase loading). */
-const LIBRARY_TILE_CLASS = "mb-3 break-inside-avoid rounded-2xl bg-[#f4f4f6] dark:bg-[#2a2a2c]";
+const LIBRARY_TILE_CLASS = "mb-3 break-inside-avoid rounded-card bg-[#f4f4f6] dark:bg-[#2a2a2c]";
 
 /** Content masonry columns — the skeleton grid mirrors this exactly. */
 const LIBRARY_MASONRY_COLUMNS_CLASS =
@@ -284,7 +284,7 @@ function LibrarySkeletonList() {
       <div className="flex flex-col" data-moss-library-skeleton-rows>
         {Array.from({ length: 10 }, (_, index) => (
           <div key={index} className="flex items-center gap-3 px-3 py-2.5">
-            <span className="size-5 shrink-0 rounded-md bg-[#f0f0f2] dark:bg-[#2a2a2c]" />
+            <span className="size-5 shrink-0 rounded-control-xs bg-[#f0f0f2] dark:bg-[#2a2a2c]" />
             <span
               className="h-3 rounded-full bg-[#f0f0f2] dark:bg-[#2a2a2c]"
               style={{ width: `${34 + ((index * 13) % 30)}%` }}
@@ -1024,7 +1024,7 @@ export function MossLibrarySurface({
         onClick={() => handleCardClick(item)}
         onContextMenu={(event) => handleCardContextMenu(event, item)}
         className={cn(
-          "group relative mb-3 break-inside-avoid overflow-hidden rounded-2xl ring-1 ring-inset transition-shadow",
+          "group relative mb-3 break-inside-avoid overflow-hidden rounded-card ring-1 ring-inset transition-shadow",
           isImage ? "bg-muted/45" : "bg-surface shadow-sm",
           selected ? "ring-2 ring-foreground/70" : "ring-border/25 hover:ring-border/50",
         )}
@@ -1092,14 +1092,14 @@ export function MossLibrarySurface({
         onClick={() => handleCardClick(item)}
         onContextMenu={(event) => handleCardContextMenu(event, item)}
         className={cn(
-          "group relative flex min-h-14 items-center gap-3 rounded-xl border px-4 py-2 transition-colors",
+          "group relative flex min-h-14 items-center gap-3 rounded-card border px-4 py-2 transition-colors",
           selected
             ? "border-foreground/50 bg-muted/60"
             : "border-border/50 bg-card/40 hover:border-border",
         )}
       >
         <span
-          className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/70"
+          className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-control bg-muted/70"
           aria-hidden="true"
         >
           {item.kind === "image" && (item.thumbnailUrl ?? thumbnails[item.id]) ? (
@@ -1112,7 +1112,7 @@ export function MossLibrarySurface({
           ) : item.kind === "folder" ? (
             <FolderIcon className="size-4 text-muted-foreground" />
           ) : (
-            <span className="size-3 rounded-sm bg-muted-foreground/35" />
+            <span className="size-3 rounded-control-xs bg-muted-foreground/35" />
           )}
         </span>
         <div className="min-w-0 flex-1 space-y-1">
@@ -1127,7 +1127,10 @@ export function MossLibrarySurface({
           </p>
           <LibraryCardMeta item={item} now={now} />
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          shape="capsule"
           type="button"
           aria-label={format("library.card.moreActions", { title: item.title })}
           data-moss-library-item-menu={item.id}
@@ -1136,10 +1139,10 @@ export function MossLibrarySurface({
             const rect = event.currentTarget.getBoundingClientRect();
             openContextMenuAt(item, rect.left, rect.bottom + 4);
           }}
-          className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
+          className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
         >
           <EllipsisIcon className="size-4" aria-hidden="true" />
-        </button>
+        </Button>
         <LibraryCardCheck selected={selected} title={item.title} inline />
       </article>
     );
@@ -1208,7 +1211,7 @@ export function MossLibrarySurface({
             type="button"
             role="menuitem"
             data-moss-library-folder-option={folder.id}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted"
+            className="flex w-full items-center gap-2 rounded-row px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted"
             onClick={() => {
               assignToFolder(ids, folder.id);
               onDone();
@@ -1224,7 +1227,7 @@ export function MossLibrarySurface({
           type="button"
           role="menuitem"
           data-moss-library-folder-remove
-          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-ui-sm text-muted-foreground transition-colors hover:bg-muted"
+          className="flex w-full items-center gap-2 rounded-row px-3 py-2 text-left text-ui-sm text-muted-foreground transition-colors hover:bg-muted"
           onClick={() => {
             assignToFolder(ids, null);
             onDone();
@@ -1392,7 +1395,10 @@ export function MossLibrarySurface({
               </label>
 
               <div className="relative">
-                <button
+                <Button
+                  variant="default"
+                  size="default"
+                  shape="capsule"
                   type="button"
                   data-moss-library-new
                   aria-expanded={newOpen}
@@ -1402,16 +1408,15 @@ export function MossLibrarySurface({
                     setFilterOpen(false);
                     setSortOpen(false);
                   }}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-full bg-foreground px-3.5 text-ui-sm font-medium text-background"
                 >
                   {t("library.new")}
                   <ChevronDownIcon className="size-3 opacity-70" aria-hidden="true" />
-                </button>
+                </Button>
                 {newOpen ? (
                   <div
                     role="menu"
                     data-moss-library-new-menu
-                    className="absolute right-0 z-20 mt-2 w-60 overflow-hidden rounded-xl border border-border/70 bg-popover p-1 shadow-lg"
+                    className="absolute right-0 z-20 mt-2 w-60 overflow-hidden rounded-popover border border-border/70 bg-popover p-1 shadow-lg"
                   >
                     {MOSS_LIBRARY_NEW_ACTIONS.map((action) => (
                       <button
@@ -1419,7 +1424,7 @@ export function MossLibrarySurface({
                         type="button"
                         role="menuitem"
                         data-moss-library-new-action={action.id}
-                        className="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left transition-colors hover:bg-muted"
+                        className="flex w-full flex-col gap-0.5 rounded-row px-3 py-2 text-left transition-colors hover:bg-muted"
                         onClick={() => void runNewAction(action.id)}
                       >
                         <span className="text-ui-sm font-medium text-foreground">
@@ -1458,7 +1463,7 @@ export function MossLibrarySurface({
                   <div
                     role="menu"
                     data-moss-library-sort-menu
-                    className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-xl border border-border/70 bg-popover p-1 shadow-lg"
+                    className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-popover border border-border/70 bg-popover p-1 shadow-lg"
                   >
                     <p className="px-3 py-1.5 text-ui-xs text-muted-foreground">
                       {t("library.sort")}
@@ -1471,7 +1476,7 @@ export function MossLibrarySurface({
                         aria-checked={option.id === sortId}
                         data-moss-library-sort-option={option.id}
                         className={cn(
-                          "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted",
+                          "flex w-full items-center justify-between rounded-row px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted",
                           option.id === sortId ? "text-foreground" : "text-muted-foreground",
                         )}
                         onClick={() => {
@@ -1493,7 +1498,7 @@ export function MossLibrarySurface({
                       type="button"
                       role="menuitem"
                       data-moss-library-trash-open
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-ui-sm text-foreground transition-colors hover:bg-muted"
+                      className="flex w-full items-center gap-2.5 rounded-row px-3 py-2 text-left text-ui-sm text-foreground transition-colors hover:bg-muted"
                       onClick={() => {
                         setSortOpen(false);
                         setFolderViewId(null);
@@ -1544,7 +1549,7 @@ export function MossLibrarySurface({
           {filterOpen ? (
             <div
               data-moss-library-filter-panel
-              className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-card/40 px-3 py-2 text-ui-xs text-muted-foreground"
+              className="flex flex-wrap items-center gap-2 rounded-card border border-border/60 bg-card/40 px-3 py-2 text-ui-xs text-muted-foreground"
             >
               <FilterIcon className="size-4 shrink-0" aria-hidden="true" />
               <span>
@@ -1582,25 +1587,31 @@ export function MossLibrarySurface({
           ) : trashOpen ? (
             <div data-moss-library-trash-view>
               <div className="mb-4 flex items-center gap-3">
-                <button
+                <Button
+                  variant="outline"
+                  size="icon"
+                  shape="capsule"
                   type="button"
                   aria-label={t("library.back")}
                   data-moss-library-trash-back
                   onClick={() => setTrashOpen(false)}
-                  className="flex size-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                  className="transition-colors"
                 >
                   <ArrowLeftIcon className="size-4" aria-hidden="true" />
-                </button>
+                </Button>
                 <TrashCanIcon className="size-4 text-muted-foreground" aria-hidden="true" />
                 <h2 className="text-ui-lg font-medium">{t("library.trash")}</h2>
                 <span className="text-ui-xs text-muted-foreground">
                   {format("library.itemCount", { count: trashedStoreItems.length })}
                 </span>
                 {trashedStoreItems.length > 0 ? (
-                  <button
+                  <Button
+                    variant="destructive-outline"
+                    size="default"
+                    shape="capsule"
                     type="button"
                     data-moss-library-trash-empty
-                    className="ml-auto inline-flex h-8 items-center rounded-full border border-border/70 px-3 text-ui-sm text-red-500 transition-colors hover:bg-muted"
+                    className="ml-auto transition-colors"
                     onClick={() => {
                       void confirmMutation(
                         deleteStoreItemsPermanently(trashedStoreItems.map((item) => item.id)),
@@ -1609,7 +1620,7 @@ export function MossLibrarySurface({
                     }}
                   >
                     {t("library.trash.empty")}
-                  </button>
+                  </Button>
                 ) : null}
               </div>
               <p className="mb-4 max-w-md text-ui-sm leading-5 text-muted-foreground">
@@ -1634,10 +1645,10 @@ export function MossLibrarySurface({
                     <article
                       key={item.id}
                       data-moss-library-trash-item={item.id}
-                      className="flex min-h-14 items-center gap-3 rounded-xl border border-border/50 bg-card/40 px-4 py-2"
+                      className="flex min-h-14 items-center gap-3 rounded-card border border-border/50 bg-card/40 px-4 py-2"
                     >
                       <span
-                        className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted/70"
+                        className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-control bg-muted/70"
                         aria-hidden="true"
                       >
                         {item.kind === "image" && (item.thumbnailUrl ?? thumbnails[item.id]) ? (
@@ -1647,7 +1658,7 @@ export function MossLibrarySurface({
                             className="size-full object-cover"
                           />
                         ) : (
-                          <span className="size-3 rounded-sm bg-muted-foreground/35" />
+                          <span className="size-3 rounded-control-xs bg-muted-foreground/35" />
                         )}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -1671,10 +1682,13 @@ export function MossLibrarySurface({
                       >
                         {t("library.trash.restore")}
                       </button>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        shape="capsule"
                         type="button"
                         data-moss-library-trash-delete={item.id}
-                        className="inline-flex h-7 shrink-0 items-center rounded-full px-2.5 text-ui-sm text-red-500 transition-colors hover:bg-muted"
+                        className="shrink-0 transition-colors text-destructive"
                         onClick={() => {
                           void confirmMutation(
                             deleteStoreItemsPermanently([item.id]),
@@ -1683,7 +1697,7 @@ export function MossLibrarySurface({
                         }}
                       >
                         {t("library.trash.deleteForever")}
-                      </button>
+                      </Button>
                     </article>
                   ))}
                 </div>
@@ -1692,15 +1706,18 @@ export function MossLibrarySurface({
           ) : folderViewItem ? (
             <div data-moss-library-folder-view={folderViewItem.id}>
               <div className="mb-4 flex items-center gap-3">
-                <button
+                <Button
+                  variant="outline"
+                  size="icon"
+                  shape="capsule"
                   type="button"
                   aria-label={t("library.back")}
                   data-moss-library-folder-back
                   onClick={() => setFolderViewId(null)}
-                  className="flex size-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                  className="transition-colors"
                 >
                   <ArrowLeftIcon className="size-4" aria-hidden="true" />
-                </button>
+                </Button>
                 <FolderIcon className="size-4 text-muted-foreground" aria-hidden="true" />
                 <h2 className="text-ui-lg font-medium">{folderViewItem.title}</h2>
                 <span className="text-ui-xs text-muted-foreground">
@@ -1788,14 +1805,17 @@ export function MossLibrarySurface({
 
           {showEmptyMasonry ? (
             <div className="mt-3 flex justify-center" data-moss-library-empty-actions>
-              <button
+              <Button
+                variant="outline"
+                size="default"
+                shape="capsule"
                 type="button"
                 data-moss-library-empty-import-chatgpt
-                className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 px-3.5 text-ui-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+                className="transition-colors"
                 onClick={() => directoryInputRef.current?.click()}
               >
                 {t("library.newAction.fromChatgpt")}
-              </button>
+              </Button>
             </div>
           ) : null}
         </div>
@@ -1838,7 +1858,7 @@ export function MossLibrarySurface({
           role="menu"
           data-moss-library-context-menu
           data-moss-library-context-menu-for={contextMenu.itemId}
-          className="fixed z-40 w-56 overflow-hidden rounded-xl border border-border/70 bg-popover p-1 shadow-lg"
+          className="fixed z-40 w-56 overflow-hidden rounded-popover border border-border/70 bg-popover p-1 shadow-lg"
           style={contextMenuStyle}
         >
           {contextMenuView === "folders"
@@ -1853,7 +1873,7 @@ export function MossLibrarySurface({
                   role="menuitem"
                   data-moss-library-context-action={entry.id}
                   className={cn(
-                    "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted",
+                    "flex w-full items-center gap-2.5 rounded-row px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted",
                     entry.danger ? "text-red-500 hover:text-red-500" : "text-foreground",
                   )}
                   onClick={() => runContextAction(entry.id)}
@@ -1891,52 +1911,64 @@ export function MossLibrarySurface({
             {format("library.selection.count", { count: selectedIds.length })}
           </span>
           <span className="mx-1 h-4 w-px bg-border/70" aria-hidden="true" />
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
+            shape="capsule"
             type="button"
             data-moss-library-selection-action="chat"
-            className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-ui-sm text-foreground transition-colors hover:bg-muted"
+            className="transition-colors"
             onClick={() => runSelectionAction("chat")}
           >
             <ChatBubblePlusIcon className="size-4" aria-hidden="true" />
             {t("library.selection.chat")}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            shape="capsule"
             type="button"
             data-moss-library-selection-action="download"
-            className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-ui-sm text-foreground transition-colors hover:bg-muted"
+            className="transition-colors"
             onClick={() => runSelectionAction("download")}
           >
             <DownloadIcon className="size-4" aria-hidden="true" />
             {t("library.action.download")}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            shape="capsule"
             type="button"
             data-moss-library-selection-action="delete"
-            className="inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-ui-sm text-red-500 transition-colors hover:bg-muted"
+            className="transition-colors text-destructive"
             onClick={() => runSelectionAction("delete")}
           >
             <TrashCanIcon className="size-4" aria-hidden="true" />
             {t("library.action.delete")}
-          </button>
+          </Button>
           <div className="relative">
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              shape="capsule"
               type="button"
               aria-label={t("library.selection.more")}
               aria-expanded={selectionMoreOpen}
               data-moss-library-selection-action="more"
-              className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="transition-colors"
               onClick={() => {
                 setSelectionMoreView("root");
                 setSelectionMoreOpen((open) => !open);
               }}
             >
               <EllipsisIcon className="size-4" aria-hidden="true" />
-            </button>
+            </Button>
             {selectionMoreOpen ? (
               <div
                 role="menu"
                 data-moss-library-selection-more
-                className="absolute bottom-9 right-0 z-40 w-52 overflow-hidden rounded-xl border border-border/70 bg-popover p-1 shadow-lg"
+                className="absolute bottom-9 right-0 z-40 w-52 overflow-hidden rounded-popover border border-border/70 bg-popover p-1 shadow-lg"
               >
                 {selectionMoreView === "folders" ? (
                   renderFolderPicker(selectedIds, () => setSelectionMoreOpen(false))
@@ -1946,7 +1978,7 @@ export function MossLibrarySurface({
                       type="button"
                       role="menuitem"
                       data-moss-library-selection-more-action="favorite"
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted"
+                      className="flex w-full items-center gap-2.5 rounded-row px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted"
                       onClick={() => {
                         toggleFavoriteItems(selectedIds);
                         setSelectionMoreOpen(false);
@@ -1961,7 +1993,7 @@ export function MossLibrarySurface({
                       type="button"
                       role="menuitem"
                       data-moss-library-selection-more-action="add-to-folder"
-                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted"
+                      className="flex w-full items-center gap-2.5 rounded-row px-3 py-2 text-left text-ui-sm transition-colors hover:bg-muted"
                       onClick={() => setSelectionMoreView("folders")}
                     >
                       <FolderIcon className="size-4 opacity-70" aria-hidden="true" />
@@ -1972,18 +2004,21 @@ export function MossLibrarySurface({
               </div>
             ) : null}
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            shape="capsule"
             type="button"
             aria-label={t("library.selection.clear")}
             data-moss-library-selection-action="dismiss"
-            className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="transition-colors"
             onClick={() => {
               setSelectedIds([]);
               setSelectionMoreOpen(false);
             }}
           >
             <XIcon className="size-4" aria-hidden="true" />
-          </button>
+          </Button>
         </div>
       ) : null}
 

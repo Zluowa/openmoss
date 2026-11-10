@@ -514,7 +514,7 @@ export function KanbanNewTaskDialog({
         >
           <div
             className={cn(
-              "relative min-h-28 rounded-lg border border-transparent px-0 py-1 transition-colors",
+              "relative min-h-28 rounded-card border border-transparent px-0 py-1 transition-colors",
               isDragOverComposer && "border-sky-400/40 bg-sky-500/5",
             )}
           >

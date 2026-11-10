@@ -114,7 +114,7 @@ function ThreadsSection({
           key={thread.id}
           type="button"
           onClick={() => onOpenThread?.(thread.id)}
-          className="max-w-full truncate rounded-md text-left hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="max-w-full truncate rounded-row text-left hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {thread.title.replace(/^Sidechat:\s*/, "")}
         </button>
@@ -197,7 +197,7 @@ function CheckRows({ checks }: { checks: PullRequestDetail["checks"] }) {
           type="button"
           disabled={!check.url}
           onClick={() => check.url && void ensureNativeApi().shell.openExternal(check.url)}
-          className="-mx-1.5 flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-muted/50 disabled:hover:bg-transparent"
+          className="-mx-1.5 flex min-w-0 items-center gap-2 rounded-row px-1.5 py-1 text-left hover:bg-muted/50 disabled:hover:bg-transparent"
         >
           <PullRequestCheckStatusIcon status={check.status} />
           <span className="min-w-0 truncate">{check.name}</span>
@@ -209,7 +209,7 @@ function CheckRows({ checks }: { checks: PullRequestDetail["checks"] }) {
           onClick={() => setShowAll((current) => !current)}
           className={cn(
             PR_FINE_TEXT_CLASS_NAME,
-            "w-fit rounded-md text-left text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+            "w-fit rounded-row text-left text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
           )}
         >
           {showAll ? "Show fewer" : "View more"}
@@ -247,7 +247,7 @@ function ChecksSection({ variant, detail }: { variant: InfoVariant; detail: Pull
             type="button"
             aria-expanded={open}
             onClick={() => setOpen((current) => !current)}
-            className="flex w-fit items-center gap-1.5 rounded-md text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="flex w-fit items-center gap-1.5 rounded-row text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             {brief.tone === "success" ? (
               <CircleCheckIcon className="size-4 text-status-success" aria-hidden />

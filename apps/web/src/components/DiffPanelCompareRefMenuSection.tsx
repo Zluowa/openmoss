@@ -111,7 +111,7 @@ export function DiffPanelCompareRefMenuSection(props: {
       <div className="px-2 py-1">
         <Input
           className={cn(
-            "rounded-md border-border/60 shadow-none before:hidden",
+            "rounded-control border-border/60 shadow-none before:hidden",
             "has-focus-visible:border-foreground/15 has-focus-visible:ring-0",
             "[&_input]:font-sans [&_input]:text-ui-sm",
           )}

@@ -182,7 +182,7 @@ function EditProjectForm({
           </span>
           <div
             aria-labelledby={sourceFolderLabelId}
-            className="rounded-xl border border-foreground/10 bg-foreground/[0.025] px-3.5 py-3"
+            className="rounded-card border border-foreground/10 bg-foreground/[0.025] px-3.5 py-3"
           >
             <div className="flex items-center gap-2.5">
               <FolderIcon className="size-4 shrink-0 text-muted-foreground/70" aria-hidden="true" />

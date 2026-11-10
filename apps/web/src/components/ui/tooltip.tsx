@@ -30,9 +30,9 @@ export type TooltipVariant = "default" | "picker" | "rich" | "command";
 const TOOLTIP_SURFACE_BY_VARIANT: Record<TooltipVariant, string> = {
   default: APP_TOOLTIP_SURFACE_CLASS_NAME,
   picker: COMPOSER_PICKER_TOOLTIP_SURFACE_CLASS_NAME,
-  rich: "relative overflow-hidden rounded-xl bg-[var(--color-surface-elevated-secondary)]/90 text-[var(--color-text-foreground)] shadow-[0_0_0_0.5px_var(--color-border),0_8px_16px_-4px_#0000001f] ring-[0.5px] ring-border backdrop-blur-sm",
+  rich: "relative overflow-hidden rounded-popover bg-[var(--color-surface-elevated-secondary)]/90 text-[var(--color-text-foreground)] shadow-[0_0_0_0.5px_var(--color-border),0_8px_16px_-4px_#0000001f] ring-[0.5px] ring-border backdrop-blur-sm",
   // Codex command hover: a compact black bubble with the raw command.
-  command: "rounded-md bg-[#0d0d0d] text-white shadow-lg",
+  command: "rounded-control bg-[#0d0d0d] text-white shadow-lg",
 };
 
 function TooltipTrigger(props: TooltipPrimitive.Trigger.Props) {

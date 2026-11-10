@@ -34,7 +34,7 @@ function Markdown({ text }: { text: string }) {
 
 function RawText({ children }: { children: string }) {
   return (
-    <pre className="overflow-auto rounded-md bg-muted/30 p-3 font-mono text-ui-sm whitespace-pre-wrap text-foreground">
+    <pre className="overflow-auto rounded-control bg-muted/30 p-3 font-mono text-ui-sm whitespace-pre-wrap text-foreground">
       {children}
     </pre>
   );
@@ -52,7 +52,7 @@ function Disclosure({
   const [open, setOpen] = useState(false);
   return (
     <Collapsible open={open} onOpenChange={setOpen} className={className}>
-      <CollapsibleTrigger className="flex items-center gap-2 rounded-md py-1 text-ui-sm font-medium text-muted-foreground hover:text-foreground">
+      <CollapsibleTrigger className="flex items-center gap-2 rounded-control py-1 text-ui-sm font-medium text-muted-foreground hover:text-foreground">
         <ChevronRightIcon className={disclosureChevronClassName(open)} />
         {label}
       </CollapsibleTrigger>
@@ -70,7 +70,7 @@ function TextOutput({
 }) {
   if (output.summaryMarkdown !== null) {
     return (
-      <div className="rounded-md bg-muted/20 p-3">
+      <div className="rounded-control bg-muted/20 p-3">
         <Markdown text={output.summaryMarkdown} />
         <Disclosure label="Raw output" className="mt-2">
           <RawText>{output.text}</RawText>
@@ -89,7 +89,7 @@ function CellOutput({ output }: { output: NotebookOutput }) {
   switch (output.type) {
     case "image":
       return (
-        <div className="overflow-auto rounded-md bg-background/40 p-2">
+        <div className="overflow-auto rounded-control bg-background/40 p-2">
           <img
             alt={`Notebook output ${output.outputNumber}`}
             className="max-h-160 max-w-full"
@@ -102,7 +102,7 @@ function CellOutput({ output }: { output: NotebookOutput }) {
       return (
         <div>
           <iframe
-            className="h-72 w-full rounded-md border-0 bg-background"
+            className="h-72 w-full rounded-card border-0 bg-background"
             sandbox=""
             referrerPolicy="no-referrer"
             srcDoc={notebookHtmlDocument(output.html)}
@@ -115,7 +115,7 @@ function CellOutput({ output }: { output: NotebookOutput }) {
       );
     case "markdown":
       return (
-        <div className="rounded-md bg-background/40 px-3 py-2">
+        <div className="rounded-control bg-background/40 px-3 py-2">
           <Markdown text={output.markdown} />
         </div>
       );
@@ -125,7 +125,7 @@ function CellOutput({ output }: { output: NotebookOutput }) {
         `${output.name}: ${output.message}`.trim() +
         (output.traceback.trim() ? `\n${output.traceback}` : "");
       return (
-        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+        <div className="rounded-card border border-destructive/30 bg-destructive/5 p-3">
           {output.summaryMarkdown !== null ? (
             <Markdown text={output.summaryMarkdown} />
           ) : (
@@ -146,7 +146,7 @@ function CellOutput({ output }: { output: NotebookOutput }) {
 
 function EmptyCell({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-md border border-border px-3 py-2 text-ui-lg text-muted-foreground">
+    <div className="rounded-control border border-border px-3 py-2 text-ui-lg text-muted-foreground">
       {children}
     </div>
   );
@@ -244,7 +244,7 @@ function Cell({
       <Collapsible
         open={open}
         onOpenChange={setOpen}
-        className="group/notebook-cell overflow-hidden rounded-lg border border-border bg-background"
+        className="group/notebook-cell overflow-hidden rounded-card border border-border bg-background"
       >
         <div className="flex items-center gap-2 border-b border-border px-4 py-2">
           <CollapsibleTrigger

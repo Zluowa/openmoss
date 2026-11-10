@@ -19,12 +19,12 @@ describe("worked-for duration formatting", () => {
   });
 
   it.each([
-    [0, "0秒"],
-    [1_000, "1秒"],
-    [61_000, "1分钟 1秒"],
-    [3_600_000 + 61_000, "1小时 1分钟 1秒"],
-    [86_400_000 + 3_600_000 + 61_000, "1天 1小时 1分钟 1秒"],
-  ])("uses narrow Simplified Chinese units for %d ms", (elapsedMs, expected) => {
+    [0, "0 秒"],
+    [1_000, "1 秒"],
+    [61_000, "1 分钟 1 秒"],
+    [3_600_000 + 61_000, "1 小时 1 分钟 1 秒"],
+    [86_400_000 + 3_600_000 + 61_000, "1 天 1 小时 1 分钟 1 秒"],
+  ])("uses the shared, spaced Simplified Chinese units for %d ms", (elapsedMs, expected) => {
     expect(formatWorkedDuration(elapsedMs, "zh-CN")).toBe(expected);
   });
 });

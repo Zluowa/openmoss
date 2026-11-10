@@ -95,7 +95,7 @@ export function PluginRequiredAppsDialog({
         </span>
         <DialogHeader className="flex shrink-0 flex-col items-center gap-4 px-6 pt-9 pb-4 text-center">
           <div className="flex items-center gap-4" aria-hidden="true">
-            <span className="flex size-[60px] items-center justify-center rounded-2xl bg-black text-white shadow-sm">
+            <span className="flex size-[60px] items-center justify-center rounded-card bg-black text-white shadow-sm">
               <OpenAI className="size-12" />
             </span>
             <span className="flex items-center gap-2">
@@ -103,7 +103,7 @@ export function PluginRequiredAppsDialog({
               <span className="size-1.5 rounded-full bg-border" />
               <span className="size-1.5 rounded-full bg-border" />
             </span>
-            <span className="flex size-[60px] items-center justify-center overflow-hidden rounded-2xl border border-border bg-muted shadow-sm">
+            <span className="flex size-[60px] items-center justify-center overflow-hidden rounded-card border border-border bg-muted shadow-sm">
               {pluginLogoUrl ? (
                 <img src={pluginLogoUrl} alt="" className="size-full object-contain" />
               ) : (
@@ -130,7 +130,7 @@ export function PluginRequiredAppsDialog({
               const launching = app.status === "launching";
               return (
                 <div key={app.id} className="flex min-h-[72px] items-center gap-3 py-3">
-                  <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted">
+                  <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-card border border-border bg-muted">
                     {appLogo ? (
                       <img
                         src={appLogo}

@@ -82,7 +82,7 @@ export function XlsxReader(props: Props) {
         <p>Unable to render {basenameOfPath(props.filePath)}.</p>
         <p className="max-w-md text-ui-sm">{state.error}</p>
         <a
-          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-ui-sm font-medium"
+          className="inline-flex items-center gap-1.5 rounded-control border px-3 py-1.5 text-ui-sm font-medium"
           href={downloadUrl}
           download={basenameOfPath(props.filePath)}
         >

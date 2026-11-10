@@ -153,7 +153,7 @@ export function ShareDialog({
         <div className="mt-5 flex flex-col items-center gap-7 px-2 pb-3">
           <div
             ref={previewRef}
-            className="w-full max-w-[480px] overflow-hidden rounded-2xl border bg-white shadow-sm"
+            className="w-full max-w-[480px] overflow-hidden rounded-card border bg-white shadow-sm"
             style={{ aspectRatio: `${SHARE_CARD_WIDTH} / ${SHARE_CARD_HEIGHT}` }}
           >
             <div

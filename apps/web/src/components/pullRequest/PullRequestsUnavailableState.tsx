@@ -84,7 +84,7 @@ function CommandLine({ command }: { command: string }) {
         );
       }}
       title="Copy to clipboard"
-      className="group flex w-full items-center gap-2 rounded-lg border border-border/60 bg-[var(--color-background-elevated-secondary)] px-3 py-2 text-left transition-colors hover:border-border"
+      className="group flex w-full items-center gap-2 rounded-row border border-border/60 bg-[var(--color-background-elevated-secondary)] px-3 py-2 text-left transition-colors hover:border-border"
     >
       <code
         className={cn(PR_META_TEXT_CLASS_NAME, "min-w-0 flex-1 truncate font-mono text-foreground")}

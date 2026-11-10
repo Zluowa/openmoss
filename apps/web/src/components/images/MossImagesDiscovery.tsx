@@ -39,7 +39,7 @@ function Preview({
   const [attempt, setAttempt] = useState(0);
   return (
     <div
-      className={`relative w-full overflow-hidden bg-muted ${compact ? "aspect-[4/5] rounded-2xl" : "aspect-square rounded-xl"}`}
+      className={`relative w-full overflow-hidden bg-muted ${compact ? "aspect-[4/5] rounded-card" : "aspect-square rounded-card"}`}
     >
       {failed ? (
         <div
@@ -130,7 +130,7 @@ function DiscoveryPanel({
                 type="button"
                 aria-label={`预览${template.title}`}
                 disabled={disabled}
-                className="group relative min-w-0 cursor-pointer overflow-hidden rounded-2xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+                className="group relative min-w-0 cursor-pointer overflow-hidden rounded-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
                 onClick={() => {
                   setRatio(aspectRatio);
                   setPreviewId(template.id);
@@ -149,7 +149,7 @@ function DiscoveryPanel({
                 aria-label={`选择${style.title}样式`}
                 aria-pressed={selectedStyle?.id === style.id}
                 disabled={disabled || (style.requiresReference && !supportsReferences)}
-                className="relative overflow-hidden rounded-2xl text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="relative overflow-hidden rounded-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => onSelectStyle(style)}
               >
                 <Preview url={style.previewUrl} title={style.title} compact />

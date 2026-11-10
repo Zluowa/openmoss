@@ -5,6 +5,7 @@
 // Layer: Web chat presentation component
 // Exports: WorkspaceFilePreview, isMarkdownPreviewablePath
 
+import { Button } from "~/components/ui/button";
 import type { ProjectFileChangeEvent, ProjectReadFileResult } from "@moss/contracts";
 import { PROJECT_PREVIEW_READ_FILE_MAX_BYTES } from "@moss/contracts";
 import type { FileContents as PierreFileContents } from "@pierre/diffs";
@@ -1462,13 +1463,15 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
           className="flex shrink-0 items-center gap-3 border-b border-destructive/25 bg-destructive/5 px-3 py-2 text-ui-sm text-destructive"
         >
           <span className="min-w-0 flex-1">{activeEditBuffer.error}</span>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
-            className="shrink-0 rounded-md px-2 py-1 font-medium text-foreground/80 hover:bg-foreground/8"
+            className="shrink-0"
             onClick={handleEditBufferReload}
           >
             Reload from disk
-          </button>
+          </Button>
         </div>
       ) : editBufferExternallyChanged ? (
         <div
@@ -1478,13 +1481,15 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
           <span className="min-w-0 flex-1">
             This file changed on disk. Your unsaved edits are preserved.
           </span>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
-            className="shrink-0 rounded-md px-2 py-1 font-medium text-foreground/80 hover:bg-foreground/8"
+            className="shrink-0"
             onClick={handleEditBufferReload}
           >
             Reload from disk
-          </button>
+          </Button>
         </div>
       ) : showFileReadErrorIndicator ? (
         <div

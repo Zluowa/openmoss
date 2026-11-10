@@ -186,3 +186,54 @@ it("a failed import shows a plain line, never the raw error", async () => {
   await screen.unmount();
   add.mockRestore();
 });
+
+it("Settings imports every item at once with Import all, then marks them imported", async () => {
+  api.resourceImportInventory.mockResolvedValue({
+    ...mixedInventory(),
+    resources: [
+      ...mixedInventory().resources,
+      {
+        ...mixedInventory().resources[0]!,
+        id: "mcp-codex-github",
+        provider: "codex",
+        name: "github",
+        sourcePath: "/home/u/.codex/config.toml",
+        format: "toml",
+      },
+    ],
+  });
+  const plan = { operations: [{ action: "copy" }, { action: "copy" }] };
+  api.resourceImportPlan.mockResolvedValue({ plan });
+  api.resourceImportApply.mockResolvedValue({ status: "applied" });
+
+  const screen = await renderWithQuery(
+    <MossDetectedResourcesSettingsList cwd="/home/u/Documents/Moss" search="" kind="mcp" />,
+  );
+  await screen.getByRole("button", { name: "Import all 2" }).click();
+  await expect
+    .poll(() => api.resourceImportPlan.mock.calls[0]?.[0])
+    .toEqual({
+      cwd: "/home/u/Documents/Moss",
+      resourceIds: ["mcp-codex-github", "mcp-claude"],
+      kinds: ["mcp"],
+    });
+  await expect
+    .poll(() => api.resourceImportApply.mock.calls[0]?.[0])
+    .toEqual({ cwd: "/home/u/Documents/Moss", plan });
+  await expect.element(screen.getByText("Imported", { exact: true }).first()).toBeVisible();
+  expect(screen.getByRole("button", { name: "Import linear" }).query()).toBeNull();
+  expect(screen.getByRole("button", { name: /Import all/u }).query()).toBeNull();
+  await screen.unmount();
+});
+
+it("Settings marks an item Moss already has as imported", async () => {
+  api.resourceImportInventory.mockResolvedValue(mixedInventory());
+  api.resourceImportPlan.mockResolvedValue({ plan: { operations: [{ action: "skip" }] } });
+  const screen = await renderWithQuery(
+    <MossDetectedResourcesSettingsList cwd="/work" search="" kind="mcp" />,
+  );
+  await screen.getByRole("button", { name: "Import linear" }).click();
+  await expect.element(screen.getByText("Imported", { exact: true })).toBeVisible();
+  expect(api.resourceImportApply).not.toHaveBeenCalled();
+  await screen.unmount();
+});

@@ -795,7 +795,7 @@ export function MossCanvasWebSurface({
             aria-label="关闭画布"
             onClick={() => void close()}
             disabled={closing}
-            className="no-drag rounded-md px-2 py-1 text-ui-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="no-drag rounded-control px-2 py-1 text-ui-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             {closing ? "正在保存…" : "关闭"}
           </button>

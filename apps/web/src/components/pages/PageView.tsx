@@ -670,14 +670,15 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
                 {page.assetIds.length ? (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {page.assetIds.map((id) => (
-                      <button
+                      <Button
+                        variant="outline"
+                        size="xs"
                         key={id}
                         type="button"
-                        className="rounded-row border border-border px-2 py-0.5 text-ui-sm hover:bg-accent"
                         onClick={() => setPanel("files")}
                       >
                         {assets.data?.items.find((item) => item.id === id)?.title ?? "关联文件"}
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 ) : null}

@@ -87,6 +87,8 @@ import {
 } from "~/lib/pullRequestReactQuery";
 import { type PullRequestContextScope } from "~/lib/pullRequestContext";
 import { formatRelativeTime } from "~/lib/relativeTime";
+import { formatTimeAgo } from "~/lib/timeFormat";
+import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
 import { useRightDockStore } from "~/rightDockStore";
@@ -287,6 +289,7 @@ function CommentsMenuRow({
   comment: GitPullRequestComment;
   onOpenUrl: (url: string) => void;
 }) {
+  const { locale } = useTranslation();
   const display = describePullRequestComment(comment);
   return (
     // items-stretch overrides the menu-option default items-center for this column layout.
@@ -323,7 +326,9 @@ function CommentsMenuRow({
         ) : null}
         <span className="min-w-0 flex-1 truncate">{comment.path ?? comment.author ?? ""}</span>
         {comment.createdAt ? (
-          <span className="shrink-0 tabular-nums">{formatRelativeTime(comment.createdAt)}</span>
+          <span className="shrink-0 tabular-nums">
+            {formatTimeAgo(comment.createdAt, { locale })}
+          </span>
         ) : null}
       </span>
     </MenuRow>

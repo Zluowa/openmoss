@@ -77,9 +77,7 @@ function ChangelogAccordionRow({
           <DisclosureChevron open={open} />
           <span className="flex flex-1 items-baseline gap-2">
             <span className="text-ui leading-snug text-muted-foreground">{entry.date}</span>
-            <span className="text-ui-lg font-semibold text-foreground">
-              Version {entry.version}
-            </span>
+            <span className="text-ui-lg font-medium text-foreground">Version {entry.version}</span>
             <span className="text-ui leading-snug text-muted-foreground/70">({featureLabel})</span>
           </span>
         </CollapsibleTrigger>

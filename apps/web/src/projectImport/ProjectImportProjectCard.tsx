@@ -120,13 +120,13 @@ export function ProjectImportProjectCard(props: {
               value={props.workspaceRoot}
               onChange={(event) => props.onWorkspaceRootChange(event.target.value)}
               disabled={props.disabled}
-              className="h-8 rounded-lg text-ui sm:text-ui"
+              className="h-8 rounded-control text-ui sm:text-ui"
             />
             {isElectron ? (
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 rounded-lg font-normal text-ui sm:text-ui"
+                className="h-8 rounded-control font-normal text-ui sm:text-ui"
                 disabled={props.disabled}
                 onClick={() => void browse()}
               >

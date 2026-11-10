@@ -831,7 +831,7 @@ function GeneratedImagePendingPlaceholder(props: {
 
   return (
     <div
-      className="moss-generated-image-pending-placeholder relative aspect-square w-full overflow-clip rounded-2xl bg-primary-soft-active text-codex-secondary dark:bg-primary-ghost-hover dark:text-white/70"
+      className="moss-generated-image-pending-placeholder relative aspect-square w-full overflow-clip rounded-card bg-primary-soft-active text-codex-secondary dark:bg-primary-ghost-hover dark:text-white/70"
       style={{ height: props.heightPx, width: props.widthPx }}
       aria-busy="true"
       aria-label={props.label}

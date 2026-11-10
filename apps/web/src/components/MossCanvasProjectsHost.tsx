@@ -3,6 +3,7 @@
 // (projects + tldraw). Bare vite embed only when probe.projectsEmbedReady (never no-cors opaque).
 // Layer: Web shell destination host
 
+import { Button } from "~/components/ui/button";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { DeviceShutterIcon, PlusIcon, XIcon } from "~/lib/icons";
@@ -103,7 +104,7 @@ export function MossCanvasProjectsHost({ onClose }: MossCanvasProjectsHostProps)
       <header className="flex h-[46px] shrink-0 items-center justify-between border-b border-[var(--app-surface-divider)] px-5">
         <div className="flex items-center gap-2.5">
           <span
-            className="flex size-7 items-center justify-center rounded-lg bg-foreground text-background"
+            className="flex size-7 items-center justify-center rounded-control bg-foreground text-background"
             aria-hidden="true"
           >
             <DeviceShutterIcon className="size-4" />
@@ -113,15 +114,17 @@ export function MossCanvasProjectsHost({ onClose }: MossCanvasProjectsHostProps)
             <span className="text-ui-sm text-muted-foreground">Projects · tldraw</span>
           </div>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           type="button"
           aria-label="Close Moss Canvas"
           title="Close Moss Canvas"
           onClick={onClose}
-          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+          className="transition-colors"
         >
           <XIcon className="size-4" aria-hidden="true" />
-        </button>
+        </Button>
       </header>
 
       {showEmbed ? (
@@ -136,7 +139,7 @@ export function MossCanvasProjectsHost({ onClose }: MossCanvasProjectsHostProps)
               setEmbedUrl(null);
             }}
           />
-          <div className="pointer-events-none absolute bottom-3 right-3 rounded-lg bg-background/90 px-3 py-1.5 text-ui-xs text-muted-foreground shadow-sm ring-1 ring-border/60">
+          <div className="pointer-events-none absolute bottom-3 right-3 rounded-control bg-background/90 px-3 py-1.5 text-ui-xs text-muted-foreground shadow-sm ring-1 ring-border/60">
             嵌入 Moss Canvas · {MOSS_CANVAS_DEV_WEB_URL}
           </div>
         </div>
@@ -163,7 +166,7 @@ export function MossCanvasProjectsHost({ onClose }: MossCanvasProjectsHostProps)
             </div>
 
             <div
-              className="rounded-2xl border border-border/80 bg-card p-5 shadow-sm"
+              className="rounded-card border border-border/80 bg-card p-5 shadow-sm"
               data-moss-canvas-opening-card
               aria-live="polite"
             >
@@ -199,32 +202,36 @@ export function MossCanvasProjectsHost({ onClose }: MossCanvasProjectsHostProps)
                 className="mt-4 flex flex-wrap items-center gap-3"
                 data-moss-canvas-projects-actions
               >
-                <button
+                <Button
+                  variant="default"
+                  size="lg"
                   type="button"
                   data-moss-canvas-open-desktop
                   onClick={() => void openCanvas()}
                   disabled={launchState === "pending"}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl bg-foreground px-4 text-ui-lg font-medium text-background transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-35"
+                  className="transition-opacity disabled:cursor-not-allowed"
                 >
                   <PlusIcon className="size-4" aria-hidden="true" />
                   {launchState === "pending" ? "Opening Moss Canvas…" : "重试打开 Moss Canvas"}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
                   type="button"
                   data-moss-canvas-retry-embed
                   onClick={() => void refreshEmbed()}
                   disabled={embedChecking}
-                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-background px-4 text-ui-lg font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-35"
+                  className="transition-colors disabled:cursor-not-allowed"
                 >
                   {embedChecking ? "检测嵌入中…" : "重新探测嵌入"}
-                </button>
+                </Button>
               </div>
             </div>
 
             <section
               aria-labelledby="moss-canvas-projects-heading"
               data-moss-canvas-projects-home
-              className="rounded-2xl border border-border/80 bg-card p-6 shadow-sm"
+              className="rounded-card border border-border/80 bg-card p-6 shadow-sm"
             >
               <div className="mb-4 flex items-center justify-between">
                 <div>
@@ -239,7 +246,7 @@ export function MossCanvasProjectsHost({ onClose }: MossCanvasProjectsHostProps)
                 </div>
               </div>
               <div
-                className="flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 px-6 py-10 text-center"
+                className="flex min-h-40 flex-col items-center justify-center rounded-card border border-dashed border-border/70 bg-muted/20 px-6 py-10 text-center"
                 data-moss-canvas-projects-empty
               >
                 <p className="text-ui-lg font-medium">在 Moss Canvas 中打开项目主页</p>

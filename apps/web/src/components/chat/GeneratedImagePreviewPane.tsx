@@ -1576,7 +1576,7 @@ export function GeneratedImagePreviewPane(props: {
                 <aside
                   role="status"
                   data-testid="generated-image-preview-canvas-coachmark"
-                  className="relative max-w-64 !rounded-2xl !border-0 !bg-text-info px-4 py-3 !text-inverse shadow-lg dark:!text-default before:pointer-events-none before:absolute before:-left-1.5 before:top-1/2 before:h-3 before:w-3 before:-translate-y-1/2 before:rotate-45 before:rounded-[1px] before:!bg-text-info before:content-['']"
+                  className="relative max-w-64 !rounded-card !border-0 !bg-text-info px-4 py-3 !text-inverse shadow-lg dark:!text-default before:pointer-events-none before:absolute before:-left-1.5 before:top-1/2 before:h-3 before:w-3 before:-translate-y-1/2 before:rotate-45 before:rounded-[1px] before:!bg-text-info before:content-['']"
                 >
                   <button
                     type="button"

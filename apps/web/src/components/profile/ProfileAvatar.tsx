@@ -34,7 +34,7 @@ export function ProfileAvatar({
       {image ? (
         <img src={image} alt="" draggable={false} className="size-full object-cover" />
       ) : (
-        <span className={cn("font-semibold tracking-tight", textClassName)}>{initials}</span>
+        <span className={cn("font-medium tracking-tight", textClassName)}>{initials}</span>
       )}
     </div>
   );

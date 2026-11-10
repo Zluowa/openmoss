@@ -230,7 +230,7 @@ function InformationLink({ href, label }: { href: string; label: string }) {
       href={href}
       target="_blank"
       rel="noreferrer noopener"
-      className="relative inline-flex size-6 items-center justify-center rounded-md text-foreground outline-none hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring"
+      className="relative inline-flex size-6 items-center justify-center rounded-control-xs text-foreground outline-none hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring"
     >
       <GlobeIcon aria-hidden="true" className="size-4" />
     </a>
@@ -380,13 +380,13 @@ function PluginDefaultPrompts({
   const prompts = detail.plugin.interface?.defaultPrompt ?? [];
   if (prompts.length === 0) return null;
   return (
-    <div className="relative mx-1 overflow-hidden rounded-2xl border border-border/40 bg-muted/30 px-4 py-5">
+    <div className="relative mx-1 overflow-hidden rounded-card border border-border/40 bg-muted/30 px-4 py-5">
       <div className="flex flex-col gap-2">
         {prompts.map((prompt) => (
           <button
             key={prompt}
             type="button"
-            className="group/prompt max-w-[88%] rounded-2xl bg-background/75 px-3 py-2 text-left text-ui-lg text-foreground shadow-xs transition-colors hover:bg-background disabled:cursor-default"
+            className="group/prompt max-w-[88%] rounded-card bg-background/75 px-3 py-2 text-left text-ui-lg text-foreground shadow-xs transition-colors hover:bg-background disabled:cursor-default"
             disabled={!onActivate}
             onClick={() => onActivate?.(prompt)}
           >
@@ -589,7 +589,7 @@ function PluginPageMcpRow({ name }: { readonly name: string }) {
     >
       <span
         aria-hidden="true"
-        className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-transparent"
+        className="flex size-10 shrink-0 items-center justify-center rounded-control border border-border bg-transparent"
       >
         <McpRowIcon className="size-5" />
       </span>
@@ -618,7 +618,7 @@ function PluginPageAppRow({ app }: { readonly app: ProviderPluginDetail["apps"][
       <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
-          className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-transparent"
+          className="flex size-10 shrink-0 items-center justify-center rounded-control border border-border bg-transparent"
         >
           <AppIcon className="size-5" />
         </span>
@@ -661,7 +661,7 @@ function PluginPageSkillRow({
     >
       <div className="flex items-center gap-3">
         <span className="flex size-8 shrink-0 items-center justify-center">
-          <SkillIcon className="size-6 rounded-sm text-muted-foreground" />
+          <SkillIcon className="size-6 rounded-control-xs text-muted-foreground" />
         </span>
         <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
           <span className="truncate text-ui-lg leading-[21px] text-foreground">{name}</span>
@@ -701,14 +701,14 @@ function PluginSkillPreviewDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="max-w-[600px] gap-0 p-0" data-testid="plugin-skill-preview">
         <div className="flex flex-col gap-3 px-6 pt-6">
-          <span className="flex size-10 items-center justify-center rounded-[10px] bg-card ring-1 ring-border/70 ring-inset">
+          <span className="flex size-10 items-center justify-center rounded-control bg-card ring-1 ring-border/70 ring-inset">
             <SkillIcon aria-hidden="true" className="size-5 text-muted-foreground" />
           </span>
           <div className="flex flex-col gap-1">
             <DialogTitle className="text-[20px] font-semibold leading-7">{name}</DialogTitle>
             {description ? (
               <p
-                className="text-[15px] leading-6 text-muted-foreground"
+                className="text-ui-lg leading-6 text-muted-foreground"
                 data-translation-skip="true"
               >
                 {description}
@@ -720,7 +720,7 @@ function PluginSkillPreviewDialog({
           </h3>
         </div>
         <div className="px-6 pt-3">
-          <ScrollArea className="max-h-[min(52vh,460px)] rounded-xl border border-border/70 bg-muted/20">
+          <ScrollArea className="max-h-[min(52vh,460px)] rounded-card border border-border/70 bg-muted/20">
             <div
               className="min-w-0 px-4 py-3.5 text-ui leading-6"
               data-testid="plugin-skill-preview-body"
@@ -748,7 +748,11 @@ function PluginSkillPreviewDialog({
           </ScrollArea>
         </div>
         <div className="flex justify-end px-6 py-5">
-          <Button size="sm" className="h-8 rounded-lg px-3" onClick={() => onOpenChange(false)}>
+          <Button
+            size="sm"
+            className="h-8 rounded-control px-3"
+            onClick={() => onOpenChange(false)}
+          >
             {t("plugins.action.close")}
           </Button>
         </div>
@@ -865,7 +869,7 @@ export function PluginResourceDetailDialog({
               close on its row; the name with a muted "Skill" suffix and the
               summary under it; SKILL.md in an inset well; Uninstall and Try now. */}
           <div className="flex items-start justify-between gap-4 px-6 pt-6 pr-14">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-card ring-1 ring-border/70 ring-inset">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-control bg-card ring-1 ring-border/70 ring-inset">
               <Icon className="size-5 text-muted-foreground" />
             </span>
             <div className="flex shrink-0 items-center gap-1">
@@ -918,7 +922,7 @@ export function PluginResourceDetailDialog({
             </div>
           </div>
           <div className="flex min-w-0 flex-col gap-1.5 px-6 pt-3">
-            <DialogTitle className="flex min-w-0 items-baseline gap-2 text-[22px] font-semibold leading-8">
+            <DialogTitle className="flex min-w-0 items-baseline gap-2 text-title font-semibold leading-8">
               <span className="truncate">{title}</span>
               <span className="shrink-0 font-normal text-muted-foreground">
                 {t("plugins.detail.tag.skill")}
@@ -935,7 +939,7 @@ export function PluginResourceDetailDialog({
           </div>
 
           <div className="px-6 pt-5">
-            <ScrollArea className="max-h-[min(52vh,460px)] rounded-xl border border-border/70 bg-muted/20">
+            <ScrollArea className="max-h-[min(52vh,460px)] rounded-card border border-border/70 bg-muted/20">
               <div className="flex flex-col gap-5 px-4 py-3.5">
                 <div data-testid="skill-detail-body" className="min-w-0 text-ui leading-6">
                   {instructions.loading ? (
@@ -1014,10 +1018,7 @@ export function PluginResourceDetailDialog({
               <div className="min-w-0 flex-1">
                 <DialogTitle className="flex items-center gap-2 text-xl font-normal leading-[34px]">
                   <span className="truncate">{title}</span>
-                  <Badge
-                    variant="secondary"
-                    className="shrink-0 text-ui-2xs font-semibold uppercase"
-                  >
+                  <Badge variant="secondary" className="shrink-0 text-ui-2xs font-medium uppercase">
                     {detailTag(detail, t)}
                   </Badge>
                 </DialogTitle>
@@ -1213,13 +1214,15 @@ export function PluginResourceDetailPage({
         className="drag-region flex h-[46px] shrink-0 items-center gap-1 px-2"
         data-testid="plugin-detail-breadcrumb"
       >
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           type="button"
           onClick={onBack}
-          className="no-drag flex h-7 items-center rounded-control border border-transparent px-2 text-ui-lg leading-[18px] font-[445] text-muted-foreground transition-colors hover:bg-[var(--sidebar-accent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          className="no-drag text-ui-lg leading-[18px] font-[445] transition-colors"
         >
           {t("plugins.tabs.plugins")}
-        </button>
+        </Button>
         <ChevronRightIcon aria-hidden="true" className="size-4 text-muted-foreground/50" />
         <span
           aria-current="page"
@@ -1245,7 +1248,7 @@ export function PluginResourceDetailPage({
             </div>
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
               <div className="flex min-w-0 flex-1 basis-64 flex-col gap-1">
-                <h1 className="min-w-0 break-words text-[22px] leading-7 font-semibold text-foreground">
+                <h1 className="min-w-0 break-words text-title leading-7 font-semibold text-foreground">
                   {title}
                 </h1>
                 {/* Codex attributes the plugin under its name ("By OpenAI");
@@ -1316,7 +1319,7 @@ export function PluginResourceDetailPage({
                 ) : null}
                 <Button
                   size="sm"
-                  className="h-8 gap-1.5 rounded-lg px-3 text-ui-lg font-medium sm:h-8"
+                  className="h-8 gap-1.5 rounded-control px-3 text-ui-lg font-medium sm:h-8"
                   data-testid="plugin-detail-primary-action"
                   disabled={action.disabled}
                   onClick={activatePrimary}
@@ -1338,10 +1341,10 @@ export function PluginResourceDetailPage({
               data-testid="plugin-detail-loading-skeleton"
             >
               <span className="sr-only">{t("plugins.detail.loadingIncludes")}</span>
-              <Skeleton className="h-5 w-40 rounded-md" />
-              <Skeleton className="h-4 w-3/4 rounded-md" />
+              <Skeleton className="h-5 w-40 rounded-control-xs" />
+              <Skeleton className="h-4 w-3/4 rounded-control-xs" />
               <Skeleton className="h-[122px] w-full rounded-panel" />
-              <Skeleton className="h-4 w-1/3 rounded-md" />
+              <Skeleton className="h-4 w-1/3 rounded-control-xs" />
               <Skeleton className="h-24 w-full rounded-panel" />
             </div>
           ) : effectiveDetail.kind === "plugin" ? (

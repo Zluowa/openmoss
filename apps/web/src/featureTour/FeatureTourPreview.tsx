@@ -9,7 +9,7 @@ import type { FeatureTourSlide } from "./content";
 // requests in a startup dialog, and no window chrome around the piece.
 export function FeatureTourPreview({ slide }: { slide: FeatureTourSlide }) {
   return (
-    <div className="flex h-[184px] w-full items-center justify-center rounded-xl bg-muted/40 px-6">
+    <div className="flex h-[184px] w-full items-center justify-center rounded-card bg-muted/40 px-6">
       <div key={slide.id} className="sidebar-surface-enter w-full max-w-[300px]">
         {slide.id === "workspace" ? <WorkspacePreview /> : null}
         {slide.id === "accounts" ? <AccountsPreview /> : null}
@@ -23,7 +23,7 @@ function Chip({ children, active = false }: { children: ReactNode; active?: bool
   return (
     <div
       className={cn(
-        "flex min-w-0 items-center gap-2 rounded-lg border bg-background px-3 py-1.5 text-ui-sm shadow-xs",
+        "flex min-w-0 items-center gap-2 rounded-control border bg-background px-3 py-1.5 text-ui-sm shadow-xs",
         active ? "border-primary/30" : "border-border",
       )}
     >
@@ -59,7 +59,7 @@ function WorkspacePreview() {
         {[0, 1].map((pane) => (
           <div
             key={pane}
-            className="flex h-[88px] flex-col gap-2 rounded-lg border border-border bg-background p-3 shadow-xs"
+            className="flex h-[88px] flex-col gap-2 rounded-card border border-border bg-background p-3 shadow-xs"
           >
             <SkeletonLines />
           </div>
@@ -76,12 +76,12 @@ function AccountsPreview() {
     { provider: "claudeAgent", name: "Personal", active: false },
   ] as const;
   return (
-    <div className="flex flex-col gap-0.5 rounded-xl border border-border bg-background p-1 text-ui-sm shadow-sm">
+    <div className="flex flex-col gap-0.5 rounded-card border border-border bg-background p-1 text-ui-sm shadow-sm">
       {rows.map((row) => (
         <div
           key={`${row.provider}-${row.name}`}
           className={cn(
-            "flex items-center gap-2 rounded-lg px-2.5 py-1.5",
+            "flex items-center gap-2 rounded-control px-2.5 py-1.5",
             row.active && "bg-muted",
           )}
         >
@@ -96,7 +96,7 @@ function AccountsPreview() {
 
 function ReviewPreview() {
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-background p-3 text-ui-sm shadow-sm">
+    <div className="flex flex-col gap-2 rounded-card border border-border bg-background p-3 text-ui-sm shadow-sm">
       <div className="flex items-center gap-2 font-medium">
         <GitPullRequestIcon className="size-4 shrink-0 text-success" />
         <span className="truncate">Dashboard polish</span>

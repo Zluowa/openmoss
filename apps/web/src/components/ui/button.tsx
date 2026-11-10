@@ -64,11 +64,11 @@ const buttonVariants = cva(
         "icon-xl":
           "size-control-lg p-0 [--app-icon-size:--theme(--spacing-ui-icon-lg)] [&_svg:not([class*='size-'])]:size-ui-icon-lg",
         "icon-xs":
-          "size-control-xs rounded-sm p-0 [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
+          "size-control-xs rounded-control-xs p-0 [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
         lg: "min-h-control-lg px-ui-pad-lg py-2 [--app-icon-size:--theme(--spacing-ui-icon-lg)] [&_svg:not([class*='size-'])]:size-ui-icon-lg",
         sm: "min-h-control-sm gap-1.5 px-ui-pad-sm py-0.5 [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
         xl: "min-h-control-lg px-ui-pad-lg py-2 text-ui-lg sm:text-ui-lg [--app-icon-size:--theme(--spacing-ui-icon-lg)] [&_svg:not([class*='size-'])]:size-ui-icon-lg",
-        xs: "min-h-control-xs gap-1 rounded-sm px-ui-pad-xs py-0.5 text-ui-sm sm:text-ui-sm [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
+        xs: "min-h-control-xs gap-1 rounded-control-xs px-ui-pad-xs py-0.5 text-ui-sm sm:text-ui-sm [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
       },
       variant: {
         chrome:

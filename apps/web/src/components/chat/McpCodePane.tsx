@@ -1,3 +1,4 @@
+import { Button } from "~/components/ui/button";
 import type { ComponentProps, ReactNode } from "react";
 import { HighlightedCodeText } from "../HighlightedCodeText";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
@@ -32,15 +33,16 @@ export function McpCodePane({
         <div className="min-w-0 flex-1 truncate">{title}</div>
         <div className="ms-auto flex shrink-0 items-center">
           {showCopyButton && code !== null ? (
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               type="button"
-              className="inline-flex size-8 cursor-interaction items-center justify-center rounded-control text-codex-secondary hover:bg-surface-secondary hover:text-default focus-visible:outline-2 focus-visible:outline-ring"
               aria-label={t(isCopied ? "chat.markdown.code.copied" : "chat.markdown.code.copy")}
               data-mcp-copy-code="true"
               onClick={() => copyToClipboard(code, undefined)}
             >
               {isCopied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>

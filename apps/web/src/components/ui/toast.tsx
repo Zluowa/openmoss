@@ -108,10 +108,10 @@ const ARCHIVE_UNDO_TOAST_SURFACE_CLASS_NAME = cn(
 const TOAST_ACTION_BUTTON_SIZE = "xs";
 const TOAST_ACTION_BUTTON_VARIANT = "ghost";
 const TOAST_ACTION_BUTTON_CLASS_NAME =
-  "self-start rounded-md px-2 font-sans font-medium text-ui text-[var(--notification-fg)]/80 sm:text-ui [:hover,[data-pressed]]:bg-[var(--notification-fg)]/10 [:hover,[data-pressed]]:text-[var(--notification-fg)] data-pressed:bg-[var(--notification-fg)]/10 data-pressed:text-[var(--notification-fg)] focus-visible:ring-[var(--notification-fg)]/35";
+  "self-start rounded-control px-2 font-sans font-medium text-ui text-[var(--notification-fg)]/80 sm:text-ui [:hover,[data-pressed]]:bg-[var(--notification-fg)]/10 [:hover,[data-pressed]]:text-[var(--notification-fg)] data-pressed:bg-[var(--notification-fg)]/10 data-pressed:text-[var(--notification-fg)] focus-visible:ring-[var(--notification-fg)]/35";
 
 const ARCHIVE_UNDO_TOAST_LINK_CLASS_NAME =
-  "rounded-sm font-medium text-[var(--info-foreground)] underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--info-foreground)]/35 disabled:pointer-events-none disabled:opacity-55";
+  "rounded-inline font-medium text-[var(--info-foreground)] underline-offset-2 transition-colors hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--info-foreground)]/35 disabled:pointer-events-none disabled:opacity-55";
 
 function toastTone(type: ToastObject<ThreadToastData>["type"]): NotificationTone {
   return type === "error" ? "error" : "default";
@@ -585,7 +585,7 @@ function ToastSurface({
       {compactContextual && toast.actionProps ? (
         <Toast.Action
           className={cn(
-            "mt-0.5 shrink-0 rounded-md px-1.5 py-0.5 font-medium text-[var(--notification-fg)]/76 transition-colors hover:bg-[var(--notification-fg)]/10 hover:text-[var(--notification-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--notification-fg)]/35",
+            "mt-0.5 shrink-0 rounded-control-xs px-1.5 py-0.5 font-medium text-[var(--notification-fg)]/76 transition-colors hover:bg-[var(--notification-fg)]/10 hover:text-[var(--notification-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--notification-fg)]/35",
             toast.actionProps.className,
           )}
           data-slot="toast-action"
@@ -833,7 +833,7 @@ function AnchoredToasts() {
                   className={cn(
                     "relative text-balance transition-[scale,opacity] data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
                     tooltipStyle
-                      ? "rounded-lg border bg-popover text-popover-foreground text-ui leading-snug shadow-md/5 [-webkit-app-region:no-drag] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-lg)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]"
+                      ? "rounded-popover border bg-popover text-popover-foreground text-ui leading-snug shadow-md/5 [-webkit-app-region:no-drag] before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-popover)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)]"
                       : notificationSurfaceClassName({
                           compact,
                           tone: toastTone(toast.type),

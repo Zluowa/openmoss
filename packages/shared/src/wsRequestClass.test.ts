@@ -14,6 +14,7 @@ describe("wsRequestClass", () => {
       standard: 12,
       "interactive-read": 6,
       "expensive-read": 2,
+      "import-scan": 2,
     });
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.dispatchCommand)).toBe("control");
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.replayEvents)).toBe("expensive-read");

@@ -34,7 +34,7 @@ export function AppNavigationButtons({ className }: { className?: string }) {
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="size-8 rounded-lg"
+              className="size-8 rounded-control"
               aria-label="Back"
               disabled={!canGoBack}
               onClick={() => goBackInAppHistory()}
@@ -52,7 +52,7 @@ export function AppNavigationButtons({ className }: { className?: string }) {
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="size-8 rounded-lg"
+              className="size-8 rounded-control"
               aria-label="Forward"
               disabled={!canGoForward}
               onClick={() => goForwardInAppHistory()}

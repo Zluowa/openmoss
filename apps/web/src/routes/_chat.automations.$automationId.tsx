@@ -477,7 +477,7 @@ function AutomationDetailView() {
                 failed={updateMutation.isError}
               />
               {pendingProposal ? (
-                <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-[var(--color-background-elevated-primary)] p-4">
+                <div className="flex items-center justify-between gap-4 rounded-card border border-border bg-[var(--color-background-elevated-primary)] p-4">
                   <div className="min-w-0">
                     <p className="text-ui-lg font-medium text-foreground">Suggested automation</p>
                     <p className="text-ui leading-snug text-muted-foreground">
@@ -608,7 +608,7 @@ function AutomationDetailView() {
                   )}
                 </DetailRow>
                 {stoppedExplanation ? (
-                  <div className="mx-1.5 mt-1.5 flex flex-col gap-2 rounded-md border border-border bg-foreground/[0.03] p-2.5">
+                  <div className="mx-1.5 mt-1.5 flex flex-col gap-2 rounded-card border border-border bg-foreground/[0.03] p-2.5">
                     <div className="space-y-0.5">
                       <p className="text-ui leading-snug text-foreground">{stoppedExplanation}</p>
                       {definition.disabledAt ? (
@@ -1000,7 +1000,7 @@ function AutomationDetailView() {
               </DetailGroup>
 
               <DetailGroup title="Memory">
-                <div className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-foreground/[0.035] px-2.5 py-2 font-mono text-ui-sm leading-relaxed text-muted-foreground">
+                <div className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-control bg-foreground/[0.035] px-2.5 py-2 font-mono text-ui-sm leading-relaxed text-muted-foreground">
                   {memory?.content || "No persistent memory yet."}
                 </div>
               </DetailGroup>
@@ -1081,7 +1081,7 @@ function AutomationDetailView() {
               onChange={(event) =>
                 setPendingModeChange({ mode: "heartbeat", targetThreadId: event.target.value })
               }
-              className="w-full appearance-none rounded-md border border-border bg-transparent px-2 py-1.5 pr-6 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="w-full appearance-none rounded-row border border-border bg-transparent px-2 py-1.5 pr-6 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               {pendingModeChange.targetThreadId === "" ? (
                 <option value="">Pick a thread…</option>
@@ -1229,7 +1229,7 @@ function RunRow({
           : undefined
       }
       className={cn(
-        "group flex items-center gap-2 rounded-md px-1.5 py-1.5 text-ui leading-snug transition-colors",
+        "group flex items-center gap-2 rounded-control px-1.5 py-1.5 text-ui leading-snug transition-colors",
         openable ? "cursor-pointer hover:bg-foreground/[0.03]" : undefined,
       )}
     >

@@ -20,7 +20,7 @@ import {
 } from "~/components/chat/environment/environmentPullRequest.logic";
 import { ChatBubbleIcon, GitBranchIcon, UsersIcon } from "~/lib/icons";
 import { pullRequestCommentMutationOptions } from "~/lib/pullRequestReactQuery";
-import { formatRelativeTime } from "~/lib/relativeTime";
+import { formatTimeAgo } from "~/lib/timeFormat";
 import { ensureNativeApi } from "~/nativeApi";
 import { describePullRequestState } from "./pullRequestDetail.logic";
 import { PullRequestActorLabel } from "./PullRequestActorLabel";
@@ -180,7 +180,7 @@ export function PullRequestSummaryTab({
   /** The title and author line. Off when the host already shows them in a GitHubItemHeader. */
   showHeading?: boolean;
 }) {
-  const { t } = useTranslation();
+  const { locale, t } = useTranslation();
   const showHeading = showHeadingProp ?? true;
   return (
     <div className="h-full overflow-y-auto">
@@ -196,7 +196,7 @@ export function PullRequestSummaryTab({
                 actor={detail.author}
                 className="font-medium text-foreground"
               />
-              <span>{formatRelativeTime(detail.updatedAt)}</span>
+              <span>{formatTimeAgo(detail.updatedAt, { locale })}</span>
               <span>{describePullRequestState(detail.state, detail.isDraft)}</span>
             </PullRequestMetaLine>
           </div>
@@ -281,7 +281,7 @@ export function PullRequestSummaryTab({
                   // its own padding, so the hover surface keeps a halo while the glyph and
                   // the status label still sit on the section title's verticals. The width
                   // is explicit because a button sizes to fit-content, not to its parent.
-                  "-mx-2 flex w-[calc(100%+1rem)] items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted/50 disabled:hover:bg-transparent",
+                  "-mx-2 flex w-[calc(100%+1rem)] items-center gap-2 rounded-row px-2 py-1.5 text-left hover:bg-muted/50 disabled:hover:bg-transparent",
                 )}
               >
                 <PullRequestCheckStatusIcon status={check.status} />

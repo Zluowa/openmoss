@@ -291,7 +291,7 @@ function FeedbackDialogForm({
             {images.map((image) => (
               <li
                 key={image.id}
-                className="group relative size-14 overflow-hidden rounded-md border border-border bg-muted/40"
+                className="group relative size-14 overflow-hidden rounded-card border border-border bg-muted/40"
               >
                 <img
                   src={image.previewUrl}

@@ -112,7 +112,7 @@ export function WhatsNewPopoutCard({
         onClick={onOpen}
         onKeyDown={onKeyDown}
         className={cn(
-          "group relative flex cursor-pointer flex-col overflow-hidden rounded-xl",
+          "group relative flex cursor-pointer flex-col overflow-hidden rounded-card",
           "border border-white/[0.08] bg-popover text-popover-foreground shadow-xl",
           "transition-[transform,box-shadow,border-color] duration-150",
           "hover:border-primary/40 hover:shadow-2xl hover:[transform:translateY(-1px)]",
@@ -167,7 +167,7 @@ export function WhatsNewPopoutCard({
 
         <div className="flex flex-col px-4 pb-4 pt-2.5">
           <p className="text-ui leading-snug font-medium text-primary">New · v{currentVersion}</p>
-          <p className="mt-1 line-clamp-2 text-ui-lg font-semibold leading-snug text-foreground">
+          <p className="mt-1 line-clamp-2 text-ui-lg font-medium leading-snug text-foreground">
             {primaryFeatureTitle ?? `What's new in v${currentVersion}`}
           </p>
           {primaryFeatureDescription !== undefined && (

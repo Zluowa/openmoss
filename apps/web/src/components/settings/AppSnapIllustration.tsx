@@ -14,7 +14,7 @@ export function AppSnapIllustration({ className }: { readonly className?: string
       aria-hidden
       data-testid="appsnap-illustration"
       className={cn(
-        "overflow-hidden rounded-xl border border-[color:var(--color-border)] bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,transparent)]",
+        "overflow-hidden rounded-card border border-[color:var(--color-border)] bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,transparent)]",
         className,
       )}
     >

@@ -34,7 +34,7 @@ export function OfficeArtifactPreview(props: {
         <a
           href={downloadUrl}
           download={name}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-ui-sm font-medium"
+          className="inline-flex items-center gap-1.5 rounded-control border border-border px-3 py-1.5 text-ui-sm font-medium"
         >
           <DownloadIcon className="size-4" aria-hidden="true" /> Download file
         </a>

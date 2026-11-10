@@ -7,6 +7,7 @@
 // Layer: Web UI component
 
 import type { ProjectId } from "@moss/contracts";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 
 import {
@@ -23,6 +24,7 @@ import { createOrRecoverProjectFromPath } from "~/lib/projectCreation";
 import { expandProjectHomePath } from "~/lib/projectPaths";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
+import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { useStore } from "~/store";
 import { useWorkspacePathsStore } from "~/workspacePathsStore";
 
@@ -32,7 +34,7 @@ export interface OnboardingProjectResult {
   readonly created: boolean;
 }
 
-const FIELD_CONTROL_CLASS_NAME = "h-9 rounded-lg border-foreground/12";
+const FIELD_CONTROL_CLASS_NAME = "h-9 rounded-control border-foreground/12";
 
 export function ProjectStep(props: {
   results: ReadonlyArray<OnboardingProjectResult>;
@@ -43,6 +45,8 @@ export function ProjectStep(props: {
   onImportActionChange?: (action: ProjectImportPrimaryAction | null) => void;
 }) {
   const { settings } = useAppSettings();
+  // The same detection the agents step shows, so both steps agree on what is installed.
+  const providerStatuses = useQuery(serverConfigQueryOptions()).data?.providers;
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const [path, setPath] = useState("");
@@ -125,6 +129,7 @@ export function ProjectStep(props: {
       {showImport ? (
         <ProjectImportPanel
           onBusyChange={setImportBusy}
+          providerStatuses={providerStatuses}
           // A new user isn't asked to find moved folders: those conversations import as history.
           relinkMissingFolders={false}
           {...(props.onImportActionChange
@@ -156,7 +161,7 @@ export function ProjectStep(props: {
               type="button"
               disabled={picking || submitting}
               className={cn(
-                "flex h-[168px] w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-foreground/18 text-ui-lg text-foreground transition-colors outline-none hover:bg-foreground/3 focus-visible:border-foreground/40 disabled:opacity-50 motion-reduce:transition-none",
+                "flex h-[168px] w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-card border border-dashed border-foreground/18 text-ui-lg text-foreground transition-colors outline-none hover:bg-foreground/3 focus-visible:border-foreground/40 disabled:opacity-50 motion-reduce:transition-none",
                 isDropTarget &&
                   "border-solid border-[color:var(--color-border-focus)] bg-foreground/5",
               )}
@@ -229,7 +234,7 @@ export function ProjectStep(props: {
           {props.results.map((result) => (
             <li
               key={result.projectId}
-              className="flex h-10 items-center gap-3 rounded-lg bg-foreground/3 px-3.5"
+              className="flex h-10 items-center gap-3 rounded-control bg-foreground/3 px-3.5"
             >
               <FolderIcon className="size-4 shrink-0 text-foreground/70" aria-hidden />
               <span className="min-w-0 flex-1 truncate text-ui text-foreground">

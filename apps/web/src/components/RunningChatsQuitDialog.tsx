@@ -51,7 +51,7 @@ const uiFont = "font-[family-name:var(--font-ui-family)]";
 // shows the popup's lighter overlay through, separated by a hairline — mirroring CommandPanel +
 // CommandFooter without the palette's scroll chrome.
 const BODY_CLASS =
-  "relative rounded-t-[calc(var(--radius-2xl)-1px)] border-b border-[color:var(--color-border-light)] bg-[var(--color-background-surface-under)] px-4 pt-3 pb-3.5";
+  "relative rounded-t-[calc(var(--radius-dialog)-1px)] border-b border-[color:var(--color-border-light)] bg-[var(--color-background-surface-under)] px-4 pt-3 pb-3.5";
 const FOOTER_CLASS = "relative flex items-center gap-2 px-3 py-2";
 const KEY_HINT_CLASS = "text-ui-sm font-normal tabular-nums opacity-55";
 

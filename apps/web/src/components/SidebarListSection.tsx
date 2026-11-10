@@ -78,7 +78,7 @@ export function SidebarCollapsibleSection({
     <button
       type="button"
       className={cn(
-        "flex h-7 w-full min-w-0 cursor-pointer items-center gap-1 rounded-md px-2 py-0.5",
+        "flex h-7 w-full min-w-0 cursor-pointer items-center gap-1 rounded-row px-2 py-0.5",
         SIDEBAR_ROW_FOCUS_CLASS_NAME,
         headerClassName,
       )}
@@ -119,7 +119,7 @@ export function SidebarShowMoreRow({
 }) {
   if (!canShowMore && !canShowLess) return null;
   const buttonClassName = cn(
-    "h-7 cursor-pointer rounded-lg px-2.5 text-left text-ui text-muted-foreground/79 hover:text-foreground",
+    "h-7 cursor-pointer rounded-control px-2.5 text-left text-ui text-muted-foreground/79 hover:text-foreground",
     SIDEBAR_ROW_FOCUS_CLASS_NAME,
     className,
   );

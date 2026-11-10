@@ -5,6 +5,7 @@
 //   and rows inside a menu (the Environment card, the browser's servers button).
 // Layer: BrowserPanel UI
 
+import { Button } from "~/components/ui/button";
 import type { ServerLocalServerProcess } from "@moss/contracts";
 import { localServerOpenUrl, localServerPrimaryLabel } from "@moss/shared/localServers";
 import { useState, type MouseEvent, type ReactNode } from "react";
@@ -130,7 +131,7 @@ export function LaunchServersPage(props: {
         {servers.rows.length > 0 ? (
           <div className="flex w-full max-w-[36rem] flex-col items-center gap-3">
             <div
-              className="w-full overflow-hidden rounded-xl border border-border bg-[var(--color-background-surface)]"
+              className="w-full overflow-hidden rounded-card border border-border bg-[var(--color-background-surface)]"
               role="list"
               aria-label={t("browser.servers.title")}
             >
@@ -169,28 +170,31 @@ export function LaunchServersPage(props: {
                       </span>
                     ) : null}
                   </button>
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="icon-sm"
                     type="button"
                     aria-label={rowActionLabel(row, format)}
                     title={rowActionLabel(row, format)}
                     disabled={!rowButtonEnabled(row)}
                     data-launch-server-action=""
-                    className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] text-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--foreground)_12%,transparent)] disabled:opacity-50"
+                    className="shrink-0 transition-colors"
                     onClick={() => runRowAction(row, servers)}
                   >
                     <RowActionGlyph row={row} />
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
             {hiddenCount > 0 || expanded ? (
-              <button
+              <Button
+                variant="ghost"
+                size="xs"
                 type="button"
-                className="rounded-md px-2 py-0.5 text-ui-sm text-[var(--color-text-foreground-secondary)] hover:text-foreground"
                 onClick={() => setExpanded((current) => !current)}
               >
                 {expanded ? t("browser.servers.showFewer") : t("browser.servers.seeAll")}
-              </button>
+              </Button>
             ) : null}
           </div>
         ) : servers.loading ? (
@@ -279,7 +283,7 @@ function MenuServerRow(props: {
           title={props.action.label}
           data-launch-server-action=""
           className={cn(
-            "inline-flex size-6 shrink-0 items-center justify-center rounded-md p-0 text-muted-foreground/80 transition-colors data-disabled:text-muted-foreground/30",
+            "inline-flex size-6 shrink-0 items-center justify-center rounded-control-xs p-0 text-muted-foreground/80 transition-colors data-disabled:text-muted-foreground/30",
             props.action.destructive
               ? "hover:bg-[color-mix(in_srgb,var(--destructive)_12%,transparent)] hover:text-destructive data-highlighted:bg-[color-mix(in_srgb,var(--destructive)_12%,transparent)] data-highlighted:text-destructive"
               : "hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-foreground",

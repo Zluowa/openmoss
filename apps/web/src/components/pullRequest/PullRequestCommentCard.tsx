@@ -13,7 +13,7 @@ import { useState } from "react";
 
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
-import { formatRelativeTime } from "~/lib/relativeTime";
+import { formatTimeAgo } from "~/lib/timeFormat";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
 import {
@@ -65,7 +65,7 @@ export function PullRequestCommentCard({
         <span
           className={cn(PR_FINE_TEXT_CLASS_NAME, "shrink-0 tabular-nums text-muted-foreground")}
         >
-          {formatRelativeTime(comment.createdAt, locale)}
+          {formatTimeAgo(comment.createdAt, { locale })}
         </span>
         <DisclosureChevron open={open} />
       </CollapsibleTrigger>
@@ -85,7 +85,7 @@ export function PullRequestCommentCard({
           {finding ? (
             <div className="mb-2">
               <p
-                className={cn(PR_BODY_TEXT_CLASS_NAME, "font-semibold text-foreground")}
+                className={cn(PR_BODY_TEXT_CLASS_NAME, "font-medium text-foreground")}
                 data-translation-skip="true"
               >
                 {finding.title}

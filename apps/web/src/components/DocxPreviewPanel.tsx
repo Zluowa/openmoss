@@ -345,7 +345,7 @@ function DocxDocument(props: DocxPreviewPanelProps & { src: string }) {
                 {DOCX_ZOOM_OPTIONS.map((percent) => (
                   <MenuItem
                     key={percent}
-                    className="justify-between rounded-md px-2 py-[5px]"
+                    className="justify-between rounded-control px-2 py-[5px]"
                     onClick={() => {
                       setFitWidth(false);
                       setZoom(percent);
@@ -359,7 +359,10 @@ function DocxDocument(props: DocxPreviewPanelProps & { src: string }) {
                   </MenuItem>
                 ))}
                 <MenuSeparator />
-                <MenuItem className="justify-between rounded-md px-2 py-[5px]" onClick={selectFit}>
+                <MenuItem
+                  className="justify-between rounded-control px-2 py-[5px]"
+                  onClick={selectFit}
+                >
                   Fit
                   <CheckIcon
                     className={cn("size-4", !fitWidth && "invisible")}
@@ -373,7 +376,7 @@ function DocxDocument(props: DocxPreviewPanelProps & { src: string }) {
               download={fileName}
               aria-label={`Download ${fileName}`}
               title={`Download ${fileName}`}
-              className="inline-flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-foreground/5"
+              className="inline-flex size-8 items-center justify-center rounded-control text-muted-foreground hover:bg-foreground/5"
             >
               <DownloadIcon className="size-4" aria-hidden="true" />
             </a>
@@ -441,7 +444,7 @@ function DocxDocument(props: DocxPreviewPanelProps & { src: string }) {
           <TriangleAlertIcon className="size-5" aria-hidden="true" />
           <p>Unable to render {fileName}.</p>
           <a
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-ui-sm hover:bg-foreground/5"
+            className="inline-flex items-center gap-1.5 rounded-control border px-3 py-1.5 text-ui-sm hover:bg-foreground/5"
             href={downloadUrl}
             download={fileName}
           >
@@ -456,7 +459,7 @@ function DocxDocument(props: DocxPreviewPanelProps & { src: string }) {
             <div
               aria-hidden="true"
               data-testid="artifact-docx-selection-outline"
-              className="pointer-events-none absolute z-10 rounded-sm border border-blue-500 bg-blue-500/5"
+              className="pointer-events-none absolute z-10 rounded-inline border border-blue-500 bg-blue-500/5"
               style={{
                 left: selection.viewportRect.x - 4,
                 top: selection.viewportRect.y - 4,
@@ -488,7 +491,7 @@ function DocxDocument(props: DocxPreviewPanelProps & { src: string }) {
               </Button>
             ) : (
               <form
-                className="w-72 max-w-[calc(100vw-2rem)] rounded-xl border bg-background p-3 shadow-lg"
+                className="w-72 max-w-[calc(100vw-2rem)] rounded-card border bg-background p-3 shadow-lg"
                 aria-label={`Comment on page ${selection.pageNumber}`}
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -527,7 +530,7 @@ function DocxDocument(props: DocxPreviewPanelProps & { src: string }) {
                   autoFocus
                   aria-label="Requested change"
                   placeholder="Ask for a change…"
-                  className="min-h-20 w-full resize-y rounded-md border bg-transparent p-2 text-ui-lg"
+                  className="min-h-20 w-full resize-y rounded-card border bg-transparent p-2 text-ui-lg"
                   value={annotationBody}
                   onChange={(event) => setAnnotationBody(event.target.value)}
                   onKeyDown={(event) => {

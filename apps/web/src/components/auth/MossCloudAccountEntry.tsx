@@ -55,9 +55,9 @@ export function MossCloudAccountEntry() {
 
   return (
     <div className="grid min-w-0 gap-3">
-      <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 rounded-2xl border border-border/60 p-4">
+      <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 rounded-card border border-border/60 p-4">
         <div className="flex min-w-0 items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted/60">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-control bg-muted/60">
             <MossLogo className="size-6" />
           </span>
           <div className="min-w-0">
@@ -66,7 +66,7 @@ export function MossCloudAccountEntry() {
           </div>
         </div>
         <Link
-          className="inline-flex min-h-8 shrink-0 items-center rounded-lg border border-border px-3 text-ui-lg font-medium outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60"
+          className="inline-flex min-h-8 shrink-0 items-center rounded-control border border-border px-3 text-ui-lg font-medium outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60"
           aria-label={
             hasAccount
               ? t("settings.account.entry.manageAccountAria")
@@ -77,13 +77,13 @@ export function MossCloudAccountEntry() {
           {hasAccount ? t("settings.account.entry.manage") : t("settings.account.entry.open")}
         </Link>
       </section>
-      <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 rounded-2xl border border-border/60 p-4">
+      <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 rounded-card border border-border/60 p-4">
         <div className="min-w-0">
           <h2 className="text-ui-lg font-medium">{t("settings.account.entry.keyHeading")}</h2>
           <p className="mt-0.5 truncate text-ui-lg text-muted-foreground">{enterpriseStatus}</p>
         </div>
         <Link
-          className="inline-flex min-h-8 shrink-0 items-center rounded-lg border border-border px-3 text-ui-lg font-medium outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60"
+          className="inline-flex min-h-8 shrink-0 items-center rounded-control border border-border px-3 text-ui-lg font-medium outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60"
           aria-label={t("settings.account.entry.manageKeyAria")}
           to="/login/api-key"
         >

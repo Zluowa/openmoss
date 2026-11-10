@@ -264,7 +264,7 @@ export function ComposerAttachmentPreview(props: ComposerAttachmentPreviewProps)
     body = (
       <div className="relative" data-attachment-preview-file="">
         <div className="flex w-[min(22rem,calc(100vw-6rem))] flex-col items-center gap-3 rounded-dialog border border-[color:var(--color-border-light)] bg-popover px-6 pt-8 pb-7 text-center text-[var(--color-text-foreground)] shadow-[0_16px_50px_-12px_rgba(0,0,0,0.5)]">
-          <span className="flex size-14 items-center justify-center rounded-xl bg-[var(--color-background-elevated-secondary)] text-muted-foreground">
+          <span className="flex size-14 items-center justify-center rounded-card bg-[var(--color-background-elevated-secondary)] text-muted-foreground">
             <FileEntryIcon
               pathValue={file.name}
               mimeType={file.mimeType}

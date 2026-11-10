@@ -152,12 +152,12 @@ describe("PluginResourceDetailPage", () => {
     expect(markup).toContain('data-testid="plugin-detail-header"');
     expect(markup).toContain('class="flex flex-col gap-4 px-2"');
     expect(markup).toContain('data-testid="plugin-detail-artwork"');
-    expect(markup).toContain('class="min-w-0 break-words text-[22px] leading-7 font-semibold');
+    expect(markup).toContain('class="min-w-0 break-words text-title leading-7 font-semibold');
     // Codex: "By {developer}" under the name, then "…" and a solid Install button.
     expect(markup).toContain('data-testid="plugin-detail-developer"');
     expect(markup).toContain('data-testid="plugin-detail-more-actions"');
     expect(markup).toContain('data-testid="plugin-detail-primary-action"');
-    expect(markup).toContain("h-8 gap-1.5 rounded-lg px-3");
+    expect(markup).toContain("h-8 gap-1.5 rounded-control px-3");
     expect(markup).toContain("rounded-control");
     expect(markup).toContain("leading-[18px]");
     expect(markup).toContain('data-testid="plugin-detail-prompt"');

@@ -1,5 +1,6 @@
 // PDF preview session: continuous canvas/text/link pages, artifact toolbar and
 // contextual annotations. A URL/revision change creates a fresh callback scope.
+import { Button } from "~/components/ui/button";
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
 import { basenameOfPath } from "~/file-icons";
 import { buildLocalImageUrl } from "~/lib/localImageUrls";
@@ -108,13 +109,9 @@ function PdfPreviewSession(props: PdfFilePreviewProps & { previewUrl: string }) 
         >
           <p>Couldn’t load this preview</p>
           {props.onReload ? (
-            <button
-              type="button"
-              className="rounded-md px-2 py-1 text-ui-sm hover:bg-foreground/8"
-              onClick={props.onReload}
-            >
+            <Button variant="ghost" size="sm" type="button" onClick={props.onReload}>
               Reload file from disk
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>

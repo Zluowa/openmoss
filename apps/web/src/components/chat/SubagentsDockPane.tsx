@@ -231,7 +231,7 @@ function DoneSubagentRow({
   const workedMs = settledSubagentWorkedMs(item);
   const workedFor =
     workedMs !== null && workedMs > 0
-      ? format("localConversation.workedFor", { time: formatClockDuration(workedMs) })
+      ? format("localConversation.workedFor", { time: formatClockDuration(workedMs, locale) })
       : null;
   const finishedAgo = workedFor ?? finishedAgoLabel(item, nowMs, locale);
   return (

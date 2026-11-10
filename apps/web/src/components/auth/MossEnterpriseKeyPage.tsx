@@ -32,7 +32,7 @@ if (!ENTERPRISE_CODEX_MODEL) {
 }
 
 const linkClassName =
-  "rounded-sm font-medium text-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/60";
+  "rounded-inline font-medium text-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/60";
 
 function selectEnterpriseChat(queryClient: QueryClient) {
   activateMossChatSelection(queryClient, {
@@ -231,7 +231,7 @@ export function MossEnterpriseKeyPage() {
       ) : (
         <div className="flex min-w-0 flex-col gap-6">
           {state?.authenticated ? (
-            <section className="flex min-w-0 flex-col gap-3 rounded-xl border border-border/70 p-4">
+            <section className="flex min-w-0 flex-col gap-3 rounded-card border border-border/70 p-4">
               <p className="text-ui-lg text-muted-foreground" role="status">
                 本机已保存 <span className="font-mono text-foreground">{state.keyPrefix}…</span>
                 {state.active ? "，正在使用。" : "。"}

@@ -80,14 +80,16 @@ export function CoordinatorSuggestions({
             <div className="text-ui text-muted-foreground">Suggestions</div>
             <div className="flex flex-wrap gap-2">
               {chips.map((label) => (
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
+                  shape="capsule"
                   key={label}
                   type="button"
-                  className="rounded-full border border-[color:var(--color-border-light)] px-3 py-1 text-ui text-foreground hover:bg-foreground/5"
                   onClick={() => onOpenSettings(coordinatorSuggestionSection(label))}
                 >
                   {label}
-                </button>
+                </Button>
               ))}
             </div>
           </>

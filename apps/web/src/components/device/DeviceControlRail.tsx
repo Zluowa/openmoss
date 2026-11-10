@@ -111,7 +111,7 @@ export function DeviceControlRail(props: {
                       {...(pressed === null ? {} : { "aria-pressed": pressed })}
                       onClick={() => props.onAction(item.id)}
                       className={cn(
-                        "flex size-7 cursor-pointer items-center justify-center rounded-md outline-none",
+                        "flex size-7 cursor-pointer items-center justify-center rounded-control outline-none",
                         "transition-colors duration-220 motion-reduce:transition-none",
                         "hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground",
                         "focus-visible:ring-1 focus-visible:ring-ring/60",

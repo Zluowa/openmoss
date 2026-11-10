@@ -2,6 +2,7 @@
 // Purpose: Render the branded startup face while the app is still booting a route or session.
 // Layer: Shared app loading presentation
 
+import { Button } from "~/components/ui/button";
 import { MossLogo } from "~/components/MossLogo";
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 
@@ -35,13 +36,15 @@ export function SplashScreen({
             <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
               <span className="text-ui-lg text-muted-foreground/75">{errorMessage}</span>
               {showRetry ? (
-                <button
+                <Button
+                  variant="outline"
+                  size="default"
                   type="button"
-                  className="rounded-md border border-border/70 px-3 py-1.5 text-ui-lg text-foreground/85 transition-colors hover:bg-[var(--sidebar-accent)]"
+                  className="transition-colors"
                   onClick={onRetry ?? undefined}
                 >
                   Retry
-                </button>
+                </Button>
               ) : null}
             </div>
           ) : null}

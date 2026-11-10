@@ -51,7 +51,7 @@ function toggleSecondary(label: string, enabled: boolean): string {
 
 function windowGlyph(entry: DesktopAppSnapWindowEntry): ReactNode {
   return entry.appIconDataUrl ? (
-    <img src={entry.appIconDataUrl} alt="" className="size-4 shrink-0 rounded-[4px]" />
+    <img src={entry.appIconDataUrl} alt="" className="size-4 shrink-0 rounded-inline" />
   ) : (
     <WindowIcon className={GLYPH} />
   );

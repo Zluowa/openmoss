@@ -419,7 +419,7 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-2">
                     <GlobeIcon aria-hidden className="size-4 shrink-0 text-primary" />
-                    <span className="truncate text-ui-lg font-semibold">
+                    <span className="truncate text-ui-lg font-medium">
                       {connection.displayName}
                     </span>
                   </div>
@@ -552,7 +552,7 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
                       />
                       <span
                         id={`${hostLabelPrefix}-${index}`}
-                        className="min-w-0 flex-1 truncate font-semibold"
+                        className="min-w-0 flex-1 truncate font-medium"
                       >
                         {entry.alias}
                       </span>
@@ -753,7 +753,7 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
                 <DialogDescription>{t("settings.ssh.verifyDescription")}</DialogDescription>
               </DialogHeader>
               <div className="min-h-0 space-y-3 overflow-y-auto px-5 py-3 text-ui">
-                <p className="font-semibold">{trust.connection.displayName}</p>
+                <p className="font-medium">{trust.connection.displayName}</p>
                 <p className="break-all text-muted-foreground">
                   {format("settings.ssh.verifyTarget", {
                     host: trust.hostKeyHost ?? trust.connection.host,

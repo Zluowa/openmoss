@@ -895,7 +895,7 @@ export function BranchToolbarBranchSelector({
       <ComboboxPopup align="end" side={isPanel ? "bottom" : "top"} className="w-80">
         <div className="border-b p-1">
           <ComboboxInput
-            className="rounded-xl border-[color:var(--color-border)] bg-[var(--color-background-control-opaque)] shadow-none before:hidden has-focus-visible:border-[color:var(--color-border-focus)] has-focus-visible:ring-0 [&_input]:font-sans"
+            className="rounded-control border-[color:var(--color-border)] bg-[var(--color-background-control-opaque)] shadow-none before:hidden has-focus-visible:border-[color:var(--color-border-focus)] has-focus-visible:ring-0 [&_input]:font-sans"
             inputClassName="ring-0"
             placeholder="Search branches..."
             showTrigger={false}
@@ -934,7 +934,7 @@ export function BranchToolbarBranchSelector({
           <div className="border-t border-[color:var(--color-border-light)] p-1">
             <button
               type="button"
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-ui text-[var(--color-text-foreground)] disabled:cursor-not-allowed disabled:opacity-50 ${ELEVATED_HOVER_SURFACE_CLASS_NAME}`}
+              className={`flex w-full items-center gap-2 rounded-row px-2 py-1.5 text-left text-ui text-[var(--color-text-foreground)] disabled:cursor-not-allowed disabled:opacity-50 ${ELEVATED_HOVER_SURFACE_CLASS_NAME}`}
               disabled={isBranchActionPending}
               onClick={openCreateBranchDialog}
             >
@@ -1040,12 +1040,12 @@ export function BranchToolbarBranchSelector({
             {stashDiscardDialog?.loading ? (
               <p className="text-muted-foreground text-ui leading-snug">Loading stash details...</p>
             ) : stashDiscardDialog?.error ? (
-              <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-ui leading-snug">
+              <p className="rounded-control border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-ui leading-snug">
                 {stashDiscardDialog.error}
               </p>
             ) : stashDiscardDialog?.info ? (
               <>
-                <div className="grid gap-2 rounded-lg border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] p-3 text-ui leading-snug">
+                <div className="grid gap-2 rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] p-3 text-ui leading-snug">
                   <div className="flex min-w-0 gap-2">
                     <span className="w-20 shrink-0 text-muted-foreground">Branch</span>
                     <span className="min-w-0 truncate font-medium">
@@ -1074,7 +1074,7 @@ export function BranchToolbarBranchSelector({
                     Changed files ({stashDiscardDialog.info.files.length})
                   </p>
                   {stashDiscardDialog.info.files.length > 0 ? (
-                    <ul className="max-h-48 overflow-auto rounded-lg border border-[color:var(--color-border-light)] bg-[var(--color-background-control-opaque)] py-1">
+                    <ul className="max-h-48 overflow-auto rounded-control border border-[color:var(--color-border-light)] bg-[var(--color-background-control-opaque)] py-1">
                       {stashDiscardDialog.info.files.map((file) => (
                         <li
                           className="truncate px-3 py-1 font-mono text-muted-foreground text-ui leading-snug"
@@ -1086,7 +1086,7 @@ export function BranchToolbarBranchSelector({
                       ))}
                     </ul>
                   ) : (
-                    <p className="rounded-lg border border-[color:var(--color-border-light)] px-3 py-2 text-muted-foreground text-ui leading-snug">
+                    <p className="rounded-control border border-[color:var(--color-border-light)] px-3 py-2 text-muted-foreground text-ui leading-snug">
                       Git did not report changed file names for this stash.
                     </p>
                   )}

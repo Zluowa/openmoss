@@ -94,7 +94,7 @@ export function TaskListItem({
       onClick={onSelect}
       onContextMenu={handleContextMenu}
       className={cn(
-        "flex min-h-10.5 cursor-default items-center gap-3 rounded-xl px-3 transition-colors",
+        "flex min-h-10.5 cursor-default items-center gap-3 rounded-card px-3 transition-colors",
         selected ? SIDEBAR_ROW_ACTIVE_CLASS_NAME : ELEVATED_HOVER_SURFACE_CLASS_NAME,
       )}
     >

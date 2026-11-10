@@ -2,6 +2,8 @@
 // Purpose: Pure duration and fallback helpers for a settled turn's Worked-for summary.
 // Layer: Chat presentation helpers
 
+import { formatDurationUnit, type DurationUnit } from "~/lib/timeFormat";
+
 export type WorkedForSummary =
   | { kind: "duration"; timeLabel: string; durationMs: number }
   | { kind: "previous-messages"; count: number; plural: "one" | "many" };
@@ -74,11 +76,6 @@ function toTimestampMs(value: string | number | Date): number | null {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-function formatUnit(value: number, unit: Intl.RelativeTimeFormatUnit, locale: string): string {
-  const formatter = new Intl.NumberFormat(locale, {
-    style: "unit",
-    unit,
-    unitDisplay: "narrow",
-  });
-  return formatter.format(value);
+function formatUnit(value: number, unit: DurationUnit, locale: string): string {
+  return formatDurationUnit(value, unit, locale);
 }

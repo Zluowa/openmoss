@@ -7,6 +7,25 @@ import { classifyWsRequest } from "@moss/shared/wsRequestClass";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 
 describe("WsRequestAdmission", () => {
+  it("gives the import panel's scan its own lane beside an expensive-read flood", async () => {
+    expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.listProjectImports)).toBe("import-scan");
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const admission = yield* makeWsRequestAdmission;
+        // Start-up fills the expensive lane with snapshot and provider discovery reads.
+        yield* admission.acquire(1, ORCHESTRATION_WS_METHODS.getSnapshot);
+        yield* admission.acquire(1, WS_METHODS.providerListModels);
+        const blocked = yield* Effect.flip(
+          admission.acquire(1, ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot),
+        );
+        expect(blocked.code).toBe("RPC_EXPENSIVE_READ_CAPACITY_EXCEEDED");
+        // The scan still starts at once.
+        const scan = yield* admission.acquire(1, ORCHESTRATION_WS_METHODS.listProjectImports);
+        expect(scan.requestClass).toBe("import-scan");
+      }),
+    );
+  });
+
   it("keeps lightweight shell reads out of the expensive lane", () => {
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.getShellSnapshot)).toBe("standard");
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot)).toBe(

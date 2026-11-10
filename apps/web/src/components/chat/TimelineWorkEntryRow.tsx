@@ -593,7 +593,7 @@ function commandElapsedLabel(
       ? new Date(nowMs).toISOString()
       : activity.lastActivityAt;
     const label = formatClockElapsed(activity.startedAt, endIso, locale);
-    if (label && label !== "0s" && label !== "0秒") return label;
+    if (label && label !== "0s" && label !== "0 秒") return label;
   }
   const seconds = activity?.elapsedSeconds;
   if (seconds != null && Number.isFinite(seconds) && seconds >= 1) {

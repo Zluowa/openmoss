@@ -19,13 +19,12 @@ import {
 import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
 import { LinkIcon, PlusIcon, SearchIcon } from "~/lib/icons";
-import { cn } from "~/lib/utils";
 import { useMossbotCopy } from "./mossbot.copy";
 
 import { isMossbot } from "./mossbot.logic";
 import { MossbotCreateLauncher } from "./MossbotCreateLauncher";
 
-export function MossbotSidebar(props: { activeProjectId: ProjectId | null; compact?: boolean }) {
+export function MossbotSidebar(props: { activeProjectId: ProjectId | null }) {
   const { t } = useMossbotCopy();
   const navigate = useNavigate();
   const { isMobile, setOpenMobile } = useSidebar();
@@ -42,60 +41,51 @@ export function MossbotSidebar(props: { activeProjectId: ProjectId | null; compa
   const [template, setTemplate] = useState<string | null>(null);
   const assistants = [...summariesByProjectId.values()].filter(isMossbot);
   return (
-    <div
-      data-mossbot-sidebar
-      data-compact={props.compact || undefined}
-      className={cn("flex min-h-0 flex-col", !props.compact && "flex-1")}
-    >
-      {!props.compact && (
-        <SidebarPanelTitle title="Mossbot">
-          <MossbotNewConversationMenu
-            sidebar
-            onAssistant={() => setTemplate("personal")}
-            onRoom={() => setCreatingRoom([])}
-            onFolder={() => setCreatingFolder(true)}
+    <div data-mossbot-sidebar className="flex min-h-0 flex-1 flex-col">
+      <SidebarPanelTitle title="Mossbot">
+        <MossbotNewConversationMenu
+          sidebar
+          onAssistant={() => setTemplate("personal")}
+          onRoom={() => setCreatingRoom([])}
+          onFolder={() => setCreatingFolder(true)}
+        />
+        <SidebarIconButton
+          icon={SearchIcon}
+          label={t("Search assistants")}
+          size="header"
+          onClick={() => {
+            setSearchOpen(!searchOpen);
+            setQuery("");
+          }}
+        />
+      </SidebarPanelTitle>
+      <SidebarGroup className="px-1.5 pt-1 pb-3">
+        <SidebarMenu>
+          <SidebarPrimaryAction
+            icon={PlusIcon}
+            label={t("New assistant")}
+            onClick={() => setTemplate("personal")}
           />
-          <SidebarIconButton
-            icon={SearchIcon}
-            label={t("Search assistants")}
-            size="header"
-            onClick={() => {
-              setSearchOpen(!searchOpen);
-              setQuery("");
-            }}
+        </SidebarMenu>
+        <DisclosureRegion open={searchOpen} contentClassName="pt-2">
+          <Input
+            ref={searchInput}
+            aria-label={t("Search assistants")}
+            placeholder={t("Find an assistant")}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
           />
-        </SidebarPanelTitle>
-      )}
-      {!props.compact && (
-        <SidebarGroup className="px-1.5 pt-1 pb-3">
-          <SidebarMenu>
-            <SidebarPrimaryAction
-              icon={PlusIcon}
-              label={t("New assistant")}
-              onClick={() => setTemplate("personal")}
-            />
-          </SidebarMenu>
-          <DisclosureRegion open={searchOpen} contentClassName="pt-2">
-            <Input
-              ref={searchInput}
-              aria-label={t("Search assistants")}
-              placeholder={t("Find an assistant")}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </DisclosureRegion>
-        </SidebarGroup>
-      )}
+        </DisclosureRegion>
+      </SidebarGroup>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
         <MossbotConversationRoster
           sidebar
-          compact={props.compact ?? false}
           activeProjectId={props.activeProjectId}
           query={query}
           showArchived={showArchived}
           onNewRoom={(id) => setCreatingRoom(id ? [id] : [])}
         />
-        {!props.compact && assistants.some((bot) => bot.archivedAt) && (
+        {assistants.some((bot) => bot.archivedAt) && (
           <Button
             size="sm"
             variant="ghost"
@@ -107,24 +97,22 @@ export function MossbotSidebar(props: { activeProjectId: ProjectId | null; compa
           </Button>
         )}
       </div>
-      {!props.compact && (
-        <SidebarGroup className="mt-auto px-1.5 pb-2">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                className="text-muted-foreground"
-                onClick={() => {
-                  void navigate({ to: "/settings", search: { section: "integrations" } });
-                  if (isMobile) setOpenMobile(false);
-                }}
-              >
-                <LinkIcon />
-                <span>{t("Connect another agent")}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarGroup>
-      )}
+      <SidebarGroup className="mt-auto px-1.5 pb-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              className="text-muted-foreground"
+              onClick={() => {
+                void navigate({ to: "/settings", search: { section: "integrations" } });
+                if (isMobile) setOpenMobile(false);
+              }}
+            >
+              <LinkIcon />
+              <span>{t("Connect another agent")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
       {creatingRoom && (
         <MossbotRoomCreateDialog
           initialMemberIds={creatingRoom}

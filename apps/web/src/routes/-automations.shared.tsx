@@ -780,7 +780,7 @@ export function useAutomations(onRunStarted?: (threadId: ThreadId) => void) {
 
 /** Subtle labeled pill used in the automation composer toolbar. */
 const CHIP_CLASS =
-  "gap-1.5 rounded-lg px-2 font-normal text-[var(--color-text-foreground-secondary)]";
+  "gap-1.5 rounded-control px-2 font-normal text-[var(--color-text-foreground-secondary)]";
 type CadenceOption = { readonly value: string; readonly label: string };
 
 /** Heartbeat run-count presets ("" = unlimited). */
@@ -1167,7 +1167,7 @@ export function AutomationDialog({
             </div>
           ) : null}
           {fastIntervalLimitMessage ? (
-            <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-ui leading-snug text-amber-700 dark:text-amber-300">
+            <div className="mt-2 rounded-control border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-ui leading-snug text-amber-700 dark:text-amber-300">
               {fastIntervalLimitMessage}
             </div>
           ) : null}
@@ -1291,7 +1291,7 @@ export function AutomationDialog({
                           step={1}
                           value={form.onceRunAt}
                           onChange={(event) => setField("onceRunAt", event.target.value)}
-                          className="w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          className="w-full rounded-row border border-border bg-transparent px-2 py-1.5 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         />
                       </div>
                     </MenuGroup>
@@ -1307,7 +1307,7 @@ export function AutomationDialog({
                           value={form.cronExpression}
                           onChange={(event) => setField("cronExpression", event.target.value)}
                           placeholder="0 9 * * *"
-                          className="w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          className="w-full rounded-row border border-border bg-transparent px-2 py-1.5 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         />
                       </div>
                     </MenuGroup>
@@ -1368,7 +1368,7 @@ export function AutomationDialog({
                           value={form.timezone}
                           onChange={(event) => setField("timezone", event.target.value)}
                           placeholder="Europe/Rome"
-                          className="w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          className="w-full rounded-row border border-border bg-transparent px-2 py-1.5 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         />
                       </div>
                     </MenuGroup>
@@ -1385,7 +1385,7 @@ export function AutomationDialog({
                     size="icon-sm"
                     aria-label="Run mode"
                     title="Run mode"
-                    className="rounded-lg text-[var(--color-text-foreground-secondary)]"
+                    className="rounded-control text-[var(--color-text-foreground-secondary)]"
                   />
                 }
               >
@@ -1437,7 +1437,7 @@ export function AutomationDialog({
                       value={form.stopWhen}
                       onChange={(event) => setField("stopWhen", event.target.value)}
                       placeholder="PR is ready to merge"
-                      className="w-full rounded-md border border-border bg-transparent px-2 py-1.5 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="w-full rounded-row border border-border bg-transparent px-2 py-1.5 text-ui leading-snug outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     />
                   </div>
                 </MenuGroup>
@@ -1495,7 +1495,7 @@ export function AutomationDialog({
                     size="icon-sm"
                     aria-label="Permissions"
                     title="Permissions"
-                    className="rounded-lg text-[var(--color-text-foreground-secondary)]"
+                    className="rounded-control text-[var(--color-text-foreground-secondary)]"
                   />
                 }
               >

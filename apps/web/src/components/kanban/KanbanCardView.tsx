@@ -23,9 +23,10 @@ import {
   WorktreeIcon,
 } from "~/lib/icons";
 import { resolveThreadEnvironmentPresentation } from "~/lib/threadEnvironment";
-import { formatRelativeTime } from "~/lib/relativeTime";
+import { formatElapsedSpan } from "~/lib/relativeTime";
+import { formatTimeAgo } from "~/lib/timeFormat";
+import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
-import { formatElapsed } from "../../session-logic";
 import { KANBAN_ATTENTION_LABELS, KANBAN_COLUMN_V2_LABELS } from "@moss/shared/kanban";
 import { KanbanStatusIcon } from "./KanbanStatusIcon";
 import { kanbanThreadCardId, refineAttentionFlagsForLivePr, type KanbanCard } from "./kanban.logic";
@@ -175,9 +176,13 @@ function KanbanCardViewComponent({
           lastKnownPr: card.thread.lastKnownPr ?? null,
         })
     : null;
+  // One relative-time format for the whole Tasks page, in the app's language: the board used
+  // to print English "4h" (only an exact "5h" happened to be translated) and a clock-style
+  // elapsed time next to the list's "4 小时".
+  const { locale } = useTranslation();
   const activeWorkElapsed =
     card.activeWorkStartedAt && nowMs
-      ? formatElapsed(card.activeWorkStartedAt, new Date(nowMs).toISOString())
+      ? formatElapsedSpan(card.activeWorkStartedAt, locale, nowMs)
       : null;
 
   return (
@@ -271,7 +276,7 @@ function KanbanCardViewComponent({
                 </span>
               ) : card.timestamp ? (
                 <span className="shrink-0 text-ui-sm leading-snug text-muted-foreground/70">
-                  {formatRelativeTime(card.timestamp)}
+                  {formatTimeAgo(card.timestamp, { locale, now: nowMs })}
                 </span>
               ) : null}
             </>

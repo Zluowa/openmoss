@@ -783,7 +783,7 @@ function ProviderInstallCommandCard({ install }: { install: ProviderInstallComma
           {t("settings.providers.install.commandLabel")}
         </span>
         <div className="flex min-w-0 items-center gap-2 sm:max-w-[70%]">
-          <code className="min-w-0 flex-1 truncate rounded-md border border-border/70 bg-background/60 px-2.5 py-1.5 font-mono text-ui-sm">
+          <code className="min-w-0 flex-1 truncate rounded-control border border-border/70 bg-background/60 px-2.5 py-1.5 font-mono text-ui-sm">
             {install.command}
           </code>
           <Button
@@ -912,7 +912,7 @@ function ProviderInstallFieldControl(props: {
     return (
       <label
         htmlFor={id}
-        className="flex items-start justify-between gap-3 rounded-md border border-border/70 bg-background/60 px-3 py-2"
+        className="flex items-start justify-between gap-3 rounded-control border border-border/70 bg-background/60 px-3 py-2"
       >
         <span className="min-w-0">
           <span className="block text-ui leading-snug font-medium text-foreground">
@@ -1429,7 +1429,7 @@ function ProviderAccountsControl(props: {
           <label className="block sm:col-span-2">
             <span className="block text-ui-sm font-medium text-foreground">Terminal command</span>
             <div className="mt-1 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md border border-border/70 bg-background/60 px-2.5 py-1.5 text-ui-sm">
+              <code className="min-w-0 flex-1 truncate rounded-control border border-border/70 bg-background/60 px-2.5 py-1.5 text-ui-sm">
                 {cliCommand}
               </code>
               <Button

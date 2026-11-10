@@ -1,3 +1,4 @@
+import { Button } from "~/components/ui/button";
 import {
   useCallback,
   useEffect,
@@ -552,13 +553,9 @@ export function PresentationReader({
               onChange={(event) => setAnnotationText(event.target.value)}
               className="min-h-20 w-full resize-y bg-transparent py-2 text-ui-lg outline-none"
             />
-            <button
-              type="submit"
-              disabled={!annotationText.trim()}
-              className="rounded-md bg-primary px-3 py-1.5 text-ui-sm text-primary-foreground disabled:opacity-50"
-            >
+            <Button variant="default" size="sm" type="submit" disabled={!annotationText.trim()}>
               Add to chat
-            </button>
+            </Button>
           </form>
         ) : null}
       </div>

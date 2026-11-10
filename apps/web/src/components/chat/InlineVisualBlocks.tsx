@@ -89,7 +89,7 @@ export function InlineVisualBlocks({
       <div
         role="status"
         aria-label={`Loading ${visual.title}`}
-        className="animate-pulse rounded-2xl bg-[color:color-mix(in_srgb,var(--foreground)_4%,transparent)]"
+        className="animate-pulse rounded-card bg-[color:color-mix(in_srgb,var(--foreground)_4%,transparent)]"
         style={{ height: visual.height || INLINE_VISUAL_DEFAULT_HEIGHT }}
       />
     );
@@ -200,7 +200,7 @@ function StatsBlock({ block }: { readonly block: BlockOf<"stats"> }) {
         <div
           key={`${item.label}:${index}`}
           className={cn(
-            "flex min-w-0 flex-col gap-0.5 rounded-2xl bg-[var(--surface)] px-4 py-3",
+            "flex min-w-0 flex-col gap-0.5 rounded-card bg-[var(--surface)] px-4 py-3",
             item.tone === "accent" &&
               "bg-[color:color-mix(in_srgb,var(--chart-accent)_9%,var(--background))]",
           )}
@@ -414,7 +414,7 @@ function CalloutBlock({ block }: { readonly block: BlockOf<"callout"> }) {
   const color = toneColor(tone)!;
   return (
     <aside
-      className="flex gap-3 rounded-2xl px-4 py-3"
+      className="flex gap-3 rounded-card px-4 py-3"
       style={{ background: `color-mix(in srgb, ${color} 9%, var(--background))` }}
     >
       <Icon className="mt-[0.2em] size-4 shrink-0" style={{ color }} aria-hidden />

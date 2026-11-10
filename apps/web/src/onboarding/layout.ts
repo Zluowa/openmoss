@@ -6,4 +6,4 @@
 export const ONBOARDING_INSET_CLASS_NAME = "px-ui-pad-lg sm:px-[calc(2rem*var(--app-ui-scale,1))]";
 
 /** Quiet bordered tile used for the welcome points and provider cards. */
-export const ONBOARDING_TILE_CLASS_NAME = "rounded-xl border border-foreground/7 bg-popover";
+export const ONBOARDING_TILE_CLASS_NAME = "rounded-popover border border-foreground/7 bg-popover";

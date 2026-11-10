@@ -73,7 +73,7 @@ export function DiffPanelLoadingState(props: { label: string }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col p-2">
       <div
-        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-border/60 bg-card/25"
+        className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-border/60 bg-card/25"
         role="status"
         aria-live="polite"
         aria-label={props.label}

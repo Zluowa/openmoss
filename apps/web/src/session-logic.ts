@@ -7,6 +7,7 @@ import {
   type TurnId,
 } from "@moss/contracts";
 import { VISIBLE_PROVIDER_DESCRIPTORS } from "./betaFeatures";
+import { formatDurationUnit } from "./lib/timeFormat";
 
 import { orderedActivities, parseTaskListTasks } from "./workLog";
 
@@ -95,33 +96,14 @@ function formatDuration(durationMs: number): string {
   return formatClockDuration(Math.round(durationMs / 1_000) * 1_000);
 }
 
-// Clock format: narrow Intl units, trim zero units, floor to whole seconds.
-// English stays `1m 23s`; zh-CN is `1分钟 23秒`.
-const clockUnitFormatters = new Map<string, Intl.NumberFormat>();
-
+// Clock format: the shared duration units (lib/timeFormat), trim zero units, floor to whole
+// seconds. English stays `1m 23s`; zh-CN is `1 分钟 23 秒`.
 function formatClockUnit(
   value: number,
   unit: "day" | "hour" | "minute" | "second",
   locale: string,
 ): string {
-  const cacheKey = `${locale}:${unit}`;
-  let formatter = clockUnitFormatters.get(cacheKey);
-  if (!formatter) {
-    formatter = new Intl.NumberFormat(locale, {
-      style: "unit",
-      unit,
-      unitDisplay: "narrow",
-    });
-    clockUnitFormatters.set(cacheKey, formatter);
-  }
-  if (locale.toLowerCase().split("-")[0] === "hu") {
-    return formatter
-      .formatToParts(value)
-      .filter((part) => part.type !== "literal")
-      .map((part) => part.value)
-      .join("");
-  }
-  return formatter.format(value);
+  return formatDurationUnit(value, unit, locale);
 }
 
 export function formatClockDuration(durationMs: number, locale = "en"): string {
@@ -132,9 +114,9 @@ export function formatClockDuration(durationMs: number, locale = "en"): string {
   const hours = Math.floor((elapsedSeconds % 86_400) / 3_600);
   const minutes = Math.floor((elapsedSeconds % 3_600) / 60);
   const seconds = elapsedSeconds % 60;
-  // Sub-hour clocks read `1m 23s` / `1分钟 23秒`. Hour-and-longer clocks keep every
+  // Sub-hour clocks read `1m 23s` / `1 分钟 23 秒`. Hour-and-longer clocks keep every
   // non-zero unit, including leftover minutes and seconds (`1h 22m 49s`,
-  // zh-CN `1小时 22分钟 49秒`).
+  // zh-CN `1 小时 22 分钟 49 秒`).
   if (days > 0 || hours > 0) {
     const parts: string[] = [];
     if (days > 0) parts.push(formatClockUnit(days, "day", locale));
@@ -157,12 +139,12 @@ const ZH_CLOCK_UNIT: Record<string, string> = {
 };
 
 // Settled headers are formatted in English compact units first. zh-CN swaps
-// the unit glyphs so `1m 23s` reads `1分钟 23秒`.
+// the units so `1m 23s` reads `1 分钟 23 秒`, the same spacing as every other duration.
 export function localizeCodexDurationUnits(label: string, locale: string): string {
   if (!locale.toLowerCase().startsWith("zh")) return label;
   return label.replace(
     /(\d+(?:\.\d+)?)(ms|d|h|m|s)\b/g,
-    (_match, amount: string, unit: string) => `${amount}${ZH_CLOCK_UNIT[unit] ?? unit}`,
+    (_match, amount: string, unit: string) => `${amount} ${ZH_CLOCK_UNIT[unit] ?? unit}`,
   );
 }
 

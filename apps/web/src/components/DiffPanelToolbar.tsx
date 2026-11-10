@@ -542,7 +542,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
                 <button
                   type="button"
                   className={cn(
-                    "mx-1 mt-1 flex h-8 w-[calc(100%-0.5rem)] cursor-pointer items-center justify-center rounded-md px-2 text-ui-sm",
+                    "mx-1 mt-1 flex h-8 w-[calc(100%-0.5rem)] cursor-pointer items-center justify-center rounded-control px-2 text-ui-sm",
                     "text-muted-foreground",
                     ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
                   )}

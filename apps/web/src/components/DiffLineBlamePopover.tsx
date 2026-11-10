@@ -66,7 +66,7 @@ function BlameActionButton(props: { label: string; icon: ReactNode; onClick: () 
     <button
       type="button"
       className={cn(
-        "inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-ui-sm text-muted-foreground",
+        "inline-flex h-6 items-center gap-1 rounded-control-xs px-1.5 text-ui-sm text-muted-foreground",
         ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
       )}
       onClick={props.onClick}
@@ -138,7 +138,7 @@ export function DiffLineBlamePopover(props: {
       data-diff-line-blame="true"
       role="dialog"
       aria-label={`Blame for line ${props.target.line}`}
-      className="fixed z-50 flex flex-col gap-1.5 rounded-md border border-border bg-[var(--color-background-elevated-primary-opaque)] p-2 shadow-xl backdrop-blur-xl"
+      className="fixed z-50 flex flex-col gap-1.5 rounded-card border border-border bg-[var(--color-background-elevated-primary-opaque)] p-2 shadow-xl backdrop-blur-xl"
       style={{ left: props.target.left, top: props.target.top, width: BLAME_POPOVER_WIDTH_PX }}
     >
       {isLoadingBlame ? (

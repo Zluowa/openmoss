@@ -32,7 +32,7 @@ const GRID_COLUMNS = 8;
 
 /** One cell of the icon, emoji, and color grids; selection reads as a soft filled square. */
 const CELL_CLASS_NAME =
-  "flex aspect-square cursor-pointer items-center justify-center rounded-xl outline-hidden transition-colors hover:bg-foreground/6 focus-visible:ring-2 focus-visible:ring-ring/50";
+  "flex aspect-square cursor-pointer items-center justify-center rounded-card outline-hidden transition-colors hover:bg-foreground/6 focus-visible:ring-2 focus-visible:ring-ring/50";
 const SELECTED_CELL_CLASS_NAME = "bg-foreground/9 hover:bg-foreground/9";
 
 /** Every query word must start one of the option's words, so "cat" finds the cat, not "education". */

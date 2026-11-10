@@ -42,7 +42,7 @@ const SIGN_IN_TIMEOUT_MS = 5 * 60_000;
 
 function LogoTile({ children }: { readonly children: React.ReactNode }) {
   return (
-    <span className="flex size-14 items-center justify-center overflow-hidden rounded-2xl bg-card shadow-xs ring-1 ring-border/70 ring-inset">
+    <span className="flex size-14 items-center justify-center overflow-hidden rounded-card bg-card shadow-xs ring-1 ring-border/70 ring-inset">
       {children}
     </span>
   );
@@ -354,7 +354,7 @@ export function MossAppConnectDialog({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-8 rounded-lg px-3 text-ui-lg sm:h-8"
+              className="h-8 rounded-control px-3 text-ui-lg sm:h-8"
               onClick={() => onOpenChange(false)}
             >
               {t("apps.connect.cancel")}
@@ -367,7 +367,7 @@ export function MossAppConnectDialog({
               <Button
                 type="submit"
                 size="sm"
-                className="h-8 rounded-lg px-3.5 text-ui-lg font-medium sm:h-8"
+                className="h-8 rounded-control px-3.5 text-ui-lg font-medium sm:h-8"
                 disabled={start.isPending || !canContinue}
                 aria-busy={start.isPending || undefined}
                 data-testid="moss-app-connect-continue"

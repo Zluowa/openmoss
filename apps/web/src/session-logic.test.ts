@@ -45,12 +45,12 @@ describe("elapsed duration formatting", () => {
     expect(formatClockElapsed(startIso, endIso)).toBe(live);
   });
 
-  it("uses Codex narrow units for zh-CN clocks", () => {
-    expect(formatClockDuration(83_000, "zh-CN")).toBe("1分钟 23秒");
-    expect(formatClockDuration(23_000, "zh-CN")).toBe("23秒");
-    expect(formatClockDuration(3_600_000, "zh-CN")).toBe("1小时");
-    expect(formatClockDuration(4_969_000, "zh-CN")).toBe("1小时 22分钟 49秒");
-    expect(formatClockDuration(90_000_000, "zh-CN")).toBe("1天 1小时");
+  it("uses the shared, spaced zh-CN units for clocks", () => {
+    expect(formatClockDuration(83_000, "zh-CN")).toBe("1 分钟 23 秒");
+    expect(formatClockDuration(23_000, "zh-CN")).toBe("23 秒");
+    expect(formatClockDuration(3_600_000, "zh-CN")).toBe("1 小时");
+    expect(formatClockDuration(4_969_000, "zh-CN")).toBe("1 小时 22 分钟 49 秒");
+    expect(formatClockDuration(90_000_000, "zh-CN")).toBe("1 天 1 小时");
   });
 });
 

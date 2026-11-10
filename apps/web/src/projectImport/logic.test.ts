@@ -14,6 +14,8 @@ import {
   projectImportUnreadableNotes,
   selectableProjectImportKeys,
   shortenImportPath,
+  projectImportNoConversationsNote,
+  splitProjectImportNotFoundByDetection,
 } from "./logic";
 
 const project: ProjectImportProject = {
@@ -230,6 +232,35 @@ describe("agents found on this computer", () => {
       "Found 1 Antigravity conversation that can't be copied: Antigravity keeps them encrypted.",
       "Found 3 Kimi Code conversations that can't be copied yet: Moss can't read this Kimi Code format.",
     ]);
+  });
+
+  it("says a detected agent has no conversations yet instead of not found", () => {
+    const status = (provider: string, state: "ready" | "notInstalled") =>
+      ({
+        provider,
+        instanceId: provider,
+        driver: provider,
+        status: state === "ready" ? "ready" : "error",
+        available: state === "ready",
+        authStatus: "unknown",
+        checkedAt: "2026-11-11T00:00:00.000Z",
+        ...(state === "notInstalled" ? { readiness: { state: "notInstalled" } } : {}),
+      }) as never;
+    const split = splitProjectImportNotFoundByDetection(
+      ["devin", "cursor", "gemini"],
+      [status("devin", "ready"), status("cursor", "notInstalled")],
+    );
+    // Devin is connected in the agents step: it has no conversations, it is not "not found".
+    expect(split).toEqual({ notFound: ["cursor", "gemini"], noConversations: ["devin"] });
+    expect(projectImportNoConversationsNote(split.noConversations)).toBe(
+      "No conversations yet: Devin.",
+    );
+    expect(projectImportNoConversationsNote([])).toBeNull();
+    // Without detection, nothing moves.
+    expect(splitProjectImportNotFoundByDetection(["devin"], undefined)).toEqual({
+      notFound: ["devin"],
+      noConversations: [],
+    });
   });
 
   it("folds what won't be imported into one quiet line", () => {

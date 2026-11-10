@@ -62,7 +62,7 @@ const COLOR_PICKER_COMMIT_DELAY_MS = 220;
 
 /** Borderless text action in the editor's header chrome (Copy, Import). */
 const EDITOR_TEXT_ACTION_CLASS_NAME = cn(
-  "shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-ui leading-snug text-[var(--color-text-foreground-secondary)]",
+  "shrink-0 whitespace-nowrap rounded-control px-2 py-1 text-ui leading-snug text-[var(--color-text-foreground-secondary)]",
   ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
 );
 
@@ -153,7 +153,7 @@ export function ThemePackEditor({
               type="button"
               onClick={() => resetThemeVariant(variant)}
               className={cn(
-                "rounded-md px-1.5 py-0.5 text-ui-sm text-[var(--color-text-foreground-secondary)]",
+                "rounded-control px-1.5 py-0.5 text-ui-sm text-[var(--color-text-foreground-secondary)]",
                 ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
               )}
             >
@@ -213,7 +213,7 @@ export function ThemePackEditor({
         <div
           role="img"
           aria-label={`${titleLabel} preview: ${codeThemeLabel}`}
-          className="flex items-center justify-between gap-3 rounded-lg border p-3"
+          className="flex items-center justify-between gap-3 rounded-card border p-3"
           style={
             {
               ...previewVariables,
@@ -226,7 +226,7 @@ export function ThemePackEditor({
         >
           <span className="text-ui-lg leading-snug font-medium">{codeThemeLabel}</span>
           <span
-            className="rounded-md px-3 py-1 text-ui leading-snug"
+            className="rounded-control px-3 py-1 text-ui leading-snug"
             style={{
               backgroundColor: "var(--color-background-accent)",
               color: "var(--color-text-accent)",
@@ -517,7 +517,7 @@ function ColorPill({
             onReset();
           }}
           className={cn(
-            "rounded-md p-1 text-[var(--color-text-foreground-tertiary)]",
+            "rounded-control p-1 text-[var(--color-text-foreground-tertiary)]",
             ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
           )}
           aria-label={`Reset ${ariaLabel}`}
@@ -590,7 +590,7 @@ function CodeThemeBadge({ theme }: { theme: ChromeTheme }) {
   return (
     <span
       aria-hidden
-      className="flex size-5 shrink-0 items-center justify-center rounded-md border text-ui-xs font-semibold leading-none"
+      className="flex size-5 shrink-0 items-center justify-center rounded-control-xs border text-ui-xs font-medium leading-none"
       style={{
         backgroundColor: theme.surface,
         borderColor: mixColor(theme.surface, theme.ink, 0.16),

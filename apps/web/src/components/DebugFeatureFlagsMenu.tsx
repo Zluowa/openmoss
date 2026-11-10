@@ -57,7 +57,7 @@ export function DebugFeatureFlagsMenu() {
         render={
           <SidebarMenuButton
             size="default"
-            className="h-8 flex-1 gap-2.5 rounded-lg px-2 text-ui font-normal text-muted-foreground/72 hover:bg-[var(--sidebar-accent)]"
+            className="h-8 flex-1 gap-2.5 rounded-control px-2 text-ui font-normal text-muted-foreground/72 hover:bg-[var(--sidebar-accent)]"
           />
         }
       >

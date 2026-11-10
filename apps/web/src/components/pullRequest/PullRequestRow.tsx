@@ -11,7 +11,8 @@ import { pullRequestListProjectContexts } from "@moss/shared/githubRepository";
 import type { ReactNode } from "react";
 
 import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
-import { formatRelativeTime } from "~/lib/relativeTime";
+import { formatTimeAgo } from "~/lib/timeFormat";
+import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
 import { SIDEBAR_ROW_HOVER_CLASS_NAME } from "~/sidebarRowStyles";
 import {
@@ -47,6 +48,7 @@ export const PullRequestRow = function PullRequestRow({
   onClick: (entry: GitHubInboxItem) => void;
   onTogglePinned: (entry: GitHubInboxItem) => void;
 }) {
+  const { locale } = useTranslation();
   const showProjectTitle = showProjectTitleProp ?? false;
   const timestamp = sort === "created" ? entry.createdAt : entry.updatedAt;
   const isPinned = entry.isPinned === true;
@@ -64,7 +66,7 @@ export const PullRequestRow = function PullRequestRow({
       className={cn(
         // The list bleeds past the column padding and this padding pays it back, so the hover
         // surface keeps a halo while the title still sits on the filter bar's vertical.
-        "group flex w-full items-stretch rounded-lg text-left transition-colors",
+        "group flex w-full items-stretch rounded-row text-left transition-colors",
         selected
           ? "bg-[color-mix(in_srgb,var(--color-text-foreground)_7%,transparent)]"
           : cn(SIDEBAR_ROW_HOVER_CLASS_NAME, "focus-within:bg-[var(--sidebar-accent)]"),
@@ -80,7 +82,7 @@ export const PullRequestRow = function PullRequestRow({
         aria-current={selected ? "true" : undefined}
         title={`${entry.title} #${entry.number}`}
         onClick={() => onClick(entry)}
-        className="flex min-w-0 flex-1 flex-col gap-1 rounded-lg py-2 pl-3 pr-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="flex min-w-0 flex-1 flex-col gap-1 rounded-row py-2 pl-3 pr-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <span
           className={cn(
@@ -117,7 +119,7 @@ export const PullRequestRow = function PullRequestRow({
             title={sort === "created" ? "Opened" : "Updated"}
             className="shrink-0 tabular-nums"
           >
-            {formatRelativeTime(timestamp)}
+            {formatTimeAgo(timestamp, { locale })}
           </time>
           <span className="ml-auto shrink-0 pl-1 tabular-nums opacity-80">#{entry.number}</span>
         </span>
@@ -131,7 +133,7 @@ export const PullRequestRow = function PullRequestRow({
               aria-pressed={entry.isPinned}
               onClick={() => onTogglePinned(entry)}
               className={cn(
-                "mt-1 mr-1 inline-flex size-7 shrink-0 self-start items-center justify-center rounded-md text-muted-foreground transition-[color,opacity] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                "mt-1 mr-1 inline-flex size-7 shrink-0 self-start items-center justify-center rounded-control text-muted-foreground transition-[color,opacity] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                 isPinned
                   ? "text-foreground opacity-100"
                   : "opacity-70 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",

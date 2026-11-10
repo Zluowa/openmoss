@@ -511,7 +511,7 @@ export function MossCloudAccountPage() {
         <header className="flex min-w-0 flex-wrap items-center justify-between gap-4">
           <Link
             aria-label="Back to Moss chats"
-            className="flex items-center gap-2 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="flex items-center gap-2 rounded-control outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
             to="/"
           >
             <MossLogo className="size-8" />
@@ -580,12 +580,12 @@ export function MossCloudAccountPage() {
               </div>
 
               {accounts.length === 0 ? (
-                <p className="mt-4 rounded-xl border border-dashed p-4 text-ui-lg text-muted-foreground">
+                <p className="mt-4 rounded-card border border-dashed p-4 text-ui-lg text-muted-foreground">
                   No saved Moss accounts.
                 </p>
               ) : (
                 <ul
-                  className="mt-4 divide-y overflow-hidden rounded-xl border"
+                  className="mt-4 divide-y overflow-hidden rounded-card border"
                   aria-label="Saved accounts"
                 >
                   {accounts.map((saved) => {
@@ -598,7 +598,7 @@ export function MossCloudAccountPage() {
                       <li className="flex min-w-0 items-center gap-3 p-3" key={saved.id}>
                         <span
                           aria-hidden="true"
-                          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-ui-lg font-semibold"
+                          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-ui-lg font-medium"
                         >
                           {saved.email.slice(0, 1).toUpperCase()}
                         </span>
@@ -672,7 +672,7 @@ export function MossCloudAccountPage() {
 
             {account && state.session ? <MossPayPanel /> : null}
             {account && state.session ? (
-              <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
+              <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-card border p-4">
                 <div className="min-w-0">
                   <h2 className="text-ui-lg font-medium">Usage and credits</h2>
                   <p className="mt-1 text-ui-lg text-muted-foreground">

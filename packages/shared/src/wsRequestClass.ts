@@ -7,7 +7,12 @@
 
 import { ORCHESTRATION_WS_METHODS, WS_METHODS, WsRpcError } from "@moss/contracts";
 
-export type WsRequestClass = "control" | "standard" | "interactive-read" | "expensive-read";
+export type WsRequestClass =
+  | "control"
+  | "standard"
+  | "interactive-read"
+  | "expensive-read"
+  | "import-scan";
 
 export const WS_REQUEST_CLASS_LIMITS: Readonly<Record<WsRequestClass, number>> = {
   control: 16,
@@ -16,6 +21,10 @@ export const WS_REQUEST_CLASS_LIMITS: Readonly<Record<WsRequestClass, number>> =
   // discovery. Their own small lane stays beside the expensive-read bound.
   "interactive-read": 6,
   "expensive-read": 2,
+  // The import panel's scan of every agent's history. On a cold start the expensive
+  // lane is full of snapshot, model and agent reads; behind them the scan took 18 s in
+  // Settings → Import. It gets its own lane so it starts at once and starves nothing.
+  "import-scan": 2,
 };
 
 const CONTROL_METHODS = new Set<string>([
@@ -43,8 +52,9 @@ const INTERACTIVE_READ_METHODS = new Set<string>([
   WS_METHODS.providerReadPlugin,
 ]);
 
+const IMPORT_SCAN_METHODS = new Set<string>([ORCHESTRATION_WS_METHODS.listProjectImports]);
+
 const EXPENSIVE_READ_METHODS = new Set<string>([
-  ORCHESTRATION_WS_METHODS.listProjectImports,
   ORCHESTRATION_WS_METHODS.loadProjectImportHistory,
   ORCHESTRATION_WS_METHODS.getSnapshot,
   ORCHESTRATION_WS_METHODS.getThreadDetailSnapshot,
@@ -87,6 +97,7 @@ const EXPENSIVE_READ_METHODS = new Set<string>([
 export function classifyWsRequest(method: string): WsRequestClass {
   if (CONTROL_METHODS.has(method)) return "control";
   if (INTERACTIVE_READ_METHODS.has(method)) return "interactive-read";
+  if (IMPORT_SCAN_METHODS.has(method)) return "import-scan";
   if (EXPENSIVE_READ_METHODS.has(method)) return "expensive-read";
   return "standard";
 }
@@ -104,7 +115,7 @@ export function makeWsRequestCapacityError(requestClass: WsRequestClass): WsRpcE
   return new WsRpcError({
     message: `WebSocket ${requestClass} request capacity exceeded.`,
     code:
-      requestClass === "expensive-read"
+      requestClass === "expensive-read" || requestClass === "import-scan"
         ? "RPC_EXPENSIVE_READ_CAPACITY_EXCEEDED"
         : requestClass === "interactive-read"
           ? "RPC_INTERACTIVE_READ_CAPACITY_EXCEEDED"

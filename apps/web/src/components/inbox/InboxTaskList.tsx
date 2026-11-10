@@ -89,7 +89,7 @@ function TaskRow({
           }
         : {})}
       className={cn(
-        "flex w-full min-w-0 items-start gap-2.5 rounded-xl px-3 py-2 text-left",
+        "flex w-full min-w-0 items-start gap-2.5 rounded-row px-3 py-2 text-left",
         SIDEBAR_ROW_FOCUS_CLASS_NAME,
         ELEVATED_HOVER_SURFACE_CLASS_NAME,
       )}

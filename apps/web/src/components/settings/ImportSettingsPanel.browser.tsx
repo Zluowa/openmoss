@@ -128,4 +128,38 @@ describe("Settings → Import", () => {
     expect(api.probeWorkspaceImport).toHaveBeenCalledWith({ scope: "tools" });
     expect(document.body.textContent).not.toContain("个最近对话");
   });
+
+  it("names what was not read: settings in one section, conversations in the other", async () => {
+    api.listProjectImports.mockResolvedValue({
+      ...catalog,
+      sources: [...catalog.sources, { provider: "cursor", error: null }],
+    });
+    // Cursor's settings folder could not be read in time, twice.
+    api.probeWorkspaceImport.mockResolvedValue({
+      sources: [
+        ...tools.sources,
+        {
+          source: "cursor",
+          present: true,
+          displayName: "Cursor",
+          incomplete: true,
+          skillCount: 0,
+          honorAbleSettingCount: 0,
+          chatCount: 0,
+          olderChatCount: 0,
+        },
+      ],
+      requiresSourceChoice: true,
+    });
+    api.getShellSnapshot.mockResolvedValue({});
+
+    await renderPanel();
+
+    await expect
+      .element(page.getByText("Cursor 的技能和设置没来得及读完，数量可能偏少。"))
+      .toBeVisible();
+    // The conversation panel says Cursor was not found (zh: 没有找到); the config note names its settings.
+    await expect.element(page.getByText(/^(Not found|没有找到)/u)).toBeVisible();
+    expect(api.probeWorkspaceImport).toHaveBeenCalledTimes(2);
+  });
 });

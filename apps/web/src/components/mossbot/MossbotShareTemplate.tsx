@@ -80,7 +80,7 @@ export function MossbotShareTemplate({
           {query.data && (
             <pre
               tabIndex={0}
-              className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-foreground/5 p-4 text-ui-sm"
+              className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-card bg-foreground/5 p-4 text-ui-sm"
             >
               {query.data}
             </pre>

@@ -75,16 +75,16 @@ import { ensureNativeApi } from "~/nativeApi";
 const COMPUTER_HISTORY_LEARN_MORE_URL = MOSS_HELP_SITE_URL;
 
 const COMPUTER_HISTORY_TOOLTIP_CLASS_NAME =
-  "!rounded-lg !border !border-[var(--color-text-foreground)] !bg-[var(--color-background-primary-solid)] !px-2 !py-1.5 !text-ui !leading-[18px] !text-[var(--color-text-primary-solid)] !shadow-none !backdrop-blur-0";
+  "!rounded-control !border !border-[var(--color-text-foreground)] !bg-[var(--color-background-primary-solid)] !px-2 !py-1.5 !text-ui !leading-[18px] !text-[var(--color-text-primary-solid)] !shadow-none !backdrop-blur-0";
 const COMPUTER_HISTORY_TOOLTIP_VIEWPORT_CLASS_NAME = "!px-0 !py-0";
 const COMPUTER_HISTORY_TOOLBAR_BUTTON_CLASS_NAME =
-  "!h-7 !rounded-lg !px-2 !text-ui-lg !leading-[18px]";
+  "!h-7 !rounded-control !px-2 !text-ui-lg !leading-[18px]";
 const COMPUTER_HISTORY_DEFAULT_BUTTON_CLASS_NAME =
-  "!h-6 !min-h-0 !rounded-lg !px-2 !py-0.5 !text-ui !leading-[18px]";
+  "!h-6 !min-h-0 !rounded-control-xs !px-2 !py-0.5 !text-ui !leading-[18px]";
 const COMPUTER_HISTORY_CLEAR_BUTTON_CLASS_NAME =
-  "!h-7 !rounded-lg !gap-1.5 !px-3 !text-ui-lg !leading-[18px]";
+  "!h-7 !rounded-control !gap-1.5 !px-3 !text-ui-lg !leading-[18px]";
 const COMPUTER_HISTORY_DIALOG_BUTTON_CLASS_NAME =
-  "!h-auto !min-h-0 !rounded-lg !px-4 !py-1.5 !text-ui-lg !leading-[18px]";
+  "!h-auto !min-h-0 !rounded-control !px-4 !py-1.5 !text-ui-lg !leading-[18px]";
 
 function ComputerHistorySettingsRow({
   title,
@@ -263,7 +263,7 @@ function AppIcon({
         src={validatedIcon}
         alt=""
         aria-hidden="true"
-        className={cn("size-6 shrink-0 rounded-lg object-contain", className)}
+        className={cn("size-6 shrink-0 rounded-control-xs object-contain", className)}
         onError={() => setImageFailed(true)}
       />
     );
@@ -271,7 +271,7 @@ function AppIcon({
   return (
     <span
       className={cn(
-        "flex size-6 shrink-0 items-center justify-center rounded-lg bg-foreground/5 text-ui-2xs font-medium text-muted-foreground",
+        "flex size-6 shrink-0 items-center justify-center rounded-control-xs bg-foreground/5 text-ui-2xs font-medium text-muted-foreground",
         className,
       )}
       aria-hidden="true"
@@ -318,9 +318,9 @@ function AnimatedExample({
           aria-hidden="true"
           className="absolute inset-0 bg-[radial-gradient(circle_at_24%_28%,rgba(109,167,255,.95),transparent_34%),radial-gradient(circle_at_72%_68%,rgba(168,94,255,.88),transparent_42%),linear-gradient(135deg,#101b44,#2e1462_58%,#071833)] bg-cover bg-[center_44%]"
         />
-        <div className="group/example absolute inset-5 z-10 flex min-h-0 flex-col overflow-y-auto rounded-xl border border-border bg-background/95 p-5 pb-12 text-ui-lg leading-5 text-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="group/example absolute inset-5 z-10 flex min-h-0 flex-col overflow-y-auto rounded-popover border border-border bg-background/95 p-5 pb-12 text-ui-lg leading-5 text-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <p
-            className="ms-auto max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl bg-foreground/5 px-3 py-2 opacity-0"
+            className="ms-auto max-w-[77%] min-w-0 overflow-hidden break-words rounded-bubble bg-foreground/5 px-3 py-2 opacity-0"
             data-computer-history-example-user
             style={{
               animation:
@@ -372,7 +372,7 @@ function AnimatedExample({
             <button
               type="button"
               aria-label={t("settings.history.off.example.previous")}
-              className="inline-flex size-[26px] items-center justify-center rounded-lg border border-border bg-secondary text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="inline-flex size-[26px] items-center justify-center rounded-control border border-border bg-secondary text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onClick={onPrevious}
             >
               <ComputerHistoryPreviousIcon className="size-4" aria-hidden="true" />
@@ -380,7 +380,7 @@ function AnimatedExample({
             <button
               type="button"
               aria-label={t("settings.history.off.example.next")}
-              className="inline-flex size-[26px] items-center justify-center rounded-lg border border-border bg-secondary text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="inline-flex size-[26px] items-center justify-center rounded-control border border-border bg-secondary text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onClick={onNext}
             >
               <ComputerHistoryPreviousIcon
@@ -438,7 +438,7 @@ function OffState({
   }, [exampleIndex, reducedMotion]);
   return (
     <div className="flex flex-col" data-testid="computer-history-off-state">
-      <section className="grid min-h-[340px] grid-cols-2 overflow-hidden rounded-2xl border border-border bg-[var(--color-background-panel)] max-md:grid-cols-1">
+      <section className="grid min-h-[340px] grid-cols-2 overflow-hidden rounded-card border border-border bg-[var(--color-background-panel)] max-md:grid-cols-1">
         <div className="flex min-w-0 flex-col items-start justify-center px-9 py-[30px] text-start">
           <h2 className="text-base font-medium leading-6">{t("settings.history.off.title")}</h2>
           <div className="mt-[5px] flex max-w-[300px] flex-col gap-3 text-ui leading-[18px] text-muted-foreground">
@@ -449,7 +449,7 @@ function OffState({
             className={cn(
               "mt-4 inline-flex",
               disabled &&
-                "cursor-not-allowed rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "cursor-not-allowed rounded-control outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
             tabIndex={disabled ? 0 : undefined}
             title={disabled ? disabledReason : undefined}
@@ -581,7 +581,7 @@ function PermissionRuleRow({
   onRemove: () => void;
 }) {
   return (
-    <div className="group/permission grid min-h-10 shrink-0 grid-cols-[24px_minmax(0,1fr)_24px] items-center gap-2.5 rounded-lg px-2 py-1.5 text-ui leading-[17px] hover:bg-secondary/50 focus-within:bg-secondary/50">
+    <div className="group/permission grid min-h-10 shrink-0 grid-cols-[24px_minmax(0,1fr)_24px] items-center gap-2.5 rounded-control px-2 py-1.5 text-ui leading-[17px] hover:bg-secondary/50 focus-within:bg-secondary/50">
       {icon}
       <div className="flex min-w-0 flex-col">
         <span className="truncate">{label}</span>
@@ -591,14 +591,16 @@ function PermissionRuleRow({
           </span>
         ) : null}
       </div>
-      <button
+      <Button
+        variant="ghost"
+        size="icon-xs"
         type="button"
-        className="inline-flex size-6 items-center justify-center rounded-lg text-muted-foreground opacity-0 transition-opacity duration-150 group-focus-within/permission:opacity-100 group-hover/permission:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring hover:text-foreground"
+        className="opacity-0 transition-opacity duration-150 group-focus-within/permission:opacity-100 group-hover/permission:opacity-100 focus-visible:opacity-100"
         aria-label={removeLabel}
         onClick={onRemove}
       >
         <ComputerHistoryRemoveIcon className="size-3" aria-hidden="true" />
-      </button>
+      </Button>
     </div>
   );
 }
@@ -694,7 +696,7 @@ function AppPicker({
   if (position === null || portalContainer === null || typeof document === "undefined") return null;
   return createPortal(
     <div
-      className="fixed z-50 m-px flex w-[240px] select-none flex-col overflow-y-auto rounded-xl bg-[var(--color-surface-elevated-secondary)]/90 px-1 py-1 text-[var(--color-text-foreground)] shadow-[0_0_0_0.5px_var(--color-border),0_8px_16px_-4px_#0000001f] ring-[0.5px] ring-border backdrop-blur-sm max-h-[min(350px,calc(100vh-16px))]"
+      className="fixed z-50 m-px flex w-[240px] select-none flex-col overflow-y-auto rounded-popover bg-[var(--color-surface-elevated-secondary)]/90 px-1 py-1 text-[var(--color-text-foreground)] shadow-[0_0_0_0.5px_var(--color-border),0_8px_16px_-4px_#0000001f] ring-[0.5px] ring-border backdrop-blur-sm max-h-[min(350px,calc(100vh-16px))]"
       style={{ left: position.left, top: position.top, maxHeight: position.maxHeight }}
       role="listbox"
       aria-label={t("settings.history.searchApps")}
@@ -765,7 +767,7 @@ function AppPicker({
                 id={`computer-history-app-option-${app.bundleIdentifier.replace(/[^a-zA-Z0-9_-]/gu, "-")}`}
                 aria-selected={false}
                 tabIndex={-1}
-                className="flex w-full items-center gap-2.5 rounded-lg px-2 py-[5px] text-left text-ui leading-[17px] outline-none hover:bg-secondary/50 focus-visible:bg-secondary/50 data-[active=true]:bg-secondary/50"
+                className="flex w-full items-center gap-2.5 rounded-row px-2 py-[5px] text-left text-ui leading-[17px] outline-none hover:bg-secondary/50 focus-visible:bg-secondary/50 data-[active=true]:bg-secondary/50"
                 data-active={activeIndex === filteredIndex ? "true" : undefined}
                 onClick={() => onSelect(app)}
               >
@@ -1413,7 +1415,7 @@ export function ComputerHistorySettingsPanel() {
                   }}
                   t={t}
                 />
-                <div className="relative flex h-[250px] min-h-0 min-w-0 flex-col overflow-visible rounded-xl border border-border bg-foreground/[0.025]">
+                <div className="relative flex h-[250px] min-h-0 min-w-0 flex-col overflow-visible rounded-card border border-border bg-foreground/[0.025]">
                   <div className="relative">
                     <Button
                       ref={appPickerAnchorRef}
@@ -1505,7 +1507,7 @@ export function ComputerHistorySettingsPanel() {
                   t={t}
                 />
                 <div
-                  className="relative flex h-[250px] min-h-0 min-w-0 flex-col overflow-visible rounded-xl border border-border bg-foreground/[0.025]"
+                  className="relative flex h-[250px] min-h-0 min-w-0 flex-col overflow-visible rounded-card border border-border bg-foreground/[0.025]"
                   data-computer-history-website-editor
                 >
                   <div className="relative">
@@ -1524,7 +1526,7 @@ export function ComputerHistorySettingsPanel() {
                       </Button>
                     ) : (
                       <form
-                        className="flex min-h-10 items-center gap-2 rounded-lg bg-foreground/[0.025] px-2"
+                        className="flex min-h-10 items-center gap-2 rounded-control bg-foreground/[0.025] px-2"
                         onKeyDown={(event) => {
                           if (event.key !== "Escape") return;
                           event.preventDefault();
@@ -1581,7 +1583,7 @@ export function ComputerHistorySettingsPanel() {
                             <PermissionRuleRow
                               label={host}
                               icon={
-                                <span className="flex size-6 items-center justify-center rounded-lg bg-foreground/5 text-muted-foreground">
+                                <span className="flex size-6 items-center justify-center rounded-control-xs bg-foreground/5 text-muted-foreground">
                                   <ComputerHistoryGlobeIcon className="size-4" aria-hidden="true" />
                                 </span>
                               }
@@ -1703,7 +1705,7 @@ export function ComputerHistorySettingsPanel() {
           </h2>
           {actions}
         </div>
-        <SettingsCard className="rounded-2xl bg-[var(--color-background-panel)]">
+        <SettingsCard className="rounded-card bg-[var(--color-background-panel)]">
           {historyError ? (
             <div className="flex flex-col items-center gap-3 px-5 py-10 text-center text-ui-lg text-[var(--color-text-foreground-secondary)]">
               <p role="alert">{t("settings.history.error.historyLoad")}</p>
@@ -1882,7 +1884,7 @@ export function ComputerHistorySettingsPanel() {
                                         render={
                                           <button
                                             type="button"
-                                            className="inline-flex size-5.5 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                                            className="inline-flex size-5.5 shrink-0 items-center justify-center rounded-control-xs text-muted-foreground outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
                                             aria-label={format("settings.history.revealFinderFor", {
                                               title: entry.title,
                                             })}
@@ -1918,7 +1920,7 @@ export function ComputerHistorySettingsPanel() {
                                           <button
                                             type="button"
                                             className={cn(
-                                              "inline-flex h-5.5 shrink-0 items-center justify-center rounded-lg text-muted-foreground outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
+                                              "inline-flex h-5.5 shrink-0 items-center justify-center rounded-control-xs text-muted-foreground outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
                                               confirming
                                                 ? "w-14 border border-destructive bg-destructive text-white hover:bg-destructive/90 hover:text-white"
                                                 : "w-5.5",
@@ -2075,7 +2077,7 @@ export function ComputerHistorySettingsPanel() {
                                 ) : null}
                                 {entry.suggestion ? (
                                   <div
-                                    className="mt-3 rounded-lg bg-foreground/5 px-3 py-2"
+                                    className="mt-3 rounded-control bg-foreground/5 px-3 py-2"
                                     data-testid="computer-history-inline-suggestion"
                                   >
                                     <p className="text-ui-lg leading-5 font-medium">
@@ -2234,7 +2236,7 @@ export function ComputerHistorySettingsPanel() {
         </p>
       ) : null}
       <div
-        className="computer-history-settings-card flex flex-col overflow-hidden rounded-2xl border border-[var(--color-border)]"
+        className="computer-history-settings-card flex flex-col overflow-hidden rounded-card border border-[var(--color-border)]"
         style={{
           backgroundColor:
             "var(--color-background-panel, var(--color-background-primary-soft-alpha))",

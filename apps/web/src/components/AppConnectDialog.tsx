@@ -216,7 +216,7 @@ export function AppConnectDialog({
         <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-hidden px-6 pt-8 pb-6">
           <DialogHeader className="items-center gap-4 p-0 text-center">
             <div className="flex items-center gap-3">
-              <span className="flex size-14 items-center justify-center rounded-xl bg-black text-white shadow-sm">
+              <span className="flex size-14 items-center justify-center rounded-card bg-black text-white shadow-sm">
                 <OpenAI className="size-12" />
               </span>
               <span className="flex items-center gap-2" aria-hidden="true">
@@ -224,7 +224,7 @@ export function AppConnectDialog({
                 <span className="size-1.5 rounded-full bg-border" />
                 <span className="size-1.5 rounded-full bg-border" />
               </span>
-              <span className="flex size-14 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted shadow-sm">
+              <span className="flex size-14 items-center justify-center overflow-hidden rounded-card border border-border bg-muted shadow-sm">
                 {appLogo ? (
                   <img
                     src={appLogo}
@@ -252,7 +252,7 @@ export function AppConnectDialog({
           </DialogHeader>
           <DialogPanel className="px-0 pt-0 pb-0">
             {loading ? (
-              <div className="rounded-2xl border border-border px-4 py-2">
+              <div className="rounded-card border border-border px-4 py-2">
                 {CONNECTION_DETAIL_SKELETON_ROWS.map((row) => (
                   <div
                     key={row}
@@ -265,7 +265,7 @@ export function AppConnectDialog({
                 ))}
               </div>
             ) : (
-              <div className="rounded-2xl border border-border px-4 py-2">
+              <div className="rounded-card border border-border px-4 py-2">
                 {blurbs.map((blurb) => (
                   <div
                     key={`${blurb.title}\u0000${blurb.description}`}

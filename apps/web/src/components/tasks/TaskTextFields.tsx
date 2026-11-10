@@ -91,7 +91,7 @@ export function TaskTextFields({
           onChange={(event) => setTitle(event.target.value)}
           onBlur={commitTitle}
           onKeyDown={handleTitleKeyDown}
-          className="font-system-ui field-sizing-content min-w-0 flex-1 resize-none bg-transparent text-ui-lg font-semibold leading-snug text-foreground outline-none"
+          className="font-system-ui field-sizing-content min-w-0 flex-1 resize-none bg-transparent text-ui-lg font-medium leading-snug text-foreground outline-none"
         />
         {trailing}
       </div>

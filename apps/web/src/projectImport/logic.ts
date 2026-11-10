@@ -7,9 +7,11 @@ import {
   type ProjectImportProject,
   type ProjectImportProvider,
   type ProjectImportUnreadableProvider,
+  type ServerProviderStatus,
 } from "@moss/contracts";
 
 import { isRpcCapacityExceededError } from "~/lib/expensiveReadRetry";
+import { findProviderStatus, resolveAgentReadiness } from "~/lib/providerAvailability";
 
 /** Every agent the import scans; the server reads each one's local history. */
 export const IMPORT_PROVIDERS: readonly ProjectImportProvider[] = PROJECT_IMPORT_PROVIDERS;
@@ -120,6 +122,42 @@ export function projectImportProvidersNotFound(
   return scanned.filter(
     (provider) => !found.has(provider) && !failed.has(provider) && !unreadable.has(provider),
   );
+}
+
+/**
+ * Splits the agents a scan found nothing for by what agent detection saw, so the import step
+ * and the agents step tell the same story: an agent detection found on this computer has "no
+ * conversations yet"; only one it didn't find (or hasn't checked) is "not found".
+ */
+export function splitProjectImportNotFoundByDetection(
+  notFound: readonly ProjectImportProvider[],
+  providerStatuses: readonly ServerProviderStatus[] | null | undefined,
+): {
+  readonly notFound: ProjectImportProvider[];
+  readonly noConversations: ProjectImportProvider[];
+} {
+  if (!providerStatuses) return { notFound: [...notFound], noConversations: [] };
+  const detected = (provider: ProjectImportProvider) => {
+    const status = findProviderStatus(providerStatuses, provider);
+    return (
+      status !== null &&
+      status.enabled !== false &&
+      resolveAgentReadiness(status).state !== "notInstalled"
+    );
+  };
+  return {
+    notFound: notFound.filter((provider) => !detected(provider)),
+    noConversations: notFound.filter(detected),
+  };
+}
+
+/** One quiet line for detected agents that have nothing to import yet. */
+export function projectImportNoConversationsNote(
+  providers: readonly ProjectImportProvider[],
+): string | null {
+  return providers.length > 0
+    ? `No conversations yet: ${providers.map((provider) => IMPORT_PROVIDER_LABELS[provider]).join(", ")}.`
+    : null;
 }
 
 /**

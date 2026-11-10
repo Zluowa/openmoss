@@ -154,7 +154,7 @@ export function DeckViewer(props: {
             <div
               role="menu"
               data-download-menu
-              className="absolute top-full right-0 z-20 mt-1 flex w-56 flex-col gap-0.5 rounded-[10px] border border-border bg-popover p-1 text-ui-sm shadow-md"
+              className="absolute top-full right-0 z-20 mt-1 flex w-56 flex-col gap-0.5 rounded-popover border border-border bg-popover p-1 text-ui-sm shadow-md"
             >
               {(
                 [
@@ -230,7 +230,7 @@ export function DeckViewer(props: {
               <span className="w-4 pt-0.5 text-right text-ui-xs text-muted-foreground tabular-nums">
                 {i + 1}
               </span>
-              <span className="overflow-hidden rounded-sm border border-border">
+              <span className="overflow-hidden rounded-inline border border-border">
                 <SlideView slide={item} theme={shown.theme} width={120} />
               </span>
             </button>
@@ -242,7 +242,10 @@ export function DeckViewer(props: {
             className="flex min-h-0 flex-1 items-center justify-center bg-muted/40 p-4"
           >
             {slide ? (
-              <div className="overflow-hidden rounded-sm shadow-md" data-current-slide={slide.id}>
+              <div
+                className="overflow-hidden rounded-inline shadow-md"
+                data-current-slide={slide.id}
+              >
                 <SlideView
                   slide={slide}
                   theme={shown.theme}

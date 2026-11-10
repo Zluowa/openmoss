@@ -12,6 +12,7 @@
 // Layer: Chat/editor file-preview UI
 // Exports: WorkspaceFilePreviewHeader
 
+import { Button } from "~/components/ui/button";
 import { isWorkspaceRelativePathSafe, joinWorkspaceRelativePath } from "@moss/shared/path";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 
@@ -337,14 +338,15 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
           source/preview switch, and everything else behind "More actions". */}
       <div className="flex shrink-0 items-center gap-1">
         {props.onSave ? (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             type="button"
             onClick={props.onSave}
             disabled={!props.dirty || props.saveState === "Saving..."}
-            className="rounded-control px-2 py-1 text-ui-sm disabled:opacity-50"
           >
             Save
-          </button>
+          </Button>
         ) : null}
         <OpenInPicker openInTarget={openInTarget} labelMode="icon" />
         {props.onOpenInBrowser ? (

@@ -31,7 +31,7 @@ export function MentionMenu({
       role="listbox"
       aria-label={t("Mention an assistant")}
       className={cn(
-        "absolute bottom-full start-2 z-20 mb-2 max-h-72 w-72 overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-border/40 bg-muted shadow-lg",
+        "absolute bottom-full start-2 z-20 mb-2 max-h-72 w-72 overflow-x-hidden overflow-y-auto overscroll-contain rounded-popover border border-border/40 bg-muted shadow-lg",
         className,
       )}
     >

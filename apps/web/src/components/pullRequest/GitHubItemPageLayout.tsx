@@ -4,8 +4,8 @@
 //          the loading / unavailable / not found states, and the tab bodies. The Summary body
 //          scrolls with the info either in a right-hand column or folded into rows under the
 //          header; the switch is a container query on the detail pane itself, so a narrow window
-//          and an open side chat dock fold it the same way. Every tab floats the question
-//          composer over its bottom.
+//          and an open side chat dock fold it the same way. Every tab docks the question
+//          composer in its own row under the scrolling content, so it never covers any text.
 // Layer: Pull request presentation
 // Exports: GitHubItemDetailPage, GitHubItemTabs, GitHubItemPageBody, GitHubItemTabBody,
 //          GitHubItemPageIconActions, GitHubItemAskComposer, GitHubItemPageHost,
@@ -296,19 +296,24 @@ export function GitHubItemDetailPage({
   );
 }
 
-/** Floats the question composer over the bottom right of a tab body. */
-function FloatingComposerSlot({ composer }: { composer: ReactNode }) {
-  // The composer floats over the tab body; on a glass window that body is cut out from under
-  // it, so it can take the same raised tint as the chat composer (see index.css).
+/**
+ * Docks the question composer at the bottom right of a tab body, in its own row under the
+ * scrolling content, so no text ever sits under it (it used to float over the content and hid
+ * the last lines of a long description).
+ */
+function DockedComposerSlot({ composer }: { composer: ReactNode }) {
+  // On a glass window the slot is cut out of the page tint, so the composer takes the same
+  // raised tint as the chat composer (see index.css).
   const glassOverlayRef = useInPageGlassOverlay<HTMLDivElement>(Boolean(composer));
   if (!composer) return null;
   return (
     <div
       ref={glassOverlayRef}
       data-glass-cutout=""
-      className="pointer-events-none absolute right-4 bottom-4 left-4 flex justify-end"
+      data-github-item-composer-dock=""
+      className="flex shrink-0 justify-end px-4 pt-2 pb-4"
     >
-      <div className="pointer-events-auto w-full max-w-[40rem]">{composer}</div>
+      <div className="w-full max-w-[40rem]">{composer}</div>
     </div>
   );
 }
@@ -327,9 +332,9 @@ export function GitHubItemPageBody({
   composer?: ReactNode;
 }) {
   return (
-    <div className="@container/detail relative min-h-0 flex-1">
-      <div className="h-full overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-[76rem] items-start gap-12 px-6 pt-1 pb-44">
+    <div className="@container/detail relative flex min-h-0 flex-1 flex-col">
+      <div className="min-h-0 flex-1 overflow-y-auto" data-github-item-scroll="">
+        <div className="mx-auto flex w-full max-w-[76rem] items-start gap-12 px-6 pt-1 pb-8">
           <div className="min-w-0 flex-1">
             {header}
             <div className="mb-4 @min-[52rem]/detail:hidden">{info("rows")}</div>
@@ -343,7 +348,7 @@ export function GitHubItemPageBody({
           </aside>
         </div>
       </div>
-      <FloatingComposerSlot composer={composer} />
+      <DockedComposerSlot composer={composer} />
     </div>
   );
 }
@@ -367,7 +372,7 @@ export function GitHubItemTabBody({
         <h1 className="m-0 min-w-0 truncate text-ui-lg font-medium">{title}</h1>
       </div>
       <div className="min-h-0 flex-1">{children}</div>
-      <FloatingComposerSlot composer={composer} />
+      <DockedComposerSlot composer={composer} />
     </div>
   );
 }

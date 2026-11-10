@@ -228,7 +228,7 @@ function ComputerPreviewPopoverCard(props: {
       inert={!visuallyOpen}
       data-computer-preview-popover={threadId}
       className={cn(
-        "group pointer-events-auto flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-popover/95 text-foreground shadow-[0_16px_56px_-16px_rgb(0_0_0/0.5),0_2px_12px_-2px_rgb(0_0_0/0.3)] backdrop-blur-xl",
+        "group pointer-events-auto flex flex-col overflow-hidden rounded-popover border border-white/10 bg-popover/95 text-foreground shadow-[0_16px_56px_-16px_rgb(0_0_0/0.5),0_2px_12px_-2px_rgb(0_0_0/0.3)] backdrop-blur-xl",
         floating !== undefined && "fixed z-50",
         disclosurePopClassName(visuallyOpen),
       )}

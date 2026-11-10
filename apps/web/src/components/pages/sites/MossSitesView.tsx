@@ -202,7 +202,7 @@ function SiteRow(props: {
           <PinFilledIcon aria-label="已置顶" className="size-3 shrink-0 text-muted-foreground" />
         ) : null}
         {site.hasUnpublishedChanges ? (
-          <span className="shrink-0 rounded-sm bg-muted px-1 text-ui-xs text-muted-foreground">
+          <span className="shrink-0 rounded-inline bg-muted px-1 text-ui-xs text-muted-foreground">
             有新修改
           </span>
         ) : null}

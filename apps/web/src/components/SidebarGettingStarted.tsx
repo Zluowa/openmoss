@@ -55,7 +55,7 @@ export function SidebarGettingStarted({
     <div className="px-1.5 pt-1 pb-2" data-sidebar-getting-started="true">
       <button
         type="button"
-        className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-ui text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground"
+        className="flex w-full items-center gap-2 rounded-row px-2 py-1.5 text-left text-ui text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
@@ -71,7 +71,7 @@ export function SidebarGettingStarted({
                 onClick={() => setSelected(index)}
                 aria-label={t(key)}
                 aria-haspopup="dialog"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-ui-sm text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground focus-visible:outline focus-visible:outline-ring"
+                className="flex w-full items-center gap-2 rounded-row px-2 py-1 text-left text-ui-sm text-muted-foreground/80 hover:bg-muted/60 hover:text-foreground focus-visible:outline focus-visible:outline-ring"
               >
                 <span
                   aria-hidden="true"

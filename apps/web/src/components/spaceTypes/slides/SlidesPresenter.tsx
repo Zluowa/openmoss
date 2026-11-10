@@ -375,7 +375,7 @@ export function SlidesPresenter(props: {
       </div>
       {notesBelow ? <div style={{ height: notesHeight }}>{notes(true)}</div> : null}
       <div
-        className="absolute bottom-4 left-4 flex items-center gap-1 rounded-[10px] bg-black/70 p-1 tabular-nums transition-opacity"
+        className="absolute bottom-4 left-4 flex items-center gap-1 rounded-card bg-black/70 p-1 tabular-nums transition-opacity"
         style={{ opacity: controls ? 1 : 0, bottom: notesHeight + 16 }}
         data-present-controls
       >

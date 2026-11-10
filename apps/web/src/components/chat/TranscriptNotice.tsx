@@ -2,7 +2,7 @@ import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 export const TRANSCRIPT_NOTICE_BASE_CLASS_NAME =
-  "relative isolate flex w-full overflow-hidden rounded-2xl border bg-surface py-2 ps-3 pe-2 text-ui-lg shadow-xs lg:mx-auto electron:border-0 electron:ring-[0.5px] electron:ring-border-strong";
+  "relative isolate flex w-full overflow-hidden rounded-card border bg-surface py-2 ps-3 pe-2 text-ui-lg shadow-xs lg:mx-auto electron:border-0 electron:ring-[0.5px] electron:ring-border-strong";
 export const TRANSCRIPT_NOTICE_BACKDROP_CLASS_NAME = "absolute inset-0 -z-10 bg-primary-soft";
 
 export function TranscriptNotice(

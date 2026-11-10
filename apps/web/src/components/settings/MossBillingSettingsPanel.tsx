@@ -182,7 +182,7 @@ function MossBillingSkeleton() {
               <Skeleton className="h-4 w-24 rounded-full" />
               <Skeleton className="h-3 w-16 rounded-full" />
             </div>
-            <Skeleton className="h-8 w-24 rounded-lg" />
+            <Skeleton className="h-8 w-24 rounded-control" />
           </div>
         </SettingsCard>
       </section>
@@ -197,7 +197,7 @@ function MossBillingSkeleton() {
               <Skeleton className="h-4 w-20 rounded-full" />
               <Skeleton className="h-3 w-48 max-w-full rounded-full" />
             </div>
-            <Skeleton className="h-8 w-24 rounded-lg" />
+            <Skeleton className="h-8 w-24 rounded-control" />
           </div>
           <div className="border-t border-[color:var(--color-border)] px-4 py-3.5">
             <Skeleton className="h-4 w-36 rounded-full" />

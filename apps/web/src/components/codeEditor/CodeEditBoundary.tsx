@@ -1,3 +1,4 @@
+import { Button } from "~/components/ui/button";
 import { EditProvider, Virtualizer, type CreateEditor } from "@pierre/diffs/react";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -36,13 +37,14 @@ export function CodeEditBoundary(props: { children: ReactNode }) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
         <p className="text-ui text-muted-foreground">Could not load the editor.</p>
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           type="button"
-          className="rounded-md border border-border px-2.5 py-1 text-ui-sm text-foreground hover:bg-[var(--color-background-elevated-secondary)]"
           onClick={() => setAttempt((previous) => previous + 1)}
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }

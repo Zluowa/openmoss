@@ -109,7 +109,7 @@ function SidebarCustomizeRow({
         <button
           type="button"
           ref={setActivatorNodeRef}
-          className="ml-auto inline-flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground active:cursor-grabbing"
+          className="ml-auto inline-flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-control-xs text-muted-foreground transition-colors hover:text-foreground active:cursor-grabbing"
           aria-label={`Reorder ${label}`}
           {...attributes}
           {...listeners}

@@ -163,7 +163,7 @@ export function GitCommitDialog({
             ) : null}
           </div>
           {allFiles.length > 0 ? (
-            <ScrollArea className="h-32 rounded-md border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)]">
+            <ScrollArea className="h-32 rounded-card border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)]">
               <div className="space-y-1 p-1">
                 {allFiles.map((file) => (
                   <ChangedFileRow
@@ -223,7 +223,7 @@ function ChangedFileRow({
   onOpen: () => void;
 }) {
   return (
-    <div className="flex w-full items-center gap-2 rounded-md px-2 py-1 font-mono text-ui leading-snug transition-colors hover:bg-[var(--color-background-button-secondary-hover)]">
+    <div className="flex w-full items-center gap-2 rounded-row px-2 py-1 font-mono text-ui leading-snug transition-colors hover:bg-[var(--color-background-button-secondary-hover)]">
       {selectable ? <Checkbox checked={!excluded} onCheckedChange={onToggle} /> : null}
       {/* Raw <button> intentionally — list-row click target, not a shadcn Button. */}
       <button

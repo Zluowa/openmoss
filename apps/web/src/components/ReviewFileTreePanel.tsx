@@ -144,7 +144,7 @@ function ReviewFileTreeLoadingRows() {
           className="flex h-5 items-center gap-1.5"
           style={fileRowIndentStyle(index % 2)}
         >
-          <Skeleton className="size-4 shrink-0 rounded-sm" />
+          <Skeleton className="size-4 shrink-0 rounded-control-xs" />
           <Skeleton className={cn("h-3 rounded-full", width)} />
         </div>
       ))}

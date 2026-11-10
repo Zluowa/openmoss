@@ -9,6 +9,7 @@ import type {
   ImportProjectResult,
   ListProjectImportsResult,
   ProjectImportProvider,
+  ServerProviderStatus,
 } from "@moss/contracts";
 import { useEffect, useRef, useState } from "react";
 
@@ -33,7 +34,9 @@ import {
   IMPORT_PROVIDER_LABELS,
   projectImportProviderCounts,
   projectImportProvidersNotFound,
+  projectImportNoConversationsNote,
   projectImportQuietNote,
+  splitProjectImportNotFoundByDetection,
   projectImportUnreadableNotes,
   selectableProjectImportKeys,
   type ProjectImportQueueItem,
@@ -84,6 +87,8 @@ export function ProjectImportPanel(props: {
    * imports its conversations as history.
    */
   readonly relinkMissingFolders?: boolean;
+  /** Agent detection (server provider statuses), so "not found" matches the agents list. */
+  readonly providerStatuses?: readonly ServerProviderStatus[] | undefined;
 }) {
   const [providers, setProviders] = useState<readonly ProjectImportProvider[]>(
     props.initialProviders ?? IMPORT_PROVIDERS,
@@ -137,11 +142,16 @@ export function ProjectImportPanel(props: {
   // Unticking an agent leaves its conversations out without forgetting their selection.
   const projects = filterProjectImportsByProvider(catalog?.projects ?? [], providers);
   const providerCounts = projectImportProviderCounts(catalog?.projects ?? []);
-  const quietNote = catalog
-    ? projectImportQuietNote(
+  const missing = catalog
+    ? splitProjectImportNotFoundByDetection(
         projectImportProvidersNotFound(catalog, IMPORT_PROVIDERS),
-        catalog.unreadable ?? [],
+        props.providerStatuses,
       )
+    : null;
+  const quietNote =
+    catalog && missing ? projectImportQuietNote(missing.notFound, catalog.unreadable ?? []) : null;
+  const noConversationsNote = missing
+    ? projectImportNoConversationsNote(missing.noConversations)
     : null;
   const unreadableDetails = catalog ? projectImportUnreadableNotes(catalog).join("\n") : "";
   const queue = buildProjectImportQueue({
@@ -356,7 +366,7 @@ export function ProjectImportPanel(props: {
             <label
               key={provider}
               className={cn(
-                "flex h-8 cursor-pointer items-center gap-2 rounded-lg border px-2.5 transition-colors motion-reduce:transition-none",
+                "flex h-8 cursor-pointer items-center gap-2 rounded-control border px-2.5 transition-colors motion-reduce:transition-none",
                 providers.includes(provider)
                   ? "border-foreground/14 bg-foreground/[0.05] text-foreground"
                   : "border-foreground/8 text-muted-foreground hover:bg-foreground/[0.03]",
@@ -387,6 +397,9 @@ export function ProjectImportPanel(props: {
           {quietNote}
         </p>
       ) : null}
+      {noConversationsNote ? (
+        <p className="text-ui-sm text-muted-foreground/80">{noConversationsNote}</p>
+      ) : null}
       {catalog && catalog.projects.length > 0 ? (
         <div className="flex min-h-0 flex-col">
           <button
@@ -407,7 +420,7 @@ export function ProjectImportPanel(props: {
                   placeholder="Search projects…"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  className="h-8 min-w-40 flex-1 rounded-lg text-ui sm:text-ui"
+                  className="h-8 min-w-40 flex-1 rounded-control text-ui sm:text-ui"
                 />
                 <label className="flex items-center gap-2 text-ui-sm text-muted-foreground">
                   <Checkbox
@@ -420,7 +433,7 @@ export function ProjectImportPanel(props: {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-8 shrink-0 rounded-lg font-normal text-ui sm:text-ui"
+                  className="h-8 shrink-0 rounded-control font-normal text-ui sm:text-ui"
                   disabled={busy || scanning || selectableKeys.length === 0}
                   onClick={() => select(selectableKeys, !allSelected)}
                 >
@@ -430,7 +443,7 @@ export function ProjectImportPanel(props: {
               <div className="-mr-2 max-h-64 overflow-y-auto pr-2">
                 {visibleProjects.length > 0 ? (
                   <div
-                    className="divide-y divide-foreground/8 overflow-hidden rounded-xl border border-foreground/10"
+                    className="divide-y divide-foreground/8 overflow-hidden rounded-card border border-foreground/10"
                     aria-label="Projects available to import"
                   >
                     {visibleProjects.map((project) => (
@@ -521,7 +534,7 @@ export function ProjectImportPanel(props: {
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-foreground/8 pt-2.5">
           <Button
             size="sm"
-            className="h-8 rounded-lg px-3 font-normal text-ui sm:text-ui"
+            className="h-8 rounded-control px-3 font-normal text-ui sm:text-ui"
             disabled={primaryAction.disabled}
             onClick={primaryAction.run}
           >

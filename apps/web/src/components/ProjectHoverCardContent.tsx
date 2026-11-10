@@ -73,7 +73,7 @@ export function ProjectHoverCardContent({
           aria-pressed={isPinned}
           onClick={onTogglePin}
           className={cn(
-            "-mr-1 shrink-0 cursor-pointer rounded-sm p-1 transition-colors",
+            "-mr-1 shrink-0 cursor-pointer rounded-inline p-1 transition-colors",
             isPinned ? "text-foreground" : "text-muted-foreground/55 hover:text-foreground",
           )}
         >

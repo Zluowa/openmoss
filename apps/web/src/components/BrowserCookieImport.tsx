@@ -171,7 +171,7 @@ export function BrowserCookieImport({
             <span>Import scope</span>
             <select
               aria-label="Cookie import scope"
-              className="h-8 w-full rounded-md border bg-background px-2"
+              className="h-8 w-full rounded-row border bg-background px-2"
               value={scope}
               disabled={busy}
               onChange={(event) => {
@@ -196,7 +196,7 @@ export function BrowserCookieImport({
               <span>Browser</span>
               <select
                 aria-label="Cookie source browser"
-                className="h-8 w-full rounded-md border bg-background px-2"
+                className="h-8 w-full rounded-row border bg-background px-2"
                 value={source}
                 disabled={busy}
                 onChange={(event) => {
@@ -214,7 +214,7 @@ export function BrowserCookieImport({
               <span>Profile</span>
               <select
                 aria-label="Cookie source profile"
-                className="h-8 w-full rounded-md border bg-background px-2"
+                className="h-8 w-full rounded-row border bg-background px-2"
                 value={profile}
                 disabled={busy}
                 onChange={(event) => {

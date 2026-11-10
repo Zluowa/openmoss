@@ -39,7 +39,7 @@ const DROP_ZONE_PREVIEW_CLASS: Record<DropZone, string> = {
   right: "top-0 bottom-0 right-0 w-1/2",
 };
 const DROP_ZONE_PREVIEW_BASE_CLASS =
-  "absolute m-1 flex items-center justify-center rounded-md bg-info/18 ring-1 ring-inset ring-info/65";
+  "absolute m-1 flex items-center justify-center rounded-control bg-info/18 ring-1 ring-inset ring-info/65";
 // Names where the dropped chat lands, centred in the highlighted half.
 const DROP_ZONE_LABEL: Record<DropZone, string> = {
   top: "Above",
