@@ -77,6 +77,33 @@ describe("EnvironmentUsageSection", () => {
     expect(page.getByText("40% left", { exact: true }).query()).toBeNull();
   });
 
+  it("shows the Moss account, not signed-out local logins, when the chat runs on Moss", async () => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(serverQueryKeys.allProviderUsage(), [
+      { ...snapshot("claudeAgent", []), instanceId: "claudeAgent", status: "needs-auth" },
+    ]);
+    queryClient.setQueryData(serverQueryKeys.settings(), {
+      ...DEFAULT_SERVER_SETTINGS_VIEW,
+      providerInstances: {
+        claudeAgent: { driver: "claudeAgent", displayName: "Default" },
+        claude_moss: { driver: "claudeAgent", displayName: "Moss", config: { managed: true } },
+      },
+    });
+
+    const screen = await render(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentUsageSection provider="claudeAgent" activeInstanceId={"claude_moss" as never} />
+      </QueryClientProvider>,
+    );
+    try {
+      await expect.element(page.getByRole("button", { name: /^Moss/u })).toBeVisible();
+      expect(page.getByText(/Claude · /u).query()).toBeNull();
+      expect(page.getByText("Sign in", { exact: true }).query()).toBeNull();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("shows only the active provider's usage and updates when the provider changes", async () => {
     const queryClient = createQueryClient();
     queryClient.setQueryData(serverQueryKeys.allProviderUsage(), [

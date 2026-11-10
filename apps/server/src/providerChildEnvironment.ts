@@ -130,6 +130,47 @@ const INHERITED_NATIVE_CAPABILITY_KEYS = new Set([
   "NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS",
 ]);
 
+/**
+ * Variables a parent Claude Code or Claude desktop session sets for its own CLI: who it is,
+ * how its host refreshes sign-in, and how to reach that host. When Moss itself was started
+ * from such a session (a terminal inside Claude desktop), an agent child would inherit them.
+ * `CLAUDE_CODE_ENTRYPOINT=claude-desktop` alone makes the Claude CLI ignore the token Moss
+ * gives it (`claude auth status` reports loggedIn:false), so the Moss account reads as signed
+ * out. None of them describes the agent Moss starts, so no child inherits them. Moss's own
+ * Claude settings (retries, artifacts, config folder) and real credentials are not listed.
+ */
+export const PARENT_CLAUDE_SESSION_ENV_KEYS: ReadonlySet<string> = new Set([
+  "CLAUDECODE",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+  "CLAUDE_CODE_OAUTH_SCOPES",
+  "CLAUDE_CODE_ACCOUNT_UUID",
+  "CLAUDE_CODE_USER_EMAIL",
+  "CLAUDE_CODE_ORGANIZATION_UUID",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_HOST_SESSION_ID",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_SESSION_ATTENDED",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_DESKTOP_APP_VERSION",
+  "CLAUDE_CODE_DESKTOP_WORKFLOW_LIMIT_WAIT",
+  "CLAUDE_CODE_TERMINAL_MCP_TOOLS",
+  "CLAUDE_CODE_HOST_SHORT_TEMP_DIRS",
+  "CLAUDE_CODE_REPORT_FINDINGS",
+  "CLAUDE_CODE_STARTUP_FAILURE_RESULTS",
+  "CLAUDE_CODE_EMIT_STARTUP_TIMING",
+  "CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES",
+  "CLAUDE_CODE_SIMPLE",
+  "CLAUDE_CODE_EAGER_FLUSH",
+  "CLAUDE_AGENT_SDK_VERSION",
+  "CLAUDE_AGENT_SDK_MCP_NO_PREFIX",
+  "CLAUDE_PID",
+  "CLAUDE_PREVIEW_CLASSIFIER_FLOOR",
+  "CLAUDE_EFFORT",
+]);
+
 const isTestHarnessKey = (key: string, env: NodeJS.ProcessEnv): boolean =>
   Boolean(env.VITEST) &&
   (key.startsWith("MOSS_FAKE_") ||
@@ -165,6 +206,9 @@ export function buildProviderChildEnvironment(input: {
       continue;
     }
     if (INHERITED_NATIVE_CAPABILITY_KEYS.has(key) && !allowedNativeCapabilities.has(key)) {
+      continue;
+    }
+    if (PARENT_CLAUDE_SESSION_ENV_KEYS.has(key.toUpperCase())) {
       continue;
     }
     if (

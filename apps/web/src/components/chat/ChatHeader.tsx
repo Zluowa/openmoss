@@ -40,8 +40,19 @@ import {
 } from "./chatHeaderControls";
 import { DiffStat } from "../ui/diff-stat";
 import { IconButton } from "../ui/icon-button";
-import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
-import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "../ui/menu";
+import { MossLogo } from "../MossLogo";
+import { ComposerPickerMenuPopup, ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
+import { isMossManagedSourceInstanceId } from "./providerAccountSources";
 import { OpenInPicker } from "./OpenInPicker";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { SidebarHeaderNavigationControls } from "../SidebarHeaderNavigationControls";
@@ -69,7 +80,7 @@ import { ProviderUsageMenuControl } from "../ProviderUsageMenuControl";
 import { EnvironmentToggle, type EnvironmentToggleState } from "./environment/EnvironmentToggle";
 import { GuestShareHeaderButton } from "./guestShare/GuestShareHeaderButton";
 import { SurfacePanelToggle, type SurfacePanelToggleState } from "./chatHeaderControls";
-import type { ThreadHandoffTarget } from "~/lib/threadHandoff";
+import { groupThreadHandoffTargets, type ThreadHandoffTarget } from "~/lib/threadHandoff";
 
 /**
  * Width (px) below which collapsible header controls drop their text labels and
@@ -787,33 +798,24 @@ export function ChatHeader({
                 <>
                   <MenuGroup>
                     <MenuGroupLabel>Continue in this thread</MenuGroupLabel>
-                    {continueHandoffActionTargets.map((target) => (
-                      <MenuItem
-                        key={target.instanceId}
-                        data-handoff-destination="this-thread"
-                        onClick={() => onContinueHandoff(target)}
-                      >
-                        {/* opacity-100 opts brand icons out of the option row's 80% icon dim. */}
-                        {renderProviderIcon(target.provider, "size-4 shrink-0 opacity-100")}
-                        <span>{target.label}</span>
-                      </MenuItem>
-                    ))}
+                    <HandoffAgentRows
+                      targets={continueHandoffActionTargets}
+                      destination="this-thread"
+                      onSelect={onContinueHandoff}
+                      renderProviderIcon={renderProviderIcon}
+                    />
                   </MenuGroup>
                   <MenuSeparator />
                 </>
               ) : null}
               <MenuGroup>
                 <MenuGroupLabel>Continue in a new thread</MenuGroupLabel>
-                {handoffActionTargets.map((target) => (
-                  <MenuItem
-                    key={target.instanceId}
-                    data-handoff-destination="new-thread"
-                    onClick={() => onCreateHandoff(target)}
-                  >
-                    {renderProviderIcon(target.provider, "size-4 shrink-0 opacity-100")}
-                    <span>{target.label}</span>
-                  </MenuItem>
-                ))}
+                <HandoffAgentRows
+                  targets={handoffActionTargets}
+                  destination="new-thread"
+                  onSelect={onCreateHandoff}
+                  renderProviderIcon={renderProviderIcon}
+                />
               </MenuGroup>
             </ComposerPickerMenuPopup>
           </Menu>
@@ -921,5 +923,79 @@ export function ChatHeader({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The handoff menu's agents: one row each. An agent with one account continues on it; an agent
+ * with several (Moss and the local account) opens a submenu naming them the way the model
+ * picker does, so the list never repeats "Moss" under every agent.
+ */
+export function HandoffAgentRows(props: {
+  targets: ReadonlyArray<ThreadHandoffTarget>;
+  destination: "this-thread" | "new-thread";
+  onSelect: (target: ThreadHandoffTarget) => void;
+  renderProviderIcon: (provider: ProviderKind | null, className: string) => React.ReactNode;
+}) {
+  const { t } = useTranslation();
+  // opacity-100 opts brand icons out of the option row's 80% icon dim.
+  const agentIcon = (provider: ProviderKind) =>
+    props.renderProviderIcon(provider, "size-4 shrink-0 opacity-100");
+  const sourceLabel = (target: ThreadHandoffTarget) =>
+    isMossManagedSourceInstanceId(target.instanceId)
+      ? "Moss"
+      : target.instanceId === target.provider
+        ? t("chat.modelPicker.source.local")
+        : target.label;
+  return (
+    <>
+      {groupThreadHandoffTargets(props.targets, isMossManagedSourceInstanceId).map((group) => {
+        const agentLabel = PROVIDER_DISPLAY_NAMES[group.provider];
+        const only = group.targets.length === 1 ? group.targets[0] : undefined;
+        if (only) {
+          const moss = isMossManagedSourceInstanceId(only.instanceId);
+          return (
+            <MenuItem
+              key={group.provider}
+              data-handoff-destination={props.destination}
+              data-handoff-agent={group.provider}
+              onClick={() => props.onSelect(only)}
+            >
+              {agentIcon(group.provider)}
+              <span className="min-w-0 flex-1 truncate">{agentLabel}</span>
+              {moss || only.instanceId !== only.provider ? (
+                <span className="shrink-0 text-ui-sm text-muted-foreground">
+                  {sourceLabel(only)}
+                </span>
+              ) : null}
+            </MenuItem>
+          );
+        }
+        return (
+          <MenuSub key={group.provider}>
+            <MenuSubTrigger data-handoff-agent={group.provider}>
+              {agentIcon(group.provider)}
+              <span className="min-w-0 flex-1 truncate">{agentLabel}</span>
+            </MenuSubTrigger>
+            <ComposerPickerMenuSubPopup className="w-44">
+              {group.targets.map((target) => (
+                <MenuItem
+                  key={target.instanceId}
+                  data-handoff-destination={props.destination}
+                  onClick={() => props.onSelect(target)}
+                >
+                  {isMossManagedSourceInstanceId(target.instanceId) ? (
+                    <MossLogo className="size-4 shrink-0" />
+                  ) : (
+                    agentIcon(target.provider)
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{sourceLabel(target)}</span>
+                </MenuItem>
+              ))}
+            </ComposerPickerMenuSubPopup>
+          </MenuSub>
+        );
+      })}
+    </>
   );
 }

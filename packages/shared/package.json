@@ -113,6 +113,10 @@
       "types": "./src/codexDiagnostics.ts",
       "import": "./src/codexDiagnostics.ts"
     },
+    "./mossBuiltInApps": {
+      "types": "./src/mossBuiltInApps.ts",
+      "import": "./src/mossBuiltInApps.ts"
+    },
     "./mossMediaPlugins": {
       "types": "./src/mossMediaPlugins.ts",
       "import": "./src/mossMediaPlugins.ts"

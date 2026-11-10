@@ -264,6 +264,37 @@ export function usePluginResourceActions(input: {
     ],
   );
 
+  // Open a fresh chat with a request already in the composer, for the
+  // person to read and send: a Moss app's "try asking" prompts and 创建应用.
+  const startChatWithPrompt = useCallback(
+    (prompt: string): Promise<boolean> =>
+      runExclusive(async () => {
+        const projectId = await ensureProjectId({
+          activeProjectId: input.activeProjectId,
+          cwd: input.cwd,
+          defaultModelSelection,
+        });
+        if (!projectId) return false;
+        const threadId = await handleNewThread(projectId, {
+          provider: input.provider,
+          ...(input.instanceId ? { providerInstanceId: input.instanceId } : {}),
+          fresh: true,
+        });
+        if (!threadId) return false;
+        useComposerDraftStore.getState().setPrompt(threadId, prompt);
+        return true;
+      }),
+    [
+      runExclusive,
+      defaultModelSelection,
+      handleNewThread,
+      input.activeProjectId,
+      input.provider,
+      input.instanceId,
+      input.cwd,
+    ],
+  );
+
   const prepareCanonicalMutation = useCallback(
     async (payload: CanonicalMutationPayload) => {
       if (!input.cwd) return null;
@@ -522,6 +553,7 @@ export function usePluginResourceActions(input: {
   return {
     tryInChat,
     tryAppInChat,
+    startChatWithPrompt,
     uninstall,
     installPlugin,
     setResourceEnabled,

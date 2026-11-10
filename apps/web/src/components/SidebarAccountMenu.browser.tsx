@@ -222,7 +222,7 @@ describe("SidebarAccountMenu", () => {
     const { screen } = await renderAccountMenu({
       kind: "authenticated",
       label: "+86 138****0000",
-      initials: "13",
+      initials: "",
       title: "+86 138****0000",
       menuLabel: "+8613800000000",
       menuTitle: "+8613800000000",
@@ -328,7 +328,8 @@ describe("resolveSidebarAccountIdentity", () => {
     ).toEqual({
       kind: "authenticated",
       label: "+86 138****0000",
-      initials: "13",
+      // An unnamed phone account shows the Moss mark, never digits of its number.
+      initials: "",
       title: "+86 138****0000",
       menuLabel: "+8613800000000",
       menuTitle: "+8613800000000",

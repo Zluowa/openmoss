@@ -1,3 +1,4 @@
+import { mossCatalogModelDisplayName } from "@moss/shared/mossRealmCatalog";
 import {
   formatModelDisplayName,
   geminiModelOptionsFromEffortValue,
@@ -123,6 +124,9 @@ export function formatProviderModelOptionName(input: {
   if (trimmedSlug.length === 0) {
     return trimmedSlug;
   }
+  // A Moss catalog model has one name in every CLI.
+  const mossName = mossCatalogModelDisplayName(trimmedSlug);
+  if (mossName) return mossName;
 
   if (input.provider === "opencode" || input.provider === "pi" || input.provider === "omp") {
     const modelIdentifier = trimmedSlug.includes("/")
@@ -253,6 +257,7 @@ export function mergeDynamicModelOptions(input: {
     normalizedDynamicOptions.push({
       slug: normalizedSlug,
       name:
+        mossCatalogModelDisplayName(normalizedSlug) ??
         staticNameBySlug.get(normalizedSlug) ??
         // Claude Code names rows by alias ("Opus (1M context)"); an uncatalogued
         // Claude release reads better as its versioned id ("Claude Opus 6").

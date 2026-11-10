@@ -3,6 +3,7 @@
 
 import {
   DEFAULT_SERVER_SETTINGS_VIEW,
+  type ProviderInstanceId,
   type ProviderKind,
   type ServerProviderUsageSnapshot,
 } from "@moss/contracts";
@@ -18,7 +19,20 @@ import {
   useProviderUsageMenuModel,
 } from "~/components/ProviderUsageMenuControl";
 import { ProviderIcon } from "~/components/ProviderIcon";
+import { MossLogo } from "~/components/MossLogo";
+import {
+  isMossPayQuotaUnlimited,
+  resolveMossPayQuotaAccountIdentity,
+} from "~/components/auth/MossPayPanel";
+import {
+  serverMossAccountSessionQueryOptions,
+  serverMossCloudAccountStateQueryOptions,
+  serverMossPayQuotaQueryOptions,
+} from "~/components/auth/mossServerReactQuery";
+import { isMossManagedSourceInstanceId } from "~/components/chat/providerAccountSources";
+import { mossQuotaRemainingPercent } from "~/components/settings/MossBillingSettingsPanel";
 import { useTranslation } from "~/localization";
+import { openSettings } from "~/settingsDialogStore";
 import { MenuTrigger } from "~/components/ui/menu";
 import {
   serverAllProviderUsageQueryOptions,
@@ -30,6 +44,7 @@ import {
   ENVIRONMENT_ROW_CLASS_NAME,
   ENVIRONMENT_ROW_ICON_CLASS_NAME,
   EnvironmentLabeledSection,
+  EnvironmentRow,
   EnvironmentRowBody,
   EnvironmentRowChevron,
 } from "./EnvironmentRow";
@@ -104,13 +119,73 @@ function EnvironmentUsageAccountRow({
   );
 }
 
-export function EnvironmentUsageSection({ provider }: { provider: ProviderKind }) {
+/**
+ * The chat runs on the Moss account: its usage is the Moss quota, one row that opens Usage
+ * settings. The person's own CLI logins are not what this chat uses, so they are not listed
+ * (a signed-out local row would read as if the chat needed a sign-in).
+ */
+function EnvironmentMossUsageRow() {
+  const { format, t } = useTranslation();
+  const phoneQuery = useQuery(serverMossAccountSessionQueryOptions());
+  const accountQuery = useQuery(serverMossCloudAccountStateQueryOptions());
+  const accountIdentity = resolveMossPayQuotaAccountIdentity(phoneQuery.data, accountQuery.data);
+  const quotaQuery = useQuery(
+    serverMossPayQuotaQueryOptions({ enabled: accountIdentity !== null, accountIdentity }),
+  );
+  const quota = quotaQuery.data;
+  const quotaWindow = quota?.usageLimits.find((limit) => limit.limit !== null);
+  const remaining = quotaWindow
+    ? mossQuotaRemainingPercent(quotaWindow.used, quotaWindow.limit)
+    : null;
+  const status = quota
+    ? isMossPayQuotaUnlimited(quota)
+      ? t("mossPay.quota.unlimited")
+      : remaining !== null
+        ? format("mossPay.quota.remaining", { value: `${remaining}%` })
+        : null
+    : null;
+  return (
+    <EnvironmentRow
+      aria-label={status ? `Moss, ${status}` : "Moss"}
+      data-environment-usage-moss=""
+      onClick={() => openSettings({ section: "usage" })}
+      icon={<MossLogo className={ENVIRONMENT_ROW_ICON_CLASS_NAME} />}
+      label="Moss"
+      trailing={
+        <span className="flex items-center gap-1.5">
+          {status ? (
+            <span className="text-ui-xs text-[var(--color-text-foreground-secondary)]">
+              {status}
+            </span>
+          ) : null}
+          <EnvironmentRowChevron />
+        </span>
+      }
+    />
+  );
+}
+
+export function EnvironmentUsageSection({
+  provider,
+  activeInstanceId = null,
+}: {
+  provider: ProviderKind;
+  /** The account the chat runs on. */
+  activeInstanceId?: ProviderInstanceId | null;
+}) {
   const { locale } = useTranslation();
   const usageQuery = useQuery(serverAllProviderUsageQueryOptions());
   const settingsQuery = useQuery(serverSettingsQueryOptions());
+  const onMoss = activeInstanceId !== null && isMossManagedSourceInstanceId(activeInstanceId);
   const providerInstances = deriveProviderInstances(
     settingsQuery.data ?? DEFAULT_SERVER_SETTINGS_VIEW,
-  ).filter((instance) => instance.enabled && instance.driver === provider);
+  ).filter(
+    (instance) =>
+      instance.enabled &&
+      instance.driver === provider &&
+      // Moss accounts have no CLI usage of their own; their quota is the Moss row.
+      !isMossManagedSourceInstanceId(instance.instanceId as ProviderInstanceId),
+  );
   const accounts = providerInstances.flatMap((instance) => {
     const snapshot = usageQuery.data?.find(
       (entry) =>
@@ -151,6 +226,14 @@ export function EnvironmentUsageSection({ provider }: { provider: ProviderKind }
       },
     ];
   });
+
+  if (onMoss) {
+    return (
+      <EnvironmentLabeledSection label="Usage">
+        <EnvironmentMossUsageRow />
+      </EnvironmentLabeledSection>
+    );
+  }
 
   if (accounts.length === 0) return null;
 

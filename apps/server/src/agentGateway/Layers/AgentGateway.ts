@@ -65,6 +65,7 @@ import { AgentGatewayOperationRepository } from "../Services/AgentGatewayOperati
 import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { gateToolsByMossApp } from "../mossAppGate.ts";
 import {
   AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION,
   resolveAgentGatewayTarget,
@@ -1840,7 +1841,7 @@ export const makeAgentGateway = Effect.gen(function* () {
       })
     : [];
 
-  const tools: ReadonlyArray<ToolEntry> = [
+  const catalog: ReadonlyArray<ToolEntry> = [
     ...(roomRuntime ? makeMossbotRoomTools(roomRuntime) : []),
     ...(pagesService ? makePageTools({ pages: pagesService, drafts: pageDraftsService }) : []),
     ...(pageDraftsService ? makePageDraftTools({ drafts: pageDraftsService }) : []),
@@ -1940,6 +1941,12 @@ export const makeAgentGateway = Effect.gen(function* () {
     // Group tools are Beta-only: Stable does not offer them to agents at all.
     ...(isServerGroupsEnabled() ? [...projectAgentTools, ...(hubGateway?.tools ?? [])] : []),
   ];
+  // Settings › 插件 › 应用: a Moss app the person turned off takes its tools
+  // out of every agent's catalog (and refuses calls by name).
+  const tools = gateToolsByMossApp(
+    catalog,
+    serverSettings.getSettings.pipe(Effect.map((settings) => settings.apps.disabled)),
+  );
 
   // The computer family by name, read off the unfiltered catalog above: a
   // caller whose session was never granted computer control still gets a

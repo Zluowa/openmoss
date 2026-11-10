@@ -607,6 +607,20 @@ describe("provider option descriptor helpers", () => {
     expect(descriptors[0]).toMatchObject({ id: "reasoningDepth", currentValue: "deep" });
   });
 
+  it("keeps Claude Code's auto-compact setting out of every other agent", () => {
+    const caps = getModelCapabilities("claudeAgent", "claude-fable-5-1[1m]");
+    expect(
+      getProviderOptionDescriptors({ provider: "grok", caps }).some(
+        (descriptor) => descriptor.id === "autoCompactWindow",
+      ),
+    ).toBe(false);
+    expect(
+      getProviderOptionDescriptors({ provider: "claudeAgent", caps }).some(
+        (descriptor) => descriptor.id === "autoCompactWindow",
+      ),
+    ).toBe(true);
+  });
+
   it("marks Auto as the default auto-compact option for a 1M Claude variant", () => {
     const caps = getModelCapabilities("claudeAgent", "claude-fable-5-1[1m]");
     const defaultDescriptor = getProviderOptionDescriptors({

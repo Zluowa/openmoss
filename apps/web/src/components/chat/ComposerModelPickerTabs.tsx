@@ -537,6 +537,20 @@ export function ComposerModelPickerProviderRows(props: {
           />
         );
       })}
+      {mossSourceInstanceIdForAgent(activeSource.provider) === undefined ? (
+        // Every agent lists Moss next to its own account. One whose CLI can only reach its
+        // vendor's backend (Devin, Cursor, …) shows it greyed out and says why.
+        <PickerListRow
+          icon={<MossLogo className="size-4 shrink-0 opacity-50" />}
+          title="Moss"
+          trailing={copy.t("chat.modelPicker.status.mossUnsupported")}
+          disabled
+          tooltip={copy.format("chat.modelPicker.mossUnsupportedTooltip", {
+            provider: activeSource.agentLabel,
+          })}
+          onSelect={() => undefined}
+        />
+      ) : null}
     </div>
   );
 }

@@ -359,3 +359,33 @@ export function resolveThreadHandoffModelSelection(input: {
     model: defaultModel,
   });
 }
+
+/** One agent in the handoff menu, with every account it can continue on (Moss, then local). */
+export interface ThreadHandoffAgentGroup {
+  readonly provider: ProviderKind;
+  readonly targets: ReadonlyArray<ThreadHandoffTarget>;
+}
+
+/**
+ * Folds handoff targets into one entry per agent, in the order they arrive (the user's agent
+ * order), so the menu never repeats "Moss" once per agent. Within an agent the Moss account
+ * comes first, then the local account, then any other account, the same order as the model
+ * picker.
+ */
+export function groupThreadHandoffTargets(
+  targets: ReadonlyArray<ThreadHandoffTarget>,
+  isMossSource: (instanceId: ProviderInstanceId) => boolean,
+): ReadonlyArray<ThreadHandoffAgentGroup> {
+  const byProvider = new Map<ProviderKind, ThreadHandoffTarget[]>();
+  for (const target of targets) {
+    const group = byProvider.get(target.provider);
+    if (group) group.push(target);
+    else byProvider.set(target.provider, [target]);
+  }
+  const rank = (target: ThreadHandoffTarget) =>
+    isMossSource(target.instanceId) ? 0 : target.instanceId === target.provider ? 1 : 2;
+  return [...byProvider].map(([provider, group]) => ({
+    provider,
+    targets: group.toSorted((left, right) => rank(left) - rank(right)),
+  }));
+}

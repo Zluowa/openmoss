@@ -716,9 +716,15 @@ export function getProviderOptionDescriptors(input: {
   caps: ModelCapabilities;
   selections?: ProviderOptionSelectionsInput;
 }): ReadonlyArray<ProviderOptionDescriptor> {
-  const descriptors =
+  const descriptors = (
     input.caps.optionDescriptors?.map(cloneProviderOptionDescriptor) ??
-    legacyCapabilityDescriptors(input.provider, input.caps);
+    legacyCapabilityDescriptors(input.provider, input.caps)
+  )
+    // Auto-compact is Claude Code's own window setting; only the Claude adapter reads it.
+    // A model shared with Claude (a Moss catalog model, say) must not show it under Grok.
+    .filter(
+      (descriptor) => descriptor.id !== "autoCompactWindow" || input.provider === "claudeAgent",
+    );
   return descriptors.map((descriptor) => {
     let resolvedDescriptor = descriptor;
     // Remove the synthetic default also from catalogs cached by the old Claude adapter.

@@ -146,6 +146,9 @@ import { RouteInsetSurface } from "./RouteInsetSurface";
 import { SettingsPageFrame } from "./settings/SettingsPageFrame";
 import { ExternalMcpSettingsPanel } from "./settings/ExternalMcpSettingsPanel";
 import { closeSettings, openSettings, type PluginSettingsTab } from "~/settingsDialogStore";
+import type { MossBuiltInAppId } from "@moss/shared/mossBuiltInApps";
+import { openMossBuiltInAppPanel } from "~/lib/mossBuiltInAppPanels";
+import { mossBuiltInAppViews } from "./settings/mossBuiltInAppsPresentation";
 import { SidebarHeaderNavigationControls } from "./SidebarHeaderNavigationControls";
 import {
   useDesktopTopBarTrafficLightGutterClassName,
@@ -3559,6 +3562,46 @@ export function PluginLibrary({
       .finally(() => setUpgradingAllMarketplaces(false));
   };
 
+  const builtInApps = useMemo(
+    () => mossBuiltInAppViews(serverSettingsQuery.data?.apps.disabled),
+    [serverSettingsQuery.data?.apps.disabled],
+  );
+  // Same optimistic write as the skill switches: the gateway reads the saved
+  // list on every listing, so the next turn already sees the change.
+  const setBuiltInAppEnabled = (appId: MossBuiltInAppId, enabled: boolean) => {
+    const latestSettings = queryClient.getQueryData<ServerSettings>(serverQueryKeys.settings());
+    const next = new Set(latestSettings?.apps.disabled ?? serverSettingsQuery.data?.apps.disabled);
+    if (enabled) next.delete(appId);
+    else next.add(appId);
+    const disabled = [...next].toSorted();
+    if (latestSettings) {
+      queryClient.setQueryData(serverQueryKeys.settings(), {
+        ...latestSettings,
+        apps: { disabled },
+      });
+    }
+    void ensureNativeApi()
+      .server.updateSettings({ apps: { disabled } })
+      .then((nextSettings) => {
+        queryClient.setQueryData(serverQueryKeys.settings(), nextSettings);
+      })
+      .catch(() => {
+        void queryClient.invalidateQueries({ queryKey: serverQueryKeys.settings() });
+      });
+  };
+  const startAppPrompt = (prompt: string) => {
+    closeSettings();
+    void resourceActions.startChatWithPrompt(prompt).then((started) => {
+      if (!started) {
+        toastManager.add({
+          type: "error",
+          title: t("plugins.toast.noWorkspaceTitle"),
+          description: t("plugins.toast.noWorkspaceDescription"),
+        });
+      }
+    });
+  };
+
   const setSkillEnabled = (skillName: string, enabled: boolean) => {
     const latestSettings = queryClient.getQueryData<ServerSettings>(serverQueryKeys.settings());
     const currentDisabled = latestSettings?.skills.disabled ?? [...disabledSkillNames];
@@ -3860,6 +3903,18 @@ export function PluginLibrary({
                   }
                   onOpenSkill={(skill) => openDetail({ kind: "skill", skill })}
                   mossApps={connectedMossApps}
+                  builtInApps={builtInApps}
+                  onSetBuiltInAppEnabled={setBuiltInAppEnabled}
+                  onOpenBuiltInAppPanel={(panel) =>
+                    openMossBuiltInAppPanel(panel, (to) => void navigate({ to }))
+                  }
+                  onStartAppPrompt={startAppPrompt}
+                  // 创建应用 is the Add menu's Create app (plugin creator in a new chat). Without
+                  // a creator installed it still opens a chat seeded with the same request.
+                  onCreateApp={
+                    headerCreateCallbacks.onCreateApp ??
+                    (() => startAppPrompt(t("plugins.create.appCreatorPrompt")))
+                  }
                   onOpenMossApp={(slug) => {
                     const resource = mossAppResource(slug);
                     if (resource) openDetail(resource);

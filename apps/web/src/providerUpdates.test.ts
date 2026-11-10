@@ -181,6 +181,7 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
     },
     providerInstances: {},
     skills: { disabled: [] },
+    apps: { disabled: [] },
   };
 }
 

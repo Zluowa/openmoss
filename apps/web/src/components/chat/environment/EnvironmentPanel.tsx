@@ -20,6 +20,7 @@ import type {
   PinnedMessage,
   ProjectId,
   ProjectScript,
+  ProviderInstanceId,
   ProviderKind,
   ResolvedKeybindingsConfig,
   ThreadId,
@@ -116,6 +117,8 @@ export interface EnvironmentPanelProps {
   activeThreadId: ThreadId | null;
   /** Active provider for the usage row (same chip the header shows). */
   activeProvider: ProviderKind;
+  /** The account the chat runs on; a Moss account shows the Moss quota, not local logins. */
+  activeProviderInstanceId?: ProviderInstanceId | null;
   /**
    * Whether the active thread is a group chat. Group chats show the Output section:
    * the Outbox files THIS chat produced, so its output stays attached to the chat.
@@ -265,6 +268,7 @@ export function EnvironmentPanel({
   availableEditors,
   activeThreadId,
   activeProvider,
+  activeProviderInstanceId,
   isGroupChat,
   groupFolderPath: groupFolderPathProp,
   showGitActions,
@@ -580,7 +584,12 @@ export function EnvironmentPanel({
         />
       ) : null}
 
-      {settings.showEnvironmentUsage ? <EnvironmentUsageSection provider={activeProvider} /> : null}
+      {settings.showEnvironmentUsage ? (
+        <EnvironmentUsageSection
+          provider={activeProvider}
+          activeInstanceId={activeProviderInstanceId ?? null}
+        />
+      ) : null}
 
       {settings.showEnvironmentRepository && githubRepository && onOpenGithubRepository ? (
         <EnvironmentLabeledSection label="Repository">

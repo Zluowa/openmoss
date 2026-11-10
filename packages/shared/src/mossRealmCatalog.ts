@@ -440,6 +440,18 @@ export function getMossManagedModelDefinition(id: string): MossManagedModelDefin
   return DEFINITION_BY_ID.get(id) ?? null;
 }
 
+/**
+ * The one name a Moss catalog model goes by in every CLI's picker. CLIs spell the same model
+ * differently (Codex "GLM-5.3", Grok "moss/glm-5.3", a humanized "GLM 5.3"); any slug whose
+ * last path segment is a Moss model id reads as the catalog's display name.
+ */
+export function mossCatalogModelDisplayName(slug: string | null | undefined): string | null {
+  const trimmed = slug?.trim();
+  if (!trimmed) return null;
+  const id = trimmed.slice(trimmed.lastIndexOf("/") + 1).toLowerCase();
+  return DEFINITION_BY_ID.get(id)?.displayName ?? null;
+}
+
 /** Binding of one Moss model on one upstream provider, or `null` when absent. */
 export function mossUpstreamBinding(
   id: string,

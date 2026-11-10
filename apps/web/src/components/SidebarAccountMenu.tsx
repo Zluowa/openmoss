@@ -42,6 +42,8 @@ import { isMacPlatform } from "~/lib/utils";
 import { useTranslation } from "~/localization";
 
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
+import { MossLogoMark } from "./MossLogoMark";
+import { useProfileAvatarImage } from "./profile/useProfileAvatarImage";
 import { Menu, MenuGroup, MenuItem, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { SidebarMenuButton } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
@@ -92,12 +94,27 @@ function accountInitials(account: AccountIdentitySource): string {
   return Array.from(source.replace(/\s+/gu, "")).slice(0, 2).join("").toLocaleUpperCase();
 }
 
+/**
+ * A phone account's badge: its name's first letters, or nothing when it has no name. Digits of
+ * the phone number ("17") mean nothing to the person, so an unnamed account shows the Moss mark.
+ */
 function phoneAccountInitials(user: {
   readonly displayName: string | null;
   readonly phoneNumber: string;
 }): string {
-  const source = user.displayName?.trim() || user.phoneNumber.replace(/^\+86/u, "") || "Moss";
+  const source = user.displayName?.trim();
+  if (!source) return "";
   return Array.from(source.replace(/\s+/gu, "")).slice(0, 2).join("").toLocaleUpperCase();
+}
+
+/** The account badge: the person's photo, their initials, or the Moss mark. */
+function AccountBadgeContent({ initials }: { readonly initials: string }) {
+  const { image } = useProfileAvatarImage();
+  if (image) {
+    return <img src={image} alt="" draggable={false} className="size-full object-cover" />;
+  }
+  if (!initials) return <MossLogoMark className="size-[62%]" aria-hidden="true" />;
+  return <>{initials}</>;
 }
 
 /**
@@ -252,9 +269,9 @@ function AccountAvatar({ identity }: { readonly identity: SidebarAccountIdentity
   return (
     <span
       aria-hidden="true"
-      className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-timestamp font-medium leading-none text-[var(--color-text-accent)]"
+      className="flex size-[18px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-timestamp font-medium leading-none text-[var(--color-text-accent)]"
     >
-      {identity.initials}
+      <AccountBadgeContent initials={identity.initials} />
     </span>
   );
 }
@@ -626,9 +643,9 @@ export function RailAccountMenu() {
       >
         <span
           aria-hidden="true"
-          className="flex size-[22px] items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-2xs font-medium leading-none text-[var(--color-text-accent)]"
+          className="flex size-[22px] items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-2xs font-medium leading-none text-[var(--color-text-accent)]"
         >
-          {model.identity.initials}
+          <AccountBadgeContent initials={model.identity.initials} />
         </span>
       </MenuTrigger>
       <ComposerPickerMenuPopup

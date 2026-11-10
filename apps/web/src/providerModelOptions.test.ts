@@ -112,13 +112,31 @@ describe("Claude model selections", () => {
 });
 
 describe("formatProviderModelOptionName", () => {
+  it("names a Moss catalog model the same way in every CLI", () => {
+    for (const [provider, slug] of [
+      ["codex", "glm-5.3"],
+      ["grok", "moss/glm-5.3"],
+      ["opencode", "moss/glm-5.3"],
+      ["pi", "moss/glm-5.3"],
+      ["hermes", "moss/glm-5.3"],
+    ] as const) {
+      expect(formatProviderModelOptionName({ provider, slug })).toBe("GLM-5.3");
+    }
+    expect(formatProviderModelOptionName({ provider: "grok", slug: "moss/glm-5.3-flash" })).toBe(
+      "GLM-5.3 Flash",
+    );
+    expect(formatProviderModelOptionName({ provider: "grok", slug: "moss/kimi-k3" })).toBe(
+      "Kimi K3",
+    );
+  });
+
   it("uses branded humanized labels for qualified Pi model slugs", () => {
     expect(
       formatProviderModelOptionName({
         provider: "pi",
         slug: "zai/glm-5.3-flash",
       }),
-    ).toBe("GLM 5.3 Flash");
+    ).toBe("GLM-5.3 Flash");
     expect(
       formatProviderModelOptionName({
         provider: "pi",
@@ -180,7 +198,7 @@ describe("mergeDynamicModelOptions", () => {
     "preserves %s discovery names when selection adds a placeholder",
     (provider) => {
       const dynamicModels = [
-        { slug: "zai/glm-5.3-flash", name: "GLM-5.3-Flash", expected: "GLM 5.3 Flash" },
+        { slug: "zai/glm-5.3-flash", name: "GLM-5.3-Flash", expected: "GLM-5.3 Flash" },
         {
           slug: "anthropic/claude-opus-4-9-20260715",
           name: "claude-opus-4-9-20260715",

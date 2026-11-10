@@ -1290,6 +1290,25 @@ describe("ComposerModelPicker with several accounts", () => {
     }
   });
 
+  it("lists Moss under Devin too, greyed out with the reason", async () => {
+    const screen = await mountPicker({
+      providers: [readyProvider("codex"), readyProvider("devin")],
+    });
+    try {
+      await openAgents();
+      await selectAgent("Devin");
+      await openProviders();
+      const moss = menuOption("Moss");
+      await expect.element(moss).toHaveTextContent("MossNot available");
+      await expect.element(moss).toHaveAttribute("aria-disabled", "true");
+      expect(moss.element().getAttribute("title")).toBe(
+        "Devin only runs on its own account, so it can't use Moss yet.",
+      );
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("names a provider that cannot start in plain words, never its diagnostic", async () => {
     const screen = await mountPicker({
       providers: [

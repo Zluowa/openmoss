@@ -24,6 +24,7 @@ import {
 import { Button } from "./ui/button";
 import { Switch } from "./ui/switch";
 import {
+  AddPlusIcon,
   AppsIcon,
   ChevronRightIcon,
   CopyIcon,
@@ -61,6 +62,12 @@ import type {
   PluginLibraryManageTab,
 } from "~/lib/pluginLibraryHistoryState";
 import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
+import type { MossBuiltInAppId, MossBuiltInAppPanel } from "@moss/shared/mossBuiltInApps";
+import { MossBuiltInAppDetail } from "./settings/MossBuiltInAppDetail";
+import {
+  mossBuiltInAppPresentation,
+  type MossBuiltInAppView,
+} from "./settings/mossBuiltInAppsPresentation";
 
 export interface ManagedPlugin {
   readonly plugin: ProviderPluginDescriptor;
@@ -102,7 +109,12 @@ interface PluginManagementPanelTabDataProps {
 
 interface ManagementRow {
   readonly key: string;
-  readonly testId?: "plugin-manage-plugin-row" | "plugin-manage-skill-row" | undefined;
+  readonly testId?:
+    | "plugin-manage-plugin-row"
+    | "plugin-manage-skill-row"
+    | "plugin-manage-moss-app-row"
+    | "plugin-manage-create-app"
+    | undefined;
   readonly icon: typeof PluginIcon | ResourceIconComponent;
   readonly artwork?: string | undefined;
   readonly title: string;
@@ -463,6 +475,14 @@ export interface PluginManagementPanelProps extends PluginManagementPanelTabData
   readonly mossApps?: ReadonlyArray<ManagedMossApp> | undefined;
   readonly onOpenMossApp?: ((slug: string) => void) | undefined;
   readonly onDisconnectMossApp?: ((slug: string) => void) | undefined;
+  /** Moss's own apps (资料空间, 幻灯片, …), listed first on the Apps tab. */
+  readonly builtInApps?: ReadonlyArray<MossBuiltInAppView> | undefined;
+  readonly onSetBuiltInAppEnabled?: ((id: MossBuiltInAppId, enabled: boolean) => void) | undefined;
+  readonly onOpenBuiltInAppPanel?: ((panel: MossBuiltInAppPanel) => void) | undefined;
+  /** Starts a chat seeded with this request (an app's "try asking" prompts). */
+  readonly onStartAppPrompt?: ((prompt: string) => void) | undefined;
+  /** 创建应用: starts a chat that builds a new Moss app. */
+  readonly onCreateApp?: (() => void) | undefined;
   readonly artworkCwd?: string | undefined;
   /** Codex's "Browse catalog" and "Add" controls, aligned with the page title. */
   readonly headerActions?: ReactNode;
@@ -538,6 +558,22 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
     };
     const onOpenMossApp = props.onOpenMossApp;
     return onOpenMossApp ? Object.assign(row, { onOpen: () => onOpenMossApp(app.slug) }) : row;
+  });
+  const [openBuiltInAppId, setOpenBuiltInAppId] = useState<MossBuiltInAppId | null>(null);
+  const onSetBuiltInAppEnabled = props.onSetBuiltInAppEnabled;
+  const builtInAppRows: ManagementRow[] = (props.builtInApps ?? []).map((app) => {
+    const presentation = mossBuiltInAppPresentation(app.id);
+    return {
+      key: `builtin-app::${app.id}`,
+      testId: "plugin-manage-moss-app-row",
+      icon: presentation.icon,
+      title: t(presentation.nameKey),
+      subtitle: t(presentation.descriptionKey),
+      enabled: app.enabled,
+      canToggle: Boolean(onSetBuiltInAppEnabled),
+      onToggle: (next: boolean) => onSetBuiltInAppEnabled?.(app.id, next),
+      onOpen: () => setOpenBuiltInAppId(app.id),
+    };
   });
   const pluginRows: ManagementRow[] = props.plugins.map((entry) => {
     const marketplaceKey =
@@ -619,7 +655,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
       {
         id: "apps",
         label: t("plugins.manage.tab.apps"),
-        count: accessibleApps.length + mossAppRows.length,
+        count: accessibleApps.length + mossAppRows.length + builtInAppRows.length,
       },
       { id: "mcps", label: t("plugins.manage.tab.mcps"), count: mcpRows.length },
       { id: "skills", label: t("plugins.manage.tab.skills"), count: skillRows.length },
@@ -632,6 +668,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
     return items.filter((item) => ALWAYS_SHOWN_MANAGE_TABS.has(item.id) || item.count > 0);
   }, [
     accessibleApps.length,
+    builtInAppRows.length,
     marketplaceRows.length,
     mcpRows.length,
     mossAppRows.length,
@@ -690,6 +727,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
     matches(app.name, app.description, ...app.pluginDisplayNames),
   );
   const visibleMossApps = mossAppRows.filter((row) => matches(row.title, row.subtitle));
+  const visibleBuiltInApps = builtInAppRows.filter((row) => matches(row.title, row.subtitle));
 
   const tabSupplement = props.renderTabSupplement?.(tab, query) ?? null;
   let content;
@@ -765,16 +803,87 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
       );
   }
 
+  const contentColumnClassName = cn(
+    "mx-auto flex w-full max-w-3xl flex-col px-5 pb-8",
+    props.settingsPage ? "pt-8" : "pt-5",
+  );
+  const openBuiltInApp =
+    openBuiltInAppId === null
+      ? undefined
+      : props.builtInApps?.find((app) => app.id === openBuiltInAppId);
+  if (openBuiltInApp) {
+    const onTryPrompt = props.onStartAppPrompt;
+    return (
+      <div className="min-h-full w-full">
+        <div data-testid="plugin-manage-content" className={contentColumnClassName}>
+          <MossBuiltInAppDetail
+            app={openBuiltInApp}
+            onBack={() => setOpenBuiltInAppId(null)}
+            onSetEnabled={
+              onSetBuiltInAppEnabled
+                ? (enabled) => onSetBuiltInAppEnabled(openBuiltInApp.id, enabled)
+                : undefined
+            }
+            onOpenPanel={props.onOpenBuiltInAppPanel}
+            onTryPrompt={onTryPrompt}
+          />
+        </div>
+      </div>
+    );
+  }
+  // Moss's own apps lead the Apps tab, with 创建应用 as their last row. The
+  // agent's and Moss Apps' apps follow under 其他应用, only when there are any.
+  const onCreateApp = props.onCreateApp;
+  const createAppRow: ManagementRow | null =
+    onCreateApp && normalizedQuery.length === 0
+      ? {
+          key: "builtin-app::create",
+          testId: "plugin-manage-create-app",
+          icon: AddPlusIcon,
+          title: t("mossApps.create.title"),
+          subtitle: t("mossApps.create.subtitle"),
+          enabled: false,
+          canToggle: false,
+          trailing: <></>,
+          onOpen: () => onCreateApp(),
+        }
+      : null;
+  const otherAppsEmpty =
+    !props.appsLoading &&
+    !props.appsError &&
+    visibleApps.length === 0 &&
+    visibleMossApps.length === 0;
+  const builtInSection =
+    tab === "apps" &&
+    builtInAppRows.length > 0 &&
+    (visibleBuiltInApps.length > 0 || createAppRow) ? (
+      <ManageList>
+        {visibleBuiltInApps.map((row) => (
+          <Row key={row.key} row={row} />
+        ))}
+        {createAppRow ? <Row row={createAppRow} /> : null}
+      </ManageList>
+    ) : null;
+  const tabContent = builtInSection ? (
+    <div className="flex flex-col gap-8">
+      {builtInSection}
+      {otherAppsEmpty ? null : (
+        <section className="flex flex-col gap-3" data-testid="plugin-manage-other-apps">
+          <h2 className="px-1 text-ui leading-5 font-medium text-muted-foreground">
+            {t("mossApps.section.other")}
+          </h2>
+          {content}
+        </section>
+      )}
+    </div>
+  ) : (
+    content
+  );
+
   return (
     <div className="min-h-full w-full">
       {/* Codex: a 768px column with 20px gutters inside it, so the page is 728px wide. */}
-      <div
-        data-testid="plugin-manage-content"
-        className={cn(
-          "mx-auto flex w-full max-w-3xl flex-col px-5 pb-8",
-          props.settingsPage ? "pt-8" : "pt-5",
-        )}
-      >
+      <div data-testid="plugin-manage-content" className={contentColumnClassName}>
         <header className="flex flex-wrap items-start justify-between gap-4 pb-8">
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className={PAGE_TITLE_CLASS_NAME}>{t("plugins.hero.plugins")}</h1>
@@ -827,7 +936,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
             role="tabpanel"
             aria-labelledby={`plugin-manage-tab-${tab}`}
           >
-            {content}
+            {tabContent}
             {tabSupplement ? <div className="mt-8">{tabSupplement}</div> : null}
             {tab === "mcps" && props.mcpFooter ? (
               <div className="mt-8">{props.mcpFooter}</div>

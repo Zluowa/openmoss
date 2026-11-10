@@ -773,9 +773,9 @@ describe("ProviderModelPicker", () => {
     try {
       await expect.element(page.getByRole("button", { name: /DeepSeek V4 Flash/u })).toBeVisible();
       await page.getByRole("button", { name: /DeepSeek V4 Flash/u }).click();
-      await page.getByRole("menuitemradio", { name: "GLM 5.3 Flash" }).click();
+      await page.getByRole("menuitemradio", { name: "GLM-5.3 Flash" }).click();
 
-      await expect.element(page.getByRole("button", { name: /GLM 5.3 Flash/u })).toBeVisible();
+      await expect.element(page.getByRole("button", { name: /GLM-5.3 Flash/u })).toBeVisible();
       expect(document.body.textContent ?? "").not.toContain("Glm 5.3 Flash");
     } finally {
       await screen.unmount();

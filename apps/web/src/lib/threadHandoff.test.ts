@@ -14,6 +14,7 @@ import {
   buildThreadHandoffImportedActivities,
   buildThreadHandoffImportedMessages,
   canContinueThreadHandoff,
+  groupThreadHandoffTargets,
   resolveAvailableHandoffTargets,
   resolveProviderHandoffOutcome,
   resolveThreadHandoffAvailability,
@@ -27,6 +28,29 @@ import {
 } from "./browserAnnotations";
 
 describe("threadHandoff", () => {
+  it("lists each agent once, with Moss before the local account", () => {
+    const target = (provider: ProviderKind, instanceId: string, label: string) =>
+      ({ provider, instanceId, label }) as Parameters<typeof groupThreadHandoffTargets>[0][number];
+    const groups = groupThreadHandoffTargets(
+      [
+        target("codex", "codex", "Codex"),
+        target("codex", "codex_moss", "Moss"),
+        target("opencode", "opencode", "OpenCode"),
+        target("opencode", "opencode_moss", "Moss DeepSeek & Kimi"),
+        target("grok", "grok_moss", "Moss"),
+        target("devin", "devin", "Devin"),
+      ],
+      (instanceId) => instanceId.endsWith("_moss"),
+    );
+    expect(groups.map((group) => group.provider)).toEqual(["codex", "opencode", "grok", "devin"]);
+    expect(groups[0]!.targets.map((entry) => entry.instanceId)).toEqual(["codex_moss", "codex"]);
+    expect(groups[1]!.targets.map((entry) => entry.instanceId)).toEqual([
+      "opencode_moss",
+      "opencode",
+    ]);
+    expect(groups[2]!.targets).toHaveLength(1);
+  });
+
   it("reads a same-thread handoff outcome from the activity keyed by its command", () => {
     const activity = (id: string, payload: Record<string, unknown> = {}) =>
       ({

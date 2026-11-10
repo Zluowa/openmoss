@@ -7361,6 +7361,8 @@ export default function ChatView({
     availableEditors,
     activeThreadId: activeThread.id,
     activeProvider: activeThread.session?.provider ?? activeThread.modelSelection.provider,
+    activeProviderInstanceId:
+      activeThread.session?.providerInstanceId ?? activeThread.modelSelection.instanceId ?? null,
     isGroupChat: isGroupContainer,
     groupFolderPath: isGroupContainer ? resolvedThreadWorkingDirectory : null,
     showGitActions,

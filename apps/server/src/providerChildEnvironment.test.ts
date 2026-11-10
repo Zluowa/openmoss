@@ -20,6 +20,40 @@ it("removes registered ambient provider credentials from account-scoped environm
 });
 
 describe("buildProviderChildEnvironment", () => {
+  it("drops a parent Claude desktop session's variables but keeps Moss's own Claude settings", () => {
+    const env = buildProviderChildEnvironment({
+      provider: "claude",
+      baseEnv: {
+        PATH: "/usr/bin",
+        // What Claude desktop sets for its own CLI; inherited when Moss starts from its terminal.
+        CLAUDE_CODE_ENTRYPOINT: "claude-desktop",
+        CLAUDECODE: "1",
+        CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH: "1",
+        CLAUDE_CODE_ACCOUNT_UUID: "host-account",
+        claude_code_messaging_token: "host-socket-token",
+        // Moss's own and the person's real settings stay.
+        ANTHROPIC_AUTH_TOKEN: "moss-gateway-token",
+        ANTHROPIC_BASE_URL: "https://gateway.example/functions/v1/moss-model-gateway",
+        CLAUDE_CODE_MAX_RETRIES: "0",
+        CLAUDE_CONFIG_DIR: "/home/test/.claude",
+      },
+    });
+    for (const key of [
+      "CLAUDE_CODE_ENTRYPOINT",
+      "CLAUDECODE",
+      "CLAUDE_CODE_SDK_HAS_HOST_AUTH_REFRESH",
+      "CLAUDE_CODE_ACCOUNT_UUID",
+      "claude_code_messaging_token",
+    ]) {
+      expect(env[key]).toBeUndefined();
+    }
+    expect(env).toMatchObject({
+      ANTHROPIC_AUTH_TOKEN: "moss-gateway-token",
+      CLAUDE_CODE_MAX_RETRIES: "0",
+      CLAUDE_CONFIG_DIR: "/home/test/.claude",
+    });
+  });
+
   it("strips Moss control-plane and inherited native capabilities", () => {
     const env = buildProviderChildEnvironment({
       provider: "antigravity",

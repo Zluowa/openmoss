@@ -170,6 +170,17 @@ export const SkillsServerSettings = Schema.Struct({
 });
 export type SkillsServerSettings = typeof SkillsServerSettings.Type;
 
+// Moss's own apps (Settings › 插件 › 应用) the person turned off, by app id
+// (`moss.space`, `moss.media`, …; catalog in @moss/shared/mossBuiltInApps).
+// Absent means on. Agents do not see the tools of a turned-off app.
+const DisabledAppIds = Schema.Array(Schema.String.check(Schema.isMaxLength(128))).pipe(
+  Schema.withDecodingDefault(() => []),
+);
+export const AppsServerSettings = Schema.Struct({
+  disabled: DisabledAppIds,
+});
+export type AppsServerSettings = typeof AppsServerSettings.Type;
+
 // Keep-awake behaviour for macOS `caffeinate`. "agent" keeps the machine awake
 // only while at least one agent turn is running.
 export const KeepAwakeMode = Schema.Literals(["always", "agent", "off"]);
@@ -219,6 +230,7 @@ export const ServerSettings = Schema.Struct({
   }).pipe(Schema.withDecodingDefault(() => ({}))),
   providerInstances: ProviderInstanceConfigMap.pipe(Schema.withDecodingDefault(() => ({}))),
   skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+  apps: AppsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   // When the first-run welcome tour was completed or skipped. Server-backed so a
   // browser-storage reset does not replay setup on an already configured install.
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
@@ -380,6 +392,11 @@ export const ServerSettingsPatch = Schema.Struct({
   skills: Schema.optionalKey(
     Schema.Struct({
       disabled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(256)))),
+    }),
+  ),
+  apps: Schema.optionalKey(
+    Schema.Struct({
+      disabled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(128)))),
     }),
   ),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
