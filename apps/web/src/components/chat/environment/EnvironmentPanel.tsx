@@ -25,7 +25,6 @@ import type {
   ThreadId,
 } from "@moss/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 import { useAppSettings } from "~/appSettings";
@@ -86,6 +85,7 @@ import {
   EnvironmentRow,
   EnvironmentSectionDivider,
 } from "./EnvironmentRow";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 // Horizontal space (px) the docked card reserves on the right edge of the chat area.
 // Mirrors the card footprint — w-72 (288px) plus the p-3 wrapper gutters — so insetting
@@ -315,7 +315,6 @@ export function EnvironmentPanel({
   const recap = recapProp ?? null;
   const subagentRoster = subagentRosterProp ?? null;
   const onOpenEditorView = onOpenEditorViewProp ?? null;
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
   const { settings } = useAppSettings();
@@ -353,7 +352,7 @@ export function EnvironmentPanel({
       })
       .then((clicked) => {
         if (clicked !== "choose-sections") return;
-        void navigate({ to: "/settings", search: { target: SETTINGS_TARGETS.environmentPanel } });
+        openSettingsDialog({ section: "general", target: SETTINGS_TARGETS.environmentPanel });
       });
   };
 

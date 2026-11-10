@@ -5,7 +5,7 @@
 // Layer: UI component
 // Exports: SettingsSidebarNav
 
-import { useTranslation } from "../localization";
+import { settingsSectionTranslationKeys, useTranslation } from "../localization";
 import { type KeyboardEvent as ReactKeyboardEvent, useState } from "react";
 
 import { CentralIcon } from "~/lib/central-icons";
@@ -70,7 +70,7 @@ function SettingsSearchResultRow(props: {
           <CentralIcon name={icon} className={SETTINGS_SIDEBAR_ICON_CLASS_NAME} />
         </SidebarLeadingIcon>
         <span className={SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME}>
-          {t(`settings.nav.${section}.label`)}
+          {t(settingsSectionTranslationKeys(section).label)}
         </span>
       </button>
       <button
@@ -134,8 +134,8 @@ export function SettingsSidebarNav(props: {
   };
 
   return (
-    <div className="px-1.5 py-1.5">
-      <div className="mb-3 px-1">
+    <div className="flex flex-col">
+      <div className="mb-3 px-0.5">
         <SearchInput
           shape="capsule"
           value={query}
@@ -180,7 +180,7 @@ export function SettingsSidebarNav(props: {
                   id={`settings-nav-${group.id}`}
                   className={SETTINGS_SIDEBAR_SECTION_LABEL_CLASS_NAME}
                 >
-                  {group.label}
+                  {t(`settings.nav.group.${group.id}`)}
                 </h2>
                 <ul className={cn("flex flex-col", SETTINGS_SIDEBAR_LIST_GAP_CLASS_NAME)}>
                   {items.map((item) => {
@@ -205,7 +205,7 @@ export function SettingsSidebarNav(props: {
                             />
                           </SidebarLeadingIcon>
                           <span className={SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME}>
-                            {item.label}
+                            {t(settingsSectionTranslationKeys(item.id).label)}
                           </span>
                           {item.badge ? (
                             <Badge

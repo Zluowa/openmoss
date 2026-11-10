@@ -150,7 +150,7 @@ describe("one-click GitHub CLI install", () => {
       return ok();
     });
     let finish!: (outcome: SystemToolInstallOutcome) => void;
-    let progress!: (phase: SystemToolInstallPhase) => void;
+    let progress!: (phase: SystemToolInstallPhase, percent?: number) => void;
     let signal!: AbortSignal;
     const installGh = vi.fn<InstallGitHubCli>(
       (options) =>
@@ -164,11 +164,11 @@ describe("one-click GitHub CLI install", () => {
     return {
       service,
       installGh,
-      progress: (phase: SystemToolInstallPhase) => progress(phase),
+      progress: (phase: SystemToolInstallPhase, percent?: number) => progress(phase, percent),
       signal: () => signal,
       succeed: () => {
         installed = true;
-        finish({ ok: true, version: "2.83.1", binDirectory: "C:\\gh", method: "winget" });
+        finish({ ok: true, version: "2.83.1", binDirectory: "C:\\gh", method: "zip" });
       },
       fail: () =>
         finish({ ok: false, reason: "download-failed", detail: "private diagnostic text" }),
@@ -188,6 +188,13 @@ describe("one-click GitHub CLI install", () => {
       state: "installing",
       phase: "downloading",
     });
+    h.progress("downloading", 42);
+    expect(await h.service.handle("a", { op: "status" })).toEqual({
+      state: "installing",
+      phase: "downloading",
+      percent: 42,
+    });
+    h.progress("downloading");
     // A second click joins the running install; sign-in waits for it.
     expect(await h.service.handle("a", { op: "install" })).toEqual({
       state: "installing",

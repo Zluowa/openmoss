@@ -20,7 +20,7 @@ export function usePreloadRouteChunks() {
     });
 
     const preloadSettings = () => {
-      void import("../routes/_chat.settings?tsr-split=component").catch(() => {
+      void import("../components/settings/SettingsContent").catch(() => {
         // Preloading is best-effort; navigation falls back to loading on demand.
       });
     };

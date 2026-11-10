@@ -61,12 +61,15 @@ vi.mock("~/store", () => ({
     }),
 }));
 
-import { AdvancedSettingsPanel } from "./AdvancedSettingsPanel";
+import { AboutSettingsSection, KeybindingsFileRow } from "./AdvancedSettingsPanel";
 
-describe("AdvancedSettingsPanel", () => {
+describe("AboutSettingsSection (System tools folded into General)", () => {
   beforeEach(() => {
     harness.auth.sessionMethod = "browser-session-cookie";
     harness.auth.role = "client";
+    harness.threadShells = [];
+    harness.allThreadsMessageless = false;
+    harness.projects = [{ id: "project-1" }];
   });
   afterEach(() => {
     document.body.innerHTML = "";
@@ -75,7 +78,7 @@ describe("AdvancedSettingsPanel", () => {
   it("does not offer HTTP browser sign-out for a sessionless startup owner", async () => {
     harness.auth.sessionMethod = undefined;
     harness.auth.role = "owner";
-    await render(<AdvancedSettingsPanel active onOpenReleaseHistory={() => {}} resetEpoch={0} />);
+    await render(<AboutSettingsSection onOpenReleaseHistory={() => {}} />);
     await expect
       .element(page.getByRole("button", { name: "Sign out", exact: true }))
       .not.toBeInTheDocument();
@@ -86,33 +89,37 @@ describe("AdvancedSettingsPanel", () => {
     "keeps sign-out available for a real %s session",
     async (method) => {
       harness.auth.sessionMethod = method;
-      await render(<AdvancedSettingsPanel active onOpenReleaseHistory={() => {}} resetEpoch={0} />);
+      await render(<AboutSettingsSection onOpenReleaseHistory={() => {}} />);
       await expect
         .element(page.getByRole("button", { name: "Sign out", exact: true }))
         .toBeVisible();
     },
   );
 
-  it("owns recovery eligibility, shared disclosure motion, and the release-history handoff", async () => {
+  it("shows the repair row only when chats are missing, and hands off release notes", async () => {
     const onOpenReleaseHistory = vi.fn();
-    await render(
-      <AdvancedSettingsPanel active onOpenReleaseHistory={onOpenReleaseHistory} resetEpoch={0} />,
+    const screen = await render(
+      <AboutSettingsSection onOpenReleaseHistory={onOpenReleaseHistory} />,
     );
-
-    const repairButton = page.getByRole("button", { name: "Repair state" });
+    const repairButton = page.getByRole("button", { name: "Repair", exact: true });
     expect((repairButton.element() as HTMLButtonElement).disabled).toBe(false);
-    expect(document.body.textContent).toContain("Authenticated as client.");
-
-    const disclosureButton = page.getByRole("button", { name: "What this does" });
-    expect(disclosureButton.element().getAttribute("aria-expanded")).toBe("false");
-    const disclosureShell = disclosureButton.element().parentElement?.querySelector("div[inert]");
-    expect(disclosureShell?.className).toContain("duration-220");
-    await disclosureButton.click();
-    await vi.waitFor(() =>
-      expect(disclosureButton.element().getAttribute("aria-expanded")).toBe("true"),
-    );
-
-    await page.getByRole("button", { name: "View release history" }).click();
+    // No developer text: no file paths, no "visible because…" explanations.
+    expect(document.body.textContent).not.toContain("Visible because");
+    expect(document.body.textContent).not.toContain("Authenticated as");
+    await page.getByRole("button", { name: "View", exact: true }).click();
     expect(onOpenReleaseHistory).toHaveBeenCalledOnce();
+    await screen.unmount();
+
+    harness.threadShells = [{ id: "thread-1" }];
+    await render(<AboutSettingsSection onOpenReleaseHistory={() => {}} />);
+    await expect
+      .element(page.getByRole("button", { name: "Repair", exact: true }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the keybindings file one row with no path on screen", async () => {
+    await render(<KeybindingsFileRow />);
+    await expect.element(page.getByRole("button", { name: "Open", exact: true })).toBeVisible();
+    expect(document.body.textContent).not.toContain("/tmp/keybindings.json");
   });
 });

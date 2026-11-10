@@ -39,6 +39,7 @@ import { MossAccessLanesPanel } from "./MossAccessLanesPanel";
 import { mossAccessLaneSummary } from "./mossAccessLanes.logic";
 import { consumeMossGoogleOAuthPurpose } from "./mossGoogleOAuthPurpose";
 import { MOSS_POST_AUTH_CHAT_SEARCH, prepareMossPostAuthChatLanding } from "./mossPostAuthLanding";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 function ConfigurationUnavailable() {
   return (
@@ -492,7 +493,6 @@ function formatSessionDate(value: string): string {
 export function MossCloudAccountPage() {
   useMossOpaqueSurface();
 
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const accountQuery = useQuery(serverMossCloudAccountStateQueryOptions());
   const accountsQuery = useQuery(serverMossCloudAccountsQueryOptions());
@@ -679,10 +679,7 @@ export function MossCloudAccountPage() {
                     Open Settings → Usage to see quota and buy credits.
                   </p>
                 </div>
-                <Button
-                  onClick={() => void navigate({ to: "/settings", search: { section: "usage" } })}
-                  size="sm"
-                >
+                <Button onClick={() => openSettingsDialog({ section: "usage" })} size="sm">
                   Open Usage
                 </Button>
               </section>

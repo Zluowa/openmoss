@@ -470,12 +470,16 @@ export interface PluginManagementPanelProps extends PluginManagementPanelTabData
   readonly artworkCwd?: string | undefined;
   /** Codex's "Browse catalog" and "Add" controls, aligned with the page title. */
   readonly headerActions?: ReactNode;
+  /** Shown under the MCP list: in Settings, letting other agents connect to Moss. */
+  readonly mcpFooter?: ReactNode;
 }
 
+// Codex's settings page always offers Plugins / Apps / MCP / Skills.
 const ALWAYS_SHOWN_MANAGE_TABS: ReadonlySet<PluginLibraryManageTab> = new Set([
   "plugins",
   "apps",
   "mcps",
+  "skills",
 ]);
 
 const MANAGE_TABS: readonly PluginLibraryManageTab[] = [
@@ -819,6 +823,9 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
             aria-labelledby={`plugin-manage-tab-${tab}`}
           >
             {content}
+            {tab === "mcps" && props.mcpFooter ? (
+              <div className="mt-8">{props.mcpFooter}</div>
+            ) : null}
           </div>
         </div>
       </div>

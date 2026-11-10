@@ -52,7 +52,7 @@ export default mergeConfig(
     ...(browserCacheDir ? { cacheDir: browserCacheDir } : {}),
     server: { watch: { ignored: ["**/.vitest-attachments/**", "**/__screenshots__/**"] } },
     // Prebundle direct hook dependencies so restored caches cannot reload tests mid-run.
-    optimizeDeps: { include: ["react-dom/client", "zustand/vanilla/shallow"] },
+    optimizeDeps: { include: ["react-dom/client", "zustand/vanilla", "zustand/vanilla/shallow"] },
     define: {
       MOSS_PLUGIN_A11Y_WRITE_ENABLED: JSON.stringify(accessibilityWriteEnabled),
       MOSS_PLUGIN_A11Y_PROGRAM: JSON.stringify(

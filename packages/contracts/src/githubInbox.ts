@@ -46,6 +46,8 @@ export const GitHubConnectionResult = Schema.Union([
   Schema.Struct({
     state: Schema.Literal("installing"),
     phase: Schema.Literals(["downloading", "installing", "verifying"]),
+    /** How much of the download has arrived, when its size is known. */
+    percent: Schema.optional(NonNegativeInt.check(Schema.isLessThanOrEqualTo(100))),
   }),
   Schema.Struct({
     state: Schema.Literal("installFailed"),

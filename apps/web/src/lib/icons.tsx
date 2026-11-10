@@ -293,6 +293,10 @@ const TemporaryThreadGlyph = centralIconWrapper("bubble-annotation-5");
 export const TemporaryThreadIcon: LucideIcon = ({ className, ...props }) => (
   <TemporaryThreadGlyph className={cn("size-4 shrink-0", className)} {...props} />
 );
+// Mossbot's own mark: a round face with one rounded square corner (a nod to a Moss pinwheel
+// blade) and Mossbot's two pill eyes, drawn on Central's grid and stroke in public/moss-icons.
+// The rail, the sidebar row and the Mossbot home all draw it from here.
+export const MossbotIcon: LucideIcon = centralIconWrapper("mossbot", "moss");
 // Central has no soft-wrap glyph; drawn on the same grid in public/moss-icons.
 export const TextWrapIcon: LucideIcon = centralIconWrapper("text-wrap", "moss");
 // Page markup tools in the browser's annotation bar. Central's circle is a spiral and it

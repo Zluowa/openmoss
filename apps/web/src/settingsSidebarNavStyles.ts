@@ -9,18 +9,21 @@ import {
   SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
 } from "./sidebarRowStyles";
 
-/** Codex settings nav: a 16px gap separates each expanded group. */
-export const SETTINGS_SIDEBAR_SECTION_CLASS_NAME = "flex flex-col gap-1";
+/** Codex settings nav: a gap separates each expanded group. */
+export const SETTINGS_SIDEBAR_SECTION_CLASS_NAME = "flex flex-col gap-1 not-first:mt-4";
 
 /** Section labels use an 8px start inset and no vertical padding. */
 export const SETTINGS_SIDEBAR_SECTION_LABEL_CLASS_NAME =
   "flex items-center justify-between gap-2 pe-0.5 ps-2 text-ui-sm font-normal text-muted-foreground opacity-75";
 
-/** Nav row — same chrome as project/chat sidebar header rows. */
+/**
+ * Nav row inside the Settings and group-settings dialogs: Claude desktop's dialog list is a
+ * 32px row with 14px body text (`[data-settings-dialog]` nav, comfortable density).
+ */
 export const SETTINGS_SIDEBAR_ITEM_CLASS_NAME =
-  "flex h-8 items-center gap-2 rounded-row px-2 text-ui-lg";
+  "flex h-8 w-full items-center gap-2 rounded-row px-2 text-ui";
 
-export const SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME = "min-w-0 flex-1 truncate text-ui-lg";
+export const SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME = "min-w-0 flex-1 truncate text-start text-ui";
 
 /** Inner glyph size; tone is set at each call site to `text-inherit` so the glyph tracks the row text. */
 export const SETTINGS_SIDEBAR_ICON_CLASS_NAME = "size-4 shrink-0";

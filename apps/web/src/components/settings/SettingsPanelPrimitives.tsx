@@ -206,6 +206,7 @@ export function SettingsListRow({
 export function SettingsRow({
   title,
   description,
+  leading,
   status,
   resetAction,
   control,
@@ -213,7 +214,10 @@ export function SettingsRow({
   onClick,
 }: {
   title: ReactNode;
-  description: string;
+  /** One short line. Settings rows never explain themselves in paragraphs. */
+  description?: string | undefined;
+  /** An app tile or picture before the text (Codex's computer-use and plugin rows). */
+  leading?: ReactNode;
   status?: ReactNode;
   resetAction?: ReactNode;
   control?: ReactNode;
@@ -236,15 +240,20 @@ export function SettingsRow({
         )}
         onClick={onClick}
       >
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="flex min-h-5 items-center gap-1.5">
-            <h3 className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>{title}</h3>
-            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
-              {resetAction}
-            </span>
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {leading != null ? <div className="shrink-0">{leading}</div> : null}
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <div className="flex min-h-5 items-center gap-1.5">
+              <h3 className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>{title}</h3>
+              <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+                {resetAction}
+              </span>
+            </div>
+            {description ? (
+              <p className={SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME}>{description}</p>
+            ) : null}
+            {status ? <div className="pt-1 text-ui-sm text-muted-foreground">{status}</div> : null}
           </div>
-          <p className={SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME}>{description}</p>
-          {status ? <div className="pt-1 text-ui-sm text-muted-foreground">{status}</div> : null}
         </div>
         {control ? (
           <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">

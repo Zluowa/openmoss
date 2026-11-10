@@ -587,9 +587,13 @@ export const AppSettingsSchema = Schema.Struct({
   // glanceable card that reserves a narrow gutter. Large restores the
   // previous wide card for users who want the detail inline.
   computerPreviewSize: ComputerPreviewSize.pipe(withDefaults(() => DEFAULT_COMPUTER_PREVIEW_SIZE)),
-  // Computer control is off by default. When on, the agent may use the desktop
-  // in any chat. Approval gates and Stop still apply.
-  computerControlEnabled: Schema.Boolean.pipe(withDefaults(() => false)),
+  // Computer use is on by default: packaged builds ship the Cua driver, so the agent
+  // may use the desktop in any chat. Approval gates and Stop still apply.
+  computerControlEnabled: Schema.Boolean.pipe(withDefaults(() => true)),
+  // True once the person chose on/off themselves (Settings › Computer use). Until then
+  // the default wins, including over the `false` that older builds saved as their
+  // default, so computer use reaches existing installs too.
+  computerControlPreferenceSaved: Schema.Boolean.pipe(withDefaults(() => false)),
   // The agent cursor's colors. Stock is the default monochrome treatment and
   // stores no overrides; "custom" opts into a fill and rim, persisted as
   // lowercase `#rrggbb` strings and pushed to the desktop cursor host.
@@ -1677,7 +1681,8 @@ export function getCodexProviderDiscoveryOptions(settings: CodexAccountLaunchSet
 function normalizeAppSettings(settings: AppSettings): AppSettings {
   const {
     enableAppshots: legacyEnableAppshots,
-    allowComputerControlInNewChats: legacyAllowComputerControlInNewChats,
+    // Dropped: computer use is on unless the person turned it off (`computerControlPreferenceSaved`).
+    allowComputerControlInNewChats: _legacyAllowComputerControlInNewChats,
     showStudioSection: legacyShowStudioSection,
     composerPredictionModel: legacyComposerPredictionModel,
     ...currentSettings
@@ -1700,8 +1705,9 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
     // Read the legacy Studio key once: it defaults to true, so only an explicit
     // `false` carries over onto the renamed Groups section.
     showGroupsSection: settings.showGroupsSection && legacyShowStudioSection !== false,
-    computerControlEnabled:
-      settings.computerControlEnabled || legacyAllowComputerControlInNewChats === true,
+    computerControlEnabled: settings.computerControlPreferenceSaved
+      ? settings.computerControlEnabled
+      : true,
     // Password fields are accepted only as write-only update patches. Never retain
     // reusable provider credentials in browser state or localStorage.
     openCodeServerPassword: "",

@@ -54,7 +54,7 @@ export function ErrorReportsSettingsSection({
     <SettingsSection title="Privacy">
       <SettingsRow
         title="Send error reports"
-        description="When Moss hits an error, it sends a report so the problem can be fixed. Reports go to Sentry, a service in the United States."
+        description="Send a report when Moss hits an error, so it can be fixed."
         status="Changes apply right away. While this is off, nothing is sent."
         resetAction={
           isDefault ? null : (

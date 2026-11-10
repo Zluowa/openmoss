@@ -27,7 +27,8 @@ function CompanionGlyph({ shape, ...props }: SVGProps<SVGSVGElement> & { shape: 
   );
 }
 
-export function MossbotMark(props: SVGProps<SVGSVGElement>) {
+/** The default assistant face (a picture, not the Mossbot mark: that is MossbotIcon). */
+export function MossbotPebbleFace(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="-6 -6 92 92" fill="none" aria-hidden="true" {...props}>
       <g transform="rotate(-22 40 40)">
@@ -103,7 +104,7 @@ function MossbotDrop(props: SVGProps<SVGSVGElement>) {
 }
 
 export const MOSSBOT_AVATARS = [
-  { key: "mossbot-pebble", label: "Moss", tone: "default", Icon: MossbotMark },
+  { key: "mossbot-pebble", label: "Moss", tone: "default", Icon: MossbotPebbleFace },
   { key: "mossbot-sprout", label: "Sprout", tone: "green", Icon: MossbotSprout },
   { key: "mossbot-orbit", label: "Orbit", tone: "blue", Icon: MossbotOrbit },
   { key: "mossbot-bloom", label: "Bloom", tone: "rose", Icon: MossbotBloom },

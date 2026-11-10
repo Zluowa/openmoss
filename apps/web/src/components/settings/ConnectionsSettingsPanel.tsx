@@ -1,11 +1,10 @@
 // FILE: ConnectionsSettingsPanel.tsx
-// Purpose: One connection hub; preserve the real local computer and SSH workflow owners.
+// Purpose: Settings › Connections holds connections only: other devices this one controls,
+//          pairing other devices with this one, and SSH hosts. Computer use is its own page.
 // Layer: Settings UI
-import type { AppSettingsBinding } from "~/appSettings";
 import type { ConnectionTab } from "~/connectionSettingsNavigation";
 import { PillTabs } from "~/components/ui/pill-tabs";
 import { useTranslation } from "~/localization";
-import { ComputerSettingsPanel } from "./ComputerSettingsPanel";
 import { SshConnectionsSettingsPanel } from "./SshConnectionsSettingsPanel";
 import { RemoteComputersSettingsPanel } from "./RemoteComputersSettingsPanel";
 import { IncomingComputerConnections } from "./IncomingComputerConnections";
@@ -14,16 +13,15 @@ export function ConnectionsSettingsPanel({
   active,
   tab,
   onTabChange,
-  ...binding
-}: AppSettingsBinding & {
+}: {
   readonly active: boolean;
-  readonly tab: ConnectionTab;
+  readonly tab: Exclude<ConnectionTab, "this">;
   readonly onTabChange: (tab: ConnectionTab) => void;
 }) {
   const { t } = useTranslation();
   return (
     <div
-      className={active ? "flex flex-col gap-10" : "contents"}
+      className={active ? "flex flex-col gap-8" : "contents"}
       data-testid={active ? "connections-settings" : undefined}
     >
       {active ? (
@@ -32,15 +30,14 @@ export function ConnectionsSettingsPanel({
           selected={tab}
           onSelect={onTabChange}
           tabs={[
-            { id: "this", label: t("settings.connections.tabs.this") },
             { id: "devices", label: t("settings.connections.tabs.devices") },
+            { id: "pairing", label: t("settings.connections.tabs.pairing") },
             { id: "ssh", label: t("settings.connections.tabs.ssh") },
           ]}
         />
       ) : null}
-      <ComputerSettingsPanel {...binding} active={active && tab === "this"} />
-      <IncomingComputerConnections active={active && tab === "this"} />
       <RemoteComputersSettingsPanel active={active && tab === "devices"} />
+      <IncomingComputerConnections active={active && tab === "pairing"} />
       <SshConnectionsSettingsPanel active={active && tab === "ssh"} />
     </div>
   );

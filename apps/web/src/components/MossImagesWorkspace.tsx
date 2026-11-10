@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 
 import { PlusIcon, XIcon, ChevronLeftIcon, ChevronRightIcon, BookIcon } from "~/lib/icons";
 import { useTheme } from "~/hooks/useTheme";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
 import {
   describeMossImagesError,
@@ -1440,7 +1441,10 @@ export function MossImagesWorkspace({
           <Button
             variant="ghost"
             size="sm"
-            render={<Link to="/settings" search={{ section: "usage" }} onClick={onClose} />}
+            onClick={() => {
+              onClose();
+              openSettingsDialog({ section: "usage" });
+            }}
           >
             套餐用量
           </Button>

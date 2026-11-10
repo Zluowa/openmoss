@@ -30,6 +30,7 @@ import { render } from "vitest-browser-react";
 import { createBrowserTestServerConfig } from "../../test/browserHarness";
 import { useStore } from "../../store";
 import { useRightDockStore } from "../../rightDockStore";
+import { closeSettings, settingsDialogStore } from "../../settingsDialogStore";
 import {
   getMcpAppDockEntries,
   makeMcpAppDockEntryId,
@@ -914,12 +915,15 @@ describe("SingleChatSurface right-dock host contract", () => {
           setTheme: vi.fn(async () => undefined),
         },
       });
+      closeSettings();
       await banner
         .querySelector<HTMLButtonElement>('[data-testid="image-generation-limit-primary"]')
         ?.click();
       await vi.waitFor(() => {
-        expect(mounted.router.state.location.pathname).toBe("/settings");
-        expect(mounted.router.state.location.search).toMatchObject({ section: "usage" });
+        expect(settingsDialogStore.getState()).toMatchObject({
+          isOpen: true,
+          request: { section: "usage" },
+        });
         expect(openExternal).not.toHaveBeenCalled();
         expect(
           mounted.host.querySelector('[data-testid="image-generation-limit-banner"]'),

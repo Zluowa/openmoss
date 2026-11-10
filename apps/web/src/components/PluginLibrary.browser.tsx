@@ -8,6 +8,8 @@ import "./PluginLibrary.css";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { closeSettings, settingsDialogStore } from "~/settingsDialogStore";
+
 import { toastManager } from "~/components/ui/toast";
 import {
   acknowledgeStartupAnnouncementsForTest,
@@ -530,7 +532,7 @@ describe("PluginLibrary complete-page states", () => {
     await vi.waitFor(() => expect(mounted.router.state.location.pathname).toBe("/skills"));
   });
 
-  it("returns Detail Manage to the installed detail and restores its exact focus", async () => {
+  it("opens Settings › Plugins over the plugin's page from Detail Manage", async () => {
     const fixture = new PluginLibraryNativeFixture();
     fixture.installedPluginIds.add(GITHUB_PLUGIN_ID);
     const mounted = await mount(fixture);
@@ -541,17 +543,15 @@ describe("PluginLibrary complete-page states", () => {
     );
     await userEvent.click(page.getByRole("button", { name: "More actions" }));
     await userEvent.click(page.getByRole("menuitem", { name: "Manage" }));
+    // Settings is a dialog now: it opens on Plugins and the plugin's page stays behind it.
     await vi.waitFor(() =>
-      expect(mounted.router.state.location.pathname).toBe("/settings/plugins-settings"),
+      expect(settingsDialogStore.getState()).toMatchObject({
+        isOpen: true,
+        request: { section: "plugins" },
+      }),
     );
-
-    await userEvent.keyboard("{Escape}");
-    await vi.waitFor(() =>
-      expect(mounted.router.state.location.pathname).toContain("/skills/plugins/"),
-    );
-    await expect
-      .poll(() => document.activeElement?.getAttribute("aria-label"))
-      .toBe("More actions");
+    expect(mounted.router.state.location.pathname).toContain("/skills/plugins/");
+    closeSettings();
   });
 
   it("supports a direct settings route and returns settings Manage detail to its state", async () => {

@@ -9,7 +9,6 @@ import { useState } from "react";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { AppSettingsSchema, type AppSettings } from "~/appSettings";
 import { MossLocaleScope } from "~/localization";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 import type { ConnectionTab } from "~/connectionSettingsNavigation";
@@ -46,22 +45,13 @@ const status: ComputerStatusResult = {
     visibleDesktop: true,
   },
 };
-function Hub({ initial = "this" }: { initial?: ConnectionTab }) {
+function Hub({ initial = "devices" }: { initial?: Exclude<ConnectionTab, "this"> }) {
   const [tab, setTab] = useState(initial);
-  const [settings, setSettings] = useState(() =>
-    AppSettingsSchema.makeUnsafe({ computerControlEnabled: false }),
-  );
   return (
     <ConnectionsSettingsPanel
       active
       tab={tab}
-      onTabChange={setTab}
-      settings={settings}
-      defaults={AppSettingsSchema.makeUnsafe({})}
-      updateSettings={(patch: Partial<AppSettings>) => {
-        calls.updateSettings(patch);
-        setSettings((current) => ({ ...current, ...patch }));
-      }}
+      onTabChange={(next) => setTab(next === "this" ? "devices" : next)}
     />
   );
 }
@@ -76,7 +66,7 @@ beforeEach(async () => {
 afterEach(() => {
   delete window.desktopBridge;
 });
-const mount = async (initial: ConnectionTab = "this") => {
+const mount = async (initial: Exclude<ConnectionTab, "this"> = "devices") => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(serverQueryKeys.computerStatus(), status);
   const screen = await render(
@@ -90,22 +80,21 @@ const mount = async (initial: ConnectionTab = "this") => {
   );
   return { screen, client };
 };
-it("preserves the real local-computer preference when switching through the hub", async () => {
+it("holds connections only: no computer-use controls on any tab", async () => {
   const { screen, client } = await mount();
-  const local = page.getByRole("tab", { name: "Control this computer", exact: true });
-  await expect.element(local).toHaveAttribute("aria-selected", "true");
-  const control = page.getByRole("switch", {
-    name: "Let the agent use the desktop in any chat",
-    exact: true,
-  });
-  await control.click();
-  expect(calls.updateSettings).toHaveBeenCalledWith({ computerControlEnabled: true });
-  await expect.element(control).toBeChecked();
-  await page.getByRole("tab", { name: "SSH", exact: true }).click();
+  await expect
+    .element(page.getByRole("tab", { name: "Other devices", exact: true }))
+    .toHaveAttribute("aria-selected", "true");
+  await expect
+    .element(page.getByRole("tab", { name: "Control this computer" }))
+    .not.toBeInTheDocument();
+  for (const name of ["Other devices", "Pair a device", "SSH"]) {
+    await page.getByRole("tab", { name, exact: true }).click();
+    await expect
+      .element(page.getByRole("switch", { name: /desktop|apps on your computer/ }))
+      .not.toBeInTheDocument();
+  }
   await expect.element(page.getByTestId("ssh-connections-settings")).toBeVisible();
-  await expect.element(control).not.toBeInTheDocument();
-  await local.click();
-  await expect.element(control).toBeChecked();
   await screen.unmount();
   client.clear();
 });
@@ -115,12 +104,13 @@ it("uses keyboard tabs and identifies desktop-only pairing in a browser", async 
   await ssh.click();
   await userEvent.keyboard("{Home}");
   await expect
-    .element(page.getByRole("tab", { name: "Control this computer" }))
+    .element(page.getByRole("tab", { name: "Other devices" }))
     .toHaveAttribute("aria-selected", "true");
   await userEvent.keyboard("{ArrowRight}");
   await expect
-    .element(page.getByRole("tab", { name: "Control other devices" }))
+    .element(page.getByRole("tab", { name: "Pair a device" }))
     .toHaveAttribute("aria-selected", "true");
+  await userEvent.keyboard("{ArrowLeft}");
   await expect
     .element(page.getByTestId("remote-computers-settings"))
     .toHaveTextContent("Add and connect to other devices in the Moss desktop app.");

@@ -30,6 +30,7 @@ import {
   type MossCanvasComposeContext,
   type MossCanvasSelection,
 } from "../lib/mossCanvasSelection";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 export type MossCanvasComposeContextReader = () => Promise<{
   readonly context: MossCanvasComposeContext;
@@ -568,7 +569,7 @@ export function MossCanvasWebSurface({
           )
             return;
           if (destination === "account") {
-            await navigate({ to: "/settings", search: { section: "usage" } });
+            openSettingsDialog({ section: "usage" });
           } else if (destination === "skills" || destination === "plugins") {
             await navigate({ to: destination === "skills" ? "/skills" : "/plugins" });
           }

@@ -229,6 +229,7 @@ import { createPastedTextDraft } from "../lib/composerPastedText";
 import {
   buildComposerFileAttachmentsFromFiles,
   effectiveComposerAttachmentCount,
+  prepareComposerImageAttachmentsFromFiles,
 } from "../lib/composerSend";
 import {
   deriveContextWindowSelectionStatus,
@@ -594,6 +595,7 @@ import { Skeleton } from "./ui/skeleton";
 import { toastManager } from "./ui/toast";
 import { isSidechatThread, isStandaloneSidechatThread } from "@moss/shared/sidechatThread";
 import { selectNextThreadSendRequest, useThreadSendRequestStore } from "../threadSendRequestStore";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 // The terminal panel loads xterm plus its addons (~223 KB gzip). Its mount point
 // is conditional, so loading it lazily keeps the terminal stack out of the initial
@@ -4590,15 +4592,12 @@ export default function ChatView({
     [onProviderModelSelect, selectedModelForPickerWithCustomFallback, selectedProvider],
   );
   const openProviderAccountSettings = useCallback(() => {
-    void navigate({
-      to: "/settings",
-      search: {
-        section: "providers",
-        target: SETTINGS_TARGETS.providerInstalls,
-        provider: selectedProvider,
-      },
+    openSettingsDialog({
+      section: "providers",
+      target: SETTINGS_TARGETS.providerInstalls,
+      provider: selectedProvider,
     });
-  }, [navigate, selectedProvider]);
+  }, [selectedProvider]);
 
   const copyThreadIdToClipboard = useCopyThreadIdToClipboard();
 
@@ -4959,6 +4958,17 @@ export default function ChatView({
 
   const removeComposerImage = (imageId: string) => {
     removeComposerImageFromDraft(imageId);
+  };
+  // Save in an image's markup: prepare the marked copy first, so a failure keeps the original.
+  const replaceComposerImage = async (imageId: string, file: File) => {
+    const result = await prepareComposerImageAttachmentsFromFiles({
+      files: [file],
+      existingAttachmentCount: 0,
+    });
+    const [prepared] = result.images;
+    if (!prepared) throw new Error(result.error ?? "Moss could not prepare the marked image.");
+    removeComposerImageFromDraft(imageId);
+    addComposerImagesToDraft([prepared]);
   };
 
   const addComposerFiles = useCallback(
@@ -5521,7 +5531,7 @@ export default function ChatView({
     if (presentation.action === "personal-usage") {
       openExternalLink(PERSONAL_IMAGE_USAGE_URL);
     } else if (presentation.action === "managed-usage") {
-      void navigate({ to: "/settings", search: { section: "usage" } });
+      openSettingsDialog({ section: "usage" });
     }
   };
   const visibleActiveRateLimitStatusForRender =
@@ -7936,7 +7946,7 @@ export default function ChatView({
                         files={composerFiles}
                         images={composerImages}
                         nonPersistedImageIdSet={nonPersistedComposerImageIdSet}
-                        onExpandImage={setExpandedImage}
+                        onReplaceImage={replaceComposerImage}
                         onRemoveAssistantSelections={clearComposerAssistantSelectionsFromDraft}
                         onRemoveBrowserAnnotation={removeComposerBrowserAnnotationFromDraft}
                         onRemoveFileComments={clearComposerFileCommentsFromDraft}

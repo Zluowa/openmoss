@@ -185,12 +185,13 @@ describe("PluginManagementPanel authoritative tabs", () => {
       const tabs = [
         ...document.querySelectorAll<HTMLElement>('[data-testid^="plugin-manage-tab-"]'),
       ];
+      // Codex's settings page always offers Plugins / Apps / MCP / Skills.
       expect(tabs.map((tab) => tab.dataset.testid)).toEqual([
         "plugin-manage-tab-plugins",
         "plugin-manage-tab-apps",
         "plugin-manage-tab-mcps",
+        "plugin-manage-tab-skills",
       ]);
-      expect(document.querySelector('[data-testid="plugin-manage-tab-skills"]')).toBeNull();
       expect(document.querySelector('[data-testid="plugin-manage-tab-marketplace"]')).toBeNull();
 
       const rows = [
@@ -255,6 +256,7 @@ describe("PluginManagementPanel authoritative tabs", () => {
       const plugins = page.getByTestId("plugin-manage-tab-plugins");
       const apps = page.getByTestId("plugin-manage-tab-apps");
       const mcps = page.getByTestId("plugin-manage-tab-mcps");
+      const skills = page.getByTestId("plugin-manage-tab-skills");
       await expect.element(plugins).toHaveAttribute("tabindex", "0");
       await expect.element(apps).toHaveAttribute("tabindex", "-1");
       await expect.element(mcps).toHaveAttribute("tabindex", "-1");
@@ -266,11 +268,11 @@ describe("PluginManagementPanel authoritative tabs", () => {
       await expect.element(plugins).toHaveAttribute("tabindex", "-1");
 
       await userEvent.keyboard("{End}");
-      expect(document.activeElement).toBe(mcps.element());
-      await expect.element(mcps).toHaveAttribute("aria-selected", "true");
+      expect(document.activeElement).toBe(skills.element());
+      await expect.element(skills).toHaveAttribute("aria-selected", "true");
 
       await userEvent.keyboard("{ArrowLeft}");
-      expect(document.activeElement).toBe(apps.element());
+      expect(document.activeElement).toBe(mcps.element());
       await userEvent.keyboard("{Home}");
       expect(document.activeElement).toBe(plugins.element());
       await expect.element(plugins).toHaveAttribute("aria-selected", "true");

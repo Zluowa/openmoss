@@ -273,6 +273,7 @@ export default defineConfig({
       "react-dom",
       "react-dom/client",
       "react-icons/gr",
+      "zustand/vanilla",
     ],
     exclude: ["input-otp"],
   },

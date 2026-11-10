@@ -35,6 +35,7 @@ import {
 import { useCommittedPathname } from "./useCommittedPathname";
 import type { useHandleNewThread } from "./useHandleNewThread";
 import { isSidechatThread } from "@moss/shared/sidechatThread";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 type NewThreadContext = ReturnType<typeof useHandleNewThread>;
 
@@ -254,10 +255,7 @@ export function useRecentViewSwitcher(input: UseRecentViewSwitcherInput) {
         return;
       }
       case "settings":
-        void navigate({
-          to: "/settings",
-          search: () => (view.section ? { section: view.section } : {}),
-        });
+        openSettingsDialog(view.section ? { section: view.section } : undefined);
         return;
       case "plugins":
         void navigate({ to: "/plugins" });

@@ -40,6 +40,7 @@ import { MossLocaleScope } from "~/localization";
 import { AppRail } from "../AppRail";
 import { useProviderUpdateRunStore } from "./providerUpdateRunStore";
 import { RailUpdateControl } from "./RailUpdateControl";
+import { closeSettings, settingsDialogStore } from "~/settingsDialogStore";
 
 const CHECKED_AT = new Date(Date.now() - 60_000).toISOString();
 
@@ -329,12 +330,11 @@ describe("RailUpdateControl", () => {
     ]);
 
     await userEvent.click(page.getByRole("button", { name: "boom" }));
-    expect(navigate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: "/settings",
-        search: expect.objectContaining({ section: "providers" }),
-      }),
-    );
+    expect(settingsDialogStore.getState()).toMatchObject({
+      isOpen: true,
+      request: { section: "providers" },
+    });
+    closeSettings();
   });
 
   it("updates agents one at a time and shows the position", async () => {

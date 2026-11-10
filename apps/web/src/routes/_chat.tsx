@@ -21,6 +21,8 @@ import { DesktopApplicationMenuBar } from "../components/DesktopApplicationMenuB
 import { SidebarLeadingControlsDock } from "../components/SidebarHeaderNavigationControls";
 import { resolveSelectableProviderInstanceId, useAppSettings } from "../appSettings";
 import ShortcutsDialog from "../components/ShortcutsDialog";
+import { SettingsDialogHost } from "../components/settings/SettingsDialog";
+import { openSettings } from "../settingsDialogStore";
 import { RecentViewSwitcher } from "../components/RecentViewSwitcher";
 import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import ThreadSidebar from "../components/Sidebar";
@@ -452,7 +454,7 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
       if (action !== "open-settings") return;
-      void navigate({ to: "/settings" });
+      openSettings();
     });
 
     return () => {
@@ -833,6 +835,7 @@ function ChatRouteLayout() {
     >
       {isDestinationSurface && <DesktopApplicationMenuBar />}
       <ChatRouteGlobalShortcuts />
+      <SettingsDialogHost />
       <AppRailSlotProvider value={railSlot}>
         <SidebarLeadingControlsDock routeColumn={routeColumn} railSlot={railSlot}>
           {isMobile ? (

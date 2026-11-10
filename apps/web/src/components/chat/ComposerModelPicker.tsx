@@ -832,6 +832,11 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
                 <div className="my-auto">
                   <ComposerModelPickerSourceNotice
                     source={noticeSource}
+                    status={findProviderStatusForInstance({
+                      providers: props.providers,
+                      provider: noticeSource.provider,
+                      instanceId: noticeSource.instanceId,
+                    })}
                     onSignInToMoss={signInToMoss}
                     onOpenAgentSettings={openAgentSettings}
                   />

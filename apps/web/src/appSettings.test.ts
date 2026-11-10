@@ -230,13 +230,25 @@ describe("source control writing settings", () => {
 });
 
 describe("computer control defaults", () => {
-  it("leaves computer control off until a preference is explicitly saved", () => {
-    expect(AppSettingsSchema.makeUnsafe({}).computerControlEnabled).toBe(false);
+  it("turns computer use on until the person chooses otherwise", () => {
+    expect(AppSettingsSchema.makeUnsafe({}).computerControlEnabled).toBe(true);
     const decoded = Schema.decodeUnknownSync(AppSettingsSchema)({ autoOpenComputerPane: false });
-    expect(normalizeStoredAppSettings(decoded).computerControlEnabled).toBe(false);
+    expect(normalizeStoredAppSettings(decoded).computerControlEnabled).toBe(true);
   });
 
-  it("migrates the legacy per-chat computer control default", () => {
+  it("ignores the off default older builds saved, but keeps an explicit choice", () => {
+    const savedByOldBuild = Schema.decodeUnknownSync(AppSettingsSchema)({
+      computerControlEnabled: false,
+    });
+    expect(normalizeStoredAppSettings(savedByOldBuild).computerControlEnabled).toBe(true);
+    const turnedOff = Schema.decodeUnknownSync(AppSettingsSchema)({
+      computerControlEnabled: false,
+      computerControlPreferenceSaved: true,
+    });
+    expect(normalizeStoredAppSettings(turnedOff).computerControlEnabled).toBe(false);
+  });
+
+  it("drops the legacy per-chat computer control key", () => {
     const decoded = Schema.decodeUnknownSync(AppSettingsSchema)({
       allowComputerControlInNewChats: true,
     });

@@ -80,8 +80,8 @@ import {
   CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
   DOCK_HEADER_ICON_BUTTON_CLASS,
 } from "./chat/chatHeaderControls";
-import { BrowserSketchOverlay } from "./browser/BrowserSketchOverlay";
-import { BrowserSketchToolbar } from "./browser/BrowserSketchToolbar";
+import { MarkupCanvas } from "./markup/MarkupCanvas";
+import { MarkupToolbar } from "./markup/MarkupToolbar";
 import { useBrowserSketch } from "./browser/useBrowserSketch";
 import {
   browserWebviewInitialUrl,
@@ -2307,7 +2307,7 @@ export function BrowserPanel({
                 preset={viewportPreset}
                 className="z-20"
               >
-                <BrowserSketchOverlay
+                <MarkupCanvas
                   pageImageUrl={sketch.pageImageUrl}
                   tool={sketch.tool}
                   style={sketch.style}
@@ -2324,7 +2324,7 @@ export function BrowserPanel({
               data-browser-sketch-strip=""
               className="flex h-12 shrink-0 items-center justify-center bg-[color-mix(in_srgb,var(--foreground)_3%,var(--background))] px-3"
             >
-              <BrowserSketchToolbar
+              <MarkupToolbar
                 tool={sketch.tool}
                 onToolChange={sketch.setTool}
                 selectAvailable={elementPickAvailable}
@@ -2334,12 +2334,16 @@ export function BrowserPanel({
                 expanded={sketch.expanded}
                 style={sketch.style}
                 onStyleChange={sketch.setStyle}
-                adding={sketch.adding}
+                action={{
+                  label: t("browser.sketch.addToChat"),
+                  busyLabel: t("browser.sketch.adding"),
+                  busy: sketch.adding,
+                  onClick: sketch.addToChat,
+                }}
                 confirmingDiscard={sketch.confirmingDiscard}
                 onUndo={sketch.undo}
                 onRedo={sketch.redo}
                 onClear={sketch.clear}
-                onAddToChat={sketch.addToChat}
                 onRequestClose={sketch.requestClose}
                 onCancelDiscard={sketch.cancelDiscard}
                 onDiscard={sketch.close}

@@ -75,12 +75,12 @@ beforeEach(async () => {
 });
 it("explains local-only reachability and never creates a code automatically", async () => {
   const screen = await render(content());
-  await expect.element(page.getByText(/尚未配置可分享地址/u)).toBeVisible();
+  await expect.element(page.getByText(/其他设备暂时还连不到这台电脑/u)).toBeVisible();
   expect(calls.create).not.toHaveBeenCalled();
   await expect.element(page.getByLabelText("可访问的 Moss 地址")).not.toBeInTheDocument();
   calls.session.mockResolvedValue({ authenticated: true, role: "client" });
   await page.getByRole("button", { name: "刷新配对访问", exact: true }).click();
-  await expect.element(page.getByText(/只有此 Moss 服务的所有者/u)).toBeVisible();
+  await expect.element(page.getByText(/只有这台 Moss 的所有者/u)).toBeVisible();
   await expect
     .element(page.getByRole("button", { name: "生成一次性配对码", exact: true }))
     .not.toBeInTheDocument();

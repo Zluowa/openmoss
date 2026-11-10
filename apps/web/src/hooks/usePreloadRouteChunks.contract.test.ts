@@ -8,6 +8,6 @@ describe("route chunk preload contract", () => {
     expect(source).not.toContain("router.preloadRoute");
     expect(source).not.toContain("chunk-preload");
     expect(source).toContain('import("../routes/_chat.$threadId?tsr-split=component")');
-    expect(source).toContain('import("../routes/_chat.settings?tsr-split=component")');
+    expect(source).toContain('import("../components/settings/SettingsContent")');
   });
 });

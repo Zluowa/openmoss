@@ -162,9 +162,7 @@ describe("AppSnapSettingsPanel", () => {
     });
 
     const mounted = await render(<AppSnapActivityHarness />);
-    await expect
-      .element(mounted.getByText("Listening — press ⌥ left + ⌥ right to snap"))
-      .toBeVisible();
+    await expect.element(mounted.getByText("On while Moss is open")).toBeVisible();
     expect(onState).toHaveBeenCalledOnce();
     expect(onPermissionGuideState).toHaveBeenCalledOnce();
 
@@ -173,9 +171,7 @@ describe("AppSnapSettingsPanel", () => {
     expect(requestPermissions).not.toHaveBeenCalled();
 
     await mounted.getByRole("button", { name: "Leave AppSnap" }).click();
-    await expect
-      .element(mounted.getByText("Listening — press ⌥ left + ⌥ right to snap"))
-      .not.toBeInTheDocument();
+    await expect.element(mounted.getByText("On while Moss is open")).not.toBeInTheDocument();
     // Passive-effect cleanup lags the commit by a task; the focus below must
     // land after the window-return listener has actually detached.
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -183,9 +179,7 @@ describe("AppSnapSettingsPanel", () => {
     await Promise.resolve();
     expect(getState).toHaveBeenCalledTimes(2);
     await mounted.getByRole("button", { name: "Return to AppSnap" }).click();
-    await expect
-      .element(mounted.getByText("Listening — press ⌥ left + ⌥ right to snap"))
-      .toBeVisible();
+    await expect.element(mounted.getByText("On while Moss is open")).toBeVisible();
     expect(onState).toHaveBeenCalledOnce();
     expect(unsubscribe).not.toHaveBeenCalled();
 

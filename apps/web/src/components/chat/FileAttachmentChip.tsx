@@ -58,16 +58,22 @@ interface FileAttachmentChipProps {
   className?: string;
   nonPersisted?: boolean;
   variant?: FileAttachmentChipVariant;
+  /** Opens the file's preview when the card is clicked (composer cards only). */
+  onOpen?: ((file: ChatFileAttachment) => void) | undefined;
 }
 
 // Builds the short sub-label shown on composer cards, preferring precise
 // extensions before MIME fallbacks so long vendor MIME strings never leak into UI.
-function fileAttachmentTypeLabel(file: ChatFileAttachment): string {
+export function fileAttachmentTypeLabel(file: ChatFileAttachment): string {
   const basename = basenameOfPath(file.name).trim();
   const extensionStart = basename.startsWith(".") ? -1 : basename.indexOf(".");
   if (extensionStart > 0 && extensionStart < basename.length - 1) {
     const compoundExtension = basename.slice(extensionStart + 1).toUpperCase();
-    if (compoundExtension.length <= 12) {
+    // Only short clean parts read as one type (TAR.GZ); "Moss-1.0.4-notes.pdf" is a PDF.
+    if (
+      compoundExtension.length <= 12 &&
+      /^[A-Z0-9]{1,5}(\.[A-Z0-9]{1,5})*$/.test(compoundExtension)
+    ) {
       return compoundExtension;
     }
 
@@ -147,6 +153,7 @@ export function FileAttachmentChip({
   className,
   nonPersisted: nonPersistedProp,
   variant: variantProp,
+  onOpen,
 }: FileAttachmentChipProps) {
   const { format } = useTranslation();
   const nonPersisted = nonPersistedProp ?? false;
@@ -177,6 +184,29 @@ export function FileAttachmentChip({
         }
         onRemove={onRemove ? () => onRemove(file.id) : undefined}
         removeLabel={format("attachments.remove", { name: file.name })}
+        {...(onOpen
+          ? {
+              role: "button",
+              tabIndex: 0,
+              "aria-label": format("attachments.preview", { name: file.name }),
+              "data-attachment-open": "",
+              className: cn(
+                "cursor-pointer transition-colors hover:border-[color:var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                className,
+              ),
+              onClick: (event: React.MouseEvent<HTMLSpanElement>) => {
+                // The remove button inside the card is not a click on the card.
+                if (event.target instanceof Element && event.target.closest("button")) return;
+                onOpen(file);
+              },
+              onKeyDown: (event: React.KeyboardEvent<HTMLSpanElement>) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                onOpen(file);
+              },
+            }
+          : {})}
       />
     ) : (
       <FileAttachmentPillTrigger

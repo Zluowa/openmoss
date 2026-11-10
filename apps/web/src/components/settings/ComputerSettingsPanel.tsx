@@ -1,19 +1,11 @@
 // FILE: ComputerSettingsPanel.tsx
-// Purpose: Own the Computer use settings panel: one surface for the control toggle,
-//          the honest attention-only status line, cursor colors, and the preview.
+// Purpose: Settings › Computer use (Codex's 电脑操控 page): the "any app" switch, one plain
+//          status line with one action when computer use can't work, the pointer and
+//          preview preferences, and the recent-actions log.
 // Layer: Settings UI components
 // Exports: ComputerSettingsPanel
 
-import {
-  COMPUTER_HYPRLAND_BACKEND,
-  COMPUTER_KWIN_BACKEND,
-  COMPUTER_MAC_BACKEND,
-  COMPUTER_NESTED_KWIN_BACKEND,
-  COMPUTER_RELEASE_CONTROL_HOTKEY,
-  COMPUTER_RELEASE_HOTKEY_BACKENDS,
-  type ComputerCapabilities,
-  type ComputerPermission,
-} from "@moss/contracts";
+import type { ComputerPermission } from "@moss/contracts";
 import {
   COMPUTER_PERMISSION_KINDS,
   computerPermissionSetupMessage,
@@ -35,12 +27,10 @@ import {
 } from "~/appSettings";
 import type { DesktopAppSnapSettingsPane, DesktopAppSnapState } from "@moss/contracts";
 import {
-  computerReconnectsNote,
   computerStatusNeedsSetup,
   resolveComputerAvailabilityView,
 } from "~/components/ComputerPanel.logic";
-import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
-import { DisclosureRegion } from "~/components/ui/DisclosureRegion";
+import { CentralIcon } from "~/lib/central-icons";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Switch } from "~/components/ui/switch";
@@ -55,55 +45,15 @@ import {
   COMPUTER_STATUS_VISIBLE_REFETCH_INTERVAL_MS,
   computerStatusQueryOptions,
 } from "~/lib/serverReactQuery";
-import { resolveComputerHostPlatform } from "~/lib/computerHostPlatform";
-import { cn, getNavigatorPlatform } from "~/lib/utils";
+import { cn } from "~/lib/utils";
 import { settingRowAnchorId } from "~/settingsNavigation";
 import { useAgentCursorDesktopSync } from "./agentCursorDesktopSync";
 import { SettingResetButton, SettingsSegmentedControl } from "./SettingControls";
 import { SettingsCard, SettingsRow, SettingsSectionShell } from "./SettingsPanelPrimitives";
-import { ComputerGettingStarted } from "./ComputerGettingStarted";
 import { ComputerAuditHistorySection } from "./ComputerAuditHistorySection";
 
 /** Stable identity, so the provision hook's toast copy is not rebuilt every render. */
 const EMPTY_PERMISSIONS: readonly ComputerPermission[] = [];
-
-const BACKEND_DISPLAY_NAMES: Record<string, string> = {
-  [COMPUTER_KWIN_BACKEND]: "KWin plugin (KDE)",
-  [COMPUTER_HYPRLAND_BACKEND]: "Hyprland plugin",
-  [COMPUTER_NESTED_KWIN_BACKEND]: "Isolated agent desktop (nested KWin)",
-  [COMPUTER_MAC_BACKEND]: "macOS desktop",
-  cua: "Cua 0.28.2",
-  fake: "Test backend",
-};
-
-/** Ordered to read as a sentence of abilities, most consequential first. */
-const CAPABILITY_LABELS: ReadonlyArray<{
-  readonly key: keyof ComputerCapabilities;
-  readonly label: string;
-}> = [
-  { key: "capture", label: "screen capture" },
-  { key: "input", label: "input" },
-  { key: "windows", label: "window listing" },
-  { key: "windowBounds", label: "window geometry" },
-  { key: "stacking", label: "stacking order" },
-  { key: "focus", label: "keyboard focus" },
-  { key: "raise", label: "window raising" },
-  { key: "clipboard", label: "clipboard" },
-  { key: "ghostCursor", label: "ghost cursor" },
-];
-
-/**
- * The abilities to read out. `captureAvailable` is live health, not a static
- * capability: a backend can advertise capture and still be unable to take a
- * frame because the OS has not granted it, and listing "screen capture" in that
- * state is the panel telling the user something the desktop cannot do.
- */
-function capabilitySummary(capabilities: ComputerCapabilities, captureAvailable: boolean): string {
-  const enabled = CAPABILITY_LABELS.filter(
-    (entry) => capabilities[entry.key] && (entry.key !== "capture" || captureAvailable),
-  ).map((entry) => entry.label);
-  return enabled.length > 0 ? enabled.join(", ") : "none";
-}
 
 /**
  * One agent-cursor color field: a validated hex input and the swatch it
@@ -179,9 +129,6 @@ export function ComputerSettingsPanel({
   const status = statusQuery.data;
   const [appSnapState, setAppSnapState] = useState<DesktopAppSnapState | null>(null);
   const [guidePane, setGuidePane] = useState<DesktopAppSnapSettingsPane | null>(null);
-  // Advanced is details, not a default: the surface opens calm and stays that
-  // way until the user asks for permissions, grants, and abilities.
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   // The native permission surface is the AppSnap helper: the same coach that
   // AppSnap's own settings drive, asked about the computer-use grant set.
   const localPermissionBridge = readLocalComputerPermissionBridge();
@@ -281,126 +228,48 @@ export function ComputerSettingsPanel({
   if (!active) return null;
 
   const availabilityView = statusQuery.isError
-    ? {
-        kind: "blocked" as const,
-        title: "Computer status is unavailable",
-        description:
-          statusQuery.error instanceof Error && statusQuery.error.message
-            ? statusQuery.error.message
-            : "The server could not be reached.",
-      }
+    ? { kind: "blocked" as const, title: "", description: "" }
     : resolveComputerAvailabilityView(availability, status?.health, grantsConfirmed);
   const backend =
     status?.availability.kind === "available" ? (status.availability.backend ?? null) : null;
   const health = status?.health;
-  // How this backend shares the machine, in the user's terms. macOS is the one
-  // backend with no seat of its own: it drives the desktop the human is looking
-  // at. Elsewhere, the emergency release is a shortcut the compositor plugin
-  // (KWin or Hyprland) registers with the compositor — no other backend binds
-  // it, and a nested offscreen session never hears the human's keys, so only a
-  // visible plugin-backed desktop may promise it.
-  //
-  // Cua drives both macOS and Windows. Which desktop this is comes from the host the server
-  // reports, not from the window showing this panel. Missing grants are a separate
-  // `permission-required` state; this sentence only describes what the host can do.
-  const hostPlatform = resolveComputerHostPlatform(status, getNavigatorPlatform());
-  const capabilitiesDescription =
-    // This instance can only observe (no native input on its host): say so, whatever the OS.
-    backend === "cua" && status?.capabilities.input === false
-      ? "This backend can observe desktop windows, but native desktop input is unavailable. Isolated headless browser actions require a verified browser runtime and an available task-scoped Escape shortcut. Use Stop in the chat to interrupt the task."
-      : backend === "cua" && hostPlatform === "win32"
-        ? "On Windows, Moss works with your apps through UI Automation and screen capture. Allow any access Windows asks for, then refresh. Use Stop in the chat to interrupt the task."
-        : backend === COMPUTER_MAC_BACKEND || (backend === "cua" && hostPlatform === "darwin")
-          ? "The agent shares your Mac desktop and works in the background by default. It can bring a window forward when your task asks to watch. Background input may still affect focus. Use Stop in the chat to interrupt the task. Physical Escape interrupts the current action when Input Monitoring is granted; it does not disable future tasks."
-          : backend === "cua"
-            ? "The agent shares this computer's desktop. Use Stop in the chat to interrupt the task."
-            : backend !== null &&
-                COMPUTER_RELEASE_HOTKEY_BACKENDS.includes(backend) &&
-                status?.capabilities.visibleDesktop === true
-              ? `The agent shares the computer described by this backend. Press ${COMPUTER_RELEASE_CONTROL_HOTKEY} at any time to stop it from acting on the desktop, and press it again to let it resume.`
-              : "The agent drives its own seat, so your cursor and focus stay untouched.";
-  /**
-   * Screen capture is granted separately from input on every backend that has a
-   * permission model at all, so a desktop can be fully driveable and still
-   * blind.
-   *
-   * The two readings differ on purpose. `captureUnavailable` is "nothing has
-   * proved capture works", which is also true of a backend nobody has engaged
-   * yet — enough to offer Set up, not enough to accuse the OS of refusing.
-   * `captureBlocked` is the refusal itself: a helper that is running and still
-   * cannot see. Only that one earns the warning, and without it the surface is
-   * entirely green while every screenshot fails.
-   */
-  const captureUnavailable = health?.captureAvailable === false;
-  const captureBlocked = captureUnavailable && health?.status === "connected";
+  const captureBlocked = health?.captureAvailable === false && health?.status === "connected";
   const localPlatformUnsupported =
     localPermissionBridge !== null &&
     appSnapState !== null &&
     appSnapState.platform !== "macos" &&
     appSnapState.platform !== "windows";
-  // Shared with the chat's setup card, which asks the same question of the same
-  // status after pressing the same server-side Set up.
   const needsSetup =
     !localPlatformUnsupported &&
     (nativePermissionSetupError !== null ||
       nativeMissingPermissions.length > 0 ||
       computerStatusNeedsSetup(status, grantsConfirmed));
-  // The one counter worth carrying beside the status sentence; a last failure
-  // is already the reconnect sentence, so it is not repeated here.
-  const healthNotes = [computerReconnectsNote(health)].filter(
-    (note): note is string => note !== null,
-  );
-  /**
-   * One status row says whether the desktop is ready, connected, or needs the
-   * user — a blocked backend, a missing grant, a screen-capture refusal, a
-   * reconnect in flight, or a status query that failed. Only the last kind
-   * carries an action, the one that fixes or rechecks it.
-   */
-  const showAttentionRow =
-    nativePermissionSetupError !== null ||
-    availabilityView.kind === "ready" ||
-    availabilityView.kind === "blocked" ||
-    (availabilityView.kind === "checking" && (needsSetup || health?.status === "reconnecting"));
-  const attentionTitle = nativePermissionSetupError
-    ? "Computer permission setup needs attention"
-    : captureBlocked
-      ? "Screen capture is not allowed yet"
-      : availabilityView.title;
-  const attentionDescription =
-    nativePermissionSetupError ??
-    (captureBlocked
-      ? backend === COMPUTER_MAC_BACKEND
-        ? "The agent can act on the desktop but cannot see it, so screenshots fail. Turn Moss on in System Settings › Privacy & Security › Screen Recording, then press Set up to reconnect."
-        : "The agent can act on the desktop but cannot see it, so screenshots fail. Press Set up to reconnect."
-      : availabilityView.description);
-  const attentionTone = cn(
-    "size-2 shrink-0 rounded-full",
-    nativePermissionSetupError
-      ? "bg-red-500"
-      : availabilityView.kind === "ready"
-        ? "bg-emerald-500"
-        : availabilityView.kind === "checking"
-          ? "animate-pulse bg-amber-500"
-          : captureBlocked
-            ? "bg-amber-500"
-            : "bg-red-500",
-  );
-  const attentionAction =
-    needsSetup && !statusQuery.isError ? (
-      <Button size="sm" variant="outline" disabled={setup.isPending} onClick={setup.provision}>
-        {setup.isPending ? "Setting up…" : "Set up"}
-      </Button>
-    ) : statusQuery.isError ? (
+  const statusLine = resolveComputerUseStatusLine({
+    queryFailed: statusQuery.isError,
+    availabilityKind: status?.availability.kind ?? null,
+    viewKind: availabilityView.kind,
+    reconnecting: health?.status === "reconnecting",
+    missingPermissions: missingPermissions.length > 0 || nativePermissionSetupError !== null,
+    captureBlocked,
+    needsSetup,
+  });
+  const statusBusy = setup.isPending || statusQuery.isFetching;
+  const statusAction =
+    statusLine?.action === "grant" || statusLine?.action === "retry" ? (
       <Button
-        size="sm"
+        size="xs"
         variant="outline"
-        disabled={statusQuery.isFetching}
+        disabled={statusBusy}
         onClick={() => {
-          void statusQuery.refetch();
-          refreshPermissionState();
+          if (statusQuery.isError) {
+            void statusQuery.refetch();
+            refreshPermissionState();
+            return;
+          }
+          setup.provision();
         }}
       >
-        {statusQuery.isFetching ? "Checking…" : "Check again"}
+        {statusBusy ? "Checking…" : statusLine.action === "grant" ? "Allow access" : "Try again"}
       </Button>
     ) : null;
   // Stock is the default and stores no override; only an explicit Custom
@@ -413,59 +282,76 @@ export function ComputerSettingsPanel({
   const previewDirty =
     settings.autoOpenComputerPane !== defaults.autoOpenComputerPane ||
     settings.computerPreviewSize !== defaults.computerPreviewSize;
+  const showMacPermissionChecklist =
+    hasNativePermissionSetup &&
+    appSnapState !== null &&
+    (nativeMissingPermissions.length > 0 || nativePermissionSetupError !== null);
 
   return (
-    <div className="space-y-6">
-      {/* The whole surface: the toggle that turns desktop control on, the one
-          attention row when the desktop cannot deliver, and the two
-          preferences that shape a session. */}
-      <SettingsSectionShell
-        id={settingRowAnchorId("Computer control")}
-        title="Computer control"
-        action={
-          <div className="flex items-center gap-1.5">
-            {settings.computerControlEnabled !== defaults.computerControlEnabled ? (
-              <SettingResetButton
-                label="computer control"
-                onClick={() =>
-                  updateSettings({ computerControlEnabled: defaults.computerControlEnabled })
-                }
-              />
-            ) : null}
-            <Switch
-              checked={settings.computerControlEnabled}
-              onCheckedChange={(checked) =>
-                updateSettings({ computerControlEnabled: Boolean(checked) })
-              }
-              aria-label="Let the agent use the desktop in any chat"
-            />
-          </div>
-        }
-      >
-        <p className="px-2 text-ui text-muted-foreground">
-          Enable Computer by default in any chat. Leave this off and use /computer-use for one
-          request without adding Computer tools to ordinary turns.
-        </p>
+    <div className="space-y-8" data-computer-backend={backend ?? undefined}>
+      <SettingsSectionShell id={settingRowAnchorId("Computer control")} title="Control apps">
         <SettingsCard>
-          {showAttentionRow ? (
-            <SettingsRow
-              title={
-                <span className="flex items-center gap-2">
-                  <span aria-hidden className={attentionTone} />
-                  {attentionTitle}
-                </span>
-              }
-              description={attentionDescription}
-              status={[setup.note, ...healthNotes].filter(Boolean).join(" ") || undefined}
-              control={attentionAction}
-            />
+          <SettingsRow
+            leading={<ComputerUseAppTile />}
+            title="Any app"
+            description="Let Moss use the apps on your computer"
+            control={
+              <Switch
+                checked={settings.computerControlEnabled}
+                onCheckedChange={(checked) =>
+                  updateSettings({
+                    computerControlEnabled: Boolean(checked),
+                    computerControlPreferenceSaved: true,
+                  })
+                }
+                aria-label="Let Moss use the apps on your computer"
+              />
+            }
+          />
+          {statusLine ? (
+            <div
+              className="flex min-h-12 items-center justify-between gap-3 px-4 py-2.5"
+              data-testid="computer-use-status"
+              role="status"
+            >
+              <span className="flex min-w-0 items-center gap-2 text-ui text-muted-foreground">
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-2 shrink-0 rounded-full",
+                    statusLine.tone === "warning" ? "bg-amber-500" : "bg-red-500",
+                  )}
+                />
+                <span className="truncate">{statusLine.text}</span>
+              </span>
+              {statusAction}
+            </div>
           ) : null}
+        </SettingsCard>
+      </SettingsSectionShell>
+
+      {showMacPermissionChecklist && appSnapState ? (
+        // macOS asks for each grant separately; the checklist names the missing ones.
+        <AppSnapPermissionSection
+          panes={COMPUTER_PERMISSION_PANES}
+          permissionKinds={COMPUTER_PERMISSION_KINDS}
+          feature="Computer control"
+          state={appSnapState}
+          onStateChange={setAppSnapState}
+          guidePane={guidePane}
+          onGuidePaneChange={setGuidePane}
+          showRecheck={false}
+        />
+      ) : null}
+
+      <SettingsSectionShell title="While Moss works">
+        <SettingsCard>
           {/* The agent's on-screen pointer. Stock keeps the driver's monochrome
               cursor and stores nothing beyond the default; Custom is the only
               state that carries fill/rim overrides to the desktop cursor host. */}
           <SettingsRow
-            title="Cursor colors"
-            description="The agent pointer is stock monochrome by default — like a normal pointer. Custom colors apply to new computer sessions."
+            title="Pointer color"
+            description="Looks like a normal pointer by default"
             resetAction={
               cursorColorsDirty ? (
                 <SettingResetButton
@@ -486,7 +372,7 @@ export function ComputerSettingsPanel({
                 value={cursorColorMode}
                 onValueChange={(value) => updateSettings({ agentCursorColorMode: value })}
                 options={[
-                  { value: "stock", label: "Stock" },
+                  { value: "stock", label: "Default" },
                   { value: "custom", label: "Custom" },
                 ]}
                 ariaLabel="Agent cursor colors"
@@ -508,15 +394,9 @@ export function ComputerSettingsPanel({
               </div>
             ) : null}
           </SettingsRow>
-          {/* On a backend that drives the visible desktop the pane defaults to
-              stills-only (interactive mode stays off — a second cursor on the
-              user's own screen is worse than none), but the preview itself is
-              wanted: watching the agent's captured view inside the app is how a
-              user follows background work in windows they are not looking at.
-              One row owns both choices: whether it opens, and how big it is. */}
           <SettingsRow
-            title="Preview"
-            description="Show the live preview the first time an agent acts on the desktop in a chat. Compact keeps it small and glanceable; Large gives it the full wide card."
+            title="Live preview"
+            description="Show what Moss sees in the chat"
             resetAction={
               previewDirty ? (
                 <SettingResetButton
@@ -532,13 +412,6 @@ export function ComputerSettingsPanel({
             }
             control={
               <div className="flex w-full items-center gap-3 sm:w-auto sm:justify-end">
-                <Switch
-                  checked={settings.autoOpenComputerPane}
-                  onCheckedChange={(checked) =>
-                    updateSettings({ autoOpenComputerPane: Boolean(checked) })
-                  }
-                  aria-label="Show the computer preview automatically when an agent drives the desktop"
-                />
                 <SettingsSegmentedControl<ComputerPreviewSize>
                   value={settings.computerPreviewSize}
                   onValueChange={(value) => updateSettings({ computerPreviewSize: value })}
@@ -548,62 +421,85 @@ export function ComputerSettingsPanel({
                   ]}
                   ariaLabel="In-chat computer preview size"
                 />
+                <Switch
+                  checked={settings.autoOpenComputerPane}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ autoOpenComputerPane: Boolean(checked) })
+                  }
+                  aria-label="Show the computer preview automatically when an agent drives the desktop"
+                />
               </div>
             }
           />
         </SettingsCard>
       </SettingsSectionShell>
 
-      <ComputerGettingStarted appSnapAvailable={hasNativePermissionSetup} />
       <ComputerAuditHistorySection />
-
-      {/* Details stay out of the way until asked for: the per-grant checklist
-          the macOS helper drives and what this backend can actually do. */}
-      <SettingsSectionShell
-        title="Advanced"
-        action={
-          <Button
-            size="xs"
-            variant="ghost"
-            aria-expanded={advancedOpen}
-            onClick={() => setAdvancedOpen((open) => !open)}
-          >
-            <DisclosureChevron open={advancedOpen} />
-            {advancedOpen ? "Hide" : "Show"}
-          </Button>
-        }
-      >
-        <DisclosureRegion open={advancedOpen}>
-          <div className="flex flex-col gap-4">
-            {hasNativePermissionSetup && appSnapState ? (
-              // One permission section serves every surface; only the pane set
-              // differs. The coach and settings deep links live in the shared
-              // section, so Computer never grows a second guide stack. The
-              // Recheck footer is off here: the attention row's Set up is this
-              // panel's one check action.
-              <AppSnapPermissionSection
-                panes={COMPUTER_PERMISSION_PANES}
-                permissionKinds={COMPUTER_PERMISSION_KINDS}
-                feature="Computer control"
-                state={appSnapState}
-                onStateChange={setAppSnapState}
-                guidePane={guidePane}
-                onGuidePaneChange={setGuidePane}
-                showRecheck={false}
-              />
-            ) : null}
-            <SettingsCard>
-              {status && availabilityView.kind === "ready" ? (
-                <SettingsRow
-                  title="Desktop abilities"
-                  description={capabilitiesDescription}
-                  status={`${backend ? (BACKEND_DISPLAY_NAMES[backend] ?? backend) : "No backend"} · ${capabilitySummary(status.capabilities, !captureBlocked)}`}
-                />
-              ) : null}
-            </SettingsCard>
-          </div>
-        </DisclosureRegion>
-      </SettingsSectionShell>
     </div>
   );
+}
+
+/** Moss's own tile for "Any app": the pointer glyph on a soft control fill. */
+function ComputerUseAppTile() {
+  return (
+    <span
+      aria-hidden
+      className="flex size-9 items-center justify-center rounded-[10px] border border-[color:var(--color-border)] bg-[var(--color-background-control)] text-foreground"
+    >
+      <CentralIcon name="cursor-3" className="size-5" />
+    </span>
+  );
+}
+
+export type ComputerUseStatusLine = {
+  readonly text: string;
+  readonly tone: "warning" | "error";
+  readonly action: "grant" | "retry" | null;
+};
+
+/**
+ * The one line the page shows when computer use cannot work right now, in plain words,
+ * with at most one action. Ready, idle (not started yet) and checking states show
+ * nothing: computer use starts by itself the first time a chat needs it. Raw driver,
+ * provisioning or effect messages are never shown here.
+ */
+export function resolveComputerUseStatusLine(input: {
+  readonly queryFailed: boolean;
+  readonly availabilityKind: string | null;
+  readonly viewKind: "ready" | "checking" | "blocked";
+  readonly reconnecting: boolean;
+  readonly missingPermissions: boolean;
+  readonly captureBlocked: boolean;
+  readonly needsSetup: boolean;
+}): ComputerUseStatusLine | null {
+  if (input.queryFailed) {
+    return { text: "Moss can't reach computer use right now", tone: "error", action: "retry" };
+  }
+  if (input.availabilityKind === "unsupported-platform") {
+    return {
+      text: "Computer use isn't available on this computer yet",
+      tone: "warning",
+      action: null,
+    };
+  }
+  if (input.missingPermissions || input.availabilityKind === "permission-required") {
+    return {
+      text: "Moss needs your permission to use other apps",
+      tone: "warning",
+      action: "grant",
+    };
+  }
+  if (input.captureBlocked) {
+    return { text: "Moss can't see the screen yet", tone: "warning", action: "grant" };
+  }
+  if (input.availabilityKind === "backend-unavailable") {
+    return { text: "Computer use isn't working right now", tone: "error", action: "retry" };
+  }
+  if (input.reconnecting) {
+    return { text: "Reconnecting…", tone: "warning", action: null };
+  }
+  if (input.viewKind === "blocked" && input.needsSetup) {
+    return { text: "Computer use isn't working right now", tone: "error", action: "retry" };
+  }
+  return null;
 }

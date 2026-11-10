@@ -6,7 +6,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { FileAttachmentChip } from "./FileAttachmentChip";
+import { FileAttachmentChip, fileAttachmentTypeLabel } from "./FileAttachmentChip";
 
 describe("FileAttachmentChip", () => {
   it("uses MIME fallbacks without leaking long vendor types", () => {
@@ -41,6 +41,15 @@ describe("FileAttachmentChip", () => {
 
     expect(legacyWordMarkup).toContain("DOC");
     expect(legacyWordMarkup).not.toContain("MSWORD");
+  });
+
+  it("reads dots inside a name as part of the name, not the type", () => {
+    const label = (name: string) =>
+      fileAttachmentTypeLabel({ type: "file", id: name, name, mimeType: "", sizeBytes: 1 });
+    expect(label("Moss-1.0.4-发版清单.pdf")).toBe("PDF");
+    expect(label("report.v2.final.docx")).toBe("DOCX");
+    expect(label("backup.tar.gz")).toBe("TAR.GZ");
+    expect(label("notes.md")).toBe("MD");
   });
 
   it("still surfaces the draft warning when explicitly requested", () => {

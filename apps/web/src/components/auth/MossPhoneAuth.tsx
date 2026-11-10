@@ -37,6 +37,7 @@ import {
   resolveMossPhoneAuthenticatedSurface,
 } from "./mossPhoneLogin.logic";
 import { MOSS_POST_AUTH_CHAT_SEARCH } from "./mossPostAuthLanding";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 const fieldClassName = "flex min-w-0 flex-col gap-2";
 
@@ -473,10 +474,7 @@ export function MossPhoneAccountPage() {
                   在设置 → 用量里查看额度并充值。
                 </p>
               </div>
-              <Button
-                onClick={() => void navigate({ to: "/settings", search: { section: "usage" } })}
-                size="sm"
-              >
+              <Button onClick={() => openSettingsDialog({ section: "usage" })} size="sm">
                 打开用量
               </Button>
             </section>

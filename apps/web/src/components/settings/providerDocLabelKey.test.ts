@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { providerDocLabelKey } from "./_chat.settings";
+import { providerDocLabelKey } from "./SettingsContent";
 
 describe("providerDocLabelKey", () => {
   it("maps every Antigravity documentation label to its typed translation key", () => {

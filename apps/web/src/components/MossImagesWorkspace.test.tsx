@@ -205,6 +205,7 @@ vi.mock("./ui/select", () => ({
 
 import { MossImagesWorkspace } from "./MossImagesWorkspace";
 import type { MossImagesConversationInput } from "~/lib/mossImagesConversation";
+import { closeSettings, settingsDialogStore } from "~/settingsDialogStore";
 
 const complete: MossImageJob = {
   jobId: "moss_first",
@@ -504,7 +505,13 @@ describe("MossImagesWorkspace account media lifecycle", () => {
     });
     await ready();
     expect(screen.queryByText(/媒体积分/)).toBeNull();
-    expect(screen.getByRole("link", { name: "套餐用量" })).toBeTruthy();
+    closeSettings();
+    fireEvent.click(screen.getByRole("button", { name: "套餐用量" }));
+    expect(settingsDialogStore.getState()).toMatchObject({
+      isOpen: true,
+      request: { section: "usage" },
+    });
+    closeSettings();
     expect(screen.queryByText("充值")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /^打开图像：A kitten/ }));
     expect(screen.getByText("费用待结算")).toBeTruthy();

@@ -12,11 +12,10 @@ import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPop
 import { CHAT_BACKGROUND_CLASS_NAME } from "~/components/chat/composerPickerStyles";
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import { RouteSurfaceHeader } from "~/components/RouteSurface";
-import { FilterIcon } from "~/lib/icons";
+import { FilterIcon, MossbotIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useProjectAgentSummaries } from "~/components/chat/project/useProjectAgentSummaries";
 import { useMossbotCopy } from "./mossbot.copy";
-import { MossbotMark } from "./MossbotAvatar";
 import { MossbotCreateLauncher } from "./MossbotCreateLauncher";
 import { MossbotRoomCreateDialog, useMossbotRoomList } from "./MossbotRooms";
 import { MossbotConversationRoster } from "./MossbotConversationRoster";
@@ -58,7 +57,7 @@ export function MossbotWorkspace() {
         </RouteSurfaceHeader>
         {empty ? (
           <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 pb-16 text-center">
-            <MossbotMark className="mb-3 size-8 text-muted-foreground" />
+            <MossbotIcon className="mb-3 size-8 text-muted-foreground" />
             <p className="text-ui-lg font-medium text-foreground">
               {t("A little help, always at hand.")}
             </p>

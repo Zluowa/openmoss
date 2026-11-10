@@ -3,7 +3,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ComputerAuditHistorySection } from "./ComputerAuditHistorySection";
-import { ComputerGettingStarted } from "./ComputerGettingStarted";
 import { ComputerSettingsPanel } from "./ComputerSettingsPanel";
 import { AppSettingsSchema } from "~/appSettings";
 import type { ComputerStatusResult, DesktopAppSnapState } from "@moss/contracts";
@@ -19,20 +18,6 @@ vi.mock("~/nativeApi", async (importOriginal) => ({
 beforeEach(() => {
   api.getAuditHistory.mockReset();
   api.getStatus.mockReset();
-  window.localStorage.removeItem("moss:computer-getting-started:v1");
-});
-
-it("remembers dismissal of the first-use guide and lets the user reopen it", async () => {
-  const first = await render(<ComputerGettingStarted appSnapAvailable={true} />);
-  await first.getByRole("button", { name: "Got it", exact: true }).click();
-  await expect.element(first.getByRole("button", { name: "Show guide" })).toBeVisible();
-  await first.unmount();
-
-  const reopened = await render(<ComputerGettingStarted appSnapAvailable={true} />);
-  await expect.element(reopened.getByRole("button", { name: "Got it" })).not.toBeInTheDocument();
-  await reopened.getByRole("button", { name: "Show guide" }).click();
-  await expect.element(reopened.getByRole("heading", { name: "Follow and stop" })).toBeVisible();
-  await reopened.unmount();
 });
 
 it("reads history only when opened, pages on request, and refreshes from the latest entry", async () => {
@@ -191,35 +176,23 @@ it.each<{
       expect(appSnap.getState).not.toHaveBeenCalled();
     }
     if (showSetup) {
+      // One plain line and one button; the helper's own message never reaches the page.
       await expect
-        .element(screen.getByRole("button", { name: "Set up", exact: true }))
+        .element(screen.getByRole("button", { name: "Allow access", exact: true }))
         .toBeVisible();
-      if (setupError) {
-        await expect
-          .element(screen.getByText("Computer permission setup needs attention"))
-          .toBeVisible();
-        await expect.element(screen.getByText(setupError)).toBeVisible();
-      } else {
-        await expect
-          .element(screen.getByText("Computer permission setup needs attention"))
-          .not.toBeInTheDocument();
-        if (unrelatedAppSnapError)
-          await expect.element(screen.getByText(unrelatedAppSnapError)).not.toBeInTheDocument();
-        await expect
-          .element(
-            screen.getByText(
-              "Computer control needs Accessibility, Screen Recording and Input Monitoring",
-            ),
-          )
-          .toBeVisible();
-      }
-      await screen.getByRole("button", { name: "Show", exact: true }).click();
-      await expect.element(screen.getByText("Input Monitoring", { exact: true })).toBeVisible();
+      await expect
+        .element(screen.getByText("Moss needs your permission to use other apps"))
+        .toBeVisible();
+      if (setupError) await expect.element(screen.getByText(setupError)).not.toBeInTheDocument();
+      if (unrelatedAppSnapError)
+        await expect.element(screen.getByText(unrelatedAppSnapError)).not.toBeInTheDocument();
+      // macOS names each missing grant in its own checklist.
+      if (platform === "macos")
+        await expect.element(screen.getByText("Input Monitoring", { exact: true })).toBeVisible();
     } else {
       await expect
-        .element(screen.getByRole("button", { name: "Set up", exact: true }))
+        .element(screen.getByRole("button", { name: "Allow access", exact: true }))
         .not.toBeInTheDocument();
-      await screen.getByRole("button", { name: "Show", exact: true }).click();
       await expect
         .element(screen.getByText("Input Monitoring", { exact: true }))
         .not.toBeInTheDocument();

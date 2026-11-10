@@ -31,6 +31,9 @@ function classifyProviderErrorReason(status: ServerProviderStatus, managed: bool
   ) {
     return "moss-runtime-damaged";
   }
+  // Moss updated (or someone replaced) the agent's program while it ran. Every account on
+  // that program, Moss's included, waits for a restart: say so instead of "unavailable".
+  if (/program changed\. Restart Moss/iu.test(message)) return "restart-required";
   if (managed) return "moss-unavailable";
   if (/not supported by this Moss build/iu.test(message)) return "unsupported-driver";
   if (/Git Bash/u.test(message)) return "needs-git-bash";

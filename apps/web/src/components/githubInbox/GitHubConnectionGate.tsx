@@ -14,6 +14,7 @@ import {
   EmptyTitle,
 } from "../ui/empty";
 import { GitHubIcon } from "~/lib/icons";
+import { isMacPlatform } from "~/lib/utils";
 import {
   readMossImagesAccountBoundary,
   useMossImagesAccountBoundary,
@@ -33,9 +34,13 @@ type InstallResult<State extends GitHubConnectionResult["state"]> = Extract<
 
 const INSTALL_PHASE_COPY: Record<InstallResult<"installing">["phase"], string> = {
   downloading: "Downloading GitHub CLI…",
-  installing: "Installing GitHub CLI. If an installer window opens, finish it there.",
+  // Windows unpacks into Moss's own folder; only macOS opens the system Installer.
+  installing: "Setting up GitHub CLI for Moss…",
   verifying: "Checking the installation…",
 };
+const MAC_INSTALLING_COPY = "Installing GitHub CLI. If an installer window opens, finish it there.";
+
+const onMac = () => typeof navigator !== "undefined" && isMacPlatform(navigator.platform ?? "");
 
 const INSTALL_FAILURE_COPY: Record<InstallResult<"installFailed">["reason"], string> = {
   unsupported:
@@ -45,7 +50,7 @@ const INSTALL_FAILURE_COPY: Record<InstallResult<"installFailed">["reason"], str
   "install-failed":
     "The installer didn't finish. Try again, or get it from the GitHub CLI website.",
   "verify-failed":
-    "GitHub CLI was installed, but Moss can't find it yet. Restart Moss, or get it from the GitHub CLI website.",
+    "GitHub CLI was installed, but Moss couldn't start it. Try again, or get it from the GitHub CLI website.",
 };
 
 export function GitHubConnectionGate({ children }: { children: ReactNode }) {
@@ -263,7 +268,9 @@ function HostConnection({ children, current }: { children: ReactNode; current: (
     : result?.state === "missing"
       ? "Moss uses GitHub CLI to load pull requests and issues. Install it here in one step."
       : result?.state === "installing"
-        ? INSTALL_PHASE_COPY[result.phase]
+        ? result.phase === "installing" && onMac()
+          ? MAC_INSTALLING_COPY
+          : INSTALL_PHASE_COPY[result.phase]
         : result?.state === "installFailed"
           ? INSTALL_FAILURE_COPY[result.reason]
           : "Moss uses the GitHub account on this computer to load pull requests and issues.";
@@ -300,13 +307,34 @@ function HostConnection({ children, current }: { children: ReactNode; current: (
               </Button>
             </>
           ) : installing ? (
-            <div
-              role="status"
-              className="flex items-center gap-2 text-ui text-muted-foreground"
-              aria-label="Installing GitHub CLI"
-            >
-              <Spinner />
-            </div>
+            result.phase === "downloading" && result.percent !== undefined ? (
+              <div
+                role="progressbar"
+                aria-label="GitHub CLI download"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={result.percent}
+                className="flex w-48 items-center gap-2"
+              >
+                <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-foreground transition-[width] duration-300"
+                    style={{ width: `${result.percent}%` }}
+                  />
+                </div>
+                <span className="w-8 text-right text-ui-sm tabular-nums text-muted-foreground">
+                  {result.percent}%
+                </span>
+              </div>
+            ) : (
+              <div
+                role="status"
+                className="flex items-center gap-2 text-ui text-muted-foreground"
+                aria-label="Installing GitHub CLI"
+              >
+                <Spinner />
+              </div>
+            )
           ) : (
             result && (
               <>

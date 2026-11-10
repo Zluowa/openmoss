@@ -5,7 +5,6 @@
 import type { MossPayPlan } from "@moss/contracts";
 import { isMossPayOrderSettled } from "@moss/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -46,6 +45,7 @@ import {
 } from "./mossServerReactQuery";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 export type MossMembershipFocus = "plans" | "credits";
 
@@ -239,7 +239,6 @@ export function MossMembershipPage({
   readonly onBack?: () => void;
 }) {
   const { format, locale, t } = useTranslation();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [audience, setAudience] = useState<"personal" | "business">("personal");
   const [activeOrderNo, setActiveOrderNo] = useState<string | null>(null);
@@ -338,7 +337,7 @@ export function MossMembershipPage({
       onBack();
       return;
     }
-    void navigate({ to: "/settings", search: { section: "usage" } });
+    openSettingsDialog({ section: "usage" });
   };
 
   return (

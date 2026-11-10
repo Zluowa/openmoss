@@ -1,5 +1,4 @@
 import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
-import { MossbotMark } from "./mossbot/MossbotAvatar";
 import { MossbotSidebar } from "./mossbot/MossbotSidebar";
 import { resolveMossbotForThread } from "./mossbot/mossbot.logic";
 import { SidebarGettingStarted } from "./SidebarGettingStarted";
@@ -45,6 +44,7 @@ import {
   UsersIcon,
   WorktreeIcon,
   XIcon,
+  MossbotIcon,
 } from "~/lib/icons";
 import { createCentralIconComponent } from "~/lib/central-icons";
 import { openGuestShareDialog } from "~/guestShareDialogStore";
@@ -559,6 +559,7 @@ import {
   resolveActiveSpaceId,
 } from "../lib/spaceGrouping";
 import { isSidechatThread } from "@moss/shared/sidechatThread";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 // Central glyphs for the sidebar section-header buttons (expand/collapse, sort, add).
 const ExpandAllIcon = createCentralIconComponent("expand-45");
@@ -4634,8 +4635,8 @@ export default function Sidebar() {
   const [mobileRailElement, setMobileRailElement] = useState<HTMLDivElement | null>(null);
   const railCustomizeAnchor = railSlot ?? mobileRailElement ?? desktopNavigationElement;
   const openUsageSettings = useCallback(() => {
-    void navigate({ to: "/settings", search: { section: "usage" } });
-  }, [navigate]);
+    openSettingsDialog({ section: "usage" });
+  }, []);
   const [navCustomizeMenuPosition, setNavCustomizeMenuPosition] = useState<{
     x: number;
     y: number;
@@ -6564,10 +6565,7 @@ export default function Sidebar() {
       if (command === "settings.usage") {
         event.preventDefault();
         event.stopPropagation();
-        void navigate({
-          to: "/settings",
-          search: { section: "usage" },
-        });
+        openSettingsDialog({ section: "usage" });
         return;
       }
       if (command === "space.previous" || command === "space.next") {
@@ -7174,7 +7172,7 @@ export default function Sidebar() {
     !isOnInbox &&
     !isOnCustomizeDestination;
   const sidebarHelpMenuProps = {
-    onOpenShortcuts: () => void navigate({ to: "/settings", search: { section: "shortcuts" } }),
+    onOpenShortcuts: () => openSettingsDialog({ section: "shortcuts" }),
     onOpenFeedback: () => openFeedbackDialog(),
     // The rail customizes from its "…" menu.
     onCustomizeSidebar: null,
@@ -7447,8 +7445,7 @@ export default function Sidebar() {
       badge: null,
       active: railActiveItem === "settings",
       onSelect: () => {
-        selectRailRouteItem("settings");
-        void navigate({ to: "/settings" });
+        openSettingsDialog();
       },
     },
   ];
@@ -7809,7 +7806,7 @@ export default function Sidebar() {
                           );
                         })}
                         <SidebarPrimaryAction
-                          icon={MossbotMark}
+                          icon={MossbotIcon}
                           label="Mossbot"
                           onClick={() => void navigate({ to: "/mossbot" })}
                         />
@@ -8172,7 +8169,7 @@ export default function Sidebar() {
               <SidebarGettingStarted
                 onOpenAutomations={() => void navigate({ to: "/automations" })}
                 onOpenConnectors={() =>
-                  void navigate({ to: "/settings", search: { section: "connectors" } })
+                  openSettingsDialog({ section: "plugins", pluginTab: "mcp" })
                 }
                 onCreateChat={() => void handleCreateHomeChat()}
               />
@@ -8740,14 +8737,7 @@ export default function Sidebar() {
           onAddProjectPath={addProjectFromPath}
           homeDir={homeDir}
           onOpenSettings={(section, options) => {
-            void navigate({
-              to: "/settings",
-              search: (previous) => ({
-                ...previous,
-                section: section === "general" ? undefined : section,
-                target: options?.target,
-              }),
-            });
+            openSettingsDialog({ section, target: options?.target });
           }}
           onOpenFeedback={() => openFeedbackDialog()}
           onOpenUsageSettings={openUsageSettings}

@@ -1,4 +1,3 @@
-import { MossbotMark as MossbotIcon } from "./mossbot/MossbotAvatar";
 // FILE: SidebarNavigationRail.tsx
 // Purpose: Moss destination catalog, persistent rail, and Codex-shaped Explore navigation.
 // Layer: Web shell navigation
@@ -14,7 +13,7 @@ import { useState, type ComponentType } from "react";
 
 import { useDesktopUpdate } from "~/hooks/useDesktopUpdate";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { ArrowDownIcon, ArrowUpIcon, PinFilledIcon, PinIcon } from "~/lib/icons";
+import { ArrowDownIcon, ArrowUpIcon, MossbotIcon, PinFilledIcon, PinIcon } from "~/lib/icons";
 import { createCentralIconComponent } from "~/lib/central-icons";
 import {
   closeMossCanvas,
@@ -24,6 +23,7 @@ import {
 import { parseMossSurface, withMossSurface } from "~/lib/mossSurfaceState";
 
 import { cn } from "~/lib/utils";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 // ---------------------------------------------------------------------------
 // Moss destination catalog and rail ordering. These lived in
 // ~/sidebarNavOrdering before the upstream merge; upstream rewrote that module
@@ -484,10 +484,7 @@ export function SidebarNavigationRail() {
       if (isMobile) setOpenMobile(true);
       else setOpen(true);
     } else if (id === "help") {
-      void navigate({
-        to: "/settings",
-        search: (previous) => ({ ...clearSurfaceSearch(previous), section: "shortcuts" }),
-      });
+      openSettingsDialog({ section: "shortcuts" });
     } else if (id === "profile") {
       void navigate({ to: "/account", search: clearSurfaceSearch });
     } else if (id === "mentions") {

@@ -10,7 +10,6 @@ import {
   type DesktopBetaChannelState,
   type ResolvedKeybindingsConfig,
 } from "@moss/contracts";
-import { appSnapShortcutLabels } from "@moss/shared/appSnapShortcut";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 
@@ -35,6 +34,7 @@ import {
   AppSnapPermissionSection,
   useAppSnapPermissionGuideBridge,
 } from "./AppSnapPermissionSection";
+import { AppSnapIllustration } from "./AppSnapIllustration";
 import { AppSnapShortcutControl } from "./AppSnapShortcutControl";
 import { SettingResetButton } from "./SettingControls";
 import { SettingsCard, SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
@@ -53,17 +53,13 @@ import { Switch } from "~/components/ui/switch";
 import { toastManager } from "~/components/ui/toast";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 
+/** One short line under the AppSnap switch; never a raw helper message. */
 function appSnapStatusText(state: DesktopAppSnapState | null): string {
-  if (!state) return "Available in the Moss desktop app";
-  if (!state.supported) return state.message ?? "Available in the Moss desktop app";
-  if (state.status === "ready") {
-    const shortcut = state.shortcut;
-    const label = shortcut ? appSnapShortcutLabels(shortcut).join(" + ") : "the shortcut";
-    return `Listening — press ${label} to snap`;
-  }
+  if (!state || !state.supported) return "Works in the Moss desktop app";
+  if (state.status === "ready") return "On while Moss is open";
   if (state.status === "disabled") return "Off";
-  if (state.status === "starting") return "Starting the capture listener…";
-  return state.message ?? "Permission setup required";
+  if (state.status === "starting") return "Starting…";
+  return "Needs your permission";
 }
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
@@ -157,7 +153,7 @@ export function NotificationsSettingsPanel({
       <SettingsSection title="Activity alerts">
         <SettingsRow
           title="Activity toasts"
-          description="Show an in-app toast when a chat or managed terminal agent finishes or needs input."
+          description="Show a notice in Moss when a chat finishes or needs you."
           resetAction={
             settings.enableTaskCompletionToasts !== defaults.enableTaskCompletionToasts ? (
               <SettingResetButton
@@ -183,7 +179,7 @@ export function NotificationsSettingsPanel({
 
         <SettingsRow
           title="Desktop notifications"
-          description="Show an OS notification when a chat or managed terminal agent finishes or needs input while the app is in the background."
+          description="Notify you when Moss is in the background."
           status={buildNotificationSettingsSupportText(browserNotificationPermission)}
           resetAction={
             settings.enableSystemTaskCompletionNotifications !==
@@ -217,7 +213,7 @@ export function NotificationsSettingsPanel({
 
         <SettingsRow
           title="Wait for subagents"
-          description="Alert once the agent and all of its background subagents have finished. Turn this off to be alerted each time the agent or one of its subagents stops."
+          description="Alert once, after every subagent is done too."
           resetAction={
             settings.notifyAfterSubagentsFinish !== defaults.notifyAfterSubagentsFinish ? (
               <SettingResetButton
@@ -342,112 +338,106 @@ export function AppSnapSettingsPanel({
   if (!active) return null;
 
   return (
-    <div className="space-y-6">
-      <SettingsCard divided={false} className="flex items-start gap-3 px-4 py-3.5">
-        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-[color:var(--color-border)] text-muted-foreground">
-          <CentralIcon name="screen-capture" className="size-4" />
+    <div className="space-y-5">
+      <SettingsCard divided={false} className="flex items-center gap-3 px-4 py-3.5">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-[10px] border border-[color:var(--color-border)] bg-[var(--color-background-control)] text-foreground">
+          <CentralIcon name="screen-capture" className="size-5" />
         </span>
-        <div className="min-w-0 space-y-1">
-          <p className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>
-            Take an AppSnap to show your agent another app's window
+        <div className="min-w-0 space-y-0.5">
+          <p className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>Show Moss the window in front</p>
+          <p className={cn(SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME, "truncate")}>
+            {supported
+              ? "Moss sees the window's picture and text, even the part you'd scroll to."
+              : "AppSnap works in the Moss desktop app."}
           </p>
-          <p className={SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME}>
-            Press your two-key shortcut while any app is frontmost. Moss captures that window as an
-            image, brings itself forward, and attaches the snap to a task composer — the capture
-            stays on this device until you send the message.
-          </p>
-          {!supported ? (
-            <p className={cn(SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME, "pt-0.5")}>
-              {appSnapState
-                ? (appSnapState.message ?? "AppSnap is available in the Moss desktop app.")
-                : "AppSnap requires the Moss desktop app."}
-            </p>
-          ) : null}
         </div>
       </SettingsCard>
 
-      <SettingsSection title="Capture">
-        <SettingsRow
-          title="Enable AppSnap"
-          description="Run the capture listener in the background while Moss is open."
-          status={appSnapStatusText(appSnapState)}
-          resetAction={
-            settings.enableAppSnap !== defaults.enableAppSnap ? (
-              <SettingResetButton
-                label="AppSnap"
-                onClick={() => void setAppSnapEnabled(defaults.enableAppSnap)}
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={enabled}
-              disabled={!supported}
-              onCheckedChange={(checked) => void setAppSnapEnabled(Boolean(checked))}
-              aria-label="Enable AppSnap"
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Shortcut"
-          description="Choose exactly two keys: one modifier and one other key. Moss checks whether the operating system or another app already owns the shortcut before saving it."
-          control={
-            <AppSnapShortcutControl
-              key={
-                settings.appSnapShortcut.kind === "both-option-keys"
-                  ? settings.appSnapShortcut.kind
-                  : `${settings.appSnapShortcut.modifier}:${settings.appSnapShortcut.key}`
-              }
-              shortcut={settings.appSnapShortcut}
-              enabled={enabled}
-              reserved={enabled && appSnapState?.status === "ready"}
-              keybindings={keybindings}
-              onSaved={(shortcut, state) => {
-                updateSettings({ appSnapShortcut: shortcut });
-                setAppSnapState(state);
-              }}
-            />
-          }
-        />
-
-        <SettingsRow
-          title="Destination"
-          description="Snaps join the task you interacted with in the last minute, and consecutive snaps stay together. Otherwise Moss opens a fresh task with the capture attached."
-          control={
-            <span className="text-ui leading-snug font-medium text-muted-foreground">
-              Automatic
-            </span>
-          }
-        />
-
-        <SettingsRow
-          title="Capture sound"
-          description="Play a short shutter cue when a window is captured."
-          resetAction={
-            settings.appSnapPlaySound !== defaults.appSnapPlaySound ? (
-              <SettingResetButton
-                label="capture sound"
-                onClick={() => updateSettings({ appSnapPlaySound: defaults.appSnapPlaySound })}
-              />
-            ) : null
-          }
-          control={
-            <div className="flex w-full items-center gap-2 sm:w-auto sm:justify-end">
-              <Button size="xs" variant="outline" onClick={() => void playAppSnapCaptureSound()}>
-                Preview
-              </Button>
+      <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+        <SettingsCard>
+          <SettingsRow
+            title="Turn on AppSnap"
+            description={appSnapStatusText(appSnapState)}
+            resetAction={
+              settings.enableAppSnap !== defaults.enableAppSnap ? (
+                <SettingResetButton
+                  label="AppSnap"
+                  onClick={() => void setAppSnapEnabled(defaults.enableAppSnap)}
+                />
+              ) : null
+            }
+            control={
               <Switch
-                checked={settings.appSnapPlaySound}
-                onCheckedChange={(checked) =>
-                  updateSettings({ appSnapPlaySound: Boolean(checked) })
-                }
-                aria-label="Play a sound when an AppSnap is captured"
+                checked={enabled}
+                disabled={!supported}
+                onCheckedChange={(checked) => void setAppSnapEnabled(Boolean(checked))}
+                aria-label="Enable AppSnap"
               />
-            </div>
-          }
-        />
-      </SettingsSection>
+            }
+          />
+          <SettingsRow
+            title="Shortcut"
+            description="Press both keys at once"
+            control={
+              <AppSnapShortcutControl
+                key={
+                  settings.appSnapShortcut.kind === "both-option-keys"
+                    ? settings.appSnapShortcut.kind
+                    : `${settings.appSnapShortcut.modifier}:${settings.appSnapShortcut.key}`
+                }
+                shortcut={settings.appSnapShortcut}
+                enabled={enabled}
+                reserved={enabled && appSnapState?.status === "ready"}
+                keybindings={keybindings}
+                onSaved={(shortcut, state) => {
+                  updateSettings({ appSnapShortcut: shortcut });
+                  setAppSnapState(state);
+                }}
+              />
+            }
+          />
+          <SettingsRow
+            title="Send to"
+            description="The task you just used, or a new one"
+            control={
+              <span className="text-ui leading-snug font-medium text-muted-foreground">
+                Automatic
+              </span>
+            }
+          />
+          <SettingsRow
+            title="Play sound"
+            resetAction={
+              settings.appSnapPlaySound !== defaults.appSnapPlaySound ? (
+                <SettingResetButton
+                  label="capture sound"
+                  onClick={() => updateSettings({ appSnapPlaySound: defaults.appSnapPlaySound })}
+                />
+              ) : null
+            }
+            control={
+              <div className="flex items-center gap-2">
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  onClick={() => void playAppSnapCaptureSound()}
+                >
+                  Preview
+                </Button>
+                <Switch
+                  checked={settings.appSnapPlaySound}
+                  onCheckedChange={(checked) =>
+                    updateSettings({ appSnapPlaySound: Boolean(checked) })
+                  }
+                  aria-label="Play a sound when an AppSnap is captured"
+                />
+              </div>
+            }
+          />
+        </SettingsCard>
+        <AppSnapIllustration className="text-foreground" />
+      </div>
 
       {supported && appSnapState?.platform === "macos" ? (
         <AppSnapPermissionSection

@@ -10,19 +10,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { BrowserAnnotationsController } from "./useBrowserAnnotations";
 import {
-  addBrowserSketchMark,
-  type BrowserSketchHistory,
-  type BrowserSketchMark,
-  type BrowserSketchStyle,
-  type BrowserSketchTool,
-  DEFAULT_BROWSER_SKETCH_STYLE,
-  EMPTY_BROWSER_SKETCH_HISTORY,
-  browserSketchFileName,
-  isBrowserSketchDrawingTool,
-  redoBrowserSketchMark,
-  undoBrowserSketchMark,
-} from "./browserSketch.logic";
-import { composeBrowserSketchPng } from "./BrowserSketchOverlay";
+  addMarkupMark,
+  type MarkupHistory,
+  type MarkupMark,
+  type MarkupStyle,
+  type MarkupTool,
+  DEFAULT_MARKUP_STYLE,
+  EMPTY_MARKUP_HISTORY,
+  markupFileName,
+  isMarkupDrawingTool,
+  redoMarkupMark,
+  undoMarkupMark,
+} from "../markup/markup.logic";
+import { composeMarkupPng } from "../markup/MarkupCanvas";
 
 interface PageStill {
   readonly tabId: string;
@@ -34,18 +34,18 @@ interface PageStill {
 const STILL_CAPTURE_SETTLE_MS = 160;
 export interface BrowserSketchController {
   readonly open: boolean;
-  readonly tool: BrowserSketchTool;
+  readonly tool: MarkupTool;
   /**
    * True while a drawing tool covers the page with its still. Only once the still exists:
    * covering hides the live page, and a hidden page cannot be captured.
    */
   readonly coversPage: boolean;
   readonly pageImageUrl: string | null;
-  readonly marks: readonly BrowserSketchMark[];
+  readonly marks: readonly MarkupMark[];
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   /** Ink colour and stroke width for the next mark. */
-  readonly style: BrowserSketchStyle;
+  readonly style: MarkupStyle;
   /**
    * The bar starts compact (select, pen, shapes, text, close); it shows colours, widths,
    * history and Add to chat once a drawing tool has been armed in this session.
@@ -59,9 +59,9 @@ export interface BrowserSketchController {
   readonly requestClose: () => void;
   readonly cancelDiscard: () => void;
   readonly close: () => void;
-  readonly setTool: (tool: BrowserSketchTool) => void;
-  readonly setStyle: (style: BrowserSketchStyle) => void;
-  readonly addMark: (mark: BrowserSketchMark) => void;
+  readonly setTool: (tool: MarkupTool) => void;
+  readonly setStyle: (style: MarkupStyle) => void;
+  readonly addMark: (mark: MarkupMark) => void;
   readonly undo: () => void;
   readonly redo: () => void;
   readonly clear: () => void;
@@ -89,9 +89,9 @@ interface UseBrowserSketchInput {
 export function useBrowserSketch(input: UseBrowserSketchInput): BrowserSketchController {
   const { elementPicker } = input;
   const [open, setOpen] = useState(false);
-  const [tool, setToolState] = useState<BrowserSketchTool>("select");
-  const [history, setHistory] = useState<BrowserSketchHistory>(EMPTY_BROWSER_SKETCH_HISTORY);
-  const [style, setStyle] = useState<BrowserSketchStyle>(DEFAULT_BROWSER_SKETCH_STYLE);
+  const [tool, setToolState] = useState<MarkupTool>("select");
+  const [history, setHistory] = useState<MarkupHistory>(EMPTY_MARKUP_HISTORY);
+  const [style, setStyle] = useState<MarkupStyle>(DEFAULT_MARKUP_STYLE);
   const [expanded, setExpanded] = useState(false);
   const [still, setStill] = useState<PageStill | null>(null);
   const [adding, setAdding] = useState(false);
@@ -124,16 +124,16 @@ export function useBrowserSketch(input: UseBrowserSketchInput): BrowserSketchCon
     setOpen(false);
     setConfirmingDiscard(false);
     setToolState("select");
-    setHistory(EMPTY_BROWSER_SKETCH_HISTORY);
+    setHistory(EMPTY_MARKUP_HISTORY);
     setExpanded(false);
     dropStill();
   }, [dropStill, stopPicker]);
 
   const setTool = useCallback(
-    (next: BrowserSketchTool) => {
+    (next: MarkupTool) => {
       if (next === "select" && inputRef.current.selectAvailable === false) return;
       setToolState(next);
-      if (isBrowserSketchDrawingTool(next)) setExpanded(true);
+      if (isMarkupDrawingTool(next)) setExpanded(true);
       if (next === "select") {
         if (!elementPicker.active && !elementPicker.starting) elementPicker.toggle();
         return;
@@ -185,13 +185,13 @@ export function useBrowserSketch(input: UseBrowserSketchInput): BrowserSketchCon
       return;
     }
     if (still && (still.tabId !== input.activeTabId || still.pageUrl !== input.pageUrl)) {
-      setHistory(EMPTY_BROWSER_SKETCH_HISTORY);
+      setHistory(EMPTY_MARKUP_HISTORY);
       dropStill();
     }
   }, [close, dropStill, input.activeTabId, input.enabled, input.pageUrl, open, still]);
 
   // A drawing tool needs a still of the page; take one when there is none.
-  const drawing = open && isBrowserSketchDrawingTool(tool);
+  const drawing = open && isMarkupDrawingTool(tool);
   useEffect(() => {
     if (!drawing || still || input.activeTabId === null) return;
     const tabId = input.activeTabId;
@@ -232,20 +232,20 @@ export function useBrowserSketch(input: UseBrowserSketchInput): BrowserSketchCon
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [confirmingDiscard, drawing, requestClose]);
 
-  const addMark = useCallback((mark: BrowserSketchMark) => {
-    setHistory((current) => addBrowserSketchMark(current, mark));
+  const addMark = useCallback((mark: MarkupMark) => {
+    setHistory((current) => addMarkupMark(current, mark));
   }, []);
 
   const undo = useCallback(() => {
-    setHistory((current) => undoBrowserSketchMark(current));
+    setHistory((current) => undoMarkupMark(current));
   }, []);
 
   const redo = useCallback(() => {
-    setHistory((current) => redoBrowserSketchMark(current));
+    setHistory((current) => redoMarkupMark(current));
   }, []);
 
   const clear = useCallback(() => {
-    setHistory(EMPTY_BROWSER_SKETCH_HISTORY);
+    setHistory(EMPTY_MARKUP_HISTORY);
   }, []);
 
   const addToChat = useCallback(() => {
@@ -254,19 +254,19 @@ export function useBrowserSketch(input: UseBrowserSketchInput): BrowserSketchCon
     setAdding(true);
     void (async () => {
       try {
-        const blob = await composeBrowserSketchPng({
-          pageBytes: still.bytes,
+        const blob = await composeMarkupPng({
+          image: new Blob([new Uint8Array(still.bytes)], { type: "image/png" }),
           marks,
           drawnWidth: inputRef.current.readPageWidth(),
         });
-        const file = new File([blob], browserSketchFileName(inputRef.current.pageTitle), {
+        const file = new File([blob], markupFileName(inputRef.current.pageTitle), {
           type: "image/png",
         });
         await inputRef.current.attachImage(file);
         inputRef.current.onError(null);
         // The marks are in the composer now. Back to the live page; the next marks start
         // on a fresh still.
-        setHistory(EMPTY_BROWSER_SKETCH_HISTORY);
+        setHistory(EMPTY_MARKUP_HISTORY);
         dropStill();
         setTool("select");
       } catch (cause) {

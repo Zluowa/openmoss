@@ -144,6 +144,8 @@ import {
 import { cn } from "~/lib/utils";
 import { RouteInsetSurface } from "./RouteInsetSurface";
 import { SettingsPageFrame } from "./settings/SettingsPageFrame";
+import { ExternalMcpSettingsPanel } from "./settings/ExternalMcpSettingsPanel";
+import { closeSettings, openSettings, type PluginSettingsTab } from "~/settingsDialogStore";
 import { SidebarHeaderNavigationControls } from "./SidebarHeaderNavigationControls";
 import {
   useDesktopTopBarTrafficLightGutterClassName,
@@ -247,7 +249,6 @@ import {
   resolvePluginLibraryRoute,
 } from "~/lib/pluginLibraryRouteModel";
 import {
-  PLUGIN_LIBRARY_SETTINGS_PATH,
   readPluginLibraryEntrySnapshot,
   readPluginLibraryFocusAnchor,
   readPluginLibraryManageSnapshot,
@@ -1275,6 +1276,32 @@ export interface PluginLibraryProps {
   readonly cwd?: string | null;
   /** Renders without page chrome when embedded in a host section (e.g. a group panel). */
   readonly embedded?: boolean;
+  /**
+   * Settings › Plugins inside the Settings dialog: always the management view, no page
+   * frame, no history writes on the screen behind the dialog, and Esc left to the dialog.
+   */
+  readonly embeddedInSettings?: boolean;
+  /** The dialog-owned tab, so a deep link can open Plugins on MCP or Skills. */
+  readonly settingsTab?: PluginSettingsTab;
+  readonly onSettingsTabChange?: (tab: PluginSettingsTab) => void;
+}
+
+const SETTINGS_TAB_TO_MANAGE_TAB = {
+  plugins: "plugins",
+  apps: "apps",
+  mcp: "mcps",
+  skills: "skills",
+} as const satisfies Record<PluginSettingsTab, string>;
+
+function settingsTabFromManageTab(tab: string): PluginSettingsTab | null {
+  const entry = Object.entries(SETTINGS_TAB_TO_MANAGE_TAB).find(([, manage]) => manage === tab);
+  return entry ? (entry[0] as PluginSettingsTab) : null;
+}
+
+const EMBEDDED_SETTINGS_ROUTE_STATE = { mode: "manage", pluginId: null, settings: true } as const;
+
+function EmbeddedSettingsSurface({ children }: { readonly children: ReactNode }) {
+  return <div className="flex min-h-0 flex-col">{children}</div>;
 }
 
 export function PluginLibrary({
@@ -1284,6 +1311,9 @@ export function PluginLibrary({
   hideBrowseTabs = false,
   cwd: cwdProp,
   embedded = false,
+  embeddedInSettings = false,
+  settingsTab,
+  onSettingsTabChange,
 }: PluginLibraryProps = {}) {
   const { format, locale, t } = useTranslation();
   const connectorCopy = useCallback(
@@ -1311,7 +1341,9 @@ export function PluginLibrary({
     () => shouldReturnToPreviousPluginLibraryHistoryEntry(routeHistoryState),
     [routeHistoryState],
   );
-  const routeState = resolvePluginLibraryRoute(pathname);
+  const routeState = embeddedInSettings
+    ? EMBEDDED_SETTINGS_ROUTE_STATE
+    : resolvePluginLibraryRoute(pathname);
   const showManagement = routeState?.mode === "manage";
   const showSettingsManagement = routeState?.settings === true;
   const routePluginId = routeState?.pluginId ?? null;
@@ -1378,8 +1410,8 @@ export function PluginLibrary({
   const [skillSearch, setSkillSearch] = useState(initialEntrySnapshot?.search.skills ?? "");
   const [manageViewState, setManageViewState] = useState<PluginLibraryManageSnapshot>(
     () =>
-      routeManageSnapshot ?? {
-        initialTab: "plugins",
+      (embeddedInSettings ? null : routeManageSnapshot) ?? {
+        initialTab: SETTINGS_TAB_TO_MANAGE_TAB[settingsTab ?? "plugins"],
         search: initialEntrySnapshot?.search.plugins ?? "",
         scrollTop: 0,
         focusAnchor: null,
@@ -2474,6 +2506,8 @@ export function PluginLibrary({
       readonly focusAnchor?: PluginLibraryFocusAnchor | null | undefined;
       readonly manageSnapshot?: PluginLibraryManageSnapshot | undefined;
     }) => {
+      // Inside the Settings dialog the current history entry is the screen behind it.
+      if (embeddedInSettings) return;
       const currentLocation = router.history.location;
       router.history.replace(currentLocation.href, {
         ...currentLocation.state,
@@ -2483,7 +2517,7 @@ export function PluginLibrary({
       });
       router.history.flush();
     },
-    [router],
+    [embeddedInSettings, router],
   );
 
   const persistCurrentPluginLibrarySurface = useCallback(
@@ -2527,18 +2561,27 @@ export function PluginLibrary({
         scrollTop: manageScrollRef.current?.scrollTop ?? nextState.scrollTop,
       };
       setManageViewState(nextSnapshot);
+      if (embeddedInSettings && nextSnapshot.initialTab !== manageViewState.initialTab) {
+        const nextTab = settingsTabFromManageTab(nextSnapshot.initialTab);
+        if (nextTab) onSettingsTabChange?.(nextTab);
+      }
       replaceCurrentPluginLibraryHistoryState({
         manageSnapshot: nextSnapshot,
         focusAnchor: nextSnapshot.focusAnchor,
       });
     },
-    [replaceCurrentPluginLibraryHistoryState],
+    [
+      embeddedInSettings,
+      manageViewState.initialTab,
+      onSettingsTabChange,
+      replaceCurrentPluginLibraryHistoryState,
+    ],
   );
 
   const openSettingsManagement = useCallback(
     (focusAnchor?: PluginLibraryFocusAnchor | null) => {
       const resolvedFocusAnchor = focusAnchor ?? readPluginLibraryDomFocusAnchor();
-      const entrySnapshot = persistCurrentPluginLibrarySurface(resolvedFocusAnchor);
+      persistCurrentPluginLibrarySurface(resolvedFocusAnchor);
       const nextManageSnapshot: PluginLibraryManageSnapshot = {
         initialTab: "plugins",
         search: pluginSearch,
@@ -2546,18 +2589,10 @@ export function PluginLibrary({
         focusAnchor: null,
       };
       setManageViewState(nextManageSnapshot);
-      void navigate({
-        to: PLUGIN_LIBRARY_SETTINGS_PATH,
-        state: (previous) => ({
-          ...previous,
-          pluginLibraryEntrySnapshot: entrySnapshot,
-          pluginLibraryManageSnapshot: nextManageSnapshot,
-          pluginLibraryFocusAnchor: null,
-          pluginLibraryReturnToPreviousHistoryEntry: true,
-        }),
-      });
+      // Managing installed plugins is Settings › Plugins, opened over the library.
+      openSettings({ section: "plugins" });
     },
-    [navigate, persistCurrentPluginLibrarySurface, pluginSearch],
+    [persistCurrentPluginLibrarySurface, pluginSearch],
   );
 
   const returnFromPluginDetail = useCallback(() => {
@@ -2578,6 +2613,12 @@ export function PluginLibrary({
   ]);
 
   const exitPluginSettingsManagement = useCallback(() => {
+    if (embeddedInSettings) {
+      // "Browse catalog" leaves Settings for the full library.
+      closeSettings();
+      void navigate({ to: "/skills" });
+      return;
+    }
     persistCurrentPluginLibrarySurface(routeFocusAnchor);
     if (showSettingsManagement && returnToPreviousHistoryEntry && router.history.canGoBack()) {
       router.history.flush();
@@ -2586,6 +2627,7 @@ export function PluginLibrary({
     }
     void navigate({ to: "/skills" });
   }, [
+    embeddedInSettings,
     navigate,
     persistCurrentPluginLibrarySurface,
     returnToPreviousHistoryEntry,
@@ -2606,6 +2648,8 @@ export function PluginLibrary({
       pluginLibraryFocusAnchor: null,
       pluginLibraryReturnToPreviousHistoryEntry: true,
     });
+    // A plugin's page is a full screen; leave the Settings dialog for it.
+    if (embeddedInSettings) closeSettings();
     if (showManagement) {
       void navigate({
         to: "/skills/manage/plugins/$pluginId",
@@ -2742,6 +2786,8 @@ export function PluginLibrary({
   }, [detailOpen, pluginEntries.length, routeFocusAnchor, routePluginId]);
 
   useEffect(() => {
+    // The Settings dialog owns Escape (it closes the dialog).
+    if (embeddedInSettings) return;
     if (!showSettingsManagement && routePluginId === null) return;
     const handleEscape = (event: KeyboardEvent) => {
       if (
@@ -2766,7 +2812,13 @@ export function PluginLibrary({
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [exitPluginSettingsManagement, returnFromPluginDetail, routePluginId, showSettingsManagement]);
+  }, [
+    embeddedInSettings,
+    exitPluginSettingsManagement,
+    returnFromPluginDetail,
+    routePluginId,
+    showSettingsManagement,
+  ]);
 
   const resourceActions = usePluginResourceActions({
     activeProjectId: activeProject?.id ?? null,
@@ -3625,7 +3677,11 @@ export function PluginLibrary({
   // ── Render ───────────────────────────────────────────────────────────────
 
   // Settings › Plugins is a settings page: the settings frame, not the library's surface.
-  const PageSurface = showSettingsManagement ? SettingsPageFrame : RouteInsetSurface;
+  const PageSurface = embeddedInSettings
+    ? EmbeddedSettingsSurface
+    : showSettingsManagement
+      ? SettingsPageFrame
+      : RouteInsetSurface;
   return (
     <PageSurface>
       <div className="flex h-full flex-col">
@@ -3740,7 +3796,7 @@ export function PluginLibrary({
               <div
                 ref={manageScrollRef}
                 data-testid="plugin-manage-scroll-container"
-                className="min-h-0 flex-1 overflow-y-auto"
+                className={cn("min-h-0 flex-1", !embeddedInSettings && "overflow-y-auto")}
                 onScroll={(event) => {
                   const nextManageSnapshot = {
                     ...manageViewState,
@@ -3762,6 +3818,7 @@ export function PluginLibrary({
                 ) : null}
                 <PluginManagementPanel
                   settingsPage={showSettingsManagement}
+                  mcpFooter={embeddedInSettings ? <ExternalMcpSettingsPanel active /> : undefined}
                   viewState={manageViewState}
                   onViewStateChange={handleManageViewStateChange}
                   artworkCwd={discoveryCwd ?? undefined}

@@ -81,8 +81,6 @@ import {
   useComposerDraftStore,
 } from "../../composerDraftStore";
 import { buildModelSelection } from "../../providerModelOptions";
-import { type ExpandedImagePreview } from "../chat/ExpandedImagePreview";
-import { ExpandedImageOverlay } from "../chat/ExpandedImageOverlay";
 import { useStore } from "../../store";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "../../types";
 import {
@@ -193,7 +191,6 @@ export function KanbanNewTaskDialog({
   // turn to carry a goal).
   const [sendAsGoal, setSendAsGoal] = useState(false);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
-  const [expandedImage, setExpandedImage] = useState<ExpandedImagePreview | null>(null);
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
@@ -488,20 +485,6 @@ export function KanbanNewTaskDialog({
     },
     [addComposerImages, scheduleComposerFocus],
   );
-  const closeExpandedImage = useCallback(() => {
-    setExpandedImage(null);
-  }, []);
-  const navigateExpandedImage = useCallback((direction: -1 | 1) => {
-    setExpandedImage((existing) => {
-      if (!existing || existing.images.length <= 1) {
-        return existing;
-      }
-      return {
-        ...existing,
-        index: (existing.index + direction + existing.images.length) % existing.images.length,
-      };
-    });
-  }, []);
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
@@ -568,7 +551,6 @@ export function KanbanNewTaskDialog({
               files={EMPTY_COMPOSER_FILES}
               images={composerImages}
               nonPersistedImageIdSet={nonPersistedComposerImageIdSet}
-              onExpandImage={setExpandedImage}
               onRemoveAssistantSelections={clearComposerAssistantSelections}
               onRemoveFileComments={clearComposerFileComments}
               onRemoveFile={ignoreComposerFileRemoval}
@@ -735,11 +717,6 @@ export function KanbanNewTaskDialog({
             />
           </div>
         </div>
-        <ExpandedImageOverlay
-          expandedImage={expandedImage}
-          onClose={closeExpandedImage}
-          onNavigate={navigateExpandedImage}
-        />
       </DialogPopup>
     </Dialog>
   );

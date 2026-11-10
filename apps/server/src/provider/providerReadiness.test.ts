@@ -115,6 +115,19 @@ describe("deriveProviderReadiness", () => {
       state: "error",
       reason: "moss-unavailable",
     });
+    // After Moss updates Claude, both the person's own Claude and Moss's Claude wait for a
+    // restart; the Moss row must say that, not "Moss is temporarily unavailable".
+    const restart =
+      "Failed to execute Claude Agent CLI health check: The Claude program changed. Restart Moss to apply it; accounts and history are preserved..";
+    for (const instanceId of ["claudeAgent", "claude_moss"]) {
+      expect(
+        broken(restart, {
+          driver: "claudeAgent",
+          provider: "claudeAgent",
+          instanceId: instanceId as never,
+        }),
+      ).toEqual({ state: "error", reason: "restart-required" });
+    }
   });
 
   it("says checking before the first probe", () => {

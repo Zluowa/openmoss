@@ -6,7 +6,6 @@
 // Rendered through the shared AnnouncementSheet.
 
 import { Schema } from "effect";
-import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { useLocalStorage } from "../hooks/useLocalStorage";
@@ -14,6 +13,7 @@ import { useOnboardingDialogStore } from "../onboarding/onboardingDialogStore";
 import { CentralIcon } from "../lib/central-icons";
 import { useAnnouncementSheetSlotStore } from "./announcementSheetSlot";
 import { AnnouncementSheet } from "./AnnouncementSheet";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 const APP_SNAP_WELCOME_STORAGE_KEY = "moss:appsnap-welcome:v1";
 
@@ -25,7 +25,6 @@ type AppSnapWelcomeStorage = typeof AppSnapWelcomeStorageSchema.Type;
 const INITIAL_STORAGE: AppSnapWelcomeStorage = { acknowledged: false };
 
 export function AppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
-  const navigate = useNavigate();
   const [storage, setStorage] = useLocalStorage(
     APP_SNAP_WELCOME_STORAGE_KEY,
     INITIAL_STORAGE,
@@ -75,7 +74,7 @@ export function AppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
 
   const openSettings = () => {
     acknowledge();
-    void navigate({ to: "/settings", search: { section: "appsnap" } });
+    openSettingsDialog({ section: "appsnap" });
   };
 
   // Derived instead of synced: acknowledging closes the dialog in the same

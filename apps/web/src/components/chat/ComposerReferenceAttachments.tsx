@@ -1,7 +1,10 @@
 // FILE: ComposerReferenceAttachments.tsx
 // Purpose: Render assistant-selection, file-comment, pasted-text, pull-request-context,
-//   file, and image composer attachments in one reusable row.
+//   file, and image composer attachments in one reusable row, and the preview a file or
+//   image opens (with Mark up for images).
 // Layer: Chat composer presentation
+
+import { useState } from "react";
 
 import {
   type ComposerFileAttachment,
@@ -12,7 +15,6 @@ import { type PastedTextDraft } from "../../lib/composerPastedText";
 import { type FileCommentDraft } from "../../lib/fileComments";
 import { type PullRequestContextDraft } from "../../lib/pullRequestContext";
 import { type ChatAssistantSelectionAttachment } from "../../types";
-import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
 import { ComposerImageAttachmentChip } from "./ComposerImageAttachmentChip";
 import { FileAttachmentChip } from "./FileAttachmentChip";
@@ -20,6 +22,10 @@ import { ComposerPastedTextCard } from "./PastedTextChip";
 import { ComposerPullRequestContextCard } from "./PullRequestContextCard";
 import { FileCommentsSummaryChip } from "./FileCommentsSummaryChip";
 import { BrowserAnnotationStrip } from "./BrowserAnnotationStrip";
+import {
+  ComposerAttachmentPreview,
+  type ComposerAttachmentPreviewTarget,
+} from "./ComposerAttachmentPreview";
 
 interface ComposerReferenceAttachmentsProps {
   assistantSelections: ReadonlyArray<ChatAssistantSelectionAttachment>;
@@ -30,7 +36,8 @@ interface ComposerReferenceAttachmentsProps {
   files: ReadonlyArray<ComposerFileAttachment>;
   images: ReadonlyArray<ComposerImageAttachment>;
   nonPersistedImageIdSet: ReadonlySet<string>;
-  onExpandImage: (preview: ExpandedImagePreview) => void;
+  /** Swaps an image for its marked copy; images get Mark up in their preview when set. */
+  onReplaceImage?: (imageId: string, file: File) => void | Promise<void>;
   onRemoveAssistantSelections: () => void;
   onRemoveBrowserAnnotation?: (annotationId: string) => void;
   onRemoveFileComments: () => void;
@@ -50,7 +57,7 @@ export function ComposerReferenceAttachments({
   files,
   images,
   nonPersistedImageIdSet,
-  onExpandImage,
+  onReplaceImage,
   onRemoveAssistantSelections,
   onRemoveBrowserAnnotation,
   onRemoveFileComments,
@@ -62,6 +69,17 @@ export function ComposerReferenceAttachments({
 }: ComposerReferenceAttachmentsProps) {
   const pastedTexts = pastedTextsProp ?? [];
   const pullRequestContexts = pullRequestContextsProp ?? [];
+  const [previewed, setPreviewed] = useState<{ kind: "image" | "file"; id: string } | null>(null);
+  // Looked up each render, so a removed attachment closes its preview.
+  const previewImage =
+    previewed?.kind === "image" ? images.find((image) => image.id === previewed.id) : undefined;
+  const previewFile =
+    previewed?.kind === "file" ? files.find((file) => file.id === previewed.id) : undefined;
+  const previewTarget: ComposerAttachmentPreviewTarget | null = previewImage
+    ? { kind: "image", image: previewImage }
+    : previewFile
+      ? { kind: "file", file: previewFile }
+      : null;
   if (
     assistantSelections.length === 0 &&
     browserAnnotations.length === 0 &&
@@ -108,7 +126,13 @@ export function ComposerReferenceAttachments({
         />
       ))}
       {files.map((file) => (
-        <FileAttachmentChip key={file.id} file={file} variant="card" onRemove={onRemoveFile} />
+        <FileAttachmentChip
+          key={file.id}
+          file={file}
+          variant="card"
+          onRemove={onRemoveFile}
+          onOpen={() => setPreviewed({ kind: "file", id: file.id })}
+        />
       ))}
       {images.map((image) => (
         <ComposerImageAttachmentChip
@@ -116,10 +140,17 @@ export function ComposerReferenceAttachments({
           image={image}
           images={images}
           nonPersisted={nonPersistedImageIdSet.has(image.id)}
-          onExpandImage={onExpandImage}
+          onOpenPreview={(imageId) => setPreviewed({ kind: "image", id: imageId })}
           onRemoveImage={onRemoveImage}
         />
       ))}
+      <ComposerAttachmentPreview
+        target={previewTarget}
+        images={images}
+        onShowImage={(imageId) => setPreviewed({ kind: "image", id: imageId })}
+        onClose={() => setPreviewed(null)}
+        onReplaceImage={onReplaceImage}
+      />
     </div>
   );
 }

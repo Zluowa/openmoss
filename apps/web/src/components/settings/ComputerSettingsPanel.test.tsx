@@ -1,8 +1,7 @@
 // FILE: ComputerSettingsPanel.test.tsx
-// Purpose: Guards what the Computer settings panel tells the user about the
-//          desktop backend — the one attention row, the calm ready state, and
-//          the chrome it must not grow back (a manual re-arm, spec-sheet rows,
-//          duplicate permission surfaces).
+// Purpose: Guards Settings › Computer use: the "any app" switch, at most one plain status
+//          line with one action, and the developer text it must never show again
+//          (provisioning instructions, backend names, raw errors, ability read-outs).
 // Layer: Component rendering tests
 // Depends on: ComputerSettingsPanel and React server rendering.
 //
@@ -24,7 +23,7 @@ import {
   type AppSettingsBinding,
 } from "~/appSettings";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
-import { ComputerSettingsPanel } from "./ComputerSettingsPanel";
+import { ComputerSettingsPanel, resolveComputerUseStatusLine } from "./ComputerSettingsPanel";
 
 vi.mock("~/components/ui/toast", () => ({ toastManager: { add: vi.fn() } }));
 
@@ -83,19 +82,18 @@ describe("ComputerSettingsPanel", () => {
     expect(render({ status: status(), active: false })).toBe("");
   });
 
-  it("keeps the surface calm while the desktop is ready", () => {
+  it("shows the switch and nothing else while the desktop is ready", () => {
     const markup = render({ status: status() });
-    expect(markup).toContain("Connected to the desktop");
+    expect(markup).toContain("Any app");
+    expect(markup).toContain("Let Moss use the apps on your computer");
+    expect(markup).not.toContain('data-testid="computer-use-status"');
     expect(markup).not.toContain("Set up");
-    expect(markup).not.toContain("Refresh");
-    expect(markup).not.toContain("Desktop backend");
-    expect(markup).not.toContain("Background typing is limited");
     expect(markup).not.toContain("Capabilities");
+    expect(markup).not.toContain("Getting started");
   });
 
-  it("asks to check access while nothing has confirmed the grants", () => {
-    // After a restart the backend is idle, and without the OS's own grant
-    // answer an idle backend is not evidence that anything works.
+  it("stays calm while computer use simply has not started yet", () => {
+    // After a restart the backend is idle; it starts the first time a chat needs it.
     const markup = render({
       status: status({
         health: {
@@ -106,11 +104,10 @@ describe("ComputerSettingsPanel", () => {
         },
       }),
     });
-    expect(markup).toContain("Computer access has not been checked");
-    expect(markup).toContain("Set up");
+    expect(markup).not.toContain('data-testid="computer-use-status"');
   });
 
-  it("names the withheld grants once and offers Set up", () => {
+  it("asks for permission in one line with one button", () => {
     const markup = render({
       status: status({
         availability: {
@@ -121,16 +118,13 @@ describe("ComputerSettingsPanel", () => {
         },
       }),
     });
-    expect(markup).toContain("Computer control needs Accessibility and Screen Recording");
-    expect(markup).toContain("macOS is asking for Accessibility.");
-    expect(markup).toContain("Set up");
-    // The one attention row names the grants; the old second row ("… are not
-    // allowed yet") is gone.
-    expect(markup.match(/Computer control needs/g) ?? []).toHaveLength(1);
-    expect(markup).not.toContain("not allowed yet");
+    expect(markup).toContain("Moss needs your permission to use other apps");
+    expect(markup).toContain("Allow access");
+    expect(markup).not.toContain("macOS is asking for Accessibility.");
+    expect(markup.match(/data-testid="computer-use-status"/g) ?? []).toHaveLength(1);
   });
 
-  it("keeps the blind-desktop copy honest and fixable", () => {
+  it("says the screen can't be seen, without technical detail", () => {
     const markup = render({
       status: status({
         health: {
@@ -141,84 +135,71 @@ describe("ComputerSettingsPanel", () => {
         },
       }),
     });
-    expect(markup).toContain("Screen capture is not allowed yet");
-    expect(markup).toContain("Screen Recording");
-    expect(markup).toContain("cannot see it");
-    expect(markup).toContain("Set up");
-    // Never claims a live system dialog that may not exist.
-    expect(markup).not.toContain("macOS is asking");
-    expect(markup).not.toContain("dialog is open");
-    // A blind desktop never gets an abilities read-out that claims capture.
-    expect(markup).not.toContain("screen capture");
+    expect(markup).toContain("Moss can&#x27;t see the screen yet");
+    expect(markup).toContain("Allow access");
+    expect(markup).not.toContain("Privacy &amp; Security");
   });
 
-  it("reports a reconnect in flight without offering a manual re-arm", () => {
+  it("never shows the driver's provisioning text or raw errors", () => {
     const markup = render({
       status: status({
-        health: {
-          status: "reconnecting",
-          consecutiveFailures: 1,
-          reconnects: 1,
-          captureAvailable: true,
+        availability: {
+          kind: "backend-unavailable",
+          message:
+            "Cua Driver is not bundled. Run the provisioning script (`node apps/desktop/scripts/provision-cua-driver.mjs`, needs the pinned Rust toolchain) in this checkout, then relaunch Moss.",
         },
       }),
     });
-    expect(markup).toContain("Reconnecting to the desktop");
-    expect(markup).toContain("Reconnected once since startup.");
+    expect(markup).toContain("Computer use isn&#x27;t working right now");
+    expect(markup).toContain("Try again");
+    expect(markup).not.toContain("Cua");
+    expect(markup).not.toContain("provision");
+    expect(markup).not.toContain("Rust");
   });
 
-  it("describes observation-only Cua without promising Mac input or treating idle readiness as input authorization", () => {
+  it("does not read out the backend or its abilities", () => {
     const markup = render({
       status: status({
         availability: { kind: "available", backend: "cua" },
-        capabilities: capabilities({
-          input: false,
-          focus: false,
-          raise: false,
-          ghostCursor: false,
-        }),
+        hostPlatform: "win32",
+        capabilities: capabilities({ input: false }),
       }),
     });
-    expect(markup).toContain("Cua 0.28.2");
-    expect(markup).toContain("native desktop input is unavailable");
-    expect(markup).toContain("verified browser runtime");
-    expect(markup).not.toContain("shares your Mac");
-    expect(markup).not.toContain("macOS desktop");
-    // An instance without input is not a platform Cua lacks: no Windows/Mac support claim is
-    // withdrawn and nothing says "unsupported".
-    expect(markup).not.toContain("Unsupported");
+    expect(markup).not.toContain("Cua 0.28.2");
+    expect(markup).not.toContain("UI Automation");
+    expect(markup).not.toContain("native desktop input");
   });
 
-  /**
-   * Cua runs on macOS and Windows. The sentence follows the host the server reports, so a
-   * Windows window looking at a Mac host (or the reverse) describes the host it controls.
-   */
-  it.each([
-    ["win32", "On Windows, Moss works with your apps through UI Automation", "shares your Mac"],
-    ["darwin", "The agent shares your Mac desktop", "On Windows, Moss works"],
-  ] as const)(
-    "describes a %s Cua host with native input from the reported host platform",
-    (hostPlatform, expected, absent) => {
-      const markup = render({
-        status: status({
-          availability: { kind: "available", backend: "cua" },
-          hostPlatform,
-          capabilities: capabilities({ input: true, focus: true, raise: true }),
-        }),
-      });
-      expect(markup).toContain(expected);
-      expect(markup).not.toContain(absent);
-      expect(markup).not.toContain("native desktop input is unavailable");
-    },
-  );
+  it("maps every state to at most one plain line", () => {
+    const base = {
+      queryFailed: false,
+      availabilityKind: "available",
+      viewKind: "ready",
+      reconnecting: false,
+      missingPermissions: false,
+      captureBlocked: false,
+      needsSetup: false,
+    } as const;
+    expect(resolveComputerUseStatusLine(base)).toBeNull();
+    expect(
+      resolveComputerUseStatusLine({ ...base, viewKind: "checking", needsSetup: true }),
+    ).toBeNull();
+    expect(resolveComputerUseStatusLine({ ...base, queryFailed: true })?.action).toBe("retry");
+    expect(
+      resolveComputerUseStatusLine({ ...base, availabilityKind: "unsupported-platform" })?.action,
+    ).toBeNull();
+    expect(resolveComputerUseStatusLine({ ...base, reconnecting: true })?.text).toBe(
+      "Reconnecting…",
+    );
+  });
 
   describe("agent cursor colors", () => {
-    it("keeps the cursor stock by default and hides the color editors", () => {
+    it("keeps the pointer at its default and hides the color editors", () => {
       const markup = render({ status: status() });
-      expect(markup).toContain("Cursor colors");
-      expect(markup).toContain("Stock");
+      expect(markup).toContain("Pointer color");
+      expect(markup).toContain("Default");
       expect(markup).toContain("Custom");
-      // Stock is the zero-override default: no fill/rim editor renders and no
+      // Default is the zero-override state: no fill/rim editor renders and no
       // stored color is read out.
       expect(markup).not.toContain("Fill color");
       expect(markup).not.toContain("Rim color");

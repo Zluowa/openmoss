@@ -336,7 +336,7 @@ import { ThreadDiagnosticsQuery } from "./diagnostics/Services/ThreadDiagnostics
 import { makeOwnerThreadDiagnosticReader } from "./diagnostics/ownerThreadDiagnostics";
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore";
 import { ProviderRuntimeEventRepository } from "./persistence/Services/ProviderRuntimeEvents";
-import { createGitHubConnection } from "./githubInbox/gitHubConnection";
+import { createGitHubConnection, mossGitHubCliInstaller } from "./githubInbox/gitHubConnection";
 import { requireWsOwnerSession } from "./wsOwnerAuthorization";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import { voiceUploadAdmissionGate } from "./voiceUploadAdmission";
@@ -1253,10 +1253,15 @@ const makeWsRpcHandlersLayer = () =>
       const githubInbox = yield* GitHubInboxService;
       const githubConnection = yield* Effect.acquireRelease(
         Effect.sync(() =>
-          createGitHubConnection(undefined, () =>
-            Effect.runPromise(
-              Effect.all([githubInbox.clearAccount, pullRequests.clearAccount], { discard: true }),
-            ),
+          createGitHubConnection(
+            undefined,
+            () =>
+              Effect.runPromise(
+                Effect.all([githubInbox.clearAccount, pullRequests.clearAccount], {
+                  discard: true,
+                }),
+              ),
+            mossGitHubCliInstaller(config.baseDir),
           ),
         ),
         (service) => Effect.promise(() => service.close()),

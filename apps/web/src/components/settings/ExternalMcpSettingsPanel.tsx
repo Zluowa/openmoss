@@ -250,10 +250,10 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
   return (
     <div className="space-y-6">
       {!setup ? (
-        <SettingsSection title="Connect a coding agent">
+        <SettingsSection title="Let another agent use Moss">
           <SettingsRow
             title="Name"
-            description="How this connection appears in Moss. Works with Codex, Claude, and any other MCP-capable agent."
+            description="How this connection shows up in Moss."
             control={
               <Input
                 className="w-full sm:w-64"
@@ -266,7 +266,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
           />
           <SettingsRow
             title="Access all of Moss"
-            description="The agent can discover and work in every project, including ones you add later. Turn off to pick specific projects."
+            description="Work in every project, including new ones."
             control={<Switch checked={allProjects} onCheckedChange={setAllProjects} />}
           >
             <DisclosureRegion open={!allProjects} contentClassName="mt-3">
@@ -307,7 +307,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
           </SettingsRow>
           <SettingsRow
             title="Advanced permissions"
-            description="Optional access for existing tasks, shared checkouts, or execution without approvals. The safe defaults are recommended."
+            description="Extra access. The defaults are safest."
             control={
               <Button
                 size="xs"
@@ -371,7 +371,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
           </SettingsRow>
           <SettingsRow
             title="Create connection"
-            description="The connection lasts 30 days and can be revoked at any time. The next screen gives you one prompt to paste into your agent."
+            description="Lasts 30 days. You can revoke it any time."
             control={
               <Button size="sm" disabled={!canCreate} onClick={() => createMutation.mutate()}>
                 {createMutation.isPending ? "Creating..." : "Create connection"}
@@ -623,7 +623,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
         ) : (
           <SettingsListRow
             title="No connected agents"
-            description="Connect Codex, Claude, or another local MCP agent to create and follow Moss tasks."
+            description="Agents you connect show up here."
           />
         )}
       </SettingsSection>

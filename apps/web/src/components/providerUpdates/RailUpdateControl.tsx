@@ -6,7 +6,6 @@
 
 import type { DesktopUpdateState } from "@moss/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useState, type CSSProperties } from "react";
 
 import { useAppSettings } from "~/appSettings";
@@ -33,6 +32,7 @@ import {
 import { runProviderUpdates, useProviderUpdateRunStore } from "./providerUpdateRunStore";
 import { RAIL_UPDATE_BUTTON_CLASS_NAME, RailProgressRing } from "./RailUpdateVisuals";
 import { useProviderUpdatePill } from "./useProviderUpdatePill";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 const UpdateArrowCircleIcon = createCentralIconComponent("arrow-up-circle");
 const UpdateArrowIcon = createCentralIconComponent("arrow-up");
@@ -154,7 +154,6 @@ export function RailUpdateControl({
 }) {
   const i18n = useTranslation();
   const { t, format } = i18n;
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { settings } = useAppSettings();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
@@ -242,10 +241,7 @@ export function RailUpdateControl({
           view={pill.view}
           exiting={pill.exiting}
           onOpenSettings={() => {
-            void navigate({
-              to: "/settings",
-              search: { section: "providers", target: SETTINGS_TARGETS.providerUpdates },
-            });
+            openSettingsDialog({ section: "providers", target: SETTINGS_TARGETS.providerUpdates });
           }}
           onDismiss={pill.dismiss}
           dismissLabel={t("providerUpdate.pill.dismiss")}

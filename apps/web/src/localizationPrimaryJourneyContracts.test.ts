@@ -52,8 +52,8 @@ const primaryCopy = [
   ["settings.behavior.followUp.title", "Follow-up behavior", "后续消息处理"],
   [
     "settings.behavior.followUp.description",
-    "Choose whether messages sent during an active turn wait in the queue or steer the current run. Ctrl/Cmd+Enter uses the opposite behavior for one message.",
-    "选择活跃运行期间发送的消息是排队等待，还是引导当前运行。按下 Ctrl/Cmd+Enter 可对单条消息使用相反行为。",
+    "Queue messages sent while Moss is working, or steer it.",
+    "Moss 工作时发送的消息：排队，或者引导当前任务。",
   ],
   ["settings.behavior.followUp.resetLabel", "follow-up behavior", "后续消息处理"],
   ["settings.behavior.followUp.aria", "Follow-up behavior", "后续消息处理"],
@@ -756,7 +756,7 @@ describe("HEL-20 primary zh-CN localization contract", () => {
     expect(spacePicker).not.toContain('"No matching projects."');
     expect(spacePicker).not.toContain('"Follow-up behavior"');
 
-    const settings = source("./routes/_chat.settings.tsx");
+    const settings = source("./components/settings/SettingsContent.tsx");
     for (const key of [
       "settings.behavior.followUp.title",
       "settings.behavior.followUp.description",
@@ -765,7 +765,7 @@ describe("HEL-20 primary zh-CN localization contract", () => {
       "settings.behavior.pullRequestDiffColors.title",
       "settings.behavior.pullRequestDiffColors.description",
     ] as const) {
-      expect(settings, `_chat.settings.tsx must use ${key}`).toContain(key);
+      expect(settings, `SettingsContent.tsx must use ${key}`).toContain(key);
     }
     expect(settings).not.toContain('title="Follow-up behavior"');
     expect(settings).not.toContain('label="follow-up behavior"');

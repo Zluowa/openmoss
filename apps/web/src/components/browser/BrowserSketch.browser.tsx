@@ -8,10 +8,10 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
 import { BrowserAnnotationButton } from "../BrowserPanel";
-import { BrowserSketchOverlay } from "./BrowserSketchOverlay";
-import { BrowserSketchToolbar } from "./BrowserSketchToolbar";
+import { MarkupCanvas } from "../markup/MarkupCanvas";
+import { MarkupToolbar } from "../markup/MarkupToolbar";
 import { useBrowserSketch } from "./useBrowserSketch";
-import { BROWSER_SKETCH_COLORS } from "./browserSketch.logic";
+import { MARKUP_COLORS } from "../markup/markup.logic";
 
 const WIDTH = 900;
 const PAGE_HEIGHT = 560;
@@ -69,7 +69,7 @@ function Harness(props: { readonly onAttach: (file: File) => void }) {
         data-picker-active={pickerActive ? "" : undefined}
       >
         {sketch.coversPage ? (
-          <BrowserSketchOverlay
+          <MarkupCanvas
             pageImageUrl={sketch.pageImageUrl}
             tool={sketch.tool}
             style={sketch.style}
@@ -80,7 +80,7 @@ function Harness(props: { readonly onAttach: (file: File) => void }) {
       </div>
       {sketch.open ? (
         <div className="flex h-12 shrink-0 items-center justify-center border-border/70 border-t bg-background px-3">
-          <BrowserSketchToolbar
+          <MarkupToolbar
             tool={sketch.tool}
             onToolChange={sketch.setTool}
             selectAvailable
@@ -90,12 +90,16 @@ function Harness(props: { readonly onAttach: (file: File) => void }) {
             expanded={sketch.expanded}
             style={sketch.style}
             onStyleChange={sketch.setStyle}
-            adding={sketch.adding}
+            action={{
+              label: "Add to chat",
+              busyLabel: "Adding…",
+              busy: sketch.adding,
+              onClick: sketch.addToChat,
+            }}
             confirmingDiscard={sketch.confirmingDiscard}
             onUndo={sketch.undo}
             onRedo={sketch.redo}
             onClear={sketch.clear}
-            onAddToChat={sketch.addToChat}
             onRequestClose={sketch.requestClose}
             onCancelDiscard={sketch.cancelDiscard}
             onDiscard={sketch.close}
@@ -171,9 +175,9 @@ for (const theme of ["light", "dark"] as const) {
       // timers late, so this waits longer than the default second.
       const overlay = await vi.waitFor(
         () => {
-          const element = document.querySelector("[data-browser-sketch-overlay] img");
+          const element = document.querySelector("[data-markup-canvas] img");
           expect(element).not.toBeNull();
-          return document.querySelector("[data-browser-sketch-overlay]")!;
+          return document.querySelector("[data-markup-canvas]")!;
         },
         { timeout: 5_000 },
       );
@@ -233,7 +237,7 @@ for (const theme of ["light", "dark"] as const) {
         1,
         1,
       ).data;
-      const ink = BROWSER_SKETCH_COLORS.red.replace("#", "");
+      const ink = MARKUP_COLORS.red.replace("#", "");
       expect([r, g, b]).toEqual([
         Number.parseInt(ink.slice(0, 2), 16),
         Number.parseInt(ink.slice(2, 4), 16),
@@ -245,15 +249,15 @@ for (const theme of ["light", "dark"] as const) {
       await expect
         .element(page.getByRole("button", { name: "Select element" }))
         .toHaveAttribute("aria-pressed", "true");
-      expect(document.querySelector("[data-browser-sketch-overlay]")).toBeNull();
+      expect(document.querySelector("[data-markup-canvas]")).toBeNull();
       await expect.element(page.getByRole("button", { name: "Add to chat" })).toBeDisabled();
       await page.getByRole("button", { name: "Pen" }).click();
       // The still is taken a moment after the bar opens (see above).
       await vi.waitFor(
-        () => expect(document.querySelector("[data-browser-sketch-overlay] img")).not.toBeNull(),
+        () => expect(document.querySelector("[data-markup-canvas] img")).not.toBeNull(),
         { timeout: 5_000 },
       );
-      drag(document.querySelector("[data-browser-sketch-overlay]")!, [
+      drag(document.querySelector("[data-markup-canvas]")!, [
         [80, 300],
         [300, 330],
       ]);
@@ -274,7 +278,7 @@ for (const theme of ["light", "dark"] as const) {
       await shot(`sketch-discard-${theme}`);
       await page.getByRole("button", { name: "Discard", exact: true }).click();
       await expect.element(toolbar).not.toBeInTheDocument();
-      expect(document.querySelector("[data-browser-sketch-overlay]")).toBeNull();
+      expect(document.querySelector("[data-markup-canvas]")).toBeNull();
     } finally {
       await screen.unmount();
     }

@@ -34,6 +34,8 @@ const CODE_REVIEW_COPY: Readonly<Record<string, string>> = {
   "Installing GitHub CLI…": "正在安装 GitHub CLI…",
   "Installing GitHub CLI": "正在安装 GitHub CLI",
   "Downloading GitHub CLI…": "正在下载 GitHub CLI…",
+  "Setting up GitHub CLI for Moss…": "正在为 Moss 设置 GitHub CLI…",
+  "GitHub CLI download": "GitHub CLI 下载进度",
   "Installing GitHub CLI. If an installer window opens, finish it there.":
     "正在安装 GitHub CLI。如果弹出安装窗口，请在窗口中完成安装。",
   "Checking the installation…": "正在检查安装结果…",
@@ -44,8 +46,8 @@ const CODE_REVIEW_COPY: Readonly<Record<string, string>> = {
     "下载没有完成。请检查网络后重试，或从 GitHub CLI 官网下载。",
   "The installer didn't finish. Try again, or get it from the GitHub CLI website.":
     "安装没有完成。请重试，或从 GitHub CLI 官网下载。",
-  "GitHub CLI was installed, but Moss can't find it yet. Restart Moss, or get it from the GitHub CLI website.":
-    "GitHub CLI 已安装，但 Moss 暂时找不到它。请重启 Moss，或从 GitHub CLI 官网下载。",
+  "GitHub CLI was installed, but Moss couldn't start it. Try again, or get it from the GitHub CLI website.":
+    "GitHub CLI 已装好，但 Moss 没能启动它。请重试，或从 GitHub CLI 官网下载。",
   "Open the GitHub CLI website": "打开 GitHub CLI 官网",
   "Check again": "重新检查",
   "Repositories could not be checked": "未能检查仓库",

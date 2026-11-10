@@ -1,19 +1,43 @@
 import type { GitHubConnectionInput, GitHubConnectionResult } from "@moss/contracts";
 import { runProcess, type ProcessRunOptions } from "../processRunner";
 import {
+  appendManagedToolBinDirectoryToPath,
   createSystemToolInstallHost,
+  mossToolsDirectory,
   runSystemToolInstall,
   SYSTEM_TOOL_INSTALLS,
   type SystemToolInstallOutcome,
   type SystemToolInstallPhase,
 } from "../provider/systemToolInstall";
 
-/** Installs GitHub CLI on this computer (winget / Homebrew first, then the official installer). */
+/**
+ * Installs GitHub CLI on this computer: on Windows the official zip into Moss's own folder, on
+ * macOS Homebrew, then the official package.
+ */
 export type InstallGitHubCli = (options: {
-  onProgress: (phase: SystemToolInstallPhase) => void;
+  onProgress: (phase: SystemToolInstallPhase, percent?: number) => void;
   signal: AbortSignal;
 }) => Promise<SystemToolInstallOutcome>;
 
+/**
+ * The installer for a server whose Moss home is `mossHomeDir`. It also puts the folder Moss
+ * unpacks GitHub CLI into on this server's PATH, after the person's own entries, so a copy
+ * installed earlier is found again after a restart.
+ */
+export function mossGitHubCliInstaller(mossHomeDir: string): InstallGitHubCli {
+  const tool = SYSTEM_TOOL_INSTALLS["github-cli"];
+  const toolsDirectory = mossToolsDirectory(mossHomeDir);
+  appendManagedToolBinDirectoryToPath(tool, toolsDirectory);
+  return ({ onProgress, signal }) =>
+    runSystemToolInstall({
+      tool,
+      host: createSystemToolInstallHost(process.env, { toolsDirectory }),
+      onProgress,
+      signal,
+    });
+}
+
+/** Without a Moss home there is nowhere to unpack into; macOS still installs. */
 const installGitHubCli: InstallGitHubCli = ({ onProgress, signal }) =>
   runSystemToolInstall({
     tool: SYSTEM_TOOL_INSTALLS["github-cli"],
@@ -105,8 +129,12 @@ export function createGitHubConnection(
         }
         const outcome = await installGh({
           signal: controller.signal,
-          onProgress: (phase) => {
-            if (install === job && !job.finished) job.result = { state: "installing", phase };
+          onProgress: (phase, percent) => {
+            if (install === job && !job.finished)
+              job.result =
+                percent === undefined
+                  ? { state: "installing", phase }
+                  : { state: "installing", phase, percent };
           },
         });
         if (install !== job) return;

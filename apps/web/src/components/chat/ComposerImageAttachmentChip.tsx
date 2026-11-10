@@ -19,7 +19,10 @@ interface ComposerImageAttachmentChipProps {
   image: ComposerImageAttachment;
   images: readonly ComposerImageAttachment[];
   nonPersisted: boolean;
-  onExpandImage: (preview: ExpandedImagePreview) => void;
+  /** The full-window lightbox; used when there is no `onOpenPreview`. */
+  onExpandImage?: (preview: ExpandedImagePreview) => void;
+  /** Opens the composer's attachment preview for this image. */
+  onOpenPreview?: (imageId: string) => void;
   onRemoveImage: (imageId: string) => void;
 }
 
@@ -28,15 +31,20 @@ export function ComposerImageAttachmentChip({
   images,
   nonPersisted,
   onExpandImage,
+  onOpenPreview,
   onRemoveImage,
 }: ComposerImageAttachmentChipProps) {
   const { format } = useTranslation();
   // Normalize here so a legacy "appshot" provenance still renders as an AppSnap.
   const appSnapSource = normalizeComposerImageSource(image.source) ?? null;
   const previewImage = () => {
+    if (onOpenPreview) {
+      onOpenPreview(image.id);
+      return;
+    }
     const preview = buildExpandedImagePreview(images, image.id);
     if (!preview) return;
-    onExpandImage(preview);
+    onExpandImage?.(preview);
   };
 
   if (appSnapSource) {

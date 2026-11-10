@@ -28,11 +28,30 @@ const READINESS_REASON_KEYS: Readonly<Record<string, TranslationKey>> = {
   "version-unsupported": "provider.readiness.reason.version-unsupported",
   "moss-runtime-damaged": "provider.readiness.reason.moss-runtime-damaged",
   "moss-unavailable": "provider.readiness.reason.moss-unavailable",
+  "restart-required": "provider.readiness.reason.restart-required",
   "home-unavailable": "provider.readiness.reason.home-unavailable",
   "needs-git-bash": "provider.readiness.reason.needs-git-bash",
   "unsupported-driver": "provider.readiness.reason.unsupported-driver",
   disabled: "provider.readiness.reason.disabled",
 };
+
+/**
+ * The agent's program changed under a running Moss (usually Moss's own update button): every
+ * account on it waits for a restart, which is the one action that helps.
+ */
+export function isRestartRequiredReadiness(
+  readiness: Pick<ServerProviderReadiness, "state" | "reason"> | null | undefined,
+): boolean {
+  return readiness?.state === "error" && readiness.reason === "restart-required";
+}
+
+/** Restarts the desktop app; false when this window can't (a plain browser tab). */
+export function relaunchMoss(): boolean {
+  const relaunch = window.desktopBridge?.customTitleBar?.relaunch;
+  if (!relaunch) return false;
+  void relaunch();
+  return true;
+}
 
 /**
  * The one line under an agent that is not ready, formatted with `{provider}`. Null when the

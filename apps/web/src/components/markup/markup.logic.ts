@@ -1,45 +1,39 @@
-// FILE: browserSketch.logic.ts
-// Purpose: Marks a reader draws over a frozen browser page (pen, shapes, numbered steps,
-//   text) in a chosen colour and stroke width, their undo/redo history, and how they
-//   paint onto the page's screenshot. Pure, so the toolbar, overlay and tests share one
-//   model.
-// Layer: BrowserPanel logic
+// FILE: markup.logic.ts
+// Purpose: Marks a reader draws over an image (a frozen browser page or an image
+//   attachment): pen, shapes, numbered steps and text in a chosen colour and stroke width,
+//   their undo/redo history, and how they paint onto the image. Pure, so the toolbar, the
+//   canvas, every host and the tests share one model.
+// Layer: Shared markup logic
 // Spec: docs/design/annotate-and-comment/SPEC.md, "Browser annotation".
 
-export type BrowserSketchShape = "line" | "arrow" | "rect" | "ellipse" | "step";
-export type BrowserSketchTool = "select" | "pen" | BrowserSketchShape | "text";
+export type MarkupShape = "line" | "arrow" | "rect" | "ellipse" | "step";
+export type MarkupTool = "select" | "pen" | MarkupShape | "text";
 
 /** The shapes menu, in its order. The group remembers the last one used. */
-export const BROWSER_SKETCH_SHAPES: readonly BrowserSketchShape[] = [
-  "line",
-  "arrow",
-  "rect",
-  "ellipse",
-  "step",
-];
+export const MARKUP_SHAPES: readonly MarkupShape[] = ["line", "arrow", "rect", "ellipse", "step"];
 
-export const DEFAULT_BROWSER_SKETCH_SHAPE: BrowserSketchShape = "rect";
+export const DEFAULT_MARKUP_SHAPE: MarkupShape = "rect";
 
-export function isBrowserSketchShape(tool: BrowserSketchTool): tool is BrowserSketchShape {
-  return (BROWSER_SKETCH_SHAPES as readonly string[]).includes(tool);
+export function isMarkupShape(tool: MarkupTool): tool is MarkupShape {
+  return (MARKUP_SHAPES as readonly string[]).includes(tool);
 }
 
 /** Shapes drawn by dragging from one point to another (a step is placed by a click). */
-export type BrowserSketchDragShape = Exclude<BrowserSketchShape, "step">;
+export type MarkupDragShape = Exclude<MarkupShape, "step">;
 
-export function isBrowserSketchDragShape(tool: BrowserSketchTool): tool is BrowserSketchDragShape {
-  return isBrowserSketchShape(tool) && tool !== "step";
+export function isMarkupDragShape(tool: MarkupTool): tool is MarkupDragShape {
+  return isMarkupShape(tool) && tool !== "step";
 }
 
 /** Tools that draw on the frozen page; Select works on the live page instead. */
-export function isBrowserSketchDrawingTool(tool: BrowserSketchTool): boolean {
+export function isMarkupDrawingTool(tool: MarkupTool): boolean {
   return tool !== "select";
 }
 
-export type BrowserSketchColor = "red" | "blue" | "green" | "black" | "white";
+export type MarkupColor = "red" | "blue" | "green" | "black" | "white";
 
 /** Ink colours, in menu order. Saturated mid tones that read on light and dark pages. */
-export const BROWSER_SKETCH_COLORS: Readonly<Record<BrowserSketchColor, string>> = {
+export const MARKUP_COLORS: Readonly<Record<MarkupColor, string>> = {
   red: "#e03131",
   blue: "#1971c2",
   green: "#2f9e44",
@@ -47,7 +41,7 @@ export const BROWSER_SKETCH_COLORS: Readonly<Record<BrowserSketchColor, string>>
   white: "#ffffff",
 };
 
-export const BROWSER_SKETCH_COLOR_ORDER: readonly BrowserSketchColor[] = [
+export const MARKUP_COLOR_ORDER: readonly MarkupColor[] = [
   "red",
   "blue",
   "green",
@@ -56,67 +50,67 @@ export const BROWSER_SKETCH_COLOR_ORDER: readonly BrowserSketchColor[] = [
 ];
 
 /** Stroke widths in CSS pixels, thin to extra thick. */
-export const BROWSER_SKETCH_STROKE_WIDTHS = [2, 4, 8, 12] as const;
-export type BrowserSketchStrokeWidth = (typeof BROWSER_SKETCH_STROKE_WIDTHS)[number];
+export const MARKUP_STROKE_WIDTHS = [2, 4, 8, 12] as const;
+export type MarkupStrokeWidth = (typeof MARKUP_STROKE_WIDTHS)[number];
 
-export interface BrowserSketchStyle {
-  readonly color: BrowserSketchColor;
-  readonly width: BrowserSketchStrokeWidth;
+export interface MarkupStyle {
+  readonly color: MarkupColor;
+  readonly width: MarkupStrokeWidth;
 }
 
-export const DEFAULT_BROWSER_SKETCH_STYLE: BrowserSketchStyle = { color: "red", width: 4 };
+export const DEFAULT_MARKUP_STYLE: MarkupStyle = { color: "red", width: 4 };
 
-export interface BrowserSketchPoint {
+export interface MarkupPoint {
   readonly x: number;
   readonly y: number;
 }
 
-export type BrowserSketchMark = (
-  | { readonly kind: "pen"; readonly points: readonly BrowserSketchPoint[] }
+export type MarkupMark = (
+  | { readonly kind: "pen"; readonly points: readonly MarkupPoint[] }
   | {
-      readonly kind: BrowserSketchDragShape;
-      readonly from: BrowserSketchPoint;
-      readonly to: BrowserSketchPoint;
+      readonly kind: MarkupDragShape;
+      readonly from: MarkupPoint;
+      readonly to: MarkupPoint;
     }
-  | { readonly kind: "step"; readonly at: BrowserSketchPoint; readonly value: number }
-  | { readonly kind: "text"; readonly at: BrowserSketchPoint; readonly text: string }
-) & { readonly style?: BrowserSketchStyle };
+  | { readonly kind: "step"; readonly at: MarkupPoint; readonly value: number }
+  | { readonly kind: "text"; readonly at: MarkupPoint; readonly text: string }
+) & { readonly style?: MarkupStyle };
 
-export const BROWSER_SKETCH_TEXT_SIZE = 14;
-const BROWSER_SKETCH_TEXT_LINE_HEIGHT = 18;
-const BROWSER_SKETCH_TEXT_PAD_X = 6;
-const BROWSER_SKETCH_TEXT_PAD_Y = 3;
+export const MARKUP_TEXT_SIZE = 14;
+const MARKUP_TEXT_LINE_HEIGHT = 18;
+const MARKUP_TEXT_PAD_X = 6;
+const MARKUP_TEXT_PAD_Y = 3;
 // A press that moves less than this is a click, which draws nothing.
-const BROWSER_SKETCH_MIN_DRAG = 3;
-const BROWSER_SKETCH_STEP_BASE_DIAMETER = 18;
+const MARKUP_MIN_DRAG = 3;
+const MARKUP_STEP_BASE_DIAMETER = 18;
 
-function distance(a: BrowserSketchPoint, b: BrowserSketchPoint): number {
+function distance(a: MarkupPoint, b: MarkupPoint): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 /** A finished drag as a mark, or null when it was only a click. */
-export function finishBrowserSketchDrag(
-  tool: "pen" | BrowserSketchDragShape,
-  points: readonly BrowserSketchPoint[],
-  style?: BrowserSketchStyle,
-): BrowserSketchMark | null {
+export function finishMarkupDrag(
+  tool: "pen" | MarkupDragShape,
+  points: readonly MarkupPoint[],
+  style?: MarkupStyle,
+): MarkupMark | null {
   const first = points[0];
   const last = points.at(-1);
   if (!first || !last) return null;
   const styled = style ? { style } : {};
   if (tool === "pen") {
-    const travelled = points.some((point) => distance(point, first) >= BROWSER_SKETCH_MIN_DRAG);
+    const travelled = points.some((point) => distance(point, first) >= MARKUP_MIN_DRAG);
     return travelled ? { kind: "pen", points, ...styled } : null;
   }
-  if (distance(first, last) < BROWSER_SKETCH_MIN_DRAG) return null;
+  if (distance(first, last) < MARKUP_MIN_DRAG) return null;
   return { kind: tool, from: first, to: last, ...styled };
 }
 
-export function browserSketchTextMark(
-  at: BrowserSketchPoint,
+export function markupTextMark(
+  at: MarkupPoint,
   text: string,
-  style?: BrowserSketchStyle,
-): BrowserSketchMark | null {
+  style?: MarkupStyle,
+): MarkupMark | null {
   const trimmed = text.trim();
   return trimmed.length > 0
     ? { kind: "text", at, text: trimmed, ...(style ? { style } : {}) }
@@ -124,11 +118,11 @@ export function browserSketchTextMark(
 }
 
 /** The next numbered step at `at`: one more than the highest step already placed. */
-export function browserSketchStepMark(
-  marks: readonly BrowserSketchMark[],
-  at: BrowserSketchPoint,
-  style?: BrowserSketchStyle,
-): BrowserSketchMark {
+export function markupStepMark(
+  marks: readonly MarkupMark[],
+  at: MarkupPoint,
+  style?: MarkupStyle,
+): MarkupMark {
   let highest = 0;
   for (const mark of marks) {
     if (mark.kind === "step") highest = Math.max(highest, mark.value);
@@ -137,21 +131,21 @@ export function browserSketchStepMark(
 }
 
 /** A step marker grows with the stroke width so it matches the lines around it. */
-export function browserSketchStepDiameter(width: number): number {
-  return Math.round(BROWSER_SKETCH_STEP_BASE_DIAMETER + 2 * width);
+export function markupStepDiameter(width: number): number {
+  return Math.round(MARKUP_STEP_BASE_DIAMETER + 2 * width);
 }
 
-export interface BrowserSketchPaintStyle {
+export interface MarkupPaintStyle {
   /** Plate behind text, so a label reads over any page. */
   readonly plate: string;
   readonly fontFamily: string;
 }
 
-function markStyle(mark: BrowserSketchMark): BrowserSketchStyle {
-  return mark.style ?? DEFAULT_BROWSER_SKETCH_STYLE;
+function markStyle(mark: MarkupMark): MarkupStyle {
+  return mark.style ?? DEFAULT_MARKUP_STYLE;
 }
 
-function strokePath(ctx: CanvasRenderingContext2D, mark: BrowserSketchMark): void {
+function strokePath(ctx: CanvasRenderingContext2D, mark: MarkupMark): void {
   ctx.beginPath();
   switch (mark.kind) {
     case "pen": {
@@ -208,11 +202,11 @@ function strokePath(ctx: CanvasRenderingContext2D, mark: BrowserSketchMark): voi
 
 function paintText(
   ctx: CanvasRenderingContext2D,
-  mark: Extract<BrowserSketchMark, { kind: "text" }>,
-  style: BrowserSketchPaintStyle,
+  mark: Extract<MarkupMark, { kind: "text" }>,
+  style: MarkupPaintStyle,
 ): void {
   const { color } = markStyle(mark);
-  ctx.font = `600 ${BROWSER_SKETCH_TEXT_SIZE}px ${style.fontFamily}`;
+  ctx.font = `600 ${MARKUP_TEXT_SIZE}px ${style.fontFamily}`;
   ctx.textBaseline = "top";
   const lines = mark.text.split("\n");
   const width = Math.max(...lines.map((line) => ctx.measureText(line).width));
@@ -220,34 +214,34 @@ function paintText(
   ctx.fillStyle = color === "white" ? "rgb(20 20 19 / 0.82)" : style.plate;
   ctx.beginPath();
   ctx.roundRect(
-    mark.at.x - BROWSER_SKETCH_TEXT_PAD_X,
-    mark.at.y - BROWSER_SKETCH_TEXT_PAD_Y,
-    width + BROWSER_SKETCH_TEXT_PAD_X * 2,
-    lines.length * BROWSER_SKETCH_TEXT_LINE_HEIGHT + BROWSER_SKETCH_TEXT_PAD_Y * 2,
+    mark.at.x - MARKUP_TEXT_PAD_X,
+    mark.at.y - MARKUP_TEXT_PAD_Y,
+    width + MARKUP_TEXT_PAD_X * 2,
+    lines.length * MARKUP_TEXT_LINE_HEIGHT + MARKUP_TEXT_PAD_Y * 2,
     4,
   );
   ctx.fill();
-  ctx.fillStyle = BROWSER_SKETCH_COLORS[color];
+  ctx.fillStyle = MARKUP_COLORS[color];
   lines.forEach((line, index) => {
-    ctx.fillText(line, mark.at.x, mark.at.y + index * BROWSER_SKETCH_TEXT_LINE_HEIGHT + 2);
+    ctx.fillText(line, mark.at.x, mark.at.y + index * MARKUP_TEXT_LINE_HEIGHT + 2);
   });
 }
 
 function paintStep(
   ctx: CanvasRenderingContext2D,
-  mark: Extract<BrowserSketchMark, { kind: "step" }>,
-  style: BrowserSketchPaintStyle,
+  mark: Extract<MarkupMark, { kind: "step" }>,
+  style: MarkupPaintStyle,
 ): void {
   const { color, width } = markStyle(mark);
-  const diameter = browserSketchStepDiameter(width);
+  const diameter = markupStepDiameter(width);
   ctx.beginPath();
   ctx.arc(mark.at.x, mark.at.y, diameter / 2, 0, Math.PI * 2);
-  ctx.fillStyle = BROWSER_SKETCH_COLORS[color];
+  ctx.fillStyle = MARKUP_COLORS[color];
   ctx.fill();
   ctx.lineWidth = 1.5;
   ctx.strokeStyle = color === "white" ? "rgb(20 20 19 / 0.35)" : "rgb(255 255 255 / 0.9)";
   ctx.stroke();
-  ctx.fillStyle = color === "white" ? BROWSER_SKETCH_COLORS.black : "#ffffff";
+  ctx.fillStyle = color === "white" ? MARKUP_COLORS.black : "#ffffff";
   ctx.font = `600 ${Math.round(diameter * 0.55)}px ${style.fontFamily}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -260,10 +254,10 @@ function paintStep(
  * same marks paint the live overlay (device pixel ratio) and the captured PNG (capture
  * width over page-area width).
  */
-export function paintBrowserSketchMarks(
+export function paintMarkupMarks(
   ctx: CanvasRenderingContext2D,
-  marks: readonly BrowserSketchMark[],
-  style: BrowserSketchPaintStyle,
+  marks: readonly MarkupMark[],
+  style: MarkupPaintStyle,
   scale: number,
 ): void {
   ctx.save();
@@ -281,7 +275,7 @@ export function paintBrowserSketchMarks(
     }
     const { color, width } = markStyle(mark);
     ctx.lineWidth = width;
-    ctx.strokeStyle = BROWSER_SKETCH_COLORS[color];
+    ctx.strokeStyle = MARKUP_COLORS[color];
     strokePath(ctx, mark);
     ctx.stroke();
   }
@@ -289,33 +283,30 @@ export function paintBrowserSketchMarks(
 }
 
 /** Undo history as two stacks: undo moves the last mark onto the redo side. */
-export interface BrowserSketchHistory {
-  readonly marks: readonly BrowserSketchMark[];
-  readonly undone: readonly BrowserSketchMark[];
+export interface MarkupHistory {
+  readonly marks: readonly MarkupMark[];
+  readonly undone: readonly MarkupMark[];
 }
 
-export const EMPTY_BROWSER_SKETCH_HISTORY: BrowserSketchHistory = { marks: [], undone: [] };
+export const EMPTY_MARKUP_HISTORY: MarkupHistory = { marks: [], undone: [] };
 
-export function addBrowserSketchMark(
-  history: BrowserSketchHistory,
-  mark: BrowserSketchMark,
-): BrowserSketchHistory {
+export function addMarkupMark(history: MarkupHistory, mark: MarkupMark): MarkupHistory {
   return { marks: [...history.marks, mark], undone: [] };
 }
 
-export function undoBrowserSketchMark(history: BrowserSketchHistory): BrowserSketchHistory {
+export function undoMarkupMark(history: MarkupHistory): MarkupHistory {
   const last = history.marks.at(-1);
   if (!last) return history;
   return { marks: history.marks.slice(0, -1), undone: [...history.undone, last] };
 }
 
-export function redoBrowserSketchMark(history: BrowserSketchHistory): BrowserSketchHistory {
+export function redoMarkupMark(history: MarkupHistory): MarkupHistory {
   const next = history.undone.at(-1);
   if (!next) return history;
   return { marks: [...history.marks, next], undone: history.undone.slice(0, -1) };
 }
 
-export function browserSketchFileName(pageTitle: string, now = new Date()): string {
+export function markupFileName(pageTitle: string, now = new Date()): string {
   const stem =
     pageTitle
       .replace(/[\\/:*?"<>|]+/g, " ")

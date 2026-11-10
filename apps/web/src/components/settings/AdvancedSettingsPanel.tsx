@@ -1,7 +1,9 @@
 // FILE: AdvancedSettingsPanel.tsx
-// Purpose: Own advanced settings state and workflows for auth, keybindings, and recovery.
+// Purpose: What used to be the "System tools" page, folded into the pages people look in:
+//          General › About (version, release notes, feature tour, sign-out, a repair action
+//          that only appears when it is needed) and Keybindings › the config file row.
 // Layer: Settings UI components
-// Exports: AdvancedSettingsPanel
+// Exports: AboutSettingsSection, KeybindingsFileRow
 
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -10,82 +12,38 @@ import { logoutCurrentBrowserSession } from "~/authLogout";
 import { useFeatureTourStore } from "~/featureTour/store";
 import { APP_VERSION } from "~/branding";
 import { resolveAndPersistPreferredEditor } from "~/editorPreferences";
-import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
-import { DisclosureRegion } from "~/components/ui/DisclosureRegion";
 import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 import { ensureNativeApi, readNativeApi } from "~/nativeApi";
 import { serverAuthSessionQueryOptions, serverConfigQueryOptions } from "~/lib/serverReactQuery";
-import { cn } from "~/lib/utils";
-import { SETTINGS_INSET_LIST_CLASS_NAME } from "~/settingsPanelStyles";
 import { useStore } from "~/store";
 import { createAllThreadsMessagelessSelector, createThreadShellsSelector } from "~/storeSelectors";
-import { useSettingsRestoreSignal } from "./SettingControls";
 import { SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
 
-export function AdvancedSettingsPanel(props: {
-  active: boolean;
-  onOpenReleaseHistory: () => void;
-  resetEpoch: number;
-}) {
-  const configQuery = useQuery(serverConfigQueryOptions());
+/**
+ * General › About. The repair row only exists when projects are present and no chat
+ * history loaded — the one situation it fixes — so nobody else has to read about it.
+ */
+export function AboutSettingsSection(props: { onOpenReleaseHistory: () => void }) {
   const authSessionQuery = useQuery(serverAuthSessionQueryOptions());
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
-  // Keep these subscriptions inside the only panel that uses recovery eligibility.
   const threadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
   const allThreadsMessageless = useStore(useMemo(() => createAllThreadsMessagelessSelector(), []));
   const projectCount = useStore((store) => store.projects.length);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
-
-  const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [isRepairingLocalState, setIsRepairingLocalState] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const [showRecoveryTools, setShowRecoveryTools] = useState(false);
-  const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
 
-  useSettingsRestoreSignal(props.resetEpoch, () => {
-    setShowRecoveryTools(false);
-    setOpenKeybindingsError(null);
-  });
-
-  const keybindingsConfigPath = configQuery.data?.keybindingsConfigPath ?? null;
-  const availableEditors = configQuery.data?.availableEditors;
   const shouldOfferRecoveryTools = useMemo(() => {
     if (!threadsHydrated || projectCount === 0) return false;
     return threadShells.length === 0 || allThreadsMessageless;
   }, [allThreadsMessageless, projectCount, threadShells.length, threadsHydrated]);
 
-  const openKeybindingsFile = useCallback(() => {
-    if (!keybindingsConfigPath) return;
-    setOpenKeybindingsError(null);
-    setIsOpeningKeybindings(true);
-    const editor = resolveAndPersistPreferredEditor(availableEditors ?? []);
-    if (!editor) {
-      setOpenKeybindingsError("No available editors found.");
-      setIsOpeningKeybindings(false);
-      return;
-    }
-    void ensureNativeApi()
-      .shell.openInEditor(keybindingsConfigPath, editor)
-      .catch((error) => {
-        setOpenKeybindingsError(
-          error instanceof Error ? error.message : "Unable to open keybindings file.",
-        );
-      })
-      .finally(() => {
-        setIsOpeningKeybindings(false);
-      });
-  }, [availableEditors, keybindingsConfigPath]);
-
   const repairLocalState = useCallback(async () => {
     if (isRepairingLocalState) return;
     const api = readNativeApi() ?? ensureNativeApi();
     const confirmed = await api.dialogs.confirm(
-      [
-        "Repair local state?",
-        "This rebuilds local project indexes and refreshes project snapshots.",
-        "It keeps existing chats in place, but it may take a moment.",
-      ].join("\n"),
+      ["Repair local data?", "Moss rebuilds its project index. Your chats stay."].join("\n"),
     );
     if (!confirmed) return;
 
@@ -94,18 +52,10 @@ export function AdvancedSettingsPanel(props: {
       .repairState()
       .then((snapshot) => {
         syncServerReadModel(snapshot);
-        toastManager.add({
-          type: "success",
-          title: "Local state repaired",
-          description: "Project indexes were rebuilt without clearing existing chats.",
-        });
+        toastManager.add({ type: "success", title: "Local data repaired" });
       })
-      .catch((error: unknown) => {
-        toastManager.add({
-          type: "error",
-          title: "Repair failed",
-          description: error instanceof Error ? error.message : "Unable to repair local state.",
-        });
+      .catch(() => {
+        toastManager.add({ type: "error", title: "Couldn't repair local data. Try again." });
       })
       .finally(() => {
         setIsRepairingLocalState(false);
@@ -122,160 +72,118 @@ export function AdvancedSettingsPanel(props: {
     const api = readNativeApi() ?? ensureNativeApi();
     setIsLoggingOut(true);
     const result = await logoutCurrentBrowserSession({
-      confirm: () =>
-        api.dialogs.confirm(
-          "Sign out this browser?\n\nIts session and every live connection opened with it will be revoked.",
-        ),
+      confirm: () => api.dialogs.confirm("Sign out this browser?"),
       logout: () => api.server.logoutAuthSession(),
       navigate: (path) => window.location.assign(path),
-      onError: (error) =>
-        toastManager.add({
-          type: "error",
-          title: "Sign out failed",
-          description: error instanceof Error ? error.message : "Unable to revoke this session.",
-        }),
+      onError: () => toastManager.add({ type: "error", title: "Couldn't sign out. Try again." }),
     });
     if (result !== "redirecting") setIsLoggingOut(false);
   }, [isLoggingOut, authSessionQuery.data?.authenticated, authSessionQuery.data?.sessionMethod]);
 
-  if (!props.active) return null;
-
   return (
-    <div className="space-y-6">
-      {authSessionQuery.data?.authenticated && authSessionQuery.data.sessionMethod ? (
-        <SettingsSection title="Session">
-          <SettingsRow
-            title="This browser"
-            description="Revoke this browser session and close every live Moss connection it owns. A fresh pairing link is required to reconnect."
-            status={`Authenticated as ${authSessionQuery.data.role ?? "client"}.`}
-            control={
-              <Button
-                size="xs"
-                variant="destructive-outline"
-                disabled={isLoggingOut}
-                onClick={() => void logoutCurrentSession()}
-              >
-                {isLoggingOut ? "Signing out..." : "Sign out"}
-              </Button>
-            }
-          />
-        </SettingsSection>
-      ) : null}
-
-      <SettingsSection title="Developer tools">
+    <SettingsSection title="About">
+      <SettingsRow
+        title="Version"
+        description="Current version"
+        control={
+          <span className="text-ui leading-snug font-medium text-muted-foreground tabular-nums">
+            {APP_VERSION}
+          </span>
+        }
+      />
+      <SettingsRow
+        title="Release notes"
+        description="What changed in each update."
+        control={
+          <Button size="xs" variant="outline" onClick={props.onOpenReleaseHistory}>
+            View
+          </Button>
+        }
+      />
+      <SettingsRow
+        title="Feature tour"
+        description="A short look at what Moss can do."
+        control={
+          <Button size="xs" variant="outline" onClick={() => useFeatureTourStore.getState().open()}>
+            Replay
+          </Button>
+        }
+      />
+      {shouldOfferRecoveryTools ? (
         <SettingsRow
-          title="Keybindings"
-          description="Open the persisted `keybindings.json` file to edit advanced bindings directly."
-          status={
-            <>
-              <span className="block break-all font-mono text-ui-sm text-foreground">
-                {keybindingsConfigPath ?? "Resolving keybindings path..."}
-              </span>
-              {openKeybindingsError ? (
-                <span className="mt-1 block text-destructive">{openKeybindingsError}</span>
-              ) : (
-                <span className="mt-1 block">Opens in your preferred editor.</span>
-              )}
-            </>
-          }
+          title="Repair local data"
+          description="Use this if your chats don't show up. Your chats stay."
           control={
             <Button
               size="xs"
               variant="outline"
-              disabled={!keybindingsConfigPath || isOpeningKeybindings}
-              onClick={openKeybindingsFile}
-            >
-              {isOpeningKeybindings ? "Opening..." : "Open file"}
-            </Button>
-          }
-        />
-
-        <SettingsRow
-          title="Recovery tools"
-          description="Rebuild local project indexes without clearing existing chats when the local state gets out of sync."
-          status={
-            shouldOfferRecoveryTools
-              ? "Visible because projects exist but no chat history is currently available."
-              : "Shown automatically only when recovery actions are relevant."
-          }
-          control={
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={!shouldOfferRecoveryTools || isRepairingLocalState}
+              disabled={isRepairingLocalState}
               onClick={() => void repairLocalState()}
             >
-              {isRepairingLocalState ? "Repairing..." : "Repair state"}
+              {isRepairingLocalState ? "Repairing…" : "Repair"}
             </Button>
           }
-        >
-          {shouldOfferRecoveryTools ? (
-            <div className="mt-3 border-t border-border/70 pt-3">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between text-left"
-                aria-expanded={showRecoveryTools}
-                onClick={() => setShowRecoveryTools((current) => !current)}
-              >
-                <span className="text-ui leading-snug font-medium text-muted-foreground">
-                  What this does
-                </span>
-                <DisclosureChevron
-                  open={showRecoveryTools}
-                  className="size-4 shrink-0 text-muted-foreground"
-                />
-              </button>
-              <DisclosureRegion
-                open={showRecoveryTools}
-                contentClassName={cn(
-                  "mt-3 px-3 py-3 text-ui leading-snug text-muted-foreground",
-                  SETTINGS_INSET_LIST_CLASS_NAME,
-                )}
-                className="duration-220"
-              >
-                <div>
-                  Rebuilds local project indexes and refreshes project snapshots. Existing chats
-                  stay in place.
-                </div>
-              </DisclosureRegion>
-            </div>
-          ) : null}
-        </SettingsRow>
-      </SettingsSection>
-
-      <SettingsSection title="About">
-        <SettingsRow
-          title="Version"
-          description="Current application version."
-          control={
-            <code className="text-ui leading-snug font-medium text-muted-foreground">
-              {APP_VERSION}
-            </code>
-          }
         />
+      ) : null}
+      {authSessionQuery.data?.authenticated && authSessionQuery.data.sessionMethod ? (
         <SettingsRow
-          title="What’s new since 0.9.2"
-          description="Explore the redesigned workspace, provider accounts, and Code review."
+          title="This browser"
+          description="Sign out and close this browser's connection."
           control={
             <Button
-              size="sm"
-              variant="outline"
-              onClick={() => useFeatureTourStore.getState().open()}
+              size="xs"
+              variant="destructive-outline"
+              disabled={isLoggingOut}
+              onClick={() => void logoutCurrentSession()}
             >
-              Replay feature tour
+              {isLoggingOut ? "Signing out…" : "Sign out"}
             </Button>
           }
         />
-        <SettingsRow
-          title="Release history"
-          description="A running log of every update, newest first. Same notes the post-update dialog shows, kept here so you can revisit them any time."
-          control={
-            <Button size="sm" variant="outline" onClick={props.onOpenReleaseHistory}>
-              View release history
-            </Button>
-          }
-        />
-      </SettingsSection>
-    </div>
+      ) : null}
+    </SettingsSection>
+  );
+}
+
+/** Keybindings › the saved bindings file, for people who prefer editing it by hand. */
+export function KeybindingsFileRow() {
+  const configQuery = useQuery(serverConfigQueryOptions());
+  const [isOpening, setIsOpening] = useState(false);
+  const keybindingsConfigPath = configQuery.data?.keybindingsConfigPath ?? null;
+  const availableEditors = configQuery.data?.availableEditors;
+
+  const openKeybindingsFile = useCallback(() => {
+    if (!keybindingsConfigPath) return;
+    const editor = resolveAndPersistPreferredEditor(availableEditors ?? []);
+    if (!editor) {
+      toastManager.add({ type: "error", title: "No editor found to open the file." });
+      return;
+    }
+    setIsOpening(true);
+    void ensureNativeApi()
+      .shell.openInEditor(keybindingsConfigPath, editor)
+      .catch(() => {
+        toastManager.add({ type: "error", title: "Couldn't open the file. Try again." });
+      })
+      .finally(() => setIsOpening(false));
+  }, [availableEditors, keybindingsConfigPath]);
+
+  return (
+    <SettingsSection title="Advanced">
+      <SettingsRow
+        title="Keybindings file"
+        description="Edit every shortcut in a text editor."
+        control={
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={!keybindingsConfigPath || isOpening}
+            onClick={openKeybindingsFile}
+          >
+            {isOpening ? "Opening…" : "Open"}
+          </Button>
+        }
+      />
+    </SettingsSection>
   );
 }

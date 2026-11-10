@@ -45,6 +45,7 @@ import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { Menu, MenuGroup, MenuItem, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { SidebarMenuButton } from "./ui/sidebar";
 import { toastManager } from "./ui/toast";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 export type SidebarAccountIdentityKind =
   | "authenticated"
@@ -509,7 +510,7 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
       payPlanCode)
     : null;
 
-  const openSettings = useCallback(() => void navigate({ to: "/settings" }), [navigate]);
+  const openSettings = useCallback(() => openSettingsDialog(), []);
 
   useEffect(() => {
     const handleSettingsShortcut = (event: KeyboardEvent) => {
@@ -575,9 +576,9 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
       enterpriseSignOutMutation.isPending,
     onOpenAccount: () =>
       void navigate({ to: identity.kind === "anonymous" ? "/login" : "/account" }),
-    onOpenHelp: () => void navigate({ to: "/settings", search: { section: "shortcuts" } }),
+    onOpenHelp: () => openSettingsDialog({ section: "shortcuts" }),
     onOpenSettings: openSettings,
-    onOpenUsage: () => void navigate({ to: "/settings", search: { section: "usage" } }),
+    onOpenUsage: () => openSettingsDialog({ section: "usage" }),
     onOpenUpgrade: () => void navigate({ to: "/membership", search: { focus: "plans" } }),
     onSignOut: () => void handleSignOut(),
   };

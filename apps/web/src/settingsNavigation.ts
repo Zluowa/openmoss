@@ -28,13 +28,14 @@ export const SETTINGS_SECTION_IDS = [
   "usage",
   "connectors",
   "connections",
+  "computer-use",
   "integrations",
   "advanced",
 ] as const;
 
-// The legacy computer id remains accepted by callers, but resolves to the connection hub.
+// The legacy computer id remains accepted by callers, but resolves to the computer-use page.
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number] | "computer";
-export type SettingsNavGroupId = "personal" | "integrations" | "coding" | "system" | "archived";
+export type SettingsNavGroupId = "personal" | "integrations" | "coding" | "archived";
 
 /**
  * Deep-link scroll targets inside settings panels. Each id is shared by its DOM owner and callers
@@ -64,12 +65,15 @@ export type SettingsNavItem = {
 };
 
 /**
- * Sections retained for old bookmarks while their controls live in the Codex
- * resource library. The settings route redirects these ids to Plugins.
+ * Sections retained for old links while their controls live elsewhere: Connectors,
+ * MCP connections and Agent skills are tabs of Plugins, System tools moved into
+ * General (About) and Keybindings. `resolveSettingsLocation` redirects them.
  */
 export const CODEX_RESOURCE_LEGACY_SECTIONS = [
   "connectors",
   "skills",
+  "integrations",
+  "advanced",
 ] as const satisfies ReadonlyArray<SettingsSectionId>;
 
 export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
@@ -79,7 +83,6 @@ export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   { id: "personal", label: "Personal" },
   { id: "integrations", label: "Integrations" },
   { id: "coding", label: "Coding" },
-  { id: "system", label: "System" },
   { id: "archived", label: "Archived" },
 ] as const;
 
@@ -102,7 +105,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "general",
     group: "personal",
     label: "General",
-    description: "Choose defaults for new chats, navigation, and the Environment panel.",
+    description: "Defaults for new chats, navigation and updates.",
     icon: "settings-gear-4",
     eyebrow: "Workflow defaults",
   },
@@ -110,7 +113,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "import",
     group: "personal",
     label: "Import",
-    description: "Import safe setup, projects, skills, and recent chats from supported AI apps.",
+    description: "Bring projects, skills and chats from other AI apps.",
     icon: "arrow-inbox",
     eyebrow: "Bring existing work",
   },
@@ -118,7 +121,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "profile",
     group: "personal",
     label: "Profile",
-    description: "Your local activity, streaks, and a shareable stats card.",
+    description: "Your activity and a shareable stats card.",
     icon: "user",
     eyebrow: "Your stats",
   },
@@ -126,7 +129,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "appearance",
     group: "personal",
     label: "Appearance",
-    description: "Customize the theme, typography, density, and time format.",
+    description: "Theme, fonts and density.",
     icon: "color-palette",
     eyebrow: "Visual language",
   },
@@ -134,7 +137,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "notifications",
     group: "personal",
     label: "Notifications",
-    description: "Choose how Moss tells you when work finishes or needs attention.",
+    description: "How Moss tells you when work finishes.",
     icon: "bell",
     eyebrow: "Alerts",
   },
@@ -142,7 +145,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "behavior",
     group: "personal",
     label: "Chat behavior",
-    description: "Control live responses, follow-ups, review defaults, and safety confirmations.",
+    description: "Replies, follow-ups and confirmations.",
     icon: "settings-slider-hor",
     eyebrow: "Interaction rules",
   },
@@ -150,7 +153,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "shortcuts",
     group: "personal",
     label: "Keybindings",
-    description: "Change, add, or remove the shortcut for every Moss command.",
+    description: "Change the shortcut for any command.",
     icon: KEYBINDINGS_ICON_NAME,
     eyebrow: "Key bindings",
   },
@@ -158,23 +161,39 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "usage",
     group: "personal",
     label: "Usage & limits",
-    description: "See remaining quota and credits for every signed-in provider.",
+    description: "Remaining quota for each account.",
     icon: "gauge",
     eyebrow: "Provider limits",
+  },
+  {
+    id: "voice",
+    group: "personal",
+    label: "Voice",
+    description: "Voice chat, microphone and shortcut.",
+    icon: "voice-settings",
+    eyebrow: "Live conversation",
   },
   {
     id: "plugins",
     group: "integrations",
     label: "Plugins",
-    description: "Manage plugins, apps, skills, and MCP servers for every agent.",
+    description: "Manage plugins, apps, MCP and skills.",
     icon: "puzzle",
     eyebrow: "Plugins and apps",
+  },
+  {
+    id: "computer-use",
+    group: "integrations",
+    label: "Computer use",
+    description: "Manage how Moss uses other apps on this computer.",
+    icon: "cursor-3",
+    eyebrow: "Computer use",
   },
   {
     id: "appsnap",
     group: "integrations",
     label: "AppSnap",
-    description: "Capture another app's frontmost window directly into a task.",
+    description: "Show Moss the window in front.",
     icon: "screen-capture",
     eyebrow: "Screen capture",
   },
@@ -182,39 +201,31 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "history",
     group: "integrations",
     label: "Computer History",
-    description: "Review your encrypted local app and website timeline and privacy controls.",
+    description: "Your private, encrypted app and website timeline.",
     icon: "computer-history",
     eyebrow: "Local timeline",
-  },
-  {
-    id: "voice",
-    group: "personal",
-    label: "Voice",
-    description: "Realtime voice, microphone, shortcut, and privacy controls.",
-    icon: "voice-settings",
-    eyebrow: "Live conversation",
-  },
-  {
-    id: "connectors",
-    group: "integrations",
-    label: "Connectors",
-    description: "Sign in to Supabase, Linear, Notion, and other services your agents can use.",
-    icon: "connectors-1",
-    eyebrow: "Remote MCP servers",
   },
   {
     id: "connections",
     group: "integrations",
     label: "Connections",
-    description: "Manage this computer, other devices, and SSH connections.",
+    description: "Other devices, pairing and SSH.",
     icon: "connectors-1",
     eyebrow: "Remote computers",
+  },
+  {
+    id: "connectors",
+    group: "integrations",
+    label: "Connectors",
+    description: "Services your agents can sign in to.",
+    icon: "connectors-1",
+    eyebrow: "Remote MCP servers",
   },
   {
     id: "integrations",
     group: "integrations",
     label: "MCP connections",
-    description: "Give Codex, Claude, and other local agents scoped access to Moss tasks.",
+    description: "Let other agents work with Moss tasks.",
     icon: "plugin-1",
     eyebrow: "External agents",
   },
@@ -222,7 +233,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "providers",
     group: "coding",
     label: "Agent providers",
-    description: "Choose the coding agents you use, sign them in and install new ones.",
+    description: "Sign in, install and order your coding agents.",
     icon: "puzzle",
     eyebrow: "Coding agents",
   },
@@ -230,8 +241,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "models",
     group: "coding",
     label: "Models & writing",
-    description:
-      "Choose the source control writing style, Git writing model, and custom model slugs.",
+    description: "Commit message style and the model that writes it.",
     icon: "brain",
     eyebrow: "Model configuration",
   },
@@ -239,7 +249,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "skills",
     group: "coding",
     label: "Agent skills",
-    description: "Review reusable workflows discovered across all configured providers.",
+    description: "Reusable workflows for your agents.",
     icon: "building-blocks",
     eyebrow: "Reusable workflows",
   },
@@ -247,15 +257,15 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "worktrees",
     group: "coding",
     label: "Managed worktrees",
-    description: "Review and clean up isolated workspaces created by Moss.",
+    description: "Workspaces Moss created for tasks.",
     icon: "branch-simple",
     eyebrow: "Workspace management",
   },
   {
     id: "advanced",
-    group: "system",
+    group: "personal",
     label: "System tools",
-    description: "Manage sessions, recovery tools, low-level keybindings, and version details.",
+    description: "Recovery tools and version details.",
     icon: "toolbox",
     eyebrow: "System tools",
   },
@@ -263,7 +273,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "archived",
     group: "archived",
     label: "Archived threads",
-    description: "Find and restore threads you previously archived.",
+    description: "Find and restore archived chats.",
     icon: "archive",
     eyebrow: "Thread management",
   },
@@ -290,7 +300,7 @@ export function settingRowAnchorId(title: string): string {
 }
 
 export function normalizeSettingsSection(value: unknown): SettingsSectionId {
-  if (value === "computer") return "connections";
+  if (value === "computer") return "computer-use";
   if (typeof value !== "string") {
     return "general";
   }

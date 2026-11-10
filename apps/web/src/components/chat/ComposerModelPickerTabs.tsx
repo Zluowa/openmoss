@@ -14,9 +14,15 @@ import {
 } from "@moss/contracts";
 import { type ReactNode } from "react";
 
+import { supportsAgentSignIn, useAgentSignIn } from "~/lib/agentSignIn";
+
 import { DownloadIcon, SettingsIcon, StarFilledIcon } from "~/lib/icons";
 import { type AgentReadiness, resolveAgentReadiness } from "~/lib/providerAvailability";
-import { providerReadinessDescriptionKey } from "~/lib/providerReadinessCopy";
+import {
+  isRestartRequiredReadiness,
+  providerReadinessDescriptionKey,
+  relaunchMoss,
+} from "~/lib/providerReadinessCopy";
 import { providerAccountQualifiedLabel } from "~/lib/providerInstancePresentation";
 import { cn } from "~/lib/utils";
 import { type TranslationKey, useTranslation } from "~/localization";
@@ -384,8 +390,11 @@ function usePickerCopy() {
     sourceField: t("chat.modelPicker.source.label"),
     starred: t("chat.modelPicker.source.starred"),
     localAccount: t("chat.modelPicker.source.local"),
-    word: (state: AgentReadiness["state"]) => {
-      const key = READINESS_WORD_KEY[state];
+    word: (readiness: Pick<AgentReadiness, "state" | "reason"> | undefined) => {
+      if (!readiness) return null;
+      if (isRestartRequiredReadiness(readiness))
+        return t("chat.modelPicker.status.restartRequired");
+      const key = READINESS_WORD_KEY[readiness.state];
       return key ? t(key) : null;
     },
     // The full sentence behind the word, for the row's tooltip.
@@ -425,7 +434,10 @@ export function ComposerModelPickerAgentColumn(props: {
         key={agent.provider}
         icon={<AgentMark provider={agent.provider} />}
         title={agent.label}
-        trailing={copy.word(agent.readiness)}
+        trailing={copy.word(
+          agent.sources.find((candidate) => candidate.readiness.state === agent.readiness)
+            ?.readiness ?? { state: agent.readiness },
+        )}
         tooltip={copy.describe(
           agent.sources.find((candidate) => candidate.readiness.state === agent.readiness),
         )}
@@ -512,7 +524,7 @@ export function ComposerModelPickerProviderRows(props: {
             trailing={
               source.blocked
                 ? copy.t("chat.modelPicker.status.locked")
-                : copy.word(source.readiness.state)
+                : copy.word(source.readiness)
             }
             selected={source.instanceId === props.tab}
             disabled={source.blocked}
@@ -529,12 +541,38 @@ export function ComposerModelPickerProviderRows(props: {
   );
 }
 
+function AgentSignInNoticeButton(props: {
+  source: ComposerModelPickerProviderTab;
+  status: ServerProviderStatus | null | undefined;
+}) {
+  const { t } = useTranslation();
+  const signIn = useAgentSignIn({
+    provider: props.source.provider,
+    instanceId: props.source.instanceId,
+    status: props.status,
+  });
+  const busy = signIn.state === "signingIn" || signIn.state === "verifying";
+  return (
+    <Button type="button" size="xs" disabled={busy} onClick={() => void signIn.start()}>
+      {busy
+        ? t(
+            signIn.state === "verifying"
+              ? "provider.signIn.verifying"
+              : "provider.signIn.waitingShort",
+          )
+        : t("provider.readiness.signInAction")}
+    </Button>
+  );
+}
+
 /**
  * Shown in place of the model list while the open provider cannot run: the server's
  * reason in one plain line and one action. Server diagnostics are never shown here.
  */
 export function ComposerModelPickerSourceNotice(props: {
   source: ComposerModelPickerProviderTab;
+  /** The open provider's status: lets 登录 start the agent's own sign-in right here. */
+  status?: ServerProviderStatus | null | undefined;
   onSignInToMoss: () => void;
   /** Settings at this agent: its sign-in, its 安装 button, or what went wrong. */
   onOpenAgentSettings: (provider: ProviderKind) => void;
@@ -547,15 +585,32 @@ export function ComposerModelPickerSourceNotice(props: {
   const descriptionKey = providerReadinessDescriptionKey(source.readiness);
   const body = descriptionKey ? format(descriptionKey, { provider: source.agentLabel }) : null;
   const openAgentSettings = () => props.onOpenAgentSettings(source.provider);
+  // Codex and Claude sign in from here in one step: Moss runs the agent's own login and the
+  // browser opens on its page. Other agents still go to their settings.
+  const inAppSignIn = !moss && supportsAgentSignIn(source.provider, props.status);
   const action =
     state === "needsLogin" ? (
-      <Button type="button" size="xs" onClick={moss ? props.onSignInToMoss : openAgentSettings}>
-        {t("provider.readiness.signInAction")}
-      </Button>
+      inAppSignIn ? (
+        <AgentSignInNoticeButton source={source} status={props.status} />
+      ) : (
+        <Button type="button" size="xs" onClick={moss ? props.onSignInToMoss : openAgentSettings}>
+          {t("provider.readiness.signInAction")}
+        </Button>
+      )
     ) : state === "notInstalled" ? (
       <Button type="button" size="xs" onClick={openAgentSettings}>
         <DownloadIcon aria-hidden="true" className="size-3.5" />
         {t("provider.readiness.installAction")}
+      </Button>
+    ) : isRestartRequiredReadiness(source.readiness) ? (
+      <Button
+        type="button"
+        size="xs"
+        onClick={() => {
+          if (!relaunchMoss()) openAgentSettings();
+        }}
+      >
+        {t("chat.modelPicker.notice.restartMoss")}
       </Button>
     ) : (
       <Button type="button" size="xs" variant="outline" onClick={openAgentSettings}>

@@ -56,18 +56,17 @@ const SOURCE_CONTROL_WRITING_OPTIONS: readonly {
   {
     value: "repository",
     label: "Repository conventions",
-    description: "In each project, matches recent change descriptions and change request titles.",
+    description: "Matches each project's recent commits.",
   },
   {
     value: "conventional",
     label: "Conventional Commits",
-    description: "Use Conventional Commit prefixes and keep change request text concise.",
+    description: "Conventional Commit prefixes, short text.",
   },
   {
     value: "custom",
     label: "Custom instructions",
-    description:
-      "Use your instructions for change descriptions and change requests in every project.",
+    description: "Your own instructions, in every project.",
   },
 ];
 
@@ -365,7 +364,7 @@ export function ModelsSettingsPanel({
         </SettingsRow>
         <SettingsRow
           title="Git writing model"
-          description="Used for generated commit messages, PR titles, and branch names."
+          description="Writes commit messages, PR titles and branch names."
           resetAction={
             isGitTextGenerationModelDirty ? (
               <SettingResetButton

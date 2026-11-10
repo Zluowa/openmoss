@@ -70,6 +70,7 @@ import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { getThreadFromState } from "../threadDerivation";
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import type { Project, SidebarThreadSummary } from "../types";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 const ARCHIVE_UNDO_TOAST_DURATION_MS = 8000;
 /**
@@ -954,13 +955,13 @@ export function useSidebarThreadActions(input: {
                 returnToThreadOnUndo: options?.returnToThreadOnUndo === true,
               }),
             onViewArchived: () => {
-              void navigate({ to: "/settings", search: { section: "archived" } });
+              openSettingsDialog({ section: "archived" });
             },
           },
         },
       });
     },
-    [navigate, releaseArchivedWorktree, restoreArchivedThreadFromToast],
+    [releaseArchivedWorktree, restoreArchivedThreadFromToast],
   );
 
   const archiveThreadWithUndo = useCallback(

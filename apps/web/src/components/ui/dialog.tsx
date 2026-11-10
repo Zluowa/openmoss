@@ -82,6 +82,7 @@ const dialogPanelFieldClassName =
 
 function DialogPopup({
   backdropClassName,
+  viewportClassName,
   className,
   children,
   showCloseButton: showCloseButtonProp,
@@ -91,6 +92,8 @@ function DialogPopup({
 }: DialogPrimitive.Popup.Props & {
   /** Optional per-dialog backdrop treatment for source-faithful feature surfaces. */
   backdropClassName?: string;
+  /** Optional viewport treatment (e.g. insets that keep window chrome uncovered). */
+  viewportClassName?: string;
   showCloseButton?: boolean;
   bottomStickOnMobile?: boolean;
   /** A viewport-sized modal with the same portal, focus trap, and focus restoration. */
@@ -111,6 +114,7 @@ function DialogPopup({
         className={cn(
           fullscreen && "flex p-0",
           bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12",
+          viewportClassName,
         )}
       >
         <DialogPrimitive.Popup

@@ -470,7 +470,7 @@ export function RealtimeVoiceSettingsPanel() {
         />
         <SettingsRow
           title="Screen context"
-          description="Let Moss inspect the foreground app when you refer to what's on screen. macOS asks for access the first time Moss needs it"
+          description="Let Moss look at the app in front when you ask."
           status={screenContextHelp}
           control={
             <Switch

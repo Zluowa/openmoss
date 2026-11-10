@@ -1,58 +1,65 @@
-// FILE: BrowserSketchOverlay.tsx
-// Purpose: The drawing surface over the browser page: a still of the page with the reader's
-//   marks painted on a canvas above it. The page is frozen while drawing because a native
+// FILE: MarkupCanvas.tsx
+// Purpose: Moss's one drawing surface: an image (a still of a browser page, or an image
+//   attachment) with the reader's marks painted on a canvas above it, and composing the
+//   marked image into a PNG. The browser page is frozen while drawing because a native
 //   browser view always paints above web content, so nothing could be drawn over it live.
-// Layer: BrowserPanel UI
+// Layer: Shared markup UI
 // Spec: docs/design/annotate-and-comment/SPEC.md, "Drawing tools".
 
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 
-import {
-  BROWSER_SKETCH_COLORS,
-  BROWSER_SKETCH_TEXT_SIZE,
-  type BrowserSketchMark,
-  type BrowserSketchPaintStyle,
-  type BrowserSketchPoint,
-  type BrowserSketchStyle,
-  type BrowserSketchTool,
-  DEFAULT_BROWSER_SKETCH_STYLE,
-  browserSketchStepMark,
-  browserSketchTextMark,
-  finishBrowserSketchDrag,
-  isBrowserSketchDragShape,
-  paintBrowserSketchMarks,
-} from "./browserSketch.logic";
+import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 
-export const BROWSER_SKETCH_PAINT_STYLE: BrowserSketchPaintStyle = {
+import {
+  MARKUP_COLORS,
+  MARKUP_TEXT_SIZE,
+  type MarkupMark,
+  type MarkupPaintStyle,
+  type MarkupPoint,
+  type MarkupStyle,
+  type MarkupTool,
+  DEFAULT_MARKUP_STYLE,
+  markupStepMark,
+  markupTextMark,
+  finishMarkupDrag,
+  isMarkupDragShape,
+  paintMarkupMarks,
+} from "./markup.logic";
+
+export const MARKUP_PAINT_STYLE: MarkupPaintStyle = {
   plate: "rgb(255 255 255 / 0.88)",
   fontFamily: '"Inter Variable", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif',
 };
 
 interface TextDraft {
-  readonly at: BrowserSketchPoint;
+  readonly at: MarkupPoint;
   readonly value: string;
 }
 
-function pointFrom(event: PointerEvent<HTMLElement>): BrowserSketchPoint {
+function pointFrom(event: PointerEvent<HTMLElement>): MarkupPoint {
   const rect = event.currentTarget.getBoundingClientRect();
   return { x: event.clientX - rect.left, y: event.clientY - rect.top };
 }
 
-export function BrowserSketchOverlay(props: {
-  /** Still of the page the marks are drawn on; null while it is being captured. */
+export function MarkupCanvas(props: {
+  /** The image the marks are drawn on; null while it is being captured. */
   readonly pageImageUrl: string | null;
-  readonly tool: BrowserSketchTool;
+  /** Classes for the surface; it fills its positioned parent by default. */
+  readonly className?: string;
+  readonly tool: MarkupTool;
   /** Colour and width for new marks; the default when omitted. */
-  readonly style?: BrowserSketchStyle;
-  readonly marks: readonly BrowserSketchMark[];
-  readonly onAddMark: (mark: BrowserSketchMark) => void;
+  readonly style?: MarkupStyle;
+  readonly marks: readonly MarkupMark[];
+  readonly onAddMark: (mark: MarkupMark) => void;
 }) {
-  const style = props.style ?? DEFAULT_BROWSER_SKETCH_STYLE;
+  const { t } = useTranslation();
+  const style = props.style ?? DEFAULT_MARKUP_STYLE;
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ pointerId: number; points: BrowserSketchPoint[] } | null>(null);
+  const dragRef = useRef<{ pointerId: number; points: MarkupPoint[] } | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [draftPoints, setDraftPoints] = useState<readonly BrowserSketchPoint[] | null>(null);
+  const [draftPoints, setDraftPoints] = useState<readonly MarkupPoint[] | null>(null);
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
@@ -77,13 +84,13 @@ export function BrowserSketchOverlay(props: {
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const preview =
-      draftPoints && (props.tool === "pen" || isBrowserSketchDragShape(props.tool))
-        ? finishBrowserSketchDrag(props.tool, draftPoints, style)
+      draftPoints && (props.tool === "pen" || isMarkupDragShape(props.tool))
+        ? finishMarkupDrag(props.tool, draftPoints, style)
         : null;
-    paintBrowserSketchMarks(
+    paintMarkupMarks(
       ctx,
       preview ? [...props.marks, preview] : props.marks,
-      BROWSER_SKETCH_PAINT_STYLE,
+      MARKUP_PAINT_STYLE,
       ratio,
     );
   }, [draftPoints, props.marks, props.tool, size, style]);
@@ -94,7 +101,7 @@ export function BrowserSketchOverlay(props: {
 
   const commitText = () => {
     if (!textDraft) return;
-    const mark = browserSketchTextMark(textDraft.at, textDraft.value, style);
+    const mark = markupTextMark(textDraft.at, textDraft.value, style);
     setTextDraft(null);
     if (mark) props.onAddMark(mark);
   };
@@ -111,7 +118,7 @@ export function BrowserSketchOverlay(props: {
     if (props.tool === "select") return;
     if (props.tool === "step") {
       event.preventDefault();
-      props.onAddMark(browserSketchStepMark(props.marks, point, style));
+      props.onAddMark(markupStepMark(props.marks, point, style));
       return;
     }
     try {
@@ -137,17 +144,20 @@ export function BrowserSketchOverlay(props: {
     if (!drag || drag.pointerId !== event.pointerId) return;
     dragRef.current = null;
     setDraftPoints(null);
-    if (props.tool !== "pen" && !isBrowserSketchDragShape(props.tool)) return;
-    const mark = finishBrowserSketchDrag(props.tool, drag.points, style);
+    if (props.tool !== "pen" && !isMarkupDragShape(props.tool)) return;
+    const mark = finishMarkupDrag(props.tool, drag.points, style);
     if (mark) props.onAddMark(mark);
   };
 
   return (
     <div
       ref={hostRef}
-      data-browser-sketch-overlay=""
+      data-markup-canvas=""
       data-sketch-tool={props.tool}
-      className="absolute inset-0 z-20 touch-none select-none overflow-hidden bg-background"
+      className={cn(
+        "absolute inset-0 z-20 touch-none select-none overflow-hidden bg-background",
+        props.className,
+      )}
       style={{ cursor: props.tool === "text" ? "text" : "crosshair" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -172,21 +182,18 @@ export function BrowserSketchOverlay(props: {
       {textDraft ? (
         <textarea
           ref={textRef}
-          aria-label="Annotation text"
+          aria-label={t("markup.textInput")}
           rows={1}
           value={textDraft.value}
-          placeholder="Type, then Enter"
+          placeholder={t("markup.textPlaceholder")}
           className="absolute min-w-32 resize-none rounded-[4px] border-0 bg-white/90 px-1.5 py-0.5 font-semibold outline-none [field-sizing:content] placeholder:font-normal placeholder:text-neutral-400"
           style={{
             left: textDraft.at.x - 6,
             top: textDraft.at.y - 3,
-            color:
-              style.color === "white"
-                ? BROWSER_SKETCH_COLORS.black
-                : BROWSER_SKETCH_COLORS[style.color],
-            fontSize: BROWSER_SKETCH_TEXT_SIZE,
+            color: style.color === "white" ? MARKUP_COLORS.black : MARKUP_COLORS[style.color],
+            fontSize: MARKUP_TEXT_SIZE,
             lineHeight: "18px",
-            fontFamily: BROWSER_SKETCH_PAINT_STYLE.fontFamily,
+            fontFamily: MARKUP_PAINT_STYLE.fontFamily,
           }}
           onPointerDown={(event) => event.stopPropagation()}
           onChange={(event) => setTextDraft({ ...textDraft, value: event.target.value })}
@@ -208,31 +215,30 @@ export function BrowserSketchOverlay(props: {
   );
 }
 
-/** Paints marks over the captured page at the capture's own pixel scale. */
-export async function composeBrowserSketchPng(input: {
-  readonly pageBytes: Uint8Array;
-  readonly marks: readonly BrowserSketchMark[];
-  /** Width of the page area the marks were drawn in, in CSS pixels. */
+/** Paints marks over the image at the image's own pixel scale, as a PNG. */
+export async function composeMarkupPng(input: {
+  /** The image the marks were drawn on (any type the browser decodes). */
+  readonly image: Blob;
+  readonly marks: readonly MarkupMark[];
+  /** Width the image was shown at while drawing, in CSS pixels. */
   readonly drawnWidth: number;
 }): Promise<Blob> {
-  const bitmap = await createImageBitmap(
-    new Blob([new Uint8Array(input.pageBytes)], { type: "image/png" }),
-  );
+  const bitmap = await createImageBitmap(input.image);
   try {
     const canvas = document.createElement("canvas");
     canvas.width = bitmap.width;
     canvas.height = bitmap.height;
     const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("The marked page could not be prepared.");
+    if (!ctx) throw new Error("The marked image could not be prepared.");
     ctx.drawImage(bitmap, 0, 0);
-    paintBrowserSketchMarks(
+    paintMarkupMarks(
       ctx,
       input.marks,
-      BROWSER_SKETCH_PAINT_STYLE,
+      MARKUP_PAINT_STYLE,
       input.drawnWidth > 0 ? bitmap.width / input.drawnWidth : 1,
     );
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
-    if (!blob) throw new Error("The marked page could not be prepared.");
+    if (!blob) throw new Error("The marked image could not be prepared.");
     return blob;
   } finally {
     bitmap.close();

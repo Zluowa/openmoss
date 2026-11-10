@@ -11,6 +11,7 @@ import {
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { appHistory } from "../../appNavigation";
 
@@ -51,6 +52,27 @@ vi.mock("~/localization", async (importOriginal) => {
     }),
   };
 });
+
+const nativeApiMocks = vi.hoisted(() => ({
+  startProviderLogin: vi.fn(async () => ({ providers: [] })),
+  cancelProviderLogin: vi.fn(async () => ({ providers: [] })),
+}));
+vi.mock("~/nativeApi", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/nativeApi")>();
+  const api = {
+    server: {
+      startProviderLogin: nativeApiMocks.startProviderLogin,
+      cancelProviderLogin: nativeApiMocks.cancelProviderLogin,
+    },
+  };
+  return { ...actual, readNativeApi: () => api };
+});
+
+// The picker's sign-in button follows the agent's status through React Query, as in the app.
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function withQueryClient(children: React.ReactNode) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-composer-model-picker");
 const GPT_5_5 = "gpt-5.5" as ModelSlug;
@@ -179,7 +201,7 @@ async function mountPicker(
     model: GPT_5_5,
     ...(options ? { options } : {}),
   });
-  const screen = await render(<Harness {...harnessProps} />);
+  const screen = await render(withQueryClient(<Harness {...harnessProps} />));
   await page.getByRole("button", { name: "Change model and reasoning" }).click();
   return screen;
 }
@@ -312,7 +334,9 @@ describe("ComposerModelPicker", () => {
     const screen = await mountPicker({ onRefreshModels });
     try {
       await vi.waitFor(() => expect(onRefreshModels).toHaveBeenCalledTimes(1));
-      await screen.rerender(<Harness onRefreshModels={(...args) => onRefreshModels(...args)} />);
+      await screen.rerender(
+        withQueryClient(<Harness onRefreshModels={(...args) => onRefreshModels(...args)} />),
+      );
       expect(page.getByRole("status").elements()).toHaveLength(0);
       finish();
       expect(onRefreshModels).toHaveBeenCalledTimes(1);
@@ -661,13 +685,15 @@ describe("ComposerModelPicker", () => {
       expect(readStoredStars()).toEqual([preset]);
 
       await screen.rerender(
-        <Harness
-          onProviderModelChange={onProviderModelChange}
-          modelOptionsByProvider={{
-            ...EMPTY_BY_PROVIDER,
-            codex: [{ slug: model, name: "Private Model" }],
-          }}
-        />,
+        withQueryClient(
+          <Harness
+            onProviderModelChange={onProviderModelChange}
+            modelOptionsByProvider={{
+              ...EMPTY_BY_PROVIDER,
+              codex: [{ slug: model, name: "Private Model" }],
+            }}
+          />,
+        ),
       );
       const available = page.getByRole("menuitem", { name: /Private Model/u });
       await expect.element(available).not.toHaveAttribute("aria-disabled", "true");
@@ -810,7 +836,7 @@ describe("ComposerModelPicker", () => {
       model: GPT_5_5,
       options: { reasoningEffort: "medium" },
     });
-    const screen = await render(<Harness effortControl="slider" />);
+    const screen = await render(withQueryClient(<Harness effortControl="slider" />));
     try {
       const trigger = page.getByRole("button", { name: "Change model and reasoning" });
       const closedWidth = trigger.element().getBoundingClientRect().width;
@@ -1141,16 +1167,22 @@ describe("ComposerModelPicker with several accounts", () => {
       ],
     });
     try {
-      // The person's own Codex needs a login: one plain line and one Sign in.
+      // The person's own Codex needs a login: one plain line and one Sign in, which starts
+      // Codex's own sign-in right here instead of sending the person to settings.
       await expect
         .element(page.getByText("Sign in to your Codex account to use it."))
         .toBeVisible();
       const pushSpy = vi.spyOn(appHistory, "push").mockImplementation(() => undefined);
+      nativeApiMocks.startProviderLogin.mockClear();
       await page.getByRole("button", { name: "Sign in", exact: true }).click();
-      expect(pushSpy).toHaveBeenLastCalledWith(
-        "/settings?section=providers&provider=codex&target=provider-codex",
-      );
-      await page.getByRole("button", { name: "Change model and reasoning" }).click();
+      await expect
+        .poll(() => nativeApiMocks.startProviderLogin.mock.calls.length)
+        .toBeGreaterThan(0);
+      expect(nativeApiMocks.startProviderLogin).toHaveBeenLastCalledWith({
+        provider: "codex",
+        instanceId: "codex",
+      });
+      expect(pushSpy).not.toHaveBeenCalled();
 
       await openProviders();
       expect(listRows("Provider").map((option) => option.getAttribute("aria-label"))).toEqual([
@@ -1189,6 +1221,71 @@ describe("ComposerModelPicker with several accounts", () => {
         await expect.element(menuOption("Moss")).toHaveTextContent("MossSign in");
       }
     } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("asks for a restart, not 'unavailable', after Moss updated Claude", async () => {
+    const restartRequired = (instanceId: ProviderInstanceId): ServerProviderStatus => ({
+      ...readyProvider("claudeAgent"),
+      instanceId,
+      status: "error",
+      available: false,
+      authStatus: "unknown",
+      message:
+        "Failed to execute Claude Agent CLI health check: The Claude program changed. Restart Moss to apply it; accounts and history are preserved..",
+      readiness: { state: "error", reason: "restart-required" },
+    });
+    const relaunch = vi.fn(async () => undefined);
+    const previousBridge = window.desktopBridge;
+    window.desktopBridge = {
+      customTitleBar: { relaunch },
+    } as unknown as NonNullable<typeof window.desktopBridge>;
+    const screen = await mountPicker({
+      providers: [
+        readyProvider("codex"),
+        restartRequired("claudeAgent" as ProviderInstanceId),
+        restartRequired("claude_moss" as ProviderInstanceId),
+      ],
+      providerInstances: [
+        { instanceId: "codex", provider: "codex", label: "Codex", enabled: true, isDefault: true },
+        {
+          instanceId: "claude_moss" as ProviderInstanceId,
+          provider: "claudeAgent",
+          label: "Moss",
+          enabled: true,
+          isDefault: false,
+        },
+        {
+          instanceId: "claudeAgent" as ProviderInstanceId,
+          provider: "claudeAgent",
+          label: "Claude",
+          enabled: true,
+          isDefault: true,
+        },
+      ],
+    });
+    try {
+      await openAgents();
+      await expect.element(menuOption("Claude")).toHaveTextContent("ClaudeRestart");
+      await selectAgent("Claude");
+      await openProviders();
+      await expect.element(menuOption("Moss")).toHaveTextContent("MossRestart");
+      await expect
+        .element(
+          page.getByText(
+            "Claude was updated. Restart Moss to use it; your accounts and chats stay as they are.",
+          ),
+        )
+        .toBeVisible();
+      expect(
+        page.getByText("Moss is temporarily unavailable. Try again shortly.").elements(),
+      ).toHaveLength(0);
+      await page.getByRole("button", { name: "Restart Moss", exact: true }).click();
+      expect(relaunch).toHaveBeenCalledOnce();
+    } finally {
+      if (previousBridge) window.desktopBridge = previousBridge;
+      else Reflect.deleteProperty(window, "desktopBridge");
       await screen.unmount();
     }
   });

@@ -117,6 +117,7 @@ import { hasReconciledServerProviderStatuses } from "../lib/serverReactQuery";
 import { getRouter } from "../router";
 import { showContextMenuFallback } from "../contextMenuFallback";
 import { useRightDockStore } from "../rightDockStore";
+import { closeSettings, settingsDialogStore } from "../settingsDialogStore";
 import { dockTerminalThreadId } from "../lib/dockTerminalScope";
 import { collectLeaves } from "../splitView.logic";
 import { GITHUB_INBOX_DOCK_HOST_ID } from "../rightDockStore.logic";
@@ -19053,8 +19054,9 @@ describe("ChatView transcript geometry (full app)", () => {
         "Unable to find the regular composer image button.",
       );
       composerImageButton.click();
+      // A composer image opens the attachment preview (with Mark up), not the lightbox.
       await expect
-        .element(page.getByRole("dialog", { name: "Expanded image preview" }))
+        .element(page.getByRole("dialog", { name: "Attachment preview" }))
         .toBeInTheDocument();
       diagnostics.assertNoResizeObserverLoop();
     } finally {
@@ -22231,12 +22233,15 @@ describe("ChatView transcript geometry (full app)", () => {
         expect(
           wsRequests.some((request) => request._tag === WS_METHODS.serverGetProviderUsageSnapshot),
         ).toBe(false);
+        closeSettings();
         await banner
           .querySelector<HTMLButtonElement>('[data-testid="image-generation-limit-primary"]')
           ?.click();
         await vi.waitFor(() => {
-          expect(mounted.router.state.location.pathname).toBe("/settings");
-          expect(mounted.router.state.location.search).toMatchObject({ section: "usage" });
+          expect(settingsDialogStore.getState()).toMatchObject({
+            isOpen: true,
+            request: { section: "usage" },
+          });
           expect(openExternal).not.toHaveBeenCalled();
           expect(
             document.querySelector('[data-testid="image-generation-limit-banner"]'),

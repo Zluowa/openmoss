@@ -63,14 +63,10 @@ it("switches descriptions, saves custom text, preserves it across styles, and re
   await page.viewport(1280, 800);
   await render(<Harness />);
   const picker = page.getByRole("combobox", { name: "Source control writing style" });
-  expect(document.body.textContent).toContain(
-    "In each project, matches recent change descriptions and change request titles.",
-  );
+  expect(document.body.textContent).toContain("Matches each project's recent commits.");
   await picker.click();
   await page.getByRole("option", { name: "Conventional Commits", exact: true }).click();
-  expect(document.body.textContent).toContain(
-    "Use Conventional Commit prefixes and keep change request text concise.",
-  );
+  expect(document.body.textContent).toContain("Conventional Commit prefixes, short text.");
   await picker.click();
   await page.getByRole("option", { name: "Custom instructions", exact: true }).click();
   const field = page.getByRole("textbox", { name: "Custom source control writing instructions" });

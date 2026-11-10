@@ -1,10 +1,11 @@
-// FILE: BrowserSketchToolbar.tsx
-// Purpose: The floating annotation bar under the browser page: select an element; draw
-//   with the pen, a shape (line, arrow, rectangle, ellipse, numbered step) or text; pick
-//   the ink colour and stroke width; undo, redo, clear; add the marked page to chat;
-//   close. It starts compact (select, pen, shapes, text, close) and opens out once a
-//   drawing tool is armed.
-// Layer: BrowserPanel UI
+// FILE: MarkupToolbar.tsx
+// Purpose: Moss's one floating markup bar, shared by the browser panel and the composer's
+//   attachment preview: optionally select an element (browser only); draw with the pen, a
+//   shape (line, arrow, rectangle, ellipse, numbered step) or text; pick the ink colour
+//   and stroke width; undo, redo, clear; the host's main action (Add to chat, Save); close.
+//   It can start compact (select, pen, shapes, text, close) and open out once a drawing
+//   tool is armed.
+// Layer: Shared markup UI
 // Spec: docs/design/annotate-and-comment/SPEC.md, "Floating tool bar".
 
 import { useState } from "react";
@@ -34,45 +35,45 @@ import { IconButton } from "../ui/icon-button";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import {
-  BROWSER_SKETCH_COLOR_ORDER,
-  BROWSER_SKETCH_COLORS,
-  BROWSER_SKETCH_SHAPES,
-  BROWSER_SKETCH_STROKE_WIDTHS,
-  type BrowserSketchColor,
-  type BrowserSketchShape,
-  type BrowserSketchStrokeWidth,
-  type BrowserSketchStyle,
-  type BrowserSketchTool,
-  DEFAULT_BROWSER_SKETCH_SHAPE,
-  DEFAULT_BROWSER_SKETCH_STYLE,
-  isBrowserSketchShape,
-} from "./browserSketch.logic";
+  MARKUP_COLOR_ORDER,
+  MARKUP_COLORS,
+  MARKUP_SHAPES,
+  MARKUP_STROKE_WIDTHS,
+  type MarkupColor,
+  type MarkupShape,
+  type MarkupStrokeWidth,
+  type MarkupStyle,
+  type MarkupTool,
+  DEFAULT_MARKUP_SHAPE,
+  DEFAULT_MARKUP_STYLE,
+  isMarkupShape,
+} from "./markup.logic";
 
-const SHAPE_META: Record<BrowserSketchShape, { labelKey: TranslationKey; icon: LucideIcon }> = {
-  line: { labelKey: "browser.sketch.line", icon: SketchLineIcon },
-  arrow: { labelKey: "browser.sketch.arrow", icon: SketchArrowIcon },
-  rect: { labelKey: "browser.sketch.rectangle", icon: SketchRectangleIcon },
-  ellipse: { labelKey: "browser.sketch.ellipse", icon: SketchEllipseIcon },
-  step: { labelKey: "browser.sketch.step", icon: SketchStepIcon },
+const SHAPE_META: Record<MarkupShape, { labelKey: TranslationKey; icon: LucideIcon }> = {
+  line: { labelKey: "markup.line", icon: SketchLineIcon },
+  arrow: { labelKey: "markup.arrow", icon: SketchArrowIcon },
+  rect: { labelKey: "markup.rectangle", icon: SketchRectangleIcon },
+  ellipse: { labelKey: "markup.ellipse", icon: SketchEllipseIcon },
+  step: { labelKey: "markup.step", icon: SketchStepIcon },
 };
 
-const COLOR_LABEL_KEY: Record<BrowserSketchColor, TranslationKey> = {
-  red: "browser.sketch.color.red",
-  blue: "browser.sketch.color.blue",
-  green: "browser.sketch.color.green",
-  black: "browser.sketch.color.black",
-  white: "browser.sketch.color.white",
+const COLOR_LABEL_KEY: Record<MarkupColor, TranslationKey> = {
+  red: "markup.color.red",
+  blue: "markup.color.blue",
+  green: "markup.color.green",
+  black: "markup.color.black",
+  white: "markup.color.white",
 };
 
-const WIDTH_LABEL_KEY: Record<BrowserSketchStrokeWidth, TranslationKey> = {
-  2: "browser.sketch.width.thin",
-  4: "browser.sketch.width.medium",
-  8: "browser.sketch.width.thick",
-  12: "browser.sketch.width.extraThick",
+const WIDTH_LABEL_KEY: Record<MarkupStrokeWidth, TranslationKey> = {
+  2: "markup.width.thin",
+  4: "markup.width.medium",
+  8: "markup.width.thick",
+  12: "markup.width.extraThick",
 };
 
 // Bars scaled into the 16px row so all four widths read as one family.
-const WIDTH_BAR_HEIGHT_PX: Record<BrowserSketchStrokeWidth, number> = {
+const WIDTH_BAR_HEIGHT_PX: Record<MarkupStrokeWidth, number> = {
   2: 2,
   4: 3.5,
   8: 6,
@@ -99,7 +100,7 @@ function Divider() {
   return <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-border" />;
 }
 
-function ColorSwatch({ color }: { color: BrowserSketchColor }) {
+function ColorSwatch({ color }: { color: MarkupColor }) {
   return (
     <span
       aria-hidden
@@ -110,12 +111,12 @@ function ColorSwatch({ color }: { color: BrowserSketchColor }) {
           ? "shadow-[inset_0_0_0_1.5px_color-mix(in_srgb,var(--foreground)_45%,transparent)]"
           : "shadow-[inset_0_0_0_1px_rgb(0_0_0/0.12)]",
       )}
-      style={{ backgroundColor: BROWSER_SKETCH_COLORS[color] }}
+      style={{ backgroundColor: MARKUP_COLORS[color] }}
     />
   );
 }
 
-function WidthBar({ width }: { width: BrowserSketchStrokeWidth }) {
+function WidthBar({ width }: { width: MarkupStrokeWidth }) {
   return (
     <span
       aria-hidden
@@ -125,50 +126,58 @@ function WidthBar({ width }: { width: BrowserSketchStrokeWidth }) {
   );
 }
 
-export interface BrowserSketchToolbarProps {
-  readonly tool: BrowserSketchTool;
-  readonly onToolChange: (tool: BrowserSketchTool) => void;
-  readonly selectAvailable: boolean;
+/** The bar's main button: Add to chat in the browser, Save on an attachment. */
+export interface MarkupToolbarAction {
+  readonly label: string;
+  /** Shown while `busy`. */
+  readonly busyLabel: string;
+  readonly busy: boolean;
+  readonly onClick: () => void;
+}
+
+export interface MarkupToolbarProps {
+  readonly tool: MarkupTool;
+  readonly onToolChange: (tool: MarkupTool) => void;
+  /**
+   * Whether Select element can run now. Leave it out where there is nothing to select
+   * (an image): the bar then has no Select button and an armed tool stays armed.
+   */
+  readonly selectAvailable?: boolean;
   readonly canUndo: boolean;
   readonly canRedo?: boolean;
   readonly hasMarks: boolean;
   /** Full bar (colours, widths, history, Add to chat); the compact bar until then. */
   readonly expanded?: boolean;
-  readonly style?: BrowserSketchStyle;
-  readonly onStyleChange?: (style: BrowserSketchStyle) => void;
-  readonly adding: boolean;
+  readonly style?: MarkupStyle;
+  readonly onStyleChange?: (style: MarkupStyle) => void;
+  readonly action: MarkupToolbarAction;
   readonly confirmingDiscard: boolean;
   readonly onUndo: () => void;
   readonly onRedo?: () => void;
   readonly onClear?: () => void;
-  readonly onAddToChat: () => void;
   /** Close, which asks first when there are marks (confirmingDiscard). */
   readonly onRequestClose: () => void;
   readonly onCancelDiscard: () => void;
   readonly onDiscard: () => void;
 }
 
-export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
+export function MarkupToolbar(props: MarkupToolbarProps) {
   const { t } = useTranslation();
-  const [lastShape, setLastShape] = useState<BrowserSketchShape>(DEFAULT_BROWSER_SKETCH_SHAPE);
-  const shape = isBrowserSketchShape(props.tool) ? props.tool : lastShape;
+  const [lastShape, setLastShape] = useState<MarkupShape>(DEFAULT_MARKUP_SHAPE);
+  const shape = isMarkupShape(props.tool) ? props.tool : lastShape;
   const ShapeIcon = SHAPE_META[shape].icon;
-  const style = props.style ?? DEFAULT_BROWSER_SKETCH_STYLE;
+  const style = props.style ?? DEFAULT_MARKUP_STYLE;
   const expanded = props.expanded ?? true;
   const canRedo = props.canRedo ?? false;
   const hasHistory = props.hasMarks || props.canUndo || canRedo;
+  const hasSelect = props.selectAvailable !== undefined;
 
-  // Pressing the armed tool again goes back to selecting elements.
-  const arm = (tool: BrowserSketchTool) => {
-    if (isBrowserSketchShape(tool)) setLastShape(tool);
-    props.onToolChange(props.tool === tool && tool !== "select" ? "select" : tool);
+  // Pressing the armed tool again goes back to selecting elements, where there is Select.
+  const arm = (tool: MarkupTool) => {
+    if (isMarkupShape(tool)) setLastShape(tool);
+    props.onToolChange(hasSelect && props.tool === tool && tool !== "select" ? "select" : tool);
   };
-  const toolButton = (
-    tool: BrowserSketchTool,
-    label: string,
-    Icon: LucideIcon,
-    disabled = false,
-  ) => (
+  const toolButton = (tool: MarkupTool, label: string, Icon: LucideIcon, disabled = false) => (
     <IconButton
       label={label}
       tooltip={label}
@@ -201,39 +210,41 @@ export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
     </IconButton>
   );
   const shapeLabel = t(SHAPE_META[shape].labelKey);
-  const shapeArmed = isBrowserSketchShape(props.tool);
+  const shapeArmed = isMarkupShape(props.tool);
 
   return (
     <div
       role="toolbar"
-      aria-label={t("browser.sketch.toolbar")}
-      data-browser-sketch-toolbar=""
+      aria-label={t("markup.toolbar")}
+      data-markup-toolbar=""
       data-layout={expanded ? "full" : "compact"}
       className="relative flex items-center gap-0.5 rounded-popover border border-border bg-popover p-1 shadow-lg motion-safe:animate-[moss-sketch-bar-in_120ms_cubic-bezier(.32,.72,0,1)]"
     >
       {props.confirmingDiscard ? (
         <div
           role="alertdialog"
-          aria-label={t("browser.sketch.discardTitle")}
+          aria-label={t("markup.discardTitle")}
           className="flex items-center gap-2 py-0.5 ps-2 pe-0.5 text-ui"
         >
-          <span className="text-foreground">{t("browser.sketch.discardTitle")}</span>
+          <span className="text-foreground">{t("markup.discardTitle")}</span>
           <Button size="xs" variant="ghost" onClick={props.onCancelDiscard}>
-            {t("browser.sketch.keepEditing")}
+            {t("markup.keepEditing")}
           </Button>
           <Button size="xs" variant="destructive" onClick={props.onDiscard}>
-            {t("browser.sketch.discard")}
+            {t("markup.discard")}
           </Button>
         </div>
       ) : (
         <>
-          {toolButton(
-            "select",
-            t("browser.sketch.select"),
-            SketchSelectIcon,
-            !props.selectAvailable,
-          )}
-          {toolButton("pen", t("browser.sketch.pen"), SketchPenIcon)}
+          {hasSelect
+            ? toolButton(
+                "select",
+                t("browser.sketch.select"),
+                SketchSelectIcon,
+                !props.selectAvailable,
+              )
+            : null}
+          {toolButton("pen", t("markup.pen"), SketchPenIcon)}
           <div
             className={cn(
               "flex items-center rounded-control",
@@ -261,8 +272,8 @@ export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
                 render={
                   <Button
                     variant="ghost"
-                    aria-label={t("browser.sketch.shapes")}
-                    title={t("browser.sketch.shapes")}
+                    aria-label={t("markup.shapes")}
+                    title={t("markup.shapes")}
                     data-sketch-menu="shape"
                     className={cn(
                       "h-7 w-5 min-w-0 rounded-s-none rounded-e-control px-0 opacity-75 hover:opacity-100 data-[popup-open]:bg-[color-mix(in_srgb,var(--foreground)_9%,transparent)] [&_[data-slot=central-icon]]:size-3",
@@ -274,7 +285,7 @@ export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
                 }
               />
               <ComposerPickerMenuPopup align="start" side="top" sideOffset={8} className="w-44">
-                {BROWSER_SKETCH_SHAPES.map((option) => {
+                {MARKUP_SHAPES.map((option) => {
                   const OptionIcon = SHAPE_META[option].icon;
                   return (
                     <MenuItem
@@ -293,7 +304,7 @@ export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
               </ComposerPickerMenuPopup>
             </Menu>
           </div>
-          {toolButton("text", t("browser.sketch.text"), SketchTextIcon)}
+          {toolButton("text", t("markup.text"), SketchTextIcon)}
           {expanded ? (
             <>
               <Divider />
@@ -302,8 +313,8 @@ export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
                   render={
                     <button
                       type="button"
-                      aria-label={t("browser.sketch.colorMenu")}
-                      title={t("browser.sketch.colorMenu")}
+                      aria-label={t("markup.colorMenu")}
+                      title={t("markup.colorMenu")}
                       data-sketch-menu="color"
                       className={DROPDOWN_TRIGGER_CLASS_NAME}
                     />
@@ -313,7 +324,7 @@ export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
                   <ChevronDownIcon className="size-3 opacity-70" />
                 </MenuTrigger>
                 <ComposerPickerMenuPopup align="center" side="top" sideOffset={8} className="w-32">
-                  {BROWSER_SKETCH_COLOR_ORDER.map((color) => (
+                  {MARKUP_COLOR_ORDER.map((color) => (
                     <MenuItem
                       key={color}
                       aria-label={t(COLOR_LABEL_KEY[color])}
@@ -332,8 +343,8 @@ export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
                   render={
                     <button
                       type="button"
-                      aria-label={t("browser.sketch.widthMenu")}
-                      title={t("browser.sketch.widthMenu")}
+                      aria-label={t("markup.widthMenu")}
+                      title={t("markup.widthMenu")}
                       data-sketch-menu="width"
                       className={cn(DROPDOWN_TRIGGER_CLASS_NAME, "gap-1 px-2")}
                     />
@@ -343,7 +354,7 @@ export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
                   <ChevronDownIcon className="size-3 opacity-70" />
                 </MenuTrigger>
                 <ComposerPickerMenuPopup align="center" side="top" sideOffset={8} className="w-32">
-                  {BROWSER_SKETCH_STROKE_WIDTHS.map((width) => (
+                  {MARKUP_STROKE_WIDTHS.map((width) => (
                     <MenuItem
                       key={width}
                       aria-label={t(WIDTH_LABEL_KEY[width])}
@@ -360,27 +371,27 @@ export function BrowserSketchToolbar(props: BrowserSketchToolbarProps) {
               <Divider />
               {hasHistory ? (
                 <>
-                  {historyButton(t("browser.sketch.undo"), Undo2Icon, !props.canUndo, props.onUndo)}
-                  {historyButton(t("browser.sketch.redo"), Redo2Icon, !canRedo, props.onRedo)}
-                  {historyButton(t("browser.sketch.clear"), Trash2, !props.hasMarks, props.onClear)}
+                  {historyButton(t("markup.undo"), Undo2Icon, !props.canUndo, props.onUndo)}
+                  {historyButton(t("markup.redo"), Redo2Icon, !canRedo, props.onRedo)}
+                  {historyButton(t("markup.clear"), Trash2, !props.hasMarks, props.onClear)}
                 </>
               ) : null}
               <Button
                 size="xs"
                 className="ms-0.5 h-7 rounded-control px-3 text-ui disabled:bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] disabled:text-muted-foreground disabled:opacity-100"
-                disabled={props.adding || !props.hasMarks}
-                data-sketch-add-to-chat=""
-                onClick={props.onAddToChat}
+                disabled={props.action.busy || !props.hasMarks}
+                data-markup-action=""
+                onClick={props.action.onClick}
               >
-                {props.adding ? t("browser.sketch.adding") : t("browser.sketch.addToChat")}
+                {props.action.busy ? props.action.busyLabel : props.action.label}
               </Button>
             </>
           ) : (
             <Divider />
           )}
           <IconButton
-            label={t("browser.sketch.close")}
-            tooltip={t("browser.sketch.closeTooltip")}
+            label={t("markup.close")}
+            tooltip={t("markup.closeTooltip")}
             tooltipSide="top"
             className={cn(TOOL_BUTTON_CLASS_NAME, expanded && "ms-0.5")}
             onClick={props.onRequestClose}

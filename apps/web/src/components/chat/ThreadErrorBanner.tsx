@@ -19,6 +19,7 @@ import { CircleAlertIcon, XIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
 import { resolveThreadErrorPresentation } from "./threadErrorPresentation";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 type ThreadErrorBannerProps = {
   error: string | null;
@@ -125,13 +126,7 @@ function ThreadErrorBannerContent({
             <Button
               size="xs"
               variant={canRetry ? "outline" : "destructive-outline"}
-              // Loaded on demand: app history binds to the window when imported, and
-              // the banner also renders where no browser history exists.
-              onClick={() => {
-                void import("../../appNavigation").then(({ appHistory }) =>
-                  appHistory.push("/settings?section=providers"),
-                );
-              }}
+              onClick={() => openSettingsDialog({ section: "providers" })}
             >
               {t("chat.error.openProviderSettings")}
             </Button>

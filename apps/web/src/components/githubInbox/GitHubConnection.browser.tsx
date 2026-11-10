@@ -179,7 +179,9 @@ describe("GitHub connection entry", () => {
         polls += 1;
         return polls < 3
           ? { state: "installing", phase: "downloading" }
-          : { state: "disconnected" };
+          : polls < 5
+            ? { state: "installing", phase: "downloading", percent: 42 }
+            : { state: "disconnected" };
       }
       return { state: "cancelled" };
     });
@@ -188,6 +190,9 @@ describe("GitHub connection entry", () => {
     await expect.element(page.getByText("Downloading GitHub CLI…", { exact: true })).toBeVisible();
     const shot = import.meta.env.VITE_MOSS_GITHUB_SHOTS;
     if (shot) await page.screenshot({ path: `${shot}/github-cli-installing.png` });
+    const bar = page.getByRole("progressbar", { name: "GitHub CLI download" });
+    await expect.element(bar).toHaveAttribute("aria-valuenow", "42");
+    await expect.element(page.getByText("42%", { exact: true })).toBeVisible();
     await expect
       .element(page.getByRole("button", { name: "Connect GitHub", exact: true }))
       .toBeVisible();
