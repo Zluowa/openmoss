@@ -1,4 +1,4 @@
-import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
+import { MOSS_HELP_SITE_URL } from "@moss/shared/desktopIdentity";
 import { MossbotSidebar } from "./mossbot/MossbotSidebar";
 import { resolveMossbotForThread } from "./mossbot/mossbot.logic";
 import { SidebarGettingStarted } from "./SidebarGettingStarted";
@@ -968,7 +968,8 @@ function ProjectSortMenu({
   );
 }
 
-const MOSS_DOCS_URL = MOSS_OFFICIAL_SITE_URL;
+// Docs wait for Moss's help site; the help menu leaves the entry out until then.
+const helpSiteUrl = MOSS_HELP_SITE_URL;
 
 // Latest curated releases surfaced directly in the help menu. Static data, so
 // computed once at module scope rather than per render.
@@ -1078,13 +1079,15 @@ export function SidebarHelpMenu({
           <SidebarContextMenuIcon icon={FeedbackIcon} />
           <span>{t("sidebar.helpMenu.feedback")}</span>
         </MenuItem>
-        <MenuItem
-          className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
-          onClick={() => openExternalLink(MOSS_DOCS_URL)}
-        >
-          <SidebarContextMenuIcon icon={BookIcon} />
-          <span>{t("sidebar.helpMenu.docs")}</span>
-        </MenuItem>
+        {helpSiteUrl ? (
+          <MenuItem
+            className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
+            onClick={() => openExternalLink(helpSiteUrl)}
+          >
+            <SidebarContextMenuIcon icon={BookIcon} />
+            <span>{t("sidebar.helpMenu.docs")}</span>
+          </MenuItem>
+        ) : null}
       </MenuGroup>
     </>
   );

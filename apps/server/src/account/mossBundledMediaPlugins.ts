@@ -98,7 +98,7 @@ ${MOSS_MEDIA_CREDITS_PER_CNY} 积分 = 1 元。表中是参考价，美元计价
 2. 选模型：对方点名的模型优先，否则用 \`${defaultModelId}\`。不要为了挑模型反问对方，直接开始。
 3. 普通请求直接用所选模型生成。需查看可用模型或价格时调用 \`moss_media_list\`。模型不可用时说明原因，经对方同意后再换。
 4. 调用 \`moss_media_generate\`：传 modelId、prompt（保留对方描述的主体、构图、风格、比例和参考意图）、为这次请求新建的 idempotencyKey，以及需要的参考素材、aspectRatio、resolution${plugin.kind === "video" ? "、duration" : ""}。
-5. ${plugin.kind === "image" ? "拿到 jobId 后简短告知已提交，即可结束回复。Moss 会在后台等待并把图片显示在这条聊天消息里。只有用户询问进度或需要排查失败时，才用原 jobId 查询。不要用 shell sleep 或循环查询。" : "记下返回的 jobId，大约每 15 秒用 moss_media_get 查询一次，直到完成。"}
+5. ${plugin.kind === "image" ? "这次调用会等图片生成：对方在聊天里先看到占位图，完成后原位换成成品图。结果提示还在生成时，用同一个 jobId 调用 `moss_media_get` 继续等。结果提示图片已显示时，图片已经在聊天里：不要说“已提交”“正在后台生成”“稍后会显示”，最多回一句简短的话。不要用 shell sleep 或命令等待。" : "记下返回的 jobId，大约每 15 秒用 moss_media_get 查询一次，直到完成。"}
 6. ${plugin.kind === "image" ? "图片完成后由 Moss 显示在对话里。" : "完成后在对话里展示结果。"}不要用 Markdown 重复贴出，也不要为普通生成打开画布。只有对方要求打开画布或在画布上编辑时，调用 \`moss_canvas_open\` 并传入 jobId。
 
 ## 规则

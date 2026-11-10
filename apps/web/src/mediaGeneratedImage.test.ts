@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import { makeActivity } from "./storeTestFixtures";
 import { deriveTimelineEntries, deriveWorkLogEntries } from "./workLog";
 import {
+  deriveMessagesTimelineRows,
   groupGeneratedImagesByTurn,
   omitGeneratedImageWorkEntries,
 } from "./components/chat/MessagesTimeline.logic";
+import { generatedImagePendingStage } from "./components/chat/GeneratedImageGallery";
+import { isMossMediaJobToolCall, isMossMediaToolSearch } from "./lib/toolCallLabel";
 import { parseImageGenerationCompletionActivity } from "./components/chat/imageGenerationLimit.logic";
 
 const pending = makeActivity({
@@ -51,6 +54,8 @@ const failed = makeActivity({
   },
 });
 const live = { activeTurnId: TurnId.makeUnsafe("turn-image"), latestTurnState: "running" as const };
+const workRows = (rows: ReturnType<typeof deriveMessagesTimelineRows>) =>
+  rows.flatMap((row) => (row.kind === "work" ? row.groupedEntries : []));
 
 describe("official media transcript lifecycle", () => {
   it("replaces the pending item with a durable gallery image without any assistant Markdown", () => {
@@ -177,5 +182,135 @@ describe("official media transcript lifecycle", () => {
       },
     });
     expect(parseImageGenerationCompletionActivity(moss, "thread-image")).toBeNull();
+  });
+
+  describe("one image card for a Moss image call, like Codex", () => {
+    const tool = (
+      id: string,
+      sequence: number,
+      kind: "tool.started" | "tool.completed",
+      title: string,
+      data: Record<string, string | Record<string, string>>,
+      tone: "tool" | "error" = "tool",
+    ) =>
+      makeActivity({
+        id,
+        kind,
+        sequence,
+        tone,
+        turnId: "turn-image",
+        summary: title,
+        payload: {
+          itemType: "dynamic_tool_call",
+          status:
+            kind === "tool.started" ? "inProgress" : tone === "error" ? "failed" : "completed",
+          title,
+          detail: title,
+          data,
+        },
+      });
+    // Grok in the owner's run: a tool search, then use_tool wrapping moss__moss_media_generate.
+    const grokCalls = [
+      tool("search-1", 1, "tool.started", "search_tool", {
+        toolCallId: "call-search",
+        rawInput: { query: "moss media generate image" },
+      }),
+      tool("search-2", 2, "tool.started", 'Search tools: "moss media generate image"', {
+        toolCallId: "call-search",
+      }),
+      tool("search-3", 3, "tool.completed", 'Search tools: "moss media generate image"', {
+        toolCallId: "call-search",
+      }),
+      tool("use-1", 4, "tool.started", "use_tool", { toolCallId: "call-use" }),
+      tool("use-2", 5, "tool.started", "moss__moss_media_generate", { toolCallId: "call-use" }),
+      tool("use-3", 6, "tool.completed", "moss__moss_media_generate", { toolCallId: "call-use" }),
+    ];
+    // Pi in the owner's run: the bare tool name.
+    const piCalls = [
+      tool("pi-1", 1, "tool.started", "moss_media_generate", { toolCallId: "call-pi" }),
+      tool("pi-2", 6, "tool.completed", "moss_media_generate", { toolCallId: "call-pi" }),
+    ];
+    const shaped = makeActivity({
+      id: "moss-image-start",
+      kind: "tool.started",
+      turnId: "turn-image",
+      sequence: 7,
+      payload: {
+        itemType: "image_generation",
+        status: "inProgress",
+        data: { callId: "job:0", jobId: "moss_image_job", aspectRatio: 1.5 },
+      },
+    });
+    const finished = makeActivity({ ...completed, turnId: "turn-image", sequence: 8 });
+    const rowsFor = (activities: ReturnType<typeof makeActivity>[]) => {
+      const entries = deriveWorkLogEntries(activities, undefined, live);
+      return deriveMessagesTimelineRows({
+        isWorking: true,
+        activeTurnInProgress: true,
+        activeTurnId: TurnId.makeUnsafe("turn-image"),
+        worktreeSetup: null,
+        worktreeSetupOpen: false,
+        activeTurnStartedAt: null,
+        turnDiffSummaryByAssistantMessageId: new Map(),
+        revertTurnCountByUserMessageId: new Map(),
+        timelineEntries: deriveTimelineEntries([], [], entries),
+      });
+    };
+
+    it("shows only the shaped placeholder while the image is generating", () => {
+      for (const calls of [grokCalls, piCalls]) {
+        const rows = rowsFor([...calls, shaped]);
+        expect(rows.find((row) => row.kind === "generated-image-gallery")).toMatchObject({
+          gallery: { pendingImageCount: 1, pendingAspectRatio: 1.5 },
+        });
+        expect(workRows(rows)).toEqual([]);
+      }
+    });
+
+    it("shows only the finished image once it is ready", () => {
+      const rows = rowsFor([...grokCalls, shaped, finished]);
+      expect(rows.find((row) => row.kind === "generated-image-gallery")).toMatchObject({
+        gallery: { pendingImageCount: 0, images: [{ id: "job:0" }] },
+      });
+      expect(workRows(rows)).toEqual([]);
+    });
+
+    it("keeps the tool rows when there is no image to show, and keeps a failed call", () => {
+      expect(workRows(rowsFor(piCalls)).length).toBeGreaterThan(0);
+      const failedCall = tool(
+        "pi-fail",
+        9,
+        "tool.completed",
+        "moss_media_generate",
+        { toolCallId: "call-pi-2" },
+        "error",
+      );
+      expect(workRows(rowsFor([...piCalls, shaped, finished, failedCall]))).toHaveLength(1);
+    });
+
+    it("recognises each agent's spelling of the media tools and nothing else", () => {
+      for (const name of [
+        "moss_media_generate",
+        "moss__moss_media_generate",
+        "mcp__moss__moss_media_generate",
+        "moss_media_get",
+      ])
+        expect(isMossMediaJobToolCall(name), name).toBe(true);
+      for (const name of ["moss_media_list", "moss_canvas_open", "use_tool", "media_generate"])
+        expect(isMossMediaJobToolCall(name), name).toBe(false);
+      expect(isMossMediaToolSearch({ label: 'Search tools: "moss media generate image"' })).toBe(
+        true,
+      );
+      expect(isMossMediaToolSearch({ label: 'Search tools: "browser"' })).toBe(false);
+    });
+
+    it("moves the caption on as the wait grows", () => {
+      const start = "2026-11-10T08:00:00.000Z";
+      const at = (seconds: number) => Date.parse(start) + seconds * 1000;
+      expect([0, 9, 10, 25, 31, 60].map((s) => generatedImagePendingStage(start, at(s)))).toEqual([
+        0, 0, 1, 2, 3, 4,
+      ]);
+      expect(generatedImagePendingStage("not a date", at(60))).toBe(0);
+    });
   });
 });

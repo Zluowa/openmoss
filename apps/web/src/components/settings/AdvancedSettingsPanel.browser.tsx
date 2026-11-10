@@ -61,6 +61,8 @@ vi.mock("~/store", () => ({
     }),
 }));
 
+import { useFeatureTourStore } from "~/featureTour/store";
+import { openSettings, settingsDialogStore } from "~/settingsDialogStore";
 import { AboutSettingsSection, KeybindingsFileRow } from "./AdvancedSettingsPanel";
 
 describe("AboutSettingsSection (System tools folded into General)", () => {
@@ -115,6 +117,16 @@ describe("AboutSettingsSection (System tools folded into General)", () => {
     await expect
       .element(page.getByRole("button", { name: "Repair", exact: true }))
       .not.toBeInTheDocument();
+  });
+
+  it("replays the feature tour from About and closes Settings so it isn't left underneath", async () => {
+    openSettings({ section: "general" });
+    useFeatureTourStore.getState().close();
+    await render(<AboutSettingsSection onOpenReleaseHistory={() => {}} />);
+    await page.getByRole("button", { name: "Replay feature tour" }).click();
+    expect(useFeatureTourStore.getState().replay).toBe(true);
+    expect(settingsDialogStore.getState().isOpen).toBe(false);
+    useFeatureTourStore.getState().close();
   });
 
   it("keeps the keybindings file one row with no path on screen", async () => {

@@ -299,6 +299,8 @@ export type WorkLogGeneratedImage =
   | {
       state: "pending";
       callId?: string;
+      /** Width / height the request asked for; the placeholder takes this shape. */
+      aspectRatio?: number;
     }
   | {
       state: "failed";
@@ -4748,7 +4750,17 @@ export function parseWorkLogGeneratedImage(
   // A path on a non-terminal observation is deliberately ignored. The only
   // completed representation accepted above is the exact artifact kind.
   if ((isStarted || activity.kind === "tool.updated") && path === null && isInProgress) {
-    return { state: "pending", ...(callId ? { callId } : {}) };
+    const aspectRatio = data?.aspectRatio;
+    return {
+      state: "pending",
+      ...(callId ? { callId } : {}),
+      ...(typeof aspectRatio === "number" &&
+      Number.isFinite(aspectRatio) &&
+      aspectRatio >= 0.25 &&
+      aspectRatio <= 4
+        ? { aspectRatio }
+        : {}),
+    };
   }
   return undefined;
 }

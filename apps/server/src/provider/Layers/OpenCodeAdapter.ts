@@ -1475,10 +1475,10 @@ const stopOpenCodeContext = Effect.fn("stopOpenCodeContext")(function* (
 export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
   const adapterConfig = options?.adapterConfig ?? OPENCODE_ADAPTER_CONFIG;
   // OpenCode skips a stale personal wrapper first on PATH; Kilo keeps its plain name.
-  const resolveAdapterCliBinary = (configured: string | null | undefined): string =>
+  const resolveAdapterCliBinary = (configured: string | null | undefined): Effect.Effect<string> =>
     adapterConfig.defaultBinaryPath === OPENCODE_CLI_SPEC.defaultBinaryPath
-      ? resolveOpenCodeBinaryPath(configured)
-      : configured?.trim() || adapterConfig.defaultBinaryPath;
+      ? Effect.promise(() => resolveOpenCodeBinaryPath(configured))
+      : Effect.succeed(configured?.trim() || adapterConfig.defaultBinaryPath);
   return Layer.effect(
     OpenCodeAdapter,
     Effect.gen(function* () {
@@ -3866,7 +3866,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         function* (input) {
           const resolvedProviderInstanceId = resolveOpenCodeStartInstanceId(input);
           const providerOptions = input.providerOptions?.[adapterConfig.providerOptionsKey];
-          const binaryPath = resolveAdapterCliBinary(providerOptions?.binaryPath);
+          const binaryPath = yield* resolveAdapterCliBinary(providerOptions?.binaryPath);
           const serverUrl = providerOptions?.serverUrl?.trim();
           if (input.enableComputerControl === true && serverUrl) {
             return yield* new ProviderAdapterValidationError({
@@ -4690,7 +4690,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           Effect.gen(function* () {
             const directory = input.cwd ?? serverConfig.cwd;
             const providerOptions = input.providerOptions?.[adapterConfig.providerOptionsKey];
-            const binaryPath = resolveAdapterCliBinary(providerOptions?.binaryPath);
+            const binaryPath = yield* resolveAdapterCliBinary(providerOptions?.binaryPath);
             const serverUrl = providerOptions?.serverUrl?.trim();
             const serverPassword = providerOptions?.serverPassword?.trim();
             const environment = providerOptions?.environment;
@@ -4834,7 +4834,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           }
 
           const providerOptions = input.providerOptions?.[adapterConfig.providerOptionsKey];
-          const binaryPath = resolveAdapterCliBinary(providerOptions?.binaryPath);
+          const binaryPath = yield* resolveAdapterCliBinary(providerOptions?.binaryPath);
           const serverUrl = providerOptions?.serverUrl?.trim();
           const serverPassword =
             providerOptions?.serverPassword?.trim() ||
@@ -4977,7 +4977,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
                   : undefined);
               const server = yield* openCodeRuntime
                 .connectToOpenCodeServer({
-                  binaryPath: resolveAdapterCliBinary(input.binaryPath),
+                  binaryPath: yield* resolveAdapterCliBinary(input.binaryPath),
                   cliSpec: adapterConfig.cliSpec,
                   cwd: input.cwd?.trim() || serverConfig.cwd,
                   homeDir: serverConfig.homeDir,
@@ -5046,8 +5046,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         );
 
       const listModels: NonNullable<OpenCodeAdapterShape["listModels"]> = (input) => {
-        const binaryPath = resolveAdapterCliBinary(input.binaryPath);
         return Effect.gen(function* () {
+          const binaryPath = yield* resolveAdapterCliBinary(input.binaryPath);
           let cliDiscoveryFailed = false;
           const cliModelsEffect = openCodeRuntime
             .listOpenCodeCliModels({
@@ -5160,25 +5160,26 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       };
 
       const listAgents: NonNullable<OpenCodeAdapterShape["listAgents"]> = (input) => {
-        const binaryPath = resolveAdapterCliBinary(input.binaryPath);
-        return withDiscoveryInventory(
-          {
-            ...(input.instanceId !== undefined ? { instanceId: input.instanceId } : {}),
-            binaryPath,
-            ...(input.cwd ? { cwd: input.cwd } : {}),
-            ...(input.serverUrl ? { serverUrl: input.serverUrl } : {}),
-            ...(input.serverPassword ? { serverPassword: input.serverPassword } : {}),
-            ...(input.experimentalWebSockets !== undefined
-              ? { experimentalWebSockets: input.experimentalWebSockets }
-              : {}),
-            ...(input.environment !== undefined ? { environment: input.environment } : {}),
-          },
-          ({ inventory }) =>
-            Effect.succeed({
-              agents: flattenOpenCodeAgents(inventory.agents),
-              source: adapterConfig.fallbackModelSource,
-              cached: false,
-            }),
+        return Effect.flatMap(resolveAdapterCliBinary(input.binaryPath), (binaryPath) =>
+          withDiscoveryInventory(
+            {
+              ...(input.instanceId !== undefined ? { instanceId: input.instanceId } : {}),
+              binaryPath,
+              ...(input.cwd ? { cwd: input.cwd } : {}),
+              ...(input.serverUrl ? { serverUrl: input.serverUrl } : {}),
+              ...(input.serverPassword ? { serverPassword: input.serverPassword } : {}),
+              ...(input.experimentalWebSockets !== undefined
+                ? { experimentalWebSockets: input.experimentalWebSockets }
+                : {}),
+              ...(input.environment !== undefined ? { environment: input.environment } : {}),
+            },
+            ({ inventory }) =>
+              Effect.succeed({
+                agents: flattenOpenCodeAgents(inventory.agents),
+                source: adapterConfig.fallbackModelSource,
+                cached: false,
+              }),
+          ),
         );
       };
 

@@ -1,4 +1,4 @@
-import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
+import { MOSS_HELP_SITE_URL } from "@moss/shared/desktopIdentity";
 import type {
   ComputerHistoryApp,
   ComputerHistoryClearScope,
@@ -72,7 +72,7 @@ import { useTranslation, type TranslationKey } from "~/localization";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
 
-const COMPUTER_HISTORY_LEARN_MORE_URL = MOSS_OFFICIAL_SITE_URL;
+const COMPUTER_HISTORY_LEARN_MORE_URL = MOSS_HELP_SITE_URL;
 
 const COMPUTER_HISTORY_TOOLTIP_CLASS_NAME =
   "!rounded-lg !border !border-[var(--color-text-foreground)] !bg-[var(--color-background-primary-solid)] !px-2 !py-1.5 !text-ui !leading-[18px] !text-[var(--color-text-primary-solid)] !shadow-none !backdrop-blur-0";
@@ -114,9 +114,11 @@ function ComputerHistorySettingsRow({
 }
 
 function ComputerHistoryLearnMore({ label, testId }: { label: string; testId: string }) {
+  const url = COMPUTER_HISTORY_LEARN_MORE_URL;
+  if (!url) return null;
   return (
     <a
-      href={COMPUTER_HISTORY_LEARN_MORE_URL}
+      href={url}
       target="_blank"
       rel="noreferrer"
       className="text-[var(--color-token-text-link-foreground)]"
@@ -124,7 +126,7 @@ function ComputerHistoryLearnMore({ label, testId }: { label: string; testId: st
       onClick={(event) => {
         event.preventDefault();
         void ensureNativeApi()
-          .shell.openExternal(COMPUTER_HISTORY_LEARN_MORE_URL)
+          .shell.openExternal(url)
           .catch(() => {});
       }}
     >

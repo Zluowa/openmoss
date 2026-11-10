@@ -22,7 +22,11 @@ import {
 import { isProviderKind } from "../../providerOrdering";
 import { type TimelineEntry, type WorkLogEntry, formatElapsed } from "../../session-logic";
 import { isCodexRuntimeWarningType, type WorkLogUserInputExchangeItem } from "../../workLog";
-import { normalizeCompactToolLabel as normalizeCompactToolLabelValue } from "../../lib/toolCallLabel";
+import {
+  isMossMediaJobToolCall,
+  isMossMediaToolSearch,
+  normalizeCompactToolLabel as normalizeCompactToolLabelValue,
+} from "../../lib/toolCallLabel";
 import type { PlacedHtmlRender } from "../../lib/htmlRenderSurfaces";
 import { localizeProviderRuntimeMessage } from "../../lib/providerRuntimeMessages";
 import type { MossLocaleCode } from "../../appSettings";
@@ -1255,6 +1259,20 @@ type AssistantMessageDisplayInput = {
   readonly generatedImageGallery?: GeneratedImageGallery | null | undefined;
 };
 
+/** An agent's call that starts, follows or looks up a Moss media job. */
+export function isMossMediaPlumbingEntry(entry: WorkLogEntry): boolean {
+  if (
+    entry.tone === "error" ||
+    entry.toolStatus === "failed" ||
+    entry.itemType === "image_generation"
+  )
+    return false;
+  return (
+    [entry.toolName, entry.toolTitle, entry.label].some((name) => isMossMediaJobToolCall(name)) ||
+    isMossMediaToolSearch({ toolName: entry.toolName, title: entry.toolTitle, label: entry.label })
+  );
+}
+
 function isVisibleGeneratedImageEntry(entry: WorkLogEntry): boolean {
   return (
     entry.itemType === "image_generation" &&
@@ -1629,6 +1647,18 @@ export function deriveMessagesTimelineRows(input: {
       timelineEntry.entry.chatArtifact &&
       timelineEntry.entry.turnId != null &&
       generatedImageTurnsWithTerminalAssistant.has(String(timelineEntry.entry.turnId))
+    ) {
+      continue;
+    }
+
+    // The image card is the whole story of a Moss image call, like Codex's
+    // image tool: the agent's generate/get calls (and a tool search that only
+    // looked them up) do not add raw rows beside it. Failed calls stay visible.
+    if (
+      timelineEntry.kind === "work" &&
+      timelineEntry.entry.turnId != null &&
+      generatedImageGalleries.has(String(timelineEntry.entry.turnId)) &&
+      isMossMediaPlumbingEntry(timelineEntry.entry)
     ) {
       continue;
     }
@@ -3000,6 +3030,8 @@ function generatedImageStatesEqual(
   if (left === right) return true;
   if (!left || !right || left.state !== right.state) return false;
   if (left.callId !== right.callId) return false;
+  if (left.state === "pending" && right.state === "pending")
+    return left.aspectRatio === right.aspectRatio;
   if (left.state !== "completed" || right.state !== "completed") return true;
   return left.path === right.path;
 }
@@ -3014,6 +3046,7 @@ function generatedImageGalleriesEqual(
     left.turnId === right.turnId &&
     left.createdAt === right.createdAt &&
     left.pendingImageCount === right.pendingImageCount &&
+    left.pendingAspectRatio === right.pendingAspectRatio &&
     left.images.length === right.images.length &&
     left.images.every((image, index) => {
       const other = right.images[index];

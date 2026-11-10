@@ -10,6 +10,8 @@ import type {
   ServerProviderUsageSnapshot,
   SupportedProviderKind,
 } from "@moss/contracts";
+
+import { MOSS_HELP_SITE_URL } from "./desktopIdentity";
 import { PROVIDER_DESCRIPTORS, PROVIDER_DESCRIPTOR_BY_KIND } from "./providerMetadata";
 
 /** Providers, in display order, that expose a live usage source. */
@@ -37,7 +39,8 @@ export function providerUsageDisplayName(provider: string | null | undefined): s
 }
 
 export function providerUsageLearnMoreHref(provider: string | null | undefined): string | null {
-  return lookupMeta(provider)?.usage?.learnMoreHref ?? null;
+  // Usage help links wait for Moss's own help site; vendor pages are never linked here.
+  return lookupMeta(provider) ? MOSS_HELP_SITE_URL : null;
 }
 
 /** Detail sentence shown when usage can't be read because the credential is missing/expired. */

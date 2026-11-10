@@ -73,7 +73,7 @@ export default mergeConfig(
       },
     },
     test: {
-      setupFiles: ["src/test/browserLocaleSetup.ts"],
+      setupFiles: ["src/test/browserLocaleSetup.ts", "src/test/browserSettingsDialogReset.ts"],
       include: [
         "src/components/**/*.browser.tsx",
         "src/hooks/**/*.browser.ts",

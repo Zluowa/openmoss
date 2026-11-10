@@ -408,7 +408,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       const providerOptions = input.providerOptions?.[config.provider];
       const binaryPath =
         config.cliSpec.defaultBinaryPath === "opencode"
-          ? resolveOpenCodeBinaryPath(providerOptions?.binaryPath)
+          ? yield* Effect.promise(() => resolveOpenCodeBinaryPath(providerOptions?.binaryPath))
           : providerOptions?.binaryPath?.trim() || config.cliSpec.defaultBinaryPath;
       const serverUrl = providerOptions?.serverUrl?.trim() || "";
       const explicitServerPassword = providerOptions?.serverPassword?.trim();

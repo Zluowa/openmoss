@@ -158,7 +158,8 @@ describe("Moss bundled plugin marketplace", () => {
       path.join(result.root, "plugins", "moss-imagegen", "skills", "moss-imagegen", "SKILL.md"),
       "utf8",
     );
-    expect(imageGuide).toContain("拿到 jobId 后简短告知已提交，即可结束回复");
+    expect(imageGuide).toContain("这次调用会等图片生成");
+    expect(imageGuide).not.toContain("简短告知已提交");
     expect(imageGuide).not.toContain("每 15 秒");
     expect(
       readFileSync(

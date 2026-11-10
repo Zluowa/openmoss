@@ -819,6 +819,36 @@ export function isMossUserAnswerToolCall(toolName: string | null | undefined): b
   return name !== null && MOSS_USER_ANSWER_TOOL_NAMES.has(name);
 }
 
+/** The agent's own calls that start or follow a Moss media job. */
+const MOSS_MEDIA_JOB_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "moss_media_generate",
+  "moss_media_get",
+]);
+
+export function isMossMediaJobToolCall(toolName: string | null | undefined): boolean {
+  if (!toolName) return false;
+  const name = extractMossMcpToolName(aliasMossPrefix(normalizeMossMcpIdentifier(toolName)));
+  return name !== null && MOSS_MEDIA_JOB_TOOL_NAMES.has(name);
+}
+
+/**
+ * An agent's tool-search step that looked for the Moss media tool (Grok's
+ * `search_tool` before `use_tool`). It is plumbing for the same image call.
+ */
+export function isMossMediaToolSearch(input: {
+  readonly toolName?: string | null | undefined;
+  readonly title?: string | null | undefined;
+  readonly label?: string | null | undefined;
+}): boolean {
+  const names = [input.toolName, input.title, input.label].filter(
+    (value): value is string => typeof value === "string",
+  );
+  return (
+    names.some((value) => /^search[ _-]?tools?\b/iu.test(value.trim())) &&
+    names.some((value) => /\bmoss[\s_-]+media\b/iu.test(value))
+  );
+}
+
 function resolveMossBrowserToolName(
   candidates: ReadonlyArray<string | null | undefined>,
 ): MossBrowserToolName | null {

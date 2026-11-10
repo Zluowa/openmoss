@@ -107,6 +107,8 @@ export interface MossConversationImageObservation {
   readonly snapshot: HoolaCanvasJobSnapshot;
   readonly outputs: readonly { readonly index: number; readonly path: string }[];
   readonly projectionFailed: boolean;
+  /** The aspect ratio or size the request asked for, so the placeholder has the image's shape. */
+  readonly requestedShape?: { readonly aspectRatio?: string; readonly resolution?: string };
 }
 
 interface ConversationBinding {
@@ -212,6 +214,7 @@ export class MossMediaJobsService {
           index: asset.index,
           path: `/api/moss/media/assets/${job.snapshot.jobId}/${asset.index}?accountScope=${scope}`,
         }));
+      const { aspectRatio, resolution } = job.checkpoint.input;
       try {
         await this.#conversationImageObserver?.({
           origin,
@@ -219,6 +222,14 @@ export class MossMediaJobsService {
           snapshot: job.snapshot,
           outputs,
           projectionFailed: false,
+          ...(aspectRatio || resolution
+            ? {
+                requestedShape: {
+                  ...(aspectRatio ? { aspectRatio } : {}),
+                  ...(resolution ? { resolution } : {}),
+                },
+              }
+            : {}),
         });
       } catch {
         log.warn("conversation image activity save pending", {

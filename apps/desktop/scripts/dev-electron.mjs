@@ -27,6 +27,13 @@ const watchedDirectories = [
 const forcedShutdownTimeoutMs = 1_500;
 const restartDebounceMs = 120;
 const childTreeGracePeriodMs = 1_200;
+// Electron logs this when another process still holds the profile's single-instance lock,
+// then quits with code 0. On Windows that is the previous app's helpers that outlive it
+// for a few seconds (the backend's exit guard runs outside the process tree on purpose).
+const lostSingletonLockPattern = /Lock file can not be created|process_singleton/u;
+const lostLockRetryDelayMs = 3_000;
+const maxLostLockRetries = 10;
+let lostLockRetries = 0;
 const staleComputerUseGracePeriodMs = 300;
 
 if (process.platform === "darwin") {
@@ -49,7 +56,19 @@ const expectedExits = new WeakSet();
 const watchers = [];
 
 function killChildTreeByPid(pid, signal) {
-  if (process.platform === "win32" || typeof pid !== "number") {
+  if (typeof pid !== "number") {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    // Windows has no signals to forward, and ending Electron's main process alone leaves its
+    // backend, GPU and renderer children running; they pile up across restarts and hold the
+    // profile lock and the inherited remote-debugging socket. /T walks the tree from this
+    // live root, so it runs before the root itself is ended.
+    spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
     return;
   }
 
@@ -182,10 +201,16 @@ function startApp() {
   const app = spawn(electronPath, [`--moss-dev-root=${desktopDir}`, "dist-electron/main.js"], {
     cwd: desktopDir,
     env: environment,
-    stdio: "inherit",
+    // stderr is read (and passed on) to notice a lost single-instance lock.
+    stdio: ["inherit", "inherit", "pipe"],
   });
 
   currentApp = app;
+  let lostSingletonLock = false;
+  app.stderr?.on("data", (chunk) => {
+    process.stderr.write(chunk);
+    if (lostSingletonLockPattern.test(String(chunk))) lostSingletonLock = true;
+  });
 
   app.once("error", () => {
     if (currentApp === app) {
@@ -203,8 +228,17 @@ function startApp() {
     }
 
     const exitedAbnormally = signal !== null || code !== 0;
-    if (!shuttingDown && !expectedExits.has(app) && exitedAbnormally) {
+    if (shuttingDown || expectedExits.has(app)) return;
+    if (exitedAbnormally) {
       scheduleRestart();
+      return;
+    }
+    if (lostSingletonLock && lostLockRetries < maxLostLockRetries) {
+      lostLockRetries += 1;
+      console.warn(
+        `[dev-electron] The previous Moss still held its lock; starting again (${lostLockRetries}/${maxLostLockRetries}).`,
+      );
+      scheduleRestart(lostLockRetryDelayMs);
     }
   });
 }
@@ -231,8 +265,9 @@ async function stopApp() {
     };
 
     app.once("exit", finish);
+    if (process.platform === "win32") killChildTreeByPid(app.pid, "TERM");
     app.kill("SIGTERM");
-    killChildTreeByPid(app.pid, "TERM");
+    if (process.platform !== "win32") killChildTreeByPid(app.pid, "TERM");
 
     setTimeout(() => {
       if (settled) {
@@ -278,6 +313,8 @@ function startWatchers() {
           return;
         }
 
+        // A rebuild is a fresh start: earlier lock retries no longer count against it.
+        lostLockRetries = 0;
         scheduleRestart();
       },
     );

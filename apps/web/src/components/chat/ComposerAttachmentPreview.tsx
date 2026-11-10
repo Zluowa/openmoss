@@ -311,31 +311,30 @@ export function ComposerAttachmentPreview(props: ComposerAttachmentPreviewProps)
           </DialogPrimitive.Title>
           {body}
           {marking && target?.kind === "image" ? (
+            // The bar takes only its own clicks and folds to fit a narrow window.
             <div className="pointer-events-none fixed inset-x-0 bottom-6 flex justify-center px-4">
-              <div className="pointer-events-auto">
-                <MarkupToolbar
-                  tool={tool}
-                  onToolChange={setTool}
-                  canUndo={hasMarks}
-                  canRedo={history.undone.length > 0}
-                  hasMarks={hasMarks}
-                  style={style}
-                  onStyleChange={setStyle}
-                  action={{
-                    label: t("markup.save"),
-                    busyLabel: t("markup.saving"),
-                    busy: saving,
-                    onClick: save,
-                  }}
-                  confirmingDiscard={confirmingDiscard}
-                  onUndo={() => setHistory((current) => undoMarkupMark(current))}
-                  onRedo={() => setHistory((current) => redoMarkupMark(current))}
-                  onClear={() => setHistory(EMPTY_MARKUP_HISTORY)}
-                  onRequestClose={requestCloseMarkup}
-                  onCancelDiscard={() => setConfirmingDiscard(false)}
-                  onDiscard={leaveMarkup}
-                />
-              </div>
+              <MarkupToolbar
+                tool={tool}
+                onToolChange={setTool}
+                canUndo={hasMarks}
+                canRedo={history.undone.length > 0}
+                hasMarks={hasMarks}
+                style={style}
+                onStyleChange={setStyle}
+                action={{
+                  label: t("markup.save"),
+                  busyLabel: t("markup.saving"),
+                  busy: saving,
+                  onClick: save,
+                }}
+                confirmingDiscard={confirmingDiscard}
+                onUndo={() => setHistory((current) => undoMarkupMark(current))}
+                onRedo={() => setHistory((current) => redoMarkupMark(current))}
+                onClear={() => setHistory(EMPTY_MARKUP_HISTORY)}
+                onRequestClose={requestCloseMarkup}
+                onCancelDiscard={() => setConfirmingDiscard(false)}
+                onDiscard={leaveMarkup}
+              />
             </div>
           ) : null}
         </DialogPrimitive.Popup>

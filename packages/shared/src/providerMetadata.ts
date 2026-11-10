@@ -6,7 +6,6 @@ import {
   type ProviderKind,
   type SupportedProviderKind,
 } from "@moss/contracts";
-import { MOSS_OFFICIAL_SITE_URL } from "./desktopIdentity";
 
 export interface ProviderDescriptor {
   readonly kind: SupportedProviderKind;
@@ -23,7 +22,6 @@ export interface ProviderDescriptor {
   readonly supportsNativeTurnSteering: boolean;
   readonly usage: {
     readonly signInCommand: string;
-    readonly learnMoreHref: string;
   } | null;
 }
 
@@ -41,117 +39,107 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "codex",
     displayName: PROVIDER_DISPLAY_NAMES.codex,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://help.openai.com/en/articles/11096431",
     supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "codex login",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "claudeAgent",
     displayName: PROVIDER_DISPLAY_NAMES.claudeAgent,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://code.claude.com/docs/en/overview",
     supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "claude",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "cursor",
     displayName: PROVIDER_DISPLAY_NAMES.cursor,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://cursor.com/docs/cli/overview",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "cursor-agent login",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "gemini",
     displayName: PROVIDER_DISPLAY_NAMES.gemini,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://geminicli.com/docs/get-started/",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "gemini",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "antigravity",
     displayName: PROVIDER_DISPLAY_NAMES.antigravity,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://antigravity.google/docs/cli/using",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "agy",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "grok",
     displayName: PROVIDER_DISPLAY_NAMES.grok,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://docs.x.ai/build/overview",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "grok login",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "opencode",
     displayName: PROVIDER_DISPLAY_NAMES.opencode,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://opencode.ai/docs/",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "opencode auth login",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "pi",
     displayName: PROVIDER_DISPLAY_NAMES.pi,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://pi.dev/docs/latest",
     supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "pi",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "hermes",
     displayName: PROVIDER_DISPLAY_NAMES.hermes,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://hermes-agent.nousresearch.com/docs",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "hermes setup",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "devin",
     displayName: PROVIDER_DISPLAY_NAMES.devin,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://docs.devin.ai/cli",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "devin auth login",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "omp",
     displayName: PROVIDER_DISPLAY_NAMES.omp,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://omp.sh/docs/quickstart",
     supportsNativeTurnSteering: false,
     usage: null,
   },
@@ -159,35 +147,32 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "kimi",
     displayName: PROVIDER_DISPLAY_NAMES.kimi,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://www.kimi.com/code/docs/en/",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "kimi login",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "minimax",
     displayName: PROVIDER_DISPLAY_NAMES.minimax,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://platform.minimax.io/docs/m-plan/intro",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "mcode login",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
   {
     kind: "zcode",
     displayName: PROVIDER_DISPLAY_NAMES.zcode,
     available: true,
-    setupDocsHref: MOSS_OFFICIAL_SITE_URL,
+    setupDocsHref: "https://docs.bigmodel.cn/cn/coding-plan/quick-start",
     supportsNativeTurnSteering: false,
     usage: {
       // The ZCode desktop app login is the primary path; the bridge's setup
       // command only stores a GLM Coding Plan API key.
       signInCommand: "zcode-acp setup --provider bigmodel",
-      learnMoreHref: MOSS_OFFICIAL_SITE_URL,
     },
   },
 ] as const satisfies readonly ProviderDescriptor[]);

@@ -2,7 +2,8 @@
 // Purpose: Resolves provider CLI binaries from PATH and vendor-owned install folders.
 // Layer: Server provider runtime
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { access, readFile } from "node:fs/promises";
 import { posix, win32 } from "node:path";
 
 import {
@@ -340,6 +341,35 @@ function expandWindowsShimVariables(
   return unresolved || expanded.includes("%") ? undefined : expanded;
 }
 
+type ShimReadOptions = {
+  /** Test seam; defaults to an async read of the file. */
+  readonly readText?: (path: string) => string | undefined | Promise<string | undefined>;
+};
+
+async function readShimText(
+  shimPath: string,
+  options: ShimReadOptions,
+): Promise<string | undefined> {
+  try {
+    return options.readText ? await options.readText(shimPath) : await readFile(shimPath, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+async function shimTargetExists(
+  target: string,
+  options: ProviderBinaryResolutionOptions,
+): Promise<boolean> {
+  if (options.pathExists) return options.pathExists(target);
+  try {
+    await access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * True when a Windows `.cmd`/`.bat` shim only points at files that no longer exist: a
  * personal wrapper left behind after the program it wrapped moved or was uninstalled.
@@ -347,25 +377,14 @@ function expandWindowsShimVariables(
  * move on to the next copy of the command. Shims whose targets cannot be resolved
  * statically are kept (never guessed broken).
  */
-export function isBrokenWindowsCommandShim(
+export async function isBrokenWindowsCommandShim(
   shimPath: string,
-  options: ProviderBinaryResolutionOptions & {
-    readonly readText?: (path: string) => string | undefined;
-  } = {},
-): boolean {
+  options: ProviderBinaryResolutionOptions & ShimReadOptions = {},
+): Promise<boolean> {
   const resolved = resolveOptions(options);
   if (resolved.platform !== "win32") return false;
   if (!WINDOWS_SHIM_EXTENSIONS.has(win32.extname(shimPath).toLowerCase())) return false;
-  const readText =
-    options.readText ??
-    ((path: string) => {
-      try {
-        return readFileSync(path, "utf8");
-      } catch {
-        return undefined;
-      }
-    });
-  const text = readText(shimPath);
+  const text = await readShimText(shimPath, options);
   if (text === undefined) return false;
   const shimDirectory = win32.dirname(shimPath);
   const targets: string[] = [];
@@ -374,7 +393,11 @@ export function isBrokenWindowsCommandShim(
     if (expanded === undefined || !win32.isAbsolute(expanded)) continue;
     targets.push(win32.normalize(expanded));
   }
-  return targets.length > 0 && targets.every((target) => !resolved.pathExists(target));
+  if (targets.length === 0) return false;
+  for (const target of targets) {
+    if (await shimTargetExists(target, options)) return false;
+  }
+  return true;
 }
 
 /**
@@ -384,13 +407,13 @@ export function isBrokenWindowsCommandShim(
  * named like one of the vendor installs (the person chose that build) prefers the
  * vendor install over later PATH matches.
  */
-export function resolveCommandSkippingBrokenShims(
+export async function resolveCommandSkippingBrokenShims(
   command: string,
-  options: ProviderBinaryResolutionOptions & {
-    readonly readText?: (path: string) => string | undefined;
-    readonly fallbacks?: ReadonlyArray<string>;
-  } = {},
-): string {
+  options: ProviderBinaryResolutionOptions &
+    ShimReadOptions & {
+      readonly fallbacks?: ReadonlyArray<string>;
+    } = {},
+): Promise<string> {
   const resolved = resolveOptions(options);
   const canExecute =
     options.isExecutable ?? (options.pathExists ? resolved.pathExists : resolved.isExecutable);
@@ -398,8 +421,8 @@ export function resolveCommandSkippingBrokenShims(
   let skipped = false;
   for (const candidate of executableCandidates(command, resolved)) {
     if (!canExecute(candidate.path)) continue;
-    if (isBrokenWindowsCommandShim(candidate.path, options)) {
-      if (!skipped && shimTargetsFallbackName(candidate.path, options)) {
+    if (await isBrokenWindowsCommandShim(candidate.path, options)) {
+      if (!skipped && (await shimTargetsFallbackName(candidate.path, options))) {
         const preferred = fallback();
         if (preferred) return preferred;
       }
@@ -412,23 +435,15 @@ export function resolveCommandSkippingBrokenShims(
   return fallback() ?? command;
 }
 
-function shimTargetsFallbackName(
+async function shimTargetsFallbackName(
   shimPath: string,
-  options: {
-    readonly readText?: (path: string) => string | undefined;
-    readonly fallbacks?: ReadonlyArray<string>;
-  },
-): boolean {
+  options: ShimReadOptions & { readonly fallbacks?: ReadonlyArray<string> },
+): Promise<boolean> {
   const names = new Set(
     (options.fallbacks ?? []).map((fallback) => win32.basename(fallback).toLowerCase()),
   );
   if (names.size === 0) return false;
-  let text: string | undefined;
-  try {
-    text = options.readText ? options.readText(shimPath) : readFileSync(shimPath, "utf8");
-  } catch {
-    return false;
-  }
+  const text = await readShimText(shimPath, options);
   for (const match of text?.matchAll(WINDOWS_SHIM_TARGET_PATTERN) ?? []) {
     if (names.has(win32.basename(match[1]!).toLowerCase())) return true;
   }
@@ -452,12 +467,10 @@ let openCodeBinaryCache:
  * fails with "The system cannot find the path specified"); skip it for the next copy
  * on PATH, or OpenCode desktop's bundled CLI.
  */
-export function resolveOpenCodeBinaryPath(
+export async function resolveOpenCodeBinaryPath(
   binaryPath?: string | null | undefined,
-  options: ProviderBinaryResolutionOptions & {
-    readonly readText?: (path: string) => string | undefined;
-  } = {},
-): string {
+  options: ProviderBinaryResolutionOptions & ShimReadOptions = {},
+): Promise<string> {
   const trimmed = binaryPath?.trim();
   if (trimmed && trimmed !== "opencode") return trimmed;
   const resolved = resolveOptions(options);
@@ -474,7 +487,7 @@ export function resolveOpenCodeBinaryPath(
     (resolved.env.USERPROFILE?.trim()
       ? win32.join(resolved.env.USERPROFILE.trim(), "AppData", "Local")
       : undefined);
-  const value = resolveCommandSkippingBrokenShims("opencode", {
+  const value = await resolveCommandSkippingBrokenShims("opencode", {
     ...options,
     fallbacks: localAppData
       ? WINDOWS_OPENCODE_DESKTOP_CLI_RELATIVE_PATHS.map((parts) =>

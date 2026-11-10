@@ -18,7 +18,6 @@ import {
   providerCliCommandName,
 } from "@moss/shared/providerCliProfiles";
 import { MOSS_CN_NPM_MIRROR_REGISTRY } from "@moss/shared/mossRealmCatalog";
-import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
 import { providerImportedDirectoryConfig } from "@moss/shared/providerInstances";
 import {
   closestCenter,
@@ -220,7 +219,6 @@ type ProviderInstallCommand = {
 };
 type ProviderInstallSettings = {
   readonly provider: ProviderKind;
-  readonly docs: ReadonlyArray<{ readonly label: string; readonly href: string }>;
   readonly install?: ProviderInstallCommand;
   readonly fields: readonly ProviderInstallField[];
 };
@@ -231,15 +229,9 @@ const PROVIDER_VISIBILITY_OPTIONS = VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor
   setupDocsHref: descriptor.setupDocsHref,
 }));
 
-// CLI guides live on Moss's own site, never the vendor's.
-const MOSS_PROVIDER_DOCS: ProviderInstallSettings["docs"] = [
-  { label: "Read the guide", href: MOSS_OFFICIAL_SITE_URL },
-];
-
 const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   {
     provider: "codex",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -273,7 +265,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "claudeAgent",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -327,7 +318,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "cursor",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -352,7 +342,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "antigravity",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -369,7 +358,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "grok",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -386,7 +374,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "droid",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -403,7 +390,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "devin",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -421,7 +407,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "opencode",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -460,7 +445,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "pi",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -484,7 +468,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "omp",
-    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -509,7 +492,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "kimi",
-    docs: MOSS_PROVIDER_DOCS,
     install: {
       command: "npm install -g @moonshot-ai/kimi-code",
       noteKey: "settings.providers.install.kimi.note",
@@ -530,7 +512,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "minimax",
-    docs: MOSS_PROVIDER_DOCS,
     install: {
       // MiniMax Code ships a native better-sqlite3 dependency, so npm needs the
       // install scripts allowed (the README's official command).
@@ -553,7 +534,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "zcode",
-    docs: MOSS_PROVIDER_DOCS,
     install: {
       command: "npm install -g zcode-acp-server",
       noteKey: "settings.providers.install.zcode.note",
@@ -830,32 +810,6 @@ async function openProviderGuide(url: string, failureTitle: string) {
   } catch {
     toastManager.add({ type: "error", title: failureTitle });
   }
-}
-
-function ProviderDocsLinks({ docs }: { docs: ProviderInstallSettings["docs"] }) {
-  const { t } = useTranslation();
-  return (
-    <div className={cn(SETTINGS_OUTLINED_SURFACE_CLASS_NAME, "px-3 py-2.5")}>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <span className="text-ui leading-snug font-medium text-foreground">CLI docs</span>
-        <div className="flex flex-wrap gap-2">
-          {docs.map((doc) => (
-            <Button
-              key={`${doc.label}:${doc.href}`}
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                void openProviderGuide(doc.href, t("settings.providers.setupGuideFailed"))
-              }
-            >
-              <span>{doc.label}</span>
-              <ExternalLinkIcon className="size-3" />
-            </Button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function formatProviderVersion(value: string | null | undefined): string | null {
@@ -2071,7 +2025,6 @@ function ProviderToolRow(props: {
         <CollapsiblePanel>
           <div className="border-t border-border/70 bg-muted/20 px-3 py-3">
             <div className="space-y-3">
-              <ProviderDocsLinks docs={props.config.docs} />
               {props.config.install ? (
                 <ProviderInstallCommandCard
                   install={

@@ -66,6 +66,7 @@ function harness(
   };
   const tools = makeAgentGatewayMediaTools({
     service,
+    imageWait: { sliceMs: 400, pollMs: 10 },
     resolveCredential: Effect.sync(() => current),
     ...(workspace ? { resolveWorkspaceRoot: () => Effect.succeed(workspace) } : {}),
     ...(resolveWorkspaceRoot ? { resolveWorkspaceRoot } : {}),
@@ -118,6 +119,14 @@ function harness(
     admitted: () => admitted,
   };
 }
+
+const done = (base: HoolaCanvasJobSnapshot): HoolaCanvasJobSnapshot => ({
+  ...base,
+  status: "succeeded",
+  persistenceStatus: "ready",
+  billingStatus: "captured",
+  imageUrls: ["https://cdn.example/cat.png"],
+});
 
 describe("native official media tools", () => {
   it("submits a plain image request without looking up any workspace", async () => {
@@ -604,6 +613,111 @@ describe("native official media tools", () => {
     expect(JSON.stringify(result)).not.toContain(job.prompt);
   });
 
+  describe("waiting for an image like Codex's image tool", () => {
+    const fresh = () => ({ ...job, createdAt: new Date().toISOString() });
+    const waitingService = (states: HoolaCanvasJobSnapshot[]) => {
+      const created = states[0]!;
+      let reads = 0;
+      const service: AgentGatewayMediaToolsInput["service"] = {
+        list: vi.fn<MossMediaJobsService["list"]>(),
+        create: vi.fn<MossMediaJobsService["create"]>(async (_args, _auth, authorize) => {
+          await authorize?.();
+          return created;
+        }),
+        check: vi.fn<MossMediaJobsService["check"]>(async () => created),
+        readOwnedJob: vi.fn<MossMediaJobsService["readOwnedJob"]>(async () => {
+          reads += 1;
+          return states[Math.min(reads, states.length - 1)]!;
+        }),
+      };
+      return { service, reads: () => reads };
+    };
+
+    it("keeps the call open until the image is ready and says it is already shown", async () => {
+      const queued = fresh();
+      const { service } = waitingService([queued, { ...queued, status: "running" }, done(queued)]);
+      const h = harness(service);
+      const { result, body } = await h.invoke("moss_media_generate", generateArgs);
+      expect(result.isError).not.toBe(true);
+      expect(body.status).toBe("succeeded");
+      expect(body.chat.image).toBe("shown");
+      expect(body.chat.note).toContain("already shown");
+      expect(body.chat.note).toContain("Do not say it was submitted");
+      // Waiting only reads local state: one submission, no supplier checks.
+      expect(service.create).toHaveBeenCalledTimes(1);
+      expect(service.check).not.toHaveBeenCalled();
+      expect(service.readOwnedJob).toHaveBeenCalledWith(queued.jobId, credential);
+      expect(JSON.stringify(result)).not.toContain(credential.accessToken);
+    });
+
+    it("hands a slow image to moss_media_get, which waits the same way", async () => {
+      const queued = fresh();
+      const running = { ...queued, status: "running" as const };
+      const slow = waitingService([queued, running]);
+      const first = await harness(slow.service).invoke("moss_media_generate", generateArgs);
+      expect(first.body.status).toBe("running");
+      expect(first.body.chat.image).toBe("generating");
+      expect(first.body.chat.note).toContain("moss_media_get");
+
+      const later = waitingService([running, running, done(queued)]);
+      vi.mocked(later.service.check).mockResolvedValue(running);
+      const second = await harness(later.service).invoke("moss_media_get", {
+        jobId: queued.jobId,
+      });
+      expect(second.body.status).toBe("succeeded");
+      expect(second.body.chat.image).toBe("shown");
+    });
+
+    it("stops waiting when the turn is stopped", async () => {
+      const queued = fresh();
+      const { service } = waitingService([queued, { ...queued, status: "running" }]);
+      const h = harness(service);
+      vi.mocked(service.readOwnedJob!).mockImplementation(async () => {
+        h.endTurn();
+        return { ...queued, status: "running" };
+      });
+      const { result, body } = await h.invoke("moss_media_generate", generateArgs);
+      expect(result.isError).toBe(true);
+      expect(body.error.code).toBe("caller_turn_inactive");
+      expect(service.readOwnedJob).toHaveBeenCalledTimes(1);
+    });
+
+    it("tells the agent to finish once an image has run for several minutes", async () => {
+      const old = { ...job, status: "running" as const, createdAt: "2026-10-09T00:00:00.000Z" };
+      const { service, reads } = waitingService([old]);
+      const { body } = await harness(service).invoke("moss_media_generate", generateArgs);
+      expect(reads()).toBe(0);
+      expect(body.chat.note).toContain("then finish");
+    });
+
+    it("does not wait for a video or change a failed image", async () => {
+      const video = { ...fresh(), operation: "video" as const, modelId: "wan-3" };
+      const videoService = waitingService([video]);
+      const videoResult = await harness(videoService.service).invoke("moss_media_get", {
+        jobId: video.jobId,
+      });
+      expect(videoService.reads()).toBe(0);
+      expect(videoResult.body.chat).toBeUndefined();
+
+      const failed = { ...fresh(), status: "failed_terminal" as const };
+      const failedService = waitingService([failed]);
+      const failedResult = await harness(failedService.service).invoke(
+        "moss_media_generate",
+        generateArgs,
+      );
+      expect(failedService.reads()).toBe(0);
+      expect(failedResult.body.status).toBe("failed_terminal");
+      expect(failedResult.body.chat).toBeUndefined();
+    });
+
+    it("describes the waiting contract instead of submit-and-finish", () => {
+      const { tools } = harness();
+      const generate = tools.find((tool) => tool.definition.name === "moss_media_generate")!;
+      expect(generate.definition.description).toContain("this call waits while Moss generates it");
+      expect(generate.definition.description).not.toContain("acknowledge submission");
+    });
+  });
+
   it("restores thread ownership from disk for a new session in the same thread", async () => {
     const directory = mkdtempSync(join(tmpdir(), "moss-native-thread-media-"));
     try {
@@ -622,7 +736,7 @@ describe("native official media tools", () => {
       });
       const creator = harness(service);
       const created = await creator.invoke("moss_media_generate", generateArgs);
-      expect(created.result.isError).not.toBe(true);
+      expect(created.result.isError, JSON.stringify(created.body)).not.toBe(true);
       await vi.waitFor(() =>
         expect(service.get(created.body.jobId, credential).status).toBe("failed_terminal"),
       );

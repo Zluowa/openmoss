@@ -26,6 +26,8 @@ import * as ConfigProvider from "effect/ConfigProvider";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { ChildProcess } from "effect/unstable/process";
 
+import { ensureDevMossCanvasBundle } from "./lib/dev-moss-canvas-bundle.ts";
+
 const BASE_SERVER_PORT = 3773;
 const BASE_WEB_PORT = 5733;
 const MAX_HASH_OFFSET = 3000;
@@ -93,6 +95,10 @@ const BooleanEnvConfig = Config.all({
   logWebSocketEvents: optionalBooleanEnvironmentConfig("MOSS_LOG_WS_EVENTS"),
   productionConfig: optionalBooleanEnvironmentConfig("MOSS_DEV_PRODUCTION_CONFIG"),
 });
+
+const DEV_REPO_ROOT = pathJoin(import.meta.dirname, "..");
+/** Set to 1 to start without checking or linking the Canvas bundle. */
+const MOSS_DEV_SKIP_CANVAS_BUNDLE_ENV = "MOSS_DEV_SKIP_CANVAS_BUNDLE";
 
 // The non-secret release manifest the packaged desktop app hands its backend. Dev runs
 // leave Moss sign-in unconfigured unless they opt into it, so a development checkout never
@@ -608,6 +614,25 @@ export function runDevRunnerWithInput(input: DevRunnerCliInput) {
 
     if (input.dryRun) {
       return;
+    }
+
+    // The server serves Canvas from the prepared bundle, which only the release
+    // flow stages. Give this checkout one so Canvas opens in the dev window too.
+    if (input.mode !== "dev:web" && env[MOSS_DEV_SKIP_CANVAS_BUNDLE_ENV] !== "1") {
+      const canvas = yield* Effect.sync(() => {
+        try {
+          return ensureDevMossCanvasBundle({ repoRoot: DEV_REPO_ROOT, env });
+        } catch (cause) {
+          return {
+            kind: "missing" as const,
+            message: `Moss Canvas bundle check failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+          };
+        }
+      });
+      if (canvas.kind === "linked")
+        yield* Effect.logInfo(`[dev-runner] Canvas bundle linked from ${canvas.source}`);
+      else if (canvas.kind === "missing")
+        yield* Effect.logWarning(`[dev-runner] ${canvas.message}`);
     }
 
     const child = yield* ChildProcess.make(

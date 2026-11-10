@@ -31,6 +31,8 @@ export function AppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
     AppSnapWelcomeStorageSchema,
   );
   const [open, setOpen] = useState(false);
+  // Windows has no Option keys: AppSnap there runs on a key combination the person picks.
+  const [windows, setWindows] = useState(false);
   const [probeSettled, setProbeSettled] = useState(false);
   const handedOff = useAnnouncementSheetSlotStore((state) => state.handedOff);
   // Both startup dialogs probe asynchronously; without arbitration a fresh macOS install
@@ -51,7 +53,9 @@ export function AppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
     void bridge
       .getState()
       .then((state) => {
-        if (!disposed && state.supported) setOpen(true);
+        if (disposed || !state.supported) return;
+        setWindows(state.platform === "windows");
+        setOpen(true);
       })
       .catch((error) => {
         // Do not acknowledge a failed probe: a transient desktop startup issue
@@ -97,10 +101,17 @@ export function AppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
         }
         title="Moss AppSnaps are live!"
         description={
-          <>
-            Press both Option keys (⌥&thinsp;⌥) to snap any app&rsquo;s window into the task
-            you&rsquo;re working in.
-          </>
+          windows ? (
+            <>
+              Pick a shortcut in AppSnap settings to snap any app&rsquo;s window into the task
+              you&rsquo;re working in.
+            </>
+          ) : (
+            <>
+              Press both Option keys (⌥&thinsp;⌥) to snap any app&rsquo;s window into the task
+              you&rsquo;re working in.
+            </>
+          )
         }
         dismissLabel="Not now"
         confirmLabel="Set up AppSnap"

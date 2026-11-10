@@ -268,6 +268,23 @@ it("does not jump ahead of a slow AppSnap probe and then waits for its dismissal
   await page.getByRole("button", { name: "Skip tour" }).click();
 });
 
+it.each([
+  ["windows", "Pick a shortcut in AppSnap settings"],
+  ["macos", "Press both Option keys"],
+] as const)("describes the AppSnap shortcut that works on %s", async (platform, text) => {
+  // Windows has no Option keys; AppSnap there runs on a key combination the person picks.
+  window.desktopBridge = {
+    ...originalBridge,
+    appSnap: { getState: async () => ({ supported: true, platform }) },
+  } as unknown as NonNullable<typeof window.desktopBridge>;
+  await show(<AppSnapWelcomeDialog />);
+  const dialog = page.getByRole("dialog", { name: "Moss AppSnaps are live!" });
+  await expect.element(dialog).toBeVisible();
+  const description = dialog.element().textContent ?? "";
+  expect(description).toContain(text);
+  if (platform === "windows") expect(description).not.toContain("Option");
+});
+
 it("keeps the tour usable on a narrow screen and with large UI text", async () => {
   await page.viewport(390, 700);
   const sizes = {

@@ -1,7 +1,10 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { MossConversationImageObservation } from "../mossMediaJobsService";
-import { conversationImageActivityCommands } from "./mediaImageActivities";
+import {
+  conversationImageActivityCommands,
+  requestedImageAspectRatio,
+} from "./mediaImageActivities";
 
 const observation: MossConversationImageObservation = {
   accountScope: "a".repeat(64),
@@ -27,6 +30,28 @@ const observation: MossConversationImageObservation = {
 };
 
 describe("conversation image activities", () => {
+  it("gives the pending placeholder the requested image shape", () => {
+    const [pending] = conversationImageActivityCommands({
+      ...observation,
+      requestedShape: { aspectRatio: "16:9" },
+    });
+    expect(pending).toMatchObject({
+      activity: { payload: { data: { jobId: "moss_job_1", aspectRatio: 1.7778 } } },
+    });
+    const [square] = conversationImageActivityCommands(observation);
+    expect(square).toMatchObject({ activity: { payload: { data: { jobId: "moss_job_1" } } } });
+    expect(JSON.stringify(square)).not.toContain("aspectRatio");
+  });
+
+  it("reads ratios and sizes, and ignores shapes a chat cannot draw", () => {
+    expect(requestedImageAspectRatio({ aspectRatio: "3:4" })).toBe(0.75);
+    expect(requestedImageAspectRatio({ resolution: "1536x1024" })).toBe(1.5);
+    expect(requestedImageAspectRatio({ aspectRatio: "auto", resolution: "1024*1024" })).toBe(1);
+    expect(requestedImageAspectRatio({ aspectRatio: "1:9" })).toBeUndefined();
+    expect(requestedImageAspectRatio({ resolution: "2K" })).toBeUndefined();
+    expect(requestedImageAspectRatio(undefined)).toBeUndefined();
+  });
+
   it("replays one stable pending command per job, independent of polling revision or billing", () => {
     const pending = conversationImageActivityCommands(observation);
     expect(pending).toHaveLength(1);

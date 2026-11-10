@@ -5621,7 +5621,11 @@ describe("ChatView transcript geometry (full app)", () => {
       expect(mounted.router.state.location.pathname).toBe(initialPath);
       await rail.getByRole("button", { name: "More", exact: true }).click();
       await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
-      await expect.poll(() => mounted.router.state.location.pathname).toBe("/settings");
+      // Settings is a dialog over the current screen, not a route.
+      await expect.poll(() => settingsDialogStore.getState().isOpen).toBe(true);
+      expect(mounted.router.state.location.pathname).toBe(initialPath);
+      await userEvent.keyboard("{Escape}");
+      await expect.poll(() => settingsDialogStore.getState().isOpen).toBe(false);
       await expect.element(rail).toBeVisible();
       await rail.getByRole("button", { name: "More", exact: true }).click();
       await page.getByRole("menuitem", { name: "Customize…", exact: true }).click();
@@ -5924,6 +5928,11 @@ describe("ChatView transcript geometry (full app)", () => {
     });
     try {
       await mounted.router.navigate({ to: "/settings" });
+      // An old /settings link opens the Settings dialog over the previous screen; close it
+      // so the phone rail underneath can be used.
+      await expect.poll(() => settingsDialogStore.getState().isOpen).toBe(true);
+      await userEvent.keyboard("{Escape}");
+      await expect.poll(() => settingsDialogStore.getState().isOpen).toBe(false);
       await waitForLayout();
       // The absent project pin drops out of the rail but stays in the saved list; the
       // Space shortcut that still resolves renders as its own rail button.
@@ -19495,7 +19504,9 @@ describe("ChatView transcript geometry (full app)", () => {
         await expect.element(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
       }
       await page.getByRole("menuitem", { name: "按键绑定", exact: true }).click();
-      await expect.poll(() => mounted.router.state.location.pathname).toBe("/settings");
+      await expect.poll(() => settingsDialogStore.getState().isOpen).toBe(true);
+      expect(settingsDialogStore.getState().request).toMatchObject({ section: "shortcuts" });
+      closeSettings();
     } finally {
       uninstallZhCnUiLocalization();
       localStorage.removeItem("moss:rail-plugins:v1");

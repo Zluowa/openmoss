@@ -36,11 +36,14 @@ export const MOSS_DESKTOP_SMOKE_USER_DATA_ENV = "MOSS_DESKTOP_SMOKE_USER_DATA";
  * `moss-*.yml` / `latest-*.yml` electron-updater manifests.
  */
 export const MOSS_DESKTOP_DEFAULT_UPDATE_REPOSITORY = "Zluowa/moss-releases";
-/**
- * Moss's official site (the download site). Every help, guide and "learn more" link in the app
- * points here; there are no separate docs pages yet, so links use the site root.
- */
+/** Moss's download page: where a share link or OAuth client page can send people to get Moss. */
 export const MOSS_OFFICIAL_SITE_URL = "https://zluowa.github.io/moss-releases/";
+/**
+ * Moss's help and docs site. None is live yet (the download page above has no guides), so
+ * every 阅读指南 / 了解更多 / docs link stays hidden while this is null. Set it once a real
+ * site is up and the links come back.
+ */
+export const MOSS_HELP_SITE_URL: string | null = null;
 /** Setting `MOSS_DESKTOP_UPDATE_REPOSITORY` to this value packages a build without any update feed. */
 export const MOSS_DESKTOP_UPDATE_REPOSITORY_DISABLED = "none";
 

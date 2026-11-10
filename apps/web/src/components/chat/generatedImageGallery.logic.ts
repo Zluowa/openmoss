@@ -13,6 +13,8 @@ export interface GeneratedImageGallery {
   createdAt: string;
   images: GeneratedImageGalleryImage[];
   pendingImageCount: number;
+  /** Requested width / height of the first pending image, when the request named one. */
+  pendingAspectRatio?: number;
 }
 
 function generatedImageGalleriesEqual(
@@ -23,6 +25,7 @@ function generatedImageGalleriesEqual(
     previous.turnId !== next.turnId ||
     previous.createdAt !== next.createdAt ||
     previous.pendingImageCount !== next.pendingImageCount ||
+    previous.pendingAspectRatio !== next.pendingAspectRatio ||
     previous.images.length !== next.images.length
   ) {
     return false;
@@ -57,6 +60,7 @@ type MutableGeneratedImageGallery = {
   images: Map<string, GeneratedImageGalleryImage>;
   pendingIds: Set<string>;
   failedIds: Set<string>;
+  pendingAspectRatios: Map<string, number>;
 };
 
 export function generatedImageTurnKey(turnId: TurnId | string | null | undefined): string | null {
@@ -113,6 +117,7 @@ export function groupGeneratedImagesByTurn(
             images: new Map(),
             pendingIds: new Set(),
             failedIds: new Set(),
+            pendingAspectRatios: new Map(),
           };
           groups.set(key, created);
           return created;
@@ -133,6 +138,8 @@ export function groupGeneratedImagesByTurn(
         group.failedIds.delete(identity);
       } else if (!group.images.has(identity) && !group.failedIds.has(identity)) {
         group.pendingIds.add(identity);
+        if (image.aspectRatio !== undefined)
+          group.pendingAspectRatios.set(identity, image.aspectRatio);
       }
     }
   }
@@ -140,6 +147,9 @@ export function groupGeneratedImagesByTurn(
   return new Map(
     [...groups].flatMap(([key, group]) => {
       if (group.images.size === 0 && group.pendingIds.size === 0) return [];
+      const firstPending = group.pendingIds.values().next().value;
+      const pendingAspectRatio =
+        firstPending === undefined ? undefined : group.pendingAspectRatios.get(firstPending);
       return [
         [
           key,
@@ -148,6 +158,7 @@ export function groupGeneratedImagesByTurn(
             createdAt: group.createdAt,
             images: [...group.images.values()],
             pendingImageCount: group.pendingIds.size,
+            ...(pendingAspectRatio !== undefined ? { pendingAspectRatio } : {}),
           },
         ] as const,
       ];

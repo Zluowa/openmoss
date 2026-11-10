@@ -272,14 +272,16 @@ export function RuntimeUsageControls({
                 behind Learn more instead of a text wall. */}
             <div className="flex items-start justify-between gap-3 px-2 py-2 text-xs text-muted-foreground">
               <span>{t("chat.permissions.menuTitle")}</span>
-              <a
-                href={RUNTIME_PERMISSIONS_LEARN_MORE_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="shrink-0 underline"
-              >
-                {t("chat.permissions.learnMore")}
-              </a>
+              {RUNTIME_PERMISSIONS_LEARN_MORE_URL ? (
+                <a
+                  href={RUNTIME_PERMISSIONS_LEARN_MORE_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 underline"
+                >
+                  {t("chat.permissions.learnMore")}
+                </a>
+              ) : null}
             </div>
             <MenuRadioGroup
               className="flex flex-col gap-1"

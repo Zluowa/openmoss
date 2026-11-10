@@ -61,14 +61,16 @@ export function FullAccessConfirmDialog(props: {
                 ? "chat.permissions.confirm.cyberRecommendation"
                 : "chat.permissions.confirm.reversible",
             )}{" "}
-            <a
-              className="underline"
-              href={RUNTIME_PERMISSIONS_LEARN_MORE_URL}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {t("chat.permissions.learnMore")}
-            </a>
+            {RUNTIME_PERMISSIONS_LEARN_MORE_URL ? (
+              <a
+                className="underline"
+                href={RUNTIME_PERMISSIONS_LEARN_MORE_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("chat.permissions.learnMore")}
+              </a>
+            ) : null}
           </p>
         </div>
         <AlertDialogFooter>

@@ -270,29 +270,29 @@ describe("resolveOpenCodeBinaryPath", () => {
     };
   }
 
-  it("keeps the plain name when the first opencode on PATH works", () => {
+  it("keeps the plain name when the first opencode on PATH works", async () => {
     const disk = fakeDisk({
       [`${NPM_BIN}\\opencode.cmd`]: NPM_SHIM,
       [`${NPM_BIN}\\node_modules\\opencode-ai\\bin\\opencode`]: "",
     });
-    expect(resolveOpenCodeBinaryPath(undefined, disk)).toBe("opencode");
+    expect(await resolveOpenCodeBinaryPath(undefined, disk)).toBe("opencode");
   });
 
-  it("skips a wrapper whose target is gone for the next opencode on PATH", () => {
+  it("skips a wrapper whose target is gone for the next opencode on PATH", async () => {
     const disk = fakeDisk({
       [`${LOCAL_BIN}\\opencode.cmd`]: STALE_SHIM,
       [`${NPM_BIN}\\opencode.cmd`]: NPM_SHIM,
       [`${NPM_BIN}\\node_modules\\opencode-ai\\bin\\opencode`]: "",
     });
-    expect(isBrokenWindowsCommandShim(`${LOCAL_BIN}\\opencode.cmd`, disk)).toBe(true);
+    expect(await isBrokenWindowsCommandShim(`${LOCAL_BIN}\\opencode.cmd`, disk)).toBe(true);
     // npm's shim names a missing node.exe too, but its real target exists.
-    expect(isBrokenWindowsCommandShim(`${NPM_BIN}\\opencode.cmd`, disk)).toBe(false);
-    expect(resolveOpenCodeBinaryPath(undefined, disk).toLowerCase()).toBe(
+    expect(await isBrokenWindowsCommandShim(`${NPM_BIN}\\opencode.cmd`, disk)).toBe(false);
+    expect((await resolveOpenCodeBinaryPath(undefined, disk)).toLowerCase()).toBe(
       `${NPM_BIN}\\opencode.cmd`.toLowerCase(),
     );
   });
 
-  it("prefers OpenCode desktop's current CLI when the stale wrapper aimed at the desktop CLI", () => {
+  it("prefers OpenCode desktop's current CLI when the stale wrapper aimed at the desktop CLI", async () => {
     const desktopCli = `${LOCALAPPDATA}\\Programs\\ai.opencode.desktop\\resources\\opencode-cli.exe`;
     const disk = fakeDisk({
       [`${LOCAL_BIN}\\opencode.cmd`]: STALE_SHIM,
@@ -300,29 +300,33 @@ describe("resolveOpenCodeBinaryPath", () => {
       [`${NPM_BIN}\\node_modules\\opencode-ai\\bin\\opencode`]: "",
       [desktopCli]: "",
     });
-    expect(resolveOpenCodeBinaryPath(undefined, disk)).toBe(desktopCli);
+    expect(await resolveOpenCodeBinaryPath(undefined, disk)).toBe(desktopCli);
   });
 
-  it("falls back to OpenCode desktop's bundled CLI when PATH has only the stale wrapper", () => {
+  it("falls back to OpenCode desktop's bundled CLI when PATH has only the stale wrapper", async () => {
     const desktopCli = `${LOCALAPPDATA}\\Programs\\ai.opencode.desktop\\resources\\opencode-cli.exe`;
     const disk = fakeDisk({ [`${LOCAL_BIN}\\opencode.cmd`]: STALE_SHIM, [desktopCli]: "" });
-    expect(resolveOpenCodeBinaryPath(undefined, disk)).toBe(desktopCli);
+    expect(await resolveOpenCodeBinaryPath(undefined, disk)).toBe(desktopCli);
   });
 
-  it("finds OpenCode desktop's CLI when no opencode is on PATH at all", () => {
+  it("finds OpenCode desktop's CLI when no opencode is on PATH at all", async () => {
     const desktopCli = `${LOCALAPPDATA}\\Programs\\ai.opencode.desktop\\resources\\opencode-cli.exe`;
-    expect(resolveOpenCodeBinaryPath(undefined, fakeDisk({ [desktopCli]: "" }))).toBe(desktopCli);
-    expect(resolveOpenCodeBinaryPath(undefined, fakeDisk({}))).toBe("opencode");
+    expect(await resolveOpenCodeBinaryPath(undefined, fakeDisk({ [desktopCli]: "" }))).toBe(
+      desktopCli,
+    );
+    expect(await resolveOpenCodeBinaryPath(undefined, fakeDisk({}))).toBe("opencode");
   });
 
-  it("never second-guesses a configured binary or a shim it cannot read statically", () => {
+  it("never second-guesses a configured binary or a shim it cannot read statically", async () => {
     const disk = fakeDisk({
       [`${LOCAL_BIN}\\opencode.cmd`]: '"%MOSS_UNSET_VARIABLE%\\opencode.exe" %*',
     });
-    expect(resolveOpenCodeBinaryPath("D:\\tools\\opencode.exe", disk)).toBe(
+    expect(await resolveOpenCodeBinaryPath("D:\\tools\\opencode.exe", disk)).toBe(
       "D:\\tools\\opencode.exe",
     );
-    expect(resolveOpenCodeBinaryPath(undefined, disk)).toBe("opencode");
-    expect(resolveOpenCodeBinaryPath(undefined, { ...disk, platform: "linux" })).toBe("opencode");
+    expect(await resolveOpenCodeBinaryPath(undefined, disk)).toBe("opencode");
+    expect(await resolveOpenCodeBinaryPath(undefined, { ...disk, platform: "linux" })).toBe(
+      "opencode",
+    );
   });
 });

@@ -63,8 +63,9 @@ describe("AutoReviewApprovalNudge", () => {
           ),
         )
         .toBeInTheDocument();
-      const learnMore = page.getByRole("link", { name: "Learn more." });
-      expect(learnMore.element()).toHaveAttribute("href", AUTO_REVIEW_LEARN_MORE_URL);
+      // No help site yet, so no Learn more link.
+      expect(AUTO_REVIEW_LEARN_MORE_URL).toBeNull();
+      expect(page.getByRole("link", { name: "Learn more." }).elements()).toHaveLength(0);
 
       const enable = page.getByRole("button", { name: /Approve for me/u });
       expect(getComputedStyle(enable.element()).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");

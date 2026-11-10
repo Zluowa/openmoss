@@ -4,6 +4,7 @@
 //          shortcut chips on the shortcuts topic.
 // Layer: Web UI component
 
+import { MOSS_HELP_SITE_URL } from "@moss/shared/desktopIdentity";
 import type { ResolvedKeybindingsConfig } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -109,15 +110,17 @@ export function FeatureTourStep() {
             ))}
           </ul>
         )}
-        <a
-          href={selectedCard.docsHref}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-2 inline-flex items-center gap-1.5 self-start text-ui text-muted-foreground transition-colors hover:text-foreground motion-reduce:transition-none"
-        >
-          Read the guide
-          <ExternalLinkIcon className="size-3" aria-hidden />
-        </a>
+        {MOSS_HELP_SITE_URL ? (
+          <a
+            href={MOSS_HELP_SITE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 inline-flex items-center gap-1.5 self-start text-ui text-muted-foreground transition-colors hover:text-foreground motion-reduce:transition-none"
+          >
+            Read the guide
+            <ExternalLinkIcon className="size-3" aria-hidden />
+          </a>
+        ) : null}
       </div>
     </div>
   );

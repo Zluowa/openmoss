@@ -1,4 +1,4 @@
-import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
+import { MOSS_HELP_SITE_URL } from "@moss/shared/desktopIdentity";
 import type {
   ProviderKind,
   ProviderModelDescriptor,
@@ -27,7 +27,7 @@ export function providerModelSupportsAutoRuntimeMode(
 }
 
 // Documentation target for the permissions-mode dropdown.
-export const RUNTIME_PERMISSIONS_LEARN_MORE_URL = MOSS_OFFICIAL_SITE_URL;
+export const RUNTIME_PERMISSIONS_LEARN_MORE_URL = MOSS_HELP_SITE_URL;
 
 export const RUNTIME_MODE_PRESENTATION: Record<
   RuntimeMode,

@@ -203,10 +203,31 @@ export function executableCandidates(
   );
 }
 
+/**
+ * Windows app execution aliases (`%LOCALAPPDATA%\Microsoft\WindowsApps\winget.exe` and the
+ * like) are reparse points that only CreateProcess follows: `stat` is refused (EACCES) although
+ * the alias is there, and spawning it works. A missing or dangling alias answers ENOENT, so only
+ * a refused `.exe` in a `WindowsApps` folder counts; everything else still reads as missing.
+ * Deliberately no extra filesystem call: this lookup is synchronous and its budget is frozen.
+ */
+function isWindowsAppExecutionAlias(statPath: string, error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code !== "EACCES" && code !== "EPERM" && code !== "UNKNOWN") return false;
+  if (extname(statPath).toUpperCase() !== ".EXE") return false;
+  return win32.basename(win32.dirname(statPath)).toLowerCase() === "windowsapps";
+}
+
 function isExecutableFileIn(filePath: string, context: ExecutableLookupContext): boolean {
   const statPath = candidateStatPath(filePath, context);
   try {
-    if (!statSync(statPath).isFile()) return false;
+    let stats;
+    try {
+      stats = statSync(statPath);
+    } catch (error) {
+      if (context.platform === "win32" && isWindowsAppExecutionAlias(statPath, error)) return true;
+      throw error;
+    }
+    if (!stats.isFile()) return false;
     if (context.platform === "win32") {
       const extension = extname(filePath).toUpperCase();
       return (

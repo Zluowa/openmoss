@@ -224,7 +224,11 @@ export function GeneratedImageGallery({
       : undefined) ?? gallery.images[0];
   const selectedImageIndex = gallery.images.findIndex((image) => image.id === selectedImage?.id);
   const showThumbnails = gallery.images.length + gallery.pendingImageCount > 1;
-  const selectedAspectRatio = selectedImage ? (imageAspectRatios[selectedImage.id] ?? 1) : 1;
+  // A lone pending image takes the shape and size the finished image will
+  // have, so the result replaces the placeholder in place without a jump.
+  const selectedAspectRatio = selectedImage
+    ? (imageAspectRatios[selectedImage.id] ?? 1)
+    : (gallery.pendingAspectRatio ?? 1);
   const imageWidthClassName =
     selectedAspectRatio >= 2
       ? "max-w-full"
@@ -234,7 +238,6 @@ export function GeneratedImageGallery({
   const layout = deriveGeneratedImageGalleryLayout({
     containerWidthPx,
     imageAspectRatios: [selectedAspectRatio],
-    minimumSlotCount: !selectedImage && !showThumbnails ? GALLERY_MAX_IMAGES_PER_PAGE : 0,
   });
   const selectImage = useCallback(
     (imageId: string) => setSelection({ groupId, imageId }),
@@ -389,8 +392,9 @@ export function GeneratedImageGallery({
           <div data-testid="generated-image-pending">
             <GeneratedImagePendingPlaceholder
               label={t("chat.generatedImage.loadingLabel")}
-              widthPx={layout.heightPx}
+              widthPx={layout.itemWidthsPx[0] ?? layout.heightPx}
               heightPx={layout.heightPx}
+              startedAt={gallery.createdAt}
             />
           </div>
         ) : null}
@@ -542,10 +546,62 @@ function GeneratedImageGalleryTile(props: {
   );
 }
 
+// A quiet caption that moves on as the wait grows, so a slow image still reads
+// as progress. Stages start at these elapsed times; each change fades over 500 ms.
+const GENERATED_IMAGE_STAGE_STARTS_MS = [0, 10_000, 20_000, 30_000, 45_000] as const;
+const GENERATED_IMAGE_STAGE_KEYS = [
+  "chat.generatedImage.stage.0",
+  "chat.generatedImage.stage.1",
+  "chat.generatedImage.stage.2",
+  "chat.generatedImage.stage.3",
+  "chat.generatedImage.stage.4",
+] as const;
+const GENERATED_IMAGE_STAGE_FADE_MS = 500;
+
+export function generatedImagePendingStage(startedAt: string, nowMs: number): number {
+  const start = Date.parse(startedAt);
+  const elapsed = Number.isFinite(start) ? Math.max(0, nowMs - start) : 0;
+  return Math.max(0, GENERATED_IMAGE_STAGE_STARTS_MS.filter((at) => elapsed >= at).length - 1);
+}
+
+function GeneratedImagePendingCaption(props: { startedAt: string }) {
+  const { t } = useTranslation();
+  const [stage, setStage] = useState(() => generatedImagePendingStage(props.startedAt, Date.now()));
+  const [shownStage, setShownStage] = useState(stage);
+  useEffect(() => {
+    const update = () => setStage(generatedImagePendingStage(props.startedAt, Date.now()));
+    update();
+    const timer = window.setInterval(update, 500);
+    return () => window.clearInterval(timer);
+  }, [props.startedAt]);
+  useEffect(() => {
+    if (shownStage === stage) return;
+    // Swap the words once the old ones have faded out (also without motion).
+    const timer = window.setTimeout(() => setShownStage(stage), GENERATED_IMAGE_STAGE_FADE_MS);
+    return () => window.clearTimeout(timer);
+  }, [shownStage, stage]);
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="generated-image-pending-caption"
+      className="pointer-events-none absolute top-3 left-4 z-10 select-none text-ui-sm text-muted-foreground"
+    >
+      <span
+        className="inline-block opacity-100 transition-opacity duration-500 ease-linear data-[changing=true]:opacity-0 motion-reduce:transition-none"
+        data-changing={shownStage !== stage ? "true" : undefined}
+      >
+        {t(GENERATED_IMAGE_STAGE_KEYS[shownStage] ?? GENERATED_IMAGE_STAGE_KEYS[0])}
+      </span>
+    </span>
+  );
+}
+
 function GeneratedImagePendingPlaceholder(props: {
   label: string;
   widthPx: number;
   heightPx: number;
+  /** When set, the placeholder shows the staged caption for a wait that began then. */
+  startedAt?: string;
 }) {
   const fieldRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -781,6 +837,9 @@ function GeneratedImagePendingPlaceholder(props: {
       >
         <canvas ref={canvasRef} aria-hidden="true" className="block h-full w-full" />
       </div>
+      {props.startedAt !== undefined ? (
+        <GeneratedImagePendingCaption startedAt={props.startedAt} />
+      ) : null}
     </div>
   );
 }

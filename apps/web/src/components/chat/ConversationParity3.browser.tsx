@@ -94,7 +94,7 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("conversation parity pass 3", () => {
-  it("shows the Codex three-tier menu with its title and Learn more link", async () => {
+  it("shows the Codex three-tier menu with its title, and no Learn more until Moss has a help site", async () => {
     const screen = await render(
       <RuntimeUsageControls
         provider="codex"
@@ -114,13 +114,9 @@ describe("conversation parity pass 3", () => {
     );
     try {
       await page.getByRole("button", { name: "Change permissions" }).click();
-      // The tiers stand alone; the detailed risk copy lives behind Learn more.
+      // The tiers stand alone. Learn more comes back once Moss has a help site.
       await expect.element(page.getByText("How should Moss actions be approved?")).toBeVisible();
-      const learnMore = page.getByRole("link", { name: "Learn more" });
-      await expect.element(learnMore).toBeVisible();
-      expect(learnMore.element().getAttribute("href")).toBe(
-        "https://zluowa.github.io/moss-releases/",
-      );
+      expect(page.getByRole("link", { name: "Learn more" }).elements()).toHaveLength(0);
       // Exactly three tiers; the third expresses its risk with color, not a text wall.
       const items = page.getByRole("menuitemradio").elements();
       expect(items).toHaveLength(3);
@@ -152,9 +148,7 @@ describe("conversation parity pass 3", () => {
       };
       await openConfirmation();
       await expect.element(page.getByText("Turn on Full Access?")).toBeVisible();
-      expect(page.getByRole("alertdialog").element().querySelector("a")?.getAttribute("href")).toBe(
-        "https://zluowa.github.io/moss-releases/",
-      );
+      expect(page.getByRole("alertdialog").element().querySelector("a")).toBeNull();
       for (const text of ["Files and folders", "Terminal commands", "Internet and connected apps"])
         await expect.element(page.getByText(text, { exact: true })).toBeVisible();
       (page.getByRole("button", { name: "Cancel", exact: true }).element() as HTMLElement).click();

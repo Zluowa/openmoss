@@ -265,6 +265,21 @@ function MenuRadioGroup(props: MenuPrimitive.RadioGroup.Props) {
   return <MenuPrimitive.RadioGroup data-slot="menu-radio-group" {...props} />;
 }
 
+/** A radio option drawn as one cell in a row of choices (a colour swatch, a stroke width):
+ *  just its content, no check mark. Style the chosen cell with `data-checked:`. */
+function MenuRadioCell({ className, ...props }: MenuPrimitive.RadioItem.Props) {
+  return (
+    <MenuPrimitive.RadioItem
+      className={cn(
+        "flex cursor-default select-none items-center justify-center outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-disabled:opacity-64",
+        className,
+      )}
+      {...props}
+      data-slot="menu-radio-cell"
+    />
+  );
+}
+
 function MenuRadioItem({
   className,
   children,
@@ -521,6 +536,7 @@ export {
   MenuItem as DropdownMenuItem,
   MenuCheckboxItem,
   MenuRadioGroup,
+  MenuRadioCell,
   MenuRadioItem,
   MenuGroupLabel,
   MenuSeparator,

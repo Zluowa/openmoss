@@ -77,9 +77,10 @@ it.each(["zh-CN", "en"] as const)(
       await expect
         .element(page.getByRole("menuitem", { name: labels.shortcuts, exact: true }))
         .toBeVisible();
-      await expect
-        .element(page.getByRole("menuitem", { name: labels.docs, exact: true }))
-        .toBeVisible();
+      // Docs wait for Moss's help site, so the entry is left out for now.
+      expect(
+        page.getByRole("menuitem", { name: labels.docs, exact: true }).elements(),
+      ).toHaveLength(0);
       await expect
         .element(page.getByRole("menuitem", { name: labels.changelog, exact: true }))
         .toBeVisible();

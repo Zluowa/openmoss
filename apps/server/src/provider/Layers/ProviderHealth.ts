@@ -2251,8 +2251,8 @@ export const makeCheckOpenCodeProviderStatus = (
         experimentalWebSockets: connection?.experimentalWebSockets,
       });
     }
-    const executable = resolveOpenCodeBinaryPath(
-      expandHomePath(nonEmptyTrimmed(binaryPath) ?? "opencode"),
+    const executable = yield* Effect.promise(() =>
+      resolveOpenCodeBinaryPath(expandHomePath(nonEmptyTrimmed(binaryPath) ?? "opencode")),
     );
     const probeEnvResult = tryMakeProviderProbeEnv(
       OPENCODE_PROVIDER,
@@ -3871,8 +3871,11 @@ export function makeProviderHealthLive(options?: {
           });
           let installedVersion = target.installedVersion;
           if (target.provider === "opencode" && installedVersion === undefined) {
+            const openCodeBinary = yield* Effect.promise(() =>
+              resolveOpenCodeBinaryPath(binaryPath),
+            );
             const probe = yield* probeProviderCliVersion(
-              runOpenCodeCommand(["--version"], resolveOpenCodeBinaryPath(binaryPath), updateEnv),
+              runOpenCodeCommand(["--version"], openCodeBinary, updateEnv),
               OPENCODE_HEALTH_TIMEOUT_MS,
             ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
             if (probe.outcome !== "success")

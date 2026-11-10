@@ -7,6 +7,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
+import { useTheme } from "~/hooks/useTheme";
+import { DEFAULT_THEME_STATE } from "~/theme/theme.logic";
+
 import { BrowserAnnotationButton } from "../BrowserPanel";
 import { MarkupCanvas } from "../markup/MarkupCanvas";
 import { MarkupToolbar } from "../markup/MarkupToolbar";
@@ -31,7 +34,9 @@ async function stillOfPage(): Promise<Uint8Array> {
   return new Uint8Array(await (await canvas.convertToBlob({ type: "image/png" })).arrayBuffer());
 }
 
-function Harness(props: { readonly onAttach: (file: File) => void }) {
+function Harness(props: { readonly onAttach: (file: File) => void; readonly width?: number }) {
+  // The app's theme store paints the theme's tokens (accent, popup glass) on the root.
+  useTheme();
   const viewportRef = useRef<HTMLDivElement>(null);
   const [pickerActive, setPickerActive] = useState(false);
   const sketch = useBrowserSketch({
@@ -54,7 +59,7 @@ function Harness(props: { readonly onAttach: (file: File) => void }) {
   });
   return (
     <div
-      style={{ position: "fixed", inset: 0, width: WIDTH, height: 640 }}
+      style={{ position: "fixed", inset: 0, width: props.width ?? WIDTH, height: 640 }}
       className="flex flex-col bg-background"
     >
       <div className="flex h-10 shrink-0 items-center justify-end border-border border-b px-2">
@@ -79,7 +84,11 @@ function Harness(props: { readonly onAttach: (file: File) => void }) {
         ) : null}
       </div>
       {sketch.open ? (
-        <div className="flex h-12 shrink-0 items-center justify-center border-border/70 border-t bg-background px-3">
+        // The browser panel's strip under the page (BrowserPanel's data-browser-sketch-strip).
+        <div
+          data-browser-sketch-strip=""
+          className="flex h-12 shrink-0 items-center justify-center bg-[color-mix(in_srgb,var(--foreground)_3%,var(--background))] px-3"
+        >
           <MarkupToolbar
             tool={sketch.tool}
             onToolChange={sketch.setTool}
@@ -125,9 +134,13 @@ function drag(target: Element, points: ReadonlyArray<readonly [number, number]>)
   target.dispatchEvent(new PointerEvent("pointerup", at(points.at(-1)!)));
 }
 
-// Nothing here runs the app's theme store, so the root's dark class is set directly.
-function switchAppTheme(mode: "light" | "dark") {
-  document.documentElement.classList.toggle("dark", mode === "dark");
+// The harness runs the app's theme store; switch it the way another window would.
+async function switchAppTheme(mode: "light" | "dark") {
+  localStorage.setItem("moss:theme", JSON.stringify({ ...DEFAULT_THEME_STATE, mode }));
+  window.dispatchEvent(new StorageEvent("storage", { key: "moss:theme" }));
+  await vi.waitFor(() =>
+    expect(document.documentElement.classList.contains("dark")).toBe(mode === "dark"),
+  );
 }
 
 async function shot(name: string) {
@@ -135,14 +148,17 @@ async function shot(name: string) {
   await page.screenshot({ path: `__screenshots__/annotate-and-comment/${name}.png` });
 }
 
-afterEach(() => switchAppTheme("light"));
+afterEach(() => {
+  localStorage.removeItem("moss:theme");
+  window.dispatchEvent(new StorageEvent("storage", { key: "moss:theme" }));
+});
 
 for (const theme of ["light", "dark"] as const) {
   it(`marks up the page and adds it to chat (${theme})`, async () => {
     await page.viewport(WIDTH, 640);
     const attached: File[] = [];
     const screen = await render(<Harness onAttach={(file) => attached.push(file)} />);
-    switchAppTheme(theme);
+    await switchAppTheme(theme);
     try {
       await page.getByRole("button", { name: "Annotate page" }).click();
       const toolbar = page.getByRole("toolbar", { name: "Annotation tools" });
@@ -279,6 +295,132 @@ for (const theme of ["light", "dark"] as const) {
       await page.getByRole("button", { name: "Discard", exact: true }).click();
       await expect.element(toolbar).not.toBeInTheDocument();
       expect(document.querySelector("[data-markup-canvas]")).toBeNull();
+    } finally {
+      await screen.unmount();
+    }
+  });
+}
+
+function expectInside(inner: Element, outer: Element) {
+  const a = inner.getBoundingClientRect();
+  const b = outer.getBoundingClientRect();
+  expect(a.width).toBeGreaterThan(0);
+  expect(a.left).toBeGreaterThanOrEqual(b.left - 0.5);
+  expect(a.right).toBeLessThanOrEqual(b.right + 0.5);
+}
+
+// A browser panel can be as narrow as about 360px. The armed bar folds its colour, width
+// and history controls into one More menu when the strip has no room for them; Select,
+// the drawing tools, Add to chat and close stay on the bar at every width.
+for (const [panelWidth, theme] of [
+  [360, "light"],
+  [420, "dark"],
+  [560, "light"],
+  [900, "light"],
+] as const) {
+  it(`fits the armed bar in a ${panelWidth}px browser panel (${theme})`, async () => {
+    await page.viewport(panelWidth, 640);
+    const attached: File[] = [];
+    const screen = await render(
+      <Harness width={panelWidth} onAttach={(file) => attached.push(file)} />,
+    );
+    await switchAppTheme(theme);
+    try {
+      await page.getByRole("button", { name: "Annotate page" }).click();
+      const toolbar = page.getByRole("toolbar", { name: "Annotation tools" });
+      await page.getByRole("button", { name: "Pen" }).click();
+      await expect.element(toolbar).toHaveAttribute("data-layout", "full");
+      const overlay = await vi.waitFor(
+        () => {
+          expect(document.querySelector("[data-markup-canvas] img")).not.toBeNull();
+          return document.querySelector("[data-markup-canvas]")!;
+        },
+        { timeout: 5_000 },
+      );
+      drag(overlay, [
+        [40, 60],
+        [220, 120],
+      ]);
+      await expect.element(page.getByRole("button", { name: "Add to chat" })).toBeEnabled();
+      await shot(`sketch-fit-${panelWidth}-${theme}`);
+
+      const strip = document.querySelector("[data-browser-sketch-strip]")!;
+      const bar = toolbar.element();
+      expectInside(bar, strip);
+      for (const name of ["Select element", "Pen", "Shapes", "Text", "Add to chat"]) {
+        expectInside(page.getByRole("button", { name, exact: true }).element(), strip);
+      }
+      expectInside(toolbar.getByRole("button", { name: "Close annotation" }).element(), strip);
+
+      const folds = panelWidth < 560;
+      await expect.element(toolbar).toHaveAttribute("data-fit", folds ? "folded" : "inline");
+      if (!folds) {
+        await expect
+          .element(page.getByRole("button", { name: "More annotation tools" }))
+          .not.toBeInTheDocument();
+        await expect.element(page.getByRole("button", { name: "Color" })).toBeVisible();
+        await expect.element(page.getByRole("button", { name: "Undo" })).toBeEnabled();
+        return;
+      }
+
+      // Folded: no inline colour, width or history buttons; they live in More.
+      for (const name of ["Color", "Stroke width", "Undo", "Redo", "Clear all marks"]) {
+        await expect.element(page.getByRole("button", { name })).not.toBeInTheDocument();
+      }
+      const more = page.getByRole("button", { name: "More annotation tools" });
+      expectInside(more.element(), strip);
+      await more.click();
+      for (const name of ["Red", "Blue", "Green", "Black", "White"]) {
+        await expect.element(page.getByRole("menuitemradio", { name, exact: true })).toBeVisible();
+      }
+      for (const name of ["Thin", "Medium", "Thick", "Extra thick"]) {
+        await expect.element(page.getByRole("menuitemradio", { name, exact: true })).toBeVisible();
+      }
+      await expect
+        .element(page.getByRole("menuitemradio", { name: "Red" }))
+        .toHaveAttribute("aria-checked", "true");
+      // A colour and a width can be picked in one go: the menu stays open.
+      await page.getByRole("menuitemradio", { name: "Blue" }).click();
+      await page.getByRole("menuitemradio", { name: "Extra thick" }).click();
+      await expect
+        .element(page.getByRole("menuitemradio", { name: "Blue" }))
+        .toHaveAttribute("aria-checked", "true");
+      await expect
+        .element(page.getByRole("menuitemradio", { name: "Extra thick" }))
+        .toHaveAttribute("aria-checked", "true");
+      await expect.element(page.getByRole("menuitem", { name: "Redo" })).toBeDisabled();
+      // The menu fits in the panel too.
+      expectInside(document.querySelector("[data-markup-more-menu]")!, document.body);
+      await shot(`sketch-fit-${panelWidth}-${theme}-more`);
+      await page.getByRole("menuitem", { name: "Undo" }).click();
+      await expect.element(page.getByRole("button", { name: "Add to chat" })).toBeDisabled();
+      await userEvent.keyboard("{Escape}");
+      await expect.element(page.getByRole("menuitem", { name: "Undo" })).not.toBeInTheDocument();
+      // The new ink is the one the next mark takes, and Add to chat sends it.
+      drag(overlay, [
+        [40, 200],
+        [260, 200],
+      ]);
+      const drawnWidth = overlay.clientWidth;
+      await page.getByRole("button", { name: "Add to chat" }).click();
+      await vi.waitFor(() => expect(attached).toHaveLength(1));
+      const bitmap = await createImageBitmap(attached[0]!);
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(bitmap, 0, 0);
+      const scale = bitmap.width / drawnWidth;
+      const [r, g, b] = ctx.getImageData(
+        Math.round(150 * scale),
+        Math.round(200 * scale),
+        1,
+        1,
+      ).data;
+      const ink = MARKUP_COLORS.blue.replace("#", "");
+      expect([r, g, b]).toEqual([
+        Number.parseInt(ink.slice(0, 2), 16),
+        Number.parseInt(ink.slice(2, 4), 16),
+        Number.parseInt(ink.slice(4, 6), 16),
+      ]);
     } finally {
       await screen.unmount();
     }

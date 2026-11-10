@@ -4,16 +4,19 @@
 //   shape (line, arrow, rectangle, ellipse, numbered step) or text; pick the ink colour
 //   and stroke width; undo, redo, clear; the host's main action (Add to chat, Save); close.
 //   It can start compact (select, pen, shapes, text, close) and open out once a drawing
-//   tool is armed.
+//   tool is armed. Where its host has no room for the full bar (a narrow browser panel),
+//   colour, width and history fold into one More menu; the tools, the main action and
+//   close always stay on the bar.
 // Layer: Shared markup UI
 // Spec: docs/design/annotate-and-comment/SPEC.md, "Floating tool bar".
 
-import { useState } from "react";
+import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 
 import {
   CheckIcon,
   ChevronDownIcon,
   type LucideIcon,
+  MoreHorizontalIcon,
   Redo2Icon,
   SketchArrowIcon,
   SketchEllipseIcon,
@@ -32,7 +35,16 @@ import { useTranslation, type TranslationKey } from "~/localization";
 
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
-import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuRadioGroup,
+  MenuRadioCell,
+  MenuSeparator,
+  MenuTrigger,
+} from "../ui/menu";
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import {
   MARKUP_COLOR_ORDER,
@@ -126,6 +138,179 @@ function WidthBar({ width }: { width: MarkupStrokeWidth }) {
   );
 }
 
+/**
+ * Whether the full bar has to fold to fit its room: the width the host gives the bar's
+ * wrapper. The bar always lays out at its natural width, so an overflow shows as the bar
+ * being wider than the room. That width is kept, so the bar opens out again only once the
+ * room can hold it. Measured before paint, so a narrow host never shows the clipped bar.
+ */
+function useFoldToFit(
+  roomRef: RefObject<HTMLDivElement | null>,
+  barRef: RefObject<HTMLDivElement | null>,
+  measuring: boolean,
+): boolean {
+  const [size, setSize] = useState<{ room: number; bar: number } | null>(null);
+  const [folded, setFolded] = useState(false);
+  const fullWidthRef = useRef(0);
+
+  // Both sizes are watched: the room moves with the panel, the bar with its contents (the
+  // history buttons come with the first mark, the action label changes while busy).
+  useLayoutEffect(() => {
+    const room = roomRef.current;
+    const bar = barRef.current;
+    if (!room || !bar) return;
+    const measure = () => {
+      const next = { room: room.clientWidth, bar: bar.offsetWidth };
+      setSize((current) =>
+        current?.room === next.room && current.bar === next.bar ? current : next,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(room);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [roomRef, barRef]);
+
+  // Reads the live layout, not `size`: the bar opens out in the same commit that turns
+  // `measuring` on, and this runs before that frame is painted.
+  useLayoutEffect(() => {
+    const room = roomRef.current?.clientWidth;
+    const bar = barRef.current?.offsetWidth;
+    if (room === undefined || bar === undefined || !size || !measuring) return;
+    if (!folded) {
+      if (bar > room) {
+        fullWidthRef.current = bar;
+        setFolded(true);
+      }
+    } else if (room >= fullWidthRef.current) {
+      setFolded(false);
+    }
+  }, [roomRef, barRef, size, measuring, folded]);
+
+  return folded;
+}
+
+// A swatch or width in the More menu: a 28px cell. The current one takes the accent fill
+// an armed tool has on the bar.
+const MORE_CELL_CLASS_NAME =
+  "h-7 min-w-7 rounded-control data-checked:bg-[color-mix(in_srgb,var(--color-text-accent)_13%,transparent)]!";
+
+interface MarkupMoreMenuProps {
+  readonly style: MarkupStyle;
+  readonly onStyleChange: ((style: MarkupStyle) => void) | undefined;
+  readonly hasHistory: boolean;
+  readonly canUndo: boolean;
+  readonly canRedo: boolean;
+  readonly hasMarks: boolean;
+  readonly onUndo: () => void;
+  readonly onRedo: (() => void) | undefined;
+  readonly onClear: (() => void) | undefined;
+}
+
+/** The folded bar's colour, width and history, in one menu behind a ⋯ button. */
+function MarkupMoreMenu(props: MarkupMoreMenuProps) {
+  const { t } = useTranslation();
+  const label = t("markup.more");
+  return (
+    <Menu modal={false}>
+      <MenuTrigger
+        render={
+          <IconButton
+            label={label}
+            tooltip={label}
+            tooltipSide="top"
+            data-sketch-menu="more"
+            // Open, it takes the grey fill of the colour and width menus, not the accent
+            // of an armed tool.
+            className={cn(
+              TOOL_BUTTON_CLASS_NAME,
+              "data-pressed:bg-[color-mix(in_srgb,var(--foreground)_9%,transparent)]! data-pressed:text-foreground!",
+            )}
+          >
+            <MoreHorizontalIcon />
+          </IconButton>
+        }
+      />
+      <ComposerPickerMenuPopup
+        align="center"
+        side="top"
+        sideOffset={8}
+        data-markup-more-menu=""
+        className="w-48"
+      >
+        {/* Picking a colour or a width keeps the menu open, so both can be set in one go. */}
+        <MenuGroup>
+          <MenuGroupLabel>{t("markup.colorMenu")}</MenuGroupLabel>
+          <MenuRadioGroup
+            value={props.style.color}
+            onValueChange={(color: MarkupColor) => props.onStyleChange?.({ ...props.style, color })}
+            className="flex items-center gap-0.5 px-1 pb-1"
+          >
+            {MARKUP_COLOR_ORDER.map((color) => (
+              <MenuRadioCell
+                key={color}
+                value={color}
+                closeOnClick={false}
+                aria-label={t(COLOR_LABEL_KEY[color])}
+                data-sketch-color={color}
+                className={MORE_CELL_CLASS_NAME}
+              >
+                <ColorSwatch color={color} />
+              </MenuRadioCell>
+            ))}
+          </MenuRadioGroup>
+        </MenuGroup>
+        <MenuGroup>
+          <MenuGroupLabel>{t("markup.widthMenu")}</MenuGroupLabel>
+          <MenuRadioGroup
+            value={props.style.width}
+            onValueChange={(width: MarkupStrokeWidth) =>
+              props.onStyleChange?.({ ...props.style, width })
+            }
+            className="flex items-center gap-0.5 px-1 pb-1"
+          >
+            {MARKUP_STROKE_WIDTHS.map((width) => (
+              <MenuRadioCell
+                key={width}
+                value={width}
+                closeOnClick={false}
+                aria-label={t(WIDTH_LABEL_KEY[width])}
+                data-sketch-width={width}
+                className={cn(MORE_CELL_CLASS_NAME, "w-9")}
+              >
+                <WidthBar width={width} />
+              </MenuRadioCell>
+            ))}
+          </MenuRadioGroup>
+        </MenuGroup>
+        {props.hasHistory ? (
+          <>
+            <MenuSeparator />
+            {/* Undo and redo keep the menu open, for stepping back more than once. */}
+            <MenuItem closeOnClick={false} disabled={!props.canUndo} onClick={props.onUndo}>
+              <Undo2Icon className="size-4" />
+              <span className="flex-1">{t("markup.undo")}</span>
+            </MenuItem>
+            <MenuItem
+              closeOnClick={false}
+              disabled={!props.canRedo || !props.onRedo}
+              onClick={props.onRedo}
+            >
+              <Redo2Icon className="size-4" />
+              <span className="flex-1">{t("markup.redo")}</span>
+            </MenuItem>
+            <MenuItem disabled={!props.hasMarks || !props.onClear} onClick={props.onClear}>
+              <Trash2 className="size-4" />
+              <span className="flex-1">{t("markup.clear")}</span>
+            </MenuItem>
+          </>
+        ) : null}
+      </ComposerPickerMenuPopup>
+    </Menu>
+  );
+}
+
 /** The bar's main button: Add to chat in the browser, Save on an attachment. */
 export interface MarkupToolbarAction {
   readonly label: string;
@@ -171,6 +356,10 @@ export function MarkupToolbar(props: MarkupToolbarProps) {
   const canRedo = props.canRedo ?? false;
   const hasHistory = props.hasMarks || props.canUndo || canRedo;
   const hasSelect = props.selectAvailable !== undefined;
+  const roomRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  // Only the full bar folds; the compact bar and the discard question are small enough.
+  const folded = useFoldToFit(roomRef, barRef, expanded && !props.confirmingDiscard) && expanded;
 
   // Pressing the armed tool again goes back to selecting elements, where there is Select.
   const arm = (tool: MarkupTool) => {
@@ -213,193 +402,234 @@ export function MarkupToolbar(props: MarkupToolbarProps) {
   const shapeArmed = isMarkupShape(props.tool);
 
   return (
+    // The room the host gives the bar: all the width it has, so the bar can tell when it
+    // would not fit. Clicks pass through it to whatever is around the bar.
     <div
-      role="toolbar"
-      aria-label={t("markup.toolbar")}
-      data-markup-toolbar=""
-      data-layout={expanded ? "full" : "compact"}
-      className="relative flex items-center gap-0.5 rounded-popover border border-border bg-popover p-1 shadow-lg motion-safe:animate-[moss-sketch-bar-in_120ms_cubic-bezier(.32,.72,0,1)]"
+      ref={roomRef}
+      data-markup-toolbar-room=""
+      className="pointer-events-none flex w-full min-w-0 justify-center"
     >
-      {props.confirmingDiscard ? (
-        <div
-          role="alertdialog"
-          aria-label={t("markup.discardTitle")}
-          className="flex items-center gap-2 py-0.5 ps-2 pe-0.5 text-ui"
-        >
-          <span className="text-foreground">{t("markup.discardTitle")}</span>
-          <Button size="xs" variant="ghost" onClick={props.onCancelDiscard}>
-            {t("markup.keepEditing")}
-          </Button>
-          <Button size="xs" variant="destructive" onClick={props.onDiscard}>
-            {t("markup.discard")}
-          </Button>
-        </div>
-      ) : (
-        <>
-          {hasSelect
-            ? toolButton(
-                "select",
-                t("browser.sketch.select"),
-                SketchSelectIcon,
-                !props.selectAvailable,
-              )
-            : null}
-          {toolButton("pen", t("markup.pen"), SketchPenIcon)}
+      <div
+        ref={barRef}
+        role="toolbar"
+        aria-label={t("markup.toolbar")}
+        data-markup-toolbar=""
+        data-layout={expanded ? "full" : "compact"}
+        data-fit={folded ? "folded" : "inline"}
+        className="pointer-events-auto relative flex shrink-0 items-center gap-0.5 rounded-popover border border-border bg-popover p-1 shadow-lg motion-safe:animate-[moss-sketch-bar-in_120ms_cubic-bezier(.32,.72,0,1)]"
+      >
+        {props.confirmingDiscard ? (
           <div
-            className={cn(
-              "flex items-center rounded-control",
-              shapeArmed &&
-                "bg-[color-mix(in_srgb,var(--color-text-accent)_13%,transparent)] text-[var(--color-text-accent)]",
-            )}
+            role="alertdialog"
+            aria-label={t("markup.discardTitle")}
+            className="flex items-center gap-2 py-0.5 ps-2 pe-0.5 text-ui"
           >
-            <IconButton
-              label={shapeLabel}
-              tooltip={shapeLabel}
-              tooltipSide="top"
-              className={cn(
-                TOOL_BUTTON_CLASS_NAME,
-                "w-6 rounded-e-none data-pressed:bg-transparent!",
-              )}
-              aria-pressed={props.tool === shape}
-              data-pressed={props.tool === shape ? "" : undefined}
-              data-sketch-tool={shape}
-              onClick={() => arm(shape)}
-            >
-              <ShapeIcon />
-            </IconButton>
-            <Menu modal={false}>
-              <MenuTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    aria-label={t("markup.shapes")}
-                    title={t("markup.shapes")}
-                    data-sketch-menu="shape"
-                    className={cn(
-                      "h-7 w-5 min-w-0 rounded-s-none rounded-e-control px-0 opacity-75 hover:opacity-100 data-[popup-open]:bg-[color-mix(in_srgb,var(--foreground)_9%,transparent)] [&_[data-slot=central-icon]]:size-3",
-                      shapeArmed ? "text-[var(--color-text-accent)]" : "text-foreground/80",
-                    )}
-                  >
-                    <ChevronDownIcon />
-                  </Button>
-                }
-              />
-              <ComposerPickerMenuPopup align="start" side="top" sideOffset={8} className="w-44">
-                {MARKUP_SHAPES.map((option) => {
-                  const OptionIcon = SHAPE_META[option].icon;
-                  return (
-                    <MenuItem
-                      key={option}
-                      data-sketch-shape={option}
-                      onClick={() => {
-                        setLastShape(option);
-                        props.onToolChange(option);
-                      }}
-                    >
-                      <OptionIcon className="size-4" />
-                      <span className="flex-1">{t(SHAPE_META[option].labelKey)}</span>
-                    </MenuItem>
-                  );
-                })}
-              </ComposerPickerMenuPopup>
-            </Menu>
+            <span className="text-foreground">{t("markup.discardTitle")}</span>
+            <Button size="xs" variant="ghost" onClick={props.onCancelDiscard}>
+              {t("markup.keepEditing")}
+            </Button>
+            <Button size="xs" variant="destructive" onClick={props.onDiscard}>
+              {t("markup.discard")}
+            </Button>
           </div>
-          {toolButton("text", t("markup.text"), SketchTextIcon)}
-          {expanded ? (
-            <>
-              <Divider />
-              <Menu modal={false}>
-                <MenuTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={t("markup.colorMenu")}
-                      title={t("markup.colorMenu")}
-                      data-sketch-menu="color"
-                      className={DROPDOWN_TRIGGER_CLASS_NAME}
-                    />
-                  }
-                >
-                  <ColorSwatch color={style.color} />
-                  <ChevronDownIcon className="size-3 opacity-70" />
-                </MenuTrigger>
-                <ComposerPickerMenuPopup align="center" side="top" sideOffset={8} className="w-32">
-                  {MARKUP_COLOR_ORDER.map((color) => (
-                    <MenuItem
-                      key={color}
-                      aria-label={t(COLOR_LABEL_KEY[color])}
-                      data-sketch-color={color}
-                      onClick={() => props.onStyleChange?.({ ...style, color })}
-                    >
-                      <ColorSwatch color={color} />
-                      <span className="sr-only">{t(COLOR_LABEL_KEY[color])}</span>
-                      <MenuCheck checked={style.color === color} />
-                    </MenuItem>
-                  ))}
-                </ComposerPickerMenuPopup>
-              </Menu>
-              <Menu modal={false}>
-                <MenuTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={t("markup.widthMenu")}
-                      title={t("markup.widthMenu")}
-                      data-sketch-menu="width"
-                      className={cn(DROPDOWN_TRIGGER_CLASS_NAME, "gap-1 px-2")}
-                    />
-                  }
-                >
-                  <WidthBar width={style.width} />
-                  <ChevronDownIcon className="size-3 opacity-70" />
-                </MenuTrigger>
-                <ComposerPickerMenuPopup align="center" side="top" sideOffset={8} className="w-32">
-                  {MARKUP_STROKE_WIDTHS.map((width) => (
-                    <MenuItem
-                      key={width}
-                      aria-label={t(WIDTH_LABEL_KEY[width])}
-                      data-sketch-width={width}
-                      onClick={() => props.onStyleChange?.({ ...style, width })}
-                    >
-                      <WidthBar width={width} />
-                      <span className="sr-only">{t(WIDTH_LABEL_KEY[width])}</span>
-                      <MenuCheck checked={style.width === width} />
-                    </MenuItem>
-                  ))}
-                </ComposerPickerMenuPopup>
-              </Menu>
-              <Divider />
-              {hasHistory ? (
-                <>
-                  {historyButton(t("markup.undo"), Undo2Icon, !props.canUndo, props.onUndo)}
-                  {historyButton(t("markup.redo"), Redo2Icon, !canRedo, props.onRedo)}
-                  {historyButton(t("markup.clear"), Trash2, !props.hasMarks, props.onClear)}
-                </>
-              ) : null}
-              <Button
-                size="xs"
-                className="ms-0.5 h-7 rounded-control px-3 text-ui disabled:bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] disabled:text-muted-foreground disabled:opacity-100"
-                disabled={props.action.busy || !props.hasMarks}
-                data-markup-action=""
-                onClick={props.action.onClick}
+        ) : (
+          <>
+            {hasSelect
+              ? toolButton(
+                  "select",
+                  t("browser.sketch.select"),
+                  SketchSelectIcon,
+                  !props.selectAvailable,
+                )
+              : null}
+            {toolButton("pen", t("markup.pen"), SketchPenIcon)}
+            <div
+              className={cn(
+                "flex items-center rounded-control",
+                shapeArmed &&
+                  "bg-[color-mix(in_srgb,var(--color-text-accent)_13%,transparent)] text-[var(--color-text-accent)]",
+              )}
+            >
+              <IconButton
+                label={shapeLabel}
+                tooltip={shapeLabel}
+                tooltipSide="top"
+                className={cn(
+                  TOOL_BUTTON_CLASS_NAME,
+                  "w-6 rounded-e-none data-pressed:bg-transparent!",
+                )}
+                aria-pressed={props.tool === shape}
+                data-pressed={props.tool === shape ? "" : undefined}
+                data-sketch-tool={shape}
+                onClick={() => arm(shape)}
               >
-                {props.action.busy ? props.action.busyLabel : props.action.label}
-              </Button>
-            </>
-          ) : (
-            <Divider />
-          )}
-          <IconButton
-            label={t("markup.close")}
-            tooltip={t("markup.closeTooltip")}
-            tooltipSide="top"
-            className={cn(TOOL_BUTTON_CLASS_NAME, expanded && "ms-0.5")}
-            onClick={props.onRequestClose}
-          >
-            <XIcon />
-          </IconButton>
-        </>
-      )}
+                <ShapeIcon />
+              </IconButton>
+              <Menu modal={false}>
+                <MenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      aria-label={t("markup.shapes")}
+                      title={t("markup.shapes")}
+                      data-sketch-menu="shape"
+                      className={cn(
+                        "h-7 w-5 min-w-0 rounded-s-none rounded-e-control px-0 opacity-75 hover:opacity-100 data-[popup-open]:bg-[color-mix(in_srgb,var(--foreground)_9%,transparent)] [&_[data-slot=central-icon]]:size-3",
+                        shapeArmed ? "text-[var(--color-text-accent)]" : "text-foreground/80",
+                      )}
+                    >
+                      <ChevronDownIcon />
+                    </Button>
+                  }
+                />
+                <ComposerPickerMenuPopup align="start" side="top" sideOffset={8} className="w-44">
+                  {MARKUP_SHAPES.map((option) => {
+                    const OptionIcon = SHAPE_META[option].icon;
+                    return (
+                      <MenuItem
+                        key={option}
+                        data-sketch-shape={option}
+                        onClick={() => {
+                          setLastShape(option);
+                          props.onToolChange(option);
+                        }}
+                      >
+                        <OptionIcon className="size-4" />
+                        <span className="flex-1">{t(SHAPE_META[option].labelKey)}</span>
+                      </MenuItem>
+                    );
+                  })}
+                </ComposerPickerMenuPopup>
+              </Menu>
+            </div>
+            {toolButton("text", t("markup.text"), SketchTextIcon)}
+            {folded ? (
+              <>
+                <Divider />
+                <MarkupMoreMenu
+                  style={style}
+                  onStyleChange={props.onStyleChange}
+                  hasHistory={hasHistory}
+                  canUndo={props.canUndo}
+                  canRedo={canRedo}
+                  hasMarks={props.hasMarks}
+                  onUndo={props.onUndo}
+                  onRedo={props.onRedo}
+                  onClear={props.onClear}
+                />
+                <Divider />
+              </>
+            ) : null}
+            {expanded && !folded ? (
+              <>
+                <Divider />
+                <Menu modal={false}>
+                  <MenuTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={t("markup.colorMenu")}
+                        title={t("markup.colorMenu")}
+                        data-sketch-menu="color"
+                        className={DROPDOWN_TRIGGER_CLASS_NAME}
+                      />
+                    }
+                  >
+                    <ColorSwatch color={style.color} />
+                    <ChevronDownIcon className="size-3 opacity-70" />
+                  </MenuTrigger>
+                  <ComposerPickerMenuPopup
+                    align="center"
+                    side="top"
+                    sideOffset={8}
+                    className="w-32"
+                  >
+                    {MARKUP_COLOR_ORDER.map((color) => (
+                      <MenuItem
+                        key={color}
+                        aria-label={t(COLOR_LABEL_KEY[color])}
+                        data-sketch-color={color}
+                        onClick={() => props.onStyleChange?.({ ...style, color })}
+                      >
+                        <ColorSwatch color={color} />
+                        <span className="sr-only">{t(COLOR_LABEL_KEY[color])}</span>
+                        <MenuCheck checked={style.color === color} />
+                      </MenuItem>
+                    ))}
+                  </ComposerPickerMenuPopup>
+                </Menu>
+                <Menu modal={false}>
+                  <MenuTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={t("markup.widthMenu")}
+                        title={t("markup.widthMenu")}
+                        data-sketch-menu="width"
+                        className={cn(DROPDOWN_TRIGGER_CLASS_NAME, "gap-1 px-2")}
+                      />
+                    }
+                  >
+                    <WidthBar width={style.width} />
+                    <ChevronDownIcon className="size-3 opacity-70" />
+                  </MenuTrigger>
+                  <ComposerPickerMenuPopup
+                    align="center"
+                    side="top"
+                    sideOffset={8}
+                    className="w-32"
+                  >
+                    {MARKUP_STROKE_WIDTHS.map((width) => (
+                      <MenuItem
+                        key={width}
+                        aria-label={t(WIDTH_LABEL_KEY[width])}
+                        data-sketch-width={width}
+                        onClick={() => props.onStyleChange?.({ ...style, width })}
+                      >
+                        <WidthBar width={width} />
+                        <span className="sr-only">{t(WIDTH_LABEL_KEY[width])}</span>
+                        <MenuCheck checked={style.width === width} />
+                      </MenuItem>
+                    ))}
+                  </ComposerPickerMenuPopup>
+                </Menu>
+                <Divider />
+                {hasHistory ? (
+                  <>
+                    {historyButton(t("markup.undo"), Undo2Icon, !props.canUndo, props.onUndo)}
+                    {historyButton(t("markup.redo"), Redo2Icon, !canRedo, props.onRedo)}
+                    {historyButton(t("markup.clear"), Trash2, !props.hasMarks, props.onClear)}
+                  </>
+                ) : null}
+              </>
+            ) : null}
+            {expanded ? (
+              <>
+                <Button
+                  size="xs"
+                  className="ms-0.5 h-7 rounded-control px-3 text-ui disabled:bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] disabled:text-muted-foreground disabled:opacity-100"
+                  disabled={props.action.busy || !props.hasMarks}
+                  data-markup-action=""
+                  onClick={props.action.onClick}
+                >
+                  {props.action.busy ? props.action.busyLabel : props.action.label}
+                </Button>
+              </>
+            ) : (
+              <Divider />
+            )}
+            <IconButton
+              label={t("markup.close")}
+              tooltip={t("markup.closeTooltip")}
+              tooltipSide="top"
+              className={cn(TOOL_BUTTON_CLASS_NAME, expanded && "ms-0.5")}
+              onClick={props.onRequestClose}
+            >
+              <XIcon />
+            </IconButton>
+          </>
+        )}
+      </div>
     </div>
   );
 }

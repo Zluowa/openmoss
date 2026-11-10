@@ -7,7 +7,14 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Duration, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
+
+// The real resolver looks at this machine's PATH and OpenCode desktop install; these tests
+// are about server reuse, so the CLI is always the plain configured or default name.
+vi.mock("../../provider/providerBinaryResolution.ts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../provider/providerBinaryResolution.ts")>()),
+  resolveOpenCodeBinaryPath: async (binaryPath?: string | null) => binaryPath?.trim() || "opencode",
+}));
 
 import { ServerConfig } from "../../config.ts";
 import {

@@ -6,7 +6,7 @@ import {
   canvasVideoReferenceImageLimit,
   normalizeCanvasVideoInput,
 } from "../../../../supabase/functions/moss-model-gateway/canvasVideoInput.ts";
-import { hoolaCanvasModelKind } from "../hoolaCanvasBridge";
+import { hoolaCanvasModelKind, type HoolaCanvasJobSnapshot } from "../hoolaCanvasBridge";
 import {
   MOSS_DEFAULT_IMAGE_MODEL_ID,
   MOSS_DEFAULT_VIDEO_MODEL_ID,
@@ -32,6 +32,17 @@ export const MOSS_MEDIA_TOOL_NAMES = [
   "moss_media_get",
 ] as const;
 const MAX_REFERENCE_CHARS = 7 * 1024 * 1024;
+/**
+ * An image call waits for its job like Codex's image tool: the turn stays open
+ * while the chat shows the placeholder, and the finished image lands in place
+ * before the agent answers. One call never waits past 50 seconds, which every
+ * agent's MCP client survives (several default to 60 s). A slower job carries
+ * on through moss_media_get, which waits the same way.
+ */
+export const MOSS_IMAGE_WAIT_SLICE_MS = 50_000;
+const MOSS_IMAGE_WAIT_POLL_MS = 1_000;
+/** After this long the agent stops waiting; the image still arrives in place. */
+export const MOSS_IMAGE_WAIT_TOTAL_MS = 5 * 60_000;
 const GENERATE_KEYS = new Set([
   "modelId",
   "prompt",
@@ -168,6 +179,47 @@ function readGenerateInput(
   };
 }
 
+function isImageJob(job: HoolaCanvasJobSnapshot): boolean {
+  return job.operation !== "video";
+}
+
+function isImageJobSettled(job: HoolaCanvasJobSnapshot): boolean {
+  return (
+    job.status === "failed_terminal" ||
+    job.status === "reconciliation_required" ||
+    (job.status === "succeeded" && job.persistenceStatus !== "pending")
+  );
+}
+
+function waitedTooLong(job: HoolaCanvasJobSnapshot, now: number): boolean {
+  const startedAt = Date.parse(job.createdAt);
+  return Number.isFinite(startedAt) && now - startedAt >= MOSS_IMAGE_WAIT_TOTAL_MS;
+}
+
+/**
+ * What the agent should tell the person about an image job. A finished image is
+ * already in the chat, so the agent must not narrate submission or a later
+ * delivery, and must not paste the image again.
+ */
+function imageChatGuidance(job: HoolaCanvasJobSnapshot, now: number) {
+  if (!isImageJob(job)) return undefined;
+  if (job.status === "succeeded" && job.persistenceStatus === "ready")
+    return {
+      image: "shown",
+      note: "The finished image is already shown to the person in this chat, where the placeholder was. Do not say it was submitted, queued or will appear later, and do not paste, link or download it. Reply with at most one short sentence.",
+    };
+  if (job.status !== "queued" && job.status !== "running") return undefined;
+  return waitedTooLong(job, now)
+    ? {
+        image: "generating",
+        note: "Still generating after several minutes. Say in one short sentence that it is taking longer and will appear in this chat when ready, then finish. Do not call moss_media_get again.",
+      }
+    : {
+        image: "generating",
+        note: "Still generating; the person sees a placeholder in this chat. Call moss_media_get with this jobId now to keep waiting. Do not tell the person it was submitted.",
+      };
+}
+
 function failure(error: unknown): McpToolCallResult {
   // Service errors have safe codes. Do not return exception strings which can contain
   // request URLs, credentials, provider payloads or filesystem paths.
@@ -219,6 +271,8 @@ export interface AgentGatewayMediaToolsInput {
     request: { threadId: string; jobId?: string; imageIndex?: number },
     context: ToolContext,
   ) => Effect.Effect<void, unknown>;
+  /** Test seam for the image wait; production uses the constants above. */
+  readonly imageWait?: { readonly sliceMs: number; readonly pollMs: number };
 }
 
 export function makeAgentGatewayMediaTools(
@@ -260,6 +314,40 @@ export function makeAgentGatewayMediaTools(
       Effect.catch((error) => Effect.succeed(failure(error))),
       Effect.catchDefect((error) => Effect.succeed(failure(error))),
     );
+  const waitSliceMs = input.imageWait?.sliceMs ?? MOSS_IMAGE_WAIT_SLICE_MS;
+  const waitPollMs = input.imageWait?.pollMs ?? MOSS_IMAGE_WAIT_POLL_MS;
+  // Observe the caller's own image job from local state only. The broker run
+  // that create() started does the supplier work, so waiting never submits,
+  // reconciles or bills anything. A stopped turn ends the wait at once.
+  const waitForImage = (job: HoolaCanvasJobSnapshot, context: ToolContext) =>
+    Effect.gen(function* () {
+      const { service } = input;
+      if (
+        !service.readOwnedJob ||
+        !isImageJob(job) ||
+        isImageJobSettled(job) ||
+        waitedTooLong(job, Date.now())
+      )
+        return job;
+      const deadline = Date.now() + waitSliceMs;
+      let current = job;
+      while (!isImageJobSettled(current) && Date.now() < deadline) {
+        yield* Effect.sleep(Math.max(0, Math.min(waitPollMs, deadline - Date.now())));
+        const credential = yield* credentialFor(context);
+        const next = yield* Effect.tryPromise({
+          // Called on the service itself: the real one keeps private state.
+          try: () => service.readOwnedJob!(job.jobId, credential),
+          catch: (error) => error,
+        });
+        if (next.projectId !== threadProjectId(context)) break;
+        current = next;
+      }
+      return current;
+    });
+  const imageResult = (job: HoolaCanvasJobSnapshot) => {
+    const chat = imageChatGuidance(job, Date.now());
+    return mcpToolResultJson(chat ? { ...job, chat } : job);
+  };
   return [
     {
       definition: {
@@ -412,7 +500,7 @@ export function makeAgentGatewayMediaTools(
       definition: {
         name: "moss_media_generate",
         description:
-          "Generate or edit an image/video with an installed official model using the current Moss account's shared package allowance at actual supplier cost. Generate through Moss for a request routed to the person's Moss account. In a personal Codex session, use this for images only if the person explicitly chose Moss; prefer an available native Codex image tool for an ordinary request. If a Moss model is not known, moss_media_list can show the available models. Supply a unique idempotencyKey for each intended generation. Unknown outcomes must be observed through the existing job and records; never automatically submit another generation. For an accepted image job, briefly acknowledge submission and finish the turn. Moss waits in the background and places the finished image in this chat. Do not sleep, poll, or run shell commands to wait for it. Use moss_media_get for video output, an explicit status request, or to diagnose an existing job. Only if the person asks to see or edit it on Canvas, call moss_canvas_open with the jobId. Completed images appear automatically in the conversation; do not emit duplicate Markdown images or download/copy the outputs again. Charged to the person's Moss credits. Reply to the person in their own language. For edits pass the selected original HTTPS output URL in referenceImages, or local image files inside the caller workspace in referencePaths (no base64 needed). Never request, print, or pass an API key. Account changes during a turn require a new user turn.",
+          "Generate or edit an image/video with an installed official model using the current Moss account's shared package allowance at actual supplier cost. Generate through Moss for a request routed to the person's Moss account. In a personal Codex session, use this for images only if the person explicitly chose Moss; prefer an available native Codex image tool for an ordinary request. If a Moss model is not known, moss_media_list can show the available models. Supply a unique idempotencyKey for each intended generation. Unknown outcomes must be observed through the existing job and records; never automatically submit another generation. For an image, this call waits while Moss generates it: the person sees a placeholder in this chat that turns into the finished image in place. If the result says the image is still generating, call moss_media_get with its jobId to keep waiting. Once the result says the image is shown, it is already in the chat: never say it was submitted, queued or will appear later, and reply with at most one short sentence. Do not sleep or run shell commands to wait. For video, follow the job with moss_media_get. Only if the person asks to see or edit it on Canvas, call moss_canvas_open with the jobId. Completed images appear automatically in the conversation; do not emit duplicate Markdown images or download/copy the outputs again. Charged to the person's Moss credits. Reply to the person in their own language. For edits pass the selected original HTTPS output URL in referenceImages, or local image files inside the caller workspace in referencePaths (no base64 needed). Never request, print, or pass an API key. Account changes during a turn require a new user turn.",
         inputSchema: {
           type: "object",
           properties: {
@@ -620,7 +708,9 @@ export function makeAgentGatewayMediaTools(
             yield* credentialFor(context);
             if (job.projectId !== threadProjectId(context))
               return yield* Effect.fail(new MossMediaJobsError("job_not_found", 404));
-            return mcpToolResultJson(job);
+            const settled = yield* waitForImage(job, context);
+            yield* credentialFor(context);
+            return imageResult(settled);
           }),
         ),
     },
@@ -628,7 +718,7 @@ export function makeAgentGatewayMediaTools(
       definition: {
         name: "moss_media_get",
         description:
-          "Read/resume a persisted media job created in this caller thread. Poll this for a previously returned jobId; jobs from other threads are not accessible. Do not submit another generation just because a task is slow. Reconciliation means the provider outcome or billing is still unknown, not that credits were refunded.",
+          "Read/resume a persisted media job created in this caller thread. For an image that is still generating it waits up to about 50 seconds for the result. Use it with a previously returned jobId; jobs from other threads are not accessible. Do not submit another generation just because a task is slow. Reconciliation means the provider outcome or billing is still unknown, not that credits were refunded.",
         inputSchema: {
           type: "object",
           properties: {
@@ -664,7 +754,9 @@ export function makeAgentGatewayMediaTools(
             yield* credentialFor(context);
             if (job.projectId !== projectId)
               return yield* Effect.fail(new MossMediaJobsError("job_not_found", 404));
-            return mcpToolResultJson(job);
+            const settled = yield* waitForImage(job, context);
+            yield* credentialFor(context);
+            return imageResult(settled);
           }),
         ),
     },

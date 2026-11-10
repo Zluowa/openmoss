@@ -580,17 +580,10 @@ describe("ComputerHistorySettingsPanel", () => {
     await allowScreen.unmount();
   });
 
-  it("opens Moss docs from every learn-more surface and uses parity icons", async () => {
+  it("shows no learn-more link until Moss has a help site, and uses parity icons", async () => {
     const offScreen = await render(<ComputerHistorySettingsPanel />);
-    const offLearnMore = page.getByTestId("computer-history-off-learn-more");
-    await expect.element(offLearnMore).toBeVisible();
-    expect(offLearnMore.element().getAttribute("href")).toBe(
-      "https://zluowa.github.io/moss-releases/",
-    );
-    await offLearnMore.click();
-    expect(harness.api.shell.openExternal).toHaveBeenCalledWith(
-      "https://zluowa.github.io/moss-releases/",
-    );
+    await expect.element(page.getByText("Turn on", { exact: true })).toBeVisible();
+    expect(page.getByTestId("computer-history-off-learn-more").elements()).toHaveLength(0);
 
     await page.getByRole("button", { name: "Turn on" }).click();
     const consent = page.getByRole("dialog", { name: "You're in control." });
@@ -623,26 +616,11 @@ describe("ComputerHistorySettingsPanel", () => {
 
     configureApi(ON_STATE);
     const onScreen = await render(<ComputerHistorySettingsPanel />);
-    const enabledLearnMore = page.getByTestId("computer-history-enabled-learn-more");
-    await expect.element(enabledLearnMore).toBeVisible();
-    expect(enabledLearnMore.element().getAttribute("href")).toBe(
-      "https://zluowa.github.io/moss-releases/",
-    );
-    await enabledLearnMore.click();
-    expect(harness.api.shell.openExternal).toHaveBeenLastCalledWith(
-      "https://zluowa.github.io/moss-releases/",
-    );
-
     await page.getByRole("button", { name: "Choose" }).click();
-    const permissionsLearnMore = page.getByTestId("computer-history-permissions-learn-more");
-    await expect.element(permissionsLearnMore).toBeVisible();
-    expect(permissionsLearnMore.element().getAttribute("href")).toBe(
-      "https://zluowa.github.io/moss-releases/",
-    );
-    await permissionsLearnMore.click();
-    expect(harness.api.shell.openExternal).toHaveBeenLastCalledWith(
-      "https://zluowa.github.io/moss-releases/",
-    );
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+    expect(page.getByTestId("computer-history-enabled-learn-more").elements()).toHaveLength(0);
+    expect(page.getByTestId("computer-history-permissions-learn-more").elements()).toHaveLength(0);
+    expect(harness.api.shell.openExternal).not.toHaveBeenCalled();
     await onScreen.unmount();
   });
 
@@ -1582,15 +1560,6 @@ describe("ComputerHistorySettingsPanel", () => {
       await expect.element(permissionDialog).toBeVisible();
       // Follow the current theme's link token; the accessibility assertion below
       // still verifies its actual contrast against this dialog's background.
-      const linkTokenProbe = document.createElement("span");
-      linkTokenProbe.style.color = "var(--color-token-text-link-foreground)";
-      permissionDialog.element().append(linkTokenProbe);
-      const expectedLinkColor = getComputedStyle(linkTokenProbe).color;
-      linkTokenProbe.remove();
-      expect(
-        getComputedStyle(page.getByTestId("computer-history-permissions-learn-more").element())
-          .color,
-      ).toBe(expectedLinkColor);
       const permissionAxe = await axe.run(permissionDialog.element());
       const permissionBlocking = permissionAxe.violations.filter(
         (violation) => violation.impact === "serious" || violation.impact === "critical",

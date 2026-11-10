@@ -1,7 +1,7 @@
 // FILE: AutoReviewApprovalNudge.tsx
 // Purpose: Standalone Codex-style offer to enable Auto-review from an approval flow.
 
-import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
+import { MOSS_HELP_SITE_URL } from "@moss/shared/desktopIdentity";
 import { useRef, useState, type FormEvent } from "react";
 
 import { CentralIcon } from "~/lib/central-icons";
@@ -11,7 +11,7 @@ import { toastManager } from "../ui/toast";
 import { COMPOSER_INPUT_SURFACE_CLASS_NAME } from "./composerPickerStyles";
 import { cn } from "~/lib/utils";
 
-export const AUTO_REVIEW_LEARN_MORE_URL = MOSS_OFFICIAL_SITE_URL;
+export const AUTO_REVIEW_LEARN_MORE_URL = MOSS_HELP_SITE_URL;
 
 export interface AutoReviewApprovalNudgeProps {
   /** The hosting approval flow persists the dismissal for this conversation. */
@@ -56,14 +56,16 @@ export function AutoReviewApprovalNudge(props: AutoReviewApprovalNudgeProps) {
           </div>
           <div className="text-base leading-6">
             {t("approvalRequest.autoReviewNudge.description")}{" "}
-            <a
-              className="cursor-interaction rounded-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring"
-              href={AUTO_REVIEW_LEARN_MORE_URL}
-              target="_blank"
-              rel="noreferrer"
-            >
-              {t("approvalRequest.autoReviewNudge.learnMore")}
-            </a>
+            {AUTO_REVIEW_LEARN_MORE_URL ? (
+              <a
+                className="cursor-interaction rounded-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring"
+                href={AUTO_REVIEW_LEARN_MORE_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t("approvalRequest.autoReviewNudge.learnMore")}
+              </a>
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap justify-end gap-2 border-t border-border/50 px-3 py-2">

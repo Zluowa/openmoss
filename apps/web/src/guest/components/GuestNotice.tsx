@@ -2,7 +2,7 @@
 // Purpose: Full-page states of the guest page: connecting, invalid link, ended before any data.
 // Layer: Guest page UI
 
-import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
+import { MOSS_HELP_SITE_URL } from "@moss/shared/desktopIdentity";
 import type { ReactNode } from "react";
 
 import { MossLogoMark } from "~/components/MossLogoMark";
@@ -12,9 +12,11 @@ import { useTranslation } from "~/localization";
 
 export function WhatIsMossLink({ className }: { readonly className?: string }) {
   const { t } = useTranslation();
+  // An explainer link: it waits for Moss's help site.
+  if (!MOSS_HELP_SITE_URL) return null;
   return (
     <a
-      href={MOSS_OFFICIAL_SITE_URL}
+      href={MOSS_HELP_SITE_URL}
       target="_blank"
       rel="noopener noreferrer"
       className={cn(

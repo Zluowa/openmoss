@@ -13,6 +13,24 @@ import {
 import type { MossConversationImageObservation } from "../mossMediaJobsService";
 import { stableGatewayDigest } from "./creationUtils";
 
+/**
+ * Width / height of the image a request asked for ("16:9", "3:4", "1536x1024"),
+ * bounded to shapes a chat placeholder can draw. Unknown shapes stay square.
+ */
+export function requestedImageAspectRatio(
+  shape: { readonly aspectRatio?: string; readonly resolution?: string } | undefined,
+): number | undefined {
+  for (const value of [shape?.aspectRatio, shape?.resolution]) {
+    const match = /^\s*(\d{1,5}(?:\.\d{1,3})?)\s*[:x×*]\s*(\d{1,5}(?:\.\d{1,3})?)\s*$/iu.exec(
+      value ?? "",
+    );
+    if (!match) continue;
+    const ratio = Number(match[1]) / Number(match[2]);
+    if (Number.isFinite(ratio) && ratio >= 0.25 && ratio <= 4) return Math.round(ratio * 1e4) / 1e4;
+  }
+  return undefined;
+}
+
 export function conversationImageActivityCommands(
   observation: MossConversationImageObservation,
 ): readonly OrchestrationCommand[] {
@@ -116,5 +134,11 @@ export function conversationImageActivityCommands(
       }),
     ];
   }
-  return [command(0, "inProgress", "Generating image", { jobId: snapshot.jobId })];
+  const aspectRatio = requestedImageAspectRatio(observation.requestedShape);
+  return [
+    command(0, "inProgress", "Generating image", {
+      jobId: snapshot.jobId,
+      ...(aspectRatio !== undefined ? { aspectRatio } : {}),
+    }),
+  ];
 }
