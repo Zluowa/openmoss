@@ -775,7 +775,9 @@ describe("GitHubInbox without projects", () => {
         listResult({ repositoryState: "none", personalState: "unavailable", items: [] }),
       );
     await mount();
-    await expect.element(page.getByText("Your GitHub items could not be loaded")).toBeVisible();
+    await expect.element(page.getByText("Couldn't read your GitHub items yet")).toBeVisible();
+    // Not a network problem by default: the wording does not send the person to check it.
+    expect(page.getByText(/connection/i).query()).toBeNull();
     const calls = api.list.mock.calls.length;
     await page.getByRole("button", { name: "Try again" }).click();
     await expect.poll(() => api.list.mock.calls.length).toBeGreaterThan(calls);

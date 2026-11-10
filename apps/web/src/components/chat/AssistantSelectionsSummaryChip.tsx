@@ -2,9 +2,8 @@
 // Purpose: Renders the compact assistant-selection count chip used in composer and user bubbles.
 // Layer: Chat attachment presentation
 
-import { pluralize } from "@moss/shared/text";
-
 import { MessageCircleIcon } from "~/lib/icons";
+import { useTranslation } from "~/localization";
 import { type ChatAssistantSelectionAttachment } from "../../types";
 import { AttachmentSummaryChip } from "./AttachmentSummaryChip";
 
@@ -13,20 +12,20 @@ interface AssistantSelectionsSummaryChipProps {
   onRemove?: (() => void) | undefined;
 }
 
-function selectionCountLabel(count: number): string {
-  return `${count} ${pluralize(count, "selection")}`;
-}
-
 export function AssistantSelectionsSummaryChip(props: AssistantSelectionsSummaryChipProps) {
-  if (props.selections.length === 0) {
+  const { t, format } = useTranslation();
+  const count = props.selections.length;
+  if (count === 0) {
     return null;
   }
 
   return (
     <AttachmentSummaryChip
       icon={MessageCircleIcon}
-      label={selectionCountLabel(props.selections.length)}
-      removeLabel="Remove selections"
+      label={
+        count === 1 ? t("attachments.quotes.one") : format("attachments.quotes.many", { count })
+      }
+      removeLabel={t("attachments.quotes.remove")}
       onRemove={props.onRemove}
       tooltip={props.selections.map((selection) => (
         <p key={selection.id} className="text-ui leading-relaxed">

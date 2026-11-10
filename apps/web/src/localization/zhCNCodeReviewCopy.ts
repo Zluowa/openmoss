@@ -26,7 +26,8 @@ const CODE_REVIEW_COPY: Readonly<Record<string, string>> = {
   "Nothing on GitHub needs you right now": "GitHub 上暂时没有需要你处理的内容",
   "Pull requests and issues you opened, that await your review, or that are assigned to you show up here. Add a project to see everything in its repository.":
     "你发起的、等你审查的和指派给你的拉取请求和问题会显示在这里。添加项目后，还能看到该仓库里的全部内容。",
-  "Your GitHub items could not be loaded": "未能读取你在 GitHub 上的内容",
+  "Couldn't read your GitHub items yet": "暂时没读到你在 GitHub 上的内容",
+  "Select Try again to read them again.": "点“重试”再读一次。",
   "Side chats need a project": "侧边对话需要一个项目",
   "Add this repository as a project in Moss to ask an agent about it.":
     "把这个仓库添加为 Moss 项目后，就可以让智能体处理它。",

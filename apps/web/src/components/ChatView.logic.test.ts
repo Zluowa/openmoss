@@ -1787,11 +1787,11 @@ describe("deriveComposerSendState", () => {
     expect(state.hasSendableContent).toBe(true);
   });
 
-  it("treats assistant selections as sendable content", () => {
-    const state = deriveComposerSendState({
-      prompt: "",
-      imageCount: 0,
-      fileCount: 0,
+  const quoteState = (overrides: { prompt?: string; imageCount?: number; fileCount?: number }) =>
+    deriveComposerSendState({
+      prompt: overrides.prompt ?? "",
+      imageCount: overrides.imageCount ?? 0,
+      fileCount: overrides.fileCount ?? 0,
       assistantSelectionCount: 1,
       browserAnnotationCount: 0,
       fileCommentCount: 0,
@@ -1800,7 +1800,16 @@ describe("deriveComposerSendState", () => {
       pullRequestContexts: [],
     });
 
-    expect(state.hasSendableContent).toBe(true);
+  it("does not send a quote alone, but keeps it as draft content", () => {
+    const state = quoteState({ prompt: "  " });
+    expect(state.hasSendableContent).toBe(false);
+    expect(state.hasDraftContent).toBe(true);
+  });
+
+  it("sends a quote with the reader's words or another attachment", () => {
+    expect(quoteState({ prompt: "Why?" }).hasSendableContent).toBe(true);
+    expect(quoteState({ imageCount: 1 }).hasSendableContent).toBe(true);
+    expect(quoteState({ fileCount: 1 }).hasSendableContent).toBe(true);
   });
 });
 

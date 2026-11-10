@@ -1150,10 +1150,10 @@ export default function ChatView({
   );
   const activeThread = serverThread ?? localDraftThread;
   useEffect(() => {
-    if (composerSendState.hasSendableContent || (activeThread?.messages.length ?? 0) > 0) {
+    if (composerSendState.hasDraftContent || (activeThread?.messages.length ?? 0) > 0) {
       onConversationActivity?.();
     }
-  }, [activeThread?.messages.length, composerSendState.hasSendableContent, onConversationActivity]);
+  }, [activeThread?.messages.length, composerSendState.hasDraftContent, onConversationActivity]);
   // Invocation needs the current revocation generation before the preview appears.
   useThreadComputerStateSeed(threadId);
   const computerAvailability = useThreadComputerAvailability(threadId);
@@ -6816,7 +6816,8 @@ export default function ChatView({
     thread: activeThread,
     provider: activeThread?.session?.provider ?? activeThreadProvider,
     isServerThread,
-    hasSendableContent: composerSendState.hasSendableContent,
+    // A quote waiting in the composer keeps the send button; it is not a resume.
+    hasSendableContent: composerSendState.hasDraftContent,
     isResponseInProgress: isWorking,
     hasActiveUnpausedGoal:
       (activeThread?.goal ?? "").trim().length > 0 && activeThread?.goalPausedAt == null,

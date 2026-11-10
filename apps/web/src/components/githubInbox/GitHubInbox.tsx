@@ -584,7 +584,7 @@ export function GitHubInbox({
                   <EmptyHeader>
                     <EmptyTitle>
                       {repositoryProjects.length === 0 && listData?.personalState === "unavailable"
-                        ? "Your GitHub items could not be loaded"
+                        ? "Couldn't read your GitHub items yet"
                         : repositoryProjects.length === 0 && listData?.personalState === "loaded"
                           ? activeFilterCount > 0
                             ? `No ${noun} found`
@@ -601,7 +601,7 @@ export function GitHubInbox({
                     </EmptyTitle>
                     <EmptyDescription>
                       {repositoryProjects.length === 0 && listData?.personalState === "unavailable"
-                        ? "Check your connection and try again."
+                        ? "Select Try again to read them again."
                         : repositoryProjects.length === 0 && listData?.personalState === "loaded"
                           ? activeFilterCount > 0
                             ? "Try another filter, or clear them."

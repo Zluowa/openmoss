@@ -12691,6 +12691,76 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("quote + Enter + Enter sends nothing until the reader writes", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-quote-only" as MessageId,
+      targetText: "Quote only test",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          messages: thread.messages.slice(-2),
+        })),
+      },
+    });
+    const turnStarts = () =>
+      wsRequests
+        .map(readDispatchedCommand)
+        .filter((command) => command?.type === "thread.turn.start");
+    try {
+      const composerEditor = await waitForComposerEditor();
+      await waitForLayout();
+      composerEditor.focus();
+      await selectAssistantFiller({ keepFocus: true });
+      await expect.element(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
+      wsRequests.length = 0;
+      const userRowsBefore = document.querySelectorAll('[data-message-role="user"]').length;
+
+      // Enter on the popover quotes; a second, separate Enter in the empty composer.
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(() =>
+        expect(
+          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.assistantSelections,
+        ).toHaveLength(1),
+      );
+      expect(document.activeElement).toBe(composerEditor);
+      await userEvent.keyboard("{Enter}");
+      await userEvent.keyboard("{Enter}");
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 600));
+
+      expect(turnStarts()).toHaveLength(0);
+      expect(document.querySelectorAll('[data-message-role="user"]').length).toBe(userRowsBefore);
+      const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+      expect(draft?.assistantSelections).toHaveLength(1);
+      expect(page.getByText("1 selection", { exact: true }).elements()).toHaveLength(1);
+      expect((await waitForSendButton()).disabled).toBe(true);
+
+      // The reader's words make it a message: one send with the quote and the text.
+      await userEvent.keyboard("What does this mean?");
+      await vi.waitFor(async () => expect((await waitForSendButton()).disabled).toBe(false));
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(
+        () => {
+          const sends = turnStarts();
+          expect(sends).toHaveLength(1);
+          const text = String((sends[0]?.message as { text?: string } | undefined)?.text ?? "");
+          expect(text).toContain("What does this mean?");
+          expect(text).toContain("<assistant_selection>");
+          expect(text).toContain("assistant filler 21");
+        },
+        { timeout: 15_000 },
+      );
+    } finally {
+      window.getSelection()?.removeAllRanges();
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
   it("quotes into the composer from the Reply button and keeps the current draft", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const snapshot = createSnapshotForTargetUser({

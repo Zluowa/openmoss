@@ -50,6 +50,12 @@ import {
 } from "../Services/GitHubCli.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * The viewer's own search spans every repository they can see. GitHub answers it in a few
+ * seconds when warm, but the first call after a start (cold gh, cold search) can take longer
+ * than the default, so it gets more room.
+ */
+export const GITHUB_VIEWER_INBOX_TIMEOUT_MS = 60_000;
 const PULL_REQUEST_DIFF_MAX_BYTES = 8 * 1024 * 1024;
 const GITHUB_HOST = "github.com";
 
@@ -2248,10 +2254,12 @@ const makeGitHubCli = Effect.gen(function* () {
     cwd: string,
     fieldArgs: (includeStacks: boolean) => ReadonlyArray<string>,
     decode: (stdout: string) => Effect.Effect<A, GitHubCliError>,
+    timeoutMs?: number,
   ): Effect.Effect<A, GitHubCliError> => {
     const run = (includeStacks: boolean) =>
       execute({
         cwd,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
         args: ["api", "graphql", "--hostname", GITHUB_HOST, "-f", ...fieldArgs(includeStacks)],
       }).pipe(Effect.flatMap((result) => decode(result.stdout)));
     if (!inboxStackFieldsSupported) return run(false);
@@ -2305,6 +2313,7 @@ const makeGitHubCli = Effect.gen(function* () {
           ...githubViewerInboxQueryVariables(input.state, input.sort ?? "updated"),
         ],
         decodeViewerInboxJson,
+        GITHUB_VIEWER_INBOX_TIMEOUT_MS,
       ),
     listRepositoryInboxInvolvement: (input) =>
       validateRepository(input.repository, "listRepositoryInboxInvolvement").pipe(

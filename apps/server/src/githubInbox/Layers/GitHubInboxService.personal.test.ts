@@ -7,7 +7,7 @@ import {
   ProjectId,
   type OrchestrationProject,
 } from "@moss/contracts";
-import { Effect } from "effect";
+import { Effect, Logger } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { GitHubCliError } from "../../git/Errors";
@@ -92,15 +92,19 @@ function makePins(rows: ReadonlyArray<ProjectPullRequestPin> = []): ProjectPullR
 function makeGitHub(input: {
   viewerInbox?: () => string;
   viewerInboxError?: GitHubCliError;
+  /** Per call, in order: an error to fail that call with, or null to answer it. */
+  viewerInboxErrors?: Array<GitHubCliError | null>;
   projectInbox?: (repository: string) => string;
 }) {
   const base = createGitHubCliWithFakeGh().service;
-  const viewerCalls: Array<{ cwd: string; state: string }> = [];
+  const viewerCalls: Array<{ cwd: string; state: string; sort?: string }> = [];
   const github: GitHubCliShape = {
     ...base,
-    listViewerInbox: ({ cwd, state }) =>
+    listViewerInbox: ({ cwd, state, sort }) =>
       Effect.suspend(() => {
-        viewerCalls.push({ cwd, state });
+        viewerCalls.push({ cwd, state, ...(sort ? { sort } : {}) });
+        const scripted = input.viewerInboxErrors?.[viewerCalls.length - 1];
+        if (scripted) return Effect.fail(scripted);
         if (input.viewerInboxError) return Effect.fail(input.viewerInboxError);
         return decodeViewerInboxJson(input.viewerInbox?.() ?? viewerInboxJson({}));
       }),
@@ -120,9 +124,15 @@ function runInbox<A, E>(
     repositories?: ReadonlyMap<ProjectId, ReadonlyArray<string>>;
     pins?: ProjectPullRequestPinsShape;
     personal?: boolean;
+    warmUpDelayMs?: number;
+    /** Collects every log line's message parts. */
+    logs?: unknown[][];
   },
   body: (service: Effect.Success<ReturnType<typeof makeGitHubInboxService>>) => Effect.Effect<A, E>,
 ) {
+  const logger = Logger.make(({ message }) => {
+    input.logs?.push(Array.isArray(message) ? message : [message]);
+  });
   return Effect.runPromise(
     Effect.scoped(
       Effect.gen(function* () {
@@ -140,11 +150,26 @@ function runInbox<A, E>(
             }),
           includeUpstreams: () => Effect.succeed(false),
           ...(input.personal === false ? {} : { personalWorkspaceRoot: MOSS_HOME }),
+          ...(input.warmUpDelayMs !== undefined
+            ? { personalWarmUpDelayMs: input.warmUpDelayMs }
+            : {}),
+          personalRetryDelayMs: 0,
         });
         return yield* body(service);
       }),
-    ),
+    ).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false }))),
   );
+}
+
+const timedOut = () =>
+  new GitHubCliError({
+    operation: "execute",
+    detail: "gh api graphql timed out after 60000ms",
+    reason: "other",
+  });
+
+function failureLogs(logs: unknown[][]) {
+  return logs.filter((parts) => parts[0] === "GitHub inbox personal search failed");
 }
 
 describe("My GitHub in the inbox", () => {
@@ -159,7 +184,7 @@ describe("My GitHub in the inbox", () => {
         }),
     });
     const result = await runInbox({ github }, (service) => service.list({ state: "open" }));
-    expect(viewerCalls).toEqual([{ cwd: MOSS_HOME, state: "open" }]);
+    expect(viewerCalls).toEqual([{ cwd: MOSS_HOME, state: "open", sort: "updated" }]);
     expect(result.personalState).toBe("loaded");
     expect(result.repositoryState).toBe("none");
     expect(result.viewer).toBe("octocat");
@@ -249,6 +274,75 @@ describe("My GitHub in the inbox", () => {
         expect(viewerCalls).toHaveLength(1);
         yield* service.list({ state: "open", forceRefresh: true });
         expect(viewerCalls).toHaveLength(2);
+      }),
+    );
+  });
+
+  it("retries one failed first search by itself and logs the cause", async () => {
+    const logs: unknown[][] = [];
+    const { github, viewerCalls } = makeGitHub({
+      viewerInboxErrors: [timedOut(), null],
+      viewerInbox: () =>
+        viewerInboxJson({ authored: [inRepository("octo/tools", fakeInboxPullRequestNode(7))] }),
+    });
+    const result = await runInbox({ github, logs }, (service) => service.list({ state: "open" }));
+    expect(viewerCalls).toHaveLength(2);
+    expect(result.personalState).toBe("loaded");
+    expect(result.items.map((item) => item.number)).toEqual([7]);
+    const [failure] = failureLogs(logs);
+    expect(failure?.[1]).toMatchObject({
+      reason: "other",
+      detail: "gh api graphql timed out after 60000ms",
+      state: "open",
+      attempt: 1,
+    });
+  });
+
+  it("says unavailable after the retry also fails, logging both attempts", async () => {
+    const logs: unknown[][] = [];
+    const { github, viewerCalls } = makeGitHub({ viewerInboxErrors: [timedOut(), timedOut()] });
+    const result = await runInbox({ github, logs }, (service) => service.list({ state: "open" }));
+    expect(viewerCalls).toHaveLength(2);
+    expect(result.personalState).toBe("unavailable");
+    expect(failureLogs(logs).map((parts) => (parts[1] as { attempt: number }).attempt)).toEqual([
+      1, 2,
+    ]);
+    // Not cached as a failure: the person's Try again runs the search afresh.
+    const { github: healthy, viewerCalls: later } = makeGitHub({
+      viewerInboxErrors: [timedOut(), timedOut()],
+    });
+    await runInbox({ github: healthy }, (service) =>
+      Effect.gen(function* () {
+        yield* service.list({ state: "open" });
+        yield* service.list({ state: "open" });
+      }),
+    );
+    expect(later).toHaveLength(3);
+  });
+
+  it("does not retry what a second try cannot fix: rate limits, or gh signed out", async () => {
+    for (const reason of ["rate-limited", "not-authenticated"] as const) {
+      const { github, viewerCalls } = makeGitHub({
+        viewerInboxError: new GitHubCliError({ operation: "execute", detail: reason, reason }),
+      });
+      const result = await runInbox({ github }, (service) => service.list({ state: "open" }));
+      expect(viewerCalls).toHaveLength(1);
+      expect(result.personalState).toBe("unavailable");
+    }
+  });
+
+  it("warms the list Code review opens with, so the first open uses it", async () => {
+    const { github, viewerCalls } = makeGitHub({
+      viewerInbox: () =>
+        viewerInboxJson({ authored: [inRepository("octo/tools", fakeInboxPullRequestNode(7))] }),
+    });
+    await runInbox({ github, warmUpDelayMs: 0 }, (service) =>
+      Effect.gen(function* () {
+        yield* Effect.sleep("20 millis");
+        expect(viewerCalls).toEqual([{ cwd: MOSS_HOME, state: "open", sort: "created" }]);
+        const first = yield* service.list({ state: "open", sort: "created" });
+        expect(first.items.map((item) => item.number)).toEqual([7]);
+        expect(viewerCalls).toHaveLength(1);
       }),
     );
   });

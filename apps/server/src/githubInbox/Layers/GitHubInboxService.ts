@@ -8,7 +8,7 @@ import {
   type OrchestrationProject,
 } from "@moss/contracts";
 import { pullRequestListProjectContexts } from "@moss/shared/githubRepository";
-import { Effect, Layer, Scope, Stream } from "effect";
+import { Duration, Effect, Layer, Scope, Stream } from "effect";
 
 import type { GitHubCliError } from "../../git/Errors";
 import { GITHUB_READ_SLOTS } from "../../git/githubReadGate";
@@ -96,8 +96,40 @@ export interface GitHubInboxServiceDependencies {
    * the built-in "My GitHub" scope, so Code review is useful before any project exists.
    */
   readonly personalWorkspaceRoot?: string;
+  /**
+   * Run the personal search for the default list this long after start, so the first open of
+   * Code review does not pay for a cold gh and a cold GitHub search. Omitted: no warm-up.
+   */
+  readonly personalWarmUpDelayMs?: number;
+  /** Pause before the one automatic retry of a failed personal search; tests shorten it. */
+  readonly personalRetryDelayMs?: number;
   /** Injectable for tests; defaults to `Date.now`. */
   readonly now?: () => number;
+}
+
+/** Failures a second try cannot fix: GitHub's own limit, or gh missing or signed out. */
+function isFinalPersonalSearchFailure(error: unknown): boolean {
+  return (
+    isGlobalGitHubCliError(error) ||
+    (typeof error === "object" &&
+      error !== null &&
+      (error as { reason?: unknown }).reason === "rate-limited")
+  );
+}
+
+/** A short, single-line cause for server.log; gh's message can echo the GraphQL document. */
+function describePersonalSearchFailure(error: unknown): { reason: string; detail: string } {
+  const reason =
+    typeof error === "object" && error !== null && "reason" in error
+      ? String((error as { reason?: unknown }).reason)
+      : "unknown";
+  const raw =
+    typeof error === "object" && error !== null && "detail" in error
+      ? String((error as { detail?: unknown }).detail)
+      : error instanceof Error
+        ? error.message
+        : String(error);
+  return { reason, detail: raw.replace(/\s+/gu, " ").trim().slice(0, 300) };
 }
 
 /** Search rows already listed under a project stay there; the rest join "My GitHub". */
@@ -462,28 +494,64 @@ export const makeGitHubInboxService = (
       });
 
     /** The person's own search, or null where it is not offered. Failures stay out of the
-     * project rows: they only mark the "My GitHub" scope unavailable. */
+     * project rows: they only mark the "My GitHub" scope unavailable, and are logged with their
+     * cause. One failure that a second try can fix is retried once before that. */
     const loadPersonal = (input: GitHubInboxListInput) => {
       if (!personalProject) return Effect.succeed(null);
+      const project = personalProject;
       const sort = input.sort ?? "updated";
       const key = `${input.state}\u0000${sort}`;
-      return (input.forceRefresh === true ? personalCache.invalidate(key) : Effect.void).pipe(
-        Effect.andThen(
-          personalCache.get(
-            key,
-            withGitHubRead(
-              dependencies.github.listViewerInbox({
-                cwd: personalProject.workspaceRoot,
-                state: input.state,
-                sort,
-              }),
+      const attempt = (attemptNumber: number) =>
+        Effect.suspend(() => {
+          const startedAt = Date.now();
+          return withGitHubRead(
+            dependencies.github.listViewerInbox({
+              cwd: project.workspaceRoot,
+              state: input.state,
+              sort,
+            }),
+          ).pipe(
+            Effect.tapError((error) =>
+              // gh missing or signed out is expected (the gate handles it); anything else is not.
+              (isGlobalGitHubCliError(error) ? Effect.logInfo : Effect.logWarning)(
+                "GitHub inbox personal search failed",
+                {
+                  ...describePersonalSearchFailure(error),
+                  state: input.state,
+                  sort,
+                  attempt: attemptNumber,
+                  durationMs: Date.now() - startedAt,
+                },
+              ),
             ),
-          ),
+          );
+        });
+      const search = attempt(1).pipe(
+        Effect.catch((error) =>
+          isFinalPersonalSearchFailure(error)
+            ? Effect.fail(error)
+            : Effect.sleep(Duration.millis(dependencies.personalRetryDelayMs ?? 2_000)).pipe(
+                Effect.andThen(attempt(2)),
+              ),
         ),
+      );
+      return (input.forceRefresh === true ? personalCache.invalidate(key) : Effect.void).pipe(
+        Effect.andThen(personalCache.get(key, search)),
         Effect.map((inbox) => ({ _tag: "loaded" as const, inbox })),
         Effect.catch(() => Effect.succeed({ _tag: "unavailable" as const })),
       );
     };
+
+    // Warm the list Code review opens with (open, newest first), so the first open is quick.
+    // A failure here is already logged and simply leaves the cache empty.
+    if (personalProject && dependencies.personalWarmUpDelayMs !== undefined) {
+      yield* Effect.forkScoped(
+        Effect.sleep(Duration.millis(dependencies.personalWarmUpDelayMs)).pipe(
+          Effect.andThen(loadPersonal({ state: "open", sort: "created" })),
+          Effect.ignore,
+        ),
+      );
+    }
 
     const list: GitHubInboxServiceShape["list"] = (input) =>
       Effect.gen(function* () {
@@ -632,6 +700,8 @@ export const GitHubInboxServiceLive = Layer.effect(
       github,
       pins,
       personalWorkspaceRoot: config.baseDir,
+      // Server test stacks build this layer too; they must never start a real gh search.
+      ...(process.env.VITEST ? {} : { personalWarmUpDelayMs: 5_000 }),
       listProjects: () =>
         projection
           .getShellSnapshot()

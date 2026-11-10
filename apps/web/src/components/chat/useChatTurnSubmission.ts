@@ -627,7 +627,8 @@ export function useChatTurnSubmission({
         expiredTerminalContextCount,
         sendablePastedTexts: sendableComposerPastedTexts,
         sendablePullRequestContexts: sendableComposerPullRequestContexts,
-        hasSendableContent,
+        hasSendableContent: hasSendableComposerContent,
+        hasDraftContent,
       } = deriveComposerSendState({
         prompt: promptForSend,
         imageCount: composerImagesForSend.length,
@@ -639,6 +640,9 @@ export function useChatTurnSubmission({
         pastedTexts: composerPastedTextsForSend,
         pullRequestContexts: composerPullRequestContextsForSend,
       });
+      // A turn queued earlier already passed the composer's check when it was queued.
+      const hasSendableContent =
+        queuedChatTurn !== null ? hasDraftContent : hasSendableComposerContent;
       let trimmedPromptForSend = trimmed;
       const restoredQueuedPlanDraftSource =
         queuedChatTurn === null &&

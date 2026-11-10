@@ -1883,7 +1883,14 @@ export function deriveComposerSendState(options: {
   expiredTerminalContextCount: number;
   sendablePastedTexts: PastedTextDraft[];
   sendablePullRequestContexts: PullRequestContextDraft[];
+  /**
+   * The reader wrote something or attached something besides quotes. A quote alone
+   * (assistant selections, no text) is not a message (desktop chat): Enter and Send
+   * do nothing until the reader adds their own words.
+   */
   hasSendableContent: boolean;
+  /** Anything at all in the composer, quotes included. */
+  hasDraftContent: boolean;
 } {
   const trimmedPrompt = stripInlineTerminalContextPlaceholders(options.prompt).trim();
   const sendableTerminalContexts = filterTerminalContextsWithText(options.terminalContexts);
@@ -1891,22 +1898,23 @@ export function deriveComposerSendState(options: {
     options.terminalContexts.length - sendableTerminalContexts.length;
   const sendablePastedTexts = filterPastedTextsWithText(options.pastedTexts);
   const sendablePullRequestContexts = normalizePullRequestContexts(options.pullRequestContexts);
+  const hasSendableContent =
+    trimmedPrompt.length > 0 ||
+    options.imageCount > 0 ||
+    options.fileCount > 0 ||
+    options.browserAnnotationCount > 0 ||
+    options.fileCommentCount > 0 ||
+    sendableTerminalContexts.length > 0 ||
+    sendablePastedTexts.length > 0 ||
+    sendablePullRequestContexts.length > 0;
   return {
     trimmedPrompt,
     sendableTerminalContexts,
     expiredTerminalContextCount,
     sendablePastedTexts,
     sendablePullRequestContexts,
-    hasSendableContent:
-      trimmedPrompt.length > 0 ||
-      options.imageCount > 0 ||
-      options.fileCount > 0 ||
-      options.assistantSelectionCount > 0 ||
-      options.browserAnnotationCount > 0 ||
-      options.fileCommentCount > 0 ||
-      sendableTerminalContexts.length > 0 ||
-      sendablePastedTexts.length > 0 ||
-      sendablePullRequestContexts.length > 0,
+    hasSendableContent,
+    hasDraftContent: hasSendableContent || options.assistantSelectionCount > 0,
   };
 }
 

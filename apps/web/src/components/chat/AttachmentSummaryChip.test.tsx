@@ -7,6 +7,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { MossLocaleScope } from "~/localization";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
 
 describe("AssistantSelectionsSummaryChip", () => {
@@ -36,6 +37,33 @@ describe("AssistantSelectionsSummaryChip", () => {
 
     expect(markup).toContain("1 selection");
     expect(markup).not.toContain("Remove selections");
+  });
+
+  it("reads as quotes in Chinese", () => {
+    const one = renderToStaticMarkup(
+      <MossLocaleScope locale="zh-CN">
+        <AssistantSelectionsSummaryChip
+          selections={[
+            { type: "assistant-selection", id: "a", assistantMessageId: "m1", text: "only" },
+          ]}
+          onRemove={() => {}}
+        />
+      </MossLocaleScope>,
+    );
+    expect(one).toContain("1 段引用");
+    expect(one).toContain("移除引用");
+    const many = renderToStaticMarkup(
+      <MossLocaleScope locale="zh-CN">
+        <AssistantSelectionsSummaryChip
+          selections={[
+            { type: "assistant-selection", id: "a", assistantMessageId: "m1", text: "first" },
+            { type: "assistant-selection", id: "b", assistantMessageId: "m1", text: "second" },
+            { type: "assistant-selection", id: "c", assistantMessageId: "m2", text: "third" },
+          ]}
+        />
+      </MossLocaleScope>,
+    );
+    expect(many).toContain("3 段引用");
   });
 
   it("renders nothing when empty", () => {
