@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { outboundHttp } from "@synara/shared/outboundHttp";
+import { outboundHttp } from "@moss/shared/outboundHttp";
 
 import {
   MossMediaJobsService,
@@ -66,27 +66,49 @@ const catalog = () =>
   });
 
 describe("MossMediaJobsService", () => {
+  it("refetches an accepted job's image after a download failure without another supplier request", async () => {
+    let now = Date.now();
+    const gateway = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/catalog")) return catalog();
+      if (String(url).endsWith("/generations")) return Response.json({ taskToken: "accepted" });
+      return Response.json({
+        pending: false,
+        billingStatus: "captured",
+        imageUrl: "https://assets.example/cat.png",
+      });
+    });
+    vi.mocked(outboundHttp.request).mockRejectedValueOnce(new Error("download unavailable"));
+    const service = new MossMediaJobsService({
+      stateDirectory: stateDirectory(),
+      fetchImpl: gateway,
+      brokerOptions: { pollMs: 0, now: () => now },
+    });
+    const job = await service.create(request, credential);
+    await vi.waitFor(() =>
+      expect(service.get(job.jobId, credential)).toMatchObject({
+        status: "succeeded",
+        persistenceStatus: "failed",
+        billingStatus: "captured",
+      }),
+    );
+    const requests = gateway.mock.calls.length;
+    now += 6_000;
+    const results = await Promise.all([
+      service.check(job.jobId, credential),
+      service.check(job.jobId, credential),
+    ]);
+    expect(
+      results.every((item) => item.persistenceStatus === "ready" && item.assets?.length === 1),
+    ).toBe(true);
+    expect(outboundHttp.request).toHaveBeenCalledTimes(2);
+    expect(gateway).toHaveBeenCalledTimes(requests);
+  });
   it("delivers saved images to the original turn without polling or Markdown and replays them without billing again", async () => {
     const directory = stateDirectory();
     const workspace = { threadId: "thread-gallery", cwd: directory, title: "Gallery" };
-    const assetsRoot = join(directory, ".moss", "canvas", "fixture", "assets");
-    let reportedAssetsRoot = assetsRoot;
-    await mkdir(assetsRoot, { recursive: true });
-    vi.spyOn(canvasStorage, "mossCanvasStorageFor").mockResolvedValue({
-      request: vi.fn(async (method, input) => {
-        if (method === "workspace.importAssetBytes") {
-          const bytes = Buffer.from(String(input?.bytesBase64), "base64");
-          const name = `${createHash("sha256").update(bytes).digest("hex")}.png`;
-          await writeFile(join(assetsRoot, name), bytes);
-          return { url: `moss-canvas-asset:${name}` };
-        }
-        if (method === "workspace.info") return { assetsRoot: reportedAssetsRoot };
-        return {};
-      }),
-      readAsset: vi.fn(),
-      readKnowledgeAsset: vi.fn(),
-      close: vi.fn(),
-    });
+    const board = vi
+      .spyOn(canvasStorage, "mossCanvasStorageFor")
+      .mockRejectedValue(new Error("Canvas is not available"));
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
       if (String(url).endsWith("/catalog")) return catalog();
       if (String(url).endsWith("/generations")) return Response.json({ taskToken: "fixture-task" });
@@ -102,7 +124,10 @@ describe("MossMediaJobsService", () => {
       fetchImpl,
       brokerOptions: { pollMs: 0 },
     });
-    service.setCanvasWorkspaceResolver(async () => workspace);
+    const canvasRoot = vi.fn(async () => {
+      throw Error("workspace_required");
+    });
+    service.setCanvasWorkspaceResolver(canvasRoot);
     const observations: MossConversationImageObservation[] = [];
     service.setConversationImageObserver(async (value) => {
       observations.push(value);
@@ -125,17 +150,17 @@ describe("MossMediaJobsService", () => {
     expect(completion.accountScope).toBe(mediaAccountScope(credential));
     expect(completion.snapshot.billingStatus).toBe("captured");
     expect(completion.outputs.map((output) => output.index)).toEqual([0, 1]);
-    expect(readFileSync(completion.outputs[0]!.path).byteLength).toBeGreaterThan(0);
+    expect(completion.outputs[0]!.path).toBe(
+      `/api/moss/media/assets/${created.jobId}/0?accountScope=${completion.accountScope}`,
+    );
+    expect(
+      (await service.readAsset(created.jobId, 0, credential)).bytes.byteLength,
+    ).toBeGreaterThan(0);
     const originalCommands = conversationImageActivityCommands(completion);
-    // A bad/missing Canvas path can never publish a guessed successful artifact.
-    // Its supplier result stays captured and a later local repair can redeliver.
-    reportedAssetsRoot = stateDirectory();
-    await service.check(created.jobId, credential, "thread:thread-gallery");
-    expect(observations.at(-1)).toMatchObject({ outputs: [], projectionFailed: true });
-    expect((await service.readOwnedJob(created.jobId, credential)).billingStatus).toBe("captured");
-    reportedAssetsRoot = assetsRoot;
     await service.check(created.jobId, credential, "thread:thread-gallery");
     expect(conversationImageActivityCommands(observations.at(-1)!)).toEqual(originalCommands);
+    expect(canvasRoot).not.toHaveBeenCalled();
+    expect(board).not.toHaveBeenCalled();
     const generationCalls = fetchImpl.mock.calls.filter(([url]) =>
       String(url).endsWith("/generations"),
     );
@@ -162,6 +187,29 @@ describe("MossMediaJobsService", () => {
     expect(replay.length).toBeGreaterThan(0);
     expect(replay.every((item) => item.origin.turnId === "turn-created")).toBe(true);
     expect(conversationImageActivityCommands(replay.at(-1)!)).toEqual(originalCommands);
+    expect(noNetwork).not.toHaveBeenCalled();
+    // A job made before this change can also retain its original Canvas folder.
+    const originalBinding = join(
+      directory,
+      "media-job-workspaces",
+      mediaAccountScope(credential),
+      `${created.jobId}.json`,
+    );
+    const legacy = JSON.parse(readFileSync(originalBinding, "utf8"));
+    await writeFile(
+      originalBinding,
+      JSON.stringify({ ...legacy, version: 1, cwd: join(directory, "moved-old-board") }),
+    );
+    await restored.create(
+      { ...request, projectId: "thread:thread-gallery" },
+      credential,
+      undefined,
+      undefined,
+      { threadId: "thread-gallery", turnId: "turn-later" },
+    );
+    expect(JSON.parse(readFileSync(originalBinding, "utf8")).imageOrigin.turnId).toBe(
+      "turn-created",
+    );
     expect(noNetwork).not.toHaveBeenCalled();
     await expect(
       restored.check(

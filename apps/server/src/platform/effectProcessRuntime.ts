@@ -1,3 +1,4 @@
+import { withWindowsPowerShellModules } from "@moss/shared/platformEnvironment";
 // FILE: effectProcessRuntime.ts
 // Purpose: Builds Effect child-process commands from the shared platform planner.
 // Layer: Server platform runtime
@@ -6,10 +7,11 @@ import {
   lowerProcessPriority,
   prepareProcess,
   type ProcessLaunchInput,
-} from "@synara/shared/platformProcess";
+} from "@moss/shared/platformProcess";
 import { Effect, PlatformError } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { providerProcessPriorityEnabled } from "../providerProcessPriority";
+import { trackOwnedProviderProcess } from "./windowsProviderProcessGuard";
 
 /** Keep agent CPU scheduling in the same boundary as process launch planning. */
 export function spawnProviderProcess(
@@ -34,7 +36,12 @@ export function spawnProviderProcess(
           cause,
         }),
     });
+    const notBeforeMs = Date.now();
     const child = yield* spawner.spawn(prepared.command);
+    const releaseFromGuard = trackOwnedProviderProcess(Number(child.pid), notBeforeMs);
+    // Finalizers run last-added first, so the owner's teardown, added after this
+    // returns, finishes while the guard is still watching the tree.
+    yield* Effect.addFinalizer(() => Effect.sync(releaseFromGuard));
     if (
       enabled &&
       ((options.platform ?? process.platform) === "win32" || !prepared.priorityBeforeExec)
@@ -110,6 +117,9 @@ function prepareEffectProcessCommand(
 
   const effectOptions: EffectWindowsCommandOptions = {
     ...commandOptions,
+    ...(effectivePlatform === "win32"
+      ? { env: withWindowsPowerShellModules(env ?? process.env) }
+      : {}),
     shell: false,
     ...(plan.windowsHide ? { windowsHide: true } : {}),
     ...(plan.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),

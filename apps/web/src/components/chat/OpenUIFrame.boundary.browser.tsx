@@ -5,10 +5,15 @@
 //          where the chat library's capability edge is.
 // Layer: Chat UI browser tests
 
+// The app stylesheet: without it the dashboard's grid classes do nothing, every card
+// stacks, and the layout checks below measure an unstyled page.
+import "../../index.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
+import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
+import { MOSS_DASHBOARD_EXAMPLE } from "../../lib/openUIChatReference";
 import ChatMarkdown from "../ChatMarkdown";
 
 async function renderMarkdown(text: string, threadId: string, width = 720) {
@@ -211,6 +216,48 @@ it("renders the full-absorption charts (funnel, heatmap, segmented, mini, calend
     );
     expect(mounted.baseElement.querySelector("[data-openui-state='error']")).toBeNull();
     expect(mounted.baseElement.querySelector("iframe")).toBeNull();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+// Dashboard kit: Moss's worked example renders as its own root, its KPI row wraps to two
+// columns at phone width, and its region filter re-derives every value in the page.
+const DASHBOARD_KIT = MOSS_DASHBOARD_EXAMPLE.slice(MOSS_DASHBOARD_EXAMPLE.indexOf("root = "));
+
+it.each([360, 720])("renders the dashboard kit example at %ipx", async (width) => {
+  const mounted = await renderMarkdown(
+    `\`\`\`openui\n${DASHBOARD_KIT}\n\`\`\``,
+    `openui-boundary-dashboard-${width}`,
+    width,
+  );
+  try {
+    await expect.element(mounted.getByText("Sales overview")).toBeInTheDocument();
+    await expect.element(mounted.getByText("$237k")).toBeInTheDocument();
+    await waitForState(mounted, "ready");
+    const kpis = [
+      ...mounted.baseElement.querySelectorAll("[data-card-row='small'] > [data-dashboard-card]"),
+    ];
+    expect(kpis).toHaveLength(3);
+    const lines = new Set(kpis.map((card) => Math.round(card.getBoundingClientRect().top)));
+    expect(lines.size).toBe(width < 400 ? 2 : 1);
+    expect(mounted.baseElement.querySelector("[data-openui-state='error']")).toBeNull();
+  } finally {
+    await mounted.unmount();
+  }
+});
+
+it("filters the dashboard kit example in the page", async () => {
+  const mounted = await renderMarkdown(
+    `\`\`\`openui\n${DASHBOARD_KIT}\n\`\`\``,
+    "openui-boundary-dashboard-filter",
+  );
+  try {
+    await expect.element(mounted.getByText("$237k")).toBeInTheDocument();
+    await page.getByRole("combobox", { name: "Region" }).click();
+    await page.getByRole("option", { name: "North America", exact: true }).click();
+    await expect.element(mounted.getByText("$137k")).toBeInTheDocument();
+    await expect.element(mounted.getByText("$45.7k")).toBeInTheDocument();
   } finally {
     await mounted.unmount();
   }

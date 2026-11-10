@@ -7,8 +7,8 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as nodePath from "node:path";
 
-import type { WorkspaceImportSkillCopy, WorkspaceImportSourceKind } from "@synara/contracts";
-import { normalizeWorkspaceImportSource } from "@synara/contracts";
+import type { WorkspaceImportSkillCopy, WorkspaceImportSourceKind } from "@moss/contracts";
+import { normalizeWorkspaceImportSource } from "@moss/contracts";
 import { mossSkillsDir } from "../provider/skillsCatalog";
 import { isSafeSkillName, skillRootsForSource } from "./paths";
 import { readRegularFileNoFollow, writeNewFileNoFollow } from "./safeFile";

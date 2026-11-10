@@ -17,7 +17,7 @@
  */
 import { pathToFileURL } from "node:url";
 
-import { isSupportedProviderKind, type SupportedProviderKind } from "@synara/contracts";
+import { isSupportedProviderKind, type SupportedProviderKind } from "@moss/contracts";
 import {
   materializeMossWorkspaceProjections,
   readMossProjectionManifestSummary,
@@ -25,7 +25,7 @@ import {
   type MaterializedMossWorkspaceProjections,
   type MossProjectionManifestSummary,
   type RemoveMossProjectionResourceResult,
-} from "@synara/shared/mossProjectionMaterializer";
+} from "@moss/shared/mossProjectionMaterializer";
 
 export interface MossMaterializeCliOptions {
   workspace: string;

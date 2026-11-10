@@ -5,7 +5,7 @@ import type {
   ProjectId,
   PullRequestActor,
   PullRequestListEntry,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   filterInboxItemsByInvolvement,

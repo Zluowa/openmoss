@@ -4,7 +4,7 @@
 // Layer: UI component (pure)
 // Exports: PrStateChip
 
-import type { OrchestrationThreadPullRequest } from "@synara/contracts";
+import type { OrchestrationThreadPullRequest } from "@moss/contracts";
 import type { KeyboardEvent, MouseEvent } from "react";
 
 import { cn } from "~/lib/utils";

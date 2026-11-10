@@ -8,7 +8,7 @@ import nodePath from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { outboundHttp, type OutboundHttpPolicy } from "@synara/shared/outboundHttp";
+import { outboundHttp, type OutboundHttpPolicy } from "@moss/shared/outboundHttp";
 import { devinUsageFetcher, parseDevinUsage } from "./devin";
 
 const NOW_MS = 1_780_000_000_000;

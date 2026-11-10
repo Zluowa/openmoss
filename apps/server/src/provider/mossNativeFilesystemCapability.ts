@@ -10,7 +10,7 @@ import type {
   MossFilesystemIdentity,
   MossOwnershipStore,
   MossPrivateStage,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { MossResourceImportError } from "./mossResourceImport.ts";
 import {

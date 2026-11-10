@@ -166,6 +166,8 @@ export function themeSkinToChromeThemePatch(
       accent: oklchToHex(swatches.baseHeavy),
       contrast: 62,
       ink: oklchToHex(swatches.neutralLight),
+      // The skin paints the sidebar itself (`--moss-theme-skin-sidebar-surface`).
+      sidebar: null,
       surface: oklchToHex(swatches.neutralDark),
     };
   }
@@ -174,6 +176,7 @@ export function themeSkinToChromeThemePatch(
     accent: oklchToHex(swatches.baseHeavy),
     contrast: 44,
     ink: oklchToHex(swatches.neutralDark),
+    sidebar: null,
     surface: oklchToHex(swatches.baseLight),
   };
 }

@@ -3,8 +3,8 @@
 // Layer: Persistence compatibility helper
 // Exports: normalizeLegacyModelSelection, normalizePersistedModelSelection
 
-import { ProviderInstanceId, type ServerSettings } from "@synara/contracts";
-import { isDroidExclusiveModelSlug, isProviderKind } from "@synara/shared/providerInstances";
+import { ProviderInstanceId, type ServerSettings } from "@moss/contracts";
+import { isDroidExclusiveModelSlug, isProviderKind } from "@moss/shared/providerInstances";
 import { Schema } from "effect";
 
 type ModelProviderKind =

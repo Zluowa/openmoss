@@ -6,7 +6,7 @@ import {
   ProjectId,
   ThreadId,
   type OrchestrationEvent,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 

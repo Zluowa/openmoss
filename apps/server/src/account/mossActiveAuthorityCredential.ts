@@ -8,7 +8,7 @@ import {
   MOSS_ACCESS_LANE_SPECS,
   mossAccessLaneForAuthority,
   type MossRealm,
-} from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossRealmCatalog";
 import { Effect } from "effect";
 
 import type { MossManagedGatewayAuthority } from "../provider/mossManagedGatewayTrust";

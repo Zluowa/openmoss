@@ -18,7 +18,7 @@ import { isIP } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 import {
   MOSS_PLUGIN_CAPABILITY_MATRIX,
   MOSS_ENGINE_NATIVE_TARGETS,
@@ -26,15 +26,15 @@ import {
   type MossPluginExecutionMode,
   type MossPluginProviderCapability,
   type MossPluginProjectionMode,
-} from "@synara/shared/mossProjectionGovernance";
+} from "@moss/shared/mossProjectionGovernance";
 import {
   materializeMossProjection,
   mossProjectionContentHash,
   reconcileMossProjectionResources,
   type MossProjectionMaterializeResult,
   type MossProjectionOwnershipStore,
-} from "@synara/shared/mossProjectionMaterializer";
-import type { MossAcpMcpServer } from "@synara/shared/mossAcpMcpServers";
+} from "@moss/shared/mossProjectionMaterializer";
+import type { MossAcpMcpServer } from "@moss/shared/mossAcpMcpServers";
 import {
   discoverMossSourceResources,
   readMossPluginManifest,
@@ -44,7 +44,7 @@ import {
   type MossPluginComponentKind,
   type MossPluginIR,
   type MossPluginValidation,
-} from "@synara/shared/mossResourceRegistry";
+} from "@moss/shared/mossResourceRegistry";
 
 export type MossPluginRuntimeComponentStatus = "ready" | "degraded" | "display-only" | "blocked";
 

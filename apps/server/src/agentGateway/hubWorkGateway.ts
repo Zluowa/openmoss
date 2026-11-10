@@ -1,4 +1,4 @@
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@moss/contracts";
 import type { AgentGatewayOperationRepositoryShape } from "./Services/AgentGatewayOperationRepository";
 import type { ProjectionThreadMessageRepositoryShape } from "../persistence/Services/ProjectionThreadMessages";
 import type { ProjectionTurnRepositoryShape } from "../persistence/Services/ProjectionTurns";
@@ -9,7 +9,7 @@ import {
   hubWorkItem,
   type HubWorkRecord,
   type MossCreateThreadsInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Option, Schema } from "effect";
 
 import type { OrchestrationCommandReceiptRepositoryShape } from "../persistence/Services/OrchestrationCommandReceipts";

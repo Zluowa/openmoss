@@ -10,7 +10,7 @@
 import { readFile } from "node:fs/promises";
 import nodePath from "node:path";
 
-import { type ProviderListCommandsResult, type RuntimeMode } from "@synara/contracts";
+import { type ProviderListCommandsResult, type RuntimeMode } from "@moss/contracts";
 import { Effect, Layer, Scope, ServiceMap } from "effect";
 import * as AcpErrors from "./AcpErrors.ts";
 import type * as Acp from "@agentclientprotocol/sdk";

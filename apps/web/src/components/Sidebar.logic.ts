@@ -9,13 +9,13 @@ import {
   type ProjectId,
   type SpaceId,
   type ThreadId,
-} from "@synara/contracts";
-import { resolveThreadPresentationOwners } from "@synara/shared/threadHierarchy";
+} from "@moss/contracts";
+import { resolveThreadPresentationOwners } from "@moss/shared/threadHierarchy";
 import { isGroupThreadRoute } from "./SidebarGroupsSurface.logic";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
-import { pluralize } from "@synara/shared/text";
-import { resolveThreadEnvironmentMode } from "@synara/shared/threadEnvironment";
-import { isWorkspaceRootWithin, workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
+import { pluralize } from "@moss/shared/text";
+import { resolveThreadEnvironmentMode } from "@moss/shared/threadEnvironment";
+import { isWorkspaceRootWithin, workspaceRootsEqual } from "@moss/shared/threadWorkspace";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
 import {
   resolveRestorableThreadRoute,

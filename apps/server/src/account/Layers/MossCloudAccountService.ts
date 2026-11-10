@@ -12,7 +12,7 @@ import type {
   MossCloudGoogleAuthorizationUrl,
   MossCloudGoogleOAuthFlowId,
   MossCloudStartGoogleOAuthResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Duration, Effect, Layer, Schedule, Semaphore } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -979,6 +979,7 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
           authority: "supabase-google",
           accessToken: session.accessToken,
           gatewayBaseUrl,
+          now: now(),
         })
         .pipe(
           Effect.mapError((cause) =>
@@ -994,6 +995,11 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
                 );
               case "owned-by-other":
                 return Effect.sync(() => (activeRealm = null)).pipe(Effect.as("deferred" as const));
+              case "same-authority-busy":
+                // The retry marker brings this back on the next maintenance tick.
+                return Effect.sync(() => (activeRealm = "global")).pipe(
+                  Effect.as("deferred" as const),
+                );
               case "same-authority-stale":
               case "missing":
                 return provision;
@@ -2581,7 +2587,7 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
     } satisfies MossCloudAccountServiceShape;
   });
 
-export const startMossCloudAccountSessionMaintenance = (
+export const maintainMossCloudAccountSession = (
   service: Pick<MossCloudAccountServiceShape, "getState">,
 ) =>
   service.getState().pipe(
@@ -2592,8 +2598,15 @@ export const startMossCloudAccountSessionMaintenance = (
         message: error.message,
       }),
     ),
-    Effect.delay(SESSION_MAINTENANCE_INTERVAL),
+  );
+
+export const startMossCloudAccountSessionMaintenance = (
+  service: Pick<MossCloudAccountServiceShape, "getState">,
+) =>
+  maintainMossCloudAccountSession(service).pipe(
+    // The delay stays outside the repeat: inside it, every tick waits for both.
     Effect.repeat(Schedule.spaced(SESSION_MAINTENANCE_INTERVAL)),
+    Effect.delay(SESSION_MAINTENANCE_INTERVAL),
     Effect.forkScoped,
     Effect.asVoid,
   );

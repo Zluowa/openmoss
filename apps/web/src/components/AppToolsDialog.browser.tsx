@@ -3,7 +3,7 @@
 
 import "../index.css";
 
-import type { ProviderAppInfo, ProviderAppTool } from "@synara/contracts";
+import type { ProviderAppInfo, ProviderAppTool } from "@moss/contracts";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

@@ -2,7 +2,7 @@
 // Purpose: Owns OpenRouter's bounded Whisper transcription transport and safe response contract.
 // Layer: Shared Node/Electron provider transport
 
-import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@synara/contracts";
+import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@moss/contracts";
 
 import { decodeOutboundJson, encodeOutboundMultipart, outboundHttp } from "./outboundHttp";
 
@@ -295,7 +295,10 @@ export async function requestMossGatewayVoiceTranscription(input: {
     );
   }
   return requestVoiceTranscription({
-    audio: input.audio,
+    // The Moss gateway forwards the whole body across regions before Whisper runs, so the
+    // clip is shrunk first: Whisper resamples to 16 kHz anyway, and the silence before and
+    // after speech carries no words.
+    audio: compactVoiceWavForTranscription(input.audio),
     mimeType: input.mimeType,
     token: input.token,
     operationId: input.operationId,
@@ -305,6 +308,156 @@ export async function requestMossGatewayVoiceTranscription(input: {
     route: "moss-gateway",
     service: "moss-gateway-voice-transcription",
   });
+}
+
+/** Whisper's native rate; anything above it is resampled away by the model. */
+export const VOICE_TRANSCRIPTION_UPLOAD_SAMPLE_RATE_HZ = 16_000;
+const SILENCE_FRAME_MS = 20;
+const SILENCE_PADDING_MS = 300;
+const SILENCE_ABSOLUTE_PEAK = 0.006 * 32_768;
+const SILENCE_RELATIVE_PEAK = 0.04;
+const MIN_COMPACT_DURATION_MS = 200;
+
+interface Pcm16MonoWav {
+  readonly sampleRateHz: number;
+  readonly samples: Int16Array;
+}
+
+function readPcm16MonoWav(audio: Uint8Array): Pcm16MonoWav | null {
+  if (audio.byteLength < 44) return null;
+  const view = new DataView(audio.buffer, audio.byteOffset, audio.byteLength);
+  const ascii = (offset: number) =>
+    String.fromCharCode(
+      audio[offset] ?? 0,
+      audio[offset + 1] ?? 0,
+      audio[offset + 2] ?? 0,
+      audio[offset + 3] ?? 0,
+    );
+  if (ascii(0) !== "RIFF" || ascii(8) !== "WAVE") return null;
+  let offset = 12;
+  let sampleRateHz = 0;
+  let formatOk = false;
+  while (offset + 8 <= audio.byteLength) {
+    const id = ascii(offset);
+    const size = view.getUint32(offset + 4, true);
+    const body = offset + 8;
+    if (id === "fmt " && size >= 16 && body + 16 <= audio.byteLength) {
+      const format = view.getUint16(body, true);
+      const channels = view.getUint16(body + 2, true);
+      const bitsPerSample = view.getUint16(body + 14, true);
+      sampleRateHz = view.getUint32(body + 4, true);
+      formatOk = format === 1 && channels === 1 && bitsPerSample === 16 && sampleRateHz > 0;
+    } else if (id === "data") {
+      if (!formatOk) return null;
+      const length = Math.min(size, audio.byteLength - body) & ~1;
+      if (length <= 0) return null;
+      const samples = new Int16Array(length / 2);
+      for (let index = 0; index < samples.length; index += 1) {
+        samples[index] = view.getInt16(body + index * 2, true);
+      }
+      return { sampleRateHz, samples };
+    }
+    offset = body + size + (size % 2);
+  }
+  return null;
+}
+
+function writePcm16MonoWav(samples: Int16Array, sampleRateHz: number): Uint8Array {
+  const bytes = new Uint8Array(44 + samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  const writeAscii = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      bytes[offset + index] = value.charCodeAt(index);
+    }
+  };
+  writeAscii(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRateHz, true);
+  view.setUint32(28, sampleRateHz * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  for (let index = 0; index < samples.length; index += 1) {
+    view.setInt16(44 + index * 2, samples[index] ?? 0, true);
+  }
+  return bytes;
+}
+
+/** Keeps speech plus a short pad; a clip with no clear speech is left whole for the model. */
+function trimSilence(samples: Int16Array, sampleRateHz: number): Int16Array {
+  const frame = Math.max(1, Math.round((sampleRateHz * SILENCE_FRAME_MS) / 1_000));
+  const frameCount = Math.ceil(samples.length / frame);
+  const peaks = new Float64Array(frameCount);
+  let maxPeak = 0;
+  for (let frameIndex = 0; frameIndex < frameCount; frameIndex += 1) {
+    let peak = 0;
+    const end = Math.min(samples.length, (frameIndex + 1) * frame);
+    for (let index = frameIndex * frame; index < end; index += 1) {
+      const value = Math.abs(samples[index] ?? 0);
+      if (value > peak) peak = value;
+    }
+    peaks[frameIndex] = peak;
+    if (peak > maxPeak) maxPeak = peak;
+  }
+  if (maxPeak < SILENCE_ABSOLUTE_PEAK) return samples;
+  const threshold = Math.max(SILENCE_ABSOLUTE_PEAK, maxPeak * SILENCE_RELATIVE_PEAK);
+  let first = 0;
+  while (first < frameCount && (peaks[first] ?? 0) < threshold) first += 1;
+  let last = frameCount - 1;
+  while (last > first && (peaks[last] ?? 0) < threshold) last -= 1;
+  const pad = Math.round((sampleRateHz * SILENCE_PADDING_MS) / 1_000);
+  const start = Math.max(0, first * frame - pad);
+  const end = Math.min(samples.length, (last + 1) * frame + pad);
+  return start === 0 && end === samples.length ? samples : samples.subarray(start, end);
+}
+
+/** Light 3-tap low-pass, then linear interpolation down to the target rate. */
+function downsample(samples: Int16Array, fromHz: number, toHz: number): Int16Array {
+  if (fromHz <= toHz || samples.length === 0) return samples;
+  const ratio = fromHz / toHz;
+  const outputLength = Math.max(1, Math.floor(samples.length / ratio));
+  const output = new Int16Array(outputLength);
+  const filtered = (index: number) => {
+    const clamped = Math.min(samples.length - 1, Math.max(0, index));
+    const previous = samples[Math.max(0, clamped - 1)] ?? 0;
+    const current = samples[clamped] ?? 0;
+    const next = samples[Math.min(samples.length - 1, clamped + 1)] ?? 0;
+    return previous * 0.25 + current * 0.5 + next * 0.25;
+  };
+  for (let index = 0; index < outputLength; index += 1) {
+    const source = index * ratio;
+    const left = Math.floor(source);
+    const fraction = source - left;
+    const value = filtered(left) * (1 - fraction) + filtered(left + 1) * fraction;
+    output[index] = Math.max(-32_768, Math.min(32_767, Math.round(value)));
+  }
+  return output;
+}
+
+/**
+ * Shrinks a 16-bit mono PCM WAV clip before it crosses the network: trims leading and trailing
+ * silence and resamples to 16 kHz. Anything it does not recognise is returned unchanged, and the
+ * result is only used when it is actually smaller.
+ */
+export function compactVoiceWavForTranscription(audio: Uint8Array): Uint8Array {
+  const wav = readPcm16MonoWav(audio);
+  if (!wav) return audio;
+  const trimmed = trimSilence(wav.samples, wav.sampleRateHz);
+  const resampled = downsample(
+    trimmed,
+    wav.sampleRateHz,
+    VOICE_TRANSCRIPTION_UPLOAD_SAMPLE_RATE_HZ,
+  );
+  const outputRate = Math.min(wav.sampleRateHz, VOICE_TRANSCRIPTION_UPLOAD_SAMPLE_RATE_HZ);
+  if ((resampled.length / outputRate) * 1_000 < MIN_COMPACT_DURATION_MS) return audio;
+  const compacted = writePcm16MonoWav(resampled, outputRate);
+  return compacted.byteLength < audio.byteLength ? compacted : audio;
 }
 
 async function requestVoiceTranscription(

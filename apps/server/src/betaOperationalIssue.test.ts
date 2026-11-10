@@ -1,11 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { diagnosticIssueReason } from "@synara/shared/diagnosticIssue";
-import { DESKTOP_DIAGNOSTIC_ISSUE_PREFIX } from "@synara/contracts";
+import { diagnosticIssueReason } from "@moss/shared/diagnosticIssue";
+import { DESKTOP_DIAGNOSTIC_ISSUE_PREFIX } from "@moss/contracts";
 import {
   MOSS_DESKTOP_BUNDLE_ID_ENV,
   MOSS_BETA_BUNDLE_ID,
   MOSS_PRODUCTION_BUNDLE_ID,
-} from "@synara/shared/desktopIdentity";
+} from "@moss/shared/desktopIdentity";
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -1,4 +1,4 @@
-import { ServerRuntimeStatus } from "@synara/contracts";
+import { ServerRuntimeStatus } from "@moss/contracts";
 import { Schema } from "effect";
 
 export const DEFAULT_SERVER_STATUS_URL = "http://127.0.0.1:3773";

@@ -2,7 +2,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { resetComposerDraftStore } from "~/composerDraftStoreTestFixtures";
 import { usePluginResourceActions } from "./usePluginResourceActions";

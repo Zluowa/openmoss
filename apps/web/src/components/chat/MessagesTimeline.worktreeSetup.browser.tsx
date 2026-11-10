@@ -4,7 +4,7 @@
 
 import "../../index.css";
 
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@moss/contracts";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";
@@ -218,7 +218,7 @@ describe("MessagesTimeline worktree setup card", () => {
 
     try {
       await expect.poll(() => setupRow() !== null).toBe(true);
-      expect(setupRow()?.textContent).toContain("Preparing worktree...");
+      expect(setupRow()?.textContent).toContain("Preparing worktree…");
       expect(setupRow()?.textContent).toContain("Creating branch");
       const setupShimmer = setupRow()?.querySelector<HTMLElement>(
         '[data-conversation-shimmer="true"]',

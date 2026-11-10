@@ -24,7 +24,7 @@ import {
   type ProcessLaunchInput,
   type ProcessLaunchPlan,
 } from "./platformProcess";
-import { resolveWindowsComSpec } from "./platformEnvironment";
+import { resolveWindowsComSpec, withWindowsPowerShellModules } from "./platformEnvironment";
 
 import { trackProcessSpawn } from "./processSpawnOutcome";
 export { didProcessFailToSpawn } from "./processSpawnOutcome";
@@ -92,9 +92,9 @@ function planFromOptions(
   });
 }
 
-function runtimeOptions<T extends ProcessPlanningOptions & ProcessGroupOptions>(
-  options: T,
-): Omit<T, "platform" | "requireExecutable" | "ownProcessGroup" | "lowerPriority"> {
+function runtimeOptions<
+  T extends ProcessPlanningOptions & ProcessGroupOptions & { env?: NodeJS.ProcessEnv | undefined },
+>(options: T): Omit<T, "platform" | "requireExecutable" | "ownProcessGroup" | "lowerPriority"> {
   const {
     platform: _platform,
     requireExecutable: _requireExecutable,
@@ -102,7 +102,9 @@ function runtimeOptions<T extends ProcessPlanningOptions & ProcessGroupOptions>(
     lowerPriority: _lowerPriority,
     ...nodeOptions
   } = options;
-  return nodeOptions;
+  return (options.platform ?? process.platform) === "win32"
+    ? { ...nodeOptions, env: withWindowsPowerShellModules(nodeOptions.env ?? process.env) }
+    : nodeOptions;
 }
 
 /** Spawn a process without exposing platform-specific Node flags to callers. */

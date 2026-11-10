@@ -4,7 +4,8 @@
 // Exports: dock pane types, default-state factory, and immutable open/close/activate helpers.
 
 import { arrayMove } from "@dnd-kit/sortable";
-import type { ProjectId, ThreadId, TurnId } from "@synara/contracts";
+import type { ProjectId, ThreadId, TurnId } from "@moss/contracts";
+import { isHtmlRenderSurface, type HtmlRenderReference } from "@moss/shared/htmlRender";
 import { resolveTabAfterClose } from "./lib/tabStrip";
 import { sanitizeMossCanvasImageFocus, type MossCanvasImageFocus } from "./lib/mossCanvasBridge";
 import { isPlainObject, sanitizeStringKeyedRecord } from "./persistedRecord";
@@ -22,6 +23,7 @@ export const RIGHT_DOCK_PANE_KINDS = [
   "htmlRender",
   "imagePreview",
   "canvas",
+  "deck",
   "terminal",
   "sidechat",
   "subagents",
@@ -59,6 +61,8 @@ export type RightDockHtmlDocument =
       readonly kind: "html-render";
       readonly attachmentId: string;
       readonly title: string;
+      /** The surface this page is a version of; the pane follows its newest page. */
+      readonly surface?: string;
     }
   | {
       readonly kind: "inline-visualization";
@@ -66,8 +70,18 @@ export type RightDockHtmlDocument =
       readonly title: string;
     };
 
+/** A 资料空间 slides deck shown in the deck editor beside the chat. */
+export interface RightDockDeckReference {
+  readonly pageId: string;
+  /** The deck's 资料空间 scope; null is the local default. */
+  readonly scopeSpaceId: string | null;
+  readonly title: string;
+}
+
 export interface RightDockPane {
   canvasImage?: MossCanvasImageFocus;
+  /** deck panes: the slides deck the editor shows. */
+  deck?: RightDockDeckReference;
   id: string;
   kind: RightDockPaneKind;
   // sidechat panes point at the embedded thread.
@@ -239,7 +253,12 @@ function sanitizeRightDockHtmlDocument(value: unknown): RightDockHtmlDocument | 
   if (title.length === 0 || title.length > 200 || title.includes("\u0000")) return null;
   if (value.kind === "html-render") {
     return typeof value.attachmentId === "string" && /^[a-z\d_-]{1,256}$/iu.test(value.attachmentId)
-      ? { kind: "html-render", attachmentId: value.attachmentId, title }
+      ? {
+          kind: "html-render",
+          attachmentId: value.attachmentId,
+          title,
+          ...(isHtmlRenderSurface(value.surface) ? { surface: value.surface } : {}),
+        }
       : null;
   }
   if (value.kind === "inline-visualization") {
@@ -251,6 +270,25 @@ function sanitizeRightDockHtmlDocument(value: unknown): RightDockHtmlDocument | 
       : null;
   }
   return null;
+}
+
+const DECK_ID_PATTERN = /^[a-z\d][a-z\d._:-]{0,255}$/iu;
+
+export function sanitizeRightDockDeckReference(value: unknown): RightDockDeckReference | null {
+  if (!isPlainObject(value)) return null;
+  const pageId = typeof value.pageId === "string" ? value.pageId.trim() : "";
+  if (!DECK_ID_PATTERN.test(pageId)) return null;
+  const scopeSpaceId =
+    typeof value.scopeSpaceId === "string" && DECK_ID_PATTERN.test(value.scopeSpaceId.trim())
+      ? value.scopeSpaceId.trim()
+      : null;
+  if (value.scopeSpaceId != null && scopeSpaceId === null) return null;
+  const rawTitle = typeof value.title === "string" ? value.title.trim() : "";
+  const title =
+    rawTitle.length > 0 && rawTitle.length <= 256 && !rawTitle.includes("\u0000")
+      ? rawTitle
+      : "幻灯片";
+  return { pageId, scopeSpaceId, title };
 }
 
 export function sanitizeRightDockImagePreviewState(
@@ -332,6 +370,8 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
       ? sanitizeRightDockHtmlDocument(candidate.htmlDocument)
       : undefined;
   if (candidate.kind === "htmlRender" && htmlDocument === null) return null;
+  const deck = candidate.kind === "deck" ? sanitizeRightDockDeckReference(candidate.deck) : null;
+  if (candidate.kind === "deck" && deck === null) return null;
   const imagePreviewField: { imagePreview?: RightDockImagePreviewState | null } =
     candidate.kind === "imagePreview" && imagePreview !== undefined ? { imagePreview } : {};
   const htmlDocumentField: { htmlDocument?: RightDockHtmlDocument } =
@@ -344,6 +384,7 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
     ...(candidate.kind === "canvas" && sanitizeMossCanvasImageFocus(candidate.canvasImage)
       ? { canvasImage: sanitizeMossCanvasImageFocus(candidate.canvasImage)! }
       : {}),
+    ...(deck ? { deck } : {}),
     threadId: typeof candidate.threadId === "string" ? (candidate.threadId as ThreadId) : null,
     subagentsSourceThreadId:
       typeof candidate.subagentsSourceThreadId === "string"
@@ -434,6 +475,7 @@ export function sanitizeRightDockStateByThreadId(
 
 export interface OpenPaneInput {
   canvasImage?: MossCanvasImageFocus;
+  deck?: RightDockDeckReference;
   paneId: string;
   kind: RightDockPaneKind;
   threadId?: ThreadId | null;
@@ -453,7 +495,10 @@ export interface OpenPaneInput {
 }
 
 function createPane(input: OpenPaneInput): RightDockPane | null {
+  const deck = input.kind === "deck" ? sanitizeRightDockDeckReference(input.deck) : null;
+  if (input.kind === "deck" && deck === null) return null;
   const basePane = {
+    ...(deck ? { deck } : {}),
     id: input.paneId,
     kind: input.kind,
     ...(input.kind === "canvas" && sanitizeMossCanvasImageFocus(input.canvasImage)
@@ -484,6 +529,10 @@ function createPane(input: OpenPaneInput): RightDockPane | null {
 // overwrite content metadata when the caller explicitly targets new content,
 // so a bare re-open/toggle keeps the pane focused on what it currently shows.
 function singletonPaneReopenPatch(input: OpenPaneInput): Partial<RightDockPane> | null {
+  if (input.kind === "deck" && input.deck !== undefined) {
+    const deck = sanitizeRightDockDeckReference(input.deck);
+    return deck ? { deck } : null;
+  }
   if (input.kind === "canvas" && input.canvasImage !== undefined) {
     const canvasImage = sanitizeMossCanvasImageFocus(input.canvasImage);
     return canvasImage ? { canvasImage } : null;
@@ -559,18 +608,53 @@ function findMatchingMultiInstancePane(
     const document = input.htmlDocument;
     return document
       ? state.panes.find(
-          (pane) =>
-            pane.kind === "htmlRender" &&
-            pane.htmlDocument?.kind === document.kind &&
-            (document.kind === "html-render"
-              ? pane.htmlDocument?.kind === "html-render" &&
-                pane.htmlDocument.attachmentId === document.attachmentId
-              : pane.htmlDocument?.kind === "inline-visualization" &&
-                pane.htmlDocument.path === document.path),
+          (pane) => pane.kind === "htmlRender" && sameHtmlDocument(pane.htmlDocument, document),
         )
       : undefined;
   }
   return undefined;
+}
+
+// One pane per page, and per surface: every version of a surface is the same visual.
+function sameHtmlDocument(
+  pane: RightDockHtmlDocument | undefined,
+  document: RightDockHtmlDocument,
+): boolean {
+  if (document.kind === "inline-visualization") {
+    return pane?.kind === "inline-visualization" && pane.path === document.path;
+  }
+  if (pane?.kind !== "html-render") return false;
+  return document.surface === undefined
+    ? pane.attachmentId === document.attachmentId
+    : pane.surface === document.surface;
+}
+
+/** The dock's persisted reference to a published page. */
+export function htmlRenderDockDocument(
+  htmlRender: HtmlRenderReference,
+): Extract<RightDockHtmlDocument, { kind: "html-render" }> {
+  return {
+    kind: "html-render",
+    attachmentId: htmlRender.attachmentId,
+    title: htmlRender.title,
+    ...(htmlRender.surface === undefined ? {} : { surface: htmlRender.surface }),
+  };
+}
+
+/** The pane changes that move every pane showing an older page of a surface to its newest. */
+export function htmlRenderSurfacePaneUpdates(
+  panes: ReadonlyArray<RightDockPane>,
+  latestBySurface: ReadonlyMap<string, HtmlRenderReference>,
+): Array<{ readonly paneId: string; readonly htmlDocument: RightDockHtmlDocument }> {
+  return panes.flatMap((pane) => {
+    const shown = pane.kind === "htmlRender" ? pane.htmlDocument : undefined;
+    if (shown?.kind !== "html-render" || shown.surface === undefined) return [];
+    const latest = latestBySurface.get(shown.surface);
+    if (latest === undefined) return [];
+    if (latest.attachmentId === shown.attachmentId && latest.title === shown.title) return [];
+    const htmlDocument = htmlRenderDockDocument({ ...latest, surface: shown.surface });
+    return [{ paneId: pane.id, htmlDocument }];
+  });
 }
 
 function findSingletonPane(
@@ -599,7 +683,14 @@ export function openPaneInState(
   } else {
     const existing = findMatchingMultiInstancePane(state, input);
     if (existing) {
-      return { open: true, panes: state.panes, activePaneId: existing.id };
+      const focused = { open: true, panes: state.panes, activePaneId: existing.id };
+      // A surface's pane shows the version the reader opened.
+      const requested = input.kind === "htmlRender" ? input.htmlDocument : undefined;
+      return requested?.kind === "html-render" &&
+        existing.htmlDocument?.kind === "html-render" &&
+        existing.htmlDocument.attachmentId !== requested.attachmentId
+        ? updatePaneInState(focused, existing.id, { htmlDocument: requested })
+        : focused;
     }
   }
 

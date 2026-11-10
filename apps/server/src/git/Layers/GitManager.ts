@@ -8,15 +8,15 @@ import type {
   GitStackedAction,
   ModelSelection,
   ProviderStartOptions,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
   sanitizeFeatureBranchName,
-} from "@synara/shared/git";
-import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@synara/shared/githubRepository";
-import { summarizeUnifiedPatchTotals } from "@synara/shared/unifiedPatchStats";
-import { resolveWorktreeHandoffIntent } from "@synara/shared/worktreeHandoff";
+} from "@moss/shared/git";
+import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@moss/shared/githubRepository";
+import { summarizeUnifiedPatchTotals } from "@moss/shared/unifiedPatchStats";
+import { resolveWorktreeHandoffIntent } from "@moss/shared/worktreeHandoff";
 
 import { GitManagerError } from "../Errors.ts";
 import {
@@ -31,7 +31,7 @@ import { TextGeneration } from "../Services/TextGeneration.ts";
 import { detectPrTemplate } from "../PrTemplateDetection.ts";
 import { buildGitTextGenerationCallInput } from "../textGenerationSelection.ts";
 import { reportBetaOperationalIssue } from "../../betaOperationalIssue.ts";
-import { diagnosticIssueReason } from "@synara/shared/diagnosticIssue";
+import { diagnosticIssueReason } from "@moss/shared/diagnosticIssue";
 import { ServerConfig } from "../../config.ts";
 
 const MAX_PROGRESS_TEXT_LENGTH = 500;

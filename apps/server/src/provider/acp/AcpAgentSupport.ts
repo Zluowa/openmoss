@@ -8,7 +8,7 @@ import type {
   ProviderListModelsResult,
   ProviderModelDescriptor,
   RuntimeMode,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, Scope, ServiceMap } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import type * as Acp from "@agentclientprotocol/sdk";
@@ -28,6 +28,7 @@ import {
   findSelectConfig,
   flattenConfigOptions,
   parseAcpAvailableModels,
+  readAcpCurrentModel,
 } from "./AcpConfigOptions.ts";
 import * as AcpErrors from "./AcpErrors.ts";
 import type { AcpSessionModeState } from "./AcpRuntimeModel.ts";
@@ -131,7 +132,7 @@ export function buildAcpAgentSpawnInput(
     env: buildProviderChildEnvironment({
       provider: spec.kind,
       ...(managed?.baseEnv ? { baseEnv: managed.baseEnv } : {}),
-      overrides: environment,
+      overrides: { ...spec.hostEnvironment?.(process.env), ...environment },
       inheritedMossKeys,
     }),
   };
@@ -263,8 +264,16 @@ export function applyAcpAgentModelSelection(input: {
       category: "model",
     });
     if (modelOption) {
-      if (modelOption.currentValue !== model) {
-        yield* runtime.setConfigOption(modelOption.id, model);
+      const advertised =
+        input.managed && spec.managed?.advertisedModelValue
+          ? spec.managed.advertisedModelValue(
+              selection.model.trim(),
+              flattenConfigOptions(modelOption.options).map((option) => option.value),
+            )
+          : undefined;
+      const value = advertised ?? model;
+      if (modelOption.currentValue !== value) {
+        yield* runtime.setConfigOption(modelOption.id, value);
       }
     } else if (spec.legacySetModel) {
       const started = yield* runtime.start();
@@ -439,9 +448,28 @@ export function parseAcpAgentModels(
   });
 }
 
+/**
+ * The model a fresh session starts on: the agent's own configured default, as its `model`
+ * option's current value (or the legacy `models.currentModelId`).
+ */
+export function readAcpAgentCurrentModel(
+  spec: AcpAgentSpec,
+  sessionSetupResult: Acp.NewSessionResponse | Acp.LoadSessionResponse | Acp.ResumeSessionResponse,
+): string | undefined {
+  return readAcpCurrentModel(sessionSetupResult, spec.modelConfigId);
+}
+
 export function acpAgentModelListResult(
   spec: AcpAgentSpec,
   models: ReadonlyArray<ProviderModelDescriptor>,
+  currentModel?: string,
 ): ProviderListModelsResult {
-  return { models, source: `${spec.kind}.acp`, cached: false };
+  const defaultModel =
+    currentModel && models.some((model) => model.slug === currentModel) ? currentModel : undefined;
+  return {
+    models,
+    ...(defaultModel ? { defaultModel } : {}),
+    source: `${spec.kind}.acp`,
+    cached: false,
+  };
 }

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 import { Effect } from "effect";
 
 import { captureSentryException } from "../observability/sentry";

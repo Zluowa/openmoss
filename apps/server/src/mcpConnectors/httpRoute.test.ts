@@ -2,7 +2,7 @@ import http from "node:http";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { Effect, Exit, Layer, Scope } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { describe, expect, it } from "vitest";
@@ -48,6 +48,11 @@ async function withConnectorServer(
     const connectors: McpConnectorsShape = {
       enabled: options.enabled,
       gatewayEnabled: options.enabled,
+      servicePlugins: {
+        list: () => Effect.succeed({ installed: [], skills: [] }),
+        setInstalled: () => Effect.die("unused"),
+        resync: () => Effect.void,
+      },
       mossApps: {
         status: () => Effect.succeed({ availability: "unconfigured", agentAccess: false }),
         listToolkits: () => Effect.die("unused"),
@@ -55,6 +60,10 @@ async function withConnectorServer(
         connectFields: () => Effect.die("unused"),
         connect: () => Effect.die("unused"),
         disconnect: () => Effect.succeed(false),
+        completeAuthorization: (query) =>
+          Effect.succeed(
+            query.state === "signed-state" && query.connectionId === "ca_owned" && !query.failed,
+          ),
         cachedToolkit: (slug) =>
           slug === "gmail"
             ? {
@@ -174,6 +183,8 @@ describe("mcpConnectorsRouteLayer", () => {
             body: call,
             sessionId: "client-session",
             protocolVersion: "2025-06-18",
+            authorityKey: undefined,
+            isAuthorized: expect.any(Function),
           },
         },
       ]);
@@ -238,9 +249,14 @@ describe("mcpConnectorsRouteLayer", () => {
 
   it("names a Moss app from the catalog on its closing page, in the browser's language", async () => {
     await withConnectorServer({ enabled: true }, async ({ origin }) => {
-      const connected = await fetch(`${origin}/oauth/moss-apps/callback?app=gmail&status=success`, {
-        headers: { "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8" },
-      });
+      const forged = await fetch(`${origin}/oauth/moss-apps/callback?app=gmail&status=success`);
+      expect(forged.status).toBe(400);
+      const connected = await fetch(
+        `${origin}/oauth/moss-apps/callback?app=gmail&status=success&state=signed-state&connected_account_id=ca_owned`,
+        {
+          headers: { "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8" },
+        },
+      );
       expect(connected.status).toBe(200);
       expect(connected.headers.get("content-security-policy")).toContain(
         "img-src 'self' https://logos.composio.dev",
@@ -262,7 +278,8 @@ describe("mcpConnectorsRouteLayer", () => {
         "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'",
       );
       const unknownHtml = await unknown.text();
-      expect(unknownHtml).toContain("Your app is connected");
+      expect(unknown.status).toBe(400);
+      expect(unknownHtml).toContain("was not connected");
       expect(unknownHtml).not.toContain("&lt;b&gt;x");
     });
   });

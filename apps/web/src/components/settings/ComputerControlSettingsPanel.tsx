@@ -3,10 +3,12 @@
 // Layer: Settings UI components
 // Exports: ComputerControlSettingsPanel
 
-import type { ComputerStatusResult } from "@synara/contracts";
+import type { ComputerStatusResult } from "@moss/contracts";
 import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { computerHostPlatformName, resolveComputerHostPlatform } from "~/lib/computerHostPlatform";
+import { getNavigatorPlatform } from "~/lib/utils";
 import { toastManager } from "~/components/ui/toast";
 import { readNativeApi } from "~/nativeApi";
 import { SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
@@ -28,10 +30,14 @@ function availabilityLabel(status: ComputerStatusResult): string {
       : "Unsupported on this platform";
   }
   if (status.availability.kind === "available") {
+    // The host the server reports (Cua runs on macOS and Windows), not the window's own OS.
+    const host =
+      computerHostPlatformName(resolveComputerHostPlatform(status, getNavigatorPlatform())) ??
+      "this computer";
     if (!status.health.captureAvailable || !status.capabilities.capture) {
-      return `Available on macOS (${status.availability.backend}); waiting for native capture helper`;
+      return `Available on ${host} (${status.availability.backend}); waiting for native capture helper`;
     }
-    return `Available on macOS (${status.availability.backend})`;
+    return `Available on ${host} (${status.availability.backend})`;
   }
   if (status.availability.kind === "backend-unavailable") {
     return status.availability.message ?? "Backend unavailable";
@@ -111,7 +117,7 @@ export function ComputerControlSettingsPanel() {
         {state.kind === "missing-api" ? (
           <SettingsRow
             title="Desktop only"
-            description="Open Moss on macOS to review Computer control. Linux support is coming soon."
+            description="Open the Moss desktop app to review Computer control."
           />
         ) : null}
 
@@ -155,7 +161,9 @@ export function ComputerControlSettingsPanel() {
         ) : null}
       </SettingsSection>
 
-      {state.kind === "ready" && state.status.availability.kind !== "unsupported-platform" ? (
+      {state.kind === "ready" &&
+      state.status.availability.kind !== "unsupported-platform" &&
+      !("backend" in state.status.availability && state.status.availability.backend === "cua") ? (
         <SettingsSection title="macOS permissions">
           <SettingsRow
             title="Privacy panes"

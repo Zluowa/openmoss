@@ -4,7 +4,7 @@
 // Exports: AutomationCreationDraft plus pure warning/skill helpers.
 // Depends on: automation contracts shared with the native API.
 
-import { DEFAULT_AUTOMATION_FAST_INTERVAL_MAX_ITERATIONS } from "@synara/contracts";
+import { DEFAULT_AUTOMATION_FAST_INTERVAL_MAX_ITERATIONS } from "@moss/contracts";
 import type {
   AutomationMode,
   AutomationSchedule,
@@ -14,8 +14,8 @@ import type {
   ProjectId,
   RuntimeMode,
   ThreadId,
-} from "@synara/contracts";
-import { automationRequiresTargetThread } from "@synara/shared/automationMode";
+} from "@moss/contracts";
+import { automationRequiresTargetThread } from "@moss/shared/automationMode";
 
 import type { ChatAutomationExecutionScope } from "./automationIntent";
 

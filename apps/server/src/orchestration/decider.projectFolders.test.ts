@@ -1,4 +1,4 @@
-import { OrchestrationCommand, type OrchestrationReadModel } from "@synara/contracts";
+import { OrchestrationCommand, type OrchestrationReadModel } from "@moss/contracts";
 import { Effect, Exit, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 

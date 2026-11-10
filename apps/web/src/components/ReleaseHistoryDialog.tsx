@@ -6,6 +6,7 @@
 // Layer: Settings overlay — mounted lazily from the settings panel when the
 // user asks to view history.
 
+import { useTranslation } from "../localization";
 import { ChangelogAccordion } from "../whatsNew/ChangelogAccordion";
 import { WHATS_NEW_ENTRIES } from "../whatsNew/entries";
 import { sortEntriesByVersionDesc, type WhatsNewEntry } from "../whatsNew/logic";
@@ -41,6 +42,7 @@ export default function ReleaseHistoryDialog({
   entries: entriesProp,
   defaultExpandedVersion: defaultExpandedVersionProp,
 }: ReleaseHistoryDialogProps) {
+  const { t } = useTranslation();
   const entries = entriesProp ?? WHATS_NEW_ENTRIES;
   const defaultExpandedVersion = defaultExpandedVersionProp ?? null;
   // Sort at render time so the source of truth (`entries.ts`) stays free of
@@ -51,9 +53,9 @@ export default function ReleaseHistoryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPopup className="max-w-lg gap-0 p-0">
         <DialogHeader className="gap-1 p-4 pr-12">
-          <DialogTitle className="text-base">Release history</DialogTitle>
+          <DialogTitle className="text-base">{t("releaseHistory.dialog.title")}</DialogTitle>
           <DialogDescription className="text-ui leading-snug">
-            Every curated release, newest first.
+            {t("releaseHistory.dialog.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -63,7 +65,7 @@ export default function ReleaseHistoryDialog({
 
         <DialogFooter>
           <Button size="sm" onClick={() => onOpenChange(false)}>
-            Close
+            {t("dialog.close")}
           </Button>
         </DialogFooter>
       </DialogPopup>

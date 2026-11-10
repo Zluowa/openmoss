@@ -1,4 +1,4 @@
-import { TurnId } from "@synara/contracts";
+import { TurnId } from "@moss/contracts";
 import { expect, it } from "vitest";
 import { snapshotProviderTurns } from "./snapshotProviderTurns.ts";
 

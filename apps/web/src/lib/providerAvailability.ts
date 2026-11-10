@@ -2,10 +2,12 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderInstanceId,
   type ProviderKind,
+  type ServerProviderInstallMode,
+  type ServerProviderReadinessState,
   type ServerProviderStatus,
   type ServerSettings,
   type SupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { isProviderKind } from "../providerOrdering";
 
 const CUSTOM_BINARY_CONFIRMATION_SUFFIX =
@@ -125,7 +127,7 @@ export function providerStatusInstanceKey(
   return status.instanceId ?? status.provider;
 }
 
-// Advisory warnings the health layer marks available (Pi bundled SDK, Cursor
+// Advisory warnings the health layer marks available (Cursor
 // model-discovery warnings, unconfirmed custom binaries) stay sendable; only
 // unavailable or unauthenticated statuses block sends.
 export function isProviderUsable(status: ServerProviderStatus | null | undefined): boolean {
@@ -139,6 +141,18 @@ export function isProviderUsable(status: ServerProviderStatus | null | undefined
     status.available &&
     status.authStatus !== "unauthenticated"
   );
+}
+
+// Health sentences that say what the user has to do and hold nothing from the local machine.
+// Only these exact shapes may reach chat; any other status text stays behind the generic copy.
+const PROVIDER_STATUS_ACTION_PATTERN =
+  /^(?:The ZCode CLI could not be started\. Install the ZCode desktop app \(it bundles the CLI\) or set ZCODE_BIN to the zcode CLI path, then retry\.|Kimi Code needs Git Bash on Windows, and Moss could not find it\. Install Git for Windows, or set KIMI_SHELL_PATH to a bash\.exe, then retry\.|[\w ]{1,40} CLI \(`[\w-]+`\) is not installed or not on PATH\.(?: Install it with `[^`\r\n]+`\.| Grok has no npm package for every platform, so use the installer at docs\.x\.ai\/build\/overview\.)?)$/u;
+
+export function providerStatusActionMessage(
+  status: Pick<ServerProviderStatus, "message"> | null | undefined,
+): string | null {
+  const message = status?.message?.trim();
+  return message && PROVIDER_STATUS_ACTION_PATTERN.test(message) ? message : null;
 }
 
 export function providerUnavailableReason(status: ServerProviderStatus | null | undefined): string {
@@ -156,9 +170,12 @@ export function providerUnavailableReason(status: ServerProviderStatus | null | 
     case "unavailable":
       // Managed runtimes redact local diagnostics (paths, EPERM, transport detail);
       // the user cannot act on them and they leak the machine layout.
-      return isMossManagedProviderStatus(status)
-        ? "Moss is temporarily unavailable."
-        : `${providerLabel} is unavailable right now.`;
+      return (
+        providerStatusActionMessage(status) ??
+        (isMossManagedProviderStatus(status)
+          ? "Moss is temporarily unavailable."
+          : `${providerLabel} is unavailable right now.`)
+      );
     case "transient":
       return isMossManagedProviderStatus(status)
         ? "Moss is getting ready."
@@ -192,6 +209,16 @@ export function mossDefaultManagedProviderDriver(
   return typeof instanceId === "string"
     ? MOSS_DEFAULT_MANAGED_PROVIDER_DRIVER_BY_INSTANCE_ID.get(instanceId as ProviderInstanceId)
     : undefined;
+}
+
+/** The Moss-managed instance that serves an agent, when Moss serves that agent at all. */
+export function mossDefaultManagedInstanceIdForProvider(
+  provider: ProviderKind,
+): ProviderInstanceId | undefined {
+  for (const [instanceId, driver] of MOSS_DEFAULT_MANAGED_PROVIDER_DRIVER_BY_INSTANCE_ID) {
+    if (driver === provider) return instanceId;
+  }
+  return undefined;
 }
 
 export function providerStatusProviderKind(
@@ -311,6 +338,76 @@ export function isProviderDurablyUnavailable(
     status.availability === "unavailable" ||
     status.status === "ready"
   );
+}
+
+/** Whether an agent's provider can run now, and what the person does when it cannot. */
+export type AgentReadinessState = ServerProviderReadinessState;
+
+export interface AgentReadiness {
+  readonly state: AgentReadinessState;
+  /** What the one 安装 button does: one click inside Moss, or the official page. */
+  readonly install?: ServerProviderInstallMode;
+  /** The agent's official install page (https only), for `externalPage`. */
+  readonly installUrl?: string;
+  /** The server's stable reason code, for the web to translate; never shown raw. */
+  readonly reason?: string;
+}
+
+// The health layer's own "this CLI is missing" sentences (see PROVIDER_STATUS_ACTION_PATTERN).
+const AGENT_NOT_INSTALLED_PATTERN =
+  /CLI \(`[\w-]+`\) is not installed or not on PATH\.|^The ZCode CLI could not be started\. Install /u;
+const AGENT_INSTALL_COMMAND_PATTERN = /Install it with `([^`\r\n]+)`\./u;
+const AGENT_INSTALL_URL_BY_SENTENCE: ReadonlyArray<readonly [RegExp, string]> = [
+  [/use the installer at docs\.x\.ai\/build\/overview\./u, "https://docs.x.ai/build/overview"],
+];
+
+// The server's explicit readiness, when this build's server sends one.
+function readExplicitAgentReadiness(
+  status: ServerProviderStatus | null | undefined,
+): AgentReadiness | null {
+  const readiness = status?.readiness;
+  if (!readiness) return null;
+  const installUrl = readiness.installUrl?.startsWith("https://")
+    ? readiness.installUrl
+    : undefined;
+  return {
+    state: readiness.state,
+    ...(readiness.install ? { install: readiness.install } : {}),
+    ...(installUrl ? { installUrl } : {}),
+    ...(readiness.reason ? { reason: readiness.reason } : {}),
+  };
+}
+
+/**
+ * The one place the composer reads a provider's readiness: ready, needs a login, not
+ * installed (with how to install it), failed, or still being checked. Prefers the
+ * server's explicit `readiness` and otherwise reads today's health fields. Server
+ * messages stay diagnostic: callers show their own copy for each state.
+ */
+export function resolveAgentReadiness(
+  status: ServerProviderStatus | null | undefined,
+): AgentReadiness {
+  const explicit = readExplicitAgentReadiness(status);
+  if (explicit) return explicit;
+  if (!status) return { state: "checking" };
+  if (isProviderUsable(status)) return { state: "ready" };
+  if (status.authStatus === "unauthenticated") return { state: "needsLogin" };
+  const message = status.message?.trim() ?? "";
+  if (AGENT_NOT_INSTALLED_PATTERN.test(message)) {
+    // An older server names the install command or page in its sentence.
+    const installUrl = AGENT_INSTALL_URL_BY_SENTENCE.find(([pattern]) =>
+      pattern.test(message),
+    )?.[1];
+    return {
+      state: "notInstalled",
+      ...(installUrl
+        ? { install: "externalPage" as const, installUrl }
+        : AGENT_INSTALL_COMMAND_PATTERN.test(message)
+          ? { install: "oneClick" as const }
+          : {}),
+    };
+  }
+  return isProviderDurablyUnavailable(status) ? { state: "error" } : { state: "checking" };
 }
 
 /**

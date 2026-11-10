@@ -99,9 +99,8 @@ export function resolveCodexPreviewKind(
   // Ordinary local CSV/TSV use the editable text viewer. Only explicit
   // attachment/artifact and Library entry points prefer the spreadsheet.
   if (entry === "local" && (extension === "csv" || extension === "tsv")) return "text";
-  // HTML is not a local artifact type. The cloud Library owns the executable
-  // five-million-character preview; opening a local HTML file shows source.
-  if (kind === "html" && entry !== "library-cloud") return "text";
+  // HTML is "html" from every entry point and opens rendered, always in an opaque
+  // sandbox with no network (see LocalHtmlPreviewFrame); the size limit still applies.
   return kind;
 }
 

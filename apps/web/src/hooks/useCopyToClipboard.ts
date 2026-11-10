@@ -76,12 +76,21 @@ export async function copyTextToClipboard(value: string): Promise<void> {
   throw new Error("Clipboard API unavailable.");
 }
 
+export async function copyThreadIdToClipboard(threadId: string): Promise<void> {
+  const nativeWrite =
+    typeof window !== "undefined" && window.desktopBridge?.clipboard?.writeThreadId;
+  if (nativeWrite) return nativeWrite(threadId);
+  return copyTextToClipboard(threadId);
+}
+
 export function useCopyToClipboard<TContext = void>({
   timeout: timeoutProp,
+  write = copyTextToClipboard,
   onCopy,
   onError,
 }: {
   timeout?: number;
+  write?: (value: string) => Promise<void>;
   onCopy?: (ctx: TContext) => void;
   onError?: (error: Error, ctx: TContext) => void;
 } = {}): { copyToClipboard: (value: string, ctx: TContext) => void; isCopied: boolean } {
@@ -100,32 +109,35 @@ export function useCopyToClipboard<TContext = void>({
     timeoutRef.current = timeout;
   }, [onCopy, onError, timeout]);
 
-  const copyToClipboard = React.useCallback((value: string, ctx: TContext): void => {
-    void copyTextToClipboard(value).then(
-      () => {
-        if (timeoutIdRef.current) {
-          clearTimeout(timeoutIdRef.current);
-        }
-        setIsCopied(true);
+  const copyToClipboard = React.useCallback(
+    (value: string, ctx: TContext): void => {
+      void write(value).then(
+        () => {
+          if (timeoutIdRef.current) {
+            clearTimeout(timeoutIdRef.current);
+          }
+          setIsCopied(true);
 
-        onCopyRef.current?.(ctx);
+          onCopyRef.current?.(ctx);
 
-        if (timeoutRef.current !== 0) {
-          timeoutIdRef.current = setTimeout(() => {
-            setIsCopied(false);
-            timeoutIdRef.current = null;
-          }, timeoutRef.current);
-        }
-      },
-      (error) => {
-        if (onErrorRef.current) {
-          onErrorRef.current(error, ctx);
-        } else {
-          console.error(error);
-        }
-      },
-    );
-  }, []);
+          if (timeoutRef.current !== 0) {
+            timeoutIdRef.current = setTimeout(() => {
+              setIsCopied(false);
+              timeoutIdRef.current = null;
+            }, timeoutRef.current);
+          }
+        },
+        (error) => {
+          if (onErrorRef.current) {
+            onErrorRef.current(error, ctx);
+          } else {
+            console.error(error);
+          }
+        },
+      );
+    },
+    [write],
+  );
 
   // Cleanup timeout on unmount
   React.useEffect(() => {
@@ -150,8 +162,11 @@ interface CopyToastLabels {
  * Shared "copy + toast" plumbing behind every copy-X convenience hook below:
  * one success/error toast shape, one place to change it.
  */
-function useCopyWithToasts(): (value: string, labels: CopyToastLabels) => void {
+function useCopyWithToasts(
+  write = copyTextToClipboard,
+): (value: string, labels: CopyToastLabels) => void {
   const { copyToClipboard } = useCopyToClipboard<CopyToastLabels>({
+    write,
     onCopy: (labels) =>
       toastManager.add({
         type: "success",
@@ -220,7 +235,7 @@ export function useCopyFileContentsToClipboard(): (
 
 /** Copy a thread id and surface the shared "Thread ID copied" toast. */
 export function useCopyThreadIdToClipboard(): (threadId: string) => void {
-  const copy = useCopyWithToasts();
+  const copy = useCopyWithToasts(copyThreadIdToClipboard);
   return (threadId: string) =>
     copy(threadId, {
       successTitle: "Thread ID copied",

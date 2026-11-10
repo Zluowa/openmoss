@@ -13,8 +13,8 @@ import {
   type ResolvedKeybindingsConfig,
   SPACE_JUMP_KEYBINDING_COMMANDS,
   THREAD_JUMP_KEYBINDING_COMMANDS,
-} from "@synara/contracts";
-import type { HtmlRenderKeyDown, HtmlRenderShortcut } from "@synara/shared/htmlRender";
+} from "@moss/contracts";
+import type { HtmlRenderKeyDown, HtmlRenderShortcut } from "@moss/shared/htmlRender";
 
 import {
   effectiveKeybindingRules,

@@ -20,7 +20,7 @@ import type {
   MossFilesystemCapabilityInput,
   MossPrivateStage,
   MossOwnershipStore,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { makeNodeMossOwnershipStore, MossResourceImportError } from "./mossResourceImport.ts";

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { OutboundHttpError, outboundHttp } from "@synara/shared/outboundHttp";
+import { OutboundHttpError, outboundHttp } from "@moss/shared/outboundHttp";
 
 import {
   forwardMcpConnectorRequest,
@@ -221,6 +221,21 @@ describe("probeMcpConnector", () => {
     ).resolves.toEqual({ kind: "open" });
   });
 
+  it("recognizes initialize id zero in a streamed response without reading to connection close", async () => {
+    mockOutbound({
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+      chunks: [
+        'data: {"jsonrpc":"2.0","id":9,"result":{}}\n\n',
+        'data: {"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"Example","version":"1"}}}\n\n',
+        "data: never read\n\n",
+      ],
+    });
+    await expect(
+      probeMcpConnector("https://mcp.example.com/mcp", "Example", "1.0.0"),
+    ).resolves.toEqual({ kind: "open" });
+  });
+
   it.each([
     [200, "text/html", "<html>Sign in</html>"],
     [
@@ -240,6 +255,27 @@ describe("probeMcpConnector", () => {
       ).toBe("unavailable");
     },
   );
+
+  it("sends an API token as a bearer header and marks a network failure unreachable", async () => {
+    const spy = mockOutbound({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      chunks: [
+        '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":"2025-06-18","capabilities":{},"serverInfo":{"name":"Example","version":"1"}}}',
+      ],
+    });
+    await probeMcpConnector("https://mcp.example.com/mcp", "Example", "1.0.0", "tok");
+    expect(new Headers(spy.mock.calls[0]![0].headers).get("authorization")).toBe("Bearer tok");
+
+    vi.spyOn(outboundHttp, "request").mockRejectedValue(new Error("ECONNRESET"));
+    await expect(
+      probeMcpConnector("https://mcp.example.com/mcp", "Example", "1.0.0"),
+    ).resolves.toEqual({
+      kind: "unavailable",
+      message: "Moss could not reach Example.",
+      unreachable: true,
+    });
+  });
 
   it("explains a refusal", async () => {
     mockOutbound({ status: 403, headers: {}, chunks: [] });

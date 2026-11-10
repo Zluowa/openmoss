@@ -3,7 +3,7 @@
 // Layer: Shared runtime utility (consumed by web UI surfaces).
 // Depends on: ServerLocalServerProcess contract shape.
 
-import type { ServerLocalServerProcess } from "@synara/contracts";
+import type { ServerLocalServerProcess } from "@moss/contracts";
 
 import { isWorkspaceRootWithin } from "./threadWorkspace";
 
@@ -62,6 +62,28 @@ export function localServerMatchesRun(
     return true;
   }
   return Boolean(server.cwd && isWorkspaceRootWithin(server.cwd, run.cwd));
+}
+
+/**
+ * Whether a detected server belongs to the project at `workspaceRoot`: it runs in the
+ * project's folder (or one inside it); or its folder is unknown and Moss started it
+ * (an agent's shell or a Moss terminal is among its ancestors).
+ */
+export function localServerBelongsToWorkspace(
+  server: ServerLocalServerProcess,
+  workspaceRoot: string | null | undefined,
+): boolean {
+  const root = workspaceRoot?.trim();
+  if (server.cwd && root) return isWorkspaceRootWithin(server.cwd, root);
+  return server.launchedByMoss === true;
+}
+
+/** The address a person opens for a detected server: its first URL, else localhost:<port>. */
+export function localServerOpenUrl(server: ServerLocalServerProcess): string | null {
+  const withUrl = server.addresses.find((address) => address.url);
+  if (withUrl?.url) return withUrl.url;
+  const port = server.ports[0] ?? firstAddressPort(server)[0];
+  return port ? `http://localhost:${port}/` : null;
 }
 
 function firstAddressPort(server: ServerLocalServerProcess): readonly number[] {

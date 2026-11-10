@@ -35,7 +35,7 @@ import {
   DEVICE_SWIPE_DURATION_MIN_MS,
   type DeviceHardwareButton,
   type DeviceOpenPaneReason,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 
 import type { DeviceConfiguration, DeviceTouchEdge } from "../device/DeviceBackend.ts";

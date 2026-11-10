@@ -1,4 +1,4 @@
-import { ThreadId, TurnId } from "@synara/contracts";
+import { ThreadId, TurnId } from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { CODEX_PREDICTION_THREAD_SOURCE, CodexAppServerManager } from "./codexAppServerManager.ts";

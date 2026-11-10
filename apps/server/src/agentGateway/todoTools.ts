@@ -10,7 +10,7 @@ import {
   TodoUpdateInput,
   type OrchestrationThreadShell,
   type Todo,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Option, Schema } from "effect";
 
 import {

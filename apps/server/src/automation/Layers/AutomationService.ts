@@ -27,16 +27,16 @@ import {
   type ServerSettings,
   type ThreadEnvironmentMode,
   type TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   automationContinuationThreadId,
   automationContinuesThread,
   automationOwnsItsThread,
   automationRequiresTargetThread,
-} from "@synara/shared/automationMode";
-import { buildTemporaryWorktreeBranchName } from "@synara/shared/git";
-import { providerStartOptionsFromServerSettings } from "@synara/shared/serverSettings";
-import { autoRuntimeModeSelectionIssue } from "@synara/shared/runtimeMode";
+} from "@moss/shared/automationMode";
+import { buildTemporaryWorktreeBranchName } from "@moss/shared/git";
+import { providerStartOptionsFromServerSettings } from "@moss/shared/serverSettings";
+import { autoRuntimeModeSelectionIssue } from "@moss/shared/runtimeMode";
 import { Cause, Effect, Layer, Option, PubSub, Queue, Stream } from "effect";
 import {
   isUnresolvedAutomationInstanceId,
@@ -44,7 +44,7 @@ import {
   type ResolvedProviderInstance,
   resolveModelSelectionInstanceId,
   resolveProviderInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";

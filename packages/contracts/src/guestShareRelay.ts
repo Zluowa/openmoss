@@ -2,6 +2,7 @@ import { Schema } from "effect";
 
 import { IsoDateTime, NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas";
 import { GuestShareId } from "./guestShare";
+import { PageAppPreviewRelayCapability, PageGuestEditCapability } from "./pageSharing";
 
 /**
  * Moss share relay protocol. The relay is a dumb, per-share pipe between guest browsers and the
@@ -76,6 +77,8 @@ export const ShareRelayRegisterResponse = Schema.Struct({
   expiresAt: IsoDateTime,
   /** The guest page URL without the invite fragment. */
   pageUrl: TrimmedNonEmptyString,
+  appPreview: Schema.optional(PageAppPreviewRelayCapability),
+  editProjection: Schema.optional(PageGuestEditCapability),
 });
 export type ShareRelayRegisterResponse = typeof ShareRelayRegisterResponse.Type;
 

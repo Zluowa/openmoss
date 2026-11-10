@@ -9,7 +9,7 @@ import {
   pendingGuestMessageCount,
   type ThreadGuestShare,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { create } from "zustand";
 
 export interface GuestShareState {

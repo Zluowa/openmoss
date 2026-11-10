@@ -13,8 +13,8 @@ import type {
   WorkspaceImportSourceKind,
   WorkspaceImportSourcePreview,
   WorkspaceImportSyncPreferences,
-} from "@synara/contracts";
-import { WORKSPACE_IMPORT_DEFAULT_CATEGORIES } from "@synara/contracts";
+} from "@moss/contracts";
+import { WORKSPACE_IMPORT_DEFAULT_CATEGORIES } from "@moss/contracts";
 
 import { useAppSettings } from "../appSettings";
 import { useTheme } from "../hooks/useTheme";
@@ -33,6 +33,7 @@ import {
   BotIcon,
   LoaderCircleIcon,
 } from "../lib/icons";
+import { useReportRunningImport } from "../lib/runningImportsStore";
 import { cn } from "../lib/utils";
 import { ProviderIcon } from "./ProviderIcon";
 import { Button } from "./ui/button";
@@ -342,6 +343,8 @@ export function WorkspaceImportFlow({
 
   const syncPreference: WorkspaceImportSyncPreferences | undefined = state.probe?.sync;
   const isBusy = state.step === "importing";
+  // Quitting the desktop app mid-import says so instead of stopping it silently.
+  useReportRunningImport(isBusy, "");
   const canCustomizeSync =
     syncEnabled || syncSources.length > 0 || Boolean(syncPreference?.enabled);
   const reviewItems = useMemo<WorkspaceImportResourceCopy[]>(() => {

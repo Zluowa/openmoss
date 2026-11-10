@@ -19,7 +19,7 @@ import {
   type SerializedTextNode,
   type Spread,
 } from "lexical";
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
@@ -28,7 +28,7 @@ import {
   type TerminalContextDraft,
 } from "~/lib/terminalContext";
 import { formatComposerMentionToken } from "~/lib/composerMentions";
-import { COMPUTER_HISTORY_MENTION_NAME } from "@synara/shared/computerHistoryMention";
+import { COMPUTER_HISTORY_MENTION_NAME } from "@moss/shared/computerHistoryMention";
 import { basenameOfPath } from "~/file-icons";
 import { createCentralIconElement } from "~/lib/central-icons";
 import {

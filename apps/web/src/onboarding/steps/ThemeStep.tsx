@@ -56,11 +56,11 @@ export function ThemeStep() {
 
   return (
     <div className="flex flex-col gap-[22px]">
-      <div className="px-[100px]">
+      <div className="sm:px-[min(100px,12%)]">
         <ThemeModePicker value={theme} onValueChange={setTheme} ariaLabel="Theme preference" />
       </div>
       <div className="flex flex-col gap-2.5">
-        <div className="flex items-baseline justify-between">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-ui-gap-xs gap-y-1">
           <span id="onboarding-theme-pack-label" className="text-ui font-medium text-foreground/80">
             Theme
           </span>
@@ -71,7 +71,7 @@ export function ThemeStep() {
         <div
           role="radiogroup"
           aria-labelledby="onboarding-theme-pack-label"
-          className="grid grid-cols-5 gap-2"
+          className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,8rem),1fr))] gap-ui-gap-xs"
         >
           {ONBOARDING_THEME_PACKS.map((option) => {
             const selected = option.id === selectedPackId;
@@ -82,7 +82,7 @@ export function ThemeStep() {
                 role="radio"
                 aria-checked={selected}
                 className={cn(
-                  "flex h-9 min-w-0 cursor-pointer items-center gap-2.5 rounded-control border bg-popover px-2.5 text-start outline-none transition-colors motion-reduce:transition-none",
+                  "flex min-h-control min-w-0 cursor-pointer items-center gap-ui-gap-xs rounded-control border bg-popover px-ui-pad-sm py-1 text-start outline-none transition-colors motion-reduce:transition-none",
                   "focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
                   selected
                     ? "border-foreground ring-1 ring-foreground ring-inset"

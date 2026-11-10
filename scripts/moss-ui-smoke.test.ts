@@ -21,7 +21,7 @@ describe("moss-ui-smoke", () => {
     expect(plan.commands[0]?.args).toEqual(["scripts/moss-promoted-shell-served-smoke.ts"]);
     expect(plan.commands[1]?.args).toEqual([
       "--filter",
-      "@synara/web",
+      "@moss/web",
       "test:browser",
       "--",
       "MossControlPlanePanel.browser.tsx",
@@ -29,13 +29,13 @@ describe("moss-ui-smoke", () => {
     ]);
     expect(plan.commands[2]?.args).toEqual([
       "--filter",
-      "@synara/web",
+      "@moss/web",
       "test",
       "--",
       "mossNormalizedTimeline",
       "MossControlPlanePanel",
     ]);
-    expect(plan.commands[3]?.args).toEqual(["--filter", "@synara/web", "typecheck"]);
+    expect(plan.commands[3]?.args).toEqual(["--filter", "@moss/web", "typecheck"]);
   });
 
   it("stops on the first failing smoke command", () => {

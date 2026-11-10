@@ -3,11 +3,11 @@
 // Layer: Desktop main/preload shared logic
 // Depends on: The desktop OAuth callback IPC contract only.
 
-import type { DesktopConnectorOAuthCallback } from "@synara/contracts";
+import type { DesktopConnectorOAuthCallback } from "@moss/contracts";
 import {
   MOSS_AUTH_PROTOCOL_REGISTRATION_DISABLED_ENV,
   MOSS_CONNECTOR_OAUTH_SCHEME,
-} from "@synara/shared/desktopIdentity";
+} from "@moss/shared/desktopIdentity";
 
 export const CONNECTOR_OAUTH_CALLBACK_IPC_CHANNELS = {
   subscribe: "desktop:connector-oauth-callback-subscribe",

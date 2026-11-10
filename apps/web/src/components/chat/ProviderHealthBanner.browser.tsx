@@ -2,7 +2,7 @@
 // Purpose: Mounted browser proof that provider health recovery UI never renders runtime diagnostics.
 // Layer: Chat status browser test
 
-import type { ServerProviderStatus } from "@synara/contracts";
+import type { ServerProviderStatus } from "@moss/contracts";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { describe, expect, it, vi } from "vitest";
@@ -121,7 +121,7 @@ describe("ProviderHealthBanner mounted safety", () => {
     );
 
     try {
-      const safeMessage = `${fixture.displayName} 尚未登录。请打开服务商设置并登录。`;
+      const safeMessage = `${fixture.displayName} 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。`;
       const alert = page.getByRole("alert");
       await expect.element(page.getByText(safeMessage)).toBeVisible();
       const description = alert.element().querySelector('[data-slot="alert-description"]');

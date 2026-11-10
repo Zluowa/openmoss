@@ -6,7 +6,7 @@
 
 import nodePath from "node:path";
 
-import type { ServerProviderUsageLimit } from "@synara/contracts";
+import type { ServerProviderUsageLimit } from "@moss/contracts";
 
 import {
   credentialFingerprint,

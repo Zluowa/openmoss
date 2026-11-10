@@ -1,4 +1,4 @@
-import type { ExternalMcpStdioConfiguration } from "@synara/contracts";
+import type { ExternalMcpStdioConfiguration } from "@moss/contracts";
 
 import { quoteExternalMcpShellArgument } from "./shell.ts";
 

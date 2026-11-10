@@ -1,4 +1,4 @@
-import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, type ThreadId } from "@synara/contracts";
+import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, type ThreadId } from "@moss/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mergeComposerImages } from "~/composerDraftAttachments";
 import { useComposerDraftStore } from "~/composerDraftStore";
@@ -15,12 +15,18 @@ import { createPastedTextDraft } from "~/lib/composerPastedText";
 import {
   mossCanvasAssetUrl,
   readMossCanvasSelectionFile,
+  reportMossCanvasLiveSelection,
+  syncMossCanvasSelectionChip,
   type MossCanvasBinding,
 } from "~/lib/mossCanvasClient";
 import type { MossCanvasImageFocus } from "~/lib/mossCanvasBridge";
 import type { MossCanvasSelection, MossCanvasSelectionItem } from "~/lib/mossCanvasSelection";
 import { buildLocalImageUrl } from "~/lib/localImageUrls";
-import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
+import { useMossCanvasRuntimeLifecycle } from "~/lib/mossCanvasLifecycle";
+import {
+  isMossImagesAccountIdentityChange,
+  useMossImagesAccountBoundary,
+} from "~/lib/mossImagesAccountBoundary";
 import type { RightDockImagePreviewView, RightDockPane } from "~/rightDockStore.logic";
 import { MossCanvasWebSurface, type MossCanvasComposeContextReader } from "../MossCanvasWebSurface";
 import { Button } from "../ui/button";
@@ -101,20 +107,30 @@ export function ConversationImageWorkspace(props: {
   const visibleRef = useRef(props.visible);
   visibleRef.current = props.visible;
   const previousBoundary = useRef(boundary.key);
+  const previousIdentity = useRef(boundary.identityKey);
   useEffect(() => {
     if (previousBoundary.current === boundary.key) return;
     previousBoundary.current = boundary.key;
+    // The account records answering for the first time is not an account
+    // change: saying 账号已变化 then sent people to reopen a Canvas that was fine.
+    const changed = isMossImagesAccountIdentityChange(
+      previousIdentity.current,
+      boundary.identityKey,
+    );
+    previousIdentity.current = boundary.identityKey;
+    if (!changed) return;
     selectionVersion.current += 1;
     selectionError.current = true;
     const store = useComposerDraftStore.getState();
     for (const id of ownedAttachments.current) store.removeImage(props.threadId, id);
     if (ownedContextId.current) store.removePastedText(props.threadId, ownedContextId.current);
+    store.removePastedText(props.threadId, `canvas-selection:${props.pane.id}`);
     ownedContextId.current = null;
     ownedAttachments.current = [];
     setSelectedCanvasImage(null);
     setCanvasLaunchAsset(null);
     setError("账号已变化，请重新打开画布。");
-  }, [boundary.key, props.threadId]);
+  }, [boundary.key, boundary.identityKey, props.threadId, props.pane.id]);
 
   const prepareSelection = useCallback(
     (load: () => Promise<readonly File[]>) => {
@@ -207,15 +223,21 @@ export function ConversationImageWorkspace(props: {
     if (!props.visible) selectionVersion.current += 1;
   }, [props.visible]);
 
+  const selectionChipId = `canvas-selection:${props.pane.id}`;
   const onSelection = useCallback(
     (selection: MossCanvasSelection, binding: MossCanvasBinding) => {
       if (!visibleRef.current) return;
+      // The agent can read the live selection (moss_canvas_read), like the
+      // browser panel's selected element.
+      reportMossCanvasLiveSelection(props.threadId, selection);
+      // Selected text and shapes become a composer chip right away.
+      syncMossCanvasSelectionChip(props.threadId, selectionChipId, selection.content);
       if (selection.items[0]) setSelectedCanvasImage({ item: selection.items[0], binding });
       prepareSelection(() =>
         Promise.all(selection.items.map((item) => readMossCanvasSelectionFile(item, binding))),
       );
     },
-    [prepareSelection],
+    [prepareSelection, props.threadId, selectionChipId],
   );
   const beforeLeave = useCallback(async () => (await flushRef.current?.()) ?? true, []);
   useEffect(
@@ -404,6 +426,12 @@ export function ConversationImageWorkspace(props: {
         : undefined,
     [preview?.images, preview?.cwd, preview?.activeImageId, action, canvasLaunchAsset],
   );
+  // A Canvas nobody is looking at is saved and unloaded after a short while,
+  // and loads the same conversation's document again when shown.
+  const canvasRuntime = useMossCanvasRuntimeLifecycle({
+    visible: props.visible && canvas,
+    save: () => flushRef.current?.() ?? Promise.resolve(true),
+  });
   const switchView = (view: RightDockImagePreviewView) => {
     void beforeLeave().then((saved) => {
       if (!saved) return;
@@ -442,7 +470,7 @@ export function ConversationImageWorkspace(props: {
         }}
         onRequestFullWidth={props.onRequestFullWidth}
         canvasContent={
-          canvas ? (
+          canvas && canvasRuntime.loaded ? (
             <MossCanvasWebSurface
               embedded={!props.canvasOnly}
               threadId={props.threadId}
@@ -454,6 +482,9 @@ export function ConversationImageWorkspace(props: {
               onLeaveGuardChange={setFlush}
               onClose={props.onClose}
             />
+          ) : canvas ? (
+            // Saved and unloaded while out of sight; it loads again when shown.
+            <div className="h-full w-full" data-moss-canvas-suspended aria-hidden />
           ) : undefined
         }
       />
@@ -477,7 +508,9 @@ export function ConversationImageWorkspace(props: {
                 key={value}
                 variant="ghost"
                 size="sm"
-                className="shrink-0 text-ui-xs hover:bg-background/15 hover:text-background"
+                // The bar is dark in both themes; the ghost variant's muted
+                // foreground made these labels invisible on it.
+                className="shrink-0 text-ui-xs text-background/85 hover:bg-background/15 hover:text-background"
                 onClick={() => edit(value)}
               >
                 {label}

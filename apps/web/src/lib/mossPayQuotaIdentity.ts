@@ -1,4 +1,4 @@
-import type { MossAccountSessionState, MossCloudAccountState } from "@synara/contracts";
+import type { MossAccountSessionState, MossCloudAccountState } from "@moss/contracts";
 
 export function isMossPayAccountTransitionPending(input: {
   readonly phoneLoginCount: number;

@@ -9,7 +9,7 @@ import * as OS from "node:os";
 import * as Path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { MOSS_BUNDLED_CODEX_VERSION, resolveCodexRuntimeTarget } from "@synara/shared/codexRuntime";
+import { MOSS_BUNDLED_CODEX_VERSION, resolveCodexRuntimeTarget } from "@moss/shared/codexRuntime";
 
 const temporaryDirectories = new Set<string>();
 const children = new Set<ChildProcess>();

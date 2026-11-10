@@ -16,17 +16,18 @@ import {
   type PullRequestLabel,
   type PullRequestMergeCapabilities,
   type PullRequestStack,
-} from "@synara/contracts";
-import { githubAvatarUrlForLogin } from "@synara/shared/githubAvatar";
+} from "@moss/contracts";
+import { githubAvatarUrlForLogin } from "@moss/shared/githubAvatar";
 import {
   isValidGitHubRepositoryNameWithOwner,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
-} from "@synara/shared/githubRepository";
+} from "@moss/shared/githubRepository";
 
 import { runProcess } from "../../processRunner";
 import { makeKeyedSingleFlightCache } from "../../pullRequests/KeyedSingleFlightCache";
 import { GitHubCliError } from "../Errors.ts";
 import { makeGitHubReadGate } from "../githubReadGate.ts";
+import { gitCommandEnvironment, NON_INTERACTIVE_GIT_ENV } from "../gitProcessEnvironment.ts";
 import {
   GitHubCli,
   PULL_REQUEST_SUMMARY_JSON_FIELDS,
@@ -1764,7 +1765,8 @@ const makeGitHubCli = Effect.gen(function* () {
           signal,
           // Repository discovery accepts GitHub.com remotes only. Pin the CLI host as well so a
           // caller-level GH_HOST override cannot redirect commands that lack a --hostname flag.
-          env: { ...process.env, ...input.env, GH_HOST: GITHUB_HOST },
+          // git that gh runs underneath must not prompt either (no Credential Manager window).
+          env: { ...process.env, ...NON_INTERACTIVE_GIT_ENV, ...input.env, GH_HOST: GITHUB_HOST },
           ...(input.maxBufferBytes !== undefined ? { maxBufferBytes: input.maxBufferBytes } : {}),
           ...(input.outputMode !== undefined ? { outputMode: input.outputMode } : {}),
           ...(input.allowNonZeroExit !== undefined
@@ -1800,9 +1802,9 @@ const makeGitHubCli = Effect.gen(function* () {
           cwd: gitInput.cwd,
           timeoutMs: gitInput.timeoutMs ?? DEFAULT_TIMEOUT_MS,
           signal,
-          // Never let git block on an interactive credential prompt; fail instead so the
+          // Never let git block on, or pop up, a credential prompt; fail instead so the
           // caller can surface the error.
-          env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+          env: { ...process.env, ...gitCommandEnvironment({ args: gitInput.args }) },
           ...(gitInput.maxBufferBytes !== undefined
             ? { maxBufferBytes: gitInput.maxBufferBytes }
             : {}),

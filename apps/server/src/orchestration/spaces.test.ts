@@ -1,7 +1,7 @@
 // FILE: spaces.test.ts
 // Purpose: Covers the durable Space lifecycle and project reassignment invariants.
 
-import { CommandId, ProjectId, SpaceId, type OrchestrationCommand } from "@synara/contracts";
+import { CommandId, ProjectId, SpaceId, type OrchestrationCommand } from "@moss/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 

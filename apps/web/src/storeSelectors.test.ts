@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@synara/contracts";
+import type { MessageId, ProjectId, ProviderInstanceId, ThreadId } from "@moss/contracts";
 
 import type { AppState } from "./store";
 import {
+  createSidebarThreadSummariesSelector,
   createAccountRateLimitThreadsSelector,
   createAllThreadsSelector,
   createAllThreadsMessagelessSelector,
@@ -765,5 +766,25 @@ describe("createSidechatSummariesForGitHubItemSelector", () => {
       number: 7,
     });
     expect(select(state).map((thread) => thread.id)).toEqual([newer.id, older.id]);
+  });
+});
+
+describe("group-chat member threads", () => {
+  it("never reach the sidebar, recents or search summaries", () => {
+    const selector = createSidebarThreadSummariesSelector();
+    const summary = (id: string, projectId: string) =>
+      ({ id, projectId, title: id }) as unknown as SidebarThreadSummary;
+    const state = {
+      threadIds: ["chat", "room-member"],
+      sidebarThreadSummaryById: {
+        chat: summary("chat", "home"),
+        "room-member": summary("room-member", "mossbot-room-1"),
+      },
+      projects: [
+        { id: "home", kind: "chat" },
+        { id: "mossbot-room-1", kind: "room" },
+      ],
+    } as unknown as AppState;
+    expect(selector(state).map((thread) => thread.id)).toEqual(["chat"]);
   });
 });

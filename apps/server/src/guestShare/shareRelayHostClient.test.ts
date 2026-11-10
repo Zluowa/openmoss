@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { GuestShareId, SHARE_RELAY_CHUNK_BYTES, SHARE_RELAY_CLOSE_CODES } from "@synara/contracts";
+import { GuestShareId, SHARE_RELAY_CHUNK_BYTES, SHARE_RELAY_CLOSE_CODES } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {

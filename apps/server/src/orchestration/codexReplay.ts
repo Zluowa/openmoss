@@ -1,4 +1,4 @@
-import { decodeSubagentReceiverThreadIds } from "@synara/shared/subagents";
+import { decodeSubagentReceiverThreadIds } from "@moss/shared/subagents";
 // Replay uses the live Codex item normalizer and activity projection. This keeps
 // Shell, MCP, reasoning and subagent semantics identical across the two paths.
 import {
@@ -10,7 +10,7 @@ import {
   type CodexReplayTurn,
   type ThreadHistoryImportEntry,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { mapCodexItemLifecycle } from "../provider/Layers/CodexAdapter";
 import { projectProviderRuntimeActivities } from "./providerRuntimeActivityProjection";
 

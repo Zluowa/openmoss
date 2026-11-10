@@ -2,7 +2,7 @@ import {
   ThreadId,
   WsServerReadThreadDiagnosticsRpc,
   type OrchestrationThreadShell,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Exit, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import { describe, expect, it, vi } from "vitest";

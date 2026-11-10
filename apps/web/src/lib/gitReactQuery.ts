@@ -1,4 +1,4 @@
-import { DEFAULT_GIT_RECENT_COMMIT_LIMIT } from "@synara/contracts";
+import { DEFAULT_GIT_RECENT_COMMIT_LIMIT } from "@moss/contracts";
 import type {
   GitHandoffThreadInput,
   GitReadWorkingTreeDiffInput,
@@ -7,7 +7,7 @@ import type {
   ModelSelection,
   NativeApi,
   ProviderStartOptions,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
 import { createActivityRefreshThrottle } from "./activityRefreshThrottle";

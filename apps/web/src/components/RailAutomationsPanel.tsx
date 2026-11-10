@@ -1,10 +1,11 @@
+import { useTranslation } from "~/localization";
 // FILE: RailAutomationsPanel.tsx
 // Purpose: The rail layout's Automations panel: title, "New automation", and every automation
 //          (active, then paused) as compact rows that open its detail page in the content area.
 // Layer: App shell panel (rendered by ThreadSidebar while the Automations section is active)
 // Depends on: the shared automation list pieces and create dialog (routes/-automations.list).
 
-import type { AutomationDefinition } from "@synara/contracts";
+import type { AutomationDefinition } from "@moss/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 
 import { CentralIcon } from "~/lib/central-icons";
@@ -32,6 +33,7 @@ export function RailAutomationsPanel({
   createOpen: boolean;
   onCreateOpenChange: (open: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const openAutomationId = useParams({
     strict: false,
@@ -63,7 +65,7 @@ export function RailAutomationsPanel({
         }
         leading={<CentralIcon name={icon.name} className={icon.className} />}
         title={definition.name}
-        detail={automationRowSubtitle(definition, latestRun, now)}
+        detail={automationRowSubtitle(definition, latestRun, now, t)}
         meta={
           hasUnreadResult(latestRun) ? (
             <span

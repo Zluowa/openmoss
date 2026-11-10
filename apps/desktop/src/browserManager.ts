@@ -10,6 +10,7 @@ import {
   clipboard,
   nativeImage,
   nativeTheme,
+  screen,
   session as electronSession,
   webContents as electronWebContents,
   WebContentsView,
@@ -22,6 +23,8 @@ import type {
   BrowserAnnotationStartInput,
   BrowserAnnotationSyncMarkersInput,
   BrowserAttachWebviewInput,
+  BrowserBlockedNavigationEvent,
+  BrowserCapturePreviewInput,
   BrowserCaptureScreenshotResult,
   BrowserCopyLinkEvent,
   BrowserDetachWebviewInput,
@@ -35,8 +38,8 @@ import type {
   BrowserThreadInput,
   ThreadBrowserState,
   ThreadId,
-} from "@synara/contracts";
-import { isBrowserCopyLinkChord } from "@synara/shared/browserShortcuts";
+} from "@moss/contracts";
+import { isBrowserCopyLinkChord } from "@moss/shared/browserShortcuts";
 import {
   BROWSER_BLANK_URL as ABOUT_BLANK_URL,
   BROWSER_AUTOMATION_VIEWPORT_HEIGHT,
@@ -46,7 +49,7 @@ import {
   normalizeBrowserPageZoomFactor,
   normalizeBrowserUrlInput as normalizeUrlInput,
   resolveCopyableBrowserTabUrl,
-} from "@synara/shared/browserSession";
+} from "@moss/shared/browserSession";
 import {
   BROWSER_SESSION_PARTITION,
   BrowserSessionPolicy,
@@ -56,6 +59,7 @@ import {
   BrowserAnnotationCoordinator,
   type BrowserAnnotationRuntime,
 } from "./browserAnnotations/coordinator";
+import { captureVisibleViewportPng } from "./browserAutomation/screenshotCapture";
 import {
   isLocalFileUrl,
   isLocalHtmlPreviewUrl,
@@ -247,6 +251,10 @@ export interface DesktopBrowserManagerOptions {
   onHumanControl?: (threadId: ThreadId) => void;
   beforeInputEvent?: (event: Electron.Event, input: Electron.Input) => boolean;
   annotationPreloadPath?: string;
+  /** Sites the person allowed pages opened from local files to open or load from. */
+  localPageAllowedSites?: () => readonly string[];
+  /** A page opened from a local file tried to leave for a site that is not allowed. */
+  onLocalPageNavigationBlocked?: (event: BrowserBlockedNavigationEvent) => void;
 }
 
 function createBrowserTab(url = ABOUT_BLANK_URL): BrowserTabState {
@@ -377,17 +385,39 @@ function browserPresentationSignature(
   return `${browserBoundsSignature(bounds)}:zoom-${pageZoomFactor}`;
 }
 
-function isAllowedBrowserRuntimeNavigation(url: string, currentUrl: string): boolean {
-  if (url === ABOUT_BLANK_URL) return true;
+function urlOrigin(url: string): string | null {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-      return true;
-    }
-    return isLocalHtmlPreviewUrl(url) && isSameLocalHtmlPreviewGrant(currentUrl, url);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * Whether a page may navigate (or redirect) its tab to `url`. Web pages go anywhere on
+ * the web. A page opened from a local file stays inside its own folder and reaches only
+ * the sites the person allowed; anything else is `blockedLocalPage`, which the panel
+ * offers to allow. Address-bar and agent navigations do not pass through here.
+ */
+export function resolveBrowserRuntimeNavigation(
+  url: string,
+  currentUrl: string,
+  allowedSites: readonly string[],
+): "allow" | "block" | "blockedLocalPage" {
+  if (url === ABOUT_BLANK_URL) return "allow";
+  const fromLocalPage = isLocalHtmlPreviewUrl(currentUrl);
+  if (isLocalHtmlPreviewUrl(url)) {
+    return isSameLocalHtmlPreviewGrant(currentUrl, url)
+      ? "allow"
+      : fromLocalPage
+        ? "blockedLocalPage"
+        : "block";
+  }
+  const origin = urlOrigin(url);
+  if (!origin) return fromLocalPage ? "blockedLocalPage" : "block";
+  if (!fromLocalPage) return "allow";
+  return allowedSites.includes(origin) ? "allow" : "blockedLocalPage";
 }
 
 function normalizeAutomationKey(value: string): string {
@@ -483,6 +513,10 @@ export class DesktopBrowserManager {
   private readonly popupRuntimes = new Map<BrowserWindow, OAuthPopupRuntime>();
   private readonly previewThreadIds = new Set<ThreadId>();
   private readonly occludedThreadIds = new Set<ThreadId>();
+  /** The last resting capture's pixels (active page only), to answer "unchanged". */
+  private readonly restingPreviewBitmapByRuntimeKey = new Map<string, Buffer>();
+  /** The page a menu covers: hidden but left in the window so it returns without a flash. */
+  private coveredRuntimeKey: string | null = null;
   private readonly sessionPolicy: BrowserSessionPolicy;
   private readonly tabSuspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly suspendTimers = new Map<ThreadId, ReturnType<typeof setTimeout>>();
@@ -513,9 +547,12 @@ export class DesktopBrowserManager {
 
   constructor(private readonly options: DesktopBrowserManagerOptions = {}) {
     nativeTheme.on("updated", this.updateNativeViewBackgrounds);
-    this.sessionPolicy = new BrowserSessionPolicy((event) => {
-      this.handleSessionDownload(event);
-    });
+    this.sessionPolicy = new BrowserSessionPolicy(
+      (event) => {
+        this.handleSessionDownload(event);
+      },
+      () => this.options.localPageAllowedSites?.() ?? [],
+    );
     this.annotations = new BrowserAnnotationCoordinator({
       resolveVisibleRuntime: (input) => {
         const runtime = this.getVisibleAutomationRuntime(input);
@@ -724,8 +761,16 @@ export class DesktopBrowserManager {
         typeof details.isMainFrame === "boolean"
           ? details.isMainFrame
           : legacyIsMainFrame !== false;
-      if (isMainFrame && !isAllowedBrowserRuntimeNavigation(url, webContents.getURL())) {
-        details.preventDefault();
+      if (!isMainFrame) return;
+      const decision = resolveBrowserRuntimeNavigation(
+        url,
+        webContents.getURL(),
+        this.options.localPageAllowedSites?.() ?? [],
+      );
+      if (decision === "allow") return;
+      details.preventDefault();
+      if (decision === "blockedLocalPage") {
+        this.options.onLocalPageNavigationBlocked?.({ threadId, tabId, url });
       }
     };
     webContents.on("will-navigate", blockUnsafeMainFrameNavigation);
@@ -739,6 +784,21 @@ export class DesktopBrowserManager {
     // schemes are denied here: browser content must never launch an OS handler implicitly.
     webContents.setWindowOpenHandler((details) => {
       const { url } = details;
+      // A local page's sandbox already refuses popups; this keeps it that way if a
+      // request ever gets here, and offers the site like a blocked navigation.
+      if (isLocalHtmlPreviewUrl(webContents.getURL())) {
+        const decision = resolveBrowserRuntimeNavigation(
+          url,
+          webContents.getURL(),
+          this.options.localPageAllowedSites?.() ?? [],
+        );
+        if (decision !== "allow" || isLocalHtmlPreviewUrl(url)) {
+          if (decision === "blockedLocalPage") {
+            this.options.onLocalPageNavigationBlocked?.({ threadId, tabId, url });
+          }
+          return { action: "deny" };
+        }
+      }
       const automationGestureActive = this.isAutomationGestureActive(threadId, tabId);
       const isWebUrl =
         url.startsWith("http://") || url.startsWith("https://") || url === ABOUT_BLANK_URL;
@@ -1713,6 +1773,9 @@ export class DesktopBrowserManager {
       const runtime = this.runtimes.get(buildRuntimeKey(input.threadId, activeTab.id));
       if (runtime) this.setRuntimeViewHidden(runtime, true);
     }
+    // An occluded page stays in the window (invisible) so it can come back at once; a
+    // hidden panel takes it out like any other detached page.
+    this.releaseCoveredRuntime(undefined, input.threadId);
 
     if (!state?.open) {
       return;
@@ -2199,7 +2262,10 @@ export class DesktopBrowserManager {
       this.queueRuntimeStateSync(input.threadId, tab.id);
     }
 
-    const pngBytes = (await webContents.capturePage()).toPNG();
+    // capturePage alone can return a magnified crop on a scaled display; see
+    // captureVisibleViewportPng.
+    const composited = bounds ? await captureVisibleViewportPng(webContents) : null;
+    const pngBytes = composited ?? (await webContents.capturePage()).toPNG();
     if (pngBytes.byteLength === 0) {
       throw new Error("Couldn't capture a browser screenshot.");
     }
@@ -2223,35 +2289,78 @@ export class DesktopBrowserManager {
     };
   }
 
-  async capturePreview(input: BrowserTabInput): Promise<string | null> {
+  /**
+   * A still of the active page for the panel to show in its place. While a menu or the
+   * floating card covers the page (occluded/preview) it is always taken; a resting capture
+   * (`ifChanged`) is also taken while the page is on screen and answers null when nothing
+   * changed since the last one, so the panel can keep a fresh still ready at little cost and
+   * a menu opening over the page never uncovers an empty slot.
+   */
+  async capturePreview(input: BrowserCapturePreviewInput): Promise<string | null> {
     const state = this.states.get(input.threadId);
     const runtime = this.runtimes.get(buildRuntimeKey(input.threadId, input.tabId));
-    if (
-      (!this.previewThreadIds.has(input.threadId) && !this.occludedThreadIds.has(input.threadId)) ||
-      !state?.open ||
-      state.activeTabId !== input.tabId ||
-      !runtime ||
-      runtime.webContents.isDestroyed()
-    )
-      return null;
-    const image = await runtime.webContents
+    const covered = () =>
+      this.previewThreadIds.has(input.threadId) || this.occludedThreadIds.has(input.threadId);
+    const onScreen = () =>
+      runtime !== undefined &&
+      this.activeThreadId === input.threadId &&
+      this.attachedRuntimeKey === runtime.key;
+    const allowed = () => covered() || (input.ifChanged === true && onScreen());
+    if (!allowed() || !state?.open || state.activeTabId !== input.tabId || !runtime) return null;
+    if (runtime.webContents.isDestroyed()) return null;
+    let image = await runtime.webContents
       .capturePage(undefined, { stayHidden: true, stayAwake: true })
       .catch(() => null);
     if (
       this.runtimes.get(runtime.key) !== runtime ||
-      (!this.previewThreadIds.has(input.threadId) && !this.occludedThreadIds.has(input.threadId)) ||
+      !allowed() ||
       state.activeTabId !== input.tabId ||
       !image ||
       image.isEmpty()
     )
       return null;
+    // capturePage can return a magnified crop after the page navigated off screen (see
+    // captureVisibleViewportPng); an on-screen page then reads its composited frame instead.
+    // Only for a page actually shown: a parked preview or a covered page has no composited
+    // frame to read.
+    if (!covered() && onScreen() && runtime.view) {
+      const expectedWidth = this.expectedOnScreenCaptureWidth(runtime.view);
+      if (expectedWidth !== null && Math.abs(image.getSize().width - expectedWidth) > 2) {
+        const composited = await captureVisibleViewportPng(runtime.webContents);
+        if (composited) image = nativeImage.createFromBuffer(composited);
+      }
+    }
+    if (input.ifChanged) {
+      const bitmap = image.toBitmap();
+      const previous = this.restingPreviewBitmapByRuntimeKey.get(runtime.key);
+      if (previous && previous.equals(bitmap) && input.force !== true) return null;
+      this.restingPreviewBitmapByRuntimeKey.clear();
+      this.restingPreviewBitmapByRuntimeKey.set(runtime.key, bitmap);
+    }
     // Toolbar overlays need a full-size replacement for the obscured page;
     // floating cards keep their existing bounded thumbnail cost.
     const thumbnail =
       this.previewThreadIds.has(input.threadId) && image.getSize().width > 640
         ? image.resize({ width: 640 })
         : image;
-    return `data:image/jpeg;base64,${thumbnail.toJPEG(70).toString("base64")}`;
+    return `data:image/jpeg;base64,${thumbnail.toJPEG(80).toString("base64")}`;
+  }
+
+  /**
+   * The width in device pixels a capture of an on-screen page should have, or null when it
+   * cannot be told (no window, a view or window without bounds, no display).
+   */
+  private expectedOnScreenCaptureWidth(view: WebContentsView): number | null {
+    const window = this.window;
+    if (!window || window.isDestroyed()) return null;
+    try {
+      const viewBounds = view.getBounds();
+      if (!viewBounds || viewBounds.width <= 0) return null;
+      const scale = screen.getDisplayMatching(window.getBounds()).scaleFactor;
+      return Number.isFinite(scale) && scale > 0 ? Math.round(viewBounds.width * scale) : null;
+    } catch {
+      return null;
+    }
   }
 
   // Copies the active tab's URL via the native clipboard and emits the copy-link
@@ -2839,6 +2948,8 @@ export class DesktopBrowserManager {
       return;
     }
     runtime.view.setBorderRadius(0);
+    this.releaseCoveredRuntime(runtime.key);
+    if (this.coveredRuntimeKey === runtime.key) this.coveredRuntimeKey = null;
     if (this.attachedRuntimeKey === runtime.key) {
       this.setRuntimeViewHidden(runtime, false);
       this.bringRuntimeViewToFront(runtime);
@@ -2884,13 +2995,42 @@ export class DesktopBrowserManager {
 
     const runtime = this.runtimes.get(this.attachedRuntimeKey);
     if (runtime?.view) {
-      this.setRuntimeViewHidden(runtime, true, occludedBounds);
-      if (!this.automationRuntimeKeys.has(runtime.key)) {
-        this.window.contentView.removeChildView(runtime.view);
+      if (occludedBounds && !this.automationRuntimeKeys.has(runtime.key)) {
+        // Covered by a menu: only hide the page. It keeps its place and its last frame, so
+        // it comes back on the next frame when the menu closes instead of repainting from
+        // an empty, zero-sized view (which showed as a flash).
+        const nativeView = runtime.view as typeof runtime.view & NativeBrowserViewVisibility;
+        nativeView.setVisible?.(false);
+        this.coveredRuntimeKey = runtime.key;
+      } else {
+        this.setRuntimeViewHidden(runtime, true, occludedBounds);
+        if (!this.automationRuntimeKeys.has(runtime.key)) {
+          this.window.contentView.removeChildView(runtime.view);
+        }
       }
     }
     this.attachedRuntimeKey = null;
     this.attachedBoundsSignature = null;
+  }
+
+  /**
+   * Takes the page a menu covered (hidden in place) out of the window, unless it is the one
+   * about to be shown again.
+   */
+  private releaseCoveredRuntime(exceptKey?: string, onlyThreadId?: ThreadId): void {
+    const key = this.coveredRuntimeKey;
+    if (!key || key === exceptKey) return;
+    const runtime = this.runtimes.get(key);
+    if (onlyThreadId !== undefined && runtime && runtime.threadId !== onlyThreadId) return;
+    this.coveredRuntimeKey = null;
+    if (!runtime?.view || runtime.webContents.isDestroyed()) return;
+    if (this.automationRuntimeKeys.has(runtime.key) || this.attachedRuntimeKey === runtime.key) {
+      return;
+    }
+    this.setRuntimeViewHidden(runtime, true);
+    if (this.window && !this.window.isDestroyed()) {
+      this.window.contentView.removeChildView(runtime.view);
+    }
   }
 
   private setRuntimeViewHidden(

@@ -1,7 +1,7 @@
 // FILE: AppToolsDialog.tsx
 // Purpose: Codex Desktop parity dialog for inspecting and launching an App's tools.
 
-import type { ProviderAppInfo, ProviderAppTool } from "@synara/contracts";
+import type { ProviderAppInfo, ProviderAppTool } from "@moss/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import {

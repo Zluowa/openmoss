@@ -16,8 +16,8 @@ import type {
   ThreadEnvironmentMode,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
-import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@synara/contracts";
+} from "@moss/contracts";
+import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@moss/contracts";
 import type { ComposerFileAttachment } from "../composerDraftDomain";
 import { revokeObjectPreviewUrl } from "../composerDraftAttachments";
 import { hasActiveComposerSend } from "./composerSendOwnership";
@@ -27,9 +27,9 @@ import {
   filterPastedTextsWithText,
   pastedTextTitle,
 } from "./composerPastedText";
-import { buildPromptThreadTitleFallback } from "@synara/shared/chatThreads";
-import { isPendingThreadWorktree } from "@synara/shared/threadEnvironment";
-import type { ProviderInstanceOption } from "../appSettings";
+import { buildPromptThreadTitleFallback } from "@moss/shared/chatThreads";
+import { isPendingThreadWorktree } from "@moss/shared/threadEnvironment";
+import { newChatProviderInstanceIdFrom, type ProviderInstanceOption } from "../appSettings";
 import { composerDraftHasAttachments, composerDraftsMatchForCleanup } from "../composerDraftDomain";
 import {
   resolvePreferredComposerModelSelection,
@@ -113,7 +113,10 @@ interface DraftThreadDispatchInput {
   promptAsFile?: boolean;
 }
 
-export type DraftDispatchProviderInstance = Pick<ProviderInstanceOption, "instanceId" | "provider">;
+export type DraftDispatchProviderInstance = Pick<
+  ProviderInstanceOption,
+  "instanceId" | "provider" | "newChatDefault"
+>;
 
 export interface DraftThreadDispatchTarget {
   readonly modelSelection: ModelSelection;
@@ -150,6 +153,8 @@ export function resolveDraftThreadDispatchTarget(input: {
     projectModelSelection: project?.defaultModelSelection ?? null,
     defaultProvider: input.defaultProvider,
     resolveProviderForInstanceId: resolveConfiguredProvider,
+    defaultInstanceIdForProvider: (provider) =>
+      newChatProviderInstanceIdFrom(input.providerInstances, provider),
   });
   return {
     modelSelection,
@@ -407,6 +412,8 @@ async function dispatchDraftThreadOnce(
         projectId,
         resolveProviderForInstanceId: (instanceId) =>
           resolveProviderForInstanceId(input.providerInstances, instanceId),
+        defaultInstanceIdForProvider: (provider) =>
+          newChatProviderInstanceIdFrom(input.providerInstances, provider),
       });
       const promotion = await promoteThreadCreate(
         {

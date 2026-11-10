@@ -16,8 +16,8 @@ import {
   WS_METHODS,
   type OrchestrationLatestTurn,
   type ServerConfig,
-} from "@synara/contracts";
-import { MOSS_DESKTOP_SMOKE_USER_DATA_ENV } from "@synara/shared/desktopIdentity";
+} from "@moss/contracts";
+import { MOSS_DESKTOP_SMOKE_USER_DATA_ENV } from "@moss/shared/desktopIdentity";
 import { Schema, type Effect } from "effect";
 import {
   startFocusProbe,

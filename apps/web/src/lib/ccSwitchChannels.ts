@@ -6,7 +6,7 @@ import type {
   ProviderInstanceConfig,
   ProviderInstanceConfigMap,
   ProviderInstanceId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export const KIMI_CHANNEL_INSTANCE_ID = "claude_kimi" as ProviderInstanceId;
 export const KIMI_CHANNEL_MODEL = "kimi-for-coding";

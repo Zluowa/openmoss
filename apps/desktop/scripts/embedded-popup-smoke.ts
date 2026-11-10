@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { DesktopBrowserManager } from "../src/browserManager";
 
 // Run the bundled script with Electron. Everything is synthetic and the only

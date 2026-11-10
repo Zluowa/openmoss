@@ -69,6 +69,10 @@ const sentryPlugins =
         org: sentryOrg!,
         project: sentryProject!,
         telemetry: false,
+        // Hidden maps exist only for the upload. Left in dist they would ship in the app.
+        sourcemaps: {
+          filesToDeleteAfterUpload: ["./dist/**/*.map"],
+        },
         release: {
           name: sentryRelease,
           inject: true,
@@ -279,6 +283,9 @@ export default defineConfig({
     "import.meta.env.VITE_SENTRY_RELEASE": JSON.stringify(sentryRelease),
   },
   resolve: {
+    // Packages linked in from outside the workspace (the spreadsheet engine) resolve React from
+    // their real path; dedupe keeps them on the app's one React like the aliases below.
+    dedupe: ["react", "react-dom"],
     // Workspace hoisting can place peer-only packages at the repository root,
     // while Node's package resolver starts from that package's real path. Pin
     // React to the web app's single runtime copy so peer imports (notably

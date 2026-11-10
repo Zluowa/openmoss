@@ -5,7 +5,7 @@ import type {
   ProviderAppInfo,
   ProviderPluginAuthPolicy,
   ProviderPluginInstallAppSummary,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export type PluginRequiredAppStatus = "pending" | "launching" | "opened" | "connected";
 

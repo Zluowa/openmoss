@@ -6,7 +6,7 @@ import type {
   ProviderAppConnectorTerms,
   ProviderStartAppConnectionInput,
   ProviderStartAppConnectionResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "~/localization";

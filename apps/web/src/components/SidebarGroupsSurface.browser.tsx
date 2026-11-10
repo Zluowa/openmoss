@@ -5,7 +5,7 @@
 
 import "../index.css";
 
-import { ProjectId, ThreadId, type ProjectAgentSummary } from "@synara/contracts";
+import { ProjectId, ThreadId, type ProjectAgentSummary } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -36,6 +36,7 @@ const api = {
 vi.mock("../nativeApi", () => ({
   readNativeApi: () => api,
   ensureNativeApi: () => api,
+  isNativeApiDetached: () => false,
   readNativeApiServerCapability: () => false,
   onNativeApiServerCapabilitiesChange: () => () => {},
 }));

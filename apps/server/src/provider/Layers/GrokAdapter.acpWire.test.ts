@@ -6,7 +6,7 @@
 // Depends on: in-memory ChildProcessSpawner; no real grok binary.
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ThreadId, type ProviderRuntimeEvent } from "@synara/contracts";
+import { ThreadId, type ProviderRuntimeEvent } from "@moss/contracts";
 import { Effect, Layer, Queue, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { describe, expect, it } from "vitest";

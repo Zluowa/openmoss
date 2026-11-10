@@ -9,7 +9,7 @@ import type {
   WorkspaceImportProbeResult,
   WorkspaceImportSourceKind,
   WorkspaceImportSourcePreview,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export type WorkspaceImportUiStep =
   | "loading"

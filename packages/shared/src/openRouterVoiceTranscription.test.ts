@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  compactVoiceWavForTranscription,
   OpenRouterVoiceTranscriptionError,
   requestOpenRouterVoiceTranscription,
   requestMossGatewayVoiceTranscription,
@@ -195,5 +196,99 @@ describe("requestOpenRouterVoiceTranscription", () => {
         token: "synthetic-token",
       }),
     ).rejects.toMatchObject({ code: "OPENROUTER_STT_INVALID_RESPONSE" });
+  });
+});
+
+/** 16-bit mono PCM WAV like the composer recorder produces. */
+function pcmWav(samples: readonly number[], sampleRateHz: number, channels = 1): Uint8Array {
+  const bytes = new Uint8Array(44 + samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  const ascii = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      bytes[offset + index] = value.charCodeAt(index);
+    }
+  };
+  ascii(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRateHz, true);
+  view.setUint32(28, sampleRateHz * 2 * channels, true);
+  view.setUint16(32, 2 * channels, true);
+  view.setUint16(34, 16, true);
+  ascii(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  samples.forEach((sample, index) => view.setInt16(44 + index * 2, sample, true));
+  return bytes;
+}
+
+function speechClip(sampleRateHz: number): number[] {
+  const silence = Array.from({ length: sampleRateHz }, () => 0);
+  const tone = Array.from({ length: sampleRateHz }, (_, index) =>
+    Math.round(Math.sin((2 * Math.PI * 220 * index) / sampleRateHz) * 12_000),
+  );
+  return [...silence, ...tone, ...silence];
+}
+
+function readWavHeader(bytes: Uint8Array) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return {
+    sampleRateHz: view.getUint32(24, true),
+    dataBytes: view.getUint32(40, true),
+  };
+}
+
+describe("compactVoiceWavForTranscription", () => {
+  it("trims silence around speech and resamples a 24 kHz clip to 16 kHz", () => {
+    const original = pcmWav(speechClip(24_000), 24_000);
+
+    const compacted = compactVoiceWavForTranscription(original);
+
+    const header = readWavHeader(compacted);
+    expect(header.sampleRateHz).toBe(16_000);
+    // 1 s of speech plus 300 ms padding each side, at 16 kHz, 2 bytes per sample.
+    const seconds = header.dataBytes / 2 / 16_000;
+    expect(seconds).toBeGreaterThan(1.5);
+    expect(seconds).toBeLessThan(1.7);
+    // 3 s at 24 kHz (144 KB) becomes 1.6 s at 16 kHz (51 KB).
+    expect(compacted.byteLength).toBeLessThan(original.byteLength * 0.4);
+  });
+
+  it("keeps a clip without clear speech whole and only resamples it", () => {
+    const quiet = pcmWav(
+      Array.from({ length: 24_000 }, () => 3),
+      24_000,
+    );
+
+    const compacted = compactVoiceWavForTranscription(quiet);
+
+    const header = readWavHeader(compacted);
+    expect(header.sampleRateHz).toBe(16_000);
+    expect(header.dataBytes / 2).toBe(16_000);
+  });
+
+  it("returns anything it does not recognise unchanged", () => {
+    expect(compactVoiceWavForTranscription(WAV_AUDIO)).toBe(WAV_AUDIO);
+    const stereo = pcmWav(speechClip(24_000), 24_000, 2);
+    expect(compactVoiceWavForTranscription(stereo)).toBe(stereo);
+  });
+
+  it("sends the compacted clip to the Moss gateway", async () => {
+    const request = vi.spyOn(outboundHttp, "request").mockResolvedValue(response({ text: "ok" }));
+    const original = pcmWav(speechClip(24_000), 24_000);
+
+    await requestMossGatewayVoiceTranscription({
+      audio: original,
+      gatewayBaseUrl: "https://project.supabase.co/functions/v1/moss-model-gateway/v1",
+      mimeType: "audio/wav",
+      operationId: OPERATION_ID,
+      token: "synthetic-token",
+    });
+
+    const body = request.mock.calls[0]?.[0].body as Uint8Array;
+    expect(body.byteLength).toBeLessThan(original.byteLength * 0.4);
   });
 });

@@ -1,5 +1,5 @@
 import { BetterWright, NetworkPolicy, type CredentialVault } from "betterwright";
-import { BrowserAutomationErrorMessages } from "@synara/contracts";
+import { BrowserAutomationErrorMessages } from "@moss/contracts";
 import type { WebContents } from "electron";
 import { mossHostTarget } from "./betterwrightHostTarget";
 import type { BrowserAutomationVisibleRuntime } from "../browserManager";

@@ -3,7 +3,7 @@ import {
   type OrchestrationThread,
   type ProviderKind,
   type TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 type ResumeThread = Pick<
   OrchestrationThread,

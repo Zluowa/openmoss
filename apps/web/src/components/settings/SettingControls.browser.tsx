@@ -4,8 +4,32 @@ import { page } from "vitest/browser";
 import { expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { MossLocaleScope } from "~/localization";
+
 import { SelectItem } from "../ui/select";
-import { SettingsSelectControl } from "./SettingControls";
+import { SettingResetButton, SettingsSelectControl } from "./SettingControls";
+
+it("puts a Chinese label inside the reset button's name in Simplified Chinese", async () => {
+  await render(
+    <MossLocaleScope locale="zh-CN">
+      <SettingResetButton label="enabled providers" onClick={vi.fn()} />
+    </MossLocaleScope>,
+  );
+  await expect
+    .element(page.getByRole("button", { name: "将已启用的服务商重置为默认值", exact: true }))
+    .toBeInTheDocument();
+});
+
+it("keeps the English label inside the reset button's name in English", async () => {
+  await render(
+    <MossLocaleScope locale="en">
+      <SettingResetButton label="enabled providers" onClick={vi.fn()} />
+    </MossLocaleScope>,
+  );
+  await expect
+    .element(page.getByRole("button", { name: "Reset enabled providers to default", exact: true }))
+    .toBeInTheDocument();
+});
 
 it("lets the user choose an enabled provider while the saved default is hidden", async () => {
   const onValueChange = vi.fn();

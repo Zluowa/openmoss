@@ -4,7 +4,7 @@
 //          browser has no bridge, so every path here is a no-op there.
 // Layer: Settings UI wiring
 
-import type { DesktopAgentCursorStyle } from "@synara/contracts";
+import type { DesktopAgentCursorStyle } from "@moss/contracts";
 import { useEffect } from "react";
 
 import {

@@ -4,6 +4,7 @@
 // Layer: Route/UI support
 // Exports: entry type, the index, section label lookup, and the ranking helper
 
+import { SSH_SETTINGS_TARGET } from "./connectionSettingsNavigation";
 import { rankProviderDiscoveryItems } from "~/lib/providerDiscovery";
 import {
   isSettingsSectionAvailable,
@@ -95,6 +96,13 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     title: "Move sent messages to top",
     keywords:
       "Move each sent message to the top of the conversation. Turn off to keep it at the bottom and follow replies as they stream. chat enter send scroll anchor",
+  },
+  {
+    id: "general:error-reports",
+    section: "general",
+    title: "Send error reports",
+    keywords:
+      "When Moss hits an error, it sends a report so the problem can be fixed. privacy sentry crash telemetry diagnostics",
   },
   {
     id: "general:welcome-tour",
@@ -260,6 +268,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     id: "appearance:base-font-size",
     section: "appearance",
     title: "Base font size",
+    titleKey: "settings.appearance.baseFontSize.title",
     keywords:
       "Adjust the app text base in pixels. Chat and UI typography scale proportionally. font",
   },
@@ -267,6 +276,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     id: "appearance:terminal-font-size",
     section: "appearance",
     title: "Terminal font size",
+    titleKey: "settings.appearance.terminalFontSize.title",
     keywords: "Adjust terminal text independently from the app and chat font size.",
   },
   {
@@ -350,6 +360,15 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
       "Input Monitoring and Screen Recording permissions for AppSnap in macOS System Settings. privacy security recheck grant",
     // Renders only in the macOS desktop app, so no stable anchor on other platforms.
     target: null,
+  },
+
+  {
+    id: "connections:ssh",
+    section: "connections",
+    title: "SSH connections",
+    titleKey: "settings.ssh.title",
+    keywords: "SSH remote host alias identity port connect workspace server",
+    target: SSH_SETTINGS_TARGET,
   },
 
   // ── Computer use ──────────────────────────────────────────────────────────────
@@ -621,7 +640,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     section: "usage",
     title: "Sidebar usage rings",
     keywords:
-      "Choose up to two provider accounts for usage rings at the bottom of the sidebar rail. multiple Claude accounts quota",
+      "Choose which provider accounts show usage rings at the bottom of the sidebar rail. multiple Claude accounts quota",
     target: null,
   },
 
@@ -683,7 +702,9 @@ const SETTINGS_SECTION_LABEL_BY_ID = new Map<SettingsSectionId, string>(
 );
 
 export function settingsSectionLabel(section: SettingsSectionId): string {
-  return SETTINGS_SECTION_LABEL_BY_ID.get(section) ?? section;
+  return (
+    SETTINGS_SECTION_LABEL_BY_ID.get(section === "computer" ? "connections" : section) ?? section
+  );
 }
 
 /**
@@ -704,12 +725,14 @@ export function rankSettingsSearchEntries(
   query: string,
   limit: number,
   contextOrTranslate?: SettingsSearchContext | ((key: TranslationKey) => string),
+  translateWithContext?: (key: TranslationKey) => string,
 ): readonly SettingsSearchEntry[] {
   const trimmed = query.trim();
   if (trimmed.length === 0) {
     return [];
   }
-  const translate = typeof contextOrTranslate === "function" ? contextOrTranslate : undefined;
+  const translate =
+    typeof contextOrTranslate === "function" ? contextOrTranslate : translateWithContext;
   const resolvedContext =
     typeof contextOrTranslate === "object" && contextOrTranslate !== null
       ? contextOrTranslate

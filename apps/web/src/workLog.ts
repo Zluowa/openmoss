@@ -31,7 +31,7 @@ import {
   SECRET_REQUEST_ACTIVITY_KIND,
   SECRET_REQUEST_RESOLVED_ACTIVITY_KIND,
   SecretRequestActivityPayload,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Option, Schema } from "effect";
 import { INLINE_VISUALS_ON } from "./betaFeatures";
 import {
@@ -39,25 +39,21 @@ import {
   extractSubagentIdentityHints,
   decodeSubagentReceiverAgents,
   decodeSubagentReceiverThreadIds,
-} from "@synara/shared/subagents";
+} from "@moss/shared/subagents";
 import {
   approvalRequestKindFromRequestType,
   pendingRequestInstanceKey,
   type ApprovalRequestKind,
-} from "@synara/shared/threadSummary";
-import {
-  stripTrailingToolExitCode,
-  summarizeToolRawOutput,
-} from "@synara/shared/toolOutputSummary";
-import { isCodexDiagnosticWarningMessage } from "@synara/shared/codexDiagnostics";
-import { pluralize, stripTerminalControlSequences } from "@synara/shared/text";
-import { suppressCoordinatorCheckinMessages } from "@synara/shared/coordinatorCheckin";
-import { PROVIDER_DESCRIPTORS } from "@synara/shared/providerMetadata";
-import type { HtmlRenderReference } from "@synara/shared/htmlRender";
-import {
-  HTML_RENDER_ACTIVITY_KIND,
-  htmlRenderFromActivity,
-} from "@synara/shared/htmlRenderActivity";
+} from "@moss/shared/threadSummary";
+import { stripTrailingToolExitCode, summarizeToolRawOutput } from "@moss/shared/toolOutputSummary";
+import { isCodexDiagnosticWarningMessage } from "@moss/shared/codexDiagnostics";
+import { pluralize, stripTerminalControlSequences } from "@moss/shared/text";
+import { suppressCoordinatorCheckinMessages } from "@moss/shared/coordinatorCheckin";
+import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
+import type { HtmlRenderReference } from "@moss/shared/htmlRender";
+import { HTML_RENDER_ACTIVITY_KIND, htmlRenderFromActivity } from "@moss/shared/htmlRenderActivity";
+import { placeHtmlRenders } from "./lib/htmlRenderSurfaces";
+import { chatArtifactFromActivity, type ChatArtifact } from "./lib/chatArtifacts";
 import {
   deriveReadableToolTitle,
   deriveMossMcpToolTitle,
@@ -97,7 +93,7 @@ import {
   decodeSubagentActivity,
   normalizeSubagentToolData,
   type SubagentActivityKind,
-} from "@synara/shared/subagentTool";
+} from "@moss/shared/subagentTool";
 
 import type { ChatMessage, ProposedPlan } from "./types";
 
@@ -263,6 +259,8 @@ export interface WorkLogEntry {
   taskList?: ReadonlyArray<TaskListTaskSnapshot>;
   /** A page the agent's `html_render` call published, shown inline where it was published. */
   htmlRender?: HtmlRenderReference;
+  /** A deck or exported file from Moss's slides tools, drawn as a card under the turn's answer. */
+  chatArtifact?: ChatArtifact;
   /** Typed Codex generated-image lifecycle state. Never infer this from copy. */
   generatedImage?: WorkLogGeneratedImage;
   /** Typed Codex stream-retry state. Never infer retry progress from copy. */
@@ -618,6 +616,8 @@ export type TimelineEntry =
       sequence?: number;
       turnId?: TurnId | null;
       htmlRender: HtmlRenderReference;
+      /** On a surface's later publication, a note: the id of the entry showing its newest page. */
+      liveId?: string;
     };
 
 export interface ModelChangeTranscriptRecord {
@@ -1355,21 +1355,35 @@ export function isCodexRuntimeWarningType(nativeEventType: unknown): boolean {
   return nativeEventType === "codex.guardianWarning" || nativeEventType === "codex.warning";
 }
 
+/**
+ * Plumbing, never transcript work, for every provider. The transcript shows what the
+ * agent did and what needs the person; like Codex and Claude, it never shows the
+ * machinery around that:
+ * - composer connection and safety-buffering metadata;
+ * - checkpoint bookkeeping the user did not ask for (a missing baseline or capture only
+ *   changes what Undo offers, which Undo itself shows);
+ * - provider notifications no adapter maps (session and thread lifecycle, settings
+ *   echoes, MCP startup), saved before the server stopped storing them;
+ * - Moss realigning its own turn state with the provider's.
+ */
+const PLUMBING_ACTIVITY_KINDS: ReadonlySet<string> = new Set([
+  "provider.session.connection",
+  "model.safety-buffering.updated",
+  "model.safety-buffering.retry-requested",
+  "checkpoint.baseline.skipped",
+  "checkpoint.capture.failed",
+  "provider.event.unmapped",
+  "provider.runtime.reconciled",
+  // The window opens Canvas from it; the moss_canvas_open tool row already says so.
+  "canvas.open.requested",
+]);
+
 function shouldKeepActivityForWorkLog(
   activity: OrchestrationThreadActivity,
   latestTurnId: TurnId | undefined,
   visibleTurnIds: ReadonlySet<TurnId | string> | undefined,
 ): boolean {
-  // Composer connection and safety-buffering metadata are not transcript work.
-  // Neither is checkpoint bookkeeping the user did not ask for: a missing
-  // baseline or capture only changes what Undo offers, which Undo itself shows.
-  if (
-    activity.kind === "provider.session.connection" ||
-    activity.kind === "model.safety-buffering.updated" ||
-    activity.kind === "model.safety-buffering.retry-requested" ||
-    activity.kind === "checkpoint.baseline.skipped" ||
-    activity.kind === "checkpoint.capture.failed"
-  ) {
+  if (PLUMBING_ACTIVITY_KINDS.has(activity.kind)) {
     return false;
   }
   // Codex's own auth/model-list/transport retries and config notices persisted
@@ -2252,8 +2266,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       entry.detail = detail;
     }
   }
-  const outputDetail =
-    activity.kind === "provider.event.unmapped" ? null : summarizeToolPayloadOutput(payload);
+  const outputDetail = summarizeToolPayloadOutput(payload);
   if (outputDetail && (!entry.detail || toolStatus === "failed")) {
     entry.detail = stripTerminalControlSequences(outputDetail);
   }
@@ -2516,6 +2529,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (htmlRender) {
     entry.htmlRender = htmlRender;
   }
+  const chatArtifact = chatArtifactFromActivity(activity);
+  if (chatArtifact) {
+    entry.chatArtifact = chatArtifact;
+  }
   if (activity.kind === "moss.threads.created") {
     const mossThreadCreation = extractWorkLogMossThreadCreation(payload);
     if (mossThreadCreation) {
@@ -2635,9 +2652,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (toolDetails) {
     entry.toolDetails = toolDetails;
   }
-  const collapseKey =
-    deriveProviderRuntimeReconciliationCollapseKey(activity, payload) ??
-    deriveToolLifecycleCollapseKey(entry, hasTurnScopedProviderToolCallId(payload));
+  const collapseKey = deriveToolLifecycleCollapseKey(
+    entry,
+    hasTurnScopedProviderToolCallId(payload),
+  );
   if (collapseKey) {
     entry.collapseKey = collapseKey;
   }
@@ -2647,42 +2665,6 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   derivedWorkLogEntryCache.set(activity, entry);
   return entry;
-}
-
-function deriveProviderRuntimeReconciliationCollapseKey(
-  activity: OrchestrationThreadActivity,
-  payload: Record<string, unknown> | null,
-): string | undefined {
-  if (activity.kind !== "provider.runtime.reconciled") {
-    return undefined;
-  }
-  const provider = asTrimmedString(payload?.provider);
-  const action = asTrimmedString(payload?.action);
-  const projectedTurnId = asTrimmedString(payload?.projectedTurnId) ?? activity.turnId ?? undefined;
-  const runtimeTurnId = asTrimmedString(payload?.runtimeTurnId);
-  if (
-    !provider ||
-    !projectedTurnId ||
-    (action !== "settle-interrupted" &&
-      action !== "settle-terminal-projection" &&
-      action !== "settle-error" &&
-      action !== "align-running-turn") ||
-    (action === "align-running-turn" && !runtimeTurnId)
-  ) {
-    return undefined;
-  }
-  // Session and turn projections converge independently. A single stale turn
-  // can therefore be observed first as interrupted, then as terminal or
-  // failed. Those settlement actions refine one recovery; a runtime
-  // realignment remains distinct because its live turn id identifies separate
-  // evidence.
-  const operation = action === "align-running-turn" ? action : "settle-running-turn";
-  return `provider-runtime-reconcile:${JSON.stringify([
-    provider,
-    operation,
-    projectedTurnId,
-    runtimeTurnId ?? null,
-  ])}`;
 }
 
 function deriveToolLifecycleStatus(
@@ -5392,8 +5374,11 @@ export function deriveTimelineEntries(
     ];
   });
   type HtmlRenderTimelineEntry = Extract<TimelineEntry, { kind: "html-render" }>;
-  const htmlRenderRows: HtmlRenderTimelineEntry[] = visibleWorkEntries.flatMap((entry) =>
-    entry.htmlRender === undefined
+  // One pass places every page: a surface shows its newest page where it first appeared.
+  const placedHtmlRenders = placeHtmlRenders(visibleWorkEntries);
+  const htmlRenderRows: HtmlRenderTimelineEntry[] = visibleWorkEntries.flatMap((entry) => {
+    const placed = placedHtmlRenders.get(entry.id);
+    return placed === undefined
       ? []
       : [
           {
@@ -5402,10 +5387,11 @@ export function deriveTimelineEntries(
             createdAt: entry.createdAt,
             ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
             ...(entry.turnId !== undefined ? { turnId: entry.turnId } : {}),
-            htmlRender: entry.htmlRender,
+            htmlRender: placed.htmlRender,
+            ...(placed.liveId === undefined ? {} : { liveId: placed.liveId }),
           },
-        ],
-  );
+        ];
+  });
   type SystemErrorTimelineEntry = Extract<TimelineEntry, { kind: "system-error" }>;
   const systemErrorRows: SystemErrorTimelineEntry[] = visibleWorkEntries.flatMap((entry) => {
     if (!entry.systemError) {

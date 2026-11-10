@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer, ServiceMap } from "effect";
 import { HttpRouter } from "effect/unstable/http";
-import { outboundHttp } from "@synara/shared/outboundHttp";
+import { outboundHttp } from "@moss/shared/outboundHttp";
 import { MossMediaAssetStore } from "./mossMediaAssets";
+import { mediaAccountScope } from "./mossMediaJobsService";
 import * as canvasStorage from "./mossCanvasStorage";
 import * as canvasWorkspace from "./mossCanvasWorkspace";
 import * as mediaPromotion from "./mossCanvasMediaPromotion";
@@ -20,7 +21,7 @@ vi.mock("./config", async () => {
   const { ServiceMap } = await import("effect");
   return { ServerConfig: ServiceMap.Service("media-route-test/ServerConfig") };
 });
-vi.mock("@synara/shared/providerInstances", () => ({
+vi.mock("@moss/shared/providerInstances", () => ({
   codexAccountInstanceId: (id: string) => `codex_${id}`,
 }));
 
@@ -938,6 +939,17 @@ describe("Moss media HTTP route", () => {
       }),
     );
     const assetPath = `/../assets/${created.jobId}/0`;
+    const scope = mediaAccountScope({
+      account: { id: "account-a", realm: "memfire-phone" },
+      realm: "memfire-phone",
+      gatewayBaseUrl: gateway,
+    });
+    const scopedPath = `${assetPath}?accountScope=${scope}`;
+    expect((await app.request(scopedPath)).headers.get("content-disposition")).toMatch(/^inline;/u);
+    expect(
+      (await app.request(scopedPath + "&download=1")).headers.get("content-disposition"),
+    ).toMatch(/^attachment;/u);
+    expect((await app.request(`${assetPath}?accountScope=${"0".repeat(64)}`)).status).toBe(404);
     const cached = await app.request(assetPath);
     expect(cached.status).toBe(200);
     expect(cached.headers.get("content-type")).toBe("image/png");
@@ -946,6 +958,7 @@ describe("Moss media HTTP route", () => {
       Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0]),
     );
     app.state.accountId = "account-b";
+    expect((await app.request(scopedPath)).status).toBe(404);
     expect((await app.request(assetPath)).status).toBe(404);
     expect((await app.request(`/${created.jobId}`)).status).toBe(404);
     expect(await (await app.request()).json()).toMatchObject({ jobs: [] });

@@ -1,5 +1,7 @@
 // FILE: runningChatsQuitConfirmation.ts
-// Purpose: Lists in-progress chats and builds the desktop quit confirmation copy.
+// Purpose: Lists the work a desktop quit would stop (chats, terminal commands, dev servers,
+//          imports, an app update download) and builds the quit confirmation copy. Quit
+//          asks only when this list is not empty.
 // Layer: UI logic helper
 // Depends on: Sidebar-equivalent "working" signals (running/connecting/live tail).
 
@@ -87,21 +89,96 @@ export function listRunningChatsFromDesktopStore(
   return listRunningChatsForQuit(candidates);
 }
 
+/** Running work other than chats that quitting would stop. */
+export type RunningWorkQuitKind = "terminal" | "devServer" | "import" | "updateDownload";
+
+export interface RunningWorkQuitItem {
+  readonly id: string;
+  readonly kind: RunningWorkQuitKind;
+  /** What the person recognises it by (chat title, dev-server command); may be empty. */
+  readonly detail: string;
+}
+
+/** Row label for each kind; zh-CN comes from the presentation phrase table. */
+export const RUNNING_WORK_QUIT_LABELS: Readonly<Record<RunningWorkQuitKind, string>> = {
+  terminal: "Terminal command",
+  devServer: "Dev server",
+  import: "Importing conversations",
+  updateDownload: "Downloading an app update",
+};
+
+export interface RunningWorkQuitSources {
+  /** Per chat, the terminals whose shell is running a command (a dev server, a build…). */
+  readonly terminalStateByThreadId: Readonly<
+    Record<string, { readonly runningTerminalIds: ReadonlyArray<string> } | undefined>
+  >;
+  readonly threadTitleById: (threadId: string) => string | null | undefined;
+  readonly devServers: ReadonlyArray<{
+    readonly projectId: string;
+    readonly command: string;
+    readonly status: string;
+  }>;
+  readonly projectNameById: (projectId: string) => string | null | undefined;
+  readonly imports: ReadonlyArray<{ readonly id: string; readonly label: string }>;
+  readonly updateDownloading: boolean;
+}
+
+/** Everything besides chats that would stop on quit, in a stable order. */
+export function listRunningWorkForQuit(
+  sources: RunningWorkQuitSources,
+): ReadonlyArray<RunningWorkQuitItem> {
+  const items: RunningWorkQuitItem[] = [];
+  for (const [threadId, state] of Object.entries(sources.terminalStateByThreadId)) {
+    for (const terminalId of new Set(state?.runningTerminalIds ?? [])) {
+      items.push({
+        id: `terminal:${threadId}:${terminalId}`,
+        kind: "terminal",
+        detail: runningChatDisplayTitle(sources.threadTitleById(threadId)),
+      });
+    }
+  }
+  for (const server of sources.devServers) {
+    if (server.status !== "running" && server.status !== "starting") continue;
+    const project = sources.projectNameById(server.projectId)?.trim();
+    items.push({
+      id: `devServer:${server.projectId}`,
+      kind: "devServer",
+      detail: project ? `${project} · ${server.command}` : server.command,
+    });
+  }
+  for (const entry of sources.imports) {
+    items.push({ id: `import:${entry.id}`, kind: "import", detail: entry.label });
+  }
+  if (sources.updateDownloading) {
+    items.push({ id: "updateDownload", kind: "updateDownload", detail: "" });
+  }
+  const kindOrder: Record<RunningWorkQuitKind, number> = {
+    terminal: 0,
+    devServer: 1,
+    import: 2,
+    updateDownload: 3,
+  };
+  return items.toSorted(
+    (left, right) =>
+      kindOrder[left.kind] - kindOrder[right.kind] ||
+      left.detail.localeCompare(right.detail) ||
+      left.id.localeCompare(right.id),
+  );
+}
+
 export function runningChatsQuitCopy(
   chats: ReadonlyArray<RunningChatQuitSummary>,
   appName = "Moss",
+  otherWork: ReadonlyArray<RunningWorkQuitItem> = [],
 ): RunningChatsQuitCopy {
   return {
     title:
-      chats.length === 0
-        ? `Quit ${appName}?`
+      otherWork.length > 0 || chats.length === 0
+        ? "Work is still running"
         : chats.length === 1
           ? "A chat is still running"
           : "Chats are still running",
-    description:
-      chats.length === 0
-        ? "Are you sure you want to quit?"
-        : `Work in progress will stop when ${appName} is closed.`,
+    description: `Work in progress will stop when ${appName} is closed.`,
     resumeLabel: chats.length === 1 ? "Resume chat automatically" : "Resume chats automatically",
     stayLabel: "Cancel",
     quitLabel: "Quit",

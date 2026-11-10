@@ -1,17 +1,18 @@
 // FILE: InlineVisualFrame.tsx
-// Purpose: One agent-published inline visual in the transcript: fetches its document, runs it
-//          in a sandboxed srcdoc frame, and bridges size, theme, and scroll intent.
+// Purpose: One agent-published inline visual in the transcript: runs its document in a sandboxed
+//          frame (srcdoc on desktop, served on a shared conversation), and bridges size, theme,
+//          and scroll intent.
 // Layer: Chat transcript row content
 // Exports: InlineVisualFrame
 
-import type { InlineVisualActivityPayload, ThreadId } from "@synara/contracts";
+import type { InlineVisualActivityPayload, ThreadId } from "@moss/contracts";
 import {
   buildInlineVisualDocument,
   clampInlineVisualHeight,
   inlineVisualThemeMessage,
   readInlineVisualFrameMessage,
   type InlineVisualTheme,
-} from "@synara/shared/inlineVisual";
+} from "@moss/shared/inlineVisual";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -19,6 +20,7 @@ import { isElectron } from "~/env";
 import { useInlineVisualTheme } from "~/hooks/useInlineVisualTheme";
 import { DISCLOSURE_FADE_MOTION_CLASS } from "~/lib/disclosureMotion";
 import { RotateCcwIcon } from "~/lib/icons";
+import { inlineVisualHost, resolveWebInlineVisualFrameUrl } from "~/lib/inlineVisualHosting";
 import { inlineVisualQueryOptions } from "~/lib/providerReactQuery";
 import { cn } from "~/lib/utils";
 
@@ -38,32 +40,56 @@ export function InlineVisualFrame(props: {
   readonly visual: InlineVisualActivityPayload;
   readonly onScrollIntent?: ((upward: boolean) => void) | undefined;
 }) {
-  // Browsers cannot intercept a document navigating its own iframe before the
-  // network request. Execute agent HTML only where the native guard can do so.
-  // The document itself is fully offline: CSP blocks remote fetches.
-  return isElectron ? (
-    <DesktopInlineVisualFrame {...props} />
-  ) : (
-    <InlineVisualNotice
-      title={props.visual.title}
-      message="HTML visuals are available in Moss desktop. Use native components in the browser."
-    />
-  );
+  // A document can navigate its own iframe, and a page cannot stop that once it starts. Agent
+  // HTML runs only where something refuses the navigation before any request leaves: desktop's
+  // native guard for a `srcdoc` frame, or in a browser the page's own `frame-src` for a served
+  // document (the web app's own server and local addresses; a shared conversation's guest page,
+  // only its own origin). A `srcdoc` frame cannot be used there: it inherits the page's
+  // `script-src 'self'`. Either way the document is offline: its policy blocks every fetch.
+  return <InlineVisualFrameBody {...props} hosted={!isElectron} />;
 }
 
-function DesktopInlineVisualFrame({
+function InlineVisualFrameBody({
   threadId,
   visual,
   onScrollIntent,
+  hosted,
 }: {
   readonly threadId: ThreadId;
   readonly visual: InlineVisualActivityPayload;
   readonly onScrollIntent?: ((upward: boolean) => void) | undefined;
+  /** Load a served document (any browser) instead of a `srcdoc` built here (desktop). */
+  readonly hosted: boolean;
 }) {
   const theme = useInlineVisualTheme();
   const visualDocument = useQuery(
     inlineVisualQueryOptions({ threadId, visualId: visual.visualId }),
   );
+  // The served document's address: resolved once per visual with the theme of that moment;
+  // later theme changes arrive as messages, as they do for a `srcdoc` frame.
+  const [hostedSrc, setHostedSrc] = useState<string | null | undefined>(undefined);
+  const initialAppearance = useRef(theme.appearance);
+  useEffect(() => {
+    if (!hosted) return;
+    let active = true;
+    // A shared conversation's guest page loads it through the share; the web app from its server.
+    const resolveFrameUrl = inlineVisualHost()?.frameUrl ?? resolveWebInlineVisualFrameUrl;
+    void resolveFrameUrl({
+      threadId,
+      visualId: visual.visualId,
+      appearance: initialAppearance.current,
+    }).then(
+      (url) => {
+        if (active) setHostedSrc(url);
+      },
+      () => {
+        if (active) setHostedSrc(null);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [hosted, threadId, visual.visualId]);
   // Reload mounts a fresh frame (and clears a stopped one) without refetching.
   const [generation, setGeneration] = useState(0);
   const [stopped, setStopped] = useState(false);
@@ -72,16 +98,25 @@ function DesktopInlineVisualFrame({
     setGeneration((value) => value + 1);
   };
   const html = visualDocument.data;
+  const frameDocument: InlineVisualDocumentSource | null = hosted
+    ? typeof hostedSrc === "string"
+      ? { kind: "src", src: hostedSrc }
+      : null
+    : html !== undefined
+      ? { kind: "srcdoc", html }
+      : null;
+  // A served frame does not need the source (only Copy does), so only its address can fail it.
+  const failed = hosted ? hostedSrc === null : visualDocument.isError;
 
   // No caption row: the page is part of the reply and lines up with its text.
   // The title names the figure and frame for assistive technology instead.
   return (
     <figure className="group/inline-visual relative m-0 min-w-0" aria-label={visual.title}>
-      {html !== undefined && !stopped ? (
+      {frameDocument !== null && !stopped ? (
         <>
           <InlineVisualDocument
             key={`${visual.visualId}:${generation}`}
-            html={html}
+            source={frameDocument}
             title={visual.title}
             reservedHeight={visual.height}
             theme={theme}
@@ -94,7 +129,9 @@ function DesktopInlineVisualFrame({
               "absolute end-1 top-1 flex items-center gap-0.5 rounded-md border border-border/60 bg-popover/90 p-0.5 opacity-0 shadow-xs backdrop-blur-sm focus-within:opacity-100 group-hover/inline-visual:opacity-100 pointer-coarse:opacity-100",
             )}
           >
-            <CopyTextButton text={html} label="source" className="text-ui-xs" />
+            {html !== undefined ? (
+              <CopyTextButton text={html} label="source" className="text-ui-xs" />
+            ) : null}
             <IconButton label="Reload visual" tooltip="Reload" onClick={reload}>
               <RotateCcwIcon className="size-4" />
             </IconButton>
@@ -107,11 +144,11 @@ function DesktopInlineVisualFrame({
           action="Reload"
           onAction={reload}
         />
-      ) : visualDocument.isError ? (
+      ) : failed ? (
         <InlineVisualNotice
           title={visual.title}
           message="Visual unavailable."
-          {...(isRetryable(visualDocument.error)
+          {...(visualDocument.isError && isRetryable(visualDocument.error)
             ? { action: "Retry", onAction: () => void visualDocument.refetch() }
             : {})}
         />
@@ -154,15 +191,20 @@ function InlineVisualNotice(props: {
   );
 }
 
+/** A visual's frame document: built here as `srcdoc` (desktop), or served (guest page). */
+type InlineVisualDocumentSource =
+  | { readonly kind: "srcdoc"; readonly html: string }
+  | { readonly kind: "src"; readonly src: string };
+
 function InlineVisualDocument({
-  html,
+  source,
   title,
   reservedHeight,
   theme,
   onStopped,
   onScrollIntent,
 }: {
-  readonly html: string;
+  readonly source: InlineVisualDocumentSource;
   readonly title: string;
   readonly reservedHeight: number;
   readonly theme: InlineVisualTheme;
@@ -175,7 +217,9 @@ function InlineVisualDocument({
   // Built once per mount with the theme of that moment; later theme changes
   // arrive as messages, since a new srcdoc would reload the page and lose its
   // state. The parent keys this component by visual id and reload count.
-  const [srcDoc] = useState(() => buildInlineVisualDocument(html, theme));
+  const [srcDoc] = useState(() =>
+    source.kind === "srcdoc" ? buildInlineVisualDocument(source.html, theme) : undefined,
+  );
   const callbacks = useRef({ onStopped, onScrollIntent });
   const loads = useRef(0);
   const loadedWindow = useRef<Window | null>(null);
@@ -225,9 +269,10 @@ function InlineVisualDocument({
   }, []);
 
   const onLoad = () => {
-    // srcdoc loads exactly once per browsing context. A second load in the same
-    // context means the page navigated its own frame (desktop blocks that; a
-    // browser cannot), so stop showing it. A frame re-inserted into the
+    // srcdoc (or the served document) loads exactly once per browsing context. A
+    // second load in the same context means the page tried to navigate its own
+    // frame (desktop and the guest page's policy refuse it, which still ends the
+    // document), so stop showing it. A frame re-inserted into the
     // document, where the list cannot move it intact, gets a new context and
     // its own srcdoc again: that is a fresh first load, not a navigation.
     const frameWindow = frameRef.current?.contentWindow ?? null;
@@ -249,7 +294,7 @@ function InlineVisualDocument({
   return (
     <iframe
       ref={frameRef}
-      srcDoc={srcDoc}
+      {...(source.kind === "src" ? { src: source.src } : { srcDoc })}
       title={title}
       // Never allow-same-origin: the opaque origin keeps the page away from the
       // app's storage, cookies, and DOM. No popups, modals, downloads, or top

@@ -273,6 +273,74 @@ describe("discoverCodexProjects", () => {
     await expect(fs.stat(home)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("leaves out threads whose rollout file Codex no longer has", async () => {
+    const home = await temporaryHome();
+    const database = createDatabase(home);
+    database.exec("ALTER TABLE threads ADD COLUMN rollout_path TEXT");
+    const kept = path.join(home, "sessions", "rollout-kept.jsonl");
+    await fs.mkdir(path.dirname(kept), { recursive: true });
+    await fs.writeFile(kept, "{}\n");
+    addThread(database, { id: "thread-kept" });
+    addThread(database, { id: "thread-gone" });
+    addThread(database, { id: "thread-unknown" });
+    database.prepare("UPDATE threads SET rollout_path = ? WHERE id = ?").run(kept, "thread-kept");
+    database
+      .prepare("UPDATE threads SET rollout_path = ? WHERE id = ?")
+      .run(path.join(home, "sessions", "rollout-deleted.jsonl"), "thread-gone");
+    database.close();
+
+    const catalog = await discoverCodexProjects({ homePath: home, env: {} });
+
+    expect(catalog.sessions.map((session) => session.id).toSorted()).toEqual([
+      "thread-kept",
+      "thread-unknown",
+    ]);
+    expect(catalog.sessions[0]).not.toHaveProperty("rolloutPath");
+  });
+
+  it("finds conversations from rollout files when Codex has no state database yet", async () => {
+    const home = await temporaryHome();
+    const project = path.join(home, "repository");
+    const writeRollout = async (
+      directory: string,
+      id: string,
+      source: unknown,
+      timestamp = "2026-09-01T10:00:00.000Z",
+    ) => {
+      await fs.mkdir(directory, { recursive: true });
+      await fs.writeFile(
+        path.join(directory, `rollout-2026-09-01T10-00-00-${id}.jsonl`),
+        [
+          { timestamp, type: "session_meta", payload: { id, timestamp, cwd: project, source } },
+          { timestamp, type: "response_item", payload: { type: "message", role: "user" } },
+        ]
+          .map((row) => JSON.stringify(row))
+          .join("\n"),
+      );
+    };
+    await writeRollout(path.join(home, "sessions", "2026", "09", "01"), "thread-cli", "cli");
+    await writeRollout(path.join(home, "archived_sessions"), "thread-old", "vscode");
+    await writeRollout(path.join(home, "sessions", "2026", "09", "01"), "thread-sub", {
+      subagent: "review",
+    });
+    await fs.writeFile(
+      path.join(home, "session_index.jsonl"),
+      `${JSON.stringify({ id: "thread-cli", thread_name: "Named in Codex" })}\n`,
+    );
+
+    const catalog = await discoverCodexProjects({ homePath: home, env: {} });
+
+    expect(
+      catalog.sessions
+        .map((session) => [session.id, session.title, session.cwd, session.archived])
+        .toSorted(),
+    ).toEqual([
+      ["thread-cli", "Named in Codex", project, false],
+      ["thread-old", "repository", project, true],
+    ]);
+    expect(catalog.sessions[0]?.createdAt).toBe("2026-09-01T10:00:00.000Z");
+  });
+
   it("does not silently use an old database when the newest schema is unsupported", async () => {
     const home = await temporaryHome();
     const oldDatabase = createDatabase(home);

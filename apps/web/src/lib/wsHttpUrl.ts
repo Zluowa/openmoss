@@ -9,7 +9,10 @@
 // relative path never reaches the server. We mirror the WS host and forward the legacy token
 // query param so authenticated GET routes (attachments, local-image, …) can authorize the
 // request without touching cookies.
-export function resolveWsHttpUrl(rawPath: string): string {
+export function resolveWsHttpUrl(
+  rawPath: string,
+  options?: { includeLegacyToken?: boolean },
+): string {
   if (typeof window === "undefined") return rawPath;
   const bridgeWsUrl = window.desktopBridge?.getWsUrl?.();
   const envWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
@@ -29,7 +32,12 @@ export function resolveWsHttpUrl(rawPath: string): string {
     const legacyToken = wsUrl.searchParams.get("token");
     const targetsServerOrigin =
       httpUrl.protocol === serverUrl.protocol && httpUrl.host === serverUrl.host;
-    if (legacyToken && targetsServerOrigin && !httpUrl.searchParams.has("token")) {
+    if (
+      options?.includeLegacyToken !== false &&
+      legacyToken &&
+      targetsServerOrigin &&
+      !httpUrl.searchParams.has("token")
+    ) {
       httpUrl.searchParams.set("token", legacyToken);
     }
     return httpUrl.toString();

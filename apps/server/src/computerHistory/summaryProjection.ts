@@ -8,7 +8,7 @@ import type {
   ComputerHistoryTimelineApplication,
   ComputerHistoryTimelineEntry,
   ComputerHistoryTimelineEntryDraft,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { normalizeComputerHistorySemanticSummary } from "./store.ts";
 
 export const COMPUTER_HISTORY_TEN_MINUTE_MS = 10 * 60 * 1_000;

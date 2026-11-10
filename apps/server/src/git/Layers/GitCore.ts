@@ -32,11 +32,11 @@ import {
   GIT_READ_FILE_AT_REV_MAX_BYTES,
   type GitBlameLineResult,
   type GitRecentCommit,
-} from "@synara/contracts";
-import { isTemporaryWorktreeBranch } from "@synara/shared/git";
-import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@synara/shared/githubRepository";
-import { isWorkspaceRelativePathSafe } from "@synara/shared/path";
-import { decodeJsonResult } from "@synara/shared/schemaJson";
+} from "@moss/contracts";
+import { isTemporaryWorktreeBranch } from "@moss/shared/git";
+import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@moss/shared/githubRepository";
+import { isWorkspaceRelativePathSafe } from "@moss/shared/path";
+import { decodeJsonResult } from "@moss/shared/schemaJson";
 
 import { GitCheckoutDirtyWorktreeError, GitCommandError } from "../Errors.ts";
 import { parseGitBlamePorcelain } from "../gitBlameParsing.ts";
@@ -57,10 +57,11 @@ import {
 } from "../Services/GitCore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
-  gitSubcommand,
-  tryWithGitCommandAdmission,
-  withGitCommandAdmission,
-} from "./GitCommandAdmission.ts";
+  describeGitAuthenticationFailure,
+  gitCommandEnvironment,
+  isGitNetworkCommand,
+} from "../gitProcessEnvironment.ts";
+import { tryWithGitCommandAdmission, withGitCommandAdmission } from "./GitCommandAdmission.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
@@ -196,7 +197,12 @@ interface ExecuteGitOptions {
   progress?: ExecuteGitProgress | undefined;
   maxOutputBytes?: number | undefined;
   outputMode?: "error" | "truncate" | undefined;
+  /** Only for push/pull the person started; see ExecuteGitInput.allowCredentialPrompt. */
+  allowCredentialPrompt?: boolean | undefined;
 }
+
+// Push and pull that the person starts from the Git actions; they may show a sign-in window.
+const GIT_USER_SYNC_OPTIONS = { ...GIT_MUTATION_OPTIONS, allowCredentialPrompt: true } as const;
 
 type WorkingTreeStatSummary = ReturnType<typeof summarizeGitNumstatOutputs>;
 
@@ -1013,19 +1019,14 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
     }
 
     const executeWithoutAdmission = execute;
-    const prepareCommandInput = (input: ExecuteGitInput): ExecuteGitInput => {
-      const subcommand = gitSubcommand(input.args);
-      return {
-        ...input,
-        args: [...input.args],
-        ...(subcommand === "push" ||
-        subcommand === "fetch" ||
-        subcommand === "pull" ||
-        subcommand === "clone"
-          ? { env: { ...input.env, GIT_TERMINAL_PROMPT: "0" } }
-          : {}),
-      };
-    };
+    // Every git command Moss runs goes through here: no terminal or askpass prompt, no Git
+    // Credential Manager window unless the person started this network action, and a stall
+    // guard on network transfers (see gitProcessEnvironment.ts).
+    const prepareCommandInput = (input: ExecuteGitInput): ExecuteGitInput => ({
+      ...input,
+      args: [...input.args],
+      env: gitCommandEnvironment(input),
+    });
     execute = (input) =>
       Effect.suspend(() => {
         const commandInput = prepareCommandInput(input);
@@ -1059,6 +1060,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         ...(options.progress ? { progress: options.progress } : {}),
         ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
         ...(options.outputMode !== undefined ? { outputMode: options.outputMode } : {}),
+        ...(options.allowCredentialPrompt ? { allowCredentialPrompt: true } : {}),
       }).pipe(
         Effect.flatMap((result) => {
           if (options.allowNonZeroExit || result.code === 0) {
@@ -1066,7 +1068,18 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           }
           const stderr = result.stderr.trim();
           if (stderr.length > 0) {
-            return Effect.fail(createGitCommandError(operation, cwd, args, stderr));
+            // A sign-in failure on a sync reads as a plain instruction first, git's text after.
+            const authentication = isGitNetworkCommand(args)
+              ? describeGitAuthenticationFailure(stderr)
+              : null;
+            return Effect.fail(
+              createGitCommandError(
+                operation,
+                cwd,
+                args,
+                authentication ? `${authentication}\n\n${stderr}` : stderr,
+              ),
+            );
           }
           if (options.fallbackErrorMessage) {
             return Effect.fail(
@@ -3081,7 +3094,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
             "GitCore.pushCurrentBranch.pushWithUpstream",
             cwd,
             ["push", "-u", publishRemoteName, branch],
-            GIT_MUTATION_OPTIONS,
+            GIT_USER_SYNC_OPTIONS,
           );
           return {
             status: "pushed" as const,
@@ -3099,7 +3112,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
             "GitCore.pushCurrentBranch.pushUpstream",
             cwd,
             ["push", currentUpstream.remoteName, `HEAD:${currentUpstream.upstreamBranch}`],
-            GIT_MUTATION_OPTIONS,
+            GIT_USER_SYNC_OPTIONS,
           );
           return {
             status: "pushed" as const,
@@ -3109,7 +3122,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           };
         }
 
-        yield* executeGit("GitCore.pushCurrentBranch.push", cwd, ["push"], GIT_MUTATION_OPTIONS);
+        yield* executeGit("GitCore.pushCurrentBranch.push", cwd, ["push"], GIT_USER_SYNC_OPTIONS);
         return {
           status: "pushed" as const,
           branch,
@@ -3147,6 +3160,8 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         yield* executeGit("GitCore.pullCurrentBranch.pull", cwd, ["pull", "--ff-only"], {
           timeoutMs: 30_000,
           fallbackErrorMessage: "git pull failed",
+          // The person pressed Pull and waits for it; a sign-in window may appear.
+          allowCredentialPrompt: true,
         }).pipe(
           Effect.mapError((error) => {
             const friendlyDetail = explainPullBlockedByLocalChanges(error);

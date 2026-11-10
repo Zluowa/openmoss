@@ -12,11 +12,11 @@ import type {
   DesktopRealtimeVoiceOverlaySnapshot,
   RealtimeVoiceActivity,
   RealtimeVoicePhase,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   REALTIME_VOICE_ORB_FRAGMENT_SHADER_SOURCE,
   REALTIME_VOICE_ORB_VERTEX_SHADER_SOURCE,
-} from "@synara/shared/realtimeVoiceOrbShader";
+} from "@moss/shared/realtimeVoiceOrbShader";
 
 export const REALTIME_VOICE_OVERLAY_PRELOAD_ARGUMENT = "--moss-realtime-voice-overlay";
 export const REALTIME_VOICE_OVERLAY_SESSION_PARTITION = "moss-realtime-voice-overlay";

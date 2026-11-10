@@ -1,4 +1,4 @@
-import type { MossPayCatalog, MossPayQuota } from "@synara/contracts";
+import type { MossPayCatalog, MossPayQuota } from "@moss/contracts";
 import {
   serverMossAccountSessionQueryOptions,
   serverMossCloudAccountStateQueryOptions,

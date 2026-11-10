@@ -3,7 +3,7 @@
 
 import "../../index.css";
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";

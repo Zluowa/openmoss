@@ -6,8 +6,8 @@ import { ComputerAuditHistorySection } from "./ComputerAuditHistorySection";
 import { ComputerGettingStarted } from "./ComputerGettingStarted";
 import { ComputerSettingsPanel } from "./ComputerSettingsPanel";
 import { AppSettingsSchema } from "~/appSettings";
-import type { ComputerStatusResult, DesktopAppSnapState } from "@synara/contracts";
-import { COMPUTER_PERMISSION_KINDS } from "@synara/shared/computerGrants";
+import type { ComputerStatusResult, DesktopAppSnapState } from "@moss/contracts";
+import { COMPUTER_PERMISSION_KINDS } from "@moss/shared/computerGrants";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 
 const api = vi.hoisted(() => ({ getAuditHistory: vi.fn(), getStatus: vi.fn() }));

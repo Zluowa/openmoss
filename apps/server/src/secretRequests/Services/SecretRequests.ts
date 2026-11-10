@@ -4,7 +4,7 @@ import type {
   SecretRequestOutcome,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

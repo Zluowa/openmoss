@@ -9,4 +9,4 @@ export {
   type MultiAgentAction,
   type MultiAgentActionStatus,
   type MultiAgentAgentState,
-} from "@synara/shared/subagentActions";
+} from "@moss/shared/subagentActions";

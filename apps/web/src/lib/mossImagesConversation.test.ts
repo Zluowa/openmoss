@@ -1,4 +1,4 @@
-import { SUPPORTED_PROVIDER_KINDS } from "@synara/contracts";
+import { SUPPORTED_PROVIDER_KINDS } from "@moss/contracts";
 import { expect, it, vi } from "vitest";
 import {
   mossImagesConversationPrompt,

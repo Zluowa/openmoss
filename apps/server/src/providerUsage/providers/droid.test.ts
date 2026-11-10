@@ -13,7 +13,7 @@ import nodePath from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { outboundHttp } from "@synara/shared/outboundHttp";
+import { outboundHttp } from "@moss/shared/outboundHttp";
 
 import { __resetDroidUsageRateLimitState, droidUsageFetcher, parseDroidUsage } from "./droid";
 import { decryptDroidCredentialFile, resolveDroidLocalCredential } from "./droidCredentials";

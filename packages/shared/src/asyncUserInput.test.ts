@@ -1,4 +1,4 @@
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@moss/contracts";
 import { expect, it } from "vitest";
 import { clearRemovedAsyncUserInputResponses, mergeAsyncUserInput } from "./asyncUserInput";
 

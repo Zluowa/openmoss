@@ -9,7 +9,7 @@ import type {
   ProviderKind,
   ServerProviderUsageSnapshot,
   SupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { PROVIDER_DESCRIPTORS, PROVIDER_DESCRIPTOR_BY_KIND } from "./providerMetadata";
 
 /** Providers, in display order, that expose a live usage source. */

@@ -12,8 +12,8 @@
 import * as fs from "node:fs/promises";
 import * as nodePath from "node:path";
 
-import type { ProviderKind, ProviderMcpServerDescriptor } from "@synara/contracts";
-import { MOSS_RELATIVE_PATHS } from "@synara/shared/mossSourceLayout";
+import type { ProviderKind, ProviderMcpServerDescriptor } from "@moss/contracts";
+import { MOSS_RELATIVE_PATHS } from "@moss/shared/mossSourceLayout";
 
 import { ancestorsFromDeepest } from "./skillsCatalog.ts";
 

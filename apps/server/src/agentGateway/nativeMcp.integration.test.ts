@@ -6,7 +6,7 @@ import * as Path from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProjectId, ThreadId, TurnId, type OrchestrationThreadShell } from "@synara/contracts";
+import { ProjectId, ThreadId, TurnId, type OrchestrationThreadShell } from "@moss/contracts";
 import { Effect, Exit, Layer, Option, Scope } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { describe, expect, it } from "vitest";
@@ -21,7 +21,7 @@ import { AgentGateway } from "../agentGateway/Services/AgentGateway.ts";
 import type { AgentGatewayCredentialsShape } from "../agentGateway/Services/AgentGatewayCredentials.ts";
 import { AgentGatewayCredentials } from "../agentGateway/Services/AgentGatewayCredentials.ts";
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { MOSS_BUNDLED_CODEX_VERSION, resolveCodexRuntimeTarget } from "@synara/shared/codexRuntime";
+import { MOSS_BUNDLED_CODEX_VERSION, resolveCodexRuntimeTarget } from "@moss/shared/codexRuntime";
 import { acquireAgentGatewaySessionLease } from "../agentGateway/sessionLease.ts";
 import type { AgentGatewayProviderInstances } from "../agentGateway/targetResolver.ts";
 import type { ToolEntry } from "../agentGateway/toolRuntime.ts";

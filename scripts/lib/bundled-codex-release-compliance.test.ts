@@ -7,6 +7,7 @@ import * as Path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDirectoryAlias, createRejectedFileAlias } from "../fixtures/filesystem-links";
 
+import { MOSS_BUNDLED_CODEX_VERSION } from "@moss/shared/codexRuntime";
 import {
   assertBundledCodexComplianceVersion,
   assertBundledCodexReleaseApproved,
@@ -22,6 +23,7 @@ import {
   BUNDLED_CODEX_COMPLIANCE_REPOSITORY_RELATIVE_DIRECTORY,
   BUNDLED_CODEX_COMPLIANCE_PAYLOAD_FILE_COUNT,
   BUNDLED_CODEX_COMPLIANCE_SOURCE_MATERIAL_COUNT,
+  BUNDLED_CODEX_COMPLIANCE_VERSION,
   BUNDLED_CODEX_TRUSTED_UNSQUASHFS_PATH,
   BUNDLED_CODEX_TRUSTED_UNSQUASHFS_RECEIPT_ID,
   copyBundledCodexReleaseArtifactsAndWriteReceipt,
@@ -97,6 +99,30 @@ function copyCanonicalBundle(prefix: string): string {
 
 function sha256(data: Buffer): string {
   return Crypto.createHash("sha256").update(data).digest("hex");
+}
+
+interface ThirdPartyFixture {
+  sourceCommit: string;
+  crates: Array<{
+    name: string;
+    selectedLicense: string;
+    licenseFiles: Array<{ path: string; text: string }>;
+  }>;
+  native: Array<{ name: string; source?: string }>;
+}
+
+function readThirdParty(directory: string): ThirdPartyFixture {
+  return JSON.parse(
+    FS.readFileSync(Path.join(directory, "THIRD_PARTY.json"), "utf8"),
+  ) as ThirdPartyFixture;
+}
+
+function writeThirdParty(directory: string, document: ThirdPartyFixture): void {
+  FS.writeFileSync(
+    Path.join(directory, "THIRD_PARTY.json"),
+    `${JSON.stringify(document, null, 2)}
+`,
+  );
 }
 
 const LINUX_X64_TARGET = "x86_64-unknown-linux-musl";
@@ -658,7 +684,7 @@ function successfulLinuxProbeRunner(
     } else if (command.endsWith(Path.join("bin", "codex")) && args.includes("debug")) {
       stdout = override.models ?? '{"models":[]}\n';
     } else if (command.endsWith(Path.join("bin", "codex"))) {
-      stdout = override.codex ?? "codex-cli 0.163.0\n";
+      stdout = override.codex ?? "codex-cli 0.166.0\n";
     } else {
       throw new Error(`Unexpected test command: ${command} ${args.join(" ")}`);
     }
@@ -914,18 +940,19 @@ describe("bundled Codex release compliance gate", () => {
     },
   );
 
-  it("documents distinct public npm and installed-app reference identities", () => {
-    const rebuild = FS.readFileSync(Path.join(CANONICAL_BUNDLE, "REBUILD.md"), "utf8");
-    const publicNpmArm64Sha256 = "8813367285524ac798dd96d1b071aea30d58708c7226fd236cd275cf1cfdee31";
-    const installedChatgptReferenceSha256 =
-      "a5976fd714dc0801a6f40e0e2b3051f64f1e0468f6c0f279b7d2a7afb7623f43";
+  it("documents the source commit and the bwrap corresponding source", () => {
+    const readme = FS.readFileSync(Path.join(CANONICAL_BUNDLE, "README.md"), "utf8");
+    const thirdParty = JSON.parse(
+      FS.readFileSync(Path.join(CANONICAL_BUNDLE, "THIRD_PARTY.json"), "utf8"),
+    ) as { readonly sourceCommit: string };
 
-    expect(rebuild).toContain("public npm distribution `@openai/codex@0.163.0`");
-    expect(rebuild).toContain(publicNpmArm64Sha256);
-    expect(rebuild).toContain(installedChatgptReferenceSha256);
-    expect(publicNpmArm64Sha256).not.toBe(installedChatgptReferenceSha256);
-    expect(rebuild).toMatch(/intentionally distinct/i);
-    expect(rebuild).toMatch(/private installed bytes are never copied/i);
+    expect(readme).toContain(`@openai/codex@${BUNDLED_CODEX_COMPLIANCE_VERSION}`);
+    expect(readme).toContain(thirdParty.sourceCommit);
+    expect(readme).toContain(
+      `sources/codex-rust-v${BUNDLED_CODEX_COMPLIANCE_VERSION}-source.tar.gz`,
+    );
+    expect(readme).toMatch(/cargo build --locked --target "\$TARGET" --release --bin bwrap/);
+    expect(readme).toMatch(/never edit it by hand/i);
   });
 
   it("keeps audited third-party bytes outside the source formatter", () => {
@@ -1014,7 +1041,7 @@ describe("bundled Codex release compliance gate", () => {
     ).toEqual(Buffer.from("first\r\nsecond\r\n", "utf8"));
   }, 30_000);
 
-  it("validates the exact SBOM, license-evidence, payload-lock, and blocker ledger", () => {
+  it("validates the exact license bundle, crate inventory and payload lock", () => {
     expect(
       validateBundledCodexReleaseComplianceBundle({
         directory: CANONICAL_BUNDLE,
@@ -1037,153 +1064,99 @@ describe("bundled Codex release compliance gate", () => {
     expect(
       validateRepositoryBundledCodexComplianceBundle({
         repoRoot: REPO_ROOT,
-        expectedVersion: "0.163.0",
+        expectedVersion: MOSS_BUNDLED_CODEX_VERSION,
       }),
     ).toMatchObject({
       directory: CANONICAL_BUNDLE,
       releaseDecision: "approved",
     });
+    expect(() => assertBundledCodexReleaseApproved({ directory: CANONICAL_BUNDLE })).not.toThrow();
   });
 
   it("fails closed when runtime and compliance pins drift", () => {
     expect(() => assertBundledCodexComplianceVersion("0.145.0")).toThrow(
-      /runtime version 0\.145\.0.*compliance version 0\.163\.0/i,
+      new RegExp(
+        `runtime version 0\\.145\\.0.*compliance version ${BUNDLED_CODEX_COMPLIANCE_VERSION.replaceAll(".", "\\.")}`,
+        "i",
+      ),
     );
   });
 
-  it("rechecks shared license bytes after a successful validation of the same directory", () => {
+  it("rechecks license text bytes after a successful validation of the same directory", () => {
     const directory = copyCanonicalBundle("moss-codex-compliance-revalidate-");
     expect(validateBundledCodexReleaseComplianceBundle({ directory }).releaseDecision).toBe(
       "approved",
     );
-    const evidence = JSON.parse(
-      FS.readFileSync(Path.join(directory, "LICENSE_EVIDENCE.json"), "utf8"),
-    ) as { componentEvidence: Array<{ files: Array<{ relativePath: string }> }> };
-    const licensePath = Path.join(directory, evidence.componentEvidence[0]!.files[0]!.relativePath);
+    const licensePath = Path.join(
+      directory,
+      readThirdParty(directory).crates[0]!.licenseFiles[0]!.text,
+    );
     FS.appendFileSync(licensePath, "\nchanged after successful validation\n");
 
     expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
-      /license evidence SHA-256 mismatch/i,
+      /license text SHA-256 mismatch/i,
     );
+    expect(() => assertBundledCodexReleaseApproved({ directory })).toThrow();
   });
 
-  it("rejects a later component requiring a different hash for the same shared license", () => {
-    const directory = copyCanonicalBundle("moss-codex-compliance-shared-hash-");
-    const evidencePath = Path.join(directory, "LICENSE_EVIDENCE.json");
-    const evidence = JSON.parse(FS.readFileSync(evidencePath, "utf8")) as {
-      componentEvidence: Array<{ files: Array<{ relativePath: string; sha256: string }> }>;
-    };
-    const seen = new Set<string>();
-    const duplicate = evidence.componentEvidence
-      .flatMap((component) => component.files)
-      .find((file) => {
-        if (seen.has(file.relativePath)) return true;
-        seen.add(file.relativePath);
-        return false;
-      });
-    expect(duplicate).toBeDefined();
-    duplicate!.sha256 = "0".repeat(64);
-    FS.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  it("hash-binds the top-level license, notice and README", () => {
+    for (const fileName of ["LICENSE", "NOTICE", "README.md"]) {
+      const directory = copyCanonicalBundle(`moss-codex-compliance-top-${fileName}-`);
+      FS.appendFileSync(Path.join(directory, fileName), "\ntampered\n");
+      expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
+        new RegExp(`${fileName.replace(".", "\\.")} SHA-256 mismatch`, "i"),
+      );
+    }
+  });
 
+  it("binds the crate inventory to the pinned Codex source commit", () => {
+    const directory = copyCanonicalBundle("moss-codex-compliance-commit-");
+    writeThirdParty(directory, { ...readThirdParty(directory), sourceCommit: "0".repeat(40) });
     expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
-      /license evidence SHA-256 mismatch/i,
-    );
-  });
-
-  it("hash-binds the top-level license and exact source provenance", () => {
-    const changedLicense = copyCanonicalBundle("moss-codex-compliance-top-license-");
-    FS.appendFileSync(Path.join(changedLicense, "LICENSE"), "\ntampered\n");
-    expect(() =>
-      validateBundledCodexReleaseComplianceBundle({
-        directory: changedLicense,
-      }),
-    ).toThrow(/LICENSE SHA-256 mismatch/i);
-
-    const changedSource = copyCanonicalBundle("moss-codex-compliance-top-source-");
-    const sourcePath = Path.join(changedSource, "SOURCE.json");
-    const source = JSON.parse(FS.readFileSync(sourcePath, "utf8")) as Record<string, unknown>;
-    FS.writeFileSync(
-      sourcePath,
-      `${JSON.stringify({ ...source, sourceTag: "rust-v0.145.0" }, null, 2)}\n`,
-    );
-    expect(() => validateBundledCodexReleaseComplianceBundle({ directory: changedSource })).toThrow(
-      /SOURCE\.json does not exactly match/i,
-    );
-  });
-
-  it("approves production only after the audited engineering ledger has no blockers", () => {
-    expect(() => assertBundledCodexReleaseApproved({ directory: CANONICAL_BUNDLE })).not.toThrow();
-
-    const directory = copyCanonicalBundle("moss-codex-compliance-blocker-");
-    const obligationsPath = Path.join(directory, "OBLIGATIONS.json");
-    const obligations = JSON.parse(FS.readFileSync(obligationsPath, "utf8")) as Record<
-      string,
-      unknown
-    >;
-    obligations.releaseDecision = "blocked";
-    FS.writeFileSync(obligationsPath, `${JSON.stringify(obligations, null, 2)}\n`);
-    expect(() => assertBundledCodexReleaseApproved({ directory })).toThrow(
-      /releaseDecision must be approved/i,
+      /THIRD_PARTY identity\/version mismatch/i,
     );
   });
 
   it("rejects a selected Rust strong-copyleft branch", () => {
     const directory = copyCanonicalBundle("moss-codex-compliance-selection-");
-    const evidencePath = Path.join(directory, "LICENSE_EVIDENCE.json");
-    const evidence = JSON.parse(FS.readFileSync(evidencePath, "utf8")) as {
-      componentEvidence: Array<{
-        bomRef: string;
-        selectedLicenseExpression: string;
-      }>;
-    };
-    evidence.componentEvidence[0]!.selectedLicenseExpression = "GPL-3.0-only";
-    FS.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
-    const bomPath = Path.join(directory, "COMPONENTS.cdx.json");
-    const bom = JSON.parse(FS.readFileSync(bomPath, "utf8")) as {
-      components: Array<{
-        "bom-ref": string;
-        properties: Array<{ name: string; value: string }>;
-      }>;
-    };
-    const component = bom.components.find(
-      (item) => item["bom-ref"] === evidence.componentEvidence[0]!.bomRef,
-    )!;
-    component.properties.find((property) => property.name === "moss:selected-license")!.value =
-      "GPL-3.0-only";
-    FS.writeFileSync(bomPath, `${JSON.stringify(bom, null, 2)}\n`);
+    const thirdParty = readThirdParty(directory);
+    thirdParty.crates[0]!.selectedLicense = "GPL-3.0-only";
+    writeThirdParty(directory, thirdParty);
 
     expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
       /selected an unapproved or strong-copyleft license/i,
     );
   });
 
-  it("rejects an unreviewed extra SBOM component", () => {
+  it("rejects an unreviewed extra crate", () => {
     const directory = copyCanonicalBundle("moss-codex-compliance-extra-component-");
-    const bomPath = Path.join(directory, "COMPONENTS.cdx.json");
-    const bom = JSON.parse(FS.readFileSync(bomPath, "utf8")) as {
-      components: unknown[];
-    };
-    bom.components.push({
-      type: "library",
-      "bom-ref": "native-unreviewed-1.0.0",
-      name: "unreviewed",
-      version: "1.0.0",
-      licenses: [{ expression: "MIT" }],
-      properties: [],
-    });
-    FS.writeFileSync(bomPath, `${JSON.stringify(bom, null, 2)}\n`);
+    const thirdParty = readThirdParty(directory);
+    thirdParty.crates.push({ ...thirdParty.crates[0]!, name: "unreviewed" });
+    writeThirdParty(directory, thirdParty);
 
     expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
-      new RegExp(`expected exactly ${BUNDLED_CODEX_COMPLIANCE_COMPONENT_COUNT} components`, "i"),
+      /expected \d+ crates, found \d+/i,
     );
   });
 
-  it("rejects a changed named native license text", () => {
+  it("requires corresponding source for the LGPL bwrap components", () => {
+    const directory = copyCanonicalBundle("moss-codex-compliance-bwrap-source-");
+    const thirdParty = readThirdParty(directory);
+    const bubblewrap = thirdParty.native.find((native) => native.name === "bubblewrap")!;
+    delete bubblewrap.source;
+    writeThirdParty(directory, thirdParty);
+
+    expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
+      /bubblewrap\.source is invalid/i,
+    );
+  });
+
+  it("root-binds a changed native license text", () => {
     const directory = copyCanonicalBundle("moss-codex-compliance-license-");
     FS.appendFileSync(Path.join(directory, "licenses/pcre2/LICENCE.md"), "\ntampered\n");
 
     expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
-      /named license SHA-256 mismatch.*licenses\/pcre2\/LICENCE\.md/i,
+      /bundle root SHA-256 mismatch/i,
     );
   });
 
@@ -1213,53 +1186,27 @@ describe("bundled Codex release compliance gate", () => {
     );
   });
 
-  it("root-binds a changed license text even when its internal evidence hash is updated", () => {
+  it("root-binds a changed license text even when the inventory points at its new hash", () => {
     const directory = copyCanonicalBundle("moss-codex-compliance-root-license-");
-    const evidencePath = Path.join(directory, "LICENSE_EVIDENCE.json");
-    const evidence = JSON.parse(FS.readFileSync(evidencePath, "utf8")) as {
-      componentEvidence: Array<{
-        files: Array<{ relativePath: string; sha256: string }>;
-      }>;
-    };
-    const originalText = evidence.componentEvidence[0]!.files[0]!;
-    const originalRelativePath = originalText.relativePath;
+    const thirdParty = readThirdParty(directory);
+    const originalRelativePath = thirdParty.crates[0]!.licenseFiles[0]!.text;
     const originalLicensePath = Path.join(directory, originalRelativePath);
     const changedBytes = Buffer.concat([
       FS.readFileSync(originalLicensePath),
       Buffer.from("\nroot-tampered\n"),
     ]);
-    const changedHash = sha256(changedBytes);
-    const changedRelativePath = `licenses/rust/${changedHash}.txt`;
+    const changedRelativePath = `licenses/rust/${sha256(changedBytes)}.txt`;
     FS.writeFileSync(Path.join(directory, changedRelativePath), changedBytes);
     if (process.platform !== "win32") {
       FS.chmodSync(Path.join(directory, changedRelativePath), 0o644);
     }
     FS.rmSync(originalLicensePath);
-    for (const component of evidence.componentEvidence) {
-      for (const file of component.files) {
-        if (file.relativePath !== originalRelativePath) continue;
-        file.relativePath = changedRelativePath;
-        file.sha256 = changedHash;
+    for (const crate of thirdParty.crates) {
+      for (const file of crate.licenseFiles) {
+        if (file.text === originalRelativePath) file.text = changedRelativePath;
       }
     }
-    FS.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
-
-    expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
-      /bundle root SHA-256 mismatch/i,
-    );
-  });
-
-  it("root-binds a changed native license even when OBLIGATIONS reports its new hash", () => {
-    const directory = copyCanonicalBundle("moss-codex-compliance-root-obligations-");
-    const licensePath = Path.join(directory, "licenses/pcre2/LICENCE.md");
-    FS.appendFileSync(licensePath, "\nroot-tampered\n");
-    const obligationsPath = Path.join(directory, "OBLIGATIONS.json");
-    const obligations = JSON.parse(FS.readFileSync(obligationsPath, "utf8")) as {
-      licenseAssets: Array<{ path: string; sha256: string }>;
-    };
-    obligations.licenseAssets.find((asset) => asset.path === "licenses/pcre2/LICENCE.md")!.sha256 =
-      sha256(FS.readFileSync(licensePath));
-    FS.writeFileSync(obligationsPath, `${JSON.stringify(obligations, null, 2)}\n`);
+    writeThirdParty(directory, thirdParty);
 
     expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
       /bundle root SHA-256 mismatch/i,
@@ -1273,7 +1220,10 @@ describe("bundled Codex release compliance gate", () => {
     if (process.platform !== "win32") FS.chmodSync(emptyDirectory, 0o755);
 
     expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
-      /bundle root SHA-256 mismatch.*directories=9/i,
+      new RegExp(
+        `bundle root SHA-256 mismatch.*directories=${BUNDLED_CODEX_COMPLIANCE_BUNDLE_DIRECTORY_COUNT + 1}`,
+        "i",
+      ),
     );
   });
 
@@ -1288,19 +1238,16 @@ describe("bundled Codex release compliance gate", () => {
 
   it("rejects changed LGPL source material bytes", () => {
     const directory = copyCanonicalBundle("moss-codex-compliance-source-");
-    FS.appendFileSync(Path.join(directory, "sources/libcap-2.75.tar.xz"), "tampered");
+    const libcap = FS.readdirSync(Path.join(directory, "sources")).find((name) =>
+      name.startsWith("libcap-"),
+    )!;
+    FS.appendFileSync(Path.join(directory, "sources", libcap), "tampered");
 
     expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
-      /source archive SHA-256\/size mismatch.*sources\/libcap-2\.75\.tar\.xz/i,
-    );
-  });
-
-  it("rejects changed corresponding-source rebuild instructions", () => {
-    const directory = copyCanonicalBundle("moss-codex-compliance-rebuild-");
-    FS.appendFileSync(Path.join(directory, "REBUILD.md"), "\ntampered\n");
-
-    expect(() => validateBundledCodexReleaseComplianceBundle({ directory })).toThrow(
-      /REBUILD\.md SHA-256 mismatch/i,
+      new RegExp(
+        `source archive SHA-256/size mismatch for sources/${libcap.replaceAll(".", "\\.")}`,
+        "i",
+      ),
     );
   });
 
@@ -1310,7 +1257,7 @@ describe("bundled Codex release compliance gate", () => {
     const result = stageBundledCodexComplianceBundle({
       repoRoot: REPO_ROOT,
       stageAppDir,
-      expectedVersion: "0.163.0",
+      expectedVersion: BUNDLED_CODEX_COMPLIANCE_VERSION,
     });
     const staged = Path.join(stageAppDir, BUNDLED_CODEX_COMPLIANCE_PACKAGE_RELATIVE_DIRECTORY);
 
@@ -1318,27 +1265,30 @@ describe("bundled Codex release compliance gate", () => {
     expect(
       validateStagedBundledCodexComplianceBundle({
         stageAppDir,
-        expectedVersion: "0.163.0",
+        expectedVersion: BUNDLED_CODEX_COMPLIANCE_VERSION,
       }),
     ).toEqual(result);
     expect(
       validatePackagedBundledCodexComplianceBundle({
         resourcesDir: stageAppDir,
-        expectedVersion: "0.163.0",
+        expectedVersion: BUNDLED_CODEX_COMPLIANCE_VERSION,
       }),
     ).toEqual(result);
 
-    expect(FS.readFileSync(Path.join(staged, "COMPONENTS.cdx.json"))).toEqual(
-      FS.readFileSync(Path.join(CANONICAL_BUNDLE, "COMPONENTS.cdx.json")),
+    expect(FS.readFileSync(Path.join(staged, "THIRD_PARTY.json"))).toEqual(
+      FS.readFileSync(Path.join(CANONICAL_BUNDLE, "THIRD_PARTY.json")),
     );
     expect(FS.readFileSync(Path.join(staged, "licenses/pcre2/LICENCE.md"))).toEqual(
       FS.readFileSync(Path.join(CANONICAL_BUNDLE, "licenses/pcre2/LICENCE.md")),
     );
-    expect(FS.readFileSync(Path.join(staged, "sources/libcap-2.75.tar.xz"))).toEqual(
-      FS.readFileSync(Path.join(CANONICAL_BUNDLE, "sources/libcap-2.75.tar.xz")),
-    );
+    // Hashes, not buffers: deep equality over the 17 MB source archive exhausts the heap.
+    for (const source of FS.readdirSync(Path.join(CANONICAL_BUNDLE, "sources"))) {
+      expect(sha256(FS.readFileSync(Path.join(staged, "sources", source)))).toBe(
+        sha256(FS.readFileSync(Path.join(CANONICAL_BUNDLE, "sources", source))),
+      );
+    }
     if (process.platform !== "win32") {
-      expect(FS.statSync(Path.join(staged, "COMPONENTS.cdx.json")).mode & 0o777).toBe(0o644);
+      expect(FS.statSync(Path.join(staged, "THIRD_PARTY.json")).mode & 0o777).toBe(0o644);
       expect(FS.statSync(Path.join(staged, "licenses")).mode & 0o777).toBe(0o755);
     }
   }, 30_000);
@@ -1347,7 +1297,7 @@ describe("bundled Codex release compliance gate", () => {
     const root = makeTempDir("moss-codex-compliance-symlink-");
     const resourcesDir = Path.join(root, "resources");
     const realThirdPartyRoot = Path.join(root, "real-third-party-licenses");
-    const realBundle = Path.join(realThirdPartyRoot, "openai-codex", "0.163.0");
+    const realBundle = Path.join(realThirdPartyRoot, "openai-codex", "0.166.0");
     FS.mkdirSync(resourcesDir, { recursive: true });
     FS.mkdirSync(Path.dirname(realBundle), { recursive: true });
     FS.cpSync(CANONICAL_BUNDLE, realBundle, { recursive: true });
@@ -1356,7 +1306,7 @@ describe("bundled Codex release compliance gate", () => {
     expect(() =>
       validatePackagedBundledCodexComplianceBundle({
         resourcesDir,
-        expectedVersion: "0.163.0",
+        expectedVersion: "0.166.0",
       }),
     ).toThrow(/path segment third-party-licenses must be a plain directory/i);
   });
@@ -1367,7 +1317,7 @@ describe("bundled Codex release compliance gate", () => {
     const storeOpenAiRoot = Path.join(
       nodeModulesDir,
       ".bun",
-      "@openai+codex@0.163.0",
+      "@openai+codex@0.166.0",
       "node_modules",
       "@openai",
     );
@@ -1483,7 +1433,7 @@ describe("bundled Codex release compliance gate", () => {
       fakeStrippableMachO(0x9999n, "locked executable content\n"),
       "moss",
     );
-    const manifest = Buffer.from('{"version":"0.163.0"}\n');
+    const manifest = Buffer.from('{"version":"0.166.0"}\n');
     for (const packageRoot of [sourcePackageRoot, finalPackageRoot]) {
       FS.mkdirSync(Path.join(packageRoot, "bin"), { recursive: true });
       FS.writeFileSync(Path.join(packageRoot, "codex-package.json"), manifest);
@@ -2225,7 +2175,7 @@ describe("bundled Codex release compliance gate", () => {
       arch: "arm64",
       releaseMode: "build-only",
       signed: false,
-      expectedVersion: "0.163.0",
+      expectedVersion: "0.166.0",
       verification: macBuildOnlyVerification(),
     });
     expect(written.receipt.publishEligible).toBe(false);
@@ -2246,7 +2196,7 @@ describe("bundled Codex release compliance gate", () => {
         arch: "arm64",
         releaseMode: "build-only",
         signed: false,
-        expectedVersion: "0.163.0",
+        expectedVersion: "0.166.0",
         verification: missingHelperBinding,
       }),
     ).toThrow(/canonicalFilesystemHelper.*object/i);
@@ -2261,7 +2211,7 @@ describe("bundled Codex release compliance gate", () => {
         arch: "arm64",
         releaseMode: "build-only",
         signed: false,
-        expectedVersion: "0.163.0",
+        expectedVersion: "0.166.0",
         verification: missingProvenance,
       }),
     ).toThrow(/build-only.*ad-hoc.*provenance/i);
@@ -2284,7 +2234,7 @@ describe("bundled Codex release compliance gate", () => {
         arch: "arm64",
         releaseMode: "build-only",
         signed: false,
-        expectedVersion: "0.163.0",
+        expectedVersion: "0.166.0",
         verification: developerIdProvenance,
       }),
     ).toThrow(/build-only.*ad-hoc.*provenance/i);
@@ -2325,7 +2275,7 @@ describe("bundled Codex release compliance gate", () => {
       arch: "arm64",
       releaseMode: "publish",
       signed: true,
-      expectedVersion: "0.163.0",
+      expectedVersion: "0.166.0",
       verification: canonicalVerification,
     });
     expect(accepted.receipt.publishEligible).toBe(true);
@@ -2346,7 +2296,7 @@ describe("bundled Codex release compliance gate", () => {
         arch: "arm64",
         releaseMode: "publish",
         signed: true,
-        expectedVersion: "0.163.0",
+        expectedVersion: "0.166.0",
         verification: staleVerification,
       }),
     ).toThrow(/exact approved closure/i);
@@ -2370,7 +2320,7 @@ describe("bundled Codex release compliance gate", () => {
       arch: "arm64",
       releaseMode: "publish",
       signed: true,
-      expectedVersion: "0.163.0",
+      expectedVersion: "0.166.0",
       verification: macPublishVerification([
         {
           kind: "dmg",
@@ -2434,7 +2384,7 @@ describe("bundled Codex release compliance gate", () => {
         arch: "arm64",
         releaseMode: "publish",
         signed: true,
-        expectedVersion: "0.163.0",
+        expectedVersion: "0.166.0",
         verification: mismatchedHelpers,
       }),
     ).toThrow(/containers do not contain the same canonical filesystem helper binding/i);
@@ -2529,7 +2479,7 @@ describe("bundled Codex release compliance gate", () => {
         arch: "arm64",
         releaseMode: "publish",
         signed: true,
-        expectedVersion: "0.163.0",
+        expectedVersion: "0.166.0",
         verification: macPublishVerification([
           {
             kind: "dmg",
@@ -2561,7 +2511,7 @@ describe("bundled Codex release compliance gate", () => {
       arch: "x64",
       releaseMode: "publish",
       signed: true,
-      expectedVersion: "0.163.0",
+      expectedVersion: "0.166.0",
       verification: macPublishVerification(
         [
           {
@@ -2626,7 +2576,7 @@ describe("bundled Codex release compliance gate", () => {
       arch: "x64",
       releaseMode: "publish",
       signed: true,
-      expectedVersion: "0.163.0",
+      expectedVersion: "0.166.0",
       verification: windowsPublishVerification({
         installerFileName,
         installerSize: installerBytes.length,
@@ -2662,7 +2612,7 @@ describe("bundled Codex release compliance gate", () => {
       arch: "x64",
       releaseMode: "publish",
       signed: false,
-      expectedVersion: "0.163.0",
+      expectedVersion: "0.166.0",
       verification: {
         complianceBundleRootSha256: BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_SHA256,
         bundledClaude: bundledClaudeVerification("linux", "x64"),
@@ -2712,7 +2662,7 @@ describe("bundled Codex release compliance gate", () => {
         arch: "x64",
         releaseMode: "publish",
         signed: false,
-        expectedVersion: "0.163.0",
+        expectedVersion: "0.166.0",
         verification: {
           complianceBundleRootSha256: BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_SHA256,
           bundledClaude: bundledClaudeVerification("linux", "x64"),
@@ -2754,7 +2704,7 @@ describe("bundled Codex release compliance gate", () => {
         arch: "x64",
         releaseMode: "publish",
         signed: true,
-        expectedVersion: "0.163.0",
+        expectedVersion: "0.166.0",
         verification: {
           complianceBundleRootSha256: BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_SHA256,
           bundledClaude: bundledClaudeVerification("win", "x64"),

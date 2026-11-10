@@ -2,7 +2,18 @@
 // Purpose: Finds local development servers listening on localhost/private ports and
 //          stops a selected server process after re-validating it is still a dev listener.
 // Layer: Server runtime utility used by the WebSocket RPC layer.
-// Depends on: node child_process lsof/ps output and shared server contract shapes.
+// Depends on: node child_process lsof/ps output (macOS/Linux) or netstat plus one CIM
+//          process query (Windows), and shared server contract shapes.
+//
+// Detection is on demand only: nothing here polls. A listing reads the machine's
+// listening TCP sockets once (lsof, or `netstat -ano` on Windows, ~50 ms), keeps the
+// ones on ports >= 1024, and only then looks up those few processes and their
+// parents to tell a dev server (Vite, Next, `python -m http.server`, ...) from
+// everything else. Each row carries the folder the server runs in (its working
+// directory; on Windows, where another process's working directory can't be read
+// cheaply, the project folder named on its own or its parents' command lines) and
+// whether Moss started it (an agent's shell or a Moss terminal is among its
+// ancestors), which is how the chat attributes servers to its project.
 
 import { execFile } from "node:child_process";
 import path from "node:path";
@@ -13,14 +24,21 @@ import type {
   ServerLocalServerProcess,
   ServerStopLocalServerInput,
   ServerStopLocalServerResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { redactSensitiveProcessArgs } from "./processArgumentRedaction";
 
 const PROCESS_OUTPUT_MAX_BUFFER_BYTES = 2 * 1024 * 1024;
+const WINDOWS_PROCESS_OUTPUT_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 const STOP_SIGNAL_SETTLE_MS = 450;
 const MAX_PROCESS_ARGS_CHARS = 1_000;
 const PROCESS_LINEAGE_MAX_DEPTH = 4;
+// How far up the parent chain "did Moss start this?" looks: dev server <- npm <- shell
+// <- agent CLI <- Moss server is already five levels.
+const PROCESS_ANCESTRY_MAX_DEPTH = 12;
+// The Windows process lookup costs one PowerShell start (~0.5 s). The set of listening
+// processes rarely changes between refreshes, so its answer is reused while it does not.
+const WINDOWS_PROCESS_CACHE_TTL_MS = 60_000;
 const PAGE_TITLE_MAX_CHARS = 200;
 const PAGE_TITLE_FETCH_TIMEOUT_MS = 650;
 const PAGE_TITLE_MAX_BYTES = 128 * 1024;
@@ -45,6 +63,10 @@ export interface LocalServerProcessInfo {
   readonly commandLine: string;
   /** Unredacted process-table text retained only for internal classification. */
   readonly rawCommandLine?: string;
+  /** Executable name from the process table (Windows), used when no listener names it. */
+  readonly name?: string;
+  /** Start time in ms since the epoch, when known; guards parent walks against reused pids. */
+  readonly startedAtMs?: number;
 }
 
 interface DevServerCandidateInput {
@@ -127,12 +149,17 @@ const pageTitleInFlight = new Map<string, Promise<string | null>>();
 // Preserve lineage-only command context without extending the public local-server contract.
 const pageTitleProbeArgs = new WeakMap<ServerLocalServerProcess, string>();
 
-function execFileText(command: string, args: readonly string[]): Promise<string> {
+function execFileText(
+  command: string,
+  args: readonly string[],
+  maxBuffer = PROCESS_OUTPUT_MAX_BUFFER_BYTES,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       command,
       [...args],
-      { encoding: "utf8", maxBuffer: PROCESS_OUTPUT_MAX_BUFFER_BYTES },
+      // windowsHide: a console tool started from the GUI app must not flash a window.
+      { encoding: "utf8", maxBuffer, windowsHide: true },
       (error, stdout) => {
         if (error) {
           reject(error);
@@ -254,6 +281,133 @@ export function parseLsofCwdOutput(output: string): Map<number, string> {
   return cwdByPid;
 }
 
+/**
+ * Listening TCP sockets from `netstat -ano` (Windows). A listening row is the one
+ * whose foreign address is the wildcard (`0.0.0.0:0` / `[::]:0`); reading that
+ * instead of the State column keeps this independent of the system language,
+ * which translates "LISTENING".
+ */
+export function parseNetstatListenOutput(output: string): ParsedLsofListener[] {
+  const listeners: ParsedLsofListener[] = [];
+  for (const rawLine of output.split(/\r?\n/g)) {
+    const columns = rawLine.trim().split(/\s+/);
+    if (columns.length < 5 || !/^tcp/i.test(columns[0] ?? "")) continue;
+    const local = columns[1] ?? "";
+    const foreign = columns[2] ?? "";
+    if (!/^(?:0\.0\.0\.0|\[::\]|\*):(?:0|\*)$/.test(foreign)) continue;
+    const pid = Number(columns.at(-1));
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    const endpoint = parseLsofEndpoint(local, "tcp");
+    if (!endpoint) continue;
+    const host = endpoint.host.replace(/%\d+$/, "");
+    listeners.push({
+      pid,
+      command: "unknown",
+      protocol: "tcp",
+      host,
+      port: endpoint.port,
+      family: host.includes(":") ? "tcp6" : "tcp4",
+    });
+  }
+  return listeners;
+}
+
+const WINDOWS_PROCESS_FIELD_SEPARATOR = "\u001f";
+
+/**
+ * Rows printed by the Windows process lookup: pid, parent pid, start time (ms since
+ * the epoch, 0 when unknown), executable name and command line, separated by the
+ * ASCII unit separator so no path or argument can split a row.
+ */
+export function parseWindowsProcessTable(output: string): Map<number, LocalServerProcessInfo> {
+  const rows = new Map<number, LocalServerProcessInfo>();
+  for (const line of output.split(/\r?\n/g)) {
+    const fields = line.split(WINDOWS_PROCESS_FIELD_SEPARATOR);
+    if (fields.length < 5) continue;
+    const pid = Number(fields[0]);
+    const ppid = Number(fields[1]);
+    if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(ppid) || ppid < 0) continue;
+    const startedAtMs = Number(fields[2]);
+    const name = (fields[3] ?? "").trim();
+    const rawCommandLine = fields.slice(4).join(WINDOWS_PROCESS_FIELD_SEPARATOR).trim() || name;
+    rows.set(pid, {
+      ppid,
+      name,
+      ...(Number.isFinite(startedAtMs) && startedAtMs > 0 ? { startedAtMs } : {}),
+      commandLine: redactSensitiveProcessArgs(rawCommandLine, {
+        truncateSensitiveEnvironmentRemainder: true,
+      }).slice(0, MAX_PROCESS_ARGS_CHARS),
+      rawCommandLine,
+    });
+  }
+  return rows;
+}
+
+// Install locations and tool caches: a path under one of these names the tool, not
+// the project it was started for.
+const WINDOWS_NON_PROJECT_PATH_PATTERN =
+  /^[a-z]:\\(?:windows|program files(?: \(x86\))?|programdata)\\|\\appdata\\|\\\.bun\\|\\scoop\\|\\\.cargo\\|\\\.rustup\\|\\go\\pkg\\|\\\.pyenv\\|\\nodejs\\|\\\.nvm\\|\\volta\\/i;
+
+function windowsAbsolutePathTokens(commandLine: string): string[] {
+  return tokenizeCommandLine(commandLine)
+    .flatMap((token) => {
+      // `--config=D:\app\vite.config.ts` and the like carry a path after the `=`.
+      const value = token.includes("=") ? token.slice(token.indexOf("=") + 1) : token;
+      return /^[A-Za-z]:[\\/]/.test(value) ? [value.replaceAll("/", "\\")] : [];
+    })
+    .filter((token) => !WINDOWS_NON_PROJECT_PATH_PATTERN.test(token));
+}
+
+/**
+ * The folder a Windows dev server was started for, read from command lines (its own
+ * first, then its parents'): the folder above `node_modules` for a project-local
+ * tool (`node D:\app\node_modules\vite\bin\vite.js`), else the folder of a script
+ * the command runs (`python D:\app\server.py`). Null when no line names a project
+ * path, as with `npx serve` or `python -m http.server`.
+ */
+export function inferWindowsProjectDirectory(commandLines: readonly string[]): string | null {
+  for (const commandLine of commandLines) {
+    for (const token of windowsAbsolutePathTokens(commandLine)) {
+      const nodeModulesIndex = token.toLowerCase().indexOf("\\node_modules\\");
+      if (nodeModulesIndex > 2) return token.slice(0, nodeModulesIndex);
+      if (/\.[a-z0-9]{1,6}$/i.test(path.win32.basename(token))) {
+        const directory = path.win32.dirname(token);
+        if (directory !== path.win32.parse(directory).root) return directory;
+      }
+    }
+  }
+  return null;
+}
+
+/** True when `ancestorPid` is among the parents of `pid`, following start times only backwards. */
+export function hasProcessAncestor(
+  pid: number,
+  ancestorPid: number,
+  processInfoByPid: ReadonlyMap<number, LocalServerProcessInfo>,
+  maxDepth = PROCESS_ANCESTRY_MAX_DEPTH,
+): boolean {
+  const seen = new Set<number>([pid]);
+  let current = processInfoByPid.get(pid);
+  for (let depth = 0; current && depth < maxDepth; depth++) {
+    const parentPid = current.ppid;
+    if (parentPid <= 1 || seen.has(parentPid)) return false;
+    if (parentPid === ancestorPid) return true;
+    seen.add(parentPid);
+    const parent = processInfoByPid.get(parentPid);
+    // Windows keeps a dead parent's pid on the child, and pids are reused: a "parent"
+    // that started after its child is someone else.
+    if (
+      parent?.startedAtMs !== undefined &&
+      current.startedAtMs !== undefined &&
+      parent.startedAtMs > current.startedAtMs
+    ) {
+      return false;
+    }
+    current = parent;
+  }
+  return false;
+}
+
 export function parseProcessInfo(output: string): Map<number, LocalServerProcessInfo> {
   const rows = new Map<number, LocalServerProcessInfo>();
   for (const line of output.split(/\r?\n/g)) {
@@ -280,9 +434,10 @@ function tokenizeCommandLine(commandLine: string): string[] {
 }
 
 function commandTokenName(token: string): string {
-  return path
+  // win32 basename splits on both separators, so a Windows path reads right on any host.
+  return path.win32
     .basename(token)
-    .replace(/\.[cm]?js$/i, "")
+    .replace(/\.(?:[cm]?js|exe|cmd|bat)$/i, "")
     .toLowerCase();
 }
 
@@ -321,6 +476,14 @@ function processLineageCommandLines(
   pid: number,
   processInfoByPid: ReadonlyMap<number, LocalServerProcessInfo>,
 ): string | null {
+  const commandLines = processLineageCommandLineList(pid, processInfoByPid);
+  return commandLines.length > 0 ? commandLines.join(" ") : null;
+}
+
+function processLineageCommandLineList(
+  pid: number,
+  processInfoByPid: ReadonlyMap<number, LocalServerProcessInfo>,
+): string[] {
   const commandLines: string[] = [];
   const seen = new Set<number>();
   let currentPid = pid;
@@ -345,7 +508,7 @@ function processLineageCommandLines(
     currentPid = processInfo.ppid;
   }
 
-  return commandLines.length > 0 ? commandLines.join(" ") : null;
+  return commandLines;
 }
 
 function normalizeProcessText(command: string, args: string): string {
@@ -806,8 +969,11 @@ function toServerProcess(
   const ports = [...new Set(addresses.map((address) => address.port))].toSorted(
     (left, right) => left - right,
   );
-  const command = listeners[0]?.command ?? "unknown";
   const processInfo = processInfoByPid.get(pid);
+  const listenerCommand = listeners[0]?.command;
+  const command =
+    (listenerCommand && listenerCommand !== "unknown" ? listenerCommand : processInfo?.name) ||
+    "unknown";
   const args = processInfo?.commandLine ?? command;
   const detectionArgs = processLineageCommandLines(pid, processInfoByPid) ?? args;
   const candidate = { command, args: detectionArgs, ports };
@@ -820,7 +986,10 @@ function toServerProcess(
   }
 
   const isStoppable = isProcessSignalable(pid);
-  const cwd = resolveProcessCwd(pid, processInfoByPid, cwdByPid);
+  const cwd =
+    resolveProcessCwd(pid, processInfoByPid, cwdByPid) ??
+    inferWindowsProjectDirectory(processLineageCommandLineList(pid, processInfoByPid));
+  const launchedByMoss = hasProcessAncestor(pid, process.pid, processInfoByPid);
   const server: ServerLocalServerProcess = {
     id: `${pid}:${ports.join(",")}`,
     pid,
@@ -835,6 +1004,7 @@ function toServerProcess(
     addresses,
     isStoppable,
     ...(isStoppable ? {} : { stopDisabledReason: "Moss cannot signal this process." }),
+    ...(launchedByMoss ? { launchedByMoss } : {}),
   };
   pageTitleProbeArgs.set(server, detectionArgs);
   return server;
@@ -882,12 +1052,76 @@ function groupListenersByPid(
 
 async function readLsofListeners(): Promise<ParsedLsofListener[]> {
   if (process.platform === "win32") {
-    return [];
+    return readWindowsListeners();
   }
   const output = await execFileText("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcPn"]).catch(
     () => "",
   );
   return parseLsofTcpListenOutput(output);
+}
+
+async function readWindowsListeners(): Promise<ParsedLsofListener[]> {
+  const [ipv4, ipv6] = await Promise.all([
+    execFileText("netstat", ["-ano", "-p", "TCP"]).catch(() => ""),
+    execFileText("netstat", ["-ano", "-p", "TCPv6"]).catch(() => ""),
+  ]);
+  return parseNetstatListenOutput(`${ipv4}\n${ipv6}`);
+}
+
+/**
+ * One PowerShell run: every process in one CIM query, then each listener's parent
+ * chain walked in memory, printing only the processes on those chains.
+ */
+export function windowsProcessLineageScript(pids: readonly number[]): string {
+  const ids = pids.filter((pid) => Number.isInteger(pid) && pid > 0).join(",");
+  return [
+    "$ErrorActionPreference = 'SilentlyContinue'",
+    "try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}",
+    `$ids = @(${ids})`,
+    "$all = @{}",
+    "Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId,CreationDate,Name,CommandLine | ForEach-Object { $all[[int]$_.ProcessId] = $_ }",
+    "$keep = New-Object 'System.Collections.Generic.HashSet[int]'",
+    `foreach ($id in $ids) { $cur = [int]$id; for ($d = 0; $d -lt ${PROCESS_ANCESTRY_MAX_DEPTH + 1}; $d++) { if (-not $all.ContainsKey($cur) -or -not $keep.Add($cur)) { break }; $cur = [int]$all[$cur].ParentProcessId } }`,
+    "$sep = [string][char]0x1f",
+    "$epoch = [datetime]'1970-01-01T00:00:00Z'",
+    "foreach ($id in $keep) { $p = $all[$id]; $t = 0; if ($p.CreationDate) { $t = [long]($p.CreationDate.ToUniversalTime() - $epoch.ToUniversalTime()).TotalMilliseconds }; $c = [string]$p.CommandLine -replace '[\\r\\n]+', ' '; [Console]::Out.WriteLine(([string]$p.ProcessId) + $sep + ([string]$p.ParentProcessId) + $sep + ([string]$t) + $sep + ([string]$p.Name) + $sep + $c) }",
+  ].join("\n");
+}
+
+let windowsProcessCache: {
+  readonly key: string;
+  readonly expiresAtMs: number;
+  readonly rows: Map<number, LocalServerProcessInfo>;
+} | null = null;
+
+async function readWindowsProcessInfoWithAncestors(
+  pids: readonly number[],
+): Promise<Map<number, LocalServerProcessInfo>> {
+  const uniquePids = [...new Set(pids)].filter((pid) => pid > 0).toSorted((a, b) => a - b);
+  if (uniquePids.length === 0) return new Map();
+  const key = uniquePids.join(",");
+  const now = Date.now();
+  if (windowsProcessCache?.key === key && windowsProcessCache.expiresAtMs > now) {
+    return windowsProcessCache.rows;
+  }
+  const script = windowsProcessLineageScript(uniquePids);
+  const output = await execFileText(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-EncodedCommand",
+      Buffer.from(script, "utf16le").toString("base64"),
+    ],
+    WINDOWS_PROCESS_OUTPUT_MAX_BUFFER_BYTES,
+  ).catch(() => "");
+  const rows = parseWindowsProcessTable(output);
+  if (rows.size > 0) {
+    windowsProcessCache = { key, expiresAtMs: now + WINDOWS_PROCESS_CACHE_TTL_MS, rows };
+  }
+  return rows;
 }
 
 async function readProcessInfoBatch(
@@ -925,10 +1159,13 @@ async function readProcessCwdBatch(pids: readonly number[]): Promise<Map<number,
 async function readProcessInfoWithAncestors(
   pids: readonly number[],
 ): Promise<Map<number, LocalServerProcessInfo>> {
+  if (process.platform === "win32") {
+    return readWindowsProcessInfoWithAncestors(pids);
+  }
   const allProcessInfo = new Map<number, LocalServerProcessInfo>();
   let pendingPids = [...new Set(pids)].filter((pid) => pid > 1);
 
-  for (let depth = 0; depth < PROCESS_LINEAGE_MAX_DEPTH && pendingPids.length > 0; depth++) {
+  for (let depth = 0; depth < PROCESS_ANCESTRY_MAX_DEPTH && pendingPids.length > 0; depth++) {
     const batch = await readProcessInfoBatch(pendingPids);
     const nextPids: number[] = [];
     for (const [pid, processInfo] of batch) {

@@ -1,4 +1,4 @@
-import { ThreadId, type ModelSelection, type ProviderModelOptions } from "@synara/contracts";
+import { ThreadId, type ModelSelection, type ProviderModelOptions } from "@moss/contracts";
 import {
   useComposerDraftStore,
   type ComposerFileAttachment,

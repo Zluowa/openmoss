@@ -1,8 +1,8 @@
-import type { ProjectDigestFocusItem, ThreadId } from "@synara/contracts";
+import type { ProjectDigestFocusItem, ThreadId } from "@moss/contracts";
 import {
   sanitizeProjectDigestFocusTitle,
   sanitizeProjectDigestSummary,
-} from "@synara/shared/projectAgent";
+} from "@moss/shared/projectAgent";
 
 export { sanitizeProjectDigestFocusTitle, sanitizeProjectDigestSummary };
 

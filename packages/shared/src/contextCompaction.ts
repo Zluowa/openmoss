@@ -6,7 +6,7 @@
 // Layer: Shared util
 // Exports: isCompactionCommandText, isManualCompactionTurnActive
 
-import type { OrchestrationThreadActivity } from "@synara/contracts";
+import type { OrchestrationThreadActivity } from "@moss/contracts";
 
 const COMPACTION_COMMAND_PATTERN = /^\/compact(?:\s|$)/;
 const CONTEXT_COMPACTION_ACTIVITY_KIND = "context-compaction";

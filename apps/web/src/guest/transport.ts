@@ -47,6 +47,36 @@ export interface GuestTransport {
   openStream(handlers: GuestStreamHandlers): () => void;
   /** Where a file of the thread or of the guest's own messages loads from. */
   attachmentUrl(attachmentId: string): string;
+  /** Where a page the agent published loads from, inside a sandboxed frame. */
+  renderUrl(attachmentId: string): string;
+  /** Where a picture the transcript shows from the owner's disk loads from. */
+  mediaUrl(src: string): string;
+  /**
+   * Where another document of the transcript loads from, inside a sandboxed frame: an inline
+   * visual, a visualization marker's file, or an HTML file the agent linked.
+   */
+  documentUrl(ref: GuestDocumentRef): string;
+  /** Where the bytes behind something the transcript shows load from, to read or save. */
+  fileUrl(ref: GuestFileRef): string;
+}
+
+/** A frame document besides a published page (`render` route). */
+export type GuestDocumentRef =
+  | { readonly visual: string; readonly appearance: "light" | "dark" }
+  | { readonly visualization: string }
+  | { readonly file: string };
+
+/** Bytes for the viewer pane (`file` route). */
+export type GuestFileRef =
+  | { readonly visual: string }
+  | { readonly render: string }
+  | { readonly visualization: string }
+  | { readonly src: string }
+  | { readonly diff: string }
+  | { readonly map: "1" };
+
+function query(ref: GuestDocumentRef | GuestFileRef): string {
+  return new URLSearchParams(ref as Readonly<Record<string, string>>).toString();
 }
 
 async function failureOf(response: Response): Promise<GuestFailure> {
@@ -120,6 +150,18 @@ export function createHttpGuestTransport(shareId: string): GuestTransport {
     },
     attachmentUrl(attachmentId) {
       return `${url("attachment")}?id=${encodeURIComponent(attachmentId)}`;
+    },
+    renderUrl(attachmentId) {
+      return `${url("render")}?id=${encodeURIComponent(attachmentId)}`;
+    },
+    mediaUrl(src) {
+      return `${url("media")}?src=${encodeURIComponent(src)}`;
+    },
+    documentUrl(ref) {
+      return `${url("render")}?${query(ref)}`;
+    },
+    fileUrl(ref) {
+      return `${url("file")}?${query(ref)}`;
     },
   };
 }

@@ -31,6 +31,7 @@ function remember(state: ReturnType<typeof makeState>, messageId: string, partId
     messageId,
     text: "pending",
     bufferedAfterKnownSnapshot: true,
+    knownSnapshotLength: 0,
   });
 }
 
@@ -69,6 +70,7 @@ describe("OpenCode message memory ownership", () => {
         messageId,
         text: "delta received before its part snapshot",
         bufferedAfterKnownSnapshot: false,
+        knownSnapshotLength: 0,
       });
       forgetOpenCodeMessage(state, messageId);
       for (const entries of Object.values(state)) expect(entries.size).toBe(1);

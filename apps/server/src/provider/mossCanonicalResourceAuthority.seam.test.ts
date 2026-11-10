@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 
-import type { MossFilesystemCapability } from "@synara/contracts";
-import { ensureMossSource } from "@synara/shared/mossSourceBootstrap";
-import { makeMossProjectionOwnershipAdapter } from "@synara/shared/mossProjectionOwnershipAdapter";
-import { materializeMossWorkspaceProjections } from "@synara/shared/mossProjectionMaterializer";
+import type { MossFilesystemCapability } from "@moss/contracts";
+import { ensureMossSource } from "@moss/shared/mossSourceBootstrap";
+import { makeMossProjectionOwnershipAdapter } from "@moss/shared/mossProjectionOwnershipAdapter";
+import { materializeMossWorkspaceProjections } from "@moss/shared/mossProjectionMaterializer";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { makeNodeMossOwnershipStore } from "./mossResourceImport.ts";

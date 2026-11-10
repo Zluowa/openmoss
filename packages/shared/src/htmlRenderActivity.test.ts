@@ -23,6 +23,20 @@ describe("htmlRenderFromActivity", () => {
     ).toEqual(reference);
   });
 
+  it("round-trips a page's surface through stored JSON, and omits it for a standalone page", () => {
+    const roundTrip = (page: Parameters<typeof htmlRenderActivityPayload>[0]) =>
+      htmlRenderFromActivity({
+        kind: HTML_RENDER_ACTIVITY_KIND,
+        payload: JSON.parse(JSON.stringify(htmlRenderActivityPayload(page))),
+      });
+    const surfaced = { ...reference, heights: [[728, 400]] as const, surface: "build-status" };
+
+    expect(htmlRenderActivityPayload(reference).htmlRender).not.toHaveProperty("surface");
+    expect(roundTrip(reference)).toEqual(reference);
+    expect(htmlRenderActivityPayload(surfaced).htmlRender.surface).toBe("build-status");
+    expect(roundTrip(surfaced)).toEqual(surfaced);
+  });
+
   it("clamps the stored height like any other reference", () => {
     expect(
       htmlRenderFromActivity({

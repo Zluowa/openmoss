@@ -13,7 +13,7 @@ import {
   executableCandidates,
   executableNameCandidates,
   windowsPathExtensions,
-} from "@synara/shared/executable";
+} from "@moss/shared/executable";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import {
   commandExistsOnPath,

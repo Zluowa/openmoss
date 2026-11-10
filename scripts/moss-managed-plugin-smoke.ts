@@ -9,7 +9,7 @@
  * That mode proves ONLY native root exit, never production teardown safety.
  * All state lives in a fresh temporary directory; no personal CLI home is used.
  */
-import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@moss/contracts";
 import { readManagedCodexHomeAuthority } from "../apps/server/src/account/mossManagedHomeAuthority.ts";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
@@ -19,7 +19,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseArgs, promisify } from "node:util";
 
-import { CodexAppServerManager } from "../apps/server/src/codexAppServerManager.ts";
+import {
+  CodexAppServerManager,
+  spawnCodexAppServer,
+} from "../apps/server/src/codexAppServerManager.ts";
 import {
   buildMossManagedCodexConfig,
   MOSS_MANAGED_DEFAULT_MODEL,
@@ -31,6 +34,8 @@ import {
   finalizeManagedPluginSmoke,
   ManagedPluginSmokeFinalizationError,
 } from "./moss-managed-plugin-smoke-cleanup.ts";
+import { createManagedPluginSmokeDiagnostics } from "./moss-managed-plugin-smoke-diagnostics.ts";
+import { getWindowsProcessSnapshotFailure } from "../apps/server/src/platform/windowsProcessSnapshot.ts";
 
 const { values } = parseArgs({
   options: {
@@ -51,6 +56,7 @@ if (values.help) {
 const binaryPath = values.codex ?? process.env.MOSS_PLUGIN_SMOKE_CODEX_BINARY ?? "codex";
 const allowRootExitOnly = values["allow-root-exit-only"];
 const root = await mkdtemp(path.join(tmpdir(), "moss-managed-plugin-smoke-"));
+const diagnostics = await createManagedPluginSmokeDiagnostics(root);
 const home = path.join(root, "moss-codex-home");
 const runtimeRoot = path.join(root, "runtime");
 const ownershipNonce = randomUUID();
@@ -111,6 +117,11 @@ const rootExitOnly: NonNullable<ManagerOptions["teardownProcessTree"]> = async (
 
 const createManager = () =>
   new CodexAppServerManager(undefined, {
+    spawnAppServer: (input) => {
+      const child = spawnCodexAppServer(input);
+      diagnostics.observeChild(child);
+      return child;
+    },
     managedCodexHomePath: home,
     readManagedHomeAuthority: (options) =>
       readManagedCodexHomeAuthority({
@@ -236,6 +247,11 @@ try {
     ...(values.output ? { output: values.output } : {}),
   });
 } catch (error) {
+  const snapshotFailure = getWindowsProcessSnapshotFailure(error);
+  const cleanupDiagnostics =
+    error instanceof ManagedPluginSmokeFinalizationError && error.stage === "workspace-cleanup"
+      ? await diagnostics.collect(error.cause)
+      : undefined;
   console.error(
     JSON.stringify(
       {
@@ -244,6 +260,8 @@ try {
         teardownVerification,
         workspace: root,
         error: String(error),
+        ...(snapshotFailure ? { snapshotFailure } : {}),
+        ...(cleanupDiagnostics ? { cleanupDiagnostics } : {}),
       },
       null,
       2,

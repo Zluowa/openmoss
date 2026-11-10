@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import type { connect as tlsConnect } from "node:tls";
 import { describe, expect, it, vi } from "vitest";
 import type WebSocket from "ws";
-import { MOSS_CLOUD_REGION_HEADER } from "@synara/shared/mossProductionPublicConfig";
+import { MOSS_CLOUD_REGION_HEADER } from "@moss/shared/mossProductionPublicConfig";
 
 import {
   RealtimeVoiceRelayClient,

@@ -3,7 +3,7 @@
 // Layer: Server platform runtime test
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import * as executable from "@synara/shared/executable";
+import * as executable from "@moss/shared/executable";
 import os from "node:os";
 import path from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -12,10 +12,42 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import { ServerSettingsService } from "../serverSettings";
 
 import { makeEffectProcessCommand, spawnProviderProcess } from "./effectProcessRuntime";
+import { installWindowsProviderProcessGuard } from "./windowsProviderProcessGuard";
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("spawnProviderProcess", () => {
+  it("keeps a provider registered with the guard until its owner's teardown has run", async () => {
+    const events: string[] = [];
+    installWindowsProviderProcessGuard({
+      track: (pid, notBeforeMs) => {
+        events.push(`track ${pid === Number(pid) && notBeforeMs <= Date.now()}`);
+        return () => void events.push("release");
+      },
+    });
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+          const child = yield* spawnProviderProcess(spawner, process.execPath, [
+            "-e",
+            "process.exit(0)",
+          ]);
+          yield* Effect.addFinalizer(() => Effect.sync(() => void events.push("owner teardown")));
+          yield* child.exitCode;
+          expect(events).toEqual(["track true"]);
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(NodeServices.layer),
+          Effect.provide(ServerSettingsService.layerTest({ lowerProviderProcessPriority: false })),
+        ),
+      );
+    } finally {
+      installWindowsProviderProcessGuard(null);
+    }
+    expect(events).toEqual(["track true", "owner teardown", "release"]);
+  });
+
   it.each([false, true])(
     "reports unsafe Windows batch arguments as typed launch failure (priority=%s)",
     async (enabled) => {

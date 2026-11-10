@@ -29,7 +29,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 
 import { parseFrontmatterScalars } from "./frontmatter";
 import { resolveWindowsSystemExecutable } from "./platformEnvironment";

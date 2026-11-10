@@ -3,7 +3,7 @@
 // Layer: Desktop preload helper
 // Depends on: Connector OAuth callback validation and IPC channel constants.
 
-import type { DesktopBridge, DesktopConnectorOAuthCallback } from "@synara/contracts";
+import type { DesktopBridge, DesktopConnectorOAuthCallback } from "@moss/contracts";
 import {
   CONNECTOR_OAUTH_CALLBACK_IPC_CHANNELS,
   isDesktopConnectorOAuthCallback,

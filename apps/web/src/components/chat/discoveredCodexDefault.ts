@@ -1,9 +1,5 @@
-import type {
-  ModelSelection,
-  ProviderInstanceId,
-  ProviderModelDescriptor,
-} from "@synara/contracts";
-import { normalizeModelSlug, resolveSelectableModel } from "@synara/shared/model";
+import type { ModelSelection, ProviderInstanceId, ProviderModelDescriptor } from "@moss/contracts";
+import { normalizeModelSlug, resolveSelectableModel } from "@moss/shared/model";
 import { buildModelSelection, type ProviderModelOption } from "../../providerModelOptions";
 import { resolveComposerAccountSourceKind } from "./providerAccountSources";
 

@@ -3,7 +3,7 @@
 // Layer: Desktop main-process helper
 // Exports: DesktopUiLocalePersistenceCoordinator
 
-import type { DesktopUiLocale } from "@synara/contracts";
+import type { DesktopUiLocale } from "@moss/contracts";
 
 interface DesktopUiLocalePersistenceOptions {
   initialLocale: DesktopUiLocale;

@@ -1,7 +1,7 @@
 import * as path from "node:path";
 
 import { app, BrowserWindow, ipcMain, session } from "electron";
-import type { BrowserAnnotationEvent, ThreadBrowserState, ThreadId } from "@synara/contracts";
+import type { BrowserAnnotationEvent, ThreadBrowserState, ThreadId } from "@moss/contracts";
 
 import {
   BROWSER_SESSION_PARTITION,

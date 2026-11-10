@@ -2,7 +2,7 @@
 // Purpose: Mount the clean-room WebGL Realtime Voice orb with a Canvas2D fallback.
 // Layer: Realtime Voice presentation
 
-import type { RealtimeVoiceActivity, RealtimeVoicePhase } from "@synara/contracts";
+import type { RealtimeVoiceActivity, RealtimeVoicePhase } from "@moss/contracts";
 import { useEffect, useRef } from "react";
 
 import {

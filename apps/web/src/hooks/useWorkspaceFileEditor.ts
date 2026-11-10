@@ -1,4 +1,4 @@
-import type { ProjectReadFileResult } from "@synara/contracts";
+import type { ProjectReadFileResult } from "@moss/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 

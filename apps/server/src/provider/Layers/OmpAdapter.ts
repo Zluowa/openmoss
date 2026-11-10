@@ -18,7 +18,7 @@ import {
   RuntimeTaskId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   Cause,
   DateTime,

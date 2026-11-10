@@ -4,6 +4,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { XIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
+import { DISCLOSURE_FADE_MOTION_CLASS } from "~/lib/disclosureMotion";
 import { Button, dialogActionButtonClassName } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
@@ -58,7 +59,7 @@ const dialogPopupClassName =
 // Capsule-shaped buttons (class contains `rounded-full`) keep their own pill
 // geometry in footers, so they are excluded from the sizing override.
 const dialogFooterButtonSlotSelector =
-  "[&_[data-slot=button]:not([class*='size-9']):not([class*='size-8']):not([class*='size-7']):not([class*='rounded-full'])]";
+  "[&_[data-slot=button]:not([class*='size-control']):not([class*='size-9']):not([class*='size-8']):not([class*='size-7']):not([class*='rounded-full'])]";
 
 const dialogFooterButtonClassName = dialogActionButtonClassName
   .split(/\s+/)
@@ -70,10 +71,11 @@ const dialogFooterButtonClassName = dialogActionButtonClassName
 const dialogFieldLabelClassName = "text-ui-sm font-medium text-foreground/80";
 
 /**
- * Inputs inside project dialogs share one fixed height + radius so every control
+ * Inputs inside project dialogs share one minimum height + radius so every control
  * reads as the same size (mirrors EditProfileDialog's field styling).
  */
-const PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME = "h-8 rounded-control border-foreground/12";
+const PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME =
+  "min-h-control rounded-control border-foreground/12";
 
 const dialogPanelFieldClassName =
   "[&_[data-slot=textarea-control]]:min-h-24 [&_[data-slot=textarea-control]_[data-slot=textarea]]:px-2.5 [&_[data-slot=textarea-control]_[data-slot=textarea]]:py-2";
@@ -84,27 +86,41 @@ function DialogPopup({
   children,
   showCloseButton: showCloseButtonProp,
   bottomStickOnMobile: bottomStickOnMobileProp,
+  layout = "default",
   ...props
 }: DialogPrimitive.Popup.Props & {
   /** Optional per-dialog backdrop treatment for source-faithful feature surfaces. */
   backdropClassName?: string;
   showCloseButton?: boolean;
   bottomStickOnMobile?: boolean;
+  /** A viewport-sized modal with the same portal, focus trap, and focus restoration. */
+  layout?: "default" | "fullscreen";
   /** Legacy Moss callers use `surface="solid"`; this popup is always opaque now. */
   surface?: "solid";
 }) {
   const { t } = useTranslation();
   const showCloseButton = showCloseButtonProp ?? true;
-  const bottomStickOnMobile = bottomStickOnMobileProp ?? true;
+  const fullscreen = layout === "fullscreen";
+  const bottomStickOnMobile = !fullscreen && (bottomStickOnMobileProp ?? true);
   return (
     <DialogPortal>
-      <DialogBackdrop className={backdropClassName} />
+      <DialogBackdrop
+        className={cn(fullscreen && DISCLOSURE_FADE_MOTION_CLASS, backdropClassName)}
+      />
       <DialogViewport
-        className={cn(bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12")}
+        className={cn(
+          fullscreen && "flex p-0",
+          bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12",
+        )}
       >
         <DialogPrimitive.Popup
           className={cn(
-            dialogPopupClassName,
+            fullscreen
+              ? cn(
+                  "relative flex h-full w-full min-h-0 min-w-0 flex-col bg-popover outline-none data-ending-style:opacity-0 data-starting-style:opacity-0",
+                  DISCLOSURE_FADE_MOTION_CLASS,
+                )
+              : dialogPopupClassName,
             bottomStickOnMobile &&
               "max-sm:max-w-none max-sm:rounded-none max-sm:border-x-0 max-sm:border-t max-sm:border-b-0 max-sm:opacity-[calc(1-min(var(--nested-dialogs),1))] max-sm:data-ending-style:translate-y-4 max-sm:data-starting-style:translate-y-4",
             className,
@@ -136,7 +152,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-1.5 px-4 pt-4 pb-2 in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pb-1",
+        "flex shrink-0 flex-col gap-1.5 px-ui-pad-lg pt-ui-pad-lg pb-ui-pad-sm in-[[data-slot=dialog-popup]:has([data-slot=dialog-panel])]:pb-1",
         className,
       )}
       data-slot="dialog-header"
@@ -156,12 +172,12 @@ function DialogFooter({
   return (
     <div
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        "flex shrink-0 flex-col-reverse gap-ui-gap-xs sm:flex-row sm:flex-wrap sm:justify-end",
         dialogFooterButtonClassName,
         variant === "default" &&
-          "px-4 py-3 in-[[data-slot=dialog-panel]]:px-0 in-[[data-slot=dialog-panel]]:pb-0",
+          "px-ui-pad-lg py-ui-pad-md in-[[data-slot=dialog-panel]]:px-0 in-[[data-slot=dialog-panel]]:pb-0",
         variant === "bare" &&
-          "px-4 pt-3 pb-4 in-[[data-slot=dialog-panel]]:px-0 in-[[data-slot=dialog-panel]]:pb-0",
+          "px-ui-pad-lg pt-ui-pad-md pb-ui-pad-lg in-[[data-slot=dialog-panel]]:px-0 in-[[data-slot=dialog-panel]]:pb-0",
         className,
       )}
       data-slot="dialog-footer"
@@ -173,7 +189,7 @@ function DialogFooter({
 function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
   return (
     <DialogPrimitive.Title
-      className={cn("font-heading font-semibold text-ui-lg", className)}
+      className={cn("min-w-0 break-words font-heading font-semibold text-ui-lg", className)}
       data-slot="dialog-title"
       {...props}
     />
@@ -183,7 +199,7 @@ function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
 function DialogDescription({ className, ...props }: DialogPrimitive.Description.Props) {
   return (
     <DialogPrimitive.Description
-      className={cn("text-muted-foreground text-ui leading-snug", className)}
+      className={cn("text-muted-foreground text-ui", className)}
       data-slot="dialog-description"
       {...props}
     />
@@ -200,7 +216,7 @@ function DialogPanel({
     <ScrollArea scrollFade={scrollFade}>
       <div
         className={cn(
-          "px-4 pb-4 pt-1 in-[[data-slot=dialog-popup]:has([data-slot=dialog-header])]:pt-0 in-[[data-slot=dialog-popup]:has(>[data-slot=dialog-footer])]:pb-3",
+          "px-ui-pad-lg pb-ui-pad-lg pt-1 in-[[data-slot=dialog-popup]:has([data-slot=dialog-header])]:pt-0 in-[[data-slot=dialog-popup]:has(>[data-slot=dialog-footer])]:pb-ui-pad-md",
           dialogPanelFieldClassName,
           className,
         )}

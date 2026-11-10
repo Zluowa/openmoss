@@ -15,7 +15,7 @@ import {
   type ComputerAuditHistoryEntry,
   type OrchestrationLatestTurn,
   type ServerConfig,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema, type Effect } from "effect";
 import {
   startFocusProbe,

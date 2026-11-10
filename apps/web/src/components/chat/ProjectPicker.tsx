@@ -15,7 +15,7 @@ import {
   type ComponentProps,
   type ReactElement,
 } from "react";
-import { type ProjectDirectoryEntry, type ProjectId, type SpaceId } from "@synara/contracts";
+import { type ProjectDirectoryEntry, type ProjectId, type SpaceId } from "@moss/contracts";
 import { useTranslation, type TranslationKey } from "../../localization";
 import { readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";

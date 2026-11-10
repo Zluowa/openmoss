@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 
 import {
   MOSS_CONFIG_PROJECTED_EVENT_TYPE,

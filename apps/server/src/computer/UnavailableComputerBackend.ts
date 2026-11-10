@@ -30,7 +30,7 @@ import type {
   ComputerVerifyStateResult,
   ComputerWindow,
   ComputerZoomResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   clampComputerMessage,

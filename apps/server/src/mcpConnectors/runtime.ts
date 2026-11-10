@@ -13,20 +13,24 @@ import type {
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import {
+  MCP_CONNECTOR_API_KEY_REQUIRED_ERROR_CODE,
   MCP_CONNECTOR_CLIENT_REQUIRED_ERROR_CODE,
   type McpConnector,
   type McpConnectorConnectInput,
   type McpConnectorConnectResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   defaultMcpConnectorName,
   findMcpConnectorPreset,
   MCP_CONNECTOR_PRESETS,
+  type McpConnectorApiKeyPlacement,
   type McpConnectorPreset,
+  type McpConnectorRegion,
   mcpConnectorServerName,
   mcpConnectorSlug,
   normalizeMcpConnectorUrl,
-} from "@synara/shared/mcpConnectors";
+  splitMcpConnectorUrlApiKey,
+} from "@moss/shared/mcpConnectors";
 
 import type { AgentGatewayConnectorRegistration } from "../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
@@ -80,17 +84,22 @@ interface StoredConnectorOAuth {
   readonly userClient: boolean;
 }
 
+/** The user's API key and where the server expects it. */
+type StoredConnectorApiKey = McpConnectorApiKeyPlacement & { readonly value: string };
+
 interface StoredConnector {
   readonly connectorId: string;
   readonly presetId: string | null;
   readonly name: string;
+  /** Upstream address without the API key; the key is added per request. */
   readonly url: string;
   readonly serverName: string;
-  readonly authKind: "oauth" | "none";
+  readonly authKind: "oauth" | "api-key" | "none";
   readonly status: "connected" | "needs-auth";
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly oauth: StoredConnectorOAuth | null;
+  readonly apiKey: StoredConnectorApiKey | null;
 }
 
 interface ConnectorsDocument {
@@ -128,11 +137,48 @@ function decodeOAuth(value: unknown): StoredConnectorOAuth | null | undefined {
   };
 }
 
+const API_KEY_PARAM = /^[A-Za-z0-9_.-]{1,64}$/u;
+
+function decodeApiKey(value: unknown): StoredConnectorApiKey | null | undefined {
+  if (value === null) return null;
+  if (!isRecord(value) || typeof value.value !== "string" || !value.value) return undefined;
+  if (value.kind === "bearer") return { kind: "bearer", value: value.value };
+  if (
+    value.kind === "query" &&
+    typeof value.param === "string" &&
+    API_KEY_PARAM.test(value.param)
+  ) {
+    return { kind: "query", param: value.param, value: value.value };
+  }
+  return undefined;
+}
+
+/** The request target for one upstream call: the key goes in the query or a bearer header. */
+function upstreamWithApiKey(
+  url: string,
+  apiKey: StoredConnectorApiKey | null,
+): { readonly url: string; readonly bearer: string | undefined } {
+  if (!apiKey) return { url, bearer: undefined };
+  if (apiKey.kind === "bearer") return { url, bearer: apiKey.value };
+  const withKey = new URL(url);
+  withKey.searchParams.set(apiKey.param, apiKey.value);
+  return { url: withKey.href, bearer: undefined };
+}
+
+const samePlacement = (left: McpConnectorApiKeyPlacement, right: McpConnectorApiKeyPlacement) =>
+  left.kind === right.kind &&
+  (left.kind === "bearer" || (right.kind === "query" && left.param === right.param));
+
 function decodeConnector(value: unknown): StoredConnector | undefined {
   if (!isRecord(value)) return undefined;
   const text = (key: string) => (typeof value[key] === "string" ? (value[key] as string) : "");
   const oauth = decodeOAuth(value.oauth ?? null);
-  const authKind = value.authKind === "oauth" || value.authKind === "none" ? value.authKind : null;
+  // Documents saved before API keys existed have no `apiKey` field.
+  const apiKey = decodeApiKey(value.apiKey ?? null);
+  const authKind =
+    value.authKind === "oauth" || value.authKind === "api-key" || value.authKind === "none"
+      ? value.authKind
+      : null;
   const status =
     value.status === "connected" || value.status === "needs-auth" ? value.status : null;
   if (
@@ -145,7 +191,9 @@ function decodeConnector(value: unknown): StoredConnector | undefined {
     authKind === null ||
     status === null ||
     oauth === undefined ||
-    (authKind === "oauth") !== (oauth !== null)
+    apiKey === undefined ||
+    (authKind === "oauth") !== (oauth !== null) ||
+    (authKind === "api-key") !== (apiKey !== null)
   ) {
     return undefined;
   }
@@ -160,6 +208,7 @@ function decodeConnector(value: unknown): StoredConnector | undefined {
     createdAt: text("createdAt"),
     updatedAt: text("updatedAt"),
     oauth,
+    apiKey,
   };
 }
 
@@ -210,9 +259,14 @@ function toContract(connector: StoredConnector): McpConnector {
 interface ConnectorTarget {
   readonly presetId: string | null;
   readonly name: string;
+  /** Without any API key. */
   readonly url: string;
   readonly slug: string;
   readonly requiresOwnApp: boolean;
+  /** Set when the server takes an API key: the preset's, or a key pasted in the URL. */
+  readonly apiKeyPlacement: McpConnectorApiKeyPlacement | null;
+  /** The key that came inside the pasted URL, if any. */
+  readonly pastedApiKey: string | null;
 }
 
 interface PendingAuthorization {
@@ -234,6 +288,9 @@ export interface McpConnectorForwardRequest {
   readonly sessionId?: string | undefined;
   readonly protocolVersion?: string | undefined;
   readonly signal?: AbortSignal | undefined;
+  /** Supplied only by the trusted ingress, never by the HTTP request body. */
+  readonly authorityKey?: string | undefined;
+  readonly isAuthorized?: (() => boolean) | undefined;
 }
 
 export interface McpConnectorRuntimeDeps {
@@ -246,8 +303,22 @@ export interface McpConnectorRuntimeDeps {
   readonly publish: (registrations: ReadonlyArray<AgentGatewayConnectorRegistration>) => void;
   readonly clientVersion: string;
   readonly logWarning: (message: string, fields?: Record<string, unknown>) => void;
+  /**
+   * Whether presets of a region may be connected and used right now. "cn"
+   * presets need an account signed in with a mainland China phone number.
+   * Omitted, every region is available.
+   */
+  readonly regionAvailable?: (region: McpConnectorRegion) => Promise<boolean>;
   readonly now?: () => number;
 }
+
+/** The region of a preset-backed connector; custom servers are "global". */
+function presetRegion(presetId: string | null): McpConnectorRegion {
+  return (presetId ? findMcpConnectorPreset(presetId)?.region : undefined) ?? "global";
+}
+
+const regionUnavailableMessage = (name: string) =>
+  `${name} is available only while signed in to Moss with a mainland China phone number.`;
 
 const reconnectMessage = (name: string) =>
   `${name} needs to be reconnected. Ask the user to reconnect it in Moss under Settings → Connectors.`;
@@ -261,15 +332,26 @@ function reconnectResult(body: unknown, name: string): McpConnectorProxyResult {
     : jsonRpcErrorResult(body, reconnectMessage(name));
 }
 
-function presetTarget(preset: McpConnectorPreset): ConnectorTarget {
+function presetTarget(
+  preset: McpConnectorPreset,
+  pastedApiKey: string | null = null,
+): ConnectorTarget {
   return {
     presetId: preset.id,
     name: preset.name,
     url: preset.url,
     slug: preset.id,
     requiresOwnApp: preset.requiresOwnApp === true,
+    apiKeyPlacement: preset.apiKey ?? null,
+    pastedApiKey: preset.apiKey ? pastedApiKey : null,
   };
 }
+
+const apiKeyRequired = (name: string) =>
+  new McpConnectorFailure(
+    `${name} needs an API key. Paste the key from its developer console.`,
+    MCP_CONNECTOR_API_KEY_REQUIRED_ERROR_CODE,
+  );
 
 const ownAppRequired = (name: string) =>
   new McpConnectorFailure(
@@ -321,6 +403,9 @@ export class McpConnectorRuntime {
 
   async connect(input: McpConnectorConnectInput): Promise<McpConnectorConnectResult> {
     const target = this.resolveTarget(input);
+    if (!(await this.regionAvailable(presetRegion(target.presetId)))) {
+      throw new McpConnectorFailure(regionUnavailableMessage(target.name));
+    }
     const existing = this.document.connectors.find((entry) => entry.url === target.url);
     if (!existing && this.document.connectors.length >= MCP_CONNECTORS_MAX_COUNT) {
       throw new McpConnectorFailure(
@@ -328,12 +413,15 @@ export class McpConnectorRuntime {
       );
     }
 
+    const apiKey = this.apiKeyFor(target, input, existing);
+    if (apiKey) return this.connectWithApiKey(target, apiKey);
+
     const probe = await probeMcpConnector(target.url, target.name, this.deps.clientVersion);
     if (probe.kind === "unavailable") throw new McpConnectorFailure(probe.message);
     if (probe.kind === "open" && !existing?.oauth) {
       let connector!: StoredConnector;
       await this.commit(() => {
-        const upsert = this.withUpserted(target, null);
+        const upsert = this.withUpserted(target, {});
         connector = upsert.connector;
         return upsert.document;
       });
@@ -479,12 +567,14 @@ export class McpConnectorRuntime {
             throw new McpConnectorFailure("This sign-in was cancelled.");
           }
           return this.withUpserted(target, {
-            clientInformation,
-            tokens,
-            expiresAtMs: tokenExpiryMs(tokens, this.now()),
-            discovery,
-            resource: resource?.href ?? null,
-            userClient: pending.userClient,
+            oauth: {
+              clientInformation,
+              tokens,
+              expiresAtMs: tokenExpiryMs(tokens, this.now()),
+              discovery,
+              resource: resource?.href ?? null,
+              userClient: pending.userClient,
+            },
           }).document;
         });
       } catch {
@@ -535,6 +625,9 @@ export class McpConnectorRuntime {
       );
     }
     if (connector.status === "needs-auth") return reconnectResult(request.body, connector.name);
+    if (!(await this.regionAvailable(presetRegion(connector.presetId)))) {
+      return jsonRpcErrorResult(request.body, regionUnavailableMessage(connector.name), 403);
+    }
     const send = (accessToken: string | undefined) => {
       // Recheck ownership after token refresh: Disconnect or Reconnect may have finished.
       const current = this.find(connectorId);
@@ -549,14 +642,15 @@ export class McpConnectorRuntime {
       }
       if (current.status === "needs-auth")
         return Promise.resolve(reconnectResult(request.body, current.name));
+      const upstream = upstreamWithApiKey(current.url, current.apiKey);
       return forwardMcpConnectorRequest(
         {
-          url: current.url,
+          url: upstream.url,
           method: request.method,
           body: request.body,
           sessionId: request.sessionId,
           protocolVersion: request.protocolVersion,
-          accessToken: current.oauth?.tokens.access_token ?? accessToken,
+          accessToken: current.oauth?.tokens.access_token ?? upstream.bearer ?? accessToken,
           signal: request.signal,
         },
         current.name,
@@ -565,6 +659,14 @@ export class McpConnectorRuntime {
     if (connector.authKind === "none") {
       const result = await send(undefined);
       return result.status === 401 ? reconnectResult(request.body, connector.name) : result;
+    }
+    if (connector.authKind === "api-key") {
+      const result = await send(undefined);
+      if (result.status !== 401) return result;
+      // The key was revoked or expired (McDonald's China tokens do): ask for a new one.
+      const rejected = connector.apiKey;
+      await this.markNeedsAuth(connectorId, (entry) => entry.apiKey === rejected);
+      return reconnectResult(request.body, connector.name);
     }
 
     try {
@@ -575,7 +677,7 @@ export class McpConnectorRuntime {
       if (retried.status !== 401) return retried;
       const current = this.find(connectorId)?.oauth;
       if (current?.tokens.access_token === retryToken) {
-        await this.markNeedsAuth(connectorId, current);
+        await this.markNeedsAuth(connectorId, (entry) => entry.oauth === current);
       }
       return reconnectResult(request.body, connector.name);
     } catch (error) {
@@ -591,6 +693,11 @@ export class McpConnectorRuntime {
         `Moss could not refresh access to ${connector.name}. Try again shortly.`,
       );
     }
+  }
+
+  private async regionAvailable(region: McpConnectorRegion): Promise<boolean> {
+    if (region === "global" || !this.deps.regionAvailable) return true;
+    return this.deps.regionAvailable(region).catch(() => false);
   }
 
   private find(connectorId: string): StoredConnector | undefined {
@@ -611,16 +718,87 @@ export class McpConnectorRuntime {
     }
     const normalized = normalizeMcpConnectorUrl(input.url);
     if (!normalized.ok) throw new McpConnectorFailure(normalized.reason);
-    const preset = MCP_CONNECTOR_PRESETS.find((entry) => entry.url === normalized.url);
-    if (preset) return presetTarget(preset);
-    const name = input.name?.trim() || defaultMcpConnectorName(normalized.url);
+    // A key pasted in the URL is kept as a secret, never as the shown address.
+    const { url, apiKey } = splitMcpConnectorUrlApiKey(normalized.url);
+    const preset = MCP_CONNECTOR_PRESETS.find((entry) => entry.url === url);
+    if (preset) return presetTarget(preset, apiKey?.value ?? null);
+    const name = input.name?.trim() || defaultMcpConnectorName(url);
     return {
       presetId: null,
       name,
-      url: normalized.url,
+      url,
       slug: mcpConnectorSlug(name),
       requiresOwnApp: false,
+      apiKeyPlacement: apiKey ? { kind: "query", param: apiKey.param } : null,
+      pastedApiKey: apiKey?.value ?? null,
     };
+  }
+
+  /**
+   * The key this connect should use, or null for OAuth and anonymous servers.
+   * A typed key wins, then one pasted in the URL, then the saved one while it
+   * still works (so Reconnect needs no retyping). A custom server given only a typed key
+   * gets it as a bearer token.
+   */
+  private apiKeyFor(
+    target: ConnectorTarget,
+    input: McpConnectorConnectInput,
+    existing: StoredConnector | undefined,
+  ): StoredConnectorApiKey | null {
+    const saved = existing?.apiKey ?? null;
+    const placement: McpConnectorApiKeyPlacement | null =
+      target.apiKeyPlacement ?? (input.apiKey ? { kind: "bearer" } : saved);
+    if (!placement) return null;
+    // A key the server already rejected is never offered to it again.
+    const reusable =
+      saved && existing?.status === "connected" && samePlacement(saved, placement)
+        ? saved.value
+        : null;
+    const value = input.apiKey ?? target.pastedApiKey ?? reusable;
+    if (!value) throw apiKeyRequired(target.name);
+    return placement.kind === "bearer"
+      ? { kind: "bearer", value }
+      : { kind: "query", param: placement.param, value };
+  }
+
+  /** Checks the key with an `initialize` and saves the connector only if the server accepts it. */
+  private async connectWithApiKey(
+    target: ConnectorTarget,
+    apiKey: StoredConnectorApiKey,
+  ): Promise<McpConnectorConnectResult> {
+    const upstream = upstreamWithApiKey(target.url, apiKey);
+    const probe = await probeMcpConnector(
+      upstream.url,
+      target.name,
+      this.deps.clientVersion,
+      upstream.bearer,
+    );
+    if (probe.kind === "unavailable" && probe.unreachable) {
+      throw new McpConnectorFailure(probe.message);
+    }
+    if (probe.kind !== "open") {
+      // Amap answers a bad key with HTTP 200 and its own error JSON, so any
+      // non-MCP answer here means the key did not work.
+      throw new McpConnectorFailure(
+        `${target.name} did not accept this key. Check that it is correct and enabled for its MCP service.`,
+        MCP_CONNECTOR_API_KEY_REQUIRED_ERROR_CODE,
+      );
+    }
+    const replaced = this.document.connectors.find((entry) => entry.url === target.url)?.oauth;
+    let connector!: StoredConnector;
+    await this.commit(() => {
+      const upsert = this.withUpserted(target, { apiKey });
+      connector = upsert.connector;
+      return upsert.document;
+    });
+    if (replaced) {
+      void revokeConnectorTokens({
+        discovery: replaced.discovery,
+        clientInformation: replaced.clientInformation,
+        tokens: replaced.tokens,
+      });
+    }
+    return { authorizationUrl: null, connector: toContract(connector) };
   }
 
   private uniqueServerName(slug: string): string {
@@ -632,15 +810,25 @@ export class McpConnectorRuntime {
     return candidate;
   }
 
-  /** Creates or refreshes the connector for `target.url`; keeps its id and server name. */
+  /**
+   * Creates or refreshes the connector for `target.url` with one credential
+   * (OAuth tokens, an API key, or neither); keeps its id and server name.
+   */
   private withUpserted(
     target: ConnectorTarget,
-    oauth: StoredConnectorOAuth | null,
+    credential: {
+      readonly oauth?: StoredConnectorOAuth;
+      readonly apiKey?: StoredConnectorApiKey;
+    },
   ): { readonly document: ConnectorsDocument; readonly connector: StoredConnector } {
+    const oauth = credential.oauth ?? null;
+    const apiKey = credential.apiKey ?? null;
     const timestamp = new Date(this.now()).toISOString();
     const existing = this.document.connectors.find((entry) => entry.url === target.url);
-    // A concurrent OAuth reconnect may have committed while the open probe ran.
-    if (!oauth && existing?.oauth) return { document: this.document, connector: existing };
+    // A concurrent reconnect may have saved a credential while the open probe ran.
+    if (!oauth && !apiKey && (existing?.oauth || existing?.apiKey)) {
+      return { document: this.document, connector: existing };
+    }
     if (!existing && this.document.connectors.length >= MCP_CONNECTORS_MAX_COUNT) {
       throw new McpConnectorFailure(
         `You can connect up to ${MCP_CONNECTORS_MAX_COUNT} connectors.`,
@@ -652,11 +840,12 @@ export class McpConnectorRuntime {
       name: target.name,
       url: target.url,
       serverName: existing?.serverName ?? this.uniqueServerName(target.slug),
-      authKind: oauth ? "oauth" : "none",
+      authKind: oauth ? "oauth" : apiKey ? "api-key" : "none",
       status: "connected",
       createdAt: existing?.createdAt ?? timestamp,
       updatedAt: timestamp,
       oauth,
+      apiKey,
     };
     return {
       connector,
@@ -702,13 +891,17 @@ export class McpConnectorRuntime {
   }
 
   /**
-   * Flags the connector for a new sign-in, unless `failed` is no longer its
-   * sign-in: a reconnect that finished meanwhile must stay connected.
+   * Flags the connector for a new sign-in, unless the credential that failed
+   * is no longer its own (`stillFailing` is false): a reconnect that finished
+   * meanwhile must stay connected.
    */
-  private async markNeedsAuth(connectorId: string, failed: StoredConnectorOAuth): Promise<void> {
+  private async markNeedsAuth(
+    connectorId: string,
+    stillFailing: (connector: StoredConnector) => boolean,
+  ): Promise<void> {
     await this.commit(() => {
       const connector = this.find(connectorId);
-      if (!connector || connector.status === "needs-auth" || connector.oauth !== failed) return;
+      if (!connector || connector.status === "needs-auth" || !stillFailing(connector)) return;
       return {
         ...this.document,
         connectors: this.document.connectors.map((entry) =>
@@ -733,7 +926,7 @@ export class McpConnectorRuntime {
     const refreshToken = oauth.tokens.refresh_token;
     if (!refreshToken) {
       if (!force) return Promise.resolve(oauth.tokens.access_token);
-      return this.markNeedsAuth(connectorId, oauth).then(() => {
+      return this.markNeedsAuth(connectorId, (entry) => entry.oauth === oauth).then(() => {
         throw new McpConnectorNeedsAuth();
       });
     }
@@ -766,7 +959,7 @@ export class McpConnectorRuntime {
       });
     } catch (error) {
       if (isOAuthGrantFailure(error)) {
-        await this.markNeedsAuth(connectorId, oauth);
+        await this.markNeedsAuth(connectorId, (entry) => entry.oauth === oauth);
         throw new McpConnectorNeedsAuth();
       }
       throw error;

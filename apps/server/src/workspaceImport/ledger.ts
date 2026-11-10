@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as nodePath from "node:path";
 
-import { normalizeWorkspaceImportSource, type WorkspaceImportSourceKind } from "@synara/contracts";
+import { normalizeWorkspaceImportSource, type WorkspaceImportSourceKind } from "@moss/contracts";
 
 export const WORKSPACE_IMPORT_LEDGER_FILENAME = "workspace-import-ledger.json";
 

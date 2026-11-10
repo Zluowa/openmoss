@@ -1,4 +1,5 @@
 import { addWsTransportStateListener } from "../wsTransportEvents";
+import { transportNoticeHoldMs } from "./transportLink";
 
 /** What the composer tells the user about its link to Moss; the component words it. */
 export type ComposerTransportNoticeKind =
@@ -14,6 +15,8 @@ export function subscribeComposerTransportStatus(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let notice: ComposerTransportNoticeKind | null = null;
   let visible = false;
+  // Closed/connecting transitions are one continuous outage, not fresh blips.
+  let outageStartedAt: number | null = null;
   // Until a connection has existed, Moss is still connecting, not reconnecting.
   let established = false;
   const cancelTimer = () => {
@@ -37,15 +40,23 @@ export function subscribeComposerTransportStatus(
         cancelTimer();
         if (visible) listener(null);
         visible = false;
+        outageStartedAt = null;
       } else if (visible) {
         listener(notice);
-      } else if (timer === undefined) {
-        // Closed/connecting transitions are one continuous outage, not fresh blips.
-        timer = setTimeout(() => {
-          timer = undefined;
-          visible = true;
-          listener(notice);
-        }, 1500);
+      } else {
+        // Rearm rather than keep the old timer: an incompatible server must not sit out
+        // the longer hold that a restart in progress already started.
+        const now = Date.now();
+        outageStartedAt ??= now;
+        cancelTimer();
+        timer = setTimeout(
+          () => {
+            timer = undefined;
+            visible = true;
+            listener(notice);
+          },
+          Math.max(0, outageStartedAt + transportNoticeHoldMs(notice) - now),
+        );
       }
     },
     { replayCurrent: true },

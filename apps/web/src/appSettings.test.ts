@@ -9,9 +9,9 @@ import {
   DEFAULT_SERVER_SETTINGS_VIEW,
   ProviderInstanceId,
   SUPPORTED_PROVIDER_KINDS,
-} from "@synara/contracts";
-import { getDefaultModel, getModelOptions } from "@synara/shared/model";
-import { codexAccountInstanceId } from "@synara/shared/providerInstances";
+} from "@moss/contracts";
+import { getDefaultModel, getModelOptions } from "@moss/shared/model";
+import { codexAccountInstanceId } from "@moss/shared/providerInstances";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -32,6 +32,7 @@ import {
   getDefaultNativeFontSmoothing,
   getCustomModelsByProvider,
   getCustomModelsForProviderInstance,
+  getManagedModelsForProviderInstance,
   getGitTextGenerationModelOptions,
   getGitTextGenerationPickerOptions,
   getManageableProviderInstances,
@@ -55,6 +56,7 @@ import {
   resolveSelectableProviderInstanceId,
   resolveTerminalFontFamilyStack,
   serverSettingsToAppSettings,
+  newChatProviderInstanceIdFrom,
 } from "./appSettings";
 
 describe("resolveNewConversationDefaultModelSelection", () => {
@@ -1822,6 +1824,66 @@ describe("provider instance configuration", () => {
   });
 });
 
+describe("the default provider for an agent nothing picked one for", () => {
+  const signedIn = (extra: Record<string, unknown> = {}) =>
+    Schema.decodeUnknownSync(AppSettingsSchema)({
+      disabledProviders: [],
+      providerInstances: {
+        codex_moss: { driver: "codex", enabled: true, config: { managed: true, realm: "cn" } },
+        claude_moss: {
+          driver: "claudeAgent",
+          enabled: true,
+          config: { managed: true, realm: "cn" },
+        },
+      },
+      ...extra,
+    });
+
+  it("is Moss while the person is signed in to Moss, for every agent Moss serves", () => {
+    const settings = signedIn();
+    expect(resolveSelectableProviderInstanceId(settings, "codex")).toBe("codex_moss");
+    expect(resolveSelectableProviderInstanceId(settings, "claudeAgent")).toBe("claude_moss");
+    // An agent Moss does not serve keeps its own login.
+    expect(resolveSelectableProviderInstanceId(settings, "cursor")).toBe("cursor");
+    // New chats and quick actions (Canvas, images) start there too.
+    expect(resolveNewConversationDefaultModelSelection(settings, "codex").instanceId).toBe(
+      "codex_moss",
+    );
+    expect(
+      getProviderInstanceOptions(settings)
+        .filter((option) => option.newChatDefault)
+        .map((option) => option.instanceId),
+    ).toEqual(expect.arrayContaining(["codex_moss", "claude_moss", "cursor"]));
+    expect(newChatProviderInstanceIdFrom(getProviderInstanceOptions(settings), "codex")).toBe(
+      "codex_moss",
+    );
+  });
+
+  it("keeps the local login the person picked", () => {
+    expect(resolveSelectableProviderInstanceId(signedIn(), "codex", "codex")).toBe("codex");
+  });
+
+  it("is the agent's own login when signed out or when the person chose it for new chats", () => {
+    const signedOut = Schema.decodeUnknownSync(AppSettingsSchema)({ disabledProviders: [] });
+    expect(resolveSelectableProviderInstanceId(signedOut, "codex")).toBe("codex");
+    const own = signedIn({ newChatModelSource: "own" });
+    expect(resolveSelectableProviderInstanceId(own, "codex")).toBe("codex");
+    expect(resolveNewConversationDefaultModelSelection(own, "codex").instanceId).toBe("codex");
+  });
+
+  it("ignores a Moss instance the server has not provisioned or has switched off", () => {
+    const unmanaged = Schema.decodeUnknownSync(AppSettingsSchema)({
+      disabledProviders: [],
+      providerInstances: {
+        codex_moss: { driver: "codex", enabled: true, config: {} },
+        claude_moss: { driver: "claudeAgent", enabled: false, config: { managed: true } },
+      },
+    });
+    expect(resolveSelectableProviderInstanceId(unmanaged, "codex")).toBe("codex");
+    expect(resolveSelectableProviderInstanceId(unmanaged, "claudeAgent")).toBe("claudeAgent");
+  });
+});
+
 describe("resolveSelectableProviderInstanceId", () => {
   it("keeps a configured missing driver selected without using a default CLI's launch options", () => {
     const settings = Schema.decodeUnknownSync(AppSettingsSchema)({
@@ -1872,6 +1934,8 @@ describe("resolveSelectableProviderInstanceId", () => {
   it("defaults the restored optional CLIs off while preserving explicit shutdown preferences", () => {
     const defaults = Schema.decodeUnknownSync(AppSettingsSchema)({});
     expect(defaults.disabledProviders).toEqual([
+      "opencode",
+      "grok",
       "cursor",
       "gemini",
       "antigravity",
@@ -2454,7 +2518,7 @@ describe("AppSettingsSchema", () => {
     ).toMatchObject({
       claudeBinaryPath: "",
       uiDensity: "comfortable",
-      chatFontSizePx: 13,
+      chatFontSizePx: DEFAULT_CHAT_FONT_SIZE_PX,
       terminalFontSizePx: 12,
       codexBinaryPath: "/usr/local/bin/codex",
       codexHomePath: "",
@@ -2504,6 +2568,55 @@ describe("AppSettingsSchema", () => {
   });
 });
 
+describe("shared provider history settings", () => {
+  it("maps opt-in and explicit sources both ways without changing account config", () => {
+    const providers = DEFAULT_SERVER_SETTINGS_VIEW.providers;
+    const selected = {
+      codexShareStateAcrossAccounts: true,
+      codexHomePath: "/history/codex",
+      claudeShareStateAcrossAccounts: true,
+      claudeSharedProjectsPath: "/history/projects",
+    };
+    expect(
+      serverSettingsToAppSettings({
+        ...DEFAULT_SERVER_SETTINGS_VIEW,
+        providers: {
+          ...providers,
+          codex: {
+            ...providers.codex,
+            shareStateAcrossAccounts: true,
+            homePath: selected.codexHomePath,
+          },
+          claudeAgent: {
+            ...providers.claudeAgent,
+            shareStateAcrossAccounts: true,
+            sharedProjectsPath: selected.claudeSharedProjectsPath,
+          },
+        },
+      }),
+    ).toMatchObject(selected);
+    expect(appSettingsPatchToServerSettingsPatch(selected)).toEqual({
+      providers: {
+        codex: { shareStateAcrossAccounts: true, homePath: selected.codexHomePath },
+        claudeAgent: {
+          shareStateAcrossAccounts: true,
+          sharedProjectsPath: selected.claudeSharedProjectsPath,
+        },
+      },
+    });
+    expect(
+      appSettingsPatchToServerSettingsPatch({ claudeShareStateAcrossAccounts: false }),
+    ).toEqual({
+      providers: { claudeAgent: { shareStateAcrossAccounts: false } },
+    });
+    expect(serverSettingsToAppSettings(DEFAULT_SERVER_SETTINGS_VIEW)).toMatchObject({
+      codexShareStateAcrossAccounts: false,
+      claudeShareStateAcrossAccounts: false,
+      claudeSharedProjectsPath: "",
+    });
+  });
+});
+
 describe("keepAwakeMode mapping", () => {
   it("defaults to off when absent from stored settings", () => {
     const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
@@ -2525,5 +2638,63 @@ describe("keepAwakeMode mapping", () => {
     expect(
       appSettingsPatchToServerSettingsPatch({ enableAssistantStreaming: true }),
     ).not.toHaveProperty("keepAwakeMode");
+  });
+});
+
+describe("getManagedModelsForProviderInstance", () => {
+  const settings = {
+    providerInstances: {
+      claude_moss: {
+        driver: "claudeAgent",
+        enabled: true,
+        config: { managed: true, modelAllowlist: ["claude-sonnet-5", "kimi-k3"] },
+      },
+      codex_moss: {
+        driver: "codex",
+        enabled: true,
+        config: { managed: true, modelAllowlist: ["gpt-5.6-terra", "deepseek-v4-pro"] },
+      },
+      opencode_moss: {
+        driver: "opencode",
+        enabled: true,
+        config: { managed: true, modelAllowlist: ["moss/kimi-k3"] },
+      },
+      claude_work: {
+        driver: "claudeAgent",
+        enabled: true,
+        config: { modelAllowlist: ["claude-sonnet-5"] },
+      },
+      claude_empty: { driver: "claudeAgent", enabled: true, config: { managed: true } },
+    },
+  } as const;
+
+  it("returns the gateway's lineup for a managed instance", () => {
+    // Built-in names count too; a managed Codex lists them like any other.
+    expect([
+      ...getManagedModelsForProviderInstance(settings, {
+        instanceId: "codex_moss",
+        provider: "codex",
+      })!,
+    ]).toEqual(["gpt-5.6-terra", "deepseek-v4-pro"]);
+    expect([
+      ...getManagedModelsForProviderInstance(settings, {
+        instanceId: "claude_moss",
+        provider: "claudeAgent",
+      })!,
+    ]).toEqual(["claude-sonnet-5", "kimi-k3"]);
+    expect([
+      ...getManagedModelsForProviderInstance(settings, {
+        instanceId: "opencode_moss",
+        provider: "opencode",
+      })!,
+    ]).toEqual(["moss/kimi-k3"]);
+  });
+
+  it("leaves every other instance's catalog alone", () => {
+    for (const instanceId of ["claude_work", "claude_empty", "claudeAgent"]) {
+      expect(
+        getManagedModelsForProviderInstance(settings, { instanceId, provider: "claudeAgent" }),
+      ).toBeNull();
+    }
   });
 });

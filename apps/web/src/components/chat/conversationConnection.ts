@@ -1,5 +1,5 @@
 import type { ThreadSession } from "../../types";
-import type { OrchestrationThreadActivity } from "@synara/contracts";
+import type { OrchestrationThreadActivity } from "@moss/contracts";
 
 export type ConversationConnectionStatus = "loading" | "reconnecting";
 

@@ -1,4 +1,4 @@
-import { ThreadId, type OrchestrationSidebarOrderItem } from "@synara/contracts";
+import { ThreadId, type OrchestrationSidebarOrderItem } from "@moss/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {

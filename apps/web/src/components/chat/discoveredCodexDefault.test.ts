@@ -1,8 +1,4 @@
-import type {
-  ModelSelection,
-  ProviderInstanceId,
-  ProviderModelDescriptor,
-} from "@synara/contracts";
+import type { ModelSelection, ProviderInstanceId, ProviderModelDescriptor } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import { deriveEffectiveComposerModelState } from "../../composerDraftModels";
 import { buildModelSelection } from "../../providerModelOptions";

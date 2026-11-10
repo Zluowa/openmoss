@@ -1,4 +1,4 @@
-import type { RealtimeVoiceActivity, RealtimeVoicePhase } from "@synara/contracts";
+import type { RealtimeVoiceActivity, RealtimeVoicePhase } from "@moss/contracts";
 import {
   REALTIME_VOICE_ORB_FRAGMENT_SHADER_SOURCE,
   REALTIME_VOICE_ORB_VERTEX_SHADER_SOURCE,
@@ -7,7 +7,7 @@ import {
   realtimeVoiceOrbSmoothingFactor,
   realtimeVoiceOrbStateTargets,
   syntheticRealtimeVoiceOrbAudio,
-} from "@synara/shared/realtimeVoiceOrbShader";
+} from "@moss/shared/realtimeVoiceOrbShader";
 
 import type { RealtimeVoiceOutputSignal } from "./realtimeVoiceWebRtc";
 
@@ -19,12 +19,12 @@ export {
   realtimeVoiceOrbSmoothingFactor,
   realtimeVoiceOrbStateTargets,
   syntheticRealtimeVoiceOrbAudio,
-} from "@synara/shared/realtimeVoiceOrbShader";
+} from "@moss/shared/realtimeVoiceOrbShader";
 export type {
   RealtimeVoiceOrbActivity,
   RealtimeVoiceOrbCorePhase,
   RealtimeVoiceOrbStateWeights,
-} from "@synara/shared/realtimeVoiceOrbShader";
+} from "@moss/shared/realtimeVoiceOrbShader";
 
 export const REALTIME_VOICE_ORB_DPR_CAP = 1.5;
 

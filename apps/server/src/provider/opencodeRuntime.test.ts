@@ -1,3 +1,4 @@
+import { prepareProcess } from "@moss/shared/platformProcess";
 // FILE: opencodeRuntime.test.ts
 // Purpose: Covers OpenCode runtime parsing and local server startup diagnostics.
 // Layer: Provider runtime tests
@@ -13,8 +14,8 @@ import { systemError } from "effect/PlatformError";
 import type { OpencodeClient } from "@opencode-ai/sdk/v2";
 import { type ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { TestClock } from "effect/testing";
-import type { ChatAttachment } from "@synara/contracts";
-import { resolveWindowsComSpec } from "@synara/shared/windowsProcess";
+import type { ChatAttachment } from "@moss/contracts";
+import { resolveWindowsComSpec } from "@moss/shared/windowsProcess";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -191,6 +192,7 @@ it("bounds optional console discovery and aborts its stalled HTTP request", asyn
   let requestSignal: AbortSignal | undefined;
   const client = {
     provider: { list: async () => ({ data: { all: [], connected: [], default: {} } }) },
+    config: { get: async () => ({ data: { model: "local/configured" } }) },
     app: { agents: async () => ({ data: [] }) },
     experimental: {
       console: {
@@ -216,6 +218,7 @@ it("bounds optional console discovery and aborts its stalled HTTP request", asyn
   );
   expect(inventory).toEqual({
     providerList: { all: [], connected: [], default: {} },
+    defaultModel: "local/configured",
     agents: [],
     consoleState: null,
   });
@@ -285,6 +288,18 @@ describe("buildOpenCodeServerProcessEnv", () => {
     });
 
     expect(env.OPENCODE_CONFIG_CONTENT).toBe('{"provider":{"openai":{}}}');
+  });
+
+  it("keeps the Moss credential an instance selects while stripping inherited Moss keys", () => {
+    const env = buildIsolatedOpenCodeServerProcessEnv({
+      baseEnv: { PATH: "/usr/bin", MOSS_AUTH_TOKEN: "server-secret" },
+      environment: { MOSS_ACCESS_TOKEN: "gateway-bearer" },
+      instanceId: "opencode_moss",
+      isolationRootDir: mkdtempSync(join(tmpdir(), "moss-opencode-env-")),
+    });
+
+    expect(env.MOSS_ACCESS_TOKEN).toBe("gateway-bearer");
+    expect(env.MOSS_AUTH_TOKEN).toBeUndefined();
   });
 
   it("strips inherited Moss authority from managed server processes", () => {
@@ -416,8 +431,9 @@ describe("OpenCodeRuntime startup diagnostics", () => {
       );
 
       expect(commands.map((command) => command.args)).toEqual([
-        ["models", "--verbose"],
-        supportsStandalone ? ["models", "--standalone"] : ["models"],
+        prepareProcess("opencode", ["models", "--verbose"]).args,
+        prepareProcess("opencode", supportsStandalone ? ["models", "--standalone"] : ["models"])
+          .args,
       ]);
       expect(commands[0]!.options.env?.HOME).toBe(commands[1]!.options.env?.HOME);
       expect(commands[1]!.options.env?.HOME).toContain("provider-homes");

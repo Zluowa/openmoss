@@ -24,7 +24,7 @@ import type {
   PullRequestStack,
   PullRequestStackSummary,
   PullRequestState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { ProcessRunResult } from "../../processRunner";
 import type { GitHubCliError } from "../Errors.ts";

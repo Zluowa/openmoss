@@ -1,4 +1,4 @@
-import { parseCuaActionDiagnostics } from "@synara/shared/cuaActionDiagnostics";
+import { parseCuaActionDiagnostics } from "@moss/shared/cuaActionDiagnostics";
 import { ComputerProgressGuard, type ComputerProgressAction } from "./computerProgressGuard.ts";
 import { boundComputerPastePayload, readComputerPastePayload } from "./computerPasteInput.ts";
 import { beginComputerTurnCall } from "../computer/computerTurnTiming.ts";
@@ -38,7 +38,7 @@ import {
   type ComputerScreenshot,
   type ComputerTarget,
   type ComputerWindow,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   actionableElements,

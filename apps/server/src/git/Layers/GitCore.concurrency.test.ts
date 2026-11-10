@@ -822,7 +822,7 @@ it.layer(TestLayer)("GitCore command admission", (it) => {
   );
 
   it.effect(
-    "suppresses Git terminal prompts for network commands through the existing process environment",
+    "runs every git command without prompts and lets only a started push or pull sign in",
     () =>
       Effect.gen(function* () {
         const inputs: Array<{
@@ -870,14 +870,35 @@ it.layer(TestLayer)("GitCore command admission", (it) => {
             args: ["-c", "credential.helper=", subcommand],
             env: { GIT_TERMINAL_PROMPT: "1", SYNARA_TEST_MARKER: "preserved" },
           });
-        expect(inputs[0]?.options?.env?.GIT_TERMINAL_PROMPT).toBe("0");
-        expect(inputs[0]?.options?.env?.SYNARA_TEST_MARKER).toBe("preserved");
-        expect(inputs[1]?.options?.env?.GIT_TERMINAL_PROMPT).toBe("0");
-        expect(inputs[2]?.options?.env?.GIT_TERMINAL_PROMPT).toBe("1");
-        for (const input of inputs.slice(3)) {
-          expect(input.options?.env?.GIT_TERMINAL_PROMPT).toBe("0");
-          expect(input.options?.env?.SYNARA_TEST_MARKER).toBe("preserved");
+        // A push the person started may show Git Credential Manager's sign-in window.
+        yield* core.execute({
+          ...command("user-push", null),
+          args: ["push", "origin", "HEAD:main"],
+          allowCredentialPrompt: true,
+        });
+        // The Environment card's background status.
+        yield* core.execute(command("status"));
+
+        const envOf = (index: number) => inputs[index]?.options?.env ?? {};
+        // No command can turn terminal prompts back on.
+        for (const index of inputs.keys()) expect(envOf(index).GIT_TERMINAL_PROMPT).toBe("0");
+        // Background and automatic work never reaches Credential Manager or an askpass helper.
+        for (const index of [0, 1, 2, 3, 4, 5, 7]) {
+          expect(envOf(index).GCM_INTERACTIVE).toBe("never");
+          expect(envOf(index).GIT_ASKPASS).toBe("");
+          expect(envOf(index).SSH_ASKPASS_REQUIRE).toBe("never");
         }
+        expect(envOf(6).GCM_INTERACTIVE).toBe(process.env.GCM_INTERACTIVE);
+        expect(envOf(6).GIT_ASKPASS).toBe(process.env.GIT_ASKPASS);
+        // Network commands give up on a stalled transfer; local ones are left alone.
+        for (const index of [0, 1, 3, 4, 5, 6]) {
+          expect(envOf(index).GIT_HTTP_LOW_SPEED_LIMIT).toBe("1000");
+          expect(envOf(index).GIT_HTTP_LOW_SPEED_TIME).toBe("60");
+        }
+        expect(envOf(2).GIT_HTTP_LOW_SPEED_LIMIT).toBe(process.env.GIT_HTTP_LOW_SPEED_LIMIT);
+        expect(envOf(7).GIT_HTTP_LOW_SPEED_LIMIT).toBe(process.env.GIT_HTTP_LOW_SPEED_LIMIT);
+        expect(envOf(0).SYNARA_TEST_MARKER).toBe("preserved");
+        for (const index of [3, 4, 5]) expect(envOf(index).SYNARA_TEST_MARKER).toBe("preserved");
       }),
   );
 });

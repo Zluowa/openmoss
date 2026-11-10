@@ -8,7 +8,7 @@ import {
   type ProviderSkillDescriptor,
   type ProviderStartOptions,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";

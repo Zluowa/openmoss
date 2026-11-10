@@ -1,4 +1,4 @@
-import type { DesktopUpdateState } from "@synara/contracts";
+import type { DesktopUpdateState } from "@moss/contracts";
 import { createCentralIconComponent } from "~/lib/central-icons";
 import { UpdateDownloadIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";

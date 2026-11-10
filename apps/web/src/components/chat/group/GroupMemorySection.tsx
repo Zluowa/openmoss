@@ -2,7 +2,7 @@ import {
   MEMORY_AUTO_DOCUMENT_PATH,
   MEMORY_DOCUMENT_PREFIX,
   MEMORY_THREAD_DOCUMENT_PREFIX,
-} from "@synara/shared/projectAgent";
+} from "@moss/shared/projectAgent";
 import { useEffect, useState } from "react";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
@@ -111,6 +111,7 @@ export function GroupMemorySection(props: {
   readonly onChange: (patch: Partial<GroupSettingsDraft>) => void;
 }) {
   const { draft, onChange } = props;
+  const personal = props.agent.overview?.config?.agentKind === "mossbot";
   const instructionsSource = props.instructionsSource;
   const autosave = props.instructionsAutosave;
   const [viewingPath, setViewingPath] = useState<string | null>(null);
@@ -149,7 +150,7 @@ export function GroupMemorySection(props: {
 
   return (
     <div className="space-y-6">
-      <SettingsSectionShell title="Hub instructions">
+      <SettingsSectionShell title={personal ? "Personality & instructions" : "Hub instructions"}>
         <div className="space-y-1">
           <CharacterCountTextarea
             value={autosave.value}
@@ -157,9 +158,17 @@ export function GroupMemorySection(props: {
             onFocus={autosave.onFocus}
             onBlur={autosave.onBlur}
             maxChars={GROUP_INSTRUCTIONS_MAX_CHARS}
-            helper="Like a CLAUDE.md: instructions and rules you write that every new thread reads and follows."
-            placeholder="Instructions every thread in this hub follows."
-            aria-label="Hub instructions"
+            helper={
+              personal
+                ? "The preferences and instructions your assistant follows in every conversation."
+                : "Like a CLAUDE.md: instructions and rules you write that every new thread reads and follows."
+            }
+            placeholder={
+              personal
+                ? "How should your assistant help you?"
+                : "Instructions every thread in this hub follows."
+            }
+            aria-label={personal ? "Personality & instructions" : "Hub instructions"}
           />
           {instructionsSource.serverBacked ? (
             <p className="text-ui-sm text-muted-foreground">Applies immediately.</p>
@@ -176,7 +185,11 @@ export function GroupMemorySection(props: {
         <SettingsCard>
           <SettingsRow
             title="Write memory notes"
-            description="Notes the coordinator writes itself as it works in this hub."
+            description={
+              personal
+                ? "Notes your assistant saves as it works."
+                : "Notes the coordinator writes itself as it works in this hub."
+            }
             control={
               <Switch
                 checked={draft.autoMemoryEnabled}
@@ -187,7 +200,11 @@ export function GroupMemorySection(props: {
           />
           <SettingsListRow
             title="MEMORY.md"
-            description="The coordinator's running memory for this hub."
+            description={
+              personal
+                ? "Your assistant’s ongoing memory."
+                : "The coordinator's running memory for this hub."
+            }
             actions={
               <Button
                 size="xs"

@@ -3,9 +3,10 @@
 // Layer: Chat status presentation
 // Exports: resolveThreadErrorPresentation, ThreadErrorPresentation
 
-import { isProviderDeliveryBlockDetail } from "@synara/shared/providerDeliveryBlock";
+import { isProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 
 import type { MossLocaleCode } from "~/appSettings";
+import { HERMES_COMPATIBILITY_STATUS } from "~/localization/zhCNProviderStatus";
 import { localizeAntigravityRuntimeMessage } from "~/lib/antigravityRuntimeMessages";
 import {
   localizeProviderRuntimeMessage,
@@ -21,6 +22,11 @@ export interface ThreadErrorPresentation {
   readonly surface?: "toast" | "history";
   /** The request never reached the provider, so sending it again is safe. */
   readonly retryable?: boolean;
+  /**
+   * Continuing on the same model fails the same way; another model is the next
+   * step, so the card offers it first.
+   */
+  readonly changeModelFirst?: boolean;
 }
 
 const RAW_RATE_LIMIT_PATTERN = /(?:\b429\b|too many requests|exceeded retry limit)/iu;
@@ -40,6 +46,61 @@ const WORKING_DIRECTORY_NOT_FOUND_PATTERN =
   /(?:Working directory not found: |Project working directory (?:no longer exists|is not a directory): )([^\r\n]{1,1024})$/mu;
 const CODEX_WORKING_DIRECTORY_RELOCATE_SUFFIX = /\.\s+Relocate or reconnect the project in Moss\.$/;
 const MAX_SAFE_ACTIONABLE_ERROR_LENGTH = 240;
+// A gateway older than #319 refuses a byte-identical paid request for 15 minutes, with a status
+// object instead of an error. OpenCode shows that object, Pi and Hermes only its status code.
+const MOSS_GATEWAY_REPEAT_REFUSED_PATTERN =
+  /\bmoss\.operation_status\b|\b409 status code \(no body\)|\bmodel request failed \(HTTP 409\)/iu;
+// A current gateway refuses only while the first request runs, and says so in the same object.
+const MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING =
+  "An identical request is still running. Retry when it finishes.";
+// A stream that dropped partway, in Codex's and MiniMax's own transport words.
+const STREAM_DROPPED_PATTERN =
+  /\bstream disconnected before completion\b|\bupstream error: terminated\b/iu;
+const STREAM_DROPPED_MESSAGE = "The connection to the model service dropped. Try again.";
+// Codex refuses a Moss-owned account that arrives without the runtime Moss issues
+// at sign-in, or whose runtime a Moss sign-out has since revoked. These are
+// internal invariant sentences; signing in to Moss again issues a fresh runtime.
+const MOSS_MANAGED_RUNTIME_MISSING_PATTERN =
+  /\bReserved Codex account '[^'\r\n]*' requires a server-issued runtime generation\b|\bCodex account runtime generation was revoked\b/u;
+const MOSS_MANAGED_RUNTIME_MISSING_MESSAGE =
+  "Moss's models aren't ready for this chat. Sign in to Moss again, or switch to another provider, then retry.";
+// Sentences Moss itself wrote that already say what happened and what to do. Each CLI wraps
+// the gateway's differently: Codex in "unexpected status 502 ...: <sentence>, url: ...", Pi in
+// "502: {json}", OpenCode bare. Agent startup failures arrive behind adapter and stack text.
+const KNOWN_FAILURE_SENTENCES = [
+  ...Object.keys(HERMES_COMPATIBILITY_STATUS),
+  "The ZCode CLI could not be started. Install the ZCode desktop app (it bundles the CLI) or set ZCODE_BIN to the zcode CLI path, then retry.",
+  "Kimi Code needs Git Bash on Windows, and Moss could not find it. Install Git for Windows, or set KIMI_SHELL_PATH to a bash.exe, then retry.",
+  "Kimi Code is not signed in. Run `kimi login` in a terminal (with the same KIMI_CODE_HOME, if set) and retry.",
+  "MiniMax Code is not signed in. Run `mcode login` in a terminal (add --region cn or --region global if needed) and retry.",
+  "No ZCode credentials found. Sign in to the ZCode desktop app, or run `zcode-acp setup --provider bigmodel` (or `--provider zai`) to save a GLM Coding Plan key, then retry.",
+  "The model service is temporarily unavailable.",
+  "The model service timed out.",
+  "The model service returned an empty response; the request was not replayed.",
+  "The model service credential is temporarily unavailable.",
+  "The upstream model service rejected the request.",
+  "The upstream provider rejected this request under its access policy.",
+  "The upstream provider rejected this request.",
+  "The selected model is not available from this region or provider account.",
+  "This model is not available for this Moss sign-in method.",
+  "The model cannot represent these tool definitions or tool choices.",
+  "The model response could not be safely accounted for.",
+  "Account quota verification is temporarily unavailable.",
+  "Account verification is temporarily unavailable.",
+  "The Moss account session is invalid or expired.",
+  "A valid Moss account session is required.",
+  "This request id is already in use.",
+  MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING,
+] as const;
+// PiAdapter's sentence for a model whose provider this Pi account has no sign-in for.
+const PI_MODEL_SIGN_IN_MISSING_PATTERN =
+  /This Pi account has no sign-in for ([^\r\n]{1,120}?)\. Switch to Moss or another model to continue\./u;
+// Failures tied to the model itself: the same request on the same model fails again.
+const MODEL_BOUND_FAILURE_SENTENCES: ReadonlySet<string> = new Set([
+  "The model cannot represent these tool definitions or tool choices.",
+  "The selected model is not available from this region or provider account.",
+  "This model is not available for this Moss sign-in method.",
+]);
 const PROVIDER_ADAPTER_REQUEST_FAILED_PREFIX =
   /^Provider adapter request failed \([^)]+\) for [^:]+:\s*/u;
 const TASK_INTERRUPTED_PROVIDER_ERROR_PREFIX =
@@ -66,6 +127,17 @@ function genericProviderError(locale: MossLocaleCode): string {
   return locale === "zh-CN"
     ? "服务商暂时无法完成此请求，请稍后重试。"
     : "The provider could not complete this request. Try again shortly.";
+}
+
+/** True when the failure card replaces this raw text with Moss's own explanation. */
+export function isExplainedProviderFailure(error: string): boolean {
+  return (
+    MOSS_GATEWAY_REPEAT_REFUSED_PATTERN.test(error) ||
+    STREAM_DROPPED_PATTERN.test(error) ||
+    MOSS_MANAGED_RUNTIME_MISSING_PATTERN.test(error) ||
+    PI_MODEL_SIGN_IN_MISSING_PATTERN.test(error) ||
+    KNOWN_FAILURE_SENTENCES.some((sentence) => error.includes(sentence))
+  );
 }
 
 export function isProviderSignInExpiredError(error: string): boolean {
@@ -138,6 +210,12 @@ function deliveryBlockError(locale: MossLocaleCode): string {
     : "Moss couldn't confirm the last message reached the provider, so this chat is paused to avoid running it twice. Choose Unblock thread to continue.";
 }
 
+function repeatRequestRefusedError(locale: MossLocaleCode): string {
+  return locale === "zh-CN"
+    ? "刚刚已经发送过完全相同的请求，Moss 不会重复发送，以免重复计费。请改一下消息内容，或等大约 15 分钟后再试。"
+    : "An identical request went out moments ago, and Moss won't send it twice because that would charge you twice. Change the message, or wait about 15 minutes, then try again.";
+}
+
 function providerStartTimeoutError(locale: MossLocaleCode): string {
   return locale === "zh-CN"
     ? "服务商启动超时，对话没能开始。请重试；如果一直这样，可以在服务商设置里检查，或换一个服务商。"
@@ -182,9 +260,12 @@ export function resolveThreadErrorPresentation(
 ): ThreadErrorPresentation {
   const raw = error.trim();
   const missingWorkingDirectory = workingDirectoryNotFoundError(raw, locale);
+  const knownFailureSentence = KNOWN_FAILURE_SENTENCES.find((sentence) => raw.includes(sentence));
   let safeText: string;
   let recoveryAction: ThreadErrorPresentation["recoveryAction"];
   let retryable = false;
+  let changeModelFirst = false;
+  const piModelSignInMissing = PI_MODEL_SIGN_IN_MISSING_PATTERN.exec(raw);
 
   if (missingWorkingDirectory) {
     safeText = missingWorkingDirectory;
@@ -194,6 +275,14 @@ export function resolveThreadErrorPresentation(
     safeText = providerStartTimeoutError(locale);
     recoveryAction = "manage-providers";
     retryable = true;
+  } else if (raw.includes(MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING)) {
+    safeText = localizeProviderRuntimeMessage(MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING, locale);
+  } else if (MOSS_GATEWAY_REPEAT_REFUSED_PATTERN.test(raw)) {
+    safeText = repeatRequestRefusedError(locale);
+  } else if (STREAM_DROPPED_PATTERN.test(raw)) {
+    safeText = localizeProviderRuntimeMessage(STREAM_DROPPED_MESSAGE, locale);
+  } else if (MOSS_MANAGED_RUNTIME_MISSING_PATTERN.test(raw)) {
+    safeText = localizeProviderRuntimeMessage(MOSS_MANAGED_RUNTIME_MISSING_MESSAGE, locale);
   } else if (normalizeProviderRuntimeMessage(raw) === PERSONAL_CODEX_USAGE_LIMIT_MESSAGE) {
     // Codex app-server includes an account URL and an English reset timestamp in
     // this verdict. Recognize the stable product phrase before diagnostic
@@ -217,6 +306,14 @@ export function resolveThreadErrorPresentation(
   } else if (PROVIDER_SIGN_IN_EXPIRED_PATTERN.test(raw)) {
     safeText = providerSignInExpiredError(locale);
     recoveryAction = "manage-providers";
+  } else if (knownFailureSentence) {
+    safeText =
+      (locale === "zh-CN" ? HERMES_COMPATIBILITY_STATUS[knownFailureSentence] : undefined) ??
+      localizeProviderRuntimeMessage(knownFailureSentence, locale);
+    changeModelFirst = MODEL_BOUND_FAILURE_SENTENCES.has(knownFailureSentence);
+  } else if (piModelSignInMissing) {
+    safeText = localizeProviderRuntimeMessage(piModelSignInMissing[0], locale);
+    changeModelFirst = true;
   } else if (context === "provider-start-failure") {
     // A historical provider-start failure is a persisted transport record, not
     // author-written copy. Even a short unknown value may contain an adapter or
@@ -258,5 +355,6 @@ export function resolveThreadErrorPresentation(
     copyText: safeText,
     ...(recoveryAction ? { recoveryAction, surface: "history" as const } : {}),
     ...(retryable ? { retryable } : {}),
+    ...(changeModelFirst ? { changeModelFirst } : {}),
   };
 }

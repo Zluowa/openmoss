@@ -4,7 +4,7 @@
 // Layer: Tasks UI component
 // Exports: TaskRowTitle, useTaskRename
 
-import type { Todo, TodoUpdateInput } from "@synara/contracts";
+import type { Todo, TodoUpdateInput } from "@moss/contracts";
 import { type KeyboardEvent, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -84,7 +84,7 @@ export function TaskRowTitle({
         isDone ? "text-muted-foreground" : "text-foreground",
       )}
     >
-      {title}
+      <span data-translation-skip="true">{title}</span>
     </button>
   );
 }

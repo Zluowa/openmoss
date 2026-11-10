@@ -25,6 +25,7 @@ import { Route as ChatSkillsRouteImport } from './routes/_chat.skills'
 import { Route as ChatSettingsRouteImport } from './routes/_chat.settings'
 import { Route as ChatPullRequestsRouteImport } from './routes/_chat.pull-requests'
 import { Route as ChatPluginsRouteImport } from './routes/_chat.plugins'
+import { Route as ChatMossbotRouteImport } from './routes/_chat.mossbot'
 import { Route as ChatInboxRouteImport } from './routes/_chat.inbox'
 import { Route as ChatAutomationsRouteImport } from './routes/_chat.automations'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
@@ -36,10 +37,12 @@ import { Route as ChatKanbanIndexRouteImport } from './routes/_chat.kanban.index
 import { Route as ChatHubsIndexRouteImport } from './routes/_chat.hubs.index'
 import { Route as ChatGroupsIndexRouteImport } from './routes/_chat.groups.index'
 import { Route as ChatAutomationsIndexRouteImport } from './routes/_chat.automations.index'
+import { Route as ChatAppsIndexRouteImport } from './routes/_chat.apps.index'
 import { Route as ChatSkillsManageRouteImport } from './routes/_chat.skills.manage'
 import { Route as ChatSettingsPluginsSettingsRouteImport } from './routes/_chat.settings_.plugins-settings'
 import { Route as ChatKanbanProjectIdRouteImport } from './routes/_chat.kanban.$projectId'
 import { Route as ChatAutomationsAutomationIdRouteImport } from './routes/_chat.automations.$automationId'
+import { Route as ChatAppsAppIdRouteImport } from './routes/_chat.apps.$appId'
 import { Route as ChatSkillsManageIndexRouteImport } from './routes/_chat.skills.manage.index'
 import { Route as ChatSkillsPluginsPluginIdRouteImport } from './routes/_chat.skills.plugins.$pluginId'
 import { Route as ChatSkillsManagePluginsPluginIdRouteImport } from './routes/_chat.skills.manage.plugins.$pluginId'
@@ -123,6 +126,11 @@ const ChatPluginsRoute = ChatPluginsRouteImport.update({
   path: '/plugins',
   getParentRoute: () => ChatRoute,
 } as any)
+const ChatMossbotRoute = ChatMossbotRouteImport.update({
+  id: '/mossbot',
+  path: '/mossbot',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatInboxRoute = ChatInboxRouteImport.update({
   id: '/inbox',
   path: '/inbox',
@@ -178,6 +186,11 @@ const ChatAutomationsIndexRoute = ChatAutomationsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ChatAutomationsRoute,
 } as any)
+const ChatAppsIndexRoute = ChatAppsIndexRouteImport.update({
+  id: '/apps/',
+  path: '/apps/',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatSkillsManageRoute = ChatSkillsManageRouteImport.update({
   id: '/manage',
   path: '/manage',
@@ -200,6 +213,11 @@ const ChatAutomationsAutomationIdRoute =
     path: '/$automationId',
     getParentRoute: () => ChatAutomationsRoute,
   } as any)
+const ChatAppsAppIdRoute = ChatAppsAppIdRouteImport.update({
+  id: '/apps/$appId',
+  path: '/apps/$appId',
+  getParentRoute: () => ChatRoute,
+} as any)
 const ChatSkillsManageIndexRoute = ChatSkillsManageIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -230,6 +248,7 @@ export interface FileRoutesByFullPath {
   '/$threadId': typeof ChatThreadIdRoute
   '/automations': typeof ChatAutomationsRouteWithChildren
   '/inbox': typeof ChatInboxRoute
+  '/mossbot': typeof ChatMossbotRoute
   '/plugins': typeof ChatPluginsRoute
   '/pull-requests': typeof ChatPullRequestsRouteWithChildren
   '/settings': typeof ChatSettingsRoute
@@ -237,10 +256,12 @@ export interface FileRoutesByFullPath {
   '/auth/callback': typeof AuthCallbackRoute
   '/login/api-key': typeof LoginApiKeyRoute
   '/login/email': typeof LoginEmailRoute
+  '/apps/$appId': typeof ChatAppsAppIdRoute
   '/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
   '/kanban/$projectId': typeof ChatKanbanProjectIdRoute
   '/settings/plugins-settings': typeof ChatSettingsPluginsSettingsRoute
   '/skills/manage': typeof ChatSkillsManageRouteWithChildren
+  '/apps/': typeof ChatAppsIndexRoute
   '/automations/': typeof ChatAutomationsIndexRoute
   '/groups/': typeof ChatGroupsIndexRoute
   '/hubs/': typeof ChatHubsIndexRoute
@@ -263,15 +284,18 @@ export interface FileRoutesByTo {
   '/verify-email': typeof VerifyEmailRoute
   '/$threadId': typeof ChatThreadIdRoute
   '/inbox': typeof ChatInboxRoute
+  '/mossbot': typeof ChatMossbotRoute
   '/plugins': typeof ChatPluginsRoute
   '/settings': typeof ChatSettingsRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/login/api-key': typeof LoginApiKeyRoute
   '/login/email': typeof LoginEmailRoute
   '/': typeof ChatIndexRoute
+  '/apps/$appId': typeof ChatAppsAppIdRoute
   '/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
   '/kanban/$projectId': typeof ChatKanbanProjectIdRoute
   '/settings/plugins-settings': typeof ChatSettingsPluginsSettingsRoute
+  '/apps': typeof ChatAppsIndexRoute
   '/automations': typeof ChatAutomationsIndexRoute
   '/groups': typeof ChatGroupsIndexRoute
   '/hubs': typeof ChatHubsIndexRoute
@@ -297,6 +321,7 @@ export interface FileRoutesById {
   '/_chat/$threadId': typeof ChatThreadIdRoute
   '/_chat/automations': typeof ChatAutomationsRouteWithChildren
   '/_chat/inbox': typeof ChatInboxRoute
+  '/_chat/mossbot': typeof ChatMossbotRoute
   '/_chat/plugins': typeof ChatPluginsRoute
   '/_chat/pull-requests': typeof ChatPullRequestsRouteWithChildren
   '/_chat/settings': typeof ChatSettingsRoute
@@ -305,10 +330,12 @@ export interface FileRoutesById {
   '/login_/api-key': typeof LoginApiKeyRoute
   '/login_/email': typeof LoginEmailRoute
   '/_chat/': typeof ChatIndexRoute
+  '/_chat/apps/$appId': typeof ChatAppsAppIdRoute
   '/_chat/automations/$automationId': typeof ChatAutomationsAutomationIdRoute
   '/_chat/kanban/$projectId': typeof ChatKanbanProjectIdRoute
   '/_chat/settings_/plugins-settings': typeof ChatSettingsPluginsSettingsRoute
   '/_chat/skills/manage': typeof ChatSkillsManageRouteWithChildren
+  '/_chat/apps/': typeof ChatAppsIndexRoute
   '/_chat/automations/': typeof ChatAutomationsIndexRoute
   '/_chat/groups/': typeof ChatGroupsIndexRoute
   '/_chat/hubs/': typeof ChatHubsIndexRoute
@@ -335,6 +362,7 @@ export interface FileRouteTypes {
     | '/$threadId'
     | '/automations'
     | '/inbox'
+    | '/mossbot'
     | '/plugins'
     | '/pull-requests'
     | '/settings'
@@ -342,10 +370,12 @@ export interface FileRouteTypes {
     | '/auth/callback'
     | '/login/api-key'
     | '/login/email'
+    | '/apps/$appId'
     | '/automations/$automationId'
     | '/kanban/$projectId'
     | '/settings/plugins-settings'
     | '/skills/manage'
+    | '/apps/'
     | '/automations/'
     | '/groups/'
     | '/hubs/'
@@ -368,15 +398,18 @@ export interface FileRouteTypes {
     | '/verify-email'
     | '/$threadId'
     | '/inbox'
+    | '/mossbot'
     | '/plugins'
     | '/settings'
     | '/auth/callback'
     | '/login/api-key'
     | '/login/email'
     | '/'
+    | '/apps/$appId'
     | '/automations/$automationId'
     | '/kanban/$projectId'
     | '/settings/plugins-settings'
+    | '/apps'
     | '/automations'
     | '/groups'
     | '/hubs'
@@ -401,6 +434,7 @@ export interface FileRouteTypes {
     | '/_chat/$threadId'
     | '/_chat/automations'
     | '/_chat/inbox'
+    | '/_chat/mossbot'
     | '/_chat/plugins'
     | '/_chat/pull-requests'
     | '/_chat/settings'
@@ -409,10 +443,12 @@ export interface FileRouteTypes {
     | '/login_/api-key'
     | '/login_/email'
     | '/_chat/'
+    | '/_chat/apps/$appId'
     | '/_chat/automations/$automationId'
     | '/_chat/kanban/$projectId'
     | '/_chat/settings_/plugins-settings'
     | '/_chat/skills/manage'
+    | '/_chat/apps/'
     | '/_chat/automations/'
     | '/_chat/groups/'
     | '/_chat/hubs/'
@@ -554,6 +590,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatPluginsRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/_chat/mossbot': {
+      id: '/_chat/mossbot'
+      path: '/mossbot'
+      fullPath: '/mossbot'
+      preLoaderRoute: typeof ChatMossbotRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/inbox': {
       id: '/_chat/inbox'
       path: '/inbox'
@@ -631,6 +674,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatAutomationsIndexRouteImport
       parentRoute: typeof ChatAutomationsRoute
     }
+    '/_chat/apps/': {
+      id: '/_chat/apps/'
+      path: '/apps'
+      fullPath: '/apps/'
+      preLoaderRoute: typeof ChatAppsIndexRouteImport
+      parentRoute: typeof ChatRoute
+    }
     '/_chat/skills/manage': {
       id: '/_chat/skills/manage'
       path: '/manage'
@@ -658,6 +708,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/automations/$automationId'
       preLoaderRoute: typeof ChatAutomationsAutomationIdRouteImport
       parentRoute: typeof ChatAutomationsRoute
+    }
+    '/_chat/apps/$appId': {
+      id: '/_chat/apps/$appId'
+      path: '/apps/$appId'
+      fullPath: '/apps/$appId'
+      preLoaderRoute: typeof ChatAppsAppIdRouteImport
+      parentRoute: typeof ChatRoute
     }
     '/_chat/skills/manage/': {
       id: '/_chat/skills/manage/'
@@ -741,13 +798,16 @@ interface ChatRouteChildren {
   ChatThreadIdRoute: typeof ChatThreadIdRoute
   ChatAutomationsRoute: typeof ChatAutomationsRouteWithChildren
   ChatInboxRoute: typeof ChatInboxRoute
+  ChatMossbotRoute: typeof ChatMossbotRoute
   ChatPluginsRoute: typeof ChatPluginsRoute
   ChatPullRequestsRoute: typeof ChatPullRequestsRouteWithChildren
   ChatSettingsRoute: typeof ChatSettingsRoute
   ChatSkillsRoute: typeof ChatSkillsRouteWithChildren
   ChatIndexRoute: typeof ChatIndexRoute
+  ChatAppsAppIdRoute: typeof ChatAppsAppIdRoute
   ChatKanbanProjectIdRoute: typeof ChatKanbanProjectIdRoute
   ChatSettingsPluginsSettingsRoute: typeof ChatSettingsPluginsSettingsRoute
+  ChatAppsIndexRoute: typeof ChatAppsIndexRoute
   ChatGroupsIndexRoute: typeof ChatGroupsIndexRoute
   ChatHubsIndexRoute: typeof ChatHubsIndexRoute
   ChatKanbanIndexRoute: typeof ChatKanbanIndexRoute
@@ -759,13 +819,16 @@ const ChatRouteChildren: ChatRouteChildren = {
   ChatThreadIdRoute: ChatThreadIdRoute,
   ChatAutomationsRoute: ChatAutomationsRouteWithChildren,
   ChatInboxRoute: ChatInboxRoute,
+  ChatMossbotRoute: ChatMossbotRoute,
   ChatPluginsRoute: ChatPluginsRoute,
   ChatPullRequestsRoute: ChatPullRequestsRouteWithChildren,
   ChatSettingsRoute: ChatSettingsRoute,
   ChatSkillsRoute: ChatSkillsRouteWithChildren,
   ChatIndexRoute: ChatIndexRoute,
+  ChatAppsAppIdRoute: ChatAppsAppIdRoute,
   ChatKanbanProjectIdRoute: ChatKanbanProjectIdRoute,
   ChatSettingsPluginsSettingsRoute: ChatSettingsPluginsSettingsRoute,
+  ChatAppsIndexRoute: ChatAppsIndexRoute,
   ChatGroupsIndexRoute: ChatGroupsIndexRoute,
   ChatHubsIndexRoute: ChatHubsIndexRoute,
   ChatKanbanIndexRoute: ChatKanbanIndexRoute,

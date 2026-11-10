@@ -211,9 +211,9 @@ function MenuCheckboxItem({
       {variant === "checkbox" ? (
         <>
           {/* Sized and inset like a MenuItem's leading icon so labels stay aligned. */}
-          <span aria-hidden className={cn(CHECKBOX_BOX_CLASS_NAME, "-mx-0.5 size-3.5 sm:size-3.5")}>
+          <span aria-hidden className={cn(CHECKBOX_BOX_CLASS_NAME, "-mx-0.5")}>
             <MenuPrimitive.CheckboxItemIndicator className={CHECKBOX_INDICATOR_CLASS_NAME}>
-              <CheckboxCheckGlyph className="size-2.5 sm:size-2.5" />
+              <CheckboxCheckGlyph />
             </MenuPrimitive.CheckboxItemIndicator>
           </span>
           <span className="flex min-w-0 flex-1 items-center gap-2">{children}</span>
@@ -224,7 +224,7 @@ function MenuCheckboxItem({
           <MenuPrimitive.CheckboxItemIndicator
             className={cn(
               SWITCH_TRACK_CLASS_NAME,
-              "inset-shadow-[0_1px_--theme(--color-black/4%)] [--thumb-size:--spacing(4)] focus-visible:ring-1 sm:[--thumb-size:--spacing(3)]",
+              "inset-shadow-[0_1px_--theme(--color-black/4%)] focus-visible:ring-1",
             )}
             keepMounted
           >

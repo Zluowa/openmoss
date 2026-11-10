@@ -1,4 +1,4 @@
-import { SPACE_NAME_MAX_LENGTH } from "@synara/contracts";
+import { SPACE_NAME_MAX_LENGTH } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_VOID_SPACE } from "~/lib/spaceGrouping";

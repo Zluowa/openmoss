@@ -5,7 +5,7 @@ import type {
   OrchestrationThreadHistoryCursor,
   OrchestrationThreadMessageWindow,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export interface ThreadHistoryMessageIdentity {
   messageId: MessageId;

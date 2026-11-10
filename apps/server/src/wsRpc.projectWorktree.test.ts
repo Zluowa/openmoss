@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { OrchestrationProject } from "@synara/contracts";
+import { OrchestrationProject } from "@moss/contracts";
 import { Cause, Effect, Exit, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { makeProjectWorktreeGuard } from "./wsRpc";

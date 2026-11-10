@@ -29,7 +29,7 @@ import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 
 import { parseFrontmatterScalars, readStringField } from "./frontmatter";
 import { getMossSourceLayout, toMossProjectPath } from "./mossSourceLayout";

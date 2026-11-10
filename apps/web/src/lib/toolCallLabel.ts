@@ -2,15 +2,15 @@
 // Purpose: Normalizes generic tool-call titles and humanizes command executions for timeline rows.
 // Layer: UI utility
 // Exports: deriveReadableToolTitle, deriveReadableCommandDisplay, deriveFriendlyCommandTarget, command icon classifiers, deriveInlineCommandCall, deriveLiteralCommand, deriveCommandReadTargets, normalizeCompactToolLabel, isGenericToolTitle, extractWebFetchUrl
-// Depends on: @synara/contracts tool lifecycle item types
+// Depends on: @moss/contracts tool lifecycle item types
 
-import type { ToolLifecycleItemType } from "@synara/contracts";
-import { BROWSER_TOOL_TITLES } from "@synara/shared/browserAutomationPresentation";
+import type { ToolLifecycleItemType } from "@moss/contracts";
+import { BROWSER_TOOL_TITLES } from "@moss/shared/browserAutomationPresentation";
 import {
   isMossAppsServer,
   MOSS_APPS_DISPLAY_NAME,
   mossAppsToolAction,
-} from "@synara/shared/mossAppsPresentation";
+} from "@moss/shared/mossAppsPresentation";
 import {
   COMPUTER_TOOL_TITLES,
   computerToolName,
@@ -101,6 +101,12 @@ const ZH_CN_TOOL_HEADINGS: Readonly<Record<string, string>> = {
   "Previewing an HTML page": "正在预览 HTML 页面",
   "Previewed an HTML page": "已预览 HTML 页面",
   "Couldn't preview an HTML page": "无法预览 HTML 页面",
+  "Reading the visual guide": "正在阅读可视化指南",
+  "Read the visual guide": "已阅读可视化指南",
+  "Couldn't read the visual guide": "无法阅读可视化指南",
+  "Finding place photos": "正在查找地点照片",
+  "Found place photos": "已找到地点照片",
+  "Couldn't find place photos": "无法查找地点照片",
   "Search tools:": "搜索工具：",
   ...Object.fromEntries(
     Object.entries(ZH_CN_MOSS_APPS_ACTIONS).map(([action, translated]) => [
@@ -111,7 +117,9 @@ const ZH_CN_TOOL_HEADINGS: Readonly<Record<string, string>> = {
 };
 
 export function localizeToolHeading(value: string, locale: MossLocaleCode): string {
-  return locale === "zh-CN" ? (ZH_CN_TOOL_HEADINGS[value] ?? value) : value;
+  return locale === "zh-CN"
+    ? (ZH_CN_TOOL_HEADINGS[value] ?? localizeMossToolHeading(value) ?? value)
+    : value;
 }
 
 /** What a Moss Apps tool does ("Run app actions"), in the UI language. */
@@ -396,6 +404,14 @@ const MOSS_COMPUTER_TOOL_PRESENTATIONS = {
   ),
 } as const satisfies Record<`moss_${ComputerToolName}`, MossMcpToolPresentation>;
 
+function presentMossTool(present: string, past: string): MossMcpToolPresentation {
+  return {
+    running: `Moss is ${present}`,
+    completed: `Moss ${past}`,
+    failed: `Moss couldn't finish ${present}`,
+  };
+}
+
 function presentComputerTool(present: string, past: string): MossMcpToolPresentation {
   return {
     running: `Moss is ${present}`,
@@ -585,6 +601,31 @@ const MOSS_MCP_TOOL_PRESENTATIONS = {
     completed: "Moss stopped an automation",
     failed: "Moss couldn't stop an automation",
   },
+  moss_update_kanban_card: presentMossTool("updating a board card", "updated a board card"),
+  moss_delete_kanban_card: presentMossTool("deleting a board card", "deleted a board card"),
+  moss_create_kanban_draft: presentMossTool("drafting board tasks", "drafted board tasks"),
+  moss_set_kanban_goal: presentMossTool("setting the board goal", "set the board goal"),
+  moss_set_thread_goal: presentMossTool("setting a thread goal", "set a thread goal"),
+  moss_set_thread_pull_request: presentMossTool("linking a pull request", "linked a pull request"),
+  moss_show_visual: presentMossTool("showing a visual", "showed a visual"),
+  moss_e2e_review: presentMossTool(
+    "reading the end-to-end test guide",
+    "read the end-to-end test guide",
+  ),
+  moss_pages_spaces: presentMossTool("listing document spaces", "listed document spaces"),
+  moss_pages_list: presentMossTool("listing pages", "listed pages"),
+  moss_pages_read: presentMossTool("reading a page", "read a page"),
+  moss_pages_versions: presentMossTool("reading page versions", "read page versions"),
+  moss_pages_comments: presentMossTool("reading page comments", "read page comments"),
+  moss_pages_mutate: presentMossTool("updating a page", "updated a page"),
+  moss_canvas_open: presentMossTool("opening Canvas", "opened Canvas"),
+  moss_canvas_read: presentMossTool("reading Canvas", "read Canvas"),
+  moss_media_list: presentMossTool(
+    "checking image and video models",
+    "checked image and video models",
+  ),
+  moss_media_generate: presentMossTool("starting a generation", "started a generation"),
+  moss_media_get: presentMossTool("checking a generation", "checked a generation"),
   html_render: {
     running: "Rendering an HTML page",
     completed: "Rendered an HTML page",
@@ -595,9 +636,111 @@ const MOSS_MCP_TOOL_PRESENTATIONS = {
     completed: "Previewed an HTML page",
     failed: "Couldn't preview an HTML page",
   },
+  visual_guide: {
+    running: "Reading the visual guide",
+    completed: "Read the visual guide",
+    failed: "Couldn't read the visual guide",
+  },
+  place_photos: {
+    running: "Finding place photos",
+    completed: "Found place photos",
+    failed: "Couldn't find place photos",
+  },
   ...MOSS_BROWSER_TOOL_PRESENTATIONS,
   ...MOSS_COMPUTER_TOOL_PRESENTATIONS,
 } as const satisfies Record<string, MossMcpToolPresentation>;
+
+// What each Moss gateway action did, in Simplified Chinese: [running, completed, failed].
+// The Moss mark already sits beside the row, so the label starts with the action.
+const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
+  Partial<Record<keyof typeof MOSS_MCP_TOOL_PRESENTATIONS, readonly [string, string, string]>>
+> = {
+  moss_context: ["正在检查上下文", "已检查上下文", "无法检查上下文"],
+  moss_capabilities: ["正在查看可用智能体", "已查看可用智能体", "无法查看可用智能体"],
+  moss_overview: ["正在汇总概况", "已汇总概况", "无法汇总概况"],
+  moss_list_allowed_projects: ["正在列出可用项目", "已列出可用项目", "无法列出可用项目"],
+  moss_create_task: ["正在创建任务", "已创建任务", "无法创建任务"],
+  moss_wait_for_task: ["正在等待任务完成", "任务已完成", "无法等待任务"],
+  moss_read_task: ["正在读取任务", "已读取任务", "无法读取任务"],
+  moss_list_projects: ["正在列出项目", "已列出项目", "无法列出项目"],
+  moss_list_threads: ["正在列出对话", "已列出对话", "无法列出对话"],
+  moss_read_thread: ["正在读取对话", "已读取对话", "无法读取对话"],
+  moss_read_thread_activity: ["正在读取对话动态", "已读取对话动态", "无法读取对话动态"],
+  moss_read_thread_events: ["正在读取对话事件", "已读取对话事件", "无法读取对话事件"],
+  moss_read_thread_runtime_events: ["正在读取运行事件", "已读取运行事件", "无法读取运行事件"],
+  moss_diagnose_thread: ["正在诊断对话", "已诊断对话", "无法诊断对话"],
+  moss_create_thread: ["正在创建对话", "已创建对话", "无法创建对话"],
+  moss_create_threads: ["正在创建多个对话", "已创建多个对话", "无法创建对话"],
+  moss_wait_for_threads: ["正在等待对话完成", "对话已完成", "无法等待对话"],
+  moss_send_message: ["正在发送消息", "已发送消息", "无法发送消息"],
+  moss_read_kanban_board: ["正在读取看板", "已读取看板", "无法读取看板"],
+  moss_read_kanban_card: ["正在读取看板卡片", "已读取看板卡片", "无法读取看板卡片"],
+  moss_create_kanban_task: ["正在创建看板任务", "已创建看板任务", "无法创建看板任务"],
+  moss_move_kanban_card: ["正在移动看板卡片", "已移动看板卡片", "无法移动看板卡片"],
+  moss_update_kanban_card: ["正在更新看板卡片", "已更新看板卡片", "无法更新看板卡片"],
+  moss_delete_kanban_card: ["正在删除看板卡片", "已删除看板卡片", "无法删除看板卡片"],
+  moss_create_kanban_draft: ["正在起草看板任务", "已起草看板任务", "无法起草看板任务"],
+  moss_set_kanban_goal: ["正在设置看板目标", "已设置看板目标", "无法设置看板目标"],
+  moss_interrupt_thread: ["正在中断对话", "已中断对话", "无法中断对话"],
+  moss_set_thread_title: ["正在重命名对话", "已重命名对话", "无法重命名对话"],
+  moss_set_thread_archived: ["正在更新对话", "已更新对话", "无法更新对话"],
+  moss_set_thread_goal: ["正在设置对话目标", "已设置对话目标", "无法设置对话目标"],
+  moss_set_thread_pull_request: ["正在关联拉取请求", "已关联拉取请求", "无法关联拉取请求"],
+  moss_create_automation: ["正在创建自动化", "已创建自动化", "无法创建自动化"],
+  moss_list_automations: ["正在列出自动化", "已列出自动化", "无法列出自动化"],
+  moss_view_automation: ["正在查看自动化", "已查看自动化", "无法查看自动化"],
+  moss_update_automation: ["正在更新自动化", "已更新自动化", "无法更新自动化"],
+  moss_update_automation_memory: ["正在更新自动化记忆", "已更新自动化记忆", "无法更新自动化记忆"],
+  moss_report_automation_result: ["正在报告自动化结果", "已报告自动化结果", "无法报告自动化结果"],
+  moss_cancel_automation: ["正在停止自动化", "已停止自动化", "无法停止自动化"],
+  moss_create_todo: ["正在添加待办", "已添加待办", "无法添加待办"],
+  moss_list_todos: ["正在读取待办", "已读取待办", "无法读取待办"],
+  moss_update_todo: ["正在更新待办", "已更新待办", "无法更新待办"],
+  moss_request_secret: ["正在向你请求密钥", "已向你请求密钥", "无法请求密钥"],
+  moss_show_visual: ["正在生成图表", "已生成图表", "无法生成图表"],
+  moss_e2e_review: ["正在读取端到端测试指南", "已读取端到端测试指南", "无法读取端到端测试指南"],
+  moss_pages_spaces: ["正在列出资料空间", "已列出资料空间", "无法列出资料空间"],
+  moss_pages_list: ["正在列出页面", "已列出页面", "无法列出页面"],
+  moss_pages_read: ["正在读取页面", "已读取页面", "无法读取页面"],
+  moss_pages_versions: ["正在读取页面历史", "已读取页面历史", "无法读取页面历史"],
+  moss_pages_comments: ["正在读取页面评论", "已读取页面评论", "无法读取页面评论"],
+  moss_pages_mutate: ["正在更新页面", "已更新页面", "无法更新页面"],
+  moss_canvas_open: ["正在打开画布", "已打开画布", "无法打开画布"],
+  moss_canvas_read: ["正在查看画布", "已查看画布", "无法查看画布"],
+  moss_media_list: ["正在查看图像和视频模型", "已查看图像和视频模型", "无法查看图像和视频模型"],
+  moss_media_generate: ["正在提交生成", "已提交生成", "无法提交生成"],
+  moss_media_get: ["正在查询生成进度", "已查询生成进度", "无法查询生成进度"],
+};
+
+const ZH_CN_MOSS_TOOL_HEADINGS: Readonly<Record<string, string>> = Object.fromEntries(
+  Object.entries(ZH_CN_MOSS_TOOL_PRESENTATIONS).flatMap(([toolName, zh]) => {
+    const presentation = (MOSS_MCP_TOOL_PRESENTATIONS as Record<string, MossMcpToolPresentation>)[
+      toolName
+    ];
+    if (!presentation || !zh) return [];
+    const [running, completed, failed] = zh;
+    return [
+      [presentation.running, running],
+      [presentation.completed, completed],
+      [presentation.failed, failed],
+      // deriveMossMcpToolTitle's cancelled form: "Moss stopped <running action>".
+      [
+        `Moss stopped ${presentation.running.slice("Moss is ".length)}`,
+        `已停止${running.replace(/^正在/u, "")}`,
+      ],
+    ];
+  }),
+);
+
+/** zh-CN for a Moss action: a known one, or the generic "Moss handled …" fallback. */
+function localizeMossToolHeading(value: string): string | undefined {
+  const known = ZH_CN_MOSS_TOOL_HEADINGS[value];
+  if (known) return known;
+  if (/^Moss is handling .+$/u.test(value)) return "正在使用 Moss 工具";
+  if (/^Moss handled .+$/u.test(value)) return "已使用 Moss 工具";
+  if (/^Moss couldn't handle .+$/u.test(value)) return "Moss 工具未完成";
+  return undefined;
+}
 
 function normalizeMossMcpIdentifier(value: string): string {
   return value
@@ -641,6 +784,13 @@ function extractMossMcpToolName(normalizedCandidate: string): string | null {
   }
   if (htmlTool === "preview") {
     return "html_preview";
+  }
+  // The visual tools keep their bare names too.
+  const visualTool = /^(?:(?:mcp_)?moss_)?(visual_guide|place_photos)(?:_|$)/u.exec(
+    normalizedCandidate,
+  )?.[1];
+  if (visualTool !== undefined) {
+    return visualTool;
   }
   if (BROWSER_TOOL_NAME_SET.has(normalizedCandidate)) {
     return `moss_${normalizedCandidate}`;

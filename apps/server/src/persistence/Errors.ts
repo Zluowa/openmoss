@@ -1,3 +1,4 @@
+import { MIGRATION_LINEAGE_UNSUPPORTED_MESSAGE } from "@moss/shared/migrationRecovery";
 import { Schema, SchemaIssue } from "effect";
 
 // ===============================
@@ -119,7 +120,7 @@ export class MigrationLineageError extends Schema.TaggedErrorClass<MigrationLine
 ) {
   override get message(): string {
     return (
-      `Migration tracker does not match any known lineage: migration ${this.firstDivergedId} ` +
+      `${MIGRATION_LINEAGE_UNSUPPORTED_MESSAGE}: migration ${this.firstDivergedId} ` +
       `is recorded as "${this.recordedName}" but Moss expects "${this.expectedName}". ` +
       `Refusing to run migrations against an unrecognized database.`
     );

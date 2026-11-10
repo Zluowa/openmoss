@@ -1,4 +1,4 @@
-import { MessageId, TurnId } from "@synara/contracts";
+import { MessageId, TurnId } from "@moss/contracts";
 import { useRef, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";

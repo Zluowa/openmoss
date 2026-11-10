@@ -5,7 +5,41 @@
 // Runs first in the presentation chain, so a whole sentence never falls through to a
 // word-level rule such as `Show <label>`.
 
+import { lookupPhrase } from "./zhCNPhraseTable";
+
 const SETTINGS_COPY: Readonly<Record<string, string>> = {
+  Connections: "连接",
+  "Manage this computer, other devices, and SSH connections.": "管理此电脑、其他设备和 SSH 连接。",
+  // Error reports
+  Privacy: "隐私",
+  "Send error reports": "发送错误报告",
+  "When Moss hits an error, it sends a report so the problem can be fixed. Reports go to Sentry, a service in the United States.":
+    "Moss 出错时会发送一份报告，以便修复问题。报告会发送到位于美国的 Sentry 服务。",
+  "Changes apply right away. While this is off, nothing is sent.":
+    "更改立即生效。关闭期间不会发送任何内容。",
+  "What a report contains": "报告包含什么",
+  Included: "包含",
+  "Removed before sending": "发送前会移除",
+  "The type of error and where in Moss's code it happened":
+    "错误类型，以及它发生在 Moss 代码中的位置",
+  "Fixed status details, such as which operation failed and its status code":
+    "固定的状态信息，例如哪项操作失败及其状态码",
+  "App version, operating system, language, and time zone": "应用版本、操作系统、语言和时区",
+  "Device details such as processor, memory, and graphics": "设备信息，例如处理器、内存和显卡",
+  "Whether an app session hit an error": "某次使用应用时是否出错",
+  "Recent app events, such as a window opening": "最近的应用事件，例如打开窗口",
+  "Your chats, prompts, and agent replies": "你的对话、提示词和智能体回复",
+  "Your code, files, and project names": "你的代码、文件和项目名称",
+  "Keys, passwords, tokens, and account details": "密钥、密码、令牌和账号详情",
+  "The text of error messages, unless it's a known message with no personal content":
+    "错误信息的文字，除非是不含个人内容的已知信息",
+  "Your computer's name and your system username": "你的电脑名称和系统用户名",
+  "Sentry sees your IP address when a report arrives, as with any web request, and is set not to store it. Sentry may retain a coarse region inferred from the connection.":
+    "和任何网络请求一样，报告到达时 Sentry 能看到你的 IP 地址，但已设置为不保存。Sentry 仍可能保留根据连接推断的大致地区。",
+  "Moss Beta works like Moss here: it sends error reports only while Send error reports is on in Settings, and it doesn't send usage counts or crash dumps.":
+    "Moss Beta 在这方面与 Moss 相同：只有设置中的“发送错误报告”开启时才会发送错误报告，也不会发送使用统计或崩溃转储。",
+  "Error reports follow the same setting as Moss, and you can turn them off in Settings.":
+    "错误报告与 Moss 使用同一项设置，你可以在设置中关闭。",
   // Appearance and theme editor
   Standard: "标准",
   "Keeps the chat column at the default reading width (46rem).":
@@ -134,6 +168,31 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Unable to load microphones": "无法加载麦克风",
 
   // Providers and accounts
+  "Moss uses the selected program, then the installed CLI, then its bundled copy. Program changes take effect after restarting Moss.":
+    "Moss 优先使用你指定的程序；未指定时，先查找已安装的 CLI，再使用内置版本。更换程序后请重启 Moss。",
+  "Codex home directory. When history sharing is enabled, this is the shared history source; each account needs a separate private config and sign-in directory.":
+    "启用历史共享后，这个 Codex 目录提供共享历史；每个账号仍需使用单独的目录保存配置和登录信息。",
+  "Share Codex history across accounts": "在账号之间共享 Codex 历史",
+  "New chats use the selected history source with private account credentials and configuration. Existing chats keep their original history source. No history is moved or merged.":
+    "新对话使用所选历史目录，凭据和配置仍按账号独立保存。已有对话继续使用原目录，不会移动或合并历史记录。",
+  "Shared Claude projects directory": "共享的 Claude projects 目录",
+  "Absolute projects directory": "projects 目录的绝对路径",
+  "Choose the existing projects directory to share. Each account needs an explicit, separate private HOME and config directory.":
+    "选择要共享的现有 projects 目录，并为每个自有账号指定独立的 HOME 和配置目录。",
+  "Share Claude history across accounts": "在账号之间共享 Claude 历史",
+  "New chats use this projects directory. Existing chats keep their original source. A newly shared Moss account starts with fresh user settings, home plugins and caches; workspace configuration still applies.":
+    "新对话使用这个 projects 目录；已有对话仍使用原目录。首次共享的 Moss 账号使用新的用户设置、个人插件目录和缓存，工作区设置仍然生效。",
+  "Private config and sign-in directory": "私有配置和登录目录",
+  "Shadow auth home": "独立登录目录",
+  "Absolute private directory": "私有目录的绝对路径",
+  "Choose folder": "选择文件夹",
+  "Directory selection is available in the Moss desktop app.": "可在 Moss 桌面应用中选择文件夹。",
+  "Use a separate private directory for this account. The shared history directory is selected on the default account.":
+    "请为这个账号指定独立的私有目录。共享历史目录在默认账号的设置中选择。",
+  "Choose a private HOME for this account. The config directory defaults to .claude inside that HOME.":
+    "请为这个账号指定私有 HOME。配置目录默认为该 HOME 下的 .claude。",
+  "Each account signs in separately. Chats created with shared history keep their selected source when you switch accounts.":
+    "每个账号单独登录。启用共享历史后创建的对话，在切换账号时仍使用原先选定的历史目录。",
   "Each account signs in on its own and gets its own tab in the model picker.":
     "每个账号单独登录，并在模型选择器中有自己的标签。",
   "Shown in the account list and the model picker. Optional.":
@@ -359,12 +418,258 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Jump to visible thread 1–9": "跳转到可见对话 1–9",
   "Jump to space 1–9": "跳转到空间 1–9",
   "Switch straight to a tab of the space switcher. 1 is always Void.":
-    "直接切换到空间切换器的某个标签。1 始终是 Void。",
+    "直接切换到空间切换器的某个标签。1 始终是未归类。",
   "Assign a shortcut to this built-in command.": "为这个内置命令分配快捷键。",
   "In composer": "在输入框中",
   "Available while the prompt composer or its effort picker has focus.":
     "在输入框或其思考强度选择器获得焦点时可用。",
   Spaces: "空间",
+  "Show keybindings": "显示按键绑定",
+  "Jump to Void": "跳转到未归类",
+  "Switch straight to the Void tab of the space switcher.": "直接切换到空间切换器的“未归类”标签。",
+  "Switch straight to this tab of the space switcher.": "直接切换到空间切换器的这个标签。",
+  "Hold the modifiers and press a number key.": "按住修饰键，再按一个数字键。",
+  "Use Ctrl or Alt with any key, or an F-key on its own.":
+    "任意键搭配 Ctrl 或 Alt 使用，或者单独使用 F 键。",
+  "Use ⌘, ⌥ or ⌃ with any key, or an F-key on its own.":
+    "任意键搭配 ⌘、⌥ 或 ⌃ 使用，或者单独使用 F 键。",
+  "Hold the modifiers, then press any number key.": "按住修饰键，再按任意数字键。",
+  "Add ⌘, ⌥ or ⌃ to that key, or use an F-key on its own.":
+    "给这个键加上 ⌘、⌥ 或 ⌃，或者单独使用 F 键。",
+  "Add Ctrl or Alt to that key, or use an F-key on its own.":
+    "给这个键加上 Ctrl 或 Alt，或者单独使用 F 键。",
+  "Press new keys to change its shortcut.": "按下新的按键来更改它的快捷键。",
+  "Choose the keys that run it.": "选择运行它的按键。",
+  "Reset anyway": "仍要重置",
+  "Press shortcut…": "按下快捷键…",
+
+  // Reset button labels, which `SettingResetButton` places inside "将…重置为默认值"
+  "keep computer awake": "保持电脑唤醒",
+  "computer control": "电脑控制",
+  "cursor colors": "光标颜色",
+  "activity toasts": "活动提示",
+  "desktop notifications": "桌面通知",
+  "wait for subagents": "等待子智能体",
+  "git writing model": "Git 写作模型",
+  "source control writing style": "源代码管理写作风格",
+  "enabled providers": "已启用的服务商",
+  "app icon": "应用图标",
+  "custom title bar": "自定义标题栏",
+  "chat width": "对话宽度",
+  "terminal font size": "终端字号",
+  "terminal font": "终端字体",
+  "side chat expiry": "侧边对话有效期",
+  "enter while dictating": "听写时按 Enter",
+  "message trail sound": "消息轨迹声音",
+  "message trail microphone": "消息轨迹麦克风",
+  "diff layout": "差异布局",
+  "open pull requests and issues": "打开拉取请求和议题",
+  "project order": "项目排序",
+  "thread order": "对话排序",
+
+  // Profile, usage and limits
+  "Claude token totals use verifiable records. Older history and unfinished turns may be incomplete.":
+    "Claude 的 token 总量来自可核实的记录。较早的历史和未完成的回合可能不完整。",
+  "Share of tracked tokens.": "已统计 token 的占比。",
+  "Share of turns.": "回合占比。",
+  "Sidebar usage ring": "侧边栏用量圆环",
+  "No usage data reported yet.": "还没有上报用量数据。",
+  "Open the details below the limits. When off, they stay behind the Details toggle; your last toggle also updates this preference.":
+    "在限额下方展开详情。关闭时，详情收在“详情”开关后面；你最后一次切换也会更新这个偏好。",
+  "Usage is read locally from each provider CLI's stored credentials and fetched directly from the provider. The list follows whatever you are signed into; unsigned providers stay visible until any account is connected, then drop away. Short-lived tokens are refreshed through the provider's own CLI or official token endpoint.":
+    "用量通过各服务商 CLI 在本地保存的凭据读取，并直接从服务商获取。列表跟随你已登录的账号；未登录的服务商会一直显示，直到连接了任意账号后才隐藏。短期 token 通过服务商自己的 CLI 或官方 token 端点刷新。",
+  "Codex account usage requires a compatible app-server runtime.":
+    "查看 Codex 账号用量需要兼容的 app-server 运行时。",
+  Free: "免费版",
+  Account: "账号",
+  "A previous reset is unconfirmed. Retry checks the same attempt.":
+    "上一次重置尚未确认。重试会检查同一次尝试。",
+  "Use when your 5-hour or weekly limit has 10% or less remaining.":
+    "当 5 小时或每周限额剩余 10% 或更少时使用。",
+  "Next available reset": "下一次可用重置",
+  "Applying…": "正在应用…",
+  "Retry reset": "重试重置",
+  "Use reset": "使用重置",
+  "Reset result not confirmed": "重置结果未确认",
+  "Retry this reset to check the same attempt.": "重试这次重置，以检查同一次尝试。",
+
+  // Conversation behaviour
+  "In Moss": "在 Moss 中",
+  "Include fork upstreams in code review": "代码审查时包含复刻的上游仓库",
+
+  // Appearance and theme editor
+  "Unavailable, use Auto": "不可用，请使用自动",
+  "Paste a": "粘贴一个",
+
+  // AppSnap and computer control
+  "Press your two-key shortcut while any app is frontmost. Moss captures that window as an image, brings itself forward, and attaches the snap to a task composer — the capture stays on this device until you send the message.":
+    "在任意应用位于最前方时，按下你设置的双键快捷键。Moss 会将该窗口截为图像、切回前台并附加到任务输入框；发送消息之前，截图仅保存在此设备上。",
+  "Current shortcut": "当前快捷键",
+  "AppSnap shortcut saved": "应用截图快捷键已保存",
+  "AppSnap shortcut saved, but unavailable": "应用截图快捷键已保存，但暂不可用",
+  "The shortcut is reserved while AppSnap is enabled.": "启用应用截图时，这个快捷键会被保留。",
+  "The shortcut will be reserved when you enable AppSnap.": "启用应用截图后，这个快捷键会被保留。",
+  "Still denied after an update or rebuild? Remove this app from the list and add this copy again. Complete any macOS authentication, and restart if macOS asks you to quit and reopen.":
+    "更新或重新构建后仍被拒绝？请把这个应用从列表中移除，再重新添加这个副本。完成 macOS 要求的身份验证；如果 macOS 要求退出并重新打开，请重启。",
+  Grant: "授权",
+  "AppSnap is separate: it attaches a window image without giving the agent control.":
+    "应用截图是单独的功能：它只附加窗口图像，不会把控制权交给智能体。",
+  "Check again": "再次检查",
+  "Enable Computer by default in any chat. Leave this off and use /computer-use for one request without adding Computer tools to ordinary turns.":
+    "在任何对话中默认启用电脑控制。保持关闭时，可用 /computer-use 发起单次请求，不会把电脑工具加到普通回合中。",
+  "Agent cursor colors": "智能体光标颜色",
+  "In-chat computer preview size": "对话内电脑预览大小",
+  "Load older actions": "加载更早的操作",
+  "Computer action": "电脑操作",
+  "Action history is not enabled on this server.": "这台服务器没有启用操作历史。",
+  "Older retained actions are no longer available. Refresh to see recent actions.":
+    "更早保留的操作已不可用。刷新可查看最近的操作。",
+  "No recorded actions yet.": "还没有记录到操作。",
+  "Showing the latest": "显示最近的",
+  "loaded actions.": "条已加载操作。",
+  "Recent actions across chats on this server. Read-only observations, typed text, page contents, and file paths are not included.":
+    "这台服务器上各对话最近的操作。只读观察、输入的文字、页面内容和文件路径不会记录。",
+
+  // Notifications and Moss Beta
+  "Notifications unavailable": "通知不可用",
+  "Your operating system should show the notification.": "你的操作系统应该会显示这条通知。",
+  "Desktop notifications are not supported on this device.": "这台设备不支持桌面通知。",
+  "Last import failed:": "上次导入失败：",
+  "Install failed:": "安装失败：",
+  "unknown error": "未知错误",
+
+  // MCP connections
+  "High impact. Tasks may modify the checkout you are actively using instead of an isolated worktree.":
+    "影响较大。任务可能修改你正在使用的检出目录，而不是隔离的工作树。",
+  "High impact. The external agent may start full-access execution without asking you to approve tool actions.":
+    "影响较大。外部智能体可能以完全访问权限运行，不会请你批准工具操作。",
+  "High impact. Tasks may drive this Mac's screen — observe, click, type, menus, clipboard. Every computer action still asks for your approval.":
+    "影响较大。任务可能操作这台 Mac 的屏幕：查看、点击、输入、菜单和剪贴板。每个电脑操作仍会请你批准。",
+  "This connection has been revoked and can no longer access Moss.":
+    "这个连接已被撤销，不能再访问 Moss。",
+  "This connection has expired and can no longer access Moss.": "这个连接已过期，不能再访问 Moss。",
+  "Moss received a request from this agent. Setup is complete.":
+    "Moss 已收到这个智能体的请求。设置完成。",
+  "The private credential is stored locally. If the agent has not registered Moss yet, give it the setup prompt below.":
+    "私密凭据保存在本地。如果智能体还没有注册 Moss，请把下面的设置提示词发给它。",
+  "The one-time pairing code was not used in time. Resume pairing to issue a fresh code without replacing this connection.":
+    "一次性配对码未及时使用。恢复配对可以签发新的配对码，不会替换这个连接。",
+  "Paste the setup prompt into your agent. This page updates automatically when pairing succeeds.":
+    "把设置提示词粘贴到智能体中。配对成功后，这个页面会自动更新。",
+  "Resuming...": "正在恢复…",
+  "Resume pairing": "恢复配对",
+  "1. Give your agent this prompt": "1. 把这段提示词发给智能体",
+  "2. Try it": "2. 试一试",
+  "Projects:": "项目：",
+  "Permissions:": "权限：",
+  "· Last used": "· 上次使用",
+  "· Expires": "· 到期",
+  "Continue setup": "继续设置",
+
+  // Models and provider accounts
+  "Model Name": "模型名称",
+  "Git text generation model": "Git 文本生成模型",
+  "Enter a model slug.": "请输入模型标识。",
+  "That model is already built in.": "这个模型已经内置。",
+  "That custom model is already saved.": "这个自定义模型已经保存。",
+  "e.g. Work": "例如：工作",
+  "Routing key used by threads and sessions. Letters, digits, '-', or '_'.":
+    "对话和会话使用的路由键。可用字母、数字、“-”或“_”。",
+  "Optional. Shows as a dot on the account's icon in the picker.":
+    "可选。在选择器中显示为账号图标上的圆点。",
+  "This runs on the Moss server machine for the selected account.":
+    "这会在 Moss 服务器所在的机器上，为所选账号运行。",
+  "Unable to connect to the Moss server.": "无法连接到 Moss 服务器。",
+  "Sign-in could not start. Check the terminal error, close this window and retry.":
+    "无法开始登录。请查看终端错误，关闭此窗口后重试。",
+  "Follow the provider's prompts. Opening the browser does not confirm authentication.":
+    "请按服务商的提示操作。打开浏览器并不代表已完成认证。",
+  "Check authentication": "检查认证状态",
+  "Closing…": "正在关闭…",
+  "Cancel / close": "取消 / 关闭",
+  "Moss references the selected directory; no files were moved or copied.":
+    "Moss 引用所选目录，不会移动或复制任何文件。",
+  "Use 1–64 letters, numbers, dashes, or underscores; bare provider commands are reserved.":
+    "请使用 1–64 个字母、数字、短横线或下划线；不带后缀的服务商命令已被保留。",
+  "This command is already assigned to another account. Choose a unique override.":
+    "这个命令已分配给其他账号。请另选一个不重复的命令。",
+  "Available in Moss terminals for zsh, bash, fish, and scripts.":
+    "可在 Moss 终端的 zsh、bash、fish 和脚本中使用。",
+  "Use Sign in to authenticate this account, then complete the provider's prompts.":
+    "使用“登录”认证这个账号，然后完成服务商的提示步骤。",
+  "Each account signs in on its own and gets its own tab in the model picker. A thread stays on the account it started with.":
+    "每个账号单独登录，并在模型选择器中有自己的标签。对话会一直使用开始时的账号。",
+  "Directory import is available in the Moss desktop app.": "目录导入仅在 Moss 桌面应用中可用。",
+  "A newer version is available, but Moss could not identify a safe one-click update command for this installation.":
+    "有新版本可用，但 Moss 无法为这个安装方式确定安全的一键更新命令。",
+  "manages its own releases, so Moss cannot tell whether a newer version exists. Run the update to be sure.":
+    "自行管理发布，Moss 无法判断是否有新版本。运行更新即可确认。",
+  "Applies to newly launched agent processes. Restart existing sessions to apply consistently.":
+    "只对新启动的智能体进程生效。请重启现有会话，让设置统一生效。",
+  "Claude Code keeps Artifacts off in embedded sessions. Turn this on so":
+    "Claude Code 在嵌入式会话中默认关闭 Artifacts。开启后，",
+  "publish to claude.ai. Needs a claude.ai login on a Pro, Max, Team or Enterprise plan, and applies to new sessions.":
+    "可以发布到 claude.ai。需要已登录 Pro、Max、Team 或 Enterprise 方案的 claude.ai 账号，并且只对新会话生效。",
+  "from your PATH. Authenticate with": "（来自 PATH）。认证方式：运行",
+  "or set WINDSURF_API_KEY.": "或设置 WINDSURF_API_KEY。",
+  "Configured — enter a replacement or leave blank": "已配置。输入新值替换，或留空保持不变",
+  "ZCode bridge binary path": "ZCode 桥接程序路径",
+
+  // System tools
+  "Signing out...": "正在退出登录…",
+  "Resolving keybindings path...": "正在解析快捷键配置路径…",
+  "Opening...": "正在打开…",
+  "Repairing...": "正在修复…",
+  "Rebuilds local project indexes and refreshes project snapshots. Existing chats stay in place.":
+    "重建本地项目索引并刷新项目快照。现有对话不受影响。",
+  "Visible because projects exist but no chat history is currently available.":
+    "因为存在项目但当前没有可用的对话记录，所以显示。",
+
+  // Voice
+  "Check microphone access": "检查麦克风权限",
+  "Selected voice:": "已选语音：",
+
+  // Navigation, fragments and hidden accessible names seen in the sweep
+  "No matching settings.": "没有匹配的设置。",
+  "Settings search results": "设置搜索结果",
+  "Manage plugins, apps, skills, and MCP servers for every agent.":
+    "为所有智能体管理插件、应用、技能和 MCP 服务器。",
+  "Token usage is unavailable or zero for": "以下服务商的 Token 用量不可用或为零：",
+  "Refresh microphones": "刷新麦克风",
+  "Sign in to": "登录",
+  Primary: "主导航",
+  "Settings sections": "设置分区",
+  turns: "回合",
+  "tracked tokens": "已统计 token",
+  "prompts activity": "提示词活动",
+  dark: "深色",
+  light: "浅色",
+  "share string. The embedded variant must match": "分享字符串。其中内嵌的变体必须是",
+  ", and the selected code theme must exist for that variant.":
+    "，所选代码主题也必须适用于这个变体。",
+  Dismiss: "关闭",
+  "External browser": "外部浏览器",
+  "In-app browser": "应用内浏览器",
+  "Retry microphone access": "重试麦克风权限",
+  "Close tab": "关闭标签",
+  "Close terminal": "关闭终端",
+  "Close find (Esc)": "关闭查找（Esc）",
+  "Disabled · enable to check setup": "已停用 · 启用后可检查设置",
+  "Not authenticated": "未认证",
+  accounts: "账号",
+  and: "和",
+  "Coding agent": "编程智能体",
+  Unsupported: "不支持",
+  "Open threads": "打开的对话",
+  "Search chat...": "搜索对话…",
+  "Moss logo": "Moss 标志",
+
+  // Short status words that also appear outside settings
+  "Saving…": "正在保存…",
+  "Set up": "设置",
+  "Setting up…": "正在设置…",
+  "1 hour": "1 小时",
+  "24 hours": "24 小时",
 };
 
 const SETTINGS_COPY_PATTERNS: ReadonlyArray<readonly [RegExp, (match: RegExpExecArray) => string]> =
@@ -374,10 +679,20 @@ const SETTINGS_COPY_PATTERNS: ReadonlyArray<readonly [RegExp, (match: RegExpExec
       (match) => `${match[1]} 尚未登录。请运行 \`${match[2]}\` 后重试。`,
     ],
     [/^(.+) is not installed or not on PATH\.$/, (match) => `${match[1]} 未安装，或不在 PATH 中。`],
+    // dnd-kit's screen reader instructions keep the line breaks of its source.
+    [
+      /^To pick up a draggable item, press the space bar\.\s+While dragging, use the arrow keys to move the item\.\s+Press space again to drop the item in its new position, or press escape to cancel\.$/,
+      () =>
+        "要拿起可拖动的项目，请按空格键。拖动时，用方向键移动项目。再按一次空格键可放到新位置，按 Esc 键取消。",
+    ],
+    [/^(\d+) updates? available$/, (match) => `${match[1]} 个更新可用`],
+    [/^(\d+) installed$/, (match) => `已安装 ${match[1]} 个`],
+    [/^(.+) · Shared \(\.agents\)$/, (match) => `${match[1]} · 共享（.agents）`],
+    [/^From Shared \(\.agents\)$/, () => "来自共享（.agents）"],
   ];
 
 export function translateZhCnSettingsCopyText(value: string): string {
-  const exact = SETTINGS_COPY[value];
+  const exact = lookupPhrase(SETTINGS_COPY, value);
   if (exact) return exact;
   for (const [pattern, translate] of SETTINGS_COPY_PATTERNS) {
     const match = pattern.exec(value);

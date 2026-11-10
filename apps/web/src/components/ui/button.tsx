@@ -39,7 +39,7 @@ const headerButtonDarkBorderClassName =
 // Icon child rules name both an `<svg>` and a Central glyph span; the comment on
 // CENTRAL_ICON_SLOT (lib/central-icons) says which rules stay svg-only and why.
 const buttonVariants = cva(
-  "[&_svg,&_[data-slot=central-icon]]:-mx-0.5 relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-control border font-medium text-ui outline-none pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 focus-visible:ring-1 focus-visible:ring-ring/60 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 sm:text-ui [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0",
+  "[&_svg,&_[data-slot=central-icon]]:-mx-0.5 relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-ui-gap-xs [--app-icon-size:--theme(--spacing-ui-icon)] whitespace-nowrap rounded-control border font-medium text-ui outline-none pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 focus-visible:ring-1 focus-visible:ring-ring/60 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 sm:text-ui [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='size-'])]:size-ui-icon [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0",
   {
     defaultVariants: {
       shape: "default",
@@ -52,21 +52,23 @@ const buttonVariants = cva(
         default: "",
       },
       size: {
-        chip: "h-auto gap-1 px-2 py-0.5 text-ui-sm sm:h-auto sm:text-ui-sm [&_svg:not([class*='size-'])]:size-3 sm:[&_svg:not([class*='size-'])]:size-3",
-        default: "h-8 px-[calc(--spacing(3)-1px)] sm:h-7",
-        icon: "size-8 sm:size-7",
+        chip: "h-auto gap-1 px-ui-pad-sm py-0.5 text-ui-sm sm:text-ui-sm [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
+        default: "min-h-control px-ui-pad-md py-1",
+        icon: "size-control p-0",
         "icon-chip":
-          "size-6 sm:size-6 [&_svg:not([class*='size-'])]:size-3 sm:[&_svg:not([class*='size-'])]:size-3",
-        "icon-lg": "size-9 sm:size-8",
-        "icon-sm": "size-8 sm:size-7",
+          "size-control-xs p-0 [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
+        "icon-lg":
+          "size-control-lg p-0 [--app-icon-size:--theme(--spacing-ui-icon-lg)] [&_svg:not([class*='size-'])]:size-ui-icon-lg",
+        "icon-sm":
+          "size-control-sm p-0 [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
         "icon-xl":
-          "size-10 sm:size-9 [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
+          "size-control-lg p-0 [--app-icon-size:--theme(--spacing-ui-icon-lg)] [&_svg:not([class*='size-'])]:size-ui-icon-lg",
         "icon-xs":
-          "size-7 rounded-sm sm:size-6 not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-4 sm:not-in-data-[slot=input-group]:[&_svg:not([class*='size-'])]:size-3.5",
-        lg: "h-9 px-[calc(--spacing(3.5)-1px)] sm:h-8",
-        sm: "h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:h-7",
-        xl: "h-10 px-[calc(--spacing(4)-1px)] text-ui-lg sm:h-9 sm:text-ui-lg [&_svg:not([class*='size-'])]:size-5 sm:[&_svg:not([class*='size-'])]:size-4.5",
-        xs: "h-7 gap-1 rounded-sm px-[calc(--spacing(2)-1px)] text-ui sm:h-6 sm:text-ui [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
+          "size-control-xs rounded-sm p-0 [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
+        lg: "min-h-control-lg px-ui-pad-lg py-2 [--app-icon-size:--theme(--spacing-ui-icon-lg)] [&_svg:not([class*='size-'])]:size-ui-icon-lg",
+        sm: "min-h-control-sm gap-1.5 px-ui-pad-sm py-0.5 [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
+        xl: "min-h-control-lg px-ui-pad-lg py-2 text-ui-lg sm:text-ui-lg [--app-icon-size:--theme(--spacing-ui-icon-lg)] [&_svg:not([class*='size-'])]:size-ui-icon-lg",
+        xs: "min-h-control-xs gap-1 rounded-sm px-ui-pad-xs py-0.5 text-ui-sm sm:text-ui-sm [--app-icon-size:--theme(--spacing-ui-icon-sm)] [&_svg:not([class*='size-'])]:size-ui-icon-sm",
       },
       variant: {
         chrome:
@@ -104,12 +106,12 @@ const buttonVariants = cva(
     compoundVariants: [
       {
         class:
-          "!box-border !h-auto !min-h-7 gap-1.5 rounded-control px-[calc(--spacing(2.5)-1px)] !py-0.5 text-ui sm:!h-auto sm:px-[calc(--spacing(2.5)-1px)] sm:text-ui-sm",
+          "!box-border !h-auto !min-h-control-sm gap-1.5 rounded-control px-ui-pad-sm !py-0.5 text-ui-sm sm:text-ui-sm",
         size: "xs",
         variant: "chrome-outline",
       },
       {
-        class: "!size-8 rounded-control sm:!size-7",
+        class: "!size-control-sm rounded-control",
         size: "icon-xs",
         variant: "chrome-outline",
       },
@@ -149,6 +151,6 @@ function Button({ className, variant, size, shape, render, ...props }: ButtonPro
 
 /** Dialog footers and inline error actions share this sizing override. */
 const dialogActionButtonClassName =
-  "!h-auto !min-h-8 !rounded-md !px-3 !py-1 !font-normal sm:!min-h-7";
+  "!h-auto !min-h-control !rounded-control !px-ui-pad-md !py-1 !font-normal whitespace-normal";
 
 export { Button, buttonVariants, dialogActionButtonClassName, headerButtonDarkBorderClassName };

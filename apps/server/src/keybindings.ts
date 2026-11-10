@@ -16,7 +16,7 @@ import {
   UNASSIGNED_KEYBINDING_KEY,
   type ServerConfigIssue,
   type ServerKeybindingEdit,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Mutable } from "effect/Types";
 import {
   Array,
@@ -47,7 +47,7 @@ import {
   isUnassignedKeybindingRule,
   keybindingRuleIdentity,
   parseKeybindingShortcut,
-} from "@synara/shared/keybindingRules";
+} from "@moss/shared/keybindingRules";
 import { writeFileStringAtomically } from "./atomicWrite";
 import { ServerConfig } from "./config";
 

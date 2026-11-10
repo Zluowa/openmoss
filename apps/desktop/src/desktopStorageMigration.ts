@@ -5,7 +5,7 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
-import type { MossStorageSnapshot } from "@synara/contracts";
+import type { MossStorageSnapshot } from "@moss/contracts";
 
 export const MOSS_STORAGE_SNAPSHOT_FILE_NAME = "moss-storage-origin-v1.json";
 export const MOSS_STORAGE_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024;

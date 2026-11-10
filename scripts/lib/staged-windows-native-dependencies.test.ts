@@ -25,7 +25,6 @@ import {
 
 interface WindowsNativeFixture {
   readonly msgpackrHostBuild: string;
-  readonly piTuiOther: string;
   readonly stageAppDir: string;
 }
 
@@ -61,15 +60,9 @@ function withFixture(run: (fixture: WindowsNativeFixture) => void): void {
   );
   mkdirSync(path.dirname(msgpackrHostBuild), { recursive: true });
   writeFileSync(msgpackrHostBuild, "host-native");
-  const piTuiOther = path.join(
-    stageAppDir,
-    "node_modules/@earendil-works/pi-tui/native/darwin/prebuilds/darwin-arm64/darwin-platform.node",
-  );
-  mkdirSync(path.dirname(piTuiOther), { recursive: true });
-  writeFileSync(piTuiOther, "wrong-platform");
 
   try {
-    run({ msgpackrHostBuild, piTuiOther, stageAppDir });
+    run({ msgpackrHostBuild, stageAppDir });
   } finally {
     rmSync(stageAppDir, { force: true, recursive: true });
   }
@@ -115,7 +108,7 @@ describe("pruneStagedWindowsNativeDependencies", () => {
   });
 
   it("removes host and cross-platform binaries while retaining the reviewed x64 set", () => {
-    withFixture(({ msgpackrHostBuild, piTuiOther, stageAppDir }) => {
+    withFixture(({ msgpackrHostBuild, stageAppDir }) => {
       const result = pruneStagedWindowsNativeDependencies({ stageAppDir, arch: "x64" });
       assert.equal(
         result.retainedNativeFiles.length,
@@ -123,7 +116,6 @@ describe("pruneStagedWindowsNativeDependencies", () => {
       );
       assert.equal(result.removedPaths.length > 0, true);
       assert.equal(existsSync(msgpackrHostBuild), false);
-      assert.equal(existsSync(piTuiOther), false);
       for (const filePath of result.retainedNativeFiles) {
         assert.doesNotThrow(() => assertRegularFixture(filePath));
       }
@@ -140,11 +132,11 @@ describe("pruneStagedWindowsNativeDependencies", () => {
     withFixture(({ stageAppDir }) => {
       const target = path.join(
         stageAppDir,
-        "node_modules/@earendil-works/pi-tui/native/win32/prebuilds/win32-x64/win32-platform.node",
+        "node_modules/rookie-cookies-win32-x64-msvc/rookie_cookies.win32-x64-msvc.node",
       );
       rmSync(target);
       createRejectedFileAlias(
-        path.join(stageAppDir, "node_modules/@earendil-works/pi-tui/package.json"),
+        path.join(stageAppDir, "node_modules/rookie-cookies-win32-x64-msvc/package.json"),
         target,
       );
       assert.throws(
@@ -154,19 +146,19 @@ describe("pruneStagedWindowsNativeDependencies", () => {
     });
   });
 
-  it("fails closed when the Pi version or required platform helper drifts", () => {
+  it("fails closed when a reviewed version or required native file drifts", () => {
     withFixture(({ stageAppDir }) => {
-      writePackage(stageAppDir, "@earendil-works/pi-tui", "0.85.1");
+      writePackage(stageAppDir, "msgpackr-extract", "3.0.3");
       assert.throws(
         () => pruneStagedWindowsNativeDependencies({ stageAppDir, arch: "x64" }),
-        /Expected staged @earendil-works\/pi-tui@0\.87\.1/,
+        /Expected staged msgpackr-extract@3\.0\.4/,
       );
     });
     withFixture(({ stageAppDir }) => {
       rmSync(path.join(stageAppDir, WINDOWS_TARGET_NATIVE_DEPENDENCY_FILES[0]));
       assert.throws(
         () => pruneStagedWindowsNativeDependencies({ stageAppDir, arch: "x64" }),
-        /missing .*win32-platform\.node/,
+        /missing .*node\.abi115\.node/,
       );
     });
   });

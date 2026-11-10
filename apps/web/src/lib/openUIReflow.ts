@@ -96,20 +96,5 @@ export type { ActionEvent };
 
 // --- Composer reflow -------------------------------------------------------
 
-import type { ThreadId } from "@synara/contracts";
-
-import { requestComposerFocus } from "../composerFocusRequestStore";
-import { useComposerDraftStore } from "../composerDraftStore";
-
-/**
- * Default interaction reflow, mirroring the plugin "Try in chat" pattern: the
- * action's message lands in the thread's composer draft and the composer takes
- * focus, so the user reviews/edits before sending instead of a component
- * silently spending a turn. An existing draft is preserved by appending.
- */
-export function injectOpenUIFollowUpIntoComposer(threadId: ThreadId, message: string): void {
-  const store = useComposerDraftStore.getState();
-  const existing = store.draftsByThreadId[threadId]?.prompt?.trim() ?? "";
-  store.setPrompt(threadId, existing ? `${existing}\n\n${message}` : message);
-  requestComposerFocus(threadId);
-}
+/** OpenUI actions share the composer reflow every agent visual uses. */
+export { injectVisualFollowUpIntoComposer as injectOpenUIFollowUpIntoComposer } from "./visualFollowUp";

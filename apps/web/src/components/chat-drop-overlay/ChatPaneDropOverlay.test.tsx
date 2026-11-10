@@ -4,7 +4,7 @@
 // Targets: getDropZoneFromPointer, isThreadDragPayloadAllowed.
 
 import { describe, expect, it } from "vitest";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 
 import { getDropZoneFromPointer, isThreadDragPayloadAllowed } from "./ChatPaneDropOverlay";
 
@@ -69,5 +69,20 @@ describe("isThreadDragPayloadAllowed", () => {
         { excludedThreadIds: new Set([THREAD_A]) },
       ),
     ).toBe(true);
+  });
+
+  it("lets a pane's own thread split it when another thread takes its place", () => {
+    expect(
+      isThreadDragPayloadAllowed(
+        { threadId: THREAD_A, replacementThreadId: THREAD_B },
+        { excludedThreadIds: new Set([THREAD_A]) },
+      ),
+    ).toBe(true);
+    expect(
+      isThreadDragPayloadAllowed(
+        { threadId: THREAD_A, replacementThreadId: THREAD_B },
+        { excludedThreadIds: new Set([THREAD_A, THREAD_B]) },
+      ),
+    ).toBe(false);
   });
 });

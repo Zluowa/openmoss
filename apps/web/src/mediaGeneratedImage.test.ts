@@ -1,4 +1,4 @@
-import { TurnId } from "@synara/contracts";
+import { TurnId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import { makeActivity } from "./storeTestFixtures";
 import { deriveTimelineEntries, deriveWorkLogEntries } from "./workLog";

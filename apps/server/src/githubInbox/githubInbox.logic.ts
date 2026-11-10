@@ -8,8 +8,8 @@ import type {
   GitHubViewerInvolvement,
   OrchestrationProject,
   PullRequestActor,
-} from "@synara/contracts";
-import { coalescePullRequestListEntries } from "@synara/shared/githubRepository";
+} from "@moss/contracts";
+import { coalescePullRequestListEntries } from "@moss/shared/githubRepository";
 
 import type { GitHubCliError } from "../git/Errors";
 import type {

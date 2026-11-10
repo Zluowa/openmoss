@@ -5,7 +5,7 @@
 // Exports: rail item ids/types, rail item order and visibility, railItemForPathname,
 //          reconcileActiveRailItem, buildRailSpacesSections
 
-import type { ProjectId, SpaceId } from "@synara/contracts";
+import type { ProjectId, SpaceId } from "@moss/contracts";
 
 import {
   groupItemsBySpace,
@@ -34,7 +34,8 @@ export type RailRouteItemId =
   | Exclude<SidebarNavItemId, "newThread">
   | "studio"
   | "settings"
-  | "skills";
+  | "skills"
+  | "mossbot";
 /** Moss native-surface destinations: rail items that open an in-shell surface, not a route. */
 export type RailSurfaceItemId = "images" | "library";
 export type RailItemId = RailPanelItemId | RailRouteItemId | RailSurfaceItemId;
@@ -46,6 +47,7 @@ export type RailItemId = RailPanelItemId | RailRouteItemId | RailSurfaceItemId;
  */
 export const RAIL_ORDERABLE_ITEM_IDS = [
   "home",
+  "mossbot",
   "library",
   "automations",
   "images",
@@ -271,6 +273,7 @@ function matchesRoute(pathname: string, route: string): boolean {
 
 /** The route rail item that owns a pathname, or null for thread and chat-index routes. */
 export function railItemForPathname(pathname: string): RailRouteItemId | null {
+  if (matchesRoute(pathname, "/mossbot")) return "mossbot";
   if (matchesRoute(pathname, "/inbox")) return "inbox";
   if (matchesRoute(pathname, "/kanban")) return "kanban";
   if (matchesRoute(pathname, "/tasks")) return "tasks";
@@ -299,10 +302,12 @@ export function reconcileActiveRailItem(input: {
   current: RailItemId;
   pathname: string;
   onStudioSurface: boolean;
+  onMossbotSurface?: boolean;
   panelView: RailPanelItemId;
 }): RailItemId {
   return (
-    railItemForPathname(input.pathname) ?? (input.onStudioSurface ? "studio" : input.panelView)
+    railItemForPathname(input.pathname) ??
+    (input.onMossbotSurface ? "mossbot" : input.onStudioSurface ? "studio" : input.panelView)
   );
 }
 

@@ -5,7 +5,7 @@
  * Materializes governance mappings into provider-native paths with four
  * actions — symlink, copy, managed-bridge, adapter-inject — and records every
  * managed target in the projections manifest (layout `projectionsManifest`,
- * decoded through the `@synara/contracts` `MossProjectionManifest` schema).
+ * decoded through the `@moss/contracts` `MossProjectionManifest` schema).
  * The workspace manifest is a read-only compatibility/read-back view, never
  * an ownership authority. When an authority is injected, its private
  * append-only manifest is the source for mutation bookkeeping; without it,
@@ -43,8 +43,8 @@ import type {
   MossProjectionManifestEntry,
   MossProjectionMaterializeStatus,
   ProviderKind,
-} from "@synara/contracts";
-import { MossProjectionManifest } from "@synara/contracts";
+} from "@moss/contracts";
+import { MossProjectionManifest } from "@moss/contracts";
 
 import {
   MOSS_PROJECTION_ENGINE_IDS,

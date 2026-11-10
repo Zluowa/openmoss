@@ -5,7 +5,7 @@ import {
   MIGRATION_RUNTIME_SOURCE_RELATIVE_PATH,
   findMigrationRuntimeIdentityMismatch,
   type MigrationRuntimeIdentityMismatch,
-} from "@synara/shared/migrationRecovery";
+} from "@moss/shared/migrationRecovery";
 
 declare const __MOSS_MIGRATION_RUNTIME_SOURCE_DIGEST__: string;
 

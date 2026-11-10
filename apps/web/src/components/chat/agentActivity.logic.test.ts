@@ -1,4 +1,4 @@
-import { TurnId } from "@synara/contracts";
+import { TurnId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import type { WorkLogEntry } from "../../session-logic";
 import {
@@ -9,7 +9,6 @@ import {
   isCodexActivityStatusWorkEntry,
   isPlainRuntimeNoticeWorkEntry,
   isReasoningUpdateWorkEntry,
-  isUnmappedProviderEventWorkEntry,
 } from "./agentActivity.logic";
 import { deriveTimelineEntries, deriveWorkLogEntries } from "../../workLog";
 import { makeActivity } from "../../storeTestFixtures";
@@ -396,40 +395,7 @@ describe("subagent progress", () => {
   });
 });
 
-describe("unmapped provider events", () => {
-  it("labels an unmapped event with its native type and safe detail", () => {
-    const entry = workEntry({
-      id: "unmapped-1",
-      label: "item/agentMessage/completed",
-      toolTitle: "item/agentMessage/completed",
-      activityKind: "provider.event.unmapped",
-      nativeEventType: "item/agentMessage/completed",
-      detail: "Finished the refactor",
-      tone: "info",
-    });
-
-    expect(isUnmappedProviderEventWorkEntry(entry)).toBe(true);
-    // Raw native type/label is the title instead of the generic "Activity".
-    expect(formatAgentActivityEntryTitle(entry)).toBe("Item/agentMessage/completed");
-    expect(formatAgentActivityEntryPreview(entry)).toBe("Finished the refactor");
-    // The unmapped fallback never hijacks explicit, working mappings.
-    expect(isCodexActivityStatusWorkEntry(entry)).toBe(false);
-    expect(isAgentActivityWorkEntry(entry)).toBe(false);
-  });
-
-  it("still derives a native-type title when the normalized heading is empty", () => {
-    const entry = workEntry({
-      id: "unmapped-2",
-      label: "done",
-      activityKind: "provider.event.unmapped",
-      nativeEventType: "done",
-      tone: "info",
-    });
-    // normalizeCompactToolLabel strips the trailing "done", which previously
-    // fell through to the generic "Activity" label.
-    expect(formatAgentActivityEntryTitle(entry)).toBe("Done");
-  });
-
+describe("command approvals", () => {
   it("keeps the exec row and drops the duplicate command approval sentence", () => {
     const state = deriveAgentActivityTimelineState([
       workEntry({

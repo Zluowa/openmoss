@@ -3,7 +3,7 @@
 // Layer: Chat header action
 // Depends on: shared editor metadata, native shell bridge, and preferred editor state.
 
-import { type EditorId, type ResolvedKeybindingsConfig } from "@synara/contracts";
+import { type EditorId, type ResolvedKeybindingsConfig } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useEditorLaunchers, type EditorLaunchers } from "~/hooks/useEditorLaunchers";
@@ -48,8 +48,9 @@ interface OpenInPickerProps {
   // "responsive" (default) hides the "Open" label until the `header-actions`
   // inline-size container (declared on an ancestor — the chat header and the
   // file-preview header both do) is wide enough; "always" keeps it visible
-  // regardless, for surfaces that don't establish that container.
-  labelMode?: "responsive" | "always";
+  // regardless, for surfaces that don't establish that container; "icon" never
+  // shows it, for icon-only rows such as the file-preview breadcrumb row.
+  labelMode?: "responsive" | "always" | "icon";
   // "split" (default) renders the bordered chat-header split button; "compact"
   // renders quiet icon-only ghost buttons for dense per-row surfaces (e.g. the
   // changed-file rows), where labelMode is ignored and the label stays sr-only.
@@ -66,6 +67,8 @@ interface OpenInPickerProps {
   additionalMenuItems?: ReactNode;
   /** Optional surface-specific display priority; unlisted installed editors follow in catalog order. */
   menuEditorOrder?: ReadonlyArray<EditorId>;
+  /** The target is a file: the primary action opens it in an editor, never a terminal. */
+  preferFileEditor?: boolean;
   groupLabel?: string;
   menuLabel?: string;
 }
@@ -115,7 +118,7 @@ function OpenInPickerContent({ primaryAction, ...props }: OpenInPickerContentPro
 }
 
 interface OpenInPickerFrameProps {
-  labelMode: "responsive" | "always";
+  labelMode: "responsive" | "always" | "icon";
   variant: "split" | "compact";
   groupLabel: string;
   menuLabel: string;
@@ -177,7 +180,9 @@ function OpenInPickerFrame(props: OpenInPickerFrameProps) {
             "font-normal",
             props.labelMode === "always"
               ? "ml-0.5"
-              : "sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5",
+              : props.labelMode === "icon"
+                ? "sr-only"
+                : "sr-only @sm/header-actions:not-sr-only @sm/header-actions:ml-0.5",
           )}
         >
           Open

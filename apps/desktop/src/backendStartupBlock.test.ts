@@ -5,7 +5,9 @@ import {
   serializeMigrationSchemaTooNewStartupBlock,
   type MigrationDivergenceConsentChallenge,
   type MigrationSchemaTooNewStartupBlock,
-} from "@synara/shared/migrationRecovery";
+  MIGRATION_LINEAGE_UNSUPPORTED_MESSAGE,
+  serializeMigrationRepairFailure,
+} from "@moss/shared/migrationRecovery";
 
 import { BackendStartupBlockDetector } from "./backendStartupBlock";
 
@@ -224,5 +226,31 @@ describe("BackendStartupBlockDetector", () => {
     detector.push("Error: address already in use");
 
     expect(detector.read()).toBeNull();
+  });
+
+  it("recognizes a repair that failed and left the database unchanged", () => {
+    const failure = {
+      version: 1,
+      databasePath: "C:\\data\\state.sqlite",
+      backupPath: "C:\\data\\state.sqlite.backups\\pre.sqlite.gz",
+      sourceVersion: "imported-v54-from17",
+      targetVersion: 150,
+      lineageFingerprint: "abc",
+      reason: "table already exists",
+      failedAt: "2026-11-01T00:00:00.000Z",
+    } as const;
+    const detector = new BackendStartupBlockDetector();
+    detector.push(
+      `ERROR: Moss could not upgrade it\n${serializeMigrationRepairFailure(failure)}\n`,
+    );
+    expect(detector.read()).toEqual({ kind: "migration-repair-failed", failure });
+  });
+
+  it("stops at an unsupported lineage instead of retrying the backend", () => {
+    const detector = new BackendStartupBlockDetector();
+    detector.push(
+      `ERROR: ${MIGRATION_LINEAGE_UNSUPPORTED_MESSAGE}: migration 5 is recorded as "X"\n`,
+    );
+    expect(detector.read()).toEqual({ kind: "migration-lineage-unsupported" });
   });
 });

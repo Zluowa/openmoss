@@ -26,7 +26,8 @@ export type ProjectFileEncoding = typeof ProjectFileEncoding.Type;
 export const ProjectFileLineEnding = Schema.Literals(["lf", "crlf", "cr", "mixed"]);
 export type ProjectFileLineEnding = typeof ProjectFileLineEnding.Type;
 
-export const ProjectKind = Schema.Literals(["project", "chat", "studio", "group"]);
+// "room" is the hidden container of a Mossbot group chat: never listed, searched or recent.
+export const ProjectKind = Schema.Literals(["project", "chat", "studio", "group", "room"]);
 export type ProjectKind = typeof ProjectKind.Type;
 
 export const ProjectSearchEntriesInput = Schema.Struct({
@@ -293,13 +294,32 @@ export type ProjectCreateLocalFilePreviewGrantResult =
 export const ProjectDevServerStatus = Schema.Literals(["starting", "running"]);
 export type ProjectDevServerStatus = typeof ProjectDevServerStatus.Type;
 
+/**
+ * A project's launch configurations (`.moss/launch.json`, or `.claude/launch.json`) each
+ * run as their own dev server beside the project's one sidebar run, keyed by name.
+ */
+export const PROJECT_LAUNCH_NAME_MAX_LENGTH = 100;
+export const ProjectLaunchName = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(PROJECT_LAUNCH_NAME_MAX_LENGTH),
+);
+export type ProjectLaunchName = typeof ProjectLaunchName.Type;
+
+const ProjectPort = PositiveInt.check(Schema.isLessThanOrEqualTo(65_535));
+
 export const ProjectDevServer = Schema.Struct({
   projectId: ProjectId,
   command: TrimmedNonEmptyString,
   cwd: TrimmedNonEmptyString,
   pid: Schema.NullOr(PositiveInt),
   startedAt: TrimmedNonEmptyString,
+  /** A launch configuration's run is "starting" until its port answers. */
   status: ProjectDevServerStatus,
+  /** Set for a launch configuration's run; absent for the project's sidebar run. */
+  launchName: Schema.optional(ProjectLaunchName),
+  /** The port the run answers on (configured, or read from its output once it answers). */
+  port: Schema.optional(ProjectPort),
+  /** Where to open the run once it answers. */
+  url: Schema.optional(TrimmedNonEmptyString),
 });
 export type ProjectDevServer = typeof ProjectDevServer.Type;
 
@@ -308,8 +328,18 @@ export const ProjectRunDevServerInput = Schema.Struct({
   command: TrimmedNonEmptyString,
   cwd: TrimmedNonEmptyString,
   env: Schema.optional(ProcessEnvRecord),
+  /** Runs a launch configuration by name, beside any other run of the project. */
+  launchName: Schema.optional(ProjectLaunchName),
+  /** The configured port; the run is "starting" until it (or a port it prints) answers. */
+  port: Schema.optional(ProjectPort),
 });
 export type ProjectRunDevServerInput = typeof ProjectRunDevServerInput.Type;
+
+/**
+ * The error code `projects.runDevServer` fails with when the program a launch configuration
+ * names (`python`, `npx`) is not installed; the error's message is that program's name.
+ */
+export const PROJECT_DEV_SERVER_PROGRAM_NOT_FOUND_CODE = "DEV_SERVER_PROGRAM_NOT_FOUND";
 
 export const ProjectRunDevServerResult = Schema.Struct({
   server: ProjectDevServer,
@@ -318,6 +348,7 @@ export type ProjectRunDevServerResult = typeof ProjectRunDevServerResult.Type;
 
 export const ProjectStopDevServerInput = Schema.Struct({
   projectId: ProjectId,
+  launchName: Schema.optional(ProjectLaunchName),
 });
 export type ProjectStopDevServerInput = typeof ProjectStopDevServerInput.Type;
 
@@ -330,6 +361,18 @@ export const ProjectListDevServersResult = Schema.Struct({
   servers: Schema.Array(ProjectDevServer),
 });
 export type ProjectListDevServersResult = typeof ProjectListDevServersResult.Type;
+
+export const ProjectReadDevServerLogInput = Schema.Struct({
+  projectId: ProjectId,
+  launchName: Schema.optional(ProjectLaunchName),
+});
+export type ProjectReadDevServerLogInput = typeof ProjectReadDevServerLogInput.Type;
+
+/** Recent output of a project's Moss-run dev server; null when none is running. */
+export const ProjectReadDevServerLogResult = Schema.Struct({
+  log: Schema.NullOr(Schema.String),
+});
+export type ProjectReadDevServerLogResult = typeof ProjectReadDevServerLogResult.Type;
 
 export const ProjectDevServerRemovedReason = Schema.Literals(["stopped", "exited"]);
 export type ProjectDevServerRemovedReason = typeof ProjectDevServerRemovedReason.Type;
@@ -347,6 +390,55 @@ export const ProjectDevServerEvent = Schema.Union([
     type: Schema.Literal("removed"),
     projectId: ProjectId,
     reason: ProjectDevServerRemovedReason,
+    launchName: Schema.optional(ProjectLaunchName),
+    /** The last lines a launch run printed before it exited on its own. */
+    output: Schema.optional(Schema.String),
   }),
 ]);
 export type ProjectDevServerEvent = typeof ProjectDevServerEvent.Type;
+
+// ── Launch configurations ────────────────────────────────────────────
+//
+// The servers a project lists for preview: `.moss/launch.json` (Moss's own), else
+// `.claude/launch.json` (same shape: name, runtimeExecutable, runtimeArgs, port), else
+// the dev scripts found in package.json. Read on demand while a list is on screen.
+
+export const PROJECT_MOSS_LAUNCH_FILE = ".moss/launch.json";
+export const PROJECT_CLAUDE_LAUNCH_FILE = ".claude/launch.json";
+
+export const ProjectLaunchConfiguration = Schema.Struct({
+  name: ProjectLaunchName,
+  /** The command line Moss runs in the project's shell; null attaches to `url` only. */
+  command: Schema.NullOr(TrimmedNonEmptyString),
+  cwd: TrimmedNonEmptyString,
+  port: Schema.NullOr(ProjectPort),
+  url: Schema.NullOr(TrimmedNonEmptyString),
+  env: Schema.optional(ProcessEnvRecord),
+});
+export type ProjectLaunchConfiguration = typeof ProjectLaunchConfiguration.Type;
+
+export const ProjectLaunchConfigurationSource = Schema.Literals([
+  "moss",
+  "claude",
+  "packageScripts",
+  "none",
+]);
+export type ProjectLaunchConfigurationSource = typeof ProjectLaunchConfigurationSource.Type;
+
+export const ProjectReadLaunchConfigurationsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type ProjectReadLaunchConfigurationsInput = typeof ProjectReadLaunchConfigurationsInput.Type;
+
+export const ProjectReadLaunchConfigurationsResult = Schema.Struct({
+  source: ProjectLaunchConfigurationSource,
+  /** The file the list is edited in, relative to the project (it may not exist yet). */
+  editFile: TrimmedNonEmptyString,
+  /** Absolute path of `editFile` when it exists. */
+  editFilePath: Schema.NullOr(TrimmedNonEmptyString),
+  configurations: Schema.Array(ProjectLaunchConfiguration),
+  /** Entries or files that could not be read, in plain words. */
+  problems: Schema.Array(Schema.String),
+});
+export type ProjectReadLaunchConfigurationsResult =
+  typeof ProjectReadLaunchConfigurationsResult.Type;

@@ -14,7 +14,7 @@ import type {
   ProviderInstanceId,
   ProviderKind,
   RuntimeMode,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -554,6 +554,7 @@ export function KanbanNewTaskDialog({
                     resolvedTheme={resolvedTheme}
                     isLoading={isComposerMenuLoading}
                     triggerKind={composerTrigger.kind}
+                    escapeClosesMenu={false}
                     activeItemId={activeComposerMenuItem?.id ?? null}
                     onHighlightedItemChange={setComposerHighlightedItemId}
                     onSelect={onSelectComposerItem}
@@ -579,7 +580,7 @@ export function KanbanNewTaskDialog({
                 role="status"
               >
                 <LoaderCircleIcon className="size-4 animate-spin" />
-                Optimizing {pendingImageCount === 1 ? "image" : "images"}…
+                {`Optimizing ${pendingImageCount === 1 ? "image" : "images"}…`}
               </div>
             ) : null}
             <ComposerPromptEditor

@@ -1,5 +1,5 @@
 import "../../index.css";
-import { MessageId, TurnId, type RuntimeMode } from "@synara/contracts";
+import { MessageId, TurnId, type RuntimeMode } from "@moss/contracts";
 import { useState } from "react";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";

@@ -3,6 +3,8 @@ import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
 
 export interface ProviderMaintenanceCommandCoordinatorShape<E> {
+  /** Fail closed in this server only when a command owner cannot prove cleanup. */
+  readonly blockCommandLock: (lockKey: string, error: E) => Effect.Effect<void>;
   readonly withCommandLock: <A, R>(input: {
     readonly targetKey: string;
     readonly lockKey: string;
@@ -16,6 +18,19 @@ export const makeProviderMaintenanceCommandCoordinator = Effect.fn(
 )(function* <E>(input: { readonly makeAlreadyRunningError: (targetKey: string) => E }) {
   const runningTargetsRef = yield* Ref.make<ReadonlySet<string>>(new Set());
   const locksRef = yield* Ref.make<ReadonlyMap<string, Semaphore.Semaphore>>(new Map());
+  const blockedLocksRef = yield* Ref.make<ReadonlyMap<string, E>>(new Map());
+  const blockCommandLock = (lockKey: string, error: E) =>
+    Ref.update(blockedLocksRef, (current) => {
+      const next = new Map(current);
+      next.set(lockKey, error);
+      return next;
+    });
+  const checkLock = (lockKey: string) =>
+    Ref.get(blockedLocksRef).pipe(
+      Effect.flatMap((blocked) =>
+        blocked.has(lockKey) ? Effect.fail(blocked.get(lockKey)!) : Effect.void,
+      ),
+    );
 
   const acquireTarget = Effect.fn("acquireProviderMaintenanceTarget")(function* (
     targetKey: string,
@@ -62,6 +77,7 @@ export const makeProviderMaintenanceCommandCoordinator = Effect.fn(
     run,
   }) =>
     Effect.gen(function* () {
+      yield* checkLock(lockKey);
       const acquired = yield* acquireTarget(targetKey);
       if (!acquired) {
         return yield* Effect.fail(input.makeAlreadyRunningError(targetKey));
@@ -72,11 +88,12 @@ export const makeProviderMaintenanceCommandCoordinator = Effect.fn(
         if (onQueued) {
           yield* onQueued;
         }
-        return yield* lock.withPermits(1)(run);
+        return yield* lock.withPermits(1)(checkLock(lockKey).pipe(Effect.andThen(run)));
       }).pipe(Effect.ensuring(releaseTarget(targetKey)));
     });
 
   return {
+    blockCommandLock,
     withCommandLock,
   } satisfies ProviderMaintenanceCommandCoordinatorShape<E>;
 });

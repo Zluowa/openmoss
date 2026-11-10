@@ -47,6 +47,13 @@ function check(source: string, file = controllerPath) {
 }
 
 describe("Windows process boundary guard", () => {
+  it("allows only the provider guard to select its command shell", () => {
+    const guard = "apps/server/src/platform/windowsProviderProcessGuard.ts";
+    expect(check("resolveWindowsComSpec();", guard).status).toBe(0);
+    expect(check("resolveWindowsComSpec();", "apps/server/src/provider/other.ts").status).toBe(1);
+    expect(check("resolveWindowsComSpec();\nresolveWindowsWslExe();", guard).status).toBe(1);
+  });
+
   it("accepts the owner's System32 command through the shared synchronous launcher", () => {
     const result = check(safeTreeCommand);
     expect(result.error).toBeUndefined();

@@ -17,7 +17,7 @@ import {
   type ProjectId,
   type PullRequestActor,
   type PullRequestDetail,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { page, userEvent } from "vitest/browser";
@@ -697,6 +697,19 @@ describe("GitHubInbox states", () => {
       .element(page.getByText(/GitHub rate limit reached\. Showing the last loaded items\./))
       .toBeVisible();
   });
+
+  it.each([
+    ["none", "No GitHub remote configured"],
+    ["incomplete", "Repositories could not be checked"],
+    ["configured", "No pull requests and issues found"],
+  ] as const)(
+    "distinguishes a %s inventory from a confirmed empty result",
+    async (repositoryState, title) => {
+      api.list.mockResolvedValue(listResult({ items: [], repositoryState }));
+      await mount();
+      await expect.element(page.getByText(title, { exact: true })).toBeVisible();
+    },
+  );
 
   it("says when there is nothing to show", async () => {
     api.list.mockResolvedValue(listResult({ items: [] }));

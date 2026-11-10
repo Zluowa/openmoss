@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { type InlineVisualSpec, type NativeApi, ThreadId } from "@synara/contracts";
+import { type InlineVisualSpec, type NativeApi, ThreadId } from "@moss/contracts";
 import { act } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page, userEvent } from "vitest/browser";

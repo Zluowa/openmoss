@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MossMediaAssetStore } from "./mossMediaAssets";
+import type { OutboundHttpRequest } from "@moss/shared/outboundHttp";
 import { createRejectedFileAlias } from "../../../scripts/fixtures/filesystem-links.ts";
 
 const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 1, 2, 3]);
@@ -107,7 +108,7 @@ describe("Moss media durable assets", () => {
 
   it("persists verified bytes across restarts and scopes reads to the account", async () => {
     const path = directory();
-    const download = vi.fn(async (_request: unknown) => ({
+    const download = vi.fn(async (_request: OutboundHttpRequest) => ({
       status: 200,
       body: PNG,
       headers: new Headers({ "content-type": "image/png" }),
@@ -133,7 +134,10 @@ describe("Moss media durable assets", () => {
         }),
       }),
     );
-    expect(download.mock.calls[0]?.[0]).not.toHaveProperty("headers");
+    expect(download.mock.calls[0]?.[0].headers).toEqual({
+      "user-agent": "MossDesktop/1",
+      accept: "image/*",
+    });
   });
   it("never admits credential-bearing or non-HTTPS URLs into the downloader", async () => {
     const download = vi.fn();

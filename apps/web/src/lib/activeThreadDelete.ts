@@ -3,9 +3,9 @@
 // Layer: Web orchestration helper
 // Exports: deleteActiveThreadFromClient
 
-import type { ThreadId } from "@synara/contracts";
-import { terminalScopeIdsForThread } from "@synara/shared/terminalThreads";
-import { collectSubagentDescendants } from "@synara/shared/threadHierarchy";
+import type { ThreadId } from "@moss/contracts";
+import { terminalScopeIdsForThread } from "@moss/shared/terminalThreads";
+import { collectSubagentDescendants } from "@moss/shared/threadHierarchy";
 
 import { toastManager } from "../components/ui/toast";
 import { readNativeApi } from "../nativeApi";

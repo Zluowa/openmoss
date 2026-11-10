@@ -1,4 +1,4 @@
-import type { MossAccountSessionState, MossCloudAccountState } from "@synara/contracts";
+import type { MossAccountSessionState, MossCloudAccountState } from "@moss/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 import { useCallback, useSyncExternalStore } from "react";
 import { mossServerQueryKeys } from "~/components/auth/mossServerReactQuery";

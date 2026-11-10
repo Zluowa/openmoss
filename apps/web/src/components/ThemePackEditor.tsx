@@ -3,7 +3,7 @@
 // Layer: Web settings UI
 // Exports: ThemePackEditor
 
-import { DESKTOP_WINDOW_BLUR_RADIUS_MAX, DESKTOP_WINDOW_BLUR_RADIUS_MIN } from "@synara/contracts";
+import { DESKTOP_WINDOW_BLUR_RADIUS_MAX, DESKTOP_WINDOW_BLUR_RADIUS_MIN } from "@moss/contracts";
 import { type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
 import { HexColorPicker } from "react-colorful";
 import { Button } from "./ui/button";
@@ -263,6 +263,22 @@ export function ThemePackEditor({
                 ? () =>
                     updateThemePack(variant, {
                       surface: defaultTheme.surface,
+                    })
+                : undefined
+            }
+          />
+        </ThemeRow>
+
+        <ThemeRow label="Sidebar">
+          <ColorPill
+            color={theme.sidebar ?? theme.surface}
+            ariaLabel={`${titleLabel} sidebar color`}
+            onChange={(next) => updateThemePack(variant, { sidebar: next })}
+            onReset={
+              theme.sidebar !== defaultTheme.sidebar
+                ? () =>
+                    updateThemePack(variant, {
+                      sidebar: defaultTheme.sidebar,
                     })
                 : undefined
             }

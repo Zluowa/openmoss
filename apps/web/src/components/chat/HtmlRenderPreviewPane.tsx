@@ -6,16 +6,36 @@
 //   MIT) at 08a463e29976617134de01e9341f898bc881d0eb (PR #17561); Moss shows visual replies in
 //   its right dock instead of a full-screen dialog. See THIRD_PARTY_NOTICES.md.
 
-import { htmlRenderFileName } from "@synara/shared/htmlRender";
-import { useCallback, useEffect, useState } from "react";
+import { htmlRenderFileName } from "@moss/shared/htmlRender";
+import { useNavigate } from "@tanstack/react-router";
+import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { htmlDocumentSourceUrlResolver } from "~/lib/htmlDocumentSource";
 import { resolveHtmlRenderFrameUrl } from "~/lib/htmlRenderFrameUrl";
 import { resolveInlineVisualizationFrameUrl } from "~/lib/inlineVisualizationFrameUrl";
-import { CodeIcon, DownloadIcon, EyeOpenIcon, MinusIcon, PlusIcon } from "~/lib/icons";
+import {
+  AppsIcon,
+  ChevronDownIcon,
+  CodeIcon,
+  DownloadIcon,
+  EyeOpenIcon,
+  MinusIcon,
+  PageCommentIcon,
+  PlusIcon,
+} from "~/lib/icons";
+import { useIsSharedViewer } from "~/lib/sharedViewer";
+import { cn } from "~/lib/utils";
+import { VisualFollowUpContext, visualFollowUpForThread } from "~/lib/visualFollowUp";
 import { useTranslation } from "~/localization";
 import type { RightDockHtmlDocument } from "~/rightDockStore.logic";
 
+import { usePageComments } from "../../pageCommentsStore";
+import { promoteHtmlToPageApp } from "../pageApps/promoteHtmlToPageApp";
 import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
+
+import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
+import { PageCommentsLayer } from "./pageComments/PageComments";
 
 import { ExpandedImageOverlay } from "./ExpandedImageOverlay";
 import { SandboxedHtmlDocument } from "./SandboxedHtmlDocument";
@@ -37,6 +57,8 @@ const ZOOM_STEP = 0.25;
 export function HtmlRenderPreviewPane(props: {
   readonly threadId: string;
   readonly document: RightDockHtmlDocument;
+  /** Controls the surrounding surface adds at the header's end (the guest page's close). */
+  readonly headerEnd?: ReactNode;
 }) {
   const { format, t } = useTranslation();
   const [src, setSrc] = useState<string | null | undefined>(undefined);
@@ -44,10 +66,32 @@ export function HtmlRenderPreviewPane(props: {
   const [showSource, setShowSource] = useState(false);
   const [loadingSource, setLoadingSource] = useState(false);
   const [saving, setSaving] = useState(false);
+  // A guest reads the owner's conversation: no 资料空间 to keep a page in, no comments to the
+  // owner's agent, and the guest's own composer takes a page's follow-up.
+  const sharedViewer = useIsSharedViewer();
+  const surfaceFollowUp = useContext(VisualFollowUpContext);
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const { expandedImage, setExpandedImage, closeExpandedImage, navigateExpandedImage } =
     useExpandedImagePreview();
+  // Comments are for visual replies (html_render pages), which carry the comment bridge.
+  const commentsAvailable = props.document.kind === "html-render" && !sharedViewer;
+  const pageKey =
+    props.document.kind === "html-render" ? `html-render:${props.document.attachmentId}` : "";
+  const comments = usePageComments(pageKey);
+  const hasUnreadComments = comments.some((comment) => !comment.read);
+  const [commentMode, setCommentMode] = useState(false);
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  const [commentMarkersVisible, setCommentMarkersVisible] = useState(true);
+  const [commentsMenuOpen, setCommentsMenuOpen] = useState(false);
+  const [frame, setFrame] = useState<HTMLIFrameElement | null>(null);
+  const [frameGeneration, setFrameGeneration] = useState(0);
+  // The dock sits outside the thread view, so it names its own thread: a page's
+  // follow-up lands in the composer of the thread this document came from.
+  const sendFollowUp = useMemo(
+    () => (sharedViewer ? surfaceFollowUp : visualFollowUpForThread(props.threadId)),
+    [props.threadId, sharedViewer, surfaceFollowUp],
+  );
 
   const resolveUrl = useCallback(
     (forceRefresh = false) =>
@@ -60,13 +104,13 @@ export function HtmlRenderPreviewPane(props: {
     [props.document, props.threadId],
   );
 
+  // A pane only ever changes document to a newer page of its surface, which keeps the
+  // reader's zoom and shows the older page until the newer one's URL resolves.
   useEffect(() => {
     let active = true;
-    setSrc(undefined);
     setSource(null);
     setShowSource(false);
     setError(null);
-    setZoom(1);
     void resolveUrl(true).then(
       (url) => {
         if (active) setSrc(url);
@@ -80,13 +124,20 @@ export function HtmlRenderPreviewPane(props: {
     };
   }, [resolveUrl]);
 
+  // The document's own bytes: the frame's URL for the owner, the share's `file` route for a guest.
+  const resolveSourceUrl = useCallback(async () => {
+    const sourceResolver = htmlDocumentSourceUrlResolver();
+    if (sourceResolver !== null) return sourceResolver(props.document);
+    return resolveUrl(true);
+  }, [props.document, resolveUrl]);
+
   const loadSource = useCallback(async () => {
     setLoadingSource(true);
     setError(null);
     try {
       // Re-mint at the point of use: a visible document may have been open for
       // minutes before the reader asks for source or a download.
-      const url = await resolveUrl(true);
+      const url = await resolveSourceUrl();
       if (!url) throw new Error("The visual reply is unavailable.");
       const response = await fetch(url, { credentials: "include" });
       if (!response.ok) throw new Error("The visual reply could not be loaded.");
@@ -97,13 +148,13 @@ export function HtmlRenderPreviewPane(props: {
     } finally {
       setLoadingSource(false);
     }
-  }, [resolveUrl]);
+  }, [resolveSourceUrl]);
 
   const save = useCallback(async () => {
     setSaving(true);
     setError(null);
     try {
-      const url = await resolveUrl(true);
+      const url = await resolveSourceUrl();
       if (!url) throw new Error("The visual reply is unavailable.");
       const response = await fetch(url, { credentials: "include" });
       if (!response.ok) throw new Error("The visual reply could not be loaded.");
@@ -122,7 +173,7 @@ export function HtmlRenderPreviewPane(props: {
     } finally {
       setSaving(false);
     }
-  }, [props.document, resolveUrl]);
+  }, [props.document, resolveSourceUrl]);
 
   const title = props.document.title;
   const unavailable = src === null;
@@ -170,6 +221,64 @@ export function HtmlRenderPreviewPane(props: {
             </Button>
           </div>
         ) : null}
+        {showsPage && commentsAvailable ? (
+          <div className="flex shrink-0 items-center" data-page-comments-control="">
+            <Button
+              aria-label={commentMode ? "Leave comment mode" : "Comment on the page"}
+              aria-pressed={commentMode}
+              size="icon-xs"
+              title={commentMode ? "Leave comment mode (Esc)" : "Comment on the page"}
+              variant="ghost"
+              className={cn(
+                "relative rounded-e-none",
+                commentMode && "bg-[color-mix(in_srgb,var(--foreground)_8%,transparent)]",
+              )}
+              data-page-comments-toggle=""
+              onClick={() => {
+                setCommentMode((on) => !on);
+                setCommentsPanelOpen((open) => (commentMode ? false : open));
+              }}
+            >
+              <PageCommentIcon />
+              {hasUnreadComments ? (
+                <span
+                  aria-hidden
+                  data-page-comments-unread=""
+                  className="absolute top-1 right-1 size-1.5 rounded-full bg-[var(--color-text-accent)] ring-1 ring-background"
+                />
+              ) : null}
+            </Button>
+            <Menu modal={false} open={commentsMenuOpen} onOpenChange={setCommentsMenuOpen}>
+              <MenuTrigger
+                render={
+                  <Button
+                    aria-label="Comment options"
+                    title="Comment options"
+                    size="icon-xs"
+                    variant="ghost"
+                    className="w-3.5 rounded-s-none text-muted-foreground [&_[data-slot=central-icon]]:size-3"
+                  >
+                    <ChevronDownIcon />
+                  </Button>
+                }
+              />
+              <ComposerPickerMenuPopup align="end" side="bottom">
+                <MenuItem
+                  data-page-comments-menu="all"
+                  onClick={() => setCommentsPanelOpen((open) => !open)}
+                >
+                  {commentsPanelOpen ? "Hide all comments" : "All comments"}
+                </MenuItem>
+                <MenuItem
+                  data-page-comments-menu="markers"
+                  onClick={() => setCommentMarkersVisible((visible) => !visible)}
+                >
+                  {commentMarkersVisible ? "Hide comment markers" : "Show comment markers"}
+                </MenuItem>
+              </ComposerPickerMenuPopup>
+            </Menu>
+          </div>
+        ) : null}
         <Button
           aria-label={
             showSource ? t("chat.visualReply.showRendered") : t("chat.visualReply.showSource")
@@ -196,6 +305,16 @@ export function HtmlRenderPreviewPane(props: {
         >
           <DownloadIcon />
         </Button>
+        {sharedViewer ? null : (
+          <PromoteToPageAppButton
+            threadId={props.threadId}
+            title={title}
+            disabled={unavailable}
+            resolveSourceUrl={resolveSourceUrl}
+            onError={setError}
+          />
+        )}
+        {props.headerEnd}
       </header>
       {error ? (
         <p className="shrink-0 border-border/70 border-b px-3 py-2 text-ui-xs text-destructive">
@@ -230,18 +349,41 @@ export function HtmlRenderPreviewPane(props: {
               ...(zoom === 1 ? {} : { transform: `scale(${zoom})` }),
             }}
           >
-            <SandboxedHtmlDocument
-              src={src}
-              title={title}
-              className="block size-full"
-              // This is the T3 `HtmlRenderDocument` path, not the generic HTML
-              // attachment preview. Visual replies may run scripts and submit
-              // forms, but must not open popup contexts from the dock.
-              sandbox="allow-scripts allow-forms"
-              // A fixed overlay inside the scaled box would scale with it.
-              onImageExpand={setExpandedImage}
-            />
+            <VisualFollowUpContext.Provider value={sendFollowUp}>
+              <SandboxedHtmlDocument
+                // A document keeps its first URL, so a newer page gets a new document.
+                key={src}
+                src={src}
+                title={title}
+                className="block size-full"
+                // This is the T3 `HtmlRenderDocument` path, not the generic HTML
+                // attachment preview. Visual replies may run scripts and submit
+                // forms, but must not open popup contexts from the dock.
+                sandbox="allow-scripts allow-forms"
+                htmlRender={props.document.kind === "html-render"}
+                // A fixed overlay inside the scaled box would scale with it.
+                onImageExpand={setExpandedImage}
+                onFrame={setFrame}
+                onLoad={() => setFrameGeneration((generation) => generation + 1)}
+              />
+            </VisualFollowUpContext.Provider>
           </div>
+          {commentsAvailable ? (
+            // Outside the scaled box, so pins and cards keep their size at any zoom.
+            <PageCommentsLayer
+              frame={frame}
+              frameGeneration={frameGeneration}
+              threadId={props.threadId}
+              pageKey={pageKey}
+              pageTitle={title}
+              zoom={zoom}
+              commentMode={commentMode}
+              onCommentModeChange={setCommentMode}
+              panelOpen={commentsPanelOpen}
+              onPanelOpenChange={setCommentsPanelOpen}
+              markersVisible={commentMarkersVisible}
+            />
+          ) : null}
         </div>
       )}
       <ExpandedImageOverlay
@@ -250,5 +392,50 @@ export function HtmlRenderPreviewPane(props: {
         onNavigate={navigateExpandedImage}
       />
     </div>
+  );
+}
+
+/** Keeps the page in 资料空间 as an 应用页 the user can reopen, version and share. */
+function PromoteToPageAppButton(props: {
+  readonly threadId: string;
+  readonly title: string;
+  readonly disabled: boolean;
+  readonly resolveSourceUrl: () => Promise<string | null>;
+  readonly onError: (message: string | null) => void;
+}) {
+  const navigate = useNavigate();
+  const [promoting, setPromoting] = useState(false);
+  const { resolveSourceUrl, onError, title, threadId } = props;
+  const promote = useCallback(async () => {
+    setPromoting(true);
+    onError(null);
+    try {
+      const url = await resolveSourceUrl();
+      if (!url) throw new Error("The visual reply is unavailable.");
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error("The visual reply could not be loaded.");
+      const app = await promoteHtmlToPageApp({
+        html: await response.text(),
+        title,
+        threadId,
+      });
+      void navigate({ to: "/apps/$appId", params: { appId: app.id } });
+    } catch (cause) {
+      onError(cause instanceof Error ? cause.message : "无法存为应用页。");
+    } finally {
+      setPromoting(false);
+    }
+  }, [navigate, onError, resolveSourceUrl, threadId, title]);
+  return (
+    <Button
+      aria-label="存为应用页"
+      disabled={promoting || props.disabled}
+      size="icon-xs"
+      title="存为应用页"
+      variant="ghost"
+      onClick={() => void promote()}
+    >
+      <AppsIcon />
+    </Button>
   );
 }

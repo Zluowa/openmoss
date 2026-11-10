@@ -1,7 +1,7 @@
 // Production CSS is required for the composer/orb visual gate.
 import "../../index.css";
 
-import { DEFAULT_SERVER_SETTINGS_VIEW, ThreadId, type RealtimeVoiceState } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS_VIEW, ThreadId, type RealtimeVoiceState } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import axe from "axe-core";
 import { commands, page } from "vitest/browser";
@@ -228,7 +228,7 @@ describe("RealtimeVoiceStage", () => {
     try {
       await expect
         .element(page.getByRole("status"))
-        .toHaveTextContent("Listening. Ready when you are");
+        .toHaveTextContent("正在聆听. Ready when you are");
       await expect.element(page.getByRole("textbox", { name: "Message" })).toBeEnabled();
       await page.getByRole("button", { name: "Mute voice output" }).click();
       await page.getByRole("button", { name: "Mute microphone" }).click();

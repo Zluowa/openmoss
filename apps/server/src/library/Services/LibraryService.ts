@@ -16,13 +16,16 @@ import type {
   LibraryRestoreInput,
   LibrarySyncResult,
   LibraryTrashInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
 import type { LibraryServiceError } from "../Errors.ts";
+import type { LibraryImage } from "../libraryImage.ts";
 
 export interface LibraryServiceShape {
+  /** Internal image reader: HTTP callers must authenticate before invoking it. */
+  readonly readImage: (itemId: string) => Effect.Effect<LibraryImage | null, LibraryServiceError>;
   readonly list: (input: LibraryListInput) => Effect.Effect<LibraryListResult, LibraryServiceError>;
   /** Full rescan of every existing root, reconciling rows with the filesystem. */
   readonly sync: () => Effect.Effect<LibrarySyncResult, LibraryServiceError>;

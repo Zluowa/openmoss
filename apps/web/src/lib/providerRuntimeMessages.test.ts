@@ -157,6 +157,53 @@ describe("localizeProviderRuntimeMessage", () => {
     },
   );
 
+  it("tells a Chinese user what to do when ZCode's CLI is missing", () => {
+    expect(
+      localizeProviderRuntimeMessage(
+        "The ZCode CLI could not be started. Install the ZCode desktop app (it bundles the CLI) or set ZCODE_BIN to the zcode CLI path, then retry.",
+        "zh-CN",
+      ),
+    ).toBe(
+      "无法启动 ZCode CLI。请安装 ZCode 桌面应用（已内置该 CLI），或把 ZCODE_BIN 设为 zcode CLI 的路径，然后重试。",
+    );
+  });
+
+  it("tells a Chinese user what to do when Kimi Code has no Git Bash", () => {
+    expect(
+      localizeProviderRuntimeMessage(
+        "Kimi Code needs Git Bash on Windows, and Moss could not find it. Install Git for Windows, or set KIMI_SHELL_PATH to a bash.exe, then retry.",
+        "zh-CN",
+      ),
+    ).toBe(
+      "在 Windows 上，Kimi Code 需要 Git Bash，但 Moss 没有找到。请安装 Git for Windows，或把 KIMI_SHELL_PATH 设为 bash.exe 的路径，然后重试。",
+    );
+  });
+
+  it("translates the rows shown while a provider retries", () => {
+    expect(
+      localizeProviderRuntimeMessage("Request retry 3/10 in 3s (connection error).", "zh-CN"),
+    ).toBe("连接中断，3 秒后重试（第 3/10 次）。");
+    expect(localizeProviderRuntimeMessage("Request retry 2/10 in 2s (HTTP 529).", "zh-CN")).toBe(
+      "请求失败（HTTP 529），2 秒后重试（第 2/10 次）。",
+    );
+    expect(
+      localizeProviderRuntimeMessage(
+        "Pi retrying after provider error (attempt 1/3, retrying in 2.0s): ECONNRESET: The socket connection was closed unexpectedly.",
+        "zh-CN",
+      ),
+    ).toBe("服务商出错，2.0 秒后重试（第 1/3 次）。");
+    expect(
+      localizeProviderRuntimeMessage(
+        "Codex stopped responding (no activity for 900s); the turn was aborted.",
+        "zh-CN",
+      ),
+    ).toBe("Codex 已停止响应（900 秒没有活动），本次对话已中止。");
+    expect(localizeProviderRuntimeMessage("OpenCode retrying", "zh-CN")).toBe("OpenCode 正在重试");
+    expect(
+      localizeProviderRuntimeMessage("Request retry 3/10 in 3s (connection error).", "en"),
+    ).toBe("Request retry 3/10 in 3s (connection error).");
+  });
+
   it("returns English and unknown diagnostics byte-for-byte", () => {
     const known = "Provider task stop failed";
     expect(localizeProviderRuntimeMessage(known, "en")).toBe(known);

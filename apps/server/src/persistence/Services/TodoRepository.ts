@@ -4,7 +4,7 @@
  * The repository only persists rows; the service owns ids, timestamps, patch
  * semantics, and change events.
  */
-import { Todo, TodoId } from "@synara/contracts";
+import { Todo, TodoId } from "@moss/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 

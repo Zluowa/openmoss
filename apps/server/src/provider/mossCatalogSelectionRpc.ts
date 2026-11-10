@@ -6,7 +6,7 @@ import type {
   ProviderCatalogResourceKind,
   ProviderCatalogSelectionContext,
   ProviderCatalogSelectionTicket,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export class MossCatalogSelectionRpcError extends Error {
   readonly code: "ticket-invalid" | "authorization-required";

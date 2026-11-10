@@ -12,7 +12,7 @@
  * - Frames: the server listens on a unix socket and passes its path to
  *   `stream.start`; the helper connects as a client and writes
  *   `u32 little-endian length` followed by that many bytes. Those bytes are
- *   already the `@synara/contracts` device-frame envelope, so this module only
+ *   already the `@moss/contracts` device-frame envelope, so this module only
  *   removes the length prefix and hands the envelope on untouched.
  *
  * Two protocol facts that shape callers:
@@ -31,18 +31,18 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
-import { decodeDeviceFrame } from "@synara/shared/deviceFrame";
+import { decodeDeviceFrame } from "@moss/shared/deviceFrame";
 import {
   encodeLengthPrefixedRecord,
   LengthPrefixedRecordError,
   LengthPrefixedRecordParser,
-} from "@synara/shared/lengthPrefixedRecords";
+} from "@moss/shared/lengthPrefixedRecords";
 import {
   JsonRpcStdioFramer,
   JsonRpcStdioRequestRegistry,
   JsonRpcStdioTransportError,
   JsonRpcStdioWriter,
-} from "@synara/shared/jsonrpc-stdio";
+} from "@moss/shared/jsonrpc-stdio";
 
 import type { DeviceStreamFrame } from "./DeviceBackend.ts";
 import { describeSandboxSuspicion, type HelperSandboxCommand } from "./helperSandbox.ts";
@@ -146,7 +146,7 @@ function readNumber(record: Record<string, unknown>, key: string, fallback: numb
 /**
  * The helper's length-prefixed frame records, in this module's error type.
  *
- * The splitting itself lives in `@synara/shared/lengthPrefixedRecords` so any
+ * The splitting itself lives in `@moss/shared/lengthPrefixedRecords` so any
  * other helper framing payloads the same way reuses it; only the failure type
  * is this module's, because a desynced stream here is a `DeviceHelperError`
  * the transport already knows how to drop a socket on.

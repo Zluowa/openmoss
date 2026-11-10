@@ -57,11 +57,6 @@
       ],
       "preservedPayloads": [
         {
-          "path": "resources/app.asar.unpacked/node_modules/@esbuild/win32-x64/esbuild.exe",
-          "sha256": "c7bee37877d0aa6a046e52783fa0a2cf1a9ce5579d68bb3083bda99d4bff18ef",
-          "source": "@esbuild/win32-x64@0.28.2"
-        },
-        {
           "path": "resources/app.asar.unpacked/node_modules/rookie-cookies-win32-x64-msvc/rookie_cookies.win32-x64-msvc.node",
           "sha256": "0122fad4f117714ab1f6e350b3d13bfd5912b490f4f0ad7f78aeb58b94fc34ab",
           "source": "rookie-cookies-win32-x64-msvc@0.6.0"
@@ -77,174 +72,169 @@
           "source": "@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4"
         },
         {
-          "path": "resources/app.asar.unpacked/node_modules/@earendil-works/pi-tui/native/win32/prebuilds/win32-x64/win32-platform.node",
-          "sha256": "51bee02bcb73b165ab92af75ae15b88aba3f5d99f072e63ef60af92ffdc4d565",
-          "source": "@earendil-works/pi-tui@0.87.1"
-        },
-        {
           "path": "resources/claude-runtime/win32-x64/claude.exe",
-          "sha256": "121fc8151ed40bd9c144d68aa1cea23427803628ffab65e23da1cceda155697e",
-          "source": "@anthropic-ai/claude-agent-sdk-win32-x64@0.3.285"
+          "sha256": "b9aa5b08dc2cc46ea77d334dce792d1b8fdbb3a43bb290efdebdc905b1181082",
+          "source": "@anthropic-ai/claude-agent-sdk-win32-x64@0.3.318"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/bin/codex-code-mode-host.exe",
-          "sha256": "07f3869f0849cd54b31cec1f86ec796f004501bd3a215135c1facc883a2b9988",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "977c1f01c9efac0bfe1b9032717c95f92e1c965c8441a8dacbfe824c5c79a527",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/bin/codex.exe",
-          "sha256": "2692c8c7bb2cf8b0aefe638741fc90236f4b824c59578ce84994f9de58200993",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "9d563ee4e0441ff9d59d612013e0460ddf8e5709735c2d9f6b98b7ef8ca4eb42",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-path/rg.exe",
           "sha256": "14231169855ec5205cf5a1b6f1db358ff4aed4247c86b69ce8aae647c77f6680",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/codex-command-runner.exe",
-          "sha256": "fc89dc66c806f25675b9be1e7dafb226807d22761e9741a3bb24b667b803d46c",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "5e68e3f5b4640af55db2873a0d0dc038907145708f9e735870d9279a8074c2df",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/codex-windows-sandbox-setup.exe",
-          "sha256": "2efc67f77de2658667c1481e00a1c4c964d3e8f6d4f39b638620d80b9d0f6d8a",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "3995c4f57199eb8023a0f3a585f6e9fdc4d5174c22a51837aaeb15beb52954f0",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/codex-voice-host.exe",
-          "sha256": "26d1d04ed865dfb630a0a3b8d826f7e85d5b3d4c3de86efeaf5d02c2dd57c680",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "1d04e4f7fedf1cd028b14ad961d7cecbf138096d7397760d5eac98517016cd50",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gio-2.0-0.dll",
-          "sha256": "b6215557039e2d7d7a3493bed69918f2d2183c904e4d09fcf951524c80c41c1b",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "48e22ffbb076a07719f315c9fdc994516e7769b008e445931e042ba3b96621cb",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/glib-2.0-0.dll",
-          "sha256": "5c5b36add8c6bf48c269600abac05708aded2199237e854a08d376ef78f0c155",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "1adcbaa2b3d5ea6b3f1b91f6616cea3240be7f8cb84f66d049649012ff0a51a4",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gmodule-2.0-0.dll",
-          "sha256": "6e3baaf4668ca9de545bcc0cf9ae0c1b888470395e62018563540837480bfb61",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "292b716fb374e1f8074e0f9783500589f290bb23b111df150595539fb2d811f7",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gobject-2.0-0.dll",
-          "sha256": "8554a5fc3fa575c67376b4baa765df0f1418aec37110231ac1cf101856d5d03b",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "4bf15d904d5aac573d6f3228cb1437e1785d9d67a566ef44407b8c1f25dc19f6",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstapp-1.0-0.dll",
-          "sha256": "8573cd7e1e799d66573b6a25a62e5cd414b4e54f30351375d653b5f9778c8707",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "19b0a4ec4245b248325692a8fd4bdd65aa258b82ddd4b3c5de984d37f35cae9b",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstapp.dll",
-          "sha256": "9faed7dcf58ceba37afd82d30a39477b04263012114feeb0053e1b3bc40dbb05",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "f7d87164108b44d76046f044149b7e2e6203dd1f27c3f3b080e89d293ccf4e60",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstaudio-1.0-0.dll",
-          "sha256": "9711731d80f7b41f1e1dda15d38d87672676c4b261279c9a6fdfa4f11a8bc791",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "c25714472ae94ac3471847f437af77e78a7305d8a89cc2830385e960d27a0a4c",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstaudioconvert.dll",
-          "sha256": "6693874a764125fb725e298b6c9e9e1610528ecca46d949fed2575ca2861c1e8",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "d9998e08c27d81431f64b1dd4f0d3406bbb4f49c6ca04574694f951feb6f65e7",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstaudioresample.dll",
-          "sha256": "61c02606fedd20fbf74ebfa775a7358e04d7c1b01f361cbd51ee5dd683f5e6b2",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "673ab7eff4836df8601a1f234a9af6aaa1de408eed3c384306e70ea18c2ab855",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstbase-1.0-0.dll",
-          "sha256": "347bc9c3b8701dfffd62360a22aa62e86c82cfb1709d98bf89536d7cf2abde75",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "fb5877dcd5c8e07b617b6c619f6133ef6843ae4af76b3c9affa44d8e5ce04fa7",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstcoreelements.dll",
-          "sha256": "59790c9ab1d4c15aac484b054dbb57f8e3e456ec7e3447394f518322830cbdc3",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "c7948573d7ed5e29d99884682ab9169beb7e5c4e695b7302af8aeff9f45d2f90",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstnet-1.0-0.dll",
-          "sha256": "57251f8b01769d90b6e95f314fa237312e0a1d0befdbb527d6187af425e3fe42",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "c63055fddc304f72dd1fe1ace67185ad55edbc0b114c1bf2c028148674e34b27",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstopus.dll",
-          "sha256": "f0def131359e66e761f5055d76cca25f4a8b0d28992e9318848654853167f117",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "dbde5b23defeeddc3b5118ac053ae2cb590d9e5c3c9b01dc05a73665588bda55",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstpbutils-1.0-0.dll",
-          "sha256": "2feac8e3a921c7f7b313e2ab53fd578730e384ecd22ae58c2867b8630afde1d1",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "95d0bcefeca177697c8667ae9854cadf11b55f895dcbb79fb4113cb072999c51",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstreamer-1.0-0.dll",
-          "sha256": "762f19dc5d944f78d68c818aa781fbca6dbb33a51c79714fa0e3552c94d2ae42",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "c9b95737515307317d60807cbce4d2991fb57ef683953f6f90ebe9da056a76ed",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstrtp-1.0-0.dll",
-          "sha256": "35a53fcab003c74d1ac4539a1e5c218f883d8fce07ad630529faa131ba0d5ed8",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "ca99fe474bc4d2f91bfe85a03c110f2645bd5f239a1e34d5c77c7fd6fe5163a0",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstrtp.dll",
-          "sha256": "0c9609cea6e80b0d10fbcb9f1223acaefc07448ff767c0482e03691c005838ea",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "c52acb6d4e963797d84c0f9f74a155abbb4c2aa07c04643626b67161185fedd9",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstrtpmanager.dll",
-          "sha256": "e3e05718f906bb05ef2f02edb8dd860c2e4d36bb082497917bd5441b62652489",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "64b49ede3bf2df019cc508b88ce907fb5a81dc298d8a7fa0234e7bf14b8209c8",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gsttag-1.0-0.dll",
-          "sha256": "8971e047a4c4c38502f244c5944cea52e4c492fa3820b234a45cea7943b73319",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "96b59dc2b5b123afe52b89b28be026faa6e964feeba3ec7af2a3acb7c6a7a002",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/gstvideo-1.0-0.dll",
-          "sha256": "85beadd972b009378b8103342573d63ad75a2110c7472be6c1126b16602ece47",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "106d93d9f85e7d7f8a3379a6cc677cd476e24c40557de5707ad612699e8a9e2d",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/intl-8.dll",
-          "sha256": "13b15da1c27da598b6d9a90cfc9177570bc42c705df64f466cc5b66eb5e9adaf",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "227f319a16fcd112ea7f96ca6bd77621ad83357b23af19f6cbbf42a9e802c70f",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/libffi-8.dll",
-          "sha256": "10e5dd36e5b6de06468f829ad15646548f1c76288d5ae87e5154f9182b652bc5",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "b671685958738ad2fcd602075a296758f7e76f34da108dbd98503ea1698fc9bf",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/opus.dll",
-          "sha256": "e3a5ed77837e9f17fbf2bde015d23b35b2dd0d49401d506990e660f2ed7106c0",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "59281bf42c10174313bb777b858723cb3036871bba763b45b36db73fae522260",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/pcre2-8.dll",
-          "sha256": "21371ba32ec71d33098fe40210e15c1f631b7fcc6bddd0c4f6abc2bd38d55603",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "57d2c0d73096f5151e47c08848420bf9d1bada50135a34eb13befd93062fbe29",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/vcruntime140.dll",
           "sha256": "184146852727a9db4eea06178716bec3cdbb1015c911f6b0f915b184ad7775b2",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/codex-runtime/x86_64-pc-windows-msvc/codex-resources/voice/bin/z.dll",
-          "sha256": "7828cdf60f48555c67878e5cb8e2048605336ad3ded22e7e60ab4ccc876bcd4b",
-          "source": "@openai/codex@0.163.0-win32-x64"
+          "sha256": "278186f4c34713f3e29d11e2f0d67adaf46e9de91b7ebe3532a963650ae23ba5",
+          "source": "@openai/codex@0.166.0-win32-x64"
         },
         {
           "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64/conpty.node",
@@ -280,6 +270,31 @@
           "path": "resources/app.asar.unpacked/node_modules/node-pty/prebuilds/win32-x64/winpty.dll",
           "sha256": "e1cb26d868c954ba26817bedf3e4a5744e4ca2030adf51a7156e5ff2fadb881b",
           "source": "node-pty@1.1.0"
+        },
+        {
+          "path": "resources/cua-driver/cua-driver.exe",
+          "sha256": "dbbd52d75759900155fbf3d5f0a13c759a12d06ef17338b88b3f2b8b9c1ef8dc",
+          "source": "cua-driver-rs@0.28.2 windows-x86_64 upstream release (trycua/cua), archive verified against the release checksums.txt"
+        },
+        {
+          "path": "resources/cua-driver/cua-driver-uia.exe",
+          "sha256": "2aa7bde5774c12771b994ba5500e1b948e90a3129fd1182a486e462606bde7f8",
+          "source": "cua-driver-rs@0.28.2 windows-x86_64 upstream release (trycua/cua), archive verified against the release checksums.txt"
+        },
+        {
+          "path": "resources/cua-driver/cua-cursor-theme.exe",
+          "sha256": "5b1d9421217edbdeafa4b2b77029217b0ba0e6e3fc449d5afdf87fccfd85637d",
+          "source": "cua-driver-rs@0.28.2 windows-x86_64 upstream release (trycua/cua), archive verified against the release checksums.txt"
+        },
+        {
+          "path": "resources/cua-driver/cua_driver_sdk.dll",
+          "sha256": "7605fe15bcda9257dc485c779bc7d0f08832e1766165d87e120b345614bd734b",
+          "source": "cua-driver-rs@0.28.2 windows-x86_64 upstream release (trycua/cua), archive verified against the release checksums.txt"
+        },
+        {
+          "path": "resources/cua-driver/cua_driver_node_runtime.node",
+          "sha256": "93f220e8a5cbf25aff23321f20a868368a204f1026b8dce45c5a4f84290de09f",
+          "source": "cua-driver-rs@0.28.2 windows-x86_64 upstream release (trycua/cua), archive verified against the release checksums.txt"
         }
       ]
     }

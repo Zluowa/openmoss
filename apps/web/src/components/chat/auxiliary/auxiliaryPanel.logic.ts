@@ -32,6 +32,7 @@ export function resolveAuxiliarySurface(input: {
   readonly projectPanelEnabled: boolean;
   readonly environmentPanelVisible: boolean;
   readonly groupPanelClosed: boolean;
+  readonly startWithConversation?: boolean;
 }): ChatAuxiliarySurface | null {
   const choice = input.choice;
   if (choice !== null && choice.projectId === input.projectId) {
@@ -40,6 +41,7 @@ export function resolveAuxiliarySurface(input: {
     }
     return choice.surface === "environment" && input.environmentPanelVisible ? "environment" : null;
   }
+  if (input.startWithConversation) return null;
   if (input.projectPanelEnabled && !input.groupPanelClosed) {
     return "project";
   }

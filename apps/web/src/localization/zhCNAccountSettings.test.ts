@@ -102,6 +102,9 @@ describe("translateZhCnAccountSettingsText", () => {
     expect(translateZhCnAccountSettingsText("Reset Dark theme code font")).toBe(
       "重置深色主题代码字体",
     );
+    expect(translateZhCnAccountSettingsText("Reset Dark theme sidebar color")).toBe(
+      "重置深色主题侧边栏颜色",
+    );
     expect(translateZhCnAccountSettingsText("Select next texture. Current texture: dots-2")).toBe(
       "选择下一个纹理。当前纹理：双点阵",
     );

@@ -12,14 +12,14 @@ import type {
   ProviderApprovalPolicy,
   ProviderSandboxMode,
   ProviderSessionStartInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   hashMossProjectionValue,
   parseMossCanonicalConfig,
   projectAllMossConfig,
-} from "@synara/shared/mossConfigProjection";
-import { isProviderKind } from "@synara/shared/providerInstances";
-import { MOSS_RELATIVE_PATHS, getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+} from "@moss/shared/mossConfigProjection";
+import { isProviderKind } from "@moss/shared/providerInstances";
+import { MOSS_RELATIVE_PATHS, getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 
 const SENSITIVE_KEY_PATTERN = /(?:api[_-]?key|auth|token|secret|password|cookie|credential)/i;
 const AUDITED_ENV_KEYS = new Set([

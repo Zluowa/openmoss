@@ -52,7 +52,8 @@ export function getCentralIconUrl(
 
 // Shared base classes so the React component and the imperative DOM helper stay
 // pixel-identical (single uniform fill tinted to the current text color).
-const CENTRAL_ICON_BASE_CLASS = "inline-block size-4 shrink-0 bg-current";
+const CENTRAL_ICON_BASE_CLASS =
+  "inline-block size-[var(--app-icon-size,calc(1.25rem*var(--app-ui-scale,1)))] shrink-0 bg-current";
 // A container rule that styles its icon names both the glyph span and `<svg>` (brand marks):
 // `[&_svg,&_[data-slot=central-icon]]:…` for descendants and
 // `[&>svg,&>[data-slot=central-icon]]:…` for direct children. Spell the selector out in source,
@@ -60,7 +61,7 @@ const CENTRAL_ICON_BASE_CLASS = "inline-block size-4 shrink-0 bg-current";
 // tailwind-merge only lets a call site's override replace a primitive's rule when both spell
 // the selector the same way. Two kinds of svg rule stay svg-only on purpose: the
 // `svg:not([class*='size-'])` size fallbacks, which a glyph never matches because it always
-// carries a size class (`size-4` unless the caller sets one), and the `opacity-80` dimming,
+// carries a size class (the inherited icon role unless the caller sets one), and the `opacity-80` dimming,
 // because icons take the text colour (docs/design/visual-system.md).
 export const CENTRAL_ICON_SLOT = "central-icon";
 

@@ -1,12 +1,30 @@
+import {
+  MossbotRoomUpdateInput,
+  MossbotRoomCreateInput,
+  MossbotRoomGetInput,
+  MossbotRoomSendInput,
+} from "./mossbotRoom";
+import { DevsReportSubmitInput, DevsReportListInput } from "./devsReport";
 import { Schema, Struct, Tuple } from "effect";
+import {
+  AuthCreatePairingCredentialInput,
+  AuthRevokePairingLinkInput,
+  AuthRevokeClientSessionInput,
+} from "./auth";
 import {
   PagesCommentsInput,
   PagesListInput,
   PagesMutateInput,
+  PagesOutputStateInput,
+  PagesOutputsInput,
   PagesReadInput,
   PagesScopeInput,
+  PageSpaceSyncInput,
+  PageAccountRecoveryInput,
   PagesVersionsInput,
 } from "./pages";
+import { PagesRealtimeTokenInput } from "./pagesRealtime";
+import { PageDraftsListInput, PageDraftsMutateInput } from "./pageDrafts";
 import {
   LoadProjectImportHistoryInput,
   ImportProjectInput,
@@ -207,6 +225,8 @@ import {
   ProjectSearchContentInput,
   ProjectSearchLocalEntriesInput,
   ProjectStopDevServerInput,
+  ProjectReadDevServerLogInput,
+  ProjectReadLaunchConfigurationsInput,
   ProjectWriteFileInput,
 } from "./project";
 import { StudioListThreadOutputsInput } from "./studio";
@@ -261,8 +281,9 @@ import {
   ServerGenerateAutomationIntentInput,
   ServerGenerateThreadRecapInput,
   ServerKeepAwakeUpdatedPayload,
-  ServerLifecycleStreamEvent,
   ServerProviderLoginInput,
+  ServerProviderInstallInput,
+  ServerProviderInstallationInput,
   ServerProviderUpdateInput,
   ServerUpdateSettingsInput,
   ServerConsumeCodexResetCreditInput,
@@ -318,6 +339,7 @@ import {
 } from "./pullRequests";
 import { PullRequestAutoFixGetInput, PullRequestAutoFixSetInput } from "./pullRequestAutoFix";
 import {
+  GitHubConnectionInput,
   GitHubInboxListInput,
   GitHubIssueCommentInput,
   GitHubIssueDetailInput,
@@ -327,7 +349,11 @@ import {
   ExternalMcpRefreshPairingInput,
   ExternalMcpRevokeIntegrationInput,
 } from "./externalMcp";
-import { McpConnectorConnectInput, McpConnectorDisconnectInput } from "./mcpConnectors";
+import {
+  McpConnectorConnectInput,
+  McpConnectorDisconnectInput,
+  MossServicePluginSetInstalledInput,
+} from "./mcpConnectors";
 import {
   MossAppsConnectFieldsInput,
   MossAppsConnectInput,
@@ -358,6 +384,8 @@ export const WS_METHODS = {
   projectsRunDevServer: "projects.runDevServer",
   projectsStopDevServer: "projects.stopDevServer",
   projectsListDevServers: "projects.listDevServers",
+  projectsReadDevServerLog: "projects.readDevServerLog",
+  projectsReadLaunchConfigurations: "projects.readLaunchConfigurations",
   subscribeProjectDevServerEvents: "projects.subscribeDevServerEvents",
   projectsProvisionFromGitHub: "projects.provisionFromGitHub",
 
@@ -403,6 +431,7 @@ export const WS_METHODS = {
   gitPreparePullRequestThread: "git.preparePullRequestThread",
 
   // GitHub inbox and global pull request methods
+  githubInboxConnection: "githubInbox.connection",
   githubInboxList: "githubInbox.list",
   githubInboxIssueDetail: "githubInbox.issueDetail",
   githubInboxIssueComment: "githubInbox.issueComment",
@@ -428,9 +457,18 @@ export const WS_METHODS = {
   serverGetConfig: "server.getConfig",
   serverGetEnvironment: "server.getEnvironment",
   serverGetSettings: "server.getSettings",
+  serverGetAuthSession: "server.getAuthSession",
+  serverCreateAuthPairingToken: "server.createAuthPairingToken",
+  serverListAuthPairingLinks: "server.listAuthPairingLinks",
+  serverRevokeAuthPairingLink: "server.revokeAuthPairingLink",
+  serverListAuthClients: "server.listAuthClients",
+  serverRevokeAuthClient: "server.revokeAuthClient",
+  serverRevokeOtherAuthClients: "server.revokeOtherAuthClients",
   serverUpdateSettings: "server.updateSettings",
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
+  serverInstallProvider: "server.installProvider",
+  serverManageProviderInstallation: "server.manageProviderInstallation",
   serverStartProviderLogin: "server.startProviderLogin",
   serverCancelProviderLogin: "server.cancelProviderLogin",
   serverListExternalMcpIntegrations: "server.listExternalMcpIntegrations",
@@ -441,6 +479,9 @@ export const WS_METHODS = {
   serverConnectMcpConnector: "server.connectMcpConnector",
   serverDisconnectMcpConnector: "server.disconnectMcpConnector",
   serverGetMcpConnectorSetup: "server.getMcpConnectorSetup",
+  serverListMossServicePlugins: "server.listMossServicePlugins",
+  serverSetMossServicePluginInstalled: "server.setMossServicePluginInstalled",
+  serverGetHtmlRenderMapConfig: "server.getHtmlRenderMapConfig",
   mossAppsGetStatus: "mossApps.getStatus",
   mossAppsListToolkits: "mossApps.listToolkits",
   mossAppsListConnections: "mossApps.listConnections",
@@ -460,6 +501,9 @@ export const WS_METHODS = {
   serverWorkspaceImportProbe: "server.workspaceImport.probe",
   serverWorkspaceImportApply: "server.workspaceImport.apply",
   serverWorkspaceImportSync: "server.workspaceImport.sync",
+  serverPrepareDevsReport: "server.prepareDevsReport",
+  serverSubmitDevsReport: "server.submitDevsReport",
+  serverListDevsReports: "server.listDevsReports",
   serverReadThreadDiagnostics: "server.readThreadDiagnostics",
   serverPrewarmVoice: "server.prewarmVoice",
   serverTranscribeVoice: "server.transcribeVoice",
@@ -604,11 +648,18 @@ export const WS_METHODS = {
 
   // Library methods (Moss 资料库 local multi-agent index)
   pagesSpaces: "pages.spaces",
+  pageSpaceSync: "pages.spaceSync",
+  pageAccountRecovery: "pages.accountRecovery",
   pagesList: "pages.list",
   pagesRead: "pages.read",
   pagesVersions: "pages.versions",
   pagesComments: "pages.comments",
   pagesMutate: "pages.mutate",
+  pagesRealtimeToken: "pages.realtimeToken",
+  pagesDrafts: "pages.drafts",
+  pagesDraftsMutate: "pages.draftsMutate",
+  pagesOutputs: "pages.outputs",
+  pagesOutputState: "pages.outputState",
   libraryList: "library.list",
   librarySync: "library.sync",
   libraryFavorite: "library.favorite",
@@ -622,6 +673,13 @@ export const WS_METHODS = {
   libraryDeleteFolder: "library.deleteFolder",
   libraryRegister: "library.register",
   libraryImport: "library.import",
+  mossbotRoomUpdate: "mossbotRoom.update",
+  mossbotRoomCancel: "mossbotRoom.cancel",
+  mossbotRoomList: "mossbotRoom.list",
+  mossbotRoomCreate: "mossbotRoom.create",
+  mossbotRoomGet: "mossbotRoom.get",
+  mossbotRoomSend: "mossbotRoom.send",
+  mossbotRoomDelete: "mossbotRoom.delete",
   projectAgentGetOverview: "projectAgent.getOverview",
   projectAgentListSummaries: "projectAgent.listSummaries",
   projectAgentConfigure: "projectAgent.configure",
@@ -664,6 +722,35 @@ export const WS_METHODS = {
 
 // ── Push Event Channels ──────────────────────────────────────────────
 
+/** Pairing secrets and client-session administration require the verified owner role. */
+export const AUTH_MANAGEMENT_WS_METHODS = [
+  WS_METHODS.serverCreateAuthPairingToken,
+  WS_METHODS.serverListAuthPairingLinks,
+  WS_METHODS.serverRevokeAuthPairingLink,
+  WS_METHODS.serverListAuthClients,
+  WS_METHODS.serverRevokeAuthClient,
+  WS_METHODS.serverRevokeOtherAuthClients,
+] as const;
+
+/** Computer History is the host owner's private activity record. Reads are as sensitive as
+ * writes: a paired client session must not see which apps the owner used, or when. */
+export const COMPUTER_HISTORY_WS_METHODS = [
+  WS_METHODS.computerHistoryGetState,
+  WS_METHODS.computerHistoryGetSettings,
+  WS_METHODS.computerHistoryUpdateSettings,
+  WS_METHODS.computerHistoryListApplications,
+  WS_METHODS.computerHistoryResolveApplications,
+  WS_METHODS.computerHistorySetEnabled,
+  WS_METHODS.computerHistoryRetryActivation,
+  WS_METHODS.computerHistoryPause,
+  WS_METHODS.computerHistoryResume,
+  WS_METHODS.computerHistoryListHistory,
+  WS_METHODS.computerHistoryListSuggestions,
+  WS_METHODS.computerHistoryListSummaryIntervals,
+  WS_METHODS.computerHistoryRevealInFinder,
+  WS_METHODS.computerHistoryClearHistory,
+] as const;
+
 export const WS_CHANNELS = {
   automationEvent: "automation.event",
   todoEvent: "todo.event",
@@ -674,7 +761,6 @@ export const WS_CHANNELS = {
   projectDevServerEvent: "project.devServerEvent",
   projectAgentEvent: "projectAgent.event",
   serverWelcome: "server.welcome",
-  serverMaintenanceUpdated: "server.maintenanceUpdated",
   serverConfigUpdated: "server.configUpdated",
   serverProviderStatusesUpdated: "server.providerStatusesUpdated",
   serverKeepAwakeUpdated: "server.keepAwakeUpdated",
@@ -751,6 +837,8 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.projectsRunDevServer, ProjectRunDevServerInput),
   tagRequestBody(WS_METHODS.projectsStopDevServer, ProjectStopDevServerInput),
   tagRequestBody(WS_METHODS.projectsListDevServers, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.projectsReadDevServerLog, ProjectReadDevServerLogInput),
+  tagRequestBody(WS_METHODS.projectsReadLaunchConfigurations, ProjectReadLaunchConfigurationsInput),
   tagRequestBody(WS_METHODS.subscribeProjectDevServerEvents, Schema.Struct({})),
   tagRequestBody(WS_METHODS.projectsProvisionFromGitHub, GitHubProjectProvisionInput),
 
@@ -827,6 +915,9 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.pullRequestsSetAutoFix, PullRequestAutoFixSetInput),
 
   // GitHub inbox (pull requests and issues)
+  GitHubConnectionInput.mapMembers(
+    Tuple.map(Schema.fieldsAssign({ _tag: Schema.tag(WS_METHODS.githubInboxConnection) })),
+  ),
   tagRequestBody(WS_METHODS.githubInboxList, GitHubInboxListInput),
   tagRequestBody(WS_METHODS.githubInboxIssueDetail, GitHubIssueDetailInput),
   tagRequestBody(WS_METHODS.githubInboxIssueComment, GitHubIssueCommentInput),
@@ -845,12 +936,21 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetEnvironment, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetSettings, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverGetAuthSession, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverCreateAuthPairingToken, AuthCreatePairingCredentialInput),
+  tagRequestBody(WS_METHODS.serverListAuthPairingLinks, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverRevokeAuthPairingLink, AuthRevokePairingLinkInput),
+  tagRequestBody(WS_METHODS.serverListAuthClients, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverRevokeAuthClient, AuthRevokeClientSessionInput),
+  tagRequestBody(WS_METHODS.serverRevokeOtherAuthClients, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverWorkspaceImportProbe, WorkspaceImportProbeInput),
   tagRequestBody(WS_METHODS.serverWorkspaceImportApply, WorkspaceImportApplyInput),
   tagRequestBody(WS_METHODS.serverWorkspaceImportSync, WorkspaceImportSyncInput),
   tagRequestBody(WS_METHODS.serverUpdateSettings, ServerUpdateSettingsInput),
   tagRequestBody(WS_METHODS.serverRefreshProviders, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpdateProvider, ServerProviderUpdateInput),
+  tagRequestBody(WS_METHODS.serverInstallProvider, ServerProviderInstallInput),
+  tagRequestBody(WS_METHODS.serverManageProviderInstallation, ServerProviderInstallationInput),
   tagRequestBody(WS_METHODS.serverStartProviderLogin, ServerProviderLoginInput),
   tagRequestBody(WS_METHODS.serverCancelProviderLogin, ServerProviderLoginInput),
   tagRequestBody(WS_METHODS.serverListExternalMcpIntegrations, Schema.Struct({})),
@@ -861,6 +961,12 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverConnectMcpConnector, McpConnectorConnectInput),
   tagRequestBody(WS_METHODS.serverDisconnectMcpConnector, McpConnectorDisconnectInput),
   tagRequestBody(WS_METHODS.serverGetMcpConnectorSetup, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverListMossServicePlugins, Schema.Struct({})),
+  tagRequestBody(
+    WS_METHODS.serverSetMossServicePluginInstalled,
+    MossServicePluginSetInstalledInput,
+  ),
+  tagRequestBody(WS_METHODS.serverGetHtmlRenderMapConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.mossAppsGetStatus, Schema.Struct({})),
   tagRequestBody(WS_METHODS.mossAppsListToolkits, MossAppsListToolkitsInput),
   tagRequestBody(WS_METHODS.mossAppsListConnections, Schema.Struct({})),
@@ -877,6 +983,9 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.statsGetProfileTokenStats, StatsGetProfileTokenStatsInput),
   tagRequestBody(WS_METHODS.statsGetRecap, StatsGetRecapInput),
   tagRequestBody(WS_METHODS.serverGetDiagnostics, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverPrepareDevsReport, DevsReportSubmitInput),
+  tagRequestBody(WS_METHODS.serverSubmitDevsReport, DevsReportSubmitInput),
+  tagRequestBody(WS_METHODS.serverListDevsReports, DevsReportListInput),
   tagRequestBody(WS_METHODS.serverReadThreadDiagnostics, ServerReadThreadDiagnosticsInput),
   tagRequestBody(WS_METHODS.serverPrewarmVoice, ServerVoicePrewarmInput),
   tagRequestBody(WS_METHODS.serverTranscribeVoice, ServerVoiceTranscriptionInput),
@@ -1042,13 +1151,24 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.subscribeTodoEvents, Schema.Struct({})),
 
   tagRequestBody(WS_METHODS.pagesSpaces, PagesScopeInput),
+  tagRequestBody(WS_METHODS.pageSpaceSync, PageSpaceSyncInput),
+  PageAccountRecoveryInput.mapMembers(
+    Tuple.map(Schema.fieldsAssign({ _tag: Schema.tag(WS_METHODS.pageAccountRecovery) })),
+  ),
   tagRequestBody(WS_METHODS.pagesList, PagesListInput),
   tagRequestBody(WS_METHODS.pagesRead, PagesReadInput),
   tagRequestBody(WS_METHODS.pagesVersions, PagesVersionsInput),
   tagRequestBody(WS_METHODS.pagesComments, PagesCommentsInput),
+  tagRequestBody(WS_METHODS.pagesRealtimeToken, PagesRealtimeTokenInput),
   PagesMutateInput.mapMembers(
     Tuple.map(Schema.fieldsAssign({ _tag: Schema.tag(WS_METHODS.pagesMutate) })),
   ),
+  tagRequestBody(WS_METHODS.pagesDrafts, PageDraftsListInput),
+  PageDraftsMutateInput.mapMembers(
+    Tuple.map(Schema.fieldsAssign({ _tag: Schema.tag(WS_METHODS.pagesDraftsMutate) })),
+  ),
+  tagRequestBody(WS_METHODS.pagesOutputs, PagesOutputsInput),
+  tagRequestBody(WS_METHODS.pagesOutputState, PagesOutputStateInput),
 
   // Library methods
   tagRequestBody(WS_METHODS.libraryList, LibraryListInput),
@@ -1064,6 +1184,13 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.libraryDeleteFolder, LibraryDeleteFolderInput),
   tagRequestBody(WS_METHODS.libraryRegister, LibraryRegisterInput),
   tagRequestBody(WS_METHODS.libraryImport, LibraryImportInput),
+  tagRequestBody(WS_METHODS.mossbotRoomUpdate, MossbotRoomUpdateInput),
+  tagRequestBody(WS_METHODS.mossbotRoomCancel, MossbotRoomGetInput),
+  tagRequestBody(WS_METHODS.mossbotRoomList, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.mossbotRoomCreate, MossbotRoomCreateInput),
+  tagRequestBody(WS_METHODS.mossbotRoomGet, MossbotRoomGetInput),
+  tagRequestBody(WS_METHODS.mossbotRoomSend, MossbotRoomSendInput),
+  tagRequestBody(WS_METHODS.mossbotRoomDelete, MossbotRoomGetInput),
   tagRequestBody(WS_METHODS.projectAgentGetOverview, ProjectAgentGetOverviewInput),
   tagRequestBody(WS_METHODS.projectAgentListSummaries, ProjectAgentListSummariesInput),
   tagRequestBody(WS_METHODS.projectAgentConfigure, ProjectAgentConfigureInput),
@@ -1138,7 +1265,6 @@ export type WsWelcomePayload = typeof WsWelcomePayload.Type;
 
 export interface WsPushPayloadByChannel {
   readonly [WS_CHANNELS.serverWelcome]: WsWelcomePayload;
-  readonly [WS_CHANNELS.serverMaintenanceUpdated]: ServerLifecycleStreamEvent;
   readonly [WS_CHANNELS.serverConfigUpdated]: typeof ServerConfigUpdatedPayload.Type;
   readonly [WS_CHANNELS.serverProviderStatusesUpdated]: typeof ServerProviderStatusesUpdatedPayload.Type;
   readonly [WS_CHANNELS.serverKeepAwakeUpdated]: typeof ServerKeepAwakeUpdatedPayload.Type;
@@ -1173,10 +1299,6 @@ const makeWsPushSchema = <const Channel extends string, Payload extends Schema.S
   });
 
 export const WsPushServerWelcome = makeWsPushSchema(WS_CHANNELS.serverWelcome, WsWelcomePayload);
-export const WsPushServerMaintenanceUpdated = makeWsPushSchema(
-  WS_CHANNELS.serverMaintenanceUpdated,
-  ServerLifecycleStreamEvent,
-);
 export const WsPushServerConfigUpdated = makeWsPushSchema(
   WS_CHANNELS.serverConfigUpdated,
   ServerConfigUpdatedPayload,
@@ -1239,7 +1361,6 @@ export const WsPushChannelSchema = Schema.Literals([
   WS_CHANNELS.gitWorktreeSetupProgress,
   WS_CHANNELS.projectProvisionProgress,
   WS_CHANNELS.serverWelcome,
-  WS_CHANNELS.serverMaintenanceUpdated,
   WS_CHANNELS.serverConfigUpdated,
   WS_CHANNELS.serverProviderStatusesUpdated,
   WS_CHANNELS.serverKeepAwakeUpdated,
@@ -1259,7 +1380,6 @@ export type WsPushChannelSchema = typeof WsPushChannelSchema.Type;
 
 export const WsPush = Schema.Union([
   WsPushServerWelcome,
-  WsPushServerMaintenanceUpdated,
   WsPushServerConfigUpdated,
   WsPushServerProviderStatusesUpdated,
   WsPushServerKeepAwakeUpdated,

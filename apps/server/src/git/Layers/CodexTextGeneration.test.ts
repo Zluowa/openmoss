@@ -14,8 +14,8 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Clock, Duration, Effect, FileSystem, Layer, Path } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { sanitizeGeneratedThreadTitle } from "@synara/shared/chatThreads";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@synara/shared/git";
+import { sanitizeGeneratedThreadTitle } from "@moss/shared/chatThreads";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@moss/shared/git";
 import { expect, vi } from "vitest";
 
 import {
@@ -23,6 +23,7 @@ import {
   resolveMossCodexHomeOverlayPath,
 } from "../../codexHomePaths.ts";
 import { ServerConfig } from "../../config.ts";
+import { issueCodexCredentialFence } from "../../codexHomeIdentity.ts";
 import {
   CodexTextGenerationLive,
   codexAuthenticationFailureDetail,
@@ -909,6 +910,175 @@ for (const operation of [
     },
   );
 }
+
+it.effect.runIf(process.platform === "win32")(
+  "titles a Windows chat by asking a key-only provider directly, without the CLI",
+  () => {
+    let spawnCalls = 0;
+    const spawner = Layer.succeed(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.make(() =>
+        Effect.sync(() => {
+          spawnCalls += 1;
+          throw new Error("Windows auxiliary Codex fixture must never spawn");
+        }),
+      ),
+    );
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () =>
+        Response.json({ output_text: '{"title":"展示 T3 Code 的能力"}' }),
+      );
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "moss-codex-win-direct-" });
+      const cwd = path.join(root, "project");
+      const homePath = path.join(root, "moss-codex-home");
+      yield* fs.makeDirectory(cwd);
+      yield* fs.makeDirectory(homePath);
+      yield* fs.writeFileString(
+        path.join(homePath, "config.toml"),
+        [
+          'model = "deepseek-v4-flash"',
+          'model_provider = "moss"',
+          "",
+          "[model_providers.moss]",
+          'name = "Moss"',
+          'base_url = "https://moss-models.example/functions/v1/moss-model-gateway/v1"',
+          'env_key = "OPENAI_API_KEY"',
+          'wire_api = "responses"',
+          "requires_openai_auth = false",
+          "",
+        ].join("\n"),
+      );
+      const service = yield* TextGeneration;
+      const result = yield* service.generateThreadTitle({
+        cwd,
+        message: "展示一下t3 code的能力",
+        modelSelection: { provider: "codex", instanceId: "codex_moss", model: "deepseek-v4-flash" },
+        providerOptions: {
+          codex: {
+            homePath,
+            binaryPath: path.join(root, "must-not-execute-codex"),
+            environment: { OPENAI_API_KEY: "moss-access-token-fixture" },
+          },
+        },
+      });
+      expect(result.title).toBe("展示 T3 Code 的能力");
+      expect(spawnCalls).toBe(0);
+      const [url, init] = fetchSpy.mock.calls[0]!;
+      expect(String(url)).toBe(
+        "https://moss-models.example/functions/v1/moss-model-gateway/v1/responses",
+      );
+      expect((init?.headers as Record<string, string>).authorization).toBe(
+        "Bearer moss-access-token-fixture",
+      );
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        model: "deepseek-v4-flash",
+        reasoning: { effort: "low" },
+      });
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => fetchSpy.mockRestore())),
+      Effect.provide(CodexTextGenerationLive),
+      Effect.provide(spawner),
+      Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "moss-codex-win-direct-" })),
+      Effect.provide(NodeServices.layer),
+    );
+  },
+);
+
+it.effect.runIf(process.platform === "win32")(
+  "reads bound private HTTP routing on Windows without spawning or writing shared history",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "text-private-bound-" });
+      const source = path.join(root, "history");
+      const privateHome = path.join(root, "private");
+      yield* fs.makeDirectory(source);
+      yield* fs.makeDirectory(privateHome);
+      yield* fs.writeFileString(
+        path.join(source, "config.toml"),
+        'model_provider = "wrong-source"\n',
+      );
+      const privateConfig = [
+        'model_provider = "private"',
+        "[model_providers.private]",
+        'name = "Private fixture"',
+        'base_url = "http://127.0.0.1:1/private/v1"',
+        'env_key = "FIXTURE_PRIVATE_KEY"',
+        'wire_api = "responses"',
+        "requires_openai_auth = false",
+        "",
+      ].join("\n");
+      yield* fs.writeFileString(path.join(privateHome, "config.toml"), privateConfig);
+      yield* fs.writeFileString(
+        path.join(privateHome, "auth.json"),
+        '{"account":"synthetic-private"}',
+      );
+      const options = {
+        homePath: source,
+        shadowHomePath: privateHome,
+        accountId: "work",
+        runtimeGeneration: "fixture-generation",
+      };
+      const credentialFence = issueCodexCredentialFence({
+        ...options,
+        assertBindingCurrent: () => {},
+      });
+      const fetchSpy = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          vi
+            .spyOn(globalThis, "fetch")
+            .mockResolvedValue(Response.json({ output_text: '{"title":"Private result"}' })),
+        ),
+        (mock) => Effect.sync(() => mock.mockRestore()),
+      );
+      let spawns = 0;
+      const spawner = Layer.succeed(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.make(() => {
+          spawns++;
+          return Effect.die("Windows auxiliary fixture must never spawn");
+        }),
+      );
+      yield* Effect.gen(function* () {
+        const service = yield* TextGeneration;
+        const request = {
+          cwd: root,
+          message: "fixture title",
+          modelSelection: {
+            provider: "codex" as const,
+            instanceId: "codex_work",
+            model: "fixture-model",
+          },
+          providerOptions: {
+            codex: {
+              ...options,
+              credentialFence,
+              environment: { FIXTURE_PRIVATE_KEY: "synthetic-key" },
+            },
+          },
+        };
+        expect((yield* service.generateThreadTitle(request)).title).toBe("Private result");
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(String(fetchSpy.mock.calls[0]![0])).toBe("http://127.0.0.1:1/private/v1/responses");
+        expect((fetchSpy.mock.calls[0]![1]?.headers as Record<string, string>).authorization).toBe(
+          "Bearer synthetic-key",
+        );
+        const forged = yield* Effect.result(
+          service.generateThreadTitle(JSON.parse(JSON.stringify(request))),
+        );
+        expect(forged._tag).toBe("Failure");
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(spawns).toBe(0);
+        expect(yield* fs.readDirectory(source)).toEqual(["config.toml"]);
+        expect(yield* fs.readFileString(path.join(privateHome, "config.toml"))).toBe(privateConfig);
+      }).pipe(Effect.provide(CodexTextGenerationLive), Effect.provide(spawner));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+);
 
 it.effect(
   "classifies anchored authentication diagnostics without accepting warnings or other status codes",

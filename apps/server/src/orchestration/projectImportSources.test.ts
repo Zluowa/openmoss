@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { DEFAULT_SERVER_SETTINGS } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS } from "@moss/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { resolveProjectImportSources } from "./projectImportSources";
@@ -55,5 +55,25 @@ describe("resolveProjectImportSources", () => {
 
     expect(work?.instanceId).toBe("codex_work");
     expect(work?.codexHomePath).toBe("/accounts/codex-work");
+  });
+
+  it("reads every other agent's default store, even when that agent is turned off", () => {
+    const settings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providers: {
+        ...DEFAULT_SERVER_SETTINGS.providers,
+        grok: { ...DEFAULT_SERVER_SETTINGS.providers.grok, enabled: false },
+      },
+      providerInstances: { pi_work: { driver: "pi", config: {} } },
+    };
+
+    const sources = resolveProjectImportSources(settings, ["grok", "pi"], { homeDir: "/home/me" });
+
+    // A second Pi account keeps its sessions in its own Moss-managed profile, not the
+    // user's own Pi store, so only the default store is read.
+    expect(sources.map((source) => [source.provider, source.instanceId, source.homeDir])).toEqual([
+      ["grok", "grok", "/home/me"],
+      ["pi", "pi", "/home/me"],
+    ]);
   });
 });

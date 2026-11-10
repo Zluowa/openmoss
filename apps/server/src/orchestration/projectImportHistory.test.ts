@@ -1,15 +1,15 @@
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { Effect } from "effect";
 import { expect, it, vi } from "vitest";
 import type { ProviderAdapterRegistryShape } from "../provider/Services/ProviderAdapterRegistry";
 import { makeProjectImportHistoryReader } from "./projectImportHistory";
 
-const { getSessionMessages, readDates } = vi.hoisted(() => ({
-  getSessionMessages: vi.fn(async () => []),
+const { readMessagePage, readDates } = vi.hoisted(() => ({
+  readMessagePage: vi.fn(async () => ({ messages: [], nextCursor: null })),
   readDates: vi.fn(async () => new Map<string, string>()),
 }));
 vi.mock("../provider/claudeAgentSdk", () => ({
-  loadClaudeAgentSdk: async () => ({ getSessionMessages }),
+  readClaudeSessionMessagePageInEnvironment: readMessagePage,
 }));
 vi.mock("../provider/claudeProjectImport", () => ({ readClaudeImportMessageDates: readDates }));
 
@@ -22,11 +22,16 @@ it("reads the frozen Claude copy from its source project, not the destination wo
       nativeId: "frozen-copy",
       sourceHome: "/selected-claude-home",
       sourceCwd: "/original-project",
+      claudeEnvironment: { CLAUDE_CONFIG_DIR: "/selected-claude-home" },
       cwd: "/new-destination",
       sourceCreatedAt: "2026-09-01T00:00:00.000Z",
     }),
   );
-  expect(getSessionMessages).toHaveBeenCalledWith("frozen-copy", { dir: "/original-project" });
+  expect(readMessagePage).toHaveBeenCalledWith({
+    sessionId: "frozen-copy",
+    dir: "/original-project",
+    environment: { CLAUDE_CONFIG_DIR: "/selected-claude-home" },
+  });
   expect(readDates).toHaveBeenCalledWith({
     sessionId: "frozen-copy",
     configDir: "/selected-claude-home",

@@ -3,16 +3,177 @@
 // Boundary: This is a reversible presentation fallback. Runtime content, code, paths, URLs,
 //           model names, and diagnostics remain untouched, and English mode stays available.
 
+import { translateZhCnAppCopyText } from "./zhCNAppCopy";
 import { translateZhCnAppSnapFeedbackText } from "./zhCNAppSnapFeedback";
 import { translateZhCnAccountSettingsText } from "./zhCNAccountSettings";
+import { translateZhCnAutomationsCopyText } from "./zhCNAutomationsCopy";
+import { translateZhCnBrowserCopyText } from "./zhCNBrowserCopy";
+import { translateZhCnChatSurfaceText } from "./zhCNChatSurfaces";
+import { translateZhCnChromeLabelText } from "./zhCNChromeLabels";
+import { translateZhCnCodeReviewCopyText } from "./zhCNCodeReviewCopy";
+import { translateZhCnComposedLabelText } from "./zhCNComposedLabels";
+import { translateZhCnComposerCommandsCopyText } from "./zhCNComposerCommandsCopy";
+import { translateZhCnConversationCopyText } from "./zhCNConversationCopy";
 import { translateZhCnComputerControlText } from "./zhCNComputerControl";
+import { translateZhCnDeviceCopyText } from "./zhCNDeviceCopy";
+import {
+  APPEARANCE_OPTION_NAMES,
+  APPEARANCE_OPTION_SELECTOR,
+  translateZhCnHubCopyText,
+} from "./zhCNHubCopy";
+import { nameSlotRule } from "./zhCNNameSlot";
+import { translateZhCnMossMediaPluginsText } from "./zhCNMossMediaPluginsCopy";
+import { lookupPhrase } from "./zhCNPhraseTable";
+import { translateZhCnPreviewCopyText } from "./zhCNPreviewCopy";
+import { translateZhCnProjectImportCopyText } from "./zhCNProjectImportCopy";
+import { translateZhCnProviderStatusText } from "./zhCNProviderStatus";
 import { translateZhCnPullRequestText } from "./zhCNPullRequests";
 import { translateZhCnRuntimeUiText } from "./zhCNRuntimeUi";
 import { translateZhCnSettingsCopyText } from "./zhCNSettingsCopy";
+import { translateZhCnSidebarInboxCopyText } from "./zhCNSidebarInboxCopy";
+import { translateZhCnTasksCopyText } from "./zhCNTasksCopy";
 import { translateZhCnWhatsNewText } from "./zhCNWhatsNew";
 import { translateZhCnWorkspaceUiText } from "./zhCNWorkspaceUi";
+import { translateZhCnMossbotCopyText } from "./zhCNMossbotCopy";
 
 const UI_TEXT: Readonly<Record<string, string>> = {
+  "Connect another agent": "连接外部智能体",
+  "Group chats": "群聊",
+  "New group chat": "新建群聊",
+  "Bring your assistants together. Each keeps its own CLI and conversation.":
+    "让助手们一起合作，每位成员保留自己的智能体和会话。",
+  "Group name": "群聊名称",
+  "Name this conversation": "给群聊起个名字",
+  "Context (optional)": "背景（可选）",
+  "Group context": "群聊背景",
+  "Group settings": "群聊设置",
+  "Manage members": "管理成员",
+  "Default responder": "默认回复者",
+  "Lead assistant": "主要助手",
+  "Reply behavior": "回复方式",
+  "Only when mentioned": "仅在被提及时回复",
+  Everyone: "所有成员",
+  "Mention an assistant": "提及助手",
+  "Queue message": "加入队列",
+  "Jump to latest": "回到最新消息",
+  "Load earlier messages": "加载更早的消息",
+  "Choose at least one assistant.": "请至少选择一位助手。",
+  "Group members changed. Reopen the member list.": "群成员已变更，请重新打开成员列表。",
+  "Choose a responder who is in the group.": "请选择一位群内成员作为回复者。",
+  "Choose assistants": "选择助手",
+  "Create an assistant first.": "先创建一位助手吧。",
+  "Who replies by default?": "默认由谁回复？",
+  "First selected assistant": "第一位选中的助手",
+  "Everyone, in turn": "所有成员依次回复",
+  "Only @mentioned assistants": "仅回复 @ 提及",
+  "Create group": "创建群聊",
+  "Group chat": "群聊",
+  "Good work starts with a conversation.": "好的合作，从聊一聊开始。",
+  "Use @name to ask one assistant, or @everyone to hear from the group.":
+    "用 @名字 找一位助手，也可以用 @everyone 听听大家的想法。",
+  "Message group": "发消息到群聊",
+  "Stop group": "停止群聊",
+  "Could not load group chats.": "暂时无法加载群聊。",
+  "Open conversation": "打开会话",
+  Lantern: "灯笼",
+  Spark: "火花",
+  Prism: "棱镜",
+  Drop: "水滴",
+  "Use the default assistant avatar": "使用默认头像",
+  "Assistant profile": "助手资料",
+  "Assistant goal": "助手目标",
+  "What should this assistant help you with?": "希望这位助手帮你做什么？",
+  "The outcome you want this assistant to work toward.": "你希望这位助手达成的结果。",
+  Moth: "飞蛾",
+  Cloud: "云朵",
+  Fox: "狐狸",
+  "Assistant avatar": "助手头像",
+  "Assistant color": "助手颜色",
+  "Choose a familiar face": "选一张熟悉的面孔",
+  Pebble: "卵石",
+  Sprout: "嫩芽",
+  Orbit: "轨道",
+  Bloom: "花朵",
+  "Your assistants": "我的助手",
+  "A little help. A little more room to think.": "有人搭把手，思考更从容。",
+  "A familiar face for your everyday work.": "日常工作里，一个熟悉的伙伴。",
+  "Make room for a little help.": "给灵感和日常，找个好帮手。",
+  "An assistant that gets to know you. A place for your questions, ideas, and everything you want to get done.":
+    "一个会逐渐了解你的助手。聊聊问题、整理灵感，一起把想做的事变成现实。",
+  "Create your assistant": "创建我的助手",
+  "Or start with a purpose": "也可以从一件想做的事开始",
+  "Help me with research, writing, planning, and everyday work. Be concise, practical, and clear about what you have verified. Remember useful preferences with their sources. Use the skills I enable and ask when you need a decision.":
+    "帮我研究、写作、规划和处理日常工作。回答简洁实用，说明哪些内容已经核实。记住有用的偏好及其来源，使用我启用的技能，需要我做决定时再询问。",
+  "Be my research partner. Find primary sources, compare evidence, distinguish facts from assumptions, and give me useful conclusions with sources. Keep research notes and suggest follow-ups only when they help.":
+    "做我的研究伙伴。寻找一手资料、比较证据、区分事实与假设，给出有来源的实用结论。保存研究笔记，只在有帮助时建议后续研究。",
+  "Help me move my projects forward. Understand the goal, inspect current work, use scoped worker threads when useful, track decisions and blockers, and report verified results. Preserve existing work and respect approvals.":
+    "帮我推进项目。理解目标、检查当前进展，在需要时分配范围明确的任务，跟踪决定与阻碍，汇报已验证的结果。保留现有工作，遵守审批要求。",
+  "A little help, always at hand.": "随时在身边，帮你把事情做好。",
+  "Meet Mossbot. Personal assistants that remember what matters, use your skills, and work across your projects.":
+    "认识 Mossbot：记住重要的事，使用你的技能，在不同项目间协助你。",
+  "Create an assistant": "创建助手",
+  "New assistant": "新建助手",
+  "Find an assistant": "查找助手",
+  "Search assistants": "搜索助手",
+  "Personal assistant": "个人助手",
+  "Research partner": "研究伙伴",
+  "Project partner": "项目伙伴",
+  "Research, write, plan, and keep track of what matters.": "研究、写作、规划，跟进重要事项。",
+  "Follow questions through to evidence and useful conclusions.":
+    "追溯证据，为问题找到可靠的结论。",
+  "Coordinate work across projects and bring back the results.": "协调各个项目，并把结果带回来。",
+  "Your assistants will live here.": "你的助手会在这里。",
+  "No matching assistants.": "没有匹配的助手。",
+  "Loading assistants…": "正在加载助手…",
+  "Your models. Your skills.": "你的模型，你的技能。",
+  "A conversation that stays with you.": "一段持续陪伴你的对话。",
+  "Uses your configured CLI models and existing approvals. You stay in control.":
+    "沿用已配置的 CLI 模型与审批，你始终掌握控制权。",
+  "Create a Mossbot": "创建 Mossbot",
+  "Create assistant": "创建助手",
+  "Creating…": "正在创建…",
+  "Give your assistant a purpose. You can change its model, memory, and skills later.":
+    "告诉助手该如何帮助你，之后可随时调整模型、记忆和技能。",
+  "Personality & instructions": "个性与指令",
+  "A standing brief for this assistant, kept separate from your other assistants.":
+    "专属于这个助手的长期指令，与其他助手分开保存。",
+  "CLI & model": "智能体与模型",
+  "Use any provider configured in Moss.": "选择 Moss 中已配置的任意提供方。",
+  "Uses your existing Moss permissions and skills. Creating an assistant does not run a model or grant new access.":
+    "复用 Moss 现有权限与技能。创建助手不会启动模型，也不会授予新权限。",
+  "Skills & apps": "技能与应用",
+  "Choose skills": "选择技能",
+  "Edit preferences": "调整偏好",
+  "Connect projects": "连接项目",
+  "Moss is reconnecting. Try again once connected.": "Moss 正在重新连接，请连接后重试。",
+  "Moss is reconnecting. Please retry before closing setup.":
+    "Moss 正在重新连接，请重试后再关闭设置。",
+  "Could not confirm setup state. Retry to recover this assistant safely.":
+    "暂时无法确认创建状态，请重试以安全恢复这个助手。",
+  "Choose a name of 1–160 characters.": "请输入 1–160 个字符的名称。",
+  "Describe how your assistant should help, using up to 16,000 characters.":
+    "请描述助手该如何帮助你，最多 16,000 个字符。",
+  "Could not update assistant": "无法更新助手",
+  "Close assistant overview": "关闭助手概览",
+  "How should your assistant help you?": "你希望助手如何帮助你？",
+  "The preferences and instructions your assistant follows in every conversation.":
+    "助手在每段对话中都会遵循的偏好和指令。",
+  "Notes your assistant saves as it works.": "助手工作时保存的记忆。",
+  "Your assistant’s ongoing memory.": "助手持续积累的记忆。",
+  Overview: "概览",
+  "Assistant settings": "助手设置",
+  Assistants: "助手",
+  "Mossbot overview": "Mossbot 概览",
+  Assistant: "助手",
+  "Assistant name": "助手名称",
+  "Assistant CLI & model": "助手的智能体与模型",
+  "Assistant effort": "助手推理强度",
+  "Show archived": "显示已归档助手",
+  "Hide archived": "隐藏已归档助手",
+  "Your assistant’s personality, memory, models, and access.":
+    "管理助手的个性、记忆、模型和访问范围。",
+  "This assistant is no longer available. Choose another or create one.":
+    "这个助手已不可用，请选择其他助手或创建一个。",
   "Add action": "添加操作",
   "Add Action": "添加操作",
   "Add panel": "添加面板",
@@ -302,6 +463,14 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Review Against Base Branch": "与基准分支比较审阅",
   "Review Uncommitted Changes": "审阅未提交的修改",
   Run: "运行",
+  // Where a chat dragged onto another lands (split drop-zone label).
+  "Side by side": "左右并排",
+  Above: "上方",
+  Below: "下方",
+  // Composer menu key hints (↑↓ Navigate · ↵ Run/Insert/Select · esc Close).
+  Navigate: "切换",
+  Insert: "插入",
+  Select: "选择",
   "Run at": "运行时间",
   "Runs in": "运行位置",
   Save: "保存",
@@ -319,7 +488,9 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "No chats in this project yet": "此项目还没有对话",
   Settings: "设置",
   Show: "显示",
+  "Show dev server logs": "显示开发服务器日志",
   "Show less": "收起",
+  "Show message actions": "显示消息操作",
   "Show more": "显示更多",
   Side: "侧边对话",
   "Sort chats": "排序对话",
@@ -505,6 +676,9 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   Worktrees: "工作树",
   Models: "模型",
   Skills: "技能",
+  "SSH connections": "SSH 连接",
+  "Connect to a remote computer and work in its Moss workspace.":
+    "连接远程电脑，在它的 Moss 工作区中处理文件和对话。",
   Advanced: "高级",
   "Default provider, thread mode, and sidebar organization.":
     "默认提供商、对话模式和侧边栏组织方式。",
@@ -569,7 +743,7 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Show the provider usage row in the chat Environment panel.":
     "在对话环境面板中显示提供商用量行。",
   "Show the GitHub repository link in the chat Environment panel. The git block (Changes, Worktree, branch, Commit and Push) always stays visible.":
-    "在对话环境面板中显示 GitHub 仓库链接。Git 区块（更改、工作树、分支、Commit 和 Push）始终可见。",
+    "在对话环境面板中显示 GitHub 仓库链接。Git 区块（更改、工作树、分支、提交和推送）始终可见。",
   "Show the open pull request (CI checks and review comments) for the current branch in the chat Environment panel.":
     "在对话环境面板中显示当前分支的拉取请求（CI 检查和审阅评论）。",
   "Show the Editor section (in-app editor view and Open in editor picker) in the chat Environment panel.":
@@ -749,8 +923,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
     "实时语音、麦克风、快捷键和隐私控制。",
   "Give Codex, Claude, and other local agents scoped access to Moss tasks.":
     "让 Codex、Claude 和其他本地智能体按权限范围访问 Moss 任务。",
-  "Choose visible coding agents and manage their installed CLI tools.":
-    "选择可见的编码智能体，并管理其已安装的 CLI 工具。",
+  "Choose the coding agents you use, sign them in and install new ones.":
+    "选择你要用的编码智能体，登录或安装新的智能体。",
   "Choose the source control writing style, Git writing model, and custom model slugs.":
     "选择源码管理写作风格、Git 写作模型和自定义模型标识。",
   "Review reusable workflows discovered across all configured providers.":
@@ -774,10 +948,10 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "new threads": "新建对话",
 
   // Moss Beta channel card, install flow, and leave-beta dialog.
-  "Try new features before everyone else. Moss Beta is a separate app with its own data, and this app stays exactly as it is. Beta shares crash reports and anonymous usage stats to help us improve it.":
-    "先于所有人体验新功能。Moss Beta 是独立的应用，拥有独立数据，此应用保持原样。Beta 会分享崩溃报告和匿名使用统计，以帮助我们改进。",
-  "Beta runs next to Moss with its own data, so nothing here changes. Copy your data to bring over projects, settings, and provider sign-ins. Beta shares crash reports and anonymous usage stats.":
-    "Beta 与 Moss 并行运行且数据独立，此处的任何内容都不会改变。复制你的数据即可迁移项目、设置和服务商登录状态。Beta 会分享崩溃报告和匿名使用统计。",
+  "Try new features before everyone else. Moss Beta is a separate app with its own data, and this app stays exactly as it is.":
+    "先于所有人体验新功能。Moss Beta 是独立的应用，拥有独立数据，此应用保持原样。",
+  "Beta runs next to Moss with its own data, so nothing here changes. Copy your data to bring over projects, settings, and provider sign-ins.":
+    "Beta 与 Moss 并行运行且数据独立，此处的任何内容都不会改变。复制你的数据即可迁移项目、设置和服务商登录状态。",
   "Install Moss Beta": "安装 Moss Beta",
   "Installing…": "正在安装…",
   "Copy my data and open": "复制我的数据并打开",
@@ -805,23 +979,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Could not switch back to Moss": "无法切换回 Moss",
   "Open Moss from your Applications folder.": "请从“应用程序”文件夹打开 Moss。",
   "You're on Moss Beta": "你正在使用 Moss Beta",
-  "To help us fix problems, Beta shares crash reports, app errors, and anonymous usage counts. Crash reports may include private information.":
-    "为帮助我们修复问题，Beta 会分享崩溃报告、应用错误和匿名使用统计。崩溃报告可能包含隐私信息。",
-  "What Beta shares": "Beta 分享的内容",
-  Shared: "分享内容",
-  "Not included in usage counts": "不计入使用统计",
-  "A random ID for this install, not linked to you": "此安装的随机 ID，不关联你的身份",
-  "When Beta opens, closes, installs, or is removed": "Beta 的打开、关闭、安装或移除时间",
-  "Crashes and errors; error details are filtered": "崩溃和错误；错误详情已经过滤",
-  "App version, OS version, and language": "应用版本、系统版本和语言",
-  "Which providers you use, and how many projects, chats, and turns (just counts)":
-    "你使用的服务商，以及项目、对话和轮次的数量（仅计数）",
-  "Whether updates install correctly": "更新是否安装成功",
-  "Your chats, prompts, or agent replies": "你的对话、提示词或智能体回复",
-  "Your code, files, or project names": "你的代码、文件或项目名称",
-  "Keys, passwords, or account details": "密钥、密码或账号详情",
-  "Error details are filtered, but may still include private information. Crash dumps include app memory that can't be filtered. Reports and dumps are kept with no expiry date.":
-    "错误详情会经过过滤，但仍可能包含隐私信息。崩溃转储包含无法过滤的应用内存。报告和转储将无限期保留。",
   "Switch back to Moss": "切换回 Moss",
   "Switch back to Moss?": "切换回 Moss？",
   "Moss opens with the chats and settings it had before you tried Beta. Beta closes, and any chats still running in Beta stop.":
@@ -1060,6 +1217,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
     "工作区中的一切都有快捷键，键位映射可在“设置”中编辑。以下几个值得在第一天就记住：",
   "Search sidebar": "搜索侧边栏",
   "Add your first project": "添加你的第一个项目",
+  "Bring in conversations from the agents on this computer.":
+    "把这台电脑上各个智能体的对话导入 Moss。",
   "Could not add the project.": "无法添加该项目。",
   "Could not open the folder picker.": "无法打开文件夹选择器。",
   "Diff, terminal, browser and PR stay in one loop.": "差异、终端、浏览器和 PR 都在同一闭环中。",
@@ -1105,6 +1264,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Theme and typography": "主题与排版",
   "Reset theme to default": "将主题重置为默认值",
   "Choose how Moss looks across the app.": "选择 Moss 在整个应用中的外观。",
+  "Applies live behind this window. Change it anytime in Settings → Appearance.":
+    "可立即预览，之后可随时在“设置 → 外观”中更改。",
   "Theme preference": "主题偏好",
   theme: "主题",
   "base font size": "基础字号",
@@ -1129,6 +1290,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Light theme accent color": "浅色主题强调色",
   "Light theme background color": "浅色主题背景色",
   "Light theme foreground color": "浅色主题前景色",
+  "Dark theme sidebar color": "深色主题侧边栏颜色",
+  "Light theme sidebar color": "浅色主题侧边栏颜色",
   "Dark theme UI font": "深色主题界面字体",
   "Light theme UI font": "浅色主题界面字体",
   "Dark theme code font": "深色主题代码字体",
@@ -1143,6 +1306,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "浅色主题 accent color": "浅色主题强调色",
   "深色主题 background color": "深色主题背景色",
   "浅色主题 background color": "浅色主题背景色",
+  "深色主题 sidebar color": "深色主题侧边栏颜色",
+  "浅色主题 sidebar color": "浅色主题侧边栏颜色",
   "深色主题 foreground color": "深色主题前景色",
   "浅色主题 foreground color": "浅色主题前景色",
   "深色主题 UI font": "深色主题界面字体",
@@ -1264,8 +1429,16 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Review installed provider tools that Moss can safely update.":
     "检查 Moss 可以安全更新的已安装提供商工具。",
   "No provider updates detected": "未检测到提供商更新",
+  "Latest version unavailable for some tools": "部分工具暂时无法查询最新版本",
+  "Version lookup not supported for installed tools": "已安装的工具不支持查询最新版本",
+  "No version checks completed": "尚未完成版本检查",
   "Provider picker": "提供商选择器",
   "provider picker": "提供商选择器",
+  "Default provider for new chats": "新对话默认服务商",
+  "default provider for new chats": "新对话默认服务商",
+  "New chats, Canvas and other quick actions take an agent's models from this provider unless you pick another one in the model picker. Moss is used while you are signed in to Moss.":
+    "新对话、画布和其他快捷操作会从这里选择的服务商获取智能体的模型，除非你在模型选择器中另选。登录 Moss 后使用 Moss。",
+  "Local account": "本机账号",
   "provider tools": "提供商工具",
   "custom models": "自定义模型",
   "Visible providers": "可见提供商",
@@ -1553,6 +1726,33 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Redirect URL": "重定向 URL",
   "Client ID": "客户端 ID",
   "Client secret": "客户端密钥",
+  "API key": "API 密钥",
+  "Get a key": "获取密钥",
+  ", then paste it here.": "，再粘贴到这里。",
+  ", or leave this empty to keep the saved one.": "，或者留空继续用已保存的密钥。",
+  "Travel & life": "出行与生活",
+  "Search places, plan routes, check weather, and geocode addresses.":
+    "搜索地点、规划路线、查天气，以及地址与坐标互转。",
+  "Search places, plan routes, and geocode addresses.": "搜索地点、规划路线，以及地址与坐标互转。",
+  "Estimate fares, book rides, and track drivers. Orders are real.":
+    "预估车费、叫车、查看司机位置。订单是真实的。",
+  "Browse menus and coupons, and place pickup or delivery orders.":
+    "查看菜单和优惠券，下到店取餐或外送订单。",
+  "Find stores and drinks, apply coupons, and place pickup orders.":
+    "查找门店和饮品、使用优惠券、下自提订单。",
+  "Search flights, trains, hotels, and attractions with Fliggy, with booking links.":
+    "用飞猪搜索机票、火车票、酒店和景点，结果带预订链接。",
+  "Search products, add to your cart, check orders, and message sellers in Taobao. Asks before every change and never pays.":
+    "在淘宝搜索商品、加入购物车、查订单、联系卖家。每次改动前都先问你，从不付款。",
+  "Needs the FlyAI CLI on this computer: npm i -g @fly-ai/flyai-cli":
+    "需要在这台电脑上安装飞猪 FlyAI 命令行：npm i -g @fly-ai/flyai-cli",
+  "Needs the Taobao desktop app signed in on this computer. The first time, your agent asks you to install a small command-line helper.":
+    "需要这台电脑上已登录淘宝桌面客户端。第一次使用时，智能体会请你安装一个小的命令行工具。",
+  "This plugin is available only while signed in to Moss with a mainland China phone number.":
+    "这个插件仅在用中国大陆手机号登录 Moss 后可用。",
+  "Connect this plugin's service to install it.": "连接这个插件的服务即可安装。",
+  "This plugin is not available.": "这个插件暂不可用。",
+  "Moss could not update this plugin.": "Moss 无法更新这个插件。",
   "Connecting…": "正在连接…",
   "Finish signing in in your browser. This updates on its own.":
     "请在浏览器里完成登录。这里会自己更新。",
@@ -1622,14 +1822,18 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   Quit: "退出",
   "A chat is still running": "有一个对话正在运行",
   "Chats are still running": "有多个对话正在运行",
+  "Work is still running": "仍有工作在运行",
+  "Dev server": "开发服务器",
+  "Importing conversations": "正在导入对话",
+  "Downloading an app update": "正在下载应用更新",
   "Resume chat automatically": "下次启动时自动继续这个对话",
   "Resume chats automatically": "下次启动时自动继续这些对话",
   "Spaces in the rail": "侧边栏中的空间",
   "Projects in the rail": "侧边栏中的项目",
   "No projects yet": "暂无项目",
   "Customize…": "自定义…",
-  "Enable providers across Moss. Disabled providers are hidden from pickers and settings; their saved configuration and existing threads are kept, and running turns continue. Enabling does not install a CLI or sign it in.":
-    "在 Moss 中启用服务商。已停用的服务商不会出现在选择器和设置里，但已保存的配置和现有对话都会保留，正在运行的回合也会继续。启用不会安装 CLI，也不会自动登录。",
+  "Turn agents on or off across Moss. Agents you turn off are hidden from pickers; their settings and conversations are kept, and running turns continue.":
+    "在 Moss 中开启或关闭智能体。关闭的智能体不会出现在选择器里，它们的设置和对话都会保留，正在运行的回合也会继续。",
   "Refresh status": "刷新状态",
   "Checking setup": "正在检查设置",
   "Setup guide": "设置指南",
@@ -1655,6 +1859,7 @@ const LOCALIZABLE_ATTRIBUTES = [
   "title",
   "placeholder",
   "data-tooltip-content",
+  "alt",
 ] as const;
 const LOCALIZATION_BOUNDARY_ATTRIBUTES = [
   "contenteditable",
@@ -1715,8 +1920,49 @@ function isInsideEmptyLandingHeroHeading(node: Node): boolean {
   return false;
 }
 
+function isAppearanceOption(node: Node): boolean {
+  const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+  return Boolean(element?.closest(APPEARANCE_OPTION_SELECTOR));
+}
+
+const PIN_NAME_RULE = nameSlotRule("Pin");
+const SHOW_NAME_RULE = nameSlotRule("Show");
+const WAITING_FOR_NAME_RULE = nameSlotRule("Waiting for", "…");
+const WORD_LEVEL_NAME_RULES: ReadonlyArray<readonly [RegExp, string]> = [
+  [nameSlotRule("Disable"), "停用 $1"],
+  [nameSlotRule("Run"), "运行 $1"],
+  [nameSlotRule("Restart"), "重启 $1"],
+  [nameSlotRule("Sign in to"), "登录 $1"],
+  // Capitalized words only: these slots hold product names, not English phrases.
+  [/^Select ([A-Z][^.]*)$/, "选择 $1"],
+  [/^Import ([A-Z一-鿿][^.]*)$/, "导入 $1"],
+  // An id, not a phrase: the sidebar's drag handles name what they move by project key or thread id.
+  [/^Move (\S*[\d:_-]\S*)$/, "移动 $1"],
+  [/^Attach ([A-Z][^.]*)$/, "附加 $1"],
+  [/^Move to ([A-Z]\S*(?: [A-Z]\S*){0,2})$/, "移到 $1"],
+  [/^Switch to ([A-Z]\S*(?: [A-Z]\S*){0,2})$/, "切换到 $1"],
+  [/^Go to ([A-Z]\S*(?: [A-Z]\S*){0,2})$/, "前往 $1"],
+  [/^Open ([A-Z]\S*(?: [A-Z]\S*){0,2})\.$/, "打开 $1。"],
+  [/^Copy ([A-Z][^.]*|\S+)$/, "复制 $1"],
+  [/^([A-Z]\S*(?: [A-Z]\S*){0,2}) accounts?$/, "$1 账号"],
+  [/^([A-Z]\S*(?: [A-Z]\S*){0,2}) imported$/, "已导入 $1"],
+  [/^([A-Z]\S*(?: [A-Z]\S*){0,2}) actions$/, "$1 操作"],
+  [/^([A-Z]\S*(?: [A-Z]\S*){0,2}) remaining$/, "$1 剩余额度"],
+  [nameSlotRule("Rename"), "重命名 $1"],
+  // Capitalized words only: these slots hold names, and lowercase ones are English phrases.
+  [/^Open ([A-Z一-鿿]\S*(?: [A-Z0-9一-鿿]\S*){0,2})$/, "打开 $1"],
+  [/^Inspect ([A-Z]\S*(?: [A-Z]\S*){0,2})$/, "查看 $1"],
+  [/^Removed ([A-Z]\S*(?: [A-Z]\S*){0,2})$/, "已移除 $1"],
+  [/^Back to ([A-Z一-鿿][^.]*)$/, "返回 $1"],
+  [/^Loading ([A-Z一-鿿][^.…]*)$/, "正在加载 $1"],
+];
+
+function translateComposedLabel(value: string): string {
+  return translateZhCnComposedLabelText(value, translateZhCnPresentationText);
+}
+
 function translateKnownUiText(value: string): string {
-  return UI_TEXT[value] ?? value;
+  return lookupPhrase(UI_TEXT, value) ?? value;
 }
 
 /** Composer permission button titles mix a localized label with English provider copy. */
@@ -1744,6 +1990,10 @@ function translateZhCnPresentationTextForNode(value: string, node: Node): string
     if (value === "What should we build in") return "你想让我们在";
     if (value === "?") return " 中构建什么？";
   }
+  // "Music" on a picker's button is an icon; on a folder or project row it is someone's name.
+  if (Object.hasOwn(APPEARANCE_OPTION_NAMES, value) && isAppearanceOption(node)) {
+    return APPEARANCE_OPTION_NAMES[value] ?? value;
+  }
   return translateZhCnPresentationText(value);
 }
 
@@ -1756,7 +2006,7 @@ function translateZhCnRealtimeVoiceDynamicText(value: string): string {
   ) {
     const name = optionMatch[1] ?? "";
     const description = optionMatch[2] ?? "";
-    return `${name}：${UI_TEXT[description] ?? description}`;
+    return `${name}：${lookupPhrase(UI_TEXT, description) ?? description}`;
   }
 
   const selectedMatch = /^Selected voice: ([^.]+)\. (.+)$/.exec(value);
@@ -1767,7 +2017,7 @@ function translateZhCnRealtimeVoiceDynamicText(value: string): string {
   ) {
     const name = selectedMatch[1] ?? "";
     const description = selectedMatch[2] ?? "";
-    return `已选择语音：${name}。${UI_TEXT[description] ?? description}`;
+    return `已选择语音：${name}。${lookupPhrase(UI_TEXT, description) ?? description}`;
   }
 
   const previewActionMatch = /^(Replay|Retry|Play|Pause) (.+) preview$/.exec(value);
@@ -1790,11 +2040,25 @@ function translateZhCnRealtimeVoiceDynamicText(value: string): string {
 }
 
 export function translateZhCnPresentationText(value: string): string {
-  const priorityRealtimeVoiceText = REALTIME_VOICE_PRIORITY_TEXT[value];
+  const priorityRealtimeVoiceText = lookupPhrase(REALTIME_VOICE_PRIORITY_TEXT, value);
   if (priorityRealtimeVoiceText) return priorityRealtimeVoiceText;
 
   for (const translateFeatureText of [
+    translateZhCnMossbotCopyText,
     translateZhCnSettingsCopyText,
+    translateZhCnTasksCopyText,
+    translateZhCnCodeReviewCopyText,
+    translateZhCnBrowserCopyText,
+    translateZhCnPreviewCopyText,
+    translateZhCnDeviceCopyText,
+    translateZhCnProjectImportCopyText,
+    translateZhCnComposerCommandsCopyText,
+    translateZhCnAutomationsCopyText,
+    translateZhCnAppCopyText,
+    translateZhCnChromeLabelText,
+    translateZhCnChatSurfaceText,
+    translateZhCnProviderStatusText,
+    translateComposedLabel,
     translateZhCnAccountSettingsText,
     translateZhCnRuntimeUiText,
     translateZhCnWorkspaceUiText,
@@ -1802,6 +2066,10 @@ export function translateZhCnPresentationText(value: string): string {
     translateZhCnAppSnapFeedbackText,
     translateZhCnComputerControlText,
     translateZhCnWhatsNewText,
+    translateZhCnConversationCopyText,
+    translateZhCnHubCopyText,
+    translateZhCnSidebarInboxCopyText,
+    translateZhCnMossMediaPluginsText,
   ]) {
     const translated = translateFeatureText(value);
     if (translated !== value) return translated;
@@ -1818,7 +2086,7 @@ export function translateZhCnPresentationText(value: string): string {
   const resetSettingMatch = /^Reset (.+) to default$/.exec(value);
   if (resetSettingMatch) {
     const settingLabel = resetSettingMatch[1] ?? "";
-    return `将${UI_TEXT[settingLabel] ?? settingLabel}恢复为默认值`;
+    return `将${lookupPhrase(UI_TEXT, settingLabel) ?? settingLabel}恢复为默认值`;
   }
   if (value === "Pin project") return "固定项目";
   const quitAppMatch = /^Quit (.+)\?$/.exec(value);
@@ -1842,6 +2110,21 @@ export function translateZhCnPresentationText(value: string): string {
   if (reorderProviderMatch) return `调整 ${reorderProviderMatch[1]} 的顺序`;
   const currentVersionMatch = /^Current (v.+)$/.exec(value);
   if (currentVersionMatch) return `当前版本 ${currentVersionMatch[1]}`;
+  const installedVersionMatch =
+    /^Installed (v\S+)(?: · (Latest version unavailable|Version lookup not supported|Update checks off))?$/.exec(
+      value,
+    );
+  if (installedVersionMatch) {
+    const note =
+      installedVersionMatch[2] === "Latest version unavailable"
+        ? "；暂时无法查询最新版本"
+        : installedVersionMatch[2] === "Version lookup not supported"
+          ? "；不支持查询最新版本"
+          : installedVersionMatch[2] === "Update checks off"
+            ? "；已关闭更新检查"
+            : "";
+    return `已安装 ${installedVersionMatch[1]}${note}`;
+  }
   const enabledSkillsMatch = /^(\d+) of (\d+) skills enabled$/.exec(value);
   if (enabledSkillsMatch)
     return `已启用 ${enabledSkillsMatch[1]} / ${enabledSkillsMatch[2]} 个技能`;
@@ -1874,26 +2157,27 @@ export function translateZhCnPresentationText(value: string): string {
   const hexValueMatch = /^(.+) hex value$/.exec(value);
   if (hexValueMatch) {
     const colorLabel = hexValueMatch[1] ?? "";
-    return `${UI_TEXT[colorLabel] ?? colorLabel} 十六进制值`;
+    return `${lookupPhrase(UI_TEXT, colorLabel) ?? colorLabel} 十六进制值`;
   }
   const saturationBrightnessMatch = /^Saturation (\d+%), Brightness (\d+%)$/.exec(value);
   if (saturationBrightnessMatch)
     return `饱和度 ${saturationBrightnessMatch[1]}，亮度 ${saturationBrightnessMatch[2]}`;
-  const pinProjectMatch = /^Pin (.+)$/.exec(value);
+  const pinProjectMatch = PIN_NAME_RULE.exec(value);
   if (pinProjectMatch) return `固定 ${pinProjectMatch[1]}`;
   const terminalThreadMatch = /^Create new terminal thread in (.+)$/.exec(value);
   if (terminalThreadMatch) return `在 ${terminalThreadMatch[1]} 中新建终端对话`;
   const newThreadMatch = /^Create new thread in (.+)$/.exec(value);
   if (newThreadMatch) return `在 ${newThreadMatch[1]} 中新建对话`;
-  const stagedSummaryMatch = /^Staged (.+)$/.exec(value);
+  // These summaries always lead with a count; "Changes saved, but…" is a sentence.
+  const stagedSummaryMatch = /^Staged ([\d+-].*)$/.exec(value);
   if (stagedSummaryMatch) return `已暂存 ${stagedSummaryMatch[1]}`;
-  const changesSummaryMatch = /^Changes (.+)$/.exec(value);
+  const changesSummaryMatch = /^Changes ([\d+-].*)$/.exec(value);
   if (changesSummaryMatch) return `更改 ${changesSummaryMatch[1]}`;
   const localServersMatch = /^Local servers (\d+)$/.exec(value);
   if (localServersMatch) return `本地服务器 ${localServersMatch[1]}`;
   const changedFilesMatch = /^Changed files (\d+)$/.exec(value);
   if (changedFilesMatch) return `已更改文件 ${changedFilesMatch[1]}`;
-  const fromBranchMatch = /^From (.+)$/.exec(value);
+  const fromBranchMatch = /^From (?!.* (?:to|and) )(.+)$/.exec(value);
   if (fromBranchMatch) return `来自 ${fromBranchMatch[1]}`;
   const chatCountMatch = /^(\d+)\s+chats?$/.exec(value);
   if (chatCountMatch) return `${chatCountMatch[1]} 个对话`;
@@ -1951,10 +2235,9 @@ export function translateZhCnPresentationText(value: string): string {
   if (fewerChangeMatch) return `${fewerChangeMatch[1]} 更少`;
   const busiestSlotMatch = /^, mostly in the (.+)$/.exec(value);
   if (busiestSlotMatch) {
-    const slotKey = busiestSlotMatch[1] as "morning" | "afternoon" | "evening";
+    const slotKey = busiestSlotMatch[1] ?? "";
     const slot =
-      ({ morning: "上午", afternoon: "下午", evening: "晚上" } as const)[slotKey] ??
-      busiestSlotMatch[1];
+      lookupPhrase({ morning: "上午", afternoon: "下午", evening: "晚上" }, slotKey) ?? slotKey;
     return `，主要集中在${slot}`;
   }
 
@@ -1966,7 +2249,7 @@ export function translateZhCnPresentationText(value: string): string {
   const betaInstallFailedMatch = /^Install failed: (.+)$/.exec(value);
   if (betaInstallFailedMatch) return `安装失败：${betaInstallFailedMatch[1]}`;
 
-  const exact = UI_TEXT[value];
+  const exact = lookupPhrase(UI_TEXT, value);
   if (exact) return exact;
 
   // Connector names stay as the vendor wrote them. These only match a short name,
@@ -1975,7 +2258,7 @@ export function translateZhCnPresentationText(value: string): string {
   if (connectNameMatch) return `连接 ${connectNameMatch[1]}`;
   const continueToMatch = /^Continue to ([^.\n,]{1,40})$/.exec(value);
   if (continueToMatch) return `继续前往 ${continueToMatch[1]}`;
-  const waitingForMatch = /^Waiting for ([^.\n,]{1,40})…$/.exec(value);
+  const waitingForMatch = WAITING_FOR_NAME_RULE.exec(value);
   if (waitingForMatch) return `正在等待 ${waitingForMatch[1]}…`;
   const signInTimeoutMatch = /^The sign-in to ([^.\n,]{1,40}) timed out\. Try again\.$/.exec(value);
   if (signInTimeoutMatch) return `登录 ${signInTimeoutMatch[1]} 超时了。请再试一次。`;
@@ -1987,6 +2270,26 @@ export function translateZhCnPresentationText(value: string): string {
   if (disconnectMatch) return `断开 ${disconnectMatch[1]}？`;
   const noConnectorMatch = /^No connectors match “([^”]+)”\.$/.exec(value);
   if (noConnectorMatch) return `没有匹配「${noConnectorMatch[1]}」的连接器。`;
+  const regionOnlyMatch =
+    /^([^.\n,]{1,40}) is available only while signed in to Moss with a mainland China phone number\.$/.exec(
+      value,
+    );
+  if (regionOnlyMatch) return `${regionOnlyMatch[1]} 仅在用中国大陆手机号登录 Moss 后可用。`;
+  const apiKeyTitleMatch = /^([^.\n,]{1,40}) API key$/.exec(value);
+  if (apiKeyTitleMatch) return `${apiKeyTitleMatch[1]} API 密钥`;
+  const apiKeyConsoleMatch =
+    /^([^.\n,]{1,40}) signs in with a key from its developer console\.\s?$/.exec(value);
+  if (apiKeyConsoleMatch) return `${apiKeyConsoleMatch[1]} 用开发者控制台里的密钥登录。`;
+  const apiKeyNeededMatch =
+    /^([^.\n,]{1,40}) needs an API key\. Paste the key from its developer console\.$/.exec(value);
+  if (apiKeyNeededMatch)
+    return `${apiKeyNeededMatch[1]} 需要 API 密钥。请粘贴它开发者控制台里的密钥。`;
+  const apiKeyRejectedMatch =
+    /^([^.\n,]{1,40}) did not accept this key\. Check that it is correct and enabled for its MCP service\.$/.exec(
+      value,
+    );
+  if (apiKeyRejectedMatch)
+    return `${apiKeyRejectedMatch[1]} 没有接受这个密钥。请确认密钥正确，并且已开通它的 MCP 服务。`;
   const ownAppMatch = /^Use your own ([^.\n,]{1,40}) app$/.exec(value);
   if (ownAppMatch) return `使用你自己的 ${ownAppMatch[1]} 应用`;
   const registeredAppMatch = /^([^.\n,]{1,40}) only signs in apps registered with it\.$/.exec(
@@ -2011,9 +2314,15 @@ export function translateZhCnPresentationText(value: string): string {
     );
   if (sharedMatch)
     return `智能体使用 ${sharedMatch[1]} 时，请求和所需上下文会发给 ${sharedMatch[1]}，回答则回到正在跑这个对话的 AI 服务商。适用 ${sharedMatch[1]} 自己的条款和隐私政策。登录信息留在这台电脑上，不会分享给 AI 服务商。`;
-  const showSlideMatch = /^Show (.+)$/.exec(value);
-  const slideName = showSlideMatch?.[1];
-  if (slideName) return `显示${UI_TEXT[slideName] ?? slideName}`;
+  const showNameMatch = SHOW_NAME_RULE.exec(value);
+  const shownName = showNameMatch?.[1];
+  if (shownName) {
+    const knownLabel = lookupPhrase(UI_TEXT, shownName);
+    return knownLabel ? `显示${knownLabel}` : `显示 ${shownName}`;
+  }
+  for (const [pattern, translated] of WORD_LEVEL_NAME_RULES) {
+    if (pattern.test(value)) return value.replace(pattern, translated);
+  }
 
   return value;
 }
@@ -2068,6 +2377,16 @@ function isInsideLocalizationBoundary(element: Element): boolean {
     hasTranslationSkipAncestor(element) ||
     isInsideEditableRegion(element) ||
     isInsideSkippedTag(element)
+  );
+}
+
+// A textarea's typed text lives in its value, so its placeholder and labels are still UI chrome.
+function isAttributeInsideLocalizationBoundary(element: Element): boolean {
+  if (element.tagName !== "TEXTAREA") return isInsideLocalizationBoundary(element);
+  return (
+    hasTranslationSkipAncestor(element) ||
+    isInsideEditableRegion(element) ||
+    (element.parentElement !== null && isInsideSkippedTag(element.parentElement))
   );
 }
 
@@ -2135,7 +2454,7 @@ function replaceTextNode(node: Text): void {
 }
 
 function replaceElementAttributes(element: Element): void {
-  const skipped = isInsideLocalizationBoundary(element);
+  const skipped = isAttributeInsideLocalizationBoundary(element);
   for (const attribute of LOCALIZABLE_ATTRIBUTES) {
     const current = element.getAttribute(attribute);
     const records = translatedAttributes.get(element);
@@ -2172,7 +2491,7 @@ function localizeSubtree(node: Node): void {
   for (let textNode = walker.nextNode(); textNode; textNode = walker.nextNode())
     replaceTextNode(textNode as Text);
   for (const descendant of element.querySelectorAll(
-    "[aria-label], [aria-valuetext], [title], [placeholder], [data-tooltip-content]",
+    "[aria-label], [aria-valuetext], [title], [placeholder], [data-tooltip-content], [alt]",
   ))
     replaceElementAttributes(descendant);
 }

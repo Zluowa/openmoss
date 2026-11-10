@@ -9,7 +9,7 @@ import {
   type ServerProviderStatus,
   type ServerSettings,
   isSupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { isProviderKind } from "./providerOrdering";
 
 export const PROVIDER_UPDATE_INITIAL_REFRESH_DELAY_MS = 10_000;
@@ -83,6 +83,82 @@ export function isProviderUpdateActive(provider: ServerProviderStatus): boolean 
 // row nag forever, so those providers get the update offered as a manual action instead.
 export function isProviderLatestVersionKnowable(provider: ServerProviderStatus): boolean {
   return provider.versionAdvisory?.latestVersionKnowable !== false;
+}
+
+// Only Codex and Claude share one program across accounts. Its default account
+// may have no private configuration while an enabled account ran the real CLI.
+export function installedProgramStatus(
+  provider: ProviderKind,
+  defaultStatus: ServerProviderStatus | undefined,
+  statuses: ReadonlyArray<ServerProviderStatus>,
+): ServerProviderStatus | undefined {
+  if (
+    (provider !== "codex" && provider !== "claudeAgent") ||
+    (defaultStatus?.available && defaultStatus.version)
+  ) {
+    return defaultStatus;
+  }
+  return (
+    statuses.find(
+      (status) =>
+        (status.driver ?? status.provider) === provider &&
+        status.enabled !== false &&
+        status.available &&
+        status.version,
+    ) ?? defaultStatus
+  );
+}
+
+export function installedVersionLabel(
+  provider: ServerProviderStatus,
+  checksEnabled: boolean,
+): string | null {
+  if (!provider.version?.trim()) return null;
+  const value = provider.version.trim();
+  const version = value.startsWith("v") ? value : `v${value}`;
+  const advisory = provider.versionAdvisory;
+  if (!checksEnabled) return `Installed ${version} · Update checks off`;
+  if (advisory?.status === "current") return `Current ${version}`;
+  if (advisory?.status === "unknown" && advisory.latestVersionKnowable === true) {
+    return `Installed ${version} · Latest version unavailable`;
+  }
+  if (advisory?.status === "unknown" && advisory.latestVersionKnowable === false) {
+    return `Installed ${version} · Version lookup not supported`;
+  }
+  return `Installed ${version}`;
+}
+
+export function providerVersionCheckSummary(
+  input: ProviderUpdateFilterInput & { readonly outdatedCount: number },
+): string {
+  if (input.serverSettings?.enableProviderUpdateChecks === false) return "Automatic checks off";
+  if (input.outdatedCount > 0)
+    return `${input.outdatedCount} ${input.outdatedCount === 1 ? "update" : "updates"} available`;
+  const installed = input.providers.filter(
+    (status) =>
+      status.available &&
+      status.version &&
+      status.enabled !== false &&
+      !input.hiddenProviders?.includes((status.driver ?? status.provider) as ProviderKind) &&
+      isProviderEnabled(status, input.serverSettings),
+  );
+  if (
+    installed.some(
+      (s) =>
+        s.versionAdvisory?.status === "unknown" && s.versionAdvisory.latestVersionKnowable === true,
+    )
+  ) {
+    return "Latest version unavailable for some tools";
+  }
+  if (installed.some((s) => s.versionAdvisory?.status === "current"))
+    return "No provider updates detected";
+  if (
+    installed.length &&
+    installed.every((s) => s.versionAdvisory?.latestVersionKnowable === false)
+  ) {
+    return "Version lookup not supported for installed tools";
+  }
+  return "No version checks completed";
 }
 
 export function shouldOfferProviderUpdateAction(provider: ServerProviderStatus): boolean {

@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { type ReactNode } from "react";
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 
 /**
  * Kept as a public boundary marker for consumers that explicitly reject split

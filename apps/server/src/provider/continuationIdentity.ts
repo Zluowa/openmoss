@@ -7,7 +7,7 @@ import type { ManagedCodexHomeAuthority } from "../account/mossManagedHomeAuthor
 import { homedir } from "node:os";
 import path from "node:path";
 
-import type { ProviderKind, ProviderStartOptions } from "@synara/contracts";
+import type { ProviderKind, ProviderStartOptions } from "@moss/contracts";
 
 import { resolveActiveCodexHomeWritePath, resolveBaseCodexHomePath } from "../codexHomePaths.ts";
 import { resolveCodexPathIdentity } from "../codexPathIdentity.ts";
@@ -18,6 +18,8 @@ import {
   type CodexProcessEnvInput,
 } from "../codexProcessEnv.ts";
 import { expandProviderAccountHomePath } from "../providerAccountHomePath.ts";
+import { readCodexCredentialFence } from "../codexHomeIdentity.ts";
+import { readClaudeStateBinding } from "./claudeStateBinding.ts";
 
 function canonicalStoragePath(value: string): string {
   return resolveCodexPathIdentity(value);
@@ -28,17 +30,25 @@ function codexContinuationInput(
   managedHomeAuthority?: ManagedCodexHomeAuthority,
 ): Pick<
   CodexProcessEnvInput,
-  "homePath" | "shadowHomePath" | "accountId" | "managedHomeAuthority"
+  | "homePath"
+  | "shadowHomePath"
+  | "accountId"
+  | "managedHomeAuthority"
+  | "runtimeGeneration"
+  | "credentialFence"
 > & {
   readonly env: NodeJS.ProcessEnv;
 } {
   const codex = options?.codex;
+  const credentialFence = readCodexCredentialFence(codex);
   return {
     env: { ...process.env, ...codex?.environment },
     ...(managedHomeAuthority ? { managedHomeAuthority } : {}),
     ...(codex?.homePath ? { homePath: codex.homePath } : {}),
     ...(codex?.shadowHomePath ? { shadowHomePath: codex.shadowHomePath } : {}),
     ...(codex?.accountId ? { accountId: codex.accountId } : {}),
+    ...(codex?.runtimeGeneration ? { runtimeGeneration: codex.runtimeGeneration } : {}),
+    ...(credentialFence ? { credentialFence } : {}),
   };
 }
 
@@ -112,6 +122,7 @@ export async function prepareProviderContinuationIdentity(
   persistedIdentity: string | undefined,
   managedHomeAuthority?: ManagedCodexHomeAuthority,
 ): Promise<string | undefined> {
+  if (provider === "claudeAgent") readClaudeStateBinding(options?.claudeAgent);
   if (provider === "codex") {
     const continuationInput = codexContinuationInput(options, managedHomeAuthority);
     const persistedSharedIdentity = parseCodexSharedContinuationIdentity(persistedIdentity);
@@ -138,6 +149,7 @@ export async function prepareProviderContinuationIdentityForExplicitResume(
   options: ProviderStartOptions | undefined,
   managedHomeAuthority?: ManagedCodexHomeAuthority,
 ): Promise<string | undefined> {
+  if (provider === "claudeAgent") readClaudeStateBinding(options?.claudeAgent);
   if (provider === "codex") {
     await prepareCodexHomeOverlayFromPreparedContinuationSource(
       codexContinuationInput(options, managedHomeAuthority),
@@ -157,6 +169,7 @@ export async function prepareProviderContinuationIdentityForImport(
   options: ProviderStartOptions | undefined,
   managedHomeAuthority?: ManagedCodexHomeAuthority,
 ): Promise<string | undefined> {
+  if (provider === "claudeAgent") readClaudeStateBinding(options?.claudeAgent);
   if (provider === "codex") {
     await prepareCodexHomeOverlay(codexContinuationInput(options, managedHomeAuthority));
   }
@@ -190,6 +203,12 @@ export function providerContinuationIdentity(
     }
     case "claudeAgent": {
       const claude = options?.claudeAgent;
+      // Identity persistence also runs during exact-session teardown. Reading
+      // a held ownership capability does not re-read removed private auth.
+      // Every launch/resume preparation validates current eligibility above.
+      const binding = readClaudeStateBinding(claude, false);
+      if (binding)
+        return `claudeAgent:shared-v1:${binding.record.sourceGeneration}:${binding.record.source.path}`;
       const env = { ...process.env, ...claude?.environment };
       const fallbackHome = homedir();
       const explicitHome = claude?.homePath?.trim();

@@ -12,6 +12,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useRadioGroupKeyboardNav } from "~/hooks/useRadioGroupKeyboardNav";
 import { Undo2Icon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
+import { translateZhCnPresentationText } from "~/localization/zhCN";
 import { SETTINGS_CONTROL_RADIUS_CLASS_NAME } from "~/settingsPanelStyles";
 import { SettingsSelectPopup } from "./SettingsPanelPrimitives";
 
@@ -27,7 +28,10 @@ export function useSettingsRestoreSignal(epoch: number, onRestore: () => void): 
 }
 
 export function SettingResetButton({ label, onClick }: { label: string; onClick: () => void }) {
-  const { format, t } = useTranslation();
+  const { format, locale, t } = useTranslation();
+  // Most callers pass an English label, which the presentation layer can no longer reach once it
+  // sits inside the already translated sentence.
+  const displayLabel = locale === "zh-CN" ? translateZhCnPresentationText(label) : label;
 
   return (
     <Tooltip>
@@ -36,7 +40,7 @@ export function SettingResetButton({ label, onClick }: { label: string; onClick:
           <Button
             size="icon-xs"
             variant="ghost"
-            aria-label={format("settings.resetSettingToDefault", { label })}
+            aria-label={format("settings.resetSettingToDefault", { label: displayLabel })}
             className="size-5 rounded-lg p-0 text-muted-foreground hover:text-foreground"
             onClick={(event) => {
               event.stopPropagation();

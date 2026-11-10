@@ -19,7 +19,7 @@ import {
   type OmpModelOptions,
   type PiThinkingLevel,
   type ProviderModelOptions,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as Schema from "effect/Schema";
 
 import {
@@ -29,7 +29,7 @@ import {
   normalizeOmpModelOptions,
   resolveModelSlugForProvider,
   resolveSelectableModel,
-} from "@synara/shared/model";
+} from "@moss/shared/model";
 import { resolveAppModelSelection } from "./appSettings";
 import type {
   ComposerThreadDraftState,
@@ -1036,6 +1036,9 @@ export function resolvePreferredComposerModelSelection(input: {
   resolveProviderForInstanceId?: (
     instanceId: ProviderInstanceId,
   ) => ProviderKind | null | undefined;
+  /** The instance an agent uses when nothing picked one (`newChatProviderInstanceIdFrom`).
+   *  Without it an unpicked agent keeps its bare provider id, its own local login. */
+  defaultInstanceIdForProvider?: (provider: ProviderKind) => ProviderInstanceId | undefined;
 }): ModelSelection {
   // The draft's selection is the user's most recently used target: a fresh draft
   // is seeded from the sticky (last-used) state, so this precedence is what
@@ -1071,11 +1074,15 @@ export function resolvePreferredComposerModelSelection(input: {
       : input.projectModelSelection?.provider === preferredProvider
         ? input.projectModelSelection
         : null;
+  // A selection that never named an instance keeps its historical meaning; only an agent
+  // nothing has picked yet takes the default provider (Moss while signed in).
   const preferredInstanceId = providerInstanceModelSelectionKey(
     preferredProvider,
     activeInstanceProvider === preferredProvider
       ? activeInstanceId
-      : preferredPersistedSelection?.instanceId,
+      : preferredPersistedSelection
+        ? preferredPersistedSelection.instanceId
+        : input.defaultInstanceIdForProvider?.(preferredProvider),
   );
   const persistedSelection =
     (modelSelectionMatchesProviderInstance(
@@ -1103,7 +1110,12 @@ export function resolvePreferredComposerModelSelection(input: {
   const preferredDefaultModel = getDefaultModel(preferredProvider);
   const fallbackProvider = preferredDefaultModel === null ? "codex" : preferredProvider;
   const fallbackInstanceId =
-    fallbackProvider === preferredProvider ? preferredInstanceId : fallbackProvider;
+    fallbackProvider === preferredProvider
+      ? preferredInstanceId
+      : providerInstanceModelSelectionKey(
+          fallbackProvider,
+          input.defaultInstanceIdForProvider?.(fallbackProvider),
+        );
 
   return (
     (input.fresh

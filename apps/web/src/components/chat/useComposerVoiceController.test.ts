@@ -2,7 +2,7 @@
 // Purpose: Covers voice transcription request identity and recorder action guards.
 // Layer: Chat composer hook tests
 
-import { ProjectId, ThreadId, type ProviderKind } from "@synara/contracts";
+import { ProjectId, ThreadId, type ProviderKind } from "@moss/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {
@@ -351,6 +351,46 @@ describe("useComposerVoiceController", () => {
     });
     failureToast?.actionProps?.onClick();
     expect(options.refreshVoiceStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("words a coded server failure in Chinese and never shows provider text", async () => {
+    render({ locale: "zh-CN" });
+    nativeApi.transcribeVoice.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "Provider adapter request failed (codex) for voice/transcribe: Outbound request failed.",
+        ),
+        { code: "VOICE_ACCOUNT_AUTHENTICATION_REQUIRED" },
+      ),
+    );
+
+    await expect(result.submitComposerVoiceRecording()).resolves.toBe(false);
+
+    const failureToast = toast.add.mock.calls.at(-1)?.[0];
+    expect(failureToast).toMatchObject({
+      type: "error",
+      title: "语音转文字失败",
+      description: "登录 Moss 账号即可使用语音",
+    });
+    expect(JSON.stringify(failureToast)).not.toMatch(
+      /Provider adapter|Outbound|voice\/transcribe/u,
+    );
+    expect(failureToast?.actionProps).toBeUndefined();
+  });
+
+  it("replaces an uncoded provider error with the generic localized copy", async () => {
+    render({ locale: "zh-CN" });
+    nativeApi.transcribeVoice.mockRejectedValueOnce(
+      new Error(
+        "Provider adapter request failed (codex) for voice/transcribe: Outbound request failed.",
+      ),
+    );
+
+    await expect(result.submitComposerVoiceRecording()).resolves.toBe(false);
+
+    const failureToast = toast.add.mock.calls.at(-1)?.[0];
+    expect(failureToast?.description).toBe("无法识别这条语音备注，请稍后重试。");
+    expect(JSON.stringify(failureToast)).not.toMatch(/Provider adapter|Outbound/u);
   });
 
   it("cancels and invalidates transcription when voice becomes unavailable", async () => {

@@ -14,6 +14,7 @@ import {
   type ProviderInstanceId,
   type ProviderApprovalDecision,
   type ProviderInteractionMode,
+  type ServerProviderStatus,
   type ProviderKind,
   type ProviderRequestKind,
   type ProviderStartOptions,
@@ -21,12 +22,12 @@ import {
   type ServerProviderAuthStatus,
   type RealtimeVoicePhase,
   type ThreadId as ThreadIdType,
-} from "@synara/contracts";
-import { getDefaultModel, normalizeModelSlug } from "@synara/shared/model";
-import { approvalSessionGrantWidensSessionPolicy } from "@synara/shared/approvalSessionGrant";
-import { buildMossBranchName } from "@synara/shared/git";
-import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
-import { isGenericTerminalThreadTitle } from "@synara/shared/terminalThreads";
+} from "@moss/contracts";
+import { getDefaultModel, normalizeModelSlug } from "@moss/shared/model";
+import { approvalSessionGrantWidensSessionPolicy } from "@moss/shared/approvalSessionGrant";
+import { buildMossBranchName } from "@moss/shared/git";
+import { isGenericChatThreadTitle } from "@moss/shared/chatThreads";
+import { isGenericTerminalThreadTitle } from "@moss/shared/terminalThreads";
 import {
   type ChatMessage,
   type SessionPhase,
@@ -51,6 +52,7 @@ import {
   type TerminalContextDraft,
 } from "../lib/terminalContext";
 import { filterPastedTextsWithText, type PastedTextDraft } from "../lib/composerPastedText";
+import { isProviderDurablyUnavailable } from "../lib/providerAvailability";
 import {
   normalizePullRequestContexts,
   type PullRequestContextDraft,
@@ -68,9 +70,9 @@ import {
 import { localSubagentThreadId } from "./ChatView.selectors";
 import { buildModelSelection, type ProviderModelOption } from "../providerModelOptions";
 import { resolvePromptEffortFromModelSelection } from "../lib/composerSend";
-import { autoRuntimeModeSelectionIssue } from "@synara/shared/runtimeMode";
-import { isManualCompactionTurnActive } from "@synara/shared/contextCompaction";
-import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
+import { autoRuntimeModeSelectionIssue } from "@moss/shared/runtimeMode";
+import { isManualCompactionTurnActive } from "@moss/shared/contextCompaction";
+import { providerSupportsNativeTurnSteering } from "@moss/shared/providerMetadata";
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "moss:last-invoked-script-by-project";
 export const DISMISSED_PROVIDER_HEALTH_BANNERS_KEY = "moss:dismissed-provider-health-banners";
@@ -267,11 +269,29 @@ export async function persistModelSelectionBeforeRuntimeMode(input: {
   }
 }
 
+/**
+ * Agent status belongs where the person chooses an agent (the picker and settings). A chat
+ * banner is only for a real failure of the agent this conversation is using: never on the
+ * empty home composer, never on a reopened conversation whose agent is not running, never
+ * because the picker moved to another agent, and never for a warning or a check still in
+ * progress. Sending is still blocked with its own reason by the send control.
+ */
 export function shouldRenderProviderHealthBanner(input: {
   threadEntryPoint: ThreadPrimarySurface;
   terminalWorkspaceTerminalTabActive: boolean;
+  /** The conversation has messages and its agent session is open in this run of Moss. */
+  conversationIsLive: boolean;
+  /** The composer still points at the agent and account this conversation runs on. */
+  selectionMatchesConversation: boolean;
+  status: ServerProviderStatus | null;
 }): boolean {
-  return input.threadEntryPoint === "chat" && !input.terminalWorkspaceTerminalTabActive;
+  return (
+    input.threadEntryPoint === "chat" &&
+    !input.terminalWorkspaceTerminalTabActive &&
+    input.conversationIsLive &&
+    input.selectionMatchesConversation &&
+    isProviderDurablyUnavailable(input.status)
+  );
 }
 
 // Big-paste cards are sent only by the normal chat path; non-chat composer flows
@@ -913,15 +933,24 @@ type ProviderLockingThread = Pick<
   "messages" | "sidechatSourceThreadId" | "latestTurn" | "session" | "modelSelection"
 >;
 
-/** A provider switch on an already-used thread must go through Hand off. */
+/**
+ * A provider switch on an already-used thread must go through Hand off, and so
+ * must a switch to another account of the same provider (an imported
+ * local-account chat continuing on Moss): its native history stays behind.
+ */
 export function turnNeedsProviderHandoff(input: {
   readonly thread: ProviderLockingThread;
   readonly modelSelection: ModelSelection;
 }): boolean {
-  return (
-    threadHasProviderLockingActivity(input.thread) &&
-    input.modelSelection.provider !== input.thread.modelSelection.provider
-  );
+  if (!threadHasProviderLockingActivity(input.thread)) return false;
+  if (input.modelSelection.provider !== input.thread.modelSelection.provider) return true;
+  const threadInstanceId =
+    (input.thread.session?.provider === input.thread.modelSelection.provider
+      ? input.thread.session.providerInstanceId
+      : undefined) ??
+    input.thread.modelSelection.instanceId ??
+    input.thread.modelSelection.provider;
+  return (input.modelSelection.instanceId ?? input.modelSelection.provider) !== threadInstanceId;
 }
 
 /** Place a message after the provider.handoff activity that precedes it. */

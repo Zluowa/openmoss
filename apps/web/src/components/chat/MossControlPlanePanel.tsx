@@ -4,7 +4,7 @@
 // Exports: MossControlPlanePanel, MossControlPlanePanelView
 
 import { type ReactNode, useEffect, useState } from "react";
-import { ThreadId, type MossNormalizedSessionEvent, type ProviderSession } from "@synara/contracts";
+import { ThreadId, type MossNormalizedSessionEvent, type ProviderSession } from "@moss/contracts";
 
 import {
   HistoryIcon,

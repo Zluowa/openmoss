@@ -7,7 +7,7 @@
 // Why: Claude Code's Projects Overview lists every thread by live state; this is
 //      Moss's version, derived from the same helpers the sidebar uses.
 
-import type { AutomationDefinition, ThreadId } from "@synara/contracts";
+import type { AutomationDefinition, ThreadId } from "@moss/contracts";
 import type { MouseEvent as ReactMouseEvent } from "react";
 
 import { IconButton } from "~/components/ui/icon-button";

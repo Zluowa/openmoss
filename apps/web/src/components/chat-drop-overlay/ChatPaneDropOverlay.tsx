@@ -1,10 +1,12 @@
 // FILE: ChatPaneDropOverlay.tsx
-// Purpose: Renders the 4-quadrant drop-zone overlay used to split a chat surface by dragging a sidebar thread.
+// Purpose: Renders the 4-quadrant drop-zone overlay used to split a chat surface by dragging a
+//          sidebar thread (a native drag) or a tab pulled out of the open-thread strip (a
+//          pointer drag, routed here through chatPaneDropTargets).
 // Layer: UI component (route surfaces wrap it around <ChatView /> or empty-state placeholders)
 // Exports: ChatPaneDropOverlay component, drag MIME constant, drop-zone helpers used by tests
 
 import { useEffect, useRef, type DragEvent as ReactDragEvent, type ReactNode } from "react";
-import { type ThreadId } from "@synara/contracts";
+import { type ThreadId } from "@moss/contracts";
 
 import { type SplitDirection, type SplitDropSide } from "../../splitViewStore";
 import {
@@ -15,6 +17,12 @@ import {
   type ThreadDragPayload,
 } from "../../lib/threadDrag";
 import { cn } from "../../lib/utils";
+import { useStableCallback } from "../../hooks/useStableCallback";
+import {
+  dropZoneToDirectionSide,
+  registerChatPaneDropTarget,
+  type ChatPaneDropPoint,
+} from "./chatPaneDropTargets";
 
 export { THREAD_DRAG_MIME, type ThreadDragPayload } from "../../lib/threadDrag";
 
@@ -31,7 +39,16 @@ const DROP_ZONE_PREVIEW_CLASS: Record<DropZone, string> = {
   right: "top-0 bottom-0 right-0 w-1/2",
 };
 const DROP_ZONE_PREVIEW_BASE_CLASS =
-  "absolute m-1 rounded-md bg-info/18 ring-1 ring-inset ring-info/65";
+  "absolute m-1 flex items-center justify-center rounded-md bg-info/18 ring-1 ring-inset ring-info/65";
+// Names where the dropped chat lands, centred in the highlighted half.
+const DROP_ZONE_LABEL: Record<DropZone, string> = {
+  top: "Above",
+  bottom: "Below",
+  left: "Side by side",
+  right: "Side by side",
+};
+const DROP_ZONE_LABEL_CLASS =
+  "rounded-control bg-foreground px-2.5 py-1 text-ui-sm font-medium text-background shadow-sm";
 const EMPTY_RECT = { left: 0, top: 0, width: 0, height: 0 };
 const EDGE_REGION_FRACTION = 1 / 3;
 
@@ -104,16 +121,6 @@ export function getDropZoneFromPointer(
   return chooseHorizontal();
 }
 
-function dropZoneToDirectionSide(zone: DropZone): {
-  direction: SplitDirection;
-  side: SplitDropSide;
-} {
-  if (zone === "top") return { direction: "vertical", side: "first" };
-  if (zone === "bottom") return { direction: "vertical", side: "second" };
-  if (zone === "left") return { direction: "horizontal", side: "first" };
-  return { direction: "horizontal", side: "second" };
-}
-
 function isThreadDrag(event: ReactDragEvent): boolean {
   return isThreadDragTransfer(event.dataTransfer);
 }
@@ -122,19 +129,22 @@ function parseThreadDragPayload(event: ReactDragEvent): ThreadDragPayload | null
   return readThreadDragPayload(event.dataTransfer);
 }
 
-// Applies the same thread constraints for hover feedback and the final drop.
+// Applies the same thread constraints for hover feedback and the final drop. A thread the
+// pane already shows can still split it when the drag names another thread to take its place.
 export function isThreadDragPayloadAllowed(
   payload: ThreadDragPayload,
   rules: ThreadDropRules,
 ): boolean {
-  if (rules.excludedThreadIds?.has(payload.threadId)) return false;
-  return true;
+  const excluded = rules.excludedThreadIds;
+  if (!excluded?.has(payload.threadId)) return true;
+  return payload.replacementThreadId !== undefined && !excluded.has(payload.replacementThreadId);
 }
 
 export function ChatPaneDropOverlay(props: ChatPaneDropOverlayProps) {
   const { onDrop, canDropInDirection, excludedThreadIds, paneScopeId, className, children } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const previewLabelRef = useRef<HTMLSpanElement>(null);
   const rectRef = useRef<DOMRect | null>(null);
   const rectMeasuredAtRef = useRef(0);
   const activeZoneRef = useRef<DropZone | null>(null);
@@ -152,13 +162,23 @@ export function ChatPaneDropOverlay(props: ChatPaneDropOverlayProps) {
       : "";
     if (activeZoneRef.current === zone && preview.className === nextClassName) return;
     activeZoneRef.current = zone;
+    const label = previewLabelRef.current;
     if (zone === null) {
       preview.removeAttribute("data-chat-pane-drop-zone");
       preview.className = "";
+      if (label) {
+        label.hidden = true;
+        label.textContent = "";
+      }
       return;
     }
     preview.dataset.chatPaneDropZone = zone;
     preview.className = nextClassName;
+    if (label && label.dataset.zoneLabel !== DROP_ZONE_LABEL[zone]) {
+      label.dataset.zoneLabel = DROP_ZONE_LABEL[zone];
+      label.textContent = DROP_ZONE_LABEL[zone];
+    }
+    if (label) label.hidden = false;
   };
 
   const resetOverlayState = () => {
@@ -178,30 +198,26 @@ export function ChatPaneDropOverlay(props: ChatPaneDropOverlayProps) {
     return rectRef.current;
   };
 
+  const getZoneAt = (point: ChatPaneDropPoint) =>
+    getDropZoneFromPointer(getCurrentRect() ?? EMPTY_RECT, point.x, point.y, isZoneAllowed);
+
+  // One rule for every drag: the zone under the point, unless this pane refuses the thread.
+  const getAllowedZoneAt = (point: ChatPaneDropPoint, payload: ThreadDragPayload | null) => {
+    const zone = getZoneAt(point);
+    if (!zone) return null;
+    if (payload && !isThreadDragPayloadAllowed(payload, { excludedThreadIds })) return null;
+    return zone;
+  };
+
   const getZoneForEvent = (event: ReactDragEvent<HTMLDivElement>) =>
-    getDropZoneFromPointer(
-      getCurrentRect() ?? EMPTY_RECT,
-      event.clientX,
-      event.clientY,
-      isZoneAllowed,
-    );
+    getZoneAt({ x: event.clientX, y: event.clientY });
 
   const getAllowedZoneForEvent = (event: ReactDragEvent<HTMLDivElement>) => {
-    const zone = getZoneForEvent(event);
-    if (!zone) return null;
     // Drag data is unreadable until `drop`; fall back to the in-app drag source.
     const activeThreadId = getActiveThreadDragId();
     const payload =
       parseThreadDragPayload(event) ?? (activeThreadId ? { threadId: activeThreadId } : null);
-    if (
-      payload &&
-      !isThreadDragPayloadAllowed(payload, {
-        excludedThreadIds,
-      })
-    ) {
-      return null;
-    }
-    return zone;
+    return getAllowedZoneAt({ x: event.clientX, y: event.clientY }, payload);
   };
 
   // The composer turns a thread drop into an @mention; it owns the event there,
@@ -267,6 +283,34 @@ export function ChatPaneDropOverlay(props: ChatPaneDropOverlayProps) {
     return resetOverlayState;
   }, [paneScopeId, resetOverlayState]);
 
+  // Pointer drags (a tab pulled out of the open-thread strip) reach this pane through the
+  // shared registry. Stable callbacks keep one registration while the props they read change.
+  const resolvePointerZone = useStableCallback(
+    (point: ChatPaneDropPoint, payload: ThreadDragPayload) => {
+      // Measure afresh: a pointer drag has no dragenter to reset the cached rect.
+      rectRef.current = null;
+      return getAllowedZoneAt(point, payload);
+    },
+  );
+  const showPointerZone = useStableCallback((zone: DropZone | null) => setPreviewZone(zone));
+  const dropPointerPayload = useStableCallback(
+    (payload: ThreadDragPayload & { direction: SplitDirection; side: SplitDropSide }) => {
+      resetOverlayState();
+      if (!isThreadDragPayloadAllowed(payload, { excludedThreadIds })) return;
+      onDrop(payload);
+    },
+  );
+  useEffect(
+    () =>
+      registerChatPaneDropTarget({
+        getRect: () => wrapperRef.current?.getBoundingClientRect() ?? EMPTY_RECT,
+        resolveZone: resolvePointerZone,
+        showZone: showPointerZone,
+        drop: dropPointerPayload,
+      }),
+    [dropPointerPayload, resolvePointerZone, showPointerZone],
+  );
+
   return (
     <div
       ref={wrapperRef}
@@ -279,7 +323,9 @@ export function ChatPaneDropOverlay(props: ChatPaneDropOverlayProps) {
     >
       {children}
       <div className="pointer-events-none absolute inset-0 z-50" data-chat-pane-drop-zones="true">
-        <div ref={previewRef} data-chat-pane-drop-zone-active="true" />
+        <div ref={previewRef} data-chat-pane-drop-zone-active="true">
+          <span ref={previewLabelRef} hidden className={DROP_ZONE_LABEL_CLASS} />
+        </div>
       </div>
     </div>
   );

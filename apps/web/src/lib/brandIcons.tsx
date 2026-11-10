@@ -5,7 +5,11 @@
 // Exports: BrandArtwork, KNOWN_BRAND_ARTWORK, normalizeBrandKey, readableBrandColor,
 //   BRAND_GLYPH_TILE_CLASS_NAME
 
+import { MOSS_MEDIA_PLUGINS, RETIRED_MOSS_MEDIA_PLUGIN_NAMES } from "@moss/shared/mossMediaPlugins";
 import type { IconType } from "react-icons";
+
+import { MOSS_LOGO_COLOR } from "~/assets/mossLogoPath";
+import { CentralIcon } from "./central-icons";
 import {
   SiAtlassian,
   SiCanva,
@@ -94,8 +98,40 @@ const SlackColorIcon: IconType = ({ className, style, title }) => (
   </svg>
 );
 
+// Moss's own image, video and Canvas plugins share one Moss-colored glyph per
+// kind rather than borrowing each model vendor's logo.
+function centralGlyph(name: string): IconType {
+  return function MossCentralGlyph({ className, style }) {
+    return <CentralIcon name={name} variant="fill" className={className} style={style} />;
+  };
+}
+const MOSS_IMAGE_ARTWORK: BrandArtwork = {
+  icon: centralGlyph("images-sparkle"),
+  color: MOSS_LOGO_COLOR,
+};
+const MOSS_VIDEO_ARTWORK: BrandArtwork = {
+  icon: centralGlyph("clapboard-sparkle"),
+  color: MOSS_LOGO_COLOR,
+};
+const MOSS_CANVAS_ARTWORK: BrandArtwork = {
+  icon: centralGlyph("canvas-grid"),
+  color: MOSS_LOGO_COLOR,
+};
+const MOSS_MEDIA_ARTWORK: Record<string, BrandArtwork> = Object.fromEntries([
+  ...MOSS_MEDIA_PLUGINS.map((plugin) => [
+    normalizeBrandKey(plugin.name),
+    plugin.kind === "canvas"
+      ? MOSS_CANVAS_ARTWORK
+      : plugin.kind === "video"
+        ? MOSS_VIDEO_ARTWORK
+        : MOSS_IMAGE_ARTWORK,
+  ]),
+  ...RETIRED_MOSS_MEDIA_PLUGIN_NAMES.map((name) => [normalizeBrandKey(name), MOSS_IMAGE_ARTWORK]),
+]);
+
 /** Keyed by {@link normalizeBrandKey} of the brand or product name. */
 export const KNOWN_BRAND_ARTWORK: Record<string, BrandArtwork> = {
+  ...MOSS_MEDIA_ARTWORK,
   atlassian: { icon: SiAtlassian, color: "#0052CC" },
   canva: { icon: SiCanva, color: "#00C4CC" },
   cloudflare: { icon: SiCloudflare, color: "#F38020" },

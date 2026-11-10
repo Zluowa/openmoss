@@ -10,6 +10,7 @@
  * Effect at the request handler boundary.
  */
 import {
+  PAGE_GUEST_EDIT_ROUTES,
   SHARE_RELAY_BINARY_HEADER_BYTES,
   SHARE_RELAY_BINARY_KIND,
   SHARE_RELAY_CHUNK_BYTES,
@@ -23,7 +24,7 @@ import {
   type GuestShareId,
   type GuestShareRelayStatus,
   type ShareRelayHostFrame,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 import WebSocket from "ws";
 
@@ -499,7 +500,9 @@ export class ShareRelayHostClient {
       logger.error("guest request handler failed", {
         shareId: this.#options.shareId,
         route: relayRequest.route,
-        cause: String(cause),
+        ...(PAGE_GUEST_EDIT_ROUTES.some((route) => route === relayRequest.route)
+          ? {}
+          : { cause: String(cause) }),
       });
       response = {
         status: 500,
@@ -542,7 +545,9 @@ export class ShareRelayHostClient {
         logger.warn("guest response body failed", {
           shareId: this.#options.shareId,
           route: relayRequest.route,
-          cause: String(cause),
+          ...(PAGE_GUEST_EDIT_ROUTES.some((route) => route === relayRequest.route)
+            ? {}
+            : { cause: String(cause) }),
         });
         this.#sendFrame({ t: "res-error", id: request.id });
       }

@@ -1,12 +1,67 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   MOSS_BETA_DESKTOP_ORIGIN,
   MOSS_CANARY_DESKTOP_ORIGIN,
   MOSS_CUA_DESKTOP_ORIGIN,
   MOSS_DESKTOP_ORIGIN,
-} from "@synara/shared/desktopIdentity";
+} from "@moss/shared/desktopIdentity";
 
-import { isClipboardWritePermission } from "./clipboardPermissions";
+import { isClipboardWritePermission, writeMainWindowThreadId } from "./clipboardPermissions";
+
+describe("native thread ID copy", () => {
+  const entry = MOSS_DESKTOP_ORIGIN + "/index.html";
+  function invoke(
+    options: {
+      url?: string;
+      entry?: string;
+      foreign?: boolean;
+      subframe?: boolean;
+      destroyed?: boolean;
+      id?: unknown;
+    } = {},
+  ) {
+    const frame = { url: options.url ?? (options.entry ?? entry) + "#/thread/another" };
+    const main = { isDestroyed: () => !!options.destroyed, mainFrame: frame };
+    const event = {
+      sender: options.foreign ? {} : main,
+      senderFrame: options.subframe ? { ...frame } : frame,
+    };
+    const write = vi.fn();
+    return {
+      write,
+      run: () =>
+        writeMainWindowThreadId(
+          event as never,
+          main as never,
+          options.entry ?? entry,
+          options.id ?? "selected-thread",
+          write,
+        ),
+    };
+  }
+  it("copies the selected ID exactly from the live main shell after the menu closes", () => {
+    const check = invoke();
+    check.run();
+    expect(check.write.mock.calls).toEqual([["selected-thread"]]);
+  });
+  it.each([
+    { foreign: true },
+    { subframe: true },
+    { destroyed: true },
+    { url: "https://example.com/index.html" },
+    { entry: "https://example.com/index.html" },
+    { url: "moss://other/index.html" },
+    { url: MOSS_DESKTOP_ORIGIN + "/guest.html" },
+    { url: "about:blank" },
+    { id: "codex://threads/selected-thread" },
+    { id: "first\nsecond" },
+    { id: "x".repeat(1025) },
+  ])("denies an invalid source or value before touching the system clipboard", (options) => {
+    const check = invoke(options);
+    expect(check.run).toThrow();
+    expect(check.write).not.toHaveBeenCalled();
+  });
+});
 
 const requester = (url = "https://example.com/page", focused = true, destroyed = false) => ({
   getURL: () => url,

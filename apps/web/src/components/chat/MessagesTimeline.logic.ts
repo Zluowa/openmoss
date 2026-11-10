@@ -10,19 +10,20 @@ import {
   type ProviderTurnTrigger,
   type RuntimeCodexErrorInfo,
   type TurnId,
-} from "@synara/contracts";
-import { readInlineVisualEmbedIds } from "@synara/shared/inlineVisual";
-import { htmlRenderReferencesEqual, type HtmlRenderReference } from "@synara/shared/htmlRender";
-import { formatModelDisplayName } from "@synara/shared/model";
+} from "@moss/contracts";
+import { readInlineVisualEmbedIds } from "@moss/shared/inlineVisual";
+import { htmlRenderReferencesEqual, type HtmlRenderReference } from "@moss/shared/htmlRender";
+import { formatModelDisplayName } from "@moss/shared/model";
 import {
   type OrchestrationLatestTurn,
   type OrchestrationThreadActivity,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { isProviderKind } from "../../providerOrdering";
 import { type TimelineEntry, type WorkLogEntry, formatElapsed } from "../../session-logic";
 import { isCodexRuntimeWarningType, type WorkLogUserInputExchangeItem } from "../../workLog";
 import { normalizeCompactToolLabel as normalizeCompactToolLabelValue } from "../../lib/toolCallLabel";
+import type { PlacedHtmlRender } from "../../lib/htmlRenderSurfaces";
 import { localizeProviderRuntimeMessage } from "../../lib/providerRuntimeMessages";
 import type { MossLocaleCode } from "../../appSettings";
 import type { ModelReroutedReason } from "../../workLog";
@@ -48,7 +49,10 @@ import {
   resolveReasoningBody,
 } from "./reasoningPresentation";
 import { computeWorkedDurationMs } from "./workedForPresentation";
-import { isProviderSignInExpiredError } from "./threadErrorPresentation";
+import {
+  isExplainedProviderFailure,
+  isProviderSignInExpiredError,
+} from "./threadErrorPresentation";
 import type { UserStoppedRecord } from "./userStoppedPresentation";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
@@ -159,6 +163,11 @@ export function deriveCapacityRetryState(input: {
   };
 }
 
+import {
+  chatArtifactsEqual,
+  collectTurnChatArtifacts,
+  type TurnChatArtifact,
+} from "../../lib/chatArtifacts";
 import {
   type GeneratedImageGallery,
   generatedImageGalleryKey,
@@ -566,6 +575,10 @@ export function summarizeTurnFailureReason(input: {
   if (isProviderSignInExpiredError(message)) {
     return "sign-in expired";
   }
+  // The failure card above already says this in plain words; the raw text adds only noise.
+  if (isExplainedProviderFailure(message)) {
+    return null;
+  }
   const firstLine = message.split(/\r?\n/u, 1)[0]?.trim() ?? "";
   if (firstLine.length === 0) {
     return null;
@@ -914,10 +927,7 @@ export type MessagesTimelineRow =
       inlineWorkEntries?: WorkLogEntry[];
       inlineWorkGroupId?: string;
       /** Visible pages remain between this turn's Worked-for row and its prose. */
-      inlineHtmlRenders?: Array<{
-        id: string;
-        htmlRender: HtmlRenderReference;
-      }>;
+      inlineHtmlRenders?: PlacedHtmlRender[];
       collapsedTurnItems?: CollapsedTurnItem[];
       // Set on the terminal assistant, or the request if an interrupted turn
       // produced no assistant/work rows.
@@ -932,6 +942,8 @@ export type MessagesTimelineRow =
       assistantCopyStreaming: boolean;
       assistantTurnDiffSummary?: TurnDiffSummary | undefined;
       generatedImageGallery?: GeneratedImageGallery | undefined;
+      /** Decks and exported files from this turn, drawn as cards under the answer. */
+      chatArtifacts?: ReadonlyArray<TurnChatArtifact> | undefined;
       // True while this row's turn is still running. The end-of-turn changes
       // card (Undo / Review) is held back until the turn settles so it cannot
       // pre-empt the composer's live changes strip mid-turn.
@@ -954,6 +966,7 @@ export type MessagesTimelineRow =
       message: ChatMessage;
       segmentIndex: number;
       generatedImageGallery?: GeneratedImageGallery | undefined;
+      chatArtifacts?: ReadonlyArray<TurnChatArtifact> | undefined;
     }
   | {
       kind: "proposed-plan";
@@ -977,6 +990,8 @@ export type MessagesTimelineRow =
       createdAt: string;
       turnId?: TurnId | null;
       htmlRender: HtmlRenderReference;
+      /** On a surface's later publication, a note: the id of the entry showing its newest page. */
+      liveId?: string;
     }
   | {
       // An answered agent question shown as a question/answer exchange. Like
@@ -1048,6 +1063,20 @@ export function resolveWorkEntryJumpTarget(
     }
   }
   return null;
+}
+
+/** The row that shows a published page: its own row, or the response it moved into. */
+export function resolveHtmlRenderRowIndex(
+  rows: readonly MessagesTimelineRow[],
+  htmlRenderId: string,
+): number | null {
+  const index = rows.findIndex(
+    (row) =>
+      (row.kind === "html-render" && row.id === htmlRenderId) ||
+      (row.kind === "message" &&
+        (row.inlineHtmlRenders ?? []).some((visual) => visual.id === htmlRenderId)),
+  );
+  return index === -1 ? null : index;
 }
 
 export function resolveThreadFindJumpTarget(
@@ -1221,10 +1250,7 @@ type AssistantMessageDisplayInput = {
   readonly message: Pick<ChatMessage, "text" | "streaming">;
   readonly leadingWorkEntries?: ReadonlyArray<WorkLogEntry>;
   readonly inlineWorkEntries?: ReadonlyArray<WorkLogEntry>;
-  readonly inlineHtmlRenders?: ReadonlyArray<{
-    id: string;
-    htmlRender: HtmlRenderReference;
-  }>;
+  readonly inlineHtmlRenders?: ReadonlyArray<PlacedHtmlRender>;
   readonly collapsedTurnItems?: ReadonlyArray<CollapsedTurnItem>;
   readonly generatedImageGallery?: GeneratedImageGallery | null | undefined;
 };
@@ -1475,6 +1501,10 @@ export function deriveMessagesTimelineRows(input: {
   const embeddedVisualOwners = collectInlineVisualEmbedOwners(input.timelineEntries);
   const generatedImageGalleries = groupGeneratedImagesByTurn(input.timelineEntries);
   const generatedImageTurnsWithTerminalAssistant = new Set<string>();
+  // Deck and file cards sit under the turn's answer; without an answer they stay work rows.
+  const chatArtifactsByTurn = collectTurnChatArtifacts(
+    input.timelineEntries.flatMap((entry) => (entry.kind === "work" ? [entry.entry] : [])),
+  );
   // Typed image-generation activities remain in the chronology walk only long
   // enough to place their dedicated gallery row. They are never passed to
   // generic work grouping or Worked-for folding; legacy untyped records remain
@@ -1594,6 +1624,15 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (
+      timelineEntry.kind === "work" &&
+      timelineEntry.entry.chatArtifact &&
+      timelineEntry.entry.turnId != null &&
+      generatedImageTurnsWithTerminalAssistant.has(String(timelineEntry.entry.turnId))
+    ) {
+      continue;
+    }
+
     if (timelineEntry.kind === "work" && isTypedGeneratedImageEntry(timelineEntry.entry)) {
       const galleryKey = generatedImageGalleryKey(timelineEntry.entry);
       const gallery = generatedImageGalleries.get(galleryKey);
@@ -1656,6 +1695,7 @@ export function deriveMessagesTimelineRows(input: {
         if (
           !nextEntry ||
           nextEntry.kind !== "work" ||
+          nextEntry.entry.chatArtifact !== undefined ||
           isTypedGeneratedImageEntry(nextEntry.entry) ||
           isReasoningPresentationEntry(nextEntry.entry)
         )
@@ -1870,6 +1910,7 @@ export function deriveMessagesTimelineRows(input: {
         createdAt: timelineEntry.createdAt,
         ...(timelineEntry.turnId !== undefined ? { turnId: timelineEntry.turnId } : {}),
         htmlRender: timelineEntry.htmlRender,
+        ...(timelineEntry.liveId === undefined ? {} : { liveId: timelineEntry.liveId }),
       });
       continue;
     }
@@ -1887,6 +1928,14 @@ export function deriveMessagesTimelineRows(input: {
           timelineEntry.segmentIndex
           ? generatedImageGalleries.get(String(timelineEntry.message.turnId))
           : undefined;
+      const segmentChatArtifacts =
+        timelineEntry.message.role === "assistant" &&
+        timelineEntry.message.turnId != null &&
+        terminalAssistantMessageIds.has(timelineEntry.message.id) &&
+        terminalSegmentIndexByAssistantMessageId.get(timelineEntry.message.id) ===
+          timelineEntry.segmentIndex
+          ? chatArtifactsByTurn.get(String(timelineEntry.message.turnId))
+          : undefined;
       nextRows.push({
         kind: "message-segment",
         id: timelineEntry.id,
@@ -1894,6 +1943,7 @@ export function deriveMessagesTimelineRows(input: {
         message: timelineEntry.message,
         segmentIndex: timelineEntry.segmentIndex,
         ...(generatedImageGallery ? { generatedImageGallery } : {}),
+        ...(segmentChatArtifacts ? { chatArtifacts: segmentChatArtifacts } : {}),
       });
       continue;
     }
@@ -1919,6 +1969,12 @@ export function deriveMessagesTimelineRows(input: {
       terminalAssistantMessageIds.has(message.id)
         ? generatedImageGalleries.get(String(message.turnId))
         : undefined;
+    const chatArtifacts =
+      message.role === "assistant" &&
+      message.turnId != null &&
+      terminalAssistantMessageIds.has(message.id)
+        ? chatArtifactsByTurn.get(String(message.turnId))
+        : undefined;
 
     nextRows.push({
       kind: "message",
@@ -1937,6 +1993,7 @@ export function deriveMessagesTimelineRows(input: {
           ? input.turnDiffSummaryByAssistantMessageId.get(message.id)
           : undefined,
       ...(generatedImageGallery ? { generatedImageGallery } : {}),
+      ...(chatArtifacts ? { chatArtifacts } : {}),
       revertTurnCount:
         message.role === "user" ? input.revertTurnCountByUserMessageId.get(message.id) : undefined,
     });
@@ -2401,6 +2458,8 @@ function collapseSettledTurns(
       break;
     }
     foldIndices.reverse();
+    // The scan ran backwards; pages show in the order they were published.
+    inlineHtmlRenderIndices.reverse();
     // A standalone compaction row remains its own status primitive. It only
     // joins Worked-for when there is actual tool work in the same folded span.
     if (!foldIndices.some((index) => rows[index]?.kind === "work")) {
@@ -2561,7 +2620,13 @@ function collapseSettledTurns(
         row.inlineHtmlRenders = inlineHtmlRenderIndices.flatMap((index) => {
           const visual = rows[index];
           return visual?.kind === "html-render"
-            ? [{ id: visual.id, htmlRender: visual.htmlRender }]
+            ? [
+                {
+                  id: visual.id,
+                  htmlRender: visual.htmlRender,
+                  ...(visual.liveId === undefined ? {} : { liveId: visual.liveId }),
+                },
+              ]
             : [];
         });
       }
@@ -2985,14 +3050,15 @@ function workLogEntryArraysEqual(
 }
 
 function inlineHtmlRendersEqual(
-  left: ReadonlyArray<{ id: string; htmlRender: HtmlRenderReference }> | undefined,
-  right: ReadonlyArray<{ id: string; htmlRender: HtmlRenderReference }> | undefined,
+  left: ReadonlyArray<PlacedHtmlRender> | undefined,
+  right: ReadonlyArray<PlacedHtmlRender> | undefined,
 ): boolean {
   if (left === right) return true;
   if (!left || !right || left.length !== right.length) return false;
   return left.every(
     (visual, index) =>
       visual.id === right[index]?.id &&
+      visual.liveId === right[index]!.liveId &&
       htmlRenderReferencesEqual(visual.htmlRender, right[index]!.htmlRender),
   );
 }
@@ -3169,7 +3235,11 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
     case "html-render": {
       // Entries rebuild on any activity update; an equal page must keep its mounted frame.
       const bh = b as typeof a;
-      return a.createdAt === bh.createdAt && htmlRenderReferencesEqual(a.htmlRender, bh.htmlRender);
+      return (
+        a.createdAt === bh.createdAt &&
+        a.liveId === bh.liveId &&
+        htmlRenderReferencesEqual(a.htmlRender, bh.htmlRender)
+      );
     }
 
     case "user-input":
@@ -3287,6 +3357,7 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.assistantTurnInProgress === bm.assistantTurnInProgress &&
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
         generatedImageGalleriesEqual(a.generatedImageGallery, bm.generatedImageGallery) &&
+        chatArtifactsEqual(a.chatArtifacts, bm.chatArtifacts) &&
         a.revertTurnCount === bm.revertTurnCount
       );
     }
@@ -3296,7 +3367,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return (
         a.message === bm.message &&
         a.segmentIndex === bm.segmentIndex &&
-        generatedImageGalleriesEqual(a.generatedImageGallery, bm.generatedImageGallery)
+        generatedImageGalleriesEqual(a.generatedImageGallery, bm.generatedImageGallery) &&
+        chatArtifactsEqual(a.chatArtifacts, bm.chatArtifacts)
       );
     }
 

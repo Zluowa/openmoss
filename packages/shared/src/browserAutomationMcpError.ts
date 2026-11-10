@@ -1,4 +1,4 @@
-import { BrowserAutomationError, utf8ByteLength } from "@synara/contracts";
+import { BrowserAutomationError, utf8ByteLength } from "@moss/contracts";
 import { Schema } from "effect";
 
 import { stableJsonStringify } from "./browserAutomationCatalogue";

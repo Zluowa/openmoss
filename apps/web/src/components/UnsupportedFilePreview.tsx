@@ -48,7 +48,7 @@ export function UnsupportedFilePreview(props: {
           </p>
           <p className="text-ui-lg text-muted-foreground">Preview not available</p>
           <p className="text-ui-lg text-muted-foreground">
-            This file type can be downloaded{props.onAttachToChat ? " or attached to chat" : ""}.
+            {`This file type can be downloaded${props.onAttachToChat ? " or attached to chat" : ""}.`}
           </p>
         </div>
         {props.onAttachToChat ? (

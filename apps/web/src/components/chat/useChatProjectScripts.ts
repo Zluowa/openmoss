@@ -3,7 +3,7 @@ import {
   type KeybindingCommand,
   type ProjectId,
   type ProjectScript,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef } from "react";
 import { useLocalStorage } from "~/hooks/useLocalStorage";

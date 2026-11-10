@@ -22,6 +22,7 @@ export function htmlRenderActivityPayload(reference: HtmlRenderReference) {
       ...(reference.heights === undefined
         ? {}
         : { heights: reference.heights.map(([width, height]) => [width, height]) }),
+      ...(reference.surface === undefined ? {} : { surface: reference.surface }),
     },
   };
 }

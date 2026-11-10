@@ -2,7 +2,7 @@
 // Purpose: Locks managed-only last-known model catalog retention and removal cleanup.
 // Layer: Web hook unit tests
 
-import type { ProviderInstanceId } from "@synara/contracts";
+import type { ProviderInstanceId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ProviderModelOption } from "../providerModelOptions";

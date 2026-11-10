@@ -19,6 +19,7 @@ import {
   GlobeIcon,
   InfoIcon,
   MessageCircleIcon,
+  SlideDeckIcon,
   TerminalIcon,
 } from "~/lib/icons";
 import { type RightDockPane, type RightDockPaneKind } from "~/rightDockStore.logic";
@@ -55,6 +56,7 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMetaDe
   htmlRender: { labelKey: "rightDock.pane.file", Icon: FileIcon },
   imagePreview: { labelKey: "rightDock.pane.imagePreview", Icon: GeneratedImagePreviewIcon },
   canvas: { labelKey: "chat.generatedImage.preview.canvasView", Icon: GeneratedImagePreviewIcon },
+  deck: { labelKey: "rightDock.pane.deck", Icon: SlideDeckIcon },
   terminal: { labelKey: "rightDock.pane.terminal", Icon: TerminalIcon },
   sidechat: { labelKey: "rightDock.launcher.sideChats", Icon: MessageCircleIcon },
   subagents: { labelKey: "rightDock.pane.subagents", Icon: BotIcon },
@@ -140,6 +142,7 @@ const RIGHT_DOCK_PANE_LABEL_KEYS: Record<RightDockPaneKind, TranslationKey> = {
   htmlRender: "rightDock.pane.file",
   imagePreview: "rightDock.pane.imagePreview",
   canvas: "chat.generatedImage.preview.canvasView",
+  deck: "rightDock.pane.deck",
   terminal: "rightDock.pane.terminal",
   sidechat: "rightDock.pane.sideTask",
   subagents: "rightDock.pane.subagents",
@@ -208,6 +211,8 @@ export function buildRightDockPaneLabelOverrides(
       overrides[pane.id] = basenameOfPath(pane.filePath);
     } else if (pane.kind === "htmlRender" && pane.htmlDocument) {
       overrides[pane.id] = pane.htmlDocument.title;
+    } else if (pane.kind === "deck" && pane.deck) {
+      overrides[pane.id] = pane.deck.title;
     } else if (pane.kind === "pullRequest" && pane.pullRequestNumber !== null) {
       overrides[pane.id] = pullRequestPaneTabLabel(pane.pullRequestNumber);
     } else if (pane.kind === "sidechat" && pane.threadId) {

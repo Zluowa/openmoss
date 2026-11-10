@@ -1,4 +1,4 @@
-import type { ServerProviderStatus } from "@synara/contracts";
+import type { ServerProviderStatus } from "@moss/contracts";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -120,7 +120,7 @@ describe("ProviderHealthBanner", () => {
       ),
     );
 
-    expect(text).toContain("Moss 尚未登录。请打开服务商设置并登录。");
+    expect(text).toContain("Moss 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。");
     expect(text).not.toContain("codex login");
     expect(text).not.toContain("Moss 正在准备");
   });
@@ -239,7 +239,7 @@ describe("ProviderHealthBanner", () => {
         }),
       }),
     );
-    const safeMessage = `${fixture.displayName} 尚未登录。请打开服务商设置并登录。`;
+    const safeMessage = `${fixture.displayName} 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。`;
 
     expect(textContent(markup)).toContain(safeMessage);
     expect(markup).toContain(`title="${safeMessage}"`);

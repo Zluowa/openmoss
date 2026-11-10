@@ -2,11 +2,11 @@ import type {
   HubWorkRecord,
   OrchestrationThreadShell,
   ProjectManagedWorker,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   canSessionAnswerPendingRequests,
   isThreadActivelyWorking,
-} from "@synara/shared/groupThreadState";
+} from "@moss/shared/groupThreadState";
 import type { ProjectionThreadMessage } from "../persistence/Services/ProjectionThreadMessages";
 
 export interface HubWorkLifecycleInput {

@@ -14,7 +14,7 @@ import {
   type ProviderSession,
   type ProviderSubmitPermissionActionInput,
   type ProviderSubmitPermissionActionResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

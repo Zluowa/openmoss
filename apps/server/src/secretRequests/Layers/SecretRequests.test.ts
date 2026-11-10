@@ -11,7 +11,7 @@ import {
   TurnId,
   type OrchestrationCommand,
   type SecretRequestActivityPayload,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Queue } from "effect";
 import { TestClock } from "effect/testing";

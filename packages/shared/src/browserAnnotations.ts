@@ -333,6 +333,14 @@ function sanitizeSearchParams(searchParams: URLSearchParams): string {
 export function sanitizeBrowserAnnotationUrl(value: string): string {
   try {
     const url = new URL(value);
+    // A page opened from a local file is the person's own file: its path is what the agent
+    // needs to change it, so it is kept as is (without query or fragment). Moss serves such
+    // pages from its own local-page scheme; the panel shows the file's address for them.
+    if (url.protocol === "file:" || url.protocol === "moss-local-preview:") {
+      url.search = "";
+      url.hash = "";
+      return url.href;
+    }
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       return "";
     }
@@ -357,7 +365,14 @@ export function sanitizeBrowserAnnotationUrl(value: string): string {
 export function browserAnnotationDocumentIdentityUrl(value: string): string {
   try {
     const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return "";
+    if (
+      url.protocol !== "http:" &&
+      url.protocol !== "https:" &&
+      url.protocol !== "file:" &&
+      url.protocol !== "moss-local-preview:"
+    ) {
+      return "";
+    }
     url.hash = "";
     return url.href;
   } catch {

@@ -4,17 +4,17 @@ import {
   type OrchestrationThreadActivity,
   type TurnId,
   type UserInputQuestion,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   createStalePendingInteractionMatcher,
   isPendingInteractionResponseClaimable,
-} from "@synara/shared/pendingInteractions";
-import { readProposedExecpolicyAmendment } from "@synara/shared/approvalSessionGrant";
+} from "@moss/shared/pendingInteractions";
+import { readProposedExecpolicyAmendment } from "@moss/shared/approvalSessionGrant";
 import {
   approvalRequestKindFromRequestType,
   pendingRequestInstanceKey,
   type ApprovalRequestKind,
-} from "@synara/shared/threadSummary";
+} from "@moss/shared/threadSummary";
 
 import { orderedActivities, parseUserInputQuestions } from "./workLog";
 

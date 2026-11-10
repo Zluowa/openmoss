@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import {
   IsoDateTime,
   MessageId,
+  NonNegativeInt,
   ProjectId,
   SpaceId,
   ThreadId,
@@ -9,7 +10,36 @@ import {
 } from "./baseSchemas";
 import { ProviderInstanceId } from "./providerInstance";
 
-export const ProjectImportProvider = Schema.Literals(["codex", "claudeAgent"]);
+/** Agents whose conversations are copied natively, so the copy continues in that agent. */
+export const PROJECT_IMPORT_NATIVE_PROVIDERS = ["codex", "claudeAgent"] as const;
+/** Agents whose conversations are read from their local files and copied as messages. */
+export const PROJECT_IMPORT_TRANSCRIPT_PROVIDERS = [
+  "cursor",
+  "gemini",
+  "antigravity",
+  "grok",
+  "opencode",
+  "pi",
+  "hermes",
+  "devin",
+  "omp",
+  "zcode",
+] as const;
+/**
+ * Agents whose conversations Moss can find and count but not copy: their history is
+ * encrypted or in a format Moss cannot read yet. They are reported, never imported.
+ */
+export const PROJECT_IMPORT_UNREADABLE_PROVIDERS = ["antigravity", "kimi"] as const;
+export type ProjectImportUnreadableProvider = (typeof PROJECT_IMPORT_UNREADABLE_PROVIDERS)[number];
+/** Every agent whose local conversations Moss can find and import, in display order. */
+export const PROJECT_IMPORT_PROVIDERS = [
+  ...PROJECT_IMPORT_NATIVE_PROVIDERS,
+  ...PROJECT_IMPORT_TRANSCRIPT_PROVIDERS,
+] as const;
+export type ProjectImportNativeProvider = (typeof PROJECT_IMPORT_NATIVE_PROVIDERS)[number];
+export type ProjectImportTranscriptProvider = (typeof PROJECT_IMPORT_TRANSCRIPT_PROVIDERS)[number];
+
+export const ProjectImportProvider = Schema.Literals(PROJECT_IMPORT_PROVIDERS);
 export type ProjectImportProvider = typeof ProjectImportProvider.Type;
 
 export const ProjectImportThread = Schema.Struct({
@@ -33,6 +63,8 @@ export const ProjectImportProject = Schema.Struct({
   title: Schema.String,
   workspaceRoot: Schema.String,
   directoryExists: Schema.Boolean,
+  /** The folder is in a temp directory (an agent's test or scratch run): not selected by default. */
+  temporary: Schema.optional(Schema.Boolean),
   existingProjectId: Schema.NullOr(ProjectId),
   providers: Schema.Array(ProjectImportProvider),
   threads: Schema.Array(ProjectImportThread),
@@ -53,6 +85,16 @@ export const ListProjectImportsResult = Schema.Struct({
       accountLabel: Schema.optional(Schema.String),
       error: Schema.NullOr(Schema.String),
     }),
+  ),
+  /** Conversations found on this computer that Moss cannot copy, with the reason. */
+  unreadable: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        provider: Schema.Literals(PROJECT_IMPORT_UNREADABLE_PROVIDERS),
+        conversationCount: NonNegativeInt,
+        reason: Schema.Literals(["encrypted", "unsupported-format"]),
+      }),
+    ),
   ),
 });
 export type ListProjectImportsResult = typeof ListProjectImportsResult.Type;

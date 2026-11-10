@@ -8,7 +8,7 @@
  * stands in for the account bearer (the dev relay accepts any bearer), so sharing can be tried
  * without a signed-in account.
  */
-import type { MossRealm } from "@synara/shared/mossRealmCatalog";
+import type { MossRealm } from "@moss/shared/mossRealmCatalog";
 import { Effect } from "effect";
 
 import type {

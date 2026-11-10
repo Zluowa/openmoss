@@ -1,11 +1,11 @@
-import type { ProviderInstanceConfig } from "@synara/contracts";
+import type { ProviderInstanceConfig } from "@moss/contracts";
 import {
   getMossManagedModelDefinition,
   isMossAccessLane,
   MOSS_ACCESS_LANE_SPECS,
   mossLaneEngineLineup,
   type MossAccessLane,
-} from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossRealmCatalog";
 import { isTrustedMossManagedGatewayUrlForAuthority } from "./mossManagedGatewayTrust";
 import { normalizeMossManagedOpenCodeGatewayBaseUrl } from "./mossManagedOpenCodeEnvironment";
 
@@ -33,11 +33,30 @@ export function buildMossManagedPiConfig(gatewayBaseUrl: string, realm: MossAcce
           id,
           name: definition.displayName,
           reasoning: false,
-          input: ["text"] as Array<"text" | "image">,
+          // The Moss catalog is the one answer to "can this model see images": a model
+          // marked text-only here made Pi drop every attached image, even for GLM-5.3 Flash.
+          input: [...definition.inputModalities] as Array<"text" | "image">,
           contextWindow: definition.contextWindow,
           maxTokens: Math.min(definition.maxOutputTokens, 32_768),
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         };
+      }),
+    },
+  };
+}
+
+function withoutModelInputs(config: unknown): unknown {
+  if (typeof config !== "object" || config === null) return config;
+  const record = config as { provider?: { models?: unknown } };
+  if (!record.provider || !Array.isArray(record.provider.models)) return config;
+  return {
+    ...record,
+    provider: {
+      ...record.provider,
+      models: record.provider.models.map((model: unknown) => {
+        if (typeof model !== "object" || model === null) return model;
+        const { input: _input, ...rest } = model as Record<string, unknown>;
+        return rest;
       }),
     },
   };
@@ -62,7 +81,9 @@ export function readMossManagedPiConfig(
     throw new Error("Managed Pi requires a trusted Moss gateway and realm.");
   }
   const expected = buildMossManagedPiConfig(parsed.provider.baseUrl, parsed.realm);
-  if (JSON.stringify(parsed) !== JSON.stringify(expected)) {
+  // Image input always comes from the catalog (returned below). A catalog stored before
+  // it did so still proves the same gateway, realm and models until the next reprovision.
+  if (JSON.stringify(withoutModelInputs(parsed)) !== JSON.stringify(withoutModelInputs(expected))) {
     throw new Error("Managed Pi model configuration does not match its realm catalog.");
   }
   if (!environment?.[MOSS_MANAGED_PI_CREDENTIAL_ENV_KEY]?.trim()) {

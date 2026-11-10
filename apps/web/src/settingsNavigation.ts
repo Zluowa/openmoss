@@ -3,7 +3,7 @@
 // Layer: Route/UI support
 // Exports: section ids, nav items, and search normalization helper
 
-import { MCP_CONNECTORS_BETA_FEATURE } from "@synara/shared/betaFeatures";
+import { MCP_CONNECTORS_BETA_FEATURE } from "@moss/shared/betaFeatures";
 
 import { isBetaFeatureOn } from "~/betaFeatures";
 import { KEYBINDINGS_ICON_NAME } from "~/lib/icons";
@@ -17,7 +17,6 @@ export const SETTINGS_SECTION_IDS = [
   "notifications",
   "behavior",
   "appsnap",
-  "computer",
   "history",
   "voice",
   "shortcuts",
@@ -28,11 +27,13 @@ export const SETTINGS_SECTION_IDS = [
   "skills",
   "usage",
   "connectors",
+  "connections",
   "integrations",
   "advanced",
 ] as const;
 
-export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
+// The legacy computer id remains accepted by callers, but resolves to the connection hub.
+export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number] | "computer";
 export type SettingsNavGroupId = "personal" | "integrations" | "coding" | "system" | "archived";
 
 /**
@@ -61,6 +62,15 @@ export type SettingsNavItem = {
    */
   badge?: string;
 };
+
+/**
+ * Sections retained for old bookmarks while their controls live in the Codex
+ * resource library. The settings route redirects these ids to Plugins.
+ */
+export const CODEX_RESOURCE_LEGACY_SECTIONS = [
+  "connectors",
+  "skills",
+] as const satisfies ReadonlyArray<SettingsSectionId>;
 
 export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
   id: SettingsNavGroupId;
@@ -169,15 +179,6 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     eyebrow: "Screen capture",
   },
   {
-    id: "computer",
-    group: "integrations",
-    label: "Computer use",
-    description: "Let agents see and control this computer's desktop, and check backend status.",
-    icon: "computer-use",
-    eyebrow: "Desktop control",
-    badge: "Beta",
-  },
-  {
     id: "history",
     group: "integrations",
     label: "Computer History",
@@ -202,6 +203,14 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     eyebrow: "Remote MCP servers",
   },
   {
+    id: "connections",
+    group: "integrations",
+    label: "Connections",
+    description: "Manage this computer, other devices, and SSH connections.",
+    icon: "connectors-1",
+    eyebrow: "Remote computers",
+  },
+  {
     id: "integrations",
     group: "integrations",
     label: "MCP connections",
@@ -213,7 +222,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     id: "providers",
     group: "coding",
     label: "Agent providers",
-    description: "Choose visible coding agents and manage their installed CLI tools.",
+    description: "Choose the coding agents you use, sign them in and install new ones.",
     icon: "puzzle",
     eyebrow: "Coding agents",
   },
@@ -261,7 +270,9 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
 ] as const;
 
 export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = ALL_SETTINGS_NAV_ITEMS.filter(
-  (item) => isSettingsSectionAvailable(item.id),
+  (item) =>
+    isSettingsSectionAvailable(item.id) &&
+    !(CODEX_RESOURCE_LEGACY_SECTIONS as readonly string[]).includes(item.id),
 );
 
 /**
@@ -279,6 +290,7 @@ export function settingRowAnchorId(title: string): string {
 }
 
 export function normalizeSettingsSection(value: unknown): SettingsSectionId {
+  if (value === "computer") return "connections";
   if (typeof value !== "string") {
     return "general";
   }

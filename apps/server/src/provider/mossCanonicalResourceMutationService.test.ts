@@ -8,7 +8,7 @@ import type {
   MossCanonicalResourceMutationPayload,
   MossCanonicalResourceMutationAction,
   MossOwnershipStore,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { makeMossCanonicalFilesystemHelper } from "./mossCanonicalFilesystemHelper.ts";

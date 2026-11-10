@@ -3,7 +3,7 @@
 // Layer: Chat composer presentation
 // Depends on: shared menu primitives, icon buttons, and caller-owned composer state callbacks.
 
-import { type ProviderInteractionMode } from "@synara/contracts";
+import { type ProviderInteractionMode } from "@moss/contracts";
 import { useId, useRef, type ChangeEvent } from "react";
 
 import { BugIcon, ListTodoIcon, MessageCircleIcon, PaperclipIcon, PlusIcon } from "~/lib/icons";

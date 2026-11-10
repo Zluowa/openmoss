@@ -17,7 +17,7 @@ import {
   DEVICE_HELPER_BINARY_NAME,
   deviceHelperCacheKey,
   deviceHelperSourceRevision,
-} from "@synara/shared/deviceHelperCache";
+} from "@moss/shared/deviceHelperCache";
 import { IosSimulatorBackend } from "./IosSimulatorBackend.ts";
 import type { HelperClient } from "./helperClient.ts";
 

@@ -1,4 +1,4 @@
-import { LibraryFolder, LibraryItem } from "@synara/contracts";
+import { LibraryFolder, LibraryItem } from "@moss/contracts";
 import { Effect, Layer, Schema, Struct } from "effect";
 import * as SchemaGetter from "effect/SchemaGetter";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

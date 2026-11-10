@@ -1,4 +1,4 @@
-import type { ProjectManagedWorkerSettleOutcome } from "@synara/contracts";
+import type { ProjectManagedWorkerSettleOutcome } from "@moss/contracts";
 
 export const PROJECT_AGENT_WORKER_HEALTH_INTERVAL_MS = 60_000;
 

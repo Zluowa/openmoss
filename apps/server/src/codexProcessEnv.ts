@@ -10,20 +10,26 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 
-import { readActiveCodexProviderEnvKey } from "@synara/shared/codexConfig";
+import { readActiveCodexProviderEnvKey } from "@moss/shared/codexConfig";
 import {
   readEnvironmentFromLoginShell,
   resolveLoginShell,
   type ShellEnvironmentReader,
-} from "@synara/shared/shell";
+} from "@moss/shared/shell";
 
 import {
+  type CodexHomePathsInput,
   resolveBaseCodexHomePath,
   resolveCodexHomeOverlayAccountSegment,
   resolveMossCodexHomeOverlayPath,
   resolveCodexHomeOverlayWritePath,
   usesCanonicalMossManagedCodexHome,
 } from "./codexHomePaths.ts";
+import {
+  readCodexCredentialFence,
+  type CodexCredentialFence,
+  type CodexCredentialScopeInput,
+} from "./codexHomeIdentity.ts";
 import {
   assertManagedCodexHomeAuthorityCurrentSync,
   assertManagedCodexHomeAuthorityCurrentIo,
@@ -50,6 +56,9 @@ import {
   buildProviderChildEnvironment,
   registerProviderCredentialKey,
 } from "./providerChildEnvironment.ts";
+import { createLogger } from "./logger.ts";
+
+const continuationLogger = createLogger("codex-continuation");
 
 const CODEX_PROCESS_SHELL_ENV_NAMES = ["PATH", "SSH_AUTH_SOCK"] as const;
 const CODEX_SQLITE_HOME_ENV_NAME = "CODEX_SQLITE_HOME";
@@ -142,21 +151,25 @@ export interface PreparedCodexAuthTracking {
   readonly sourceConfigSnapshot: string;
   readonly authSource: CodexPreparedAuthSource;
   readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
+  readonly credentialFence?: CodexCredentialFence;
 }
 
 export interface CodexAuthTrackingPreparationHooks {
   readonly afterSourceHomeBound?: () => void;
 }
 
-export interface CodexProcessEnvInput {
-  readonly env?: NodeJS.ProcessEnv;
+type CodexCredentialProcessInput = Pick<
+  CodexCredentialScopeInput,
+  "credentialFence" | "runtimeGeneration"
+>;
+
+export interface CodexProcessEnvInput
+  extends
+    CodexCredentialProcessInput,
+    Pick<CodexHomePathsInput, "env" | "homePath" | "shadowHomePath" | "accountId" | "platform"> {
   /** Account-scoped launches may use only credentials supplied by their instance. */
   readonly isolateProviderCredentials?: boolean;
   readonly explicitProviderEnvironment?: Readonly<Record<string, string>>;
-  readonly homePath?: string;
-  readonly shadowHomePath?: string;
-  readonly accountId?: string;
-  readonly platform?: NodeJS.Platform;
   readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
   readonly readEnvironment?: ShellEnvironmentReader;
   readonly appendConfigToml?: string;
@@ -553,13 +566,15 @@ function preparedHomesShareIdentity(
 export function readCodexPreparedHomeFileSnapshot(
   source: CodexPreparedHomeSource,
   fileName: string,
+  maxBytes?: number,
 ): Buffer | undefined {
-  return runCodexAuthIoSync(readCodexPreparedHomeFileSnapshotIo(source, fileName));
+  return runCodexAuthIoSync(readCodexPreparedHomeFileSnapshotIo(source, fileName, maxBytes));
 }
 
 function* readCodexPreparedHomeFileSnapshotIo(
   source: CodexPreparedHomeSource,
   fileName: string,
+  maxBytes?: number,
 ): CodexAuthIo<Buffer | undefined> {
   if (source.kind === "missing") return undefined;
   if (path.basename(fileName) !== fileName || fileName === "." || fileName === "..") {
@@ -612,7 +627,11 @@ function* readCodexPreparedHomeFileSnapshotIo(
         `Codex ${fileName} changed while its identity was being verified; retry the request.`,
       );
     }
-    const content = yield* descriptor.read();
+    if (maxBytes !== undefined && (maxBytes < 1 || before.size > BigInt(maxBytes))) {
+      throw new Error("Codex metadata exceeds its bounded read limit.");
+    }
+    const content =
+      maxBytes === undefined ? yield* descriptor.read() : yield* descriptor.readBounded(maxBytes);
     const after = yield* descriptor.stat();
     if (
       !preparedHomeFileIdentityMatches(before, after) ||
@@ -784,6 +803,15 @@ function* readCodexPreparedAuthTrackingFingerprintIo(
   if (tracking.managedHomeAuthority) {
     yield* assertManagedCodexHomeAuthorityCurrentIo(tracking.managedHomeAuthority);
   }
+  if (tracking.credentialFence) {
+    readCodexCredentialFence({
+      credentialFence: tracking.credentialFence,
+      homePath: tracking.credentialFence.sourceHomeIdentity,
+      shadowHomePath: tracking.credentialFence.privateHomeIdentity,
+      accountId: tracking.credentialFence.accountId,
+      runtimeGeneration: tracking.credentialFence.runtimeGeneration,
+    });
+  }
   return JSON.stringify({
     storeMode: readEffectiveCodexAuthCredentialsStoreMode(tracking.sourceConfigSnapshot),
     auth: readCodexPreparedAuthIdentity(
@@ -795,7 +823,14 @@ function* readCodexPreparedAuthTrackingFingerprintIo(
 export function prepareCodexAuthTracking(
   input: Pick<
     CodexProcessEnvInput,
-    "env" | "homePath" | "shadowHomePath" | "accountId" | "platform" | "managedHomeAuthority"
+    | "env"
+    | "homePath"
+    | "shadowHomePath"
+    | "accountId"
+    | "platform"
+    | "managedHomeAuthority"
+    | "credentialFence"
+    | "runtimeGeneration"
   > = {},
   hooks: CodexAuthTrackingPreparationHooks = {},
 ): PreparedCodexAuthTracking {
@@ -805,16 +840,31 @@ export function prepareCodexAuthTracking(
 function* prepareCodexAuthTrackingIo(
   input: Pick<
     CodexProcessEnvInput,
-    "env" | "homePath" | "shadowHomePath" | "accountId" | "platform" | "managedHomeAuthority"
+    | "env"
+    | "homePath"
+    | "shadowHomePath"
+    | "accountId"
+    | "platform"
+    | "managedHomeAuthority"
+    | "credentialFence"
+    | "runtimeGeneration"
   > = {},
   hooks: CodexAuthTrackingPreparationHooks = {},
 ): CodexAuthIo<PreparedCodexAuthTracking> {
   const env = { ...(input.env ?? process.env) };
+  const credentialFence = readCodexCredentialFence({ ...input, environment: env });
   const sourceHomePath = resolveBaseCodexHomePath(env, input.homePath);
   const canonicalManagedHome = usesCanonicalMossManagedCodexHome({ ...input, env });
   if (canonicalManagedHome) {
     const authority = canonicalManagedHomeAuthority(input);
     yield* assertManagedCodexHomeAuthorityCurrentIo(authority, sourceHomePath);
+  } else if (credentialFence && input.managedHomeAuthority) {
+    // A shared source does not become the managed credential root. Preserve
+    // the existing server reservation against the explicitly bound private root.
+    yield* assertManagedCodexHomeAuthorityCurrentIo(
+      input.managedHomeAuthority,
+      credentialFence.privateHomeIdentity,
+    );
   }
   const ambientHomePath = resolveBaseCodexHomePath(env);
   const hasDedicatedAccountHome =
@@ -877,10 +927,14 @@ function* prepareCodexAuthTrackingIo(
   }
 
   const sourceConfigSnapshot =
-    (yield* readCodexPreparedHomeFileSnapshotIo(sourceHomeSource, "config.toml"))?.toString(
-      "utf8",
-    ) ?? "";
-  const sourceConfigPath = path.join(sourceHomePath, "config.toml");
+    (yield* readCodexPreparedHomeFileSnapshotIo(
+      credentialFence ? authSource : sourceHomeSource,
+      "config.toml",
+    ))?.toString("utf8") ?? "";
+  const sourceConfigPath = path.join(
+    credentialFence ? authoritativeAuthHomePath : sourceHomePath,
+    "config.toml",
+  );
   assertManagedCodexHomeUsesObservableAuth({
     sourceConfig: sourceConfigSnapshot,
     ...(input.accountId ? { accountId: input.accountId } : {}),
@@ -892,7 +946,8 @@ function* prepareCodexAuthTrackingIo(
     authoritativeAuthFilePath,
     sourceConfigSnapshot,
     authSource,
-    ...(canonicalManagedHome && input.managedHomeAuthority
+    ...(credentialFence ? { credentialFence } : {}),
+    ...((canonicalManagedHome || credentialFence) && input.managedHomeAuthority
       ? { managedHomeAuthority: input.managedHomeAuthority }
       : {}),
   };
@@ -1197,6 +1252,70 @@ function sharedContinuationMarkerPath(sourceHomePath: string): string {
 
 function legacySharedContinuationMarkerPath(sourceHomePath: string): string {
   return path.join(sourceHomePath, LEGACY_MOSS_SHARED_CONTINUATION_MARKER_FILE);
+}
+
+/**
+ * A marker that cannot vouch for this source home: unreadable JSON, or written
+ * for another directory. Copying, moving or restoring a Codex home carries the
+ * marker along, so this is an ordinary state, not tampering.
+ */
+class InvalidSharedContinuationMarkerError extends Error {
+  readonly markerPath: string;
+
+  constructor(markerPath: string, label: string) {
+    super(
+      `Codex shared continuation ${label} at ${markerPath} is malformed or belongs to another source home.`,
+    );
+    this.name = "InvalidSharedContinuationMarkerError";
+    this.markerPath = markerPath;
+  }
+}
+
+const QUARANTINED_MARKER_INFIX = ".invalid-";
+
+function isQuarantinedSharedContinuationMarkerEntry(entryName: string): boolean {
+  return (
+    entryName.startsWith(`${MOSS_SHARED_CONTINUATION_MARKER_FILE}${QUARANTINED_MARKER_INFIX}`) ||
+    entryName.startsWith(
+      `${LEGACY_MOSS_SHARED_CONTINUATION_MARKER_FILE}${QUARANTINED_MARKER_INFIX}`,
+    )
+  );
+}
+
+async function quarantineInvalidSharedContinuationMarker(error: unknown): Promise<void> {
+  if (!(error instanceof InvalidSharedContinuationMarkerError)) throw error;
+  const quarantinePath = `${error.markerPath}${QUARANTINED_MARKER_INFIX}${Date.now()}-${process.pid}`;
+  try {
+    await fs.rename(error.markerPath, quarantinePath);
+  } catch (renameError) {
+    if (isMissingPathError(renameError)) return;
+    throw renameError;
+  }
+  continuationLogger.warn(
+    "Codex continuation marker did not match this Codex home; starting a fresh generation",
+    { marker: path.basename(error.markerPath), keptAs: path.basename(quarantinePath) },
+  );
+}
+
+/**
+ * Moves markers that cannot vouch for this home aside so preparation starts a
+ * fresh generation here, instead of leaving Codex unusable until someone
+ * deletes a file by hand. The old marker is kept beside it for diagnosis, and
+ * threads pinned to the old generation still fail closed on resume. Reads in
+ * the same order as readSharedContinuationGenerationState. Callers hold the
+ * continuation lock and allow creating source state.
+ */
+async function quarantineInvalidSharedContinuationMarkers(sourceHomePath: string): Promise<void> {
+  try {
+    if (readSharedContinuationV2Marker(sourceHomePath)) return;
+  } catch (error) {
+    await quarantineInvalidSharedContinuationMarker(error);
+  }
+  try {
+    readLegacySharedContinuationMarker(sourceHomePath);
+  } catch (error) {
+    await quarantineInvalidSharedContinuationMarker(error);
+  }
 }
 
 function sharedContinuationLockPath(sourceHomePath: string): string {
@@ -1763,6 +1882,9 @@ async function prepareSharedCodexContinuationState(input: {
   await withSharedContinuationLock(
     input.sourceHomePath,
     async () => {
+      if (sourcePolicy === "create-if-missing") {
+        await quarantineInvalidSharedContinuationMarkers(input.sourceHomePath);
+      }
       const initialState = readSharedContinuationGenerationState(input.sourceHomePath);
       const mayCreateSourceEntries =
         sourcePolicy === "create-if-missing" && initialState.kind === "absent";
@@ -1906,9 +2028,7 @@ function readLegacySharedContinuationMarker(sourceHomePath: string): boolean {
   } catch {
     // Report one fail-closed error for malformed and mismatched markers.
   }
-  throw new Error(
-    `Codex shared continuation legacy marker at ${markerPath} is malformed or belongs to another source home.`,
-  );
+  throw new InvalidSharedContinuationMarkerError(markerPath, "legacy marker");
 }
 
 function readSharedContinuationV2Marker(
@@ -1939,9 +2059,7 @@ function readSharedContinuationV2Marker(
   } catch {
     // Report one fail-closed error for malformed and mismatched markers.
   }
-  throw new Error(
-    `Codex shared continuation v2 marker at ${markerPath} is malformed or belongs to another source home.`,
-  );
+  throw new InvalidSharedContinuationMarkerError(markerPath, "v2 marker");
 }
 
 function readSharedContinuationGenerationState(
@@ -2106,7 +2224,10 @@ function assertSharedCodexContinuationGenerationPrepared(
   assertRequiredSharedContinuationEntriesPrepared(sourceHomePath);
 }
 
-function readPreparedSharedCodexContinuationGeneration(sourceHomePath: string): string | undefined {
+/** Source receipt only; callers still verify the selected overlay and private config. */
+export function readPreparedSharedCodexContinuationGeneration(
+  sourceHomePath: string,
+): string | undefined {
   try {
     const state = readSharedContinuationGenerationState(sourceHomePath);
     if (state.kind !== "v2") return undefined;
@@ -2149,15 +2270,20 @@ function selectedCodexOverlaySharesContinuationState(input: {
   });
 }
 
+type CodexContinuationHomeInput = Pick<
+  CodexProcessEnvInput,
+  | "env"
+  | "homePath"
+  | "shadowHomePath"
+  | "accountId"
+  | "platform"
+  | "managedHomeAuthority"
+  | "credentialFence"
+  | "runtimeGeneration"
+>;
+
 export function readCodexSharedContinuationGeneration(
-  input: {
-    readonly env?: NodeJS.ProcessEnv;
-    readonly homePath?: string;
-    readonly shadowHomePath?: string;
-    readonly accountId?: string;
-    readonly platform?: NodeJS.Platform;
-    readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
-  } = {},
+  input: CodexContinuationHomeInput = {},
 ): string | undefined {
   const env = { ...(input.env ?? process.env) };
   const sourceHomePath = resolveBaseCodexHomePath(env, input.homePath);
@@ -2184,13 +2310,15 @@ export function readCodexSharedContinuationGeneration(
     const canonicalManagedHome = usesCanonicalMossManagedCodexHome({ ...input, env });
     if (canonicalManagedHome) requireCanonicalManagedHomeAuthority(input, sourceHomePath);
     const overlayHomePath = canonicalManagedHome ? sourceHomePath : predictedOverlayHomePath;
-    const sourceConfigPath = path.join(sourceHomePath, "config.toml");
+    const credentialFence = readCodexCredentialFence({ ...input, environment: env });
     let sourceConfig = "";
-    try {
-      sourceConfig = readFileSync(sourceConfigPath, "utf8");
-    } catch (error) {
-      if (!isMissingPathError(error)) {
-        throw error;
+    if (credentialFence) {
+      sourceConfig = prepareCodexAuthTracking(input).sourceConfigSnapshot;
+    } else {
+      try {
+        sourceConfig = readFileSync(path.join(sourceHomePath, "config.toml"), "utf8");
+      } catch (error) {
+        if (!isMissingPathError(error)) throw error;
       }
     }
     assertCodexSqliteHomeMatchesSource({ sourceConfig, sourceHomePath });
@@ -2205,14 +2333,7 @@ export function readCodexSharedContinuationGeneration(
 }
 
 export function isCodexSharedContinuationStatePrepared(
-  input: {
-    readonly env?: NodeJS.ProcessEnv;
-    readonly homePath?: string;
-    readonly shadowHomePath?: string;
-    readonly accountId?: string;
-    readonly platform?: NodeJS.Platform;
-    readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
-  } = {},
+  input: CodexContinuationHomeInput = {},
 ): boolean {
   return readCodexSharedContinuationGeneration(input) !== undefined;
 }
@@ -2659,24 +2780,28 @@ async function serializeCodexOverlayPreparation<A>(
   }
 }
 
-async function prepareMossCodexHomeOverlayUnlocked(input: {
-  readonly env: NodeJS.ProcessEnv;
-  readonly homePath?: string;
-  readonly shadowHomePath?: string;
-  readonly accountId?: string;
-  readonly appendConfigToml?: string;
-  readonly overlayEntryLinker?: CodexOverlayEntryLinker;
-  readonly continuationSourcePolicy?: SharedContinuationSourcePolicy;
-  readonly continuationSourceRequirements?: SharedContinuationSourceRequirements;
-}): Promise<string | undefined> {
+async function prepareMossCodexHomeOverlayUnlocked(
+  input: {
+    readonly env: NodeJS.ProcessEnv;
+    readonly homePath?: string;
+    readonly shadowHomePath?: string;
+    readonly accountId?: string;
+    readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
+    readonly appendConfigToml?: string;
+    readonly overlayEntryLinker?: CodexOverlayEntryLinker;
+    readonly continuationSourcePolicy?: SharedContinuationSourcePolicy;
+    readonly continuationSourceRequirements?: SharedContinuationSourceRequirements;
+  } & CodexCredentialProcessInput,
+): Promise<string | undefined> {
   const sourceHomePath = resolveBaseCodexHomePath(input.env, input.homePath);
+  const credentialFence = readCodexCredentialFence({ ...input, environment: input.env });
   const sourceConfigPath = path.join(sourceHomePath, "config.toml");
-  const sourceConfig = await fs.readFile(sourceConfigPath, "utf8").catch((cause: unknown) => {
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
-      return "";
-    }
-    throw cause;
-  });
+  const sourceConfig = credentialFence
+    ? (await runCodexAuthIoAsync(prepareCodexAuthTrackingIo(input))).sourceConfigSnapshot
+    : await fs.readFile(sourceConfigPath, "utf8").catch((cause: unknown) => {
+        if ((cause as NodeJS.ErrnoException).code === "ENOENT") return "";
+        throw cause;
+      });
   assertCodexSqliteHomeMatchesSource({ sourceConfig, sourceHomePath });
   // A genuinely distinct explicit home belongs to the account and may mirror
   // private state. Repeating the shared CODEX_HOME explicitly must not turn it
@@ -2766,14 +2891,16 @@ async function prepareMossCodexHomeOverlayUnlocked(input: {
   });
   await removeLegacyCodexOverlaySqliteLinks(overlayHomePath);
 
+  const optionalStateHomePath = credentialFence?.privateHomeIdentity ?? sourceHomePath;
   try {
     // Auth must get a best-effort link/copy before optional entries whose
     // symlinks may fail on restricted Windows installs.
-    for (const entry of prioritizeCodexOverlayEntries(await fs.readdir(sourceHomePath))) {
+    for (const entry of prioritizeCodexOverlayEntries(await fs.readdir(optionalStateHomePath))) {
       if (
         entry === "config.toml" ||
         entry === LEGACY_MOSS_SHARED_CONTINUATION_MARKER_FILE ||
         entry === MOSS_SHARED_CONTINUATION_MARKER_FILE ||
+        isQuarantinedSharedContinuationMarkerEntry(entry) ||
         isSharedContinuationLockEntry(entry) ||
         isCodexSqliteStateEntry(entry) ||
         isSharedContinuationEntry(entry)
@@ -2792,7 +2919,7 @@ async function prepareMossCodexHomeOverlayUnlocked(input: {
       ) {
         continue;
       }
-      const sourcePath = path.join(sourceHomePath, entry);
+      const sourcePath = path.join(optionalStateHomePath, entry);
       const targetPath = path.join(overlayHomePath, entry);
       const stat = await fs.lstat(sourcePath);
       await ensureCodexOverlaySymlink(
@@ -2805,13 +2932,19 @@ async function prepareMossCodexHomeOverlayUnlocked(input: {
         input.overlayEntryLinker,
       );
     }
-  } catch {
+  } catch (error) {
+    if (credentialFence) throw error;
     // If the source home is partially missing, Codex can still start with the
     // overlay config and create any required state lazily.
   }
 
   // Best effort: a leftover link that cannot be removed must not block a launch.
-  await removeOrphanedCodexOverlayLinks({ sourceHomePath, overlayHomePath }).catch(() => undefined);
+  const removeOrphans = removeOrphanedCodexOverlayLinks({
+    sourceHomePath: optionalStateHomePath,
+    overlayHomePath,
+  });
+  if (credentialFence) await removeOrphans;
+  else await removeOrphans.catch(() => undefined);
 
   if (accountSegment && !shadowHomePath && !hasDedicatedAccountHome) {
     for (const entry of CODEX_ACCOUNT_PRIVATE_STATE_FILES) {
@@ -2834,7 +2967,12 @@ async function prepareMossCodexHomeOverlayUnlocked(input: {
       let sourceStat: Awaited<ReturnType<typeof fs.lstat>>;
       try {
         sourceStat = await fs.lstat(sourcePath);
-      } catch {
+      } catch (error) {
+        if (credentialFence) {
+          if (!isMissingPathError(error)) throw error;
+          // Do not keep an overlay copy after private credentials are removed.
+          await fs.rm(path.join(overlayHomePath, entry), { force: true });
+        }
         // Missing shadow homes should not prevent Codex from creating account
         // state lazily, but existing private files must never be read or logged.
         continue;
@@ -2888,7 +3026,18 @@ async function prepareMossCodexHomeOverlayUnlocked(input: {
       overlayConfig = mergeShellEnvPolicyExclude(overlayConfig, tokenEnvVar);
     }
   }
-  await writeCodexOverlayConfigAtomically(overlayConfigPath, overlayConfig);
+  readCodexCredentialFence({ ...input, environment: input.env });
+  await writeCodexOverlayConfigAtomically(
+    overlayConfigPath,
+    overlayConfig,
+    credentialFence
+      ? {
+          beforeRename: () => {
+            readCodexCredentialFence({ ...input, environment: input.env });
+          },
+        }
+      : {},
+  );
   await writeMossConfigSuppressions(suppressionMarkerPath, suppressedSections);
 
   assertSharedCodexContinuationGenerationPrepared(sourceHomePath, continuationMetadata.generation);
@@ -2896,18 +3045,20 @@ async function prepareMossCodexHomeOverlayUnlocked(input: {
   return overlayHomePath;
 }
 
-async function prepareMossCodexHomeOverlay(input: {
-  readonly env: NodeJS.ProcessEnv;
-  readonly homePath?: string;
-  readonly shadowHomePath?: string;
-  readonly accountId?: string;
-  readonly appendConfigToml?: string;
-  readonly overlayEntryLinker?: CodexOverlayEntryLinker;
-  readonly continuationSourcePolicy?: SharedContinuationSourcePolicy;
-  readonly continuationSourceRequirements?: SharedContinuationSourceRequirements;
-  readonly platform?: NodeJS.Platform;
-  readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
-}): Promise<string | undefined> {
+async function prepareMossCodexHomeOverlay(
+  input: {
+    readonly env: NodeJS.ProcessEnv;
+    readonly homePath?: string;
+    readonly shadowHomePath?: string;
+    readonly accountId?: string;
+    readonly appendConfigToml?: string;
+    readonly overlayEntryLinker?: CodexOverlayEntryLinker;
+    readonly continuationSourcePolicy?: SharedContinuationSourcePolicy;
+    readonly continuationSourceRequirements?: SharedContinuationSourceRequirements;
+    readonly platform?: NodeJS.Platform;
+    readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
+  } & CodexCredentialProcessInput,
+): Promise<string | undefined> {
   const sourceHomePath = resolveBaseCodexHomePath(input.env, input.homePath);
   if (usesCanonicalMossManagedCodexHome(input)) {
     const authority = requireCanonicalManagedHomeAuthority(input, sourceHomePath);
@@ -3048,6 +3199,8 @@ type CodexHomeOverlayPreparationInput = Pick<
   | "allowLegacySharedContinuationMigration"
   | "platform"
   | "managedHomeAuthority"
+  | "credentialFence"
+  | "runtimeGeneration"
 >;
 
 async function prepareCodexHomeOverlayWithSourcePolicy(
@@ -3057,6 +3210,9 @@ async function prepareCodexHomeOverlayWithSourcePolicy(
   const env = { ...(input.env ?? process.env) };
   return prepareMossCodexHomeOverlay({
     env,
+    ...(input.credentialFence
+      ? { credentialFence: input.credentialFence, runtimeGeneration: input.runtimeGeneration }
+      : {}),
     ...(input.platform ? { platform: input.platform } : {}),
     ...(input.managedHomeAuthority ? { managedHomeAuthority: input.managedHomeAuthority } : {}),
     ...(input.homePath ? { homePath: input.homePath } : {}),
@@ -3102,12 +3258,17 @@ export async function buildCodexProcessEnv(
   input: CodexProcessEnvInput = {},
 ): Promise<NodeJS.ProcessEnv> {
   const baseEnv = { ...(input.env ?? process.env) };
+  const credentialFence = readCodexCredentialFence({ ...input, environment: baseEnv });
+  if (credentialFence && input.skipHomeOverlay) {
+    throw new Error("A shared Codex account binding requires its private runtime overlay.");
+  }
   const sourceHomePath = resolveBaseCodexHomePath(baseEnv, input.homePath);
   if (usesCanonicalMossManagedCodexHome({ ...input, env: baseEnv })) {
     await requireCanonicalManagedHomeAuthority(input, sourceHomePath).assertCurrent();
   }
   const overlayPreparationInput: CodexHomeOverlayPreparationInput = {
     env: baseEnv,
+    ...(credentialFence ? { credentialFence, runtimeGeneration: input.runtimeGeneration } : {}),
     ...(input.platform ? { platform: input.platform } : {}),
     ...(input.managedHomeAuthority ? { managedHomeAuthority: input.managedHomeAuthority } : {}),
     ...(input.homePath ? { homePath: input.homePath } : {}),
@@ -3190,6 +3351,8 @@ export async function buildCodexProcessEnv(
       input.expectedSharedContinuationGeneration,
     );
   }
+
+  readCodexCredentialFence({ ...input, environment: baseEnv });
 
   return effectiveEnv;
 }

@@ -1,4 +1,4 @@
-import { MOSS_DARK_THEME_COLORS } from "@synara/shared/themePalettes";
+import { MOSS_DARK_THEME_COLORS } from "@moss/shared/themePalettes";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_THEME_STATE, resolveThemePack } from "../theme/theme.logic";

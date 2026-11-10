@@ -6,6 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { HoolaCanvasJobSnapshot } from "../hoolaCanvasBridge";
 import { MossMediaJobsService, type MossMediaCredential } from "../mossMediaJobsService";
 import {
+  recordMossCanvasLiveSelection,
+  resetMossCanvasLiveSelections,
+} from "../mossCanvasLiveSelection";
+import {
   makeAgentGatewayMediaTools,
   MOSS_MEDIA_TOOL_NAMES,
   type AgentGatewayMediaToolsInput,
@@ -42,6 +46,7 @@ function harness(
   providedService?: AgentGatewayMediaToolsInput["service"],
   workspace?: string,
   openCanvas?: AgentGatewayMediaToolsInput["openCanvas"],
+  resolveWorkspaceRoot?: AgentGatewayMediaToolsInput["resolveWorkspaceRoot"],
 ) {
   let current = credential;
   let active = true;
@@ -63,6 +68,7 @@ function harness(
     service,
     resolveCredential: Effect.sync(() => current),
     ...(workspace ? { resolveWorkspaceRoot: () => Effect.succeed(workspace) } : {}),
+    ...(resolveWorkspaceRoot ? { resolveWorkspaceRoot } : {}),
     ...(openCanvas ? { openCanvas } : {}),
   });
   const context: ToolContext = {
@@ -114,6 +120,14 @@ function harness(
 }
 
 describe("native official media tools", () => {
+  it("submits a plain image request without looking up any workspace", async () => {
+    const folders = vi.fn(() => Effect.die("unexpected workspace lookup"));
+    const h = harness(undefined, undefined, undefined, folders);
+    const { result, body } = await h.invoke("moss_media_generate", generateArgs);
+    expect(result.isError).not.toBe(true);
+    expect(body.jobId).toBe(job.jobId);
+    expect(folders).not.toHaveBeenCalled();
+  });
   it("opens Canvas only through the explicit tool, without catalog, generation, polling or payments", async () => {
     const openCanvas = vi.fn(() => Effect.void);
     const h = harness(undefined, undefined, openCanvas);
@@ -158,6 +172,78 @@ describe("native official media tools", () => {
     h.endTurn();
     expect((await h.invoke("moss_canvas_open")).result.isError).toBe(true);
     expect(openCanvas).not.toHaveBeenCalled();
+  });
+  it("opens and reads Canvas without waiting on installed-skill discovery", async () => {
+    const openCanvas = vi.fn(() => Effect.void);
+    const summary = {
+      exists: true,
+      title: "海报",
+      shapeCounts: { image: 1, text: 1 },
+      shapes: [{ type: "text", text: "标题" }],
+      truncated: false,
+      media: [{ jobId: "moss_native_1", kind: "image" as const, status: "succeeded", outputs: 1 }],
+    };
+    const readCanvas = vi.fn(() => Effect.succeed(summary));
+    const { context, service } = harness();
+    const tools = makeAgentGatewayMediaTools({
+      service,
+      // Plugin discovery is down: billable tools fail, Canvas still works.
+      resolveCredential: Effect.fail(new Error("media_plugin_discovery_unavailable")),
+      resolveCanvasCredential: Effect.succeed(credential),
+      openCanvas,
+      readCanvas,
+    });
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const result = await Effect.runPromise(
+        tools.find((tool) => tool.definition.name === name)!.handler(args, context),
+      );
+      return {
+        result,
+        body: JSON.parse(result.content[0]!.type === "text" ? result.content[0]!.text : "{}"),
+      };
+    };
+    expect((await call("moss_canvas_open")).body).toMatchObject({ opened: true });
+    const read = await call("moss_canvas_read");
+    expect(read.result.isError).not.toBe(true);
+    expect(read.body).toEqual({ threadId: "thread-1", ...summary, selection: null });
+    expect(readCanvas).toHaveBeenCalledWith({ threadId: "thread-1" }, credential, context);
+    // What the person selects on the Canvas reaches the agent on its next read.
+    expect(
+      recordMossCanvasLiveSelection("thread-1", {
+        documentEpoch: 1,
+        sequence: 3,
+        images: [],
+        content: [{ shapeId: "shape:love", kind: "text", text: "我爱你" }],
+      }),
+    ).toBe(true);
+    expect((await call("moss_canvas_read")).body.selection).toMatchObject({
+      sequence: 3,
+      images: [],
+      content: [{ shapeId: "shape:love", kind: "text", text: "我爱你" }],
+    });
+    // Deselecting clears it.
+    recordMossCanvasLiveSelection("thread-1", {
+      documentEpoch: 1,
+      sequence: 4,
+      images: [],
+      content: [],
+    });
+    expect((await call("moss_canvas_read")).body.selection).toBeNull();
+    resetMossCanvasLiveSelections();
+    expect((await call("moss_canvas_read", { threadId: "other" })).result.isError).toBe(true);
+    expect((await call("moss_media_list")).result.isError).toBe(true);
+    expect(service.list).not.toHaveBeenCalled();
+    expect(service.create).not.toHaveBeenCalled();
+  });
+  it("describes Canvas apart from document spaces, and the default models", () => {
+    const { tools } = harness();
+    const description = (name: string) =>
+      tools.find((tool) => tool.definition.name === name)!.definition.description;
+    expect(description("moss_canvas_open")).toContain("画布");
+    expect(description("moss_canvas_open")).toContain("never use moss_pages_* for Canvas");
+    expect(description("moss_canvas_read")).toContain("Read-only");
+    expect(description("moss_media_list")).toContain("gpt-image-2.5-flare");
+    expect(description("moss_media_list")).toContain("doubao-seedance-2.0-fast");
   });
   it("reads a workspace mask without returning base64 and submits it with the original account/turn", async () => {
     const root = mkdtempSync(join(tmpdir(), "moss-native-mask-"));
@@ -257,6 +343,7 @@ describe("native official media tools", () => {
     expect(tools.map((tool) => tool.definition.name)).toEqual(MOSS_MEDIA_TOOL_NAMES);
     expect(tools.map((tool) => tool.requiredCapability)).toEqual([
       "thread:write",
+      "thread:read",
       "thread:read",
       "thread:write",
       "thread:read",

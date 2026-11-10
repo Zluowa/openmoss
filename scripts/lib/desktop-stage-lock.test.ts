@@ -90,8 +90,10 @@ describe("desktop stage lock", () => {
     );
 
     assert.equal("diff" in DESKTOP_STAGE_DEPENDENCY_OVERRIDES, false);
-    assert.equal(readLockedPackageVersion(stageLock, "diff"), "8.0.4");
-    assert.equal(readLockedPackageVersion(stageLock, "@pierre/diffs/diff", "diff"), "9.0.0");
+    // @pierre/diffs is the only diff consumer since Pi left the stage, so its exact
+    // version is the hoisted one.
+    assert.equal(readLockedPackageVersion(stageLock, "diff"), "9.0.0");
+    assert.equal(stageLock.includes('"@pierre/diffs/diff":'), false);
   });
 
   it("keeps the staged Pierre release compatible with the production manifest", () => {

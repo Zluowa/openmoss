@@ -2,14 +2,14 @@ import type {
   OrchestrationSidebarSectionShell,
   SidebarSectionItemKey,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   SIDEBAR_SECTION_ID_MAX_LENGTH,
   SIDEBAR_SECTION_ITEM_KEY_MAX_LENGTH,
   SIDEBAR_SECTION_ITEMS_MAX_COUNT,
   SIDEBAR_SECTION_NAME_MAX_LENGTH,
   SIDEBAR_SECTIONS_MAX_COUNT,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const THREAD_ITEM_PREFIX = "thread:";
 const THREAD_ITEM_KEY_PATTERN = /^thread:.+$/u;

@@ -1,4 +1,4 @@
-import { AutomationId, type AutomationDefinition } from "@synara/contracts";
+import { AutomationId, type AutomationDefinition } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react", async () => (await import("../../test/reactHookHarness")).reactHookHarnessMock);

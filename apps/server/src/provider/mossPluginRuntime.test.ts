@@ -14,15 +14,15 @@ import { dirname, join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
-import type { MossPluginIR } from "@synara/shared/mossResourceRegistry";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
+import type { MossPluginIR } from "@moss/shared/mossResourceRegistry";
 import {
   mossProjectionIdentityFingerprint,
   type MossProjectionFrozenTarget,
   type MossProjectionOwnershipMutationRequest,
   type MossProjectionOwnershipMutationResult,
   type MossProjectionOwnershipStore,
-} from "@synara/shared/mossProjectionMaterializer";
+} from "@moss/shared/mossProjectionMaterializer";
 
 import {
   buildMossPluginPromptInjection,

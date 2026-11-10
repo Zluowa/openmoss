@@ -1,6 +1,6 @@
 // @vitest-environment browser
 
-import { ThreadId, type RealtimeVoiceEvent, type RealtimeVoiceState } from "@synara/contracts";
+import { ThreadId, type RealtimeVoiceEvent, type RealtimeVoiceState } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { useState } from "react";

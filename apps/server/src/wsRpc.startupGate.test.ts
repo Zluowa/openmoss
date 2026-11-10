@@ -92,7 +92,7 @@ describe("orchestration RPC startup gates", () => {
     const source = await readFile(new URL("./wsRpc.ts", import.meta.url), "utf8");
     const cases = [
       ["serverPrewarmVoice", "resolveAdmittedVoicePrewarmProviderRoute"],
-      ["serverTranscribeVoice", "resolveAdmittedVoiceTranscriptionProviderRoute"],
+      ["serverTranscribeVoice", "transcribeVoiceRequest"],
     ] as const;
 
     for (const [method, resolver] of cases) {

@@ -6,12 +6,9 @@
 import type { ExecFileException } from "node:child_process";
 import * as Path from "node:path";
 
-import {
-  matchesDistinguishedName,
-  parseDistinguishedName,
-} from "@synara/shared/windowsCertificate";
-import { execProcessFile, spawnProcessSync } from "@synara/shared/processRuntime";
-import { resolveWindowsPowerShellExecutable } from "@synara/shared/platformEnvironment";
+import { matchesDistinguishedName, parseDistinguishedName } from "@moss/shared/windowsCertificate";
+import { execProcessFile, spawnProcessSync } from "@moss/shared/processRuntime";
+import { resolveWindowsPowerShellExecutable } from "@moss/shared/platformEnvironment";
 
 type Logger = {
   info?(message: string): void;

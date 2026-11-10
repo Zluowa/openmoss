@@ -1,13 +1,22 @@
-import type { ThreadId } from "@synara/contracts";
+import { handleDevsReportSend } from "./handleDevsReportSend";
+import { MOSS_DEVS_REPORTS_ENABLED } from "@moss/shared/devsReport";
+import type {
+  MessageId,
+  ProviderKind,
+  ProviderMentionReference,
+  ProviderSkillReference,
+  ThreadId,
+} from "@moss/contracts";
 import { flushWorkspaceEditors } from "~/lib/workspaceEditorSession";
-import { resolveComputerInvocationMode } from "@synara/shared/computerInvocation";
-import { projectFoldersSessionIssue } from "@synara/shared/projectFolders";
+import { resolveComputerInvocationMode } from "@moss/shared/computerInvocation";
+import { projectFoldersSessionIssue } from "@moss/shared/projectFolders";
 import {
   prepareComputerPermissionGuide,
   readLocalComputerPermissionBridge,
 } from "~/lib/computerProvisioning";
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { hasActiveComposerSend } from "~/lib/composerSendOwnership";
+import { getUnconfirmedTurnSend } from "~/lib/unconfirmedTurnSends";
 import {
   filterPromptProviderMentionReferences,
   filterPromptSkillReferences,
@@ -16,6 +25,11 @@ import { isServerConfiguredMossDefaultManagedProvider } from "~/lib/providerAvai
 import { fetchFreshMossQuotaAdmission } from "~/lib/mossQuotaAdmission";
 import { localizeProviderSendBlockedReason } from "~/lib/providerUnavailablePresentation";
 import { newMessageId, randomUUID } from "~/lib/utils";
+import {
+  beginComposerSendTiming,
+  markComposerSend,
+  markComposerSendPaintedAfterNextFrame,
+} from "~/lib/composerSendTiming";
 import { readNativeApi } from "~/nativeApi";
 import { resolveFollowUpDispatchMode } from "../../appSettings";
 import { useComposerDraftStore, type QueuedComposerChatTurn } from "../../composerDraftStore";
@@ -67,7 +81,120 @@ import { resolveChatPromptCaptures } from "./resolveChatPromptCaptures";
 import { useChatTurnExecution } from "./useChatTurnExecution";
 import { useStore } from "../../store";
 import { getThreadFromState } from "../../threadDerivation";
+import { type ChatMessage } from "../../types";
+import {
+  isComposerDraftEmpty,
+  restoreUnsentComposerMessage,
+  type UnsentComposerMessage,
+} from "./restoreUnsentComposerMessage";
 import { isThreadDetailAwaitingVerification } from "../../threadDetailAuthority";
+
+/**
+ * The text, references and transcript row of one outgoing message. Built once when the
+ * message is shown (right after Enter) and again just before dispatch, when captures may
+ * have added a screenshot.
+ */
+function buildOutgoingComposerMessage(input: {
+  messageId: MessageId;
+  createdAt: string;
+  dispatchMode: "queue" | "steer";
+  prompt: string;
+  provider: ProviderKind;
+  model: string | null;
+  effort: string | null;
+  images: ChatTurnSubmissionInput["composerImages"];
+  files: ChatTurnSubmissionInput["composerFiles"];
+  assistantSelections: ChatTurnSubmissionInput["composerAssistantSelections"];
+  browserAnnotations: ChatTurnSubmissionInput["composerBrowserAnnotations"];
+  fileComments: ChatTurnSubmissionInput["composerFileComments"];
+  terminalContexts: ChatTurnSubmissionInput["composerTerminalContexts"];
+  pastedTexts: ChatTurnSubmissionInput["composerPastedTexts"];
+  pullRequestContexts: ChatTurnSubmissionInput["composerPullRequestContexts"];
+  skills: ReadonlyArray<ProviderSkillReference>;
+  mentions: ReadonlyArray<ProviderMentionReference>;
+}) {
+  // Trailing blocks are appended innermost-to-outermost: assistant selections,
+  // terminal contexts, file comments, pasted text, pull request contexts, then
+  // browser annotations (outermost). The display extractors unwrap them in the
+  // reverse order.
+  const messageText = appendBrowserAnnotationsToPrompt(
+    appendPullRequestContextsToPrompt(
+      appendPastedTextsToPrompt(
+        appendFileCommentsToPrompt(
+          appendTerminalContextsToPrompt(
+            appendAssistantSelectionsToPrompt(input.prompt, input.assistantSelections),
+            input.terminalContexts,
+          ),
+          input.fileComments,
+        ),
+        input.pastedTexts,
+      ),
+      input.pullRequestContexts,
+    ),
+    input.browserAnnotations,
+    input.messageId,
+  );
+  const textSeed = messageText || (input.images.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : "");
+  const text = formatOutgoingComposerPrompt({
+    provider: input.provider,
+    model: input.model,
+    effort: input.effort,
+    text: textSeed,
+  });
+  const skills = filterPromptSkillReferences(text, input.skills, input.provider);
+  const mentions = filterPromptProviderMentionReferences(text, input.mentions);
+  const attachments = [
+    ...input.assistantSelections,
+    ...input.images.map((image) => ({
+      type: "image" as const,
+      id: image.id,
+      name: image.name,
+      mimeType: image.mimeType,
+      sizeBytes: image.sizeBytes,
+      previewUrl: image.previewUrl,
+    })),
+    ...input.files.map((file) => ({
+      type: "file" as const,
+      id: file.id,
+      name: file.name,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+    })),
+  ];
+  const row: ChatMessage = {
+    id: input.messageId,
+    role: "user",
+    text,
+    dispatchMode: input.dispatchMode,
+    ...(attachments.length > 0 ? { attachments } : {}),
+    ...(skills.length > 0 ? { skills } : {}),
+    ...(mentions.length > 0 ? { mentions } : {}),
+    createdAt: input.createdAt,
+    streaming: false,
+    source: "native",
+  };
+  return { text, skills, mentions, row };
+}
+
+/** A message already shown and cleared from the composer, but not yet handed to dispatch. */
+type ComposerSendEcho = { current: UnsentComposerMessage | null };
+
+/**
+ * Resolves once the browser has painted the next frame, so a message just shown reaches the
+ * screen before the send's checks take the main thread. A window that is not painting
+ * (hidden) moves on after 50 ms.
+ */
+function afterNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    const fallback = setTimeout(resolve, 50);
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        clearTimeout(fallback);
+        resolve();
+      }, 0),
+    );
+  });
+}
 
 // One toast per chat: pressing Send again refreshes it instead of stacking copies.
 function notifyBlockedComposerSend(threadId: ThreadId, reason: BlockedComposerSendReason): void {
@@ -117,6 +244,7 @@ export function useChatTurnSubmission({
   environmentPanelPreferenceOpen,
   setTailAnchor,
   setThreadError,
+  setThreadSendFailure,
   setComposerHighlightedItemId,
   setStoreThreadWorkspace,
   createWorktreeMutation,
@@ -218,10 +346,13 @@ export function useChatTurnSubmission({
   runProjectScript,
   persistThreadSettingsForNextTurn,
 }: ChatTurnSubmissionInput) {
-  const { locale } = useTranslation();
+  const { locale, t } = useTranslation();
   // Dedupe repeat submits of identical content (double clicks, Enter key repeat)
   // so a single user gesture can never dispatch the same turn twice.
   const composerSendGateRef = useRef<{ threadId: typeof threadId; key: string } | null>(null);
+  // Messages shown on screen whose preflight is still running. Another send waits for
+  // them, so a slow check can never reorder two messages.
+  const echoesInFlightRef = useRef(0);
   const anchorSentMessagesToTopRef = useRef(settings.anchorSentMessagesToTop);
   useLayoutEffect(() => {
     anchorSentMessagesToTopRef.current = settings.anchorSentMessagesToTop;
@@ -265,7 +396,7 @@ export function useChatTurnSubmission({
     updateSelectedComposerSkills,
     updateSelectedComposerMentions,
     setComposerTrigger,
-    setThreadError,
+    setThreadSendFailure,
     sendInFlightRef,
     worktreeSetupResolutionRef,
     scheduleFailedWorktreeSetupDispatchReset,
@@ -276,6 +407,7 @@ export function useChatTurnSubmission({
     async (
       requestedDispatchMode?: "queue" | "steer",
       queuedTurn?: QueuedComposerChatTurn,
+      echo?: ComposerSendEcho,
     ): Promise<boolean> => {
       // Fail closed while a worktree is preparing: a native submit must never
       // reach provider refresh, thread creation, or turn dispatch early.
@@ -300,11 +432,25 @@ export function useChatTurnSubmission({
       ) {
         return false;
       }
+      // A message whose delivery is not confirmed yet holds the chat: sending more now could
+      // reorder or duplicate it. The notice above the composer offers retry or discard.
+      if (getUnconfirmedTurnSend(activeThread.id)) {
+        if (!queuedTurn) {
+          toastManager.add({
+            id: `composer-send-blocked:${activeThread.id}`,
+            type: "warning",
+            title: t("chat.unconfirmedSend.blockedTitle"),
+            description: t("chat.unconfirmedSend.blockedDescription"),
+          });
+        }
+        return false;
+      }
       const sendInFlight =
         hasActiveComposerSend(activeThread.id) ||
         isSendBusy ||
         sendPreflightInFlightRef.current ||
-        sendInFlightRef.current;
+        sendInFlightRef.current ||
+        echoesInFlightRef.current > 0;
       const awaitingVerification = isThreadDetailAwaitingVerification(activeThread.id);
       if (sendInFlight || isConnecting || awaitingVerification) {
         const blockedReason = resolveBlockedComposerSendReason({
@@ -336,6 +482,7 @@ export function useChatTurnSubmission({
         threadWorkspaceCwd ?? chatWorkspaceRoot,
       ).catch(() => false);
       sendPreflightInFlightRef.current = false;
+      markComposerSend("editors-saved");
       if (!editorSaved) {
         setThreadError(
           threadId,
@@ -348,6 +495,7 @@ export function useChatTurnSubmission({
         await waitForPendingComposerImages();
         sendPreflightInFlightRef.current = false;
       }
+      markComposerSend("images-ready");
       if (
         !activePendingProgress &&
         (!queuedTurn ||
@@ -635,6 +783,7 @@ export function useChatTurnSubmission({
         });
         if (handled) return true;
       }
+      markComposerSend("commands-checked");
       if (hasPendingCacheReview()) return false;
       if (dispatchSettings.computerControlMode === "request") {
         const appSnap = readLocalComputerPermissionBridge();
@@ -666,6 +815,99 @@ export function useChatTurnSubmission({
           });
         if (!ready) return false;
       }
+
+      // From here on it is a chat message. Show it and empty the composer now, the way
+      // Claude does; the provider, quota, capture and workspace checks below run after.
+      // If one of them stops the send, the caller hands the message back to the composer.
+      const messageIdForSend = newMessageId();
+      const messageCreatedAt = new Date().toISOString();
+      const echoesMessage =
+        echo !== undefined &&
+        queuedChatTurn === null &&
+        !(hasQueueableLiveTurn && dispatchMode === "queue");
+      const presentSentMessage = (row: ChatMessage) => {
+        // Sending the first message flips the centered empty landing into a normal
+        // transcript. Clear session-only landing overrides when default-open is enabled;
+        // otherwise keep the transition closed.
+        if (isCenteredEmptyLanding) {
+          setEnvironmentPanelPreferenceOpen(
+            resolveEnvironmentPanelPreferenceAfterFirstSend({
+              isCenteredEmptyLanding,
+              settingsDefaultOpen: settings.environmentPanelDefaultOpen,
+              currentPreferenceOpen: environmentPanelPreferenceOpen,
+            }),
+          );
+        }
+        setOptimisticUserMessages((existing) => [...existing, row]);
+        markComposerSend("echo");
+        markComposerSendPaintedAfterNextFrame();
+        // Always follow the sent message. When anchoring is enabled, its hook owns
+        // the slide to the top; otherwise normal auto-follow keeps the tail visible.
+        armTranscriptAutoFollow(activeThread.id, true);
+        const anchorSentMessage = anchorSentMessagesToTopRef.current;
+        tailAnchorScrollInFlightRef.current = anchorSentMessage;
+        setTailAnchor(anchorSentMessage ? { threadId: activeThread.id, messageId: row.id } : null);
+        // Queued turns are dispatched from their captured snapshot, so this send path
+        // must not clear a separate live draft the user may already be editing.
+        if (queuedChatTurn === null) {
+          promptHistoryNavigationRef.current = null;
+          applyingPromptHistoryNavigationRef.current = false;
+          expectedPromptHistoryPromptRef.current = null;
+          promptRef.current = "";
+          clearComposerDraftContent(activeThread.id, { preservePreviewUrls: true });
+          if (isLivePlanFollowUpSubmission) {
+            setComposerDraftInteractionMode(activeThread.id, interactionModeForSend);
+          }
+          setComposerHighlightedItemId(null);
+          setComposerCursor(0);
+          setComposerTrigger(null);
+          // A clicked submit button steals focus; return it after the controlled
+          // draft reset so rapid follow-up typing lands in the composer.
+          scheduleComposerFocus();
+        }
+      };
+      const outgoingMessageFor = (images: typeof composerImagesForSend) =>
+        buildOutgoingComposerMessage({
+          messageId: messageIdForSend,
+          createdAt: messageCreatedAt,
+          dispatchMode,
+          prompt: promptForSend,
+          provider: selectedProviderForSend,
+          model: selectedModelForSend,
+          effort: selectedPromptEffortForSend,
+          images,
+          files: composerFilesForSend,
+          assistantSelections: composerAssistantSelectionsForSend,
+          browserAnnotations: composerBrowserAnnotationsForSend,
+          fileComments: composerFileCommentsForSend,
+          terminalContexts: sendableComposerTerminalContexts,
+          pastedTexts: sendableComposerPastedTexts,
+          pullRequestContexts: sendableComposerPullRequestContexts,
+          skills: selectedComposerSkillsForSend,
+          mentions: selectedComposerMentionsForSend,
+        });
+      if (echoesMessage) {
+        presentSentMessage(outgoingMessageFor(composerImagesForSend).row);
+        echo.current = {
+          threadId: activeThread.id,
+          messageId: messageIdForSend,
+          prompt: promptForSend,
+          sourceProposedPlan: sourceProposedPlanForSend,
+          images: [...composerImagesForSend],
+          files: [...composerFilesForSend],
+          assistantSelections: [...composerAssistantSelectionsForSend],
+          browserAnnotations: composerBrowserAnnotationsForSend,
+          fileComments: [...composerFileCommentsForSend],
+          terminalContexts: [...sendableComposerTerminalContexts],
+          pastedTexts: [...sendableComposerPastedTexts],
+          pullRequestContexts: [...sendableComposerPullRequestContexts],
+          skills: [...selectedComposerSkillsForSend],
+          mentions: [...selectedComposerMentionsForSend],
+        };
+        echoesInFlightRef.current += 1;
+        await afterNextPaint();
+      }
+
       const sendProviderAvailability = await runChatProviderSendPreflight({
         provider: selectedModelSelectionForSend.provider,
         instanceId: selectedModelSelectionForSend.instanceId,
@@ -688,6 +930,7 @@ export function useChatTurnSubmission({
           });
         },
       });
+      markComposerSend("provider-checked");
       if (!sendProviderAvailability.usable) {
         return false;
       }
@@ -721,6 +964,7 @@ export function useChatTurnSubmission({
           return false;
         }
       }
+      markComposerSend("quota-checked");
       // The server refuses these chats too; stopping here explains why and avoids
       // creating a worktree the turn would never use.
       const projectFolderIssue =
@@ -745,6 +989,7 @@ export function useChatTurnSubmission({
         composerAssistantSelectionsForSend,
       });
       composerImagesForSend = captures.composerImagesForSend;
+      markComposerSend("captures-resolved");
       if (hasPendingCacheReview()) return false;
 
       if (hasQueueableLiveTurn && dispatchMode === "queue" && queuedChatTurn === null) {
@@ -830,6 +1075,7 @@ export function useChatTurnSubmission({
         queryClient,
       });
       if (workspace === false) return false;
+      markComposerSend("workspace-ready");
       if (hasPendingCacheReview()) return false;
       const {
         threadIdForSend,
@@ -853,7 +1099,6 @@ export function useChatTurnSubmission({
         worktreeSetupScriptName,
         worktreeCopiesLocalChanges,
       } = workspace;
-      const messageIdForSend = newMessageId();
       const worktreeSetupResolution = baseBranchForWorktree
         ? createWorktreeSetupResolution()
         : null;
@@ -886,112 +1131,31 @@ export function useChatTurnSubmission({
       const composerPullRequestContextsSnapshot = [...sendableComposerPullRequestContexts];
       const composerSkillsSnapshot = [...selectedComposerSkillsForSend];
       const composerMentionsSnapshot = [...selectedComposerMentionsForSend];
-      // Trailing blocks are appended innermost-to-outermost: assistant selections,
-      // terminal contexts, file comments, pasted text, pull request contexts, then
-      // browser annotations (outermost). The display extractors unwrap them in the
-      // reverse order.
-      const messageTextForSend = appendBrowserAnnotationsToPrompt(
-        appendPullRequestContextsToPrompt(
-          appendPastedTextsToPrompt(
-            appendFileCommentsToPrompt(
-              appendTerminalContextsToPrompt(
-                appendAssistantSelectionsToPrompt(
-                  promptForSend,
-                  composerAssistantSelectionsSnapshot,
-                ),
-                composerTerminalContextsSnapshot,
-              ),
-              composerFileCommentsSnapshot,
-            ),
-            composerPastedTextsSnapshot,
-          ),
-          composerPullRequestContextsSnapshot,
-        ),
-        composerBrowserAnnotationsSnapshot,
-        messageIdForSend,
-      );
-      const messageCreatedAt = new Date().toISOString();
-      const outgoingTextSeed =
-        messageTextForSend ||
-        (composerImagesSnapshot.length > 0 ? IMAGE_ONLY_BOOTSTRAP_PROMPT : "");
-      const outgoingMessageText = formatOutgoingComposerPrompt({
-        provider: selectedProviderForSend,
-        model: selectedModelForSend,
-        effort: selectedPromptEffortForSend,
-        text: outgoingTextSeed,
-      });
-      const mentionedSkillsForSend = filterPromptSkillReferences(
-        outgoingMessageText,
-        selectedComposerSkillsForSend,
-        selectedProviderForSend,
-      );
-      const mentionedPluginMentionsForSend = filterPromptProviderMentionReferences(
-        outgoingMessageText,
-        selectedComposerMentionsForSend,
-      );
+      const {
+        text: outgoingMessageText,
+        skills: mentionedSkillsForSend,
+        mentions: mentionedPluginMentionsForSend,
+        row: sentMessageRow,
+      } = outgoingMessageFor(composerImagesSnapshot);
       const turnAttachmentsPromise = stageUploadComposerAttachments({
         threadId: threadIdForSend,
         images: composerImagesSnapshot,
         files: composerFilesSnapshot,
         assistantSelections: composerAssistantSelectionsSnapshot,
       });
-      const optimisticAttachments = [
-        ...composerAssistantSelectionsSnapshot,
-        ...composerImagesSnapshot.map((image) => ({
-          type: "image" as const,
-          id: image.id,
-          name: image.name,
-          mimeType: image.mimeType,
-          sizeBytes: image.sizeBytes,
-          previewUrl: image.previewUrl,
-        })),
-        ...composerFilesSnapshot.map((file) => ({
-          type: "file" as const,
-          id: file.id,
-          name: file.name,
-          mimeType: file.mimeType,
-          sizeBytes: file.sizeBytes,
-        })),
-      ];
-      // Sending the first message flips the centered empty landing into a normal
-      // transcript. Clear session-only landing overrides when default-open is enabled;
-      // otherwise keep the transition closed.
-      if (isCenteredEmptyLanding) {
-        setEnvironmentPanelPreferenceOpen(
-          resolveEnvironmentPanelPreferenceAfterFirstSend({
-            isCenteredEmptyLanding,
-            settingsDefaultOpen: settings.environmentPanelDefaultOpen,
-            currentPreferenceOpen: environmentPanelPreferenceOpen,
-          }),
+      if (echo?.current) {
+        // Already on screen; captures may have added a screenshot since, so refresh it.
+        // From here on a failed dispatch hands the message back itself.
+        setOptimisticUserMessages((existing) =>
+          existing.some((row) => row.id === messageIdForSend)
+            ? existing.map((row) => (row.id === messageIdForSend ? sentMessageRow : row))
+            : [...existing, sentMessageRow],
         );
+        echo.current = null;
+        echoesInFlightRef.current = Math.max(0, echoesInFlightRef.current - 1);
+      } else {
+        presentSentMessage(sentMessageRow);
       }
-      setOptimisticUserMessages((existing) => [
-        ...existing,
-        {
-          id: messageIdForSend,
-          role: "user",
-          text: outgoingMessageText,
-          dispatchMode,
-          ...(optimisticAttachments.length > 0 ? { attachments: optimisticAttachments } : {}),
-          ...(mentionedSkillsForSend.length > 0 ? { skills: mentionedSkillsForSend } : {}),
-          ...(mentionedPluginMentionsForSend.length > 0
-            ? { mentions: mentionedPluginMentionsForSend }
-            : {}),
-          createdAt: messageCreatedAt,
-          streaming: false,
-          source: "native",
-        },
-      ]);
-      // Always follow the sent message. When anchoring is enabled, its hook owns
-      // the slide to the top; otherwise normal auto-follow keeps the tail visible.
-      // Read the current preference after async preflight so toggling it during
-      // preparation cannot leave an invisible anchor owning the scroll.
-      armTranscriptAutoFollow(threadIdForSend, true);
-      const anchorSentMessage = anchorSentMessagesToTopRef.current;
-      tailAnchorScrollInFlightRef.current = anchorSentMessage;
-      setTailAnchor(
-        anchorSentMessage ? { threadId: threadIdForSend, messageId: messageIdForSend } : null,
-      );
 
       setThreadError(threadIdForSend, null);
       if (expiredTerminalContextCount > 0) {
@@ -1004,24 +1168,6 @@ export function useChatTurnSubmission({
           title: toastCopy.title,
           description: toastCopy.description,
         });
-      }
-      // Queued turns are dispatched from their captured snapshot, so this send path
-      // must not clear a separate live draft the user may already be editing.
-      if (queuedChatTurn === null) {
-        promptHistoryNavigationRef.current = null;
-        applyingPromptHistoryNavigationRef.current = false;
-        expectedPromptHistoryPromptRef.current = null;
-        promptRef.current = "";
-        clearComposerDraftContent(threadIdForSend, { preservePreviewUrls: true });
-        if (isLivePlanFollowUpSubmission) {
-          setComposerDraftInteractionMode(threadIdForSend, interactionModeForSend);
-        }
-        setComposerHighlightedItemId(null);
-        setComposerCursor(0);
-        setComposerTrigger(null);
-        // A clicked submit button steals focus; return it after the controlled
-        // draft reset so rapid follow-up typing lands in the composer.
-        scheduleComposerFocus();
       }
 
       const sent = await executePreparedTurn({
@@ -1078,6 +1224,7 @@ export function useChatTurnSubmission({
       // A message the user sends by hand (or steers from the queue) resumes a queue
       // paused by Stop; it goes first and the queue follows once its turn ends.
       if (sent) {
+        markComposerSend("dispatched");
         resumeQueueAfterSend?.();
       }
       return sent;
@@ -1180,11 +1327,58 @@ export function useChatTurnSubmission({
       mossQuotaAccountIdentityRef,
       mossQuotaAccountTransitionPendingRef,
       locale,
+      t,
       setOptimisticUserMessages,
       executePreparedTurn,
       canSendWithProviderHandoff,
     ],
   );
+  const unsentMessageRestorers = useMemo(
+    () => ({
+      activeThreadIdRef,
+      setOptimisticUserMessages,
+      promptRef,
+      setPrompt,
+      setRestoredQueuedSourceProposedPlan,
+      setComposerCursor,
+      addComposerImagesToDraft,
+      addComposerFilesToDraft,
+      addComposerAssistantSelectionToDraft,
+      addComposerDraftBrowserAnnotations,
+      addComposerFileCommentToDraft,
+      addComposerTerminalContextsToDraft,
+      addComposerPastedTextsToDraft,
+      addComposerPullRequestContextsToDraft,
+      updateSelectedComposerSkills,
+      updateSelectedComposerMentions,
+      setComposerTrigger,
+    }),
+    [
+      activeThreadIdRef,
+      setOptimisticUserMessages,
+      promptRef,
+      setPrompt,
+      setRestoredQueuedSourceProposedPlan,
+      setComposerCursor,
+      addComposerImagesToDraft,
+      addComposerFilesToDraft,
+      addComposerAssistantSelectionToDraft,
+      addComposerDraftBrowserAnnotations,
+      addComposerFileCommentToDraft,
+      addComposerTerminalContextsToDraft,
+      addComposerPastedTextsToDraft,
+      addComposerPullRequestContextsToDraft,
+      updateSelectedComposerSkills,
+      updateSelectedComposerMentions,
+      setComposerTrigger,
+    ],
+  );
+  const devsSendRef = useRef<{
+    text: string;
+    id: string;
+    threadId: ThreadId;
+    attachmentKey?: string;
+  } | null>(null);
   const onSend = useCallback(
     async (
       e?: { preventDefault: () => void },
@@ -1192,8 +1386,39 @@ export function useChatTurnSubmission({
       queuedTurn?: QueuedComposerChatTurn,
     ): Promise<boolean> => {
       e?.preventDefault();
+      if (!queuedTurn) beginComposerSendTiming();
       const liveGatePrompt =
         queuedTurn?.prompt ?? composerEditorRef.current?.readSnapshot()?.value ?? promptRef.current;
+      if (!queuedTurn && MOSS_DEVS_REPORTS_ENABLED) {
+        const handled = await handleDevsReportSend({
+          text: liveGatePrompt,
+          threadId,
+          locale,
+          api: readNativeApi(),
+          requestRef: devsSendRef,
+          images: composerImagesRef.current,
+          files: composerFilesRef.current,
+          clear: (sentAttachmentIds) => {
+            if (
+              (composerEditorRef.current?.readSnapshot()?.value ?? promptRef.current) ===
+              liveGatePrompt
+            ) {
+              promptRef.current = "";
+              setComposerDraftPrompt(threadId, "");
+              setPrompt("");
+              setComposerTrigger(null);
+            }
+            // What went with the report leaves the composer; anything it could not carry stays.
+            const draftStore = useComposerDraftStore.getState();
+            for (const id of sentAttachmentIds) {
+              if (composerImagesRef.current.some((image) => image.id === id))
+                draftStore.removeImage(threadId, id);
+              else draftStore.removeFile(threadId, id);
+            }
+          },
+        });
+        if (handled !== null) return handled;
+      }
       const gateContentKey =
         queuedTurn?.id ??
         [
@@ -1208,24 +1433,60 @@ export function useChatTurnSubmission({
         return false;
       }
       composerSendGateRef.current = { threadId, key: gateContentKey };
-      return performComposerSend(requestedDispatchMode, queuedTurn).finally(() => {
-        if (
-          composerSendGateRef.current?.threadId === threadId &&
-          composerSendGateRef.current.key === gateContentKey
-        ) {
-          composerSendGateRef.current = null;
+      const echo: ComposerSendEcho = { current: null };
+      // A message shown right after Enter whose checks then stopped the send goes back
+      // into the composer (unless the person already started a new draft there).
+      const handBackEchoedMessage = () => {
+        const unsent = echo.current;
+        if (unsent === null) return;
+        echo.current = null;
+        echoesInFlightRef.current = Math.max(0, echoesInFlightRef.current - 1);
+        if (isComposerDraftEmpty(unsent.threadId)) {
+          restoreUnsentComposerMessage(unsent, unsentMessageRestorers);
+          return;
         }
-      });
+        if (activeThreadIdRef.current === unsent.threadId) {
+          setOptimisticUserMessages((existing) =>
+            existing.filter((row) => row.id !== unsent.messageId),
+          );
+        }
+      };
+      return performComposerSend(requestedDispatchMode, queuedTurn, echo)
+        .then(
+          (sent) => {
+            handBackEchoedMessage();
+            return sent;
+          },
+          (error: unknown) => {
+            handBackEchoedMessage();
+            throw error;
+          },
+        )
+        .finally(() => {
+          if (
+            composerSendGateRef.current?.threadId === threadId &&
+            composerSendGateRef.current.key === gateContentKey
+          ) {
+            composerSendGateRef.current = null;
+          }
+        });
     },
     [
       threadId,
       performComposerSend,
+      setComposerDraftPrompt,
+      setPrompt,
+      setComposerTrigger,
+      locale,
       composerEditorRef,
       promptRef,
       composerImagesRef,
       composerFilesRef,
       selectedComposerSkillsRef,
       selectedComposerMentionsRef,
+      activeThreadIdRef,
+      setOptimisticUserMessages,
+      unsentMessageRestorers,
     ],
   );
 

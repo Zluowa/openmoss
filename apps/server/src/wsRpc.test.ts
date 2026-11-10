@@ -13,7 +13,7 @@ import type {
   ProviderSession,
   OrchestrationShellSnapshot,
   OrchestrationThreadShell,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   CommandId,
   DEVICE_WS_METHODS,
@@ -25,7 +25,7 @@ import {
   WS_METHODS,
   type MossResourceImportApplyInput,
   type MossResourceImportRollbackInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Option, Stream } from "effect";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -44,6 +44,7 @@ import {
   WsFeatureAndDeviceRpcGroup,
   makeMossEnterpriseKeyRpcHandlers,
   makeMossCloudAccountRpcHandlers,
+  makeMossPhoneAccountRpcHandlers,
   makeMossResourceImportMutationRpcHandlers,
   toMossResourceImportWsRpcError,
   providerAddMarketplaceRpcEffect,
@@ -620,6 +621,32 @@ describe("wsRpc Moss enterprise key", () => {
   });
 });
 
+describe("wsRpc Moss phone account", () => {
+  it("re-syncs phone-only service plugin skills after a sign-in or sign-out succeeds", async () => {
+    const afterAccountChange = vi.fn(() => Effect.void);
+    let verifyFails = true;
+    const handlers = makeMossPhoneAccountRpcHandlers(
+      {
+        verifyPhoneLogin: () =>
+          verifyFails ? Effect.fail(new Error("wrong code")) : Effect.succeed({}),
+        logout: () => Effect.succeed({}),
+      } as never,
+      afterAccountChange,
+    );
+
+    await expect(
+      Effect.runPromise(handlers[WS_METHODS.serverMossAccountVerifyPhoneLogin]({} as never)),
+    ).rejects.toBeDefined();
+    expect(afterAccountChange).not.toHaveBeenCalled();
+
+    verifyFails = false;
+    await Effect.runPromise(handlers[WS_METHODS.serverMossAccountVerifyPhoneLogin]({} as never));
+    expect(afterAccountChange).toHaveBeenCalledTimes(1);
+    await Effect.runPromise(handlers[WS_METHODS.serverMossAccountLogout]());
+    expect(afterAccountChange).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("wsRpc Moss cloud account", () => {
   it("wires the cloud account RPC methods to the server-only service", async () => {
     const signIn = vi.fn(() => Effect.succeed(signedOutMossCloudState));
@@ -740,6 +767,25 @@ describe("wsRpc Moss cloud account", () => {
     expect(caught).toMatchObject({ message: "The email or password is incorrect." });
     expect(`${String(caught)} ${JSON.stringify(caught)}`).not.toContain(password);
     expect(JSON.stringify(caught)).not.toContain("unsafe upstream detail");
+  });
+
+  it("keeps the error code that the sign-in screens choose their message by", async () => {
+    const service = makeMossCloudAccountService({
+      startGoogleOAuth: () =>
+        Effect.fail(
+          new MossCloudAccountServiceError({
+            code: "network_error",
+            message: "The Moss authentication service is temporarily unavailable.",
+          }),
+        ),
+    });
+    const handlers = makeMossCloudAccountRpcHandlers(service);
+
+    const failure = await Effect.runPromise(
+      handlers[WS_METHODS.serverMossCloudAccountStartGoogleOAuth]().pipe(Effect.flip),
+    );
+
+    expect(failure).toMatchObject({ code: "network_error" });
   });
 });
 

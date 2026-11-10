@@ -3,16 +3,23 @@
 // Layer: Provider infrastructure used by ProviderHealth.
 
 import type { ChildProcess } from "node:child_process";
+import { stat } from "node:fs/promises";
 
-import type { ProviderInstanceId } from "@synara/contracts";
+import type { ProviderInstanceId } from "@moss/contracts";
 import {
   MOSS_LEGACY_PRODUCTION_PUBLIC_CONFIG_KEYS,
   MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS,
-} from "@synara/shared/mossProductionPublicConfig";
-import { spawnProcess } from "@synara/shared/processRuntime";
-import { prepareProcess } from "@synara/shared/platformProcess";
-import { embeddedTerminalName } from "@synara/shared/platformEnvironment";
-import { signalOwnedChildProcess } from "../platform/processTreeController";
+} from "@moss/shared/mossProductionPublicConfig";
+import { spawnProcess } from "@moss/shared/processRuntime";
+import { prepareProcess, processArgumentsForPty } from "@moss/shared/platformProcess";
+import { embeddedTerminalName } from "@moss/shared/platformEnvironment";
+import { signalOwnedChildProcess, closeProviderLoginPty } from "../platform/processTreeController";
+import {
+  AgentProgramOwnershipError,
+  agentProgramSourceHome,
+  makeAgentProgramOwnership,
+  type AgentProgramOwnership,
+} from "./agentProgramOwnership.ts";
 
 import {
   CLAUDE_ACCOUNT_ISOLATION_ENV_KEYS,
@@ -28,6 +35,17 @@ export interface ProviderLoginTarget {
   readonly executable: string;
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
+  /** Server-verified shared source for the program epoch; never changes login writes. */
+  readonly programSourceHomePath?: string;
+  /** Internal server binding check; not accepted by a public RPC schema. */
+  readonly assertStateBindingCurrent?: () => void;
+  /**
+   * The agent's own credential files. When one appears or changes the sign-in is done,
+   * even if the CLI lingers (waiting on a browser tab, a key press): it is stopped and
+   * the sign-in reports success for the health check to confirm. Only file metadata is
+   * read, never the contents.
+   */
+  readonly credentialPaths?: ReadonlyArray<string>;
 }
 
 export type ProviderLoginCompletion =
@@ -53,13 +71,37 @@ export type ProviderLoginProcessRunner = (
 ) => ProviderLoginProcess;
 
 export interface ProviderLoginManagerDependencies {
+  readonly runtimePrograms?: (provider: ProviderLoginDriver) => AgentProgramOwnership;
   readonly runCodex?: ProviderLoginProcessRunner;
   readonly runClaude?: ProviderLoginProcessRunner;
+  /** Test seams for the credential watch. */
+  readonly credentialFingerprint?: (paths: ReadonlyArray<string>) => Promise<string> | string;
+  readonly credentialPollMs?: number;
+  readonly credentialExitGraceMs?: number;
 }
 
 interface ActiveProviderLogin {
   readonly cancel: () => void;
   cancelRequested: boolean;
+}
+
+const CREDENTIAL_POLL_MS = 1_000;
+// After the credential lands, the CLI usually prints a line and exits on its own.
+const CREDENTIAL_EXIT_GRACE_MS = 3_000;
+
+/** Size and modification time of each credential file; never the contents. */
+export async function credentialFilesFingerprint(paths: ReadonlyArray<string>): Promise<string> {
+  const parts = await Promise.all(
+    paths.map(async (path) => {
+      try {
+        const stats = await stat(path);
+        return stats.isFile() ? `${stats.size}:${stats.mtimeMs}` : "-";
+      } catch {
+        return "-";
+      }
+    }),
+  );
+  return parts.join("|");
 }
 
 const CODEX_LOGIN_ARGS = ["login", "-c", 'cli_auth_credentials_store="file"'] as const;
@@ -159,6 +201,7 @@ export function buildCodexLoginEnvironment(input: {
   return {
     ...sanitizeProviderLoginEnvironment("codex", input.environment),
     CODEX_HOME: input.authoritativeAuthHomePath,
+    CODEX_SQLITE_HOME: input.authoritativeAuthHomePath,
   };
 }
 
@@ -173,21 +216,32 @@ function providerLoginKey(input: {
   return `${input.provider}\u0000${input.instanceId}`;
 }
 
-function makeChildProcessLoginRunner(): ProviderLoginProcessRunner {
+function makeChildProcessLoginRunner(programs: AgentProgramOwnership): ProviderLoginProcessRunner {
   return (input) => {
     let child: ChildProcess | null = null;
     let cancelRequested = false;
     const completion = new Promise<ProviderLoginCompletion>((resolve) => {
       try {
-        child = spawnProcess(input.executable, input.args, {
+        child = programs.spawn({
+          binaryPath: input.executable,
           cwd: input.cwd,
-          env: copyDefinedEnvironment(input.env),
-          stdio: "ignore",
+          env: input.env,
+          sourceHomePath:
+            input.programSourceHomePath ?? agentProgramSourceHome("codex", input.env, input.cwd),
+          spawn: () =>
+            spawnProcess(input.executable, input.args, {
+              cwd: input.cwd,
+              env: copyDefinedEnvironment(input.env),
+              stdio: "ignore",
+            }),
         });
-      } catch {
+      } catch (cause) {
         resolve({
           status: "failed",
-          message: "Codex sign-in could not be started.",
+          message:
+            cause instanceof AgentProgramOwnershipError
+              ? cause.message
+              : "Codex sign-in could not be started.",
         });
         return;
       }
@@ -217,13 +271,14 @@ function makeChildProcessLoginRunner(): ProviderLoginProcessRunner {
       completion,
       cancel: () => {
         cancelRequested = true;
+        // On Windows this ends the whole tree (`.cmd` shim, node, the CLI) with taskkill.
         if (child) signalOwnedChildProcess(child, "SIGTERM");
       },
     };
   };
 }
 
-function makeNodePtyLoginRunner(): ProviderLoginProcessRunner {
+function makeNodePtyLoginRunner(programs: AgentProgramOwnership): ProviderLoginProcessRunner {
   return (input) => {
     let ptyProcess: import("node-pty").IPty | null = null;
     let cancelRequested = false;
@@ -236,28 +291,54 @@ function makeNodePtyLoginRunner(): ProviderLoginProcessRunner {
               return;
             }
             try {
+              input.assertStateBindingCurrent?.();
+            } catch (cause) {
+              resolve({
+                status: "failed",
+                message:
+                  cause instanceof Error
+                    ? cause.message
+                    : "Claude 账户绑定已失效，请重新选择账户。",
+              });
+              return;
+            }
+            let operation: ReturnType<AgentProgramOwnership["beginOperation"]> | undefined;
+            try {
+              operation = programs.beginOperation({
+                binaryPath: input.executable,
+                cwd: input.cwd,
+                env: input.env,
+                sourceHomePath: agentProgramSourceHome("claudeAgent", input.env, input.cwd),
+              });
               const prepared = prepareProcess(input.executable, input.args, {
                 env: input.env,
                 cwd: input.cwd,
               });
-              ptyProcess = nodePty.spawn(prepared.command, prepared.args, {
+              ptyProcess = nodePty.spawn(prepared.command, processArgumentsForPty(prepared), {
                 cwd: input.cwd,
                 cols: 100,
                 rows: 30,
                 env: copyDefinedEnvironment(input.env) as Record<string, string>,
                 name: embeddedTerminalName(),
               });
+              operation.spawned();
               ptyProcess.onData(
                 createClaudeBrowserPromptResponder((data) => ptyProcess?.write(data)),
               );
-            } catch {
+            } catch (cause) {
+              if (!ptyProcess) operation?.failedToSpawn();
               resolve({
                 status: "failed",
-                message: "Claude sign-in could not be started.",
+                message:
+                  cause instanceof AgentProgramOwnershipError
+                    ? cause.message
+                    : "Claude sign-in could not be started.",
               });
               return;
             }
             ptyProcess.onExit(({ exitCode }) => {
+              // PTY completion is its native lifecycle event, not Node's close.
+              operation?.complete();
               if (cancelRequested) {
                 resolve({ status: "cancelled" });
                 return;
@@ -283,7 +364,9 @@ function makeNodePtyLoginRunner(): ProviderLoginProcessRunner {
       completion,
       cancel: () => {
         cancelRequested = true;
-        ptyProcess?.kill();
+        const pty = ptyProcess;
+        if (!pty) return;
+        closeProviderLoginPty(pty);
       },
     };
   };
@@ -330,8 +413,16 @@ export function makeProviderLoginManager(
   dependencies: ProviderLoginManagerDependencies = {},
 ): ProviderLoginManager {
   const active = new Map<string, ActiveProviderLogin>();
-  const runCodex = dependencies.runCodex ?? makeChildProcessLoginRunner();
-  const runClaude = dependencies.runClaude ?? makeNodePtyLoginRunner();
+  const programs =
+    dependencies.runtimePrograms ??
+    ((provider: ProviderLoginDriver) => makeAgentProgramOwnership(provider));
+  const codexPrograms = programs("codex");
+  const claudePrograms = programs("claudeAgent");
+  const runCodex = dependencies.runCodex ?? makeChildProcessLoginRunner(codexPrograms);
+  const runClaude = dependencies.runClaude ?? makeNodePtyLoginRunner(claudePrograms);
+  const fingerprint = dependencies.credentialFingerprint ?? credentialFilesFingerprint;
+  const pollMs = dependencies.credentialPollMs ?? CREDENTIAL_POLL_MS;
+  const exitGraceMs = dependencies.credentialExitGraceMs ?? CREDENTIAL_EXIT_GRACE_MS;
 
   return {
     start(target) {
@@ -339,23 +430,74 @@ export function makeProviderLoginManager(
       if (active.size > 0) {
         throw new ProviderLoginAlreadyRunningError("Another provider sign-in is already running.");
       }
-      const process = (target.provider === "codex" ? runCodex : runClaude)({
+      target.assertStateBindingCurrent?.();
+      (target.provider === "codex" ? codexPrograms : claudePrograms).assertCompatible({
+        binaryPath: target.executable,
+        cwd: target.cwd,
+        env: target.env,
+        sourceHomePath:
+          target.programSourceHomePath ??
+          agentProgramSourceHome(target.provider, target.env, target.cwd),
+      });
+      const loginProcess = (target.provider === "codex" ? runCodex : runClaude)({
         ...target,
         args: target.provider === "codex" ? CODEX_LOGIN_ARGS : CLAUDE_LOGIN_ARGS,
       });
       const activeLogin: ActiveProviderLogin = {
-        cancel: process.cancel,
+        cancel: loginProcess.cancel,
         cancelRequested: false,
       };
       active.set(key, activeLogin);
-      const completion = process.completion
-        .then(
-          (result): ProviderLoginCompletion =>
-            activeLogin.cancelRequested ? { status: "cancelled" } : result,
-        )
-        .finally(() => {
-          if (active.get(key) === activeLogin) active.delete(key);
-        });
+
+      // Watch the agent's own credential store: a new or rewritten credential file means
+      // the browser sign-in finished, whatever the CLI does next.
+      let credentialSeen = false;
+      let watchTimer: ReturnType<typeof setInterval> | undefined;
+      const credentialDone = new Promise<ProviderLoginCompletion>((resolve) => {
+        const paths = target.credentialPaths ?? [];
+        if (paths.length === 0) return;
+        // Taken before the browser could have finished, so a credential that appears or
+        // changes afterwards belongs to this sign-in.
+        const initial = Promise.resolve(fingerprint(paths)).catch(() => "");
+        let seenAt: number | null = null;
+        let polling = false;
+        const poll = async () => {
+          if (seenAt === null) {
+            if ((await fingerprint(paths)) === (await initial)) return;
+            seenAt = Date.now();
+            credentialSeen = true;
+          }
+          if (Date.now() - seenAt < exitGraceMs) return;
+          clearInterval(timer);
+          // The CLI did not exit on its own: stop it, the sign-in itself is done.
+          loginProcess.cancel();
+          resolve({ status: "succeeded" });
+        };
+        const timer = setInterval(() => {
+          if (activeLogin.cancelRequested || polling) return;
+          polling = true;
+          void poll()
+            .catch(() => undefined)
+            .finally(() => {
+              polling = false;
+            });
+        }, pollMs);
+        timer.unref?.();
+        watchTimer = timer;
+      });
+
+      const completion = Promise.race([
+        loginProcess.completion.then((result): ProviderLoginCompletion => {
+          if (activeLogin.cancelRequested) return { status: "cancelled" };
+          // A CLI that wrote its credential and then failed on the way out still signed
+          // in; the health check that follows has the final word.
+          return credentialSeen && result.status === "failed" ? { status: "succeeded" } : result;
+        }),
+        credentialDone,
+      ]).finally(() => {
+        clearInterval(watchTimer);
+        if (active.get(key) === activeLogin) active.delete(key);
+      });
       return { completion };
     },
 

@@ -13,7 +13,7 @@
 import { Effect, ServiceMap } from "effect";
 
 import { CheckpointInvariantError, type CheckpointStoreError } from "../Errors.ts";
-import { CheckpointRef, type ThreadId } from "@synara/contracts";
+import { CheckpointRef, type ThreadId } from "@moss/contracts";
 
 export interface CaptureCheckpointInput {
   readonly cwd: string;

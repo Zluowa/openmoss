@@ -2,7 +2,7 @@ import type {
   ProviderKind,
   ServerProviderUsageLimit,
   RuntimeCodexErrorInfo,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   formatImageGenerationResetDate,

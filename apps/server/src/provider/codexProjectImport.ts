@@ -6,7 +6,21 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { resolveBaseCodexHomePath } from "../codexHomePaths";
-import { importBunSqlite } from "../sqliteRuntime";
+import { normalizeWindowsImportPath } from "../orchestration/projectImportPaths";
+import {
+  openReadonlySqlite,
+  sqliteTableColumns,
+  sqliteTableNames,
+  type ReadonlySqliteDatabase,
+} from "../readonlySqlite";
+import { readJsonlRecords } from "./localHistory/jsonlRecords";
+import {
+  isoTimestamp,
+  listDirectory,
+  mapBounded,
+  modifiedAt,
+  titleFromText,
+} from "./localHistory/shared";
 import type {
   NativeImportProject,
   NativeImportSession,
@@ -19,12 +33,7 @@ interface CodexProjectImportInput {
   env?: NodeJS.ProcessEnv;
 }
 
-interface ReadonlyDatabase {
-  prepare?: (sql: string) => { all: () => ReadonlyArray<Row> };
-  query?: (sql: string) => { all: () => ReadonlyArray<Row> };
-  exec: (sql: string) => unknown;
-  close: () => unknown;
-}
+type ReadonlyDatabase = ReadonlySqliteDatabase;
 
 export class CodexProjectImportError extends Error {
   constructor(
@@ -102,23 +111,8 @@ async function findStateDatabase(sqliteHome: string): Promise<string | undefined
   return candidates[0] ? path.join(sqliteHome, candidates[0].name) : undefined;
 }
 
-async function openDatabase(dbPath: string): Promise<ReadonlyDatabase> {
-  if (process.versions.bun !== undefined) {
-    // Keep Bun's runtime-only module out of the Node bundle, as providerUsage/sqlite does.
-    const { Database } = importBunSqlite() as {
-      Database: new (file: string, options: { readonly: boolean }) => ReadonlyDatabase;
-    };
-    return new Database(dbPath, { readonly: true });
-  }
-  const { DatabaseSync } = await import("node:sqlite");
-  return new DatabaseSync(dbPath, { readOnly: true }) as unknown as ReadonlyDatabase;
-}
-
 function rows(database: ReadonlyDatabase, sql: string): ReadonlyArray<Row> {
-  const statement = database.prepare?.(sql) ?? database.query?.(sql);
-  if (!statement)
-    throw new CodexProjectImportError("unsupported", "Codex SQLite reader is unavailable.");
-  return statement.all();
+  return database.all(sql);
 }
 
 function requireColumns(
@@ -126,7 +120,7 @@ function requireColumns(
   table: string,
   required: ReadonlyArray<string>,
 ) {
-  const columns = new Set(rows(database, `PRAGMA table_info(${table})`).map((row) => row.name));
+  const columns = sqliteTableColumns(database, table);
   if (required.some((name) => !columns.has(name))) {
     throw new CodexProjectImportError("unsupported", `Unsupported Codex ${table} metadata schema.`);
   }
@@ -135,7 +129,7 @@ function requireColumns(
 
 function readDatabaseProjects(
   database: ReadonlyDatabase,
-  tables: Set<unknown>,
+  tables: Set<string>,
 ): NativeImportProject[] {
   if (!tables.has("projects") && !tables.has("project_roots")) return [];
   requireColumns(database, "projects", ["id", "name"]);
@@ -214,11 +208,11 @@ function timestamp(milliseconds: unknown, seconds: unknown): string {
 
 function readDatabaseSessions(
   database: ReadonlyDatabase,
-  tables: Set<unknown>,
+  tables: Set<string>,
   state: Row,
   legacyIds: Map<string, string>,
   projects: ReadonlyArray<NativeImportProject>,
-): NativeImportSession[] {
+): Array<NativeImportSession & { readonly rolloutPath?: string }> {
   const columns = requireColumns(database, "threads", [
     "id",
     "cwd",
@@ -240,6 +234,9 @@ function readDatabaseSessions(
     "archived",
     "thread_source",
     "parent_thread_id",
+    "rollout_path",
+    "first_user_message",
+    "preview",
   ].filter((column) => columns.has(column));
   const children = new Set(
     tables.has("thread_spawn_edges")
@@ -263,18 +260,162 @@ function readDatabaseSessions(
         ? text(assignment.projectId)
         : undefined;
     const candidateId = text(row.project_id) ?? (legacyId ? legacyIds.get(legacyId) : undefined);
+    const rolloutPath = text(row.rollout_path);
     return [
       {
         id,
-        title: text(row.name) ?? text(row.title) ?? id,
+        // The person's own name for the thread first, then Codex's title, then the prompt.
+        title:
+          titleFromText(text(row.name)) ??
+          titleFromText(text(row.title)) ??
+          titleFromText(text(row.first_user_message)) ??
+          titleFromText(text(row.preview)) ??
+          (path.basename(cwd) || id),
         cwd,
         projectId: candidateId && projectIds.has(candidateId) ? candidateId : null,
         createdAt: timestamp(row.created_at_ms, row.created_at),
         updatedAt: timestamp(row.updated_at_ms, row.updated_at),
         archived: row.archived === 1 || row.archived === true,
+        ...(rolloutPath ? { rolloutPath } : {}),
       },
     ];
   });
+}
+
+async function fileExists(file: string): Promise<boolean> {
+  try {
+    return (await fs.stat(normalizeWindowsImportPath(file))).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Codex keeps listing a thread after its rollout file is deleted or cleaned up, but it can
+ * no longer copy it ("missing source rollout"). Offer only threads whose history still exists.
+ */
+async function withExistingRollouts(
+  sessions: ReadonlyArray<NativeImportSession & { readonly rolloutPath?: string }>,
+): Promise<NativeImportSession[]> {
+  const present = await mapBounded(sessions, ROLLOUT_CONCURRENCY, (session) =>
+    session.rolloutPath ? fileExists(session.rolloutPath) : Promise.resolve(true),
+  );
+  return sessions.flatMap(({ rolloutPath: _rolloutPath, ...session }, index) =>
+    present[index] ? [session] : [],
+  );
+}
+
+const ROLLOUT_FILE = /^rollout-.+\.jsonl$/u;
+const ROLLOUT_HEAD_BYTES = 16 * 1024 * 1024;
+const ROLLOUT_CONCURRENCY = 8;
+
+async function rolloutFiles(directory: string, depth: number): Promise<string[]> {
+  if (depth > 4) return [];
+  const files: string[] = [];
+  for (const entry of await listDirectory(directory)) {
+    const child = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await rolloutFiles(child, depth + 1)));
+    else if (entry.isFile() && ROLLOUT_FILE.test(entry.name)) files.push(child);
+  }
+  return files;
+}
+
+async function readSessionNames(home: string): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  for await (const record of readJsonlRecords(path.join(home, "session_index.jsonl"))) {
+    const id = text(record.id);
+    const name = text(record.thread_name);
+    if (id && name) names.set(id, name);
+  }
+  return names;
+}
+
+async function readRolloutSession(
+  file: string,
+  archived: boolean,
+  names: ReadonlyMap<string, string>,
+): Promise<NativeImportSession | undefined> {
+  for await (const record of readJsonlRecords(file, { maxBytes: ROLLOUT_HEAD_BYTES })) {
+    // The first record of a rollout describes the session.
+    if (record.type !== "session_meta") return undefined;
+    const meta = object(record.payload);
+    const id = text(meta.id);
+    const cwd = text(meta.cwd);
+    const source =
+      typeof meta.source === "string" ? meta.source : JSON.stringify(meta.source ?? "");
+    if (!id || !cwd || isInternalThread({ id, source }, new Set())) return undefined;
+    const createdAt = isoTimestamp(meta.timestamp) ?? isoTimestamp(record.timestamp);
+    const updatedAt = (await modifiedAt(file)) ?? createdAt;
+    if (!updatedAt) return undefined;
+    return {
+      id,
+      title: titleFromText(names.get(id)) ?? (path.basename(cwd) || id),
+      cwd,
+      projectId: null,
+      createdAt: createdAt ?? updatedAt,
+      updatedAt,
+      archived,
+    };
+  }
+  return undefined;
+}
+
+async function readRolloutSessions(home: string): Promise<NativeImportSession[]> {
+  const [active, archived, names] = await Promise.all([
+    rolloutFiles(path.join(home, "sessions"), 0),
+    rolloutFiles(path.join(home, "archived_sessions"), 0),
+    readSessionNames(home),
+  ]);
+  const sessions = await mapBounded(
+    [
+      ...active.map((file) => [file, false] as const),
+      ...archived.map((file) => [file, true] as const),
+    ],
+    ROLLOUT_CONCURRENCY,
+    ([file, isArchived]) => readRolloutSession(file, isArchived, names),
+  );
+  const byId = new Map<string, NativeImportSession>();
+  for (const session of sessions) {
+    if (session && !byId.has(session.id)) byId.set(session.id, session);
+  }
+  return [...byId.values()];
+}
+
+/**
+ * The rollout file holding a thread's history: the state database's `rollout_path`, or for
+ * homes without one, the `rollout-*-<id>.jsonl` file under `sessions/` or `archived_sessions/`.
+ */
+export async function findCodexRolloutPath(
+  input: CodexProjectImportInput & { readonly threadId: string },
+): Promise<string | undefined> {
+  const env = input.env ?? process.env;
+  const sourceHome = await resolveCodexProjectImportHome(input);
+  const home = await realpathIfPresent(path.resolve(resolveBaseCodexHomePath(env, input.homePath)));
+  const dbPath = await findStateDatabase(
+    await realpathIfPresent(env.CODEX_SQLITE_HOME?.trim() || sourceHome),
+  );
+  if (dbPath) {
+    const database = await openReadonlySqlite(dbPath);
+    try {
+      if (sqliteTableColumns(database, "threads").has("rollout_path")) {
+        const recorded = text(
+          database.all("SELECT rollout_path FROM threads WHERE id = ?", input.threadId)[0]
+            ?.rollout_path,
+        );
+        if (recorded) return recorded;
+      }
+    } finally {
+      database.close();
+    }
+  }
+  const suffix = `-${input.threadId}.jsonl`;
+  for (const directory of ["sessions", "archived_sessions"]) {
+    const match = (await rolloutFiles(path.join(home, directory), 0)).find((file) =>
+      file.endsWith(suffix),
+    );
+    if (match) return match;
+  }
+  return undefined;
 }
 
 export async function discoverCodexProjects(
@@ -289,25 +430,23 @@ export async function discoverCodexProjects(
     const state = await readDesktopState(home);
     const sqliteHome = await realpathIfPresent(env.CODEX_SQLITE_HOME?.trim() || sourceHome);
     const dbPath = await findStateDatabase(sqliteHome);
-    if (dbPath) database = await openDatabase(dbPath);
+    if (dbPath) database = await openReadonlySqlite(dbPath);
     // A read transaction keeps projects, assignments, and thread metadata on one SQLite snapshot.
     database?.exec("BEGIN");
-    const tables = new Set(
-      database
-        ? rows(database, "SELECT name FROM sqlite_master WHERE type = 'table'").map(
-            (row) => row.name,
-          )
-        : [],
-    );
+    const tables = database ? sqliteTableNames(database) : new Set<string>();
     const { projects, legacyIds } = mergeLegacyProjects(
       database ? readDatabaseProjects(database, tables) : [],
       state,
       [sourceHome, home, configuredHome, sqliteHome],
     );
+    // Codex releases before the state database kept only rollout files; read those
+    // directly so their conversations are still found.
     const sessions = database
       ? readDatabaseSessions(database, tables, state, legacyIds, projects)
-      : [];
-    return { sourceHome, projects, sessions };
+      : await readRolloutSessions(home);
+    database?.close();
+    database = undefined;
+    return { sourceHome, projects, sessions: await withExistingRollouts(sessions) };
   } catch (error) {
     if (error instanceof CodexProjectImportError) throw error;
     throw new CodexProjectImportError(

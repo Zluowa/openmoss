@@ -6,7 +6,7 @@
 // Layer: Pull request presentation
 // Exports: GitHubLabelChips, GitHubLabelDot
 
-import type { PullRequestLabel } from "@synara/contracts";
+import type { PullRequestLabel } from "@moss/contracts";
 
 import { Badge } from "~/components/ui/badge";
 import { cn } from "~/lib/utils";
@@ -53,6 +53,7 @@ export function GitHubLabelChips({
             size="sm"
             className="max-w-[9rem] gap-1 font-normal text-muted-foreground"
             title={label.name}
+            data-translation-skip="true"
           >
             <GitHubLabelDot color={color} />
             <span className="truncate">{label.name}</span>

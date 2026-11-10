@@ -1,3 +1,6 @@
+import { MossbotRooms } from "./mossbotRooms/service";
+import { toMossbotRoomRpcError } from "./mossbotRooms/errors";
+import { DevsReports } from "./devsReports";
 import { predictNextMessage } from "./git/nextMessagePrediction";
 import { readEventLoopStatus } from "./eventLoopMonitor";
 import { listMossMediaLibrary } from "./mossMediaLibrary";
@@ -7,6 +10,8 @@ import { execFile } from "node:child_process";
 
 import {
   CommandId,
+  AUTH_MANAGEMENT_WS_METHODS,
+  COMPUTER_HISTORY_WS_METHODS,
   COMPUTER_WS_METHODS,
   TASKS_UNAVAILABLE_ERROR_CODE,
   DEFAULT_TERMINAL_ID,
@@ -28,7 +33,11 @@ import {
   WsProjectAgentRpcGroup,
   WsLibraryRpcGroup,
   WsPagesRpcGroup,
+  WsPageTypesRpcGroup,
+  PAGE_TYPES_WS_METHODS,
+  WsPageSharingRpcGroup,
   PagesRpcError,
+  ServerProviderInstallError,
   WsRpcError,
   SidebarOrderRevision,
   PullRequestsUnavailableError,
@@ -90,7 +99,8 @@ import {
   type RealtimeVoiceAppendSpeechInput,
   type RealtimeVoiceStopInput,
   SECRET_REQUEST_ERROR_CODES,
-} from "@synara/contracts";
+  PROJECT_DEV_SERVER_PROGRAM_NOT_FOUND_CODE,
+} from "@moss/contracts";
 import { clamp } from "effect/Number";
 import {
   DateTime,
@@ -129,9 +139,22 @@ import {
   PagesServiceError,
   type PagesServiceShape,
 } from "./pages/Services/PagesService";
+import { PageTypesService, type PageTypesServiceShape } from "./pages/types/PageTypesService";
+import { PageSharingService } from "./pages/sharing/PageSharingService";
+import { makePageSharingRpcHandlers } from "./pages/sharing/pageSharingRpc";
+import { ownerSpaceSync, PageSpaceSync } from "./pages/realtime/cloud/PageSpaceSyncService";
+import {
+  ownerAccountRecovery,
+  PageAccountRecoveryRpcService,
+} from "./pages/realtime/cloud/PageAccountRecoveryService";
+import { PageAppPublicationOwner } from "./pages/sharing/PageAppPublicationOwner";
+import { PageRealtimeService } from "./pages/realtime/PageRealtimeService";
+import { makePageRealtimeRouteLayer } from "./pages/realtime/pageRealtimeRoute";
+import { PageDraftsService } from "./pages/drafts/Services/PageDraftsService";
 import { isServerBetaFeatureEnabled } from "./betaFeatureGate";
 import { readInlineVisual } from "./inlineVisualStore";
-import { INLINE_VISUALS_BETA_FEATURE } from "@synara/shared/betaFeatures";
+import { INLINE_VISUALS_BETA_FEATURE } from "@moss/shared/betaFeatures";
+import { resolveHtmlRenderMapConfig } from "@moss/shared/htmlRenderMaps";
 import { ProjectAgentService } from "./projectAgent/Services/ProjectAgentService";
 import { isGroupCoordinatorHostProject } from "./projectAgent/groupCoordinatorHost";
 import {
@@ -168,27 +191,27 @@ import {
   type ServerAuthShape,
 } from "./auth/Services/ServerAuth";
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
+import { makeAuthWsRpcHandlers } from "./auth/wsRpc";
+import { ownerRoleRequired, ownerOnlyWsRpcHandler } from "./wsOwnerAuthorization";
+export { ownerRoleRequired, ownerOnlyWsRpcHandler } from "./wsOwnerAuthorization";
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { resolveThreadWorkspaceCwd } from "./checkpointing/Utils";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { realpathNearestExisting } from "./realpathNearestExisting";
 import { pickFolderNativeDialog } from "./systemDialogs";
-import { isGroupContainerKind } from "@synara/shared/projectContainers";
-import { PROJECT_FOLDERS_WORKTREE_ISSUE } from "@synara/shared/projectFolders";
-import { workspaceRootsEqual } from "@synara/shared/threadWorkspace";
-import { WORKSPACE_FILE_WRITE_CONFLICT_CODE } from "@synara/shared/workspaceFileWrite";
-import { makeKeyedSingleFlightCache } from "@synara/shared/KeyedSingleFlightCache";
-import { NEXT_MESSAGE_PREDICTION_CODEX_REASONING_EFFORT } from "@synara/shared/nextMessagePrediction";
+import { isGroupContainerKind } from "@moss/shared/projectContainers";
+import { PROJECT_FOLDERS_WORKTREE_ISSUE } from "@moss/shared/projectFolders";
+import { workspaceRootsEqual } from "@moss/shared/threadWorkspace";
+import { WORKSPACE_FILE_WRITE_CONFLICT_CODE } from "@moss/shared/workspaceFileWrite";
+import { makeKeyedSingleFlightCache } from "@moss/shared/KeyedSingleFlightCache";
+import { NEXT_MESSAGE_PREDICTION_CODEX_REASONING_EFFORT } from "@moss/shared/nextMessagePrediction";
 import {
   mergeProviderStartOptions,
   providerStartOptionsFromInstance,
   resolveModelSelectionInstanceId,
   resolveProviderInstance,
-} from "@synara/shared/providerInstances";
-import {
-  isThreadDetailEventFor,
-  THREAD_DETAIL_EVENT_TYPES,
-} from "@synara/shared/threadDetailEvents";
+} from "@moss/shared/providerInstances";
+import { isThreadDetailEventFor, THREAD_DETAIL_EVENT_TYPES } from "@moss/shared/threadDetailEvents";
 import { listStudioThreadOutputs } from "./studioOutputs";
 import {
   ensureStudioWorkspaceInstructionsFiles,
@@ -196,6 +219,12 @@ import {
 } from "./studioWorkspaceScaffold";
 import { ensureGroupWorkspaceInstructionsFiles } from "./groupWorkspaceScaffold";
 import { DevServerManager, findProjectDevServerForLocalServer } from "./devServerManager";
+import { LaunchProgramNotFoundError } from "./launchEnvironment";
+import {
+  refreshWindowsInstalledApps,
+  stopWindowsInstalledAppsDiscovery,
+} from "./windowsEditorDiscovery";
+import { readProjectLaunchConfigurations } from "./projectLaunchConfigurations";
 import { DeviceService } from "./device/Services/DeviceService";
 import { makeWsDeviceHandlers } from "./device/wsDeviceHandlers";
 import { makeDeviceFrameRouteLayer } from "./device/deviceFrameRoute";
@@ -244,6 +273,7 @@ import { sanitizeOrchestrationEventProviderOptions } from "./orchestration/provi
 import { prepareQuitResume } from "./orchestration/quitResume";
 import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
 import { makeProjectImportHandlers } from "./orchestration/projectImportRoute";
+import { ProjectImportError } from "./orchestration/projectImportHistory";
 import { makeProjectImportRepository } from "./persistence/projectImportRepository";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
@@ -264,6 +294,10 @@ import { recoverUnregisteredGitHubCheckout } from "./project/githubProjectRegist
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { ProviderService } from "./provider/Services/ProviderService";
+import {
+  assertProviderInstallationRemovalAllowed,
+  ProviderInstallationError,
+} from "./provider/managedProviderInstallation.ts";
 import { consumeCodexResetCreditEffect, listProviderUsage } from "./providerUsage";
 import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
 import { ProfileStatsQuery } from "./profileStats";
@@ -282,7 +316,7 @@ import {
   type ServerSettingsShape,
 } from "./serverSettings";
 import { protectReservedSettingsPatch } from "./reservedSettingsBoundary";
-import { isLoopbackHost } from "./startupAccess";
+import { isLoopbackHost, isLoopbackStartupBearer } from "./startupAccess";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { TerminalThreadTitleTracker } from "./terminal/terminalThreadTitleTracker";
 import { resolveOutOfRootFileReference } from "./workspace/outOfRootFileReference";
@@ -302,6 +336,7 @@ import { ThreadDiagnosticsQuery } from "./diagnostics/Services/ThreadDiagnostics
 import { makeOwnerThreadDiagnosticReader } from "./diagnostics/ownerThreadDiagnostics";
 import { OrchestrationEventStore } from "./persistence/Services/OrchestrationEventStore";
 import { ProviderRuntimeEventRepository } from "./persistence/Services/ProviderRuntimeEvents";
+import { createGitHubConnection } from "./githubInbox/gitHubConnection";
 import { requireWsOwnerSession } from "./wsOwnerAuthorization";
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import { voiceUploadAdmissionGate } from "./voiceUploadAdmission";
@@ -354,6 +389,7 @@ import {
   MossPhoneAccountService,
   type MossPhoneAccountServiceShape,
 } from "./account/Services/MossPhoneAccountService";
+import { accountLane, phoneAccountSignedIn } from "./account/accountLane.ts";
 import { MossPayService, type MossPayServiceShape } from "./account/Services/MossPayService";
 import { MossCloudAccountServiceError } from "./account/mossCloudAccountErrors";
 import { MossPayError } from "./account/mossPayGateway";
@@ -363,11 +399,13 @@ import {
 } from "./realtimeVoice/Services/RealtimeVoiceService";
 import {
   resolveAdmittedVoicePrewarmProviderRoute,
-  resolveAdmittedVoiceTranscriptionProviderRoute,
+  resolveMossVoiceAccountState,
   VoiceAccountAdmissionError,
   VoiceTranscriptionExecutionError,
   VoiceTranscriptionProviderRouteError,
 } from "./voiceTranscriptionGateway";
+import { transcribeVoiceRequest } from "./voiceTranscriptionRouting";
+import { getEnabledProviderAdapter } from "./provider/enabledProviderAdapter";
 import {
   applyMossResourceImport,
   inventoryMossResourceImport,
@@ -397,31 +435,12 @@ import {
   resolveProcessComputerHistoryKeychainNamespace,
   resolveProcessComputerHistoryRoot,
 } from "./computerHistory/shared";
+import { CUA_HOST_SOCKET_ENV } from "@moss/shared/cuaDriverProtocol";
+import { resolveBrowserHostCapability } from "./browserAutomation/browserHostRpcClient";
 
 export function canManageExternalMcp(role: "owner" | "client"): boolean {
   return role === "owner";
 }
-
-export const ownerRoleRequired = Effect.gen(function* () {
-  if ((yield* CurrentWsSessionRole) !== "owner") {
-    return yield* Effect.fail(
-      new WsRpcError({
-        message: "Owner authorization is required for this operation.",
-        code: "OWNER_REQUIRED",
-        retryable: false,
-      }),
-    );
-  }
-});
-
-/** Lazily guards a unary host-global RPC; useful for focused authorization tests. */
-export const ownerOnlyWsRpcHandler =
-  (
-    handler: (input: unknown, options: unknown) => Effect.Effect<unknown, unknown, never>,
-    guard: Effect.Effect<void, WsRpcError, never> = ownerRoleRequired,
-  ) =>
-  (input: unknown, options: unknown) =>
-    guard.pipe(Effect.andThen(Effect.suspend(() => handler(input, options))));
 
 export const MOSS_RESOURCE_IMPORT_STATE_DIR_NAME = "resource-import";
 export const MOSS_RESOURCE_IMPORT_ISSUER = "moss-server";
@@ -777,7 +796,9 @@ const AdmittedWsFeatureRpcGroup: RpcGroup.RpcGroup<
     | RpcGroup.Rpcs<typeof WsComputerRpcGroup>
     | RpcGroup.Rpcs<typeof WsProjectAgentRpcGroup>
     | RpcGroup.Rpcs<typeof WsLibraryRpcGroup>
-    | RpcGroup.Rpcs<typeof WsPagesRpcGroup>,
+    | RpcGroup.Rpcs<typeof WsPagesRpcGroup>
+    | RpcGroup.Rpcs<typeof WsPageTypesRpcGroup>
+    | RpcGroup.Rpcs<typeof WsPageSharingRpcGroup>,
     typeof WsRequestAdmissionMiddleware
   >
 > = WsFeatureRpcGroup.merge(WsDeviceRpcGroup)
@@ -785,6 +806,8 @@ const AdmittedWsFeatureRpcGroup: RpcGroup.RpcGroup<
   .merge(WsProjectAgentRpcGroup)
   .merge(WsLibraryRpcGroup)
   .merge(WsPagesRpcGroup)
+  .merge(WsPageTypesRpcGroup)
+  .merge(WsPageSharingRpcGroup)
   .middleware(WsRequestAdmissionMiddleware);
 
 // The admitted union is too wide for the compiler to serialize at each use
@@ -837,7 +860,7 @@ export function toThreadUnarchivedShellEvent(
     );
 }
 
-const wsRequestAdmissionMiddlewareLayer = Layer.effect(
+export const wsRequestAdmissionMiddlewareLayer = Layer.effect(
   WsRequestAdmissionMiddleware,
   Effect.gen(function* () {
     const admission = yield* makeWsRequestAdmission;
@@ -979,6 +1002,21 @@ export function toWsRpcError(cause: unknown, fallbackMessage: string) {
       cause,
     });
   }
+  // Import failures are already in plain words; the raw system error stays in the server log.
+  if (cause instanceof ProjectImportError) {
+    return new WsRpcError({
+      message: cause.message,
+      code: "PROJECT_IMPORT_FAILED",
+      retryable: cause.retryable === true,
+    });
+  }
+  // Agent installation refusals carry a code the settings dialog explains in plain words.
+  if (cause instanceof ProviderInstallationError) {
+    return new WsRpcError({ message: cause.message, code: cause.code, retryable: false });
+  }
+  if (Schema.is(ServerProviderInstallError)(cause) && cause.code) {
+    return new WsRpcError({ message: cause.reason, code: cause.code, retryable: false });
+  }
   if (cause instanceof AutomationServiceError && cause.code === "AUTOMATION_CREATE_REJECTED") {
     return new WsRpcError({ message: cause.message, code: cause.code, retryable: false });
   }
@@ -1113,6 +1151,16 @@ const makeWsRpcHandlersLayer = () =>
       const guestShareService = yield* GuestShareService;
       const libraryService = yield* LibraryService;
       const pagesService = Option.getOrUndefined(yield* Effect.serviceOption(PagesService));
+      const pageTypesService = Option.getOrUndefined(yield* Effect.serviceOption(PageTypesService));
+      const pageSharingHandlers = makePageSharingRpcHandlers(
+        Option.getOrUndefined(yield* Effect.serviceOption(PageSharingService)),
+        Option.getOrUndefined(yield* Effect.serviceOption(PageAppPublicationOwner)),
+      );
+      const pageRealtime = Option.getOrUndefined(yield* Effect.serviceOption(PageRealtimeService));
+      const spaceSync = Option.getOrUndefined(yield* Effect.serviceOption(PageSpaceSync));
+      const accountRecovery = Option.getOrUndefined(
+        yield* Effect.serviceOption(PageAccountRecoveryRpcService),
+      );
       const pageOperation = <A>(
         operation: (service: PagesServiceShape) => Effect.Effect<A, PagesServiceError>,
       ) =>
@@ -1120,6 +1168,27 @@ const makeWsRpcHandlersLayer = () =>
           ? operation(pagesService)
           : Effect.fail(
               new PagesServiceError({ code: "storage", message: "Pages service is unavailable" }),
+            );
+      const pageTypesOperation = <A>(
+        operation: (service: PageTypesServiceShape) => Effect.Effect<A, PagesServiceError>,
+      ) =>
+        pageTypesService
+          ? operation(pageTypesService)
+          : Effect.fail(
+              new PagesServiceError({ code: "storage", message: "Pages service is unavailable" }),
+            );
+      const pageDraftsService = Option.getOrUndefined(
+        yield* Effect.serviceOption(PageDraftsService),
+      );
+      const pageDraftOperation = <A>(
+        operation: (
+          service: NonNullable<typeof pageDraftsService>,
+        ) => Effect.Effect<A, PagesServiceError>,
+      ) =>
+        pageDraftsService
+          ? operation(pageDraftsService)
+          : Effect.fail(
+              new PagesServiceError({ code: "storage", message: "Page drafts are unavailable" }),
             );
       const pageRpcEffect = <A>(effect: Effect.Effect<A, PagesServiceError>) =>
         effect.pipe(
@@ -1138,8 +1207,33 @@ const makeWsRpcHandlersLayer = () =>
           ),
         );
       const projectAgentService = yield* ProjectAgentService;
+      const roomRuntime = Option.getOrNull(yield* Effect.serviceOption(MossbotRooms));
+      // Keep the room failure's code and message: a bare tryPromise replaces both.
+      const roomEffect = <A>(operation: () => Promise<A>) =>
+        Effect.tryPromise({ try: operation, catch: toMossbotRoomRpcError });
       const projectAgentRepository = yield* ProjectAgentRepository;
       const config = yield* ServerConfig;
+      const devsReportSettings = yield* ServerSettingsService;
+      // The report service explains each refusal; the user sees its message.
+      const devsReportError = (error: unknown) =>
+        new WsRpcError({
+          message: error instanceof Error ? error.message : "Could not send the developer report",
+        });
+      const devsReports = yield* Effect.acquireRelease(
+        Effect.sync(
+          () =>
+            new DevsReports(config.stateDir, fetch, process.env, {
+              // Developer reports follow the app's error-report switch.
+              consent: () =>
+                Effect.runPromise(
+                  devsReportSettings.getSettings.pipe(
+                    Effect.map((settings) => settings.errorReportsEnabled),
+                  ),
+                ),
+            }),
+        ),
+        (reports) => Effect.sync(() => reports.close()),
+      );
       const devServerManager = yield* DevServerManager;
       const fileSystem = yield* FileSystem.FileSystem;
       const externalMcp = yield* ExternalMcpService;
@@ -1157,6 +1251,16 @@ const makeWsRpcHandlersLayer = () =>
       const pullRequests = yield* PullRequestService;
       const pullRequestAutoFix = yield* PullRequestAutoFixService;
       const githubInbox = yield* GitHubInboxService;
+      const githubConnection = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          createGitHubConnection(undefined, () =>
+            Effect.runPromise(
+              Effect.all([githubInbox.clearAccount, pullRequests.clearAccount], { discard: true }),
+            ),
+          ),
+        ),
+        (service) => Effect.promise(() => service.close()),
+      );
       const profileStatsQuery = yield* ProfileStatsQuery;
       const recapStatsQuery = yield* RecapStatsQuery;
       const threadSearchQuery = yield* ThreadSearchQuery;
@@ -1333,7 +1437,7 @@ const makeWsRpcHandlersLayer = () =>
       // no event that commits during the wait is lost.
       const loadThreadDetailSnapshotWithBootstrapWait = (
         threadId: ThreadId,
-        messageWindow?: import("@synara/contracts").OrchestrationThreadMessageWindow,
+        messageWindow?: import("@moss/contracts").OrchestrationThreadMessageWindow,
       ) =>
         Effect.gen(function* () {
           const deadline = Date.now() + THREAD_DETAIL_SNAPSHOT_BOOTSTRAP_TIMEOUT_MS;
@@ -1547,6 +1651,7 @@ const makeWsRpcHandlersLayer = () =>
         serverSettings,
         homeDir: config.homeDir,
         stateDir: config.stateDir,
+        mossHomeDir: config.baseDir,
       });
 
       const dispatchOrchestrationCommand = (command: OrchestrationCommand) =>
@@ -1608,17 +1713,27 @@ const makeWsRpcHandlersLayer = () =>
           });
           if (trackedServer) {
             yield* devServerManager
-              .stop({ projectId: trackedServer.projectId })
+              .stop({
+                projectId: trackedServer.projectId,
+                ...(trackedServer.launchName ? { launchName: trackedServer.launchName } : {}),
+              })
               .pipe(Effect.catch(() => Effect.void));
           }
         }
         return result;
       });
 
+      // Installed editors are read from the registry in the background (Windows); start now
+      // so the first config load rarely waits for it. The read belongs to this scope: the
+      // server shutting down kills it, so it never holds the process open.
+      yield* Effect.addFinalizer(() => Effect.sync(stopWindowsInstalledAppsDiscovery));
+      void refreshWindowsInstalledApps();
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
         const providerStatuses = yield* providerHealth.getStatuses;
+        yield* Effect.promise(() => refreshWindowsInstalledApps({ waitMs: 1_500 }));
         return {
+          ...(config.publicUrl ? { shareableOrigin: config.publicUrl.origin } : {}),
           cwd: config.cwd,
           homeDir: config.homeDir,
           chatWorkspaceRoot: config.chatWorkspaceRoot,
@@ -2005,6 +2120,7 @@ const makeWsRpcHandlersLayer = () =>
         );
 
       const sessionCredentialService = yield* SessionCredentialService;
+      const authHandlers = makeAuthWsRpcHandlers(yield* ServerAuth);
       const projectionAuthorityFactory = yield* MossProjectionAuthorityFactoryService;
       const resourceImportWorkspaceAuthorizationRegistry =
         yield* MossResourceImportWorkspaceAuthorizationRegistry;
@@ -2149,7 +2265,14 @@ const makeWsRpcHandlersLayer = () =>
           ? { helperPath: process.env.MOSS_APPSNAP_HELPER_PATH }
           : {}),
         keychainNamespace: resolveProcessComputerHistoryKeychainNamespace(config.stateDir),
+        ...(process.env[CUA_HOST_SOCKET_ENV]
+          ? { cuaEndpoint: process.env[CUA_HOST_SOCKET_ENV] }
+          : {}),
+        ...(resolveBrowserHostCapability()
+          ? { cuaCapability: resolveBrowserHostCapability()! }
+          : {}),
       });
+      yield* Effect.addFinalizer(() => Effect.promise(() => computerHistory.shutdown()));
 
       const workspaceImport = makeWorkspaceImportWsHandlers({
         config,
@@ -2990,11 +3113,28 @@ const makeWsRpcHandlersLayer = () =>
             ),
           ),
         [WS_METHODS.projectsRunDevServer]: (input) =>
-          rpcEffect(devServerManager.run(input), "Failed to start dev server"),
+          devServerManager.run(input).pipe(
+            Effect.mapError((cause) =>
+              cause instanceof LaunchProgramNotFoundError
+                ? new WsRpcError({
+                    message: cause.program,
+                    code: PROJECT_DEV_SERVER_PROGRAM_NOT_FOUND_CODE,
+                    retryable: false,
+                  })
+                : toWsRpcError(cause, "Failed to start dev server"),
+            ),
+          ),
         [WS_METHODS.projectsStopDevServer]: (input) =>
           rpcEffect(devServerManager.stop(input), "Failed to stop dev server"),
         [WS_METHODS.projectsListDevServers]: () =>
           rpcEffect(devServerManager.list, "Failed to list dev servers"),
+        [WS_METHODS.projectsReadDevServerLog]: (input) =>
+          rpcEffect(devServerManager.readLog(input), "Failed to read dev server output"),
+        [WS_METHODS.projectsReadLaunchConfigurations]: (input) =>
+          rpcEffect(
+            Effect.tryPromise(() => readProjectLaunchConfigurations(input)),
+            "Failed to read the project's launch configurations",
+          ),
         [WS_METHODS.subscribeProjectDevServerEvents]: (_, { clientId }) =>
           streamAdmission.guard(
             clientId,
@@ -3229,6 +3369,12 @@ const makeWsRpcHandlersLayer = () =>
             refreshGitStatusAfter(input.cwd, gitManager.preparePullRequestThread(input)),
             "Failed to prepare pull request thread",
           ),
+        [WS_METHODS.githubInboxConnection]: (input) =>
+          Effect.gen(function* () {
+            yield* requireLoopbackOwner("Connect GitHub on the computer running Moss.");
+            const principal = yield* CurrentManagedAttachmentPrincipal;
+            return yield* Effect.promise(() => githubConnection.handle(principal.ownerId, input));
+          }),
         [WS_METHODS.githubInboxList]: (input) =>
           pullRequestsEffect(
             githubInbox.list(input),
@@ -3496,6 +3642,7 @@ const makeWsRpcHandlersLayer = () =>
 
         [WS_METHODS.serverGetRuntimeStatus]: () =>
           rpcEffect(readEventLoopStatus, "Failed to read runtime status"),
+        ...authHandlers,
         [WS_METHODS.serverGetConfig]: () =>
           rpcEffect(loadServerConfig, "Failed to load server config"),
         [WS_METHODS.serverGetEnvironment]: () =>
@@ -3510,6 +3657,28 @@ const makeWsRpcHandlersLayer = () =>
             "Failed to refresh providers",
           ),
         [WS_METHODS.serverUpdateProvider]: (input) => providerHealth.updateProvider(input),
+        [WS_METHODS.serverInstallProvider]: (input) => providerHealth.installProvider(input),
+        [WS_METHODS.serverManageProviderInstallation]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              yield* requireLoopbackOwner(
+                "Agent installations can only be managed on this computer.",
+              );
+              if (!providerHealth.manageProviderInstallation)
+                return yield* Effect.fail(
+                  new Error("This server cannot manage agent installations."),
+                );
+              if (input.action === "uninstall") {
+                const sessions = yield* providerService.listSessions();
+                yield* Effect.try({
+                  try: () => assertProviderInstallationRemovalAllowed(input.provider, { sessions }),
+                  catch: (cause) => cause,
+                });
+              }
+              return yield* providerHealth.manageProviderInstallation(input);
+            }),
+            "Could not manage the agent installation",
+          ),
         [WS_METHODS.serverListExternalMcpIntegrations]: () =>
           rpcEffect(
             requireOwner.pipe(Effect.andThen(externalMcp.listIntegrations())),
@@ -3539,6 +3708,18 @@ const makeWsRpcHandlersLayer = () =>
           connectorRpc(mcpConnectors.connect(input), "Failed to connect"),
         [WS_METHODS.serverGetMcpConnectorSetup]: () =>
           connectorRpc(mcpConnectors.setup(), "Failed to read connector setup"),
+        // Keys reach only the live page in the app; they are never logged or stored in a page.
+        [WS_METHODS.serverGetHtmlRenderMapConfig]: () =>
+          accountLane(mossPhoneAccountService).pipe(
+            Effect.map((lane) => resolveHtmlRenderMapConfig({ env: process.env, lane })),
+          ),
+        [WS_METHODS.serverListMossServicePlugins]: () =>
+          mossAppsRpc(mcpConnectors.servicePlugins.list(), "Failed to list service plugins"),
+        [WS_METHODS.serverSetMossServicePluginInstalled]: (input) =>
+          mossAppsRpc(
+            mcpConnectors.servicePlugins.setInstalled(input),
+            "Failed to update the service plugin",
+          ),
         [WS_METHODS.serverDisconnectMcpConnector]: (input) =>
           connectorRpc(
             mcpConnectors
@@ -3638,6 +3819,48 @@ const makeWsRpcHandlersLayer = () =>
               ),
             ),
           ),
+        // Reporting uses only curated thread facts and is available to authenticated paired clients too.
+        [WS_METHODS.serverPrepareDevsReport]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              if (!input.threadId && input.feedbackContext) {
+                const phoneAccount = yield* phoneAccountSignedIn(mossPhoneAccountService);
+                return yield* Effect.tryPromise({
+                  try: () => devsReports.prepare(input, null, { phoneAccount }),
+                  catch: devsReportError,
+                });
+              }
+              if (!input.threadId)
+                return yield* new WsRpcError({
+                  message: "Open a saved chat or provide app feedback details.",
+                });
+              const detail = yield* projectionReadModelQuery.getThreadDetailSnapshotById(
+                input.threadId,
+              );
+              if (Option.isNone(detail))
+                return yield* new WsRpcError({
+                  message: "Open a saved chat before reporting a problem.",
+                });
+              // Local and network-free: the server's one phone-account check.
+              const phoneAccount = yield* phoneAccountSignedIn(mossPhoneAccountService);
+              return yield* Effect.tryPromise({
+                try: () => devsReports.prepare(input, detail.value.thread, { phoneAccount }),
+                catch: devsReportError,
+              });
+            }),
+            "Could not prepare the developer report",
+          ),
+        // Sends only what prepare showed the user for this report ID.
+        [WS_METHODS.serverSubmitDevsReport]: (input) =>
+          rpcEffect(
+            Effect.tryPromise({ try: () => devsReports.submit(input), catch: devsReportError }),
+            "Could not queue the developer report",
+          ),
+        [WS_METHODS.serverListDevsReports]: (input) =>
+          rpcEffect(
+            Effect.tryPromise(() => devsReports.list(input.threadId)),
+            "Could not load developer reports",
+          ),
         [WS_METHODS.serverReadThreadDiagnostics]: (input) =>
           requireWsOwnerSession.pipe(
             Effect.andThen(
@@ -3647,6 +3870,15 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.serverPrewarmVoice]: (input) =>
           voiceRpcEffect(
             Effect.gen(function* () {
+              // A signed-in Moss account transcribes every voice note, so warming a personal
+              // provider's session (an app-server start for Codex) would only cost time.
+              const mossVoiceAccount = yield* resolveMossVoiceAccountState({
+                awaitAccountStartup: runtimeStartup.enqueueRead(Effect.void),
+                getPhoneAuthorityCredential: () => mossPhoneAccountService.getAuthorityCredential(),
+                getCloudAuthorityCredential: () => mossCloudAccountService.getAuthorityCredential(),
+                enterpriseKey: mossEnterpriseKeyAccount,
+              });
+              if (mossVoiceAccount.status === "signed-in") return { ready: true };
               const route = yield* resolveAdmittedVoicePrewarmProviderRoute(
                 {
                   provider: input.provider,
@@ -3683,40 +3915,19 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.serverTranscribeVoice]: (input) =>
           voiceRpcEffect(
             voiceUploadAdmissionGate.run(
-              Effect.gen(function* () {
-                const route = yield* resolveAdmittedVoiceTranscriptionProviderRoute(
-                  {
-                    provider: input.provider,
-                    ...(input.providerInstanceId
-                      ? { providerInstanceId: input.providerInstanceId }
-                      : {}),
-                  },
-                  {
-                    awaitAccountStartup: runtimeStartup.enqueueRead(Effect.void),
-                    getSettings: () => serverSettings.getSettings,
-                    getPhoneAuthorityCredential: () =>
-                      mossPhoneAccountService.getAuthorityCredential(),
-                    getCloudAuthorityCredential: () =>
-                      mossCloudAccountService.getAuthorityCredential(),
-                    enterpriseKey: mossEnterpriseKeyAccount,
-                  },
-                );
-                const adapter = yield* providerAdapterRegistry.getByProvider(route.provider);
-                if (!adapter.transcribeVoice)
-                  return yield* Effect.fail(
-                    new Error(
-                      `Voice transcription is unavailable for provider '${input.provider}'.`,
-                    ),
-                  );
-                const { providerOptions: _ignoredProviderOptions, ...transcriptionInput } = input;
-                return yield* adapter.transcribeVoice({
-                  ...transcriptionInput,
-                  providerInstanceId: route.providerInstanceId,
-                  ...(route.providerOptions ? { providerOptions: route.providerOptions } : {}),
-                  ...(route.serverResolvedVoiceRouteAuthority
-                    ? { serverResolvedVoiceRouteAuthority: route.serverResolvedVoiceRouteAuthority }
-                    : {}),
-                });
+              transcribeVoiceRequest({
+                request: input,
+                account: {
+                  awaitAccountStartup: runtimeStartup.enqueueRead(Effect.void),
+                  getPhoneAuthorityCredential: () =>
+                    mossPhoneAccountService.getAuthorityCredential(),
+                  getCloudAuthorityCredential: () =>
+                    mossCloudAccountService.getAuthorityCredential(),
+                  enterpriseKey: mossEnterpriseKeyAccount,
+                },
+                getSettings: () => serverSettings.getSettings,
+                getAdapter: (provider) =>
+                  getEnabledProviderAdapter(provider, serverSettings, providerAdapterRegistry),
               }),
             ),
             "Voice transcription failed",
@@ -3798,9 +4009,7 @@ const makeWsRpcHandlersLayer = () =>
                 (event): ServerLifecycleStreamEvent =>
                   event.type === "welcome"
                     ? { type: "welcome", payload: event.payload }
-                    : event.type === "ready"
-                      ? { type: "ready", payload: event.payload }
-                      : { type: "maintenance", payload: event.payload },
+                    : { type: "ready", payload: event.payload },
               ),
             ),
           ),
@@ -4011,6 +4220,37 @@ const makeWsRpcHandlersLayer = () =>
             automationService.resolveProposal(input),
             "Failed to resolve automation proposal",
           ),
+        [WS_METHODS.mossbotRoomUpdate]: (input) =>
+          roomEffect(async () => {
+            if (!roomRuntime) throw new Error("Mossbot groups are unavailable");
+            return roomRuntime.update(input);
+          }),
+        [WS_METHODS.mossbotRoomCancel]: (input) =>
+          roomEffect(async () => {
+            if (!roomRuntime) throw new Error("Mossbot groups are unavailable");
+            return roomRuntime.cancel(input.roomId);
+          }),
+        [WS_METHODS.mossbotRoomList]: () => roomEffect(async () => roomRuntime?.list() ?? []),
+        [WS_METHODS.mossbotRoomCreate]: (input) =>
+          roomEffect(async () => {
+            if (!roomRuntime) throw new Error("Mossbot groups are unavailable");
+            return roomRuntime.create(input);
+          }),
+        [WS_METHODS.mossbotRoomGet]: (input) =>
+          roomEffect(async () => {
+            if (!roomRuntime) throw new Error("Mossbot groups are unavailable");
+            return roomRuntime.get(input.roomId);
+          }),
+        [WS_METHODS.mossbotRoomSend]: (input) =>
+          roomEffect(async () => {
+            if (!roomRuntime) throw new Error("Mossbot groups are unavailable");
+            return roomRuntime.send(input);
+          }),
+        [WS_METHODS.mossbotRoomDelete]: (input) =>
+          roomEffect(async () => {
+            if (!roomRuntime) throw new Error("Mossbot groups are unavailable");
+            return roomRuntime.delete(input.roomId);
+          }),
         [WS_METHODS.projectAgentGetOverview]: (input) =>
           rpcEffect(
             projectAgentService.getOverview(input, { kind: "user" }),
@@ -4489,6 +4729,9 @@ const makeWsRpcHandlersLayer = () =>
 
         [WS_METHODS.pagesSpaces]: (input) =>
           pageRpcEffect(pageOperation((service) => service.spaces(input, LOCAL_PAGES_PRINCIPAL))),
+        [WS_METHODS.pageSpaceSync]: (input) => ownerSpaceSync(spaceSync, input),
+        [WS_METHODS.pageAccountRecovery]: (input) =>
+          ownerAccountRecovery(accountRecovery, input, spaceSync),
         [WS_METHODS.pagesList]: (input) =>
           pageRpcEffect(pageOperation((service) => service.list(input, LOCAL_PAGES_PRINCIPAL))),
         [WS_METHODS.pagesRead]: (input) =>
@@ -4499,6 +4742,55 @@ const makeWsRpcHandlersLayer = () =>
           pageRpcEffect(pageOperation((service) => service.comments(input, LOCAL_PAGES_PRINCIPAL))),
         [WS_METHODS.pagesMutate]: (input) =>
           pageRpcEffect(pageOperation((service) => service.mutate(input, LOCAL_PAGES_PRINCIPAL))),
+        [WS_METHODS.pagesRealtimeToken]: (input) =>
+          pageRpcEffect(
+            pageRealtime
+              ? pageRealtime.issueToken(input, LOCAL_PAGES_PRINCIPAL)
+              : Effect.fail(
+                  new PagesServiceError({ code: "storage", message: "Page rooms are unavailable" }),
+                ),
+          ),
+        [WS_METHODS.pagesDrafts]: (input) =>
+          pageRpcEffect(
+            pageDraftOperation((service) => service.list(input, LOCAL_PAGES_PRINCIPAL)),
+          ),
+        [WS_METHODS.pagesDraftsMutate]: (input) =>
+          pageRpcEffect(
+            pageDraftOperation((service) => service.mutate(input, LOCAL_PAGES_PRINCIPAL)),
+          ),
+        [WS_METHODS.pagesOutputs]: (input) =>
+          pageRpcEffect(pageOperation((service) => service.outputs(input, LOCAL_PAGES_PRINCIPAL))),
+        // Typed 资料空间 items and 从模板开始 templates (pages stream `types`).
+        [PAGE_TYPES_WS_METHODS.read]: (input) =>
+          pageRpcEffect(
+            pageTypesOperation((service) => service.read(input, LOCAL_PAGES_PRINCIPAL)),
+          ),
+        [PAGE_TYPES_WS_METHODS.create]: (input) =>
+          pageRpcEffect(
+            pageTypesOperation((service) => service.create(input, LOCAL_PAGES_PRINCIPAL)),
+          ),
+        [PAGE_TYPES_WS_METHODS.save]: (input) =>
+          pageRpcEffect(
+            pageTypesOperation((service) => service.save(input, LOCAL_PAGES_PRINCIPAL)),
+          ),
+        [PAGE_TYPES_WS_METHODS.templatesList]: (input) =>
+          pageRpcEffect(
+            pageTypesOperation((service) => service.listTemplates(input, LOCAL_PAGES_PRINCIPAL)),
+          ),
+        [PAGE_TYPES_WS_METHODS.templatesSave]: (input) =>
+          pageRpcEffect(
+            pageTypesOperation((service) => service.saveTemplate(input, LOCAL_PAGES_PRINCIPAL)),
+          ),
+        [PAGE_TYPES_WS_METHODS.templatesDelete]: (input) =>
+          pageRpcEffect(
+            pageTypesOperation((service) => service.deleteTemplate(input, LOCAL_PAGES_PRINCIPAL)),
+          ),
+        [WS_METHODS.pagesOutputState]: (input) =>
+          pageRpcEffect(
+            pageOperation((service) => service.outputState(input, LOCAL_PAGES_PRINCIPAL)),
+          ),
+        // 资料空间 sharing and 站点 (pages/sharing).
+        ...pageSharingHandlers,
 
         // Moss 资料库 local multi-agent index (Codex cloud library mapped to
         // local agent roots; agent source files are read-only).
@@ -5007,13 +5299,21 @@ const makeWsRpcHandlersLayer = () =>
               toWsRpcError(cause, "Provider normalized event stream failed"),
             ),
           ),
-        ...makeMossEnterpriseKeyRpcHandlers(mossEnterpriseKeyAccount),
-        ...makeMossPhoneAccountRpcHandlers(mossPhoneAccountService),
+        ...makeMossEnterpriseKeyRpcHandlers(mossEnterpriseKeyAccount, () =>
+          mcpConnectors.servicePlugins.resync(),
+        ),
+        // A phone sign-in, sign-out, or realm switch changes which service
+        // plugin skills (phone accounts only) belong on disk.
+        ...makeMossPhoneAccountRpcHandlers(mossPhoneAccountService, () =>
+          mcpConnectors.servicePlugins.resync(),
+        ),
         [WS_METHODS.serverMossAccountSelectRealm]: (input: MossAccountSelectRealmInput) =>
           input.realm === "cn"
             ? mossPhoneAccountService.activateRealm
               ? rpcEffect(
-                  mossPhoneAccountService.activateRealm(input),
+                  mossPhoneAccountService
+                    .activateRealm(input)
+                    .pipe(Effect.tap(() => mcpConnectors.servicePlugins.resync())),
                   "Failed to select Moss account realm",
                 )
               : Effect.fail(
@@ -5025,7 +5325,9 @@ const makeWsRpcHandlersLayer = () =>
                 )
             : mossCloudAccountService.activateRealm
               ? rpcEffect(
-                  mossCloudAccountService.activateRealm(input),
+                  mossCloudAccountService
+                    .activateRealm(input)
+                    .pipe(Effect.tap(() => mcpConnectors.servicePlugins.resync())),
                   "Failed to select Moss account realm",
                 )
               : Effect.fail(
@@ -5035,7 +5337,9 @@ const makeWsRpcHandlersLayer = () =>
                     retryable: false,
                   }),
                 ),
-        ...makeMossCloudAccountRpcHandlers(mossCloudAccountService),
+        ...makeMossCloudAccountRpcHandlers(mossCloudAccountService, () =>
+          mcpConnectors.servicePlugins.resync(),
+        ),
         ...makeMossPayRpcHandlers(mossPayService),
         ...makeRealtimeVoiceRpcHandlers(realtimeVoiceService),
         [WS_METHODS.realtimeVoiceSubscribe]: (_, { clientId }) =>
@@ -5163,6 +5467,8 @@ const makeWsRpcHandlersLayer = () =>
       // at the final registry boundary so restored handler helpers cannot
       // accidentally bypass the authorization policy.
       const ownerOnlyMethods = new Set([
+        ...AUTH_MANAGEMENT_WS_METHODS,
+        WS_METHODS.githubInboxConnection,
         WS_METHODS.serverMossAccountSession,
         WS_METHODS.serverMossAccountSelectRealm,
         WS_METHODS.serverMossAccountStartPhoneLogin,
@@ -5194,6 +5500,8 @@ const makeWsRpcHandlersLayer = () =>
         WS_METHODS.serverCancelProviderLogin,
         WS_METHODS.serverRefreshProviders,
         WS_METHODS.serverUpdateProvider,
+        WS_METHODS.serverInstallProvider,
+        WS_METHODS.serverManageProviderInstallation,
         WS_METHODS.providerReadSkill,
         WS_METHODS.providerAddMarketplace,
         WS_METHODS.providerRemoveMarketplace,
@@ -5204,13 +5512,7 @@ const makeWsRpcHandlersLayer = () =>
         WS_METHODS.providerSetAppEnabled,
         WS_METHODS.providerStartAppConnection,
         WS_METHODS.providerCompleteAppConnection,
-        WS_METHODS.computerHistoryUpdateSettings,
-        WS_METHODS.computerHistorySetEnabled,
-        WS_METHODS.computerHistoryRetryActivation,
-        WS_METHODS.computerHistoryPause,
-        WS_METHODS.computerHistoryResume,
-        WS_METHODS.computerHistoryRevealInFinder,
-        WS_METHODS.computerHistoryClearHistory,
+        ...COMPUTER_HISTORY_WS_METHODS,
         WS_METHODS.realtimeVoiceListVoices,
         WS_METHODS.realtimeVoiceClaim,
         WS_METHODS.realtimeVoiceReleaseClaim,
@@ -5316,7 +5618,12 @@ function trustedWebSocketRequestUrl(
 }
 
 export function authenticateRpcWebSocketUpgrade(input: {
-  readonly config: Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">;
+  readonly config: Omit<
+    Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">,
+    "publicUrl"
+  > & {
+    readonly publicUrl: string | URL | undefined;
+  };
   readonly legacyToken: string | null;
   readonly request: AuthRequest;
   readonly serverAuth: Pick<ServerAuthShape, "authenticateWebSocketUpgrade">;
@@ -5325,7 +5632,8 @@ export function authenticateRpcWebSocketUpgrade(input: {
     !requiresWebSocketAuthentication(input.config) ||
     (isLoopbackHost(input.config.host) &&
       !input.config.publicUrl &&
-      input.legacyToken === input.config.authToken)
+      input.legacyToken === input.config.authToken) ||
+    isLoopbackStartupBearer({ ...input.config, authorization: input.request.headers.authorization })
   ) {
     return Effect.succeed(null);
   }
@@ -5339,7 +5647,12 @@ export function authenticateRpcWebSocketUpgrade(input: {
  * the RPC socket rather than calling ServerAuth directly.
  */
 export function authorizeDeviceFrameWebSocketUpgrade(input: {
-  readonly config: Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">;
+  readonly config: Omit<
+    Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">,
+    "publicUrl"
+  > & {
+    readonly publicUrl: string | URL | undefined;
+  };
   readonly legacyToken: string | null;
   readonly request: AuthRequest;
   readonly serverAuth: Pick<ServerAuthShape, "authenticateWebSocketUpgrade">;
@@ -5428,6 +5741,7 @@ export function makeWebsocketRpcRouteLayer<R>(
             authenticatedSession.sessionId,
             runWithConnectionSession(request, {
               role: authenticatedSession.role,
+              authenticatedSession,
               attachmentPrincipal: attachmentPrincipalForSession(authenticatedSession.sessionId),
             }),
           );
@@ -5578,8 +5892,26 @@ const computerFrameRouteLayer = makeComputerFrameRouteLayer({
     }),
 });
 
+/** Page rooms (live co-editing) admit sockets like the RPC upgrade, then by ticket. */
+const pageRealtimeRouteLayer = makePageRealtimeRouteLayer({
+  authorizeUpgrade: (request) =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig;
+      const serverAuth = yield* ServerAuth;
+      const url = trustedWebSocketRequestUrl(request, config);
+      if (url === null) return false;
+      return yield* authorizeDeviceFrameWebSocketUpgrade({
+        config,
+        legacyToken: url.searchParams.get("token"),
+        request: makeEffectAuthRequest(request),
+        serverAuth,
+      });
+    }),
+});
+
 export const websocketRpcRouteLayer = Layer.mergeAll(
   deviceFrameRouteLayer,
+  pageRealtimeRouteLayer,
   computerFrameRouteLayer,
   makeWebsocketNegotiationRouteLayer(),
   // The registry must be provided here so the upgrade route and the RPC
@@ -5707,15 +6039,25 @@ export const providerCompleteAppConnectionRpcEffect = (
   input: any,
 ) => rpcEffect(service.completeAppConnection(input), "Failed to complete app login");
 
-export const makeMossPhoneAccountRpcHandlers = (service: MossPhoneAccountServiceShape) => ({
+export const makeMossPhoneAccountRpcHandlers = (
+  service: MossPhoneAccountServiceShape,
+  /** Runs after a sign-in or sign-out succeeds; it must not fail. */
+  afterAccountChange: () => Effect.Effect<void> = () => Effect.void,
+) => ({
   [WS_METHODS.serverMossAccountSession]: () =>
     rpcEffect(service.getSession(), "Failed to load Moss phone account session"),
   [WS_METHODS.serverMossAccountStartPhoneLogin]: (input: MossAccountStartPhoneLoginInput) =>
     rpcEffect(service.startPhoneLogin(input), "Failed to start Moss phone login"),
   [WS_METHODS.serverMossAccountVerifyPhoneLogin]: (input: MossAccountVerifyPhoneLoginInput) =>
-    rpcEffect(service.verifyPhoneLogin(input), "Failed to verify Moss phone login"),
+    rpcEffect(
+      service.verifyPhoneLogin(input).pipe(Effect.tap(afterAccountChange)),
+      "Failed to verify Moss phone login",
+    ),
   [WS_METHODS.serverMossAccountLogout]: () =>
-    rpcEffect(service.logout(), "Failed to log out of Moss phone account"),
+    rpcEffect(
+      service.logout().pipe(Effect.tap(afterAccountChange)),
+      "Failed to log out of Moss phone account",
+    ),
 });
 
 const mossCloudAccountRpcEffect = <A, R>(
@@ -5726,40 +6068,53 @@ const mossCloudAccountRpcEffect = <A, R>(
     Effect.mapError((cause) => {
       return new WsRpcError({
         message: cause instanceof MossCloudAccountServiceError ? cause.message : fallbackMessage,
+        ...(cause instanceof MossCloudAccountServiceError ? { code: cause.code } : {}),
       });
     }),
   );
 
-export const makeMossCloudAccountRpcHandlers = (service: MossCloudAccountServiceShape) => ({
+export const makeMossCloudAccountRpcHandlers = (
+  service: MossCloudAccountServiceShape,
+  onAccountChanged: () => Effect.Effect<void> = () => Effect.void,
+) => ({
   [WS_METHODS.serverMossCloudAccountState]: () =>
     mossCloudAccountRpcEffect(service.getState(), "Failed to load the Moss cloud account"),
   [WS_METHODS.serverMossCloudAccountList]: () =>
     mossCloudAccountRpcEffect(service.listAccounts(), "Failed to list saved Moss cloud accounts"),
   [WS_METHODS.serverMossCloudAccountSelect]: (input: MossCloudSelectAccountInput) =>
     mossCloudAccountRpcEffect(
-      service.selectAccount(input),
+      service.selectAccount(input).pipe(Effect.tap(() => onAccountChanged())),
       "Failed to select the saved Moss cloud account",
     ),
   [WS_METHODS.serverMossCloudAccountRemove]: (input: MossCloudRemoveAccountInput) =>
     mossCloudAccountRpcEffect(
-      service.removeAccount(input),
+      service.removeAccount(input).pipe(Effect.tap(() => onAccountChanged())),
       "Failed to remove the saved Moss cloud account",
     ),
   [WS_METHODS.serverMossCloudAccountSignUp]: (input: MossCloudSignUpInput) =>
-    mossCloudAccountRpcEffect(service.signUp(input), "Failed to create the Moss cloud account"),
+    mossCloudAccountRpcEffect(
+      service.signUp(input).pipe(Effect.tap(() => onAccountChanged())),
+      "Failed to create the Moss cloud account",
+    ),
   [WS_METHODS.serverMossCloudAccountSignIn]: (input: MossCloudSignInInput) =>
-    mossCloudAccountRpcEffect(service.signIn(input), "Failed to sign in to the Moss cloud account"),
+    mossCloudAccountRpcEffect(
+      service.signIn(input).pipe(Effect.tap(() => onAccountChanged())),
+      "Failed to sign in to the Moss cloud account",
+    ),
   [WS_METHODS.serverMossCloudAccountStartGoogleOAuth]: () =>
     mossCloudAccountRpcEffect(service.startGoogleOAuth(), "Failed to start Google authentication"),
   [WS_METHODS.serverMossCloudAccountExchangeGoogleOAuthCode]: (
     input: MossCloudExchangeGoogleOAuthCodeInput,
   ) =>
     mossCloudAccountRpcEffect(
-      service.exchangeGoogleOAuthCode(input),
+      service.exchangeGoogleOAuthCode(input).pipe(Effect.tap(() => onAccountChanged())),
       "Failed to exchange the Google authentication code",
     ),
   [WS_METHODS.serverMossCloudAccountRefresh]: () =>
-    mossCloudAccountRpcEffect(service.refresh(), "Failed to refresh the Moss cloud account"),
+    mossCloudAccountRpcEffect(
+      service.refresh().pipe(Effect.tap(() => onAccountChanged())),
+      "Failed to refresh the Moss cloud account",
+    ),
   [WS_METHODS.serverMossCloudAccountRequestPasswordReset]: (
     input: MossCloudRequestPasswordResetInput,
   ) =>
@@ -5769,7 +6124,7 @@ export const makeMossCloudAccountRpcHandlers = (service: MossCloudAccountService
     ),
   [WS_METHODS.serverMossCloudAccountExchangeCode]: (input: MossCloudExchangeCodeInput) =>
     mossCloudAccountRpcEffect(
-      service.exchangeCode(input),
+      service.exchangeCode(input).pipe(Effect.tap(() => onAccountChanged())),
       "Failed to exchange the Moss authentication code",
     ),
   [WS_METHODS.serverMossCloudAccountUpdatePassword]: (input: MossCloudUpdatePasswordInput) =>
@@ -5778,7 +6133,10 @@ export const makeMossCloudAccountRpcHandlers = (service: MossCloudAccountService
       "Failed to update the Moss account password",
     ),
   [WS_METHODS.serverMossCloudAccountLogout]: () =>
-    mossCloudAccountRpcEffect(service.logout(), "Failed to log out of the Moss cloud account"),
+    mossCloudAccountRpcEffect(
+      service.logout().pipe(Effect.tap(() => onAccountChanged())),
+      "Failed to log out of the Moss cloud account",
+    ),
 });
 
 const mossEnterpriseKeyRpcEffect = <A, R>(
@@ -5795,15 +6153,27 @@ const mossEnterpriseKeyRpcEffect = <A, R>(
     ),
   );
 
-export const makeMossEnterpriseKeyRpcHandlers = (service: MossEnterpriseKeyAccountShape) => ({
+export const makeMossEnterpriseKeyRpcHandlers = (
+  service: MossEnterpriseKeyAccountShape,
+  onAccountChanged: () => Effect.Effect<void> = () => Effect.void,
+) => ({
   [WS_METHODS.serverMossEnterpriseKeyState]: () =>
     mossEnterpriseKeyRpcEffect(service.getState(), "Failed to load the Moss enterprise key"),
   [WS_METHODS.serverMossEnterpriseKeySignIn]: (input: MossEnterpriseKeySignInInput) =>
-    mossEnterpriseKeyRpcEffect(service.signIn(input), "Failed to sign in with the enterprise key"),
+    mossEnterpriseKeyRpcEffect(
+      service.signIn(input).pipe(Effect.tap(() => onAccountChanged())),
+      "Failed to sign in with the enterprise key",
+    ),
   [WS_METHODS.serverMossEnterpriseKeyActivate]: () =>
-    mossEnterpriseKeyRpcEffect(service.activate(), "Failed to switch to the enterprise key"),
+    mossEnterpriseKeyRpcEffect(
+      service.activate().pipe(Effect.tap(() => onAccountChanged())),
+      "Failed to switch to the enterprise key",
+    ),
   [WS_METHODS.serverMossEnterpriseKeySignOut]: () =>
-    mossEnterpriseKeyRpcEffect(service.signOut(), "Failed to sign out of the enterprise key"),
+    mossEnterpriseKeyRpcEffect(
+      service.signOut().pipe(Effect.tap(() => onAccountChanged())),
+      "Failed to sign out of the enterprise key",
+    ),
 });
 
 const mossPayRpcEffect = <A, R>(

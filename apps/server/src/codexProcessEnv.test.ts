@@ -1,10 +1,12 @@
 import {
   copyFileSync,
+  cpSync,
   linkSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -27,9 +29,11 @@ import {
   linkOrCopyCodexOverlayEntry,
   prioritizeCodexOverlayEntries,
   readCodexSharedContinuationGeneration,
+  prepareCodexAuthTracking,
   type CodexOverlayEntryLinker,
   writeCodexOverlayConfigAtomically,
 } from "./codexProcessEnv";
+import { issueCodexCredentialFence } from "./codexHomeIdentity.ts";
 import { isProviderCredentialKey } from "./providerChildEnvironment.ts";
 import {
   createCodexAliasFixture,
@@ -473,6 +477,50 @@ describe("buildCodexProcessEnv", () => {
     }
   });
 
+  it("starts a fresh generation when a copied or damaged marker cannot vouch for this home", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "moss-codex-generation-copied-"));
+    const originalHome = path.join(root, "original-home");
+    const copiedHome = path.join(root, "copied-home");
+    const runtimeHome = path.join(root, "runtime");
+    const env = { MOSS_HOME: runtimeHome };
+    mkdirSync(originalHome, { recursive: true });
+    writeFileSync(path.join(originalHome, "config.toml"), "", "utf8");
+    const markerName = "moss-shared-continuation-v2.json";
+    const keptMarkers = () =>
+      readdirSync(copiedHome).filter((entry) => entry.startsWith(`${markerName}.invalid-`));
+
+    try {
+      await buildCodexProcessEnv({ env, homePath: originalHome, platform: "win32" });
+      const originalGeneration = readCodexSharedContinuationGeneration({
+        env,
+        homePath: originalHome,
+      });
+      // A person copies, moves or restores their Codex home; the marker comes along.
+      cpSync(originalHome, copiedHome, { recursive: true });
+
+      await buildCodexProcessEnv({ env, homePath: copiedHome, platform: "win32" });
+      const copiedGeneration = readCodexSharedContinuationGeneration({ env, homePath: copiedHome });
+      expect(copiedGeneration).toMatch(/^[0-9a-f-]{36}$/);
+      expect(copiedGeneration).not.toBe(originalGeneration);
+      expect(keptMarkers()).toHaveLength(1);
+
+      // A damaged marker is repaired the same way, and only once.
+      writeFileSync(path.join(copiedHome, markerName), "{not json", "utf8");
+      await buildCodexProcessEnv({ env, homePath: copiedHome, platform: "win32" });
+      await buildCodexProcessEnv({ env, homePath: copiedHome, platform: "win32" });
+      expect(readCodexSharedContinuationGeneration({ env, homePath: copiedHome })).toMatch(
+        /^[0-9a-f-]{36}$/,
+      );
+      expect(keptMarkers()).toHaveLength(2);
+      // The original home keeps its own generation.
+      expect(readCodexSharedContinuationGeneration({ env, homePath: originalHome })).toBe(
+        originalGeneration,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects replacement or damaged state under a persisted continuation generation", async () => {
     const root = mkdtempSync(path.join(os.tmpdir(), "moss-codex-generation-replaced-"));
     const codexHome = path.join(root, "codex-home");
@@ -807,6 +855,125 @@ describe("buildCodexProcessEnv account overlays", () => {
         path.join(workEnv.CODEX_HOME!, "auth.json"),
         path.join(fixture.shadowHomePath, "auth.json"),
       );
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("reads verified shared-account auth and config from the private root, including continuation checks", async () => {
+    const fixture = makeAccountFixture();
+    const options = { ...fixture, accountId: "work", runtimeGeneration: "work-generation-1" };
+    const credentialFence = issueCodexCredentialFence({
+      ...options,
+      assertBindingCurrent: () => {},
+    });
+    const input = { ...options, credentialFence };
+    try {
+      writeFileSync(
+        path.join(fixture.homePath, "config.toml"),
+        "invalid shared provider config = [",
+        "utf8",
+      );
+      writeFileSync(
+        path.join(fixture.shadowHomePath, "config.toml"),
+        'model = "private-work-model"\ncli_auth_credentials_store = "file"\n',
+        "utf8",
+      );
+      writeFileSync(path.join(fixture.shadowHomePath, "auth.json"), '{"account":"work"}', "utf8");
+      mkdirSync(path.join(fixture.homePath, "plugins"));
+      mkdirSync(path.join(fixture.shadowHomePath, "plugins"));
+      writeFileSync(
+        path.join(fixture.homePath, "plugins", "source-only.txt"),
+        "other-account",
+        "utf8",
+      );
+      writeFileSync(path.join(fixture.shadowHomePath, "plugins", "private.txt"), "work", "utf8");
+      const tracking = prepareCodexAuthTracking(input);
+      expect(tracking.sourceConfigPath).toBe(path.join(fixture.shadowHomePath, "config.toml"));
+      expect(tracking.sourceConfigSnapshot).toContain("private-work-model");
+      const env = await buildCodexProcessEnv(input);
+      expect(readFileSync(path.join(env.CODEX_HOME!, "config.toml"), "utf8")).toContain(
+        "private-work-model",
+      );
+      expect(readFileSync(path.join(env.CODEX_HOME!, "plugins", "private.txt"), "utf8")).toBe(
+        "work",
+      );
+      expect(existsSync(path.join(env.CODEX_HOME!, "plugins", "source-only.txt"))).toBe(false);
+      expect(env.CODEX_SQLITE_HOME).toBe(fixture.homePath);
+      expect(readCodexSharedContinuationGeneration(input)).toBeTruthy();
+      writeFileSync(
+        path.join(env.CODEX_HOME!, "sessions", "shared-history.jsonl"),
+        "history",
+        "utf8",
+      );
+      expect(
+        readFileSync(path.join(fixture.homePath, "sessions", "shared-history.jsonl"), "utf8"),
+      ).toBe("history");
+      // The legacy shadow layout continues to use the source config.
+      expect(() => prepareCodexAuthTracking(options)).toThrow();
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("removes legacy source links and stale auth copies before a verified private launch", async () => {
+    const fixture = makeAccountFixture();
+    const options = { ...fixture, accountId: "work", runtimeGeneration: "work-generation-1" };
+    try {
+      mkdirSync(path.join(fixture.homePath, "old-plugins"));
+      writeFileSync(
+        path.join(fixture.homePath, "old-plugins", "other.txt"),
+        "other-account",
+        "utf8",
+      );
+      writeFileSync(path.join(fixture.shadowHomePath, "auth.json"), '{"account":"work"}', "utf8");
+      const legacyEnv = await buildCodexProcessEnv(options);
+      expect(existsSync(path.join(legacyEnv.CODEX_HOME!, "old-plugins", "other.txt"))).toBe(true);
+      rmSync(path.join(legacyEnv.CODEX_HOME!, "auth.json"), { force: true });
+      writeFileSync(
+        path.join(legacyEnv.CODEX_HOME!, "auth.json"),
+        '{"account":"stale-copy"}',
+        "utf8",
+      );
+      rmSync(path.join(fixture.shadowHomePath, "auth.json"));
+      const credentialFence = issueCodexCredentialFence({
+        ...options,
+        assertBindingCurrent: () => {},
+      });
+      const env = await buildCodexProcessEnv({ ...options, credentialFence });
+      expect(existsSync(path.join(env.CODEX_HOME!, "old-plugins"))).toBe(false);
+      expect(existsSync(path.join(env.CODEX_HOME!, "auth.json"))).toBe(false);
+      expect(readFileSync(path.join(fixture.homePath, "old-plugins", "other.txt"), "utf8")).toBe(
+        "other-account",
+      );
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a linked private config or an overlay bypass for a verified binding", async () => {
+    const fixture = makeAccountFixture();
+    const options = { ...fixture, accountId: "work", runtimeGeneration: "work-generation-1" };
+    const credentialFence = issueCodexCredentialFence({
+      ...options,
+      assertBindingCurrent: () => {},
+    });
+    try {
+      // A directory junction is available without Windows file-symlink privileges.
+      symlinkSync(
+        fixture.homePath,
+        path.join(fixture.shadowHomePath, "config.toml"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      expect(() => prepareCodexAuthTracking({ ...options, credentialFence })).toThrow(
+        /symbolic link/,
+      );
+      await expect(buildCodexProcessEnv({ ...options, credentialFence })).rejects.toThrow(
+        /symbolic link/,
+      );
+      await expect(
+        buildCodexProcessEnv({ ...options, credentialFence, skipHomeOverlay: true }),
+      ).rejects.toThrow(/requires its private runtime overlay/);
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }

@@ -23,8 +23,8 @@ import {
   type WorkspaceImportProbeInput,
   type WorkspaceImportProbeResult,
   type WorkspaceImportSyncInput,
-} from "@synara/contracts";
-import { defaultInstanceIdForProvider } from "@synara/shared/providerInstances";
+} from "@moss/contracts";
+import { defaultInstanceIdForProvider } from "@moss/shared/providerInstances";
 import { Effect, Option, Semaphore } from "effect";
 
 import type { ServerConfigShape } from "../config";
@@ -479,7 +479,7 @@ export function makeWorkspaceImportWsHandlers(input: {
                   projects: 0,
                   chats: 0,
                 },
-              } satisfies import("@synara/contracts").WorkspaceImportHistoryEntry;
+              } satisfies import("@moss/contracts").WorkspaceImportHistoryEntry;
               yield* Effect.tryPromise({
                 try: () => persistWorkspaceImportHistory(input.config.stateDir, failedEntry),
                 catch: () => undefined,

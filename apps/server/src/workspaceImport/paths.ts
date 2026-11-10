@@ -4,7 +4,7 @@
 
 import * as nodePath from "node:path";
 
-import type { WorkspaceImportCategoryKind, WorkspaceImportSourceKind } from "@synara/contracts";
+import type { WorkspaceImportCategoryKind, WorkspaceImportSourceKind } from "@moss/contracts";
 import { workspaceImportProviderForSource } from "./providers";
 
 export function resolveClaudeHomeDir(input: {

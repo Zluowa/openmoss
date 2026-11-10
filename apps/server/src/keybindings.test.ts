@@ -5,7 +5,7 @@ import {
   MAX_KEYBINDINGS_COUNT,
   MAX_RESOLVED_KEYBINDINGS_COUNT,
   ResolvedKeybindingsConfig,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";

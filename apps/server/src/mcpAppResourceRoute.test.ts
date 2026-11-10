@@ -11,8 +11,8 @@ import {
   McpAppResourceReadResult,
   ThreadId,
   type McpAppResourceReadInput,
-} from "@synara/contracts";
-import { MCP_APP_RESOURCE_READ_ROUTE_PATH } from "@synara/shared/mcpAppResource";
+} from "@moss/contracts";
+import { MCP_APP_RESOURCE_READ_ROUTE_PATH } from "@moss/shared/mcpAppResource";
 import { DateTime, Effect, Exit, Layer, Schema, Scope } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { describe, expect, it } from "vitest";

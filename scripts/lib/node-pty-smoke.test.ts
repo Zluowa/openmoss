@@ -1,4 +1,4 @@
-import { assert, describe, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 
 import { type PtyTerminal, waitForSuccessfulPtyExit } from "./node-pty-smoke.ts";
 
@@ -28,6 +28,47 @@ class FakePtyTerminal implements PtyTerminal {
 }
 
 describe("waitForSuccessfulPtyExit", () => {
+  it("writes once after a complete ready marker and still requires a successful response", async () => {
+    const terminal = new FakePtyTerminal();
+    let writes = 0;
+    const result = waitForSuccessfulPtyExit({
+      terminal,
+      expectedOutput: "response",
+      timeoutMs: 200,
+      inputHandshake: {
+        readyOutput: "input-ready",
+        send: () => {
+          writes++;
+        },
+      },
+    });
+    terminal.emitData("\u001b[?25hinput-");
+    assert.equal(writes, 0);
+    terminal.emitData("ready\r\ninput-ready\r\n");
+    assert.equal(writes, 1);
+    terminal.emitData("response");
+    terminal.emitExit(1);
+    await expect(result).rejects.toThrow(/exited with code 1/);
+  });
+
+  it("refuses an echoed or unrequested response even when the child exits cleanly", async () => {
+    const terminal = new FakePtyTerminal();
+    const result = waitForSuccessfulPtyExit({
+      terminal,
+      expectedOutput: "response",
+      timeoutMs: 40,
+      inputHandshake: {
+        readyOutput: "input-ready",
+        send: () => {
+          throw new Error("unexpected input");
+        },
+      },
+    });
+    terminal.emitData("response");
+    terminal.emitExit(0);
+    await expect(result).rejects.toThrow(/input-ready handshake/);
+  });
+
   it("accepts output delivered after the PTY exit event", async () => {
     const terminal = new FakePtyTerminal();
     const result = waitForSuccessfulPtyExit({

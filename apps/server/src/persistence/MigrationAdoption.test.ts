@@ -179,7 +179,7 @@ describe("upstream 3cefd5a database adoption", () => {
         ),
       ).toHaveLength(1);
     }
-  }, 30_000);
+  }, 90_000); // Replays every migration from many starting points: ~22-32 s at migration 160.
 
   it("rolls the tracker back when adoption fails after reconciliation", async () => {
     const dbPath = await makeDbPath();
@@ -308,5 +308,5 @@ describe("upstream 3cefd5a database adoption", () => {
         ),
       ).toHaveLength(1);
     }
-  }, 30_000);
+  }, 90_000); // Replays every migration from many starting points: ~22-32 s at migration 160.
 });

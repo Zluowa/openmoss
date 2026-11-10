@@ -2,6 +2,8 @@
 // Purpose: Owns the persistent Electron browser session identity and popup security policy.
 // Layer: Desktop browser infrastructure
 
+import * as Path from "node:path";
+
 import {
   app,
   net,
@@ -16,8 +18,16 @@ import {
   buildAcceptLanguageHeader,
   buildChromeClientHints,
   deriveChromeUserAgent,
-} from "@synara/shared/browserSession";
-import { LOCAL_HTML_PREVIEW_SCHEME, LocalHtmlPreviewRegistry } from "./localHtmlPreviewProtocol";
+} from "@moss/shared/browserSession";
+import {
+  LOCAL_HTML_PAGE_ASSET_EXTENSIONS,
+  localHtmlPageResponseHeaders,
+} from "@moss/shared/localPreviewFiles";
+import {
+  LOCAL_HTML_PREVIEW_SCHEME,
+  LocalHtmlPreviewRegistry,
+  localHtmlPreviewProtocolScope,
+} from "./localHtmlPreviewProtocol";
 
 export const BROWSER_SESSION_PARTITION = "persist:moss-browser";
 const MAX_WEB_MCP_POLICY_ENTRIES = 512;
@@ -100,7 +110,11 @@ export class BrowserSessionPolicy {
     | ((event: Electron.Event, item: DownloadItem, webContents: WebContents) => void)
     | null = null;
 
-  constructor(private readonly onWillDownload?: BrowserSessionDownloadListener) {}
+  constructor(
+    private readonly onWillDownload?: BrowserSessionDownloadListener,
+    /** Sites the person allowed local pages to load from ("Manage allowed sites…"). */
+    private readonly localPageAllowedSites: () => readonly string[] = () => [],
+  ) {}
 
   private resolveUserAgent(): string {
     if (this.spoofedUserAgent === null) {
@@ -153,10 +167,25 @@ export class BrowserSessionPolicy {
           return new Response("Method not allowed", { status: 405 });
         }
         const fileUrl = await this.localHtmlPreviews.resolveRequestFileUrl(request.url);
-        if (!fileUrl) {
+        const scope = localHtmlPreviewProtocolScope(request.url);
+        const extension = fileUrl ? Path.extname(new URL(fileUrl).pathname).toLowerCase() : "";
+        // The same page policy as the backend's rendered-file route (#344): only web
+        // assets from the page's own folder, an opaque sandbox origin, no network.
+        if (!fileUrl || !scope || !LOCAL_HTML_PAGE_ASSET_EXTENSIONS.has(extension)) {
           return new Response("Not found", { status: 404 });
         }
-        return net.fetch(fileUrl, { method: request.method });
+        const response = await net.fetch(fileUrl, { method: request.method });
+        const headers = new Headers(response.headers);
+        for (const [name, value] of Object.entries(
+          localHtmlPageResponseHeaders({
+            scope,
+            assetPath: fileUrl,
+            extraSources: this.localPageAllowedSites(),
+          }),
+        )) {
+          headers.set(name, value);
+        }
+        return new Response(response.body, { status: response.status, headers });
       });
       const onWillDownload = this.onWillDownload;
       if (onWillDownload) {

@@ -1,4 +1,4 @@
-import { MessageId, ProjectId, ThreadId, type NativeApi } from "@synara/contracts";
+import { MessageId, ProjectId, ThreadId, type NativeApi } from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Thread } from "../types";

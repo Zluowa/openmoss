@@ -16,8 +16,8 @@ import {
   type Ref,
 } from "react";
 
-import type { OrchestrationThreadPullRequest, ProjectId, ThreadId } from "@synara/contracts";
-import { resolveThreadEnvironmentMode } from "@synara/shared/threadEnvironment";
+import type { OrchestrationThreadPullRequest, ProjectId, ThreadId } from "@moss/contracts";
+import { resolveThreadEnvironmentMode } from "@moss/shared/threadEnvironment";
 
 import {
   AddPlusIcon,

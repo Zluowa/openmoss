@@ -8,7 +8,7 @@ import type {
   DesktopRealtimeVoiceOverlayBridge,
   DesktopRealtimeVoiceOverlayPresentation,
   DesktopDiagnosticActivity,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
 import { decodeMcpAppSandboxHostPortEnvelope } from "./mcpAppSandbox/preloadProtocol";
@@ -225,6 +225,33 @@ function recordBrowserActivity(activity: DesktopDiagnosticActivity): void {
 const desktopBridge = {
   ...(betaDiagnosticsBridge ? { betaDiagnostics: betaDiagnosticsBridge } : {}),
   getWsUrl: getDesktopWsUrl,
+  remoteComputers: {
+    list: () => ipcRenderer.invoke(IPC.remoteComputers.list),
+    pair: (input) => ipcRenderer.invoke(IPC.remoteComputers.pair, input),
+    cancelPairing: (id) => ipcRenderer.invoke(IPC.remoteComputers.cancelPairing, id),
+    connect: (id) => ipcRenderer.invoke(IPC.remoteComputers.connect, id),
+    disconnect: (id) => ipcRenderer.invoke(IPC.remoteComputers.disconnect, id),
+    remove: (id) => ipcRenderer.invoke(IPC.remoteComputers.remove, id),
+  },
+  ssh: {
+    list: () => ipcRenderer.invoke(IPC.ssh.list),
+    listConfigHosts: () => ipcRenderer.invoke(IPC.ssh.listConfigHosts),
+    save: (input) => ipcRenderer.invoke(IPC.ssh.save, input),
+    remove: (id) => ipcRenderer.invoke(IPC.ssh.remove, id),
+    connect: (input) => ipcRenderer.invoke(IPC.ssh.connect, input),
+    disconnect: (id) => ipcRenderer.invoke(IPC.ssh.disconnect, id),
+    pickIdentityFile: () => ipcRenderer.invoke(IPC.ssh.pickIdentity),
+  },
+  // Fail closed: if main can't answer, nothing should be sent.
+  getErrorReportsEnabled: () => {
+    try {
+      return ipcRenderer.sendSync(IPC.errorReports.get) === true;
+    } catch {
+      return false;
+    }
+  },
+  setErrorReportsEnabled: (enabled) => ipcRenderer.invoke(IPC.errorReports.set, enabled),
+  reportBackendLink: (event) => ipcRenderer.send(IPC.backendLink, event),
   // Absolute path for OS-dropped File objects (folders with spaces/parens, etc.).
   getPathForFile: (file: File) => {
     try {
@@ -237,7 +264,8 @@ const desktopBridge = {
   pickFolder: () => ipcRenderer.invoke(IPC.pickFolder),
   saveFile: (input) => ipcRenderer.invoke(IPC.saveFile, input),
   confirm: (message) => ipcRenderer.invoke(IPC.confirm, message),
-  setTheme: (theme) => ipcRenderer.invoke(IPC.setTheme, theme),
+  setTheme: (theme, startupBackgrounds) =>
+    ipcRenderer.invoke(IPC.setTheme, theme, startupBackgrounds),
   setWindowMaterial: (input) => ipcRenderer.invoke(IPC.setWindowMaterial, input),
   setUiLocale: (locale) => ipcRenderer.invoke(IPC.setUiLocale, locale),
   setDockIconPreference: (preference) => ipcRenderer.invoke(IPC.setDockIconPreference, preference),
@@ -253,6 +281,7 @@ const desktopBridge = {
     showInFolder: (path: string) => ipcRenderer.invoke(IPC.showInFolder, path),
   },
   clipboard: {
+    writeThreadId: (threadId: string) => ipcRenderer.invoke(IPC.clipboardWriteThreadId, threadId),
     writeImagePngDataUrl: (dataUrl: string) => ipcRenderer.invoke(IPC.clipboardWriteImage, dataUrl),
   },
   windowControls: {
@@ -565,6 +594,36 @@ const desktopBridge = {
         return () => ipcRenderer.removeListener(IPC.browser.annotations.event, wrappedListener);
       },
     },
+    panel: {
+      getPreferences: () => ipcRenderer.invoke(IPC.browser.panel.getPreferences),
+      addAllowedSite: (site) => ipcRenderer.invoke(IPC.browser.panel.addAllowedSite, site),
+      removeAllowedSite: (site) => ipcRenderer.invoke(IPC.browser.panel.removeAllowedSite, site),
+      setCookieRetention: (value) =>
+        ipcRenderer.invoke(IPC.browser.panel.setCookieRetention, value),
+      clearBrowsingData: () => ipcRenderer.invoke(IPC.browser.panel.clearBrowsingData),
+      getDefaultBrowserName: () => ipcRenderer.invoke(IPC.browser.panel.getDefaultBrowserName),
+      openInBrowser: (url) => ipcRenderer.invoke(IPC.browser.panel.openInBrowser, url),
+      saveScreenshot: (input) => ipcRenderer.invoke(IPC.browser.panel.saveScreenshot, input),
+      pickHtmlFile: () => ipcRenderer.invoke(IPC.browser.panel.pickHtmlFile),
+      allowNavigation: (input) => ipcRenderer.invoke(IPC.browser.panel.allowNavigation, input),
+      onBlockedNavigation: (listener) => {
+        const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+          if (typeof payload !== "object" || payload === null) return;
+          const record = payload as Record<string, unknown>;
+          if (
+            typeof record.threadId !== "string" ||
+            typeof record.tabId !== "string" ||
+            typeof record.url !== "string"
+          ) {
+            return;
+          }
+          listener(payload as Parameters<typeof listener>[0]);
+        };
+        ipcRenderer.on(IPC.browser.panel.blockedNavigation, wrappedListener);
+        return () =>
+          ipcRenderer.removeListener(IPC.browser.panel.blockedNavigation, wrappedListener);
+      },
+    },
     onState: (listener) => {
       const wrappedListener = (_event: Electron.IpcRendererEvent, state: unknown) => {
         if (typeof state !== "object" || state === null) return;
@@ -607,10 +666,6 @@ const desktopBridge = {
   mcpApps: {
     register: (input) => ipcRenderer.invoke(IPC.mcpApps.register, input),
     unregister: (input) => ipcRenderer.invoke(IPC.mcpApps.unregister, input),
-  },
-  htmlPreview: {
-    register: (input) => ipcRenderer.invoke(IPC.htmlPreview.register, input),
-    unregister: (input) => ipcRenderer.invoke(IPC.htmlPreview.unregister, input),
   },
 } satisfies DesktopBridge;
 

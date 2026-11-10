@@ -4,7 +4,7 @@
 // Exports: createKanbanDraftDispatchSingleFlight, presentKanbanDraftDispatchResult,
 //          routeKanbanDraftColumnDrop
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import type { KanbanDraftDispatchResult } from "~/lib/kanbanDispatch";
 import type { TranslationKey } from "~/localization";
 import type { KanbanCard, KanbanColumnKey } from "./kanban.logic";

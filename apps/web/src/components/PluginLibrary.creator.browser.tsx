@@ -7,7 +7,7 @@ import {
   ThreadId,
   type NativeApi,
   type OrchestrationShellSnapshot,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

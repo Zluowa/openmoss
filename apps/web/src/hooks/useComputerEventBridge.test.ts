@@ -1,4 +1,4 @@
-import type { DesktopAppSnapState } from "@synara/contracts";
+import type { DesktopAppSnapState } from "@moss/contracts";
 import { QueryClient, QueryObserver, focusManager } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

@@ -35,7 +35,7 @@ import type {
   GitStatusInput,
   GitStatusResult,
   GitWorkingTreeDiffStatsResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { GitCheckoutDirtyWorktreeError, GitCommandError } from "../Errors.ts";
 
@@ -50,6 +50,12 @@ export interface ExecuteGitInput {
   readonly maxOutputBytes?: number;
   readonly outputMode?: "error" | "truncate";
   readonly progress?: ExecuteGitProgress;
+  /**
+   * Every git command runs without prompts (see gitProcessEnvironment.ts). Set only for a
+   * network action the person started and waits for (push, pull): Git Credential Manager may
+   * then show its sign-in window. Background and automatic work never sets it.
+   */
+  readonly allowCredentialPrompt?: boolean;
 }
 
 export interface ExecuteGitResult {

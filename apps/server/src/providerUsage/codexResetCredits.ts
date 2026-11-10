@@ -6,8 +6,8 @@ import type {
   ServerCodexResetCreditStatus,
   ServerCodexResetCredits,
   ServerConsumeCodexResetCreditInput,
-} from "@synara/contracts";
-import { spawnProcess } from "@synara/shared/processRuntime";
+} from "@moss/contracts";
+import { spawnProcess } from "@moss/shared/processRuntime";
 
 import { CodexJsonlFramer, CodexJsonlWriter } from "../codexAppServerTransport";
 import { createLogger } from "../logger";

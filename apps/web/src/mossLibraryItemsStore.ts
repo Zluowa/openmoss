@@ -11,7 +11,7 @@ import { create } from "zustand";
 import type {
   LibraryFolder as ServerLibraryFolder,
   LibraryItem as ServerLibraryItem,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { buildLocalImageUrl } from "~/lib/localImageUrls";
 import { readNativeApi } from "~/nativeApi";

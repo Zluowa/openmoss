@@ -1,4 +1,4 @@
-import { EventId, ThreadId, TurnId, type ProviderEvent } from "@synara/contracts";
+import { EventId, ThreadId, TurnId, type ProviderEvent } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

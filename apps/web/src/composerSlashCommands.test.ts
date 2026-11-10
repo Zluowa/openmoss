@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { THREAD_GOAL_MAX_CHARS } from "@synara/contracts";
+import { THREAD_GOAL_MAX_CHARS } from "@moss/contracts";
 
 import {
   buildGoalSlashCommandPrompt,

@@ -69,11 +69,11 @@ describe("icon rules in Button and Toggle", () => {
 
     const glyph = getComputedStyle(byTestId("glyph"));
     const mark = getComputedStyle(byTestId("mark"));
-    // The glyph keeps its default 16px and the text colour; only an unsized svg takes the
-    // chip's 12px fallback and the 80% dimming.
+    // The glyph keeps its own size and the text colour; only an unsized svg takes the
+    // chip's small-icon fallback (16px in the comfortable scale) and the 80% dimming.
     expect(glyph.width).toBe(rem(1));
     expect(glyph.opacity).toBe("1");
-    expect(mark.width).toBe(rem(0.75));
+    expect(mark.width).toBe(rem(1));
     expect(mark.opacity).toBe("0.8");
   });
 

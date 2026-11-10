@@ -36,7 +36,7 @@ import {
   BETA_IMPORT_RESULT_FILE_NAME,
   MOSS_STABLE_HOME_ENV,
   type BetaImportRequest,
-} from "@synara/shared/betaChannel";
+} from "@moss/shared/betaChannel";
 
 /** Entries that describe this install's live runtime, not user data. */
 const EXCLUDED_STATE_ENTRIES = new Set([

@@ -16,7 +16,15 @@ import {
   resolveClaudeCredentialsPaths,
   withClaudeArtifactOptIn,
 } from "./claudeProcessEnv.ts";
-import { buildClaudeInstanceProcessEnv, claudeIsolatedHomePath } from "./claudeEnvironment.ts";
+import {
+  buildClaudeInstanceProcessEnv,
+  buildClaudeProcessEnv as buildManagedClaudeProcessEnv,
+  claudeIsolatedHomePath,
+  MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+  MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY,
+  MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_VALUE,
+} from "./claudeEnvironment.ts";
+import { MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL_ENV_KEY } from "./mossManagedGatewayTrust.ts";
 
 describe("claudeProcessEnv", () => {
   it("isolates macOS accounts by config directory while retaining the system home and identity", () => {
@@ -716,5 +724,70 @@ describe("claudeProcessEnv", () => {
     assert.deepStrictEqual(withClaudeArtifactOptIn({ ...env, CLAUDE_CODE_ARTIFACT: "1" }, false), {
       PATH: "/usr/bin",
     });
+  });
+});
+
+describe("Moss-managed Claude launches", () => {
+  const gateway = "https://moss-gateway.example/functions/v1/moss-model-gateway";
+  const baseEnvironment = {
+    HOME: "/home/server",
+    [MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL_ENV_KEY]: gateway,
+  };
+  const managedEnvironment = {
+    ANTHROPIC_BASE_URL: gateway,
+    ANTHROPIC_AUTH_TOKEN: "moss-session-token",
+    [MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY]: MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_VALUE,
+  };
+  const launch = (
+    environment: Readonly<Record<string, string>> | undefined,
+    providerInstanceId: string | undefined,
+  ) =>
+    buildClaudeInstanceProcessEnv(undefined, environment, {
+      homeDir: "/home/server",
+      isolationRootDir: "/moss/state",
+      platform: "linux",
+      ...(providerInstanceId ? { providerInstanceId } : {}),
+      baseEnvironment,
+    });
+
+  it("never lets a Moss-managed session resend a paid request", () => {
+    for (const environment of [
+      managedEnvironment,
+      // A stored managed environment that already carries the settings stays verified.
+      { ...managedEnvironment, CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: "1" },
+    ]) {
+      const env = launch(environment, MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID);
+      assert.equal(env.CLAUDE_CODE_MAX_RETRIES, "0");
+      assert.equal(env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK, "1");
+      assert.equal(env.ANTHROPIC_BASE_URL, gateway);
+    }
+    const probe = buildManagedClaudeProcessEnv({
+      environment: managedEnvironment,
+      env: baseEnvironment,
+      homeDir: "/home/server",
+      platform: "linux",
+      providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+      hasClaudeCliCredentials: false,
+    });
+    assert.equal(probe.CLAUDE_CODE_MAX_RETRIES, "0");
+    assert.equal(probe.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK, "1");
+  });
+
+  it("leaves a personal Claude setup's own retry behaviour alone", () => {
+    for (const [environment, providerInstanceId] of [
+      [{ ANTHROPIC_AUTH_TOKEN: "personal-token" }, "claude_personal"],
+      [managedEnvironment, "claude_personal"],
+      // A personal relay stored under the managed id is still not Moss-managed.
+      [
+        { ...managedEnvironment, ANTHROPIC_BASE_URL: "https://proxy.example/v1" },
+        MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+      ],
+      [{ ...managedEnvironment, EXTRA_SETTING: "1" }, MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID],
+      [undefined, undefined],
+    ] as const) {
+      const env = launch(environment, providerInstanceId);
+      assert.equal(env.CLAUDE_CODE_MAX_RETRIES, undefined);
+      assert.equal(env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK, undefined);
+    }
   });
 });

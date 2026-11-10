@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { assert, describe, it } from "@effect/vitest";
 
 import {
@@ -30,6 +32,13 @@ import {
   WINDOWS_NATIVE_AUDIT_AFTER_SIGN_MODULE_PATH,
 } from "./lib/desktop-platform-build-config.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
+import {
+  MOSS_BETA_DESKTOP_SCHEME,
+  MOSS_CANARY_DESKTOP_SCHEME,
+  MOSS_CONNECTOR_OAUTH_SCHEME,
+  MOSS_CUA_DESKTOP_SCHEME,
+  MOSS_DESKTOP_SCHEME,
+} from "@moss/shared/desktopIdentity";
 
 describe("createDesktopPlatformBuildConfig", () => {
   const expectedDesktopProtocols = [
@@ -83,7 +92,10 @@ describe("createDesktopPlatformBuildConfig", () => {
       MAC_APPSNAP_HELPER_BUNDLE_PATH,
       MAC_CANONICAL_FILESYSTEM_HELPER_BUNDLE_PATH,
     ]);
-    assert.equal(mac.x64ArchFiles, "Contents/Helpers/moss-appsnap-helper");
+    assert.equal(
+      mac.x64ArchFiles,
+      "Contents/{Helpers/moss-appsnap-helper,Resources/cua-driver/cua-driver}",
+    );
     assert.equal(
       MAC_APPSNAP_HELPER_STAGE_PATH,
       "apps/desktop/native/appsnap/build/moss-appsnap-helper",
@@ -236,6 +248,61 @@ describe("createDesktopPlatformBuildConfig", () => {
     });
   });
 
+  it("runs Windows updates silently, because installed apps don't pass /S", () => {
+    // electron-builder picks installer.nsh up from buildResources on its own. Without
+    // this macro an update reopens the install-mode and finish pages of the wizard.
+    const installerScript = readFileSync(
+      new URL("../apps/desktop/resources/installer.nsh", import.meta.url),
+      "utf8",
+    );
+    assert.match(
+      installerScript,
+      /!macro customInit\s+\$\{if\} \$\{isUpdated\}\s+SetSilent silent\s+\$\{endIf\}\s+!macroend/,
+    );
+  });
+
+  it("removes only this install's URL handlers, only on a real uninstall", () => {
+    const installerScript = readFileSync(
+      new URL("../apps/desktop/resources/installer.nsh", import.meta.url),
+      "utf8",
+    );
+    const uninstall = /!macro customUnInstall([\s\S]*?)!macroend/.exec(installerScript)?.[1] ?? "";
+    assert.match(uninstall, /^\s*\$\{ifNot\} \$\{isUpdated\}/);
+    assert.deepStrictEqual(
+      [...uninstall.matchAll(/mossRemoveOwnProtocolHandler "([^"]+)"/g)]
+        .map((match) => match[1])
+        .toSorted(),
+      [
+        MOSS_BETA_DESKTOP_SCHEME,
+        MOSS_CANARY_DESKTOP_SCHEME,
+        MOSS_CONNECTOR_OAUTH_SCHEME,
+        MOSS_CUA_DESKTOP_SCHEME,
+        MOSS_DESKTOP_SCHEME,
+      ].toSorted(),
+    );
+
+    const handler =
+      /!macro mossRemoveOwnProtocolHandler SCHEME([\s\S]*?)!macroend/.exec(installerScript)?.[1] ??
+      "";
+    assert.match(handler, /StrCpy \$1 '"\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}"'/);
+    assert.match(
+      handler,
+      /\$\{if\} \$2 == \$1\s+DeleteRegKey HKCU "Software\\Classes\\\$\{SCHEME\}"\s+\$\{endIf\}/,
+    );
+  });
+
+  it("leaves Moss data and Codex overlays alone on uninstall", () => {
+    // Overlays hold junctions into the real Codex home. See docs/providers/codex.md.
+    const installerCommands = readFileSync(
+      new URL("../apps/desktop/resources/installer.nsh", import.meta.url),
+      "utf8",
+    )
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith(";"))
+      .join("\n");
+    assert.notMatch(installerCommands, /RMDir|\bDelete\b|codex|\.moss/i);
+  });
+
   it("routes SSL.com eSigner through electron-builder so inner binaries and NSIS are signed", () => {
     const config = createDesktopPlatformBuildConfig({
       hostPlatform: "win32",
@@ -358,7 +425,11 @@ describe("createDesktopPlatformBuildConfig", () => {
   it("copies bundled runtimes only through extraResources, never inside app.asar", () => {
     assert.deepStrictEqual(
       [...BUNDLED_RUNTIME_ASAR_EXCLUSIONS],
-      ["!apps/desktop/codex-runtime/**", "!apps/desktop/claude-runtime/**"],
+      [
+        "!apps/desktop/codex-runtime/**",
+        "!apps/desktop/claude-runtime/**",
+        "!apps/desktop/cua-driver-runtime/**",
+      ],
     );
 
     for (const [platform, target] of [
@@ -372,7 +443,7 @@ describe("createDesktopPlatformBuildConfig", () => {
         target,
       });
 
-      assert.deepStrictEqual(config.files?.slice(0, 3), [
+      assert.deepStrictEqual(config.files?.slice(0, 4), [
         "**/*",
         ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS,
       ]);

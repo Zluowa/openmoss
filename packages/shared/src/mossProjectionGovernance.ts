@@ -52,7 +52,7 @@ import {
   isSupportedProviderKind,
   type MossProjectionAction,
   type SupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   MOSS_PLUGIN_COMPONENT_KINDS,

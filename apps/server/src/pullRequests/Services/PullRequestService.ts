@@ -7,12 +7,13 @@ import type {
   PullRequestDiffResult,
   PullRequestSetPinnedInput,
   PullRequestSetPinnedResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
 /** Pull request detail, diff, actions, comments, and pins. Listing lives in the GitHub inbox. */
 export interface PullRequestServiceShape {
+  readonly clearAccount: Effect.Effect<void>;
   readonly detail: (input: PullRequestDetailInput) => Effect.Effect<PullRequestDetail, unknown>;
   readonly diff: (input: PullRequestDetailInput) => Effect.Effect<PullRequestDiffResult, unknown>;
   readonly action: (

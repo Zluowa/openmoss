@@ -233,6 +233,14 @@ export type CodexTextGenerationConfig = {
   readonly providerEnvKeys: ReadonlyArray<string>;
   readonly usesAwsCredentials: boolean;
   readonly awsRegion?: string;
+  /**
+   * A custom provider reached with a plain bearer key: its endpoint and wire
+   * protocol, so a request can go to it without the Codex CLI.
+   */
+  readonly directHttpProvider?: {
+    readonly baseUrl: string;
+    readonly wireApi: "responses" | "chat";
+  };
 };
 
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -401,6 +409,9 @@ export function buildCodexTextGenerationConfig(source: string): CodexTextGenerat
     ? readOptionalString(selectedProvider, "env_key", `model_providers.${selectedProviderId}`)
     : undefined;
   const providerEnvKeys = selectedProviderEnvironmentKeys(selectedProviderId, selectedProvider);
+  const directHttpProvider = selectedProvider
+    ? readDirectHttpProvider(selectedProvider, providerEnvKey)
+    : undefined;
   return {
     content,
     selectedProviderId,
@@ -408,7 +419,42 @@ export function buildCodexTextGenerationConfig(source: string): CodexTextGenerat
     usesAwsCredentials,
     ...(awsRegion !== undefined ? { awsRegion } : {}),
     ...(providerEnvKey !== undefined ? { providerEnvKey } : {}),
+    ...(directHttpProvider ? { directHttpProvider } : {}),
   };
+}
+
+/**
+ * Only a provider that is nothing but an https (or loopback) endpoint plus one
+ * bearer key from the environment qualifies: no ChatGPT sign-in, no extra
+ * headers or query parameters the CLI would have added.
+ */
+function readDirectHttpProvider(
+  provider: UnknownRecord,
+  providerEnvKey: string | undefined,
+): CodexTextGenerationConfig["directHttpProvider"] {
+  const baseUrl = typeof provider.base_url === "string" ? provider.base_url.trim() : "";
+  const wireApi = provider.wire_api ?? "chat";
+  if (
+    !baseUrl ||
+    !providerEnvKey ||
+    provider.requires_openai_auth === true ||
+    hasOwn(provider, "experimental_bearer_token") ||
+    hasOwn(provider, "query_params") ||
+    hasOwn(provider, "http_headers") ||
+    hasOwn(provider, "env_http_headers") ||
+    (wireApi !== "responses" && wireApi !== "chat")
+  ) {
+    return undefined;
+  }
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return undefined;
+  }
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) return undefined;
+  return { baseUrl: baseUrl.replace(/\/+$/u, ""), wireApi };
 }
 
 const TOOL_FEATURES_DISABLED = [

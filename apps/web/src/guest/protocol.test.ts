@@ -3,7 +3,7 @@ import {
   GUEST_ROUTES,
   GuestShareEndReason,
   guestApiPath,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { GUEST_ACCESS_ERROR_KEY, GUEST_END_REASON_KEY } from "./guestCopy";
@@ -17,6 +17,12 @@ describe("guest routes", () => {
     }
     expect(createHttpGuestTransport("abc").attachmentUrl("file 1")).toBe(
       "/v1/shares/abc/guest/attachment?id=file%201",
+    );
+    expect(createHttpGuestTransport("abc").renderUrl("page-1")).toBe(
+      "/v1/shares/abc/guest/render?id=page-1",
+    );
+    expect(createHttpGuestTransport("abc").mediaUrl("D:\\ai\\狗.png")).toBe(
+      "/v1/shares/abc/guest/media?src=D%3A%5Cai%5C%E7%8B%97.png",
     );
   });
 
@@ -51,6 +57,12 @@ describe("parseGuestStreamEvent", () => {
       type: "hello",
       protocolVersion: 1,
     });
+    // Owners that serve the newer routes say so; unknown names pass through for later pages.
+    expect(
+      parseGuestStreamEvent(
+        JSON.stringify({ type: "hello", protocolVersion: 1, routes: ["render", "media", "next"] }),
+      ),
+    ).toEqual({ type: "hello", protocolVersion: 1, routes: ["render", "media", "next"] });
     const view = {
       shareId: "k3J9xQ2mT8vL5nR1pW7yZa",
       guestName: "Sam",

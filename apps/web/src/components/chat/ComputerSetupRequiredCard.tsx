@@ -14,8 +14,8 @@ import type {
   ComputerBuildSignature,
   ComputerPermission,
   ComputerStatusResult,
-} from "@synara/contracts";
-import { computerStaleGrantAdvice, listComputerPermissions } from "@synara/shared/computerGrants";
+} from "@moss/contracts";
+import { computerStaleGrantAdvice, listComputerPermissions } from "@moss/shared/computerGrants";
 
 import { ComputerActionCard } from "./ComputerActionCard";
 

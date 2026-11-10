@@ -2,11 +2,33 @@
 // Purpose: The Connectors catalog plus the URL and server-name rules shared by server and web.
 // Layer: Shared runtime utility
 // Exports: MCP_CONNECTOR_CATEGORIES, MCP_CONNECTOR_PRESETS, findMcpConnectorPreset,
-//   normalizeMcpConnectorUrl, defaultMcpConnectorName, mcpConnectorSlug, mcpConnectorServerName
+//   isMcpConnectorPresetListed, mcpConnectorCategoriesForRegion, normalizeMcpConnectorUrl, splitMcpConnectorUrlApiKey,
+//   defaultMcpConnectorName, mcpConnectorSlug, mcpConnectorServerName
 
-/** Catalog shelves, in display order. */
-export const MCP_CONNECTOR_CATEGORIES = ["popular", "developer", "productivity"] as const;
+/** Catalog shelves, in display order. "life" holds travel and daily-life services. */
+export const MCP_CONNECTOR_CATEGORIES = ["popular", "developer", "productivity", "life"] as const;
 export type McpConnectorCategory = (typeof MCP_CONNECTOR_CATEGORIES)[number];
+
+/** Where a preset's service runs: "cn" services serve mainland China. */
+export type McpConnectorRegion = "cn" | "global";
+
+/** Shelves in display order for a region: mainland users see daily-life services first. */
+export function mcpConnectorCategoriesForRegion(
+  region: McpConnectorRegion,
+): ReadonlyArray<McpConnectorCategory> {
+  return region === "cn"
+    ? ["life", ...MCP_CONNECTOR_CATEGORIES.filter((category) => category !== "life")]
+    : MCP_CONNECTOR_CATEGORIES;
+}
+
+/**
+ * How a server takes the user's API key instead of OAuth: as a URL query
+ * parameter (Amap's `?key=`, Baidu's `?ak=`) or as an `Authorization: Bearer`
+ * header (McDonald's China).
+ */
+export type McpConnectorApiKeyPlacement =
+  | { readonly kind: "query"; readonly param: string }
+  | { readonly kind: "bearer" };
 
 export interface McpConnectorPreset {
   /** Stable catalog key; also the slug of the provider-facing server name. */
@@ -24,6 +46,24 @@ export interface McpConnectorPreset {
    */
   readonly requiresOwnApp?: boolean;
   readonly appSetupUrl?: string;
+  /** The server takes an API key the user pastes, sent as described here. */
+  readonly apiKey?: McpConnectorApiKeyPlacement;
+  /** The vendor's page where the user creates that key. */
+  readonly apiKeyUrl?: string;
+  /** Defaults to "global". */
+  readonly region?: McpConnectorRegion;
+  /** Site whose favicon stands for the vendor when the endpoint's own is wrong. */
+  readonly iconHost?: string;
+  /**
+   * Kept out of the catalog (and out of Moss service plugins) until its
+   * sign-in has been verified end to end. A pasted URL still matches it.
+   */
+  readonly unlisted?: boolean;
+}
+
+/** Whether the catalog offers this preset; unverified ones stay hidden. */
+export function isMcpConnectorPresetListed(preset: McpConnectorPreset): boolean {
+  return preset.unlisted !== true;
 }
 
 /**
@@ -35,6 +75,11 @@ export interface McpConnectorPreset {
  * Vendors that refuse registration outright (Figma) or need an app Moss has
  * not registered (GitHub, Asana) are absent; a custom URL can still use the
  * user's own app.
+ *
+ * The "life" presets are mainland China services that take an API key or
+ * token from the vendor's console instead of OAuth. Their endpoints were
+ * checked against the vendors' docs on 2026-11-02; several refuse requests
+ * from outside mainland China.
  */
 export const MCP_CONNECTOR_PRESETS = [
   {
@@ -187,6 +232,78 @@ export const MCP_CONNECTOR_PRESETS = [
     url: "https://huggingface.co/mcp",
     docsUrl: "https://huggingface.co/docs/hub/agents-mcp",
   },
+  {
+    id: "amap",
+    name: "高德地图",
+    category: "life",
+    description: "Search places, plan routes, check weather, and geocode addresses.",
+    url: "https://mcp.amap.com/mcp",
+    docsUrl: "https://lbs.amap.com/api/mcp-server/summary",
+    apiKey: { kind: "query", param: "key" },
+    apiKeyUrl: "https://console.amap.com/dev/key/app",
+    region: "cn",
+  },
+  {
+    id: "baidu_maps",
+    name: "百度地图",
+    category: "life",
+    description: "Search places, plan routes, and geocode addresses.",
+    url: "https://mcp.map.baidu.com/mcp",
+    docsUrl: "https://lbs.baidu.com/faq/api?title=mcpserver/base",
+    apiKey: { kind: "query", param: "ak" },
+    apiKeyUrl: "https://lbsyun.baidu.com/apiconsole/key",
+    region: "cn",
+  },
+  {
+    id: "tencent_maps",
+    name: "腾讯地图",
+    category: "life",
+    description: "Search places, plan routes, check weather, and geocode addresses.",
+    url: "https://mcp.map.qq.com/mcp?format=0",
+    docsUrl: "https://lbs.qq.com/service/MCPServer/MCPServerGuide/overview",
+    apiKey: { kind: "query", param: "key" },
+    apiKeyUrl: "https://lbs.qq.com/dev/console/application/mine",
+    region: "cn",
+  },
+  {
+    id: "didi",
+    name: "滴滴出行",
+    category: "life",
+    // The production endpoint places real, billed ride orders.
+    description: "Estimate fares, book rides, and track drivers. Orders are real.",
+    url: "https://mcp.didichuxing.com/mcp-servers",
+    docsUrl: "https://mcp.didichuxing.com/",
+    apiKey: { kind: "query", param: "key" },
+    apiKeyUrl: "https://mcp.didichuxing.com/",
+    region: "cn",
+  },
+  {
+    id: "mcdonalds_cn",
+    name: "麦当劳中国",
+    category: "life",
+    description: "Browse menus and coupons, and place pickup or delivery orders.",
+    url: "https://mcp.mcd.cn/",
+    docsUrl: "https://open.mcd.cn/mcp/doc",
+    apiKey: { kind: "bearer" },
+    apiKeyUrl: "https://open.mcd.cn/mcp",
+    region: "cn",
+    // mcd.cn serves a stock React favicon; the brand site carries the mark.
+    iconHost: "mcdonalds.com",
+  },
+  {
+    id: "luckin",
+    name: "瑞幸咖啡",
+    category: "life",
+    // Signs in with MCP OAuth (the server answers 401 with resource metadata);
+    // whether it registers clients dynamically is unverified from outside China,
+    // so the preset and its service plugin stay hidden until a sign-in works.
+    description: "Find stores and drinks, apply coupons, and place pickup orders.",
+    url: "https://gwmcp.lkcoffee.com/order/user/mcp",
+    docsUrl: "https://open.lkcoffee.com/docs",
+    region: "cn",
+    iconHost: "lkcoffee.com",
+    unlisted: true,
+  },
 ] as const satisfies readonly McpConnectorPreset[];
 
 export type McpConnectorPresetId = (typeof MCP_CONNECTOR_PRESETS)[number]["id"];
@@ -234,6 +351,33 @@ export function normalizeMcpConnectorUrl(raw: string): McpConnectorUrlResult {
   }
   parsed.hash = "";
   return { ok: true, url: parsed.href };
+}
+
+/** Query parameters that carry an API key in a pasted MCP server URL. */
+const URL_API_KEY_PARAMS = new Set(["key", "ak", "api_key", "apikey", "token", "access_token"]);
+
+export interface McpConnectorUrlApiKey {
+  readonly param: string;
+  readonly value: string;
+}
+
+/**
+ * Splits an API key out of a normalized URL (`https://mcp.amap.com/mcp?key=…`)
+ * so the key can be stored as a secret and the rest shown and matched safely.
+ * The first non-empty key-like query parameter wins; the URL is returned
+ * unchanged when there is none.
+ */
+export function splitMcpConnectorUrlApiKey(url: string): {
+  readonly url: string;
+  readonly apiKey: McpConnectorUrlApiKey | null;
+} {
+  const parsed = new URL(url);
+  for (const [param, value] of parsed.searchParams) {
+    if (!URL_API_KEY_PARAMS.has(param.toLowerCase()) || !value.trim()) continue;
+    parsed.searchParams.delete(param);
+    return { url: parsed.href, apiKey: { param, value: value.trim() } };
+  }
+  return { url, apiKey: null };
 }
 
 /** A readable default name for a custom server: its host without `mcp.`/`api.`/`www.`. */

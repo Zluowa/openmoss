@@ -11,6 +11,11 @@ import {
   PUBLISH_ICON_OVERRIDES,
 } from "../../../scripts/lib/brand-assets.ts";
 import { resolveCatalogDependencies } from "../../../scripts/lib/resolve-catalog.ts";
+import {
+  createRuntimeShrinkwrap,
+  parseBunLockPackages,
+  PATCHED_RUNTIME_DIRECTORY,
+} from "../../../scripts/lib/runtime-shrinkwrap.ts";
 import rootPackageJson from "../../../package.json" with { type: "json" };
 import serverPackageJson from "../package.json" with { type: "json" };
 
@@ -246,7 +251,7 @@ const stageDistributionPackage = Effect.fn("stageDistributionPackage")(function*
     });
   }
 
-  return { stagedPackageDir, version };
+  return { stagedPackageDir, version, pkg };
 });
 
 // ---------------------------------------------------------------------------
@@ -299,7 +304,46 @@ const packCmd = Command.make(
       const path = yield* Path.Path;
       const fs = yield* FileSystem.FileSystem;
 
-      const { stagedPackageDir, version } = yield* stageDistributionPackage(config.appVersion);
+      const { stagedPackageDir, version, pkg } = yield* stageDistributionPackage(config.appVersion);
+      // The SSH runtime installs this pack with `npm ci`. Pin every production
+      // package to the release, tarball and integrity this repository installed
+      // from bun.lock, so a remote install cannot pick up a newer upstream release.
+      // Packages with a bun patch ship as their patched installed copy instead.
+      const repoRoot = yield* RepoRoot;
+      const bunLockText = yield* fs.readFileString(path.join(repoRoot, "bun.lock"));
+      const runtimeLock = yield* Effect.try({
+        try: () =>
+          createRuntimeShrinkwrap({
+            packageDirectory: path.join(repoRoot, "apps/server"),
+            packageJson: {
+              name: pkg.name,
+              version,
+              dependencies: pkg.dependencies as Record<string, string>,
+            },
+            bunLock: parseBunLockPackages(bunLockText),
+            patchedDependencies: rootPackageJson.patchedDependencies as Record<string, string>,
+            patchRoot: repoRoot,
+          }),
+        catch: (cause) =>
+          new CliError({
+            message: `Could not pin the runtime dependencies: ${String(cause)}`,
+            cause,
+          }),
+      });
+      yield* fs.writeFileString(
+        path.join(stagedPackageDir, "npm-shrinkwrap.json"),
+        `${JSON.stringify(runtimeLock.shrinkwrap, null, 2)}\n`,
+      );
+      yield* fs.writeFileString(
+        path.join(stagedPackageDir, "package.json"),
+        `${JSON.stringify({ ...pkg, dependencies: runtimeLock.dependencies }, null, 2)}\n`,
+      );
+      for (const file of runtimeLock.files) {
+        yield* fs.makeDirectory(path.join(stagedPackageDir, path.dirname(file.path)), {
+          recursive: true,
+        });
+        yield* fs.writeFile(path.join(stagedPackageDir, file.path), file.contents);
+      }
 
       const outDir = path.isAbsolute(config.out)
         ? config.out
@@ -308,13 +352,24 @@ const packCmd = Command.make(
 
       const tarballPath = path.join(outDir, `moss-server-${version}.tar.gz`);
       yield* runCommand(
-        ChildProcess.make("tar", ["-czf", tarballPath, "dist", "package.json"], {
-          cwd: stagedPackageDir,
-          stdout: "inherit",
-          stderr: "inherit",
-          // Windows needs shell mode to resolve .cmd shims.
-          shell: process.platform === "win32",
-        }),
+        ChildProcess.make(
+          "tar",
+          [
+            "-czf",
+            tarballPath,
+            "dist",
+            "package.json",
+            "npm-shrinkwrap.json",
+            ...(runtimeLock.files.length ? [PATCHED_RUNTIME_DIRECTORY] : []),
+          ],
+          {
+            cwd: stagedPackageDir,
+            stdout: "inherit",
+            stderr: "inherit",
+            // Windows needs shell mode to resolve .cmd shims.
+            shell: process.platform === "win32",
+          },
+        ),
       );
 
       yield* Effect.log(`[cli] Wrote server tarball: ${tarballPath}`);

@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { UsageEventSubject } from "@synara/contracts";
+import type { UsageEventSubject } from "@moss/contracts";
 
 import type { MediaUsageReceiptAppender } from "./mediaUsageReceiptBridge.ts";
 import {

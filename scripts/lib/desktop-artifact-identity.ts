@@ -1,7 +1,4 @@
-import {
-  mossDesktopIdentity,
-  type MossPackagedDesktopFlavor,
-} from "@synara/shared/desktopIdentity";
+import { mossDesktopIdentity, type MossPackagedDesktopFlavor } from "@moss/shared/desktopIdentity";
 
 export function createDesktopArtifactIdentity(input: {
   readonly platform: "mac" | "linux" | "win";

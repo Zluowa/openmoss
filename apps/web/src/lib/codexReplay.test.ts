@@ -1,4 +1,4 @@
-import { MessageId, TurnId, type CodexReplayTurn } from "@synara/contracts";
+import { MessageId, TurnId, type CodexReplayTurn } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "../types";
 import { makeActivity } from "../storeTestFixtures";

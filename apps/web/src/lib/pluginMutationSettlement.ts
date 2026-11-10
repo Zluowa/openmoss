@@ -3,7 +3,7 @@
 //          whose state matches the requested mutation.
 // Layer: Web domain helper
 
-import type { ProviderListPluginsResult, ProviderPluginDescriptor } from "@synara/contracts";
+import type { ProviderListPluginsResult, ProviderPluginDescriptor } from "@moss/contracts";
 
 import { isPluginInstalledForDirectory } from "./pluginLibraryModel";
 

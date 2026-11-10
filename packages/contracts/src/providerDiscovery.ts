@@ -967,6 +967,15 @@ export const ProviderReasoningEffortDescriptor = Schema.Struct({
 });
 export type ProviderReasoningEffortDescriptor = typeof ProviderReasoningEffortDescriptor.Type;
 
+// One speed tier a model offers beyond standard speed, as Codex's model/list
+// advertises it (`priority` "Fast", `ultrafast` "Ultrafast", ...).
+export const ProviderServiceTierDescriptor = Schema.Struct({
+  value: TrimmedNonEmptyString,
+  label: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
+});
+export type ProviderServiceTierDescriptor = typeof ProviderServiceTierDescriptor.Type;
+
 export const ProviderContextWindowDescriptor = Schema.Struct({
   value: TrimmedNonEmptyString,
   label: TrimmedNonEmptyString,
@@ -999,6 +1008,12 @@ export const ProviderModelDescriptor = Schema.Struct({
   supportedReasoningEfforts: Schema.optional(Schema.Array(ProviderReasoningEffortDescriptor)),
   defaultReasoningEffort: Schema.optional(TrimmedNonEmptyString),
   supportsFastMode: Schema.optional(Schema.Boolean),
+  // Speed tiers the model offers beyond standard. Absent when the catalog says
+  // nothing about speed; an empty list means standard speed only.
+  serviceTiers: Schema.optional(Schema.Array(ProviderServiceTierDescriptor)),
+  // The tier set in the account's Codex config (`service_tier`). Codex applies it
+  // when no tier is sent, and drops it with a warning on a model that does not offer it.
+  configuredServiceTier: Schema.optional(TrimmedNonEmptyString),
   supportsThinkingToggle: Schema.optional(Schema.Boolean),
   supportsAutoMode: Schema.optional(Schema.Boolean),
   contextWindowOptions: Schema.optional(Schema.Array(ProviderContextWindowDescriptor)),
@@ -1011,6 +1026,9 @@ export const ProviderListModelsResult = Schema.Struct({
   models: Schema.Array(ProviderModelDescriptor),
   source: Schema.optional(TrimmedNonEmptyString),
   cached: Schema.optional(Schema.Boolean),
+  // The model the person set as default in the agent's own config (Codex `model`,
+  // Pi `defaultProvider`/`defaultModel`, Claude `model`...). A new composer starts on it.
+  defaultModel: Schema.optional(TrimmedNonEmptyString),
   // A partial or fallback catalog must not replace the last complete discovery.
   degraded: Schema.optional(Schema.Boolean),
   // A concise, redacted explanation when live discovery failed and the result

@@ -15,7 +15,7 @@ import type {
   ComputerPermission,
   DesktopAppSnapPermissionKind,
   DesktopAppSnapState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 /**
  * Fixed setup order, shared with the native permission guide.

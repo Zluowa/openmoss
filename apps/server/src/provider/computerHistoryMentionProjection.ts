@@ -4,11 +4,11 @@
 // Layer: Provider prompt compatibility
 // Exports: projectComputerHistoryMention, appendComputerHistorySelectionContext.
 
-import type { ProviderMentionReference } from "@synara/contracts";
+import type { ProviderMentionReference } from "@moss/contracts";
 import {
   COMPUTER_HISTORY_MENTION_TOKEN,
   isComputerHistoryMention,
-} from "@synara/shared/computerHistoryMention";
+} from "@moss/shared/computerHistoryMention";
 
 /** Deliberately narrow: remove only the canonical composer token at a token boundary. */
 const COMPUTER_HISTORY_MENTION_TOKEN_PATTERN = new RegExp(

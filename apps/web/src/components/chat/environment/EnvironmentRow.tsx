@@ -3,6 +3,9 @@
 //          glyph, a truncating label, and an optional right-aligned trailing slot
 //          (diff stats, a picker caret, or a value). Every panel entry and every
 //          relocated picker trigger reuses this skin so the rows line up on one grid.
+//          Geometry follows the upstream thread-details card: 32px rows, 10px inline
+//          padding, a 10px icon gap, medium label at 80% ink, muted 16px glyphs, and
+//          full-bleed hairlines between sections.
 // Layer: Environment panel UI primitive
 
 import { useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
@@ -26,21 +29,25 @@ import {
  * trigger and a plain button row are visually identical.
  */
 export const ENVIRONMENT_ROW_CLASS_NAME = cn(
-  "flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left",
-  "text-ui font-normal text-[var(--color-text-foreground)]",
+  "flex h-8 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-row px-2.5 text-left",
+  "text-ui font-medium text-[var(--color-text-foreground)]/80",
   "outline-none",
   ELEVATED_HOVER_SURFACE_CLASS_NAME,
   "focus-visible:bg-[var(--color-background-elevated-secondary)]",
   "disabled:pointer-events-none disabled:opacity-50",
 );
 
-/** Leading glyph treatment shared by every row (matches label color, fixed 16px). */
-export const ENVIRONMENT_ROW_ICON_CLASS_NAME =
-  "size-4 shrink-0 text-[var(--color-text-foreground)]";
+/** Leading glyph treatment shared by every row (muted, fixed 16px). */
+export const ENVIRONMENT_ROW_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground";
 
 /** Right-aligned caret for rows that open a picker or menu. */
 export function EnvironmentRowChevron({ className }: { className?: string }) {
-  return <ChevronDownIcon aria-hidden className={cn("size-3 shrink-0 opacity-60", className)} />;
+  return (
+    <ChevronDownIcon
+      aria-hidden
+      className={cn("size-4 shrink-0 text-muted-foreground", className)}
+    />
+  );
 }
 
 /** Top-of-card title (e.g. "Environment"). */
@@ -54,7 +61,8 @@ export function EnvironmentPanelTitle({ children }: { children: ReactNode }) {
  * leaves a doubled or dangling rule.
  */
 export function EnvironmentSectionDivider() {
-  return <div className="my-1 border-t border-[color:var(--color-border-light)]" />;
+  // Full-bleed across the card's 8px inset, like the upstream card's section rules.
+  return <div aria-hidden className="-mx-2 my-2 border-t border-border/65" />;
 }
 
 /** Small muted label that introduces a group of rows (e.g. "Editor", "Recap"). */
@@ -103,7 +111,7 @@ export function EnvironmentCollapsibleSection({
     <Collapsible open={open} onOpenChange={setOpen} className="flex flex-col">
       <CollapsibleTrigger
         className={cn(
-          "group/section flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1 text-left",
+          "group/section flex w-full items-center justify-between gap-2 rounded-row px-2.5 py-1 text-left",
           "outline-none",
           ELEVATED_HOVER_SURFACE_CLASS_NAME,
           "focus-visible:bg-[var(--color-background-elevated-secondary)]",

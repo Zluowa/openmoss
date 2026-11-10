@@ -1,4 +1,4 @@
-import type { ProviderInstanceConfigMap } from "@synara/contracts";
+import type { ProviderInstanceConfigMap } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

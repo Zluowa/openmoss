@@ -3,22 +3,95 @@
 // Layer: Web utility tests
 // Exports: Vitest suites for providerUpdates.ts
 
-import type { ProviderKind, ServerProviderStatus, ServerSettings } from "@synara/contracts";
+import type { ProviderKind, ServerProviderStatus, ServerSettings } from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getNotifiableProviderUpdateStatuses,
   getVisibleProviderUpdateStatuses,
+  installedProgramStatus,
+  installedVersionLabel,
   isProviderLatestVersionKnowable,
   isProviderUpdateActive,
   providerUpdateNotificationKey,
+  providerVersionCheckSummary,
   shouldOfferProviderUpdateAction,
   shouldPromptProviderUpdate,
   withProviderUpdateTimeout,
 } from "./providerUpdates";
+import { translateZhCnPresentationText } from "./localization/zhCN";
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+it("shows the installed program's version when latest is unavailable, disabled or unsupported in both languages", () => {
+  const row = providerStatus("codex", {
+    instanceId: "codex_own",
+    version: "0.166.0",
+    versionAdvisory: {
+      ...providerStatus("codex").versionAdvisory!,
+      currentVersion: "0.166.0",
+      latestVersion: null,
+      latestVersionKnowable: true,
+      status: "unknown",
+    },
+  });
+  const unchecked = providerStatus("codex", { available: false, version: undefined });
+  expect(installedProgramStatus("codex", unchecked, [unchecked, row])).toBe(row);
+  expect(installedProgramStatus("pi", unchecked, [row])).toBe(unchecked);
+  const unavailable = installedVersionLabel(row, true)!;
+  expect(unavailable).toBe("Installed v0.166.0 · Latest version unavailable");
+  expect(translateZhCnPresentationText(unavailable)).toBe("已安装 v0.166.0；暂时无法查询最新版本");
+  expect(translateZhCnPresentationText(installedVersionLabel(row, false)!)).toBe(
+    "已安装 v0.166.0；已关闭更新检查",
+  );
+  const unsupported = {
+    ...row,
+    versionAdvisory: { ...row.versionAdvisory!, latestVersionKnowable: false },
+  };
+  expect(translateZhCnPresentationText(installedVersionLabel(unsupported, true)!)).toBe(
+    "已安装 v0.166.0；不支持查询最新版本",
+  );
+});
+
+it("summarizes checked tools separately from unavailable, unsupported, hidden and disabled version checks", () => {
+  const current = providerStatus("claudeAgent", {
+    versionAdvisory: { ...providerStatus("claudeAgent").versionAdvisory!, status: "current" },
+  });
+  const unknown = providerStatus("codex", {
+    versionAdvisory: {
+      ...providerStatus("codex").versionAdvisory!,
+      status: "unknown",
+      latestVersion: null,
+      latestVersionKnowable: true,
+    },
+  });
+  const summarize = (
+    providers: ServerProviderStatus[],
+    hiddenProviders: ProviderKind[] = [],
+    enabled = true,
+  ) =>
+    providerVersionCheckSummary({
+      providers,
+      hiddenProviders,
+      outdatedCount: 0,
+      serverSettings: { ...serverSettings(), enableProviderUpdateChecks: enabled },
+    });
+  expect(summarize([current])).toBe("No provider updates detected");
+  expect(summarize([current, unknown])).toBe("Latest version unavailable for some tools");
+  expect(translateZhCnPresentationText(summarize([unknown]))).toBe("部分工具暂时无法查询最新版本");
+  expect(summarize([current, unknown], ["codex"])).toBe("No provider updates detected");
+  expect(
+    summarize([
+      {
+        ...unknown,
+        versionAdvisory: { ...unknown.versionAdvisory!, latestVersionKnowable: false },
+      },
+    ]),
+  ).toBe("Version lookup not supported for installed tools");
+  expect(summarize([unknown], [], false)).toBe("Automatic checks off");
+  expect(summarize([])).toBe("No version checks completed");
 });
 
 function providerStatus(
@@ -57,6 +130,7 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
   return {
     enableAssistantStreaming: false,
     enableProviderUpdateChecks: true,
+    errorReportsEnabled: true,
     keepAwakeMode: "off",
     lowerProviderProcessPriority: true,
     defaultThreadEnvMode: "local",
@@ -73,6 +147,7 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
         homePath: "",
         selectedAccountId: "default",
         accounts: [],
+        shareStateAcrossAccounts: false,
       },
       claudeAgent: {
         ...provider,
@@ -80,6 +155,8 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
         homePath: "",
         launchArgs: "",
         enableArtifacts: false,
+        shareStateAcrossAccounts: false,
+        sharedProjectsPath: "",
       },
       cursor: { ...provider, binaryPath: "cursor-agent", apiEndpoint: "" },
       gemini: { ...provider, binaryPath: "gemini" },
@@ -142,6 +219,8 @@ describe("getVisibleProviderUpdateStatuses", () => {
           homePath: "",
           launchArgs: "",
           enableArtifacts: false,
+          shareStateAcrossAccounts: false,
+          sharedProjectsPath: "",
           customModels: [],
         },
       });

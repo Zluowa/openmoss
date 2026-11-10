@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DESKTOP_DIAGNOSTIC_ISSUE_PREFIX } from "@synara/contracts";
+import { DESKTOP_DIAGNOSTIC_ISSUE_PREFIX } from "@moss/contracts";
 import { BackendIssueDetector } from "./backendIssueDetector";
 
 describe("desktop diagnostic issue framing", () => {

@@ -5,7 +5,7 @@ import {
   SECRET_REQUEST_REASON_MAX_LENGTH,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 
 import type { SecretRequestsShape } from "../secretRequests/Services/SecretRequests.ts";

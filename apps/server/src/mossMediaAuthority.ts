@@ -1,4 +1,9 @@
-import { codexAccountInstanceId } from "@synara/shared/providerInstances";
+import {
+  MOSS_IMAGE_MODEL_IDS,
+  MOSS_VIDEO_MODEL_IDS,
+  mossMediaPluginsForModel,
+} from "@moss/shared/mossMediaPlugins";
+import { codexAccountInstanceId } from "@moss/shared/providerInstances";
 import { Effect, Option } from "effect";
 import { MossCloudAccountService } from "./account/Services/MossCloudAccountService";
 import { MossEnterpriseKeyAccount } from "./account/Services/MossEnterpriseKeyAccount";
@@ -13,26 +18,14 @@ import { isTrustedMossManagedGatewayUrlForAuthority } from "./provider/mossManag
 import type { MossLocalAccountAuthority } from "./account/mossLocalAccountAuthority";
 
 const services = new Map<string, MossMediaJobsService>();
-const MODEL_PLUGINS: Readonly<Record<string, string>> = {
-  "gpt-image-2-official": "moss-imagegen",
-  "gpt-image-2.5-flare": "moss-imagegen",
-  "gpt-image-2.5-sunburst": "moss-imagegen",
-  "nano-banana-pro": "moss-nano-banana",
-  "gemini-flash-image": "moss-nano-banana-2",
-  "grok-imagine-image-2.0": "moss-grok-image",
-  "wan2.7-image-pro": "moss-wan-image",
-  "seedream-5-0": "moss-seedream",
-  "kling-v3-omni": "moss-kling",
-  "wan3.0-video": "moss-wan-video",
-  "wan3.0-video-prime": "moss-wan-video",
-  happyhorse: "moss-happyhorse",
-  "happyhorse-video-edit": "moss-happyhorse",
-  "doubao-seedance-2.0": "moss-seedance",
-  "doubao-seedance-2.0-fast": "moss-seedance",
-  "doubao-seedance-2.5": "moss-seedance",
-  "MiniMax-H3": "moss-minimax-h3",
-  "MiniMax-H3-Max": "moss-minimax-h3",
-};
+// Each model is usable through its vendor skill or the general image/video
+// skill. The legacy GPT alias resolves to GPT Image 2.5 at the gateway.
+const MODEL_PLUGINS: Readonly<Record<string, readonly string[]>> = Object.fromEntries([
+  ...[...MOSS_IMAGE_MODEL_IDS, ...MOSS_VIDEO_MODEL_IDS].map(
+    (model) => [model, mossMediaPluginsForModel(model)] as const,
+  ),
+  ["gpt-image-2-official", mossMediaPluginsForModel("gpt-image-2.5-flare")] as const,
+]);
 
 export function mossMediaJobsServiceFor(stateDirectory: string): MossMediaJobsService {
   let service = services.get(stateDirectory);
@@ -197,6 +190,6 @@ export const installedMossMediaModels = Effect.gen(function* () {
       .map((plugin) => plugin.id),
   );
   return Object.entries(MODEL_PLUGINS)
-    .filter(([, plugin]) => installed.has(`${plugin}@moss-bundled`))
+    .filter(([, plugins]) => plugins.some((plugin) => installed.has(`${plugin}@moss-bundled`)))
     .map(([model]) => model);
 });

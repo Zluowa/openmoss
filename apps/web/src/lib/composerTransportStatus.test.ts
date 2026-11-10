@@ -93,4 +93,74 @@ describe("composer transport status", () => {
     emitWsTransportState("open");
     expect(messages).toEqual(["reconnecting", null]);
   });
+
+  describe("with the desktop's own backend", () => {
+    beforeEach(() => {
+      const bridged = Object.assign(new EventTarget(), {
+        desktopBridge: { getWsUrl: () => "ws://127.0.0.1:4321/?token=t" },
+      });
+      vi.stubGlobal("window", bridged);
+      emitWsTransportState("open");
+    });
+
+    it("stays quiet through a normal restart and clears nothing it never showed", () => {
+      const messages: (string | null)[] = [];
+      unsubscribe = subscribeComposerTransportStatus((value) => messages.push(value));
+      emitWsTransportState("connecting");
+      vi.advanceTimersByTime(600);
+      emitWsTransportState("closed");
+      emitWsTransportState("connecting");
+      // The measured restart takes 3.7 s from kill to open on a real package.
+      vi.advanceTimersByTime(3_100);
+      emitWsTransportState("open");
+      vi.advanceTimersByTime(20_000);
+      expect(messages).toEqual([]);
+    });
+
+    it("does not flash connecting during a normal startup", () => {
+      emitWsTransportState("connecting");
+      const messages: (string | null)[] = [];
+      unsubscribe = subscribeComposerTransportStatus((value) => messages.push(value));
+      vi.advanceTimersByTime(2_000);
+      emitWsTransportState("open");
+      vi.advanceTimersByTime(20_000);
+      expect(messages).toEqual([]);
+    });
+
+    it("still tells the user about an outage longer than a restart", () => {
+      const messages: (string | null)[] = [];
+      unsubscribe = subscribeComposerTransportStatus((value) => messages.push(value));
+      emitWsTransportState("closed");
+      vi.advanceTimersByTime(5_000);
+      emitWsTransportState("connecting");
+      vi.advanceTimersByTime(4_999);
+      expect(messages).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(messages).toEqual(["reconnecting"]);
+      emitWsTransportState("open");
+      expect(messages).toEqual(["reconnecting", null]);
+    });
+
+    it("does not make an incompatible server wait out the restart hold", () => {
+      const messages: (string | null)[] = [];
+      unsubscribe = subscribeComposerTransportStatus((value) => messages.push(value));
+      emitWsTransportState("connecting");
+      vi.advanceTimersByTime(1_000);
+      emitWsTransportState("incompatible");
+      vi.advanceTimersByTime(499);
+      expect(messages).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(messages).toEqual(["incompatible"]);
+    });
+
+    it("shows an incompatible server at once when the hold already ran past it", () => {
+      const messages: (string | null)[] = [];
+      unsubscribe = subscribeComposerTransportStatus((value) => messages.push(value));
+      emitWsTransportState("connecting");
+      vi.advanceTimersByTime(4_000);
+      emitWsTransportState("incompatible");
+      vi.advanceTimersByTime(0);
+      expect(messages).toEqual(["incompatible"]);
+    });
+  });
 });

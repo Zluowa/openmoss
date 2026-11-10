@@ -4,8 +4,8 @@
 // Layer: Settings UI components
 // Exports: McpConnectorConnectDialog, McpConnectorTarget
 
-import { MCP_CONNECTOR_CLIENT_REQUIRED_ERROR_CODE, type McpConnector } from "@synara/contracts";
-import { normalizeMcpConnectorUrl } from "@synara/shared/mcpConnectors";
+import { MCP_CONNECTOR_CLIENT_REQUIRED_ERROR_CODE, type McpConnector } from "@moss/contracts";
+import { type McpConnectorPreset, normalizeMcpConnectorUrl } from "@moss/shared/mcpConnectors";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
@@ -42,15 +42,30 @@ export interface McpConnectorTarget {
   readonly requiresOwnApp?: boolean;
   readonly reuseSavedClient?: boolean;
   readonly appSetupUrl?: string | null;
+  /** The server takes an API key or token the user pastes instead of OAuth. */
+  readonly apiKey?: {
+    /** The vendor's page where the user creates the key. */
+    readonly setupUrl: string | null;
+  };
+  /** Moss already holds a working key, so the field may stay empty. */
+  readonly reuseSavedApiKey?: boolean;
 }
 
-function isClientRequiredError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === MCP_CONNECTOR_CLIENT_REQUIRED_ERROR_CODE
-  );
+/** The dialog target for a catalog preset, from Settings or the plugin directory. */
+export function mcpConnectorPresetTarget(preset: McpConnectorPreset): McpConnectorTarget {
+  return {
+    presetId: preset.id,
+    name: preset.name,
+    url: preset.url,
+    docsUrl: preset.docsUrl,
+    ...(preset.requiresOwnApp ? { requiresOwnApp: true } : {}),
+    appSetupUrl: preset.appSetupUrl ?? null,
+    ...(preset.apiKey ? { apiKey: { setupUrl: preset.apiKeyUrl ?? null } } : {}),
+  };
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
 const NEUTRAL_GLOW = "color-mix(in srgb, var(--foreground) 38%, transparent)";
@@ -94,6 +109,8 @@ export function McpConnectorConnectDialog(props: {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const needsOwnApp = askForOwnApp || target?.requiresOwnApp === true;
+  const [apiKey, setApiKey] = useState("");
+  const needsApiKey = target?.apiKey !== undefined;
 
   useEffect(() => {
     setError(null);
@@ -101,6 +118,7 @@ export function McpConnectorConnectDialog(props: {
     setAskForOwnApp(false);
     setClientId("");
     setClientSecret("");
+    setApiKey("");
   }, [target?.url]);
 
   const setupQuery = useQuery({
@@ -119,10 +137,11 @@ export function McpConnectorConnectDialog(props: {
             ...(clientSecret.trim() ? { clientSecret: clientSecret.trim() } : {}),
           }
         : {};
+      const key = needsApiKey && apiKey.trim() ? { apiKey: apiKey.trim() } : {};
       return ensureNativeApi().server.connectMcpConnector(
         input.presetId
-          ? { presetId: input.presetId, ...ownApp }
-          : { url: input.url, name: input.name, ...ownApp },
+          ? { presetId: input.presetId, ...ownApp, ...key }
+          : { url: input.url, name: input.name, ...ownApp, ...key },
       );
     },
   });
@@ -167,7 +186,7 @@ export function McpConnectorConnectDialog(props: {
       }
     } catch (cause) {
       setWaitingSince(null);
-      if (isClientRequiredError(cause) && !needsOwnApp) {
+      if (hasErrorCode(cause, MCP_CONNECTOR_CLIENT_REQUIRED_ERROR_CODE) && !needsOwnApp) {
         // Ask for the app instead of showing a dead end.
         setAskForOwnApp(true);
         return;
@@ -179,6 +198,7 @@ export function McpConnectorConnectDialog(props: {
   const brandColor = readableBrandColor(mcpConnectorArtwork(target?.presetId ?? null).color);
   const busy = connectMutation.isPending || waitingSince !== null;
   const missingOwnApp = needsOwnApp && !target?.reuseSavedClient && !clientId.trim();
+  const missingApiKey = needsApiKey && !target?.reuseSavedApiKey && !apiKey.trim();
   const name = target?.name ?? "";
 
   return (
@@ -308,6 +328,46 @@ export function McpConnectorConnectDialog(props: {
               </SettingsCard>
             ) : null}
 
+            {target.apiKey ? (
+              <SettingsCard className="w-full">
+                <div className="space-y-3 px-4 py-3.5">
+                  <div>
+                    <h3 className="text-ui-lg font-medium text-foreground">{`${name} API key`}</h3>
+                    <p className="mt-1 text-ui leading-relaxed text-muted-foreground">
+                      {`${name} signs in with a key from its developer console. `}
+                      {target.apiKey.setupUrl ? (
+                        <button
+                          type="button"
+                          className="rounded-sm text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
+                          onClick={() => {
+                            const url = target.apiKey?.setupUrl;
+                            if (url) void ensureNativeApi().shell.openExternal(url);
+                          }}
+                        >
+                          Get a key
+                        </button>
+                      ) : (
+                        "Get a key"
+                      )}
+                      {target.reuseSavedApiKey
+                        ? ", or leave this empty to keep the saved one."
+                        : ", then paste it here."}
+                    </p>
+                  </div>
+                  <label className="block space-y-1.5">
+                    <span className={dialogFieldLabelClassName}>API key</span>
+                    <Input
+                      type="password"
+                      value={apiKey}
+                      maxLength={512}
+                      autoComplete="off"
+                      onChange={(event) => setApiKey(event.target.value)}
+                    />
+                  </label>
+                </div>
+              </SettingsCard>
+            ) : null}
+
             {error ? (
               <p role="alert" className="w-full text-center text-ui leading-snug text-destructive">
                 {error}
@@ -320,7 +380,7 @@ export function McpConnectorConnectDialog(props: {
                 shape="capsule"
                 size="xl"
                 className="w-full hover:scale-100"
-                disabled={busy || missingOwnApp}
+                disabled={busy || missingOwnApp || missingApiKey}
                 onClick={() => {
                   void start();
                 }}
@@ -330,6 +390,8 @@ export function McpConnectorConnectDialog(props: {
                     <Spinner />
                     {waitingSince !== null ? `Waiting for ${name}…` : "Connecting…"}
                   </>
+                ) : needsApiKey ? (
+                  `Connect ${name}`
                 ) : (
                   <>
                     {`Continue to ${name}`}

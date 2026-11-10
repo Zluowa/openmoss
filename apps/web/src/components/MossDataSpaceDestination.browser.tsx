@@ -1,6 +1,6 @@
 import "../index.css";
 
-import { DEFAULT_SERVER_SETTINGS_VIEW, PageId, ProjectId, type NativeApi } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS_VIEW, PageId, ProjectId, type NativeApi } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -46,7 +46,7 @@ async function mount() {
   const route = createRootRoute({
     component: () => (
       <QueryClientProvider client={client}>
-        <MossLocalizationProvider>
+        <MossLocalizationProvider localeOverride="zh-CN">
           <TooltipProvider>
             <div style={{ height: "100vh", display: "flex" }}>
               <MossDataSpaceDestination
@@ -71,11 +71,13 @@ async function mount() {
     .toBeVisible();
 }
 
+/** Opens a page from the sidebar's 最近 list. */
 async function openPage(title = "Research page") {
-  await page.getByRole("button", { name: title, exact: true }).click();
-  await expect
-    .element(page.getByRole("textbox", { name: "页面标题", exact: true }))
-    .toHaveValue(title);
+  await page
+    .getByRole("region", { name: "最近", exact: true })
+    .getByRole("button", { name: title, exact: true })
+    .click();
+  await expectPageTitle(title);
   await expect.element(page.getByTitle("页面富文本编辑器", { exact: true })).toBeVisible();
   await expect
     .element(page.getByText("正在加载页面编辑器…", { exact: true }))
@@ -85,17 +87,57 @@ async function openPage(title = "Research page") {
     .not.toBeInTheDocument();
 }
 
-async function openMarkdownEditor() {
-  await expect.element(page.getByRole("button", { name: "预览", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Markdown", exact: true }).click();
-  // In this main region the first textbox is the title, followed by Pierre's
-  // real contenteditable textbox inside its shadow root.
-  const editor = page
+const editorFrame = () => page.frameLocator(page.getByTitle("页面富文本编辑器", { exact: true }));
+const hostTitle = () => page.getByRole("textbox", { name: "页面标题", exact: true });
+const frameTitle = () => editorFrame().getByRole("textbox", { name: "页面标题", exact: true });
+
+const richEditor = () => document.querySelector<HTMLElement>("[data-page-rich-editor]");
+
+/** The page title's value: in the page while the editor loads, fails or edits Markdown source,
+ * otherwise drawn by the editor, which reports it on its container (the editor is another origin). */
+async function expectPageTitle(value: string) {
+  await vi.waitFor(
+    () => {
+      const host = hostTitle().query() as HTMLInputElement | null;
+      expect(host ? host.value : richEditor()?.dataset.pageHeaderTitle).toBe(value);
+    },
+    { timeout: 15_000 },
+  );
+}
+
+/** Waits until a link under the title (files, schedules, source chat) shows, in the page or in
+ * the header the editor draws. */
+async function expectPageHeaderLink(name: string) {
+  const host = page
     .getByRole("main", { name: "资料空间内容", exact: true })
-    .getByRole("textbox")
-    .nth(1);
+    .getByRole("button", { name, exact: true });
+  await vi.waitFor(
+    () => {
+      if (host.query()) return;
+      expect(richEditor()?.dataset.pageHeaderLinks?.split("\n") ?? []).toContain(name);
+    },
+    { timeout: 15_000 },
+  );
+}
+
+/** Picks an entry from the open page's title menu. */
+async function titleMenu(entry: string | RegExp, title = "Research page") {
+  await page.getByRole("button", { name: `${title} 页面菜单`, exact: true }).click();
+  await page.getByRole("menuitem", { name: entry, exact: true }).click();
+}
+
+async function openMarkdownEditor() {
+  await titleMenu("编辑 Markdown 源码");
+  // Pierre's real contenteditable textbox lives inside its shadow root. The main
+  // region also holds the title and the page composer, which are textboxes too.
+  const textboxes = page
+    .getByRole("main", { name: "资料空间内容", exact: true })
+    .getByRole("textbox");
+  const editableIndex = () =>
+    textboxes.elements().findIndex((element) => element.getAttribute("contenteditable") === "true");
+  await expect.poll(editableIndex).toBeGreaterThanOrEqual(0);
+  const editor = textboxes.nth(editableIndex());
   await expect.element(editor).toBeVisible();
-  expect(editor.element().getAttribute("contenteditable")).toBe("true");
   return editor;
 }
 
@@ -168,19 +210,54 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     vi.unstubAllEnvs();
   });
 
+  it("opens the restored local copy and refreshes the global Data Space list", async () => {
+    const observation = "a".repeat(64);
+    const recover = vi.fn<NativeApi["pages"]["accountRecovery"]>(async (input) => {
+      if (input.op === "availability") return { kind: "availability", available: true };
+      if (input.op === "list")
+        return {
+          kind: "list",
+          items: [
+            {
+              recoveryId: "review",
+              title: "项目复盘",
+              confirmedAt: "2026-11-06T09:18:00.000Z",
+              observation,
+            },
+          ],
+        };
+      if (input.op !== "restore") throw new Error("Unexpected recovery operation");
+      const copy = fixture.put(
+        pageDocument("restored-local", "项目复盘（取回的副本）", "恢复的本机内容"),
+      );
+      return { kind: "restored", pageId: copy.page.id };
+    });
+    Object.assign(fixture.api.pages, { accountRecovery: recover });
+    await mount();
+    await page.getByRole("button", { name: "从账号取回页面", exact: true }).click();
+    await expect.element(page.getByText("项目复盘", { exact: true })).toBeVisible();
+    const beforeRestore = vi.mocked(fixture.api.pages.list).mock.calls.length;
+    await page.getByRole("button", { name: "取回副本", exact: true }).click();
+    await expectPageTitle("项目复盘（取回的副本）");
+    await vi.waitFor(() =>
+      expect(vi.mocked(fixture.api.pages.list).mock.calls.length).toBeGreaterThan(beforeRestore),
+    );
+    expect(recover).toHaveBeenCalledWith({ op: "restore", recoveryId: "review", observation });
+  });
+
   it("reconciles an unknown create-space result with the original request instead of duplicating it", async () => {
     fixture.state.loseCreateResponse = true;
     await mount();
     await page.getByRole("button", { name: "新建资料空间", exact: true }).click();
-    await page.getByRole("textbox", { name: "名称", exact: true }).fill("Weekly research");
+    await page.getByRole("textbox", { name: "资料空间名称", exact: true }).fill("Weekly research");
     await page.getByRole("button", { name: "创建", exact: true }).click();
     await expect.element(page.getByRole("alert")).toHaveTextContent("Create response lost");
     expect(fixture.mutate).toHaveBeenCalledTimes(1);
-    await expect.element(page.getByRole("textbox", { name: "名称", exact: true })).toBeDisabled();
-    await page.getByRole("button", { name: "核对创建结果", exact: true }).click();
     await expect
-      .element(page.getByRole("textbox", { name: "页面标题", exact: true }))
-      .toHaveValue("Weekly research");
+      .element(page.getByRole("textbox", { name: "资料空间名称", exact: true }))
+      .toBeDisabled();
+    await page.getByRole("button", { name: "核对创建结果", exact: true }).click();
+    await expectPageTitle("Weekly research");
     expect(fixture.mutate).toHaveBeenCalledTimes(2);
     expect(fixture.mutate.mock.calls[1]?.[0]).toEqual(fixture.mutate.mock.calls[0]?.[0]);
     expect(fixture.documents().size).toBe(1);
@@ -237,23 +314,25 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     expect(query).toBeDefined();
     query!.setState({ status: "error", error: new Error("Account refresh failed") });
     expect(readMossImagesAccountIdentity(client)).toBe(identity);
-    await page.getByRole("textbox", { name: "页面标题", exact: true }).click();
+    await hostTitle().click();
     await expect.element(editor).toHaveTextContent("A draft owned by the same account");
     expect(editor.element()).toBe(node);
-    await expect
-      .element(page.getByRole("textbox", { name: "页面标题", exact: true }))
-      .toHaveValue("Research page");
+    await expectPageTitle("Research page");
   });
 
   it("creates a child with its real parent identity and exposes it in the page tree", async () => {
     const parent = fixture.put(pageDocument());
     await mount();
-    await page.getByRole("button", { name: "在 Research page 新建子页面", exact: true }).click();
-    await page.getByRole("textbox", { name: "名称", exact: true }).fill("Evidence child");
+    await openPage();
+    // 子页面 lives in the top bar's ＋ insert menu.
+    await page
+      .getByRole("toolbar", { name: "页面工具栏", exact: true })
+      .getByRole("button", { name: /^(插入|Insert)$/ })
+      .click();
+    await page.getByRole("menuitem", { name: /^(子页面|Subpage)/ }).click();
+    await page.getByRole("textbox", { name: "页面名称", exact: true }).fill("Evidence child");
     await page.getByRole("button", { name: "创建", exact: true }).click();
-    await expect
-      .element(page.getByRole("textbox", { name: "页面标题", exact: true }))
-      .toHaveValue("Evidence child");
+    await expectPageTitle("Evidence child");
     expect(fixture.mutate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         op: "create",
@@ -262,8 +341,14 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
         scopeSpaceId: null,
       }),
     );
+    // The navigation entry's name carries its shortcut.
+    await titleMenu(/^页面导航/, "Evidence child");
     await expect
-      .element(page.getByRole("button", { name: "Evidence child", exact: true }))
+      .element(
+        page
+          .getByRole("navigation", { name: "页面导航", exact: true })
+          .getByRole("button", { name: "Research page", exact: true }),
+      )
       .toBeVisible();
   });
 
@@ -272,9 +357,15 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     fixture.put({ ...first, content: "Current evidence", page: { ...first.page, revision: 2 } });
     await mount();
     await openPage();
-    await page.getByRole("button", { name: "评论", exact: true }).click();
-    await page.getByRole("textbox", { name: "新评论", exact: true }).fill("Check this evidence");
-    await page.getByRole("button", { name: "添加评论", exact: true }).click();
+    await page
+      .getByRole("toolbar", { name: "页面工具栏", exact: true })
+      .getByRole("button", { name: "评论", exact: true })
+      .click();
+    const comments = page.getByRole("complementary", { name: "评论", exact: true });
+    await comments
+      .getByRole("textbox", { name: "添加页面评论", exact: true })
+      .fill("Check this evidence");
+    await comments.getByRole("button", { name: "添加页面评论", exact: true }).click();
     await expect
       .element(
         page
@@ -288,14 +379,19 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
       expectedRevision: 2,
       content: "Check this evidence",
     });
-    await page.getByRole("button", { name: "版本", exact: true }).click();
-    const oldVersion = page.getByRole("button", { name: "版本 1 · 你", exact: true });
+    await page
+      .getByRole("toolbar", { name: "页面工具栏", exact: true })
+      .getByRole("button", { name: "历史", exact: true })
+      .click();
+    const history = page.getByRole("list", { name: "版本历史", exact: true });
+    const oldVersion = history.getByRole("button", { name: /版本 1 ·/ });
     await oldVersion.click();
     await expect.element(page.getByText("Original evidence", { exact: true })).toBeVisible();
-    const restore = oldVersion
-      .element()
-      .parentElement!.querySelector<HTMLButtonElement>("button:last-child")!;
-    await userEvent.click(restore);
+    // The list asks for metadata only; the opened version's body is read on its own.
+    expect(fixture.api.pages.versions).toHaveBeenCalledWith(
+      expect.objectContaining({ pageId: first.page.id, summaryOnly: true }),
+    );
+    await history.getByRole("button", { name: "恢复此版本", exact: true }).click();
     await vi.waitFor(() =>
       expect(fixture.mutate.mock.calls.at(-1)?.[0]).toMatchObject({
         op: "restore-version",
@@ -311,7 +407,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     const document = fixture.put(pageDocument());
     await mount();
     await openPage();
-    await page.getByRole("button", { name: "关联文件", exact: true }).click();
+    await titleMenu("文件列表");
     await page.getByRole("checkbox", { name: "Research.pdf", exact: true }).click();
     await vi.waitFor(() =>
       expect(fixture.documents().get(document.page.id)?.page.assetIds).toEqual(["existing-file"]),
@@ -324,9 +420,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
         expectedRevision: 1,
       }),
     );
-    await expect
-      .element(page.getByRole("button", { name: "Research.pdf", exact: true }))
-      .toBeVisible();
+    await expectPageHeaderLink("Research.pdf");
     expect(fixture.libraryList).toHaveBeenCalled();
     expect(fixture.libraryImport).not.toHaveBeenCalled();
   });
@@ -336,7 +430,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     fixture.state.loseAttachResponse = true;
     await mount();
     await openPage();
-    await page.getByRole("button", { name: "定时任务", exact: true }).click();
+    await titleMenu("定时更新…");
     await expect
       .element(page.getByRole("textbox", { name: "Automation title", exact: true }))
       .toHaveValue("更新 Research page");
@@ -365,10 +459,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
       fixture.state.events.indexOf("automation:update:true"),
     );
     // A reconciled attachment must not leave the Page mutation ledger stuck.
-    await page
-      .getByRole("main", { name: "资料空间内容", exact: true })
-      .getByRole("button", { name: "置顶", exact: true })
-      .click();
+    await titleMenu("置顶");
     await vi.waitFor(() =>
       expect(fixture.documents().get(document.page.id)?.page.pinned).toBe(true),
     );
@@ -379,7 +470,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     fixture.state.loseAutomationCreateResponse = true;
     await mount();
     await openPage();
-    await page.getByRole("button", { name: "定时任务", exact: true }).click();
+    await titleMenu("定时更新…");
     await createPageSchedule();
     await expect
       .element(page.getByRole("alert"))
@@ -387,7 +478,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     expect(fixture.createAutomation).toHaveBeenCalledTimes(1);
     expect(fixture.updateAutomation).not.toHaveBeenCalled();
     await page.getByRole("button", { name: "Close", exact: true }).click();
-    await page.getByRole("button", { name: "定时任务", exact: true }).click();
+    await titleMenu("定时更新…");
     await page.getByRole("button", { name: "Retry creation", exact: true }).click();
     await vi.waitFor(() =>
       expect(fixture.updateAutomation).toHaveBeenCalledWith(
@@ -414,12 +505,19 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     try {
       await mount();
       await openPage();
-      await page.getByRole("button", { name: "定时任务", exact: true }).click();
+      await titleMenu("定时更新…");
       await createPageSchedule();
       await vi.waitFor(() => expect(fixture.createAutomation).toHaveBeenCalledTimes(1));
       fixture.state.account = "account-b";
       account("account-b");
-      await expect.element(page.getByText("还没有页面", { exact: true })).toBeVisible();
+      // The other account's pages are gone (the 资料库 file is profile-wide and stays).
+      await expect
+        .element(
+          page
+            .getByRole("region", { name: "最近", exact: true })
+            .getByRole("button", { name: "Research page", exact: true }),
+        )
+        .not.toBeInTheDocument();
       release();
       await vi.waitFor(() =>
         expect(
@@ -435,9 +533,8 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
         ),
       ).toBe(false);
       expect(fixture.updateAutomation).not.toHaveBeenCalled();
-      await expect
-        .element(page.getByRole("textbox", { name: "页面标题", exact: true }))
-        .not.toBeInTheDocument();
+      await expect.element(hostTitle()).not.toBeInTheDocument();
+      await expect.element(frameTitle()).not.toBeInTheDocument();
     } finally {
       release();
     }
@@ -480,7 +577,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     });
     try {
       await entered;
-      await page.getByRole("button", { name: "定时任务", exact: true }).click();
+      await titleMenu("定时更新…");
       await createPageSchedule();
       await vi.waitFor(async () =>
         expect((await queryLocks()).pending.some((lock) => lock.name === lockName)).toBe(true),
@@ -488,7 +585,14 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
       expect(fixture.createAutomation).not.toHaveBeenCalled();
       fixture.state.account = "account-b";
       account("account-b");
-      await expect.element(page.getByText("还没有页面", { exact: true })).toBeVisible();
+      // The other account's pages are gone (the 资料库 file is profile-wide and stays).
+      await expect
+        .element(
+          page
+            .getByRole("region", { name: "最近", exact: true })
+            .getByRole("button", { name: "Research page", exact: true }),
+        )
+        .not.toBeInTheDocument();
       release();
       await holding;
       await vi.waitFor(async () => {
@@ -517,28 +621,34 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     fixture.put(pageDocument("safe-page", "Safe page", "Safely saved content"));
     const hostError = "此编辑器尚不支持页面块 moss-future-review-block；原始内容由 Moss 保留。";
     const openUnsupported = async () => {
-      await page.getByRole("button", { name: "Historical page", exact: true }).click();
-      await expect
-        .element(page.getByRole("textbox", { name: "页面标题", exact: true }))
-        .toHaveValue("Historical page");
+      await page
+        .getByRole("region", { name: "最近", exact: true })
+        .getByRole("button", { name: "Historical page", exact: true })
+        .click();
+      await expectPageTitle("Historical page");
       await expect.element(page.getByRole("alert").first()).toHaveTextContent(hostError);
     };
     await mount();
     await openUnsupported();
-    await page.getByRole("button", { name: "保存", exact: true }).click();
     expect(fixture.mutate).not.toHaveBeenCalled();
     expect(fixture.documents().get(document.page.id)?.richContent).toBe(richContent);
     await openPage("Safe page");
     await openUnsupported();
     fixture.mutate.mockRejectedValue(new Error("Unknown save result"));
-    const title = page.getByRole("textbox", { name: "页面标题", exact: true });
+    const title = hostTitle();
     await title.fill("Dirty historical title");
-    await page.getByRole("button", { name: "Safe page", exact: true }).click();
+    await page
+      .getByRole("region", { name: "最近", exact: true })
+      .getByRole("button", { name: "Safe page", exact: true })
+      .click();
     await expect.element(title).toHaveValue("Dirty historical title");
     await expect.element(page.getByRole("alert").first()).toHaveTextContent("Unknown save result");
     // Undoing the visible edit does not resolve the already submitted CAS write.
     await title.fill("Historical page");
-    await page.getByRole("button", { name: "Safe page", exact: true }).click();
+    await page
+      .getByRole("region", { name: "最近", exact: true })
+      .getByRole("button", { name: "Safe page", exact: true })
+      .click();
     await expect.element(title).toHaveValue("Historical page");
     expect(fixture.documents().get(document.page.id)?.page.title).toBe("Historical page");
     expect(fixture.documents().get(document.page.id)?.richContent).toBe(richContent);

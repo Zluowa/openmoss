@@ -1,3 +1,4 @@
+import { MossbotMark } from "./mossbot/MossbotAvatar";
 // FILE: AppRail.tsx
 // Purpose: The rail layout's fixed icon tab strip (Home, Spaces, route destinations, Settings).
 // Layer: App shell component
@@ -73,6 +74,7 @@ export function railProjectGlyphs(
 
 /** The fixed rail items' outline glyphs, from the app's one icon family. */
 const RAIL_ITEM_GLYPH_NAMES: Record<RailItemId, string> = {
+  mossbot: "robot",
   home: "home",
   inbox: "at",
   pullRequests: "code-analyze",
@@ -88,7 +90,10 @@ const RAIL_ITEM_GLYPH_NAMES: Record<RailItemId, string> = {
   skills: "puzzle",
 };
 
+const MOSSBOT_RAIL_GLYPHS = { idle: MossbotMark, active: MossbotMark };
+
 export function railItemGlyphs(id: RailItemId): AppRailGlyphs {
+  if (id === "mossbot") return MOSSBOT_RAIL_GLYPHS;
   return railCentralGlyphs(RAIL_ITEM_GLYPH_NAMES[id]);
 }
 

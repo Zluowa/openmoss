@@ -1,3 +1,29 @@
+import {
+  AuthSessionState,
+  AuthCreatePairingCredentialInput,
+  AuthPairingCredentialResult,
+  AuthPairingLink,
+  AuthRevokePairingLinkInput,
+  AuthClientSession,
+  AuthRevokeClientSessionInput,
+  AuthLogoutResult,
+} from "./auth";
+import {
+  MossbotRoom,
+  MossbotRoomView,
+  MossbotRoomCreateInput,
+  MossbotRoomUpdateInput,
+  MossbotRoomGetInput,
+  MossbotRoomSendInput,
+  MossbotRoomDeleteResult,
+} from "./mossbotRoom";
+import {
+  DevsReportSubmitInput,
+  DevsReportPreview,
+  DevsReportListInput,
+  DevsReportState,
+  DevsReportListResult,
+} from "./devsReport";
 import { Schema } from "effect";
 import {
   PagesCommentsInput,
@@ -5,15 +31,29 @@ import {
   PagesListInput,
   PagesListResult,
   PagesMutateInput,
+  PagesOutputStateInput,
+  PagesOutputsInput,
+  PagesOutputsResult,
   PagesMutateResult,
   PagesReadInput,
   PagesReadResult,
   PagesScopeInput,
+  PageSpaceSyncInput,
+  PageSpaceSyncState,
+  PageAccountRecoveryInput,
+  PageAccountRecoveryResult,
   PagesSpacesResult,
   PagesVersionsInput,
   PagesVersionsResult,
   PagesRpcError,
 } from "./pages";
+import { PagesRealtimeTokenInput, PagesRealtimeTokenResult } from "./pagesRealtime";
+import {
+  PageDraftsListInput,
+  PageDraftsListResult,
+  PageDraftsMutateInput,
+  PageDraftsMutateResult,
+} from "./pageDrafts";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
@@ -134,7 +174,10 @@ import {
   McpConnectorDisconnectInput,
   McpConnectorDisconnectResult,
   McpConnectorSetup,
+  MossServicePluginSetInstalledInput,
+  MossServicePluginsState,
 } from "./mcpConnectors";
+import { HtmlRenderMapConfig } from "./htmlRenderMaps";
 import {
   MossAppsConnectFieldsInput,
   MossAppsConnectFieldsResult,
@@ -408,6 +451,8 @@ import {
   PullRequestAutoFixSetInput,
 } from "./pullRequestAutoFix";
 import {
+  GitHubConnectionInput,
+  GitHubConnectionResult,
   GitHubInboxListInput,
   GitHubInboxListResult,
   GitHubIssueCommentInput,
@@ -490,6 +535,10 @@ import {
   ProjectDiscoverScriptsInput,
   ProjectDiscoverScriptsResult,
   ProjectListDevServersResult,
+  ProjectReadDevServerLogInput,
+  ProjectReadDevServerLogResult,
+  ProjectReadLaunchConfigurationsInput,
+  ProjectReadLaunchConfigurationsResult,
   ProjectListDirectoriesInput,
   ProjectListDirectoriesResult,
   ProjectReadFileInput,
@@ -541,6 +590,11 @@ import {
   ServerProviderLoginError,
   ServerProviderLoginInput,
   ServerProviderLoginResult,
+  ServerProviderInstallError,
+  ServerProviderInstallInput,
+  ServerProviderInstallResult,
+  ServerProviderInstallationInput,
+  ServerProviderInstallationResult,
   ServerProviderUpdateError,
   ServerProviderUpdateInput,
   ServerProviderUpdateResult,
@@ -902,6 +956,21 @@ export const WsProjectsListDevServersRpc = Rpc.make(WS_METHODS.projectsListDevSe
   success: ProjectListDevServersResult,
   error: WsRpcError,
 });
+
+export const WsProjectsReadDevServerLogRpc = Rpc.make(WS_METHODS.projectsReadDevServerLog, {
+  payload: ProjectReadDevServerLogInput,
+  success: ProjectReadDevServerLogResult,
+  error: WsRpcError,
+});
+
+export const WsProjectsReadLaunchConfigurationsRpc = Rpc.make(
+  WS_METHODS.projectsReadLaunchConfigurations,
+  {
+    payload: ProjectReadLaunchConfigurationsInput,
+    success: ProjectReadLaunchConfigurationsResult,
+    error: WsRpcError,
+  },
+);
 
 export const WsSubscribeProjectDevServerEventsRpc = Rpc.make(
   WS_METHODS.subscribeProjectDevServerEvents,
@@ -1381,6 +1450,12 @@ export const WsGitPreparePullRequestThreadRpc = Rpc.make(WS_METHODS.gitPreparePu
 
 const PullRequestsRpcError = Schema.Union([PullRequestsUnavailableError, WsRpcError]);
 
+export const WsGitHubInboxConnectionRpc = Rpc.make(WS_METHODS.githubInboxConnection, {
+  payload: GitHubConnectionInput,
+  success: GitHubConnectionResult,
+  error: WsRpcError,
+});
+
 export const WsGitHubInboxListRpc = Rpc.make(WS_METHODS.githubInboxList, {
   payload: GitHubInboxListInput,
   success: GitHubInboxListResult,
@@ -1603,6 +1678,50 @@ export const WsServerGetEnvironmentRpc = Rpc.make(WS_METHODS.serverGetEnvironmen
   error: WsRpcError,
 });
 
+export const WsServerGetAuthSessionRpc = Rpc.make(WS_METHODS.serverGetAuthSession, {
+  payload: Schema.Struct({}),
+  success: AuthSessionState,
+  error: WsRpcError,
+});
+
+export const WsServerCreateAuthPairingTokenRpc = Rpc.make(WS_METHODS.serverCreateAuthPairingToken, {
+  payload: AuthCreatePairingCredentialInput,
+  success: AuthPairingCredentialResult,
+  error: WsRpcError,
+});
+
+export const WsServerListAuthPairingLinksRpc = Rpc.make(WS_METHODS.serverListAuthPairingLinks, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(AuthPairingLink),
+  error: WsRpcError,
+});
+
+export const WsServerRevokeAuthPairingLinkRpc = Rpc.make(WS_METHODS.serverRevokeAuthPairingLink, {
+  payload: AuthRevokePairingLinkInput,
+  success: AuthLogoutResult,
+  error: WsRpcError,
+});
+
+export const WsServerListAuthClientsRpc = Rpc.make(WS_METHODS.serverListAuthClients, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(AuthClientSession),
+  error: WsRpcError,
+});
+
+export const WsServerRevokeAuthClientRpc = Rpc.make(WS_METHODS.serverRevokeAuthClient, {
+  payload: AuthRevokeClientSessionInput,
+  success: AuthLogoutResult,
+  error: WsRpcError,
+});
+
+export const WsServerRevokeOtherAuthClientsRpc = Rpc.make(WS_METHODS.serverRevokeOtherAuthClients, {
+  payload: Schema.Struct({}),
+  success: Schema.Struct({
+    revokedCount: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  }),
+  error: WsRpcError,
+});
+
 export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
   success: ServerGetSettingsResult,
@@ -1644,6 +1763,21 @@ export const WsServerUpdateProviderRpc = Rpc.make(WS_METHODS.serverUpdateProvide
   success: ServerProviderUpdateResult,
   error: ServerProviderUpdateError,
 });
+
+export const WsServerInstallProviderRpc = Rpc.make(WS_METHODS.serverInstallProvider, {
+  payload: ServerProviderInstallInput,
+  success: ServerProviderInstallResult,
+  error: ServerProviderInstallError,
+});
+
+export const WsServerManageProviderInstallationRpc = Rpc.make(
+  WS_METHODS.serverManageProviderInstallation,
+  {
+    payload: ServerProviderInstallationInput,
+    success: ServerProviderInstallationResult,
+    error: WsRpcError,
+  },
+);
 
 export const WsServerStartProviderLoginRpc = Rpc.make(WS_METHODS.serverStartProviderLogin, {
   payload: ServerProviderLoginInput,
@@ -1711,11 +1845,33 @@ export const WsServerDisconnectMcpConnectorRpc = Rpc.make(WS_METHODS.serverDisco
   error: WsRpcError,
 });
 
+/** The map a live html_render page draws for this account; the key is never stored in a page. */
+export const WsServerGetHtmlRenderMapConfigRpc = Rpc.make(WS_METHODS.serverGetHtmlRenderMapConfig, {
+  payload: Schema.Struct({}),
+  success: HtmlRenderMapConfig,
+  error: WsRpcError,
+});
+
 export const WsServerGetMcpConnectorSetupRpc = Rpc.make(WS_METHODS.serverGetMcpConnectorSetup, {
   payload: Schema.Struct({}),
   success: McpConnectorSetup,
   error: WsRpcError,
 });
+
+export const WsServerListMossServicePluginsRpc = Rpc.make(WS_METHODS.serverListMossServicePlugins, {
+  payload: Schema.Struct({}),
+  success: MossServicePluginsState,
+  error: WsRpcError,
+});
+
+export const WsServerSetMossServicePluginInstalledRpc = Rpc.make(
+  WS_METHODS.serverSetMossServicePluginInstalled,
+  {
+    payload: MossServicePluginSetInstalledInput,
+    success: MossServicePluginsState,
+    error: WsRpcError,
+  },
+);
 
 export const WsMossAppsGetStatusRpc = Rpc.make(WS_METHODS.mossAppsGetStatus, {
   payload: Schema.Struct({}),
@@ -1816,6 +1972,22 @@ export const WsStatsGetRecapRpc = Rpc.make(WS_METHODS.statsGetRecap, {
 export const WsServerGetDiagnosticsRpc = Rpc.make(WS_METHODS.serverGetDiagnostics, {
   payload: Schema.Struct({}),
   success: ServerDiagnosticsResult,
+  error: WsRpcError,
+});
+
+export const WsServerPrepareDevsReportRpc = Rpc.make(WS_METHODS.serverPrepareDevsReport, {
+  payload: DevsReportSubmitInput,
+  success: DevsReportPreview,
+  error: WsRpcError,
+});
+export const WsServerSubmitDevsReportRpc = Rpc.make(WS_METHODS.serverSubmitDevsReport, {
+  payload: DevsReportSubmitInput,
+  success: DevsReportState,
+  error: WsRpcError,
+});
+export const WsServerListDevsReportsRpc = Rpc.make(WS_METHODS.serverListDevsReports, {
+  payload: DevsReportListInput,
+  success: DevsReportListResult,
   error: WsRpcError,
 });
 
@@ -2634,6 +2806,16 @@ export const WsPagesSpacesRpc = Rpc.make(WS_METHODS.pagesSpaces, {
   success: PagesSpacesResult,
   error: PagesRpcError,
 });
+export const WsPageSpaceSyncRpc = Rpc.make(WS_METHODS.pageSpaceSync, {
+  payload: PageSpaceSyncInput,
+  success: PageSpaceSyncState,
+  error: PagesRpcError,
+});
+export const WsPageAccountRecoveryRpc = Rpc.make(WS_METHODS.pageAccountRecovery, {
+  payload: PageAccountRecoveryInput,
+  success: PageAccountRecoveryResult,
+  error: PagesRpcError,
+});
 export const WsPagesListRpc = Rpc.make(WS_METHODS.pagesList, {
   payload: PagesListInput,
   success: PagesListResult,
@@ -2659,13 +2841,45 @@ export const WsPagesMutateRpc = Rpc.make(WS_METHODS.pagesMutate, {
   success: PagesMutateResult,
   error: PagesRpcError,
 });
+export const WsPagesRealtimeTokenRpc = Rpc.make(WS_METHODS.pagesRealtimeToken, {
+  payload: PagesRealtimeTokenInput,
+  success: PagesRealtimeTokenResult,
+  error: PagesRpcError,
+});
+export const WsPagesDraftsRpc = Rpc.make(WS_METHODS.pagesDrafts, {
+  payload: PageDraftsListInput,
+  success: PageDraftsListResult,
+  error: PagesRpcError,
+});
+export const WsPagesDraftsMutateRpc = Rpc.make(WS_METHODS.pagesDraftsMutate, {
+  payload: PageDraftsMutateInput,
+  success: PageDraftsMutateResult,
+  error: PagesRpcError,
+});
+export const WsPagesOutputsRpc = Rpc.make(WS_METHODS.pagesOutputs, {
+  payload: PagesOutputsInput,
+  success: PagesOutputsResult,
+  error: PagesRpcError,
+});
+export const WsPagesOutputStateRpc = Rpc.make(WS_METHODS.pagesOutputState, {
+  payload: PagesOutputStateInput,
+  success: Schema.Void,
+  error: PagesRpcError,
+});
 export const WsPagesRpcGroup = RpcGroup.make(
+  WsPagesOutputsRpc,
+  WsPagesOutputStateRpc,
   WsPagesSpacesRpc,
+  WsPageSpaceSyncRpc,
+  WsPageAccountRecoveryRpc,
   WsPagesListRpc,
   WsPagesReadRpc,
   WsPagesVersionsRpc,
   WsPagesCommentsRpc,
   WsPagesMutateRpc,
+  WsPagesRealtimeTokenRpc,
+  WsPagesDraftsRpc,
+  WsPagesDraftsMutateRpc,
 );
 
 export const WsLibraryListRpc = Rpc.make(WS_METHODS.libraryList, {
@@ -2731,6 +2945,42 @@ export const WsLibraryRegisterRpc = Rpc.make(WS_METHODS.libraryRegister, {
 export const WsLibraryImportRpc = Rpc.make(WS_METHODS.libraryImport, {
   payload: LibraryImportInput,
   success: LibraryImportResult,
+  error: WsRpcError,
+});
+
+export const WsMossbotRoomUpdateRpc = Rpc.make(WS_METHODS.mossbotRoomUpdate, {
+  payload: MossbotRoomUpdateInput,
+  success: MossbotRoom,
+  error: WsRpcError,
+});
+export const WsMossbotRoomCancelRpc = Rpc.make(WS_METHODS.mossbotRoomCancel, {
+  payload: MossbotRoomGetInput,
+  success: MossbotRoom,
+  error: WsRpcError,
+});
+export const WsMossbotRoomListRpc = Rpc.make(WS_METHODS.mossbotRoomList, {
+  payload: Schema.Struct({}),
+  success: Schema.Array(MossbotRoom),
+  error: WsRpcError,
+});
+export const WsMossbotRoomCreateRpc = Rpc.make(WS_METHODS.mossbotRoomCreate, {
+  payload: MossbotRoomCreateInput,
+  success: MossbotRoom,
+  error: WsRpcError,
+});
+export const WsMossbotRoomGetRpc = Rpc.make(WS_METHODS.mossbotRoomGet, {
+  payload: MossbotRoomGetInput,
+  success: MossbotRoomView,
+  error: WsRpcError,
+});
+export const WsMossbotRoomSendRpc = Rpc.make(WS_METHODS.mossbotRoomSend, {
+  payload: MossbotRoomSendInput,
+  success: MossbotRoom,
+  error: WsRpcError,
+});
+export const WsMossbotRoomDeleteRpc = Rpc.make(WS_METHODS.mossbotRoomDelete, {
+  payload: MossbotRoomGetInput,
+  success: MossbotRoomDeleteResult,
   error: WsRpcError,
 });
 
@@ -2946,8 +3196,11 @@ type WsSatelliteRpcKey =
   | "WsSubscribeProjectAgentEventsRpc"
   | `WsDevice${string}Rpc`
   | `WsProjectAgent${string}Rpc`
+  | `WsMossbotRoom${string}Rpc`
   | `WsLibrary${string}Rpc`
-  | `WsPages${string}Rpc`;
+  | `WsPages${string}Rpc`
+  // Page RPC names predate the grouped WsPages convention.
+  | `WsPage${string}Rpc`;
 
 // The explicit mapped annotation keeps declaration emit finite: with 200+
 // members the group's inferred type exceeds the compiler's serialize limit.
@@ -3012,6 +3265,8 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsProjectsRunDevServerRpc,
   WsProjectsStopDevServerRpc,
   WsProjectsListDevServersRpc,
+  WsProjectsReadDevServerLogRpc,
+  WsProjectsReadLaunchConfigurationsRpc,
   WsSubscribeProjectDevServerEventsRpc,
   WsProjectsProvisionFromGitHubRpc,
   WsStudioListThreadOutputsRpc,
@@ -3030,6 +3285,7 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsGitResolvePullRequestRpc,
   WsGitPullRequestSnapshotRpc,
   WsGitPreparePullRequestThreadRpc,
+  WsGitHubInboxConnectionRpc,
   WsGitHubInboxListRpc,
   WsGitHubInboxIssueDetailRpc,
   WsGitHubInboxIssueCommentRpc,
@@ -3067,12 +3323,21 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsServerGetConfigRpc,
   WsServerGetEnvironmentRpc,
   WsServerGetSettingsRpc,
+  WsServerGetAuthSessionRpc,
+  WsServerCreateAuthPairingTokenRpc,
+  WsServerListAuthPairingLinksRpc,
+  WsServerRevokeAuthPairingLinkRpc,
+  WsServerListAuthClientsRpc,
+  WsServerRevokeAuthClientRpc,
+  WsServerRevokeOtherAuthClientsRpc,
   WsServerWorkspaceImportProbeRpc,
   WsServerWorkspaceImportApplyRpc,
   WsServerWorkspaceImportSyncRpc,
   WsServerUpdateSettingsRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
+  WsServerInstallProviderRpc,
+  WsServerManageProviderInstallationRpc,
   WsServerStartProviderLoginRpc,
   WsServerCancelProviderLoginRpc,
   WsServerListExternalMcpIntegrationsRpc,
@@ -3083,6 +3348,9 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsServerConnectMcpConnectorRpc,
   WsServerDisconnectMcpConnectorRpc,
   WsServerGetMcpConnectorSetupRpc,
+  WsServerListMossServicePluginsRpc,
+  WsServerSetMossServicePluginInstalledRpc,
+  WsServerGetHtmlRenderMapConfigRpc,
   WsMossAppsGetStatusRpc,
   WsMossAppsListToolkitsRpc,
   WsMossAppsListConnectionsRpc,
@@ -3099,6 +3367,9 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsStatsGetProfileTokenStatsRpc,
   WsStatsGetRecapRpc,
   WsServerGetDiagnosticsRpc,
+  WsServerPrepareDevsReportRpc,
+  WsServerSubmitDevsReportRpc,
+  WsServerListDevsReportsRpc,
   WsServerReadThreadDiagnosticsRpc,
   WsServerPrewarmVoiceRpc,
   WsServerTranscribeVoiceRpc,
@@ -3222,6 +3493,13 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
 // Project-agent RPCs live in a satellite group: folding them into
 // WsFeatureRpcGroup pushes its inferred type past the declaration emit limit.
 export const WsProjectAgentRpcGroup = RpcGroup.make(
+  WsMossbotRoomUpdateRpc,
+  WsMossbotRoomCancelRpc,
+  WsMossbotRoomListRpc,
+  WsMossbotRoomCreateRpc,
+  WsMossbotRoomGetRpc,
+  WsMossbotRoomSendRpc,
+  WsMossbotRoomDeleteRpc,
   WsProjectAgentGetOverviewRpc,
   WsProjectAgentListSummariesRpc,
   WsProjectAgentConfigureRpc,

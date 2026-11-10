@@ -3,8 +3,6 @@
 // Exports: PATH hydration (Windows: provider homes from the user environment) plus
 //   base-dir helpers used by server startup.
 
-import { execFileSync } from "node:child_process";
-
 import { Effect } from "effect";
 import {
   isShellEnvironmentHydrated,
@@ -12,12 +10,13 @@ import {
   mergePathEntries,
   readPathFromLaunchctl,
   readPathFromLoginShell,
-} from "@synara/shared/shell";
-import { createCachedLoginShellPathReader } from "@synara/shared/loginShellEnvironment";
+} from "@moss/shared/shell";
+import { createCachedLoginShellPathReader } from "@moss/shared/loginShellEnvironment";
 import {
   expandHomePath as expandHomePathSync,
   resolveMossHomeDirectory,
-} from "@synara/shared/mossHome";
+} from "@moss/shared/mossHome";
+import { queryWindowsRegistry } from "@moss/shared/windowsRegistry";
 
 function logPathHydrationWarning(message: string, error?: unknown): void {
   console.warn(`[server] ${message}`, error instanceof Error ? error.message : (error ?? ""));
@@ -31,12 +30,11 @@ function logPathHydrationWarning(message: string, error?: unknown): void {
  */
 const WINDOWS_USER_ENVIRONMENT_KEYS = ["CODEX_HOME", "CLAUDE_CONFIG_DIR"] as const;
 
+// The shared reader keeps reg.exe's stderr out of the server log and decodes values in the
+// system code page, so a provider home under a non-ASCII user folder survives. A missing
+// HKCU\Environment key simply means no user variables.
 function readWindowsUserEnvironment(): string {
-  return execFileSync("reg.exe", ["query", "HKCU\\Environment"], {
-    encoding: "utf8",
-    timeout: 2_000,
-    windowsHide: true,
-  });
+  return queryWindowsRegistry(["HKCU\\Environment"], { timeoutMs: 2_000 }) ?? "";
 }
 
 const WINDOWS_REG_VALUE_LINE = /^\s+(\S+)\s+(REG_SZ|REG_EXPAND_SZ)\s+(.*)$/;

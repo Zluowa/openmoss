@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { EnsureMossSourceResult } from "@synara/shared/mossSourceBootstrap";
+import type { EnsureMossSourceResult } from "@moss/shared/mossSourceBootstrap";
 
 import { mossBootstrapExitCode, parseBootstrapWorkspace } from "./moss-bootstrap";
 

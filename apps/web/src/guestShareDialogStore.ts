@@ -3,7 +3,7 @@
 // Layer: Web UI state
 // Depends on: Zustand.
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import { create } from "zustand";
 
 interface GuestShareDialogStore {

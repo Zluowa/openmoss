@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { EventId, MessageId, type OrchestrationThreadDetailSnapshot } from "@synara/contracts";
+import { EventId, MessageId, type OrchestrationThreadDetailSnapshot } from "@moss/contracts";
 const api = vi.hoisted(() => ({ getThreadDetailSnapshot: vi.fn() }));
 vi.mock("./nativeApi", () => ({ ensureNativeApi: () => ({ orchestration: api }) }));
 import { useStore } from "./store";

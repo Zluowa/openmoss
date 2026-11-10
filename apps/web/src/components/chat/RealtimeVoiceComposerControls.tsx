@@ -2,7 +2,7 @@
 // Purpose: Keep active Realtime Voice controls at the right edge of the normal composer.
 // Layer: Chat composer presentation
 
-import type { RealtimeVoiceState } from "@synara/contracts";
+import type { RealtimeVoiceState } from "@moss/contracts";
 import { MicIcon, MicrophoneOffIcon, VolumeIcon, VolumeOffIcon, XIcon } from "~/lib/icons";
 
 import { Button } from "../ui/button";

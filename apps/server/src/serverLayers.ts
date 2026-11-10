@@ -1,3 +1,4 @@
+import { MossbotRoomsLive } from "./mossbotRooms/service";
 import { ProjectionThreadMessageRepositoryLive } from "./persistence/Layers/ProjectionThreadMessages";
 import { OrchestrationCommandReceiptRepositoryLive } from "./persistence/Layers/OrchestrationCommandReceipts";
 import { QueuedTurnPromotionRepositoryLive } from "./persistence/Layers/QueuedTurnPromotions";
@@ -50,6 +51,7 @@ import { ServerEventLoopMonitorLive } from "./eventLoopMonitor";
 import { ServerLifecycleEventsLive } from "./serverLifecycleEvents";
 import { ServerRuntimeStartupLive } from "./serverRuntimeStartup";
 import { KeepAwakeLive } from "./keepAwake";
+import { ErrorReportsPreferenceLive } from "./observability/errorReportsPreference";
 import { ServerSettingsLive } from "./serverSettings";
 import { WorkspaceLayerLive } from "./workspace/runtimeLayer";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
@@ -62,7 +64,24 @@ import { AutomationRepositoryLive } from "./persistence/Layers/AutomationReposit
 import { TodoRepositoryLive } from "./persistence/Layers/TodoRepository";
 import { LibraryRepositoryLive } from "./persistence/Layers/LibraryRepository";
 import { LibraryServiceLive } from "./library/Layers/LibraryService";
-import { PagesServiceLive } from "./pages/Layers/PagesService";
+import { PageTypesServiceLive } from "./pages/types/PageTypesService";
+import { PageSharingServiceLive } from "./pages/sharing/PageSharingServiceLive";
+import { PageSpaceSyncLive } from "./pages/realtime/cloud/PageSpaceSyncService";
+import {
+  AccountPageRecoveryLive,
+  AccountRecoveryPublicationLive,
+  PageAccountRecoveryRpcLive,
+} from "./pages/realtime/cloud/PageAccountRecoveryService";
+import { AccountRecoveryRuntimeLive } from "./pages/realtime/cloud/control/accountRecoveryRuntime";
+import {
+  AccountRecoveryAuthorityConfig,
+  AccountRecoveryAuthorityLive as AccountRecoveryAuthorityRuntimeLive,
+  type AccountRecoveryAuthorityProvision,
+} from "./pages/realtime/cloud/control/accountRecoveryAuthorityRuntime";
+import { PageAppPublicationOwnerLive } from "./pages/sharing/PageAppPublicationOwner";
+import { PagesRealtimeLive } from "./pages/realtime/PageRealtimeService";
+import { PageDraftsServiceLive } from "./pages/drafts/Layers/PageDraftsService";
+import { PageAppsServiceLive } from "./pages/apps/PageAppsServiceLive";
 import { TodoServiceLive } from "./todo/Layers/TodoService";
 import { SecretRequestsLive } from "./secretRequests/Layers/SecretRequests";
 import { GuestShareRepositoryLive } from "./persistence/Layers/GuestShareRepository";
@@ -88,7 +107,7 @@ import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService
 import { PullRequestAutoFixRepositoryLive } from "./persistence/Layers/PullRequestAutoFixRepository";
 import { PullRequestAutoFixServiceLive } from "./pullRequestAutoFix/Layers/PullRequestAutoFixService";
 import { GitHubInboxServiceLive } from "./githubInbox/Layers/GitHubInboxService";
-import { ProviderHealthLive } from "./provider/Layers/ProviderHealth";
+import { ServerProviderHealthLive } from "./provider/Layers/ProviderHealth";
 import { makeServerProviderLayer } from "./provider/runtimeLayer";
 import { MossProjectionAuthorityFactoryLive } from "./provider/mossProjectionAuthorityFactory";
 
@@ -112,12 +131,17 @@ export function makeServerRuntimeServicesLayer(
     readonly agentGatewayCredentialsLayer?: typeof AgentGatewayCredentialsWithSecretsLive;
     /** Test-harness-only services supplied by an alternate process entry point. */
     readonly additionalRuntimeServicesLayer?: Layer.Layer<any, never, never>;
+    /** Hosted authority wiring. Omit to keep the recovery authority route unavailable. */
+    readonly accountRecoveryAuthorityProvision?: AccountRecoveryAuthorityProvision;
   } = {},
 ) {
   const agentGatewayCredentialsLayer =
     options.agentGatewayCredentialsLayer ?? AgentGatewayCredentialsWithSecretsLive;
   const serverSettingsLayer = ServerSettingsLive;
-  const providerHealthLayer = ProviderHealthLive.pipe(Layer.provideMerge(serverSettingsLayer));
+  const providerHealthLayer = ServerProviderHealthLive.pipe(
+    Layer.provideMerge(serverSettingsLayer),
+    Layer.provide(ServerSecretStoreLive),
+  );
   const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitCoreLive));
 
   const checkpointDiffQueryLayer = CheckpointDiffQueryLive.pipe(
@@ -254,7 +278,9 @@ export function makeServerRuntimeServicesLayer(
   // One instance for the gateway tool that asks and the secretRequest.answer RPC that answers.
   const secretRequestsLayer = SecretRequestsLive.pipe(Layer.provide(runtimeServicesLayer));
   const libraryServiceLayer = LibraryServiceLive.pipe(Layer.provideMerge(LibraryRepositoryLive));
-  const pagesServiceLayer = PagesServiceLive;
+  // Typed items save through the realtime-wrapped PagesService, so open viewers see them.
+  const pagesServiceLayer = PageTypesServiceLive.pipe(Layer.provideMerge(PagesRealtimeLive));
+  const pageDraftsServiceLayer = PageDraftsServiceLive.pipe(Layer.provideMerge(pagesServiceLayer));
   const realtimeVoiceLayer = RealtimeVoiceServiceLive.pipe(
     Layer.provide(mossCloudAccountLayer),
     Layer.provide(mossPhoneAccountLayer),
@@ -268,6 +294,10 @@ export function makeServerRuntimeServicesLayer(
   );
   const automationRunReactorLayer = AutomationRunReactorLive.pipe(
     Layer.provideMerge(automationServiceLayer),
+  );
+  const mossbotRoomsLayer = MossbotRoomsLive.pipe(
+    Layer.provideMerge(projectAgentServiceLayer),
+    Layer.provideMerge(runtimeServicesLayer),
   );
   const projectAgentReactorLayer = ProjectAgentReactorLive.pipe(
     Layer.provideMerge(projectAgentServiceLayer),
@@ -292,18 +322,33 @@ export function makeServerRuntimeServicesLayer(
   const mcpConnectorsLayer = McpConnectorsLive.pipe(
     Layer.provideMerge(ServerSecretStoreLive),
     Layer.provideMerge(agentGatewayCredentialsLayer),
+    // Mainland China presets are gated on a signed-in phone account.
+    Layer.provide(mossPhoneAccountLayer),
+  );
+  const pageAppsServiceLayer = PageAppsServiceLive.pipe(
+    Layer.provide(mossEnterpriseKeyLayer),
+    Layer.provide(mossPhoneAccountLayer),
+    Layer.provide(mossCloudAccountLayer),
+    // 应用页 `mcp` calls the owner's connectors and Moss 应用 through the same proxy.
+    Layer.provide(mcpConnectorsLayer),
   );
   const agentGatewayLayer = AgentGatewayLive.pipe(
     Layer.provideMerge(
       Layer.mergeAll(
+        // All three sign-in lanes: without any one of them the gateway offers
+        // agents no Canvas or media tools at all.
         mossPhoneAccountLayer,
         mossCloudAccountLayer,
+        mossEnterpriseKeyLayer,
         ProjectionThreadMessageRepositoryLive,
         OrchestrationCommandReceiptRepositoryLive,
         // The same instance the todo.* RPCs use, so a to-do an agent adds reaches open windows.
         todoServiceLayer,
         pagesServiceLayer,
+        pageDraftsServiceLayer,
+        pageAppsServiceLayer,
         secretRequestsLayer,
+        mossbotRoomsLayer,
       ),
     ),
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),
@@ -362,8 +407,51 @@ export function makeServerRuntimeServicesLayer(
     Layer.provide(runtimeServicesLayer),
   );
 
+  // 资料空间 links and sites reach guests through one relay share (pages/sharing).
+  const pageSharingLayer = PageSharingServiceLive.pipe(
+    Layer.provide(pageAppsServiceLayer),
+    Layer.provide(pagesServiceLayer),
+    Layer.provide(libraryServiceLayer),
+    Layer.provide(ShareRelayTransportLive),
+    Layer.provide(mossPhoneAccountLayer),
+    Layer.provide(mossCloudAccountLayer),
+    Layer.provide(ServerSecretStoreLive),
+  );
+
   return Layer.mergeAll(
     guestShareLayer,
+    pageSharingLayer,
+    PageAccountRecoveryRpcLive.pipe(
+      Layer.provide(mossPhoneAccountLayer),
+      Layer.provide(mossCloudAccountLayer),
+      Layer.provide(ServerSecretStoreLive),
+      Layer.provideMerge(AccountRecoveryRuntimeLive),
+    ),
+    AccountPageRecoveryLive.pipe(
+      Layer.provideMerge(pagesServiceLayer),
+      Layer.provideMerge(AccountRecoveryRuntimeLive),
+    ),
+    AccountRecoveryPublicationLive.pipe(Layer.provideMerge(AccountRecoveryRuntimeLive)),
+    AccountRecoveryAuthorityRuntimeLive.pipe(
+      Layer.provideMerge(AccountRecoveryRuntimeLive),
+      Layer.provide(
+        Layer.succeed(
+          AccountRecoveryAuthorityConfig,
+          options.accountRecoveryAuthorityProvision ?? null,
+        ),
+      ),
+    ),
+    AccountRecoveryRuntimeLive,
+    PageSpaceSyncLive.pipe(
+      Layer.provide(mossPhoneAccountLayer),
+      Layer.provide(mossCloudAccountLayer),
+      Layer.provide(ServerSecretStoreLive),
+      Layer.provide(ServerEnvironmentLive),
+    ),
+    PageAppPublicationOwnerLive.pipe(
+      Layer.provide(pageSharingLayer),
+      Layer.provide(pageAppsServiceLayer),
+    ),
     // One server-owned factory is shared by the provider runtime and WS RPC.
     // Its absence is deliberately read-only; neither consumer creates a
     // workspace fallback or a second ownership store.
@@ -378,9 +466,12 @@ export function makeServerRuntimeServicesLayer(
     secretRequestsLayer,
     libraryServiceLayer,
     pagesServiceLayer,
+    pageDraftsServiceLayer,
+    pageAppsServiceLayer,
     ProjectAgentRepositoryLive,
     projectAgentServiceLayer,
     projectAgentReactorLayer,
+    mossbotRoomsLayer,
     managedAttachmentCleanupLayer,
     AutomationRepositoryLive,
     AgentGatewayOperationRepositoryLive,
@@ -406,6 +497,7 @@ export function makeServerRuntimeServicesLayer(
     TerminalLayerLive,
     KeybindingsLive,
     keepAwakeLayer,
+    ErrorReportsPreferenceLive.pipe(Layer.provide(ServerSettingsLive)),
     ServerEnvironmentLive,
     ProfileStatsQueryLive,
     RecapStatsQueryLive,
@@ -432,6 +524,7 @@ export function makeServerRuntimeServicesLayer(
 export function makeServerApplicationLayers(
   options: {
     readonly additionalRuntimeServicesLayer?: Layer.Layer<any, never, never>;
+    readonly accountRecoveryAuthorityProvision?: AccountRecoveryAuthorityProvision;
   } = {},
 ) {
   const agentGatewayCredentialsLayer = AgentGatewayCredentialsWithSecretsLive;
@@ -440,6 +533,9 @@ export function makeServerApplicationLayers(
     ...(options.additionalRuntimeServicesLayer === undefined
       ? {}
       : { additionalRuntimeServicesLayer: options.additionalRuntimeServicesLayer }),
+    ...(options.accountRecoveryAuthorityProvision === undefined
+      ? {}
+      : { accountRecoveryAuthorityProvision: options.accountRecoveryAuthorityProvision }),
   });
   // Provider start/discovery gates must observe the same settings instance as
   // the RPC layer. Reusing this layer in the final graph lets Effect memoize a

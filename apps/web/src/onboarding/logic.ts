@@ -5,7 +5,7 @@
 //          resolveOnboardingCompletionToReconcile, resolveLocalOnboardingCompletion,
 //          classifyProviderSetup, summarizeProviderSetup, toggleSelection
 
-import type { ProviderKind, ServerProviderStatus } from "@synara/contracts";
+import type { ProviderKind, ServerProviderReadiness } from "@moss/contracts";
 
 export const ONBOARDING_STEPS = [
   "welcome",
@@ -130,23 +130,39 @@ export type ProviderSetupState =
   | "connected"
   | "needs-sign-in"
   | "not-installed"
+  | "unavailable"
   | "detecting"
   | "check-failed"
   | "disabled";
 
+/**
+ * One card's state from the server's readiness for the agent (see `resolveAgentReadiness`):
+ * found and signed in reads connected, found but signed out asks for a sign-in, missing
+ * offers the install, and anything still being probed waits.
+ */
 export function classifyProviderSetup(input: {
-  readonly status: Pick<ServerProviderStatus, "available" | "authStatus"> | null | undefined;
+  readonly readiness: Pick<ServerProviderReadiness, "state"> | null | undefined;
   readonly disabled: boolean;
   readonly detecting?: boolean;
   readonly detectionFailed?: boolean;
 }): ProviderSetupState {
   if (input.disabled) return "disabled";
-  if (!input.status && input.detecting) return "detecting";
-  if (!input.status && input.detectionFailed) return "check-failed";
-  if (!input.status || !input.status.available) return "not-installed";
-  // Providers whose auth is not probed report "unknown"; treat a detected binary as
-  // usable rather than nagging for a sign-in Moss cannot verify.
-  return input.status.authStatus === "unauthenticated" ? "needs-sign-in" : "connected";
+  const state = input.readiness?.state;
+  if (!state || state === "checking") {
+    if (input.detecting) return "detecting";
+    if (input.detectionFailed) return "check-failed";
+    return state === "checking" ? "detecting" : "not-installed";
+  }
+  switch (state) {
+    case "ready":
+      return "connected";
+    case "needsLogin":
+      return "needs-sign-in";
+    case "notInstalled":
+      return "not-installed";
+    case "error":
+      return "unavailable";
+  }
 }
 
 export interface ProviderSetupSummary {

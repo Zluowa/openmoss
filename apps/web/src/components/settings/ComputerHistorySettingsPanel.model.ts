@@ -3,7 +3,7 @@ import type {
   ComputerHistorySettings,
   ComputerHistoryState,
   ComputerHistoryTimelineEntry,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { TranslationKey } from "~/localization";
 

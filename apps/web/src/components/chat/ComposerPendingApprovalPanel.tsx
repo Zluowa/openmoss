@@ -7,9 +7,9 @@
 // Layer: Chat composer UI
 // Exports: ComposerPendingApprovalPanel
 
-import { type ApprovalRequestId, type ProviderApprovalDecision } from "@synara/contracts";
-import { isMossAppsServer } from "@synara/shared/mossAppsPresentation";
-import { pendingRequestInstanceKey } from "@synara/shared/threadSummary";
+import { type ApprovalRequestId, type ProviderApprovalDecision } from "@moss/contracts";
+import { isMossAppsServer } from "@moss/shared/mossAppsPresentation";
+import { pendingRequestInstanceKey } from "@moss/shared/threadSummary";
 import { type KeyboardEvent, useState, useRef } from "react";
 import { type PendingApproval } from "../../session-logic";
 import { useTranslation } from "../../localization";

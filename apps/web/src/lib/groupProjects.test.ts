@@ -2,7 +2,7 @@
 // Purpose: Verifies Group container detection for group rows, legacy Studio, and boot-time roots.
 // Layer: Web orchestration tests
 
-import { type ProjectId } from "@synara/contracts";
+import { type ProjectId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { Project } from "../types";

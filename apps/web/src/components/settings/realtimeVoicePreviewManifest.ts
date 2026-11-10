@@ -1,4 +1,4 @@
-import type { RealtimeVoiceId } from "@synara/contracts";
+import type { RealtimeVoiceId } from "@moss/contracts";
 
 import { isRealtimeVoiceId } from "~/lib/realtimeVoicePreferences";
 

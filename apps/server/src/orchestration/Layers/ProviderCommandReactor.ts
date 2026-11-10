@@ -1,7 +1,7 @@
 import { appendAppSnapPromptContext } from "../../provider/appSnapPromptContext.ts";
 import { isServerBetaFeatureEnabled } from "../../betaFeatureGate";
 import { computerActivationMetadata } from "../../computer/computerActivation.ts";
-import { parseComputerInvocation } from "@synara/shared/computerInvocation";
+import { parseComputerInvocation } from "@moss/shared/computerInvocation";
 import { AgentGatewaySessionRegistry } from "../../agentGateway/Services/AgentGatewaySessionRegistry";
 import { ComputerService } from "../../computer/Services/ComputerService";
 import { providerWorkspaceChanged } from "../projectRelocationPaths.ts";
@@ -11,9 +11,10 @@ import { resolveForkSourceCutoff } from "../forkSourceCutoff.ts";
 // Layer: Orchestration provider reactor
 
 import { isDeepStrictEqual } from "node:util";
-import { makeKeyedDrainableWorker } from "@synara/shared/KeyedDrainableWorker";
-import { sanitizeUserFacingErrorMessage } from "@synara/shared/errorMessages";
-import { isCompactionCommandText } from "@synara/shared/contextCompaction";
+import { makeKeyedDrainableWorker } from "@moss/shared/KeyedDrainableWorker";
+import { sanitizeUserFacingErrorMessage } from "@moss/shared/errorMessages";
+import { isCompactionCommandText } from "@moss/shared/contextCompaction";
+import { modelImageInputSupport } from "@moss/shared/modelImageInput";
 import { makeKeyedLock } from "../../provider/keyedLock.ts";
 
 import {
@@ -29,6 +30,7 @@ import {
   OrchestrationEventType,
   type OrchestrationRegenerateThreadTitleResult,
   PROVIDER_DISPLAY_NAMES,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   type ProviderMentionReference,
   type ProviderInteractionMode,
@@ -47,7 +49,7 @@ import {
   type ProviderSession,
   type RuntimeMode,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   Cache,
   Cause,
@@ -70,26 +72,26 @@ import {
   buildThreadTitleConversationContext,
   isGenericChatThreadTitle,
   isUsableGeneratedThreadTitle,
-} from "@synara/shared/chatThreads";
+} from "@moss/shared/chatThreads";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
-} from "@synara/shared/conversationEdit";
-import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@synara/shared/git";
-import { claudeSelectionRequiresRestart, resolveApiModelId } from "@synara/shared/model";
-import { assessClaudeCache } from "@synara/shared/claudeCache";
+} from "@moss/shared/conversationEdit";
+import { isTemporaryWorktreeBranch, WORKTREE_BRANCH_PREFIX } from "@moss/shared/git";
+import { claudeSelectionRequiresRestart, resolveApiModelId } from "@moss/shared/model";
+import { assessClaudeCache } from "@moss/shared/claudeCache";
 import { claudeCacheForModel } from "../../provider/claudeCacheObservation.ts";
-import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
+import { providerSupportsNativeTurnSteering } from "@moss/shared/providerMetadata";
 import {
   formatProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
-} from "@synara/shared/providerDeliveryBlock";
-import { buildStalePendingRequestFailureDetail } from "@synara/shared/threadSummary";
-import { resolveThreadWorkspaceState } from "@synara/shared/threadEnvironment";
+} from "@moss/shared/providerDeliveryBlock";
+import { buildStalePendingRequestFailureDetail } from "@moss/shared/threadSummary";
+import { resolveThreadWorkspaceState } from "@moss/shared/threadEnvironment";
 import {
   buildProjectFoldersPreamble,
   projectFoldersSessionIssue,
-} from "@synara/shared/projectFolders";
+} from "@moss/shared/projectFolders";
 
 import {
   checkpointRefForThreadMessageStart,
@@ -128,7 +130,7 @@ import {
   resolveThreadMentionPromptProjection,
   threadMentionContextSuffix,
 } from "../../provider/threadMentionContext.ts";
-import { MCP_CONNECTORS_BETA_FEATURE } from "@synara/shared/betaFeatures";
+import { MCP_CONNECTORS_BETA_FEATURE } from "@moss/shared/betaFeatures";
 import { projectConnectorMentions } from "../../provider/connectorMentionContext.ts";
 import {
   TextGeneration,
@@ -140,6 +142,7 @@ import { resolveTextGenerationInputForSelection } from "../../git/textGeneration
 import {
   ProviderService,
   type ProviderRuntimeSessionStopTarget,
+  type SharedAccountSwitch,
 } from "../../provider/Services/ProviderService.ts";
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { isServerGroupsEnabled } from "../../projectAgent/groupsBetaGate.ts";
@@ -167,7 +170,8 @@ import {
 import { QueuedTurnPromotionRepository } from "../../persistence/Services/QueuedTurnPromotions.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { ServerConfig } from "../../config.ts";
-import { diagnosticIssueReason } from "@synara/shared/diagnosticIssue";
+import { resolveThreadExecutionWorkspace } from "../../threadExecutionWorkspace.ts";
+import { diagnosticIssueReason } from "@moss/shared/diagnosticIssue";
 import { reportBetaOperationalIssue } from "../../betaOperationalIssue.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
@@ -176,8 +180,8 @@ import {
   providerStartOptionsFromInstance,
   resolveModelSelectionInstanceId,
   resolveProviderInstance,
-} from "@synara/shared/providerInstances";
-import { providerStartOptionsFromServerSettings } from "@synara/shared/serverSettings";
+} from "@moss/shared/providerInstances";
+import { providerStartOptionsFromServerSettings } from "@moss/shared/serverSettings";
 import { clearWorkspaceIndexCache } from "../../workspaceEntries.ts";
 import {
   buildPriorTranscriptBootstrap,
@@ -186,9 +190,15 @@ import {
   buildHandoffBootstrapText,
   hasNativeAssistantMessagesBefore,
   listImportedForkMessages,
+  listPriorImageAttachments,
   listPriorTranscriptMessages,
+  PRIOR_IMAGE_CARRY_LIMIT,
+  priorImagesContextNote,
   type TranscriptBootstrap,
 } from "../handoff.ts";
+import { hasCopiedTranscriptMessages } from "../importedThreadMessages.ts";
+import { makeImportedThreadContinuation } from "../projectImportContinuation.ts";
+import { makeProjectImportRepository } from "../../persistence/projectImportRepository.ts";
 import {
   OrchestrationCommandInternalError,
   OrchestrationCommandInvariantError,
@@ -212,7 +222,7 @@ import {
 } from "../providerIntentClassification.ts";
 import { deriveTurnStartSession } from "../turnStartSession.ts";
 import { TurnCheckpointCoordinator } from "../Services/TurnCheckpointCoordinator.ts";
-import { makeKeyedSingleFlightCache } from "@synara/shared/KeyedSingleFlightCache";
+import { makeKeyedSingleFlightCache } from "@moss/shared/KeyedSingleFlightCache";
 import { resolveProviderSessionThread as resolveProviderSessionThreadFromProjection } from "../providerSessionThread.ts";
 
 const providerIntentEventTypes = OrchestrationEventType.literals.filter(isProviderIntentEventType);
@@ -623,6 +633,25 @@ const PROVIDER_COMMAND_CLAIM_LEASE_MS = 30_000;
 // processClaimedProviderIntent): re-checking lets a turn proceed the moment
 // the prior attempt settles instead of sleeping blindly to lease expiry.
 const PROVIDER_COMMAND_CLAIM_SETTLEMENT_POLL_MS = 1_000;
+
+const PROVIDER_COMMAND_CLAIM_OWNER_PREFIX = "provider-command-reactor:";
+
+/**
+ * The database lifecycle lock admits one server process at a time, so a claim in this
+ * reactor's own owner format naming another process belongs to one that has exited.
+ * Nothing can settle it, and waiting out its lease here blocks every client's thread
+ * snapshot during startup, so a crash right after a send left a blank chat for 30 seconds.
+ * The outcome is unchanged: it takes the same expired-claim path, just without the wait.
+ */
+export function isProviderCommandClaimFromExitedProcess(
+  claimOwner: string | null | undefined,
+  processOwner: string,
+): boolean {
+  return (
+    claimOwner?.startsWith(PROVIDER_COMMAND_CLAIM_OWNER_PREFIX) === true &&
+    !claimOwner.startsWith(`${processOwner}:`)
+  );
+}
 
 export interface ProviderCommandClaimSnapshot {
   readonly state: string;
@@ -1122,6 +1151,14 @@ const make = Effect.gen(function* () {
     gatewayCompletionWaits.get(operationId, readGatewayOperationCompletion(operationId));
   const managedAttachments = yield* ManagedAttachmentRepository;
   const serverConfig = yield* ServerConfig;
+  const importedThreads = makeImportedThreadContinuation({
+    repository: yield* makeProjectImportRepository,
+    orchestrationEngine,
+    providerService,
+    serverSettings,
+    homeDir: serverConfig.homeDir,
+    stateDir: serverConfig.stateDir,
+  });
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -2358,6 +2395,12 @@ const make = Effect.gen(function* () {
       readonly enableComputerControl?: boolean;
       readonly runtimeMode?: RuntimeMode;
       readonly registerPriorTranscriptBootstrapOnFreshStart?: boolean;
+      /**
+       * Set only by Hand off, after it has abandoned the source's native
+       * continuation: the thread moves to another account of its provider.
+       */
+      readonly providerInstanceHandoff?: boolean;
+      readonly sharedAccountSwitch?: SharedAccountSwitch;
     },
   ) {
     const thread = yield* resolveThreadShell(threadId);
@@ -2477,10 +2520,30 @@ const make = Effect.gen(function* () {
     const preferredProvider: ProviderKind = providerRebindRequested
       ? thread.modelSelection.provider
       : (boundProvider ?? desiredProvider);
+    // Hand off may move a thread to another account of the same provider (an
+    // imported local-account chat continuing on Moss, say). Hand off has already
+    // left the source's native history behind; the transcript carries the context.
+    const providerInstanceHandoffRequested =
+      options?.providerInstanceHandoff === true && requestedProviderInstanceChanged;
+    const sharedSwitch =
+      options?.sharedAccountSwitch ??
+      (currentProvider === desiredProvider &&
+      requestedProviderInstanceChanged &&
+      !providerInstanceHandoffRequested &&
+      providerService.prepareSharedAccountSwitch
+        ? yield* providerService.prepareSharedAccountSwitch({
+            threadId,
+            provider: desiredProvider,
+            from: currentProviderInstanceId,
+            to: desiredProviderInstanceId,
+          })
+        : undefined);
     if (
       establishedProvider !== undefined &&
       requestedProviderInstanceChanged &&
-      !providerRebindRequested
+      !providerRebindRequested &&
+      !providerInstanceHandoffRequested &&
+      !sharedSwitch
     ) {
       return yield* new ProviderAdapterValidationError({
         provider: preferredProvider,
@@ -2515,7 +2578,15 @@ const make = Effect.gen(function* () {
         ? providerStartOptionsFromInstance(desiredProviderInstance)
         : undefined,
     );
-    const effectiveCwd = yield* resolveProjectedThreadWorkspaceCwd(thread);
+    const executionProject = yield* resolveThreadWorkspaceProject(thread);
+    const effectiveCwd = executionProject
+      ? yield* resolveThreadExecutionWorkspace({
+          thread,
+          project: executionProject,
+          config: serverConfig,
+          query: projectionSnapshotQuery,
+        })
+      : undefined;
     const workspaceState = resolveThreadWorkspaceState({
       envMode: thread.envMode,
       worktreePath: thread.worktreePath,
@@ -2601,11 +2672,14 @@ const make = Effect.gen(function* () {
       resumeCursor?: unknown,
       registerPriorTranscriptBootstrapOnFreshStart = false,
     ) => {
-      const startInput = providerSessionStartInput(resumeCursor);
+      // Signed switches only resume the server's current durable cursor, never a caller's cursor.
+      const startInput = providerSessionStartInput(sharedSwitch ? undefined : resumeCursor);
       const startsStoredProvider = preferredProvider === thread.modelSelection.provider;
       return providerService.startSessionWithOutcome
         ? providerService.startSessionWithOutcome(threadId, startInput, {
-            registerPriorTranscriptBootstrapOnFreshStart,
+            registerPriorTranscriptBootstrapOnFreshStart:
+              !sharedSwitch && registerPriorTranscriptBootstrapOnFreshStart,
+            ...(sharedSwitch ? { sharedAccountSwitch: sharedSwitch } : {}),
             ...(startsStoredProvider ? { abandonOtherProviderContinuation: true } : {}),
           })
         : providerService.startSession(threadId, startInput).pipe(
@@ -2651,16 +2725,18 @@ const make = Effect.gen(function* () {
     // Background tasks may share the old process. Never kill them merely to
     // apply a project relocation, including when metadata cleared the projection.
     if (
-      (workspaceChanged || replacesOtherProviderRuntime) &&
+      (workspaceChanged || replacesOtherProviderRuntime || sharedSwitch) &&
       providerService.hasLiveRuntimeTasks &&
       (yield* providerService.hasLiveRuntimeTasks({ threadId }))
     ) {
       return yield* new ProviderAdapterValidationError({
         provider: preferredProvider,
         operation: "thread.turn.start",
-        issue: replacesOtherProviderRuntime
-          ? "Finish or stop this thread's background tasks before switching providers."
-          : "Finish or stop this thread's background tasks before resuming in the new project path.",
+        issue: sharedSwitch
+          ? "Finish or stop this thread's background tasks before switching accounts."
+          : replacesOtherProviderRuntime
+            ? "Finish or stop this thread's background tasks before switching providers."
+            : "Finish or stop this thread's background tasks before resuming in the new project path.",
       });
     }
     const reusableSession =
@@ -2682,8 +2758,9 @@ const make = Effect.gen(function* () {
       const currentActiveProviderInstanceId =
         activeSession?.providerInstanceId ?? currentProviderInstanceId;
       const providerInstanceChanged =
-        requestedModelSelection !== undefined &&
-        desiredProviderInstanceId !== currentActiveProviderInstanceId;
+        sharedSwitch !== undefined ||
+        (requestedModelSelection !== undefined &&
+          desiredProviderInstanceId !== currentActiveProviderInstanceId);
       const sessionModelSwitch =
         currentProvider === undefined
           ? "in-session"
@@ -2786,11 +2863,16 @@ const make = Effect.gen(function* () {
         return deferComputerControlRestart;
       }
 
-      if (currentProvider === "claudeAgent" && reusableSession.activeTurnId != null) {
+      if (
+        (currentProvider === "claudeAgent" || sharedSwitch) &&
+        reusableSession.activeTurnId != null
+      ) {
         return yield* new ProviderAdapterValidationError({
-          provider: currentProvider,
+          provider: preferredProvider,
           operation: "session/reconfigure",
-          issue: "Wait for Claude's active turn to finish before changing session settings.",
+          issue: sharedSwitch
+            ? "Wait for the active turn to finish before switching accounts."
+            : "Wait for Claude's active turn to finish before changing session settings.",
         });
       }
 
@@ -2838,7 +2920,10 @@ const make = Effect.gen(function* () {
       // keeps its history in the new session's first turn.
       const restartedOutcome = yield* startProviderSessionWithOutcome(
         resumeCursor,
-        (workspaceChanged || providerChanged || shouldRestartForModelChange) &&
+        (workspaceChanged ||
+          providerChanged ||
+          providerInstanceChanged ||
+          shouldRestartForModelChange) &&
           shouldRegisterContextBootstrap,
       ).pipe(
         // The live-turn check above sees only turns. The adapter also refuses
@@ -2897,7 +2982,7 @@ const make = Effect.gen(function* () {
     }
 
     let bootstrapTranscriptIfResumeFails = false;
-    if (providerService.forkThread && thread.forkSourceThreadId) {
+    if (!sharedSwitch && providerService.forkThread && thread.forkSourceThreadId) {
       // P1 activation stickiness: forks mint fresh control state. The child
       // starts at generation 0 with chat intent if and only if the parent's
       // chat intent is live; the fork command itself carries no computer
@@ -3286,6 +3371,16 @@ const make = Effect.gen(function* () {
     readonly claudeCompactionCancellation?: Deferred.Deferred<void>;
     readonly claudeCompactionUsesPersistedProfile?: boolean;
   }) {
+    // A conversation imported by registration only gets its transcript, and a native copy
+    // when its agent can make one, before its first new turn. It never blocks the turn.
+    yield* importedThreads.prepare(input.threadId).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not prepare an imported conversation.", {
+          threadId: input.threadId,
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
     const thread = yield* resolveThread(input.threadId);
     if (!thread) {
       return;
@@ -3475,8 +3570,10 @@ const make = Effect.gen(function* () {
       threadSessionModelSelections.get(input.threadId)?.provider ??
       thread.session?.providerName ??
       thread.modelSelection.provider;
+    // A session started fresh must be told the earlier conversation when the provider can't
+    // replay it itself: OpenCode, and any thread whose history Moss copied in as text.
     const registerPriorTranscriptBootstrapOnFreshStart =
-      selectedProvider === "opencode" &&
+      (selectedProvider === "opencode" || hasCopiedTranscriptMessages(thread)) &&
       listPriorTranscriptMessages(thread, transcriptBoundaryMessageId).length > 0;
     const {
       activeSessionBeforeEnsure,
@@ -3804,6 +3901,63 @@ const make = Effect.gen(function* () {
                 wrapLatestUserMessage: true,
               }
             : null;
+    // A session that starts from the transcript (after a handoff or a restart) would never
+    // see the person's earlier images. A model that can view images gets the latest ones
+    // again with this turn; one that cannot is told, so it can say so plainly.
+    const priorImages =
+      selectedBootstrapContext?.tag === "thread_context" && input.dispatchMode !== "steer"
+        ? listPriorImageAttachments(thread, transcriptBoundaryMessageId, Number.POSITIVE_INFINITY)
+        : [];
+    const imageTurnSelection =
+      input.modelSelection ??
+      threadSessionModelSelections.get(input.threadId) ??
+      thread.modelSelection;
+    const priorImageSupport =
+      priorImages.length === 0
+        ? "unknown"
+        : modelImageInputSupport({
+            instanceId:
+              activeSession.providerInstanceId ??
+              imageTurnSelection.instanceId ??
+              imageTurnSelection.provider,
+            model: imageTurnSelection.model,
+          });
+    const carriesPriorImages =
+      priorImageSupport === "supported" ||
+      (priorImageSupport === "unknown" &&
+        (selectedProvider === "codex" || selectedProvider === "claudeAgent"));
+    const carriedPriorImageAttachments = carriesPriorImages
+      ? (yield* Effect.forEach(
+          priorImages.slice(
+            -Math.min(
+              PRIOR_IMAGE_CARRY_LIMIT,
+              Math.max(0, PROVIDER_SEND_TURN_MAX_ATTACHMENTS - (input.attachments?.length ?? 0)),
+            ),
+          ),
+          (image) =>
+            resolveProviderDispatchAttachments({
+              attachments: [image.attachment],
+              attachmentsDir: serverConfig.attachmentsDir,
+              repository: managedAttachments,
+              threadId: input.threadId,
+              messageId: image.messageId,
+              provider: selectedProvider as ProviderKind,
+              operation: "thread.turn.start",
+              // An image that is gone from disk is left out; the note says how many came along.
+            }).pipe(Effect.catch(() => Effect.succeed([] as ReadonlyArray<ChatAttachment>))),
+        )).flat()
+      : [];
+    const priorImagesNote = priorImagesContextNote({
+      total: priorImages.length,
+      attached: carriedPriorImageAttachments.length,
+    });
+    const bootstrapContextForTurn: BootstrapContextSelection | null =
+      selectedBootstrapContext && priorImagesNote
+        ? {
+            ...selectedBootstrapContext,
+            contextText: `${selectedBootstrapContext.contextText}\n\n${priorImagesNote}`,
+          }
+        : selectedBootstrapContext;
     const composeProviderInput = (bootstrap: BootstrapContextSelection | null): string =>
       `${projectContextPrefix}${
         bootstrap
@@ -3813,7 +3967,7 @@ const make = Effect.gen(function* () {
     const providerInputWithMentionContext = withProviderThreadStatePrompts({
       interactionMode: input.interactionMode,
       goal: activeThreadGoal(thread),
-      text: `${composeProviderInput(selectedBootstrapContext)}${mentionContextSuffix}`,
+      text: `${composeProviderInput(bootstrapContextForTurn)}${mentionContextSuffix}`,
     });
     // Portable skills fallback: providers that cannot load the referenced skill
     // file natively get the skill instructions inlined into the prompt.
@@ -3864,16 +4018,19 @@ const make = Effect.gen(function* () {
         }),
       );
     };
-    const normalizedInput = finalizeProviderInput(selectedBootstrapContext);
-    const normalizedAttachments = yield* resolveProviderDispatchAttachments({
-      attachments: input.attachments,
-      attachmentsDir: serverConfig.attachmentsDir,
-      repository: managedAttachments,
-      threadId: input.threadId,
-      messageId: input.messageId,
-      provider: selectedProvider as ProviderKind,
-      operation: "thread.turn.start",
-    });
+    const normalizedInput = finalizeProviderInput(bootstrapContextForTurn);
+    const normalizedAttachments = [
+      ...carriedPriorImageAttachments,
+      ...(yield* resolveProviderDispatchAttachments({
+        attachments: input.attachments,
+        attachmentsDir: serverConfig.attachmentsDir,
+        repository: managedAttachments,
+        threadId: input.threadId,
+        messageId: input.messageId,
+        provider: selectedProvider as ProviderKind,
+        operation: "thread.turn.start",
+      })),
+    ];
     const sessionModelSwitch = (yield* providerService.getCapabilities(
       selectedProvider as ProviderKind,
     )).sessionModelSwitch;
@@ -7276,6 +7433,8 @@ const make = Effect.gen(function* () {
           ),
       });
     let conditionalChildInterrupt: BoundedProviderCallResult<ProviderServiceError> | undefined;
+    let codexStoppedTurnState: "completed" | "interrupted" | "error" | undefined;
+    let codexStopError: string | undefined;
 
     // For a conditional Stop, prove retirement before touching any queue or
     // bootstrap state. A stale request owns none of the replacement's state.
@@ -7304,6 +7463,16 @@ const make = Effect.gen(function* () {
           });
           if (input.expectedLifecycleGeneration !== undefined) return false;
         } else {
+          const isCodex = thread.session?.providerName === "codex";
+          const observedGeneration =
+            input.expectedLifecycleGeneration !== undefined
+              ? input.expectedLifecycleGeneration
+              : isCodex && providerService.getRuntimeSessionStopTarget
+                ? (yield* providerService.getRuntimeSessionStopTarget({
+                    threadId: providerThread.id,
+                  })).lifecycleGeneration
+                : undefined;
+          let staleCodexReceipt = false;
           const stopped = yield* runBoundedProviderCall({
             label: "The provider session stop",
             timeout: PROVIDER_COMMAND_STOP_TIMEOUT,
@@ -7318,11 +7487,33 @@ const make = Effect.gen(function* () {
                   : {}),
               })
               .pipe(
+                Effect.tap((receipt) =>
+                  Effect.sync(() => {
+                    if (!isCodex || receipt === undefined) return;
+                    if (
+                      receipt.lifecycleGeneration === undefined ||
+                      receipt.lifecycleGeneration !== observedGeneration
+                    ) {
+                      staleCodexReceipt = true;
+                      return;
+                    }
+                    // A retained receipt for this runtime may describe an
+                    // already ingested turn. It owns no idle turn state, but
+                    // must not veto cleanup of the observed generation.
+                    if (thread.session?.activeTurnId == null) return;
+                    if (receipt.turnId !== thread.session.activeTurnId) {
+                      staleCodexReceipt = true;
+                      return;
+                    }
+                    codexStoppedTurnState = receipt.state;
+                  }),
+                ),
                 Effect.mapError((error) =>
                   input.controlRequestId !== undefined ? stopPersistenceError(error) : error,
                 ),
               ),
           });
+          if (staleCodexReceipt) return false;
           if (stopped._tag === "failed" && isUnrecordedStopTarget(stopped.cause)) {
             return yield* rejectUnrecordedStop(stopped.cause, {
               threadId: thread.id,
@@ -7339,6 +7530,10 @@ const make = Effect.gen(function* () {
           )
             return false;
           if (stopped._tag !== "ok") {
+            if (isCodex) {
+              codexStoppedTurnState = "error";
+              codexStopError = stopped._tag === "timeout" ? stopped.detail : stopped.outcome.detail;
+            }
             if (
               input.expectedLifecycleGeneration !== undefined &&
               stopped._tag === "failed" &&
@@ -7529,12 +7724,17 @@ const make = Effect.gen(function* () {
       threadId: thread.id,
       session: {
         threadId: thread.id,
-        status: "stopped",
+        status:
+          codexStoppedTurnState === "interrupted"
+            ? "interrupted"
+            : codexStoppedTurnState === "error"
+              ? "error"
+              : "stopped",
         providerName: thread.session?.providerName ?? null,
         providerInstanceId: thread.session?.providerInstanceId ?? thread.modelSelection.instanceId,
         runtimeMode: thread.session?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
         activeTurnId: null,
-        lastError: thread.session?.lastError ?? null,
+        lastError: codexStopError ?? thread.session?.lastError ?? null,
         updatedAt: input.createdAt,
       },
       createdAt: input.createdAt,
@@ -7559,7 +7759,6 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
-    const contextText = buildPriorTranscriptBootstrapText(thread, undefined);
     const describe = (selection: ModelSelection) =>
       `${PROVIDER_DISPLAY_NAMES[selection.provider] ?? selection.provider} (${selection.model})`;
     // An explicit stop discards synthetic context, but a handoff has no other
@@ -7570,6 +7769,7 @@ const make = Effect.gen(function* () {
     // protected: ProviderService refuses another provider on the thread until
     // the handoff explicitly abandons it. This also stops the source runtime.
     let sourceContinuationReset = false;
+    let sharedSwitch: SharedAccountSwitch | undefined;
     const startOutcome = yield* runBoundedProviderCall({
       label: "The provider handoff",
       // Keep the existing native-phase budget. The durable source restore and
@@ -7600,13 +7800,24 @@ const make = Effect.gen(function* () {
             issue: "Finish or stop this thread's background tasks before handing it off.",
           });
         }
-        yield* providerService.clearSessionResumeCursor
-          ? providerService.clearSessionResumeCursor({ threadId: input.threadId })
-          : providerService.stopSession({ threadId: input.threadId });
-        sourceContinuationReset = true;
+        if (providerService.prepareSharedAccountSwitch) {
+          sharedSwitch = yield* providerService.prepareSharedAccountSwitch({
+            threadId: input.threadId,
+            provider: input.targetModelSelection.provider,
+            to: input.targetModelSelection.instanceId ?? input.targetModelSelection.provider,
+          });
+        }
+        if (!sharedSwitch) {
+          yield* providerService.clearSessionResumeCursor
+            ? providerService.clearSessionResumeCursor({ threadId: input.threadId })
+            : providerService.stopSession({ threadId: input.threadId });
+          sourceContinuationReset = true;
+        }
         yield* ensureSessionForThread(input.threadId, input.occurredAt, {
           modelSelection: input.targetModelSelection,
-          registerPriorTranscriptBootstrapOnFreshStart: true,
+          registerPriorTranscriptBootstrapOnFreshStart: !sharedSwitch,
+          providerInstanceHandoff: true,
+          ...(sharedSwitch ? { sharedAccountSwitch: sharedSwitch } : {}),
           ...(cachedProviderOptions !== undefined
             ? { providerOptions: cachedProviderOptions }
             : {}),
@@ -7642,19 +7853,29 @@ const make = Effect.gen(function* () {
               }),
             );
     const createdAt = new Date().toISOString();
+    const sourceSelection = sharedSwitch
+      ? {
+          ...(sharedSwitch.sourceModelSelection ?? input.sourceModelSelection),
+          provider: sharedSwitch.provider,
+          instanceId: sharedSwitch.from,
+        }
+      : input.sourceModelSelection;
     const payload = {
-      sourceProvider: input.sourceModelSelection.provider,
-      sourceModel: input.sourceModelSelection.model,
+      sourceProvider: sourceSelection.provider,
+      sourceModel: sourceSelection.model,
       targetProvider: input.targetModelSelection.provider,
       targetModel: input.targetModelSelection.model,
       // Full selections (effort, fast mode, …) so the divider reads like the
       // composer's model trigger for both sides.
-      sourceModelSelection: modelSelectionJson(input.sourceModelSelection),
+      sourceModelSelection: modelSelectionJson(sourceSelection),
       targetModelSelection: modelSelectionJson(input.targetModelSelection),
     };
     if (startFailure === null) {
+      const contextText = sharedSwitch
+        ? undefined
+        : buildPriorTranscriptBootstrapText(thread, undefined);
       threadSessionModelSelections.set(input.threadId, input.targetModelSelection);
-      providerHandoffContextThreadIds.add(input.threadId);
+      if (!sharedSwitch) providerHandoffContextThreadIds.add(input.threadId);
       // Same metadata a new-thread handoff carries, so surfaces that already
       // show "handed off from <provider>" (the sidebar avatar pair) show it here.
       // "completed": the context travels through the prior-transcript bootstrap.
@@ -7664,7 +7885,7 @@ const make = Effect.gen(function* () {
         threadId: input.threadId,
         handoff: {
           sourceThreadId: input.threadId,
-          sourceProvider: input.sourceModelSelection.provider,
+          sourceProvider: sourceSelection.provider,
           importedAt: new Date().toISOString(),
           bootstrapStatus: "completed",
         },
@@ -7677,8 +7898,14 @@ const make = Effect.gen(function* () {
           id: EventId.makeUnsafe(`provider-handoff:${input.handoffKey}`),
           tone: "info",
           kind: PROVIDER_HANDOFF_ACTIVITY_KIND,
-          summary: `Handed off from ${describe(input.sourceModelSelection)} to ${describe(input.targetModelSelection)}`,
-          payload: { ...payload, contextText, contextCharacters: contextText?.length ?? 0 },
+          summary: `Handed off from ${describe(sourceSelection)} to ${describe(input.targetModelSelection)}`,
+          payload: sharedSwitch
+            ? { ...payload, nativeContinuation: true, contextCharacters: 0 }
+            : {
+                ...payload,
+                ...(contextText !== undefined ? { contextText } : {}),
+                contextCharacters: contextText?.length ?? 0,
+              },
           turnId: null,
           createdAt,
         },
@@ -8216,7 +8443,7 @@ const make = Effect.gen(function* () {
       );
     }
 
-    const processOwner = `provider-command-reactor:${crypto.randomUUID()}`;
+    const processOwner = `${PROVIDER_COMMAND_CLAIM_OWNER_PREFIX}${crypto.randomUUID()}`;
     let cursor = consumerState.value.lastAckedSequence;
     // Source admission retains one durable range per thread, not one event
     // per intent. A stalled thread cannot fill admission with its followers.
@@ -8606,7 +8833,11 @@ const make = Effect.gen(function* () {
         }
         if (existing.value.state === "inflight") {
           const expiresAt = Date.parse(existing.value.claimExpiresAt ?? "");
-          const remainingMs = Number.isFinite(expiresAt) ? Math.max(0, expiresAt - Date.now()) : 0;
+          const remainingMs =
+            Number.isFinite(expiresAt) &&
+            !isProviderCommandClaimFromExitedProcess(existing.value.claimOwner, processOwner)
+              ? Math.max(0, expiresAt - Date.now())
+              : 0;
           if (remainingMs > 0) {
             const waitStartedAt = Date.now();
             let lastKnown = Option.getOrUndefined(existing);
@@ -8700,11 +8931,14 @@ const make = Effect.gen(function* () {
             });
             return;
           }
+          const nowIso = new Date().toISOString();
+          const leaseEnd = existing.value.claimExpiresAt ?? nowIso;
           const requeued = yield* deliveryRepository.requeueExpired({
             consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
             eventSequence: event.sequence,
             expectedClaimOwner: expiredOwner,
-            now: new Date().toISOString(),
+            // A claim from an exited process counts as expired before its lease ends.
+            now: leaseEnd > nowIso ? leaseEnd : nowIso,
             error: "Replay-safe provider command claim expired before settlement.",
           });
           if (!requeued) {
@@ -8956,6 +9190,7 @@ const make = Effect.gen(function* () {
       // it settles or expires; acknowledging it now would strand an inflight
       // external call behind the cursor without a reconciliation record.
       while (Option.isSome(existing) && existing.value.state === "inflight") {
+        if (isProviderCommandClaimFromExitedProcess(existing.value.claimOwner, processOwner)) break;
         const expiresAt = Date.parse(existing.value.claimExpiresAt ?? "");
         const remainingMs = Number.isFinite(expiresAt) ? expiresAt - Date.now() : 0;
         if (remainingMs <= 0) break;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { OrchestrationSidebarOrderItem } from "@synara/contracts";
+import type { OrchestrationSidebarOrderItem } from "@moss/contracts";
 
 import {
   compactSidebarOrderItems,

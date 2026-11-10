@@ -2,9 +2,9 @@
 // Purpose: Plans safe custom-section archive batches from authoritative sidebar ownership.
 // Layer: Sidebar UI logic
 
-import type { OrchestrationSidebarSectionShell, ThreadId, TurnId } from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
-import { collectSubagentDescendants } from "@synara/shared/threadHierarchy";
+import type { OrchestrationSidebarSectionShell, ThreadId, TurnId } from "@moss/contracts";
+import { pluralize } from "@moss/shared/text";
+import { collectSubagentDescendants } from "@moss/shared/threadHierarchy";
 
 import { isSessionRunningTurn } from "../session-logic";
 import type { MossLocaleCode } from "../uiLocale";

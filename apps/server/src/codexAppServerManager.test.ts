@@ -1,13 +1,22 @@
 import { describe, expect, it, vi } from "vitest";
-import { Effect, ServiceMap } from "effect";
+import { Effect, Layer, ServiceMap } from "effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore.ts";
+import { ServerConfig } from "./config.ts";
+import {
+  makeCodexStateBindingAccess,
+  type CodexStateBindingAccount,
+} from "./provider/codexStateBinding.ts";
 import { ServerSettingsService } from "./serverSettings";
 import {
   createCodexAliasFixture,
   expectCodexOverlayPrivateFile as expectOverlayPrivateFile,
 } from "./test/codexOverlayFixtures";
-import * as processRuntime from "@synara/shared/processRuntime";
+import * as processRuntime from "@moss/shared/processRuntime";
 import * as codexEnvironmentModule from "./codexProcessEnv";
-import { MOSS_BUNDLED_CODEX_VERSION } from "@synara/shared/codexRuntime";
+import { MOSS_BUNDLED_CODEX_VERSION } from "@moss/shared/codexRuntime";
+import { resolveCodexExecutable } from "@moss/shared/codexExecutable";
+import { resetLocalAgentPathLookupCache } from "@moss/shared/localAgentExecutable";
 import * as supervisedTeardown from "./provider/supervisedProcessTeardown";
 import * as processTreeController from "./platform/processTreeController";
 import * as windowsProcessSnapshot from "./platform/windowsProcessSnapshot";
@@ -35,7 +44,7 @@ import {
   ThreadId,
   TurnId,
   type RuntimeMode,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   buildCodexProcessEnv,
@@ -45,6 +54,10 @@ import {
   readCodexSharedContinuationGeneration,
 } from "./codexProcessEnv";
 import { resolveActiveCodexHomeWritePath } from "./codexHomePaths.ts";
+import {
+  canonicalizeCodexHomeIdentityPath,
+  issueCodexCredentialFence,
+} from "./codexHomeIdentity.ts";
 import {
   buildCodexCollaborationMode,
   buildCodexThreadOpenRequest,
@@ -95,6 +108,8 @@ type SyntheticCodexRequest = {
 };
 
 function createSyntheticCodexAppServer(options?: {
+  readonly modelProviderAt?: (cwd: unknown) => string;
+  readonly resumeError?: () => string | undefined;
   readonly mcpServers?: Record<string, unknown>;
   readonly projectMcpServers?: Record<string, unknown>;
   readonly forceFullHistoryResponse?: boolean;
@@ -115,7 +130,12 @@ function createSyntheticCodexAppServer(options?: {
     createHash("sha256").update(JSON.stringify(persistedTranscript)).digest("hex");
   const requests: SyntheticCodexRequest[] = [];
   const historicalResponses: Array<{ readonly thread: { readonly id: string } }> = [];
-  const children: ChildProcessWithoutNullStreams[] = [];
+  type SyntheticChild = Omit<ChildProcessWithoutNullStreams, "exitCode" | "stdout" | "stderr"> & {
+    exitCode: number | null;
+    stdout: PassThrough;
+    stderr: PassThrough;
+  };
+  const children: SyntheticChild[] = [];
   let oversizedResponseCount = 0;
   let nextPid = 50_000;
   let nextTurn = 1;
@@ -147,7 +167,7 @@ function createSyntheticCodexAppServer(options?: {
       exitCode: null,
       signalCode: null,
       killed: false,
-    }) as unknown as ChildProcessWithoutNullStreams;
+    }) as unknown as SyntheticChild;
     children.push(child);
 
     let bufferedInput = "";
@@ -230,6 +250,15 @@ function createSyntheticCodexAppServer(options?: {
         } else if (request.method === "thread/read") {
           queueMicrotask(() => stdout.write(buildFullHistoryFrame(request.id!, "provider-thread")));
         } else if (request.method === "thread/resume" || request.method === "thread/fork") {
+          const error = request.method === "thread/resume" ? options?.resumeError?.() : undefined;
+          if (error) {
+            queueMicrotask(() =>
+              stdout.write(
+                JSON.stringify({ id: request.id, error: { code: -32600, message: error } }) + "\n",
+              ),
+            );
+            continue;
+          }
           const providerThreadId = String(request.params?.threadId ?? "provider-thread");
           if (options?.forceFullHistoryResponse === true || request.params?.excludeTurns !== true) {
             oversizedResponseCount += 1;
@@ -253,6 +282,9 @@ function createSyntheticCodexAppServer(options?: {
         } else if (request.method === "config/read") {
           respond({
             config: {
+              ...(options?.modelProviderAt
+                ? { model_provider: options.modelProviderAt(request.params?.cwd) }
+                : {}),
               mcp_servers: {
                 ...options?.mcpServers,
                 ...(typeof request.params?.cwd === "string" ? options?.projectMcpServers : {}),
@@ -355,7 +387,9 @@ function createSyntheticCodexManager(
   services?: ConstructorParameters<typeof CodexAppServerManager>[0],
   gateway?: NonNullable<ConstructorParameters<typeof CodexAppServerManager>[1]>["agentGatewayMcp"],
 ) {
-  const teardownProcessTree = vi.fn(async () => ({ escalated: false, signalErrors: [] }));
+  const teardownProcessTree = vi.fn<typeof supervisedTeardown.teardownProviderProcessTree>(
+    async () => ({ escalated: false, signalErrors: [] }),
+  );
   const manager = new CodexAppServerManager(services, {
     spawnAppServer: fake.spawnAppServer,
     teardownProcessTree,
@@ -422,6 +456,22 @@ describe("packaged Codex executable launch", () => {
         expected: "codex",
       },
       {
+        name: "own Codex on PATH before the bundle",
+        configured: undefined,
+        bundled: "/moss/runtime/codex",
+        error: undefined,
+        expected: "codex",
+        ownCodexOnPath: true,
+      },
+      {
+        name: "own Codex on PATH with a broken bundle",
+        configured: undefined,
+        bundled: undefined,
+        error: "broken receipt",
+        expected: "codex",
+        ownCodexOnPath: true,
+      },
+      {
         name: "invalid packaged runtime",
         configured: undefined,
         bundled: undefined,
@@ -430,9 +480,24 @@ describe("packaged Codex executable launch", () => {
       },
     ])(
       `resolves ${operation} before version probe and spawn: $name`,
-      async ({ configured, bundled, error, expected }) => {
+      async ({ configured, bundled, error, expected, ownCodexOnPath }) => {
         vi.stubEnv("MOSS_BUNDLED_CODEX_PATH", bundled);
         vi.stubEnv("MOSS_BUNDLED_CODEX_ERROR", error);
+        // PATH holds an own `codex` only when the case says so.
+        const pathDir = mkdtempSync(path.join(os.tmpdir(), "moss-runtime-path-"));
+        if (ownCodexOnPath) {
+          writeFileSync(
+            path.join(pathDir, process.platform === "win32" ? "codex.cmd" : "codex"),
+            "",
+            { mode: 0o755 },
+          );
+        }
+        vi.stubEnv("PATH", pathDir);
+        vi.stubEnv("PATHEXT", ".COM;.EXE;.BAT;.CMD");
+        resetLocalAgentPathLookupCache();
+        const expectedBinary = ownCodexOnPath
+          ? path.join(pathDir, process.platform === "win32" ? "codex.CMD" : "codex")
+          : expected;
         const fake = createSyntheticCodexAppServer();
         const spawn = vi.spyOn(fake, "spawnAppServer");
         const { manager } = createSyntheticCodexManager(fake);
@@ -495,8 +560,12 @@ describe("packaged Codex executable launch", () => {
             expect(spawn).not.toHaveBeenCalled();
           } else {
             await request;
-            expect(probe).toHaveBeenCalledWith(expect.objectContaining({ binaryPath: expected }));
-            expect(spawn).toHaveBeenCalledWith(expect.objectContaining({ binaryPath: expected }));
+            expect(probe).toHaveBeenCalledWith(
+              expect.objectContaining({ binaryPath: expectedBinary }),
+            );
+            expect(spawn).toHaveBeenCalledWith(
+              expect.objectContaining({ binaryPath: expectedBinary }),
+            );
             if (operation === "plugins")
               expect(fake.requests.some(({ method }) => method === "plugin/list")).toBe(true);
             expect(probe.mock.calls[0]?.[0].expectedVersion).toBe(
@@ -507,7 +576,9 @@ describe("packaged Codex executable launch", () => {
           await manager.stopAll();
           vi.restoreAllMocks();
           vi.unstubAllEnvs();
+          resetLocalAgentPathLookupCache();
           rmSync(cwd, { recursive: true, force: true });
+          rmSync(pathDir, { recursive: true, force: true });
         }
       },
     );
@@ -1582,7 +1653,7 @@ describe("classifyCodexStderrLine", () => {
     expect(classifyCodexStderrLine(line)).toBeNull();
   });
 
-  it("reads Codex's JSON log layout by the same level and target rules", () => {
+  it("reads Codex's JSON log layout by the same rules", () => {
     const record = codexJsonLogRecord;
     expect(
       classifyCodexStderrLines(
@@ -1594,13 +1665,17 @@ describe("classifyCodexStderrLine", () => {
             "failed to connect to websocket: HTTP error: 426 Upgrade Required",
           ),
           record("ERROR", "rmcp::transport::worker", "worker quit with fatal: Transport closed"),
+          // The turn reports a dropped stream itself, through Codex's `error` notification.
           record("ERROR", "codex_core::codex", "stream disconnected before completion"),
+          record(
+            "ERROR",
+            "codex_core::tools::router",
+            "error=failed to parse function arguments: duplicate field `yield_time_ms`",
+          ),
         ],
         { continuationSuppressed: false },
       ),
-    ).toEqual([
-      "2026-10-28T20:17:55.546759Z ERROR codex_core::codex: stream disconnected before completion",
-    ]);
+    ).toEqual(["Tool call failed because the same argument was sent twice (yield_time_ms)."]);
   });
 
   it("ignores token usage footers emitted during shutdown", () => {
@@ -1616,10 +1691,11 @@ describe("classifyCodexStderrLine", () => {
     }
   });
 
-  it("keeps MCP OAuth failures that concern Moss's own servers", () => {
+  it("logs MCP OAuth records for Moss's own servers instead of showing them", () => {
+    // Moss's server and connectors never use Codex OAuth, so a record naming them is Codex's log.
     for (const server of [MOSS_MCP_SERVER_NAME, "supabase_connector"]) {
       const line = `2026-10-14T10:40:19.340108Z ERROR codex_rmcp_client::oauth::refresh_transaction: error=failed to refresh OAuth tokens for server ${server}: invalid_grant`;
-      expect(classifyCodexStderrLine(line)).toEqual({ message: line });
+      expect(classifyCodexStderrLine(line)).toBeNull();
     }
   });
 
@@ -1635,11 +1711,15 @@ describe("classifyCodexStderrLine", () => {
     }
   });
 
-  it("keeps unknown structured errors", () => {
-    const line = "2026-02-08T04:24:20.085687Z ERROR codex_core::runtime: unrecoverable failure";
-    expect(classifyCodexStderrLine(line)).toEqual({
-      message: line,
-    });
+  it("keeps every other Codex log record out of the transcript", () => {
+    for (const line of [
+      "2026-02-08T04:24:20.085687Z ERROR codex_core::runtime: unrecoverable failure",
+      // A fresh Moss profile's first turn, while another Codex held the skills folder.
+      "2026-11-03T10:12:07.871469Z ERROR codex_skills_extension::host_service: failed to install system skills: io error while remove existing system skills dir: (os error 5)",
+      "2026-11-03T10:12:23.447836Z ERROR codex_skills_extension::loader::host: failed to scan skill path file:///E:/Codex/home/skills/.system/openai-docs/agents: (os error 3)",
+    ]) {
+      expect(classifyCodexStderrLine(line)).toBeNull();
+    }
   });
   it("keeps plain stderr messages", () => {
     const line = "fatal: permission denied";
@@ -1670,20 +1750,19 @@ describe("classifyCodexStderrLines", () => {
     expect(classifyCodexStderrLines(trustNotice.slice(2), state)).toEqual([]);
   });
 
-  it("drops the detail lines of a non-error entry but keeps the next real error", () => {
+  it("drops log records together with their detail lines", () => {
     const state = { continuationSuppressed: false };
-    const failure = "2026-10-28T16:34:30.000000Z ERROR codex_core::runtime: unrecoverable failure";
     expect(
       classifyCodexStderrLines(
         [
           "2026-10-28T16:34:29.000000Z  WARN codex_core::config: unknown key",
           "    detail for the warning",
-          failure,
+          "2026-10-28T16:34:30.000000Z ERROR codex_core::runtime: unrecoverable failure",
           "    detail for the failure",
         ],
         state,
       ),
-    ).toEqual([failure, "detail for the failure"]);
+    ).toEqual([]);
   });
 });
 
@@ -1839,11 +1918,9 @@ describe("codex CLI version gate", () => {
     }
   });
 
-  it("re-probes when a PATH-resolved codex is replaced behind the same bare name", async () => {
-    // The production default is the bare name `codex`, so the fingerprint is only useful if it
-    // survives PATH resolution. It is taken from the same env object handed to the spawn a few
-    // lines later, which is what keeps it pointed at the binary actually being probed even when
-    // that env carries a login-shell PATH the process itself never had.
+  it("re-probes when the selected absolute PATH program is replaced", async () => {
+    // Production resolves PATH once before either the version probe or launch.
+    // A new standalone gate can still detect that selected file was downgraded.
     const dir = mkdtempSync(path.join(os.tmpdir(), "moss-codex-version-path-"));
     const homePath = path.join(dir, "codex-home");
     mkdirSync(homePath, { recursive: true });
@@ -1869,11 +1946,13 @@ describe("codex CLI version gate", () => {
     reset();
     try {
       writeBinary("9.9.9", "original");
-      await assertSupportedCodexCliVersion({ binaryPath: "codex", cwd: dir, homePath });
+      const selected = resolveCodexExecutable({ env: process.env }).binaryPath;
+      expect(path.isAbsolute(selected)).toBe(true);
+      await assertSupportedCodexCliVersion({ binaryPath: selected, cwd: dir, homePath });
 
       writeBinary("0.1.0", "replaced-in-place-by-a-downgrade");
       await expect(
-        assertSupportedCodexCliVersion({ binaryPath: "codex", cwd: dir, homePath }),
+        assertSupportedCodexCliVersion({ binaryPath: selected, cwd: dir, homePath }),
       ).rejects.toThrow(/too old for Moss/);
     } finally {
       reset();
@@ -1883,7 +1962,7 @@ describe("codex CLI version gate", () => {
   });
 
   it.runIf(process.platform === "win32")(
-    "re-probes when cwd changes which PATH binary is trusted",
+    "keeps the selected absolute program when the child cwd changes PATH lookup",
     async () => {
       const dir = mkdtempSync(path.join(os.tmpdir(), "moss-codex-version-cwd-"));
       const firstBin = path.join(dir, "first-bin");
@@ -1897,10 +1976,10 @@ describe("codex CLI version gate", () => {
       const { assertSupportedCodexCliVersion, reset } = __codexCliVersionGateTesting;
       reset();
       try {
-        await assertSupportedCodexCliVersion({ binaryPath: "codex", cwd: secondBin, homePath });
-        await expect(
-          assertSupportedCodexCliVersion({ binaryPath: "codex", cwd: firstBin, homePath }),
-        ).rejects.toThrow(/too old for Moss/);
+        const selected = resolveCodexExecutable({ env: process.env }).binaryPath;
+        expect(path.isAbsolute(selected)).toBe(true);
+        await assertSupportedCodexCliVersion({ binaryPath: selected, cwd: secondBin, homePath });
+        await assertSupportedCodexCliVersion({ binaryPath: selected, cwd: firstBin, homePath });
       } finally {
         reset();
         vi.unstubAllEnvs();
@@ -2582,6 +2661,13 @@ describe("resolveCodexThreadOpenMinimumVersion", () => {
         MINIMUM_CODEX_EXCLUDE_TURNS_CLI_VERSION,
       );
     }
+    expect(
+      resolveCodexThreadOpenMinimumVersion({
+        runtimeMode: "auto",
+        threadOpenMethod: "thread/fork",
+        forkThroughTurn: true,
+      }),
+    ).toBe("0.163.0");
   });
 });
 
@@ -2706,6 +2792,390 @@ describe("resolveCodexModelForAccount", () => {
 });
 
 describe("startSession", () => {
+  it("selects the signed private model provider on native resume and fork without a fresh fallback", async () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-codex-bound-route-"));
+    const source = path.join(cwd, "history"),
+      privateHome = path.join(cwd, "own");
+    mkdirSync(source);
+    mkdirSync(privateHome);
+    let resumeError: string | undefined;
+    const fake = createSyntheticCodexAppServer({
+      modelProviderAt: (directory) =>
+        directory === canonicalizeCodexHomeIdentityPath(privateHome)
+          ? "new-private-provider"
+          : "wrong-workspace-provider",
+      resumeError: () => resumeError,
+    });
+    const { manager } = createSyntheticCodexManager(fake);
+    const scope = {
+      homePath: source,
+      shadowHomePath: privateHome,
+      accountId: "own",
+      runtimeGeneration: "account",
+    };
+    const options = {
+      ...scope,
+      credentialFence: issueCodexCredentialFence({ ...scope, assertBindingCurrent: () => {} }),
+    };
+    const start = (id: string) =>
+      manager.startSession({
+        threadId: asThreadId(id),
+        provider: "codex",
+        runtimeMode: "full-access",
+        cwd,
+        resumeCursor: { threadId: "native-history" },
+        expectedCodexContinuationGeneration: SYNTHETIC_CONTINUATION_GENERATION,
+        agentGatewayCapabilityInput: AGENT_GATEWAY_NO_CAPABILITIES,
+        providerOptions: { codex: options },
+      });
+    try {
+      const resumed = await start("bound-route");
+      expect(resumed.resumeCursor).toEqual({ threadId: "native-history" });
+      await manager.stopSession(resumed.threadId);
+      await manager.forkThread({
+        threadId: asThreadId("bound-fork"),
+        sourceThreadId: asThreadId("bound-route"),
+        sourceResumeCursor: { threadId: "native-history" },
+        expectedCodexContinuationGeneration: SYNTHETIC_CONTINUATION_GENERATION,
+        runtimeMode: "full-access",
+        cwd,
+        providerOptions: { codex: options },
+      });
+      const opens = fake.requests.filter(
+        (r) => r.method === "thread/resume" || r.method === "thread/fork",
+      );
+      expect(opens.map((r) => r.params?.modelProvider)).toEqual([
+        "new-private-provider",
+        "new-private-provider",
+      ]);
+      expect(opens[0]?.params).not.toHaveProperty("approvalPolicy");
+      expect(opens[0]?.params).not.toHaveProperty("sandbox");
+      resumeError = "thread/resume: no rollout found";
+      await expect(start("missing-bound-route")).rejects.toThrow(/no rollout found/);
+      resumeError =
+        "This chat uses model provider “private-old”, which is no longer configured. Restore this provider’s configuration to continue.";
+      await expect(start("changed-bound-route")).rejects.toThrow(
+        /^该 Codex 原生对话不能使用目标账号的模型提供方。原历史已保留，请用原账号继续。$/,
+      );
+      resumeError =
+        "This chat uses model provider “private-old”, but your organization requires “private-policy”.";
+      await expect(start("policy-bound-route")).rejects.toThrow(
+        /^当前组织策略不允许这个 Codex 对话切换模型提供方。/,
+      );
+      expect(fake.requests.some((r) => r.method === "thread/start")).toBe(false);
+      const managed = { ...scope, accountId: "moss" };
+      const invalid = {
+        ...managed,
+        credentialFence: issueCodexCredentialFence({ ...managed, assertBindingCurrent: () => {} }),
+      };
+      const attempts = fake.requests.filter((r) => r.method === "thread/resume").length;
+      await expect(
+        manager.startSession({
+          threadId: asThreadId("wrong-managed-route"),
+          provider: "codex",
+          runtimeMode: "full-access",
+          cwd,
+          resumeCursor: { threadId: "native-history" },
+          expectedCodexContinuationGeneration: SYNTHETIC_CONTINUATION_GENERATION,
+          agentGatewayCapabilityInput: AGENT_GATEWAY_NO_CAPABILITIES,
+          providerOptions: { codex: invalid },
+        }),
+      ).rejects.toThrow(/模型提供方与私有配置不符/);
+      expect(fake.requests.filter((r) => r.method === "thread/resume")).toHaveLength(attempts);
+    } finally {
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+  it("drains registered legacy and shared private scopes without stopping another account or a newer generation", async () => {
+    const fake = createSyntheticCodexAppServer();
+    const { manager, teardownProcessTree } = createSyntheticCodexManager(fake);
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-mixed-stop-"));
+    const source = path.join(cwd, "source");
+    const privateHome = path.join(cwd, "work");
+    const otherHome = path.join(cwd, "other");
+    for (const dir of [source, privateHome, otherHome]) mkdirSync(dir);
+    const env = { MOSS_HOME: path.join(cwd, "runtime") };
+    const scoped = (accountId: string, shadowHomePath: string, runtimeGeneration: string) => {
+      const options = {
+        homePath: source,
+        shadowHomePath,
+        accountId,
+        runtimeGeneration,
+        environment: env,
+      };
+      return {
+        ...options,
+        credentialFence: issueCodexCredentialFence({ ...options, assertBindingCurrent: () => {} }),
+      };
+    };
+    const old = scoped("work", privateHome, "old");
+    const newer = scoped("work", privateHome, "new");
+    const other = scoped("other", otherHome, "old");
+    const legacy = { homePath: privateHome, accountId: "work", environment: env };
+    const authInput = (options?: { homePath?: string; shadowHomePath?: string }) => ({
+      homePath: options?.shadowHomePath ?? options?.homePath ?? privateHome,
+      env,
+    });
+    const internals = manager as unknown as {
+      processEnvInputForOptions: typeof authInput;
+      buildSessionProcessEnv: (options?: Parameters<typeof authInput>[0]) => Promise<unknown>;
+    };
+    vi.mocked(internals.processEnvInputForOptions).mockImplementation(authInput);
+    vi.mocked(internals.buildSessionProcessEnv).mockImplementation(async (options) => {
+      const authTracking = prepareCodexAuthTracking(authInput(options));
+      return {
+        env: {},
+        authTracking,
+        authFingerprint: readCodexPreparedAuthTrackingFingerprint(authTracking),
+      };
+    });
+    teardownProcessTree.mockImplementation(async ({ rootPid }) => {
+      const child = fake.children.find((candidate) => candidate.pid === rootPid)!;
+      child.exitCode = 0;
+      child.emit("exit", 0, null);
+      child.stdout.end();
+      child.stderr.end();
+      child.emit("close", 0, null);
+      return { escalated: false, signalErrors: [] };
+    });
+    const launch = (threadId: string, codex: typeof legacy) =>
+      manager.startSession({
+        threadId: asThreadId(threadId),
+        provider: "codex",
+        runtimeMode: "full-access",
+        cwd,
+        providerOptions: { codex },
+        agentGatewayCapabilityInput: AGENT_GATEWAY_NO_CAPABILITIES,
+      });
+    try {
+      await launch("mixed-legacy", legacy);
+      await launch("mixed-shared", old);
+      await launch("mixed-newer", newer);
+      await launch("mixed-other", other);
+      const scopes = manager.listAccountRuntimeScopes({
+        homePath: privateHome,
+        accountId: "work",
+        runtimeGeneration: "old",
+      });
+      expect(scopes).toHaveLength(2);
+      expect(Object.keys(scopes[0]!.options.environment ?? {})).toEqual(["MOSS_HOME"]);
+      expect(
+        await manager.stopRegisteredAccountScopeAndWait(JSON.parse(JSON.stringify(scopes[0]))),
+      ).toEqual([]);
+      expect(manager.hasSession(asThreadId("mixed-legacy"))).toBe(true);
+      const stopped = await manager.stopRegisteredAccountScopeAndWait(scopes[0]!);
+      expect(stopped.map((session) => session.threadId).sort()).toEqual([
+        "mixed-legacy",
+        "mixed-shared",
+      ]);
+      expect(fake.children.slice(0, 2).every((child) => child.exitCode === 0)).toBe(true);
+      expect(manager.hasSession(asThreadId("mixed-newer"))).toBe(true);
+      expect(manager.hasSession(asThreadId("mixed-other"))).toBe(true);
+      // The direct signed-ref path is generation-specific as well.
+      expect(await manager.stopAccountContextsAndWait(old)).toEqual([]);
+      expect(manager.hasSession(asThreadId("mixed-newer"))).toBe(true);
+      expect(manager.hasSession(asThreadId("mixed-other"))).toBe(true);
+    } finally {
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["refreshed", "deleted"])(
+    "stops the registered ordinary account generation after auth is %s and permits identical re-login",
+    async (authChange) => {
+      const fake = createSyntheticCodexAppServer();
+      const { manager, syntheticAuthInput, teardownProcessTree } =
+        createSyntheticCodexManager(fake);
+      const internals = manager as unknown as {
+        processEnvInputForOptions: () => Parameters<typeof prepareCodexAuthTracking>[0];
+      };
+      vi.mocked(internals.processEnvInputForOptions).mockReturnValue(syntheticAuthInput);
+      teardownProcessTree.mockImplementation(async ({ rootPid }) => {
+        const child = fake.children.find((candidate) => candidate.pid === rootPid)!;
+        child.exitCode = 0;
+        child.emit("exit", 0, null);
+        child.stdout.end();
+        child.stderr.end();
+        child.emit("close", 0, null);
+        return { escalated: false, signalErrors: [] };
+      });
+      const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-binding-relogin-"));
+      const stateDir = path.join(cwd, "state");
+      let account: CodexStateBindingAccount = {
+        providerInstanceId: "codex_work",
+        accountId: "work",
+        enabled: true,
+        sourceHomePath: path.join(cwd, "source"),
+        privateHomePath: path.join(cwd, "private"),
+      };
+      for (const directory of [stateDir, account.sourceHomePath, account.privateHomePath])
+        mkdirSync(directory);
+      const authPath = path.join(account.privateHomePath, "auth.json");
+      const initialAuth = JSON.stringify({ OPENAI_API_KEY: "synthetic-binding-credential" });
+      writeFileSync(authPath, initialAuth, "utf8");
+      const owner = {
+        providerInstanceId: account.providerInstanceId,
+        accountId: account.accountId,
+      };
+      const registry = await Effect.runPromise(
+        makeCodexStateBindingAccess({
+          stateDir,
+          runtimeHomePath: path.join(cwd, "runtime"),
+          readAccount: () => account,
+        }).pipe(
+          Effect.provide(
+            ServerSecretStoreLive.pipe(
+              Layer.provide(
+                ServerConfig.layerTest(cwd, path.join(cwd, "server"), {
+                  stateDir,
+                  secretsDir: path.join(stateDir, "secrets"),
+                }),
+              ),
+              Layer.provide(NodeServices.layer),
+            ),
+          ),
+          Effect.scoped,
+        ),
+      );
+      const launch = (
+        threadId: string,
+        codex: Awaited<ReturnType<typeof registry.register>>["options"],
+      ) =>
+        manager.startSession({
+          threadId: asThreadId(threadId),
+          provider: "codex",
+          providerInstanceId: "codex_work",
+          runtimeMode: "full-access",
+          cwd,
+          providerOptions: { codex },
+          agentGatewayCapabilityInput: AGENT_GATEWAY_NO_CAPABILITIES,
+        });
+      try {
+        const original = await registry.register(owner);
+        await launch("binding-before-logout", original.options);
+        if (authChange === "refreshed")
+          writeFileSync(authPath, '{"OPENAI_API_KEY":"synthetic-refreshed"}', "utf8");
+        else rmSync(authPath);
+        account = { ...account, enabled: false };
+        const stopped = registry.restoreStop({
+          ...owner,
+          reference: original.reference,
+          expectedReference: original.reference,
+        })!;
+        expect(stopped.options.runtimeGeneration).toBe(original.options.runtimeGeneration);
+        const sessions = await manager.stopAccountContextsAndWait(stopped.options);
+        expect(sessions.map((session) => session.threadId)).toEqual(["binding-before-logout"]);
+        expect(fake.children[0]?.exitCode).toBe(0);
+        expect(manager.hasSession(asThreadId("binding-before-logout"))).toBe(false);
+        await expect(launch("binding-old-revoked", stopped.options)).rejects.toThrow(
+          /runtime generation was revoked/,
+        );
+        if (authChange === "refreshed") rmSync(authPath);
+        writeFileSync(authPath, initialAuth, "utf8");
+        account = { ...account, enabled: true };
+        const renewed = (await registry.renew({
+          ...owner,
+          reference: original.reference,
+          expectedReference: original.reference,
+        }))!;
+        expect(renewed.options.runtimeGeneration).not.toBe(original.options.runtimeGeneration);
+        expect(renewed.sourceGeneration).toBe(original.sourceGeneration);
+        expect((await launch("binding-after-identical-login", renewed.options)).status).toBe(
+          "ready",
+        );
+      } finally {
+        await manager.stopAll();
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each([true, false])(
+    "keeps credential shutdown private only with a server binding (%s)",
+    async (verified) => {
+      const fake = createSyntheticCodexAppServer();
+      const { manager, syntheticAuthInput, teardownProcessTree } =
+        createSyntheticCodexManager(fake);
+      const internals = manager as unknown as {
+        processEnvInputForOptions: () => Parameters<typeof prepareCodexAuthTracking>[0];
+      };
+      vi.mocked(internals.processEnvInputForOptions).mockReturnValue(syntheticAuthInput);
+      teardownProcessTree.mockImplementation(async ({ rootPid }) => {
+        const child = fake.children.find((candidate) => candidate.pid === rootPid)!;
+        child.exitCode = 0;
+        child.emit("exit", 0, null);
+        child.stdout.end();
+        child.stderr.end();
+        child.emit("close", 0, null);
+        return { escalated: false, signalErrors: [] };
+      });
+      const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-credential-stop-"));
+      const source = path.join(cwd, "source");
+      mkdirSync(source);
+      const binding = (accountId: string) => {
+        const shadowHomePath = path.join(cwd, accountId);
+        mkdirSync(shadowHomePath);
+        const options = {
+          homePath: source,
+          shadowHomePath,
+          accountId,
+          runtimeGeneration: "generation-1",
+          environment: { MOSS_HOME: path.join(cwd, "runtime") },
+        };
+        return {
+          ...options,
+          ...(verified
+            ? {
+                credentialFence: issueCodexCredentialFence({
+                  ...options,
+                  assertBindingCurrent: () => {},
+                }),
+              }
+            : {}),
+        };
+      };
+      const moss = binding("moss");
+      const own = binding("own");
+      const launch = (threadId: string, codex: typeof moss) =>
+        manager.startSession({
+          threadId: asThreadId(threadId),
+          provider: "codex",
+          runtimeMode: "full-access",
+          cwd,
+          providerOptions: { codex },
+          agentGatewayCapabilityInput: AGENT_GATEWAY_NO_CAPABILITIES,
+        });
+      try {
+        await launch("credential-moss", moss);
+        await launch("credential-own", own);
+        const stopped = await manager.stopAccountContextsAndWait(moss);
+        expect(stopped.map((session) => session.threadId).sort()).toEqual(
+          verified ? ["credential-moss"] : ["credential-moss", "credential-own"],
+        );
+        expect(manager.hasSession(asThreadId("credential-own"))).toBe(verified);
+        await expect(launch("credential-moss-revoked", moss)).rejects.toThrow(
+          /runtime generation was revoked/,
+        );
+        const { credentialFence: _fence, ...withoutCapability } = moss;
+        await expect(
+          launch("credential-moss-dropped-capability", withoutCapability),
+        ).rejects.toThrow(/runtime generation was revoked/);
+        if (verified) {
+          expect((await launch("credential-own-after-stop", own)).status).toBe("ready");
+        } else {
+          await expect(launch("credential-own-after-stop", own)).rejects.toThrow(
+            /runtime generation was revoked/,
+          );
+        }
+      } finally {
+        await manager.stopAll();
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("preserves the server-issued generation for Moss session startup and keeps revocation authoritative", async () => {
     const fake = createSyntheticCodexAppServer();
     const { manager, syntheticAuthInput, teardownProcessTree } = createSyntheticCodexManager(fake);
@@ -3525,6 +3995,33 @@ describe("sendTurn", () => {
       },
     });
   });
+
+  it.each([
+    { accountId: "moss", expected: "use moss_media_generate directly" },
+    { accountId: "personal", expected: "prefer Codex's native image generation" },
+  ])(
+    "routes an ordinary image using the selected Codex account $accountId",
+    async ({ accountId, expected }) => {
+      const { manager, context, sendRequest } = createSendTurnHarness();
+      Object.assign(context, { codexOptions: { accountId } });
+      await manager.sendTurn({
+        threadId: asThreadId("thread_1"),
+        input: "生成一个小猫的图片",
+        interactionMode: "default",
+      });
+      expect(sendRequest).toHaveBeenCalledWith(
+        context,
+        "turn/start",
+        expect.objectContaining({
+          collaborationMode: expect.objectContaining({
+            settings: expect.objectContaining({
+              developer_instructions: expect.stringContaining(expected),
+            }),
+          }),
+        }),
+      );
+    },
+  );
 
   it("keeps the session model when interaction mode is set without an explicit model", async () => {
     const { manager, context, sendRequest } = createSendTurnHarness();
@@ -4468,10 +4965,13 @@ describe("CodexAppServerManager discovery", () => {
         "sendRequest",
       )
       .mockResolvedValueOnce({ data: [{ id: "gpt-5.4", displayName: "GPT-5.4" }] })
+      .mockResolvedValueOnce({ config: { service_tier: "ultrafast" } })
       .mockResolvedValueOnce({ data: [{ id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol" }] });
 
     await expect(manager.listModels("thread_1")).resolves.toMatchObject({
-      models: [{ slug: "gpt-5.4", name: "GPT-5.4" }],
+      // The account's configured speed tier travels with each model so the composer
+      // can keep it off models that do not offer it.
+      models: [{ slug: "gpt-5.4", name: "GPT-5.4", configuredServiceTier: "ultrafast" }],
       source: "codex-app-server",
       cached: false,
     });
@@ -4482,12 +4982,51 @@ describe("CodexAppServerManager discovery", () => {
       source: "codex-app-server",
       cached: true,
     });
-    expect(sendRequest).toHaveBeenCalledTimes(1);
+    expect(sendRequest).toHaveBeenCalledTimes(2);
     expect(sendRequest).toHaveBeenCalledWith(context, "model/list", {
       cursor: null,
       limit: 50,
       includeHidden: false,
     });
+    expect(sendRequest).toHaveBeenCalledWith(
+      context,
+      "config/read",
+      { includeLayers: false },
+      5_000,
+    );
+  });
+
+  it("still lists models when the Codex config cannot be read", async () => {
+    const manager = new CodexAppServerManager();
+    const context = {
+      session: {
+        provider: "codex",
+        status: "ready",
+        threadId: "thread_1",
+        runtimeMode: "full-access",
+        model: "gpt-5.5",
+      },
+      account: { type: "unknown", planType: null, sparkEnabled: true },
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+    };
+    vi.spyOn(
+      manager as unknown as {
+        resolveContextForDiscovery: (threadId?: string) => unknown;
+      },
+      "resolveContextForDiscovery",
+    ).mockReturnValue(context);
+    vi.spyOn(
+      manager as unknown as {
+        sendRequest: (...args: unknown[]) => Promise<unknown>;
+      },
+      "sendRequest",
+    )
+      .mockResolvedValueOnce({ data: [{ id: "gpt-6-luna", displayName: "GPT-6 Luna" }] })
+      .mockRejectedValueOnce(new Error("config/read is not supported"));
+
+    const result = await manager.listModels("thread_1");
+    expect(result.models).toEqual([{ slug: "gpt-6-luna", name: "GPT-6 Luna" }]);
   });
 
   it("passes explicit Codex account options to model discovery context resolution", async () => {
@@ -5602,7 +6141,10 @@ describe("thread checkpoint control", () => {
   // killed mid-turn (common for scratch cwds that no longer exist): its last
   // turn keeps a terminal "interrupted" status without a completion record, so
   // the completed-source gate passes but Codex rejects the anchored fork.
-  function createForkAnchorHarness(input: { readonly retryable: boolean }) {
+  function createForkAnchorHarness(input: {
+    readonly retryable: boolean;
+    readonly acceptedAnchor?: string;
+  }) {
     const homePath = mkdtempSync(path.join(os.tmpdir(), "moss-codex-fork-anchor-"));
     writeFileSync(path.join(homePath, "app-server"), "process.stdin.resume();\n");
     const previousMossHome = process.env.MOSS_HOME;
@@ -5623,6 +6165,8 @@ describe("thread checkpoint control", () => {
       if (method === "thread/fork") {
         forkRequests.push(params);
         const anchor = (params as { lastTurnId?: string }).lastTurnId;
+        if (anchor !== undefined && anchor === input.acceptedAnchor)
+          return { thread: { id: "thread_forked", turns: [] } };
         if (anchor !== undefined || !input.retryable) {
           throw new Error(
             `lastTurnId '${anchor ?? "interrupted-source-turn"}' identifies an in-progress turn`,
@@ -5642,6 +6186,44 @@ describe("thread checkpoint control", () => {
     };
     return { cleanup, forkRequests, homePath, manager };
   }
+
+  it.each([true, false])(
+    "never drops a selected earlier fork boundary (native acceptance: %s)",
+    async (accepted) => {
+      const anchor = TurnId.makeUnsafe("selected-earlier-turn");
+      const { cleanup, forkRequests, homePath, manager } = createForkAnchorHarness({
+        retryable: true,
+        ...(accepted ? { acceptedAnchor: anchor } : {}),
+      });
+      try {
+        await buildCodexProcessEnv({ env: { MOSS_HOME: process.env.MOSS_HOME }, homePath });
+        const generation = readCodexSharedContinuationGeneration({
+          env: { MOSS_HOME: process.env.MOSS_HOME },
+          homePath,
+        });
+        const fork = manager.forkThread({
+          sourceThreadId: asThreadId("thread_1"),
+          sourceResumeCursor: { threadId: "thread_1" },
+          threadId: asThreadId("thread_2"),
+          throughTurnId: anchor,
+          requireCompletedSource: true,
+          expectedCodexContinuationGeneration: generation!,
+          cwd: homePath,
+          providerOptions: { codex: { binaryPath: process.execPath, homePath } },
+          runtimeMode: "full-access",
+        });
+        if (accepted)
+          await expect(fork).resolves.toMatchObject({
+            resumeCursor: { threadId: "thread_forked" },
+          });
+        else await expect(fork).rejects.toThrow("in progress");
+        expect(forkRequests).toHaveLength(1);
+        expect(forkRequests[0]).toMatchObject({ threadId: "thread_1", lastTurnId: anchor });
+      } finally {
+        await cleanup();
+      }
+    },
+  );
 
   it("retries an import fork without the turn anchor when Codex rejects the killed source turn's anchor", async () => {
     const { cleanup, forkRequests, homePath, manager } = createForkAnchorHarness({
@@ -6025,6 +6607,82 @@ describe("thread checkpoint control", () => {
       }
     },
   );
+
+  it("keeps Moss's reason when Codex settles an abandoned turn as interrupted", async () => {
+    const { manager, context, sendRequest, updateSession, emitEvent } =
+      createThreadControlHarness();
+    const threadId = asThreadId("thread_1");
+    const turnId = TurnId.makeUnsafe("stalled-turn");
+    const sessions = (manager as unknown as { sessions: Map<ThreadId, typeof context> }).sessions;
+    sessions.set(threadId, context);
+    context.session.status = "running";
+    context.session.activeTurnId = turnId;
+    updateSession.mockRestore();
+    const handleServerNotification = (
+      manager as unknown as {
+        handleServerNotification: (ctx: unknown, notification: unknown) => void;
+      }
+    ).handleServerNotification.bind(manager);
+    sendRequest.mockImplementation(async () => {
+      handleServerNotification(context, {
+        method: "turn/completed",
+        params: { threadId: "thread_1", turn: { id: turnId, status: "interrupted" } },
+      });
+      return {};
+    });
+
+    try {
+      await manager.abandonTurn(threadId, turnId, "The provider could not complete this request.");
+
+      expect(context.session.status).toBe("error");
+      expect((context.session as { lastError?: string }).lastError).toBe(
+        "The provider could not complete this request.",
+      );
+      expect(emitEvent).toHaveBeenCalledOnce();
+      expect(emitEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "turn/completed",
+          turnId,
+          payload: expect.objectContaining({
+            turn: {
+              id: turnId,
+              status: "failed",
+              error: { message: "The provider could not complete this request." },
+            },
+          }),
+        }),
+      );
+    } finally {
+      sessions.clear();
+    }
+  });
+
+  it("leaves another turn's interruption alone while one is being abandoned", () => {
+    const { manager, context, updateSession, emitEvent } = createThreadControlHarness();
+    const handleServerNotification = (
+      manager as unknown as {
+        handleServerNotification: (ctx: unknown, notification: unknown) => void;
+      }
+    ).handleServerNotification.bind(manager);
+    Object.assign(context, {
+      abandonedTurn: { turnId: TurnId.makeUnsafe("stalled-turn"), detail: "Moss's reason." },
+    });
+    context.session.status = "running";
+    context.session.activeTurnId = "other-turn";
+    updateSession.mockRestore();
+
+    handleServerNotification(context, {
+      method: "turn/completed",
+      params: { threadId: "thread_1", turn: { id: "other-turn", status: "interrupted" } },
+    });
+
+    expect(context.session.status).toBe("ready");
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ turn: { id: "other-turn", status: "interrupted" } }),
+      }),
+    );
+  });
 
   it("settles review interrupt when thread/read already shows exited review mode", async () => {
     const { manager, context, sendRequest, updateSession } = createThreadControlHarness();
@@ -7687,6 +8345,23 @@ describe("handleServerNotification error normalization", () => {
     }
   });
 
+  it("registers the confirmed parent turn with its own gateway lease, never a child or unscoped notification", () => {
+    const { manager, context } = createCollabNotificationHarness();
+    const noteParentTurnStarted = vi.fn();
+    Object.assign(context, { gatewaySessionLease: { noteParentTurnStarted } });
+    for (const [threadId, turnId] of [
+      ["provider_child", "child"],
+      [undefined, "unknown"],
+      ["provider_parent", "parent"],
+    ] as const) {
+      handleServerNotificationForTest(manager, context, {
+        method: "turn/started",
+        params: { ...(threadId ? { threadId } : {}), turn: { id: turnId } },
+      });
+    }
+    expect(noteParentTurnStarted.mock.calls).toEqual([["parent"]]);
+  });
+
   it("retires gateway authority before publishing every terminal parent-turn notification", () => {
     const terminalNotifications = [
       {
@@ -8008,81 +8683,102 @@ describe("CodexAppServerManager process teardown", () => {
     expect(teardownProcessTree).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps one stop in flight and publishes closed eagerly", async () => {
-    let proveExit: (() => void) | undefined;
-    const exitProof = new Promise<void>((resolve) => {
-      proveExit = resolve;
-    });
-    const teardownProcessTree = vi.fn(async () => {
-      await exitProof;
-      return { escalated: false, signalErrors: [] };
-    });
-    const manager = new CodexAppServerManager(undefined, { teardownProcessTree });
-    const threadId = asThreadId("thread-stop-proof");
-    const closedEvents: string[] = [];
-    manager.on("event", (event) => {
-      if (event.method === "session/closed") {
-        closedEvents.push(event.method);
-      }
-    });
-    const context = {
-      session: {
-        provider: "codex",
-        status: "ready",
-        threadId,
-        runtimeMode: "full-access",
-        model: "gpt-5.3-codex",
-        activeTurnId: "turn-active",
-        createdAt: "2026-02-10T00:00:00.000Z",
-        updatedAt: "2026-02-10T00:00:00.000Z",
-      },
-      account: { type: "unknown", planType: null, sparkEnabled: true },
-      child: {
-        pid: 42_424,
-        exitCode: null,
-        signalCode: null,
-        once: vi.fn(),
-        removeListener: vi.fn(),
-      },
-      pending: new Map(),
-      pendingApprovals: new Map(),
-      pendingUserInputs: new Map(),
-      collabReceiverTurns: new Map(),
-      collabReceiverParents: new Map(),
-      reviewTurnIds: new Set(),
-      nextRequestId: 1,
-      stopping: false,
-    };
-    (
-      manager as unknown as {
-        sessions: Map<ThreadId, unknown>;
-      }
-    ).sessions.set(threadId, context);
-
-    const firstStop = manager.stopSession(threadId);
-    const concurrentStop = manager.stopSession(threadId);
-
-    expect(teardownProcessTree).toHaveBeenCalledTimes(1);
-    // Closed publishes eagerly: the session must become unroutable the moment
-    // stop begins, with teardown proof continuing behind the returned promise.
-    expect(closedEvents).toEqual(["session/closed"]);
-    expect(manager.hasSession(threadId)).toBe(false);
-    expect(manager.listSessions()).toHaveLength(0);
-    expect(
+  it.each(["active", "completed"] as const)(
+    "publishes proven Stop lifecycle once (%s turn)",
+    async (state) => {
+      let proveExit: (() => void) | undefined;
+      const exitProof = new Promise<void>((resolve) => {
+        proveExit = resolve;
+      });
+      const teardownProcessTree = vi.fn(async () => {
+        await exitProof;
+        return { escalated: false, signalErrors: [] };
+      });
+      const manager = new CodexAppServerManager(undefined, { teardownProcessTree });
+      const threadId = asThreadId("thread-stop-proof");
+      const closedEvents: string[] = [];
+      const abortedEvents: Array<{
+        turnId?: TurnId | undefined;
+        lifecycleGeneration?: string | undefined;
+        payload?: unknown;
+      }> = [];
+      manager.on("event", (event) => {
+        if (event.method === "session/turn-aborted") abortedEvents.push(event);
+        if (event.method === "session/closed") {
+          closedEvents.push(event.method);
+        }
+      });
+      const context = {
+        session: {
+          provider: "codex",
+          status: "ready",
+          threadId,
+          runtimeMode: "full-access",
+          model: "gpt-5.3-codex",
+          ...(state === "active" ? { activeTurnId: TurnId.makeUnsafe("turn-active") } : {}),
+          createdAt: "2026-02-10T00:00:00.000Z",
+          updatedAt: "2026-02-10T00:00:00.000Z",
+        },
+        account: { type: "unknown", planType: null, sparkEnabled: true },
+        child: {
+          pid: 42_424,
+          exitCode: null,
+          signalCode: null,
+          once: vi.fn(),
+          removeListener: vi.fn(),
+        },
+        pending: new Map(),
+        pendingApprovals: new Map(),
+        pendingUserInputs: new Map(),
+        collabReceiverTurns: new Map(),
+        collabReceiverParents: new Map(),
+        reviewTurnIds: new Set(),
+        nextRequestId: 1,
+        stopping: false,
+        lifecycleGeneration: "generation-stopped-runtime",
+      };
       (
         manager as unknown as {
           sessions: Map<ThreadId, unknown>;
         }
-      ).sessions.has(threadId),
-    ).toBe(true);
+      ).sessions.set(threadId, context);
 
-    proveExit?.();
-    await Promise.all([firstStop, concurrentStop]);
+      const firstStop = manager.stopSession(threadId);
+      const concurrentStop = manager.stopSession(threadId);
 
-    expect(closedEvents).toEqual(["session/closed"]);
-    expect(manager.hasSession(threadId)).toBe(false);
-    expect(manager.listSessions()).toHaveLength(0);
-  });
+      expect(teardownProcessTree).toHaveBeenCalledTimes(1);
+      // Routing/authority closes immediately; terminal claims wait for exit proof.
+      expect(closedEvents).toEqual([]);
+      expect(abortedEvents).toEqual([]);
+      expect(manager.hasSession(threadId)).toBe(false);
+      expect(manager.listSessions()).toHaveLength(0);
+      expect(
+        (
+          manager as unknown as {
+            sessions: Map<ThreadId, unknown>;
+          }
+        ).sessions.has(threadId),
+      ).toBe(true);
+
+      proveExit?.();
+      await Promise.all([firstStop, concurrentStop]);
+
+      expect(closedEvents).toEqual(["session/closed"]);
+      expect(abortedEvents).toEqual(
+        state === "active"
+          ? [
+              expect.objectContaining({
+                turnId: "turn-active",
+                lifecycleGeneration: "generation-stopped-runtime",
+                payload: { authoredBy: "moss", processExitConfirmed: true },
+              }),
+            ]
+          : [],
+      );
+      expect(manager.hasSession(threadId)).toBe(false);
+      expect(manager.listSessions()).toHaveLength(0);
+    },
+  );
 
   it("retains the replacement barrier and retries after teardown proof fails", async () => {
     const teardownProcessTree = vi
@@ -8095,7 +8791,9 @@ describe("CodexAppServerManager process teardown", () => {
     const manager = new CodexAppServerManager(undefined, { teardownProcessTree });
     const threadId = asThreadId("thread-stop-proof-retry");
     const closedEvents: string[] = [];
+    const abortedEvents: unknown[] = [];
     manager.on("event", (event) => {
+      if (event.method === "session/turn-aborted") abortedEvents.push(event);
       if (event.method === "session/closed") {
         closedEvents.push(event.method);
       }
@@ -8107,6 +8805,7 @@ describe("CodexAppServerManager process teardown", () => {
         threadId,
         runtimeMode: "full-access",
         model: "gpt-5.3-codex",
+        activeTurnId: TurnId.makeUnsafe("turn-proof-retry"),
         createdAt: "2026-02-10T00:00:00.000Z",
         updatedAt: "2026-02-10T00:00:00.000Z",
       },
@@ -8138,12 +8837,14 @@ describe("CodexAppServerManager process teardown", () => {
     );
     expect(manager.hasSession(threadId)).toBe(false);
     expect(manager.listSessions()).toHaveLength(0);
-    expect(closedEvents).toEqual(["session/closed"]);
+    expect(closedEvents).toEqual([]);
+    expect(abortedEvents).toEqual([]);
 
     await manager.stopSession(threadId);
     expect(teardownProcessTree).toHaveBeenCalledTimes(2);
     expect(manager.listSessions()).toHaveLength(0);
     expect(closedEvents).toEqual(["session/closed"]);
+    expect(abortedEvents).toEqual([expect.objectContaining({ turnId: "turn-proof-retry" })]);
   });
 });
 

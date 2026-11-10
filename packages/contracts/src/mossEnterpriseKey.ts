@@ -4,7 +4,7 @@ import { IsoDateTime, NonNegativeInt, TrimmedNonEmptyString } from "./baseSchema
 
 // A Moss-issued enterprise API key signs a desktop in on its own: no phone or
 // Google account is needed. Traffic uses the mainland gateway and every model
-// vendor (see the `enterprise` lane in @synara/shared/mossRealmCatalog). The
+// vendor (see the `enterprise` lane in @moss/shared/mossRealmCatalog). The
 // exact key format is validated server-side; this schema only bounds the input.
 export const MossEnterpriseApiKey = Schema.String.check(
   Schema.isMinLength(8),

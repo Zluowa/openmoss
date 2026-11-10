@@ -6,12 +6,23 @@ export const COORDINATOR_SUGGESTION_CHIPS = [
   "Write instructions",
 ] as const;
 
-export type CoordinatorSuggestionChip = (typeof COORDINATOR_SUGGESTION_CHIPS)[number];
+const PERSONAL_SUGGESTION_CHIPS = [
+  "Choose skills",
+  "Edit preferences",
+  "Connect projects",
+] as const;
+
+export type CoordinatorSuggestionChip =
+  | (typeof COORDINATOR_SUGGESTION_CHIPS)[number]
+  | (typeof PERSONAL_SUGGESTION_CHIPS)[number];
 
 const COORDINATOR_SUGGESTION_SECTIONS: Record<CoordinatorSuggestionChip, GroupSettingsSection> = {
   "Connect repositories": "environment",
   "Add a goal": "general",
   "Write instructions": "memory",
+  "Choose skills": "plugins",
+  "Edit preferences": "memory",
+  "Connect projects": "environment",
 };
 
 export function coordinatorSuggestionSection(label: string): GroupSettingsSection {
@@ -25,7 +36,13 @@ export function visibleCoordinatorSuggestionChips(input: {
   readonly hasGoal: boolean | undefined;
   readonly instructionsConfigured: boolean | undefined;
   readonly linkedProjectCount: number;
+  readonly personal?: boolean;
 }): readonly CoordinatorSuggestionChip[] {
+  if (input.personal) {
+    return PERSONAL_SUGGESTION_CHIPS.filter(
+      (chip) => chip !== "Connect projects" || input.linkedProjectCount === 0,
+    );
+  }
   return COORDINATOR_SUGGESTION_CHIPS.filter((chip) => {
     if (chip === "Add a goal") return input.hasGoal !== true;
     if (chip === "Write instructions") return input.instructionsConfigured !== true;

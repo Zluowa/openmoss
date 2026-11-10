@@ -1,4 +1,8 @@
 import { Effect, Layer } from "effect";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -11,6 +15,13 @@ import {
   TextGeneration,
 } from "../Services/TextGeneration.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerConfig } from "../../config.ts";
+import { ServerSecretStoreLive } from "../../auth/Layers/ServerSecretStore.ts";
+import {
+  canonicalizeCodexHomeIdentityPath,
+  readCodexCredentialFence,
+} from "../../codexHomeIdentity.ts";
+import { readClaudeStateBinding } from "../../provider/claudeStateBinding.ts";
 import { ProviderTextGenerationLive } from "./ProviderTextGeneration.ts";
 import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 import { GitHubCli, type GitHubCliShape } from "../Services/GitHubCli.ts";
@@ -151,6 +162,103 @@ function makeProviderTextGenerationTestLayer(
 }
 
 describe("ProviderTextGenerationLive", () => {
+  it("routes Claude auxiliary requests through the selected private account binding", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "text-claude-binding-"));
+    const source = path.join(root, "projects");
+    const privateHome = path.join(root, "private");
+    mkdirSync(source);
+    mkdirSync(path.join(privateHome, ".claude"), { recursive: true });
+    const { layer, claude } = makeProviderTextGenerationTestLayer({
+      providers: { claudeAgent: { shareStateAcrossAccounts: true, sharedProjectsPath: source } },
+      providerInstances: {
+        claude_work: {
+          driver: "claudeAgent",
+          config: { homePath: privateHome },
+          environment: [
+            { name: "ANTHROPIC_API_KEY", value: "fixture-selected-key", sensitive: true },
+          ],
+        },
+      },
+    });
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const service = yield* TextGeneration;
+          return yield* service.generateThreadTitle({
+            cwd: root,
+            message: "synthetic title",
+            modelSelection: {
+              provider: "claudeAgent",
+              instanceId: "claude_work",
+              model: "sonnet-5",
+            },
+            providerOptions: {
+              claudeAgent: {
+                homePath: "/client-forged",
+                environment: { ANTHROPIC_API_KEY: "client-forged" },
+              },
+            },
+          });
+        }).pipe(
+          Effect.provide(layer),
+          Effect.provide(ServerSecretStoreLive),
+          Effect.provide(ServerConfig.layerTest(root, path.join(root, "server"))),
+          Effect.provide(NodeServices.layer),
+          Effect.scoped,
+        ),
+      );
+      const selected = claude.generateThreadTitle.mock.calls[0]![0].providerOptions?.claudeAgent;
+      expect(selected?.homePath).toBe(canonicalizeCodexHomeIdentityPath(privateHome));
+      expect(selected?.environment?.ANTHROPIC_API_KEY).toBe("fixture-selected-key");
+      expect(readClaudeStateBinding(selected)?.record.source.path).toBe(
+        canonicalizeCodexHomeIdentityPath(source),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("routes auxiliary requests through the current server-owned private binding", async () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "text-route-binding-"));
+    const source = path.join(root, "history");
+    const privateHome = path.join(root, "private");
+    mkdirSync(source);
+    mkdirSync(privateHome);
+    writeFileSync(path.join(privateHome, "auth.json"), '{"account":"synthetic-work"}');
+    const { layer, codex } = makeProviderTextGenerationTestLayer({
+      providers: { codex: { homePath: source, shareStateAcrossAccounts: true } },
+      providerInstances: {
+        codex_work: { driver: "codex", config: { homePath: privateHome, accountId: "work" } },
+      },
+    });
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const service = yield* TextGeneration;
+          return yield* service.generateThreadTitle({
+            cwd: root,
+            message: "synthetic title",
+            modelSelection: { provider: "codex", instanceId: "codex_work", model: "fixture-model" },
+            providerOptions: { codex: { homePath: "/client-forged", accountId: "other" } },
+          });
+        }).pipe(
+          Effect.provide(layer),
+          Effect.provide(ServerSecretStoreLive),
+          Effect.provide(ServerConfig.layerTest(root, path.join(root, "server"))),
+          Effect.provide(NodeServices.layer),
+          Effect.scoped,
+        ),
+      );
+      const selected = codex.generateThreadTitle.mock.calls[0]![0].providerOptions?.codex;
+      expect(selected?.homePath).toBe(canonicalizeCodexHomeIdentityPath(source));
+      expect(selected?.shadowHomePath).toBe(canonicalizeCodexHomeIdentityPath(privateHome));
+      expect(readCodexCredentialFence(selected)?.accountId).toBe("work");
+      expect(selected?.runtimeGeneration).toMatch(/^[a-f0-9]{64}$/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   const commitInput = {
     cwd: "/repo",
     branch: "main",

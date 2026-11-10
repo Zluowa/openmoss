@@ -8,7 +8,7 @@ import type {
   ProviderInstanceId,
   ProviderKind,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { AppState } from "../../storeState";
 import {

@@ -270,3 +270,44 @@ describe("CLI-discovered Claude effort", () => {
     ).toBeNull();
   });
 });
+
+describe("Codex speed in the composer", () => {
+  const luna = {
+    slug: "gpt-6-luna",
+    name: "GPT-6 Luna",
+    supportedReasoningEfforts: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+    defaultReasoningEffort: "medium",
+    supportsFastMode: true,
+    serviceTiers: [{ value: "priority", label: "Fast" }],
+  };
+
+  it("shows Fast on when the Codex config's Fast tier applies to the model", () => {
+    const selection = getComposerTraitSelection("codex", "gpt-6-luna", "", undefined, {
+      ...luna,
+      configuredServiceTier: "fast",
+    });
+    expect(selection.fastModeEnabled).toBe(true);
+  });
+
+  it("shows standard speed when the Codex config names a tier the model lacks", () => {
+    const selection = getComposerTraitSelection("codex", "gpt-6-luna", "", undefined, {
+      ...luna,
+      configuredServiceTier: "ultrafast",
+    });
+    expect(selection.fastModeEnabled).toBe(false);
+    expect(selection.fastModeDescriptor).not.toBeNull();
+  });
+
+  it("offers no speed control on a model without Fast", () => {
+    const selection = getComposerTraitSelection(
+      "codex",
+      "gpt-6-luna",
+      "",
+      { fastMode: true },
+      { ...luna, supportsFastMode: false, serviceTiers: [] },
+    );
+    expect(selection.fastModeDescriptor).toBeNull();
+    expect(selection.caps.supportsFastMode).toBe(false);
+    expect(selection.fastModeEnabled).toBe(false);
+  });
+});

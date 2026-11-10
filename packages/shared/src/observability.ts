@@ -1,8 +1,14 @@
 // FILE: observability.ts
 // Purpose: Defines the vendor-neutral, privacy-safe Sentry runtime configuration contract.
 // Layer: Shared runtime configuration
-// Depends on: Web URL parsing only; no provider SDK or platform globals.
+// Depends on: Web URL parsing and diagnostics redaction only; no provider SDK or platform globals.
 
+import { redactDiagnosticText } from "./diagnosticsRedaction";
+import { normalizeSentryDsn } from "./sentryDsn";
+
+export { normalizeSentryDsn };
+
+export const MOSS_ERROR_REPORTS_ENABLED_ENV = "MOSS_ERROR_REPORTS_ENABLED" as const;
 export const MOSS_SENTRY_DSN_ENV = "MOSS_SENTRY_DSN" as const;
 export const MOSS_SENTRY_ENVIRONMENT_ENV = "MOSS_SENTRY_ENVIRONMENT" as const;
 export const MOSS_SENTRY_RELEASE_ENV = "MOSS_SENTRY_RELEASE" as const;
@@ -22,7 +28,106 @@ const SENSITIVE_KEY_VALUE_PATTERN =
   /\b(prompt|token|secret|password|phone|payment|credential|authorization|cookie|body)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/giu;
 const BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/giu;
 const SENSITIVE_KEY_PATTERN =
-  /(?:prompt|token|secret|password|phone|payment|credential|authorization|cookie|body|request|payload|content|input|output|user|identity|email)/iu;
+  /(?:prompt|token|secret|password|phone|payment|credential|authorization|cookie|body|request|payload|content|input|output|user|identity|email|boot_time)/iu;
+const STARTUP_TIME_KEY_PATTERN =
+  /^(?:(?:app|application|process|system)[_-]?)?(?:start(?:up)?|boot)[_-]?(?:time|timestamp)$/iu;
+// A packaged app runs from the user's home on Windows and macOS, so its paths name them.
+const USER_HOME_PATH_PATTERN = /([\\/](?:Users|home)[\\/]+)[^\\/\s"'`:;,()]+/giu;
+const SENTRY_HELD_ENVELOPE_LIMIT = 30;
+/** Outgoing requests to providers and gateways must not carry Sentry trace headers. */
+export const SENTRY_TRACE_PROPAGATION_TARGETS: string[] = [];
+
+const SENTRY_TEXT_REDACTION_LIMIT = 4096;
+const WITHHELD_ERROR_MESSAGE = "[message withheld]";
+const ERROR_TYPE_PATTERN = /^[A-Za-z_$][\w$.]{0,63}$/u;
+const NODE_ERROR_CODE_PATTERN = /^(?:[a-z]+ )?(E[A-Z0-9_]{2,32})\b/u;
+const MINIFIED_REACT_ERROR_PATTERN = /^Minified React error #(\d{1,4})\b/u;
+/**
+ * Error text is where provider responses, file contents, and prompts end up, and
+ * no filter can recognize them in free text. So only messages Moss wrote itself
+ * and runtime errors of a known shape pass; anything else keeps its type and
+ * stack but loses its text.
+ */
+const SAFE_ERROR_MESSAGE_PATTERNS: ReadonlyArray<RegExp> = [
+  /^Moss (?:web|desktop|server|direct|realtime|model) [A-Za-z0-9 ]{1,48}$/u,
+  /^Agent gateway MCP failure \([a-z-]{1,48}\)$/u,
+  /^Cannot (?:read|set) properties of (?:undefined|null)(?: \((?:reading|setting) '[\w$]{1,64}'\))?$/u,
+  /^[\w$.]{1,96} is not (?:a function|a constructor|defined|iterable)$/u,
+  /^Maximum call stack size exceeded$/u,
+  /^(?:Failed to fetch|Load failed|fetch failed|socket hang up)$/u,
+  /^NetworkError when attempting to fetch resource\.$/u,
+  /^(?:The|This) operation was aborted\.?$/u,
+  /^The user aborted a request\.$/u,
+  /^ResizeObserver loop [a-z ]{1,64}\.?$/u,
+  /^Importing a module script failed\.$/u,
+  /^(?:unable to open database file|database is locked|disk I\/O error)$/u,
+];
+const SAFE_BREADCRUMB_MESSAGE_CATEGORIES: ReadonlySet<string> = new Set([
+  "electron",
+  "child-process",
+]);
+
+function scrubUserHomePaths(value: string): string {
+  return value.replace(USER_HOME_PATH_PATTERN, "$1[user]");
+}
+
+function safeErrorMessage(value: unknown): string {
+  if (typeof value !== "string") return WITHHELD_ERROR_MESSAGE;
+  const message = value.trim();
+  if (SAFE_ERROR_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))) return message;
+  const nodeErrorCode = NODE_ERROR_CODE_PATTERN.exec(message)?.[1];
+  if (nodeErrorCode) return nodeErrorCode;
+  const reactError = MINIFIED_REACT_ERROR_PATTERN.exec(message)?.[1];
+  if (reactError) return `Minified React error #${reactError}`;
+  return WITHHELD_ERROR_MESSAGE;
+}
+
+function safeErrorType(value: unknown): string {
+  return typeof value === "string" && ERROR_TYPE_PATTERN.test(value) ? value : "Error";
+}
+
+/**
+ * The switch every Moss event must pass to reach the network. All surfaces build
+ * their Sentry transport through this, so turning reports off stops sessions and
+ * client reports as well as errors, whatever the SDK or its integrations do.
+ *
+ * `undefined` means the preference isn't known yet: events wait, in a small
+ * bounded queue, and are sent or dropped once it is.
+ */
+export function createSentryReportingGate(initial: boolean | undefined) {
+  let enabled = initial;
+  let held: Array<() => void> = [];
+  return {
+    isClosed: () => enabled === false,
+    isPending: () => enabled === undefined,
+    setEnabled(next: boolean) {
+      enabled = next;
+      const release = held;
+      held = [];
+      if (next) for (const send of release) send();
+    },
+    wrapTransport<TOptions, TEnvelope, TResponse extends object>(
+      make: (options: TOptions) => {
+        send(envelope: TEnvelope): PromiseLike<TResponse>;
+        flush(timeout?: number): PromiseLike<boolean>;
+      },
+    ) {
+      return (options: TOptions) => {
+        const transport = make(options);
+        return {
+          ...transport,
+          send(envelope: TEnvelope): PromiseLike<TResponse> {
+            if (enabled === true) return transport.send(envelope);
+            if (enabled === undefined && held.length < SENTRY_HELD_ENVELOPE_LIMIT) {
+              held.push(() => void transport.send(envelope));
+            }
+            return Promise.resolve({} as TResponse);
+          },
+        };
+      };
+    },
+  };
+}
 
 /**
  * Keep exception messages useful for triage without allowing request payloads
@@ -38,7 +143,7 @@ export function sanitizeSentryText(value: unknown, maxLength = 240): string {
         : value && typeof value === "object" && "message" in value
           ? String((value as { readonly message?: unknown }).message ?? "")
           : "Unknown error";
-  const sanitized = raw
+  const sanitized = redactDiagnosticText(raw, { maxLength: SENTRY_TEXT_REDACTION_LIMIT })
     .replace(SENSITIVE_KEY_VALUE_PATTERN, "$1=[REDACTED]")
     .replace(BEARER_TOKEN_PATTERN, "Bearer [REDACTED]")
     .replace(/[\u0000-\u001f\u007f]/gu, " ")
@@ -75,7 +180,7 @@ function scrubSentryValue(value: unknown, depth: number): unknown {
   }
   const output: Record<string, unknown> = {};
   for (const [key, item] of Object.entries(value).slice(0, 20)) {
-    if (SENSITIVE_KEY_PATTERN.test(key)) continue;
+    if (SENSITIVE_KEY_PATTERN.test(key) || STARTUP_TIME_KEY_PATTERN.test(key)) continue;
     output[sanitizeSentryText(key, 64)] = scrubSentryValue(item, depth + 1);
   }
   return output;
@@ -103,20 +208,16 @@ export function scrubSentryEvent<T>(event: T): T {
   const source = event as Record<string, unknown>;
   const scrubbed: Record<string, unknown> = { ...source };
   delete scrubbed.user;
+  // The Node SDK sets this to the machine's hostname even with sendDefaultPii off.
+  delete scrubbed.server_name;
+  delete scrubbed.logentry;
+  delete scrubbed.modules;
 
   if (source.request && typeof source.request === "object") {
-    const request = source.request as Record<string, unknown>;
-    const {
-      url,
-      data: _data,
-      headers: _headers,
-      cookies: _cookies,
-      query_string: _query,
-      ...rest
-    } = request;
+    const { method, url } = source.request as Record<string, unknown>;
     const safeUrl = scrubSentryUrl(url);
     scrubbed.request = {
-      ...rest,
+      ...(typeof method === "string" ? { method } : {}),
       ...(safeUrl !== undefined ? { url: safeUrl } : {}),
     };
   }
@@ -131,14 +232,30 @@ export function scrubSentryEvent<T>(event: T): T {
         {
           ...rest,
           ...(message !== undefined &&
-          breadcrumb.category !== "console" &&
           typeof breadcrumb.category === "string" &&
-          !breadcrumb.category.startsWith("ui.")
+          SAFE_BREADCRUMB_MESSAGE_CATEGORIES.has(breadcrumb.category)
             ? { message: sanitizeSentryText(message, 240) }
             : {}),
         },
       ];
     });
+  }
+
+  if (source.debug_meta && typeof source.debug_meta === "object") {
+    const debugMeta = source.debug_meta as Record<string, unknown>;
+    if (Array.isArray(debugMeta.images)) {
+      scrubbed.debug_meta = {
+        ...debugMeta,
+        images: debugMeta.images.map((image) => {
+          if (!image || typeof image !== "object") return image;
+          const { code_file: codeFile, ...rest } = image as Record<string, unknown>;
+          return {
+            ...rest,
+            ...(typeof codeFile === "string" ? { code_file: scrubUserHomePaths(codeFile) } : {}),
+          };
+        }),
+      };
+    }
   }
 
   if (source.exception && typeof source.exception === "object") {
@@ -166,9 +283,16 @@ export function scrubSentryEvent<T>(event: T): T {
                             const {
                               vars: _vars,
                               pre_context: _preContext,
+                              context_line: _contextLine,
                               post_context: _postContext,
                               ...safeFrame
                             } = frame as Record<string, unknown>;
+                            for (const key of ["filename", "abs_path"]) {
+                              const path = safeFrame[key];
+                              if (typeof path === "string") {
+                                safeFrame[key] = scrubUserHomePaths(path);
+                              }
+                            }
                             return safeFrame;
                           }),
                         }
@@ -176,8 +300,8 @@ export function scrubSentryEvent<T>(event: T): T {
                   },
                 }
               : {}),
-            ...(value.type !== undefined ? { type: sanitizeSentryText(value.type, 64) } : {}),
-            ...(value.value !== undefined ? { value: sanitizeSentryText(value.value, 500) } : {}),
+            ...(value.type !== undefined ? { type: safeErrorType(value.type) } : {}),
+            ...(value.value !== undefined ? { value: safeErrorMessage(value.value) } : {}),
           };
         }),
       };
@@ -185,10 +309,20 @@ export function scrubSentryEvent<T>(event: T): T {
   }
 
   if (source.extra && typeof source.extra === "object") {
-    scrubbed.extra = scrubSentryValue(source.extra, 0);
+    // The SDKs put handler arguments and serialized rejection values here.
+    scrubbed.extra = Object.fromEntries(
+      Object.entries(source.extra).filter(
+        ([key, value]) =>
+          (typeof value === "number" || typeof value === "boolean") &&
+          !SENSITIVE_KEY_PATTERN.test(key),
+      ),
+    );
   }
   if (source.contexts && typeof source.contexts === "object") {
-    scrubbed.contexts = scrubSentryValue(source.contexts, 0);
+    // Error reports don't need trace correlation. The SDK adds it even with
+    // tracing off, and redacting its IDs would violate Sentry's trace schema.
+    const { trace: _trace, ...contexts } = source.contexts as Record<string, unknown>;
+    scrubbed.contexts = scrubSentryValue(contexts, 0);
   }
   if (source.tags && typeof source.tags === "object") {
     scrubbed.tags = Object.fromEntries(
@@ -198,39 +332,12 @@ export function scrubSentryEvent<T>(event: T): T {
         .map(([key, value]) => [sanitizeSentryText(key, 64), sanitizeSentryText(value, 96)]),
     );
   }
-  if (source.message !== undefined) scrubbed.message = sanitizeSentryText(source.message, 500);
+  if (source.message !== undefined) scrubbed.message = safeErrorMessage(source.message);
   if (source.transaction !== undefined) {
     scrubbed.transaction =
       scrubSentryUrl(source.transaction) ?? sanitizeSentryText(source.transaction, 240);
   }
   return scrubbed as T;
-}
-
-/**
- * Sentry DSNs contain a public project key in URL user-info, so that field is
- * deliberately allowed. Passwords, query strings and fragments are not valid
- * for Moss and would make accidental secret/data exfiltration easier.
- */
-export function normalizeSentryDsn(value: string | undefined): string | undefined {
-  const candidate = value?.trim();
-  if (!candidate || candidate.includes("\u0000")) return undefined;
-
-  try {
-    const url = new URL(candidate);
-    if (
-      url.protocol !== "https:" ||
-      !url.hostname ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      !url.pathname.startsWith("/")
-    ) {
-      return undefined;
-    }
-    return url.toString();
-  } catch {
-    return undefined;
-  }
 }
 
 export function normalizeSentryEnvironment(value: string | undefined, fallback: string): string {
@@ -260,7 +367,7 @@ export function resolveMossSentryRuntimeConfig(input: {
   readonly defaultTracesSampleRate?: number;
   readonly defaultReplaysOnErrorSampleRate?: number;
 }): MossSentryRuntimeConfig {
-  const defaultTracesSampleRate = input.defaultTracesSampleRate ?? 0.1;
+  const defaultTracesSampleRate = input.defaultTracesSampleRate ?? 0;
   const defaultReplaysOnErrorSampleRate = input.defaultReplaysOnErrorSampleRate ?? 0;
   const dsn = normalizeSentryDsn(input.env[MOSS_SENTRY_DSN_ENV]);
   return {

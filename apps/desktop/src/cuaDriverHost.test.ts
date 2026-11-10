@@ -12,7 +12,7 @@ import {
   CUA_DRIVER_VERSION,
   CUA_NATIVE_REVISION,
   type CuaReply,
-} from "@synara/shared/cuaDriverProtocol";
+} from "@moss/shared/cuaDriverProtocol";
 const capability = "isolated-fixture-authority-00000000000000";
 const cuaRequest: typeof rawCuaRequest = (path, request, options) =>
   rawCuaRequest(path, { ...(request as object), capability }, options);

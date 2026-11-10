@@ -4,7 +4,7 @@
 
 import "../index.css";
 
-import type { NativeApi, ProjectReadFileResult } from "@synara/contracts";
+import type { NativeApi, ProjectReadFileResult } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

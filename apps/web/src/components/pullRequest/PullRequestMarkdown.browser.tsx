@@ -61,11 +61,14 @@ describe("PullRequestMarkdown images", () => {
       await page.getByRole("button", { name: "After" }).click();
       const dialog = page.getByRole("dialog", { name: "Expanded image preview" });
       await expect.element(dialog).toBeInTheDocument();
-      // The linked badge stays a link and is left out of the gallery.
-      await expect.element(page.getByText("After (2/2)")).toBeInTheDocument();
+      // The lightbox header names the image and counts it; the linked badge stays a link and
+      // is left out of the gallery.
+      await expect.element(dialog.getByText("After", { exact: true })).toBeInTheDocument();
+      await expect.element(dialog.getByText("2 / 2", { exact: true })).toBeInTheDocument();
 
       await userEvent.keyboard("{ArrowLeft}");
-      await expect.element(page.getByText("Before (1/2)")).toBeInTheDocument();
+      await expect.element(dialog.getByText("Before", { exact: true })).toBeInTheDocument();
+      await expect.element(dialog.getByText("1 / 2", { exact: true })).toBeInTheDocument();
 
       await userEvent.keyboard("{Escape}");
       await expect.element(dialog).not.toBeInTheDocument();

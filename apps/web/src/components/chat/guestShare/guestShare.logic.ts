@@ -10,7 +10,7 @@ import {
   type GuestShareOwnerErrorCode,
   isGuestShareExpired,
   type ThreadGuestShare,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { MossLocaleCode } from "~/appSettings";
 import type { TranslationKey } from "~/localization";

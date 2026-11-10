@@ -4,7 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { ProviderListPluginsResult, ProviderPluginDescriptor } from "@synara/contracts";
+import type { ProviderListPluginsResult, ProviderPluginDescriptor } from "@moss/contracts";
 
 import {
   isMarketplaceAddSettled,

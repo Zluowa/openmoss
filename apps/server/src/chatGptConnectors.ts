@@ -9,8 +9,8 @@ import {
   type ProviderAppConnectorDetail,
   type ProviderAppConnectorTerms,
   type ProviderAppTool,
-} from "@synara/contracts";
-import { MOSS_CONNECTOR_OAUTH_SCHEME } from "@synara/shared/desktopIdentity";
+} from "@moss/contracts";
+import { MOSS_CONNECTOR_OAUTH_SCHEME } from "@moss/shared/desktopIdentity";
 import { Schema } from "effect";
 
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api";

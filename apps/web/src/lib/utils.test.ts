@@ -1,12 +1,19 @@
 import { afterEach, assert, describe, it, vi } from "vitest";
 
 import {
+  cn,
   getNavigatorPlatform,
   isLinuxPlatform,
   isMacNavigatorPlatform,
   isMacPlatform,
   isWindowsPlatform,
 } from "./utils";
+
+it("merges large title and scaled control roles without dropping their text color", () => {
+  assert.equal(cn("text-ui-lg text-foreground", "text-title"), "text-foreground text-title");
+  assert.equal(cn("min-h-control", "min-h-control-sm"), "min-h-control-sm");
+  assert.equal(cn("size-ui-icon", "size-ui-icon-sm"), "size-ui-icon-sm");
+});
 
 describe("isMacPlatform", () => {
   it("matches browser and Node.js macOS platform identifiers", () => {

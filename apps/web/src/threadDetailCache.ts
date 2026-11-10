@@ -1,4 +1,4 @@
-import { OrchestrationThreadDetailSnapshot, type ThreadId } from "@synara/contracts";
+import { OrchestrationThreadDetailSnapshot, type ThreadId } from "@moss/contracts";
 import { Schema } from "effect";
 import type { AppState } from "./storeState";
 import { getThreadFromState } from "./threadDerivation";

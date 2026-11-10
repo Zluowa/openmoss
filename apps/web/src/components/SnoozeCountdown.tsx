@@ -10,10 +10,5 @@ import { formatSnoozeDeadline } from "../lib/threadSnooze";
 /** Ticks on its own so the surrounding row or notice does not re-render every interval. */
 export function SnoozeCountdown({ snoozedUntil }: { snoozedUntil: string }) {
   const nowMs = useNowMs(true, 15_000);
-  return (
-    <>
-      Returns {formatSnoozeDeadline(snoozedUntil)} ·{" "}
-      {formatSnoozeRemainingTime(snoozedUntil, nowMs)}
-    </>
-  );
+  return `Returns ${formatSnoozeDeadline(snoozedUntil)} · ${formatSnoozeRemainingTime(snoozedUntil, nowMs)}`;
 }

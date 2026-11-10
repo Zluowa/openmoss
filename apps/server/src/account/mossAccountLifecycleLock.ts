@@ -26,6 +26,23 @@ const localAuthorityTransitions = new WeakMap<
   ServerSecretStoreShape,
   { pending: number; revision: number }
 >();
+const localAuthorityListeners = new WeakMap<ServerSecretStoreShape, Set<() => void>>();
+
+/** Stop active account-bound transports before an explicit switch or logout begins. */
+export function onMossLocalAuthorityTransition(
+  secretStore: ServerSecretStoreShape,
+  listener: () => void,
+) {
+  let listeners = localAuthorityListeners.get(secretStore);
+  if (!listeners) {
+    listeners = new Set();
+    localAuthorityListeners.set(secretStore, listeners);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
 
 export function readMossLocalAuthorityRevision(secretStore: ServerSecretStoreShape): number | null {
   const state = localAuthorityTransitions.get(secretStore);
@@ -45,6 +62,13 @@ export function withMossLocalAuthorityTransition<A, E, R>(
       }
       state.pending += 1;
       state.revision += 1;
+      for (const listener of localAuthorityListeners.get(secretStore) ?? []) {
+        try {
+          listener();
+        } catch {
+          /* Changing the account still fences all later access. */
+        }
+      }
       return state;
     }),
     () => effect,
@@ -82,6 +106,8 @@ export type MossManagedBinding = {
 export type MossManagedReconcileState =
   | "current"
   | "same-authority-stale"
+  /** Stale, but a managed chat is mid-turn on the old bearer: retry after it ends. */
+  | "same-authority-busy"
   | "owned-by-other"
   | "missing"
   | "collision";
@@ -135,7 +161,13 @@ export interface MossManagedProviderCoordinatorShape {
     readonly authority: MossManagedGatewayAuthority;
     readonly accessToken: string;
     readonly gatewayBaseUrl: string;
+    readonly now?: number;
   }) => Effect.Effect<MossManagedReconcileState, unknown>;
+  /** Whether this authority's live surface has a turn a background rotation must not stop. */
+  readonly hasRunningTurn: (input: {
+    readonly authority: MossManagedGatewayAuthority;
+    readonly now: number;
+  }) => Effect.Effect<boolean, unknown>;
 }
 
 const MOSS_MANAGED_BINDING_SECRET_NAME = "moss.managed.binding";
@@ -401,17 +433,42 @@ function makeCoordinator(
       }),
     );
 
+  // A failed read must not hold a rotation back: the old bearer would then
+  // outlive its refresh for no reason. Rotating is the pre-existing behavior.
+  const runningTurnBlocksRotation = (now: number) =>
+    (managedProvider.hasRunningTurnOnLiveBearer?.({ now }) ?? Effect.succeed(false)).pipe(
+      Effect.orElseSucceed(() => false),
+    );
+
+  const hasRunningTurn = (input: {
+    readonly authority: MossManagedGatewayAuthority;
+    readonly now: number;
+  }) =>
+    semaphore.withPermits(1)(
+      Effect.gen(function* () {
+        const stored = yield* readCurrent();
+        if (stored?.state !== "active" || stored.authority !== input.authority) return false;
+        return yield* runningTurnBlocksRotation(input.now);
+      }),
+    );
+
   const getReconcileState = (input: {
     readonly authority: MossManagedGatewayAuthority;
     readonly accessToken: string;
     readonly gatewayBaseUrl: string;
+    readonly now?: number;
   }) =>
     semaphore.withPermits(1)(
       Effect.gen(function* () {
         recoverableStaleProof = null;
+        const surface = {
+          authority: input.authority,
+          accessToken: input.accessToken,
+          gatewayBaseUrl: input.gatewayBaseUrl,
+        };
         const stored = yield* readCurrent();
         if (!stored) {
-          return (yield* managedProvider.getProvisioningState(input)) === "collision"
+          return (yield* managedProvider.getProvisioningState(surface)) === "collision"
             ? "collision"
             : "missing";
         }
@@ -431,7 +488,7 @@ function makeCoordinator(
           }
         }
 
-        const provisioningState = yield* managedProvider.getProvisioningState(input);
+        const provisioningState = yield* managedProvider.getProvisioningState(surface);
         const representedOwner =
           stored.state === "active"
             ? stored
@@ -466,7 +523,10 @@ function makeCoordinator(
         ) {
           return "current";
         }
-        return "same-authority-stale";
+        return stored.state === "active" &&
+          (yield* runningTurnBlocksRotation(input.now ?? Date.now()))
+          ? "same-authority-busy"
+          : "same-authority-stale";
       }),
     );
 
@@ -484,7 +544,7 @@ function makeCoordinator(
       return stored.authority;
     });
 
-  return { provision, release, getReconcileState, getLocalActiveAuthority };
+  return { provision, release, getReconcileState, hasRunningTurn, getLocalActiveAuthority };
 }
 
 export function makeMossManagedProviderCoordinator(

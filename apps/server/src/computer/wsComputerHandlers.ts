@@ -37,7 +37,7 @@ import {
   type ComputerTypeTextInput,
   type ThreadComputerState,
   WsRpcError,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 
 import { NO_COMPUTER_CAPABILITIES } from "./ComputerBackend.ts";

@@ -21,7 +21,7 @@ import type {
   DeviceScreenshotResult,
   DeviceStartRecordingResult,
   DeviceStopRecordingResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   DeviceBackendError,

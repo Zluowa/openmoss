@@ -6,7 +6,7 @@ import {
   type KeybindingWhenNode,
   type ResolvedKeybindingRule,
   UNASSIGNED_KEYBINDING_KEY,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { resolveDesktopMenuShortcuts } from "./useDesktopMenuShortcuts";
 import { resolveShortcutCommand } from "~/keybindings";

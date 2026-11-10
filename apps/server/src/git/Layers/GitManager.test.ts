@@ -8,14 +8,14 @@ import { expect, vi } from "vitest";
 import * as betaOperationalIssue from "../../betaOperationalIssue";
 import * as processRunner from "../../processRunner";
 import { GitHubCliLive } from "./GitHubCli";
-import { WsRpcError, type GitActionProgressEvent } from "@synara/contracts";
+import { WsRpcError, type GitActionProgressEvent } from "@moss/contracts";
 import { makeGitActionRunner } from "../gitActionRunner";
 import type {
   GitPullRequestCheck,
   GitPullRequestComment,
   ModelSelection,
   ProviderStartOptions,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
 import { type GitManagerShape } from "../Services/GitManager.ts";

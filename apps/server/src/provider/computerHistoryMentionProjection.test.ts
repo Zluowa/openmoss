@@ -8,7 +8,7 @@ import {
 import {
   COMPUTER_HISTORY_MENTION_REFERENCE,
   COMPUTER_HISTORY_MENTION_TOKEN,
-} from "@synara/shared/computerHistoryMention";
+} from "@moss/shared/computerHistoryMention";
 
 describe("Computer History mention projection", () => {
   it("removes only the exact token and keeps unrelated references for native dispatch", () => {

@@ -19,10 +19,6 @@ function writePackage(
 function withFixture(run: (stageAppDir: string) => void): void {
   const stageAppDir = mkdtempSync(path.join(tmpdir(), "moss-stage-diff-"));
   writeFileSync(path.join(stageAppDir, "package.json"), JSON.stringify({ name: "moss-desktop" }));
-  writePackage(stageAppDir, "@earendil-works/pi-coding-agent", {
-    name: "@earendil-works/pi-coding-agent",
-    dependencies: { diff: "8.0.4" },
-  });
   const pierreRoot = writePackage(stageAppDir, "@pierre/diffs", {
     name: "@pierre/diffs",
     dependencies: { diff: "8.0.3" },
@@ -38,17 +34,14 @@ function withFixture(run: (stageAppDir: string) => void): void {
 }
 
 describe("staged diff dependency consistency", () => {
-  it("allows the two exact versions to coexist under Node resolution", () => {
+  it("resolves the exact nested diff version beside a hoisted one", () => {
     withFixture((stageAppDir) => {
       assert.deepStrictEqual(
         assertStagedDiffDependencies(stageAppDir).map(({ consumer, diffVersion }) => ({
           consumer,
           diffVersion,
         })),
-        [
-          { consumer: "@earendil-works/pi-coding-agent", diffVersion: "8.0.4" },
-          { consumer: "@pierre/diffs", diffVersion: "8.0.3" },
-        ],
+        [{ consumer: "@pierre/diffs", diffVersion: "8.0.3" }],
       );
     });
   });

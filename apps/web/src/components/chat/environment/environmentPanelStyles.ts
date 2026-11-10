@@ -36,7 +36,7 @@ export const ENVIRONMENT_PANEL_SECTION_LABEL_INLINE_CLASS_NAME = cn(
  */
 export const ENVIRONMENT_PANEL_SECTION_LABEL_CLASS_NAME = cn(
   ENVIRONMENT_PANEL_SECTION_LABEL_INLINE_CLASS_NAME,
-  "px-2 py-1",
+  "px-2.5 py-1",
 );
 
 /** Muted secondary copy such as the recap body. */

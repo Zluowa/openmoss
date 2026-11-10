@@ -1,4 +1,4 @@
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { MessagesTimelineRow } from "./MessagesTimeline.logic";

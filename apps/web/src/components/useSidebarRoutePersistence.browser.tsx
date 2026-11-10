@@ -2,7 +2,7 @@
 // Purpose: Browser regression for quitting before deferred route-state settlement.
 // Layer: Web browser test
 
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "vitest-browser-react";

@@ -17,7 +17,9 @@ type ReadHook = {
 
 type SignOptions = {
   app: string;
-  optionsForFile?: (filePath: string) => { entitlements: string } | undefined;
+  optionsForFile?: (
+    filePath: string,
+  ) => { entitlements?: string; additionalArguments?: string[] } | undefined;
 };
 
 type SignReceipt = {
@@ -332,6 +334,64 @@ describe("mac canonical filesystem helper signing hook", () => {
       }
     },
   );
+
+  describe("Cua Driver signing identifier", () => {
+    const app = path.resolve("fixture", "Moss.app");
+    const driver = path.join(app, "Contents", "Resources", "cua-driver", "cua-driver");
+    const codexVendorPayloads = [
+      path.join(app, "Contents", "Resources", "codex-runtime", "aarch64-apple-darwin", "codex"),
+      path.join(app, "Contents", "Resources", "codex-runtime", "aarch64-apple-darwin", "rg"),
+    ];
+    const baseOptions = {
+      entitlements: "inherit.plist",
+      hardenedRuntime: false,
+      timestamp: "none",
+    };
+
+    it("restates the Moss identifier for the driver alone", () => {
+      const { options } = wrapMacSignOptionsForCanonicalFilesystemHelper({
+        app,
+        optionsForFile: () => baseOptions,
+      });
+      expect(options.optionsForFile?.(driver)).toEqual({
+        ...baseOptions,
+        additionalArguments: ["--identifier", "com.moss.desktop.cua.driver"],
+      });
+    });
+
+    it("leaves audited Codex vendor payloads with exactly the options they had", () => {
+      const { options } = wrapMacSignOptionsForCanonicalFilesystemHelper({
+        app,
+        optionsForFile: () => baseOptions,
+      });
+      for (const payload of codexVendorPayloads) {
+        expect(options.optionsForFile?.(payload)).toBe(baseOptions);
+      }
+    });
+
+    it("keeps arguments electron-builder already chose for the driver", () => {
+      const { options } = wrapMacSignOptionsForCanonicalFilesystemHelper({
+        app,
+        optionsForFile: () => ({ ...baseOptions, additionalArguments: ["--deep-verify-fixture"] }),
+      });
+      expect(options.optionsForFile?.(driver)).toEqual({
+        ...baseOptions,
+        additionalArguments: [
+          "--deep-verify-fixture",
+          "--identifier",
+          "com.moss.desktop.cua.driver",
+        ],
+      });
+    });
+
+    it("applies when the caller supplies no per-file options", () => {
+      const { options } = wrapMacSignOptionsForCanonicalFilesystemHelper({ app });
+      expect(options.optionsForFile?.(driver)).toEqual({
+        additionalArguments: ["--identifier", "com.moss.desktop.cua.driver"],
+      });
+      expect(options.optionsForFile?.(codexVendorPayloads[0]!)).toBeUndefined();
+    });
+  });
 
   it("fails closed when the signer never reaches the top-level app callback", async () => {
     const fixture = makeFixture();

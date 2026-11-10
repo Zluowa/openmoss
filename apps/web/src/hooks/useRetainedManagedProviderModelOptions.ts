@@ -2,7 +2,7 @@
 // Purpose: Retains the last committed non-empty model catalog for active Moss-managed sources.
 // Layer: Web hooks
 
-import type { ProviderInstanceId, ProviderKind } from "@synara/contracts";
+import type { ProviderInstanceId, ProviderKind } from "@moss/contracts";
 import { useLayoutEffect, useMemo, useRef } from "react";
 
 import type { ProviderModelOption } from "../providerModelOptions";

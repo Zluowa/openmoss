@@ -30,8 +30,25 @@ try {
 }
 
 const isWindows = process.platform === "win32";
-const shell = isWindows ? process.env.ComSpec || "cmd.exe" : "/bin/sh";
-const args = isWindows ? ["/d", "/q"] : ["-lc", `printf '${expectedOutput}'`];
+// Windows node-pty defers writes until its first output frame. The child
+// announces that its line reader is installed and repeats until the parent
+// responds, so neither side depends on an incidental ConPTY startup frame.
+const readyOutput = "moss-pty-input-ready";
+const windowsProbe = [
+  "const rl = require('node:readline').createInterface({ input: process.stdin, terminal: false });",
+  `const announce = () => console.log('${readyOutput}');`,
+  "const announcements = setInterval(announce, 150);",
+  "const deadline = setTimeout(() => process.exit(1), 5000);",
+  "rl.once('line', line => {",
+  "  clearTimeout(deadline);",
+  "  clearInterval(announcements);",
+  `  if (line === 'probe') console.log('${expectedOutput}'); else process.exitCode = 1;`,
+  "  rl.close();",
+  "});",
+  "announce();",
+].join(" ");
+const shell = isWindows ? process.execPath : "/bin/sh";
+const args = isWindows ? ["-e", windowsProbe] : ["-lc", `printf '${expectedOutput}'`];
 
 let terminal;
 try {
@@ -47,30 +64,22 @@ try {
 }
 
 try {
-  if (isWindows) {
-    // Bun's ConPTY input/output wrappers are asynchronous and can miss a
-    // one-shot command's data. The native spawn itself is synchronous: a real
-    // child PID proves the binding loaded and created the Windows PTY process.
-    if (!Number.isInteger(terminal.pid) || terminal.pid <= 0) {
-      throw new Error("node-pty did not return a valid Windows process ID.");
-    }
-    terminal.kill();
-  } else {
-    await waitForSuccessfulPtyExit({
-      terminal,
-      expectedOutput,
-      timeoutMs: 5_000,
-    });
-    // Dispose the PTY after the shared helper has disposed its listeners. This
-    // keeps the standalone smoke bounded even when the native binding retains
-    // an event-loop handle after the child exits.
+  const completed = waitForSuccessfulPtyExit({
+    terminal,
+    expectedOutput,
+    timeoutMs: isWindows ? 8_000 : 5_000,
+    ...(isWindows
+      ? { inputHandshake: { readyOutput, send: () => terminal.write("probe\r") } }
+      : {}),
+  });
+  await completed;
+  if (!isWindows) {
     terminal.kill();
   }
   console.log("[node-pty-smoke] node-pty loaded and spawned successfully.");
-  // node-pty's Windows ConPTY reader owns a worker thread that may remain
-  // referenced after the child has naturally exited. This is a standalone
-  // smoke process, so terminate explicitly once output and exit status have
-  // both been verified instead of leaving CI waiting on that native handle.
+  // A Windows reader worker can remain referenced even after its child has
+  // exited. Do not start an asynchronous kill here: the observed child has
+  // already exited, and abandoning that kill used to strand cmd and conhost.
   process.exit(0);
 } catch (error) {
   try {

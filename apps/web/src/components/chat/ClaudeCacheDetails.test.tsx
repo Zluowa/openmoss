@@ -1,4 +1,4 @@
-import type { ClaudeCacheObservation } from "@synara/contracts";
+import type { ClaudeCacheObservation } from "@moss/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 

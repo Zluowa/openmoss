@@ -9,7 +9,7 @@ import {
   SUPPORTED_PROVIDER_KINDS,
   type ProviderInstanceConfig,
   type ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
 import {
@@ -19,6 +19,9 @@ import {
   isUnresolvedAutomationInstanceId,
   providerImportedDirectoryConfig,
   providerStartOptionsFromInstance,
+  providerRuntimeConfigurationIssue,
+  mergeProviderStartOptions,
+  withServerSelectedAgentProgram,
   resolveProviderInstance,
   unresolvedAutomationInstanceId,
 } from "./providerInstances";
@@ -49,6 +52,113 @@ function settingsWithLegacyCodexWorkInstance(explicit: ProviderInstanceConfig): 
 }
 
 describe("provider instance resolution", () => {
+  it.each([
+    ["codex_moss", { managed: true, accountId: "moss" }],
+    ["codex_byok", { byok: true, mossByok: true, accountId: "byok" }],
+  ] as const)(
+    "does not let %s raw or request paths replace the shared Codex program",
+    (instanceId, ownership) => {
+      const settings = {
+        ...DEFAULT_SERVER_SETTINGS,
+        providerInstances: {
+          [instanceId]: {
+            driver: "codex" as const,
+            config: { ...ownership, binaryPath: "/raw/untrusted" },
+          },
+        },
+      };
+      const instance = deriveProviderInstances(settings).find(
+        (row) => row.instanceId === instanceId,
+      )!;
+      const options = withServerSelectedAgentProgram(instance, {
+        codex: { binaryPath: "/request/untrusted", shadowHomePath: "/private/account" },
+      });
+      expect(options?.codex?.binaryPath).toBeUndefined();
+      expect(options?.codex?.shadowHomePath).toBe("/private/account");
+    },
+  );
+
+  it.each(["codex", "claudeAgent"] as const)(
+    "keeps the server's %s program after request and persisted continuation merges",
+    (provider) => {
+      const instance = deriveProviderInstances(DEFAULT_SERVER_SETTINGS).find(
+        (row) => row.driver === provider,
+      )!;
+      const request = {
+        [provider]: { binaryPath: "/client/untrusted-cli", homePath: "/history/source" },
+      };
+      const settingsOptions = providerStartOptionsFromInstance(instance);
+      for (const merged of [
+        mergeProviderStartOptions(request, settingsOptions),
+        mergeProviderStartOptions(settingsOptions, request),
+      ]) {
+        const selected = withServerSelectedAgentProgram(instance, merged)?.[provider];
+        expect(selected?.binaryPath).toBeUndefined();
+        expect(selected?.homePath).toBe("/history/source");
+      }
+    },
+  );
+  it.each(["codex", "claudeAgent"] as const)(
+    "shares the %s program without sharing account config or accepting managed overrides",
+    (provider) => {
+      const managedId = provider === "codex" ? "codex_moss" : "claude_moss";
+      const selectedPath = `/personal/${provider}`;
+      const settings = {
+        ...DEFAULT_SERVER_SETTINGS,
+        providers: {
+          ...DEFAULT_SERVER_SETTINGS.providers,
+          [provider]: { ...DEFAULT_SERVER_SETTINGS.providers[provider], binaryPath: selectedPath },
+        },
+        providerInstances: {
+          [managedId]: {
+            driver: provider,
+            config: { managed: true, homePath: "/private/moss", binaryPath: "/untrusted/program" },
+            environment: [{ name: "MOSS_ACCESS_TOKEN", value: "fake-moss-token" }],
+          },
+          [`${provider}_work`]: {
+            driver: provider,
+            config: { homePath: "/private/work" },
+            environment: [{ name: "WORKSPACE_PROFILE", value: "work" }],
+          },
+        },
+      } satisfies ServerSettings;
+      const instances = deriveProviderInstances(settings).filter((row) => row.driver === provider);
+      expect(instances).toHaveLength(3);
+      for (const instance of instances) {
+        expect(providerStartOptionsFromInstance(instance)?.[provider]?.binaryPath).toBe(
+          selectedPath,
+        );
+      }
+      const managed = instances.find((row) => row.instanceId === managedId)!;
+      expect(providerStartOptionsFromInstance(managed)?.[provider]?.homePath).toBe("/private/moss");
+      expect(managed.environment).toEqual({ MOSS_ACCESS_TOKEN: "fake-moss-token" });
+      expect(managed.raw.config).toMatchObject({ binaryPath: "/untrusted/program" });
+    },
+  );
+
+  it.each(["codex", "claudeAgent"] as const)(
+    "rejects conflicting %s programs without rewriting either account",
+    (provider) => {
+      const instances = deriveProviderInstances({
+        ...DEFAULT_SERVER_SETTINGS,
+        providerInstances: {
+          first: { driver: provider, config: { binaryPath: "/first/cli" } },
+          second: { driver: provider, config: { binaryPath: "/second/cli" } },
+        },
+      }).filter((row) => row.driver === provider);
+      for (const instance of instances) {
+        expect(providerRuntimeConfigurationIssue(instance)).toContain("Choose one");
+        expect(() => providerStartOptionsFromInstance(instance)).toThrow("Choose one");
+      }
+      expect(instances.find((row) => row.instanceId === "first")?.config.binaryPath).toBe(
+        "/first/cli",
+      );
+      expect(instances.find((row) => row.instanceId === "second")?.config.binaryPath).toBe(
+        "/second/cli",
+      );
+    },
+  );
+
   it.each(SUPPORTED_PROVIDER_KINDS)(
     "derives the real %s default and exact configured instance",
     (provider) => {

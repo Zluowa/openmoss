@@ -12,7 +12,12 @@ import { Effect, Exit, Layer, Scope, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { describe, expect, it, vi } from "vitest";
 
-import { makeOpenCodeRuntimeLive, OpenCodeRuntime, OPENCODE_CLI_SPEC } from "./opencodeRuntime.ts";
+import {
+  makeOpenCodeRuntimeLive,
+  OpenCodeRuntime,
+  type OpenCodeRuntimeLiveOptions,
+  OPENCODE_CLI_SPEC,
+} from "./opencodeRuntime.ts";
 
 const encoder = new TextEncoder();
 
@@ -50,10 +55,18 @@ function mockPooledOpenCodeServerSpawnerLayer(state: {
   );
 }
 
-function openCodeRuntimePoolTestLayer(state: {
-  spawnUrls: Array<string>;
-  spawnCwds?: Array<string | undefined>;
-}) {
+function openCodeRuntimePoolTestLayer(
+  state: {
+    spawnUrls: Array<string>;
+    spawnCwds?: Array<string | undefined>;
+  },
+  teardownProcessTree: NonNullable<
+    OpenCodeRuntimeLiveOptions["teardownProcessTree"]
+  > = async () => ({
+    escalated: false,
+    signalErrors: [],
+  }),
+) {
   return makeOpenCodeRuntimeLive({
     netService: {
       canListenOnHost: () => Effect.succeed(true),
@@ -67,9 +80,47 @@ function openCodeRuntimePoolTestLayer(state: {
           ? new Response(null, { status: 404 })
           : Response.json({ all: [], connected: [], default: {} }),
       ),
-    teardownProcessTree: async () => ({ escalated: false, signalErrors: [] }),
+    teardownProcessTree,
   }).pipe(Layer.provide(mockPooledOpenCodeServerSpawnerLayer(state)));
 }
+
+describe("OpenCode local server pool shutdown", () => {
+  it("stops every server when one cannot prove exit, and starts none afterward", async () => {
+    const state = { spawnUrls: [] as Array<string> };
+    const tornDown: Array<number> = [];
+
+    const runtime = await Effect.runPromise(
+      Effect.gen(function* () {
+        const runtime = yield* OpenCodeRuntime;
+        const callerScope = yield* Scope.make();
+        for (const cwd of ["first", "second", "third"]) {
+          yield* runtime
+            .connectToOpenCodeServer({ binaryPath: "opencode", cwd: join(tmpdir(), cwd) })
+            .pipe(Effect.provideService(Scope.Scope, callerScope));
+        }
+        return runtime;
+      }).pipe(
+        Effect.provide(
+          openCodeRuntimePoolTestLayer(state, async (input) => {
+            tornDown.push(input.rootPid);
+            if (tornDown.length === 1) throw new Error("exit could not be proven");
+            return { escalated: false, signalErrors: [] };
+          }),
+        ),
+      ),
+    );
+
+    expect(tornDown.toSorted((left, right) => left - right)).toEqual([59_000, 59_001, 59_002]);
+
+    const lateExit = await Effect.runPromiseExit(
+      runtime
+        .connectToOpenCodeServer({ binaryPath: "opencode", cwd: tmpdir() })
+        .pipe(Effect.scoped),
+    );
+    expect(Exit.isFailure(lateExit)).toBe(true);
+    expect(state.spawnUrls).toHaveLength(3);
+  });
+});
 
 describe("OpenCode local server pool identity", () => {
   it("normalizes equivalent cwd spellings before pooling and spawning", async () => {

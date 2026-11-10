@@ -14,7 +14,7 @@ import {
   normalizeWorkspaceImportSource,
   type WorkspaceImportCanonicalSourceKind,
   type WorkspaceImportSourceKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { parse as parseToml } from "smol-toml";
 import {
   chatRootsForSource,

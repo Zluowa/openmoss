@@ -1,4 +1,4 @@
-import { ProviderInstanceId, ProjectId, ThreadId } from "@synara/contracts";
+import { ProviderInstanceId, ProjectId, ThreadId } from "@moss/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

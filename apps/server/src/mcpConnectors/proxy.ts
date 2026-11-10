@@ -10,7 +10,10 @@ import {
   outboundHttp,
   type OutboundHttpPolicy,
   type OutboundHttpResponse,
-} from "@synara/shared/outboundHttp";
+} from "@moss/shared/outboundHttp";
+
+import { SseJsonRpcCollector, jsonRpcRequestIds } from "@moss/shared/mcpJsonRpc";
+export { SseJsonRpcCollector, jsonRpcRequestIds } from "@moss/shared/mcpJsonRpc";
 
 export const MCP_CONNECTOR_PROXY_TIMEOUT_MS = 5 * 60_000;
 export const MCP_CONNECTOR_PROXY_MAX_REQUEST_BYTES = 1024 * 1024;
@@ -45,22 +48,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-const idKey = (id: unknown): string => JSON.stringify(id);
-
-/** Keys of the request ids a POST expects answers for; notifications have none. */
-export function jsonRpcRequestIds(body: unknown): string[] {
-  const messages = Array.isArray(body) ? body : [body];
-  return messages.flatMap((message) =>
-    isRecord(message) &&
-    typeof message.method === "string" &&
-    "id" in message &&
-    message.id !== null &&
-    message.id !== undefined
-      ? [idKey(message.id)]
-      : [],
-  );
-}
-
 /**
  * A JSON-RPC error for every request in `body`, so the model reads the reason
  * (HTTP-level failures surface to it as an opaque transport error).
@@ -92,83 +79,6 @@ export function jsonRpcErrorResult(
     sessionId: null,
     body: { kind: "json", value: Array.isArray(body) ? errors : errors[0] },
   };
-}
-
-/**
- * Incremental `text/event-stream` reader that keeps the JSON-RPC messages
- * and reports when every expected response has arrived, so a stream the
- * server keeps open does not stall the proxy until its deadline.
- */
-export class SseJsonRpcCollector {
-  private readonly decoder = new TextDecoder();
-  private readonly pending: Set<string>;
-  private buffer = "";
-  private carriageReturn = false;
-  readonly messages: unknown[] = [];
-
-  constructor(private readonly expectedIds: ReadonlyArray<string>) {
-    this.pending = new Set(expectedIds);
-  }
-
-  /** Feeds one chunk; true once all expected responses were seen. */
-  push(chunk: Uint8Array): boolean {
-    let text = this.decoder.decode(chunk, { stream: true });
-    if (this.carriageReturn) text = `\r${text}`;
-    // A CRLF split across chunks must not read as two line breaks.
-    this.carriageReturn = text.endsWith("\r");
-    if (this.carriageReturn) text = text.slice(0, -1);
-    this.buffer += text.replace(/\r\n?/gu, "\n");
-    let boundary = this.buffer.indexOf("\n\n");
-    while (boundary >= 0) {
-      this.readEvent(this.buffer.slice(0, boundary));
-      this.buffer = this.buffer.slice(boundary + 2);
-      boundary = this.buffer.indexOf("\n\n");
-    }
-    return this.isComplete();
-  }
-
-  finish(): void {
-    const rest = this.buffer + this.decoder.decode() + (this.carriageReturn ? "\n" : "");
-    this.buffer = "";
-    this.carriageReturn = false;
-    if (rest.trim()) this.readEvent(rest.replace(/\r\n?/gu, "\n"));
-  }
-
-  isComplete(): boolean {
-    return this.expectedIds.length > 0 && this.pending.size === 0;
-  }
-
-  /** Responses to the expected ids, in request order. */
-  responses(): unknown[] {
-    const byId = new Map<string, unknown>();
-    for (const message of this.messages) {
-      if (isRecord(message) && "id" in message && ("result" in message || "error" in message)) {
-        byId.set(idKey(message.id), message);
-      }
-    }
-    return this.expectedIds.flatMap((id) => (byId.has(id) ? [byId.get(id)] : []));
-  }
-
-  private readEvent(raw: string): void {
-    const data = raw
-      .split("\n")
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(line.startsWith("data: ") ? 6 : 5))
-      .join("\n");
-    if (!data.trim()) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(data);
-    } catch {
-      return;
-    }
-    for (const message of Array.isArray(parsed) ? parsed : [parsed]) {
-      this.messages.push(message);
-      if (isRecord(message) && "id" in message && ("result" in message || "error" in message)) {
-        this.pending.delete(idKey(message.id));
-      }
-    }
-  }
 }
 
 // One admission gate per server: a slow vendor must not queue every other
@@ -287,18 +197,28 @@ export type McpConnectorProbeResult =
       readonly resourceMetadataUrl: string | undefined;
       readonly scope: string | undefined;
     }
-  | { readonly kind: "unavailable"; readonly message: string };
+  | {
+      readonly kind: "unavailable";
+      readonly message: string;
+      /** Set when the server never answered, as opposed to answering wrongly. */
+      readonly unreachable?: true;
+    };
 
 function authenticateParameter(header: string, name: string): string | undefined {
   const match = new RegExp(`${name}="([^"]*)"`, "u").exec(header);
   return match?.[1] || undefined;
 }
 
-/** Sends an unauthenticated `initialize` to learn whether the server needs sign-in. */
+/**
+ * Sends an `initialize` to learn whether the server needs sign-in. Without
+ * `accessToken` the request is anonymous; an API key in the query travels in
+ * `url` itself.
+ */
 export async function probeMcpConnector(
   url: string,
   displayName: string,
   clientVersion: string,
+  accessToken?: string,
 ): Promise<McpConnectorProbeResult> {
   const body = {
     jsonrpc: "2.0",
@@ -325,16 +245,21 @@ export async function probeMcpConnector(
       headers: {
         accept: "application/json, text/event-stream",
         "content-type": "application/json",
+        ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
       },
       body: JSON.stringify(body),
       stopReadingAfter: (chunk, headers) => {
         if (!isEventStream(headers)) return false;
-        collector ??= new SseJsonRpcCollector([idKey(0)]);
+        collector ??= new SseJsonRpcCollector(jsonRpcRequestIds(body));
         return collector.push(chunk);
       },
     });
   } catch {
-    return { kind: "unavailable", message: `Moss could not reach ${displayName}.` };
+    return {
+      kind: "unavailable",
+      message: `Moss could not reach ${displayName}.`,
+      unreachable: true,
+    };
   }
   if (response.status === 401) {
     const challenge = response.headers.get("www-authenticate") ?? "";
@@ -348,7 +273,10 @@ export async function probeMcpConnector(
     // Close the anonymous session the probe opened, if the server keeps one.
     const sessionId = response.headers.get("mcp-session-id");
     if (sessionId) {
-      void forwardMcpConnectorRequest({ url, method: "DELETE", sessionId }, displayName);
+      void forwardMcpConnectorRequest(
+        { url, method: "DELETE", sessionId, accessToken },
+        displayName,
+      );
     }
     let answer: unknown;
     if (isEventStream(response.headers)) {

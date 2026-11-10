@@ -3,7 +3,7 @@
 //   as a replaceable structured reference, never as a copied transcript.
 // Layer: Web composer utility
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import type { Thread } from "~/types";
 
 import { useComposerDraftStore } from "../composerDraftStore";

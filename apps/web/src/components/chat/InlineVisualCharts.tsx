@@ -5,7 +5,7 @@
 // Layer: Chat transcript row content
 // Exports: InlineVisualBarChart, InlineVisualLineChart
 
-import type { InlineVisualBlock } from "@synara/contracts";
+import type { InlineVisualBlock } from "@moss/contracts";
 import { useLayoutEffect, useRef, useState, type PointerEvent } from "react";
 
 import { cn } from "~/lib/utils";

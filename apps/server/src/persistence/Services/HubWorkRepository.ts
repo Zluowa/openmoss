@@ -1,4 +1,4 @@
-import type { HubWorkRecord, ProjectId, ThreadId } from "@synara/contracts";
+import type { HubWorkRecord, ProjectId, ThreadId } from "@moss/contracts";
 import { Effect, Schema, ServiceMap } from "effect";
 
 export class HubWorkRepositoryError extends Schema.TaggedErrorClass<HubWorkRepositoryError>()(

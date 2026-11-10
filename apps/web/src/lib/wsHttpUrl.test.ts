@@ -20,6 +20,16 @@ describe("resolveWsHttpUrl", () => {
     );
   });
 
+  it("keeps a copyable download href free of the legacy startup token", () => {
+    vi.stubGlobal("window", {
+      desktopBridge: { getWsUrl: () => "wss://moss.test/ws?token=fixture-token" },
+      location: { origin: "https://fallback.test" },
+    });
+    const link = "/api/thread-output?threadId=t&file=file.txt";
+    expect(resolveWsHttpUrl(link, { includeLegacyToken: false })).toBe("https://moss.test" + link);
+    expect(new URL(resolveWsHttpUrl(link)).searchParams.get("token")).toBe("fixture-token");
+  });
+
   it("does not forward the websocket token to an absolute external URL", () => {
     vi.stubGlobal("window", {
       desktopBridge: {

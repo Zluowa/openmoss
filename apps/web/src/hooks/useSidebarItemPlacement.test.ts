@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OrchestrationSidebarOrderItem } from "@synara/contracts";
+import type { OrchestrationSidebarOrderItem } from "@moss/contracts";
 
 const reactHarness = vi.hoisted(() => {
   interface Slot {

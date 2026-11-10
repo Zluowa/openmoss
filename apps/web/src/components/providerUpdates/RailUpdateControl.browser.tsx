@@ -9,7 +9,7 @@ import {
   DEFAULT_SERVER_SETTINGS_VIEW,
   type DesktopUpdateState,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -284,7 +284,7 @@ describe("RailUpdateControl", () => {
         status: "failed",
         startedAt: CHECKED_AT,
         finishedAt,
-        message: "Update command exited with code 1.",
+        message: "Update command exited with code 1: npm error code EACCES",
         output: null,
       },
     });
@@ -292,8 +292,13 @@ describe("RailUpdateControl", () => {
     setProviders(client, [failed]);
 
     await vi.waitFor(() => expect(pillTone()).toBe("error"));
+    // The pill says why, that the agent still works, and how to update it by hand.
     await expect
-      .element(page.getByRole("button", { name: "Update command exited with code 1." }))
+      .element(
+        page.getByRole("button", {
+          name: "更新命令出错退出（退出码 1）：npm error code EACCES。OpenCode 会继续用现在的版本工作。想自己更新的话，打开智能体设置，在终端里运行它的更新命令。",
+        }),
+      )
       .toHaveTextContent("OpenCode v1.1.0 更新失败");
     expect(railState()).toBe("update");
 
@@ -302,7 +307,9 @@ describe("RailUpdateControl", () => {
 
     await userEvent.click(updateButton());
     const dialog = page.getByRole("alertdialog");
-    await expect.element(dialog).toHaveTextContent("Update command exited with code 1.");
+    await expect
+      .element(dialog)
+      .toHaveTextContent("Update command exited with code 1: npm error code EACCES");
     await expect.element(page.getByRole("button", { name: "复制命令" })).toBeInTheDocument();
   });
 

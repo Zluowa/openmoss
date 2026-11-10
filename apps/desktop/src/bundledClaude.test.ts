@@ -65,10 +65,10 @@ describe("bundledClaude", () => {
         ...input,
         probeVersionAsync: async () => "2.1.230 (Claude Code)",
       }),
-    ).rejects.toThrow(/expected 2\.1\.285/);
+    ).rejects.toThrow(/expected 2.1.318/);
     expect(() =>
       resolveBundledClaudeBinary({ ...input, probeVersion: () => "2.1.230 (Claude Code)" }),
-    ).toThrow(/expected 2\.1\.285/);
+    ).toThrow(/expected 2.1.318/);
   });
   it.each([
     ["darwin", "arm64", "darwin-arm64", "claude"],
@@ -99,7 +99,7 @@ describe("bundledClaude", () => {
   );
 
   it("parses the CLI version output without inspecting binary contents", () => {
-    expect(parseBundledClaudeCodeVersion("Claude Code 2.1.285\n")).toBe(
+    expect(parseBundledClaudeCodeVersion("Claude Code 2.1.318\n")).toBe(
       MOSS_BUNDLED_CLAUDE_CODE_VERSION,
     );
     expect(parseBundledClaudeCodeVersion("Claude Code 2.1.230\n")).toBe("2.1.230");
@@ -168,6 +168,6 @@ describe("bundledClaude", () => {
         existsSync: (candidate) => candidate === expected,
         probeVersion: () => "2.1.230 (Claude Code)",
       }),
-    ).toThrow(/reported 2\.1\.230.*expected 2\.1\.285/);
+    ).toThrow(/reported 2\.1\.230.*expected 2.1.318/);
   });
 });

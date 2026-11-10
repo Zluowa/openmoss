@@ -2,8 +2,8 @@
 // Purpose: Authenticated HTTP transport for on-demand MCP App resource reads.
 // HTML is returned only for the active request and is never persisted here.
 
-import { McpAppResourceReadInput, McpAppResourceReadResult } from "@synara/contracts";
-import { MCP_APP_RESOURCE_READ_ROUTE_PATH } from "@synara/shared/mcpAppResource";
+import { McpAppResourceReadInput, McpAppResourceReadResult } from "@moss/contracts";
+import { MCP_APP_RESOURCE_READ_ROUTE_PATH } from "@moss/shared/mcpAppResource";
 import { Cause, Effect, FileSystem, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 

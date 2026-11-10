@@ -1,4 +1,4 @@
-import type { MossAccountStartPhoneLoginResult, ServerSettings } from "@synara/contracts";
+import type { MossAccountStartPhoneLoginResult, ServerSettings } from "@moss/contracts";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useRef, useState } from "react";
@@ -9,6 +9,7 @@ import { MossOtpInput } from "~/components/ui/input-otp";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
+import { useTranslation } from "~/localization";
 import {
   serverMossAccountSessionQueryOptions,
   serverMossCloudAccountStateQueryOptions,
@@ -27,7 +28,7 @@ import { MossPayPanel } from "./MossPayPanel";
 import type { MossAccountView } from "./mossAccountRoutes.logic";
 import {
   normalizeMainlandPhoneInput,
-  phoneAuthErrorMessage,
+  phoneAuthErrorMessageKey,
   validateMainlandPhone,
   validatePhoneCode,
 } from "./mossPhoneAuth.logic";
@@ -71,14 +72,22 @@ export function MossPhoneLoginForm({
   }) => Promise<void>;
   readonly resendCooldownMs?: number | undefined;
 }) {
+  const { t } = useTranslation();
   const [phoneNumber, setPhoneNumber] = useState("");
   const [code, setCode] = useState("");
+  // challenge.expiresAt is only Moss's own bookkeeping. How long an SMS code
+  // really lives is a MemFire Auth console setting the API never reports, so
+  // the form must not show it as the code's lifetime.
   const [challenge, setChallenge] = useState<MossAccountStartPhoneLoginResult | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
+  const [sendNotice, setSendNotice] = useState<"sent" | "resent" | null>(null);
   const [cooldownEndsAt, setCooldownEndsAt] = useState(0);
   const [now, setNow] = useState(Date.now());
   const phoneRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
+  // Every request, even one that failed or timed out, may have replaced the
+  // code MemFire holds for that number, so any later code is a replacement.
+  const requestedPhonesRef = useRef(new Set<string>());
 
   const cooldownSeconds = Math.max(0, Math.ceil((cooldownEndsAt - now) / 1_000));
   useEffect(() => {
@@ -94,13 +103,18 @@ export function MossPhoneLoginForm({
       phoneRef.current?.focus();
       return;
     }
+    const requestedPhone = normalizeMainlandPhoneInput(phoneNumber);
+    const replacesEarlierCode = requestedPhonesRef.current.has(requestedPhone);
+    requestedPhonesRef.current.add(requestedPhone);
+    setSendNotice(null);
     let result: MossAccountStartPhoneLoginResult;
     try {
-      result = await onSendCode(normalizeMainlandPhoneInput(phoneNumber));
+      result = await onSendCode(requestedPhone);
     } catch {
       return;
     }
     setChallenge(result);
+    setSendNotice(replacesEarlierCode ? "resent" : "sent");
     setPhoneNumber(result.phoneNumber);
     setCode("");
     setCooldownEndsAt(Date.now() + Math.max(0, resendCooldownMs));
@@ -132,6 +146,7 @@ export function MossPhoneLoginForm({
     setChallenge(null);
     setCode("");
     setFieldError(null);
+    setSendNotice(null);
     requestAnimationFrame(() => phoneRef.current?.focus());
   };
 
@@ -215,6 +230,21 @@ export function MossPhoneLoginForm({
               pasteTransformer={(pasted) => pasted.replace(/\D/gu, "").slice(0, 6)}
               value={code}
             />
+            {sendNotice ? (
+              <p
+                aria-live="polite"
+                className={
+                  sendNotice === "resent"
+                    ? "text-ui-sm leading-5 text-foreground"
+                    : "text-ui-sm leading-5 text-muted-foreground"
+                }
+                role="status"
+              >
+                {t(
+                  sendNotice === "resent" ? "mossPhoneLogin.codeResent" : "mossPhoneLogin.codeSent",
+                )}
+              </p>
+            ) : null}
             <FieldError id="moss-phone-code-error" message={fieldError} />
           </div>
         </>
@@ -231,6 +261,7 @@ export function MossPhoneLoginForm({
 }
 
 export function MossPhoneLoginPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const accountQuery = useQuery(serverMossAccountSessionQueryOptions({ retry: 0 }));
@@ -267,7 +298,14 @@ export function MossPhoneLoginPage() {
     };
   }, [accountQuery.data?.authenticated, authenticatedByCurrentMutation, navigate, queryClient]);
 
-  const error = mutation.error ? phoneAuthErrorMessage(mutation.error) : restorationError;
+  const error = mutation.error
+    ? t(
+        phoneAuthErrorMessageKey(
+          mutation.error,
+          mutation.variables && "code" in mutation.variables ? "verify" : "send",
+        ),
+      )
+    : restorationError;
 
   return (
     <MossAuthShell
@@ -432,7 +470,7 @@ export function MossPhoneAccountPage() {
               <div className="min-w-0">
                 <h2 className="text-ui-lg font-medium">用量与充值</h2>
                 <p className="mt-1 text-ui-lg text-muted-foreground">
-                  与 Codex 相同：在设置 → 用量里查看额度并充值。
+                  在设置 → 用量里查看额度并充值。
                 </p>
               </div>
               <Button

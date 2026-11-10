@@ -1,4 +1,4 @@
-import { ApprovalRequestId, ThreadId, TurnId } from "@synara/contracts";
+import { ApprovalRequestId, ThreadId, TurnId } from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type {
   Agent,
@@ -1299,6 +1299,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
         },
       ],
       inventory: {
+        defaultModel: "opencode-go/kimi-k2.6",
         providerList: {
           connected: ["openai"],
           default: {},
@@ -1348,6 +1349,7 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(result).toMatchObject({
       source: "opencode-cli",
       cached: false,
+      defaultModel: "opencode-go/kimi-k2.6",
     });
     expect(result?.models.map((model) => model.slug)).toEqual([
       "openai/gpt-5",
@@ -3474,6 +3476,91 @@ describe("OpenCodeAdapter runtime lifecycle", () => {
     expect(result[4]).toMatchObject({
       type: "item.completed",
       payload: { itemType: "assistant_message", detail: "lolo" },
+    });
+  });
+
+  it("does not double a one-word reply whose delta arrives between two snapshots", async () => {
+    const eventQueue = createSubscribedEventQueue();
+    const runtime = createMockOpenCodeRuntime();
+    const client = runtime.runtime.createOpenCodeSdkClient({
+      baseUrl: "http://127.0.0.1:4099",
+      directory: process.cwd(),
+    }) as unknown as {
+      event: {
+        subscribe: () => Promise<{ stream: AsyncIterable<unknown> }>;
+      };
+    };
+    client.event.subscribe = async () => ({ stream: eventQueue.stream });
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const adapter = yield* OpenCodeAdapter;
+        const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 6)).pipe(
+          Effect.forkChild,
+        );
+
+        yield* adapter.startSession({
+          provider: "opencode",
+          threadId: asThreadId("thread-one-word"),
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({
+          threadId: asThreadId("thread-one-word"),
+          input: "hello",
+          attachments: [],
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.4" },
+        });
+
+        const part = {
+          id: "part-one-word",
+          messageID: "assistant-message-one-word",
+          type: "text",
+          time: { start: 1 },
+        };
+        eventQueue.push({
+          type: "message.part.updated",
+          properties: { sessionID: "opencode-session-1", part: { ...part, text: "" } },
+        });
+        eventQueue.push({
+          type: "message.part.delta",
+          properties: { sessionID: "opencode-session-1", partID: part.id, delta: "OK" },
+        });
+        eventQueue.push({
+          type: "message.part.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            part: { ...part, text: "OK", time: { start: 1, end: 2 } },
+          },
+        });
+        eventQueue.push({
+          type: "message.updated",
+          properties: {
+            sessionID: "opencode-session-1",
+            info: { id: part.messageID, role: "assistant" },
+          },
+        });
+        eventQueue.push({
+          type: "session.status",
+          properties: { sessionID: "opencode-session-1", status: { type: "idle" } },
+        });
+
+        const events = Array.from(yield* Fiber.join(eventsFiber));
+        eventQueue.close();
+        return events;
+      }).pipe(
+        Effect.provide(
+          makeOpenCodeAdapterLive({ runtime: runtime.runtime }).pipe(
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "opencode-adapter-test-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+    );
+
+    expect(result.find((event) => event.type === "item.completed")).toMatchObject({
+      payload: { itemType: "assistant_message", detail: "OK" },
     });
   });
 

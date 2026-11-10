@@ -25,7 +25,7 @@ import {
 import {
   BETA_IMPORT_REQUEST_FILE_NAME,
   BETA_IMPORT_RESULT_FILE_NAME,
-} from "@synara/shared/betaChannel";
+} from "@moss/shared/betaChannel";
 import { copyLiveDatabase, runBetaImportIfRequested } from "./betaImport";
 
 const roots: string[] = [];

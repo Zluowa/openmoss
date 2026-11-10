@@ -98,6 +98,13 @@ export function resolveStoredMossLocale(
   return resolveMossLocale(readStoredLocaleOverride(storage), languages);
 }
 
+/** The locale the localization provider applied to the document, for code outside React. */
+export function documentMossLocale(): MossLocaleCode {
+  const value =
+    typeof document === "undefined" ? undefined : document.documentElement.dataset.mossLocale;
+  return value && isMossLocaleCode(value) ? value : resolveStoredMossLocale();
+}
+
 export function applyDocumentLocale(locale: MossLocaleCode): void {
   if (typeof document === "undefined") {
     return;

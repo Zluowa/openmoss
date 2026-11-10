@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
 import { useState } from "react";
 import type { WorkLogEntry, WorkLogMossWorkerNotice } from "../../workLog";
 import { readNativeApi } from "~/nativeApi";

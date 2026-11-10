@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   MOSS_DESKTOP_SMOKE_USER_DATA_ENV,
   MOSS_SOURCE_DESKTOP_BUILD_MARKER,
-} from "@synara/shared/desktopIdentity";
+} from "@moss/shared/desktopIdentity";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const DESKTOP_ROOT = resolve(SCRIPT_DIR, "..");

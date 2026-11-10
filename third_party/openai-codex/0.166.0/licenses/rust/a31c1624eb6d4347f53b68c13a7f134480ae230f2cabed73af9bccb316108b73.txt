@@ -1,0 +1,57 @@
+/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under both the MIT license found in the
+ * LICENSE-MIT file in the root directory of this source tree and the Apache
+ * License, Version 2.0 found in the LICENSE-APACHE file in the root directory
+ * of this source tree.
+ */
+
+//! Provides utilities to implement `Display`, which also provides an "alternate" display.
+//!
+//! As an example of using these combinators:
+//!
+//! ```
+//! use std::fmt;
+//! use display_container::*;
+//!
+//! struct MyItems(Vec<(String, i32)>);
+//!
+//! impl fmt::Display for MyItems {
+//!     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+//!         fmt_container(f, "{", "}",
+//!             iter_display_chain(
+//!                 &["magic"],
+//!                 self.0.iter().map(|(k, v)| display_pair(k, "=", v))
+//!             )
+//!         )
+//!     }
+//! }
+//! ```
+//!
+//! Would produce results such as:
+//!
+//! ```ignore
+//! {magic, hello=1, world=2}
+//! ```
+//!
+//! For "normal" display, produces output like (with `prefix="prefix[", suffix="]"`):
+//!
+//! `prefix[]`
+//! `prefix[1]`
+//! `prefix[1, 2]`
+//!
+//! For "alternate" display, produces output like:
+//!
+//! `prefix[]`
+//! `prefix[ 1 ]`
+//! ```ignore
+//! prefix[
+//!   1,
+//!   2
+//! ]
+//! ```
+//!
+//! This doesn't propagate the flags on the Formatter other than alternate.
+// TODO(cjhopman): Starlark values don't really do anything with the rest of the flags so
+// propagating them hasn't been necessary, but it would be easy enough to implement if we wanted to.

@@ -4,7 +4,7 @@
  * The repository only persists rows; the library service owns ids, timestamps,
  * trash semantics, filesystem reconciliation, and import copies.
  */
-import { LibraryFolder, LibraryItem } from "@synara/contracts";
+import { LibraryFolder, LibraryItem } from "@moss/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 

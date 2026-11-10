@@ -5,7 +5,10 @@
 // Layer: Web RPC helper
 // Exports: isRequestOutcomeUnknown
 
-/** wsTransport's WsTransportRequestInterruptedError for a timeout or reconnect; a cancel is the caller's own. */
+/**
+ * wsTransport's WsTransportRequestInterruptedError for a timeout or reconnect. A cancel is
+ * the caller's own, and "not sent" means the deadline passed before a connection existed.
+ */
 export function isRequestOutcomeUnknown(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -13,6 +16,7 @@ export function isRequestOutcomeUnknown(error: unknown): boolean {
     "_tag" in error &&
     error._tag === "WsTransportRequestInterruptedError" &&
     "code" in error &&
-    error.code !== "WS_REQUEST_ABORTED"
+    error.code !== "WS_REQUEST_ABORTED" &&
+    error.code !== "WS_REQUEST_NOT_SENT"
   );
 }

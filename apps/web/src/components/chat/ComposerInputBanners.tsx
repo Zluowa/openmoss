@@ -11,6 +11,7 @@ import { type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import { ComposerAutomationSetupBanner } from "./ComposerAutomationSetupBanner";
+import { ComposerDevsReportHint } from "./ComposerDevsReportHint";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
 import { ComposerSnoozeNotice } from "./ComposerSnoozeNotice";
 import { COMPOSER_INPUT_SURFACE_BANNER_CLASS_NAME } from "./composerPickerStyles";
@@ -26,6 +27,8 @@ interface ComposerInputBannersProps {
   automationSetup: { onCancel: () => void } | null;
   // A snoozed chat stays reachable; this strip explains what sending does.
   snooze: ComponentProps<typeof ComposerSnoozeNotice> | null;
+  // The draft starts with `@devs`: sending reports a problem instead of starting a turn.
+  devsReport?: boolean;
 }
 
 export function ComposerInputBanners({
@@ -33,9 +36,12 @@ export function ComposerInputBanners({
   planFollowUp,
   automationSetup,
   snooze,
+  devsReport = false,
 }: ComposerInputBannersProps) {
   let content: ReactNode = null;
-  if (planFollowUp) {
+  if (devsReport) {
+    content = <ComposerDevsReportHint />;
+  } else if (planFollowUp) {
     content = <ComposerPlanFollowUpBanner key={planFollowUp.id} planTitle={planFollowUp.title} />;
   } else if (automationSetup) {
     content = <ComposerAutomationSetupBanner onCancel={automationSetup.onCancel} />;

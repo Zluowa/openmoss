@@ -1,5 +1,6 @@
 // FILE: surfaceContentTabs.logic.ts
-// Purpose: Pure geometry for the content tab strip's overflow menu.
+// Purpose: Pure geometry for the content tab strip: its overflow menu, and when a dragged
+//          tab leaves the strip.
 // Layer: Chat surface UI logic
 
 interface HorizontalSpan {
@@ -25,4 +26,21 @@ export function findHiddenSurfaceTabIndexes(
     }
   });
   return hidden;
+}
+
+interface VerticalSpan {
+  top: number;
+  bottom: number;
+}
+
+// A tab dragged this far above or below its strip leaves it; closer than that, the
+// wobble of a sideways reorder stays a reorder.
+export const SURFACE_TAB_DRAG_OUT_DISTANCE_PX = 16;
+
+/** Whether a dragged tab's pointer has left the strip vertically, ending the reorder. */
+export function isSurfaceTabDraggedOut(strip: VerticalSpan, pointerY: number): boolean {
+  return (
+    pointerY > strip.bottom + SURFACE_TAB_DRAG_OUT_DISTANCE_PX ||
+    pointerY < strip.top - SURFACE_TAB_DRAG_OUT_DISTANCE_PX
+  );
 }

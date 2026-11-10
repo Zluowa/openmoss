@@ -4,7 +4,7 @@
 // Exports: deriveModelComposerPrediction, applyComposerPrediction,
 //   createPredictionTriggerTracker, COMPOSER_PREDICTION_ACCEPTED_STORAGE_KEY
 
-import type { NextMessagePredictionGenerationTrigger } from "@synara/contracts";
+import type { NextMessagePredictionGenerationTrigger } from "@moss/contracts";
 
 export const COMPOSER_PREDICTION_ACCEPTED_STORAGE_KEY = "moss:composer-prediction-accepted:v1";
 

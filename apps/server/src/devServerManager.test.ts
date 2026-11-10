@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ProjectId, type ProjectDevServer, type ServerLocalServerProcess } from "@synara/contracts";
+import { ProjectId, type ProjectDevServer, type ServerLocalServerProcess } from "@moss/contracts";
 
 import { findProjectDevServerForLocalServer } from "./devServerManager";
 
@@ -66,5 +66,17 @@ describe("findProjectDevServerForLocalServer", () => {
         devServers: [makeDevServer({ cwd: "/repo/app" })],
       }),
     ).toBeNull();
+  });
+
+  it("tells launch runs in one folder apart by their port before their folder", () => {
+    const web = makeDevServer({ pid: null, launchName: "web", port: 5173 });
+    const api = makeDevServer({ pid: null, launchName: "api", port: 8787 });
+
+    expect(
+      findProjectDevServerForLocalServer({
+        localServer: makeLocalServer({ cwd: "/repo/app", pid: 300, ports: [8787] }),
+        devServers: [web, api],
+      }),
+    ).toBe(api);
   });
 });

@@ -8,8 +8,8 @@ import {
   type ComputerStatusResult,
   type ComputerWindow,
   type ThreadComputerState,
-} from "@synara/contracts";
-import { listComputerPermissions } from "@synara/shared/computerGrants";
+} from "@moss/contracts";
+import { listComputerPermissions } from "@moss/shared/computerGrants";
 import { COMPUTER_TOOL_TITLES, computerToolName } from "../lib/computerToolPresentation";
 
 export interface ComputerFrameGateState {

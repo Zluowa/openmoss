@@ -1,6 +1,6 @@
 import path from "node:path";
-import type { ProviderInstanceConfig, ProviderInstanceConfigMap } from "@synara/contracts";
-import { isMossAccessLane, type MossAccessLane } from "@synara/shared/mossRealmCatalog";
+import type { ProviderInstanceConfig, ProviderInstanceConfigMap } from "@moss/contracts";
+import { isMossAccessLane, type MossAccessLane } from "@moss/shared/mossRealmCatalog";
 import {
   buildMossManagedGrokProviderInstance,
   isVerifiedMossManagedGrokProviderInstance,

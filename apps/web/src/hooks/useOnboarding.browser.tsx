@@ -32,6 +32,7 @@ beforeEach(() => {
   localStorage.removeItem("moss:onboarding:v2");
   localStorage.removeItem("moss:onboarding:v2");
   localStorage.removeItem("moss:feature-tour:since-0.9.2:v1");
+  localStorage.removeItem("moss:project-import-announcement:v1");
   mocks.getConfig.mockReset().mockResolvedValue({ worktreesDir: "/a/worktrees" });
   // Keep the server marker absent to exercise the failed-write fallback.
   mocks.save.mockReset().mockResolvedValue(false);
@@ -48,6 +49,7 @@ afterEach(() => {
   localStorage.removeItem("moss:onboarding:v2");
   localStorage.removeItem("moss:onboarding:v2");
   localStorage.removeItem("moss:feature-tour:since-0.9.2:v1");
+  localStorage.removeItem("moss:project-import-announcement:v1");
 });
 
 async function renderOnboarding() {
@@ -70,6 +72,10 @@ describe("onboarding installation identity", () => {
     expect(JSON.parse(localStorage.getItem("moss:feature-tour:since-0.9.2:v1") ?? "[]")).toEqual([
       "/a/worktrees",
     ]);
+    // Its project step is the import, so the old "Import projects" announcement stays away.
+    expect(JSON.parse(localStorage.getItem("moss:project-import-announcement:v1") ?? "[]")).toEqual(
+      ["/a/worktrees"],
+    );
     await hook.unmount();
     const remounted = await renderOnboarding();
     await vi.waitFor(() => expect(remounted.hook.result.current.isOpen).toBe(false));

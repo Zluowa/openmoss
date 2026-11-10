@@ -3,7 +3,7 @@
 // Layer: Web composer domain
 // Depends on: composer draft store, composer image intake, and AppSnap icon cache.
 
-import type { DesktopAppSnapCapture, ThreadId } from "@synara/contracts";
+import type { DesktopAppSnapCapture, ThreadId } from "@moss/contracts";
 
 import { persistAppSnapIcon, readAppSnapIcon } from "./lib/appSnapIconStore";
 import { deleteComposerImageBlob, persistComposerImageBlob } from "./lib/composerImageBlobStore";

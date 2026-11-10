@@ -1,26 +1,38 @@
 // FILE: RunningChatsQuitCoordinator.tsx
-// Purpose: Answers Electron quit requests with the running-chats confirmation.
+// Purpose: Answers Electron quit requests: an idle app quits straight away; otherwise it
+//          shows what is still running (chats, terminal commands, dev servers, imports, an
+//          app update download) and asks.
 // Layer: Root web coordinator
-// Depends on: Desktop bridge quit IPC, the orchestration store, and the quit-resume RPC.
+// Depends on: Desktop bridge quit IPC, the orchestration, terminal, dev-server and import
+//             stores, and the quit-resume RPC.
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { APP_DISPLAY_NAME } from "~/branding";
 import {
   listRunningChatsFromDesktopStore,
+  listRunningWorkForQuit,
   quitResumeContinuationPrompt,
   stopRunningChatsForQuit,
   type RunningChatQuitSummary,
+  type RunningWorkQuitItem,
 } from "~/lib/runningChatsQuitConfirmation";
+import { listRunningImports, useRunningImportsStore } from "~/lib/runningImportsStore";
 import { newCommandId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
+import { useProjectRunStore } from "~/projectRunStore";
 import { useStore } from "~/store";
+import { useTerminalStateStore } from "~/terminalStateStore";
 
 import { RunningChatsQuitDialog, type RunningChatsQuitDecision } from "./RunningChatsQuitDialog";
 
 export function RunningChatsQuitCoordinator() {
-  const [chats, setChats] = useState<ReadonlyArray<RunningChatQuitSummary> | null>(null);
+  const [prompt, setPrompt] = useState<{
+    readonly chats: ReadonlyArray<RunningChatQuitSummary>;
+    readonly work: ReadonlyArray<RunningWorkQuitItem>;
+  } | null>(null);
+  const chats = prompt?.chats ?? null;
   // True while the resume record is being written: the dialog stays up (inert) so the
   // user does not see a bare window for the bounded wait before the desktop hides it.
   const [quitting, setQuitting] = useState(false);
@@ -36,7 +48,7 @@ export function RunningChatsQuitCoordinator() {
       const chatsToStop = allow ? chats : null;
       pendingRequestIdRef.current = null;
       if (!decision?.resume) {
-        setChats(null);
+        setPrompt(null);
       }
 
       const reply = (allowQuit: boolean) => {
@@ -91,7 +103,7 @@ export function RunningChatsQuitCoordinator() {
         void stopped.finally(() => {
           reply(true);
           setQuitting(false);
-          setChats(null);
+          setPrompt(null);
         });
         return;
       }
@@ -110,21 +122,37 @@ export function RunningChatsQuitCoordinator() {
     }
 
     return subscribe((request) => {
-      const running = listRunningChatsFromDesktopStore(useStore.getState());
+      const state = useStore.getState();
+      const running = listRunningChatsFromDesktopStore(state);
+      const work = listRunningWorkForQuit({
+        terminalStateByThreadId: useTerminalStateStore.getState().terminalStateByThreadId,
+        threadTitleById: (threadId) =>
+          state.sidebarThreadSummaryById[threadId as ThreadId]?.title ??
+          state.threadShellById?.[threadId as ThreadId]?.title,
+        devServers: Object.values(useProjectRunStore.getState().runsByProjectId),
+        projectNameById: (projectId) =>
+          state.projects.find((project) => project.id === projectId)?.name,
+        imports: listRunningImports(useRunningImportsStore.getState().importsById),
+        updateDownloading: request.updateDownloading === true,
+      });
+      const runningCount = running.length + work.length;
       reply({
         requestId: request.requestId,
         phase: "ready",
-        runningCount: running.length,
+        runningCount,
         chats: running,
       });
+      // Nothing is running: the desktop quits straight away, so show nothing.
+      if (runningCount === 0) return;
       pendingRequestIdRef.current = request.requestId;
-      setChats(running);
+      setPrompt({ chats: running, work });
     });
   }, []);
 
   return (
     <RunningChatsQuitDialog
-      chats={chats}
+      chats={prompt?.chats ?? null}
+      work={prompt?.work ?? []}
       quitting={quitting}
       onStay={() => settle(null)}
       onQuit={settle}

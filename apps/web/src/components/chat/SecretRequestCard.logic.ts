@@ -11,7 +11,7 @@ import {
   type SecretRequestAnswerInput,
   type SecretRequestOutcome,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { TranslationKey } from "~/localization";
 

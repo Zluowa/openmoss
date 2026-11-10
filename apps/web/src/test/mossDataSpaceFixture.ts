@@ -12,7 +12,7 @@ import {
   PageSpaceId,
   type PageVersion,
   type LibraryItem,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 import { vi } from "vitest";
 
@@ -198,11 +198,15 @@ export function createDataSpaceFixture() {
     }
     return result;
   });
-  const read = vi.fn(async ({ pageId }: { pageId: PageId }) => {
+  const read = vi.fn(async ({ pageId, revision }: { pageId: PageId; revision?: number }) => {
     if (state.readError) throw state.readError;
     const document = ownedDocuments().get(pageId);
     if (!document) throw new Error("Page not found");
-    return structuredClone(document);
+    if (revision === undefined || revision === document.page.revision)
+      return structuredClone(document);
+    const old = versions.get(pageId)?.find((entry) => entry.page.revision === revision);
+    if (!old) throw new Error("Page version not found");
+    return structuredClone({ page: old.page, content: old.content });
   });
   let automationSequence = 0;
   const createAutomation = vi.fn(
@@ -273,6 +277,10 @@ export function createDataSpaceFixture() {
       comments: vi.fn(async ({ pageId }: { pageId: PageId }) => ({
         comments: comments.get(pageId) ?? [],
       })),
+      drafts: vi.fn(async () => ({ drafts: [] })),
+      draftsMutate: vi.fn(async () => ({ drafts: [] })),
+      outputs: vi.fn(async () => ({ outputs: [] })),
+      outputState: vi.fn(async () => undefined),
     },
     automation: {
       list: vi.fn(async () => ({ definitions: automations.get(state.account) ?? [], runs: [] })),

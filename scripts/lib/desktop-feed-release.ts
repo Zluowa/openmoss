@@ -443,6 +443,14 @@ function parseAsset(value: unknown): RemoteAsset {
   };
 }
 
+/** Non-ASCII text in a process argument reaches curl in the system code page on Windows. */
+function toAsciiJson(value: unknown): string {
+  return JSON.stringify(value).replace(
+    /[\u0080-￿]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 function json(response: CurlResponse): unknown {
   return JSON.parse(response.body.toString("utf8")) as unknown;
 }
@@ -475,7 +483,7 @@ export function createCurlFeedClient(options: CurlFeedClientOptions): FeedReleas
         method,
         ...(body === undefined
           ? []
-          : ["--header", "Content-Type: application/json", "--data-binary", JSON.stringify(body)]),
+          : ["--header", "Content-Type: application/json", "--data-binary", toAsciiJson(body)]),
         `${apiBaseUrl}${path}`,
       ],
       token,

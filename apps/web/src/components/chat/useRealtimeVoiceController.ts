@@ -16,7 +16,7 @@ import {
   type RealtimeVoiceStopReason,
   type RealtimeVoiceTransportPreference,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { useTranslation } from "../../localization";
@@ -26,6 +26,7 @@ import {
   type RealtimeVoiceOutputSignal,
   type RealtimeVoiceWebRtcSnapshot,
 } from "../../lib/realtimeVoiceWebRtc";
+import { mergeRealtimeVoiceOrbSignal } from "../../lib/realtimeVoiceOrbSignal";
 import { RealtimeVoiceWebSocketClient } from "../../lib/realtimeVoiceWebSocket";
 import { readNativeApi } from "../../nativeApi";
 import { playRealtimeVoiceCue } from "../../lib/realtimeVoiceCue";
@@ -679,6 +680,8 @@ export function useRealtimeVoiceRuntimeController(
     outputMuted: false,
   });
   const outputSignalRef = useRef<RealtimeVoiceOutputSignal>(ZERO_SIGNAL);
+  // Microphone level (0..1) so the orb reacts while the person talks, not only to Moss's voice.
+  const inputLevelRef = useRef(0);
   const mediaDisposalRef = useRef<Promise<void> | null>(null);
   const stopRef = useRef<() => Promise<void>>(async () => undefined);
   const mediaFatalRef = useRef<(error: unknown) => void>(() => undefined);
@@ -747,6 +750,7 @@ export function useRealtimeVoiceRuntimeController(
       outputMuted: false,
     };
     outputSignalRef.current = ZERO_SIGNAL;
+    inputLevelRef.current = 0;
     const disposal = Promise.resolve().then(async () => {
       const clients = new Set(pendingCandidates);
       if (media) clients.add(media);
@@ -966,6 +970,9 @@ export function useRealtimeVoiceRuntimeController(
       const mediaCallbacks: RealtimeVoiceWebRtcCallbacks = {
         onSnapshot: reportClientState,
         onOutputSignal: publishOverlayAudioSignal,
+        onInputLevel: (level) => {
+          if (generationRef.current === generation) inputLevelRef.current = level;
+        },
         onFatalError: (fatalError) => {
           if (generationRef.current !== generation) return;
           handleMediaFatal(fatalError);
@@ -1894,7 +1901,16 @@ export function useRealtimeVoiceRuntimeController(
     isCurrentThread &&
     state.phase === "active" &&
     window.desktopBridge?.realtimeVoice?.overlay !== undefined;
-  const readOutputSignal = useCallback(() => outputSignalRef.current, []);
+  const readOutputSignal = useCallback(
+    () =>
+      mergeRealtimeVoiceOrbSignal({
+        output: outputSignalRef.current,
+        inputLevel: inputLevelRef.current,
+        activity: stateRef.current.activity,
+        inputMuted: stateRef.current.inputMuted,
+      }),
+    [],
+  );
   return {
     state,
     voices,

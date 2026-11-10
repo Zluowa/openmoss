@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProviderInstanceId } from "@synara/contracts";
+import type { ProviderInstanceId } from "@moss/contracts";
 
 import { resolveThreadDisplayProvider } from "./threadDisplayProvider";
 

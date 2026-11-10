@@ -7,7 +7,7 @@ import type {
   MossAccountSelectRealmInput,
   MossAccountVerifyPhoneLoginInput,
   MossAccountVerifyPhoneLoginResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { Effect } from "effect";
 import { ServiceMap } from "effect";
 
@@ -24,6 +24,11 @@ export interface MossMemFirePhoneAuthorityCredential {
 
 export interface MossPhoneAccountServiceShape {
   readonly getSession: () => Effect.Effect<MossAccountSessionState, MossAccountServiceError>;
+  /**
+   * Refresh a bearer close to expiry and retry a deferred provider rotation.
+   * Unlike getSession it makes no Auth call while the bearer is still fresh.
+   */
+  readonly maintainSession?: () => Effect.Effect<void, MossAccountServiceError>;
   /** Local owner data only; never refreshes or returns an access token. */
   readonly getLocalAuthority: () => Effect.Effect<
     MossLocalAccountAuthorityState,
@@ -55,6 +60,14 @@ export interface MossPhoneAccountServiceShape {
   readonly activateRealm?: (
     input?: MossAccountSelectRealmInput,
   ) => Effect.Effect<MossAccountActiveRealmState, MossAccountServiceError>;
+  /**
+   * The startup form of activateRealm. The most recent explicit sign-in or
+   * switch owns the surface, so a lane that owns it keeps it across a restart.
+   */
+  readonly activateRealmOnStartup?: () => Effect.Effect<
+    MossAccountActiveRealmState,
+    MossAccountServiceError
+  >;
   readonly startPhoneLogin: (
     input: MossAccountStartPhoneLoginInput,
   ) => Effect.Effect<MossAccountStartPhoneLoginResult, MossAccountServiceError>;

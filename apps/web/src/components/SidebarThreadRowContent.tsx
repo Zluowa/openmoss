@@ -4,9 +4,9 @@
 
 import { useMemo, type ReactNode } from "react";
 
-import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
-import { inferLegacyProviderKindFromModelSelection } from "@synara/shared/providerInstances";
-import { pluralize } from "@synara/shared/text";
+import { isGenericChatThreadTitle } from "@moss/shared/chatThreads";
+import { inferLegacyProviderKindFromModelSelection } from "@moss/shared/providerInstances";
+import { pluralize } from "@moss/shared/text";
 
 import { useThreadHasPendingDraft } from "../composerDraftStore";
 import { useTranslation } from "../localization";

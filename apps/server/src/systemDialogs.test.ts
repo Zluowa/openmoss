@@ -1,11 +1,32 @@
 import { Effect } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const execProcessFile = vi.hoisted(() =>
+  vi.fn(
+    (
+      _command: string,
+      _args: ReadonlyArray<string>,
+      _options: { readonly timeout?: number; readonly signal?: AbortSignal },
+      callback: (error: Error | null, stdout: string, stderr: string) => void,
+    ) => {
+      callback(null, "/home/test/moss-app\n", "");
+      return {};
+    },
+  ),
+);
+
+vi.mock("@moss/shared/processRuntime", () => ({ execProcessFile }));
 
 import {
   detectFolderPickerSupport,
+  FOLDER_PICKER_PROBE_TIMEOUT_MS,
   pickFolderNativeDialog,
   type SystemCommandExecutor,
 } from "./systemDialogs";
+
+afterEach(() => {
+  execProcessFile.mockClear();
+});
 
 function executorReturning(result: {
   code: number;
@@ -46,7 +67,7 @@ describe("pickFolderNativeDialog", () => {
     ).resolves.toEqual({ path: "C:\\Users\\test\\moss-app" });
     expect(picked).toHaveBeenCalledWith(
       "powershell",
-      expect.arrayContaining(["-NoProfile", "-NonInteractive"]),
+      expect.arrayContaining(["-STA", "-NoProfile", "-NonInteractive"]),
     );
 
     const dismissed = executorReturning({ code: 0, stdout: "" });
@@ -55,7 +76,7 @@ describe("pickFolderNativeDialog", () => {
     ).resolves.toEqual({ path: null });
   });
 
-  it("uses zenity on Linux and degrades to null when zenity is not installed", async () => {
+  it("uses zenity on Linux and reports the picker unavailable when zenity is not installed", async () => {
     const picked = executorReturning({ code: 0, stdout: "/home/test/moss-app\n" });
     await expect(
       Effect.runPromise(pickFolderNativeDialog({ platform: "linux", executor: picked })),
@@ -66,16 +87,54 @@ describe("pickFolderNativeDialog", () => {
     });
     await expect(
       Effect.runPromise(pickFolderNativeDialog({ platform: "linux", executor: missing })),
-    ).resolves.toEqual({ path: null });
+    ).resolves.toEqual({ path: null, unavailable: true });
   });
 
-  it("returns null on unknown platforms without spawning anything", async () => {
+  it("tells a cancelled picker apart from one that failed", async () => {
+    const run = (platform: NodeJS.Platform, code: number, stderr = "") =>
+      Effect.runPromise(
+        pickFolderNativeDialog({ platform, executor: executorReturning({ code, stderr }) }),
+      );
+
+    // Cancels: nothing chosen, nothing wrong.
+    await expect(run("darwin", 1, "execution error: User canceled. (-128)")).resolves.toEqual({
+      path: null,
+    });
+    await expect(run("linux", 1)).resolves.toEqual({ path: null });
+    await expect(run("win32", 0)).resolves.toEqual({ path: null });
+
+    // Failures: the helper ran but could not show a picker.
+    await expect(
+      run("darwin", 1, "execution error: Not authorized to send Apple events. (-1743)"),
+    ).resolves.toEqual({ path: null, unavailable: true });
+    await expect(run("linux", 255, "cannot open display")).resolves.toEqual({
+      path: null,
+      unavailable: true,
+    });
+    await expect(run("win32", 1, "Exception calling ShowDialog")).resolves.toEqual({
+      path: null,
+      unavailable: true,
+    });
+  });
+
+  it("reports unknown platforms as unavailable without spawning anything", async () => {
     const executor = executorReturning({ code: 0, stdout: "/should-not-run" });
     const result = await Effect.runPromise(
       pickFolderNativeDialog({ platform: "freebsd", executor }),
     );
-    expect(result).toEqual({ path: null });
+    expect(result).toEqual({ path: null, unavailable: true });
     expect(executor).not.toHaveBeenCalled();
+  });
+
+  it("never puts a deadline on an open picker; only cancellation closes it", async () => {
+    await expect(Effect.runPromise(pickFolderNativeDialog({ platform: "linux" }))).resolves.toEqual(
+      { path: "/home/test/moss-app" },
+    );
+    expect(execProcessFile).toHaveBeenCalledOnce();
+    const [command, , options] = execProcessFile.mock.calls[0]!;
+    expect(command).toBe("zenity");
+    expect(options.timeout).toBeUndefined();
+    expect(options.signal).toBeInstanceOf(AbortSignal);
   });
 });
 
@@ -104,6 +163,18 @@ describe("detectFolderPickerSupport", () => {
     await expect(
       Effect.runPromise(detectFolderPickerSupport({ platform: "linux", executor: missing })),
     ).resolves.toBe(false);
+  });
+
+  it("bounds only the zenity availability probe", async () => {
+    await expect(Effect.runPromise(detectFolderPickerSupport({ platform: "linux" }))).resolves.toBe(
+      true,
+    );
+    expect(execProcessFile).toHaveBeenCalledWith(
+      "zenity",
+      ["--version"],
+      expect.objectContaining({ timeout: FOLDER_PICKER_PROBE_TIMEOUT_MS }),
+      expect.any(Function),
+    );
   });
 
   it("is unsupported on unknown platforms", async () => {

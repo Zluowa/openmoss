@@ -8,13 +8,51 @@ export interface MossCanvasSelectionItem {
   readonly title: string;
 }
 
+/** A selected non-image shape (text, note, labelled shape, text card) and its plain text. */
+export interface MossCanvasSelectionContent {
+  readonly shapeId: string;
+  readonly kind: string;
+  readonly text?: string;
+}
+
 export interface MossCanvasSelection {
   readonly type: "moss-canvas-selection";
   readonly version: 1;
   readonly threadId: string;
   readonly sequence: number;
   readonly documentEpoch: number;
+  /** Selected generated/owned images. */
   readonly items: readonly MossCanvasSelectionItem[];
+  /** Everything else selected, with its text. Older Canvas builds send none. */
+  readonly content: readonly MossCanvasSelectionContent[];
+}
+
+const CONTENT_KIND = /^[a-z][a-z0-9-]{0,39}$/u;
+const CONTENT_KIND_LABELS: Readonly<Record<string, string>> = {
+  text: "文字",
+  note: "便签",
+  geo: "图形",
+  arrow: "箭头",
+  line: "线条",
+  draw: "手绘",
+  highlight: "高亮",
+  frame: "框架",
+  card: "卡片",
+};
+
+/**
+ * The composer chip for the selected text and shapes: plain lines the agent
+ * reads as context. Null when nothing but images (or nothing) is selected.
+ */
+export function formatMossCanvasSelectionContext(
+  content: readonly MossCanvasSelectionContent[],
+): string | null {
+  if (!content.length) return null;
+  const lines = content.map((item) => {
+    const label = CONTENT_KIND_LABELS[item.kind] ?? "形状";
+    return item.text ? `- ${label}：${item.text.replace(/\s+/gu, " ")}` : `- ${label}（无文字）`;
+  });
+  return ["画布上选中的内容", ...lines].join("\n");
 }
 
 export interface MossCanvasContextRegion {
@@ -233,6 +271,31 @@ export function parseMossCanvasSelection(
     items.push({ shapeId: item.shapeId, assetId: item.assetId, title: item.title });
   }
   if (new Set(items.map((item) => item.shapeId)).size !== items.length) return null;
+  const content: MossCanvasSelectionContent[] = [];
+  if (data.content !== undefined) {
+    if (!Array.isArray(data.content) || data.content.length > 32) return null;
+    let textLength = 0;
+    for (const entry of data.content) {
+      if (
+        !entry ||
+        typeof entry !== "object" ||
+        Array.isArray(entry) ||
+        typeof entry.shapeId !== "string" ||
+        !MOSS_CANVAS_SHAPE_ID.test(entry.shapeId) ||
+        typeof entry.kind !== "string" ||
+        !CONTENT_KIND.test(entry.kind) ||
+        (entry.text !== undefined && !contextText(entry.text))
+      )
+        return null;
+      if (typeof entry.text === "string") textLength += entry.text.length;
+      if (textLength > 8000) return null;
+      content.push(
+        typeof entry.text === "string"
+          ? { shapeId: entry.shapeId, kind: entry.kind, text: entry.text }
+          : { shapeId: entry.shapeId, kind: entry.kind },
+      );
+    }
+  }
   return {
     type: "moss-canvas-selection",
     version: 1,
@@ -240,5 +303,6 @@ export function parseMossCanvasSelection(
     sequence: data.sequence as number,
     documentEpoch: data.documentEpoch as number,
     items,
+    content,
   };
 }

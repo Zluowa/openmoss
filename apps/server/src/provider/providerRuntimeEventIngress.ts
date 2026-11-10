@@ -1,4 +1,4 @@
-import type { ProviderRuntimeEvent } from "@synara/contracts";
+import type { ProviderRuntimeEvent } from "@moss/contracts";
 
 import { stripDiagnosticImages } from "./stripDiagnosticImages.ts";
 

@@ -34,6 +34,22 @@ describe("resolveMarkdownFileLinkTarget", () => {
   it("does not treat app routes as file links", () => {
     expect(resolveMarkdownFileLinkTarget("/chat/settings")).toBeNull();
   });
+
+  it.each([
+    ["/E:/demo/山野咖啡/index.html", "E:/demo/山野咖啡/index.html"],
+    [
+      "/E:/demo/%E5%B1%B1%E9%87%8E%E5%92%96%E5%95%A1/index.html#L12",
+      "E:/demo/山野咖啡/index.html:12",
+    ],
+    ["/C:\\Users\\me\\report.pdf", "C:\\Users\\me\\report.pdf"],
+  ])("normalizes URL-style Windows drive links: %s", (href, expected) => {
+    expect(resolveMarkdownFileLinkTarget(href, "E:/demo")).toBe(expected);
+  });
+
+  it("preserves ordinary POSIX paths and protocol-relative web links", () => {
+    expect(resolveMarkdownFileLinkTarget("/data/report.pdf")).toBe("/data/report.pdf");
+    expect(resolveMarkdownFileLinkTarget("//example.com/docs")).toBeNull();
+  });
 });
 
 describe("resolveUniqueAbsoluteSuffixTarget", () => {

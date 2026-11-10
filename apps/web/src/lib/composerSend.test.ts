@@ -1,9 +1,10 @@
 import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { emitWsTransportState, WS_MESSAGE_NOT_SENT_DETAIL } from "../wsTransportEvents";
 import type {
   ComposerImageAttachment,
   PersistedComposerImageAttachment,
@@ -204,6 +205,100 @@ describe("composerSend attachment builders", () => {
     expect(attachments).toEqual([
       expect.objectContaining({ id: "thread-1-11111111-1111-4111-8111-111111111111" }),
     ]);
+  });
+
+  describe("uploads across a backend restart", () => {
+    const attachmentResponse = (file: File) =>
+      new Response(
+        JSON.stringify({
+          type: "image",
+          id: "thread-1-11111111-1111-4111-8111-111111111111",
+          name: file.name,
+          mimeType: file.type,
+          sizeBytes: file.size,
+        }),
+        { status: 201, headers: { "Content-Type": "application/json" } },
+      );
+    const stage = (file: File) =>
+      stageUploadComposerAttachments({
+        threadId: "thread-1",
+        images: [
+          {
+            type: "image",
+            id: "draft-image",
+            name: file.name,
+            mimeType: file.type,
+            sizeBytes: file.size,
+            previewUrl: "blob:screen.png",
+            file,
+          },
+        ],
+        files: [],
+        assistantSelections: [],
+      });
+
+    beforeEach(() => {
+      vi.stubGlobal(
+        "window",
+        Object.assign(new EventTarget(), { location: { origin: "http://127.0.0.1:3773" } }),
+      );
+    });
+
+    afterEach(() => {
+      emitWsTransportState("open");
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    it("waits for the socket before uploading, so a send during the gap goes through", async () => {
+      vi.useFakeTimers();
+      const file = new File(["png"], "screen.png", { type: "image/png" });
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(attachmentResponse(file));
+      vi.stubGlobal("fetch", fetchMock);
+      emitWsTransportState("connecting");
+
+      const staged = stage(file);
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      emitWsTransportState("open");
+      await expect(staged).resolves.toMatchObject({
+        attachments: [expect.objectContaining({ name: "screen.png" })],
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it("retries when fetch learns the backend is gone before the socket does", async () => {
+      vi.useFakeTimers();
+      emitWsTransportState("open");
+      const file = new File(["png"], "screen.png", { type: "image/png" });
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+        .mockResolvedValueOnce(attachmentResponse(file));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const staged = stage(file);
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(staged).resolves.toMatchObject({
+        attachments: [expect.objectContaining({ name: "screen.png" })],
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("replaces the raw network error with the not-sent message when it never recovers", async () => {
+      vi.useFakeTimers();
+      emitWsTransportState("open");
+      const file = new File(["png"], "screen.png", { type: "image/png" });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn<typeof fetch>().mockRejectedValue(new TypeError("Failed to fetch")),
+      );
+
+      const failure = stage(file).catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(failure).resolves.toMatchObject({ message: WS_MESSAGE_NOT_SENT_DETAIL });
+    });
   });
 
   it("cancels an earlier staged attachment when a later sequential upload fails", async () => {

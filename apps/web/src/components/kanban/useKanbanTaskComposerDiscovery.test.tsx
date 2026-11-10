@@ -1,4 +1,4 @@
-import { MODEL_OPTIONS_BY_PROVIDER, ThreadId, type ProviderKind } from "@synara/contracts";
+import { MODEL_OPTIONS_BY_PROVIDER, ThreadId, type ProviderKind } from "@moss/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 

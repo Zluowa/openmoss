@@ -3,7 +3,7 @@
 // Layer: Web orchestration helper
 // Exports: deleteArchivedThreadsFromClient
 
-import { SidebarOrderRevision, type NativeApi, type ThreadId } from "@synara/contracts";
+import { SidebarOrderRevision, type NativeApi, type ThreadId } from "@moss/contracts";
 
 import { reconcileDeletedThreadsFromClient } from "./deletedThreadClientReconciliation";
 import { newCommandId } from "./utils";

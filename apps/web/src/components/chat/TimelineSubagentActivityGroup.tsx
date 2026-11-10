@@ -4,11 +4,11 @@
 // Exports: TimelineSubagentActivityGroup, resolveTimelineSubagentStatus,
 //          resolveTimelineSubagentGroupStatus
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { memo, useState, type ReactNode } from "react";
 
 import type { WorkLogSubagent } from "../../workLog";
-import type { SubagentActivityKind } from "@synara/shared/subagentTool";
+import type { SubagentActivityKind } from "@moss/shared/subagentTool";
 import { cn } from "~/lib/utils";
 import {
   resolveSubagentAvatarSeed,

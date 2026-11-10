@@ -3,7 +3,7 @@
 //          underpins domain-level dedup (every URL on a site shares one cache key).
 // Layer: Server utility tests
 
-import { outboundHttp, type OutboundHttpResponse } from "@synara/shared/outboundHttp";
+import { outboundHttp, type OutboundHttpResponse } from "@moss/shared/outboundHttp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clearSiteFaviconCache, resolveFavicon, tryParseHost } from "./siteFaviconCache";
@@ -12,7 +12,7 @@ const imageResponse: OutboundHttpResponse = {
   status: 200,
   headers: new Headers({ "content-type": "image/png" }),
   body: new Uint8Array([1, 2, 3]),
-  url: "https://www.google.com/favicon.png",
+  url: "https://example.com/favicon.ico",
 };
 
 afterEach(() => {
@@ -48,27 +48,48 @@ describe("resolveFavicon", () => {
     expect(favicon.bytes).toEqual(new Uint8Array([1, 2, 3]));
     expect(request.mock.calls[0]?.[0].policy).toMatchObject({
       service: "site-favicon",
-      allowedOrigins: ["https://www.google.com"],
+      allowedOrigins: ["https://example.com"],
       maxResponseBytes: 512 * 1024,
       requirePublicAddress: true,
     });
   });
 
-  it("pins the direct fallback to the requested public origin", async () => {
+  it("loads a site's icon without contacting aggregators", async () => {
+    const request = vi.spyOn(outboundHttp, "request").mockResolvedValue(imageResponse);
+
+    await resolveFavicon("example.org");
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]?.[0]).toMatchObject({
+      url: "https://example.org/favicon.ico",
+      policy: { allowedOrigins: ["https://example.org"], timeoutMs: 3_000 },
+    });
+  });
+
+  it("uses bounded aggregators when the site does not serve an icon", async () => {
     const request = vi
       .spyOn(outboundHttp, "request")
       .mockResolvedValueOnce({ ...imageResponse, status: 404, body: new Uint8Array() })
       .mockResolvedValueOnce({ ...imageResponse, status: 404, body: new Uint8Array() })
       .mockResolvedValueOnce({
         ...imageResponse,
-        url: "https://example.org/favicon.ico",
+        url: "https://icons.duckduckgo.com/ip3/example.org.ico",
       });
 
     await resolveFavicon("example.org");
 
     expect(request.mock.calls[2]?.[0]).toMatchObject({
-      url: "https://example.org/favicon.ico",
-      policy: { allowedOrigins: ["https://example.org"] },
+      url: "https://icons.duckduckgo.com/ip3/example.org.ico",
+      policy: { allowedOrigins: ["https://icons.duckduckgo.com"], requirePublicAddress: true },
     });
   });
+
+  it.each(["localhost", "127.0.0.1", "192.168.1.1", "service.internal", "printer.local"])(
+    "does not send private host %s to the network or icon aggregators",
+    async (host) => {
+      const request = vi.spyOn(outboundHttp, "request");
+      expect((await resolveFavicon(host)).bytes).toBeNull();
+      expect(request).not.toHaveBeenCalled();
+    },
+  );
 });

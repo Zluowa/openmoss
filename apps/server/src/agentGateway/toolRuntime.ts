@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 import type { Effect } from "effect";
 
 import type { AgentGatewayTargetError } from "./targetResolver.ts";
@@ -75,6 +75,13 @@ export interface ToolEntry {
    * permission: capability checks, approval and audit all apply unchanged.
    */
   readonly discoveryOnly?: boolean;
+  /**
+   * Whether `tools/list` offers the tool right now, for a tool that depends on
+   * machine state such as the signed-in account (place_photos is withheld from
+   * mainland China phone accounts). Read on every listing; the handler must
+   * still refuse a call by name when it is false. Never fails.
+   */
+  readonly available?: () => Effect.Effect<boolean>;
 }
 
 export interface McpToolEntry<Context, Capability extends string> {

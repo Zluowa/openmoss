@@ -11,7 +11,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   ServerSettingsError,
   type ProviderInstanceId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { DateTime, Effect, Exit, Layer, Scope, Stream } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,7 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   HTML_RENDER_FRAME_ACCESS_TTL_MS,
   signHtmlRenderFrameAccess,
-} from "@synara/shared/htmlRenderFrameAccess";
+} from "@moss/shared/htmlRenderFrameAccess";
 
 import { AuthError, ServerAuth, type ServerAuthShape } from "./auth/Services/ServerAuth";
 import {
@@ -466,7 +466,31 @@ describe("localImageEffectRouteLayer", () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get("access-control-allow-origin")).toBeNull();
-      expect(response.headers.get("vary")).toBeNull();
+      expect(response.headers.get("vary")).toBe("Origin");
+    });
+  });
+
+  it("marks the no-Origin (<img>) copy as origin-dependent so a cached copy never answers fetch()", async () => {
+    const workspace = makeTempDir("moss-effect-image-vary-");
+    writeFileSync(path.join(workspace, ".git"), "gitdir: .git");
+    const imagePath = path.join(workspace, "generated.png");
+    writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const config = makeServerConfig({ cwd: workspace });
+
+    await withEffectServer(config, localImageEffectRouteLayer, async (origin) => {
+      const params = new URLSearchParams({ path: imagePath, cwd: workspace });
+      // What an <img> in the desktop renderer sends: no Origin header.
+      const imageLoad = await fetch(`${origin}/api/local-image?${params}`);
+      expect(imageLoad.status).toBe(200);
+      expect(imageLoad.headers.get("cache-control")).toBe("private, max-age=60");
+      expect(imageLoad.headers.get("access-control-allow-origin")).toBeNull();
+      expect(imageLoad.headers.get("vary")).toBe("Origin");
+      // What the app's fetch() of the same URL sends afterwards.
+      const appRead = await fetch(`${origin}/api/local-image?${params}`, {
+        headers: { Origin: "moss://app" },
+      });
+      expect(appRead.headers.get("access-control-allow-origin")).toBe("moss://app");
+      expect(appRead.headers.get("vary")).toBe("Origin");
     });
   });
 

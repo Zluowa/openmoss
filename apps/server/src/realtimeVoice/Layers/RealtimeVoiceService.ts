@@ -9,7 +9,7 @@ import {
   type RealtimeVoiceEvent,
   type RealtimeVoiceToolName,
   type RealtimeVoiceTransportPreference,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Cause, Effect, Layer, PubSub, Stream } from "effect";
 
 import {

@@ -6,15 +6,13 @@ import { ServerConfig } from "../../config";
 import { ServerSecretStore, type SecretStoreError } from "../Services/ServerSecretStore";
 import { ServerSecretStoreLive } from "./ServerSecretStore";
 
+const makeConfigLayer = () =>
+  ServerConfig.layerTest(process.cwd(), {
+    prefix: "moss-secret-store-test-",
+  });
+
 const makeLayer = () =>
-  ServerSecretStoreLive.pipe(
-    Layer.provide(
-      ServerConfig.layerTest(process.cwd(), {
-        prefix: "moss-secret-store-test-",
-      }),
-    ),
-    Layer.provide(NodeServices.layer),
-  );
+  ServerSecretStoreLive.pipe(Layer.provide(makeConfigLayer()), Layer.provide(NodeServices.layer));
 
 const runWithSecretStore = (effect: Effect.Effect<void, SecretStoreError, ServerSecretStore>) =>
   effect.pipe(Effect.provide(makeLayer()), Effect.scoped, Effect.runPromise);
@@ -42,6 +40,38 @@ describe("ServerSecretStoreLive", () => {
         expect(Array.from(second)).toEqual(Array.from(first));
       }),
     );
+  });
+
+  it("hands one key to every caller that creates the same secret at once", async () => {
+    await runWithSecretStore(
+      Effect.gen(function* () {
+        const store = yield* ServerSecretStore;
+        const keys = yield* Effect.all(
+          Array.from({ length: 8 }, () => store.getOrCreateRandom("guest-share-signing-key", 32)),
+          { concurrency: "unbounded" },
+        );
+        const first = Array.from(keys[0]!);
+        for (const key of keys) expect(Array.from(key)).toEqual(first);
+        expect(Array.from((yield* store.get("guest-share-signing-key")) ?? [])).toEqual(first);
+      }),
+    );
+  });
+
+  it("agrees on one key across two store instances over the same folder", async () => {
+    const config = makeConfigLayer().pipe(Layer.provideMerge(NodeServices.layer));
+    const storeOver = () => Layer.fresh(ServerSecretStoreLive);
+    const createIn = (layer: ReturnType<typeof storeOver>) =>
+      Effect.gen(function* () {
+        const store = yield* ServerSecretStore;
+        return yield* store.getOrCreateRandom("shared-key", 32);
+      }).pipe(Effect.provide(layer), Effect.scoped);
+    const [left, right] = await Effect.runPromise(
+      Effect.all([createIn(storeOver()), createIn(storeOver())], { concurrency: "unbounded" }).pipe(
+        Effect.provide(config),
+        Effect.scoped,
+      ),
+    );
+    expect(Array.from(left)).toEqual(Array.from(right));
   });
 
   it("removes secrets idempotently", async () => {

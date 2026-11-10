@@ -29,8 +29,8 @@ import {
   type MutableRefObject,
   type ReactNode,
 } from "react";
-import type { OrchestrationSidebarSectionShell } from "@synara/contracts";
-import type { ProjectId, SidebarSectionItemKey } from "@synara/contracts";
+import type { OrchestrationSidebarSectionShell } from "@moss/contracts";
+import type { ProjectId, SidebarSectionItemKey } from "@moss/contracts";
 
 import { cn } from "~/lib/utils";
 import type { MossLocaleCode } from "../uiLocale";

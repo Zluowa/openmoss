@@ -1,5 +1,5 @@
 import { ServerSettingsService } from "../../serverSettings.ts";
-import { EventId, ThreadId, TurnId, type OrchestrationEvent } from "@synara/contracts";
+import { EventId, ThreadId, TurnId, type OrchestrationEvent } from "@moss/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

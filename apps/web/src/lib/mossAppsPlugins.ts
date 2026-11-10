@@ -13,7 +13,7 @@ import type {
   MossAppToolkit,
   ProviderPluginDescriptor,
   ProviderPluginDetail,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { ProviderPluginDirectoryEntry } from "./pluginLibraryModel";
 

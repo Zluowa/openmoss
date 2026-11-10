@@ -4,7 +4,7 @@
 
 import "../../index.css";
 
-import { MessageId, TurnId } from "@synara/contracts";
+import { MessageId, TurnId } from "@moss/contracts";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { commands, page, userEvent } from "vitest/browser";

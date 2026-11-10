@@ -653,7 +653,9 @@ describe("PluginLibrary native lifecycle", () => {
     await expect
       .poll(() => document.body.textContent, { timeout: 10_000 })
       .toContain("Some plugin sources couldn't load");
-    expect(document.querySelector('[title*="Moss could not load apps."]')).not.toBeNull();
+    expect(
+      document.querySelector('[title*="Moss could not reach your apps. Try again shortly."]'),
+    ).not.toBeNull();
     expect(document.body.textContent).not.toContain("Acme Tracker");
 
     await userEvent.click(page.getByRole("button", { name: "Refresh", exact: true }));

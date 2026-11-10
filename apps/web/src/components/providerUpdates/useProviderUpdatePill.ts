@@ -3,7 +3,7 @@
 //          swaps views through an exit transition and dismisses success on a timer.
 // Layer: Web shell navigation hook.
 
-import type { ServerProviderStatus } from "@synara/contracts";
+import type { ServerProviderStatus } from "@moss/contracts";
 import { useEffect, useEffectEvent, useState } from "react";
 
 import {

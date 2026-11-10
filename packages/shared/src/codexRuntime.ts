@@ -1,10 +1,18 @@
 // FILE: codexRuntime.ts
-// Purpose: Defines the pinned public Codex runtime targets and executable precedence.
+// Purpose: Defines the pinned public Codex runtime targets, version parsing and the
+//          damaged-runtime error. Which executable to run lives in codexExecutable.ts.
 // Layer: Shared provider runtime policy
+//
+// Keep this module free of imports. scripts/build-desktop-artifact.ts loads it under plain
+// Node, which strips types but cannot resolve the extensionless relative imports the rest of
+// this package uses; one such import here breaks every installer build
+// (guarded by scripts/lib/plain-node-imports.test.ts).
 
-export const MOSS_BUNDLED_CODEX_VERSION = "0.163.0";
+export const MOSS_BUNDLED_CODEX_VERSION = "0.166.0";
 export const MOSS_BUNDLED_CODEX_PATH_ENV_KEY = "MOSS_BUNDLED_CODEX_PATH";
 export const MOSS_BUNDLED_CODEX_ERROR_ENV_KEY = "MOSS_BUNDLED_CODEX_ERROR";
+/** The reserved Codex account id of Moss's own (managed) Codex. */
+export const MOSS_MANAGED_CODEX_ACCOUNT_ID = "moss";
 
 const CODEX_EXECUTABLE_VERSION_PATTERN =
   /(?:^|[^0-9A-Za-z.+-])v?(\d+\.\d+(?:\.\d+)?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?![0-9A-Za-z.+-])/m;
@@ -102,11 +110,6 @@ export function resolveCodexRuntimeTarget(input: {
   return CODEX_RUNTIME_TARGETS.get(`${input.platform}/${input.arch}`) ?? null;
 }
 
-export interface CodexExecutableResolution {
-  readonly binaryPath: string;
-  readonly source: "configured" | "bundled" | "path";
-}
-
 export class BundledCodexRuntimeUnavailableError extends Error {
   readonly code = "bundled-codex-runtime-unavailable" as const;
 
@@ -114,36 +117,4 @@ export class BundledCodexRuntimeUnavailableError extends Error {
     super(message);
     this.name = "BundledCodexRuntimeUnavailableError";
   }
-}
-
-/**
- * Resolves the executable without mutating persisted provider settings.
- *
- * A non-default configured path is user intent and always wins. The literal
- * `codex` (the settings schema default) means "use Moss's best available Codex",
- * so packaged builds can prefer their verified runtime and development/server
- * launches retain the historical PATH fallback.
- */
-export function resolveCodexExecutable(input: {
-  readonly configuredBinaryPath?: string | null | undefined;
-  readonly env?: NodeJS.ProcessEnv | undefined;
-}): CodexExecutableResolution {
-  const configured = input.configuredBinaryPath?.trim() ?? "";
-  const bundled = input.env?.[MOSS_BUNDLED_CODEX_PATH_ENV_KEY]?.trim() ?? "";
-  if (configured && configured !== "codex" && configured !== bundled) {
-    return { binaryPath: configured, source: "configured" };
-  }
-
-  if (bundled) {
-    return { binaryPath: bundled, source: "bundled" };
-  }
-
-  const bundledError = input.env?.[MOSS_BUNDLED_CODEX_ERROR_ENV_KEY]?.trim() ?? "";
-  if (bundledError) {
-    // A packaged build must never hide a damaged/missing bundled runtime by
-    // accidentally discovering some unrelated global Codex on PATH.
-    throw new BundledCodexRuntimeUnavailableError(bundledError);
-  }
-
-  return { binaryPath: configured || "codex", source: "path" };
 }

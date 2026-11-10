@@ -5,7 +5,7 @@
 //          editor (same entries as the header OpenInPicker).
 // Layer: Environment panel section
 
-import type { EditorId, ResolvedKeybindingsConfig } from "@synara/contracts";
+import type { EditorId, ResolvedKeybindingsConfig } from "@moss/contracts";
 
 import { useEditorLaunchers } from "~/hooks/useEditorLaunchers";
 import { EditorViewIcon } from "~/lib/icons";
@@ -27,14 +27,20 @@ export function EnvironmentEditorSection({
   availableEditors,
   openInTarget,
   onOpenEditorView,
+  bare,
 }: {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
   openInTarget: string | null;
   /** Open the in-app editor workspace view; omitted on surfaces that can't host it. */
   onOpenEditorView?: () => void;
+  /**
+   * Rows only, for the card's unlabelled workspace group (upstream order: environment,
+   * "Open in <editor>", project scripts). Without it the rows sit under an "Editor" label.
+   */
+  bare?: boolean;
 }) {
-  const { format } = useTranslation();
+  const { format, t } = useTranslation();
   const {
     options,
     preferredEditor,
@@ -57,8 +63,8 @@ export function EnvironmentEditorSection({
   const activeOption = primaryOption ?? options[0] ?? null;
   const ActiveIcon = activeOption?.Icon;
 
-  return (
-    <EnvironmentLabeledSection label="Editor">
+  const editorViewRow = (
+    <>
       {onOpenEditorView ? (
         <EnvironmentRow
           icon={<EditorViewIcon aria-hidden className={ENVIRONMENT_ROW_ICON_CLASS_NAME} />}
@@ -66,6 +72,10 @@ export function EnvironmentEditorSection({
           onClick={onOpenEditorView}
         />
       ) : null}
+    </>
+  );
+  const openInRow = (
+    <>
       {options.length === 0 ? null : (
         <Menu>
           <MenuTrigger
@@ -80,7 +90,12 @@ export function EnvironmentEditorSection({
               }
               label={
                 activeOption
-                  ? format("chat.editor.openIn", { editor: activeOption.label })
+                  ? format("chat.editor.openIn", {
+                      editor:
+                        activeOption.value === "terminal"
+                          ? t("chat.editor.terminal")
+                          : activeOption.label,
+                    })
                   : "Open in editor"
               }
               trailing={<EnvironmentRowChevron />}
@@ -115,6 +130,20 @@ export function EnvironmentEditorSection({
           </ComposerPickerMenuPopup>
         </Menu>
       )}
-    </EnvironmentLabeledSection>
+    </>
   );
+  // The upstream card leads with "Open in <editor>"; the labelled section keeps the
+  // in-app editor view first.
+  const rows = bare ? (
+    <>
+      {openInRow}
+      {editorViewRow}
+    </>
+  ) : (
+    <>
+      {editorViewRow}
+      {openInRow}
+    </>
+  );
+  return bare ? rows : <EnvironmentLabeledSection label="Editor">{rows}</EnvironmentLabeledSection>;
 }

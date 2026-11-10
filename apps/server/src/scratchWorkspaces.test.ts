@@ -17,8 +17,8 @@ import {
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
-import { ThreadId } from "@synara/contracts";
-import { SCRATCH_WORKSPACES_DIRNAME } from "@synara/shared/threadWorkspace";
+import { ThreadId } from "@moss/contracts";
+import { SCRATCH_WORKSPACES_DIRNAME } from "@moss/shared/threadWorkspace";
 import { afterAll, describe, expect, it } from "vitest";
 
 import {

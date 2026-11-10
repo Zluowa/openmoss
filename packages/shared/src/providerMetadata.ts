@@ -5,7 +5,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
   type SupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export interface ProviderDescriptor {
   readonly kind: SupportedProviderKind;
@@ -40,7 +40,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "codex",
     displayName: PROVIDER_DISPLAY_NAMES.codex,
     available: true,
-    setupDocsHref: "/docs/providers/codex",
+    setupDocsHref: "https://help.openai.com/en/articles/11096431",
     supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "codex login",
@@ -51,7 +51,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "claudeAgent",
     displayName: PROVIDER_DISPLAY_NAMES.claudeAgent,
     available: true,
-    setupDocsHref: "/docs/providers/claude-code",
+    setupDocsHref: "https://code.claude.com/docs/en/overview",
     supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "claude",
@@ -62,7 +62,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "cursor",
     displayName: PROVIDER_DISPLAY_NAMES.cursor,
     available: true,
-    setupDocsHref: "/docs/providers/cursor",
+    setupDocsHref: "https://cursor.com/docs/cli/overview",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "cursor-agent login",
@@ -73,7 +73,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "gemini",
     displayName: PROVIDER_DISPLAY_NAMES.gemini,
     available: true,
-    setupDocsHref: "/docs/providers/gemini",
+    setupDocsHref: "https://geminicli.com/docs/get-started/",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "gemini",
@@ -84,7 +84,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "antigravity",
     displayName: PROVIDER_DISPLAY_NAMES.antigravity,
     available: true,
-    setupDocsHref: "/docs/providers/antigravity",
+    setupDocsHref: "https://antigravity.google/docs/cli/using",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "agy",
@@ -95,7 +95,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "grok",
     displayName: PROVIDER_DISPLAY_NAMES.grok,
     available: true,
-    setupDocsHref: "/docs/providers/grok",
+    setupDocsHref: "https://docs.x.ai/build/overview",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "grok login",
@@ -106,7 +106,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "opencode",
     displayName: PROVIDER_DISPLAY_NAMES.opencode,
     available: true,
-    setupDocsHref: "/docs/providers/opencode",
+    setupDocsHref: "https://opencode.ai/docs/",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "opencode auth login",
@@ -117,7 +117,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "pi",
     displayName: PROVIDER_DISPLAY_NAMES.pi,
     available: true,
-    setupDocsHref: "/docs/providers/pi",
+    setupDocsHref: "https://pi.dev/docs/latest",
     supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "pi",
@@ -128,7 +128,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "hermes",
     displayName: PROVIDER_DISPLAY_NAMES.hermes,
     available: true,
-    setupDocsHref: "/docs/providers/hermes",
+    setupDocsHref: "https://hermes-agent.nousresearch.com/docs",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "hermes setup",
@@ -139,7 +139,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "devin",
     displayName: PROVIDER_DISPLAY_NAMES.devin,
     available: true,
-    setupDocsHref: "/docs/providers/devin",
+    setupDocsHref: "https://docs.devin.ai/cli",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "devin auth login",
@@ -150,7 +150,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "omp",
     displayName: PROVIDER_DISPLAY_NAMES.omp,
     available: true,
-    setupDocsHref: "https://trymoss.com/docs/providers/omp",
+    setupDocsHref: "https://omp.sh/docs/quickstart",
     supportsNativeTurnSteering: false,
     usage: null,
   },
@@ -158,7 +158,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "kimi",
     displayName: PROVIDER_DISPLAY_NAMES.kimi,
     available: true,
-    setupDocsHref: "/docs/providers/kimi",
+    setupDocsHref: "https://www.kimi.com/code/docs/en/",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "kimi login",
@@ -169,7 +169,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "minimax",
     displayName: PROVIDER_DISPLAY_NAMES.minimax,
     available: true,
-    setupDocsHref: "/docs/providers/minimax",
+    setupDocsHref: "https://platform.minimax.io/docs/m-plan/intro",
     supportsNativeTurnSteering: false,
     usage: {
       signInCommand: "mcode login",
@@ -180,7 +180,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     kind: "zcode",
     displayName: PROVIDER_DISPLAY_NAMES.zcode,
     available: true,
-    setupDocsHref: "/docs/providers/zcode",
+    setupDocsHref: "https://docs.bigmodel.cn/cn/coding-plan/quick-start",
     supportsNativeTurnSteering: false,
     usage: {
       // The ZCode desktop app login is the primary path; the bridge's setup

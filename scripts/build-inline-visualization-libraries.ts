@@ -23,13 +23,45 @@ async function main() {
       path.join(outputDirectory, "d3.min.js"),
     ),
     copyFile(
+      path.join(webNodeModules, "d3", "LICENSE"),
+      path.join(outputDirectory, "d3.LICENSE.txt"),
+    ),
+    copyFile(
       path.join(webNodeModules, "chart.js", "dist", "chart.umd.js"),
       path.join(outputDirectory, "chart.umd.js"),
+    ),
+    copyFile(
+      path.join(webNodeModules, "chart.js", "LICENSE.md"),
+      path.join(outputDirectory, "chart.LICENSE.txt"),
     ),
     copyFile(
       path.join(webNodeModules, "three", "build", "three.module.js"),
       path.join(outputDirectory, "three.module.js"),
     ),
+    copyFile(
+      path.join(webNodeModules, "three", "build", "three.core.js"),
+      path.join(outputDirectory, "three.core.js"),
+    ),
+    copyFile(
+      path.join(webNodeModules, "three", "LICENSE"),
+      path.join(outputDirectory, "three.LICENSE.txt"),
+    ),
+    ...["inter", "jetbrains-mono"].flatMap((font) => [
+      copyFile(
+        path.join(
+          webNodeModules,
+          "@fontsource-variable",
+          font,
+          "files",
+          `${font}-latin-wght-normal.woff2`,
+        ),
+        path.join(outputDirectory, `${font}-latin.woff2`),
+      ),
+      copyFile(
+        path.join(webNodeModules, "@fontsource-variable", font, "LICENSE"),
+        path.join(outputDirectory, `${font}.OFL.txt`),
+      ),
+    ]),
   ]);
 
   const scratch = await mkdtemp(path.join(os.tmpdir(), "moss-inline-visualization-libs-"));

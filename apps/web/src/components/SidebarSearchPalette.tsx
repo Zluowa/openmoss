@@ -29,8 +29,8 @@ import {
   type ProjectImportProvider,
   PROVIDER_DISPLAY_NAMES,
   type ProviderInstanceId,
-} from "@synara/contracts";
-import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
+} from "@moss/contracts";
+import { isGenericChatThreadTitle } from "@moss/shared/chatThreads";
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { type ComponentType, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -65,6 +65,8 @@ import {
   matchSidebarSearchThreads,
 } from "./SidebarSearchPalette.logic";
 import { useTheme } from "../hooks/useTheme";
+import { useTranslation } from "../localization";
+import { translateZhCnPresentationText } from "../localization/zhCN";
 import { getAvailableCodeThemes, getCodeThemeSeed } from "../theme/theme.logic";
 import {
   Command,
@@ -139,7 +141,6 @@ const IMPORT_PROJECTS_SOURCES: readonly {
 }[] = [
   { id: "claude-code", label: "From Claude Code", providers: ["claudeAgent"] },
   { id: "codex", label: "From Codex", providers: ["codex"] },
-  { id: "all", label: "From Claude Code and Codex", providers: ["claudeAgent", "codex"] },
 ];
 
 function actionHandler(
@@ -379,8 +380,13 @@ function HighlightedText(props: { text: string; query: string; className?: strin
 }
 
 export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
+  const { locale } = useTranslation();
+  const translateActionText = locale === "zh-CN" ? translateZhCnPresentationText : undefined;
   const { activeTheme, resolvedTheme, setCodeThemeId, setTheme, theme } = useTheme();
   const [query, setQuery] = useState("");
+  const [projectImportProviders, setProjectImportProviders] = useState<
+    readonly ProjectImportProvider[]
+  >(["claudeAgent", "codex"]);
   const [highlightedItemValue, setHighlightedItemValue] = useState<string | null>(null);
   const [importTargetId, setImportTargetId] = useState<ProviderInstanceId | null>(
     props.importTargets[0]?.instanceId ?? null,
@@ -468,7 +474,9 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
   const browseParentPath = canBrowse ? getBrowseParentPath(query) : null;
   const canBrowseUp = canBrowse && canNavigateUp(query);
 
-  const matchedActions = isBrowsing ? [] : matchSidebarSearchActions(props.actions, query);
+  const matchedActions = isBrowsing
+    ? []
+    : matchSidebarSearchActions(props.actions, query, translateActionText);
   // Idle: "Quick actions" then "Settings", like the ⌘P menu. Searching: one flat
   // "Actions" group so a query never has to guess which heading a hit sits under.
   const quickActions = query
@@ -707,8 +715,14 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
         ) : (
           <span className="size-4 shrink-0" aria-hidden="true" />
         )}
-        <span className={PALETTE_TEXT_CLASS}>{action.label}</span>
-        {action.metaLabel ? <span className={PALETTE_META_CLASS}>{action.metaLabel}</span> : null}
+        <span className={PALETTE_TEXT_CLASS}>
+          {translateActionText?.(action.label) ?? action.label}
+        </span>
+        {action.metaLabel ? (
+          <span className={PALETTE_META_CLASS}>
+            {translateActionText?.(action.metaLabel) ?? action.metaLabel}
+          </span>
+        ) : null}
         {action.shortcutLabel ? (
           <ShortcutKbd shortcutLabel={action.shortcutLabel} className={PALETTE_KBD_CLASS} />
         ) : null}
@@ -884,13 +898,19 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                     <CommandItem
                       key={source.id}
                       value={`import-projects:${source.id}`}
+                      aria-label={source.label}
+                      aria-checked={projectImportProviders.includes(source.providers[0]!)}
                       className={PALETTE_ITEM_CLASS}
                       onMouseDown={(event) => {
                         event.preventDefault();
                       }}
                       onClick={() => {
-                        props.onOpenChange(false);
-                        props.onImportProjects(source.providers);
+                        const provider = source.providers[0]!;
+                        setProjectImportProviders((selected) =>
+                          selected.includes(provider)
+                            ? selected.filter((item) => item !== provider)
+                            : [...selected, provider],
+                        );
                       }}
                     >
                       <span className="flex shrink-0 items-center gap-1">
@@ -903,11 +923,31 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                         ))}
                       </span>
                       <span className={PALETTE_TEXT_CLASS}>{source.label}</span>
+                      <span
+                        aria-hidden="true"
+                        className="ml-auto flex size-4 shrink-0 items-center justify-center rounded border border-muted-foreground/60"
+                      >
+                        {projectImportProviders.includes(source.providers[0]!) ? (
+                          <CheckIcon className="size-3.5" />
+                        ) : null}
+                      </span>
                     </CommandItem>
                   ))}
                 </CommandGroup>
               ) : null}
             </CommandList>
+            <div className="flex justify-end border-t border-border/60 px-3 py-2">
+              <Button
+                size="sm"
+                disabled={projectImportProviders.length === 0}
+                onClick={() => {
+                  props.onOpenChange(false);
+                  props.onImportProjects(projectImportProviders);
+                }}
+              >
+                Continue
+              </Button>
+            </div>
             <CommandStatus className="p-0">
               {importProjectsSources.length === 0 ? (
                 <div className={PALETTE_STATUS_CLASS}>No matching import source.</div>

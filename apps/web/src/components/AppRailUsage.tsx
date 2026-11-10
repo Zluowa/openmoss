@@ -5,8 +5,8 @@
 // Depends on: the shared provider-usage menu model and panel content, so the rail reads the
 //             same numbers as the chat header chip, the Environment panel, and Settings.
 
-import { DEFAULT_SERVER_SETTINGS_VIEW, type ServerProviderUsageSnapshot } from "@synara/contracts";
-import { deriveProviderInstances } from "@synara/shared/providerInstances";
+import { DEFAULT_SERVER_SETTINGS_VIEW, type ServerProviderUsageSnapshot } from "@moss/contracts";
+import { deriveProviderInstances } from "@moss/shared/providerInstances";
 import { useQuery } from "@tanstack/react-query";
 
 import { useAppSettings, type RailUsageWindow } from "~/appSettings";
@@ -47,22 +47,53 @@ const RING_TONE_CLASS_NAME: Record<RailUsageRingTone, { stroke: string; dot: str
   critical: { stroke: "stroke-red-500", dot: "bg-red-500" },
 };
 
-// Geometry in px inside the rail's 36px button. Two tracks take a larger box, thinner
+// Geometry in px inside the rail's 32px button. Two tracks take a larger box, thinner
 // strokes and a smaller glyph, so the tracks keep a 2.25px gap and the glyph clears the
 // inner one.
-const SINGLE_RING = { size: 28, stroke: 2.5, svgClassName: "size-7", iconClassName: "size-4" };
-const DOUBLE_RING = { size: 34, stroke: 2.25, svgClassName: "size-8.5", iconClassName: "size-3" };
-const RING_SPACING = 4.5;
+const SINGLE_RING = {
+  size: 28,
+  stroke: 2.5,
+  spacing: 4.5,
+  svgClassName: "size-7",
+  iconClassName: "size-4",
+};
+const DOUBLE_RING = {
+  size: 34,
+  stroke: 2.25,
+  spacing: 4.5,
+  svgClassName: "size-8.5",
+  iconClassName: "size-3",
+};
+// With more than two accounts every ring steps down to a 28px button so the stack stays
+// short; past COMPACT_VISIBLE_RINGS the stack scrolls instead of pushing into Help/account.
+const COMPACT_SINGLE_RING = {
+  size: 24,
+  stroke: 2.25,
+  spacing: 4,
+  svgClassName: "size-6",
+  iconClassName: "size-3.5",
+};
+const COMPACT_DOUBLE_RING = {
+  size: 28,
+  stroke: 2,
+  spacing: 4,
+  svgClassName: "size-7",
+  iconClassName: "size-2.5",
+};
+/** Up to this many accounts keep the full-size rings. */
+export const RAIL_USAGE_FULL_SIZE_RINGS = 2;
 
 function AppRailUsageRing({
   account,
   snapshot,
   window,
+  compact,
   onOpenUsageSettings,
 }: {
   account: RailUsageAccount;
   snapshot: ServerProviderUsageSnapshot | undefined;
   window: RailUsageWindow;
+  compact: boolean;
   onOpenUsageSettings: () => void;
 }) {
   const { instance, label } = account;
@@ -90,7 +121,13 @@ function AppRailUsageRing({
     row,
     tone: RING_TONE_CLASS_NAME[railUsageRingTone(row.remainingPercent)],
   }));
-  const ring = rings.length > 1 ? DOUBLE_RING : SINGLE_RING;
+  const ring = compact
+    ? rings.length > 1
+      ? COMPACT_DOUBLE_RING
+      : COMPACT_SINGLE_RING
+    : rings.length > 1
+      ? DOUBLE_RING
+      : SINGLE_RING;
   const outerRadius = (ring.size - ring.stroke) / 2;
 
   return (
@@ -104,6 +141,7 @@ function AppRailUsageRing({
             className={cn(
               appRailButtonClassName(false),
               "relative flex shrink-0 items-center justify-center",
+              compact && "size-7",
             )}
             onClick={onOpenUsageSettings}
           />
@@ -129,7 +167,7 @@ function AppRailUsageRing({
               <circle
                 cx={ring.size / 2}
                 cy={ring.size / 2}
-                r={outerRadius - index * RING_SPACING}
+                r={outerRadius - index * ring.spacing}
                 strokeWidth={ring.stroke}
                 className="stroke-current opacity-15"
               />
@@ -137,7 +175,7 @@ function AppRailUsageRing({
                 <circle
                   cx={ring.size / 2}
                   cy={ring.size / 2}
-                  r={outerRadius - index * RING_SPACING}
+                  r={outerRadius - index * ring.spacing}
                   strokeWidth={ring.stroke}
                   strokeLinecap="round"
                   pathLength={100}
@@ -220,21 +258,32 @@ export function AppRailUsage({ onOpenUsageSettings }: { onOpenUsageSettings: () 
     return null;
   }
 
+  // Any number of accounts can be chosen. Past two the rings shrink and the stack scrolls
+  // (about four compact rings tall), so it never grows over the controls below it.
+  const compact = accounts.length > RAIL_USAGE_FULL_SIZE_RINGS;
+  const rings = accounts.map((account) => (
+    <AppRailUsageRing
+      key={account.instance.instanceId}
+      account={account}
+      snapshot={(usageQuery.data ?? []).find(
+        (entry) =>
+          entry.provider === account.instance.driver &&
+          providerUsageSnapshotInstanceId(entry) === account.instance.instanceId,
+      )}
+      window={settings.railUsageWindow}
+      compact={compact}
+      onOpenUsageSettings={onOpenUsageSettings}
+    />
+  ));
+  if (!compact) {
+    return <>{rings}</>;
+  }
   return (
-    <>
-      {accounts.map((account) => (
-        <AppRailUsageRing
-          key={account.instance.instanceId}
-          account={account}
-          snapshot={(usageQuery.data ?? []).find(
-            (entry) =>
-              entry.provider === account.instance.driver &&
-              providerUsageSnapshotInstanceId(entry) === account.instance.instanceId,
-          )}
-          window={settings.railUsageWindow}
-          onOpenUsageSettings={onOpenUsageSettings}
-        />
-      ))}
-    </>
+    <div
+      data-rail-usage-list
+      className="flex max-h-[8rem] min-h-0 w-full shrink-0 flex-col items-center gap-1 overflow-y-auto overscroll-contain py-0.5 [scrollbar-width:none]"
+    >
+      {rings}
+    </div>
   );
 }

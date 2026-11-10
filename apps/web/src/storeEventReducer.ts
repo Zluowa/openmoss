@@ -6,25 +6,25 @@ import {
   type OrchestrationEvent,
   type OrchestrationPendingInteraction,
   type ThreadId,
-} from "@synara/contracts";
-import { resolveThreadBranchRegressionGuard } from "@synara/shared/git";
-import { deriveTurnStopActivity } from "@synara/shared/turnStopActivity";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
+} from "@moss/contracts";
+import { resolveThreadBranchRegressionGuard } from "@moss/shared/git";
+import { deriveTurnStopActivity } from "@moss/shared/turnStopActivity";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
 import {
   clearRemovedAsyncUserInputResponses,
   mergeAsyncUserInput,
-} from "@synara/shared/asyncUserInput";
+} from "@moss/shared/asyncUserInput";
 import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
   setPinnedMessageLabel,
-} from "@synara/shared/pinnedMessages";
-import { deriveThreadSummaryMetadata, resolveHumanMessageAt } from "@synara/shared/threadSummary";
+} from "@moss/shared/pinnedMessages";
+import { deriveThreadSummaryMetadata, resolveHumanMessageAt } from "@moss/shared/threadSummary";
 import {
   createStalePendingInteractionMatcher,
   isPendingInteractionResponseClaimable,
-} from "@synara/shared/pendingInteractions";
+} from "@moss/shared/pendingInteractions";
 
 import { advanceMessageTextSegments } from "./messageTextSegments";
 import { getThreadFromState } from "./threadDerivation";
@@ -77,7 +77,7 @@ export type ApplyOrchestrationEventOptions = {
   updateSidebarSummary?: boolean;
 };
 
-type ReadModelThread = import("@synara/contracts").OrchestrationReadModel["threads"][number];
+type ReadModelThread = import("@moss/contracts").OrchestrationReadModel["threads"][number];
 
 const THREAD_SUMMARY_ACTIVITY_KINDS = new Set([
   "approval.requested",
@@ -773,6 +773,11 @@ function mergeStreamingMessage(
     incomingMessage.dispatchOrigin !== undefined
       ? incomingMessage.dispatchOrigin
       : existingMessage.dispatchOrigin;
+  // A message that states its origin also states its sender (or none).
+  const nextDispatchSourceThreadId =
+    incomingMessage.dispatchOrigin !== undefined
+      ? incomingMessage.dispatchSourceThreadId
+      : (incomingMessage.dispatchSourceThreadId ?? existingMessage.dispatchSourceThreadId);
   const nextStartsNewTurn =
     incomingMessage.startsNewTurn !== undefined
       ? incomingMessage.startsNewTurn
@@ -810,6 +815,7 @@ function mergeStreamingMessage(
     existingMessage.turnId === nextTurnId &&
     existingMessage.dispatchMode === nextDispatchMode &&
     existingMessage.dispatchOrigin === nextDispatchOrigin &&
+    existingMessage.dispatchSourceThreadId === nextDispatchSourceThreadId &&
     existingMessage.startsNewTurn === nextStartsNewTurn &&
     existingMessage.realtimeHandoffId === nextRealtimeHandoffId &&
     existingMessage.source === nextSource
@@ -817,8 +823,11 @@ function mergeStreamingMessage(
     return null;
   }
 
-  const { textSegments: _previousTextSegments, ...existingMessageWithoutSegments } =
-    existingMessage;
+  const {
+    textSegments: _previousTextSegments,
+    dispatchSourceThreadId: _previousDispatchSourceThreadId,
+    ...existingMessageWithoutSegments
+  } = existingMessage;
   return {
     ...existingMessageWithoutSegments,
     text: nextText,
@@ -832,6 +841,9 @@ function mergeStreamingMessage(
     ...(nextTurnId !== undefined ? { turnId: nextTurnId } : {}),
     ...(nextDispatchMode !== undefined ? { dispatchMode: nextDispatchMode } : {}),
     ...(nextDispatchOrigin !== undefined ? { dispatchOrigin: nextDispatchOrigin } : {}),
+    ...(nextDispatchSourceThreadId !== undefined
+      ? { dispatchSourceThreadId: nextDispatchSourceThreadId }
+      : {}),
     ...(nextStartsNewTurn !== undefined ? { startsNewTurn: nextStartsNewTurn } : {}),
     ...(nextSource !== undefined ? { source: nextSource } : {}),
     ...(nextRealtimeHandoffId !== undefined ? { realtimeHandoffId: nextRealtimeHandoffId } : {}),
@@ -867,6 +879,9 @@ function applyThreadMessageSentEvent(
       ...(payload.asyncUserInput ? { asyncUserInput: payload.asyncUserInput } : {}),
       dispatchMode: payload.dispatchMode,
       dispatchOrigin: payload.dispatchOrigin,
+      ...(payload.dispatchSourceThreadId != null
+        ? { dispatchSourceThreadId: payload.dispatchSourceThreadId }
+        : {}),
       startsNewTurn: payload.startsNewTurn,
       turnId: payload.turnId,
       attachments: payload.attachments ?? [],

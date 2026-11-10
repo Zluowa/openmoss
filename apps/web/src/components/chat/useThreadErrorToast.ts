@@ -3,8 +3,8 @@
 // Layer: Chat status presentation
 // Exports: useThreadErrorToast, buildThreadErrorToastOptions, threadErrorToastId, decideThreadErrorToastAction, collectThreadErrorMap
 
-import type { ThreadId } from "@synara/contracts";
-import { isProviderDeliveryBlockDetail } from "@synara/shared/providerDeliveryBlock";
+import type { ThreadId } from "@moss/contracts";
+import { isProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 import { useEffect, useRef, type RefObject } from "react";
 
 import type { MossLocaleCode } from "../../appSettings";

@@ -1,4 +1,4 @@
-import { MOSS_DESKTOP_BUNDLE_ID_ENV } from "@synara/shared/desktopIdentity";
+import { MOSS_DESKTOP_BUNDLE_ID_ENV } from "@moss/shared/desktopIdentity";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ComputerBackendError } from "./ComputerBackend.ts";

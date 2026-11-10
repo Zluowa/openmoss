@@ -3,7 +3,7 @@ import {
   type ComputerHealth,
   type ThreadComputerState,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -189,11 +189,12 @@ describe("computerStatusNeedsSetup", () => {
   });
 
   it("says no on a host that could never have a desktop backend", () => {
-    // "Set up" on Windows would install nothing and explain nothing; the
-    // unsupported-platform message is the whole answer.
+    // "Set up" on a platform Cua does not run on (it runs on macOS and Windows)
+    // would install nothing and explain nothing; the unsupported-platform
+    // message is the whole answer.
     expect(
       computerStatusNeedsSetup(
-        state({ availability: { kind: "unsupported-platform", platform: "win32" } }),
+        state({ availability: { kind: "unsupported-platform", platform: "freebsd" } }),
       ),
     ).toBe(false);
   });

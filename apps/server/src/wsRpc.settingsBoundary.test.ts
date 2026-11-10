@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { join } from "node:path";
-import type { ServerSettings, ServerSettingsPatch } from "@synara/contracts";
+import type { ServerSettings, ServerSettingsPatch } from "@moss/contracts";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 

@@ -6,7 +6,7 @@ import type {
   DesktopAppSnapState,
   RealtimeVoiceDescriptor,
   RealtimeVoiceId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";

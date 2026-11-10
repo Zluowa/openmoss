@@ -4,7 +4,7 @@ import type {
   GitHubInboxState,
   OrchestrationProject,
   ProjectId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 
 import type { GitHubCliError } from "../git/Errors";

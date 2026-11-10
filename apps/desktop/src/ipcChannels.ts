@@ -3,6 +3,25 @@
 // Layer: Desktop IPC contract
 
 export const DESKTOP_IPC_CHANNELS = {
+  remoteComputers: {
+    list: "desktop:remote-computers-list",
+    pair: "desktop:remote-computers-pair",
+    cancelPairing: "desktop:remote-computers-cancel-pairing",
+    connect: "desktop:remote-computers-connect",
+    disconnect: "desktop:remote-computers-disconnect",
+    remove: "desktop:remote-computers-remove",
+  },
+  ssh: {
+    list: "desktop:ssh-list",
+    listConfigHosts: "desktop:ssh-list-config-hosts",
+    save: "desktop:ssh-save",
+    remove: "desktop:ssh-remove",
+    connect: "desktop:ssh-connect",
+    disconnect: "desktop:ssh-disconnect",
+    pickIdentity: "desktop:ssh-pick-identity",
+    workspaceUrl: "desktop:ssh-workspace-url",
+    workspaceKind: "desktop:ssh-workspace-kind",
+  },
   pickFolder: "desktop:pick-folder",
   saveFile: "desktop:save-file",
   confirm: "desktop:confirm",
@@ -23,6 +42,7 @@ export const DESKTOP_IPC_CHANNELS = {
   },
   showInFolder: "desktop:show-in-folder",
   clipboardWriteImage: "desktop:clipboard-write-image",
+  clipboardWriteThreadId: "desktop:clipboard-write-thread-id",
   windowMinimize: "desktop:window-minimize",
   windowToggleMaximize: "desktop:window-toggle-maximize",
   windowClose: "desktop:window-close",
@@ -42,6 +62,10 @@ export const DESKTOP_IPC_CHANNELS = {
     importAndLaunch: "desktop:beta-import-and-launch",
     leave: "desktop:beta-leave",
   },
+  errorReports: {
+    get: "desktop:error-reports-enabled",
+    set: "desktop:set-error-reports-enabled",
+  },
   betaDiagnostics: {
     enabled: "desktop:beta-diagnostics-enabled",
     rendererReady: "desktop:beta-diagnostics-renderer-ready",
@@ -60,6 +84,7 @@ export const DESKTOP_IPC_CHANNELS = {
   zoomFactor: "desktop:zoom-factor",
   zoomFactorChanged: "desktop:zoom-factor-changed",
   wsUrl: "desktop:get-ws-url",
+  backendLink: "desktop:backend-link",
   transcribeVoice: "desktop:server-transcribe-voice",
   computerPreviewFrame: "computerPreview.frame",
   // Renderer preview demand for the native frame tap: the helper captures only
@@ -156,6 +181,19 @@ export const DESKTOP_IPC_CHANNELS = {
     closeTab: "desktop:browser-close-tab",
     selectTab: "desktop:browser-select-tab",
     openDevTools: "desktop:browser-open-devtools",
+    panel: {
+      getPreferences: "desktop:browser-panel-get-preferences",
+      addAllowedSite: "desktop:browser-panel-add-allowed-site",
+      removeAllowedSite: "desktop:browser-panel-remove-allowed-site",
+      setCookieRetention: "desktop:browser-panel-set-cookie-retention",
+      clearBrowsingData: "desktop:browser-panel-clear-browsing-data",
+      getDefaultBrowserName: "desktop:browser-panel-default-browser-name",
+      openInBrowser: "desktop:browser-panel-open-in-browser",
+      saveScreenshot: "desktop:browser-panel-save-screenshot",
+      pickHtmlFile: "desktop:browser-panel-pick-html-file",
+      allowNavigation: "desktop:browser-panel-allow-navigation",
+      blockedNavigation: "desktop:browser-panel-blocked-navigation",
+    },
     annotations: {
       start: "desktop:browser-annotations-start",
       cancel: "desktop:browser-annotations-cancel",
@@ -169,10 +207,6 @@ export const DESKTOP_IPC_CHANNELS = {
     unregister: "moss_desktop:mcp-app-unregister",
     guestMessage: "moss_desktop:mcp-app-guest-message",
     trustedMessage: "moss_desktop:mcp-app-trusted-message",
-  },
-  htmlPreview: {
-    register: "desktop:html-preview-register",
-    unregister: "desktop:html-preview-unregister",
   },
 } as const;
 

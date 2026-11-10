@@ -3,8 +3,8 @@
 // Layer: UI state logic test
 
 import { describe, expect, it } from "vitest";
-import { ProjectId, ThreadId } from "@synara/contracts";
-import type { ResolvedTerminalVisualIdentity } from "@synara/shared/terminalThreads";
+import { ProjectId, ThreadId } from "@moss/contracts";
+import type { ResolvedTerminalVisualIdentity } from "@moss/shared/terminalThreads";
 import {
   buildRecentViewDisplayEntries,
   deriveCurrentRecentView,

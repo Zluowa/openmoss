@@ -111,6 +111,25 @@ describe("bundled-moss-canvas", () => {
     ).toThrow(/page-editor\.html/u);
   });
 
+  it("requires the built deck editor entry when its source declares one", () => {
+    const source = Path.join(tempDir(), "source");
+    writeFixtureSource(source);
+    FS.writeFileSync(Path.join(source, "apps/codex-canvas/deck-editor.html"), "<html>deck</html>");
+    expect(() =>
+      prepareMossCanvasBundle({ sourceDir: source, targetDir: Path.join(tempDir(), "target") }),
+    ).toThrow(/deck-editor\.html/u);
+    FS.writeFileSync(
+      Path.join(source, "apps/codex-canvas/dist/deck-editor.html"),
+      "<html>deck runtime</html>",
+    );
+    const target = Path.join(tempDir(), "target");
+    prepareMossCanvasBundle({ sourceDir: source, targetDir: target });
+    expect(
+      JSON.parse(FS.readFileSync(Path.join(target, "canvas-bundle-receipt.json"), "utf8"))
+        .requiredPaths,
+    ).toContain("apps/codex-canvas/dist/deck-editor.html");
+  });
+
   it("retains legacy bundle compatibility while enforcing declared Page entry receipts", () => {
     const source = Path.join(tempDir(), "source");
     const target = Path.join(tempDir(), "target");

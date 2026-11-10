@@ -1,6 +1,6 @@
 import "../src/index.css";
 
-import { MessageId, TurnId } from "@synara/contracts";
+import { MessageId, TurnId } from "@moss/contracts";
 import type { LegendListRef } from "@legendapp/list/react";
 import {
   Profiler,

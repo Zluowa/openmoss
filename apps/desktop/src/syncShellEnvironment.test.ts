@@ -1,4 +1,4 @@
-import { LOGIN_SHELL_ENVIRONMENT_NAMES } from "@synara/shared/loginShellEnvironment";
+import { LOGIN_SHELL_ENVIRONMENT_NAMES } from "@moss/shared/loginShellEnvironment";
 import { describe, expect, it, vi } from "vitest";
 
 import { syncShellEnvironment } from "./syncShellEnvironment";
@@ -349,6 +349,33 @@ describe("syncShellEnvironment", () => {
     });
 
     expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:7897");
+  });
+
+  it("picks up a Windows system proxy when the environment names none", () => {
+    const env: NodeJS.ProcessEnv = { PATH: "C:\\Windows\\System32" };
+
+    syncShellEnvironment(env, {
+      platform: "win32",
+      readWindowsEnvironment: () => ({ PATH: "C:\\Windows\\System32" }),
+      readSystemProxy: () => ({ HTTPS_PROXY: "http://127.0.0.1:7897" }),
+    });
+
+    expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:7897");
+  });
+
+  it("prefers a proxy saved in the Windows environment over the system setting", () => {
+    const env: NodeJS.ProcessEnv = { PATH: "C:\\Windows\\System32" };
+
+    syncShellEnvironment(env, {
+      platform: "win32",
+      readWindowsEnvironment: () => ({
+        PATH: "C:\\Windows\\System32",
+        HTTPS_PROXY: "http://saved:8080",
+      }),
+      readSystemProxy: () => ({ HTTPS_PROXY: "http://system:7897" }),
+    });
+
+    expect(env.HTTPS_PROXY).toBe("http://saved:8080");
   });
 
   it("does not overwrite an inherited HTTPS proxy with the system reader", () => {

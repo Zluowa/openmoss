@@ -9,16 +9,25 @@
  *
  * @module OrchestrationEventStore
  */
-import { OrchestrationEvent } from "@synara/contracts";
+import { OrchestrationEvent } from "@moss/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
-import type { OrchestrationEventStoreError } from "../Errors.ts";
+import type { OrchestrationEventStoreError, PersistenceDecodeError } from "../Errors.ts";
 
 export interface OrchestrationEventReplayFilter {
   readonly eventTypes: ReadonlyArray<OrchestrationEvent["type"]>;
   readonly activityKinds?: ReadonlyArray<string>;
   readonly includeBoundaryEvent?: boolean;
+  /**
+   * Called for a stored record that no longer decodes. When set, that record
+   * is skipped instead of failing the replay, so a startup rebuild cannot be
+   * stopped by one bad record. Without it the replay fails as before.
+   */
+  readonly onUndecodableEvent?: (failure: {
+    readonly sequence: number;
+    readonly error: PersistenceDecodeError;
+  }) => Effect.Effect<void>;
 }
 
 /**

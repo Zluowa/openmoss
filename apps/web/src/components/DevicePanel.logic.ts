@@ -18,9 +18,9 @@ import type {
   DeviceToolchain,
   DeviceUdid,
   ThreadDeviceState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
-import { DEVICE_CAPABILITY_LABELS } from "@synara/contracts";
+import { DEVICE_CAPABILITY_LABELS } from "@moss/contracts";
 
 // ── Frame gating ─────────────────────────────────────────────────────
 //

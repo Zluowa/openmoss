@@ -4,8 +4,8 @@ import {
   ProviderInstanceId,
   SUPPORTED_PROVIDER_KINDS,
   ThreadId,
-} from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
+} from "@moss/contracts";
+import { getDefaultModel } from "@moss/shared/model";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { partializeComposerDraftStoreState, useComposerDraftStore } from "./composerDraftStore";
 import {

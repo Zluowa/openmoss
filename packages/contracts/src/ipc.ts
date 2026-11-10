@@ -1,3 +1,16 @@
+import type {
+  MossbotRoom,
+  MossbotRoomView,
+  MossbotRoomCreateInput,
+  MossbotRoomUpdateInput,
+  MossbotRoomSendInput,
+} from "./mossbotRoom";
+import type {
+  DevsReportSubmitInput,
+  DevsReportPreview,
+  DevsReportState,
+  DevsReportListResult,
+} from "./devsReport";
 import { Schema } from "effect";
 import type {
   PagesCommentsInput,
@@ -5,19 +18,29 @@ import type {
   PagesListInput,
   PagesListResult,
   PagesMutateInput,
+  PagesOutputStateInput,
+  PagesOutputsInput,
+  PagesOutputsResult,
   PagesMutateResult,
   PagesReadInput,
   PagesReadResult,
   PagesScopeInput,
+  PageSpaceSyncInput,
+  PageAccountRecoveryInput,
+  PageAccountRecoveryResult,
+  PageSpaceSyncState,
   PagesSpacesResult,
   PagesVersionsInput,
   PagesVersionsResult,
 } from "./pages";
+import type { PageTypesNativeApi } from "./pageTypes";
+import type { PagesRealtimeTokenInput, PagesRealtimeTokenResult } from "./pagesRealtime";
 import type {
-  HtmlPreviewDescriptor,
-  HtmlPreviewRegisterInput,
-  HtmlPreviewUnregisterInput,
-} from "./htmlPreview";
+  PageDraftsListInput,
+  PageDraftsListResult,
+  PageDraftsMutateInput,
+  PageDraftsMutateResult,
+} from "./pageDrafts";
 import type {
   OrchestrationGetInlineVisualInput,
   OrchestrationGetInlineVisualResult,
@@ -65,7 +88,10 @@ import type {
   McpConnectorDisconnectInput,
   McpConnectorDisconnectResult,
   McpConnectorSetup,
+  MossServicePluginSetInstalledInput,
+  MossServicePluginsState,
 } from "./mcpConnectors";
+import type { HtmlRenderMapConfig } from "./htmlRenderMaps";
 import type {
   MossAppsConnectFieldsInput,
   MossAppsConnectFieldsResult,
@@ -251,6 +277,8 @@ import type {
   PullRequestAutoFixSetInput,
 } from "./pullRequestAutoFix";
 import type {
+  GitHubConnectionInput,
+  GitHubConnectionResult,
   GitHubInboxListInput,
   GitHubInboxListResult,
   GitHubIssueCommentInput,
@@ -265,6 +293,10 @@ import type {
   ProjectDiscoverScriptsInput,
   ProjectDiscoverScriptsResult,
   ProjectListDevServersResult,
+  ProjectReadDevServerLogInput,
+  ProjectReadDevServerLogResult,
+  ProjectReadLaunchConfigurationsInput,
+  ProjectReadLaunchConfigurationsResult,
   ProjectListDirectoriesInput,
   ProjectListDirectoriesResult,
   ProjectReadFileInput,
@@ -386,6 +418,10 @@ import type {
   ServerListWorktreesResult,
   ServerProviderLoginInput,
   ServerProviderLoginResult,
+  ServerProviderInstallInput,
+  ServerProviderInstallResult,
+  ServerProviderInstallationInput,
+  ServerProviderInstallationResult,
   ServerProviderUpdateInput,
   ServerProviderUpdateResult,
   ServerRefreshProvidersResult,
@@ -832,6 +868,13 @@ export interface BrowserTabInput {
   tabId: string;
 }
 
+export interface BrowserCapturePreviewInput extends BrowserTabInput {
+  /** Resting capture: allowed while the page is on screen; null when the page is unchanged. */
+  ifChanged?: boolean;
+  /** With `ifChanged`: answer with the still even when the page is unchanged. */
+  force?: boolean;
+}
+
 export interface BrowserNavigateInput {
   threadId: ThreadId;
   tabId?: string;
@@ -990,6 +1033,56 @@ export interface BrowserUseOpenPanelRequest {
   threadId: ThreadId;
 }
 
+/**
+ * How long the browser panel keeps cookies and site data: `keep` across restarts (all
+ * chats share them), or `untilQuit`, cleared when Moss quits.
+ */
+export type BrowserCookieRetention = "keep" | "untilQuit";
+
+export interface BrowserPanelPreferences {
+  /**
+   * Origins (`https://example.com`) a page opened from a local file may navigate to or
+   * load from. Local pages reach nothing else.
+   */
+  readonly allowedSites: readonly string[];
+  readonly cookieRetention: BrowserCookieRetention;
+}
+
+/** Pushed when a page opened from a local file tried to leave for a site not allowed. */
+export interface BrowserBlockedNavigationEvent {
+  readonly threadId: ThreadId;
+  readonly tabId: string;
+  readonly url: string;
+}
+
+export interface BrowserAllowNavigationInput extends BrowserTabInput {
+  readonly url: string;
+}
+
+/** Desktop-only settings and actions behind the browser panel's "…" menu. */
+export interface BrowserPanelMethods {
+  getPreferences: () => Promise<BrowserPanelPreferences>;
+  addAllowedSite: (site: string) => Promise<BrowserPanelPreferences>;
+  removeAllowedSite: (site: string) => Promise<BrowserPanelPreferences>;
+  setCookieRetention: (value: BrowserCookieRetention) => Promise<BrowserPanelPreferences>;
+  /** Clears cookies, site storage and the cache of the browser panel's session. */
+  clearBrowsingData: () => Promise<void>;
+  /** Name of the system's default web browser, when the platform reports one. */
+  getDefaultBrowserName: () => Promise<string | null>;
+  /**
+   * Opens a web page, or a local page's file, in the system's default web browser (a local
+   * HTML file opens in the browser too, not in whatever app its extension is set to).
+   */
+  openInBrowser?: (url: string) => Promise<void>;
+  /** Asks where to save, then writes a PNG of the tab; resolves the saved path or null. */
+  saveScreenshot: (input: BrowserTabInput) => Promise<string | null>;
+  /** Native file picker for one HTML file; resolves its absolute path or null. */
+  pickHtmlFile: () => Promise<string | null>;
+  /** Allows the URL's site for local pages, then opens it in the tab. */
+  allowNavigation: (input: BrowserAllowNavigationInput) => Promise<ThreadBrowserState>;
+  onBlockedNavigation: (listener: (event: BrowserBlockedNavigationEvent) => void) => () => void;
+}
+
 interface BrowserControlMethods {
   open: (input: BrowserOpenInput) => Promise<ThreadBrowserState>;
   close: (input: BrowserThreadInput) => Promise<ThreadBrowserState>;
@@ -1009,7 +1102,12 @@ interface BrowserControlMethods {
   closeTab: (input: BrowserTabInput) => Promise<ThreadBrowserState>;
   selectTab: (input: BrowserTabInput) => Promise<ThreadBrowserState>;
   openDevTools: (input: BrowserTabInput) => Promise<void>;
-  capturePreview?: (input: BrowserTabInput) => Promise<unknown | null>;
+  /**
+   * A still of the active page, shown in its place while something covers the native view.
+   * With `ifChanged`, also answers while the page is on screen (the panel keeps a fresh still
+   * ready so a menu never uncovers an empty slot) and returns null when nothing changed.
+   */
+  capturePreview?: (input: BrowserCapturePreviewInput) => Promise<unknown | null>;
   vault?: BrowserVaultMethods;
   onState: (listener: (state: ThreadBrowserState) => void) => () => void;
 }
@@ -1033,12 +1131,14 @@ export type DesktopDockIconPreference = (typeof DESKTOP_DOCK_ICON_PREFERENCES)[n
 export const DESKTOP_UI_LOCALES = ["en", "zh-CN"] as const;
 export type DesktopUiLocale = (typeof DESKTOP_UI_LOCALES)[number];
 
-/** Main → renderer: ask whether quit should proceed while chats are running. */
+/** Main → renderer: ask whether quit should proceed while work is running. */
 export type DesktopQuitConfirmationPresentation = "native" | "in-app";
 
 export interface DesktopQuitConfirmationRequest {
   readonly requestId: string;
   readonly presentation: DesktopQuitConfirmationPresentation;
+  /** The main process is downloading an app update; quitting stops the download. */
+  readonly updateDownloading?: boolean;
 }
 
 export interface DesktopQuitConfirmationChat {
@@ -1048,7 +1148,10 @@ export interface DesktopQuitConfirmationChat {
 
 /**
  * Renderer → main: first ack that the UI received the request, then the user's
- * Stay / Quit decision. `ready` with `runningCount === 0` is treated as allow.
+ * Stay / Quit decision. `ready` with `runningCount === 0` (nothing is running) is
+ * treated as allow, so an idle app quits without a dialog. `runningCount` counts
+ * every running item (chats, terminals, dev servers, imports, an update download);
+ * `chats` lists only the chats.
  */
 export type DesktopQuitConfirmationResponse =
   | {
@@ -1346,7 +1449,23 @@ export type DesktopDiagnosticIssue = typeof DesktopDiagnosticIssue.Type;
 export const DESKTOP_DIAGNOSTIC_ISSUE_PREFIX = "MOSS_DIAGNOSTIC_ISSUE ";
 export type DesktopDiagnosticReportStatus = "queued" | "sent" | "unavailable";
 
+/** Why the renderer lost its socket to the desktop's own backend. Fixed categories only. */
+export type DesktopBackendLinkDropReason =
+  | "socket-closed"
+  | "silence-timeout"
+  | "protocol-error"
+  | "stream-ended";
+
+export type DesktopBackendLinkEvent =
+  | { readonly phase: "down"; readonly reason: DesktopBackendLinkDropReason }
+  | { readonly phase: "up" };
+
 export interface DesktopBridge {
+  ssh?: import("./ssh").DesktopSshBridge;
+  remoteComputers?: import("./remoteComputers").DesktopRemoteComputersBridge;
+  /** The saved error-report preference, readable before the backend is up. */
+  getErrorReportsEnabled?: () => boolean;
+  setErrorReportsEnabled?: (enabled: boolean) => Promise<void>;
   /** Present only when the desktop main process enables baked-in Beta diagnostics. */
   betaDiagnostics?: {
     rendererReady: () => void;
@@ -1361,6 +1480,8 @@ export interface DesktopBridge {
     revealApp: () => Promise<boolean>;
   };
   getWsUrl: () => string | null;
+  /** Lets main log one line per drop of the link to its backend, with reason and duration. */
+  reportBackendLink?: (event: DesktopBackendLinkEvent) => void;
   /**
    * Absolute filesystem path for a File from drag/drop or file inputs.
    * Electron only (`webUtils.getPathForFile`). Returns null when unavailable.
@@ -1373,7 +1494,10 @@ export interface DesktopBridge {
     filters?: ReadonlyArray<{ name: string; extensions: ReadonlyArray<string> }>;
   }) => Promise<string | null>;
   confirm: (message: string) => Promise<boolean>;
-  setTheme: (theme: DesktopTheme) => Promise<void>;
+  setTheme: (
+    theme: DesktopTheme,
+    startupBackgrounds?: { readonly light: string; readonly dark: string },
+  ) => Promise<void>;
   /** Keeps Electron-owned menus and dialogs aligned with the renderer language. */
   setUiLocale?: (locale: DesktopUiLocale) => Promise<void>;
   setDockIconPreference?: (preference: DesktopDockIconPreference) => Promise<void>;
@@ -1397,6 +1521,7 @@ export interface DesktopBridge {
     showInFolder: (path: string) => Promise<void>;
   };
   clipboard?: {
+    writeThreadId?: (threadId: string) => Promise<void>;
     writeImagePngDataUrl: (dataUrl: string) => Promise<boolean>;
   };
   windowControls?: {
@@ -1594,6 +1719,7 @@ export interface DesktopBridge {
   };
   browser: BrowserControlMethods & {
     annotations: BrowserAnnotationMethods;
+    panel?: BrowserPanelMethods;
     onBrowserUseOpenPanelRequest: (
       listener: (request: BrowserUseOpenPanelRequest) => void,
     ) => () => void;
@@ -1604,16 +1730,24 @@ export interface DesktopBridge {
     register: (input: McpAppSandboxRegisterInput) => Promise<McpAppSandboxDescriptor | null>;
     unregister: (input: McpAppSandboxUnregisterInput) => Promise<boolean>;
   };
-  /** Disposable desktop-only rich HTML preview; no guest bridge is exposed. */
-  htmlPreview?: {
-    register: (input: HtmlPreviewRegisterInput) => Promise<HtmlPreviewDescriptor>;
-    unregister: (input: HtmlPreviewUnregisterInput) => Promise<boolean>;
-  };
 }
 
 export interface NativeApi {
   dialogs: {
-    pickFolder: () => Promise<string | null>;
+    /**
+     * Resolves the chosen folder, or null when the person cancels. The picker
+     * may stay open as long as the person needs; only `signal` cancels it.
+     */
+    pickFolder: (options?: {
+      readonly signal?: AbortSignal;
+      /**
+       * Reject instead of resolving null when the host could not show a
+       * picker at all, so a caller with a typed-path fallback can tell that
+       * apart from a cancel. Without it a server-hosted picker that could not
+       * open resolves null.
+       */
+      readonly rejectWhenUnavailable?: boolean;
+    }) => Promise<string | null>;
     saveFile?: (input: {
       defaultFilename: string;
       contents: string;
@@ -1663,6 +1797,12 @@ export interface NativeApi {
     runDevServer: (input: ProjectRunDevServerInput) => Promise<ProjectRunDevServerResult>;
     stopDevServer: (input: ProjectStopDevServerInput) => Promise<ProjectStopDevServerResult>;
     listDevServers: () => Promise<ProjectListDevServersResult>;
+    readDevServerLog?: (
+      input: ProjectReadDevServerLogInput,
+    ) => Promise<ProjectReadDevServerLogResult>;
+    readLaunchConfigurations?: (
+      input: ProjectReadLaunchConfigurationsInput,
+    ) => Promise<ProjectReadLaunchConfigurationsResult>;
     onDevServerEvent: (callback: (event: ProjectDevServerEvent) => void) => () => void;
     provisionFromGitHub: (
       input: GitHubProjectProvisionInput,
@@ -1731,6 +1871,7 @@ export interface NativeApi {
     ) => () => void;
   };
   githubInbox: {
+    connection: (input: GitHubConnectionInput) => Promise<GitHubConnectionResult>;
     list: (input: GitHubInboxListInput) => Promise<GitHubInboxListResult>;
     issueDetail: (input: GitHubIssueDetailInput) => Promise<GitHubIssueDetail>;
     issueComment: (input: GitHubIssueCommentInput) => Promise<GitHubIssueCommentResult>;
@@ -1789,6 +1930,11 @@ export interface NativeApi {
       input: McpConnectorDisconnectInput,
     ) => Promise<McpConnectorDisconnectResult>;
     getMcpConnectorSetup: () => Promise<McpConnectorSetup>;
+    listMossServicePlugins: () => Promise<MossServicePluginsState>;
+    setMossServicePluginInstalled: (
+      input: MossServicePluginSetInstalledInput,
+    ) => Promise<MossServicePluginsState>;
+    getHtmlRenderMapConfig: () => Promise<HtmlRenderMapConfig>;
     getMossAppsStatus: () => Promise<MossAppsStatus>;
     listMossAppToolkits: (input: MossAppsListToolkitsInput) => Promise<MossAppsListToolkitsResult>;
     listMossAppConnections: () => Promise<MossAppsListConnectionsResult>;
@@ -1799,6 +1945,10 @@ export interface NativeApi {
     disconnectMossApp: (input: MossAppsDisconnectInput) => Promise<MossAppsDisconnectResult>;
     refreshProviders: () => Promise<ServerRefreshProvidersResult>;
     updateProvider: (input: ServerProviderUpdateInput) => Promise<ServerProviderUpdateResult>;
+    installProvider: (input: ServerProviderInstallInput) => Promise<ServerProviderInstallResult>;
+    manageProviderInstallation?: (
+      input: ServerProviderInstallationInput,
+    ) => Promise<ServerProviderInstallationResult>;
     startProviderLogin: (input: ServerProviderLoginInput) => Promise<ServerProviderLoginResult>;
     cancelProviderLogin: (input: ServerProviderLoginInput) => Promise<ServerProviderLoginResult>;
     listWorktrees: () => Promise<ServerListWorktreesResult>;
@@ -1814,6 +1964,9 @@ export interface NativeApi {
       input: ServerConsumeCodexResetCreditInput,
     ) => Promise<ServerConsumeCodexResetCreditResult>;
     getDiagnostics: () => Promise<ServerDiagnosticsResult>;
+    prepareDevsReport?: (input: DevsReportSubmitInput) => Promise<DevsReportPreview>;
+    submitDevsReport?: (input: DevsReportSubmitInput) => Promise<DevsReportState>;
+    listDevsReports?: (input: { threadId: ThreadId }) => Promise<DevsReportListResult>;
     readThreadDiagnostics: (
       input: ServerReadThreadDiagnosticsInput,
     ) => Promise<ServerReadThreadDiagnosticsResult>;
@@ -2054,6 +2207,15 @@ export interface NativeApi {
     onShellEvent: (callback: (event: OrchestrationShellStreamItem) => void) => () => void;
     onThreadEvent: (callback: (event: OrchestrationThreadStreamItem) => void) => () => void;
   };
+  mossbotRooms?: {
+    update: (input: MossbotRoomUpdateInput) => Promise<MossbotRoom>;
+    list: () => Promise<readonly MossbotRoom[]>;
+    cancel: (input: { roomId: string }) => Promise<MossbotRoom>;
+    create: (input: MossbotRoomCreateInput) => Promise<MossbotRoom>;
+    get: (input: { roomId: string }) => Promise<MossbotRoomView>;
+    send: (input: MossbotRoomSendInput) => Promise<MossbotRoom>;
+    delete: (input: { roomId: string }) => Promise<{ roomId: string }>;
+  };
   projectAgent: {
     getOverview: (input: ProjectAgentGetOverviewInput) => Promise<ProjectAgentOverview>;
     listSummaries: (
@@ -2139,12 +2301,20 @@ export interface NativeApi {
   };
   pages: {
     spaces: (input: PagesScopeInput) => Promise<PagesSpacesResult>;
+    spaceSync: (input: PageSpaceSyncInput) => Promise<PageSpaceSyncState>;
+    accountRecovery: (input: PageAccountRecoveryInput) => Promise<PageAccountRecoveryResult>;
     list: (input: PagesListInput) => Promise<PagesListResult>;
     read: (input: PagesReadInput) => Promise<PagesReadResult>;
     versions: (input: PagesVersionsInput) => Promise<PagesVersionsResult>;
     comments: (input: PagesCommentsInput) => Promise<PagesCommentsResult>;
     mutate: (input: PagesMutateInput) => Promise<PagesMutateResult>;
+    realtimeToken: (input: PagesRealtimeTokenInput) => Promise<PagesRealtimeTokenResult>;
+    drafts: (input: PageDraftsListInput) => Promise<PageDraftsListResult>;
+    draftsMutate: (input: PageDraftsMutateInput) => Promise<PageDraftsMutateResult>;
+    outputs: (input: PagesOutputsInput) => Promise<PagesOutputsResult>;
+    outputState: (input: PagesOutputStateInput) => Promise<void>;
   };
+  pageTypes: PageTypesNativeApi;
   library: {
     list: (input?: LibraryListInput) => Promise<LibraryListResult>;
     sync: () => Promise<LibrarySyncResult>;
@@ -2162,6 +2332,8 @@ export interface NativeApi {
   };
   browser: BrowserControlMethods & {
     annotations: BrowserAnnotationMethods;
+    /** Desktop only: the "…" menu's settings and actions. */
+    panel?: BrowserPanelMethods | undefined;
     onCopyLink: (callback: (event: BrowserCopyLinkEvent) => void) => () => void;
   };
   // macOS-only in practice: off darwin the server answers `list`/`getThreadState`

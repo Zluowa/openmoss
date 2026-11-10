@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { writeFileSync } from "node:fs";
 import type { WebContents } from "electron";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { expect, it, vi } from "vitest";
 import { BrowserDiagnosticsStore } from "../src/browserAutomation/browserDiagnostics";
 

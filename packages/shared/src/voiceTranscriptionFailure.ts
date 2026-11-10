@@ -17,8 +17,8 @@ const SAFE_VOICE_TRANSCRIPTION_FAILURES = {
     status: 503,
   },
   VOICE_ACCOUNT_AUTHENTICATION_REQUIRED: {
-    en: "Sign in to your Moss account to use voice transcription.",
-    zhCN: "请先登录 Moss 账号，再使用语音转文字。",
+    en: "Sign in to your Moss account to use voice.",
+    zhCN: "登录 Moss 账号即可使用语音",
     retryable: false,
     status: 401,
   },
@@ -49,6 +49,30 @@ const SAFE_VOICE_TRANSCRIPTION_FAILURES = {
   VOICE_PROVIDER_TRANSCRIPTION_UNAVAILABLE: {
     en: "Voice transcription is unavailable for the selected provider.",
     zhCN: "所选服务商不支持语音转文字，请切换服务商。",
+    retryable: false,
+    status: 400,
+  },
+  VOICE_AUDIO_INVALID: {
+    en: "The voice recording could not be read. Record it again.",
+    zhCN: "无法读取这段录音，请重新录制。",
+    retryable: false,
+    status: 400,
+  },
+  VOICE_AUDIO_TOO_LONG: {
+    en: "Voice notes are limited to 2 minutes. Record a shorter note.",
+    zhCN: "语音备注最长 2 分钟，请缩短后重试。",
+    retryable: false,
+    status: 413,
+  },
+  VOICE_CHATGPT_LOGIN_EXPIRED: {
+    en: "Your ChatGPT sign-in in Codex has expired. Sign in again, or sign in to Moss to use voice.",
+    zhCN: "Codex 里的 ChatGPT 登录已失效。请重新登录，或登录 Moss 账号即可使用语音。",
+    retryable: false,
+    status: 401,
+  },
+  VOICE_CHATGPT_REJECTED: {
+    en: "Codex could not transcribe this voice note. Record it again.",
+    zhCN: "Codex 无法识别这段录音，请重新录制后再试。",
     retryable: false,
     status: 400,
   },

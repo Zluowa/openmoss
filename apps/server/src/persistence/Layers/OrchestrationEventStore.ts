@@ -12,7 +12,7 @@ import {
   SpaceId,
   ThreadId,
   type ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Option, Schema, Stream } from "effect";
@@ -30,6 +30,7 @@ import {
 } from "../../orchestration/providerOptionsSecurity.ts";
 import {
   OrchestrationEventStore,
+  type OrchestrationEventReplayFilter,
   type OrchestrationEventStoreShape,
 } from "../Services/OrchestrationEventStore.ts";
 import {
@@ -647,25 +648,56 @@ const makeEventStore = Effect.gen(function* () {
     readonly remaining: number;
   }
 
+  interface DecodedEventPage {
+    readonly events: ReadonlyArray<OrchestrationEvent>;
+    /** Rows read, including any reported as undecodable and skipped. */
+    readonly rowCount: number;
+    readonly lastRowSequence: number | undefined;
+  }
+
+  const decodeEventPage = (
+    operation: string,
+    rows: ReadonlyArray<RawPersistedEventRow>,
+    onUndecodableEvent: OrchestrationEventReplayFilter["onUndecodableEvent"],
+  ): Effect.Effect<DecodedEventPage, OrchestrationEventStoreError> =>
+    Effect.forEach(rows, (row) => {
+      const decoded = decodeRowWithSettings(operation, row).pipe(Effect.map(Option.some));
+      return onUndecodableEvent === undefined
+        ? decoded
+        : decoded.pipe(
+            Effect.catchTag("PersistenceDecodeError", (error) =>
+              onUndecodableEvent({ sequence: row.sequence, error }).pipe(
+                Effect.as(Option.none<OrchestrationEvent>()),
+              ),
+            ),
+          );
+    }).pipe(
+      Effect.map((decoded) => ({
+        events: decoded.flatMap((event) => (Option.isSome(event) ? [event.value] : [])),
+        rowCount: rows.length,
+        lastRowSequence: rows.at(-1)?.sequence,
+      })),
+    );
+
   const makeEventStream = (input: {
     readonly sequenceExclusive: number;
     readonly limit: number;
     readonly readPage: (
       cursor: number,
       pageSize: number,
-    ) => Effect.Effect<ReadonlyArray<OrchestrationEvent>, OrchestrationEventStoreError>;
+    ) => Effect.Effect<DecodedEventPage, OrchestrationEventStoreError>;
   }) =>
     Stream.paginate<EventPageState, OrchestrationEvent, OrchestrationEventStoreError>(
       { cursor: input.sequenceExclusive, remaining: input.limit },
       ({ cursor, remaining }) => {
         const pageSize = Math.min(remaining, READ_PAGE_SIZE);
         return input.readPage(cursor, pageSize).pipe(
-          Effect.map((events) => {
-            const nextRemaining = remaining - events.length;
-            const lastEvent = events[events.length - 1];
+          Effect.map(({ events, rowCount, lastRowSequence }) => {
+            // Page by rows read, so a skipped undecodable row still moves the cursor.
+            const nextRemaining = remaining - rowCount;
             const nextState =
-              lastEvent !== undefined && events.length === pageSize && nextRemaining > 0
-                ? Option.some({ cursor: lastEvent.sequence, remaining: nextRemaining })
+              lastRowSequence !== undefined && rowCount === pageSize && nextRemaining > 0
+                ? Option.some({ cursor: lastRowSequence, remaining: nextRemaining })
                 : Option.none<EventPageState>();
             return [events, nextState] as const;
           }),
@@ -705,8 +737,10 @@ const makeEventStore = Effect.gen(function* () {
             ),
           ),
           Effect.flatMap((rows) =>
-            Effect.forEach(rows, (row) =>
-              decodeRowWithSettings("OrchestrationEventStore.readFromSequence:rowToEvent", row),
+            decodeEventPage(
+              "OrchestrationEventStore.readFromSequence:rowToEvent",
+              rows,
+              filter?.onUndecodableEvent,
             ),
           ),
         ),
@@ -744,11 +778,10 @@ const makeEventStore = Effect.gen(function* () {
               ),
             ),
             Effect.flatMap((rows) =>
-              Effect.forEach(rows, (row) =>
-                decodeRowWithSettings(
-                  "OrchestrationEventStore.readThreadEventsFromSequence:rowToEvent",
-                  row,
-                ),
+              decodeEventPage(
+                "OrchestrationEventStore.readThreadEventsFromSequence:rowToEvent",
+                rows,
+                undefined,
               ),
             ),
           ),

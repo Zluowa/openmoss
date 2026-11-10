@@ -8,10 +8,7 @@ import { lstatSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import {
-  matchesDistinguishedName,
-  parseDistinguishedName,
-} from "@synara/shared/windowsCertificate";
+import { matchesDistinguishedName, parseDistinguishedName } from "@moss/shared/windowsCertificate";
 
 export type ReleaseArtifactPlatform = "linux" | "mac" | "win";
 

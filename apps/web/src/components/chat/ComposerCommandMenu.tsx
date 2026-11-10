@@ -7,13 +7,14 @@ import {
   type ProviderKind,
   type ProviderPluginDescriptor,
   type ProviderSkillDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { type ReactNode } from "react";
 import { type ComposerTriggerKind } from "../../composer-logic";
 import { type ComposerSlashCommand } from "../../composerSlashCommands";
 import {
   BotIcon,
   BrainIcon,
+  BugReportIcon,
   ChangesIcon,
   CircleAlertIcon,
   DeviceLaptopIcon,
@@ -37,7 +38,9 @@ import {
   COMPOSER_MENU_PANEL_GROUP_LABEL_CLASS_NAME,
   ComposerMenuPanel,
   type ComposerMenuPanelGroup,
+  type ComposerMenuPanelKeyHint,
 } from "./ComposerMenuPanel";
+import { groupCommandItems } from "./composerCommandGroups";
 
 function humanizeProviderCommandName(command: string): string {
   return command
@@ -144,7 +147,8 @@ function commandMenuSecondaryText(item: ComposerCommandItem): string | null {
     item.type === "connector" ||
     item.type === "skill" ||
     item.type === "local-root" ||
-    item.type === "thread"
+    item.type === "thread" ||
+    item.type === "devs-report"
   ) {
     return item.description;
   }
@@ -249,85 +253,41 @@ export type ComposerCommandItem =
       color: string;
       label: string;
       description: string;
+    }
+  | {
+      // `@devs`: reports a problem to the Moss developers instead of starting a turn.
+      id: string;
+      type: "devs-report";
+      label: string;
+      description: string;
     };
 
-type ComposerCommandGroupModel = {
-  id: string;
-  label: string | null;
-  items: ComposerCommandItem[];
-};
+function composerCommandMenuEnterLabel(triggerKind: ComposerTriggerKind | null): string {
+  switch (triggerKind) {
+    case "slash-command":
+      return "Run";
+    case "slash-model":
+      return "Select";
+    default:
+      return "Insert";
+  }
+}
 
-export function groupCommandItems(
-  items: ComposerCommandItem[],
-  triggerKind: ComposerTriggerKind | null,
-  groupSlashCommandSections: boolean,
-): ComposerCommandGroupModel[] {
-  if (triggerKind === "mention") {
-    const connectorItems = items.filter((item) => item.type === "connector");
-    const pluginItems = items.filter((item) => item.type === "plugin");
-    const threadItems = items.filter((item) => item.type === "thread");
-    const localItems = items.filter((item) => item.type === "local-root" || item.type === "path");
-    const agentItems = items.filter((item) => item.type === "agent");
-    const otherItems = items.filter(
-      (item) =>
-        item.type !== "connector" &&
-        item.type !== "plugin" &&
-        item.type !== "thread" &&
-        item.type !== "local-root" &&
-        item.type !== "path" &&
-        item.type !== "agent",
-    );
-
-    const groups: ComposerCommandGroupModel[] = [];
-    if (connectorItems.length > 0) {
-      groups.push({ id: "connectors", label: "Connectors", items: connectorItems });
-    }
-    if (pluginItems.length > 0) {
-      groups.push({ id: "plugins", label: "Plugins", items: pluginItems });
-    }
-    if (threadItems.length > 0) {
-      groups.push({ id: "chats", label: "Chats", items: threadItems });
-    }
-    if (localItems.length > 0) {
-      groups.push({ id: "local", label: "Local", items: localItems });
-    }
-    if (agentItems.length > 0) {
-      groups.push({ id: "subagents", label: "Subagents", items: agentItems });
-    }
-    if (otherItems.length > 0) {
-      groups.push({ id: "other", label: null, items: otherItems });
-    }
-    return groups;
+export function composerCommandMenuKeyHints(input: {
+  triggerKind: ComposerTriggerKind | null;
+  hasItems: boolean;
+  escapeClosesMenu: boolean;
+}): ComposerMenuPanelKeyHint[] {
+  const hints: ComposerMenuPanelKeyHint[] = input.hasItems
+    ? [
+        { keys: ["↑", "↓"], label: "Navigate" },
+        { keys: ["↵"], label: composerCommandMenuEnterLabel(input.triggerKind) },
+      ]
+    : [];
+  if (input.escapeClosesMenu) {
+    hints.push({ keys: ["esc"], label: "Close" });
   }
-
-  if (triggerKind !== "slash-command" || !groupSlashCommandSections) {
-    return [{ id: "default", label: null, items }];
-  }
-
-  const builtInItems = items.filter((item) => item.type === "slash-command");
-  const providerItems = items.filter((item) => item.type === "provider-native-command");
-  const skillItems = items.filter((item) => item.type === "skill");
-  const otherItems = items.filter(
-    (item) =>
-      item.type !== "slash-command" &&
-      item.type !== "provider-native-command" &&
-      item.type !== "skill",
-  );
-
-  const groups: ComposerCommandGroupModel[] = [];
-  if (builtInItems.length > 0) {
-    groups.push({ id: "built-in", label: "Built-in", items: builtInItems });
-  }
-  if (providerItems.length > 0) {
-    groups.push({ id: "provider", label: "Provider", items: providerItems });
-  }
-  if (skillItems.length > 0) {
-    groups.push({ id: "skills", label: "Skills", items: skillItems });
-  }
-  if (otherItems.length > 0) {
-    groups.push({ id: "other", label: null, items: otherItems });
-  }
-  return groups;
+  return hints;
 }
 
 function CommandNoticeBadge(props: { notice: string }) {
@@ -356,10 +316,17 @@ export function ComposerCommandMenu(props: {
   triggerKind: ComposerTriggerKind | null;
   groupSlashCommandSections?: boolean;
   emptyStateText?: string;
+  /** False where Escape belongs to the surrounding surface (a dialog) instead of the menu. */
+  escapeClosesMenu?: boolean;
   activeItemId: string | null;
   onHighlightedItemChange: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem) => void;
 }) {
+  const keyHints = composerCommandMenuKeyHints({
+    triggerKind: props.triggerKind,
+    hasItems: props.items.length > 0,
+    escapeClosesMenu: props.escapeClosesMenu ?? true,
+  });
   const groups = groupCommandItems(
     props.items,
     props.triggerKind,
@@ -398,6 +365,7 @@ export function ComposerCommandMenu(props: {
         const item = itemsById.get(rowId);
         if (item) props.onSelect(item);
       }}
+      keyHints={keyHints}
       footer={
         props.triggerKind === "mention" ? (
           /* This footer is informational copy, not a selectable result group. */
@@ -505,6 +473,8 @@ function commandMenuItemGlyph(item: ComposerCommandItem, theme: "light" | "dark"
       return <ConnectorIcon name={item.connectorName} className={cls} />;
     case "skill":
       return <SkillCubeIcon className={cls} />;
+    case "devs-report":
+      return <BugReportIcon className={cls} />;
     default:
       return null;
   }

@@ -11,8 +11,8 @@ import {
   ProviderKind,
   ThreadId,
   ModelSelection,
-} from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
+} from "@moss/contracts";
+import { getDefaultModel } from "@moss/shared/model";
 import { assert, it } from "@effect/vitest";
 import { Effect, Option, Schema } from "effect";
 

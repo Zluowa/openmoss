@@ -1,4 +1,4 @@
-import type { BrowserTabId } from "@synara/contracts";
+import type { BrowserTabId } from "@moss/contracts";
 import type { WebContents } from "electron";
 
 import type { BrowserAutomationVisibleRuntime } from "../browserManager";

@@ -1,4 +1,4 @@
-import { ProjectId, WsRpcError, type AutomationCreateInput } from "@synara/contracts";
+import { ProjectId, WsRpcError, type AutomationCreateInput } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AutomationCreateIntent, isAutomationCreateRejected } from "./automationCreateIntent";
 

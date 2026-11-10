@@ -3,7 +3,7 @@
 // Layer: Web transport utility
 // Exports: event helpers used by wsNativeApi and terminal runtime recovery.
 
-import type { ThreadId, WsCompatibilityError } from "@synara/contracts";
+import type { ThreadId, WsCompatibilityError } from "@moss/contracts";
 
 export type WsTransportState = "connecting" | "open" | "closed" | "incompatible" | "disposed";
 
@@ -96,6 +96,42 @@ export function addWsTransportStateListener(
   return () => {
     window.removeEventListener(MOSS_WS_TRANSPORT_STATE_EVENT, handleStateChange);
   };
+}
+
+/** Resolves once the socket is open; a transport that will not recover rejects at once. */
+export function waitForWsTransportOpen(timeoutMs: number): Promise<void> {
+  const blocked = (state: WsTransportState | null) =>
+    state === "incompatible" || state === "disposed";
+  // No transport has reported yet, so there is no outage to wait out.
+  if (latestTransportState === null || latestTransportState === "open") return Promise.resolve();
+  if (blocked(latestTransportState)) return Promise.reject(new WsTransportUnavailableError());
+  return new Promise((resolve, reject) => {
+    let unsubscribe: () => void = () => undefined;
+    const finish = (settle: () => void) => {
+      clearTimeout(timer);
+      unsubscribe();
+      settle();
+    };
+    const timer = setTimeout(
+      () => finish(() => reject(new WsTransportUnavailableError())),
+      timeoutMs,
+    );
+    unsubscribe = addWsTransportStateListener((state) => {
+      if (state === "open") finish(resolve);
+      else if (blocked(state)) finish(() => reject(new WsTransportUnavailableError()));
+    });
+  });
+}
+
+/** Moss's own wording for a send that never left the renderer; see providerRuntimeMessages. */
+export const WS_MESSAGE_NOT_SENT_DETAIL =
+  "Moss could not reach its backend, so this message was not sent. It is still in the composer.";
+
+export class WsTransportUnavailableError extends Error {
+  constructor() {
+    super(WS_MESSAGE_NOT_SENT_DETAIL);
+    this.name = "WsTransportUnavailableError";
+  }
 }
 
 export function readLatestWsCompatibilityIssue(): WsCompatibilityError | null {

@@ -2,8 +2,8 @@
 // Purpose: Human-in-the-loop provider authentication in the shared isolated terminal.
 // Layer: Settings UI
 
-import { ThreadId, type ProviderKind } from "@synara/contracts";
-import { PROVIDER_AUTHENTICATION } from "@synara/shared/providerCliProfiles";
+import { ThreadId, type ProviderKind } from "@moss/contracts";
+import { PROVIDER_AUTHENTICATION } from "@moss/shared/providerCliProfiles";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";

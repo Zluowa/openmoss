@@ -1,6 +1,15 @@
 import { readGeneratedImageContextFile } from "./generatedImageContextMenu";
 import { readMossImagesJson } from "./mossImagesClient";
-import { MOSS_CANVAS_IMAGE_ASSET, type MossCanvasSelectionItem } from "./mossCanvasSelection";
+import {
+  formatMossCanvasSelectionContext,
+  MOSS_CANVAS_IMAGE_ASSET,
+  type MossCanvasSelection,
+  type MossCanvasSelectionContent,
+  type MossCanvasSelectionItem,
+} from "./mossCanvasSelection";
+import { createPastedTextDraft } from "./composerPastedText";
+import type { ThreadId } from "@moss/contracts";
+import { useComposerDraftStore } from "~/composerDraftStore";
 import { resolveWsHttpUrl } from "./wsHttpUrl";
 
 export interface MossCanvasBinding {
@@ -22,6 +31,34 @@ export interface MossCanvasImportedImage {
 /** Memory-only cache. The key includes the owner and trusted workspace fingerprint. */
 export type MossCanvasImageImportCache = Map<string, MossCanvasImportedImage | null>;
 
+export const MOSS_CANVAS_SIGN_IN_MESSAGE = "登录 Moss 账号后即可使用画布。";
+
+/** The Canvas stores each document under the signed-in Moss account. */
+export class MossCanvasSignInRequiredError extends Error {
+  constructor() {
+    super(MOSS_CANVAS_SIGN_IN_MESSAGE);
+    this.name = "MossCanvasSignInRequiredError";
+  }
+}
+
+/**
+ * Whether this conversation's Canvas can open for the account on this device.
+ * Asked before the editor loads, so a signed-out Canvas never sits on an empty
+ * editor whose storage can't answer. Only a definite "signed out" says no; any
+ * other failure is reported by the editor's own binding check.
+ */
+export async function isMossCanvasSignedOut(
+  threadId: string,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  try {
+    await loadMossCanvasBinding(threadId, signal);
+    return false;
+  } catch (cause) {
+    return cause instanceof MossCanvasSignInRequiredError;
+  }
+}
+
 export async function loadMossCanvasBinding(
   threadId: string,
   signal?: AbortSignal,
@@ -37,6 +74,8 @@ export async function loadMossCanvasBinding(
     realm?: unknown;
     workspace?: { threadId?: unknown; fingerprint?: unknown };
   } | null;
+  // Signed out is not "something changed": say what to do.
+  if (body?.authenticated === false) throw new MossCanvasSignInRequiredError();
   if (
     !body ||
     body.authenticated !== true ||
@@ -179,4 +218,52 @@ export async function importMossCanvasLocalImages(input: {
     items.push(item);
   }
   return { items, unavailable };
+}
+
+/**
+ * Tell the backend what is selected on this conversation's Canvas now, so the
+ * agent reads it with moss_canvas_read. Best effort: a missed report only
+ * means the agent sees the previous selection until the next change.
+ */
+export function reportMossCanvasLiveSelection(
+  threadId: string,
+  selection: Pick<MossCanvasSelection, "documentEpoch" | "sequence" | "items" | "content">,
+): void {
+  if (!/^[A-Za-z0-9_-]{1,128}$/u.test(threadId)) return;
+  void fetch(
+    resolveWsHttpUrl(`/api/moss/canvas/selection?threadId=${encodeURIComponent(threadId)}`),
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        documentEpoch: selection.documentEpoch,
+        sequence: selection.sequence,
+        images: selection.items.map(({ shapeId, assetId, title }) => ({ shapeId, assetId, title })),
+        content: selection.content,
+      }),
+    },
+  ).catch(() => undefined);
+}
+
+/**
+ * Keep one composer chip with the selected text and shapes, replaced on every
+ * selection change and removed when they are deselected.
+ */
+export function syncMossCanvasSelectionChip(
+  threadId: ThreadId,
+  chipId: string,
+  content: readonly MossCanvasSelectionContent[],
+): void {
+  const store = useComposerDraftStore.getState();
+  const text = formatMossCanvasSelectionContext(content);
+  const existing = store.draftsByThreadId[threadId]?.pastedTexts.find(
+    (entry) => entry.id === chipId,
+  );
+  if (existing && text && existing.text === text) return;
+  store.removePastedText(threadId, chipId);
+  if (text)
+    store.addPastedTexts(threadId, [
+      createPastedTextDraft({ id: chipId, createdAt: new Date().toISOString(), text }),
+    ]);
 }

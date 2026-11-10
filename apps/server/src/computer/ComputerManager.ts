@@ -42,13 +42,9 @@ import {
   type ComputerWindow,
   type ComputerZoomResult,
   type ThreadComputerState,
-} from "@synara/contracts";
-import { encodeComputerFrame } from "@synara/shared/computerFrame";
-import {
-  classifyByFrameFlags,
-  FrameTransport,
-  type FrameSink,
-} from "@synara/shared/frameTransport";
+} from "@moss/contracts";
+import { encodeComputerFrame } from "@moss/shared/computerFrame";
+import { classifyByFrameFlags, FrameTransport, type FrameSink } from "@moss/shared/frameTransport";
 
 import {
   DesktopOperationQueue,
@@ -1255,12 +1251,14 @@ export class ComputerManager {
         message: clampComputerMessage(errorMessage(error), "The computer backend failed."),
       };
     }
+    const hostPlatform = this.backend.reportedHostPlatform?.();
     return {
       computerId: this.computerId,
       availability: this.correctedAvailability(availability),
       health: this.backendHealth,
       capabilities: this.backendCapabilities,
       provisionable: this.backend.provision !== undefined,
+      ...(hostPlatform ? { hostPlatform } : {}),
     };
   }
 

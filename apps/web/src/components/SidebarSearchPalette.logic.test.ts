@@ -1,4 +1,5 @@
 import { assert, describe, it } from "vitest";
+import { translateZhCnPresentationText } from "../localization/zhCN";
 
 import {
   areSidebarSearchThreadListsEqual,
@@ -38,6 +39,21 @@ const actions: SidebarSearchAction[] = [
     description: "Open provider usage and remaining credits.",
     keywords: ["usage", "limits", "credits", "quota", "providers"],
     shortcutLabel: "⇧⌘U",
+  },
+];
+
+const localizedActions: SidebarSearchAction[] = [
+  {
+    id: "import-projects",
+    label: "Import projects from…",
+    description: "Bring Codex and Claude Code projects and conversations into Moss.",
+    keywords: ["import", "projects", "codex", "claude", "conversations", "folders"],
+  },
+  {
+    id: "add-project",
+    label: "Add project",
+    description: "Open a repository or folder in the sidebar.",
+    keywords: ["repo", "repository", "open"],
   },
 ];
 
@@ -215,6 +231,46 @@ describe("SidebarSearchPalette.logic", () => {
       ["new-automation"],
     );
     assert.deepEqual(matchSidebarSearchActions(commands, "go missing"), []);
+  });
+
+  it.each([
+    ["zh-CN", "导入项目", "import-projects"],
+    ["zh-CN", "项目和对话导入", "import-projects"],
+    ["zh-CN", "导入 codex", "import-projects"],
+    ["zh-CN", "Import projects", "import-projects"],
+    ["zh-CN", "folders", "import-projects"],
+    ["zh-CN", "添加项目", "add-project"],
+    ["zh-CN", "侧边栏打开仓库", "add-project"],
+    ["en", "Import projects", "import-projects"],
+    ["en", "folders", "import-projects"],
+  ] as const)(
+    "matches actions in %s by visible copy and English terms: %s",
+    (locale, query, id) => {
+      const result = matchSidebarSearchActions(
+        localizedActions,
+        query,
+        locale === "zh-CN" ? translateZhCnPresentationText : undefined,
+      );
+      assert.deepEqual(
+        result.map((action) => action.id),
+        [id],
+      );
+    },
+  );
+
+  it("uses the active language without changing source actions or admitting missing tokens", () => {
+    assert.deepEqual(matchSidebarSearchActions(localizedActions, "导入项目"), []);
+    assert.deepEqual(
+      matchSidebarSearchActions(localizedActions, "导入 missing", translateZhCnPresentationText),
+      [],
+    );
+    const result = matchSidebarSearchActions(
+      localizedActions,
+      "导入项目",
+      translateZhCnPresentationText,
+    );
+    assert.strictEqual(result[0], localizedActions[0]);
+    assert.equal(localizedActions[0]?.label, "Import projects from…");
   });
 
   it("matches themes by query relevance", () => {

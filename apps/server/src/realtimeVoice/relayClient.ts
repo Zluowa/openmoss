@@ -3,12 +3,12 @@ import type {
   RealtimeVoiceOutputModality,
   RealtimeVoiceStartTransport,
   RealtimeVoiceTransport,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   MOSS_CLOUD_REGION_HEADER,
   isMossCloudRegion,
   type MossCloudRegion,
-} from "@synara/shared/mossProductionPublicConfig";
+} from "@moss/shared/mossProductionPublicConfig";
 import { isIP } from "node:net";
 import { connect as tlsConnect, type ConnectionOptions, type TLSSocket } from "node:tls";
 import WebSocket from "ws";

@@ -6,9 +6,9 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import type * as Acp from "@agentclientprotocol/sdk";
-import type { ProviderKind } from "@synara/contracts";
-import { deriveMossAcpMcpServers } from "@synara/shared/mossAcpMcpServers";
-import { resolveExecutionWorkingDirectory } from "@synara/shared/wslBridge";
+import type { ProviderKind } from "@moss/contracts";
+import { deriveMossAcpMcpServers } from "@moss/shared/mossAcpMcpServers";
+import { resolveExecutionWorkingDirectory } from "@moss/shared/wslBridge";
 import {
   Cause,
   Deferred,

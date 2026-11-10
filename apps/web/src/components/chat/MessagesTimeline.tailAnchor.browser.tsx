@@ -8,7 +8,7 @@
 
 import "../../index.css";
 
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@moss/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -230,7 +230,7 @@ describe("MessagesTimeline tail anchor", () => {
         '[data-timeline-row-kind="working"] [data-slot="central-icon"]',
       )!;
       const indicator = icon.parentElement!.parentElement!;
-      expect(indicator.textContent).toBe("Thinking");
+      expect(indicator.textContent).toBe("Thinking…");
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         expect(getComputedStyle(indicator).maskImage).toBe("none");
         expect(indicator.getAnimations()).toHaveLength(0);

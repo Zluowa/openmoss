@@ -4,7 +4,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationEvent,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { coalesceOrchestrationUiEvents } from "./orchestrationEventCoalescing";

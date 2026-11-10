@@ -10,7 +10,7 @@
  */
 import { pathToFileURL } from "node:url";
 
-import { ensureMossSource, type EnsureMossSourceResult } from "@synara/shared/mossSourceBootstrap";
+import { ensureMossSource, type EnsureMossSourceResult } from "@moss/shared/mossSourceBootstrap";
 
 export function parseBootstrapWorkspace(argv: ReadonlyArray<string>, cwd = process.cwd()): string {
   let workspace = cwd;

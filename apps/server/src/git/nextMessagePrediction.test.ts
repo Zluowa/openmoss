@@ -1,6 +1,6 @@
-import { ThreadId, TurnId } from "@synara/contracts";
-import { makeKeyedSingleFlightCache } from "@synara/shared/KeyedSingleFlightCache";
-import { NEXT_MESSAGE_PREDICTION_TRANSCRIPT_MAX_CHARS } from "@synara/shared/nextMessagePrediction";
+import { ThreadId, TurnId } from "@moss/contracts";
+import { makeKeyedSingleFlightCache } from "@moss/shared/KeyedSingleFlightCache";
+import { NEXT_MESSAGE_PREDICTION_TRANSCRIPT_MAX_CHARS } from "@moss/shared/nextMessagePrediction";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 

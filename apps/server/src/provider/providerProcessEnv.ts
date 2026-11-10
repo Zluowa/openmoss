@@ -3,8 +3,8 @@
 // Layer: Provider runtime utility
 // Exports: provider environment driver types, key mappings, and buildProviderProcessEnv
 
-import { defaultInstanceIdForDriver, type ProviderInstanceId } from "@synara/contracts";
-import { withOutboundProxyEnv } from "@synara/shared/outboundProxy";
+import { defaultInstanceIdForDriver, type ProviderInstanceId } from "@moss/contracts";
+import { withOutboundProxyEnv } from "@moss/shared/outboundProxy";
 import { chmodSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import NodePath from "node:path";

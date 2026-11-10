@@ -4,7 +4,7 @@
 // Layer: Guest page UI
 // Depends on: the same bubble, thumbnail, and chip primitives as GuestPendingMessages.
 
-import type { GuestMessageAttachment, ThreadGuestMessage } from "@synara/contracts";
+import type { GuestMessageAttachment, ThreadGuestMessage } from "@moss/contracts";
 
 import { useTheme } from "~/hooks/useTheme";
 import type { ExpandedImagePreview } from "~/components/chat/ExpandedImagePreview";
@@ -34,9 +34,11 @@ const STATUS: Record<
 function OwnMessageRow({
   message,
   onImageExpand,
+  onClear,
 }: {
   readonly message: ThreadGuestMessage;
   readonly onImageExpand: (preview: ExpandedImagePreview) => void;
+  readonly onClear?: ((id: string) => void) | undefined;
 }) {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
@@ -123,10 +125,22 @@ function OwnMessageRow({
           </p>
         ) : null}
       </div>
-      <p className={cn("flex items-center gap-1 pe-1 text-ui-xs", status.className)} role="status">
-        <StatusIcon className="size-4" />
-        {t(`guest.own.status.${message.status}`)}
-      </p>
+      <div className="flex items-center gap-2 pe-1">
+        <p className={cn("flex items-center gap-1 text-ui-xs", status.className)} role="status">
+          <StatusIcon className="size-4" />
+          {t(`guest.own.status.${message.status}`)}
+        </p>
+        {/* An answered message is only a receipt; the guest can put it away. */}
+        {message.status !== "pending" && onClear ? (
+          <button
+            type="button"
+            className="rounded-control px-1 text-ui-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => onClear(message.id)}
+          >
+            {t("guest.own.clear")}
+          </button>
+        ) : null}
+      </div>
     </li>
   );
 }
@@ -135,9 +149,12 @@ function OwnMessageRow({
 export function GuestOwnMessages({
   messages,
   onImageExpand,
+  onClear,
 }: {
   readonly messages: ReadonlyArray<ThreadGuestMessage>;
   readonly onImageExpand: (preview: ExpandedImagePreview) => void;
+  /** Puts away an answered message's receipt. */
+  readonly onClear?: ((id: string) => void) | undefined;
 }) {
   const { t, format } = useTranslation();
   const open = messages.length > 0;
@@ -163,7 +180,12 @@ export function GuestOwnMessages({
           </p>
           <ol className="mt-2.5 flex flex-col gap-3">
             {messages.map((message) => (
-              <OwnMessageRow key={message.id} message={message} onImageExpand={onImageExpand} />
+              <OwnMessageRow
+                key={message.id}
+                message={message}
+                onImageExpand={onImageExpand}
+                onClear={onClear}
+              />
             ))}
           </ol>
         </section>

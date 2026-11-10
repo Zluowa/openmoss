@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ExecutableNotFoundError,
   prepareProcess,
+  processArgumentsForPty,
   WorkingDirectoryNotFoundError,
 } from "./platformProcess";
 import * as executable from "./executable";
@@ -48,7 +49,9 @@ describe("prepareProcess", () => {
       env: windowsEnv(`${workingDirectory};${pathDirectory}`),
       requireExecutable: true,
     };
-    expect(prepareProcess("tool", ["--version"], input)).toMatchObject({
+    const shimPlan = prepareProcess("tool", ["--version"], input);
+    expect(processArgumentsForPty(shimPlan)).toBe(shimPlan.args.join(" "));
+    expect(shimPlan).toMatchObject({
       resolvedCommand: shim,
       command: "C:\\Windows\\System32\\cmd.exe",
       args: ["/d", "/s", "/v:off", "/c", `call "${shim}" "--version"`],
@@ -66,6 +69,7 @@ describe("prepareProcess", () => {
       vi.spyOn(executable, "resolveExecutable").mockReturnValue("agent");
       vi.spyOn(os, "getPriority").mockReturnValue(15);
       const plan = prepareProcess("agent", ["literal $arg"], { platform, lowerPriority: true });
+      expect(processArgumentsForPty(plan)).toEqual(plan.args);
       expect(plan).toMatchObject({ command: "/bin/sh", resolvedCommand: "agent" });
       expect(plan.args.slice(2)).toEqual(["moss-agent-priority", "15", "agent", "literal $arg"]);
     },

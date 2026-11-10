@@ -8,7 +8,7 @@ import * as Path from "node:path";
 import { probeBundledRuntimeVersion } from "./bundledRuntimeVersion";
 
 export const MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY = "MOSS_BUNDLED_CLAUDE_PATH";
-export const MOSS_BUNDLED_CLAUDE_CODE_VERSION = "2.1.285";
+export const MOSS_BUNDLED_CLAUDE_CODE_VERSION = "2.1.318";
 const BUNDLED_CLAUDE_VERSION_ARGS = ["--version"] as const;
 const VERSION_PROBE_TIMEOUT_MS = 10_000;
 const verifiedStartupVersions = new Map<string, string>();

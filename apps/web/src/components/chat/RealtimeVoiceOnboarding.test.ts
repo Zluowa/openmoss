@@ -1,4 +1,4 @@
-import type { RealtimeVoiceDescriptor } from "@synara/contracts";
+import type { RealtimeVoiceDescriptor } from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { REALTIME_VOICE_CATALOG } from "~/lib/realtimeVoicePreferences";

@@ -29,6 +29,7 @@ import {
 } from "node:fs";
 import { constants as fsConstants } from "node:fs";
 import { createRequire } from "node:module";
+import { retireWindowsDesktopStage } from "./lib/desktop-artifact-stage.ts";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -88,6 +89,16 @@ import {
   verifyPackagedBundledCodexWindowsAuthenticode,
 } from "./lib/bundled-codex-release-compliance.ts";
 import {
+  BUNDLED_CUA_DRIVER_DIR,
+  BUNDLED_CUA_DRIVER_EXTRA_RESOURCE,
+  BUNDLED_CUA_DRIVER_RESOURCE_DIR,
+  CUA_DRIVER_PROVISION_FAILURE_MESSAGE,
+  CUA_DRIVER_PROVISION_SCRIPT,
+  requiresBundledCuaDriver,
+  resolveCuaDriverProvisionPlatform,
+  validatePackagedCuaDriver,
+} from "./lib/bundled-cua-driver.ts";
+import {
   DESKTOP_RELEASE_MODES,
   type DesktopReleaseMode,
   requiresMacUpdateManifest,
@@ -119,8 +130,8 @@ import {
   MOSS_DESKTOP_DEFAULT_UPDATE_REPOSITORY,
   MOSS_DESKTOP_UPDATE_REPOSITORY_DISABLED,
   MOSS_PRODUCTION_BUNDLE_ID,
-} from "@synara/shared/desktopIdentity";
-import { MOSS_BUNDLED_CODEX_VERSION } from "@synara/shared/codexRuntime";
+} from "@moss/shared/desktopIdentity";
+import { MOSS_BUNDLED_CODEX_VERSION } from "@moss/shared/codexRuntime";
 import { parseBooleanEnvValue } from "./lib/env-bool.ts";
 import { finalizeSignedMacDmg } from "./lib/mac-dmg-finalize.ts";
 import { createMacBuildOnlySignCommand } from "./lib/mac-build-only-signing.ts";
@@ -128,6 +139,8 @@ import { finalizeMacUpdateZip } from "./lib/mac-update-zip-finalize.ts";
 import {
   createMossProductionPublicConfigExtraResource,
   createMossProductionPublicConfigResource,
+  describeMossPublicMapsEnvOverlay,
+  parseMossReleaseMapsEnvFile,
   stageMossProductionPublicConfigResource,
   MOSS_PRODUCTION_CONFIG_MODES,
   type MossProductionConfigMode,
@@ -206,6 +219,11 @@ const CanonicalFilesystemHelperBuildScript = Effect.zipWith(
   (repoRoot, path) =>
     path.join(repoRoot, "apps/server/scripts/build-canonical-filesystem-helper.mjs"),
 );
+const CuaDriverProvisionScript = Effect.zipWith(
+  RepoRoot,
+  Effect.service(Path.Path),
+  (repoRoot, path) => path.join(repoRoot, CUA_DRIVER_PROVISION_SCRIPT),
+);
 const encodeJsonString = Schema.encodeEffect(Schema.UnknownFromJsonString);
 
 interface PlatformConfig {
@@ -248,6 +266,7 @@ interface BuildCliInput {
   readonly mockUpdates: Option.Option<boolean>;
   readonly mockUpdateServerPort: Option.Option<string>;
   readonly productionConfigMode: Option.Option<MossProductionConfigMode>;
+  readonly mapsEnvFile: Option.Option<string>;
   readonly releaseMode: Option.Option<DesktopReleaseMode>;
 }
 
@@ -445,6 +464,7 @@ interface ResolvedBuildOptions {
   readonly mockUpdates: boolean;
   readonly mockUpdateServerPort: string | undefined;
   readonly productionConfigMode: MossProductionConfigMode;
+  readonly mapsEnvFile: string | undefined;
   readonly releaseMode: DesktopReleaseMode;
 }
 
@@ -1024,6 +1044,7 @@ const BuildEnvConfig = Config.all({
     ProductionConfigMode,
     "MOSS_DESKTOP_PRODUCTION_CONFIG_MODE",
   ).pipe(Config.option),
+  mapsEnvFile: Config.string("MOSS_DESKTOP_MAPS_ENV_FILE").pipe(Config.option),
   releaseMode: Config.schema(ReleaseMode, "MOSS_DESKTOP_RELEASE_MODE").pipe(Config.option),
 });
 
@@ -1099,6 +1120,15 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     env.productionConfigMode,
     "off",
   );
+  const mapsEnvFileOption = mergeOptions(input.mapsEnvFile, env.mapsEnvFile, undefined);
+  if (mapsEnvFileOption !== undefined && productionConfigMode !== "strict") {
+    return yield* new BuildScriptError({
+      message:
+        "--maps-env-file (MOSS_DESKTOP_MAPS_ENV_FILE) needs --production-config-mode strict; off packages no public config for map keys.",
+    });
+  }
+  const mapsEnvFile =
+    mapsEnvFileOption === undefined ? undefined : path.resolve(repoRoot, mapsEnvFileOption);
   const releaseMode = mergeOptions(input.releaseMode, env.releaseMode, "build-only");
 
   return {
@@ -1118,6 +1148,7 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     mockUpdates,
     mockUpdateServerPort,
     productionConfigMode,
+    mapsEnvFile,
     releaseMode,
   } satisfies ResolvedBuildOptions;
 });
@@ -3668,9 +3699,11 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       buildResources: "apps/desktop/resources",
     },
     extraResources: [
+      { from: "apps/desktop/ssh-runtime.tar.gz", to: "ssh-runtime.tar.gz" },
       BUNDLED_CODEX_EXTRA_RESOURCE,
       BUNDLED_CODEX_COMPLIANCE_EXTRA_RESOURCE,
       BUNDLED_CLAUDE_EXTRA_RESOURCE,
+      ...(requiresBundledCuaDriver(platform) ? [BUNDLED_CUA_DRIVER_EXTRA_RESOURCE] : []),
       ...(includeProductionPublicConfig ? [createMossProductionPublicConfigExtraResource()] : []),
       ...(includeMossCanvasBundle ? [MOSS_CANVAS_EXTRA_RESOURCE] : []),
     ],
@@ -3724,6 +3757,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   Object.assign(buildConfig, platformBuildConfig);
   Object.assign(buildConfig, electronDistBuildConfig(electronDist));
   buildConfig.files = [
+    "!apps/desktop/ssh-runtime.tar.gz",
     ...(platformBuildConfig.files ?? []),
     BUNDLED_CODEX_COMPLIANCE_STAGE_ASAR_EXCLUSION,
   ];
@@ -3809,6 +3843,37 @@ const stageMacCanonicalFilesystemHelper = Effect.fn("stageMacCanonicalFilesystem
       message: `Canonical filesystem helper build completed without binary or metadata at ${outputPath}`,
     });
   }
+});
+
+const stageBundledCuaDriver = Effect.fn("stageBundledCuaDriver")(function* (
+  stageAppDir: string,
+  platform: typeof BuildPlatform.Type,
+  arch: typeof BuildArch.Type,
+  verbose: boolean,
+) {
+  const path = yield* Path.Path;
+  const repoRoot = yield* RepoRoot;
+  const provisionScript = yield* CuaDriverProvisionScript;
+  const destination = path.join(stageAppDir, BUNDLED_CUA_DRIVER_DIR);
+  const provisionPlatform = resolveCuaDriverProvisionPlatform(platform);
+
+  yield* Effect.log(`[desktop-artifact] Verifying and staging pinned Cua Driver (${arch})...`);
+  yield* runCommand(
+    ChildProcess.make({
+      cwd: repoRoot,
+      // A source build runs third-party build scripts. Signing keys stay out of it.
+      env: createNonSigningSubprocessEnvironment(process.env),
+      ...commandOutputOptions(verbose),
+    })`node ${provisionScript} --destination ${destination} --platform ${provisionPlatform} --arch ${arch}`,
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new BuildScriptError({
+          message: `${CUA_DRIVER_PROVISION_FAILURE_MESSAGE} ${cause.message}`,
+          cause,
+        }),
+    ),
+  );
 });
 
 function isFileSystemNotFoundError(cause: unknown): cause is PlatformError.PlatformError {
@@ -3943,10 +4008,41 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         "Signed Windows artifacts require exact SSL_COM_PUBLISHER_NAME subject DN and SSL_COM_CERTIFICATE_THUMBPRINT release inputs.",
     });
   }
+  // Map keys from the operator's file go only into the packaged config: process.env stays
+  // untouched so no child process inherits them, and only which keys are set is logged.
+  const mapsEnvFile = options.mapsEnvFile;
+  const mapsEnvOverlay =
+    mapsEnvFile === undefined
+      ? {}
+      : yield* fs.readFileString(mapsEnvFile).pipe(
+          Effect.mapError(
+            (cause) =>
+              new BuildScriptError({
+                message: `Could not read the maps env file ${mapsEnvFile}.`,
+                cause,
+              }),
+          ),
+          Effect.flatMap((text) =>
+            Effect.try({
+              try: () => parseMossReleaseMapsEnvFile(text),
+              catch: (cause) =>
+                new BuildScriptError({
+                  message:
+                    cause instanceof Error
+                      ? `${mapsEnvFile}: ${cause.message}`
+                      : `Could not parse the maps env file ${mapsEnvFile}.`,
+                  cause,
+                }),
+            }),
+          ),
+          Effect.tap((overlay) =>
+            Effect.log(`[desktop-artifact] Maps: ${describeMossPublicMapsEnvOverlay(overlay)}.`),
+          ),
+        );
   const productionPublicConfigResource = yield* Effect.try({
     try: () =>
       createMossProductionPublicConfigResource({
-        env: process.env,
+        env: { ...process.env, ...mapsEnvOverlay },
         mode: options.productionConfigMode,
       }),
     catch: (cause) =>
@@ -4062,10 +4158,14 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       });
     }
   }
-  const mkdir = options.keepStage ? fs.makeTempDirectory : fs.makeTempDirectoryScoped;
-  const stageRoot = yield* mkdir({
-    prefix: `moss-desktop-${options.platform}-stage-`,
-  });
+  const scratch = { prefix: `moss-desktop-${options.platform}-stage-` };
+  const stageRoot = yield* options.keepStage
+    ? fs.makeTempDirectory(scratch)
+    : process.platform !== "win32"
+      ? fs.makeTempDirectoryScoped(scratch)
+      : Effect.acquireRelease(fs.makeTempDirectory(scratch), (dir) =>
+          Effect.promise(() => retireWindowsDesktopStage(dir)),
+        );
   const stagedElectronDist = yield* Effect.try({
     try: () =>
       stageElectronDist({
@@ -4117,6 +4217,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   };
   const bundledClientEntry = path.join(distDirs.serverDist, "client/index.html");
 
+  // First, so a machine that cannot provide the driver fails before the long build.
+  if (requiresBundledCuaDriver(options.platform)) {
+    yield* stageBundledCuaDriver(stageAppDir, options.platform, options.arch, options.verbose);
+  }
+
   if (!options.skipBuild) {
     yield* Effect.log("[desktop-artifact] Building desktop/server/web artifacts...");
     yield* runCommand(
@@ -4152,6 +4257,32 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
   yield* fs.makeDirectory(path.join(stageAppDir, "apps/server"), { recursive: true });
+  // Reuse the CLI's private distribution pack: this exact backend/client and
+  // resolved production manifest travel over SSH without publishing a package.
+  const sshRuntimePackDir = path.join(stageRoot, "ssh-runtime-pack");
+  yield* runCommand(
+    ChildProcess.make(
+      "bun",
+      [
+        "apps/server/scripts/cli.ts",
+        "pack",
+        "--out",
+        sshRuntimePackDir,
+        "--app-version",
+        appVersion,
+      ],
+      {
+        cwd: repoRoot,
+        env: createDesktopBuildSubprocessEnvironment(process.env),
+        ...commandOutputOptions(options.verbose),
+        shell: process.platform === "win32",
+      },
+    ),
+  );
+  yield* fs.copyFile(
+    path.join(sshRuntimePackDir, `moss-server-${appVersion}.tar.gz`),
+    path.join(stageAppDir, "apps/desktop/ssh-runtime.tar.gz"),
+  );
 
   yield* Effect.log("[desktop-artifact] Staging release app...");
   const thirdPartyNoticesSource = path.join(repoRoot, "THIRD_PARTY_NOTICES.md");
@@ -4163,6 +4294,12 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   yield* fs.copyFile(thirdPartyNoticesSource, path.join(stageAppDir, "THIRD_PARTY_NOTICES.md"));
   yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
   yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
+  // Source runs provision into resources/. That copy must not reach app.asar: the
+  // packaged driver comes only from the verified staging above.
+  yield* fs.remove(path.join(stageResourcesDir, BUNDLED_CUA_DRIVER_RESOURCE_DIR), {
+    recursive: true,
+    force: true,
+  });
   yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
 
   // The complete Canvas workspace ships as a prepared, self-contained bundle.
@@ -4779,6 +4916,28 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     yield* assertPackagedMacDeviceHelper(stageDistDir, desktopPackageJson.productName ?? "Moss");
   }
 
+  if (requiresBundledCuaDriver(options.platform)) {
+    const packagedCuaDriver = yield* Effect.try({
+      try: () =>
+        validatePackagedCuaDriver({
+          resourcesDir: packagedBundledCodexValidation.runtime.resourcesDir,
+          platform: options.platform,
+          signed: options.signed,
+        }),
+      catch: (cause) =>
+        new BuildScriptError({
+          message:
+            cause instanceof Error
+              ? `Packaged Cua Driver validation failed: ${cause.message}`
+              : "Packaged Cua Driver validation failed.",
+          cause,
+        }),
+    });
+    yield* Effect.log(
+      `[desktop-artifact] Verified packaged Cua Driver ${packagedCuaDriver.version} (native revision ${packagedCuaDriver.nativeRevision}${packagedCuaDriver.signingIdentifier ? `, identifier ${packagedCuaDriver.signingIdentifier}` : ""}).`,
+    );
+  }
+
   if (buildScopedBunCacheDir) {
     yield* fs.remove(path.join(stageAppDir, "node_modules"), {
       recursive: true,
@@ -5161,6 +5320,12 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   productionConfigMode: Flag.choice("production-config-mode", ProductionConfigMode.literals).pipe(
     Flag.withDescription(
       "Production public config mode: strict validates and embeds allowlisted service routing; off omits packaged managed cloud routing (env: MOSS_DESKTOP_PRODUCTION_CONFIG_MODE).",
+    ),
+    Flag.optional,
+  ),
+  mapsEnvFile: Flag.string("maps-env-file").pipe(
+    Flag.withDescription(
+      "Operator file with MOSS_RELEASE_* map keys to embed in the strict public config; needs --production-config-mode strict (env: MOSS_DESKTOP_MAPS_ENV_FILE).",
     ),
     Flag.optional,
   ),

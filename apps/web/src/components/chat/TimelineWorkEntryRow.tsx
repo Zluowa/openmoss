@@ -5,8 +5,8 @@
 
 import { conversationDisclosureStyle } from "~/lib/disclosureMotion";
 import { ConversationShimmer } from "./ConversationShimmer";
-import { ThreadId, type ModelSelection, type TurnId } from "@synara/contracts";
-import { PROVIDER_DESCRIPTORS } from "@synara/shared/providerMetadata";
+import { ThreadId, type ModelSelection, type TurnId } from "@moss/contracts";
+import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
 import { motion } from "motion/react";
 import {
   createElement,

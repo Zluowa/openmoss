@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { buildWindowsBatchCommandArgs, resolveWindowsComSpec } from "@synara/shared/windowsProcess";
+import { buildWindowsBatchCommandArgs, resolveWindowsComSpec } from "@moss/shared/windowsProcess";
 import { Cause, Deferred, Effect, Fiber, Option, ServiceMap } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { createWindowsProcessSnapshotObserver } from "../platform/windowsProcessSnapshot.ts";

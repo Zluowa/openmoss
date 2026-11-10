@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { join } from "node:path";
 import { lstat, mkdir, realpath } from "node:fs/promises";
-import { hashRegularFileNoFollow, readRegularFileNoFollow } from "./workspaceImport/safeFile";
+import { readRegularFileNoFollow } from "./workspaceImport/safeFile";
 import { writeFileStringAtomically } from "./atomicWrite";
 import { Effect } from "effect";
 import { mediaImageEditInputError } from "./mediaImageEditInput";
@@ -109,7 +109,10 @@ export interface MossConversationImageObservation {
   readonly projectionFailed: boolean;
 }
 
-interface BoundCanvasWorkspace extends MossCanvasWorkspace {
+interface ConversationBinding {
+  readonly threadId: string;
+  readonly cwd: string | null;
+  readonly title: string;
   readonly imageOrigin?: MossMediaConversationOrigin;
 }
 
@@ -198,46 +201,39 @@ export class MossMediaJobsService {
       thread[1]!,
     );
     if (!workspace) return;
-    const observe = this.#conversationImageObserver;
     const origin = workspace.imageOrigin;
-    let outputs: readonly { readonly index: number; readonly path: string }[] = [];
-    let projectionFailed = false;
-    let projectionError: unknown;
-    try {
-      outputs = await this.#writeCanvasProjection(
-        job.snapshot,
-        job.revision,
-        credential,
-        workspace,
-        undefined,
-        Boolean(observe && origin && job.snapshot.operation !== "video"),
-      );
-    } catch (error) {
-      projectionFailed = true;
-      projectionError = error;
-    }
-    if (observe && origin && job.snapshot.operation !== "video") {
+    if (origin && job.snapshot.operation !== "video") {
+      // The chat owns this artifact. The authenticated media cache is durable
+      // even when a workspace is unavailable, moved, or has no Canvas board.
+      const scope = mediaAccountScope(credential);
+      const outputs = (job.snapshot.assets ?? [])
+        .filter((asset) => asset.kind === "image" && validMossMediaAsset(asset, job.snapshot.jobId))
+        .map((asset) => ({
+          index: asset.index,
+          path: `/api/moss/media/assets/${job.snapshot.jobId}/${asset.index}?accountScope=${scope}`,
+        }));
       try {
-        // Accepted work may finish after the caller turn ends. Its durable origin
-        // and account-scoped binding remain authoritative; a later poll cannot
-        // move the result into a different turn or account.
-        await observe({
+        await this.#conversationImageObserver?.({
           origin,
-          accountScope: mediaAccountScope(credential),
+          accountScope: scope,
           snapshot: job.snapshot,
           outputs,
-          projectionFailed,
+          projectionFailed: false,
         });
       } catch {
-        // A UI projection failure never changes a supplier outcome or causes a
-        // second generation. The next local history/check replay can redeliver it.
         log.warn("conversation image activity save pending", {
           jobId: job.snapshot.jobId,
           errorCode: "media_activity_save_failed",
         });
       }
+      return;
     }
-    if (projectionFailed) throw projectionError;
+    if (workspace.cwd !== null) {
+      await this.#writeCanvasProjection(job.snapshot, job.revision, credential, {
+        ...workspace,
+        cwd: workspace.cwd,
+      });
+    }
   }
 
   async #writeCanvasProjection(
@@ -246,14 +242,11 @@ export class MossMediaJobsService {
     credential: MossMediaIdentity,
     workspace: MossCanvasWorkspace,
     authorize?: () => Promise<void>,
-    collectLocalPaths = false,
   ) {
     await authorize?.();
     const { mossCanvasStorageFor } = await import("./mossCanvasStorage");
     const store = await mossCanvasStorageFor(this.options.stateDirectory, credential, workspace);
     const outputs: string[] = [];
-    const importedImages: { index: number; name: string; byteLength: number; assetId: string }[] =
-      [];
     for (const asset of snapshot.assets ?? []) {
       if (!validMossMediaAsset(asset, snapshot.jobId))
         throw new MossMediaJobsError("asset_not_found", 404);
@@ -264,19 +257,6 @@ export class MossMediaJobsService {
         fileName: `${snapshot.jobId}-${asset.index}`,
       })) as { url: string };
       outputs.push(imported.url);
-      if (collectLocalPaths && asset.kind === "image") {
-        const match = /^moss-canvas-asset:([a-f0-9]{64}\.(?:png|jpg|webp|avif))$/u.exec(
-          imported.url,
-        );
-        if (!match || !match[1]!.startsWith(`${asset.assetId}.`))
-          throw new MossMediaJobsError("canvas_asset_invalid", 503);
-        importedImages.push({
-          index: asset.index,
-          name: match[1]!,
-          byteLength: asset.byteLength,
-          assetId: asset.assetId,
-        });
-      }
     }
     await authorize?.();
     await store.request("host.syncConversationJob", {
@@ -293,33 +273,6 @@ export class MossMediaJobsService {
         createdAt: snapshot.createdAt,
       },
     });
-    if (!importedImages.length) return [];
-    // Reuse the actual Canvas file. Never publish a remote supplier URL or a
-    // guessed path, and never duplicate the output into a second workspace.
-    const info = await store.request("workspace.info");
-    if (!record(info) || typeof info.assetsRoot !== "string")
-      throw new MossMediaJobsError("canvas_asset_invalid", 503);
-    const assetsRoot = await realpath(info.assetsRoot);
-    const inside = relative(workspace.cwd, assetsRoot);
-    if (
-      assetsRoot !== info.assetsRoot ||
-      inside === "" ||
-      inside === ".." ||
-      inside.startsWith(`..${sep}`) ||
-      isAbsolute(inside)
-    )
-      throw new MossMediaJobsError("canvas_asset_invalid", 503);
-    return Promise.all(
-      importedImages.map(async (asset) => {
-        const path = join(assetsRoot, asset.name);
-        if (
-          (await realpath(path)) !== path ||
-          (await hashRegularFileNoFollow(path, asset.byteLength)) !== asset.assetId
-        )
-          throw new MossMediaJobsError("canvas_asset_invalid", 503);
-        return { index: asset.index, path };
-      }),
-    );
   }
 
   /** Local history only: opening Canvas must never reconcile or submit a supplier operation. */
@@ -346,7 +299,12 @@ export class MossMediaJobsService {
     const scope = mediaAccountScope(credential);
     if (!(await this.#history.get(scope, jobId)))
       throw new MossMediaJobsError("job_not_found", 404);
-    return this.#readCanvasBinding(scope, jobId);
+    const binding = await this.#readCanvasBinding(scope, jobId);
+    if (!binding) return null;
+    if (binding.cwd !== null && !binding.imageOrigin)
+      return { threadId: binding.threadId, title: binding.title, cwd: binding.cwd };
+    // Only an explicit Canvas-origin request needs the live board context.
+    return this.#canvasWorkspace ? this.#canvasWorkspace(binding.threadId) : null;
   }
 
   /** Import an existing owned output into the chosen conversation without changing its job or bill. */
@@ -382,7 +340,7 @@ export class MossMediaJobsService {
     scope: string,
     jobId: string,
     expectedThreadId?: string,
-  ): Promise<BoundCanvasWorkspace | null> {
+  ): Promise<ConversationBinding | null> {
     const path = this.#canvasBindingPath(scope, jobId);
     try {
       for (const directory of [
@@ -403,14 +361,18 @@ export class MossMediaJobsService {
       const value: unknown = JSON.parse(bytes.toString("utf8"));
       if (
         !record(value) ||
-        value.version !== 1 ||
+        (value.version !== 1 && value.version !== 2) ||
         typeof value.threadId !== "string" ||
         !/^[A-Za-z0-9_-]{1,128}$/u.test(value.threadId) ||
         (expectedThreadId !== undefined && value.threadId !== expectedThreadId) ||
-        typeof value.cwd !== "string" ||
+        !(
+          typeof value.cwd === "string" ||
+          (value.version === 2 && value.cwd === null && value.imageOrigin !== undefined)
+        ) ||
         typeof value.title !== "string" ||
-        (await realpath(value.cwd)) !== value.cwd ||
-        !(await lstat(value.cwd)).isDirectory()
+        (typeof value.cwd === "string" &&
+          !value.imageOrigin &&
+          ((await realpath(value.cwd)) !== value.cwd || !(await lstat(value.cwd)).isDirectory()))
       )
         throw new MossMediaJobsError("canvas_workspace_binding_invalid", 409);
       let imageOrigin: MossMediaConversationOrigin | undefined;
@@ -438,7 +400,7 @@ export class MossMediaJobsService {
   async #bindCanvasWorkspace(
     scope: string,
     jobId: string,
-    workspace: MossCanvasWorkspace,
+    workspace: ConversationBinding,
     imageOrigin?: MossMediaConversationOrigin,
   ) {
     const key = `${scope}:${jobId}`;
@@ -456,12 +418,14 @@ export class MossMediaJobsService {
   async #writeCanvasBinding(
     scope: string,
     jobId: string,
-    workspace: MossCanvasWorkspace,
+    workspace: ConversationBinding,
     imageOrigin?: MossMediaConversationOrigin,
   ) {
     const existing = await this.#readCanvasBinding(scope, jobId, workspace.threadId);
     if (existing) {
-      if (existing.cwd !== workspace.cwd) throw new MossMediaJobsError("idempotency_conflict", 409);
+      // A chat retry can encounter a pre-upgrade origin that also recorded a board path.
+      if (workspace.cwd !== null && existing.cwd !== workspace.cwd)
+        throw new MossMediaJobsError("idempotency_conflict", 409);
       return;
     }
     const directory = join(this.options.stateDirectory, "media-job-workspaces");
@@ -477,7 +441,7 @@ export class MossMediaJobsService {
       writeFileStringAtomically({
         filePath: this.#canvasBindingPath(scope, jobId),
         contents: JSON.stringify({
-          version: 1,
+          version: imageOrigin && workspace.cwd === null ? 2 : 1,
           ...workspace,
           ...(imageOrigin ? { imageOrigin } : {}),
         }),
@@ -772,8 +736,11 @@ export class MossMediaJobsService {
     // after both, immediately before the synchronous create-and-submit boundary.
     await authorize?.();
     const canvasThread = /^thread:([A-Za-z0-9_-]{1,128})$/u.exec(String(normalized.projectId));
+    const isChatImage = imageOrigin !== undefined && model.kind === "image";
     const canvasWorkspace =
-      canvasThread && this.#canvasWorkspace ? await this.#canvasWorkspace(canvasThread[1]!) : null;
+      !isChatImage && canvasThread && this.#canvasWorkspace
+        ? await this.#canvasWorkspace(canvasThread[1]!)
+        : null;
     if (
       expectedWorkspaceRoot &&
       canvasWorkspace &&
@@ -782,8 +749,16 @@ export class MossMediaJobsService {
       throw new MossMediaJobsError("canvas_workspace_changed", 409);
     await authorize?.();
     const job = broker.create(normalized);
-    if (canvasWorkspace)
+    if (isChatImage) {
+      await this.#bindCanvasWorkspace(
+        scope,
+        job.jobId,
+        { threadId: imageOrigin.threadId, cwd: null, title: "" },
+        imageOrigin,
+      );
+    } else if (canvasWorkspace) {
       await this.#bindCanvasWorkspace(scope, job.jobId, canvasWorkspace, imageOrigin);
+    }
     await broker.saveHistory(job.jobId);
     await authorize?.();
     // run() persists a reservation before its first upstream request. The HTTP
@@ -831,9 +806,10 @@ export class MossMediaJobsService {
 
   async check(jobId: string, credential: MossMediaCredential, expectedProjectId?: string) {
     const broker = await this.#ready(credential);
-    const projection = this.#canvasWorkspace
-      ? await this.#history.get(mediaAccountScope(credential), jobId)
-      : null;
+    const projection =
+      this.#canvasWorkspace || this.#conversationImageObserver
+        ? await this.#history.get(mediaAccountScope(credential), jobId)
+        : null;
     if (
       projection &&
       (expectedProjectId === undefined || projection.snapshot.projectId === expectedProjectId)
@@ -856,14 +832,17 @@ export class MossMediaJobsService {
         throw new MossMediaJobsError("job_not_found", 404);
       if (
         (stored.snapshot.status === "succeeded" || stored.snapshot.status === "failed_terminal") &&
+        stored.snapshot.persistenceStatus !== "failed" &&
         !["pending", "unknown"].includes(stored.snapshot.billingStatus)
       )
         return stored.snapshot;
       broker.restoreDurable(stored);
     }
     const reconciling = broker.get(jobId)?.status === "reconciliation_required";
-    const job = this.get(jobId, credential, expectedProjectId);
+    let job = this.get(jobId, credential, expectedProjectId);
     if (reconciling) return broker.run(jobId, credential);
+    if (job.status === "succeeded" && job.persistenceStatus === "failed")
+      job = await broker.retrySavedOutput(jobId);
     if (
       (job.status === "succeeded" || job.status === "failed_terminal") &&
       (job.billingStatus === "unknown" || job.billingStatus === "pending")

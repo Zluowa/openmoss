@@ -7,7 +7,7 @@ import {
   type ProviderInstanceId,
   type ProviderKind,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -158,6 +158,8 @@ export function useEffectiveComposerModelState(input: {
   selectedProviderInstanceId?: ProviderInstanceId | null | undefined;
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
+  /** The account's own configured default, used only when nothing was chosen in Moss. */
+  discoveredDefaultModelSelection?: ModelSelection | null | undefined;
   customModelsByProvider: Record<ProviderKind, readonly string[]>;
   availableModelOptionsByProvider?: Partial<
     Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>
@@ -170,6 +172,7 @@ export function useEffectiveComposerModelState(input: {
     selectedProviderInstanceId: input.selectedProviderInstanceId,
     threadModelSelection: input.threadModelSelection,
     projectModelSelection: input.projectModelSelection,
+    discoveredDefaultModelSelection: input.discoveredDefaultModelSelection,
     customModelsByProvider: input.customModelsByProvider,
     ...(input.availableModelOptionsByProvider !== undefined
       ? { availableModelOptionsByProvider: input.availableModelOptionsByProvider }

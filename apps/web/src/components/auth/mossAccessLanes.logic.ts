@@ -1,13 +1,13 @@
 // FILE: mossAccessLanes.logic.ts
 // Purpose: One description of the three Moss sign-in lanes for every account
 // surface (login, account page, settings). The lane itself — gateway realm and
-// model scope — is defined in @synara/shared/mossRealmCatalog.
+// model scope — is defined in @moss/shared/mossRealmCatalog.
 import type {
   MossAccountSessionState,
   MossCloudAccountState,
   MossEnterpriseKeyState,
-} from "@synara/contracts";
-import { MOSS_ACCESS_LANE_SPECS, type MossAccessLane } from "@synara/shared/mossRealmCatalog";
+} from "@moss/contracts";
+import { MOSS_ACCESS_LANE_SPECS, type MossAccessLane } from "@moss/shared/mossRealmCatalog";
 
 export interface MossAccessLaneCopy {
   /** How the user signs in. */

@@ -26,7 +26,7 @@ import {
   type ToolLifecycleItemType,
   TurnId,
   type UserInputQuestion,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Cause, Deferred, Effect, Exit, Layer, Option, Queue, Ref, Scope, Stream } from "effect";
 import type {
   AssistantMessage,
@@ -92,6 +92,7 @@ import {
   toOpenCodeQuestionAnswers,
   type OpenCodeServerConnection,
 } from "../opencodeRuntime.ts";
+import { flushSentry } from "../../observability/sentry.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { canUseDefaultOpenCodeServerPassword } from "../openCodeServerPassword.ts";
 import { extractProposedPlanMarkdown, withProviderPlanModePrompt } from "../planMode.ts";
@@ -698,11 +699,15 @@ function bufferPendingTextDelta(
   }
   const previous = context.pendingTextDeltasByPartId.get(partId);
   const { nextText } = appendOpenCodeAssistantTextDelta(previous?.text ?? "", delta);
+  const knownPart = context.partById.get(partId);
   context.pendingTextDeltasByPartId.set(partId, {
     messageId,
     text: nextText,
     bufferedAfterKnownSnapshot:
-      (previous?.bufferedAfterKnownSnapshot ?? false) || context.partById.has(partId),
+      (previous?.bufferedAfterKnownSnapshot ?? false) || knownPart !== undefined,
+    knownSnapshotLength:
+      previous?.knownSnapshotLength ??
+      (knownPart?.type === "text" || knownPart?.type === "reasoning" ? knownPart.text.length : 0),
   });
 }
 
@@ -720,11 +725,14 @@ function applyPendingTextDeltaToPart(context: OpenCodeSessionContext, part: Part
   // A delta buffered before the first part snapshot may already be present in
   // the later cumulative snapshot. A delta buffered after a known snapshot
   // (for example while the message role is still unknown) is newer than that
-  // snapshot and must be appended even when its text matches the snapshot suffix.
-  const nextText =
-    !pendingDelta.bufferedAfterKnownSnapshot && part.text.endsWith(pendingDelta.text)
-      ? part.text
-      : part.text + pendingDelta.text;
+  // snapshot and must be appended even when its text matches the snapshot suffix,
+  // unless this snapshot has grown enough to hold it. A one-word reply arrives as
+  // an empty snapshot, one delta, then a snapshot of that word.
+  const snapshotHoldsDelta =
+    part.text.endsWith(pendingDelta.text) &&
+    (!pendingDelta.bufferedAfterKnownSnapshot ||
+      part.text.length >= pendingDelta.knownSnapshotLength + pendingDelta.text.length);
+  const nextText = snapshotHoldsDelta ? part.text : part.text + pendingDelta.text;
   context.pendingTextDeltasByPartId.delete(part.id);
   return nextText === part.text ? part : { ...part, text: nextText };
 }
@@ -780,7 +788,8 @@ function ignoreDetachedOpenCodeAbortRejections(): void {
       return;
     }
     console.error(reason);
-    process.exit(1);
+    // Sentry's own listener has already queued this; exiting now would drop it.
+    void flushSentry().finally(() => process.exit(1));
   });
 }
 
@@ -5097,6 +5106,10 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             });
             return {
               models,
+              ...(inventory.defaultModel &&
+              models.some((model) => model.slug === inventory.defaultModel)
+                ? { defaultModel: inventory.defaultModel }
+                : {}),
               source:
                 cliModels.length > 0
                   ? adapterConfig.cliModelSource

@@ -11,8 +11,8 @@ import {
   type LibraryEntry,
   type ProjectAgentLibraryStatusResult,
   type ProjectId,
-} from "@synara/contracts";
-import { LIBRARY_UPLOAD_ROUTE_PATH } from "@synara/shared/binaryTransfer";
+} from "@moss/contracts";
+import { LIBRARY_UPLOAD_ROUTE_PATH } from "@moss/shared/binaryTransfer";
 import { useEffect, useRef, useState } from "react";
 
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";

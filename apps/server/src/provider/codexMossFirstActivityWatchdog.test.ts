@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { EventId, ThreadId, TurnId } from "@synara/contracts";
+import { EventId, ThreadId, TurnId } from "@moss/contracts";
 
 import {
   CODEX_MOSS_FIRST_ACTIVITY_TIMEOUT_DEFAULT_MS,
@@ -11,9 +11,9 @@ import {
 } from "./codexMossFirstActivityWatchdog.ts";
 
 describe("resolveCodexMossFirstActivityTimeoutMs", () => {
-  it("defaults to the shared 90s Moss first-activity constant (not a stale 15s literal)", () => {
-    expect(CODEX_MOSS_FIRST_ACTIVITY_TIMEOUT_DEFAULT_MS).toBe(90_000);
-    expect(resolveCodexMossFirstActivityTimeoutMs({})).toBe(90_000);
+  it("defaults to the shared 150s Moss first-activity constant (not a stale 15s literal)", () => {
+    expect(CODEX_MOSS_FIRST_ACTIVITY_TIMEOUT_DEFAULT_MS).toBe(150_000);
+    expect(resolveCodexMossFirstActivityTimeoutMs({})).toBe(150_000);
     expect(resolveCodexMossFirstActivityTimeoutMs({})).not.toBe(15_000);
   });
 

@@ -3,7 +3,7 @@
 // compact always-visible action opens the file in the preferred editor.
 // Layer: Chat changed-files UI
 
-import type { EditorId, ResolvedKeybindingsConfig } from "@synara/contracts";
+import type { EditorId, ResolvedKeybindingsConfig } from "@moss/contracts";
 import type { CSSProperties } from "react";
 
 import { useCopyPathToClipboard } from "~/hooks/useCopyToClipboard";
@@ -97,6 +97,7 @@ export function EditedFileRow(props: EditedFileRowProps) {
         {...(props.availableEditors ? { availableEditors: props.availableEditors } : {})}
         openInTarget={launcherTarget}
         menuEditorOrder={EDITED_FILE_EDITOR_ORDER}
+        preferFileEditor
         groupLabel={`Open ${props.filePath}`}
         menuLabel={`Open ${props.filePath} options`}
         additionalMenuItems={

@@ -6,15 +6,15 @@
  *
  * @module Open
  */
-import { createBatchExecutableResolver, resolveExecutable } from "@synara/shared/executable";
-import { spawnProcess } from "@synara/shared/processRuntime";
+import { createBatchExecutableResolver, resolveExecutable } from "@moss/shared/executable";
+import { spawnProcess } from "@moss/shared/processRuntime";
 import { statSync } from "node:fs";
 import { dirname, extname } from "node:path";
 import pathWin32 from "node:path/win32";
 
-import { EDITORS, type EditorId } from "@synara/contracts";
-import { isMacAppBundlePath } from "@synara/shared/filesystemPlatform";
-import { resolveWindowsSystemRoot } from "@synara/shared/platformEnvironment";
+import { EDITORS, type EditorId } from "@moss/contracts";
+import { isMacAppBundlePath } from "@moss/shared/filesystemPlatform";
+import { resolveWindowsSystemRoot } from "@moss/shared/platformEnvironment";
 import { ServiceMap, Schema, Effect, Layer } from "effect";
 import {
   getEditorMacApplications,
@@ -24,6 +24,7 @@ import {
   resolveWindowsStorePackageInstallLocation,
   type EditorDefinition,
 } from "./editorAppDiscovery";
+import { findInstalledWindowsEditor } from "./windowsEditorDiscovery";
 
 // ==============================
 // Definitions
@@ -308,6 +309,14 @@ export function resolveAvailableEditors(
       continue;
     }
 
+    // Installed but not on this process's PATH: its uninstall entry, URL protocol, App
+    // Paths entry or standard install folder (a Moss started with a thin PATH, an IDE that
+    // never adds itself to PATH).
+    if (findInstalledWindowsEditor(editor.id, env, platform) !== null) {
+      available.push(editor.id);
+      continue;
+    }
+
     if (
       resolveWindowsStorePackageInstallLocation(
         getEditorWindowsStorePackages(editor),
@@ -389,6 +398,14 @@ export const resolveEditorLaunch = Effect.fnUntraced(function* (
         args: resolveCommandEditorArgs(editorDef, input.cwd, command),
       };
     }
+  }
+
+  const installedWindowsEditor = findInstalledWindowsEditor(editorDef.id, env, platform);
+  if (installedWindowsEditor) {
+    return {
+      command: installedWindowsEditor.launchPath,
+      args: resolveCommandEditorArgs(editorDef, input.cwd, installedWindowsEditor.launchPath),
+    };
   }
 
   const windowsUriLaunch = resolveWindowsEditorUriLaunch(editorDef, input.cwd, platform, env);

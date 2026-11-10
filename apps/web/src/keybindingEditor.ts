@@ -12,12 +12,12 @@ import {
   type ResolvedKeybindingRule,
   type ResolvedKeybindingsConfig,
   type ServerKeybindingEdit,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   encodeKeybindingRule,
   encodeKeybindingWhen,
   resolvedKeybindingRuleIdentity,
-} from "@synara/shared/keybindingRules";
+} from "@moss/shared/keybindingRules";
 
 import { fixedShortcutsForPlatform } from "./fixedShortcuts";
 import {

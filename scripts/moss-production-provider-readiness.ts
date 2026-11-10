@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { spawnSync } from "node:child_process";
-import type { ProviderKind, ServerProviderStatus } from "@synara/contracts";
-import { isProviderKind } from "@synara/shared/providerInstances";
+import type { ProviderKind, ServerProviderStatus } from "@moss/contracts";
+import { isProviderKind } from "@moss/shared/providerInstances";
 import { Effect, Layer } from "effect";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

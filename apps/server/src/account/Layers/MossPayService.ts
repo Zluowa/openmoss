@@ -4,9 +4,9 @@ import type {
   MossPayGetOrderInput,
   MossPayOrder,
   MossPayQuota,
-} from "@synara/contracts";
-import { MossPayMediaTopupPackage, MossPayMediaWallet, MossMediaNanoCny } from "@synara/contracts";
-import { MOSS_CLOUD_REGION_HEADER } from "@synara/shared/mossProductionPublicConfig";
+} from "@moss/contracts";
+import { MossPayMediaTopupPackage, MossPayMediaWallet, MossMediaNanoCny } from "@moss/contracts";
+import { MOSS_CLOUD_REGION_HEADER } from "@moss/shared/mossProductionPublicConfig";
 import { Effect, Layer, Schema } from "effect";
 
 import { MossPhoneAccountService } from "../Services/MossPhoneAccountService";
@@ -212,6 +212,9 @@ function weightedPlanPolicy(code: string, row: Record<string, unknown>) {
   const isCostBudgetV1 = row.billing_model === "cost_budget_v1";
   const isWeightedV1 = row.billing_model === "weighted_credits_v1";
   const costCentLimit = (key: string, fallbackValue: number): number => {
+    // NULL is the authority saying it has no number: lifetime plans have no rolling windows, and
+    // a monthly budget needs an exchange rate. Only a column it doesn't have yet falls back.
+    if (row[key] === null) return 0;
     const nanoUsd = asNonNegativeNumber(row[key], Number.NaN);
     return Number.isNaN(nanoUsd) ? fallbackValue : nanoUsd / 10_000_000;
   };
@@ -265,12 +268,27 @@ export function paymentMethodsForRealm(
     : [{ id: "wechat_pay", displayName: "提市微信支付", kind: "qr" }];
 }
 
+/** The authority says whether its rail is open. A deployment that sends no list implies it is. */
+export function catalogPaymentMethods(
+  json: Record<string, unknown>,
+  realm: MossPayAuthorityCredential["realm"],
+): MossPayCatalog["paymentMethods"] {
+  const rails = paymentMethodsForRealm(realm);
+  if (!Array.isArray(json.payment_methods)) return rails;
+  const offered = asArray(json.payment_methods).map((method) => method.id);
+  return rails.filter((rail) => offered.includes(rail.id));
+}
+
 export function normalizeMossPayCatalogPayload(
   json: Record<string, unknown>,
   paymentMethods: MossPayCatalog["paymentMethods"],
+  mediaRail: string | undefined = paymentMethods[0]?.id,
 ): MossPayCatalog {
   return {
     paymentMethods,
+    ...(typeof json.plans_purchasable === "boolean"
+      ? { plansPurchasable: json.plans_purchasable }
+      : {}),
     plans: asArray(json.plans)
       .map((plan) => {
         const code = String(plan.code ?? "");
@@ -308,7 +326,7 @@ export function normalizeMossPayCatalogPayload(
     // Legacy point SKUs are not cost-backed and must remain unavailable even
     // while one regional catalog is waiting for the database migration.
     pointPackages: [],
-    ...normalizeMediaCatalog(json, paymentMethods[0]?.id),
+    ...normalizeMediaCatalog(json, mediaRail),
   };
 }
 
@@ -1282,7 +1300,12 @@ export const MossPayServiceLive = Layer.effect(
             method: "GET",
             path: "/catalog",
           });
-          return normalizeMossPayCatalogPayload(json, paymentMethodsForRealm(credential.realm));
+          return normalizeMossPayCatalogPayload(
+            json,
+            catalogPaymentMethods(json, credential.realm),
+            // Media packages keep their rail even while it is closed; they arrive unavailable.
+            paymentMethodsForRealm(credential.realm)[0]?.id,
+          );
         });
       // Authenticated catalogs include the owner's independent media wallet.
       // Retain public membership discovery when account restore is unavailable.

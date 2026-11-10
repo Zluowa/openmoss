@@ -7,6 +7,12 @@ import {
   normalizeCanvasVideoInput,
 } from "../../../../supabase/functions/moss-model-gateway/canvasVideoInput.ts";
 import { hoolaCanvasModelKind } from "../hoolaCanvasBridge";
+import {
+  MOSS_DEFAULT_IMAGE_MODEL_ID,
+  MOSS_DEFAULT_VIDEO_MODEL_ID,
+} from "@moss/shared/mossMediaPlugins";
+import type { MossCanvasSummary } from "../mossCanvasSummary";
+import { readMossCanvasLiveSelection } from "../mossCanvasLiveSelection";
 import { readWorkspaceMediaEditFiles, readWorkspaceMediaReferences } from "./mediaReferenceFiles";
 import { mediaImageEditInputError } from "../mediaImageEditInput";
 import {
@@ -20,6 +26,7 @@ import { GatewayToolError, type ToolContext, type ToolEntry } from "./toolRuntim
 
 export const MOSS_MEDIA_TOOL_NAMES = [
   "moss_canvas_open",
+  "moss_canvas_read",
   "moss_media_list",
   "moss_media_generate",
   "moss_media_get",
@@ -189,8 +196,25 @@ function failure(error: unknown): McpToolCallResult {
 export interface AgentGatewayMediaToolsInput {
   readonly service: Pick<MossMediaJobsService, "list" | "create" | "check"> &
     Partial<Pick<MossMediaJobsService, "readOwnedJob">>;
+  /** The billed account plus the models its installed skills allow. */
   readonly resolveCredential: Effect.Effect<MossMediaCredential, unknown>;
+  /**
+   * The same account without the installed-skill read. Opening or reading
+   * Canvas bills nothing, so it must not wait on plugin discovery.
+   */
+  readonly resolveCanvasCredential?: Effect.Effect<MossMediaCredential, unknown>;
+  readonly readCanvas?: (
+    request: { threadId: string },
+    credential: MossMediaCredential,
+    context: ToolContext,
+  ) => Effect.Effect<MossCanvasSummary, unknown>;
   readonly resolveWorkspaceRoot?: (context: ToolContext) => Effect.Effect<string | null>;
+  readonly focusCanvasJob?: (
+    jobId: string,
+    threadId: string,
+    credential: MossMediaCredential,
+    authorize: () => Promise<void>,
+  ) => Effect.Effect<void, unknown>;
   readonly openCanvas?: (
     request: { threadId: string; jobId?: string; imageIndex?: number },
     context: ToolContext,
@@ -203,14 +227,17 @@ export function makeAgentGatewayMediaTools(
   // An authenticated provider session may advance to another user turn, but a
   // tool call never silently changes its billing account within the same turn.
   const leases = new Map<string, { readonly turnId: string; readonly scope: string }>();
-  const credentialFor = (context: ToolContext) =>
+  const credentialFor = (
+    context: ToolContext,
+    resolve: Effect.Effect<MossMediaCredential, unknown> = input.resolveCredential,
+  ) =>
     Effect.gen(function* () {
       yield* context.assertCallerTurnActive();
       if (!context.callerTurnId)
         return yield* Effect.fail(
           new GatewayToolError("active_turn_required", "An active user turn is required."),
         );
-      const credential = yield* input.resolveCredential;
+      const credential = yield* resolve;
       yield* context.assertCallerTurnActive();
       const scope = yield* Effect.try({
         try: () => mediaAccountScope(credential),
@@ -226,6 +253,8 @@ export function makeAgentGatewayMediaTools(
       leases.set(context.callerSessionKey, { turnId: context.callerTurnId, scope });
       return credential;
     });
+  const canvasCredentialFor = (context: ToolContext) =>
+    credentialFor(context, input.resolveCanvasCredential ?? input.resolveCredential);
   const guarded = (effect: Effect.Effect<McpToolCallResult, unknown>) =>
     effect.pipe(
       Effect.catch((error) => Effect.succeed(failure(error))),
@@ -236,7 +265,7 @@ export function makeAgentGatewayMediaTools(
       definition: {
         name: "moss_canvas_open",
         description:
-          "Open the complete Moss Canvas for this caller conversation only when the user explicitly asks to open Canvas or edit an image there. Ordinary image generation stays in the Images/chat flow and never opens Canvas automatically. Optional jobId must be an existing image in this caller thread; imageIndex selects its output. Opening performs no supplier generation or payment and preserves the conversation folder.",
+          "Open Moss Canvas (画布) for this conversation in the person's Moss window. Use this separate board to arrange or edit images only when requested. It is not a document space: never use moss_pages_* for Canvas. Call this whenever the person asks to open, show or use Canvas/画布, or to lay out or edit an image there; do not open it on your own after an ordinary generation. Optional jobId (an image job from this conversation, from moss_media_list or moss_media_generate) focuses that image; imageIndex picks one of its outputs. Opening generates nothing and costs nothing.",
         inputSchema: {
           type: "object",
           properties: {
@@ -268,7 +297,7 @@ export function makeAgentGatewayMediaTools(
                   args.imageIndex > 31))
             )
               return yield* Effect.fail(new MossMediaJobsError("invalid_request"));
-            const credential = yield* credentialFor(context);
+            const credential = yield* canvasCredentialFor(context);
             if (!input.openCanvas)
               return yield* Effect.fail(new MossMediaJobsError("canvas_host_unavailable", 503));
             if (args.jobId !== undefined) {
@@ -284,8 +313,14 @@ export function makeAgentGatewayMediaTools(
                 !job.imageUrls[Number(args.imageIndex ?? 0)]
               )
                 return yield* Effect.fail(new MossMediaJobsError("job_not_found", 404));
+              if (input.focusCanvasJob) {
+                const jobId = args.jobId as string;
+                yield* input.focusCanvasJob(jobId, context.callerThreadId, credential, () =>
+                  Effect.runPromise(canvasCredentialFor(context).pipe(Effect.asVoid)),
+                );
+              }
             }
-            yield* credentialFor(context);
+            yield* canvasCredentialFor(context);
             yield* input.openCanvas(
               {
                 threadId: context.callerThreadId,
@@ -305,9 +340,44 @@ export function makeAgentGatewayMediaTools(
     },
     {
       definition: {
-        name: "moss_media_list",
+        name: "moss_canvas_read",
         description:
-          "List installed official image/video models, current availability/pricing and persisted media jobs created in this caller thread. Use this before generation; choose an installed, available model. Account details, wallet balance, other threads' jobs and provider credentials are not exposed. The owner can view all media history in the Images workspace.",
+          'Read what is on this conversation\'s Moss Canvas (画布): its shapes (type, text, position and size), the images and videos generated in this conversation that it shows (jobId, prompt, model, status), and selection: what the person has selected on the Canvas right now (selected images, and selected text, notes and shapes with their text; null when nothing is selected). When the person says "this", "these" or "the selected" about the Canvas, read selection. Read-only: it never changes the Canvas, generates nothing and costs nothing. exists=false means the Canvas has not been opened or used yet.',
+        inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      requiredCapability: "thread:read",
+      requiresActiveTurn: true,
+      handler: (args, context) =>
+        guarded(
+          Effect.gen(function* () {
+            if (Object.keys(args).length)
+              return yield* Effect.fail(new MossMediaJobsError("invalid_request"));
+            const credential = yield* canvasCredentialFor(context);
+            if (!input.readCanvas)
+              return yield* Effect.fail(new MossMediaJobsError("canvas_host_unavailable", 503));
+            const summary = yield* input.readCanvas(
+              { threadId: context.callerThreadId },
+              credential,
+              context,
+            );
+            yield* canvasCredentialFor(context);
+            // What the person has selected right now, like the browser panel's
+            // selected element: null when nothing is selected.
+            const selection = readMossCanvasLiveSelection(context.callerThreadId);
+            return mcpToolResultJson({ threadId: context.callerThreadId, ...summary, selection });
+          }),
+        ),
+    },
+    {
+      definition: {
+        name: "moss_media_list",
+        description: `List the person's image/video models (installed, available, price) and the media jobs created in this conversation. Use this when the person's Moss media request needs model discovery or status. For a Moss request, use the named model or the default: ${MOSS_DEFAULT_IMAGE_MODEL_ID} for images, ${MOSS_DEFAULT_VIDEO_MODEL_ID} for videos. Account details, wallet balance, other conversations' jobs and provider credentials are not exposed.`,
         inputSchema: { type: "object", properties: {}, additionalProperties: false },
         annotations: {
           readOnlyHint: true,
@@ -342,7 +412,7 @@ export function makeAgentGatewayMediaTools(
       definition: {
         name: "moss_media_generate",
         description:
-          "Generate or edit an image/video with an installed official model using the current Moss account's shared package allowance at actual supplier cost. Call only when the user requests this generation. Read moss_media_list first. Supply a unique idempotencyKey for each intended generation. Unknown outcomes must be observed through the existing job and records; never automatically submit another generation. Returns a queued job immediately; poll moss_media_get (about every 15 seconds) for outputs. Media is saved automatically to the caller conversation workspace and its Canvas. Completed images appear automatically in the conversation gallery; do not emit duplicate Markdown images or download/copy the outputs again. For edits pass the selected original HTTPS output URL in referenceImages, or local image files inside the caller workspace in referencePaths (no base64 needed). Never request, print, or pass an API key. Account changes during a turn require a new user turn.",
+          "Generate or edit an image/video with an installed official model using the current Moss account's shared package allowance at actual supplier cost. Generate through Moss for a request routed to the person's Moss account. In a personal Codex session, use this for images only if the person explicitly chose Moss; prefer an available native Codex image tool for an ordinary request. If a Moss model is not known, moss_media_list can show the available models. Supply a unique idempotencyKey for each intended generation. Unknown outcomes must be observed through the existing job and records; never automatically submit another generation. For an accepted image job, briefly acknowledge submission and finish the turn. Moss waits in the background and places the finished image in this chat. Do not sleep, poll, or run shell commands to wait for it. Use moss_media_get for video output, an explicit status request, or to diagnose an existing job. Only if the person asks to see or edit it on Canvas, call moss_canvas_open with the jobId. Completed images appear automatically in the conversation; do not emit duplicate Markdown images or download/copy the outputs again. Charged to the person's Moss credits. Reply to the person in their own language. For edits pass the selected original HTTPS output URL in referenceImages, or local image files inside the caller workspace in referencePaths (no base64 needed). Never request, print, or pass an API key. Account changes during a turn require a new user turn.",
         inputSchema: {
           type: "object",
           properties: {
@@ -457,12 +527,17 @@ export function makeAgentGatewayMediaTools(
               catch: (error) => error,
             });
             const credential = yield* credentialFor(context);
-            const selectedWorkspace = input.resolveWorkspaceRoot
-              ? yield* input.resolveWorkspaceRoot(context)
-              : null;
             const referencePaths = Array.isArray(parsed.referencePaths)
               ? (parsed.referencePaths as string[])
               : [];
+            const needsWorkspace =
+              referencePaths.length > 0 ||
+              parsed.maskPath !== undefined ||
+              hoolaCanvasModelKind(parsed.modelId) === "video";
+            const selectedWorkspace =
+              needsWorkspace && input.resolveWorkspaceRoot
+                ? yield* input.resolveWorkspaceRoot(context)
+                : null;
             const references = Array.isArray(parsed.referenceImages)
               ? [...(parsed.referenceImages as string[])]
               : [];

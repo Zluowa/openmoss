@@ -2,8 +2,8 @@
 // Purpose: Render the branded startup face while the app is still booting a route or session.
 // Layer: Shared app loading presentation
 
-import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import { MossLogo } from "~/components/MossLogo";
+import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 
 export function SplashScreen({
   errorMessage,
@@ -15,12 +15,21 @@ export function SplashScreen({
   const showRetry = Boolean(errorMessage && onRetry);
 
   return (
-    // The shared route surface, so the splash sits in the same block as every other route
-    // (under the rail layout's top band) and goes clear with whole-window glass.
     <RouteInsetSurface>
-      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
+      <div
+        data-moss-startup-splash
+        className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-[var(--moss-boot-background)]"
+      >
         <div className="flex flex-col items-center gap-5 select-none">
-          <MossLogo aria-label="Moss" className="size-24" />
+          {/* Match the first-paint mark without covering navigation during route loads. */}
+          <MossLogo
+            aria-label="Moss"
+            className={
+              errorMessage
+                ? "size-[72px]"
+                : "pointer-events-none fixed top-1/2 left-1/2 size-[72px] -translate-x-1/2 -translate-y-1/2"
+            }
+          />
 
           {errorMessage ? (
             <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">

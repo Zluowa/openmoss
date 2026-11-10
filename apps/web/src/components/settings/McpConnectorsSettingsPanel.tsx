@@ -4,15 +4,16 @@
 // Layer: Settings UI components
 // Exports: McpConnectorsSettingsPanel
 
-import type { McpConnector } from "@synara/contracts";
+import type { McpConnector } from "@moss/contracts";
 import {
   defaultMcpConnectorName,
-  MCP_CONNECTOR_CATEGORIES,
+  isMcpConnectorPresetListed,
+  mcpConnectorCategoriesForRegion,
   MCP_CONNECTOR_PRESETS,
   type McpConnectorCategory,
   type McpConnectorPreset,
   normalizeMcpConnectorUrl,
-} from "@synara/shared/mcpConnectors";
+} from "@moss/shared/mcpConnectors";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type FormEvent,
@@ -23,6 +24,7 @@ import {
   useState,
 } from "react";
 
+import { serverMossAccountSessionQueryOptions } from "~/components/auth/mossServerReactQuery";
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
 import { translateZhCnPresentationText } from "~/localization/zhCN";
 import { Button } from "~/components/ui/button";
@@ -44,7 +46,11 @@ import { AddPlusIcon, EllipsisIcon } from "~/lib/icons";
 import { MCP_CONNECTORS_QUERY_KEY, mcpConnectorsQueryOptions } from "~/lib/mcpConnectorsReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
 
-import { McpConnectorConnectDialog, type McpConnectorTarget } from "./McpConnectorConnectDialog";
+import {
+  McpConnectorConnectDialog,
+  mcpConnectorPresetTarget as presetTarget,
+  type McpConnectorTarget,
+} from "./McpConnectorConnectDialog";
 import { McpConnectorGlyph } from "./McpConnectorGlyph";
 import { SettingsEmptyState } from "./SettingsPanelPrimitives";
 
@@ -52,18 +58,8 @@ const CATEGORY_LABELS: Record<McpConnectorCategory, string> = {
   popular: "Popular",
   developer: "Developer tools",
   productivity: "Productivity",
+  life: "Travel & life",
 };
-
-function presetTarget(preset: McpConnectorPreset): McpConnectorTarget {
-  return {
-    presetId: preset.id,
-    name: preset.name,
-    url: preset.url,
-    docsUrl: preset.docsUrl,
-    ...(preset.requiresOwnApp ? { requiresOwnApp: true } : {}),
-    appSetupUrl: preset.appSetupUrl ?? null,
-  };
-}
 
 function connectorPreset(connector: McpConnector): McpConnectorPreset | undefined {
   return MCP_CONNECTOR_PRESETS.find((entry) => entry.id === connector.presetId);
@@ -71,13 +67,22 @@ function connectorPreset(connector: McpConnector): McpConnectorPreset | undefine
 
 // Reuse saved credentials, but keep the current redirect visible: the desktop
 // callback port may have changed since the user's OAuth app was registered.
+// A saved API key is reused unless the server stopped accepting it.
 function connectorTarget(connector: McpConnector): McpConnectorTarget {
   const preset = connectorPreset(connector);
+  const savedKey =
+    connector.authKind === "api-key"
+      ? {
+          apiKey: { setupUrl: preset?.apiKeyUrl ?? null },
+          reuseSavedApiKey: connector.status === "connected",
+        }
+      : {};
   return preset
     ? {
         ...presetTarget(preset),
         requiresOwnApp: connector.usesOwnOAuthApp === true,
         reuseSavedClient: true,
+        ...savedKey,
       }
     : {
         presetId: null,
@@ -86,6 +91,7 @@ function connectorTarget(connector: McpConnector): McpConnectorTarget {
         docsUrl: null,
         requiresOwnApp: connector.usesOwnOAuthApp === true,
         reuseSavedClient: true,
+        ...savedKey,
       };
 }
 
@@ -271,6 +277,13 @@ export function McpConnectorsSettingsPanel(props: { active: boolean }) {
     ...mcpConnectorsQueryOptions(),
     enabled: props.active,
   });
+  // Mainland China presets are offered only to accounts signed in by phone;
+  // the server enforces the same rule when connecting and on every call.
+  const phoneSessionQuery = useQuery({
+    ...serverMossAccountSessionQueryOptions(),
+    enabled: props.active,
+  });
+  const region = phoneSessionQuery.data?.authenticated === true ? "cn" : "global";
 
   const disconnectMutation = useMutation({
     mutationFn: (connectorId: string) =>
@@ -317,15 +330,19 @@ export function McpConnectorsSettingsPanel(props: { active: boolean }) {
       connectorPreset(connector)?.description ?? "",
     ),
   );
-  const shelves = MCP_CONNECTOR_CATEGORIES.map((category) => ({
-    category,
-    presets: MCP_CONNECTOR_PRESETS.filter(
-      (preset) =>
-        preset.category === category &&
-        !connectedUrls.has(preset.url) &&
-        matchesSearch(query, preset.name, preset.description),
-    ),
-  })).filter((shelf) => shelf.presets.length > 0);
+  const shelves = mcpConnectorCategoriesForRegion(region)
+    .map((category) => ({
+      category,
+      presets: MCP_CONNECTOR_PRESETS.filter(
+        (preset) =>
+          preset.category === category &&
+          isMcpConnectorPresetListed(preset) &&
+          (!("region" in preset) || preset.region === region) &&
+          !connectedUrls.has(preset.url) &&
+          matchesSearch(query, preset.name, preset.description),
+      ),
+    }))
+    .filter((shelf) => shelf.presets.length > 0);
 
   const addCustom = (url: string) => {
     setAddOpen(false);

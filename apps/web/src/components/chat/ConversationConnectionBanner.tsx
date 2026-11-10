@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { OrchestrationThreadActivity } from "@synara/contracts";
+import type { OrchestrationThreadActivity } from "@moss/contracts";
 import { Loader2Icon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
 import type { ThreadSession } from "../../types";

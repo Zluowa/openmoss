@@ -8,8 +8,8 @@ import type {
   DesktopPluginDeepLinkNavigationResult,
   DesktopPluginDeepLinkRoute,
   DesktopPluginDeepLinkSource,
-} from "@synara/contracts";
-import { MOSS_CANARY_DESKTOP_SCHEME, MOSS_DESKTOP_SCHEME } from "@synara/shared/desktopIdentity";
+} from "@moss/contracts";
+import { MOSS_CANARY_DESKTOP_SCHEME, MOSS_DESKTOP_SCHEME } from "@moss/shared/desktopIdentity";
 
 const PLUGIN_DEEP_LINK_HOST = "plugins";
 const PLUGIN_DEEP_LINK_ROUTE_PREFIX = "/skills/plugins/";

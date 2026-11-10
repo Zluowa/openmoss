@@ -7,10 +7,41 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
   type SupportedProviderKind,
-} from "@synara/contracts";
+  type ServerProviderStatus,
+} from "@moss/contracts";
 import { MOSS_ACTIVE_PROVIDER_KINDS, isMossActiveProvider } from "./providerProductCatalog";
 
 export const DEFAULT_PROVIDER_ORDER: readonly SupportedProviderKind[] = MOSS_ACTIVE_PROVIDER_KINDS;
+
+/** A desktop app or imported history alone does not prove that its CLI is installed. */
+export function isLocalProviderInstalled(status: ServerProviderStatus): boolean {
+  const provider = status.driver ?? status.provider;
+  // Cloud/account instances are not evidence about the person's default local CLI.
+  if (status.instanceId !== provider) return false;
+  if (status.version?.trim()) return true;
+  const readiness = status.readiness;
+  if (
+    status.enabled === false ||
+    readiness?.state === "checking" ||
+    readiness?.reason === "disabled"
+  )
+    return false;
+  return (
+    status.available ||
+    readiness?.state === "needsLogin" ||
+    (readiness?.state === "error" && readiness.reason === "failed-to-run")
+  );
+}
+
+/** Keep bundled agents first; stable sort preserves the chosen order within each group. */
+export function prioritizeInstalledProviders(
+  order: ReadonlyArray<ProviderKind>,
+  installed: ReadonlySet<ProviderKind>,
+): ProviderKind[] {
+  const rank = (provider: ProviderKind) =>
+    provider === "codex" ? 0 : provider === "claudeAgent" ? 1 : installed.has(provider) ? 2 : 3;
+  return order.toSorted((left, right) => rank(left) - rank(right));
+}
 
 const PROVIDER_KIND_ORDER = Object.keys(PROVIDER_DISPLAY_NAMES) as ProviderKind[];
 const PROVIDER_KIND_SET: ReadonlySet<ProviderKind> = new Set(PROVIDER_KIND_ORDER);

@@ -1,5 +1,5 @@
 // Thread-scoped eligibility and durable dismissal for the real approval flow.
-import type { ProviderApprovalDecision, RuntimeMode } from "@synara/contracts";
+import type { ProviderApprovalDecision, RuntimeMode } from "@moss/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { createMemoryStorage } from "~/lib/storage";

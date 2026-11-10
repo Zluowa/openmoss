@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { MOSSBOT_INSTRUCTIONS, MOSSBOT_PLAYBOOK, mossbotWelcome } from "../mossbot.ts";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -40,17 +41,17 @@ import {
   type ProjectAgentResolveWorkerInput,
   type ProjectAgentSummary,
   type ProjectAgentStreamEvent,
+  type ProjectAgentUserLocale,
   type ProjectDocumentRevision,
   type ProjectTaskStatus,
   type ProviderSession,
-} from "@synara/contracts";
-import { groupThreadStateLabel, resolveGroupThreadState } from "@synara/shared/groupThreadState";
+} from "@moss/contracts";
+import { groupThreadStateLabel, resolveGroupThreadState } from "@moss/shared/groupThreadState";
 import { HubWorkRepository } from "../../persistence/Services/HubWorkRepository";
-import { coordinatorCheckinTurnReport } from "@synara/shared/coordinatorCheckin";
-import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
-import { isOrdinaryProjectRow } from "@synara/shared/projectContainers";
+import { coordinatorCheckinTurnReport } from "@moss/shared/coordinatorCheckin";
+import { resolveThreadWorkspaceCwd } from "@moss/shared/threadEnvironment";
+import { isOrdinaryProjectRow } from "@moss/shared/projectContainers";
 import {
-  coordinatorWelcomeDisplayName,
   coordinatorWelcomeMessageId,
   coordinatorWelcomeText,
   isGroupCoordinatorHostProject,
@@ -90,7 +91,7 @@ import {
   normalizeProjectDocumentPath,
   sanitizeProjectDigestSummary,
   truncateToContextBudget,
-} from "@synara/shared/projectAgent";
+} from "@moss/shared/projectAgent";
 import {
   Cause,
   Clock,
@@ -1479,8 +1480,9 @@ export const makeProjectAgentService = Effect.gen(function* () {
       return saved;
     });
 
-  const ensureProjectBotPlaybook = (projectId: ProjectId) =>
+  const ensureProjectBotPlaybook = (projectId: ProjectId, personal = false) =>
     Effect.gen(function* () {
+      const defaultPlaybook = personal ? MOSSBOT_PLAYBOOK : PROJECT_BOT_PLAYBOOK;
       const existingPlaybook = yield* repository
         .readDocumentRevision({
           projectId,
@@ -1488,16 +1490,11 @@ export const makeProjectAgentService = Effect.gen(function* () {
         })
         .pipe(Effect.mapError(toServiceError("Failed to load project bot playbook.")));
       if (Option.isNone(existingPlaybook)) {
-        yield* writeSeedDocument(
-          projectId,
-          PROJECT_BOT_PLAYBOOK_PATH,
-          PROJECT_BOT_PLAYBOOK,
-          "system",
-        );
+        yield* writeSeedDocument(projectId, PROJECT_BOT_PLAYBOOK_PATH, defaultPlaybook, "system");
         return;
       }
       if (
-        existingPlaybook.value.content === PROJECT_BOT_PLAYBOOK ||
+        existingPlaybook.value.content === defaultPlaybook ||
         existingPlaybook.value.authorKind !== "system"
       ) {
         return;
@@ -1508,8 +1505,8 @@ export const makeProjectAgentService = Effect.gen(function* () {
         projectId,
         logicalPath: PROJECT_BOT_PLAYBOOK_PATH,
         revision: existingPlaybook.value.revision + 1,
-        content: PROJECT_BOT_PLAYBOOK,
-        contentHash: hashDocumentContent(PROJECT_BOT_PLAYBOOK),
+        content: defaultPlaybook,
+        contentHash: hashDocumentContent(defaultPlaybook),
         authorKind: "system",
         authorThreadId: null,
         sources: [],
@@ -1526,7 +1523,7 @@ export const makeProjectAgentService = Effect.gen(function* () {
         stateDir: serverConfig.stateDir,
         projectId,
         logicalPath: PROJECT_BOT_PLAYBOOK_PATH,
-        content: PROJECT_BOT_PLAYBOOK,
+        content: defaultPlaybook,
       }).pipe(Effect.mapError(toServiceError("Failed to materialize project bot playbook.")));
     });
 
@@ -2170,8 +2167,10 @@ export const makeProjectAgentService = Effect.gen(function* () {
       : Effect.fail(fail(`${action} is a user action.`, "forbidden"));
 
   const importCoordinatorGreeting = (input: {
+    readonly mossbotName?: string;
     readonly threadId: ThreadId;
     readonly userDisplayName?: string | undefined;
+    readonly userLocale?: ProjectAgentUserLocale | undefined;
   }) =>
     Effect.gen(function* () {
       const messageId = coordinatorWelcomeMessageId(input.threadId);
@@ -2182,10 +2181,6 @@ export const makeProjectAgentService = Effect.gen(function* () {
         Option.isSome(detail) && detail.value.messages.some((message) => message.id === messageId);
       if (alreadyImported) return;
       const greetingAt = isoNow();
-      const welcomeName = coordinatorWelcomeDisplayName({
-        userDisplayName: input.userDisplayName,
-        homeDir: serverConfig.homeDir,
-      });
       yield* orchestrationEngine
         .dispatch({
           type: "thread.messages.import",
@@ -2195,7 +2190,9 @@ export const makeProjectAgentService = Effect.gen(function* () {
             {
               messageId,
               role: "assistant",
-              text: coordinatorWelcomeText(welcomeName),
+              text: input.mossbotName
+                ? mossbotWelcome(input.mossbotName, input.userLocale)
+                : coordinatorWelcomeText(input.userDisplayName, input.userLocale),
               createdAt: greetingAt,
               updatedAt: greetingAt,
             },
@@ -2537,6 +2534,7 @@ export const makeProjectAgentService = Effect.gen(function* () {
                 .listManagedWorkers(row.projectId)
                 .pipe(Effect.mapError(toServiceError("Failed to load hub attention.")));
               visible.push({
+                ...(row.agentKind === "mossbot" ? { agentKind: row.agentKind } : {}),
                 projectId: row.projectId,
                 configured: true,
                 coordinatorName: row.coordinatorName,
@@ -2673,7 +2671,13 @@ export const makeProjectAgentService = Effect.gen(function* () {
           if (input.libraryPath !== undefined && input.libraryPath !== null) {
             yield* assertAbsoluteLibraryPath(input.libraryPath);
           }
+          // The kind is fixed when the config is first stored: an existing hub (no stored
+          // kind) stays a hub even when a later request asks for a personal assistant.
+          const agentKind = existingConfig
+            ? (existingConfig.agentKind ?? "hub")
+            : (input.agentKind ?? "hub");
           const config: ProjectAgentConfig = {
+            ...(agentKind === "mossbot" ? { agentKind } : {}),
             projectId: input.projectId,
             coordinatorThreadId,
             coordinatorName,
@@ -2862,8 +2866,10 @@ export const makeProjectAgentService = Effect.gen(function* () {
               .pipe(Effect.mapError(toServiceError("Failed to store initial digest.")));
           }
           yield* importCoordinatorGreeting({
+            ...(config.agentKind === "mossbot" ? { mossbotName: coordinatorName } : {}),
             threadId: coordinatorThreadId,
             userDisplayName: input.userDisplayName,
+            userLocale: input.userLocale,
           });
           if (!saved.automationId) {
             const automation = yield* automationService
@@ -2890,7 +2896,7 @@ export const makeProjectAgentService = Effect.gen(function* () {
               .saveConfig(withAutomation, saved.revision)
               .pipe(Effect.mapError(toServiceError("Failed to link project automation.")));
           }
-          yield* ensureProjectBotPlaybook(input.projectId);
+          yield* ensureProjectBotPlaybook(input.projectId, config.agentKind === "mossbot");
           const latestConfig = yield* requireConfig(input.projectId);
           const coordinatorModelChanged =
             Option.isSome(existing) &&
@@ -4754,9 +4760,10 @@ export const makeProjectAgentService = Effect.gen(function* () {
           .getConfig(principal.projectId)
           .pipe(Effect.catch(() => Effect.succeed(Option.none())));
         if (principal.kind === "coordinator") {
-          yield* ensureProjectBotPlaybook(principal.projectId).pipe(
-            Effect.catch(() => Effect.void),
-          );
+          yield* ensureProjectBotPlaybook(
+            principal.projectId,
+            Option.isSome(config) && config.value.agentKind === "mossbot",
+          ).pipe(Effect.catch(() => Effect.void));
           if (Option.isSome(config)) {
             yield* ensureProjectBotHeartbeat(config.value).pipe(Effect.catch(() => Effect.void));
           }
@@ -4872,6 +4879,9 @@ export const makeProjectAgentService = Effect.gen(function* () {
         // instructions and the memory index lead; rebuildable state (worker
         // reports, memory files, decisions, tasks) trails and truncates first.
         const budget = truncateToContextBudget([
+          ...(Option.isSome(config) && config.value.agentKind === "mossbot"
+            ? [{ label: "Mossbot", text: MOSSBOT_INSTRUCTIONS }]
+            : []),
           { label: "Instructions (user-owned)", text: packet.instructions },
           { label: "Hub memory index", text: memoryIndexText },
           ...(workItem && workItem.projectId === principal.projectId

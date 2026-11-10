@@ -20,7 +20,7 @@ import {
   type PullRequestActor,
   type PullRequestDetail,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import {
   createMemoryHistory,

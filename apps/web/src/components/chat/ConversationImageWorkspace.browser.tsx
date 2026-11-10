@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { useEffect, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,7 +16,12 @@ import { ConversationImageWorkspace } from "./ConversationImageWorkspace";
 
 const state = vi.hoisted(() => ({ isCurrent: () => true }));
 vi.mock("~/lib/mossImagesAccountBoundary", () => ({
-  useMossImagesAccountBoundary: () => ({ key: "account-a", isCurrent: state.isCurrent }),
+  isMossImagesAccountIdentityChange: () => false,
+  useMossImagesAccountBoundary: () => ({
+    key: "account-a",
+    identityKey: "account-a",
+    isCurrent: state.isCurrent,
+  }),
 }));
 // Keep the real preview, flex layout, registered portal and composer controls.
 // The inert frame isolates network/save operations while retaining browser geometry.

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { LIBRARY_RENAME_EXTENSION_ERROR_CODE } from "@synara/contracts";
+import { LIBRARY_RENAME_EXTENSION_ERROR_CODE } from "@moss/contracts";
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Layer } from "effect";
 import { afterAll, vi } from "vitest";

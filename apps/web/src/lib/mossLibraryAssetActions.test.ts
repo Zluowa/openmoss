@@ -165,16 +165,20 @@ describe("Library original asset actions", () => {
   });
   it("does not claim a rejected clipboard write or failed asset read succeeded", async () => {
     calls.copy.mockResolvedValue(false);
-    await expect(shareMossLibraryImage([item], current)).rejects.toThrow("未能复制");
+    await expect(shareMossLibraryImage([item], current)).rejects.toMatchObject({
+      key: "library.error.copyFailed",
+    });
     vi.mocked(fetch).mockResolvedValueOnce(new Response("unavailable", { status: 503 }));
     await expect(downloadMossLibraryItem(item, current)).rejects.toThrow("503");
     expect(click).not.toHaveBeenCalled();
   });
   it("rejects multiple images and non-images before reading any bytes", async () => {
-    await expect(shareMossLibraryImage([item, item], current)).rejects.toThrow("一张图片");
-    await expect(shareMossLibraryImage([{ ...item, kind: "document" }], current)).rejects.toThrow(
-      "一张图片",
-    );
+    await expect(shareMossLibraryImage([item, item], current)).rejects.toMatchObject({
+      key: "library.error.shareOneImage",
+    });
+    await expect(
+      shareMossLibraryImage([{ ...item, kind: "document" }], current),
+    ).rejects.toMatchObject({ key: "library.error.shareOneImage" });
     expect(fetch).not.toHaveBeenCalled();
   });
   it("stops after an account change during grant loading, before file read or clipboard IPC", async () => {

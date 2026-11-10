@@ -4,7 +4,7 @@
 
 import "../../index.css";
 
-import type { EditorId, NativeApi } from "@synara/contracts";
+import type { EditorId, NativeApi } from "@moss/contracts";
 import type { PropsWithChildren } from "react";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

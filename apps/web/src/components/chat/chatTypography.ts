@@ -53,11 +53,11 @@ export function userMessageBubbleBorderClassName(isTemporaryThread: boolean): st
     ? USER_MESSAGE_BUBBLE_TEMPORARY_BORDER_CLASS_NAME
     : USER_MESSAGE_BUBBLE_PLAIN_BORDER_CLASS_NAME;
 }
-// Claude's prose leading, 14px on a 20px line. Shared by the assistant transcript text,
+// Comfortable prose leading, 16px on a 24px line. Shared by the assistant transcript text,
 // user message bubbles, and the composer input so every chat surface reads at one leading.
-const CHAT_TRANSCRIPT_LINE_HEIGHT_RATIO = 20 / 14;
+const CHAT_TRANSCRIPT_LINE_HEIGHT_RATIO = 24 / 16;
 
-/** The size prose renders at for a chosen base size: one step above the chrome. */
+/** Prose follows the same comfortable role as the CSS text-chat token. */
 export function getChatProseFontSizePx(chatFontSizePx = DEFAULT_CHAT_FONT_SIZE_PX): number {
   return getAppTypographyScale(chatFontSizePx).chatPx;
 }

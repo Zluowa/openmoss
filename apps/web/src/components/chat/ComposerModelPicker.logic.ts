@@ -3,8 +3,8 @@
 // Layer: Chat composer state helpers
 // Depends on: composer trait resolution and the starred model storage shape.
 
-import type { ModelSlug, ProviderInstanceId, ProviderKind } from "@synara/contracts";
-import { getDefaultModel, resolveSelectableModel } from "@synara/shared/model";
+import type { ModelSlug, ProviderInstanceId, ProviderKind } from "@moss/contracts";
+import { getDefaultModel, resolveSelectableModel } from "@moss/shared/model";
 
 import { type StarredModel, starredModelInstanceId, starredModelKey } from "~/lib/starredModels";
 import {
@@ -164,8 +164,14 @@ export type ComposerModelPickerRow = {
 export function resolveDefaultRowModel(input: {
   provider: ProviderKind;
   options: ReadonlyArray<ProviderModelOption>;
+  /** The model the account's own config sets (config.toml `model`), which Default means. */
+  configuredDefault?: string | null | undefined;
 }): ModelSlug | null {
   if (input.provider !== "codex") return null;
+  const configured = input.configuredDefault
+    ? resolveSelectableModel(input.provider, input.configuredDefault, input.options)
+    : null;
+  if (configured) return configured;
   const defaultModel = getDefaultModel(input.provider);
   return defaultModel ? resolveSelectableModel(input.provider, defaultModel, input.options) : null;
 }

@@ -14,8 +14,12 @@
     "scripts",
     "integration",
     "../../scripts/lib",
+    "../../scripts/devs/cloudQueue.ts",
     "../../scripts/fixtures/filesystem-links.ts",
     "../../supabase/functions/moss-model-gateway/canvasVideoInput.ts",
-    "../../supabase/functions/moss-model-gateway/canvasInlineImage.ts"
+    "../../supabase/functions/moss-model-gateway/canvasInlineImage.ts",
+    "../../supabase/functions/moss-model-gateway/mossAppsClient.ts",
+    "../../supabase/functions/moss-model-gateway/mossAppsTypes.ts",
+    "../../supabase/functions/moss-model-gateway/gatewayBody.ts"
   ]
 }

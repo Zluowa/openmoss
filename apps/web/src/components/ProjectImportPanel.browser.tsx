@@ -1,6 +1,6 @@
 import "../index.css";
 
-import { ProjectId, ThreadId, type ListProjectImportsResult } from "@synara/contracts";
+import { ProjectId, ThreadId, type ListProjectImportsResult } from "@moss/contracts";
 import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -99,26 +99,61 @@ beforeEach(() => {
 });
 
 describe("project import panel", () => {
-  it("discovers only on request and retries only failures without reimporting successful or existing conversations", async () => {
+  it("scans every agent on open and retries only failures without reimporting successful or existing conversations", async () => {
     const onResult = vi.fn();
-    await render(<ProjectImportPanel onBusyChange={vi.fn()} onResult={onResult} />);
-    expect(api.listProjectImports).not.toHaveBeenCalled();
-    await page.getByRole("button", { name: "Find projects" }).click();
-    expect(api.listProjectImports).toHaveBeenCalledWith({ providers: ["codex", "claudeAgent"] });
+    const onScanComplete = vi.fn();
+    await render(
+      <ProjectImportPanel
+        onBusyChange={vi.fn()}
+        onResult={onResult}
+        onScanComplete={onScanComplete}
+      />,
+    );
+    await expect
+      .element(page.getByRole("button", { name: "Import 2 conversations" }))
+      .toBeVisible();
+    await page.getByRole("button", { name: /Choose projects/ }).click();
     await expect.element(page.getByRole("checkbox", { name: "Select Moss" })).toBeChecked();
+    expect(api.listProjectImports).toHaveBeenCalledTimes(1);
+    expect(api.listProjectImports).toHaveBeenCalledWith({
+      providers: [
+        "codex",
+        "claudeAgent",
+        "cursor",
+        "gemini",
+        "antigravity",
+        "grok",
+        "opencode",
+        "pi",
+        "hermes",
+        "devin",
+        "omp",
+        "zcode",
+      ],
+    });
+    expect(onScanComplete).toHaveBeenCalledWith(true);
+    await expect
+      .element(
+        page.getByText(
+          "Not found: Cursor, Gemini, Antigravity, Grok, OpenCode, Pi, Hermes, Devin, Oh My Pi, ZCode.",
+        ),
+      )
+      .toBeVisible();
     await page.getByRole("button", { name: "Remove all" }).click();
-    await expect.element(page.getByRole("button", { name: "Import selected" })).toBeDisabled();
+    await expect
+      .element(page.getByRole("button", { name: /^Import \d+ conversations?$/ }))
+      .not.toBeInTheDocument();
     await page.getByRole("button", { name: "Select all" }).click();
     api.importProject
       .mockResolvedValueOnce(imported)
       .mockRejectedValueOnce(new Error("Temporary provider failure"));
-    await page.getByRole("button", { name: "Import selected" }).click();
-    await expect.element(page.getByRole("button", { name: "Retry failed (1)" })).toBeVisible();
+    await page.getByRole("button", { name: "Import 2 conversations" }).click();
+    await expect.element(page.getByRole("button", { name: "Retry 1 failed" })).toBeVisible();
     expect(api.importProject.mock.calls.map(([input]) => input.threadKey)).toEqual([
       "first",
       "second",
     ]);
-    await page.getByRole("button", { name: "Retry failed (1)" }).click();
+    await page.getByRole("button", { name: "Retry 1 failed" }).click();
     await expect
       .element(page.getByRole("status"))
       .toHaveTextContent("2 imported or already present");
@@ -130,32 +165,37 @@ describe("project import panel", () => {
     expect(onResult).toHaveBeenCalledTimes(2);
   });
 
-  it("finishes the in-flight request before stopping and resumes remaining selections", async () => {
-    let finishImport: ((value: typeof imported) => void) | undefined;
-    api.importProject.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          finishImport = resolve;
-        }),
+  it("stops starting new imports when asked and offers the rest again", async () => {
+    const many = Array.from({ length: 20 }, (_, index) => ({
+      ...catalog.projects[0]!.threads[0]!,
+      key: `thread-${index}`,
+      title: `Conversation ${index}`,
+    }));
+    api.listProjectImports.mockResolvedValue({
+      ...catalog,
+      projects: [{ ...catalog.projects[0]!, threads: many }],
+    });
+    const releases: Array<() => void> = [];
+    api.importProject.mockImplementation(
+      () => new Promise((resolve) => releases.push(() => resolve(imported))),
     );
     const onBusyChange = vi.fn();
     await render(<ProjectImportPanel onBusyChange={onBusyChange} />);
-    await page.getByRole("button", { name: "Find projects" }).click();
-    await page.getByRole("button", { name: "Import selected" }).click();
-    await page.getByRole("button", { name: "Stop after current" }).click();
+    await page.getByRole("button", { name: "Import 20 conversations" }).click();
+    await page.getByRole("button", { name: "Stop", exact: true }).click();
     expect(onBusyChange).toHaveBeenLastCalledWith(true);
-    finishImport?.(imported);
+    // The few already in flight finish; nothing new starts.
+    for (const release of releases.splice(0)) release();
     await expect.element(page.getByRole("status")).toHaveTextContent("Import stopped");
-    expect(api.importProject).toHaveBeenCalledTimes(1);
+    const started = api.importProject.mock.calls.length;
+    expect(started).toBeLessThan(20);
     expect(onBusyChange).toHaveBeenLastCalledWith(false);
-    await page.getByRole("button", { name: "Import remaining" }).click();
+    api.importProject.mockResolvedValue(imported);
+    await page.getByRole("button", { name: `Import ${20 - started} conversations` }).click();
     await expect
       .element(page.getByRole("status"))
-      .toHaveTextContent("2 imported or already present");
-    expect(api.importProject.mock.calls.map(([input]) => input.threadKey)).toEqual([
-      "first",
-      "second",
-    ]);
+      .toHaveTextContent("20 imported or already present");
+    expect(new Set(api.importProject.mock.calls.map(([input]) => input.threadKey)).size).toBe(20);
   });
 
   it("submits a relink path while preserving the original project identity", async () => {
@@ -164,44 +204,197 @@ describe("project import panel", () => {
       projects: [{ ...catalog.projects[0], directoryExists: false }],
     });
     await render(<ProjectImportPanel onBusyChange={vi.fn()} />);
-    await page.getByRole("button", { name: "Find projects" }).click();
+    await page.getByRole("button", { name: /Choose projects/ }).click();
     await page.getByLabelText("New folder for Moss").fill("/code/moved");
-    await page.getByRole("button", { name: "Import selected" }).click();
+    await page.getByRole("button", { name: "Import 2 conversations" }).click();
     await expect
       .element(page.getByRole("status"))
       .toHaveTextContent("2 imported or already present");
-    expect(api.importProject.mock.calls.map(([input]) => input)).toEqual([
+    expect(
+      api.importProject.mock.calls
+        .map(([input]) => input)
+        .toSorted((a, b) => a.threadKey.localeCompare(b.threadKey)),
+    ).toEqual([
       { projectKey: "project", threadKey: "first", workspaceRoot: "/code/moved", spaceId: null },
       { projectKey: "project", threadKey: "second", workspaceRoot: "/code/moved", spaceId: null },
     ]);
   });
 
-  it("clamps long failure titles and errors instead of overflowing the dialog", async () => {
+  it("skips a conversation that can't be imported with one quiet line and no retry", async () => {
     const longTitle =
       `Investigate the import pipeline ${"with a very long prompt tail ".repeat(20)}`.trim();
-    const longError = `Codex fork failed: /very/long/path/${"segment/".repeat(30)}`;
+    api.importProject.mockResolvedValueOnce(imported).mockRejectedValueOnce({
+      _tag: "WsRpcError",
+      message: "Moss couldn't read this conversation's files.",
+      code: "PROJECT_IMPORT_FAILED",
+      retryable: false,
+    });
     api.listProjectImports.mockResolvedValue({
       ...catalog,
       projects: [
         {
           ...catalog.projects[0]!,
-          threads: [{ ...catalog.projects[0]!.threads[0]!, title: longTitle }],
+          threads: [
+            catalog.projects[0]!.threads[0]!,
+            { ...catalog.projects[0]!.threads[1]!, title: longTitle },
+          ],
         },
       ],
     });
-    api.importProject.mockRejectedValue(new Error(longError));
     await render(<ProjectImportPanel onBusyChange={vi.fn()} />);
-    await page.getByRole("button", { name: "Find projects" }).click();
-    await page.getByRole("button", { name: "Import selected" }).click();
+    await page.getByRole("button", { name: "Import 2 conversations" }).click();
+
+    const summary = page.getByRole("button", { name: "1 conversation couldn't be imported" });
+    await expect.element(summary).toBeVisible();
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("1 imported or already present");
+    // Trying again can't help, so nothing offers to; the raw error never shows.
+    await expect.element(page.getByRole("button", { name: /^Retry/ })).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: /^Import \d+ conversations?$/ }))
+      .not.toBeInTheDocument();
+    await expect.element(page.getByText(/EISDIR|stat 'E:'/)).not.toBeInTheDocument();
+
+    await summary.click();
     const failures = page.getByRole("list", { name: "Import failures" });
-    await expect.element(failures).toBeVisible();
     const failureTitle = `Moss · ${longTitle}`;
     const title = failures.getByText(failureTitle, { exact: true });
-    await expect.element(title).toHaveClass("line-clamp-2");
+    await expect.element(title).toHaveClass("line-clamp-1");
     await expect.element(title).toHaveAttribute("title", failureTitle);
-    const error = failures.getByText(longError, { exact: true });
-    await expect.element(error).toHaveClass("line-clamp-3");
-    await expect.element(error).toHaveAttribute("title", longError);
+    await expect
+      .element(failures.getByText("Moss couldn't read this conversation's files."))
+      .toBeVisible();
+  });
+
+  it("offers a retry only for failures that trying again can fix", async () => {
+    api.importProject.mockRejectedValueOnce(new Error("socket closed")).mockRejectedValueOnce({
+      _tag: "WsRpcError",
+      message: "The conversation file is no longer on this computer.",
+      code: "PROJECT_IMPORT_FAILED",
+      retryable: false,
+    });
+    await render(<ProjectImportPanel onBusyChange={vi.fn()} />);
+    await page.getByRole("button", { name: "Import 2 conversations" }).click();
+    await expect.element(page.getByRole("button", { name: "Retry 1 failed" })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "2 conversations couldn't be imported" }))
+      .toBeVisible();
+    api.importProject.mockResolvedValue(imported);
+    await page.getByRole("button", { name: "Retry 1 failed" }).click();
+    await expect.element(page.getByRole("button", { name: /^Retry/ })).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: "1 conversation couldn't be imported" }))
+      .toBeVisible();
+    expect(api.importProject).toHaveBeenCalledTimes(3);
+  });
+
+  it("leaves projects in a temp folder unticked and doesn't ask about missing folders in onboarding", async () => {
+    api.listProjectImports.mockResolvedValue({
+      ...catalog,
+      projects: [
+        catalog.projects[0]!,
+        {
+          ...catalog.projects[0]!,
+          key: "temp",
+          title: "omb-acp-memory-wE8Uer",
+          workspaceRoot: "C:\\Users\\me\\AppData\\Local\\Temp\\omb-acp-memory-wE8Uer",
+          directoryExists: false,
+          temporary: true,
+          existingProjectId: null,
+          threads: [{ ...catalog.projects[0]!.threads[0]!, key: "temp-check" }],
+        },
+      ],
+    });
+    await render(<ProjectImportPanel onBusyChange={vi.fn()} relinkMissingFolders={false} />);
+    await expect
+      .element(page.getByRole("button", { name: "Import 2 conversations" }))
+      .toBeVisible();
+    await page.getByRole("button", { name: /Choose projects/ }).click();
+    await expect
+      .element(page.getByRole("checkbox", { name: "Select omb-acp-memory-wE8Uer" }))
+      .not.toBeChecked();
+    await expect.element(page.getByText("History only")).toBeVisible();
+    await expect.element(page.getByText("Folder unavailable")).not.toBeInTheDocument();
+    await expect
+      .element(page.getByLabelText("New folder for omb-acp-memory-wE8Uer"))
+      .not.toBeInTheDocument();
+  });
+});
+
+describe("agents found on this computer", () => {
+  it("ticks every agent that has conversations and leaves out an agent the person unticks", async () => {
+    await render(<ProjectImportPanel onBusyChange={vi.fn()} />);
+    const group = page.getByRole("group", { name: "Agents found on this computer" });
+    await expect.element(group.getByRole("checkbox", { name: "Codex" })).toBeChecked();
+    await expect.element(group.getByRole("checkbox", { name: "Claude Code" })).toBeChecked();
+    await expect.element(group).toHaveTextContent("Codex2");
+    await group.getByRole("checkbox", { name: "Claude Code" }).click();
+    await page.getByRole("button", { name: "Import 1 conversation" }).click();
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("1 imported or already present");
+    expect(api.importProject.mock.calls.map(([input]) => input.threadKey)).toEqual(["first"]);
+  });
+
+  it("names conversations it found but can't copy, instead of calling the agent missing", async () => {
+    api.listProjectImports.mockResolvedValue({
+      ...catalog,
+      unreadable: [{ provider: "antigravity", conversationCount: 2, reason: "encrypted" }],
+    });
+    await render(<ProjectImportPanel onBusyChange={vi.fn()} />);
+    const note = page.getByText(
+      "Not found: Cursor, Gemini, Grok, OpenCode, Pi, Hermes, Devin, Oh My Pi, ZCode · 2 can't be copied (Antigravity).",
+    );
+    await expect.element(note).toBeVisible();
+    await expect
+      .element(note)
+      .toHaveAttribute(
+        "title",
+        "Found 2 Antigravity conversations that can't be copied: Antigravity keeps them encrypted.",
+      );
+  });
+
+  it("says plainly when no agent on this computer has conversations", async () => {
+    api.listProjectImports.mockResolvedValue({
+      sources: [{ provider: "codex", error: null }],
+      projects: [],
+    });
+    const onScanComplete = vi.fn();
+    await render(<ProjectImportPanel onBusyChange={vi.fn()} onScanComplete={onScanComplete} />);
+    await expect
+      .element(page.getByText("No conversations from other agents were found on this computer."))
+      .toBeVisible();
+    expect(onScanComplete).toHaveBeenCalledWith(false);
+  });
+
+  it("says plainly that a scan failed, without the raw error", async () => {
+    api.listProjectImports.mockRejectedValue(new Error("disk unavailable"));
+    await render(<ProjectImportPanel onBusyChange={vi.fn()} />);
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent("Could not look for conversations on this computer.");
+    await expect.element(page.getByRole("button", { name: "Scan again" })).toBeEnabled();
+  });
+});
+
+describe("hosted primary action", () => {
+  it("hands the import action to the host instead of drawing its own button", async () => {
+    const onPrimaryActionChange = vi.fn();
+    await render(
+      <ProjectImportPanel onBusyChange={vi.fn()} onPrimaryActionChange={onPrimaryActionChange} />,
+    );
+    await expect
+      .poll(() => onPrimaryActionChange.mock.calls.at(-1)?.[0]?.label)
+      .toBe("Import 2 conversations");
+    await expect
+      .element(page.getByRole("button", { name: "Import 2 conversations" }))
+      .not.toBeInTheDocument();
+    onPrimaryActionChange.mock.calls.at(-1)?.[0]?.run();
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("2 imported or already present");
+    expect(onPrimaryActionChange.mock.calls.at(-1)?.[0]).toBeNull();
   });
 });
 
@@ -220,9 +413,9 @@ describe("project import dialog dismissal", () => {
     useProjectImportDialogStore.getState().openDialog();
     await page.viewport(1100, 850);
     await render(<ProjectImportDialog />);
-    await page.getByRole("button", { name: "Find projects" }).click();
+    await page.getByRole("button", { name: /Choose projects/ }).click();
     await page.getByRole("button", { name: "Conversations in Moss" }).click();
-    await page.getByRole("button", { name: "Import selected" }).click();
+    await page.getByRole("button", { name: "Import 2 conversations" }).click();
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await expect.element(page.getByRole("dialog")).toBeVisible();
     expect(useProjectImportDialogStore.getState().isOpen).toBe(true);

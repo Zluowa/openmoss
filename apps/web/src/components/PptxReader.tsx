@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isLocalAbsolutePath, joinWorkspaceRelativePath } from "@synara/shared/path";
+import { isLocalAbsolutePath, joinWorkspaceRelativePath } from "@moss/shared/path";
 
 import { basenameOfPath } from "~/file-icons";
 import { DownloadIcon, LoaderCircleIcon, TriangleAlertIcon } from "~/lib/icons";

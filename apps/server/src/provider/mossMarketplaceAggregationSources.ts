@@ -22,7 +22,7 @@ import type {
   ProviderCatalogSourceTier,
   ProviderCatalogReinstatement,
   ProviderCatalogWithdrawal,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export type MossMarketplaceCandidateKind = ProviderCatalogResourceKind;
 

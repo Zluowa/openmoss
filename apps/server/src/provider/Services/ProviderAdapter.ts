@@ -78,7 +78,7 @@ import type {
   ProviderTurnStartResult,
   NextMessagePredictionGenerationTrigger,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { ServerResolvedVoiceRouteAuthority } from "../../voiceTranscriptionGateway.ts";
 import type { Deferred, Effect } from "effect";
 import type { Stream } from "effect";
@@ -229,7 +229,7 @@ export interface ProviderAdapterShape<TError> {
    * failing startup should implement this instead of relying on cursor presence.
    */
   readonly didResumeSession?: (
-    input: ProviderSessionStartInput,
+    input: ProviderAdapterSessionStartInput,
     session: ProviderSession,
   ) => boolean;
 

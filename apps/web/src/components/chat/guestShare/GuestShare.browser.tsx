@@ -12,7 +12,7 @@ import {
   type ThreadGuestShare,
   ThreadId,
   WsRpcError,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

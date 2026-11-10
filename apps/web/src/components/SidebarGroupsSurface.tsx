@@ -6,7 +6,7 @@
 // Exports: SidebarGroupsSurface
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { ProjectId, ThreadId } from "@synara/contracts";
+import type { ProjectId, ThreadId } from "@moss/contracts";
 
 import { createGroupProject, findLegacyStudioContainerForAdoption } from "../lib/groupProjects";
 import { FolderOpenIcon, NewThreadIcon } from "../lib/icons";

@@ -72,6 +72,71 @@ describe("streamingCodeHighlightIntervalMs", () => {
 });
 
 describe("ChatMarkdown", () => {
+  it(
+    "renders the current thread's exported presentation as a file card",
+    async () => {
+      const { default: ChatMarkdown } = await import("./ChatMarkdown");
+      const href =
+        "/api/thread-output?threadId=slides-1&file=out%2Fdeck.pptx&sha256=" +
+        "a".repeat(64) +
+        "&token=untrusted-link-value";
+      const render = (id: string, label = "Download slides") =>
+        renderWithQueryClient(
+          <ChatMarkdown
+            text={`[${label}](${href})`}
+            cwd={undefined}
+            threadId={id}
+            isStreaming={false}
+          />,
+        );
+      const html = render("slides-1");
+      expect(html).toContain('data-chat-file-card="out/deck.pptx"');
+      // A label that is not a file name falls back to the file's own name.
+      expect(html).toContain(">deck.pptx<");
+      expect(html).toContain("PPTX");
+      expect(html).not.toContain("untrusted-link-value");
+      expect(render("slides-1", "季度回顾.pptx")).toContain(">季度回顾.pptx<");
+      expect(render("another-thread")).not.toContain("data-chat-file-card");
+    },
+    HEAVY_MODULE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "draws a deck's 资料空间 link only when the answer has no card for that deck",
+    async () => {
+      const { default: ChatMarkdown } = await import("./ChatMarkdown");
+      const { ChatDeckCardPagesContext } = await import("../lib/chatSpacePageLink");
+      const text = "做好了：[打开「季度回顾」](moss://space-page/deck-1)";
+      const render = (carded: ReadonlySet<string>) =>
+        renderWithQueryClient(
+          <ChatDeckCardPagesContext.Provider value={carded}>
+            <ChatMarkdown text={text} cwd={undefined} threadId="thread-1" isStreaming={false} />
+          </ChatDeckCardPagesContext.Provider>,
+        );
+      const withoutCard = render(new Set());
+      expect(withoutCard).toContain("data-space-page-link");
+      expect(withoutCard).toContain("打开「季度回顾」");
+      const withCard = render(new Set(["deck-1"]));
+      expect(withCard).not.toContain("data-space-page-link");
+      expect(withCard).not.toContain("打开「季度回顾」");
+      expect(withCard).toContain("做好了");
+      // A card for another deck leaves this link alone.
+      expect(render(new Set(["deck-2"]))).toContain("data-space-page-link");
+    },
+    HEAVY_MODULE_TEST_TIMEOUT_MS,
+  );
+
+  it("offers owner downloads for common text, table and archive links", async () => {
+    const { default: ChatMarkdown } = await import("./ChatMarkdown");
+    const extensions = ["txt", "md", "csv", "tsv", "zip"];
+    const text = extensions
+      .map((ext) => `[report.${ext}](C:/workspace/report.${ext})`)
+      .join("\n\n");
+    const html = renderWithQueryClient(
+      <ChatMarkdown text={text} cwd="C:/workspace" threadId="owner" isStreaming={false} />,
+    );
+    for (const ext of extensions) expect(html).toContain(`download="report.${ext}"`);
+  });
   it("leaves Codex visualize markers as text because CLI 0.162.1 never emits them", async () => {
     const { default: ChatMarkdown } = await import("./ChatMarkdown");
     const marker = 'visualize{"path":"/tmp/chart.html","mode":"wide","title":"Trend"}';
@@ -211,6 +276,32 @@ describe("ChatMarkdown", () => {
     expect(markup).toContain("<strong>Medium Risk</strong>");
   });
 
+  it.each([
+    ["NOTE", "Note", "说明"],
+    ["TIP", "Tip", "提示"],
+    ["IMPORTANT", "Important", "重要"],
+    ["WARNING", "Warning", "警告"],
+    ["CAUTION", "Caution", "注意"],
+  ])("titles a %s alert from the active locale", async (marker, english, chinese) => {
+    const { default: ChatMarkdown } = await import("./ChatMarkdown");
+    const { MossLocaleScope } = await import("../localization");
+    const text = `> [!${marker}]\n> Note the Warning: run **Tip** first`;
+    const inLocale = (locale: "en" | "zh-CN") =>
+      renderWithQueryClient(
+        <MossLocaleScope locale={locale}>
+          <ChatMarkdown text={text} cwd={undefined} isStreaming={false} />
+        </MossLocaleScope>,
+      );
+
+    const zh = inLocale("zh-CN");
+    expect(zh).toContain(`>${chinese}</p>`);
+    expect(zh).not.toContain(`>${english}</p>`);
+    // The agent's own words stay as written, even ones that match a title.
+    expect(zh).toContain("Note the Warning: run <strong>Tip</strong> first");
+
+    expect(inLocale("en")).toContain(`>${english}</p>`);
+  });
+
   it("renders <br> tags as line breaks instead of literal text", async () => {
     const markup = await renderMarkdown(
       "One<br>two<BR/>three\n\n| a |\n| - |\n| x<br />y |\n\nDone.\n\n<br>",
@@ -265,6 +356,25 @@ describe("ChatMarkdown", () => {
     expect(rendered).not.toContain('name="location"');
   });
 
+  it("shows a shared viewer's file links as plain chips with no path to open", async () => {
+    const { default: ChatMarkdown } = await import("./ChatMarkdown");
+    const { SharedViewerContext } = await import("~/lib/sharedViewer");
+    const rendered = renderWithQueryClient(
+      <SharedViewerContext.Provider value={true}>
+        <ChatMarkdown
+          text={"Saved [puppy-guide.html](file:///D:/ai/puppy-guide.html) and `D:/ai/notes.md`."}
+          cwd={undefined}
+          isStreaming={false}
+        />
+      </SharedViewerContext.Provider>,
+    );
+    expect(rendered).toContain('title="puppy-guide.html is on the owner&#x27;s computer"');
+    expect(rendered).toContain('title="notes.md is on the owner&#x27;s computer"');
+    expect(rendered).not.toContain("D:/ai");
+    expect(rendered).not.toContain("href=");
+    expect(rendered).not.toContain("data-mention-path");
+  });
+
   it("preserves Markdown features in authored HTML previews", async () => {
     const { default: ChatMarkdown } = await import("./ChatMarkdown");
     const text = [
@@ -289,12 +399,34 @@ describe("ChatMarkdown", () => {
     expect(rendered).toContain('data-github-alert="note"');
     expect(rendered).toContain('data-chat-find-match="true"');
     expect(rendered).toContain("/tmp/notes.md");
-    expect(rendered).toContain('title="/tmp/notes.md"');
+    // File chips carry their resolved path without needing a hover.
+    expect(rendered).toContain('data-mention-path="/tmp/notes.md"');
+    expect(rendered).toContain('aria-description="/tmp/notes.md"');
     expect(rendered).toContain('href="/tmp/notes.md"');
     expect(rendered).toContain('type="checkbox"');
     expect(rendered).not.toContain("thread://");
     expect(rendered).not.toContain("synara://");
     expect(rendered).toContain("<button");
+  });
+
+  it("keeps shared local links inert while rendering public pull requests as chips", async () => {
+    const { default: ChatMarkdown } = await import("./ChatMarkdown");
+    const { SharedViewerContext } = await import("~/lib/sharedViewer");
+    const rendered = renderWithQueryClient(
+      <SharedViewerContext.Provider value={true}>
+        <ChatMarkdown
+          cwd={undefined}
+          text={
+            "[Local preview](http://127.0.0.1:3000) and https://github.com/Zluowa/moss-synara/pull/382"
+          }
+          isStreaming={false}
+        />
+      </SharedViewerContext.Provider>,
+    );
+    expect(rendered).toContain('data-shared-local-link=""');
+    expect(rendered).not.toContain('href="http://127.0.0.1:3000"');
+    expect(rendered).toContain('data-forge-ref-chip="pull"');
+    expect(rendered).toContain('href="https://github.com/Zluowa/moss-synara/pull/382"');
   });
 
   it("leaves blockquotes with inline text after the marker as plain quotes", async () => {
@@ -315,6 +447,18 @@ describe("ChatMarkdown", () => {
     expect(markup).toContain("Mars public opinion research");
     expect(markup).toContain("raw id");
     expect(markup).not.toContain("moss://thread/");
+  });
+
+  it("renders a deck's moss://space-page link as a button that opens it in 资料空间", async () => {
+    const markup = await renderMarkdown(
+      "幻灯片做好了：[打开「季度回顾」](moss://space-page/page_ab12) 。坏的：[x](moss://space-page/..%2Fsecret)",
+    );
+    expect(markup).toContain("data-space-page-link");
+    expect(markup).toContain("打开「季度回顾」");
+    expect(markup).not.toContain("moss://space-page/page_ab12");
+    // An id that is not a plain item id is not turned into an open button.
+    expect(markup.match(/data-space-page-link/gu)).toHaveLength(1);
+    expect(markup).not.toContain("moss://space-page/");
   });
 
   it("renders thread:// links as thread buttons", async () => {
@@ -605,7 +749,7 @@ $$
     );
 
     expect(markup).toContain(
-      'title="/Users/tester/.agents/skills/annotate-pr/scripts/delete_uploadthing.py"',
+      'data-mention-path="/Users/tester/.agents/skills/annotate-pr/scripts/delete_uploadthing.py"',
     );
     expect(markup).not.toContain(
       'href="/Users/tester/Documents/Moss/thread/scripts/delete_uploadthing.py"',
@@ -618,7 +762,9 @@ $$
       "/Users/tester/Documents/Moss/thread",
     );
 
-    expect(markup).toContain('title="/Users/tester/.agents/skills/annotate-pr/SKILL.md"');
+    expect(markup).toContain(
+      'data-mention-path="/Users/tester/.agents/skills/annotate-pr/SKILL.md"',
+    );
     expect(markup).not.toContain('href="/Users/tester/Documents/Moss/thread/SKILL.md"');
   });
 });
@@ -740,7 +886,7 @@ describe("workspace Wiki links", () => {
       <ChatMarkdown text="[[My %20 note|Read note]]" cwd={root} wikiLinkRoot={root} />,
     );
     expect(markup).toContain(`href="${href}"`);
-    expect(markup).toContain(`title="${target}"`);
+    expect(markup).toContain(`data-mention-path="${target}"`);
     expect(markup).not.toContain('target="_blank"');
   });
 

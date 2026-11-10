@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { deriveMossLoopLedgerDashboardModel } from "@synara/contracts";
+import { deriveMossLoopLedgerDashboardModel } from "@moss/contracts";
 import { readMossLoopLedgerDashboardSnapshot } from "./moss-loop-ledger-snapshot.ts";
 import { buildMossReleaseGateManifest } from "./moss-release-gate.ts";
 import { MOSS_RELEASE_FRESHNESS_REFRESH_PLAN_STEP_ORDER } from "./lib/moss-release-freshness-refresh-plan-constants.ts";
@@ -325,7 +325,7 @@ describe("moss-loop-ledger-snapshot", () => {
           type: "moss.evidence.recorded",
           createdAt: "2026-07-01T00:02:00.000Z",
           correlationId: "iteration-1",
-          evidence: ["snapshot-evidence.md", "bun --filter @synara/scripts test -- snapshot"],
+          evidence: ["snapshot-evidence.md", "bun --filter @moss/scripts test -- snapshot"],
         },
         {
           eventId: "moss-event-4",

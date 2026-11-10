@@ -1,4 +1,4 @@
-import type { MossPayPlan } from "@synara/contracts";
+import type { MossPayPlan } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +6,7 @@ import {
   isCurrentMossPlan,
   mossMembershipAgentUsageMultiplier,
   mossMembershipPlanName,
+  mossPlansPurchasable,
   visibleMossMembershipPlans,
 } from "./MossMembershipPage.logic";
 
@@ -35,6 +36,14 @@ describe("Moss membership catalog rules", () => {
     expect(formatMossMembershipPriceNumber(4_900, "zh-CN")).toBe("49");
     expect(formatMossMembershipPriceNumber(4_900, "en")).toBe("49");
     expect(formatMossMembershipPriceNumber(990, "en")).toBe("9.90");
+  });
+
+  it("closes plans only when the catalog says so", () => {
+    expect(mossPlansPurchasable({ plansPurchasable: false })).toBe(false);
+    expect(mossPlansPurchasable({ plansPurchasable: true })).toBe(true);
+    // A public listing or a deployment that hasn't said is not a closed shop.
+    expect(mossPlansPurchasable({})).toBe(true);
+    expect(mossPlansPurchasable(undefined)).toBe(true);
   });
 
   it("marks a plan current only for an exact authoritative plan code", () => {

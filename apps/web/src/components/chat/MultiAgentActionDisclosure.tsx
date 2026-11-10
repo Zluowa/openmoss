@@ -2,7 +2,7 @@ import { ConversationShimmer } from "./ConversationShimmer";
 // FILE: MultiAgentActionDisclosure.tsx
 // Purpose: Codex-style timeline disclosure for provider multi-agent actions.
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { WorkLogEntry, WorkLogSubagent } from "../../workLog";

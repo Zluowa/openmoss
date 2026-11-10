@@ -4,11 +4,7 @@
 //          only ever learns the outcome.
 // Layer: Chat transcript UI
 
-import type {
-  SecretRequestActivityPayload,
-  SecretRequestOutcome,
-  ThreadId,
-} from "@synara/contracts";
+import type { SecretRequestActivityPayload, SecretRequestOutcome, ThreadId } from "@moss/contracts";
 import { useId, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "~/components/ui/button";

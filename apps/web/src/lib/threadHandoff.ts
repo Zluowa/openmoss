@@ -13,8 +13,8 @@ import {
   type ProviderKind,
   type ServerProviderStatus,
   type ThreadHandoffImportedMessage,
-} from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
+} from "@moss/contracts";
+import { getDefaultModel } from "@moss/shared/model";
 import type { ProviderInstanceOption } from "../appSettings";
 import { type Thread } from "../types";
 import { DEFAULT_PROVIDER_ORDER } from "../providerOrdering";
@@ -229,15 +229,23 @@ export function canCreateThreadHandoff(input: {
 }
 
 /**
- * Continuing in the same thread rebinds its session to another provider. A
- * live session cannot move between accounts of one provider in place, so
- * those targets only offer a new thread (the server enforces the same rule).
+ * Continuing in the same thread rebinds its session to another provider, or to
+ * another account of the same provider (an imported local-account chat moving
+ * to Moss, say). The source's native history stays behind and the transcript
+ * carries the context, so only the account the thread already runs on is not
+ * a target.
  */
 export function canContinueThreadHandoff(input: {
   readonly sourceProvider: ProviderKind;
   readonly targetProvider: ProviderKind;
+  readonly sourceProviderInstanceId?: string | undefined;
+  readonly targetProviderInstanceId?: string | undefined;
 }): boolean {
-  return input.targetProvider !== input.sourceProvider;
+  if (input.targetProvider !== input.sourceProvider) return true;
+  return (
+    (input.targetProviderInstanceId ?? input.targetProvider) !==
+    (input.sourceProviderInstanceId ?? input.sourceProvider)
+  );
 }
 
 // Mirrors the outcome rows ProviderCommandReactor appends for a same-thread

@@ -1,4 +1,4 @@
-import { ThreadId, type PullRequestAutoFixState } from "@synara/contracts";
+import { ThreadId, type PullRequestAutoFixState } from "@moss/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Exit, Layer } from "effect";
 

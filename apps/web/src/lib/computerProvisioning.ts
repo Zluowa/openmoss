@@ -18,12 +18,12 @@ import type {
   DesktopAppSnapPermissionKind,
   DesktopAppSnapState,
   DesktopBridge,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   COMPUTER_PERMISSION_KINDS,
   listComputerPermissions,
   missingComputerAppSnapPermissions,
-} from "@synara/shared/computerGrants";
+} from "@moss/shared/computerGrants";
 
 import { computerStatusNeedsSetup } from "~/components/ComputerPanel.logic";
 import { isLoopbackHostname } from "~/components/Sidebar.logic";

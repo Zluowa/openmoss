@@ -5,7 +5,7 @@ import type {
   ProviderMcpServerDescriptor,
   ProviderPluginDescriptor,
   ProviderSkillDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   LIBRARY_BUCKETS,
@@ -15,6 +15,7 @@ import {
   filterVisibleManageTabs,
   CODEX_DIRECTORY_CATEGORY_ORDER,
   installedPluginDirectoryEntries,
+  isBuiltInPluginMarketplace,
   isCodexManagedPlugin,
   isPluginInstalledForDirectory,
   isProviderPluginListingLoadError,
@@ -317,6 +318,39 @@ describe("Codex plugin directory model", () => {
       ["featured", ["gmail@openai-curated-remote"]],
       ["category", ["gmail@openai-curated-remote"]],
     ]);
+  });
+
+  it("files Moss's plugin catalog under the directory's categories, not Moss's presets", () => {
+    const sections = sectionCodexPluginDirectory({
+      entries: [
+        {
+          plugin: plugin({
+            id: "moss-imagegen@moss-bundled",
+            name: "Moss Images",
+            category: "Creativity",
+          }),
+          marketplaceName: "moss-bundled",
+        },
+        {
+          plugin: plugin({
+            id: "superpowers@moss-catalog",
+            name: "Superpowers",
+            category: "Developer Tools",
+          }),
+          marketplaceName: "moss-catalog",
+        },
+      ],
+      featuredPluginIds: ["superpowers@moss-catalog"],
+      categoryOrder: CODEX_DIRECTORY_CATEGORY_ORDER,
+    });
+    expect(
+      sections.map((section) => [section.kind, section.entries.map((e) => e.plugin.id)]),
+    ).toEqual([
+      ["official", ["moss-imagegen@moss-bundled"]],
+      ["featured", ["superpowers@moss-catalog"]],
+      ["category", ["superpowers@moss-catalog"]],
+    ]);
+    expect(isBuiltInPluginMarketplace("moss-catalog")).toBe(true);
   });
 
   it("titles Personal sections by the marketplaces the user added", () => {

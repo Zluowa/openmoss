@@ -8,7 +8,7 @@ import "../../index.css";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import type { ProviderInteractionMode } from "@synara/contracts";
+import type { ProviderInteractionMode } from "@moss/contracts";
 
 import { ComposerExtrasMenu } from "./ComposerExtrasMenu";
 import { translateMoss } from "../../localization";

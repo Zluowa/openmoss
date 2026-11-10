@@ -8,7 +8,7 @@ import type {
   BrowserAnnotationMethods,
   BrowserAnnotationSession,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { BrowserAnnotationDraft } from "../../lib/browserAnnotations";
 import {
@@ -26,6 +26,7 @@ interface PendingBrowserAnnotationSession {
   readonly session: BrowserAnnotationSession | null;
 }
 
+const ANNOTATION_START_VISIBILITY_RETRIES = 4;
 export interface BrowserAnnotationsController {
   readonly active: boolean;
   readonly starting: boolean;
@@ -44,6 +45,8 @@ interface UseBrowserAnnotationsInput {
     annotation: Omit<BrowserAnnotationDraft, "ordinal">,
   ) => boolean;
   readonly onError: (message: string | null) => void;
+  /** An element was picked and added to the composer (its box lets the panel shoot it). */
+  readonly onPicked?: (event: Extract<BrowserAnnotationEvent, { kind: "committed" }>) => void;
 }
 
 // Main survives renderer reloads, so a module-local 1,2,3 counter could move
@@ -76,6 +79,7 @@ export function useBrowserAnnotations({
   annotations,
   addAnnotation,
   onError,
+  onPicked,
 }: UseBrowserAnnotationsInput): BrowserAnnotationsController {
   const [phase, setPhase] = useState<"idle" | "starting" | "active">("idle");
   const [documentRevision, setDocumentRevision] = useState(0);
@@ -83,6 +87,8 @@ export function useBrowserAnnotations({
   const requestIdRef = useRef(0);
   const currentScopeRef = useRef({ threadId, activeTabId, enabled, methods });
   currentScopeRef.current = { threadId, activeTabId, enabled, methods };
+  const onPickedRef = useRef(onPicked);
+  onPickedRef.current = onPicked;
 
   const clearLocalSession = useCallback(() => {
     requestIdRef.current += 1;
@@ -128,41 +134,58 @@ export function useBrowserAnnotations({
     setPhase("starting");
     onError(null);
 
-    void methods
-      .start({
-        threadId,
-        tabId: activeTabId,
-        theme: browserAnnotationTheme(document.documentElement),
-      })
-      .then(
-        (session) => {
-          const pending = pendingRef.current;
-          const scope = currentScopeRef.current;
+    // The page's native view takes a frame or two to come back after something covered
+    // it (the drawing still, a menu, the dock opening): main then answers "not visible".
+    // Ask again briefly before treating that as a real failure.
+    const tabId = activeTabId;
+    const startSession = async () => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await methods.start({
+            threadId,
+            tabId,
+            theme: browserAnnotationTheme(document.documentElement),
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "";
           if (
-            !pending ||
-            pending.requestId !== requestId ||
-            pending.threadId !== session.threadId ||
-            pending.tabId !== session.tabId ||
-            scope.threadId !== session.threadId ||
-            scope.activeTabId !== session.tabId ||
-            !scope.enabled
+            attempt >= ANNOTATION_START_VISIBILITY_RETRIES ||
+            !/not (?:currently )?visible/i.test(message) ||
+            pendingRef.current?.requestId !== requestId
           ) {
-            void methods
-              .cancel({ threadId: session.threadId, tabId: session.tabId })
-              .catch(() => {});
-            return;
+            throw error;
           }
-          pendingRef.current = { ...pending, session };
-          setPhase("active");
-        },
-        (error: unknown) => {
-          if (pendingRef.current?.requestId !== requestId) {
-            return;
-          }
-          clearLocalSession();
-          onError(formatBrowserAnnotationActionError(error, "start"));
-        },
-      );
+          await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
+        }
+      }
+    };
+    void startSession().then(
+      (session) => {
+        const pending = pendingRef.current;
+        const scope = currentScopeRef.current;
+        if (
+          !pending ||
+          pending.requestId !== requestId ||
+          pending.threadId !== session.threadId ||
+          pending.tabId !== session.tabId ||
+          scope.threadId !== session.threadId ||
+          scope.activeTabId !== session.tabId ||
+          !scope.enabled
+        ) {
+          void methods.cancel({ threadId: session.threadId, tabId: session.tabId }).catch(() => {});
+          return;
+        }
+        pendingRef.current = { ...pending, session };
+        setPhase("active");
+      },
+      (error: unknown) => {
+        if (pendingRef.current?.requestId !== requestId) {
+          return;
+        }
+        clearLocalSession();
+        onError(formatBrowserAnnotationActionError(error, "start"));
+      },
+    );
   }, [activeTabId, cancelPendingSession, clearLocalSession, enabled, methods, onError, threadId]);
 
   useEffect(() => {
@@ -211,6 +234,7 @@ export function useBrowserAnnotations({
           onError("This draft can't accept another browser annotation.");
         } else {
           onError(null);
+          onPickedRef.current?.(event);
         }
         return;
       }

@@ -1,10 +1,14 @@
 bun.lock text eol=lf
 
-# Audited third-party license texts are stored byte-for-byte; their upstream
-# whitespace and line endings are covered by the compliance hashes.
-third_party/openai-codex/0.144.2/** -text -whitespace
-third_party/openai-codex/0.147.0/** -text -whitespace
-third_party/openai-codex/0.150.0-alpha.8/** -text -whitespace
-third_party/openai-codex/0.151.0-alpha.7.1/** -text -whitespace
-third_party/openai-codex/0.153.4/** -text -whitespace
-third_party/openai-codex/0.163.0/** -text -whitespace
+# Generated third-party license texts and sources are stored byte-for-byte; their upstream
+# whitespace and line endings are covered by the compliance hashes (bun run bump:codex).
+third_party/openai-codex/** -text -whitespace
+scripts/lib/runtime-bump/spdx-texts/** -text -whitespace
+scripts/lib/runtime-bump/reviewed-notices/*.md -text -whitespace
+scripts/lib/runtime-bump/reviewed-notices/*.txt -text -whitespace
+
+# Patches are applied to upstream sources byte for byte, and the Cua ones are pinned by SHA-256
+# (packages/shared/src/cuaDriverRelease.json). A CRLF checkout (core.autocrlf=true, the default
+# on Windows runners) would rewrite their line endings and break the pin.
+*.patch -text
+*.diff -text

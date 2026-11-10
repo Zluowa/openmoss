@@ -14,9 +14,19 @@ export type MigrationLineageClassification =
   | { readonly kind: "fresh-or-untracked" }
   | { readonly kind: "moss-prefix"; readonly highWaterMark: number }
   | {
+      readonly kind: "mossbot-161-prefix";
+      readonly highWaterMark: 161;
+      readonly firstDivergedId: 161;
+    }
+  | {
       readonly kind: "moss-3cefd5a-prefix";
       readonly highWaterMark: number;
       readonly firstDivergedId: 53;
+    }
+  | {
+      readonly kind: "t3code-import-prefix";
+      readonly highWaterMark: number;
+      readonly firstDivergedId: 17;
     }
   | {
       readonly kind: "too-new";
@@ -31,6 +41,17 @@ export type MigrationLineageClassification =
       readonly recordedName: string;
       readonly detail: string;
     };
+
+/** Lineages that re-run migrations from their divergence, in one transaction, after a durable backup. */
+export const isAdoptedImportLineage = (
+  classification: MigrationLineageClassification,
+): classification is Extract<
+  MigrationLineageClassification,
+  { readonly kind: "moss-3cefd5a-prefix" | "t3code-import-prefix" | "mossbot-161-prefix" }
+> =>
+  classification.kind === "moss-3cefd5a-prefix" ||
+  classification.kind === "t3code-import-prefix" ||
+  classification.kind === "mossbot-161-prefix";
 
 const COMMON_DESCRIPTOR = [
   [1, "OrchestrationEvents"],
@@ -259,6 +280,22 @@ export const MOSS_RELEASED_DESCRIPTOR: ReadonlyArray<readonly [number, string]> 
   [148, "Pages"],
   [149, "AutomationCreateRequests"],
   [150, "GuestShares"],
+  [151, "SpaceItems"],
+  [152, "PageApps"],
+  [153, "PageAppData"],
+  [154, "PageAppCapabilities"],
+  [155, "PageDrafts"],
+  [156, "PagesRealtime"],
+  [157, "PagesSharing"],
+  [158, "PagesSites"],
+  [159, "PageTypes"],
+  [160, "PageAppearance"],
+  [161, "ProjectionThreadMessagesDispatchSourceThread"],
+  [162, "PageGuestAuthors"],
+  [163, "PageRealtimeCuts"],
+  [164, "PageAppPublications"],
+  [165, "PageRoomPrivateStores"],
+  [166, "Mossbot"],
 ]);
 
 export const UPSTREAM_3CEFD5A_DESCRIPTOR: ReadonlyArray<readonly [number, string]> = Object.freeze([
@@ -461,6 +498,77 @@ const UPSTREAM_REQUIRED_EFFECTS = new Map<number, ReadonlyArray<string>>([
   ],
 ]);
 
+// `homeMigration.ts` copies a T3 Code database (~/.t3) into ~/.moss as it is, with T3 Code's own
+// tracker. The lineages share migrations 1-16 and diverge at 17. T3 Code's 55 starts its V2
+// orchestration rewrite, which Moss's migrations don't understand, so 54 is the last accepted row.
+const T3CODE_IMPORT_DESCRIPTOR_SUFFIX = [
+  [17, "ProjectionThreadsArchivedAt"],
+  [18, "ProjectionThreadsArchivedAtIndex"],
+  [19, "ProjectionSnapshotLookupIndexes"],
+  [20, "AuthAccessManagement"],
+  [21, "AuthSessionClientMetadata"],
+  [22, "AuthSessionLastConnectedAt"],
+  [23, "ProjectionThreadShellSummary"],
+  [24, "BackfillProjectionThreadShellSummary"],
+  [25, "CleanupInvalidProjectionPendingApprovals"],
+  [26, "CanonicalizeModelSelectionOptions"],
+  [27, "ProviderSessionRuntimeInstanceId"],
+  [28, "ProjectionThreadSessionInstanceId"],
+  [29, "ProjectionThreadDetailOrderingIndexes"],
+  [30, "ProjectionThreadShellArchiveIndexes"],
+  [31, "AuthAuthorizationScopes"],
+  [32, "AuthPairingProofKeyThumbprint"],
+  [33, "ProjectionThreadsSettled"],
+  [34, "ProjectionThreadsSnoozed"],
+  [35, "ProjectionThreadTitleRegeneration"],
+  [36, "ProjectionThreadsPinned"],
+  [37, "ProjectionTurnsKeysetIndex"],
+  [38, "ProjectionThreadsPinOrderKey"],
+  [39, "ProjectionProjectsDefaultThreadEnvMode"],
+  [40, "ProjectionProjectFaviconPath"],
+  [41, "AuthSessionClientConnection"],
+  [42, "ProjectionThreadLinkedPullRequest"],
+  [43, "ProjectionThreadsUnsettledAt"],
+  [44, "ClearAutomaticProjectModelDefaults"],
+  [45, "ProjectionProjectsAutoPull"],
+  [46, "RepairAutomaticSettlementTimestamps"],
+  [47, "ProjectionProjectIcon"],
+  [48, "ProjectionThreadBranchPullRequest"],
+  [49, "ProjectionThreadsActiveOrderKey"],
+  [50, "ProjectionThreadPullRequests"],
+  [51, "ProjectionThreadMessageContext"],
+  [52, "ProjectionThreadTitleState"],
+  [53, "PullRequestFilesViewed"],
+  [54, "ProjectionThreadsAutoSettleDisabledAt"],
+] as const;
+
+export const T3CODE_IMPORT_DESCRIPTOR: ReadonlyArray<readonly [number, string]> = Object.freeze([
+  ...COMMON_DESCRIPTOR.slice(0, 16),
+  ...T3CODE_IMPORT_DESCRIPTOR_SUFFIX,
+]);
+
+export const T3CODE_IMPORT_FIRST_DIVERGED_ID = 17;
+export const T3CODE_IMPORT_LAST_ACCEPTED_ID = T3CODE_IMPORT_DESCRIPTOR_SUFFIX.at(-1)![0];
+
+// Schema proof that the tracker describes the database it sits in: a forged or partly
+// copied tracker has the names without these objects.
+const T3CODE_REQUIRED_EFFECTS = new Map<number, ReadonlyArray<string>>([
+  [17, ["column:projection_threads:archived_at"]],
+  [20, ["table:auth_pairing_links", "table:auth_sessions"]],
+  [23, ["column:projection_threads:latest_user_message_at"]],
+  [27, ["column:provider_session_runtime:provider_instance_id"]],
+  [36, ["column:projection_threads:pinned_at"]],
+  [50, ["table:projection_thread_pull_requests"]],
+  [53, ["table:pull_request_files_viewed"]],
+  [54, ["column:projection_threads:auto_settle_disabled_at"]],
+]);
+
+export const requiredT3CodeFingerprintThrough = (highWaterMark: number): ReadonlyArray<string> =>
+  [...T3CODE_REQUIRED_EFFECTS.entries()]
+    .filter(([id]) => id <= highWaterMark)
+    .flatMap(([, effects]) => effects)
+    .sort();
+
 export const requiredUpstreamFingerprintThrough = (highWaterMark: number): ReadonlyArray<string> =>
   [...UPSTREAM_REQUIRED_EFFECTS.entries()]
     .filter(([id]) => id <= highWaterMark)
@@ -511,6 +619,20 @@ export function classifyMigrationLineage(
   const highWaterMark = tracker[tracker.length - 1]!.migration_id;
   const mossPrefix = prefixMatches(tracker, MOSS_RELEASED_DESCRIPTOR);
   if (mossPrefix) return { kind: "moss-prefix", highWaterMark };
+  // The published personal-assistant branch used 161 before main appended 161–165.
+  // Recognize only its complete, exact tracker plus the actual assistant column.
+  // The existing backed-up, transactional adoption path replays main's tail and
+  // the idempotent Mossbot body at 166 without changing identities or messages.
+  if (
+    highWaterMark === 161 &&
+    tracker[160]?.name === "Mossbot" &&
+    prefixMatches(tracker.slice(0, 160), MOSS_RELEASED_DESCRIPTOR)
+  ) {
+    if (!fingerprint.effects.includes("column:project_agent_configs:agent_kind")) {
+      return unknown(tracker, "Mossbot 161 schema fingerprint is missing agent_kind");
+    }
+    return { kind: "mossbot-161-prefix", highWaterMark: 161, firstDivergedId: 161 };
+  }
   if (
     highWaterMark > MOSS_RELEASED_DESCRIPTOR.length &&
     prefixMatches(tracker.slice(0, MOSS_RELEASED_DESCRIPTOR.length), MOSS_RELEASED_DESCRIPTOR)
@@ -550,6 +672,21 @@ export function classifyMigrationLineage(
     }
     return { kind: "moss-3cefd5a-prefix", highWaterMark, firstDivergedId: 53 };
   }
+  const t3codePrefix = prefixMatches(tracker, T3CODE_IMPORT_DESCRIPTOR);
+  if (t3codePrefix && highWaterMark >= T3CODE_IMPORT_FIRST_DIVERGED_ID) {
+    const actualEffects = new Set(fingerprint.effects);
+    const missing = requiredT3CodeFingerprintThrough(highWaterMark).filter(
+      (effect) => !actualEffects.has(effect),
+    );
+    if (missing.length > 0) {
+      return unknown(tracker, `T3 Code schema fingerprint is missing: ${missing.join(", ")}`);
+    }
+    return {
+      kind: "t3code-import-prefix",
+      highWaterMark,
+      firstDivergedId: T3CODE_IMPORT_FIRST_DIVERGED_ID,
+    };
+  }
   if (
     highWaterMark > UPSTREAM_V084_DESCRIPTOR.length &&
     prefixMatches(tracker.slice(0, UPSTREAM_V084_DESCRIPTOR.length), UPSTREAM_V084_DESCRIPTOR)
@@ -564,7 +701,7 @@ export function classifyMigrationLineage(
 }
 
 export const MigrationBackupAuthorization = ServiceMap.Reference<boolean>(
-  "@synara/persistence/MigrationBackupAuthorization",
+  "@moss/persistence/MigrationBackupAuthorization",
   { defaultValue: () => false },
 );
 

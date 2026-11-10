@@ -11,14 +11,13 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BackendIssueDetector } from "./backendIssueDetector";
-import { DESKTOP_DIAGNOSTIC_ISSUE_PREFIX } from "@synara/contracts";
+import { DESKTOP_DIAGNOSTIC_ISSUE_PREFIX } from "@moss/contracts";
 
 import {
   BetaDiagnostics,
   readLogTail,
   resolveBetaDiagnosticsEndpoint,
   sanitizeBetaDiagnosticsPayload,
-  BETA_DIAGNOSTICS_ENDPOINT,
 } from "./betaDiagnostics";
 import {
   createInitialDesktopUpdateState,
@@ -845,8 +844,8 @@ describe("production gate", () => {
 });
 
 describe("resolveBetaDiagnosticsEndpoint", () => {
-  it("uses the production default and honors a secure override", () => {
-    expect(resolveBetaDiagnosticsEndpoint({})).toBe(BETA_DIAGNOSTICS_ENDPOINT);
+  it("has no default endpoint and honors a secure override", () => {
+    expect(resolveBetaDiagnosticsEndpoint({})).toBeNull();
     expect(
       resolveBetaDiagnosticsEndpoint({
         MOSS_BETA_DIAGNOSTICS_URL: "https://staging.example.workers.dev",
@@ -867,7 +866,7 @@ describe("resolveBetaDiagnosticsEndpoint", () => {
       resolveBetaDiagnosticsEndpoint({
         MOSS_BETA_DIAGNOSTICS_URL: "http://diagnostics.example.com",
       }),
-    ).toBe(BETA_DIAGNOSTICS_ENDPOINT);
+    ).toBeNull();
   });
 
   it("rejects loopback lookalikes and unparseable overrides", () => {
@@ -881,9 +880,7 @@ describe("resolveBetaDiagnosticsEndpoint", () => {
       "not a url",
       "localhost:8787",
     ]) {
-      expect(resolveBetaDiagnosticsEndpoint({ MOSS_BETA_DIAGNOSTICS_URL: override })).toBe(
-        BETA_DIAGNOSTICS_ENDPOINT,
-      );
+      expect(resolveBetaDiagnosticsEndpoint({ MOSS_BETA_DIAGNOSTICS_URL: override })).toBeNull();
     }
   });
 });

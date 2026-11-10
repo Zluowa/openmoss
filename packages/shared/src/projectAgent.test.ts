@@ -1,4 +1,4 @@
-import { ProjectTaskId } from "@synara/contracts";
+import { ProjectTaskId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

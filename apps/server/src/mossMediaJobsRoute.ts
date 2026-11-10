@@ -9,7 +9,11 @@ import type { MossEnterpriseKeyAccount } from "./account/Services/MossEnterprise
 import { MossPayService } from "./account/Services/MossPayService";
 import { ServerConfig } from "./config";
 import { isLoopbackHost } from "./startupAccess";
-import { MossMediaJobsError, type MossMediaCredential } from "./mossMediaJobsService";
+import {
+  mediaAccountScope,
+  MossMediaJobsError,
+  type MossMediaCredential,
+} from "./mossMediaJobsService";
 import { MediaHistoryError, type MediaHistoryPageInput } from "./mossMediaHistory";
 import {
   cacheMossCanvasRemoteAsset,
@@ -91,11 +95,12 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
     const headers: Record<string, string> = {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
+      // The CORS grant below depends on Origin; say so on every variant.
+      Vary: "Origin",
       ...(trustedOrigin
         ? {
             "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Credentials": "true",
-            Vary: "Origin",
           }
         : {}),
     };
@@ -366,7 +371,10 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
         if (typeof input.jobId !== "string" || !/^moss_[A-Za-z0-9_-]{1,128}$/u.test(input.jobId))
           return json(400, { error: { code: "invalid_request" } });
         const services = yield* Effect.services<
-          MossPhoneAccountService | MossCloudAccountService | MossEnterpriseKeyAccount
+          | MossPhoneAccountService
+          | MossCloudAccountService
+          | MossEnterpriseKeyAccount
+          | ServerConfig
         >();
         const authorize = () =>
           Effect.runPromise(Effect.provideServices(currentAccount().pipe(Effect.asVoid), services));
@@ -749,7 +757,10 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
         )
           return json(409, { error: { code: "canvas_workspace_changed" } });
         const services = yield* Effect.services<
-          MossPhoneAccountService | MossCloudAccountService | MossEnterpriseKeyAccount
+          | MossPhoneAccountService
+          | MossCloudAccountService
+          | MossEnterpriseKeyAccount
+          | ServerConfig
         >();
         const authorize = async () => {
           await Effect.runPromise(Effect.provideServices(currentAccount(), services));
@@ -776,7 +787,9 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
         const currentOrigin = () =>
           Effect.gen(function* () {
             if (!origin) return;
-            const current = yield* resolveMossCanvasWorkspace(origin.threadId);
+            const current = yield* resolveMossCanvasWorkspace(origin.threadId).pipe(
+              Effect.provideService(ServerConfig, config),
+            );
             if (mossCanvasWorkspaceFingerprint(current) !== mossCanvasWorkspaceFingerprint(origin))
               return yield* Effect.fail(new MossMediaJobsError("canvas_workspace_changed", 409));
           }).pipe(Effect.mapError(() => new MossMediaJobsError("canvas_origin_unavailable", 409)));
@@ -809,6 +822,9 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
         /^\/api\/moss\/media\/assets\/(moss_[A-Za-z0-9_-]{1,128})\/([0-9]{1,2})$/u,
       );
       if (assetMatch && request.method === "GET") {
+        const expectedScope = url.searchParams.get("accountScope");
+        if (expectedScope !== null && expectedScope !== mediaAccountScope(credential))
+          return json(404, { error: { code: "asset_not_found" } });
         const result = yield* Effect.tryPromise({
           try: () => service.readAsset(assetMatch[1]!, Number(assetMatch[2]), credential),
           catch: (error) => error,
@@ -819,7 +835,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           contentType: result.asset.contentType,
           headers: {
             ...headers,
-            "Content-Disposition": `attachment; filename="${result.asset.assetId}.${result.asset.contentType.split("/")[1]}"`,
+            "Content-Disposition": `${expectedScope && url.searchParams.get("download") !== "1" ? "inline" : "attachment"}; filename="${result.asset.assetId}.${result.asset.contentType.split("/")[1]}"`,
           },
         });
       }

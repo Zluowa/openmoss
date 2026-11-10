@@ -1,4 +1,4 @@
-import { CommandId, MessageId, ThreadId, TurnId } from "@synara/contracts";
+import { CommandId, MessageId, ThreadId, TurnId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

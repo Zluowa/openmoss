@@ -1,5 +1,9 @@
 // FILE: EnvironmentPanel.tsx
-// Purpose: Codex-style "Environment" panel. Consolidates the chat-header diff toggle,
+// Purpose: The chat's summary card, laid out like the upstream thread-details card:
+//          a workspace group (where the chat runs + reveal folder, "Open in <editor>",
+//          project scripts), a version-control group (branch, commit, changes), Moss's
+//          own sections, and the context-window line. Right-click chooses the sections.
+//          It consolidates the chat-header diff toggle,
 //          the composer-footer env/branch pickers, the header git actions, and the
 //          "Open in editor" controls into one vertical list of full-width rows. Always
 //          rendered as the same rounded floating card; the only difference is whether it
@@ -15,13 +19,14 @@ import type {
   MessageId,
   PinnedMessage,
   ProjectId,
+  ProjectScript,
   ProviderKind,
   ResolvedKeybindingsConfig,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 
 import { useAppSettings } from "~/appSettings";
 import { SETTINGS_TARGETS } from "~/settingsNavigation";
@@ -34,7 +39,12 @@ import { toastManager } from "~/components/ui/toast";
 import { isElectron } from "~/env";
 import { basenameOfPath } from "~/file-icons";
 import type { RepoDiffTotals } from "~/hooks/useRepoDiffTotals";
-import { ChangesIcon, ExternalLinkIcon, GitHubIcon, SettingsIcon, FolderIcon } from "~/lib/icons";
+import { ChangesIcon, ExternalLinkIcon, GitHubIcon, FolderIcon } from "~/lib/icons";
+import type { ContextWindowSnapshot } from "~/lib/contextWindow";
+import { useTranslation } from "~/localization";
+import ProjectScriptsControl, {
+  type NewProjectScriptInput,
+} from "~/components/ProjectScriptsControl";
 import { readNativeApi } from "~/nativeApi";
 import { revealFolderInShell } from "~/lib/revealFolder";
 import { deleteActiveThreadFromClient } from "~/lib/activeThreadDelete";
@@ -54,6 +64,7 @@ import {
   type EnvironmentAutomationPanelItem,
 } from "./EnvironmentAutomationsSection";
 import { EnvironmentUsageSection } from "./EnvironmentUsageSection";
+import { EnvironmentContextSection } from "./EnvironmentContextSection";
 import { EnvironmentLocalServersSection } from "./EnvironmentLocalServersSection";
 import { EnvironmentPullRequestSection } from "./EnvironmentPullRequestSection";
 import { EnvironmentStudioOutputsSection } from "./EnvironmentStudioOutputsSection";
@@ -72,7 +83,6 @@ import {
   ENVIRONMENT_ROW_ICON_CLASS_NAME,
   EnvironmentCollapsibleSection,
   EnvironmentLabeledSection,
-  EnvironmentPanelTitle,
   EnvironmentRow,
   EnvironmentSectionDivider,
 } from "./EnvironmentRow";
@@ -143,6 +153,12 @@ export interface EnvironmentPanelProps {
    * stacks under the card; see AmbientRailSlot for the closed-state slide.
    */
   railBottom?: ReactNode;
+  /**
+   * Closes the card. Beside an open side panel (the `floating` variant) the card behaves as a
+   * popover, as Claude's do: a click outside it, or the window losing focus to the page in
+   * the panel, closes it instead of leaving it over the narrow chat.
+   */
+  onDismiss?: () => void;
   /** Per-thread pinned-message checklist (server-synced). */
   pinnedMessages: readonly PinnedMessage[];
   /** Live text of pinned messages still present in the transcript (for labels/availability). */
@@ -165,6 +181,8 @@ export interface EnvironmentPanelProps {
   onOpenAutomation: (definition: AutomationDefinition) => void;
   /** Open the repository URL in the in-app browser panel. */
   onOpenGithubRepository?: (url: string) => void;
+  /** Open a local dev server's address in the in-app browser panel. */
+  onOpenLocalServer?: (url: string) => void;
   /** Scroll the transcript to a pinned message. */
   onJumpToPinnedMessage: (messageId: MessageId) => void;
   /** Toggle a pinned message's done state (strikethrough; stays pinned). */
@@ -181,6 +199,28 @@ export interface EnvironmentPanelProps {
   onClose: () => void;
   /** Registers the panel's "Commit and Push" row as the target for the global shortcut. */
   onRegisterCommitAndPushTrigger?: (trigger: (() => void) | null) => void;
+  /**
+   * Latest context-window report for this thread. Null when the provider has not
+   * reported one, and the Context line is then left out rather than guessed.
+   */
+  contextWindow?: ContextWindowSnapshot | null;
+  /** Project scripts for the workspace group ("Run <action> ▾" / "Add project script"). */
+  projectScripts?: {
+    readonly scripts: ProjectScript[];
+    readonly preferredScriptId: string | null;
+    readonly onRunScript: (script: ProjectScript) => void;
+    readonly onAddScript: (input: NewProjectScriptInput) => Promise<void>;
+    readonly onUpdateScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
+    readonly onDeleteScript: (scriptId: string) => Promise<void>;
+  } | null;
+}
+
+// Revealing a folder opens the file manager on the machine running Moss, so offer it
+// only in the desktop app or a page served from this machine.
+function canRevealWorkspaceFolders(): boolean {
+  if (isElectron) return true;
+  if (typeof window === "undefined") return false;
+  return ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
 }
 
 function EnvironmentRecapSection({
@@ -248,6 +288,7 @@ export function EnvironmentPanel({
   onToggleDiff,
   onOpenAutomation,
   onOpenGithubRepository,
+  onOpenLocalServer,
   onJumpToPinnedMessage,
   onTogglePinnedMessageDone,
   onUnpinMessage,
@@ -257,7 +298,16 @@ export function EnvironmentPanel({
   onClose,
   onRegisterCommitAndPushTrigger,
   railBottom,
+  onDismiss,
+  contextWindow: contextWindowProp,
+  projectScripts: projectScriptsProp,
 }: EnvironmentPanelProps) {
+  const cardContentRef = useRef<HTMLDivElement>(null);
+  const contextWindow = contextWindowProp ?? null;
+  const projectScripts = projectScriptsProp ?? null;
+  const { t } = useTranslation();
+  const workspaceFolderPath = openInTarget ?? gitCwd;
+  const canRevealFolders = canRevealWorkspaceFolders();
   const githubRepository = githubRepositoryProp ?? null;
   const githubRepositories = githubRepositoriesProp ?? [];
   const groupFolderPath = groupFolderPathProp ?? null;
@@ -283,8 +333,33 @@ export function EnvironmentPanel({
     nativeShellAvailable: isElectron,
   });
 
+  const handleSectionsContextMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (
+      !(target instanceof Element) ||
+      target.closest("input, textarea, [contenteditable], a[href]")
+    ) {
+      return;
+    }
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    const api = readNativeApi();
+    if (!api) return;
+    event.preventDefault();
+    void api.contextMenu
+      .show([{ id: "choose-sections", label: t("chat.environment.chooseSections") }], {
+        x: event.clientX,
+        y: event.clientY,
+      })
+      .then((clicked) => {
+        if (clicked !== "choose-sections") return;
+        void navigate({ to: "/settings", search: { target: SETTINGS_TARGETS.environmentPanel } });
+      });
+  };
+
   const content = (
-    <div className="flex flex-col gap-0.5 p-1.5">
+    // Right-click anywhere on the card to choose its sections, as on the upstream card.
+    <div className="flex flex-col p-2" onContextMenu={handleSectionsContextMenu}>
       {threadAutomations.length > 0 ? (
         <>
           <EnvironmentAutomationsSection
@@ -298,68 +373,117 @@ export function EnvironmentPanel({
         </>
       ) : null}
 
-      <div className="flex items-center justify-between gap-2 px-2 pb-0.5 pt-0.5">
-        <EnvironmentPanelTitle>Environment</EnvironmentPanelTitle>
-        {/*
-          icon-xs centers the 14px gear inside a 28/24px box, insetting it ~7/5px from the
-          content edge; pull it back so the glyph's right edge lines up with the rows' chevrons
-          (which sit flush against the same px-2 gutter).
-        */}
-        <IconButton
-          label="Panel sections"
-          tooltip="Panel sections"
-          className="-mr-[7px] sm:-mr-[5px]"
-          onClick={() =>
-            void navigate({
-              to: "/settings",
-              search: { target: SETTINGS_TARGETS.environmentPanel },
-            })
-          }
-        >
-          <SettingsIcon className="size-4" />
-        </IconButton>
+      {/* Workspace: where the chat runs, the editor to open it in, project scripts. */}
+      <div className="flex flex-col" data-environment-group="workspace">
+        {showGroupFolderRow && groupFolderPath ? (
+          <EnvironmentRow
+            icon={<FolderIcon className={ENVIRONMENT_ROW_ICON_CLASS_NAME} aria-hidden />}
+            label={
+              <span className="truncate" title={groupFolderPath}>
+                {basenameOfPath(groupFolderPath) || groupFolderPath}
+              </span>
+            }
+            trailing={<ExternalLinkIcon className={ENVIRONMENT_ROW_ICON_CLASS_NAME} aria-hidden />}
+            onClick={() => {
+              revealFolderInShell({ path: groupFolderPath, onRevealed: onClose });
+            }}
+          />
+        ) : branchToolbar ? (
+          <div className="flex min-w-0 items-center">
+            <div className="min-w-0 flex-1">
+              <BranchToolbar {...branchToolbar} variant="panel" showBranchSelector={false} />
+            </div>
+            {workspaceFolderPath && canRevealFolders ? (
+              <IconButton
+                label={t("chat.environment.revealFolder")}
+                tooltip={t("chat.environment.revealFolder")}
+                className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={() => revealFolderInShell({ path: workspaceFolderPath })}
+              >
+                <FolderIcon className="size-4" />
+              </IconButton>
+            ) : null}
+          </div>
+        ) : null}
+        {settings.showEnvironmentEditor ? (
+          <EnvironmentEditorSection
+            bare
+            keybindings={keybindings}
+            availableEditors={availableEditors}
+            openInTarget={openInTarget}
+            {...(onOpenEditorView
+              ? {
+                  onOpenEditorView: () => {
+                    onOpenEditorView();
+                    onClose();
+                  },
+                }
+              : {})}
+          />
+        ) : null}
+        {projectScripts ? (
+          <ProjectScriptsControl
+            displayMode="panel"
+            scripts={projectScripts.scripts}
+            keybindings={keybindings}
+            preferredScriptId={projectScripts.preferredScriptId}
+            onRunScript={projectScripts.onRunScript}
+            onAddScript={projectScripts.onAddScript}
+            onUpdateScript={projectScripts.onUpdateScript}
+            onDeleteScript={projectScripts.onDeleteScript}
+          />
+        ) : null}
       </div>
 
-      {showGroupFolderRow && groupFolderPath ? (
-        <EnvironmentRow
-          icon={<FolderIcon className={ENVIRONMENT_ROW_ICON_CLASS_NAME} aria-hidden />}
-          label={
-            <span className="truncate" title={groupFolderPath}>
-              {basenameOfPath(groupFolderPath) || groupFolderPath}
-            </span>
-          }
-          trailing={<ExternalLinkIcon className={ENVIRONMENT_ROW_ICON_CLASS_NAME} aria-hidden />}
-          onClick={() => {
-            revealFolderInShell({ path: groupFolderPath, onRevealed: onClose });
-          }}
-        />
+      {/* Version control: branch, commit, and this chat's changes. */}
+      {isGitRepo || showGitActions ? (
+        <>
+          <EnvironmentSectionDivider />
+          <div className="flex flex-col" data-environment-group="version-control">
+            {isGitRepo && branchToolbar ? (
+              <BranchToolbar {...branchToolbar} variant="panel" showEnvironmentPicker={false} />
+            ) : null}
+            {showGitActions ? (
+              <GitActionsControl
+                gitCwd={gitCwd}
+                activeThreadId={activeThreadId}
+                variant="panel"
+                onRegisterCommitAndPushTrigger={onRegisterCommitAndPushTrigger}
+              />
+            ) : null}
+            {isGitRepo ? (
+              <EnvironmentRow
+                icon={<ChangesIcon className={ENVIRONMENT_ROW_ICON_CLASS_NAME} aria-hidden />}
+                label="Changes"
+                trailing={
+                  hasChanges ? <DiffStat insertions={additions} deletions={deletions} /> : null
+                }
+                disabled={changesDisabled}
+                onClick={() => {
+                  onToggleDiff();
+                  onClose();
+                }}
+              />
+            ) : null}
+          </div>
+        </>
       ) : null}
 
-      {isGitRepo ? (
-        <EnvironmentRow
-          icon={<ChangesIcon className={ENVIRONMENT_ROW_ICON_CLASS_NAME} aria-hidden />}
-          label="Changes"
-          trailing={hasChanges ? <DiffStat insertions={additions} deletions={deletions} /> : null}
-          disabled={changesDisabled}
-          onClick={() => {
-            onToggleDiff();
-            onClose();
-          }}
-        />
-      ) : null}
-
-      {isGitRepo && branchToolbar ? <BranchToolbar {...branchToolbar} variant="panel" /> : null}
-
-      {showGitActions ? (
-        <GitActionsControl
-          gitCwd={gitCwd}
-          activeThreadId={activeThreadId}
-          variant="panel"
-          onRegisterCommitAndPushTrigger={onRegisterCommitAndPushTrigger}
-        />
-      ) : null}
-
-      <EnvironmentLocalServersSection enabled={open} />
+      {/* Servers sit in their own group, as on the upstream card. */}
+      <EnvironmentSectionDivider />
+      <EnvironmentLocalServersSection
+        enabled={open}
+        workspaceRoot={gitCwd}
+        projectId={activeProjectId}
+        onOpenServer={
+          onOpenLocalServer
+            ? (url) => {
+                onOpenLocalServer(url);
+                onClose();
+              }
+            : undefined
+        }
+      />
 
       {sidechats && activeThreadId ? (
         <EnvironmentSidechatsSection
@@ -490,22 +614,6 @@ export function EnvironmentPanel({
         <EnvironmentStudioOutputsSection threadId={activeThreadId} enabled={open} />
       ) : null}
 
-      {settings.showEnvironmentEditor ? (
-        <EnvironmentEditorSection
-          keybindings={keybindings}
-          availableEditors={availableEditors}
-          openInTarget={openInTarget}
-          {...(onOpenEditorView
-            ? {
-                onOpenEditorView: () => {
-                  onOpenEditorView();
-                  onClose();
-                },
-              }
-            : {})}
-        />
-      ) : null}
-
       {settings.showEnvironmentRecap && showRecap && recap ? (
         <>
           <EnvironmentSectionDivider />
@@ -553,8 +661,21 @@ export function EnvironmentPanel({
           />
         </>
       ) : null}
+
+      {contextWindow ? (
+        <>
+          <EnvironmentSectionDivider />
+          <EnvironmentContextSection usage={contextWindow} />
+        </>
+      ) : null}
     </div>
   );
+
+  useDismissFloatingCard({
+    active: open && variant === "floating" && onDismiss !== undefined,
+    cardRef: cardContentRef,
+    onDismiss,
+  });
 
   // Top-right overlay pinned to the chat column with p-3 edge gutters (same footprint in
   // split panes and when the right dock is open). Docked mode additionally insets transcript
@@ -567,7 +688,51 @@ export function EnvironmentPanel({
       cardClassName="max-h-full w-72"
       trailing={railBottom}
     >
-      <div className="min-h-0 overflow-y-auto">{content}</div>
+      <div className="min-h-0 overflow-y-auto" ref={cardContentRef}>
+        {content}
+      </div>
     </SidePanelOverlay>
   );
+}
+
+// Anything a card's own controls open lives in a portal (menus, their popups, dialogs); a
+// click there belongs to the card. Its header toggle closes it on its own.
+const FLOATING_CARD_KEEP_OPEN_SELECTOR = [
+  "[data-slot$='-positioner']",
+  "[data-slot$='-popup']",
+  "[data-slot$='-backdrop']",
+  "[role='menu']",
+  "[role='dialog']",
+  "[role='alertdialog']",
+  "[role='listbox']",
+  "[aria-pressed][aria-label]",
+].join(", ");
+
+function useDismissFloatingCard(input: {
+  readonly active: boolean;
+  readonly cardRef: { readonly current: HTMLElement | null };
+  readonly onDismiss: (() => void) | undefined;
+}) {
+  const onDismissRef = useRef(input.onDismiss);
+  onDismissRef.current = input.onDismiss;
+  const { active, cardRef } = input;
+  useEffect(() => {
+    if (!active) return;
+    const dismiss = () => onDismissRef.current?.();
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (cardRef.current?.contains(target)) return;
+      if (target.closest(FLOATING_CARD_KEEP_OPEN_SELECTOR)) return;
+      dismiss();
+    };
+    // A click in the side panel's page moves focus out of this document.
+    const onWindowBlur = () => dismiss();
+    document.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("blur", onWindowBlur);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("blur", onWindowBlur);
+    };
+  }, [active, cardRef]);
 }

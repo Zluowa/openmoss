@@ -19,16 +19,18 @@ import type {
   LibraryListResult,
   LibraryRegisterItem,
   LibrarySyncResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   LIBRARY_IMPORT_FILE_MAX_BYTES,
   LIBRARY_RENAME_EXTENSION_ERROR_CODE,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer } from "effect";
+import { libraryImagePreviewPath } from "@moss/shared/localPreviewFiles";
 import * as Semaphore from "effect/Semaphore";
 
 import { LibraryRepository } from "../../persistence/Services/LibraryRepository.ts";
 import { LibraryServiceError } from "../Errors.ts";
+import { libraryImageMimeType, readLibraryImage } from "../libraryImage.ts";
 import {
   buildScannedLibraryItemFields,
   isPathInsideLibraryRoot,
@@ -542,12 +544,16 @@ export const makeLibraryServiceShape = (options: MakeLibraryServiceOptions) =>
             const stat = await fs.stat(candidate);
             return { path: candidate, size: stat.size, mtimeMs: stat.mtimeMs };
           }).pipe(Effect.mapError(toServiceError("Failed to copy an imported library file.")));
-          imported.push(
-            yield* indexScannedFile(
-              { root, path: written.path, size: written.size, mtimeMs: written.mtimeMs },
-              isoNow(),
-            ),
+          const item = yield* indexScannedFile(
+            { root, path: written.path, size: written.size, mtimeMs: written.mtimeMs },
+            isoNow(),
           );
+          imported.push({
+            ...item,
+            ...(libraryImageMimeType(bytes) === null
+              ? {}
+              : { previewPath: libraryImagePreviewPath(item.id) }),
+          });
         }
         const result: LibraryImportResult = {
           items: imported,
@@ -558,6 +564,15 @@ export const makeLibraryServiceShape = (options: MakeLibraryServiceOptions) =>
       }).pipe(Effect.mapError(toServiceError("Failed to import library files.")));
 
     return {
+      readImage: (itemId) =>
+        repository.getItemById({ id: itemId }).pipe(
+          Effect.flatMap((item) =>
+            item._tag === "None"
+              ? Effect.succeed(null)
+              : Effect.promise(() => readLibraryImage(item.value, options.roots)),
+          ),
+          Effect.mapError(toServiceError("Unable to read this library image.")),
+        ),
       list,
       sync,
       favorite,

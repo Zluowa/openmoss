@@ -21,6 +21,7 @@ export const INLINE_VISUALIZATION_LIBRARY_CONTENT_TYPES = {
   "d3.esm.js": "text/javascript; charset=utf-8",
   "three.min.js": "text/javascript; charset=utf-8",
   "three.module.js": "text/javascript; charset=utf-8",
+  "three.core.js": "text/javascript; charset=utf-8",
   "chart.umd.js": "text/javascript; charset=utf-8",
   "chart.esm.js": "text/javascript; charset=utf-8",
   "fonts.css": "text/css; charset=utf-8",

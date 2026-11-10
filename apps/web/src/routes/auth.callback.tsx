@@ -11,5 +11,11 @@ export const Route = createFileRoute("/auth/callback")({
 
 function MossCloudCallbackRoute() {
   const search = Route.useSearch();
-  return <MossCloudAuthCallbackPage code={search.code} flowId={search.flowId} />;
+  return (
+    <MossCloudAuthCallbackPage
+      code={search.code}
+      flowId={search.flowId}
+      oauthError={search.oauthError}
+    />
+  );
 }

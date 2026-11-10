@@ -3754,12 +3754,6 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
           "The provider model picker gained native favorite toggles and cleaner context-menu separators, making large Codex, Cursor, and OpenCode model lists easier to shape around the models you actually use.",
       },
       {
-        id: "thread-retention-cleanup",
-        title: "Old inactive threads hide after seven days",
-        description:
-          "The retention job now hides stale inactive threads from the app in batches, publishes maintenance progress, and protects running work and approvals while keeping database history available for long-term stats.",
-      },
-      {
         id: "websocket-and-server-polish",
         title: "Transport and server edges are steadier",
         description:

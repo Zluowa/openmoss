@@ -2,7 +2,7 @@
 // Purpose: Exposes a typed, acknowledgement-backed plugin deep-link bridge to the renderer.
 // Layer: Desktop preload helper
 
-import type { DesktopBridge, DesktopPluginDeepLinkNavigationResult } from "@synara/contracts";
+import type { DesktopBridge, DesktopPluginDeepLinkNavigationResult } from "@moss/contracts";
 
 import { PLUGIN_DEEP_LINK_IPC_CHANNELS } from "./ipcChannels";
 import { isDesktopPluginDeepLinkAudit, isDesktopPluginDeepLinkNavigation } from "./pluginDeepLink";

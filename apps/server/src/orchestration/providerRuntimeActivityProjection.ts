@@ -6,10 +6,10 @@ import {
   type ProviderRuntimeEvent,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
-import { readProposedExecpolicyAmendment } from "@synara/shared/approvalSessionGrant";
-import { nonEmptyTrimmed } from "@synara/shared/text";
-import { sanitizeUserFacingErrorMessage } from "@synara/shared/errorMessages";
+} from "@moss/contracts";
+import { readProposedExecpolicyAmendment } from "@moss/shared/approvalSessionGrant";
+import { nonEmptyTrimmed } from "@moss/shared/text";
+import { sanitizeUserFacingErrorMessage } from "@moss/shared/errorMessages";
 import { providerRuntimeCommandProgressKey } from "./providerRuntimeProgressCoalescing.ts";
 
 import {
@@ -17,10 +17,6 @@ import {
   REDACTED_SENSITIVE_VALUE,
   redactSensitiveJsonFields,
 } from "../sensitiveKeys.ts";
-import {
-  sanitizeUnmappedProviderData,
-  sanitizeUnmappedProviderDetail,
-} from "../provider/unmappedProviderEvents.ts";
 
 const MAX_ACTIVITY_DATA_JSON_CHARS = 16_000;
 const MAX_ACTIVITY_DATA_STRING_CHARS = 2_000;
@@ -1597,31 +1593,12 @@ export function projectProviderRuntimeActivities(
       ];
     }
 
-    case "event.unmapped": {
-      const payload = runtimePayloadRecord(event);
-      const nativeType = asString(payload?.nativeType);
-      if (!nativeType) {
-        return [];
-      }
-      const detail = asString(payload?.detail);
-      const rawData = payload?.data;
-      return [
-        {
-          id: event.eventId,
-          createdAt: event.createdAt,
-          tone: "info",
-          kind: "provider.event.unmapped",
-          summary: nativeType,
-          payload: toActivityPayload({
-            nativeEventType: nativeType,
-            ...(detail ? { detail: sanitizeUnmappedProviderDetail(detail) } : {}),
-            ...(rawData !== undefined ? { data: sanitizeUnmappedProviderData(rawData) } : {}),
-          }),
-          turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
-        },
-      ];
-    }
+    // A notification no adapter maps is provider plumbing by definition: session
+    // and thread lifecycle, settings echoes, MCP startup, goal bookkeeping. It stays
+    // in the runtime event store and the provider log; a thread activity is what the
+    // transcript reads, and neither Codex nor Claude shows such rows.
+    case "event.unmapped":
+      return [];
 
     default:
       break;

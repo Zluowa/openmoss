@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
 import { Effect, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -6,6 +6,7 @@ import {
   GROUPS_BETA_ONLY_MESSAGE,
   gateProjectAgentServiceForStable,
   isGroupProjectCommand,
+  isServerGroupsEnabled,
 } from "./groupsBetaGate";
 import type { ProjectAgentServiceShape } from "./Services/ProjectAgentService";
 
@@ -17,6 +18,19 @@ function gatedService() {
   const service = { onProjectDeleted } as unknown as ProjectAgentServiceShape;
   return { gated: gateProjectAgentServiceForStable(service), onProjectDeleted };
 }
+
+describe("isServerGroupsEnabled", () => {
+  it("keeps the hub runtime on in Stable, because Mossbot runs on it", () => {
+    const previous = process.env.MOSS_DESKTOP_BUNDLE_ID;
+    process.env.MOSS_DESKTOP_BUNDLE_ID = "com.moss.desktop";
+    try {
+      expect(isServerGroupsEnabled()).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.MOSS_DESKTOP_BUNDLE_ID;
+      else process.env.MOSS_DESKTOP_BUNDLE_ID = previous;
+    }
+  });
+});
 
 describe("gateProjectAgentServiceForStable", () => {
   it("refuses hub APIs with the Beta message", async () => {

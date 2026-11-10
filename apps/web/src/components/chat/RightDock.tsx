@@ -21,7 +21,7 @@ import {
   EMPTY_PANE_ID_SET,
   reconcileKeepMountedPaneIds,
 } from "~/lib/dockPaneActivation";
-import { Maximize2, PanelRightOpenIcon, PlusIcon } from "~/lib/icons";
+import { LayoutRightIcon, Maximize2, PlusIcon } from "~/lib/icons";
 import type {
   RightDockPane,
   RightDockPaneKind,
@@ -51,6 +51,7 @@ import {
   RIGHT_DOCK_DEFAULT_WIDTH,
   RIGHT_DOCK_MIN_WIDTH,
   RIGHT_DOCK_WIDTH_STORAGE_KEY,
+  clampRightDockWidth,
   normalizeRightDockWidth,
   resolvePersistedRightDockWidthRatio,
   resolveRightDockWidthBounds,
@@ -82,6 +83,7 @@ const RIGHT_DOCK_LABEL_KEY_BY_KIND = {
   htmlRender: "rightDock.pane.file",
   imagePreview: "rightDock.pane.imagePreview",
   canvas: "chat.generatedImage.preview.canvasView",
+  deck: "rightDock.pane.deck",
   terminal: "rightDock.pane.terminal",
   sidechat: "rightDock.launcher.sideChats",
   subagents: "rightDock.pane.subagents",
@@ -160,6 +162,11 @@ interface RightDockProps {
     pane: RightDockPane,
     context: { runtimeMode: DockPaneRuntimeMode; isActive: boolean; isVisible: boolean },
   ) => ReactNode;
+  /**
+   * The active pane draws its own expand control in its header (the browser does, as on
+   * the desktop), so this row leaves it out rather than show two.
+   */
+  activePaneOwnsWidthToggle?: boolean | undefined;
 }
 
 function RightDockLauncher(props: {
@@ -323,7 +330,7 @@ function RightDockSurface(
   const bottomPanelToggleLabel = t("rightDock.toggleBottomPanel");
   const rightPanelToggleLabel = t("rightDock.toggleRightSidebar");
   const bottomPanelOpen = props.bottomPanelOpen ?? false;
-  const onToggleBottomPanel = props.onToggleBottomPanel ?? (() => {});
+  const onToggleBottomPanel = props.onToggleBottomPanel;
   const bottomPanelTooltip = props.bottomPanelShortcutLabel
     ? format("rightDock.toggleBottomPanelShortcut", {
         shortcut: props.bottomPanelShortcutLabel,
@@ -469,6 +476,13 @@ function RightDockSurface(
     regularWidthRatioRef.current = ratio;
     setLocalStorageItem(RIGHT_DOCK_WIDTH_STORAGE_KEY, ratio, Schema.Finite);
   };
+  // Double-clicking the divider shares the space evenly between the chat and the panel,
+  // as Claude's divider does, within both sides' minimum widths.
+  const resetRegularWidth = (context: { wrapper: HTMLElement }) => {
+    const shellWidth = resolveRightDockStableWidth(props.layoutHostRef, context.wrapper);
+    if (shellWidth <= 0) return null;
+    return clampRightDockWidth(Math.round(shellWidth / 2), shellWidth, "regular");
+  };
   const renderedPanes = props.state.panes.filter(
     (pane) => pane.id === activePane?.id || keepMountedPaneIds.has(pane.id),
   );
@@ -537,6 +551,7 @@ function RightDockSurface(
               resizable: {
                 minWidth: RIGHT_DOCK_MIN_WIDTH,
                 onResize: persistRegularWidth,
+                resetWidth: resetRegularWidth,
                 shouldAcceptWidth: shouldAcceptRegularWidth,
               },
             }
@@ -563,7 +578,12 @@ function RightDockSurface(
                 onNavigate={activeMcpApp.navigate}
               />
             ) : null}
-            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+            {/* Upstream panel arrangement: the tabs with their "+" right after them,
+                then the panel controls (expand, bottom panel, side panel) pinned to the
+                right edge just before the window's caption buttons. The side-panel
+                toggle lives here whenever the dock is open, so it sits at the same
+                top-right spot the chat header uses while the dock is closed. */}
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {props.state.panes.map((pane) => (
                 <RightDockTab
                   key={pane.id}
@@ -588,69 +608,55 @@ function RightDockSurface(
                   onClose={() => props.onCloseMcpApp?.(entry.id)}
                 />
               ))}
-            </div>
-            {props.onFullWidthChange ? (
-              <IconButton
-                variant="chrome"
-                size="icon-xs"
-                label={panelWidthToggleLabel}
-                tooltip={panelWidthToggleLabel}
-                tooltipSide="bottom"
-                className={cn(
-                  DOCK_HEADER_ICON_BUTTON_CLASS,
-                  panelFullWidth && CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
-                )}
-                aria-pressed={panelFullWidth}
-                data-testid="right-dock-width-toggle"
-                onClick={() => props.onFullWidthChange?.(!panelFullWidth)}
-              >
-                {panelFullWidth ? <RestorePanelWidthIcon /> : <Maximize2 />}
-              </IconButton>
-            ) : null}
-            {props.state.panes.length > 0 && visibleAddMenuKinds.length > 0 ? (
-              <Menu modal={false}>
-                <MenuTrigger
-                  render={
-                    <Button
-                      variant="chrome"
-                      size="icon-xs"
-                      aria-label={t("rightDock.addPanel")}
-                      title={t("rightDock.addPanel")}
-                      className={DOCK_HEADER_ICON_BUTTON_CLASS}
-                    />
-                  }
+              {props.state.panes.length > 0 && visibleAddMenuKinds.length > 0 ? (
+                <Menu modal={false}>
+                  <MenuTrigger
+                    render={
+                      <Button
+                        variant="chrome"
+                        size="icon-xs"
+                        aria-label={t("rightDock.addPanel")}
+                        title={t("rightDock.addPanel")}
+                        className={DOCK_HEADER_ICON_BUTTON_CLASS}
+                      />
+                    }
+                  >
+                    <PlusIcon className="size-4" />
+                  </MenuTrigger>
+                  <ComposerPickerMenuPopup align="start" side="bottom" className="w-44 min-w-44">
+                    {visibleAddMenuKinds.map((kind) => {
+                      const { Icon } = getRightDockPaneMeta(kind);
+                      const label = t(RIGHT_DOCK_LABEL_KEY_BY_KIND[kind]);
+                      return (
+                        <MenuItem key={kind} onClick={() => props.onAddPane(kind)}>
+                          <Icon className="size-4 shrink-0" />
+                          <span>{label}</span>
+                        </MenuItem>
+                      );
+                    })}
+                  </ComposerPickerMenuPopup>
+                </Menu>
+              ) : null}
+              {props.state.panes.length > 0 &&
+              visibleAddMenuKinds.length === 0 &&
+              props.addAction ? (
+                <IconButton
+                  variant="chrome"
+                  size="icon-xs"
+                  label={props.addAction.label}
+                  tooltip={props.addAction.label}
+                  tooltipSide="bottom"
+                  className={DOCK_HEADER_ICON_BUTTON_CLASS}
+                  onClick={props.addAction.onClick}
                 >
                   <PlusIcon className="size-4" />
-                </MenuTrigger>
-                <ComposerPickerMenuPopup align="end" side="bottom" className="w-44 min-w-44">
-                  {visibleAddMenuKinds.map((kind) => {
-                    const { Icon } = getRightDockPaneMeta(kind);
-                    const label = t(RIGHT_DOCK_LABEL_KEY_BY_KIND[kind]);
-                    return (
-                      <MenuItem key={kind} onClick={() => props.onAddPane(kind)}>
-                        <Icon className="size-4 shrink-0" />
-                        <span>{label}</span>
-                      </MenuItem>
-                    );
-                  })}
-                </ComposerPickerMenuPopup>
-              </Menu>
-            ) : null}
-            {props.state.panes.length > 0 && visibleAddMenuKinds.length === 0 && props.addAction ? (
-              <IconButton
-                variant="chrome"
-                size="icon-xs"
-                label={props.addAction.label}
-                tooltip={props.addAction.label}
-                tooltipSide="bottom"
-                className={DOCK_HEADER_ICON_BUTTON_CLASS}
-                onClick={props.addAction.onClick}
-              >
-                <PlusIcon className="size-4" />
-              </IconButton>
-            ) : null}
-            {panelFullWidth ? (
-              <>
+                </IconButton>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-1" data-right-dock-layout-controls>
+              {/* A closed dock stays mounted off-canvas; the chat header owns the
+                  side-panel toggle then, so these only exist while the dock is open. */}
+              {props.onToggleBottomPanel && props.state.open ? (
                 <IconButton
                   variant="chrome"
                   size="icon-xs"
@@ -673,6 +679,26 @@ function RightDockSurface(
                     <BottomPanelClosedIcon className="size-4" />
                   )}
                 </IconButton>
+              ) : null}
+              {props.onFullWidthChange && !props.activePaneOwnsWidthToggle ? (
+                <IconButton
+                  variant="chrome"
+                  size="icon-xs"
+                  label={panelWidthToggleLabel}
+                  tooltip={panelWidthToggleLabel}
+                  tooltipSide="bottom"
+                  className={cn(
+                    DOCK_HEADER_ICON_BUTTON_CLASS,
+                    panelFullWidth && CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
+                  )}
+                  aria-pressed={panelFullWidth}
+                  data-testid="right-dock-width-toggle"
+                  onClick={() => props.onFullWidthChange?.(!panelFullWidth)}
+                >
+                  {panelFullWidth ? <RestorePanelWidthIcon /> : <Maximize2 />}
+                </IconButton>
+              ) : null}
+              {props.state.open ? (
                 <IconButton
                   variant="chrome"
                   size="icon-xs"
@@ -689,10 +715,12 @@ function RightDockSurface(
                   data-testid="chat-header-right-dock-toggle"
                   onClick={props.onCollapse}
                 >
-                  <PanelRightOpenIcon />
+                  {/* Same glyph the chat header toggle shows while pressed, so the
+                    control reads as one button that stays put when the dock opens. */}
+                  <LayoutRightIcon className="size-4" />
                 </IconButton>
-              </>
-            ) : null}
+              ) : null}
+            </div>
           </div>
           <div className="relative min-h-0 flex-1">
             {activePane === null && activeMcpApp === null && props.launcherItems ? (
@@ -749,7 +777,7 @@ function RightDockSurface(
             })}
           </div>
         </div>
-        {chromeContract.showSidebarRail ? <SidebarRail /> : null}
+        {chromeContract.showSidebarRail ? <SidebarRail placement="dock-seam" /> : null}
       </Sidebar>
     </SidebarProvider>
   );

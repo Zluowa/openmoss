@@ -8,7 +8,7 @@ import {
   DesktopMenuShortcuts,
   type DesktopMenuShortcutCommand,
   type KeybindingShortcut,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 import type { MenuItemConstructorOptions } from "electron";
 

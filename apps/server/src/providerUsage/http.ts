@@ -6,7 +6,7 @@ import {
   decodeOutboundJson,
   outboundHttp,
   resolveOutboundProxyUrl,
-} from "@synara/shared/outboundHttp";
+} from "@moss/shared/outboundHttp";
 
 export interface FetchJsonResult {
   readonly status: number;

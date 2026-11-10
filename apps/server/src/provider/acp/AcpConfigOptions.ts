@@ -4,7 +4,7 @@
  *
  * @module AcpConfigOptions
  */
-import { type ProviderModelDescriptor } from "@synara/contracts";
+import { type ProviderModelDescriptor } from "@moss/contracts";
 import type * as Acp from "@agentclientprotocol/sdk";
 
 export function availableAuthMethodIds(
@@ -85,4 +85,28 @@ export function parseAcpAvailableModels(response: unknown): Array<{ slug: string
       ? [{ slug: model.modelId, name: model.name }]
       : [],
   );
+}
+
+/** The selection reported by a fresh ACP session, never inferred from catalog order. */
+export function readAcpCurrentModel(
+  response: unknown,
+  modelConfigId = "model",
+): string | undefined {
+  if (!response || typeof response !== "object" || Array.isArray(response)) return undefined;
+  const record = response as Record<string, unknown>;
+  const options = Array.isArray(record.configOptions) ? record.configOptions : [];
+  const option = options.find(
+    (value): value is Record<string, unknown> =>
+      value !== null &&
+      typeof value === "object" &&
+      value.type === "select" &&
+      (value.id === modelConfigId || value.category === "model"),
+  );
+  const legacy = record.models;
+  const current =
+    option?.currentValue ??
+    (legacy && typeof legacy === "object" && "currentModelId" in legacy
+      ? legacy.currentModelId
+      : undefined);
+  return typeof current === "string" && current.trim() ? current.trim() : undefined;
 }

@@ -1,4 +1,4 @@
-import { MODEL_SCREEN_IMAGE_MAX_DIMENSION } from "@synara/shared/modelImageBudget";
+import { MODEL_SCREEN_IMAGE_MAX_DIMENSION } from "@moss/shared/modelImageBudget";
 import {
   COMPUTER_DELIVERY_PATH_MAX_LENGTH,
   COMPUTER_MESSAGE_MAX_LENGTH,
@@ -12,6 +12,7 @@ import {
   type ComputerCursorPosition,
   type ComputerDeliveryVerification,
   type ComputerHealth,
+  type ComputerHostPlatform,
   type ComputerId,
   type ComputerInputModifier,
   type ComputerInputPause,
@@ -28,7 +29,7 @@ import {
   type ComputerVerifyStateResult,
   type ComputerWindow,
   type ComputerZoomResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 /**
  * The longest side, in pixels, of any screenshot handed to a model.
@@ -384,6 +385,11 @@ export interface ComputerBackend {
    * but the macOS one uses.
    */
   readonly agentDialect?: ComputerAgentDialect;
+  /**
+   * The OS the desktop host runs on, from the host's own handshake when it has one. Lets the
+   * status say which desktop this is without guessing from the window that shows it.
+   */
+  readonly reportedHostPlatform?: () => ComputerHostPlatform | undefined;
   readonly computerId: ComputerId;
   /**
    * Whether this host could drive a desktop, answered without doing anything to

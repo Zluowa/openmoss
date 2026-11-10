@@ -6,7 +6,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationThreadShell,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Exit, FileSystem, Layer, Option, Scope, Stream } from "effect";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";

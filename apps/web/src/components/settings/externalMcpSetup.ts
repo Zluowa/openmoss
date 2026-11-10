@@ -3,7 +3,7 @@ import type {
   ExternalMcpClientKind,
   ExternalMcpProjectScope,
   ExternalMcpStdioConfiguration,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export const EXTERNAL_MCP_CLIENTS = {
   codex: {

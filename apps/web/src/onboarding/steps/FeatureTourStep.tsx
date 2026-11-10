@@ -4,7 +4,7 @@
 //          shortcut chips on the shortcuts topic.
 // Layer: Web UI component
 
-import type { ResolvedKeybindingsConfig } from "@synara/contracts";
+import type { ResolvedKeybindingsConfig } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -47,7 +47,7 @@ export function FeatureTourStep() {
   if (!selectedCard) return null;
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] gap-8">
+    <div className="grid min-h-0 flex-1 grid-cols-1 gap-ui-gap-md sm:grid-cols-[minmax(10rem,220px)_minmax(0,1fr)] sm:gap-ui-gap-lg">
       <div className="flex flex-col gap-0.5" role="tablist" aria-label="Moss capabilities">
         {TOUR_CARDS.map((card) => {
           const Icon = card.icon;
@@ -61,7 +61,7 @@ export function FeatureTourStep() {
               aria-controls="onboarding-tour-panel"
               id={`onboarding-tour-tab-${card.id}`}
               className={cn(
-                "flex h-[34px] items-center gap-2.5 rounded-lg px-2.5 text-start text-ui-lg outline-none transition-colors motion-reduce:transition-none",
+                "flex min-h-control items-center gap-ui-gap-xs rounded-control px-ui-pad-sm py-1 text-start text-ui-lg outline-none transition-colors motion-reduce:transition-none",
                 "focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
                 selected
                   ? "bg-foreground/4 text-foreground"
@@ -71,7 +71,7 @@ export function FeatureTourStep() {
             >
               <Icon
                 className={cn(
-                  "size-4 shrink-0",
+                  "size-ui-icon shrink-0",
                   selected ? "text-foreground" : "text-muted-foreground/80",
                 )}
                 aria-hidden
@@ -88,7 +88,7 @@ export function FeatureTourStep() {
         aria-labelledby={`onboarding-tour-tab-${selectedCard.id}`}
         className="flex min-w-0 flex-col gap-3.5 pt-1.5"
       >
-        <h3 className="text-base font-medium tracking-[-0.005em] text-foreground">
+        <h3 className="text-ui-lg font-medium tracking-[-0.005em] text-foreground">
           {selectedCard.title}
         </h3>
         <p className="text-ui-lg leading-relaxed text-muted-foreground">

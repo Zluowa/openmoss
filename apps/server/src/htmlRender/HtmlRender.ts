@@ -7,7 +7,7 @@
 //   Local absolute-path images follow T3's publish-time inlining behavior.
 //   See THIRD_PARTY_NOTICES.md.
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import {
   clampHtmlRenderHeight,
   HTML_RENDER_COLUMN_WIDTH,
@@ -15,8 +15,9 @@ import {
   HTML_RENDER_MAX_TITLE_LENGTH,
   injectHtmlRenderBootstrap,
   type HtmlRenderReference,
-} from "@synara/shared/htmlRender";
-import { type ThemeAppearance } from "@synara/shared/themePalettes";
+} from "@moss/shared/htmlRender";
+import { htmlRenderMapLibraries } from "@moss/shared/htmlRenderMaps";
+import { type ThemeAppearance } from "@moss/shared/themePalettes";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
@@ -750,8 +751,10 @@ const make = Effect.gen(function* () {
   };
 
   // The bootstrap goes in first so its head scan never runs over inlined image data.
+  // A map page also gets the map helper and Moss's own copy of the map libraries. Map
+  // keys are never written into a stored page: the app hands them to the live frame.
   const inline = (html: string) =>
-    inlineLocalImages(injectHtmlRenderBootstrap(html)).pipe(
+    inlineLocalImages(injectHtmlRenderBootstrap(html, { libraries: htmlRenderMapLibraries })).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
     );
 

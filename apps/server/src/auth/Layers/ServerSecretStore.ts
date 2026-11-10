@@ -1,9 +1,8 @@
-import * as Crypto from "node:crypto";
-
-import { Effect, FileSystem, Layer, Path } from "effect";
+import { Effect, FileSystem, Layer, Path, Semaphore } from "effect";
 
 import { writeFileStringAtomically } from "../../atomicWrite";
 import { ServerConfig } from "../../config";
+import { getOrCreateSecretFile } from "../secretFileCreation";
 import {
   SecretStoreError,
   ServerSecretStore,
@@ -37,6 +36,10 @@ export const makeServerSecretStore = Effect.gen(function* () {
       ),
     );
   }
+
+  // Callers asking for the same secret at once share one creation (see secretFileCreation.ts for
+  // creators in other store instances or processes).
+  const creationLocks = yield* Semaphore.makePartitioned<string>({ permits: 1 });
 
   const resolveSecretPath = (name: string) =>
     path.join(serverConfig.secretsDir, secretFileName(name));
@@ -75,11 +78,17 @@ export const makeServerSecretStore = Effect.gen(function* () {
     );
 
   const getOrCreateRandom: ServerSecretStoreShape["getOrCreateRandom"] = (name, bytes) =>
-    get(name).pipe(
-      Effect.flatMap((existing) => {
-        if (existing) return Effect.succeed(existing);
-        const generated = Uint8Array.from(Crypto.randomBytes(bytes));
-        return set(name, generated).pipe(Effect.as(generated));
+    creationLocks.withPermits(
+      name,
+      1,
+    )(
+      Effect.tryPromise({
+        try: () => getOrCreateSecretFile(resolveSecretPath(name), bytes),
+        catch: (cause) =>
+          new SecretStoreError({
+            message: `Failed to create secret ${name}.`,
+            cause,
+          }),
       }),
     );
 

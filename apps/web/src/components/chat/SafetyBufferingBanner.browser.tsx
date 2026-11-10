@@ -4,7 +4,7 @@ import {
   DEFAULT_THEME_STATE,
   resolveThemePack,
 } from "../../theme/theme.logic";
-import { TurnId } from "@synara/contracts";
+import { TurnId } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";

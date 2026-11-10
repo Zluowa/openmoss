@@ -1,12 +1,20 @@
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect } from "effect";
+import { ChildProcessSpawner } from "effect/unstable/process";
 import * as AcpErrors from "./AcpErrors.ts";
 import type * as Acp from "@agentclientprotocol/sdk";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { buildMossManagedGrokProviderInstance } from "../mossManagedGrokEnvironment.ts";
+import { buildAcpSpawnProcessEnv } from "./AcpSessionRuntime.ts";
 import {
   applyGrokAcpModelSelection,
   buildGrokAcpSpawnInput,
   isGrokSessionStoragePathNotFoundError,
+  makeGrokAcpRuntime,
   resolveGrokAcpAuthMethodId,
   resolveGrokAcpAuthMethodIdForEnv,
   runGrokAcpCompactionCommand,
@@ -351,5 +359,89 @@ describe("runGrokAcpCompactionCommand", () => {
     expect(error).toBeInstanceOf(AcpErrors.AcpRequestError);
     expect(error.message).toContain("does not advertise the /compact command");
     expect(promptCalled).toBe(false);
+  });
+});
+
+describe("managed Grok launch", () => {
+  const gateway = "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
+  const homes: string[] = [];
+
+  const managedSettings = async () => {
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "moss-grok-managed-")));
+    homes.push(root);
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", gateway);
+    const instance = buildMossManagedGrokProviderInstance({
+      accessToken: "gateway-bearer",
+      gatewayBaseUrl: gateway,
+      homePath: path.join(root, "cn"),
+      runtimeGeneration: "generation",
+      realm: "cn",
+    });
+    return {
+      home: path.join(root, "cn"),
+      settings: {
+        binaryPath: path.join(root, "missing-grok-binary"),
+        instanceId: "grok_moss",
+        model: "moss/deepseek-v4-flash",
+        environment: Object.fromEntries(
+          instance.environment.map((entry) => [entry.name, entry.value]),
+        ),
+      },
+    };
+  };
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await Promise.all(homes.splice(0).map((home) => rm(home, { recursive: true, force: true })));
+  });
+
+  it("gives only the gateway credential to the child and never a personal xAI key", async () => {
+    const { home, settings } = await managedSettings();
+    const spawn = buildGrokAcpSpawnInput(settings, "/tmp/project", "full-access");
+    const env = buildAcpSpawnProcessEnv(spawn, {
+      PATH: "/usr/bin",
+      XAI_API_KEY: "personal-key",
+      MOSS_AUTH_TOKEN: "server-secret",
+    });
+
+    expect(env.MOSS_ACCESS_TOKEN).toBe("gateway-bearer");
+    expect(env.GROK_HOME).toBe(home);
+    expect(env.GROK_CAMPAIGNS).toBe("0");
+    expect(env.XAI_API_KEY).toBeUndefined();
+    expect(env.MOSS_AUTH_TOKEN).toBeUndefined();
+  });
+
+  it("authenticates through the generated config and refuses a personal login", async () => {
+    const { settings } = await managedSettings();
+    const resolve = resolveGrokAcpAuthMethodIdForEnv(settings.environment, settings.instanceId);
+
+    await expect(
+      Effect.runPromise(resolve(initializeWithAuthMethods(["xai.api_key", "grok.com"]))),
+    ).resolves.toBe("xai.api_key");
+    const refused = await Effect.runPromise(
+      resolve(initializeWithAuthMethods(["cached_token", "grok.com"])).pipe(Effect.flip),
+    );
+    expect(refused.message).toContain("Managed Grok");
+  });
+
+  it("writes the generated model config before the CLI starts", async () => {
+    const { home, settings } = await managedSettings();
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+        return yield* makeGrokAcpRuntime({
+          grokSettings: settings,
+          childProcessSpawner,
+          cwd: home,
+          runtimeMode: "full-access",
+          clientInfo: { name: "test", version: "0" },
+        }).pipe(Effect.scoped, Effect.exit);
+      }).pipe(Effect.provide(NodeServices.layer)),
+    );
+
+    const config = await readFile(path.join(home, "config.toml"), "utf8");
+    expect(config).toContain('env_key = "MOSS_ACCESS_TOKEN"');
+    expect(config).toContain('[model."moss/deepseek-v4-flash"]');
+    expect(config).not.toContain("gateway-bearer");
   });
 });

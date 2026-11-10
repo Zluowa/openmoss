@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import os from "node:os";
 import path from "node:path";
 
@@ -21,9 +22,10 @@ import {
   ProviderRuntimeEvent,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { assert, describe, it } from "@effect/vitest";
-import { assessClaudeCache } from "@synara/shared/claudeCache";
+import { assessClaudeCache } from "@moss/shared/claudeCache";
+import { resetLocalAgentPathLookupCache } from "@moss/shared/localAgentExecutable";
 import {
   Deferred,
   Effect,
@@ -64,6 +66,12 @@ import {
 } from "./ClaudeAdapter.ts";
 import { claudeIsolatedHomePath } from "../claudeEnvironment.ts";
 import * as claudeEnvironmentModule from "../claudeEnvironment.ts";
+import { ServerSecretStoreLive } from "../../auth/Layers/ServerSecretStore.ts";
+import {
+  makeClaudeStateBindingAccess,
+  type ClaudeStateBindingAccount,
+} from "../claudeStateBinding.ts";
+import * as claudeAgentSdkModule from "../claudeAgentSdk.ts";
 
 vi.mock("effect", async (importOriginal) => {
   const actual = await importOriginal<typeof import("effect")>();
@@ -274,6 +282,7 @@ describe("packaged Claude executable launch", () => {
       "managed",
       "custom",
       "default",
+      "default-without-own-claude",
       "missing-managed",
       ...(operation === "start" || operation === "auto" ? ["model-selection" as const] : []),
     ] as const) {
@@ -289,8 +298,28 @@ describe("packaged Claude executable launch", () => {
         const instanceId = ProviderInstanceId.makeUnsafe(
           managed ? "claude_moss" : "claude-personal",
         );
-        const binaryPath = mode === "default" ? undefined : "/custom/claude";
-        const expected = managed ? "/moss/runtime/claude" : (binaryPath ?? "claude");
+        // The person's own `claude` is on PATH except on a fresh computer, where the
+        // personal instance falls back to the Claude Code Moss ships.
+        const pathDir = mkdtempSync(path.join(os.tmpdir(), "moss-claude-runtime-path-"));
+        if (mode !== "default-without-own-claude") {
+          writeFileSync(
+            path.join(pathDir, process.platform === "win32" ? "claude.cmd" : "claude"),
+            "",
+            { mode: 0o755 },
+          );
+        }
+        vi.stubEnv("PATH", pathDir);
+        vi.stubEnv("PATHEXT", ".COM;.EXE;.BAT;.CMD");
+        resetLocalAgentPathLookupCache();
+        const binaryPath =
+          mode === "default" || mode === "default-without-own-claude"
+            ? undefined
+            : "/custom/claude";
+        const expected =
+          mode === "default-without-own-claude"
+            ? "/moss/runtime/claude"
+            : (binaryPath ??
+              path.join(pathDir, process.platform === "win32" ? "claude.CMD" : "claude"));
         const captured: ClaudeQueryOptions[] = [];
         const probes: string[] = [];
         const privateRoot = mkdtempSync(path.join(os.tmpdir(), "moss-claude-runtime-resolution-"));
@@ -371,7 +400,9 @@ describe("packaged Claude executable launch", () => {
             Effect.sync(() => {
               vi.restoreAllMocks();
               vi.unstubAllEnvs();
+              resetLocalAgentPathLookupCache();
               rmSync(privateRoot, { recursive: true, force: true });
+              rmSync(pathDir, { recursive: true, force: true });
             }),
           ),
         );
@@ -1260,6 +1291,186 @@ describe("ClaudeAdapterLive", () => {
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect(
+    "rejects forged Claude bindings and rechecks revocation at the actual spawn boundary",
+    () => {
+      const root = mkdtempSync(path.join(os.tmpdir(), "moss-claude-bound-adapter-"));
+      const stateDir = path.join(root, "state");
+      let account: ClaudeStateBindingAccount = {
+        providerInstanceId: "claude_own",
+        enabled: true,
+        managed: false,
+        homePath: path.join(root, "own"),
+        configPath: path.join(root, "own", ".claude"),
+        sourceProjectsPath: path.join(root, "projects"),
+      };
+      for (const dir of [stateDir, account.configPath, account.sourceProjectsPath])
+        mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(account.configPath, ".credentials.json"), '{"fixture":"own"}');
+      const binaryPath = path.join(root, process.platform === "win32" ? "claude.exe" : "claude");
+      writeFileSync(binaryPath, "", { mode: 0o755 });
+      const config = ServerConfig.layerTest(root, root, {
+        stateDir,
+        secretsDir: path.join(stateDir, "secrets"),
+      });
+      let queryCalls = 0;
+      let spawnCalls = 0;
+      const layer = makeClaudeAdapterLive({
+        spawnClaudeCodeProcess: () => {
+          spawnCalls++;
+          throw new Error("revoked binding must not spawn");
+        },
+        createQuery: (input) => {
+          queryCalls++;
+          account = { ...account, enabled: false };
+          input.options.spawnClaudeCodeProcess?.({
+            command: binaryPath,
+            args: [],
+            env: {},
+            signal: new AbortController().signal,
+          });
+          return new FakeClaudeQuery();
+        },
+      }).pipe(Layer.provideMerge(config), Layer.provideMerge(NodeServices.layer));
+      return Effect.gen(function* () {
+        const access = yield* makeClaudeStateBindingAccess({
+          stateDir,
+          readAccount: () => account,
+        }).pipe(
+          Effect.provide(
+            ServerSecretStoreLive.pipe(Layer.provide(config), Layer.provide(NodeServices.layer)),
+          ),
+        );
+        const binding = yield* Effect.promise(() => access.register(account.providerInstanceId));
+        const adapter = yield* ClaudeAdapter;
+        const start = (options: typeof binding.options) =>
+          adapter.startSession({
+            threadId: THREAD_ID,
+            provider: "claudeAgent",
+            providerInstanceId: "claude_own",
+            runtimeMode: "full-access",
+            cwd: root,
+            providerOptions: { claudeAgent: { ...options, binaryPath } },
+          });
+        assert.equal(
+          (yield* Effect.result(start(JSON.parse(JSON.stringify(binding.options)))))._tag,
+          "Failure",
+        );
+        assert.equal(queryCalls, 0);
+        assert.equal((yield* Effect.result(start(binding.options)))._tag, "Failure");
+        assert.equal(queryCalls, 1);
+        assert.equal(spawnCalls, 0);
+        assert.equal(yield* adapter.hasSession(THREAD_ID), false);
+        const discovery = {
+          ...binding.options,
+          provider: "claudeAgent" as const,
+          instanceId: account.providerInstanceId,
+          binaryPath,
+          cwd: root,
+        };
+        account = { ...account, enabled: true };
+        assert.equal((yield* Effect.result(adapter.listModels!(discovery)))._tag, "Failure");
+        assert.equal(queryCalls, 2);
+        account = { ...account, enabled: true };
+        assert.equal((yield* Effect.result(adapter.listCommands!(discovery)))._tag, "Failure");
+        assert.equal(queryCalls, 3);
+        assert.equal(spawnCalls, 0);
+      }).pipe(
+        Effect.provide(layer),
+        Effect.scoped,
+        Effect.ensuring(Effect.sync(() => rmSync(root, { recursive: true, force: true }))),
+      );
+    },
+  );
+
+  it.effect("forks a live Claude source using the selected binding's private root", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "moss-claude-bound-fork-"));
+    const stateDir = path.join(root, "state");
+    const source = path.join(root, "projects");
+    const account = (name: string): ClaudeStateBindingAccount => ({
+      providerInstanceId: name,
+      enabled: true,
+      managed: false,
+      homePath: path.join(root, name),
+      configPath: path.join(root, name, ".claude"),
+      sourceProjectsPath: source,
+    });
+    const own = account("claude_own");
+    const work = account("claude_work");
+    for (const dir of [stateDir, source, own.configPath, work.configPath])
+      mkdirSync(dir, { recursive: true });
+    const binaryPath = path.join(root, process.platform === "win32" ? "claude.exe" : "claude");
+    writeFileSync(binaryPath, "", { mode: 0o755 });
+    const config = ServerConfig.layerTest(root, root, {
+      stateDir,
+      secretsDir: path.join(stateDir, "secrets"),
+    });
+    const fork = vi
+      .spyOn(claudeAgentSdkModule, "forkClaudeSessionInEnvironment")
+      .mockResolvedValue({ sessionId: "fixture-forked-session" });
+    const layer = makeClaudeAdapterLive({ createQuery: () => new FakeClaudeQuery() }).pipe(
+      Layer.provideMerge(config),
+      Layer.provideMerge(NodeServices.layer),
+    );
+    return Effect.gen(function* () {
+      const access = yield* makeClaudeStateBindingAccess({
+        stateDir,
+        readAccount: (id) => (id === own.providerInstanceId ? own : work),
+      }).pipe(
+        Effect.provide(
+          ServerSecretStoreLive.pipe(Layer.provide(config), Layer.provide(NodeServices.layer)),
+        ),
+      );
+      const original = yield* Effect.promise(() => access.register(own.providerInstanceId));
+      const target = yield* Effect.promise(() => access.register(work.providerInstanceId));
+      const adapter = yield* ClaudeAdapter;
+      const resume = "7f9c2f60-1111-4a2b-9c3d-8e5f6a7b8c9d";
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        providerInstanceId: own.providerInstanceId,
+        runtimeMode: "full-access",
+        cwd: root,
+        resumeCursor: { resume },
+        providerOptions: { claudeAgent: { ...original.options, binaryPath } },
+      });
+      const result = yield* adapter.forkThread!({
+        sourceThreadId: THREAD_ID,
+        threadId: RESUME_THREAD_ID,
+        sourceCwd: root,
+        sourceResumeCursor: { resume },
+        runtimeMode: "full-access",
+        modelSelection: {
+          provider: "claudeAgent",
+          instanceId: work.providerInstanceId,
+          model: "sonnet-5",
+        },
+        providerOptions: { claudeAgent: { ...target.options, binaryPath } },
+      });
+      assert.ok(result);
+      assert.equal(fork.mock.calls.length, 1);
+      const selected = fork.mock.calls[0]![0];
+      assert.equal(selected.environment.HOME, target.options.homePath);
+      assert.equal(
+        selected.environment.CLAUDE_CONFIG_DIR,
+        target.options.environment?.CLAUDE_CONFIG_DIR,
+      );
+      assert.notEqual(selected.environment.HOME, original.options.homePath);
+      assert.equal(selected.sessionId, resume);
+      assert.equal(typeof selected.assertStateBindingCurrent, "function");
+      yield* adapter.stopSession(THREAD_ID);
+    }).pipe(
+      Effect.provide(layer),
+      Effect.scoped,
+      Effect.ensuring(
+        Effect.sync(() => {
+          fork.mockRestore();
+          rmSync(root, { recursive: true, force: true });
+        }),
+      ),
     );
   });
 
@@ -6140,16 +6351,18 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       proveExit = resolve;
     });
     let teardownCalls = 0;
-    const ownedProcess = {
+    const processEvents = new EventEmitter();
+    const ownedProcess = Object.assign(processEvents, {
       pid: 73_311,
       exitCode: 0,
       signalCode: null,
-    } as unknown as ClaudeOwnedProcess;
+    }) as unknown as ClaudeOwnedProcess;
     const layer = makeClaudeAdapterLive({
       spawnClaudeCodeProcess: () => ownedProcess,
       teardownProcessTree: async () => {
         teardownCalls += 1;
         await exitProof;
+        processEvents.emit("close");
         return { escalated: false, signalErrors: [] };
       },
       createQuery: (input) => {
@@ -6255,11 +6468,12 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
   it.effect("retains Claude ownership and retries when teardown proof fails", () => {
     const query = new FakeClaudeQuery();
     let teardownCalls = 0;
-    const ownedProcess = {
+    const processEvents = new EventEmitter();
+    const ownedProcess = Object.assign(processEvents, {
       pid: 73_312,
       exitCode: 0,
       signalCode: null,
-    } as unknown as ClaudeOwnedProcess;
+    }) as unknown as ClaudeOwnedProcess;
     const layer = makeClaudeAdapterLive({
       spawnClaudeCodeProcess: () => ownedProcess,
       teardownProcessTree: async () => {
@@ -6267,6 +6481,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         if (teardownCalls === 1) {
           throw new Error("rootExited=false; surviving process remains");
         }
+        processEvents.emit("close");
         return { escalated: true, signalErrors: [] };
       },
       createQuery: (input) => {
@@ -6318,15 +6533,17 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     ];
     let createCalls = 0;
     let teardownCalls = 0;
-    const ownedProcess = {
+    const processEvents = new EventEmitter();
+    const ownedProcess = Object.assign(processEvents, {
       pid: 73_314,
       exitCode: 0,
       signalCode: null,
-    } as unknown as ClaudeOwnedProcess;
+    }) as unknown as ClaudeOwnedProcess;
     const layer = makeClaudeAdapterLive({
       spawnClaudeCodeProcess: () => ownedProcess,
       teardownProcessTree: async () => {
         if (++teardownCalls < 3) throw new Error("descendant remains");
+        processEvents.emit("close");
         return { escalated: true, signalErrors: [] };
       },
       createQuery: (input) => {
@@ -13187,46 +13404,40 @@ describe("ClaudeAdapterLive forkThread", () => {
     );
   });
 
-  it.effect(
-    "falls back for stopped account-scoped sessions instead of using the default store",
-    () => {
-      let forkCalls = 0;
-      const layer = makeForkLayer(async () => {
-        forkCalls += 1;
-        return { sessionId: "unexpected" };
-      });
+  it.effect("forks stopped account-scoped sessions through the selected store", () => {
+    let forkCalls = 0;
+    const layer = makeForkLayer(async () => {
+      forkCalls += 1;
+      return { sessionId: "scoped-copy" };
+    });
 
-      return Effect.gen(function* () {
-        const adapter = yield* ClaudeAdapter;
-        const result = yield* adapter.forkThread!({
-          sourceThreadId: THREAD_ID,
-          threadId: RESUME_THREAD_ID,
-          runtimeMode: "full-access",
-          modelSelection: {
-            provider: "claudeAgent",
-            instanceId: "work",
-            model: "claude-opus-4-8",
-          },
-          providerOptions: {
-            claudeAgent: { homePath: "/tmp/claude-work" },
-          },
-          sourceResumeCursor: {
-            threadId: String(THREAD_ID),
-            resume: SOURCE_SESSION_ID,
-          },
-        }).pipe(Effect.result);
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const result = yield* adapter.forkThread!({
+        sourceThreadId: THREAD_ID,
+        threadId: RESUME_THREAD_ID,
+        runtimeMode: "full-access",
+        modelSelection: {
+          provider: "claudeAgent",
+          instanceId: "work",
+          model: "claude-opus-4-8",
+        },
+        providerOptions: {
+          claudeAgent: { homePath: "/tmp/claude-work" },
+        },
+        sourceResumeCursor: {
+          threadId: String(THREAD_ID),
+          resume: SOURCE_SESSION_ID,
+        },
+      }).pipe(Effect.result);
 
-        assert.equal(forkCalls, 0);
-        assert.equal(result._tag, "Failure");
-        if (result._tag === "Failure" && result.failure instanceof ProviderAdapterValidationError) {
-          assert.include(result.failure.issue, "default SDK store");
-        }
-      }).pipe(
-        Effect.provideService(Random.Random, makeDeterministicRandomService()),
-        Effect.provide(layer),
-      );
-    },
-  );
+      assert.equal(forkCalls, 1);
+      assert.equal(result._tag, "Success");
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(layer),
+    );
+  });
 
   it.effect("maps a native fork failure to a session/fork request error", () => {
     const layer = makeForkLayer(async () => {

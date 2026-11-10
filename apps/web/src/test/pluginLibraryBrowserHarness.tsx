@@ -34,8 +34,8 @@ import type {
   ProviderUninstallPluginResult,
   ServerConfig,
   ServerSettings,
-} from "@synara/contracts";
-import { DEFAULT_SERVER_SETTINGS } from "@synara/contracts";
+} from "@moss/contracts";
+import { DEFAULT_SERVER_SETTINGS } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,

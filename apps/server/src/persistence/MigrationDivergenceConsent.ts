@@ -6,7 +6,7 @@ import {
   migrationBackupDirectory,
   serializeMigrationDivergenceConsentChallenge,
   type MigrationDivergenceConsentChallenge,
-} from "@synara/shared/migrationRecovery";
+} from "@moss/shared/migrationRecovery";
 
 export interface MigrationLineageDivergence {
   readonly firstDivergedId: number;

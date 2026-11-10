@@ -172,7 +172,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
         "bun run moss:prd-coverage -- --created-at 2026-07-02T00:02:30.000Z",
-        "bun --filter @synara/scripts test -- moss-prd-coverage moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-prd-coverage moss-iteration-packet moss-loop-status",
       ]),
     );
     expect(packet.recordActions).toContain(
@@ -335,13 +335,13 @@ describe("moss-iteration-packet", () => {
     });
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
-        "bun --filter @synara/web test -- MossControlPlanePanel",
-        "bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx",
-        'bun --filter @synara/web test:browser -- ChatView.browser.tsx -t "Moss visible"',
-        "bun --filter @synara/web typecheck",
+        "bun --filter @moss/web test -- MossControlPlanePanel",
+        "bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx",
+        'bun --filter @moss/web test:browser -- ChatView.browser.tsx -t "Moss visible"',
+        "bun --filter @moss/web typecheck",
         "bun run moss:gui-parity -- --created-at 2026-07-02T00:02:40.000Z",
         "bun run moss:final-shell-parity -- --created-at 2026-07-02T00:02:40.000Z",
-        "bun --filter @synara/scripts test -- moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
       ]),
     );
     expect(packet.risks).toContain(
@@ -493,7 +493,7 @@ describe("moss-iteration-packet", () => {
     );
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
-        "bun --filter @synara/scripts test -- moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
         "bun run moss:codex-desktop-comparator -- --created-at 2026-07-02T00:11:00.000Z",
       ]),
     );
@@ -586,8 +586,8 @@ describe("moss-iteration-packet", () => {
     );
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
-        "bun --filter @synara/web test -- diffRouteSearch mossShellProductization",
-        'bun --filter @synara/web test:browser -- ChatView.browser.tsx -t "Moss product shell"',
+        "bun --filter @moss/web test -- diffRouteSearch mossShellProductization",
+        'bun --filter @moss/web test:browser -- ChatView.browser.tsx -t "Moss product shell"',
         "node scripts/moss-promoted-shell-served-smoke.ts --created-at 2026-07-02T00:12:00.000Z --report .moss/ledger/evidence/moss-promoted-shell-product-route-smoke-2026-07-02.json --screenshot .moss/ledger/evidence/moss-promoted-shell-product-route-smoke-2026-07-02.png",
         "bun run moss:ui-smoke",
         "bun run moss:codex-desktop-comparator -- --created-at 2026-07-02T00:12:00.000Z",
@@ -690,10 +690,10 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
         "bun run test:desktop-smoke",
-        "bun --filter @synara/scripts test -- moss-electron-product-shell-smoke-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-electron-product-shell-smoke-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
         "bun run moss:electron-product-shell-smoke-gate -- --created-at 2026-07-02T00:12:00.000Z",
         "bun run moss:electron-product-shell-smoke -- --created-at 2026-07-02T00:12:00.000Z --report .moss/ledger/evidence/moss-electron-product-shell-smoke-2026-07-02.json --screenshot .moss/ledger/evidence/moss-electron-product-shell-smoke-2026-07-02.png",
-        'bun --filter @synara/web test:browser -- ChatView.browser.tsx -t "Moss product shell"',
+        'bun --filter @moss/web test:browser -- ChatView.browser.tsx -t "Moss product shell"',
         "bun run moss:codex-desktop-comparator -- --created-at 2026-07-02T00:12:00.000Z",
       ]),
     );
@@ -736,7 +736,7 @@ describe("moss-iteration-packet", () => {
       expect.arrayContaining([
         "bun run moss:release-gate -- --created-at 2026-07-02T17:20:00.000Z",
         "bun run moss:codex-desktop-layout-gate -- --created-at 2026-07-02T17:20:00.000Z",
-        "bun --filter @synara/scripts test -- moss-codex-desktop-layout-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-codex-desktop-layout-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
         "bun run moss:codex-desktop-comparator -- --created-at 2026-07-02T17:20:00.000Z",
       ]),
     );
@@ -823,7 +823,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
         "bun run moss:loop-packet -- --created-at 2026-07-01T00:00:00.000Z",
-        "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
       ]),
     );
 
@@ -862,7 +862,7 @@ describe("moss-iteration-packet", () => {
       expect.arrayContaining([
         "bun run moss:loop-packet -- --created-at 2026-07-02T00:01:30.000Z",
         "bun run moss:release-freshness-refresh-plan-report-index -- --created-at 2026-07-02T00:01:30.000Z",
-        "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-ledger-snapshot moss-release-freshness-refresh-plan-report-index moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-ledger-snapshot moss-release-freshness-refresh-plan-report-index moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
       ]),
     );
 
@@ -906,7 +906,7 @@ describe("moss-iteration-packet", () => {
         "bun run moss:loop-packet -- --refresh-plan-report --output .moss/ledger/evidence/moss-loop-packet-refresh-plan-gate-report-2026-07-02.json --created-at 2026-07-02T00:01:35.000Z",
         "bun run moss:release-freshness-refresh-plan-report-index -- --created-at 2026-07-02T00:01:35.000Z",
         "bun run moss:loop-packet-refresh-plan-report-index -- --created-at 2026-07-02T00:01:35.000Z",
-        "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-packet-refresh-plan-report-index moss-release-freshness-refresh-plan-report-index moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-packet-refresh-plan-report-index moss-release-freshness-refresh-plan-report-index moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
       ]),
     );
 
@@ -953,7 +953,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands.slice(0, 12)).toEqual([
       "bun run moss:loop-packet-refresh-plan-report-index -- --created-at 2026-07-02T00:01:40.000Z",
       "bun run moss:release-gate -- --report --created-at 2026-07-02T00:01:40.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       "bun run moss:loop-packet-freshness-refresh-artifact -- --created-at 2026-07-02T00:01:40.000Z",
       "bun run moss:loop-packet-freshness-report-index -- --created-at 2026-07-02T00:01:40.000Z",
       "bun run moss:release-freshness-refresh-plan -- --report --output .moss/ledger/evidence/moss-release-freshness-refresh-plan-report-2026-07-02-gate.json --created-at 2026-07-02T00:01:40.000Z",
@@ -965,7 +965,7 @@ describe("moss-iteration-packet", () => {
       "bun run moss:release-gate -- --created-at 2026-07-02T00:01:40.000Z",
     ]);
     expect(packet.requiredVerificationCommands).not.toContain(
-      "bun --filter @synara/scripts test -- moss-release-gate moss-release-freshness-refresh-plan-report-index moss-loop-packet-freshness-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-release-freshness-refresh-plan-report-index moss-loop-packet-freshness-report-index moss-iteration-packet moss-loop-status",
     );
 
     await rm(root, { force: true, recursive: true });
@@ -1000,7 +1000,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
         "bun run moss:ui-smoke",
-        "bun --filter @synara/scripts test -- moss-ui-smoke moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-ui-smoke moss-iteration-packet moss-loop-status",
       ]),
     );
     expect(packet.requiredVerificationCommands).not.toContain(
@@ -1041,7 +1041,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
         "bun run moss:release-gate -- --created-at 2026-07-01T00:00:00.000Z",
-        "bun --filter @synara/scripts test -- moss-release-gate moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-release-gate moss-iteration-packet moss-loop-status",
       ]),
     );
 
@@ -1136,7 +1136,7 @@ describe("moss-iteration-packet", () => {
       "bun run moss:release-gate-report-index -- --created-at 2026-07-01T00:00:00.000Z",
     );
     expect(packet.requiredVerificationCommands).toContain(
-      "bun --filter @synara/scripts test -- moss-release-gate-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate-report-index moss-iteration-packet moss-loop-status",
     );
     expect(packet.requiredVerificationCommands).not.toContain(
       "bun run moss:release-gate -- --report --output .moss/ledger/evidence/moss-release-gate-report-artifact-2026-07-01.json --created-at 2026-07-01T00:00:00.000Z",
@@ -1220,10 +1220,10 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands.slice(0, 3)).toEqual([
       "bun run moss:release-gate -- --report --output .moss/ledger/evidence/moss-release-gate-report-artifact-2026-07-01.json --created-at 2026-07-01T00:00:00.000Z",
       "bun run moss:release-gate-report-index -- --created-at 2026-07-01T00:00:00.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate moss-release-gate-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-release-gate-report-index moss-iteration-packet moss-loop-status",
     ]);
     expect(packet.requiredVerificationCommands).not.toContain(
-      "bun --filter @synara/scripts test -- moss-release-gate-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate-report-index moss-iteration-packet moss-loop-status",
     );
 
     await rm(root, { force: true, recursive: true });
@@ -1258,7 +1258,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands.slice(0, 3)).toEqual([
       "bun run moss:release-gate -- --report --created-at 2026-07-01T00:00:00.000Z",
       "bun run moss:release-gate-report-index -- --created-at 2026-07-01T00:00:00.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate moss-release-gate-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-release-gate-report-index moss-iteration-packet moss-loop-status",
     ]);
     expect(packet.requiredVerificationCommands).not.toContain(
       "bun run moss:release-gate -- --created-at 2026-07-01T00:00:00.000Z",
@@ -1300,7 +1300,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands.slice(0, 3)).toEqual([
       "bun run moss:release-gate -- --report --output .moss/ledger/evidence/moss-release-gate-report-artifact-2026-07-01.json --created-at 2026-07-01T00:00:00.000Z",
       "bun run moss:release-gate-report-index -- --created-at 2026-07-01T00:00:00.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate moss-release-gate-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-release-gate-report-index moss-iteration-packet moss-loop-status",
     ]);
 
     await rm(root, { force: true, recursive: true });
@@ -1337,7 +1337,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands.slice(0, 3)).toEqual([
       "bun run moss:release-gate -- --created-at 2026-07-01T00:00:00.000Z",
       "bun run moss:loop-packet -- --created-at 2026-07-01T00:00:00.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate moss-loop-packet moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-loop-packet moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
     ]);
 
     await rm(root, { force: true, recursive: true });
@@ -1372,7 +1372,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands.slice(0, 3)).toEqual([
       "bun run moss:loop-packet -- --report --output .moss/ledger/evidence/moss-loop-packet-freshness-gate-report-2026-07-02.json --created-at 2026-07-02T00:00:00.000Z",
       "bun run moss:loop-packet-freshness-report-index -- --created-at 2026-07-02T00:00:00.000Z",
-      "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status",
     ]);
 
     await rm(root, { force: true, recursive: true });
@@ -1415,7 +1415,7 @@ describe("moss-iteration-packet", () => {
       "bun run moss:release-gate -- --created-at 2026-07-02T00:00:00.000Z",
       "bun run moss:loop-packet-freshness-report-index -- --created-at 2026-07-02T00:00:00.000Z",
       "bun run moss:loop-packet -- --created-at 2026-07-02T00:00:00.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate moss-loop-packet-freshness-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-loop-packet-freshness-report-index moss-iteration-packet moss-loop-status",
     ]);
 
     await rm(root, { force: true, recursive: true });
@@ -1455,7 +1455,7 @@ describe("moss-iteration-packet", () => {
       "bun run moss:loop-packet -- --created-at 2026-07-02T00:00:45.000Z",
       "bun run moss:release-gate-report-index -- --created-at 2026-07-02T00:00:45.000Z",
       "bun run moss:release-gate -- --created-at 2026-07-02T00:00:45.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate moss-release-gate-report-index moss-loop-packet moss-loop-ledger-snapshot moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-release-gate-report-index moss-loop-packet moss-loop-ledger-snapshot moss-iteration-packet moss-loop-status",
     ]);
 
     await rm(root, { force: true, recursive: true });
@@ -1510,7 +1510,7 @@ describe("moss-iteration-packet", () => {
       "bun run moss:release-gate-refresh-artifact -- --created-at 2026-07-02T00:01:50.000Z",
       "bun run moss:release-gate-report-index -- --created-at 2026-07-02T00:01:50.000Z",
       "bun run moss:release-gate -- --created-at 2026-07-02T00:01:50.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate moss-release-gate-report-index moss-loop-packet-freshness-report-index moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-release-gate-report-index moss-loop-packet-freshness-report-index moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
     ]);
 
     await rm(root, { force: true, recursive: true });
@@ -1567,7 +1567,7 @@ describe("moss-iteration-packet", () => {
       "bun run moss:release-gate-refresh-artifact -- --created-at 2026-07-02T00:02:00.000Z",
       "bun run moss:release-gate-report-index -- --created-at 2026-07-02T00:02:00.000Z",
       "bun run moss:release-gate -- --created-at 2026-07-02T00:02:00.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate-report-index moss-release-gate moss-loop-packet-freshness-report-index moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate-report-index moss-release-gate moss-loop-packet-freshness-report-index moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
     ]);
 
     await rm(root, { force: true, recursive: true });
@@ -1620,7 +1620,7 @@ describe("moss-iteration-packet", () => {
     );
     expect(packet.requiredVerificationCommands.slice(0, 11)).toEqual([
       "bun run moss:iteration-packet -- --created-at 2026-07-02T00:02:10.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate-report-index moss-release-gate moss-loop-packet moss-loop-packet-freshness-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate-report-index moss-release-gate moss-loop-packet moss-loop-packet-freshness-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       "bun run moss:loop-packet-freshness-refresh-artifact -- --created-at 2026-07-02T00:02:10.000Z",
       "bun run moss:loop-packet-freshness-report-index -- --created-at 2026-07-02T00:02:10.000Z",
       "bun run moss:release-freshness-refresh-plan -- --report --output .moss/ledger/evidence/moss-release-freshness-refresh-plan-report-2026-07-02-gate.json --created-at 2026-07-02T00:02:10.000Z",
@@ -1671,7 +1671,7 @@ describe("moss-iteration-packet", () => {
       "bun run moss:loop-packet-freshness-refresh-artifact -- --created-at 2026-07-02T00:00:55.000Z",
       "bun run moss:loop-packet-freshness-report-index -- --created-at 2026-07-02T00:00:55.000Z",
       "bun run moss:release-gate -- --report --created-at 2026-07-02T00:00:55.000Z",
-      "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-release-gate moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-release-gate moss-iteration-packet moss-loop-status",
     ]);
 
     await rm(root, { force: true, recursive: true });
@@ -1721,7 +1721,7 @@ describe("moss-iteration-packet", () => {
       "bun run moss:release-freshness-refresh-plan-report-index -- --created-at 2026-07-02T00:01:00.000Z",
       "bun run moss:loop-packet -- --refresh-plan-report --output .moss/ledger/evidence/moss-loop-packet-refresh-plan-gate-report-2026-07-02.json --created-at 2026-07-02T00:01:00.000Z",
       "bun run moss:loop-packet-refresh-plan-report-index -- --created-at 2026-07-02T00:01:00.000Z",
-      "bun --filter @synara/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       "bun run moss:release-gate -- --created-at 2026-07-02T00:01:00.000Z",
     ]);
 
@@ -1767,7 +1767,7 @@ describe("moss-iteration-packet", () => {
       "bun run moss:release-freshness-refresh-plan-report-index -- --created-at 2026-07-02T00:01:45.000Z",
       "bun run moss:loop-packet -- --refresh-plan-report --output .moss/ledger/evidence/moss-loop-packet-refresh-plan-gate-report-2026-07-02.json --created-at 2026-07-02T00:01:45.000Z",
       "bun run moss:loop-packet-refresh-plan-report-index -- --created-at 2026-07-02T00:01:45.000Z",
-      "bun --filter @synara/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       "bun run moss:release-gate -- --created-at 2026-07-02T00:01:45.000Z",
     ]);
 
@@ -1809,7 +1809,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands.slice(0, 3)).toEqual([
       "bun run moss:release-freshness-refresh-plan -- --report --output .moss/ledger/evidence/moss-release-freshness-refresh-plan-report-2026-07-02.json --created-at 2026-07-02T00:01:05.000Z",
       "bun run moss:release-freshness-refresh-plan-report-index -- --created-at 2026-07-02T00:01:05.000Z",
-      "bun --filter @synara/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-iteration-packet moss-loop-status",
     ]);
 
     await rm(root, { force: true, recursive: true });
@@ -1865,7 +1865,7 @@ describe("moss-iteration-packet", () => {
     expect(packet.requiredVerificationCommands.slice(0, 12)).toEqual([
       "bun run moss:release-freshness-refresh-plan-report-index -- --created-at 2026-07-02T00:01:15.000Z",
       "bun run moss:release-gate -- --report --created-at 2026-07-02T00:01:15.000Z",
-      "bun --filter @synara/scripts test -- moss-release-gate moss-release-freshness-refresh-plan-report-index moss-loop-packet-freshness-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-release-freshness-refresh-plan-report-index moss-loop-packet-freshness-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       "bun run moss:loop-packet-freshness-refresh-artifact -- --created-at 2026-07-02T00:01:15.000Z",
       "bun run moss:loop-packet-freshness-report-index -- --created-at 2026-07-02T00:01:15.000Z",
       "bun run moss:release-freshness-refresh-plan -- --report --output .moss/ledger/evidence/moss-release-freshness-refresh-plan-report-2026-07-02-gate.json --created-at 2026-07-02T00:01:15.000Z",
@@ -1921,12 +1921,12 @@ describe("moss-iteration-packet", () => {
     );
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
-        "bun --filter @synara/web test -- mossLoopLedgerDashboard MossControlPlanePanel",
-        "bun --filter @synara/contracts test -- mossLoopLedgerDashboard rpc ws",
-        "bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx",
+        "bun --filter @moss/web test -- mossLoopLedgerDashboard MossControlPlanePanel",
+        "bun --filter @moss/contracts test -- mossLoopLedgerDashboard rpc ws",
+        "bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx",
         "bun --filter t3 test -- ProviderService",
         "bun run moss:loop-ledger-snapshot -- --created-at 2026-07-01T00:00:00.000Z",
-        "bun --filter @synara/scripts test -- moss-loop-ledger-snapshot moss-release-freshness-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+        "bun --filter @moss/scripts test -- moss-loop-ledger-snapshot moss-release-freshness-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       ]),
     );
 
@@ -1962,9 +1962,9 @@ describe("moss-iteration-packet", () => {
     );
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
-        "bun --filter @synara/web test -- MossControlPlanePanel",
-        "bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx",
-        "bun --filter @synara/web typecheck",
+        "bun --filter @moss/web test -- MossControlPlanePanel",
+        "bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx",
+        "bun --filter @moss/web typecheck",
       ]),
     );
 
@@ -1997,9 +1997,9 @@ describe("moss-iteration-packet", () => {
     );
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
-        "bun --filter @synara/web test -- mossNormalizedTimeline",
-        "bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx",
-        "bun --filter @synara/web typecheck",
+        "bun --filter @moss/web test -- mossNormalizedTimeline",
+        "bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx",
+        "bun --filter @moss/web typecheck",
       ]),
     );
 
@@ -2032,9 +2032,9 @@ describe("moss-iteration-packet", () => {
     );
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
-        "bun --filter @synara/web test -- mossNormalizedTimeline",
-        "bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx",
-        "bun --filter @synara/web typecheck",
+        "bun --filter @moss/web test -- mossNormalizedTimeline",
+        "bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx",
+        "bun --filter @moss/web typecheck",
       ]),
     );
 
@@ -2067,9 +2067,9 @@ describe("moss-iteration-packet", () => {
     );
     expect(packet.requiredVerificationCommands).toEqual(
       expect.arrayContaining([
-        "bun --filter @synara/web test -- mossNormalizedTimeline",
-        "bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx",
-        "bun --filter @synara/web typecheck",
+        "bun --filter @moss/web test -- mossNormalizedTimeline",
+        "bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx",
+        "bun --filter @moss/web typecheck",
       ]),
     );
 

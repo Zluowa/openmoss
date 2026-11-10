@@ -13,7 +13,7 @@
  *   child component IR for the server-owned runtime; child components are not
  *   promoted to independent top-level source kinds.
  * - Frontmatter parsing uses the shared scalar-subset parser
- *   (`@synara/shared/frontmatter`) instead of gray-matter; all Moss starter
+ *   (`@moss/shared/frontmatter`) instead of gray-matter; all Moss starter
  *   entries only use scalar frontmatter.
  */
 import { access, lstat, opendir, open, readFile, readdir, realpath, stat } from "node:fs/promises";

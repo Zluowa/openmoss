@@ -18,7 +18,7 @@ import {
   MCP_APP_SANDBOX_SCHEME,
   decodeMcpAppSandboxGuestInitEnvelope,
   type McpAppSandboxDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { MCP_APP_IPC_CHANNELS } from "../ipcChannels";
 import { registerSentryIpcHandler } from "../observability/sentry";

@@ -7,9 +7,9 @@ import type {
   ComputerProvisionResult,
   ComputerStatusResult,
   DesktopAppSnapState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { COMPUTER_PERMISSION_KINDS } from "@synara/shared/computerGrants";
+import { COMPUTER_PERMISSION_KINDS } from "@moss/shared/computerGrants";
 
 import {
   computerProvisionErrorToast,
@@ -189,7 +189,7 @@ describe("computerProvisionOutcome", () => {
     expect(
       computerProvisionOutcome(
         result(
-          { availability: { kind: "unsupported-platform", platform: "win32" } },
+          { availability: { kind: "unsupported-platform", platform: "freebsd" } },
           "Unavailable.",
         ),
       ),

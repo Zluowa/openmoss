@@ -4,7 +4,7 @@
 
 import "../../index.css";
 
-import type { DesktopAppSnapState, RealtimeVoiceDescriptor } from "@synara/contracts";
+import type { DesktopAppSnapState, RealtimeVoiceDescriptor } from "@moss/contracts";
 import axe from "axe-core";
 import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

@@ -1,4 +1,4 @@
-import type { GuestStreamEvent, OrchestrationEvent } from "@synara/contracts";
+import type { GuestStreamEvent, OrchestrationEvent } from "@moss/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { deriveAgentActivityTimelineState } from "~/components/chat/agentActivity.logic";

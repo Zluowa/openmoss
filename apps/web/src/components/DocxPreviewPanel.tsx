@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import { isLocalAbsolutePath, joinWorkspaceRelativePath } from "@synara/shared/path";
+import { isLocalAbsolutePath, joinWorkspaceRelativePath } from "@moss/shared/path";
 
 import { basenameOfPath } from "~/file-icons";
 import {

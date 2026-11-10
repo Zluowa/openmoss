@@ -9,8 +9,8 @@ import {
   ThreadId,
   TurnId,
   type PendingClaudeCacheReview,
-} from "@synara/contracts";
-import { derivePendingThreadRequestIds } from "@synara/shared/threadSummary";
+} from "@moss/contracts";
+import { derivePendingThreadRequestIds } from "@moss/shared/threadSummary";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

@@ -19,6 +19,7 @@ import {
   MOSS_MANAGED_ACP_AGENT_MODEL_PREFIXES,
   mossManagedAcpAgentModels,
   mossManagedKimiModelId,
+  mossManagedMinimaxAdvertisedModelValue,
   mossManagedMinimaxModelId,
   mossManagedZcodeModelId,
   prepareMossManagedAcpAgentHome,
@@ -432,6 +433,16 @@ describe("managed MiniMax Code recipe", () => {
       ).env,
     ).toMatchObject({ MINIMAX_DATA_DIR: homePath, MOSS_ACCESS_TOKEN: "test-token" });
     expect(mossManagedMinimaxModelId("minimax-m3")).toBe("m:custom_provider%3Amoss:minimax-m3:u");
+    const prefix = "m:custom_provider%3Amoss:minimax-m3:";
+    expect(
+      mossManagedMinimaxAdvertisedModelValue("minimax-m3", [
+        "m:minimax:MiniMax-M3:v:thinking",
+        `${prefix}v:`,
+        `${prefix}v:thinking`,
+      ]),
+    ).toBe(`${prefix}v:thinking`);
+    expect(mossManagedMinimaxAdvertisedModelValue("minimax-m3", [`${prefix}u`])).toBe(`${prefix}u`);
+    expect(mossManagedMinimaxAdvertisedModelValue("minimax-m3", ["m:minimax:M:u"])).toBeUndefined();
   });
 });
 
@@ -439,6 +450,7 @@ describe("managed ZCode recipe", () => {
   it("writes the personal provider table plus its legacy mirror under a `.zcode` home and pins the model", async () => {
     vi.stubEnv("ZCODE_BIN", "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs");
     vi.stubEnv("ZCODE_NODE", " ");
+    vi.stubEnv("PATH", "");
     const { homePath } = await temporaryHome("zcode");
     const instance = build("zcode", { homePath });
     const settings = { environment: environmentOf(instance), homePath };

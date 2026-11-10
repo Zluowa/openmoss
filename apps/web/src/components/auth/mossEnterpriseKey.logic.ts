@@ -1,4 +1,4 @@
-import { isMossEnterpriseApiKey } from "@synara/shared/mossRealmCatalog";
+import { isMossEnterpriseApiKey } from "@moss/shared/mossRealmCatalog";
 
 /** Returns the field error for a pasted key, or null when it can be submitted. */
 export function validateMossEnterpriseKeyInput(value: string): string | null {
@@ -18,6 +18,15 @@ const ERROR_COPY: Readonly<Record<string, string>> = {
   not_signed_in: "请先登录企业 API Key。",
   persistence_failed: "无法在本机安全保存企业 API Key，请重试。",
 };
+
+/** Copy for a saved key the gateway no longer accepts; null while it is usable. */
+export function mossEnterpriseKeyStatusNotice(
+  status: "ready" | "auth-denied" | "no-entitlement" | "transport-degraded" | undefined,
+): string | null {
+  if (status === "auth-denied") return ERROR_COPY.key_rejected ?? null;
+  if (status === "no-entitlement") return ERROR_COPY.no_entitlement ?? null;
+  return null;
+}
 
 export function mossEnterpriseKeyErrorMessage(error: unknown): string {
   const code =

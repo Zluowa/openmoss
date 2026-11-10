@@ -128,6 +128,36 @@ describe("makeAgentGatewayConnectorRegistry", () => {
   const supabase = { name: "supabase_connector", connectorId: "mcp_conn_1" };
   const linear = { name: "linear_connector", connectorId: "mcp_conn_2" };
 
+  it("invalidates scoped grants on logout and A to B to A without reviving them", () => {
+    const registry = makeAgentGatewayConnectorRegistry({ sessionIsActive: () => true });
+    const a = { name: "moss_apps", connectorId: "moss_apps", authorityKey: "global:a" };
+    registry.set([a]);
+    registry.grant("old", "codex");
+    registry.set([{ ...a }]);
+    expect(registry.canUse("old", "moss_apps")).toBe(true);
+    registry.set([{ ...a, authorityKey: "global:b" }]);
+    expect(registry.canUse("old", "moss_apps")).toBe(false);
+    registry.set([a]);
+    expect(registry.canUse("old", "moss_apps")).toBe(false);
+    registry.grant("new", "codex");
+    expect(registry.canUse("new", "moss_apps")).toBe(true);
+    registry.set([]);
+    expect(registry.canUse("new", "moss_apps")).toBe(false);
+    registry.set([a]);
+    expect(registry.canUse("new", "moss_apps")).toBe(false);
+    expect(registry.authorityKey("new", "moss_apps")).toBe("global:a");
+  });
+
+  it("preserves grants for unchanged unscoped connectors", () => {
+    const registry = makeAgentGatewayConnectorRegistry({ sessionIsActive: () => true });
+    registry.set([supabase]);
+    registry.grant("existing", "codex");
+    registry.set([]);
+    expect(registry.canUse("existing", supabase.connectorId)).toBe(false);
+    registry.set([supabase]);
+    expect(registry.canUse("existing", supabase.connectorId)).toBe(true);
+  });
+
   it("lets a bearer reach only the connectors it was issued with", () => {
     const live = new Set(["early", "late", "pi"]);
     const registry = makeAgentGatewayConnectorRegistry({ sessionIsActive: (t) => live.has(t) });

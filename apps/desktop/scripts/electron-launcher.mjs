@@ -15,8 +15,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createRequire } from "node:module";
-import { TCC_SERVICE_NAMES } from "@synara/shared/computerGrants";
-import { resolveMossDesktopFlavor, mossDesktopIdentity } from "@synara/shared/desktopIdentity";
+import { TCC_SERVICE_NAMES } from "@moss/shared/computerGrants";
+import { resolveMossDesktopFlavor, mossDesktopIdentity } from "@moss/shared/desktopIdentity";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createSourceDesktopEnvironment } from "./source-desktop-launch.mjs";

@@ -1,4 +1,4 @@
-import type { ServerProviderStatus, ServerProviderUsageSnapshot } from "@synara/contracts";
+import type { ServerProviderStatus, ServerProviderUsageSnapshot } from "@moss/contracts";
 
 /** Installation/auth health is independent of permission to run background work. */
 export function providerSetupStatusLabel(input: {

@@ -1,4 +1,4 @@
-import type { OrchestrationThreadHistory } from "@synara/contracts";
+import type { OrchestrationThreadHistory } from "@moss/contracts";
 
 // These ephemeral owners never enter contracts or durable storage. A live
 // count change shares its window owner; a snapshot/correction owns a new one.

@@ -1,4 +1,4 @@
-import { TurnId, type OrchestrationLatestTurn } from "@synara/contracts";
+import { TurnId, type OrchestrationLatestTurn } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import { makeActivity } from "../../storeTestFixtures";
 import { deriveWorkLogEntries } from "../../workLog";

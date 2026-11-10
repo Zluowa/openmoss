@@ -5,7 +5,7 @@ import OS from "node:os";
 import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { RETIRED_PROVIDER_KINDS, SUPPORTED_PROVIDER_KINDS } from "@synara/contracts";
+import { RETIRED_PROVIDER_KINDS, SUPPORTED_PROVIDER_KINDS } from "@moss/contracts";
 
 import { parseMossCanonicalConfig } from "./mossConfigProjection";
 import {

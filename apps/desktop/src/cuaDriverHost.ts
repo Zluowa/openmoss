@@ -1,6 +1,6 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
-import { access, chmod, mkdtemp, rm } from "node:fs/promises";
+import { access, chmod, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -23,8 +23,13 @@ import {
   parseCuaComputerTask,
   parseCuaShieldArgs,
   cuaComputerTaskKey,
-} from "@synara/shared/cuaDriverProtocol";
+} from "@moss/shared/cuaDriverProtocol";
 import type { ComputerFrameTapHost } from "./computerFrameTap";
+import {
+  computerSocketTempRoot,
+  createComputerSocketDirectory,
+  type ComputerSocketDirectory,
+} from "./computerSocketDirectory";
 import { linuxBrowserCallIsReadOnly, linuxCuaAdmissionRefusal } from "./linuxCuaAdmission";
 import {
   cuaHostProcessIsAlive,
@@ -36,7 +41,7 @@ import type { ComputerInputMonitorState, PhysicalComputerInput } from "./escapeK
 import {
   cuaActionDiagnosticMessage,
   parseCuaActionDiagnostics,
-} from "@synara/shared/cuaActionDiagnostics";
+} from "@moss/shared/cuaActionDiagnostics";
 
 interface TaskCursor {
   task: CuaComputerTask;
@@ -53,8 +58,11 @@ interface TaskRequest {
 // if task-end cleanup cannot reach the overlay. This wait does not repaint.
 export const CUA_CURSOR_IDLE_HIDE_MS = 60_000;
 /** A raw ENOENT names a path, not a remedy; source builds stage the driver themselves. */
-const CUA_DRIVER_MISSING_MESSAGE =
+export const CUA_DRIVER_MISSING_SOURCE_MESSAGE =
   "Cua Driver is not bundled. Run the provisioning script (`node apps/desktop/scripts/provision-cua-driver.mjs`, needs the pinned Rust toolchain) in this checkout, then relaunch Moss.";
+/** An installed app has no checkout to run a script in. Translated by exact text in the web app. */
+export const CUA_DRIVER_MISSING_PACKAGED_MESSAGE =
+  "Moss couldn't find its computer control component. Reinstall Moss to use computer control.";
 
 interface ControlledTarget {
   pid: number;
@@ -336,8 +344,11 @@ export function sweepOrphanedCuaDrivers(): void {
       // Already gone.
     }
   }
-  for (const entry of sweepOwnedCuaRuntimeDirectories({ directory: tmpdir(), liveSocketDirs }))
-    log(`removed stale owned driver directory ${entry}`);
+  for (const directory of new Set([tmpdir(), computerSocketTempRoot("host")])) {
+    for (const entry of sweepOwnedCuaRuntimeDirectories({ directory, liveSocketDirs })) {
+      log(`removed stale owned driver directory ${entry}`);
+    }
+  }
 }
 
 const DRIVER_SESSION_DEATH_CODES = new Set([
@@ -386,7 +397,7 @@ function isDriverSessionDeath(reply: CuaReply): boolean {
  * same class on platforms where no such grant model exists. */
 export class CuaDriverHost {
   private static readonly defaultOwnPids: ReadonlySet<number> = new Set([process.pid]);
-  private directory = "";
+  private directory: ComputerSocketDirectory | undefined;
   private server: Server | undefined;
   private generation: Generation | undefined;
   private starting: Promise<Generation> | undefined;
@@ -458,6 +469,8 @@ export class CuaDriverHost {
   constructor(
     private readonly options: {
       binaryPath: string;
+      /** An installed app, whose user cannot provision a missing driver. */
+      isPackaged?: boolean;
       bundleId: string;
       capability: string;
       setup: () => Promise<void>;
@@ -531,24 +544,30 @@ export class CuaDriverHost {
   }
 
   async listen(): Promise<string> {
-    this.directory = await mkdtemp(join(tmpdir(), "moss-cua-"));
-    await chmod(this.directory, 0o700);
-    await markCuaRuntimeDirectory(this.directory);
+    const directory = await createComputerSocketDirectory("host");
     // Named pipes are already private to the creating user on Windows; the
     // 0o600 owner check is a unix-socket protection, applied where it exists.
     const endpoint =
       this.options.hostEndpoint ??
       (process.platform === "win32"
         ? `\\\\.\\pipe\\moss-cua-host-${randomUUID().slice(0, 8)}`
-        : join(this.directory, "host.sock"));
+        : join(directory.path, "host.sock"));
     const server = createServer((socket) => this.accept(socket));
-    this.server = server;
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(endpoint, resolve);
-    });
-    if (process.platform !== "win32") await chmod(endpoint, 0o600);
-    return endpoint;
+    try {
+      await markCuaRuntimeDirectory(directory.path);
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(endpoint, resolve);
+      });
+      if (process.platform !== "win32") await chmod(endpoint, 0o600);
+      this.directory = directory;
+      this.server = server;
+      return endpoint;
+    } catch (error) {
+      if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
+      await directory.remove();
+      throw error;
+    }
   }
 
   private accept(socket: Socket): void {
@@ -862,7 +881,7 @@ export class CuaDriverHost {
       } catch {
         return {
           ok: false,
-          error: CUA_DRIVER_MISSING_MESSAGE,
+          error: this.driverMissingMessage(),
         };
       }
       return {
@@ -1941,6 +1960,12 @@ export class CuaDriverHost {
     // keep the dead socket referenced only until the next check notices it.
   }
 
+  private driverMissingMessage(): string {
+    return this.options.isPackaged
+      ? CUA_DRIVER_MISSING_PACKAGED_MESSAGE
+      : CUA_DRIVER_MISSING_SOURCE_MESSAGE;
+  }
+
   /**
    * Spawn plus the validated handshake — the warmable half of startup. The
    * returned generation has no session yet: `openSession` runs that half on
@@ -1954,16 +1979,18 @@ export class CuaDriverHost {
       if (this.generation && !this.generation.retired && !this.generation.didExit)
         return this.generation;
       if (this.generation) await this.retire(this.generation);
+      const directory = this.directory;
+      if (!directory) throw new Error("Computer host is not listening.");
       try {
         await access(this.options.binaryPath);
       } catch {
         // Same wording as the probe: a raw ENOENT names a path, not a remedy.
-        throw new Error(CUA_DRIVER_MISSING_MESSAGE);
+        throw new Error(this.driverMissingMessage());
       }
       const endpoint =
         process.platform === "win32"
           ? `\\\\.\\pipe\\moss-cua-driver-${randomUUID().slice(0, 8)}`
-          : join(this.directory, `driver-${randomUUID().slice(0, 8)}.sock`);
+          : join(directory.path, `driver-${randomUUID().slice(0, 8)}.sock`);
       // Park the compact cursor between actions until end_task removes it,
       // with a one-minute native expiry if cleanup cannot be acknowledged.
       // Idle compact cursors sleep without repainting; model latency must not
@@ -2003,7 +2030,7 @@ export class CuaDriverHost {
             MOSS_CUA_BACKGROUND_OBSERVATION_MS: "350",
             CUA_DRIVER_PARENT_LIVENESS_STDIN: "1",
             CUA_DRIVER_EMBEDDED_HOST_PID: String(process.pid),
-            CUA_DRIVER_RS_HOME: join(this.directory, "state"),
+            CUA_DRIVER_RS_HOME: join(directory.path, "state"),
           },
         },
       );
@@ -3195,8 +3222,7 @@ export class CuaDriverHost {
         if (this.server) this.server.close(() => resolve());
         else resolve();
       });
-      if (this.directory && !this.generation)
-        await rm(this.directory, { recursive: true, force: true });
+      if (this.directory && !this.generation) await this.directory.remove();
     }
   }
 }

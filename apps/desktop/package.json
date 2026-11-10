@@ -1,6 +1,6 @@
 {
-  "name": "@synara/desktop",
-  "version": "1.0.2",
+  "name": "@moss/desktop",
+  "version": "1.0.5",
   "private": true,
   "license": "MIT",
   "main": "dist-electron/main.js",
@@ -8,7 +8,7 @@
     "dev": "bun run scripts/dev.mjs",
     "dev:bundle": "tsdown --watch",
     "dev:electron": "bun run scripts/dev-electron.mjs",
-    "build": "tsdown",
+    "build": "tsdown && node scripts/verify-preload-bundles.mjs",
     "start": "bun run scripts/start-electron.mjs",
     "typecheck": "node ../../node_modules/@typescript/native/bin/tsc --noEmit --tsBuildInfoFile node_modules/.cache/typescript-native.tsbuildinfo && bun run typecheck:fixtures",
     "typecheck:fixtures": "node ../../node_modules/@typescript/native/bin/tsc --project tsconfig.fixtures.json",
@@ -18,10 +18,11 @@
     "smoke-test": "node scripts/smoke-test.mjs",
     "smoke:browser-lifecycle": "bun build scripts/browser-lifecycle-smoke.ts --target=node --external=electron --external=betterwright --external=betterwright/* --external=ws --external=effect --outfile=.smoke/browser-lifecycle.mjs && electron .smoke/browser-lifecycle.mjs",
     "smoke:browser-viewport": "bun build scripts/browser-viewport-smoke.ts --target=node --external=electron --external=betterwright --outfile=.smoke/browser-viewport.mjs && electron .smoke/browser-viewport.mjs",
+    "smoke:browser-capture-scale": "bun build scripts/browser-capture-scale-smoke.ts --target=node --external=electron --external=betterwright --outfile=.smoke/browser-capture-scale.mjs && electron .smoke/browser-capture-scale.mjs",
     "test:vitest": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@openai/codex": "0.163.0",
+    "@openai/codex": "0.166.0",
     "@sentry/electron": "7.18.0",
     "betterwright": "2.7.3",
     "effect": "catalog:",
@@ -30,8 +31,8 @@
     "ws": "^8.21.0"
   },
   "devDependencies": {
-    "@synara/contracts": "workspace:*",
-    "@synara/shared": "workspace:*",
+    "@moss/contracts": "workspace:*",
+    "@moss/shared": "workspace:*",
     "@types/node": "catalog:",
     "@types/ws": "^8.5.13",
     "tsdown": "catalog:",

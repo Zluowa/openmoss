@@ -1,4 +1,5 @@
-import { Effect, Exit, Scope } from "effect";
+import { DateTime, Effect, Exit, Scope } from "effect";
+import { AuthSessionId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +8,7 @@ import {
 } from "./managedAttachmentPrincipal.ts";
 import {
   CurrentWsSessionRole,
+  CurrentWsAuthenticatedSession,
   makeWsConnectionSessions,
   provideWsConnectionSession,
   type WsConnectionSession,
@@ -18,6 +20,29 @@ const OWNER_SESSION: WsConnectionSession = {
 };
 
 describe("WsConnectionSessions", () => {
+  it("provides verified session metadata without retaining another connection's identity", async () => {
+    const identity = {
+      sessionId: AuthSessionId.makeUnsafe("verified-client"),
+      role: "client" as const,
+      method: "bearer-session-token" as const,
+      subject: "one-time-token",
+      expiresAt: DateTime.nowUnsafe(),
+    };
+    const read = Effect.gen(function* () {
+      return yield* CurrentWsAuthenticatedSession;
+    });
+    expect(
+      await Effect.runPromise(
+        provideWsConnectionSession(read, {
+          role: "client",
+          attachmentPrincipal: { ownerKind: "session", ownerId: "verified-client" },
+          authenticatedSession: identity,
+        }),
+      ),
+    ).toEqual(identity);
+    expect(await Effect.runPromise(provideWsConnectionSession(read, OWNER_SESSION))).toBeNull();
+    expect(await Effect.runPromise(provideWsConnectionSession(read, undefined))).toBeNull();
+  });
   it("registers sessions for the connection scope and forgets them on close", async () => {
     const sessions = await Effect.runPromise(makeWsConnectionSessions);
     const scope = await Effect.runPromise(Scope.make());

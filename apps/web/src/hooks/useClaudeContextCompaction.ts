@@ -1,5 +1,5 @@
 import { isThreadDetailAwaitingVerification } from "../threadDetailAuthority";
-import type { MessageId, ThreadId } from "@synara/contracts";
+import type { MessageId, ThreadId } from "@moss/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toastManager, reportToastIssue } from "../components/ui/toast";
 import { diagnosticIssueReason } from "../lib/rendererErrorDiagnostics";

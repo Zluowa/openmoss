@@ -6,12 +6,7 @@
 // Unlike BrowserPanel there is no native view to position: the simulator paints
 // into a canvas we own, so no bounds sync or occlusion machinery is needed.
 
-import type {
-  DeviceDescriptor,
-  DeviceHardwareButton,
-  DeviceUdid,
-  ThreadId,
-} from "@synara/contracts";
+import type { DeviceDescriptor, DeviceHardwareButton, DeviceUdid, ThreadId } from "@moss/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
@@ -839,7 +834,7 @@ export default function DevicePanel(props: {
         <AlertDialogPopup>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Shut down {attachedDevice?.name ?? "this simulator"}?
+              {`Shut down ${attachedDevice?.name ?? "this simulator"}?`}
             </AlertDialogTitle>
             <AlertDialogDescription>
               Anything running on the simulator closes. Booting it again takes about a minute.
@@ -928,7 +923,7 @@ function DeviceBootLimitDialog(props: {
     <Dialog open={state !== null} onOpenChange={(open) => (open ? undefined : props.onDismiss())}>
       <DialogPopup>
         <DialogHeader>
-          <DialogTitle>Shut down a simulator to start {props.deviceName}</DialogTitle>
+          <DialogTitle>{`Shut down a simulator to start ${props.deviceName}`}</DialogTitle>
           {/*
             The cap is about memory, and saying so is what makes it read as a
             guardrail rather than an arbitrary refusal. The consequence of the
@@ -936,9 +931,7 @@ function DeviceBootLimitDialog(props: {
             and one of them is about to lose whatever is on it.
           */}
           <DialogDescription>
-            Moss keeps at most {state?.limit ?? 0} simulators running at once, because each one
-            holds a few gigabytes of memory. Pick one to shut down — anything running on it closes —
-            and {props.deviceName} starts in its place.
+            {`Moss keeps at most ${state?.limit ?? 0} simulators running at once, because each one holds a few gigabytes of memory. Pick one to shut down — anything running on it closes — and ${props.deviceName} starts in its place.`}
           </DialogDescription>
         </DialogHeader>
         <ul className="space-y-1">
@@ -950,7 +943,7 @@ function DeviceBootLimitDialog(props: {
                 className="w-full justify-between"
                 onClick={() => props.onShutdown(candidate)}
               >
-                <span className="truncate">Shut down {candidate.name}</span>
+                <span className="truncate">{`Shut down ${candidate.name}`}</span>
                 <span className="shrink-0 text-muted-foreground text-ui leading-snug">
                   {candidate.runtime}
                 </span>

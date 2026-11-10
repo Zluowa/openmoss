@@ -14,8 +14,8 @@ import {
   LOCAL_IMAGE_ROUTE_PATH,
   isSupportedLocalImagePath,
   isSupportedLocalPreviewFilePath,
-} from "@synara/shared/localPreviewFiles";
-import { SCRATCH_WORKSPACES_DIRNAME } from "@synara/shared/threadWorkspace";
+} from "@moss/shared/localPreviewFiles";
+import { SCRATCH_WORKSPACES_DIRNAME } from "@moss/shared/threadWorkspace";
 
 import {
   type CodexGeneratedImageHomeCandidate,
@@ -38,7 +38,36 @@ export interface LocalPreviewGrantResult {
 }
 
 const LOCAL_PREVIEW_GRANT_TTL_MS = 2 * 60 * 1000;
-const localPreviewGrantByToken = new Map<string, { realFilePath: string; expiresAtMs: number }>();
+/** No grant outlives this, however often it is renewed. */
+export const LOCAL_PREVIEW_GRANT_MAX_LIFETIME_MS = 8 * 60 * 60 * 1000;
+const localPreviewGrantByToken = new Map<
+  string,
+  { realFilePath: string; createdAtMs: number; expiresAtMs: number }
+>();
+
+function renewPreviewGrant(
+  grant: { createdAtMs: number; expiresAtMs: number },
+  nowMs: number,
+): void {
+  grant.expiresAtMs = Math.max(
+    grant.expiresAtMs,
+    Math.min(
+      nowMs + LOCAL_PREVIEW_GRANT_TTL_MS,
+      grant.createdAtMs + LOCAL_PREVIEW_GRANT_MAX_LIFETIME_MS,
+    ),
+  );
+}
+
+/**
+ * Keeps a live grant alive for another TTL, up to its lifetime cap. A rendered
+ * HTML preview keeps the grant it was opened with, so every page or asset it loads
+ * renews it; the client's periodic re-grant of the same file renews it too.
+ */
+export function renewLocalPreviewGrant(token: string): void {
+  const nowMs = Date.now();
+  const grant = localPreviewGrantByToken.get(token);
+  if (grant !== undefined && grant.expiresAtMs > nowMs) renewPreviewGrant(grant, nowMs);
+}
 
 function pruneExpiredPreviewGrants(nowMs = Date.now()): void {
   for (const [token, grant] of localPreviewGrantByToken) {
@@ -389,9 +418,16 @@ export async function createLocalPreviewGrant(input: {
     throw new Error("Preview path is not a file.");
   }
 
-  const expiresAtMs = Date.now() + LOCAL_PREVIEW_GRANT_TTL_MS;
+  const nowMs = Date.now();
+  pruneExpiredPreviewGrants(nowMs);
+  // A client re-grants an open file before its grant runs out. Earlier live grants
+  // for the same file stay valid with it, so a page that keeps its first URL (a
+  // rendered HTML preview) can still load assets and linked pages while it is open.
+  for (const existing of localPreviewGrantByToken.values()) {
+    if (existing.realFilePath === realFilePath) renewPreviewGrant(existing, nowMs);
+  }
+  const expiresAtMs = nowMs + LOCAL_PREVIEW_GRANT_TTL_MS;
   const grant = crypto.randomUUID();
-  localPreviewGrantByToken.set(grant, { realFilePath, expiresAtMs });
-  pruneExpiredPreviewGrants();
+  localPreviewGrantByToken.set(grant, { realFilePath, createdAtMs: nowMs, expiresAtMs });
   return { grant, expiresAt: new Date(expiresAtMs).toISOString() };
 }

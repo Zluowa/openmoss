@@ -4,9 +4,19 @@
 // Boundary: Only known UI chrome is translated. User text, prompts sent to providers,
 //           paths, diagnostics, and unknown runtime values are returned unchanged.
 
+import { nameSlotRule } from "./zhCNNameSlot";
+import { lookupPhrase } from "./zhCNPhraseTable";
+
 type DynamicTranslation = readonly [pattern: RegExp, translate: (match: RegExpExecArray) => string];
 
 const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
+  "Stopped by you": "你已停止",
+  Interrupted: "已中断",
+  "Codex acknowledged Stop but did not report the turn's final status before its runtime was stopped.":
+    "Codex 已确认停止请求，但在会话关闭前未返回本轮的最终状态。",
+  "Could not save the unconfirmed Codex Stop result.": "无法保存尚未确认的 Codex 停止结果。",
+  "Codex runtime stopped before this turn reported its final status.":
+    "Codex 会话已关闭，本轮未返回最终状态。",
   // Composer slash-command descriptions and feedback.
   "Start a fresh thread and clear the current conversation context":
     "开始新对话并清除当前对话上下文",
@@ -307,6 +317,7 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "This is an absolute path from the filesystem root. If the folder is in your home directory, use ~/Developer/... or the full /Users/<name>/Developer/... path.":
     "这是从文件系统根目录开始的绝对路径。如果文件夹位于主目录中，请使用 ~/Developer/... 或完整的 /Users/<name>/Developer/... 路径。",
   "Browse folders on this computer": "浏览此电脑上的文件夹",
+  "Report a problem to the Moss developers": "向 Moss 开发者报告问题",
   "Folders on this PC": "这台 PC 上的文件夹",
   "Folders on this Mac": "这台 Mac 上的文件夹",
   "Folders on this System": "此系统上的文件夹",
@@ -501,6 +512,14 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
     /^Update command exited with code (-?\d+)\.$/,
     (match) => `更新命令已退出，退出码 ${match[1]}。`,
   ],
+  // The reason is the updater's own output line, kept verbatim.
+  [
+    /^Update command exited with code (-?\d+): (.+)$/,
+    (match) => {
+      const reason = match[2] ?? "";
+      return `更新命令出错退出（退出码 ${match[1]}）：${reason}${/[.!?。！？]$/u.test(reason) ? "" : "。"}`;
+    },
+  ],
 
   // Provider-update toast titles and descriptions retain provider names verbatim.
   [/^(\d+) provider updates available$/, (match) => `${match[1]} 个服务商有可用更新`],
@@ -513,10 +532,26 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
 
   // Runtime status wrappers retain server names, elapsed values, and provider previews verbatim.
   [/^(\d+) servers? running$/, (match) => `${match[1]} 个服务器正在运行`],
-  [/^Stop ([^\r\n]+)$/, (match) => `停止 ${match[1]}`],
+  [nameSlotRule("Stop"), (match) => `停止 ${match[1]}`],
   [
     /^Worked for (\d+(?:\.\d+)?(?:ms|s)|\d+m(?: \d+s)?|\d+h(?: \d+m)?)$/,
     (match) => `已运行 ${match[1]}`,
+  ],
+  [
+    /^Stopped by you after ((?:\d+(?:\.\d+)?(?:ms|s|m|h|d|毫秒|秒|分钟|小时|天) ?)+)$/,
+    (match) => `你已停止，用时 ${match[1]}`,
+  ],
+  [
+    /^Interrupted(?: after ((?:\d+(?:\.\d+)?(?:ms|s|m|h|d|毫秒|秒|分钟|小时|天) ?)+))?(?: · ([^\r\n]+))?$/,
+    (match) => {
+      const base = match[1] ? `已中断，用时 ${match[1]}` : "已中断";
+      const reasons: Readonly<Record<string, string>> = {
+        "usage limit reached": "已达到用量上限",
+        "model at capacity": "模型当前繁忙",
+        "sign-in expired": "登录已过期",
+      };
+      return match[2] ? `${base} · ${lookupPhrase(reasons, match[2]) ?? match[2]}` : base;
+    },
   ],
   [/^(\d+) updates - ([\s\S]+)$/, (match) => `${match[1]} 次更新 - ${match[2]}`],
 
@@ -592,10 +627,11 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
     (match) =>
       `无法读取“${match[1]}”。包含空格或特殊字符的路径可能需要改用路径提及（@"…"），而不是文件附件。`,
   ],
-  [/^Implement (.+)$/, (match) => `实施计划：${match[1]}`],
+  [nameSlotRule("Implement"), (match) => `实施计划：${match[1]}`],
   [/^Pushing to (.+)\.\.\.$/, (match) => `正在推送到 ${match[1]}…`],
-  [/^Commit & push to (.+)$/, (match) => `提交并推送到 ${match[1]}`],
-  [/^Push to (.+)$/, (match) => `推送到 ${match[1]}`],
+  // A branch name never ends in "?"; "Push to default branch?" is the question below.
+  [/^Commit & push to ([^?]+)$/, (match) => `提交并推送到 ${match[1]}`],
+  [/^Push to ([^?]+)$/, (match) => `推送到 ${match[1]}`],
   [/^Running setup action: (.+)$/, (match) => `正在运行设置操作：${match[1]}`],
   [
     /^Run (codex|claudeAgent|cursor|gemini|antigravity|grok|droid|kilo|opencode|pi) native command$/,
@@ -653,7 +689,7 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
 
 /** Translates known runtime-built UI chrome while preserving unknown/runtime text. */
 export function translateZhCnRuntimeUiText(value: string): string {
-  const exact = EXACT_TRANSLATIONS[value];
+  const exact = lookupPhrase(EXACT_TRANSLATIONS, value);
   if (exact !== undefined) return exact;
 
   for (const [pattern, translate] of DYNAMIC_TRANSLATIONS) {

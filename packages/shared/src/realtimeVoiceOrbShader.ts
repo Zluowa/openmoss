@@ -1,4 +1,4 @@
-import type { RealtimeVoiceActivity, RealtimeVoicePhase } from "@synara/contracts";
+import type { RealtimeVoiceActivity, RealtimeVoicePhase } from "@moss/contracts";
 
 export type RealtimeVoiceOrbCorePhase = "active" | "inactive" | "starting" | "stopping";
 export type RealtimeVoiceOrbActivity = RealtimeVoiceActivity | "idle";

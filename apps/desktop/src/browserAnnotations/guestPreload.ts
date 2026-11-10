@@ -4,11 +4,11 @@ import type {
   BrowserAnnotationMarker,
   BrowserAnnotationSource,
   BrowserAnnotationTheme,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   browserAnnotationDocumentIdentityUrl,
   sanitizeBrowserAnnotationUrl,
-} from "@synara/shared/browserAnnotations";
+} from "@moss/shared/browserAnnotations";
 
 import { BROWSER_ANNOTATION_GUEST_COMMAND_CHANNEL, BROWSER_IPC_CHANNELS } from "../ipcChannels";
 import {
@@ -21,6 +21,7 @@ import {
 import { createGuestIdentifier } from "./guestIdentity";
 import {
   GUEST_ANNOTATION_MAX_COMMENT_LENGTH,
+  GUEST_ANNOTATION_MAX_HTML_LENGTH,
   GUEST_ANNOTATION_MAX_NAME_LENGTH,
   GUEST_ANNOTATION_MAX_PAGE_TITLE_LENGTH,
   GUEST_ANNOTATION_MAX_ROLE_LENGTH,
@@ -39,6 +40,7 @@ const MARKER_REVALIDATE_DELAY_MS = 400;
 const VIEWPORT_GAP = 12;
 const ANCHOR_GAP = 18;
 const INSPECTOR_GAP = 8;
+const ELEMENT_LABEL_MAX_LENGTH = 48;
 const NOTICE_GAP = 8;
 const COMMENT_MIN_HEIGHT = 22;
 const COMMENT_MAX_HEIGHT = 112;
@@ -76,6 +78,7 @@ let textarea: HTMLTextAreaElement | null = null;
 let badgeLayer: HTMLElement | null = null;
 let submitButton: HTMLButtonElement | null = null;
 let cursorBubble: HTMLElement | null = null;
+let elementLabelChip: HTMLElement | null = null;
 let notice: HTMLElement | null = null;
 
 let activeSession: { sessionId: string } | null = null;
@@ -86,6 +89,8 @@ let selectionAnchor: { x: number; y: number } | null = null;
 let inspectedElement: Element | null = null;
 let inspectedCard: InspectorCard | null = null;
 let lastInspectionRefreshAt = Number.NEGATIVE_INFINITY;
+/** Alt held: the hover label grows into the full style inspector. */
+let detailsHeld = false;
 
 const pointer = { x: 0, y: 0, inside: false, overOverlay: false };
 let pointerNeedsHitTest = false;
@@ -105,6 +110,13 @@ let markerResizeObserver: ResizeObserver | null = null;
 let observedMarkerTargets = new Set<Element>();
 
 let frameHandle: number | null = null;
+/**
+ * A pick ends the session once its click has gone by (the click is still kept from the
+ * page), or after a short wait when no click follows.
+ */
+let endSessionAfterGesture = false;
+let endSessionTimer: ReturnType<typeof setTimeout> | null = null;
+const END_SESSION_AFTER_PICK_MS = 600;
 let interactionListenersInstalled = false;
 let pageCursorSheet: CSSStyleSheet | null = null;
 const suppressedKeyups = new Set<string>();
@@ -361,6 +373,19 @@ function annotationSelectorFor(element: Element): string | null {
   return uniqueSelector(element);
 }
 
+// Attribute values that can carry what a person typed or a secret never leave the page.
+const PRIVATE_ATTRIBUTE_PATTERN =
+  /\s(?:value|on[a-z]+|data-(?:token|key|secret)[\w-]*|autocomplete|nonce|integrity)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+
+/** The element's markup, trimmed, as the snippet the agent reads beside its selector. */
+function elementHtmlSnippet(element: Element): string | null {
+  const html = element.outerHTML.replace(PRIVATE_ATTRIBUTE_PATTERN, "").replace(/\s+/g, " ").trim();
+  if (!html) return null;
+  return html.length > GUEST_ANNOTATION_MAX_HTML_LENGTH
+    ? `${html.slice(0, GUEST_ANNOTATION_MAX_HTML_LENGTH - 1)}…`
+    : html;
+}
+
 function describeElement(element: Element, comment: string): BrowserAnnotation | null {
   const sensitive = isSensitiveElement(element);
   const role =
@@ -387,6 +412,7 @@ function describeElement(element: Element, comment: string): BrowserAnnotation |
     name,
     text,
     fingerprint: elementFingerprint(element),
+    html: sensitive ? null : elementHtmlSnippet(element),
     comment:
       normalizedText(comment, GUEST_ANNOTATION_MAX_COMMENT_LENGTH).trim().length > 0
         ? normalizedText(comment, GUEST_ANNOTATION_MAX_COMMENT_LENGTH)
@@ -538,6 +564,15 @@ function refreshInspection(element: Element | null, rect: DOMRect | null): void 
   if (outline.style.borderRadius !== borderRadius) outline.style.borderRadius = borderRadius;
 }
 
+/** Short name for the hovered element: `tag#id`, else `tag.firstClass`, else the tag. */
+function elementLabel(element: Element): string {
+  const tag = element.tagName.toLowerCase();
+  const id = element.getAttribute("id")?.trim();
+  if (id) return normalizedText(`${tag}#${id}`, ELEMENT_LABEL_MAX_LENGTH);
+  const firstClass = element.classList.item(0);
+  return firstClass ? normalizedText(`${tag}.${firstClass}`, ELEMENT_LABEL_MAX_LENGTH) : tag;
+}
+
 // --- Overlay geometry ------------------------------------------------------
 
 function boundsOf(element: Element | null): DOMRect | null {
@@ -571,6 +606,14 @@ function positionOutline(bounds: DOMRect): void {
   outline.style.width = `${bounds.width}px`;
   outline.style.height = `${bounds.height}px`;
   outline.style.transform = `translate3d(${bounds.left}px,${bounds.top}px,0)`;
+}
+
+// The label sits on the outline's top-left corner, outside the box when there is room
+// above it and just inside otherwise.
+function positionLabel(bounds: DOMRect, size: DOMRect): void {
+  if (!elementLabelChip) return;
+  const above = bounds.top - size.height;
+  placeCard(elementLabelChip, size, bounds.left, above >= 0 ? above : bounds.top);
 }
 
 function positionInspector(bounds: DOMRect, size: DOMRect): void {
@@ -720,7 +763,9 @@ function paintMarkers(measured: readonly (DOMRect | null)[]): void {
  * ahead of every transform costs a single layout for the whole frame.
  */
 function renderOverlay(): void {
-  if (!outline || !popover || !badgeLayer || !inspector || !cursorBubble) return;
+  if (!outline || !popover || !badgeLayer || !inspector || !cursorBubble || !elementLabelChip) {
+    return;
+  }
   if (host && !host.isConnected && document.documentElement) {
     document.documentElement.append(host);
   }
@@ -751,11 +796,17 @@ function renderOverlay(): void {
   // measurement already taken.
   refreshInspection(bounds ? focus : null, bounds);
   const showsComposer = bounds !== null && selectedElement !== null;
-  const showsInspector = bounds !== null && !showsComposer && inspectedCard !== null;
+  const showsInspector = bounds !== null && !showsComposer && inspectedCard !== null && detailsHeld;
+  const showsLabel = bounds !== null && focus !== null && !showsComposer && !showsInspector;
   const showsCursor = activeSession !== null && pointer.inside && !pointer.overOverlay;
   outline.hidden = bounds === null;
   popover.hidden = !showsComposer;
   inspector.hidden = !showsInspector;
+  elementLabelChip.hidden = !showsLabel;
+  if (showsLabel && focus) {
+    const label = elementLabel(focus);
+    if (elementLabelChip.textContent !== label) elementLabelChip.textContent = label;
+  }
   cursorBubble.hidden = !showsCursor;
   if (notice) notice.hidden = noticeText === null;
   if (bounds && showsInspector && inspectorSize) {
@@ -767,12 +818,14 @@ function renderOverlay(): void {
   // the steady state these reads reuse the layout the page measurements forced.
   const composerCard = showsComposer ? popover.getBoundingClientRect() : null;
   const inspectorCard = showsInspector ? inspector.getBoundingClientRect() : null;
+  const labelCard = showsLabel ? elementLabelChip.getBoundingClientRect() : null;
   const noticeCard = notice && noticeText !== null ? notice.getBoundingClientRect() : null;
 
   // Writes only, from here to the end of the frame.
   if (bounds) positionOutline(bounds);
   if (bounds && composerCard) positionPopover(bounds, composerCard);
   if (bounds && inspectorCard) positionInspector(bounds, inspectorCard);
+  if (bounds && labelCard) positionLabel(bounds, labelCard);
   if (showsCursor) {
     cursorBubble.style.transform = `translate3d(${Math.round(pointer.x)}px,${Math.round(pointer.y)}px,0) translate(0,-100%)`;
   }
@@ -832,44 +885,58 @@ function releaseSelectionWithNotice(message: string): void {
   showNotice(message);
 }
 
-function selectTarget(target: Element, point: { x: number; y: number } | null): void {
+/**
+ * Select element, as in Claude: clicking an element adds it to the chat at once (no comment
+ * field; the person writes in the composer). Shift-click keeps picking.
+ */
+function pickTarget(target: Element, keepPicking: boolean): void {
+  const session = activeSession;
+  if (!session) return;
   const bounds = boundsOf(target);
   if (!bounds) {
     showNotice(INVISIBLE_TARGET_NOTICE);
     return;
   }
-  // Refuse targets the guest cannot address before the composer opens. Letting
-  // the user type into a comment that can never be committed is worse than
-  // saying so up front.
-  if (!annotationSelectorFor(target)) {
+  const annotation = describeElement(target, "");
+  if (!annotation) {
     showNotice(UNANCHORABLE_NOTICE);
     return;
   }
   hideNotice();
-  selectedElement = target;
-  hoveredElement = target;
-  selectionAnchor = {
-    x: point ? clamp(point.x - bounds.left, 0, bounds.width) : bounds.width / 2,
-    y: point ? clamp(point.y - bounds.top, 0, bounds.height) : bounds.height / 2,
-  };
-  // Whatever is already in the box carries over, whether the user is re-aiming
-  // at a different element or recovering from a save that failed on a stale
-  // target. Losing typed text to a stray click is the bug this picker had; the
-  // paths that genuinely end a selection clear the box themselves.
-  // Open and focus synchronously so the first keystroke after selection cannot
-  // land in the page while waiting for the next animation frame.
+  ipcRenderer.send(BROWSER_IPC_CHANNELS.annotations.guestMessage, {
+    version: GUEST_ANNOTATION_PROTOCOL_VERSION,
+    kind: "committed",
+    documentToken,
+    sessionId: session.sessionId,
+    annotation,
+    rect: { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height },
+    viewport: { width: globalThis.innerWidth, height: globalThis.innerHeight },
+  });
+  clearSelection();
+  inspectedElement = null;
   renderOverlay();
-  // The textarea must be visible before scrollHeight can represent a carried
-  // multi-line comment. Repaint once after sizing so the composer is positioned
-  // using its final height.
-  autoSizeComment();
-  renderOverlay();
-  textarea?.focus({ preventScroll: true });
+  if (keepPicking) return;
+  endSessionAfterGesture = true;
+  if (endSessionTimer) clearTimeout(endSessionTimer);
+  endSessionTimer = setTimeout(finishPickGesture, END_SESSION_AFTER_PICK_MS);
+}
+
+function finishPickGesture(): void {
+  if (endSessionTimer) clearTimeout(endSessionTimer);
+  endSessionTimer = null;
+  if (!endSessionAfterGesture) return;
+  endSessionAfterGesture = false;
+  endInteractiveSession(true);
 }
 
 function endInteractiveSession(notifyHost: boolean): void {
   const session = activeSession;
   activeSession = null;
+  endSessionAfterGesture = false;
+  if (endSessionTimer) {
+    clearTimeout(endSessionTimer);
+    endSessionTimer = null;
+  }
   clearSelection();
   hideNotice();
   inspectedElement = null;
@@ -973,9 +1040,10 @@ function installInteractionListeners(): void {
       if (!activeSession) return;
       if (isolateInteractionEvent(event)) return;
       if (!event.isTrusted) return;
+      if (endSessionAfterGesture) return;
       const target = targetAtPoint(event.clientX, event.clientY);
       if (!target) return;
-      selectTarget(target, { x: event.clientX, y: event.clientY });
+      pickTarget(target, event.shiftKey);
     },
     true,
   );
@@ -993,11 +1061,21 @@ function installInteractionListeners(): void {
         }
         return;
       }
+      // The click that ends a pick gesture is kept from the page, then the session ends.
+      if (endSessionAfterGesture) {
+        finishPickGesture();
+        return;
+      }
       // Keyboard and assistive-technology activation can produce a trusted
       // click without a pointerdown. Keep that path selectable while ignoring
       // synthetic page-script clicks.
-      if (!selectedElement && event.isTrusted && event.target instanceof Element) {
-        selectTarget(event.target, null);
+      if (
+        !selectedElement &&
+        event.isTrusted &&
+        event.target instanceof Element &&
+        event.detail === 0
+      ) {
+        pickTarget(event.target, event.shiftKey);
       }
     },
     true,
@@ -1008,6 +1086,10 @@ function installInteractionListeners(): void {
       if (!activeSession) return;
       const overlayTarget = isOverlayTarget(event.target);
       isolateInteractionEvent(event, !overlayTarget);
+      if (event.key === "Alt" && !detailsHeld) {
+        detailsHeld = true;
+        scheduleFrame();
+      }
       // The host element is discoverable in the page's DOM, so a page script can
       // aim synthetic key events at it. Isolate those like any other event, but
       // never let them cancel the session or publish the user's comment.
@@ -1041,6 +1123,10 @@ function installInteractionListeners(): void {
     (event) => {
       const identity = keyboardEventIdentity(event);
       const startedInsidePicker = suppressedKeyups.delete(identity);
+      if (event.key === "Alt" && detailsHeld) {
+        detailsHeld = false;
+        scheduleFrame();
+      }
       if (!activeSession && !startedInsidePicker) return;
       isolateInteractionEvent(event, !isOverlayTarget(event.target));
     },
@@ -1179,11 +1265,27 @@ const OVERLAY_STYLE = `
     position:fixed;
     left:0;
     top:0;
-    border:2px solid var(--annotation-accent);
+    border:1.5px solid var(--annotation-accent);
     background:color-mix(in srgb,var(--annotation-accent) 8%,transparent);
     box-shadow:0 0 0 1px rgb(255 255 255 / .45);
     pointer-events:none;
     will-change:transform,width,height;
+  }
+  .label {
+    position:fixed;
+    left:0;
+    top:0;
+    max-width:min(320px,calc(100vw - 24px));
+    padding:2px 6px;
+    border-radius:4px;
+    background:var(--annotation-accent);
+    color:#fff;
+    font:500 11px/14px var(--annotation-mono);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    pointer-events:none;
+    will-change:transform;
   }
   .inspector {
     position:fixed;
@@ -1326,6 +1428,7 @@ const OVERLAY_MARKUP = `
   <style>${OVERLAY_STYLE}</style>
   <div class="layer badges"></div>
   <div class="outline" hidden></div>
+  <div class="label" hidden></div>
   <div class="inspector" hidden>
     <div class="row head"><span class="key tag">div</span><span class="value size">0×0</span></div>
     <div class="rows"></div>
@@ -1362,6 +1465,7 @@ function initializeOverlay(): void {
   badgeLayer = shadow.querySelector(".badges");
   submitButton = shadow.querySelector("button");
   cursorBubble = shadow.querySelector(".cursor");
+  elementLabelChip = shadow.querySelector(".label");
   notice = shadow.querySelector(".notice");
   document.documentElement.append(host);
   markerResizeObserver = new ResizeObserver(scheduleFrame);

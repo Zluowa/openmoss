@@ -234,6 +234,25 @@ export function projectPageRichNodes(nodes: readonly PageRichNode[]): string {
       );
     }
     if (type === "hr" || type === "horizontal_rule") return "---\n\n";
+    // Page AI blocks (see pageAi.ts): standing instructions for agents and an embedded 应用页.
+    if (type === "moss_instructions")
+      return (
+        "> 助手说明 / Assistant instructions\n" +
+        body()
+          .trim()
+          .split("\n")
+          .map((line) => `> ${line}`)
+          .join("\n") +
+        "\n\n"
+      );
+    if (type === "moss_visualization") {
+      const label = escapeText(
+        typeof node.title === "string" && node.title ? node.title : "可视化",
+      );
+      return typeof node.appPageId === "string" && node.appPageId
+        ? `[${label}](moss-app-page:${node.appPageId.replace(/[^A-Za-z0-9_-]/g, "")})\n\n`
+        : `[${label}]\n\n`;
+    }
     if (type === "p" || type === "paragraph") return body().trimEnd() + "\n\n";
     if (type === "td" || type === "th" || type === "table_cell") return body();
     // Unknown legal elements remain in the canonical JSON, while their real

@@ -1,9 +1,9 @@
 import { Effect, Layer, Schema } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import type { DroidModelSelection, ProviderStartOptions } from "@synara/contracts";
-import { sanitizeGeneratedThreadTitle } from "@synara/shared/chatThreads";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@synara/shared/git";
+import type { DroidModelSelection, ProviderStartOptions } from "@moss/contracts";
+import { sanitizeGeneratedThreadTitle } from "@moss/shared/chatThreads";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@moss/shared/git";
 
 import {
   applyDroidAcpInteractionMode,

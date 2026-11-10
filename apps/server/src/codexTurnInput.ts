@@ -1,4 +1,4 @@
-import type { ProviderMentionReference, ProviderSkillReference } from "@synara/contracts";
+import type { ProviderMentionReference, ProviderSkillReference } from "@moss/contracts";
 
 export type CodexImageInputItem =
   | { readonly type: "image"; readonly url: string }

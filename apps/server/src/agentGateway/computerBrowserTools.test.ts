@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { COMPUTER_BROWSER_TOOL_NAMES } from "@synara/contracts";
+import { COMPUTER_BROWSER_TOOL_NAMES } from "@moss/contracts";
 
 import type { ComputerBrowserCall } from "../computer/ComputerBackend.ts";
 import { ComputerManager } from "../computer/ComputerManager.ts";

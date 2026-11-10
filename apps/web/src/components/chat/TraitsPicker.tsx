@@ -10,7 +10,7 @@ import {
   type ProviderKind,
   type ProviderModelDescriptor,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { FastModeNotice } from "~/lib/fastModeState";
 import { ChevronDownIcon, FastModeIcon, FastModeOutlineIcon, SettingsIcon } from "~/lib/icons";

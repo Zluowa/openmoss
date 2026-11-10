@@ -3,7 +3,7 @@ import OS from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { buildMossRuntimeContext } from "@synara/shared/mossRuntimeContext";
+import { buildMossRuntimeContext } from "@moss/shared/mossRuntimeContext";
 
 import {
   MOSS_CONTEXT_BLOCK_PREFIX,

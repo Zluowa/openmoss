@@ -29,6 +29,17 @@ describe("resolveAuxiliarySurface", () => {
     expect(resolveAuxiliarySurface(base)).toBe("project");
   });
 
+  it("keeps a personal assistant focused on chat until a panel is requested", () => {
+    expect(resolveAuxiliarySurface({ ...base, startWithConversation: true })).toBeNull();
+    expect(
+      resolveAuxiliarySurface({
+        ...base,
+        startWithConversation: true,
+        choice: { projectId: "project-1", surface: "project" },
+      }),
+    ).toBe("project");
+  });
+
   it("respects a persisted close for the group", () => {
     expect(resolveAuxiliarySurface({ ...base, groupPanelClosed: true })).toBe("environment");
     expect(

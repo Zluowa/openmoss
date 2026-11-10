@@ -13,7 +13,7 @@ import {
   type OrchestrationThread,
   type OrchestrationThreadDetailSnapshot,
   type TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { sanitizeOrchestrationEventProviderOptions } from "../orchestration/providerOptionsSecurity.ts";
 

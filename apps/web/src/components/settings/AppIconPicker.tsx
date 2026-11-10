@@ -4,9 +4,9 @@
 
 import { useState } from "react";
 
-import type { DesktopAppIcon } from "@synara/contracts";
-import { desktopFlavorFromProtocol } from "@synara/shared/betaFeatures";
-import type { MossDesktopFlavor } from "@synara/shared/desktopIdentity";
+import type { DesktopAppIcon } from "@moss/contracts";
+import { desktopFlavorFromProtocol } from "@moss/shared/betaFeatures";
+import type { MossDesktopFlavor } from "@moss/shared/desktopIdentity";
 import { Spinner } from "~/components/ui/spinner";
 import { cn, isMacPlatform } from "~/lib/utils";
 

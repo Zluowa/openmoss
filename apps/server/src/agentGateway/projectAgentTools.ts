@@ -13,7 +13,7 @@ import {
   ProjectAgentReportResultInput,
   ProjectAgentWriteDocumentInput,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Schema } from "effect";
 
 import type { ProjectAgentServiceShape } from "../projectAgent/Services/ProjectAgentService.ts";

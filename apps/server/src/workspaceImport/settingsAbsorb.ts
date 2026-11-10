@@ -12,13 +12,13 @@ import type {
   WorkspaceImportSettingChange,
   WorkspaceImportSourceKind,
   WorkspaceImportThemePreference,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   MODEL_OPTIONS_BY_PROVIDER,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
   normalizeWorkspaceImportSource,
-} from "@synara/contracts";
-import { normalizeModelSlug } from "@synara/shared/model";
+} from "@moss/contracts";
+import { normalizeModelSlug } from "@moss/shared/model";
 
 const SKIP_ACCOUNT_PAYMENT_ROUTING = "Moss account, payment, and hosted routing stay unchanged.";
 const SKIP_UNSUPPORTED = "Moss cannot honor this setting.";

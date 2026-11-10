@@ -9,13 +9,17 @@ import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { useRailShellStore } from "../railShellStore";
 import { useDesktopTopBarWindowControlsGutterClassName } from "~/hooks/useDesktopTopBarGutter";
 import { cn } from "~/lib/utils";
+import { Button } from "./ui/button";
 
 import { resolveWsHttpUrl } from "../lib/wsHttpUrl";
 import type { MossCanvasImageFocus } from "../lib/mossCanvasBridge";
 import { useMossImagesAccountBoundary } from "../lib/mossImagesAccountBoundary";
 import {
   importMossCanvasLocalImages,
+  isMossCanvasSignedOut,
   loadMossCanvasBinding,
+  MOSS_CANVAS_SIGN_IN_MESSAGE,
+  MossCanvasSignInRequiredError,
   type MossCanvasBinding,
   type MossCanvasLocalImage,
   type MossCanvasImageImportCache,
@@ -196,6 +200,18 @@ export function MossCanvasWebSurface({
   const contextFlight = useRef<ReturnType<MossCanvasComposeContextReader> | null>(null);
   const leaving = useRef<Promise<boolean> | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "unavailable">("loading");
+  // Signed out, the editor's storage can never answer: show what to do instead
+  // of an empty editor with placeholders. Re-asked whenever the account changes.
+  const [signedOutKey, setSignedOutKey] = useState<string | null>(null);
+  const signedOut = signedOutKey === frameKey;
+  useEffect(() => {
+    if (!resolvedThread || !src) return;
+    const controller = new AbortController();
+    void isMossCanvasSignedOut(resolvedThread, controller.signal).then((out) => {
+      if (!controller.signal.aborted) setSignedOutKey(out ? frameKey : null);
+    });
+    return () => controller.abort();
+  }, [frameKey, resolvedThread, src]);
 
   useEffect(() => {
     setReadyFrameKey(null);
@@ -374,6 +390,11 @@ export function MossCanvasWebSurface({
       .catch((cause) => {
         if (!current()) return;
         failedFocus.current = focusKey;
+        if (cause instanceof MossCanvasSignInRequiredError) {
+          setSignedOutKey(frameKey);
+          importStateCallback.current?.("failed");
+          return;
+        }
         setImageImportError(
           cause instanceof Error ? cause.message : "图片未能打开，请返回会话后重新打开画布。",
         );
@@ -784,6 +805,16 @@ export function MossCanvasWebSurface({
         ) : !prepared ? (
           <div className="flex h-full items-center justify-center text-ui-sm text-muted-foreground">
             正在加载画布…
+          </div>
+        ) : signedOut ? (
+          <div
+            data-moss-canvas-signed-out
+            className="flex h-full flex-col items-center justify-center gap-3 text-ui-sm text-muted-foreground"
+          >
+            <p>{MOSS_CANVAS_SIGN_IN_MESSAGE}</p>
+            <Button size="sm" onClick={() => void navigate({ to: "/account" })}>
+              登录 Moss 账号
+            </Button>
           </div>
         ) : state === "ready" && src ? (
           <>

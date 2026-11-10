@@ -11,7 +11,7 @@ import {
   decodeMcpAppSandboxUnregisterInput,
   type McpAppSandboxDescriptor,
   type McpAppSandboxRegisterInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const MAX_AUTHORITIES = 256;
 

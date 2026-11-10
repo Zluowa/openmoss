@@ -1,5 +1,12 @@
+import {
+  parseDesktopStartupBackgrounds,
+  readDesktopStartupBackground,
+  readDesktopThemePreference,
+  writeDesktopThemePreference,
+} from "./desktopThemePreference";
 import { showDiagnosticStartupDialog } from "./startupDiagnosticDialog";
 import { createBundledMossCanvas, resolveBundledMossCanvasRoot } from "./mossCanvasRuntime";
+import { ensureDownloadDirectories } from "./downloadDirectories";
 import { BackendIssueDetector } from "./backendIssueDetector";
 import { CuaDriverHost, sweepOrphanedCuaDrivers } from "./cuaDriverHost";
 import { createLinuxCuaDriverHost } from "./linuxCuaDriverHost";
@@ -7,8 +14,8 @@ import { LinuxEscapeKillSwitchMonitor, linuxEscapeSession } from "./linuxEscapeK
 import { ComputerFrameTap } from "./computerFrameTap";
 import { ComputerShield } from "./computerShield";
 import { registerComputerDesktopLifecycle } from "./computerDesktopLifecycle";
-import { COMPUTER_PERMISSION_KINDS } from "@synara/shared/computerGrants";
-import { MODEL_SCREEN_IMAGE_MAX_DIMENSION } from "@synara/shared/modelImageBudget";
+import { COMPUTER_PERMISSION_KINDS } from "@moss/shared/computerGrants";
+import { MODEL_SCREEN_IMAGE_MAX_DIMENSION } from "@moss/shared/modelImageBudget";
 
 // FILE: main.ts
 // Purpose: Starts the Electron shell, backend process, native menus, IPC bridges, and updater.
@@ -52,6 +59,7 @@ import type {
   IpcMainEvent,
   MenuItemConstructorOptions,
   MessageBoxOptions,
+  WebFrameMain,
 } from "electron";
 import * as Effect from "effect/Effect";
 import type {
@@ -66,7 +74,7 @@ import type {
   ContextMenuShortcutKey,
   DesktopUpdateActionResult,
   DesktopUpdateState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   autoUpdater,
   BaseUpdater,
@@ -74,9 +82,9 @@ import {
   type UpdateDownloadedEvent,
 } from "electron-updater";
 
-import { isKeyboardShortcutsHelpChord } from "@synara/shared/browserShortcuts";
-import { getMacTrafficLightPosition } from "@synara/shared/desktopChrome";
-import { DEVICE_HELPER_SOURCE_DIR_ENV } from "@synara/shared/deviceHelperCache";
+import { isKeyboardShortcutsHelpChord } from "@moss/shared/browserShortcuts";
+import { getMacTrafficLightPosition } from "@moss/shared/desktopChrome";
+import { DEVICE_HELPER_SOURCE_DIR_ENV } from "@moss/shared/deviceHelperCache";
 import {
   desktopUpdateChannel,
   MOSS_SOURCE_DESKTOP_BUILD_MARKER,
@@ -85,26 +93,29 @@ import {
   canOverrideDesktopSmokeUserData,
   resolveMossDesktopRuntimeFlavor,
   mossDesktopIdentity,
-} from "@synara/shared/desktopIdentity";
-import { CUA_HOST_SOCKET_ENV } from "@synara/shared/cuaDriverProtocol";
+} from "@moss/shared/desktopIdentity";
+import { decodeNativeOutput } from "@moss/shared/platformEncoding";
+import { CUA_HOST_SOCKET_ENV } from "@moss/shared/cuaDriverProtocol";
+import { resolveMossDownloadChannel } from "@moss/shared/mossDownloadChannel";
 import {
   MOSS_PRODUCTION_PUBLIC_CONFIG_FILE,
   type MossProductionPublicConfig,
-} from "@synara/shared/mossProductionPublicConfig";
-import { NetService } from "@synara/shared/Net";
-import { applyShellEnvironmentHydrationMarker } from "@synara/shared/shell";
-import { RotatingFileSink } from "@synara/shared/logging";
+} from "@moss/shared/mossProductionPublicConfig";
+import { MOSS_ERROR_REPORTS_ENABLED_ENV } from "@moss/shared/observability";
+import { NetService } from "@moss/shared/Net";
+import { applyShellEnvironmentHydrationMarker } from "@moss/shared/shell";
+import { RotatingFileSink } from "@moss/shared/logging";
 import {
   MIGRATION_DIVERGENCE_CONSENT_ENV,
   MIGRATION_RUNTIME_SOURCE_DIGEST_ENV,
   type MigrationRuntimeIdentityMismatch,
   type MigrationSchemaTooNewStartupBlock,
-} from "@synara/shared/migrationRecovery";
+} from "@moss/shared/migrationRecovery";
 import {
   ensureStaticSnapshot,
   findAsarArchivePath,
   pruneStaticSnapshotCache,
-} from "@synara/shared/staticSnapshot";
+} from "@moss/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
 import { resolveBackendNodeArgs, withBackendEnvProxyOptIn } from "./backendNodeOptions";
 import { canonicalFilesystemHelperBackendEnv } from "./canonicalFilesystemHelperRuntime";
@@ -122,6 +133,7 @@ import {
   stopPosixBackendAndWait,
   stopWindowsBackendAndWait,
 } from "./backendShutdown";
+import { raiseDesktopExitPriority } from "./desktopExitPriority";
 import {
   bundleSignatureFromStats,
   isBundleStable,
@@ -138,7 +150,7 @@ import {
   type BetaDiagnosticsEventName,
 } from "./betaDiagnostics";
 import { attachBetaRendererDiagnostics } from "./betaRendererDiagnostics";
-import { guardDesktopWindowClose, showDesktopConfirmDialog } from "./confirmDialog";
+import { showDesktopConfirmDialog } from "./confirmDialog";
 import { DesktopUiLocalePersistenceCoordinator } from "./desktopUiLocalePersistence";
 import {
   buildContextMenuTemplate,
@@ -214,6 +226,7 @@ import {
   type WindowMaterialAddon,
 } from "./windowMaterial";
 import { collectMacUpdateDiagnostics } from "./macUpdateDiagnostics";
+import { BackendLinkDropLog } from "./backendLinkDropLog";
 import { openInitialBackendWindow } from "./initialBackendWindowOpen";
 import {
   handleDesktopSecondInstance,
@@ -225,13 +238,21 @@ import {
   shouldAllowMediaPermissionCheck,
   shouldAllowMediaPermissionRequest,
 } from "./mediaPermissions";
-import { isClipboardWritePermission } from "./clipboardPermissions";
+import { isClipboardWritePermission, writeMainWindowThreadId } from "./clipboardPermissions";
 import { createRealtimeVoiceMediaRequestPolicy } from "./realtimeVoiceMediaRequestPolicy";
 import {
   installResumableUpdateDownloader,
   type ResumableDownloaderTarget,
 } from "./resumableUpdateDownload";
 import { hardenElectronUpdater } from "./electronUpdaterSecurity";
+import {
+  isUpdateIntegrityFailure,
+  readAccessLaneFromSettingsFile,
+  resolveDesktopUpdateFeeds,
+  resolveDesktopUpdateMirror,
+  resolveMirrorManualDownloadUrl,
+  UpdateFeedRouter,
+} from "./updateFeedRouter";
 import { ServerListeningDetector } from "./serverListeningDetector";
 import { BackendStartupBlockDetector, type BackendStartupBlock } from "./backendStartupBlock";
 import {
@@ -268,7 +289,17 @@ import {
   requestDesktopBackendVoiceTranscription,
 } from "./voiceTranscription";
 import { isMossGoogleOAuthExternalUrl } from "./mossGoogleOAuthExternalUrl";
-import { captureSentryException, flushSentry } from "./observability/sentry";
+import {
+  readDesktopErrorReportsPreference,
+  writeDesktopErrorReportsPreference,
+} from "./observability/desktopSentryEnv";
+import {
+  captureSentryException,
+  DESKTOP_SENTRY_BACKEND_ENV,
+  desktopErrorReportsEnabled,
+  flushSentry,
+  setDesktopErrorReportsEnabled,
+} from "./observability/sentry";
 import {
   applyDesktopPhysicalZoomAction,
   DEFAULT_DESKTOP_MENU_ACCELERATORS,
@@ -340,6 +371,12 @@ import {
   sendBrowserState,
 } from "./browserIpc";
 import {
+  clearBrowserPanelData,
+  registerBrowserPanelIpcHandlers,
+  sendBrowserBlockedNavigation,
+} from "./browserPanelIpc";
+import { BrowserPanelPreferenceStore } from "./browserPanelPreferences";
+import {
   BrowserHostPipeServer,
   MOSS_BROWSER_HOST_PIPE_PATH,
   resolveBrowserHostPipeBackendEnv,
@@ -353,6 +390,11 @@ import {
 } from "./desktopUserDataProfile";
 import { handleDesktopStdioError, isBrokenPipeError } from "./desktopProcessErrors";
 import { createDesktopStaticProtocolResolver } from "./desktopStaticProtocol";
+import {
+  buildStaticSnapshotProgressPageUrl,
+  createStaticSnapshotProgressTracker,
+  type StaticSnapshotProgressWindow,
+} from "./staticSnapshotProgress";
 import {
   readCustomTitleBarPreference,
   resolveDesktopCustomTitleBarState,
@@ -397,6 +439,13 @@ import {
   resolveMossStorageSnapshotPath,
 } from "./desktopStorageMigration";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
+import { SshConnectionManager } from "./sshConnections";
+import { RemoteComputersManager } from "./remoteComputers";
+import {
+  openRemoteComputerWorkspace as createRemoteComputerWorkspace,
+  type RemoteComputerWorkspaceInput,
+} from "./remoteComputerWorkspace";
+import { sshWorkspaceTransport } from "./sshWorkspacePolicy";
 import { DesktopAppSnapManager } from "./appSnapManager";
 import { notifyBackendComputerEmergencyStop } from "./computerEmergencyStopNotice";
 import { EscapeKillSwitchMonitor } from "./escapeKillSwitchMonitor";
@@ -405,7 +454,7 @@ import {
   listAudioInputDevices,
   MAX_MICROPHONE_ID_LENGTH,
 } from "./audioLevelMonitor";
-import { AUDIO_TRAIL_BETA_FEATURE, isBetaFeatureEnabled } from "@synara/shared/betaFeatures";
+import { AUDIO_TRAIL_BETA_FEATURE, isBetaFeatureEnabled } from "@moss/shared/betaFeatures";
 import { DesktopRealtimeVoiceShortcutManager } from "./realtimeVoiceShortcut";
 import {
   buildDesktopRealtimeVoiceOverlayUrl,
@@ -435,8 +484,11 @@ import {
 } from "./realtimeVoiceOverlay";
 import { hardenBrowserAnnotationWebviewPreferences } from "./browserAnnotations/webviewSecurity";
 import { LOCAL_HTML_PREVIEW_SCHEME } from "./localHtmlPreviewProtocol";
+import {
+  shouldBlockLocalHtmlPreviewFrameNavigation,
+  shouldDenyLocalHtmlPreviewWindowOpen,
+} from "./localHtmlPreviewFrameGuard";
 import { McpAppSandboxRuntime } from "./mcpAppSandbox/runtime";
-import { HtmlPreviewRuntime } from "./htmlPreview/runtime";
 import {
   APP_SNAP_SETTINGS_PANE_URLS,
   registerAppSnapIpcHandlers,
@@ -490,8 +542,11 @@ const startupBundleIdentity = captureStartupBundleIdentity();
 const shellEnvironmentSync = syncShellEnvironment();
 
 const IPC = DESKTOP_IPC_CHANNELS;
+let sshConnectionManager: SshConnectionManager | undefined;
+let remoteComputersManager: RemoteComputersManager | undefined;
+const sshWorkspaceUrls = new Map<number, string>();
+const sshWorkspaceKinds = new Map<number, "ssh" | "paired">();
 const mcpAppSandboxRuntime = new McpAppSandboxRuntime();
-const htmlPreviewRuntime = new HtmlPreviewRuntime();
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
 const packagedDesktopFlavor = app.isPackaged
   ? (
@@ -523,7 +578,12 @@ const BASE_DIR =
   Path.join(OS.homedir(), desktopIdentity.defaultHomeDirectoryName);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_WINDOW_STATE_PATH = Path.join(STATE_DIR, "desktop-window-state.json");
+const DESKTOP_THEME_PATH = Path.join(STATE_DIR, "desktop-theme");
+nativeTheme.themeSource = readDesktopThemePreference(DESKTOP_THEME_PATH);
+let desktopThemePersistence = Promise.resolve();
 const DESKTOP_UI_LOCALE_PATH = Path.join(STATE_DIR, "desktop-ui-locale");
+const DESKTOP_ERROR_REPORTS_PATH = Path.join(STATE_DIR, "desktop-error-reports");
+setDesktopErrorReportsEnabled(readDesktopErrorReportsPreference(DESKTOP_ERROR_REPORTS_PATH));
 const DESKTOP_APP_ICON_PATH = Path.join(STATE_DIR, "desktop-app-icon");
 const DESKTOP_CUSTOM_TITLE_BAR_PATH = Path.join(STATE_DIR, "desktop-custom-title-bar.json");
 // Written by the renderer-mirrored agent cursor colors; read at each driver
@@ -567,7 +627,9 @@ app.setPath("userData", userDataPath);
 // schema is an allowlist; error text may still contain fragments of user data,
 // and Electron crash dumps are raw process memory.
 const betaDiagnostics =
-  desktopFlavor === "beta"
+  desktopFlavor === "beta" &&
+  resolveBetaDiagnosticsEndpoint(process.env) !== null &&
+  desktopErrorReportsEnabled()
     ? new BetaDiagnostics({
         homeDir: BASE_DIR,
         appVersion: app.getVersion(),
@@ -655,6 +717,7 @@ const BROWSER_SESSION_RESTORE_TIMEOUT_MS = 5_000;
 // User-driven like the menu and renderer reasons, so it must not be filtered
 // out by the automatic-activity suppression a previous install failure arms.
 const UPDATE_CHECK_REASON_MIGRATION_RECOVERY = "migration recovery";
+const UPDATE_CHECK_REASON_MIRROR_DOWNLOAD_FALLBACK = "mirror download fallback";
 const UPDATE_INSTALL_MARKER_FILE_NAME = "pending-update-install.json";
 const BACKEND_FORCE_KILL_DELAY_MS = 8_000;
 const BACKEND_SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -709,6 +772,7 @@ let backendInitialWindowOpenInFlight: Promise<void> | null = null;
 let backendLifecycleDialogInFlight: Promise<void> | null = null;
 let backendListeningDetector: ServerListeningDetector | null = null;
 const backendSupervision = new BackendSupervisionPolicy();
+const backendLinkDropLog = new BackendLinkDropLog(writeDesktopLogHeader);
 // Survives window recreation on purpose: a renderer that keeps dying must not refill
 // its reload budget just because the crash produced a new window.
 const rendererCrashPolicy = new RendererCrashPolicy();
@@ -760,7 +824,12 @@ const browserOsKeyStore = {
 const browserVault = new BrowserVault(Path.join(BASE_DIR, "browser-vault"), browserOsKeyStore);
 let browserSessionRestore: BrowserSessionRestore | undefined;
 const browserVaultCapture = new BrowserVaultCapture(browserVault);
+const browserPanelPreferences = new BrowserPanelPreferenceStore(BASE_DIR);
 const browserManager = new DesktopBrowserManager({
+  localPageAllowedSites: () => browserPanelPreferences.allowedSites(),
+  onLocalPageNavigationBlocked: (event) => {
+    sendBrowserBlockedNavigation(mainWindow?.webContents, event);
+  },
   onRuntimeReady: (runtime) => browserVaultCapture.register(runtime),
   onHumanControl: (threadId) => browserVaultCapture.noteHumanActivity(threadId),
   annotationPreloadPath: annotationGuestPreload,
@@ -1101,6 +1170,7 @@ function ensureInitialBackendWindowOpen(
   baseUrl: string,
   options: { readonly background?: boolean } = {},
 ): void {
+  if (isQuitting) return;
   openInitialBackendWindow({
     isDevelopment,
     baseUrl,
@@ -1136,8 +1206,12 @@ function writeDesktopStreamChunk(
   encoding: BufferEncoding | undefined,
 ): void {
   if (!desktopLogSink) return;
+  // Raw bytes on Windows can be a native tool's message in the system code page; the log
+  // is UTF-8, so re-encode those instead of writing mojibake.
   const buffer = Buffer.isBuffer(chunk)
-    ? chunk
+    ? process.platform === "win32"
+      ? Buffer.from(decodeNativeOutput(chunk), "utf8")
+      : chunk
     : Buffer.from(String(chunk), typeof chunk === "string" ? encoding : undefined);
   desktopLogSink.write(`[${logTimestamp()}] [${logScope(streamName)}] `);
   desktopLogSink.write(buffer);
@@ -1316,6 +1390,19 @@ let downloadedUpdateArtifact: {
 let downloadedUpdateIdentityTask: Promise<void> | null = null;
 let activeUpdateInstallHandoff: UpdateInstallHandoffExpectation | null = null;
 const pendingUpdateCacheClearQueue = new PendingUpdateCacheClearQueue();
+let officialUpdateReleaseUrl: string | null = null;
+const updateFeedRouter = new UpdateFeedRouter({
+  getUpdater: () => autoUpdater,
+  resolveFeeds: async () =>
+    resolveDesktopUpdateFeeds({
+      mirror: resolveDesktopUpdateMirror(process.env),
+      channel: resolveMossDownloadChannel({
+        // The server's settings file; it keeps the account's lane on the managed instances.
+        lane: await readAccessLaneFromSettingsFile(Path.join(STATE_DIR, "settings.json")),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    }),
+});
 
 function resolveUpdaterErrorContext(): DesktopUpdateErrorContext {
   if (isUpdaterInstallPreparing || isUpdaterQuitAndInstallInFlight) return "install";
@@ -1507,6 +1594,9 @@ protocol.registerSchemesAsPrivileged([
       standard: true,
       secure: true,
       supportFetchAPI: true,
+      // Local pages run in an opaque sandbox origin; their module scripts and fonts
+      // load from their own folder through CORS (the page policy allows exactly that).
+      corsEnabled: true,
     },
   },
   {
@@ -1662,10 +1752,16 @@ async function rejectUnverifiableDesktopMigrationBundle(error: unknown): Promise
   writeDesktopLogHeader(`migration bundle source check failed message=${message}`);
   await dialog.showMessageBox({
     type: "error",
-    title: "Moss could not verify its server build",
-    message: "The migration source could not be checked safely.",
-    detail: `${message}\n\nRebuild with bun run build:desktop before starting Moss. The database was not opened.`,
-    buttons: ["Quit"],
+    title: nativeText("Moss could not verify its server build", "Moss 无法验证它的服务器构建"),
+    message: nativeText(
+      "The migration source could not be checked safely.",
+      "无法安全地检查迁移代码。",
+    ),
+    detail: nativeText(
+      `${message}\n\nRebuild with bun run build:desktop before starting Moss. The database was not opened.`,
+      `${message}\n\n请先运行 bun run build:desktop 重新构建，再启动 Moss。数据库没有被打开。`,
+    ),
+    buttons: nativeDialogButtons(["Quit"]),
     defaultId: 0,
     noLink: true,
   });
@@ -1681,12 +1777,18 @@ async function rejectDesktopMigrationBundleMismatch(
   );
   await dialog.showMessageBox({
     type: "error",
-    title: "Moss's server build is stale",
-    message: "The built migration code does not match this checkout.",
-    detail:
+    title: nativeText("Moss's server build is stale", "Moss 的服务器构建已过期"),
+    message: nativeText(
+      "The built migration code does not match this checkout.",
+      "已构建的迁移代码与当前检出不一致。",
+    ),
+    detail: nativeText(
       `Expected ${mismatch.expectedDigest}, but the desktop bundle contains ` +
-      `${mismatch.actualDigest}.\n\nRebuild with bun run build:desktop before starting Moss. The database was not opened.`,
-    buttons: ["Quit"],
+        `${mismatch.actualDigest}.\n\nRebuild with bun run build:desktop before starting Moss. The database was not opened.`,
+      `预期为 ${mismatch.expectedDigest}，但桌面包中是 ${mismatch.actualDigest}。\n\n` +
+        "请先运行 bun run build:desktop 重新构建，再启动 Moss。数据库没有被打开。",
+    ),
+    buttons: nativeDialogButtons(["Quit"]),
     defaultId: 0,
     noLink: true,
   });
@@ -1720,7 +1822,7 @@ function isDesktopMigrationRecoveryPending(): boolean {
 /** Joins user-facing options as "a, b or c". */
 function formatRecoveryOptionList(options: ReadonlyArray<string>): string {
   if (options.length <= 1) return options[0] ?? "";
-  return `${options.slice(0, -1).join(", ")} or ${options[options.length - 1]}`;
+  return `${options.slice(0, -1).join(nativeText(", ", "、"))}${nativeText(" or ", " 或 ")}${options[options.length - 1]}`;
 }
 
 async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecoveryOutcome> {
@@ -1748,32 +1850,43 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
         restoreFailed
           ? {
               label: "Try restore again",
-              detail: "retry the verified backup restore",
+              detail: nativeText("retry the verified backup restore", "重试恢复已验证的备份"),
               decision: "restore",
             }
           : {
               label: "Restore backup and restart",
-              detail: "restore the verified pre-migration backup and restart",
+              detail: nativeText(
+                "restore the verified pre-migration backup and restart",
+                "恢复迁移前已验证的备份并重启",
+              ),
               decision: "restore",
             },
       ];
       if (canInstallUpdate) {
         choices.push({
           label: "Update Moss and restart",
-          detail: "install the newest Moss release, which may already contain the fix",
+          detail: nativeText(
+            "install the newest Moss release, which may already contain the fix",
+            "安装最新的 Moss 版本（可能已包含修复）",
+          ),
           decision: "install-update",
         });
       }
       if (releaseUrl !== null) {
         choices.push({
           label: "Download latest release",
-          detail: `${canInstallUpdate ? "download that release" : "download the latest Moss release"} in a browser`,
+          detail: canInstallUpdate
+            ? nativeText("download that release in a browser", "在浏览器中下载该版本")
+            : nativeText(
+                "download the latest Moss release in a browser",
+                "在浏览器中下载最新的 Moss 版本",
+              ),
           decision: "open-release-page",
         });
       }
       choices.push({
         label: "Quit",
-        detail: "quit without opening the database",
+        detail: nativeText("quit without opening the database", "退出，不打开数据库"),
         decision: "quit",
       });
 
@@ -1782,18 +1895,30 @@ async function handleDesktopMigrationRecovery(): Promise<DesktopMigrationRecover
         type: previousFailure === null ? "warning" : "error",
         title:
           previousFailure === null
-            ? "Moss needs to recover its database"
+            ? nativeText("Moss needs to recover its database", "Moss 需要恢复数据库")
             : restoreFailed
-              ? "Migration recovery failed"
-              : "Moss could not update itself",
+              ? nativeText("Migration recovery failed", "迁移恢复失败")
+              : nativeText("Moss could not update itself", "Moss 无法自行更新"),
         message:
           previousFailure === null
-            ? "Moss stopped a database migration before it could finish safely."
+            ? nativeText(
+                "Moss stopped a database migration before it could finish safely.",
+                "Moss 在数据库迁移安全完成前停止了它。",
+              )
             : restoreFailed
-              ? "The saved database backup could not be restored."
-              : "The newest Moss release could not be installed.",
-        detail: `${previousFailure === null ? "" : `${previousFailure.message}\n\n`}You can ${options}. No provider or chat process will start until recovery succeeds.`,
-        buttons: choices.map((choice) => choice.label),
+              ? nativeText(
+                  "The saved database backup could not be restored.",
+                  "无法恢复已保存的数据库备份。",
+                )
+              : nativeText(
+                  "The newest Moss release could not be installed.",
+                  "无法安装最新的 Moss 版本。",
+                ),
+        detail: `${previousFailure === null ? "" : `${previousFailure.message}\n\n`}${nativeText(
+          `You can ${options}. No provider or chat process will start until recovery succeeds.`,
+          `你可以${options}。恢复成功前，不会启动任何服务商或对话进程。`,
+        )}`,
+        buttons: nativeDialogButtons(choices.map((choice) => choice.label)),
         defaultId: 0,
         cancelId: choices.length - 1,
         noLink: true,
@@ -1869,22 +1994,29 @@ class BundleChangedDuringStartupError extends Error {
   }
 }
 
-let servedStaticRootCache: ServedStaticRoot | null | undefined;
+let servedStaticRootCache: ServedStaticRoot | null = null;
+let staticSnapshotProgressWindow: BrowserWindow | null = null;
+const staticSnapshotProgress = createStaticSnapshotProgressTracker({
+  openWindow: openStaticSnapshotProgressWindow,
+  finishingHeading: () => nativeText("Starting Moss…", "正在启动 Moss…"),
+});
 
 // Serving static assets straight out of app.asar is vulnerable to the archive
 // being replaced beneath the running app (Electron caches the header per process,
 // so every later read returns bytes from the wrong offsets). Extract the client
 // to a per-archive snapshot on real disk and serve that instead — both for the
 // moss:// protocol here and, via MOSS_STATIC_DIR, for the backend's HTTP static
-// route. Memoized so one app run serves one coherent asset generation.
+// route. Prepared once before bootstrap so one app run serves one coherent asset
+// generation.
 function resolveServedStaticRoot(): ServedStaticRoot | null {
-  if (servedStaticRootCache === undefined) {
-    servedStaticRootCache = computeServedStaticRoot();
-  }
   return servedStaticRootCache;
 }
 
-function computeServedStaticRoot(): ServedStaticRoot | null {
+async function prepareServedStaticRoot(): Promise<void> {
+  servedStaticRootCache = await computeServedStaticRoot();
+}
+
+async function computeServedStaticRoot(): Promise<ServedStaticRoot | null> {
   const sourceDir = resolveDesktopStaticDir();
   if (!sourceDir) {
     return null;
@@ -1892,7 +2024,7 @@ function computeServedStaticRoot(): ServedStaticRoot | null {
   const archivePath = findAsarArchivePath(sourceDir);
   if (!archivePath) {
     // Plain-directory client (dev, unpacked build): real files already survive swaps.
-    pruneStaticSnapshotCache(Path.join(app.getPath("userData"), "static-snapshots"));
+    void pruneStaticSnapshotCache(Path.join(app.getPath("userData"), "static-snapshots"));
     return { dir: sourceDir, snapshotted: false };
   }
   const startupArchiveSignature =
@@ -1911,12 +2043,25 @@ function computeServedStaticRoot(): ServedStaticRoot | null {
     return { dir: sourceDir, snapshotted: false };
   }
   const startedAtMs = Date.now();
-  let snapshot: ReturnType<typeof ensureStaticSnapshot>;
+  let snapshot: Awaited<ReturnType<typeof ensureStaticSnapshot>>;
   try {
-    snapshot = ensureStaticSnapshot({
+    snapshot = await ensureStaticSnapshot({
       sourceDir,
       cacheRoot: Path.join(app.getPath("userData"), "static-snapshots"),
       signature: `${archiveSignature.size}-${archiveSignature.mtimeMs}-${archiveSignature.inode}`,
+      onProgress: (progress) => {
+        if (progress.copiedFiles === 0) {
+          writeDesktopLogHeader(`static snapshot copy start files=${progress.totalFiles}`);
+        }
+        staticSnapshotProgress.report(progress);
+      },
+      // A newly-created snapshot could otherwise contain reads from both archive
+      // generations. This keeps it from ever being published for a future launch.
+      assertSourceUnchanged: () => {
+        if (!isBundleStable(archiveSignature, readBundleSignature(archivePath))) {
+          throw new Error("The packaged application changed during the static snapshot copy.");
+        }
+      },
     });
   } catch (error) {
     const currentArchiveSignature = readBundleSignature(archivePath);
@@ -1936,16 +2081,8 @@ function computeServedStaticRoot(): ServedStaticRoot | null {
 
   const currentArchiveSignature = readBundleSignature(archivePath);
   if (!isBundleStable(archiveSignature, currentArchiveSignature)) {
-    // A newly-created snapshot may contain reads from both archive generations.
-    // Never leave it behind for a future launch to reuse.
-    if (!snapshot.reused) {
-      try {
-        FS.rmSync(snapshot.dir, { recursive: true, force: true });
-      } catch {
-        // The signature changes the snapshot key, so failed cleanup is disk waste
-        // rather than a path the replacement generation can accidentally reuse.
-      }
-    }
+    // Any snapshot left here holds one complete generation, and the signature
+    // keeps the replacement generation from reusing it. Its next launch prunes it.
     throw new BundleChangedDuringStartupError({
       bundlePath: archivePath,
       baseline: archiveSignature,
@@ -2009,19 +2146,30 @@ function registerDesktopProtocol(): void {
   desktopProtocolRegistered = true;
 }
 
+function isAuxiliaryDesktopWindow(window: BrowserWindow): boolean {
+  return isRealtimeVoiceOverlayWindow(window) || window === staticSnapshotProgressWindow;
+}
+
 function resolveDesktopContentWindow(): BrowserWindow | null {
   if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
   return (
     BrowserWindow.getAllWindows().find(
-      (window) => !window.isDestroyed() && !isRealtimeVoiceOverlayWindow(window),
+      (window) => !window.isDestroyed() && !isAuxiliaryDesktopWindow(window),
     ) ?? null
   );
 }
 
+// macOS keeps the app menu usable with no window open. A renderer can't load until
+// the static assets are ready, so until then the menu has nothing to act on.
+function canOpenRendererWindow(): boolean {
+  return isDevelopment || desktopProtocolRegistered;
+}
+
 function dispatchMenuAction(action: string): void {
+  if (!canOpenRendererWindow()) return;
   const focusedWindow = BrowserWindow.getFocusedWindow();
   const existingWindow =
-    focusedWindow && !isRealtimeVoiceOverlayWindow(focusedWindow)
+    focusedWindow && !isAuxiliaryDesktopWindow(focusedWindow)
       ? focusedWindow
       : resolveDesktopContentWindow();
   const targetWindow = existingWindow ?? createWindow();
@@ -2048,7 +2196,7 @@ function dispatchMenuAction(action: string): void {
 
 function resolveMenuTargetWindow(): BrowserWindow | null {
   const focusedWindow = BrowserWindow.getFocusedWindow();
-  return focusedWindow && !isRealtimeVoiceOverlayWindow(focusedWindow)
+  return focusedWindow && !isAuxiliaryDesktopWindow(focusedWindow)
     ? focusedWindow
     : resolveDesktopContentWindow();
 }
@@ -2056,6 +2204,21 @@ function resolveMenuTargetWindow(): BrowserWindow | null {
 function sendDesktopZoomFactor(webContents: Electron.WebContents): void {
   if (webContents.isDestroyed()) return;
   webContents.send(IPC.zoomFactorChanged, webContents.getZoomFactor());
+}
+
+/** The frame's URL, then each ancestor's, up to the top frame. */
+function webFrameChainUrls(frame: WebFrameMain | null | undefined): string[] {
+  const urls: string[] = [];
+  for (let current = frame ?? null; current !== null; ) {
+    try {
+      urls.push(current.url);
+      current = current.parent;
+    } catch {
+      // A disposed frame cannot be read; what was collected still decides.
+      break;
+    }
+  }
+  return urls;
 }
 
 function attachDesktopZoomFactorSync(window: BrowserWindow): void {
@@ -2149,6 +2312,10 @@ function nativeText(english: string, chinese: string): string {
   return desktopUiLocale === "zh-CN" ? chinese : english;
 }
 
+function nativeDialogButtons(labels: readonly string[]): string[] {
+  return labels.map((label) => translateNativeMenuLabel(label, desktopUiLocale));
+}
+
 function localizeNativeMenu(menu: Menu): void {
   for (const item of menu.items) {
     if (item.label) {
@@ -2202,6 +2369,7 @@ function resolveAutoUpdateDisabledReason(): string | null {
 }
 
 function handleCheckForUpdatesMenuClick(): void {
+  if (!canOpenRendererWindow()) return;
   const disabledReason = resolveAutoUpdateDisabledReason();
   if (disabledReason) {
     console.info("[desktop-updater] Manual update check requested, but updates are disabled.");
@@ -2521,6 +2689,8 @@ function initializeDesktopAppSnap(): void {
     excludedBundleId: APP_USER_MODEL_ID,
     appDisplayName: APP_DISPLAY_NAME,
     appBundlePath: resolveAppSnapAppBundlePath(),
+    cuaEndpoint: () => cuaHostEndpoint,
+    cuaCapability: DESKTOP_BROWSER_HOST_CAPABILITY,
     shortcutRegistry: globalShortcut,
     openSettingsPane: (pane) => {
       const paneUrl = APP_SNAP_SETTINGS_PANE_URLS[pane];
@@ -3491,6 +3661,10 @@ function registerMossAuthCallbackProtocolClient(): void {
 function focusMainWindow(options: { stealAppFocus?: boolean } = {}): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = null;
+    if (staticSnapshotProgressWindow) {
+      if (staticSnapshotProgressWindow.isMinimized()) staticSnapshotProgressWindow.restore();
+      staticSnapshotProgressWindow.focus();
+    }
     return;
   }
   if (mainWindow.isMinimized()) {
@@ -4458,6 +4632,24 @@ function clearUpdateCheckTimeoutTimer(): void {
   }
 }
 
+// A mainland user whose mirror is down needs to hear that both sources failed; the official
+// source's raw error alone reads like a problem they could fix by retrying GitHub.
+function describeUpdateFailure(detail: string): string {
+  if (!updateFeedRouter.isFallingBack) {
+    return detail;
+  }
+  if (isUpdateIntegrityFailure(detail)) {
+    return nativeText(
+      `The domestic update source is unavailable, and the installer from the official source failed its security check, so it was discarded. (${detail})`,
+      `国内更新源暂时不可用，官方更新源的安装包又没有通过安全校验，已丢弃，没有安装。（${detail}）`,
+    );
+  }
+  return nativeText(
+    `The domestic update source is unavailable and the official source failed too. Check your network and try again. (${detail})`,
+    `国内更新源暂时不可用，已改用官方更新源，但也没有成功。请检查网络后重试。（${detail}）`,
+  );
+}
+
 function armUpdateCheckTimeout(reason: string): void {
   clearUpdateCheckTimeoutTimer();
   updateCheckTimeoutTimer = setTimeout(() => {
@@ -4472,7 +4664,7 @@ function armUpdateCheckTimeout(reason: string): void {
     setUpdateState(
       reduceDesktopUpdateStateOnCheckFailure(
         updateState,
-        "Timed out while checking for updates. Try again.",
+        describeUpdateFailure("Timed out while checking for updates. Try again."),
         new Date().toISOString(),
       ),
     );
@@ -4518,6 +4710,11 @@ function consumeStalledDownloadCancellationSuppression(): void {
   if (stalledDownloadCancellationSuppressionsRemaining === 0) {
     stalledDownloadCancellationSuppressionExpiresAtMs = 0;
   }
+}
+
+/** True while an app update is being downloaded; quitting would stop it. */
+function isAppUpdateDownloadInProgress(): boolean {
+  return updateDownloadInFlight && updateState.status === "downloading";
 }
 
 // Bounds a silent updater download while allowing slow downloads that keep making progress.
@@ -4647,10 +4844,19 @@ async function checkForUpdates(reason: string): Promise<void> {
   console.info(`[desktop-updater] Checking for updates (${reason})...`);
 
   try {
-    await autoUpdater.checkForUpdates();
+    await updateFeedRouter.check({
+      explicit: isExplicitUpdateCheckReason(reason),
+      onFallback: (failedFeed, error) => {
+        console.warn(
+          `[desktop-updater] Update feed ${failedFeed.id} failed (${reason}), trying the official feed: ${formatErrorMessage(error)}`,
+        );
+        // The official feed gets a full budget of its own.
+        armUpdateCheckTimeout(reason);
+      },
+    });
   } catch (error: unknown) {
     clearUpdateCheckTimeoutTimer();
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeUpdateFailure(error instanceof Error ? error.message : String(error));
     setUpdateState(
       reduceDesktopUpdateStateOnCheckFailure(updateState, message, new Date().toISOString()),
     );
@@ -4664,6 +4870,28 @@ async function checkForUpdates(reason: string): Promise<void> {
 async function downloadAvailableUpdate(): Promise<{
   accepted: boolean;
   completed: boolean;
+}> {
+  const { failedOnMirror, ...result } = await downloadAvailableUpdateFromActiveFeed();
+  if (!failedOnMirror) {
+    return result;
+  }
+  updateFeedRouter.suspendMirror();
+  console.warn("[desktop-updater] Mirror download failed; retrying through the official feed.");
+  const preparationBeforeRetry = activeUpdatePreparation;
+  await checkForUpdates(UPDATE_CHECK_REASON_MIRROR_DOWNLOAD_FALLBACK);
+  // The check starts its own download when it finds the update. This download may itself be
+  // running as the earlier preparation, and waiting on that would never finish.
+  const retry = activeUpdatePreparation;
+  if (retry !== null && retry !== preparationBeforeRetry) {
+    await retry;
+  }
+  return { accepted: true, completed: downloadedUpdateArtifact !== null };
+}
+
+async function downloadAvailableUpdateFromActiveFeed(): Promise<{
+  accepted: boolean;
+  completed: boolean;
+  failedOnMirror?: boolean;
 }> {
   if (
     updaterConfigured &&
@@ -4730,10 +4958,16 @@ async function downloadAvailableUpdate(): Promise<{
       completed: downloadedUpdateArtifact !== null,
     };
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = describeUpdateFailure(error instanceof Error ? error.message : String(error));
     setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
-    console.error(`[desktop-updater] Failed to download update: ${message}`);
-    return { accepted: true, completed: false };
+    console.error(
+      `[desktop-updater] Failed to download update from ${updateFeedRouter.feed.id}: ${message}`,
+    );
+    return {
+      accepted: true,
+      completed: false,
+      failedOnMirror: updateFeedRouter.feed.id === "cn-mirror",
+    };
   } finally {
     clearUpdateDownloadStallTimer();
     // Hold the in-flight flag until the updater download actually settles, so an
@@ -5035,6 +5269,7 @@ function configureAutoUpdater(): void {
   const githubUpdateSource = resolveGitHubUpdateSource(appUpdateYml);
   const releaseUrl =
     githubUpdateSource === null ? null : buildGitHubReleasesPageUrl(githubUpdateSource);
+  officialUpdateReleaseUrl = releaseUrl;
   const enabled = shouldEnableAutoUpdates();
   setUpdateState({
     ...createInitialDesktopUpdateState(
@@ -5067,7 +5302,8 @@ function configureAutoUpdater(): void {
   autoUpdater.allowPrerelease = DESKTOP_UPDATE_ALLOW_PRERELEASE;
   autoUpdater.allowDowngrade = false;
   // Match electron-updater's native GitHub provider path; the packaged
-  // app-update.yml owns the production feed, and generic feeds stay mock-only.
+  // app-update.yml owns the official feed, and generic feeds stay mock-only. The
+  // one other production feed is the signed domestic mirror (updateFeedRouter).
   // macOS release builds repack and validate the Squirrel update zip, then omit
   // the stale zip blockmap so ShipIt always installs the exact signed payload.
   autoUpdater.disableDifferentialDownload =
@@ -5109,15 +5345,21 @@ function configureAutoUpdater(): void {
       );
       return;
     }
-    setUpdateState(
-      reduceDesktopUpdateStateOnUpdateAvailable(
+    const activeFeed = updateFeedRouter.feed;
+    setUpdateState({
+      ...reduceDesktopUpdateStateOnUpdateAvailable(
         updateState,
         info.version,
         new Date().toISOString(),
       ),
-    );
+      releaseUrl:
+        activeFeed.id === "cn-mirror"
+          ? (resolveMirrorManualDownloadUrl(activeFeed.mirror, info.files) ??
+            officialUpdateReleaseUrl)
+          : officialUpdateReleaseUrl,
+    });
     lastLoggedDownloadMilestone = -1;
-    console.info(`[desktop-updater] Update available: ${info.version}`);
+    console.info(`[desktop-updater] Update available from ${activeFeed.id}: ${info.version}`);
     prepareAvailableUpdateInBackground(`available ${info.version}`);
   });
   autoUpdater.on("update-not-available", () => {
@@ -5311,7 +5553,7 @@ async function attachCuaHost(host: CuaDriverHost): Promise<void> {
 }
 
 async function startCuaHost(): Promise<void> {
-  if ((process.platform !== "darwin" && process.platform !== "linux") || cuaDriverHost) return;
+  if (cuaDriverHost) return;
   sweepOrphanedCuaDrivers();
   if (process.platform === "linux") {
     linuxEscapeKillSwitchMonitor ??= new LinuxEscapeKillSwitchMonitor({
@@ -5338,6 +5580,57 @@ async function startCuaHost(): Promise<void> {
     );
     return;
   }
+
+  // Windows uses the same upstream Cua Driver host as the standalone
+  // deployment path. It must be started before the backend so the server can
+  // route computer.getStatus/getState and input calls through the private
+  // named pipe. There is no macOS TCC helper, frame tap, or Escape listener
+  // on Windows; the driver's own UIA/display integration reports its native
+  // readiness through check_permissions.
+  if (process.platform === "win32") {
+    const host = new CuaDriverHost({
+      binaryPath: app.isPackaged
+        ? Path.join(process.resourcesPath, "cua-driver", "cua-driver.exe")
+        : Path.join(resolveAppRoot(), "apps/desktop/resources/cua-driver/cua-driver.exe"),
+      isPackaged: app.isPackaged,
+      bundleId: desktopIdentity.bundleId,
+      capability: DESKTOP_BROWSER_HOST_CAPABILITY,
+      nativeRevision: null,
+      // Computer use must never bind the app hosting it: the integrated
+      // browser's webviews live in this app's own renderer pids.
+      ownPids: () => new Set([process.pid, ...app.getAppMetrics().map((m) => m.pid)]),
+      cursorStyle: () => readAgentCursorPreference(AGENT_CURSOR_PREFERENCE_PATH),
+      // Windows permissions are owned by the Cua Driver/OS. The upstream
+      // check_permissions call is intentionally allowed through; setup cannot
+      // open a macOS privacy pane and therefore reports a precise remediation.
+      setup: async () => {
+        throw new Error(
+          "Allow Moss the UI Automation and screen access Windows asks for, then refresh.",
+        );
+      },
+      normalizeOverview: (result) => {
+        const image = result.content?.find((part) => part.type === "image" && part.data);
+        if (!image?.data) return result;
+        const native = nativeImage.createFromBuffer(Buffer.from(image.data, "base64"));
+        const size = native.getSize();
+        if (Math.max(size.width, size.height) <= MODEL_SCREEN_IMAGE_MAX_DIMENSION) return result;
+        const ratio = MODEL_SCREEN_IMAGE_MAX_DIMENSION / Math.max(size.width, size.height);
+        const scaled = native.resize({
+          width: Math.round(size.width * ratio),
+          height: Math.round(size.height * ratio),
+          quality: "best",
+        });
+        image.data = scaled.toPNG().toString("base64");
+        return result;
+      },
+    });
+    await attachCuaHost(host);
+    return;
+  }
+
+  // There is no safe host implementation for an unknown Electron platform.
+  if (process.platform !== "darwin") return;
+
   const frameTap = new ComputerFrameTap({
     helperPath: resolveAppSnapHelperPath(),
     send: (channel, frame) => {
@@ -5359,6 +5652,7 @@ async function startCuaHost(): Promise<void> {
     binaryPath: app.isPackaged
       ? Path.join(process.resourcesPath, "cua-driver", "cua-driver")
       : Path.join(resolveAppRoot(), "apps/desktop/resources/cua-driver/cua-driver"),
+    isPackaged: app.isPackaged,
     bundleId: desktopIdentity.bundleId,
     capability: DESKTOP_BROWSER_HOST_CAPABILITY,
     // Computer use must never bind the app hosting it: the integrated
@@ -5495,6 +5789,8 @@ function backendEnv(): NodeJS.ProcessEnv {
         MOSS_APPSNAP_HELPER_PATH: resolveAppSnapHelperPath(),
         ...(bundledClaudePath ? { [MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY]: bundledClaudePath } : {}),
         ...bundledCodexBackendEnv(),
+        ...DESKTOP_SENTRY_BACKEND_ENV,
+        [MOSS_ERROR_REPORTS_ENABLED_ENV]: desktopErrorReportsEnabled() ? "1" : "0",
         ...(cuaHostEndpoint ? { [CUA_HOST_SOCKET_ENV]: cuaHostEndpoint } : {}),
         [MOSS_DESKTOP_BUNDLE_ID_ENV]: desktopIdentity.bundleId,
       },
@@ -5629,8 +5925,11 @@ function backendFailureDialogDetail(reason: string): string {
   const cause = summary.length > 0 ? summary : reason;
   return [
     cause,
-    "Moss paused automatic restarts so a failing backend can't keep respawning in the background.",
-    `Log file:\n${Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME)}`,
+    nativeText(
+      "Moss paused automatic restarts so a failing backend can't keep respawning in the background.",
+      "Moss 已暂停自动重启，以免出错的后端在后台不断重新启动。",
+    ),
+    `${nativeText("Log file:", "日志文件：")}\n${Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME)}`,
   ].join("\n\n");
 }
 
@@ -5658,10 +5957,13 @@ function presentBackendStartupGiveUp(reason: string): void {
     for (;;) {
       const result = await dialog.showMessageBox({
         type: "error",
-        title: "Moss's backend didn't start",
-        message: `Moss's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
+        title: nativeText("Moss's backend didn't start", "Moss 后端没有启动"),
+        message: nativeText(
+          `Moss's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
+          `Moss 后端连续 ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} 次启动失败。`,
+        ),
         detail,
-        buttons: ["Try again", "Open logs", "Quit"],
+        buttons: nativeDialogButtons(["Try again", "Open logs", "Quit"]),
         defaultId: 0,
         cancelId: 2,
         noLink: true,
@@ -5695,26 +5997,43 @@ function schemaTooNewRestoreDetail(
   restoreCandidate: ReturnType<typeof resolveDesktopMigrationRestoreCandidate>,
 ): string {
   if (restoreCandidate) {
-    return (
+    return nativeText(
       `Moss verified the exact pre-migration backup at:\n${restoreCandidate.backupPath}\n\n` +
-      `Its tracker ends at migration ${restoreCandidate.backupMigrationId}; its shared lineage is compatible ` +
-      "with this build, and it passed SQLite integrity checking."
+        `Its tracker ends at migration ${restoreCandidate.backupMigrationId}; its shared lineage is compatible ` +
+        "with this build, and it passed SQLite integrity checking.",
+      `Moss 已验证这份迁移前备份：\n${restoreCandidate.backupPath}\n\n` +
+        `它的迁移记录到 ${restoreCandidate.backupMigrationId} 为止；迁移历史与这个版本兼容，并已通过 SQLite 完整性检查。`,
     );
   }
 
   if (block.recovery.kind === "restore-available") {
-    return "The recorded backup does not match this desktop database exactly, so Moss will not restore it.";
+    return nativeText(
+      "The recorded backup does not match this desktop database exactly, so Moss will not restore it.",
+      "记录的备份与这个桌面数据库不完全一致，所以 Moss 不会恢复它。",
+    );
   }
 
   switch (block.recovery.reason) {
     case "missing-provenance":
-      return "No completed migration backup record exists for this database, so Moss cannot choose a backup safely.";
+      return nativeText(
+        "No completed migration backup record exists for this database, so Moss cannot choose a backup safely.",
+        "这个数据库没有已完成的迁移备份记录，所以 Moss 无法安全地选择备份。",
+      );
     case "invalid-provenance":
-      return "The completed migration backup record does not describe this exact database state.";
+      return nativeText(
+        "The completed migration backup record does not describe this exact database state.",
+        "已完成的迁移备份记录与这个数据库的确切状态不符。",
+      );
     case "invalid-backup":
-      return "The exact recorded backup is missing, unreadable, or failed SQLite integrity checking.";
+      return nativeText(
+        "The exact recorded backup is missing, unreadable, or failed SQLite integrity checking.",
+        "记录的备份缺失、无法读取，或未通过 SQLite 完整性检查。",
+      );
     case "incompatible-backup":
-      return "The exact recorded backup has a schema or migration lineage this Moss build cannot open safely.";
+      return nativeText(
+        "The exact recorded backup has a schema or migration lineage this Moss build cannot open safely.",
+        "记录的备份使用了这个版本的 Moss 无法安全打开的架构或迁移历史。",
+      );
   }
 }
 
@@ -5762,27 +6081,40 @@ async function handleDesktopSchemaTooNewRecovery(
           type: previousFailure === null ? "warning" : "error",
           title:
             previousFailure === null
-              ? "This database is newer than Moss"
+              ? nativeText("This database is newer than Moss", "这个数据库比当前的 Moss 更新")
               : restoreFailed
-                ? "Database restore failed"
-                : "Moss could not update itself",
+                ? nativeText("Database restore failed", "数据库恢复失败")
+                : nativeText("Moss could not update itself", "Moss 无法自行更新"),
           message:
             previousFailure === null
-              ? `Database migration ${block.databaseMigrationId} is newer than this build supports (${block.latestSupportedMigrationId}).`
+              ? nativeText(
+                  `Database migration ${block.databaseMigrationId} is newer than this build supports (${block.latestSupportedMigrationId}).`,
+                  `数据库迁移 ${block.databaseMigrationId} 比这个版本支持的更新（${block.latestSupportedMigrationId}）。`,
+                )
               : restoreFailed
-                ? "The verified database backup could not be restored."
-                : "The newest Moss release could not be installed.",
+                ? nativeText(
+                    "The verified database backup could not be restored.",
+                    "无法恢复已验证的数据库备份。",
+                  )
+                : nativeText(
+                    "The newest Moss release could not be installed.",
+                    "无法安装最新的 Moss 版本。",
+                  ),
           detail:
             `${previousFailure === null ? "" : `${previousFailure.message}\n\n`}` +
             `${schemaTooNewRestoreDetail(block, restoreCandidate)}\n\n` +
-            "The backend and provider processes will remain stopped until you update, restore, or quit.",
-          buttons: choices.map((choice) => choice.label),
+            nativeText(
+              "The backend and provider processes will remain stopped until you update, restore, or quit.",
+              "在你更新、恢复或退出之前，后端和服务商进程会保持停止。",
+            ),
+          buttons: nativeDialogButtons(choices.map((choice) => choice.label)),
           defaultId: 0,
           cancelId: choices.length - 1,
           noLink: true,
         },
         diagnosticId,
         betaDiagnostics,
+        nativeText,
       );
       return choices[result.response]?.decision ?? "quit";
     },
@@ -5827,7 +6159,7 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
         : {}),
     }) ?? null;
   const showBlockDialog = (options: MessageBoxOptions) =>
-    showDiagnosticStartupDialog(options, diagnosticId, betaDiagnostics);
+    showDiagnosticStartupDialog(options, diagnosticId, betaDiagnostics, nativeText);
   const task = (async () => {
     if (block.kind === "migration-schema-too-new") {
       await handleDesktopSchemaTooNewRecovery(block.block, diagnosticId);
@@ -5849,16 +6181,25 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
             type: "error",
             title:
               previousFailure === null
-                ? "Moss could not verify migration recovery"
-                : "Moss could not update itself",
+                ? nativeText("Moss could not verify migration recovery", "Moss 无法验证迁移恢复")
+                : nativeText("Moss could not update itself", "Moss 无法自行更新"),
             message:
               previousFailure === null
-                ? "The backend stopped for database safety, but its recovery details were invalid."
-                : "The newest Moss release could not be installed.",
+                ? nativeText(
+                    "The backend stopped for database safety, but its recovery details were invalid.",
+                    "为保证数据库安全，后端已停止，但它的恢复信息无效。",
+                  )
+                : nativeText(
+                    "The newest Moss release could not be installed.",
+                    "无法安装最新的 Moss 版本。",
+                  ),
             detail:
               `${previousFailure === null ? "" : `${previousFailure.message}\n\n`}` +
-              "Moss will keep the backend and provider processes stopped. The recovery record is not trusted, so restoring from it is disabled; choose one of the safe actions below.",
-            buttons: choices.map((choice) => choice.label),
+              nativeText(
+                "Moss will keep the backend and provider processes stopped. The recovery record is not trusted, so restoring from it is disabled; choose one of the safe actions below.",
+                "Moss 会让后端和服务商进程保持停止。恢复记录不可信，因此已禁止从它恢复；请选择下面的安全操作之一。",
+              ),
+            buttons: nativeDialogButtons(choices.map((choice) => choice.label)),
             defaultId: 0,
             cancelId: choices.length - 1,
             noLink: true,
@@ -5886,15 +6227,26 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
       const challenge = block.challenge;
       const result = await showBlockDialog({
         type: "warning",
-        title: "Moss found a different database migration history",
-        message: `Migration ${challenge.firstDivergedId} does not match this build.`,
-        detail:
+        title: nativeText(
+          "Moss found a different database migration history",
+          "Moss 发现了不同的数据库迁移历史",
+        ),
+        message: nativeText(
+          `Migration ${challenge.firstDivergedId} does not match this build.`,
+          `迁移 ${challenge.firstDivergedId} 与这个版本不一致。`,
+        ),
+        detail: nativeText(
           `The database records "${challenge.recordedName}", while this build expects ` +
-          `"${challenge.expectedName}". Continuing will first save an exact backup in:\n` +
-          `${challenge.backupDirectory}\n\nMoss will then rewrite tracker rows from migration ` +
-          `${challenge.firstDivergedId} and replay through ${challenge.targetVersion}. ` +
-          "Older builds may no longer be able to open the upgraded database. No provider or chat process will start until you choose.",
-        buttons: ["Back up and continue", "Quit"],
+            `"${challenge.expectedName}". Continuing will first save an exact backup in:\n` +
+            `${challenge.backupDirectory}\n\nMoss will then rewrite tracker rows from migration ` +
+            `${challenge.firstDivergedId} and replay through ${challenge.targetVersion}. If that fails, the database stays as it is. ` +
+            "Older builds may no longer be able to open the upgraded database. No provider or chat process will start until you choose.",
+          `数据库记录的是“${challenge.recordedName}”，而这个版本期望的是“${challenge.expectedName}”。` +
+            `继续时会先把完整备份保存到：\n${challenge.backupDirectory}\n\n` +
+            `然后 Moss 会从迁移 ${challenge.firstDivergedId} 开始改写记录，并重放到 ${challenge.targetVersion}。如果失败，数据库会保持原样。` +
+            "旧版本可能无法再打开升级后的数据库。在你选择之前，不会启动任何服务商或对话进程。",
+        ),
+        buttons: nativeDialogButtons(["Back up and continue", "Quit"]),
         defaultId: 0,
         cancelId: 1,
         noLink: true,
@@ -5909,15 +6261,78 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
       return;
     }
 
+    if (
+      block.kind === "migration-repair-failed" ||
+      block.kind === "migration-lineage-unsupported"
+    ) {
+      const failure = block.kind === "migration-repair-failed" ? block.failure : null;
+      const releaseUrl = updateState.releaseUrl;
+      const labels = [
+        ...(releaseUrl === null ? [] : ["Download latest release"]),
+        "Open logs",
+        "Quit",
+      ];
+      for (;;) {
+        const result = await showBlockDialog({
+          type: "warning",
+          title: failure
+            ? nativeText("Moss could not upgrade this database", "Moss 无法升级这个数据库")
+            : nativeText("Moss can't open this database", "Moss 无法打开这个数据库"),
+          message: failure
+            ? nativeText(
+                "The upgrade did not finish, and your database was left as it was.",
+                "这次升级没有完成，你的数据库保持原样。",
+              )
+            : nativeText(
+                "This database's migration history isn't one Moss can repair safely.",
+                "这个数据库的迁移历史不在 Moss 能安全修复的范围内。",
+              ),
+          detail: failure
+            ? nativeText(
+                `A backup from before the attempt is at:\n${failure.backupPath}\n\nAsking again would fail the same way, so this version won't retry. A newer Moss version may be able to upgrade it.\n\nReason: ${failure.reason}`,
+                `尝试之前的备份保存在：\n${failure.backupPath}\n\n再试一次也会同样失败，所以这个版本不会重试。更新的 Moss 版本可能可以升级它。\n\n原因：${failure.reason}`,
+              )
+            : nativeText(
+                "Your database was not changed, and no provider or chat process was started. A newer Moss version may be able to open it.",
+                "你的数据库没有被更改，也没有启动任何服务商或对话进程。更新的 Moss 版本可能可以打开它。",
+              ),
+          buttons: nativeDialogButtons(labels),
+          defaultId: 0,
+          cancelId: labels.length - 1,
+          noLink: true,
+        });
+        const label = labels[result.response];
+        if (label === "Download latest release" && releaseUrl !== null) {
+          void shell.openExternal(releaseUrl);
+          continue;
+        }
+        if (label === "Open logs") {
+          await openDesktopLogDirectory();
+          continue;
+        }
+        requestGracefulAppQuit(block.kind);
+        return;
+      }
+    }
+
     if (block.kind === "migration-runtime-identity-mismatch") {
       await showBlockDialog({
         type: "error",
-        title: "Moss's server build does not match",
-        message: "The desktop and server migration code came from different builds.",
+        title: nativeText("Moss's server build does not match", "Moss 的服务器版本不匹配"),
+        message: nativeText(
+          "The desktop and server migration code came from different builds.",
+          "桌面端和服务器的迁移代码来自不同的构建。",
+        ),
         detail: app.isPackaged
-          ? "Update or reinstall Moss before starting it again. The database was not opened."
-          : "Rebuild with bun run build:desktop before starting Moss again. The database was not opened.",
-        buttons: ["Quit"],
+          ? nativeText(
+              "Update or reinstall Moss before starting it again. The database was not opened.",
+              "请先更新或重新安装 Moss，再重新启动。数据库没有被打开。",
+            )
+          : nativeText(
+              "Rebuild with bun run build:desktop before starting Moss again. The database was not opened.",
+              "请先运行 bun run build:desktop 重新构建，再启动 Moss。数据库没有被打开。",
+            ),
+        buttons: nativeDialogButtons(["Quit"]),
         defaultId: 0,
         noLink: true,
       });
@@ -5928,11 +6343,16 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
     if (block.kind === "migration-recovery-required") {
       const result = await showBlockDialog({
         type: "warning",
-        title: "Moss needs to recover its database",
-        message: "A database migration did not finish safely.",
-        detail:
+        title: nativeText("Moss needs to recover its database", "Moss 需要恢复数据库"),
+        message: nativeText(
+          "A database migration did not finish safely.",
+          "有一次数据库迁移没有安全完成。",
+        ),
+        detail: nativeText(
           "Restart Moss to open the verified backup recovery flow. Provider and chat processes will remain stopped until recovery completes.",
-        buttons: ["Restart and recover", "Quit"],
+          "请重启 Moss 以打开已验证备份的恢复流程。恢复完成前，服务商和对话进程会保持停止。",
+        ),
+        buttons: nativeDialogButtons(["Restart and recover", "Quit"]),
         defaultId: 0,
         cancelId: 1,
         noLink: true,
@@ -5948,24 +6368,39 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
 
     const processDetail =
       block.ownerPid === null
-        ? "Moss could not verify the database lock. The lock may be left over from an interrupted startup, or another server may still be using it."
-        : `Another Moss server (process ${block.ownerPid}) is already using this database.`;
+        ? nativeText(
+            "Moss could not verify the database lock. The lock may be left over from an interrupted startup, or another server may still be using it.",
+            "Moss 无法验证数据库锁。这个锁可能是上次启动中断后留下的，也可能有其他服务器仍在使用它。",
+          )
+        : nativeText(
+            `Another Moss server (process ${block.ownerPid}) is already using this database.`,
+            `另一个 Moss 服务器（进程 ${block.ownerPid}）正在使用这个数据库。`,
+          );
     for (;;) {
       const result = await showBlockDialog({
         type: "warning",
         title:
           block.ownerPid === null
-            ? "Moss could not verify database ownership"
-            : "Moss is already running elsewhere",
+            ? nativeText("Moss could not verify database ownership", "Moss 无法确认数据库的占用者")
+            : nativeText("Moss is already running elsewhere", "Moss 已在其他地方运行"),
         message:
           block.ownerPid === null
-            ? "Moss could not safely open your local data."
-            : "Your local Moss data is in use by another process.",
+            ? nativeText(
+                "Moss could not safely open your local data.",
+                "Moss 无法安全地打开你的本地数据。",
+              )
+            : nativeText(
+                "Your local Moss data is in use by another process.",
+                "你的本地 Moss 数据正被另一个进程使用。",
+              ),
         detail:
-          `${processDetail}\n\nClose any other Moss app or development server using this data, then try again. ` +
-          "If this keeps happening, open the logs to see the underlying lock error. Your data has not been changed.\n\n" +
-          `Log file:\n${Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME)}`,
-        buttons: ["Try again", "Open logs", "Quit"],
+          `${processDetail}\n\n` +
+          nativeText(
+            "Close any other Moss app or development server using this data, then try again. If this keeps happening, open the logs to see the underlying lock error. Your data has not been changed.",
+            "请关闭正在使用这些数据的其他 Moss 应用或开发服务器，然后重试。如果问题持续出现，请打开日志查看底层的锁错误。你的数据没有被更改。",
+          ) +
+          `\n\n${nativeText("Log file:", "日志文件：")}\n${Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME)}`,
+        buttons: nativeDialogButtons(["Try again", "Open logs", "Quit"]),
         defaultId: 0,
         cancelId: 2,
         noLink: true,
@@ -6200,6 +6635,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
 
   child.on("exit", (code, signal) => {
     startupHealthMonitor.abort();
+    backendLinkDropLog.recordBackendExit(`code=${code ?? "null"} signal=${signal ?? "null"}`);
     // Output can drain after a failed stop has restored the app's running state.
     const expectedExit = isQuitting;
     if (backendListeningDetector === listeningDetector) {
@@ -6333,6 +6769,21 @@ async function stopBackendAndWaitForExit(): Promise<void> {
   }
 }
 
+/** Stop every desktop-owned remote runtime before Electron is allowed to quit.
+ * SSH cleanup has a proof-bearing async contract: a rejected proof must keep the
+ * app's shutdown failure visible instead of letting will-quit abandon a proxy. */
+async function stopDesktopOwnedRuntimesAndBackend(): Promise<void> {
+  remoteComputersManager?.dispose();
+  const results = await Promise.allSettled([
+    stopBackendAndWaitForExit(),
+    sshConnectionManager?.dispose() ?? Promise.resolve(),
+  ]);
+  const failed = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+  if (failed) throw failed.reason;
+}
+
 async function disposeBrowserHostPipeServerForShutdown(reason: string): Promise<void> {
   disposeComputerDesktopLifecycle?.();
   disposeComputerDesktopLifecycle = undefined;
@@ -6383,9 +6834,11 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
 
   isQuitting = true;
   hideDesktopWindowForImmediateQuit();
+  staticSnapshotProgress.close();
+  backendLinkDropLog.finish("app-quit");
   writeDesktopLogHeader(`${reason} shutdown start`);
   const shutdown = runAfterDesktopShutdown(
-    stopBackendAndWaitForExit(),
+    stopDesktopOwnedRuntimesAndBackend(),
     async () => {
       clearUpdateBackgroundBlurTimer();
       clearUpdateCheckTimeoutTimer();
@@ -6458,8 +6911,25 @@ async function confirmRunningChatsThenQuit(reason: string): Promise<void> {
   }
 
   const window = mainWindow;
+  const updateDownloading = isAppUpdateDownloadInProgress();
   if (!isMainRendererAvailable()) {
-    nativeQuitConfirmationPromise ??= showDesktopConfirmDialog(`Quit ${APP_DISPLAY_NAME}?`, null)
+    // Without a renderer only the main process can say what is running. Ask about a
+    // download it owns; on macOS chats can also keep running with every window closed,
+    // so keep the plain confirmation there. Otherwise quit straight away.
+    const message = updateDownloading
+      ? desktopUiLocale === "zh-CN"
+        ? `${APP_DISPLAY_NAME} 更新仍在下载。仍要退出吗？`
+        : `A ${APP_DISPLAY_NAME} update is still downloading. Quit anyway?`
+      : process.platform === "darwin"
+        ? desktopUiLocale === "zh-CN"
+          ? `退出 ${APP_DISPLAY_NAME}？`
+          : `Quit ${APP_DISPLAY_NAME}?`
+        : null;
+    if (message === null) {
+      requestGracefulAppQuit(reason);
+      return;
+    }
+    nativeQuitConfirmationPromise ??= showDesktopConfirmDialog(message, null, desktopUiLocale)
       .catch((error) => {
         console.warn("[desktop] Failed to confirm app quit", error);
         return false;
@@ -6476,12 +6946,18 @@ async function confirmRunningChatsThenQuit(reason: string): Promise<void> {
       if (!isMainRendererAvailable() || !window) {
         throw new Error("Renderer unavailable.");
       }
+      window.webContents.send(IPC.quitConfirmationRequest, request);
+    },
+    // The window is only brought forward when there is running work to show; an idle
+    // app quits without flashing a hidden window.
+    onPrompt: () => {
+      if (!window || window.isDestroyed()) return;
       showDesktopQuitConfirmationWindow(window, {
         background: isBackgroundDesktopLaunch(process.argv),
       });
-      window.webContents.send(IPC.quitConfirmationRequest, request);
     },
     isRendererAvailable: isMainRendererAvailable,
+    updateDownloading,
     presentation,
   });
   if (!allowed) {
@@ -6555,7 +7031,126 @@ function requestGracefulAppQuit(reason: string): void {
   );
 }
 
+/** Shared sandbox for SSH and paired computers. Remote content gets transport only,
+ * never the local desktop bridge, keys, files, provider logins or settings IPC. */
+function openRemoteComputerWorkspace(input: RemoteComputerWorkspaceInput) {
+  return createRemoteComputerWorkspace(input, {
+    preloadPath: Path.join(__dirname, "sshWorkspacePreload.js"),
+    workspaceUrls: sshWorkspaceUrls,
+    confirmExternalLink: async ({ window, name, url }) => {
+      const result = await dialog.showMessageBox(window, {
+        type: "question",
+        buttons: [nativeText("Open", "打开"), nativeText("Cancel", "取消")],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        title: nativeText("Open link", "打开链接"),
+        message: nativeText(
+          `${name} wants to open a link in your browser.`,
+          `「${name}」想在浏览器中打开一个链接。`,
+        ),
+        detail: url.length > 300 ? `${url.slice(0, 300)}…` : url,
+      });
+      return result.response === 0;
+    },
+    workspaceKinds: sshWorkspaceKinds,
+    ...getIconOption(),
+  });
+}
+
 function registerIpcHandlers(): void {
+  sshConnectionManager ??= new SshConnectionManager({
+    rootDir: Path.join(app.getPath("userData"), "ssh"),
+    version: app.getVersion(),
+    publicEnvironment: mergeMossProductionPublicConfigIntoEnv({}, desktopProductionPublicConfig(), {
+      isPackaged: app.isPackaged,
+    }),
+    runtimeArchive: () =>
+      FS.promises.readFile(
+        app.isPackaged
+          ? Path.join(process.resourcesPath, "ssh-runtime.tar.gz")
+          : (process.env.MOSS_SSH_RUNTIME_ARCHIVE_PATH ??
+              Path.resolve(__dirname, "../ssh-runtime.tar.gz")),
+      ),
+    openWorkspace: ({ id, name, origin, wsUrl, onClosed }) => {
+      const transport = sshWorkspaceTransport(wsUrl);
+      const workspace = openRemoteComputerWorkspace({
+        id,
+        name,
+        origin,
+        token: transport.token,
+        onClosed,
+        kind: "ssh",
+      });
+      void workspace.ready.catch(() => undefined);
+      return workspace.close;
+    },
+  });
+  remoteComputersManager ??= new RemoteComputersManager({
+    rootDir: Path.join(app.getPath("userData"), "remote-computers"),
+    keyStore: browserOsKeyStore,
+    openWorkspace: async (input) => {
+      const workspace = openRemoteComputerWorkspace({ ...input, kind: "paired" });
+      await workspace.ready;
+      return workspace.close;
+    },
+  });
+  const requireRemoteComputersOwner = (event: Electron.IpcMainInvokeEvent) => {
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame)
+      throw new Error("Remote computer settings require the local Moss window.");
+    return remoteComputersManager!;
+  };
+  for (const channel of Object.values(IPC.remoteComputers)) ipcMain.removeHandler(channel);
+  ipcMain.handle(IPC.remoteComputers.list, (event) => requireRemoteComputersOwner(event).list());
+  ipcMain.handle(IPC.remoteComputers.pair, (event, input) =>
+    requireRemoteComputersOwner(event).pair(input),
+  );
+  ipcMain.handle(IPC.remoteComputers.cancelPairing, (event, id) =>
+    requireRemoteComputersOwner(event).cancelPairing(id),
+  );
+  ipcMain.handle(IPC.remoteComputers.connect, (event, id) =>
+    requireRemoteComputersOwner(event).connect(id),
+  );
+  ipcMain.handle(IPC.remoteComputers.disconnect, (event, id) =>
+    requireRemoteComputersOwner(event).disconnect(id),
+  );
+  ipcMain.handle(IPC.remoteComputers.remove, (event, id) =>
+    requireRemoteComputersOwner(event).remove(id),
+  );
+  const requireSshOwner = (event: Electron.IpcMainInvokeEvent) => {
+    if (event.sender !== mainWindow?.webContents || event.senderFrame !== event.sender.mainFrame)
+      throw new Error("SSH settings require the local Moss window.");
+    return sshConnectionManager!;
+  };
+  for (const channel of Object.values(IPC.ssh)) ipcMain.removeHandler(channel);
+  ipcMain.handle(IPC.ssh.list, (event) => requireSshOwner(event).list());
+  ipcMain.handle(IPC.ssh.listConfigHosts, (event) => requireSshOwner(event).listConfigHosts());
+  ipcMain.handle(IPC.ssh.save, (event, input) => requireSshOwner(event).save(input));
+  ipcMain.handle(IPC.ssh.remove, (event, id) => requireSshOwner(event).remove(id));
+  ipcMain.handle(IPC.ssh.connect, (event, input) => requireSshOwner(event).connect(input));
+  ipcMain.handle(IPC.ssh.disconnect, (event, id) => requireSshOwner(event).disconnect(id));
+  ipcMain.handle(IPC.ssh.pickIdentity, async (event) => {
+    requireSshOwner(event);
+    const result = await dialog.showOpenDialog(mainWindow!, {
+      title: desktopUiLocale === "zh-CN" ? "选择 SSH 身份文件" : "Choose SSH identity file",
+      properties: ["openFile"],
+    });
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  });
+  ipcMain.removeAllListeners(IPC.ssh.workspaceUrl);
+  ipcMain.on(IPC.ssh.workspaceUrl, (event: IpcMainEvent) => {
+    event.returnValue =
+      event.senderFrame === event.sender.mainFrame
+        ? (sshWorkspaceUrls.get(event.sender.id) ?? null)
+        : null;
+  });
+  ipcMain.removeAllListeners(IPC.ssh.workspaceKind);
+  ipcMain.on(IPC.ssh.workspaceKind, (event: IpcMainEvent) => {
+    event.returnValue =
+      event.senderFrame === event.sender.mainFrame
+        ? (sshWorkspaceKinds.get(event.sender.id) ?? null)
+        : null;
+  });
   const registerIpcHandle = (
     channel: string,
     handler: (event: Electron.IpcMainInvokeEvent, ...args: any[]) => unknown,
@@ -6578,6 +7173,19 @@ function registerIpcHandlers(): void {
   };
 
   const storageSnapshotPath = resolveMossStorageSnapshotPath(app.getPath("userData"));
+
+  ipcMain.removeAllListeners(IPC.errorReports.get);
+  ipcMain.on(IPC.errorReports.get, (event: IpcMainEvent) => {
+    event.returnValue = desktopErrorReportsEnabled();
+  });
+
+  ipcMain.removeHandler(IPC.errorReports.set);
+  registerIpcHandle(IPC.errorReports.set, async (_event, rawEnabled: unknown) => {
+    if (typeof rawEnabled !== "boolean") return;
+    // Applied before the save, so turning reports off works even if the disk doesn't.
+    setDesktopErrorReportsEnabled(rawEnabled);
+    await writeDesktopErrorReportsPreference(DESKTOP_ERROR_REPORTS_PATH, rawEnabled);
+  });
 
   ipcMain.removeAllListeners(IPC.betaDiagnostics.enabled);
   ipcMain.on(IPC.betaDiagnostics.enabled, (event: IpcMainEvent) => {
@@ -6609,6 +7217,23 @@ function registerIpcHandlers(): void {
     // live URL instead of trusting build-time or inherited renderer env.
     event.returnValue =
       normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
+  });
+
+  ipcMain.removeAllListeners(IPC.backendLink);
+  ipcMain.on(IPC.backendLink, (event: IpcMainEvent, input: unknown) => {
+    // Shutdown closes the socket on purpose, and only the main window's transport counts,
+    // so one drop stays one line however many windows are open.
+    const window = mainWindow;
+    if (
+      isQuitting ||
+      !window ||
+      window.isDestroyed() ||
+      window.webContents.isDestroyed() ||
+      event.sender.id !== window.webContents.id
+    ) {
+      return;
+    }
+    backendLinkDropLog.receive(input);
   });
 
   ipcMain.removeAllListeners(IPC.zoomFactor);
@@ -6733,9 +7358,13 @@ function registerIpcHandlers(): void {
     const owner = resolveMenuTargetWindow();
     const result = owner
       ? await dialog.showOpenDialog(owner, {
+          title: nativeText("Choose project folder", "选择项目文件夹"),
+          buttonLabel: nativeText("Select folder", "选择文件夹"),
           properties: ["openDirectory", "createDirectory"],
         })
       : await dialog.showOpenDialog({
+          title: nativeText("Choose project folder", "选择项目文件夹"),
+          buttonLabel: nativeText("Select folder", "选择文件夹"),
           properties: ["openDirectory", "createDirectory"],
         });
     if (result.canceled) return null;
@@ -6789,13 +7418,23 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.removeHandler(IPC.setTheme);
-  registerIpcHandle(IPC.setTheme, async (_event, rawTheme: unknown) => {
+  registerIpcHandle(IPC.setTheme, async (_event, rawTheme: unknown, rawBackgrounds: unknown) => {
     const theme = getSafeTheme(rawTheme);
     if (!theme) {
       return;
     }
 
     nativeTheme.themeSource = theme;
+    desktopThemePersistence = desktopThemePersistence
+      .catch(() => {})
+      .then(() =>
+        writeDesktopThemePreference(
+          DESKTOP_THEME_PATH,
+          theme,
+          parseDesktopStartupBackgrounds(rawBackgrounds),
+        ),
+      );
+    await desktopThemePersistence;
   });
 
   ipcMain.removeHandler(IPC.setWindowMaterial);
@@ -6967,6 +7606,16 @@ function registerIpcHandlers(): void {
     return await openMossCanvasDesktopApp();
   });
 
+  ipcMain.removeHandler(IPC.clipboardWriteThreadId);
+  registerIpcHandle(IPC.clipboardWriteThreadId, (event, threadId: unknown) =>
+    writeMainWindowThreadId(
+      event,
+      mainWindow?.webContents,
+      resolveRendererAppEntryUrl(),
+      threadId,
+      (text) => clipboard.writeText(text),
+    ),
+  );
   ipcMain.removeHandler(IPC.clipboardWriteImage);
   registerIpcHandle(IPC.clipboardWriteImage, async (_event, rawDataUrl: unknown) => {
     if (typeof rawDataUrl !== "string") {
@@ -7462,6 +8111,16 @@ function registerIpcHandlers(): void {
   );
   startBrowserPerformanceLogging();
   registerBrowserIpcHandlers(ipcMain, browserManager);
+  registerBrowserPanelIpcHandlers(ipcMain, {
+    browserManager,
+    preferences: browserPanelPreferences,
+    getWindow: () => mainWindow,
+  });
+  // "Keep cookies: Until quit". Clearing at the next start is what makes it hold:
+  // clearing on quit is best effort, since the app may exit before it finishes.
+  if (browserPanelPreferences.get().cookieRetention === "untilQuit") {
+    void clearBrowserPanelData();
+  }
   registerSafariAccessIpc(ipcMain, {
     platform: process.platform,
     systemVersion: process.getSystemVersion(),
@@ -7516,12 +8175,11 @@ function getIconOption(): { icon: string } | Record<string, never> {
 // vibrancy for an adjustable desktop blur (see windowMaterial.ts). Windows/Linux have no vibrancy:
 // a transparent window there leaves backdrop-filter surfaces bleeding through and, on
 // fractional DPI, rendering blurry. So off macOS we create an opaque window and skip the
-// macOS-only options. The background tracks the OS light/dark appearance purely to avoid
-// a bright flash before the renderer paints — the window is shown only after first paint
-// (`show: false`), so this color is not expected to match a custom in-app theme exactly.
+// macOS-only options. Restore the saved active palette before the first renderer
+// paint, so the native placeholder and the HTML splash have the same background.
 function getWindowMaterialOptions(): BrowserWindowConstructorOptions {
   if (process.platform !== "darwin") {
-    return { backgroundColor: nativeTheme.shouldUseDarkColors ? "#181818" : "#ffffff" };
+    return { backgroundColor: resolveStartupPageBackground() };
   }
   return {
     vibrancy: MAC_WINDOW_VIBRANCY,
@@ -7540,7 +8198,7 @@ function getTitleBarOptions(): BrowserWindowConstructorOptions {
   if (process.platform === "darwin") {
     return {
       titleBarStyle: "hiddenInset",
-      // Derived from the shared chat-surface header geometry (@synara/shared/desktopChrome)
+      // Derived from the shared chat-surface header geometry (@moss/shared/desktopChrome)
       // so the native lights and the renderer's leading toggle/arrow controls always share
       // the same vertical center. Tune the height/radius there, never the raw px here.
       trafficLightPosition: getMacTrafficLightPosition(),
@@ -7563,16 +8221,98 @@ function getDesktopCustomTitleBarState() {
   });
 }
 
-function resolveStartupWindowUrl(): string {
-  const background = nativeTheme.shouldUseDarkColors ? "#181818" : "#ffffff";
-  const fallbackColor = nativeTheme.shouldUseDarkColors ? "#f5f5f5" : "#262626";
-  const iconPath = resolveResourcePath("moss.png");
+function resolveStartupPageBackground(): string {
+  return readDesktopStartupBackground(DESKTOP_THEME_PATH, nativeTheme.shouldUseDarkColors);
+}
+
+function resolveStartupPageColor(): string {
+  return nativeTheme.shouldUseDarkColors ? "#f5f5f5" : "#262626";
+}
+
+function resolveStartupMarkHtml(size: number): string {
+  const staticDir = resolveDesktopStaticDir();
+  const rendererMark = staticDir ? Path.join(staticDir, "moss-logo-coral.png") : null;
+  const iconPath =
+    rendererMark && FS.existsSync(rendererMark) ? rendererMark : resolveResourcePath("moss.png");
   const iconDataUrl = iconPath
-    ? nativeImage.createFromPath(iconPath).resize({ width: 72, height: 72 }).toDataURL()
+    ? nativeImage.createFromPath(iconPath).resize({ width: size, height: size }).toDataURL()
     : null;
-  const mark = iconDataUrl
-    ? `<img src="${iconDataUrl}" width="72" height="72" alt="Moss" />`
+  return iconDataUrl
+    ? `<img src="${iconDataUrl}" width="${size}" height="${size}" alt="Moss" />`
     : `<span>Moss</span>`;
+}
+
+function openStaticSnapshotProgressWindow(): StaticSnapshotProgressWindow {
+  const window = new BrowserWindow({
+    width: 440,
+    height: 300,
+    show: false,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    autoHideMenuBar: true,
+    ...getIconOption(),
+    title: APP_DISPLAY_NAME,
+    backgroundColor: resolveStartupPageBackground(),
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  window.removeMenu();
+  staticSnapshotProgressWindow = window;
+  // Closing it is the user giving up on this launch. The staging copy is left for
+  // the next launch to prune.
+  window.on("close", () => {
+    if (staticSnapshotProgressWindow !== window) return;
+    staticSnapshotProgressWindow = null;
+    requestGracefulAppQuit("static snapshot progress window closed");
+  });
+  void window
+    .loadURL(
+      buildStaticSnapshotProgressPageUrl({
+        title: APP_DISPLAY_NAME,
+        heading: nativeText("Preparing this version of Moss", "正在准备这个版本的 Moss"),
+        detail: nativeText(
+          "The first launch of a new version copies its interface files. On a slow disk this can take a few minutes. If you close Moss now, this step starts over next time.",
+          "第一次打开新版本时需要复制界面文件。硬盘较慢时可能要几分钟。现在关闭的话，下次会重新开始这一步。",
+        ),
+        background: resolveStartupPageBackground(),
+        color: resolveStartupPageColor(),
+        markHtml: resolveStartupMarkHtml(48),
+      }),
+    )
+    .catch((error: unknown) => {
+      console.warn(`[desktop] Failed to load the progress page: ${formatErrorMessage(error)}`);
+    });
+  // Not waiting for ready-to-show: on the disks this window exists for, starting
+  // a renderer can take seconds too, and an empty window beats no window.
+  showDesktopStartupWindow(window, { background: isBackgroundDesktopLaunch(process.argv) });
+  return {
+    onPageLoaded: (listener) => {
+      window.webContents.once("did-finish-load", listener);
+    },
+    runPageScript: (script) => {
+      if (window.isDestroyed()) return;
+      void window.webContents.executeJavaScript(script).catch(() => undefined);
+    },
+    setTaskbarProgress: (fraction) => {
+      if (window.isDestroyed()) return;
+      window.setProgressBar(fraction);
+    },
+    close: () => {
+      if (staticSnapshotProgressWindow !== window) return;
+      staticSnapshotProgressWindow = null;
+      window.destroy();
+    },
+  };
+}
+
+function resolveStartupWindowUrl(): string {
+  const background = resolveStartupPageBackground();
+  const fallbackColor = resolveStartupPageColor();
+  const mark = resolveStartupMarkHtml(72);
   const html = `<!doctype html>
 <html>
   <head>
@@ -7683,7 +8423,6 @@ function createWindow(
   });
   const windowWebContentsId = window.webContents.id;
   mcpAppSandboxRuntime.attachOwner(window);
-  htmlPreviewRuntime.attachOwner(window);
   browserManager.setWindow(window);
   attachDesktopZoomFactorSync(window);
   attachRendererCrashRecovery(window);
@@ -7693,10 +8432,6 @@ function createWindow(
   }
 
   window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
-    if (
-      htmlPreviewRuntime.handleWillAttachWebview(windowWebContentsId, event, webPreferences, params)
-    )
-      return;
     if (
       mcpAppSandboxRuntime.handleWillAttachWebview(
         windowWebContentsId,
@@ -7723,8 +8458,22 @@ function createWindow(
   });
 
   window.webContents.on("did-attach-webview", (_event, guest) => {
-    if (htmlPreviewRuntime.handleDidAttachWebview(windowWebContentsId, guest)) return;
     mcpAppSandboxRuntime.handleDidAttachWebview(windowWebContentsId, guest);
+  });
+
+  // Rendered HTML file previews are iframes on the backend's grant route. Their
+  // response policy blocks every fetch, but only the main process can stop a
+  // script from navigating its own frame to carry data out in the URL.
+  window.webContents.on("will-frame-navigate", (event) => {
+    if (
+      shouldBlockLocalHtmlPreviewFrameNavigation({
+        isMainFrame: event.isMainFrame,
+        frameChainUrls: webFrameChainUrls(event.frame),
+        targetUrl: event.url,
+      })
+    ) {
+      event.preventDefault();
+    }
   });
 
   window.webContents.on("context-menu", (event, params) => {
@@ -7763,7 +8512,10 @@ function createWindow(
     buildLocalizedNativeMenu(menuTemplate).popup({ window });
   });
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler(({ url, referrer }) => {
+    if (shouldDenyLocalHtmlPreviewWindowOpen({ url, referrerUrl: referrer.url })) {
+      return { action: "deny" };
+    }
     const externalUrl = getSafeExternalUrl(url);
     if (externalUrl) {
       void shell.openExternal(externalUrl);
@@ -7820,22 +8572,17 @@ function createWindow(
     }
     emitDesktopWindowState(window);
   });
+  // Registered after the reveal above, so there's never a moment with no window.
+  window.once("ready-to-show", () => {
+    staticSnapshotProgress.close();
+  });
 
   window.on("maximize", () => emitDesktopWindowState(window));
   window.on("unmaximize", () => emitDesktopWindowState(window));
   window.on("enter-full-screen", () => emitDesktopWindowState(window));
   window.on("leave-full-screen", () => emitDesktopWindowState(window));
-  if (process.platform === "darwin") {
-    guardDesktopWindowClose(
-      window,
-      `Close the ${APP_DISPLAY_NAME} window?`,
-      () =>
-        !isQuitting &&
-        !desktopShutdownComplete &&
-        !isUpdaterQuitAndInstallInFlight &&
-        !isUpdaterInstallPreparing,
-    );
-  }
+  // No confirmation for closing the window on macOS: the app and its running work stay
+  // up, so there is nothing to lose. Quitting asks only while work is running.
   window.on("close", (event) => {
     try {
       writeDesktopWindowState(DESKTOP_WINDOW_STATE_PATH, {
@@ -8014,24 +8761,36 @@ function presentRendererCrashRecovery(
 
   const message =
     response.cause === "reload-budget-exhausted"
-      ? `Moss's window crashed ${response.crashes} times in a row.`
-      : "Moss's window stopped unexpectedly.";
+      ? nativeText(
+          `Moss's window crashed ${response.crashes} times in a row.`,
+          `Moss 窗口连续崩溃了 ${response.crashes} 次。`,
+        )
+      : nativeText("Moss's window stopped unexpectedly.", "Moss 窗口意外停止。");
   const detail = [
-    `The window's renderer process exited (${reason}).`,
+    nativeText(
+      `The window's renderer process exited (${reason}).`,
+      `窗口的渲染进程已退出（${reason}）。`,
+    ),
     response.cause === "reload-budget-exhausted"
-      ? "Moss paused automatic reloads so a repeating crash can't keep reloading in the background."
-      : "This exit reason repeats on reload, so Moss did not retry automatically.",
-    `Log file:\n${Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME)}`,
+      ? nativeText(
+          "Moss paused automatic reloads so a repeating crash can't keep reloading in the background.",
+          "Moss 已暂停自动重新加载，以免反复崩溃的窗口在后台不断重新加载。",
+        )
+      : nativeText(
+          "This exit reason repeats on reload, so Moss did not retry automatically.",
+          "这个退出原因在重新加载后会重复出现，所以 Moss 没有自动重试。",
+        ),
+    `${nativeText("Log file:", "日志文件：")}\n${Path.join(LOG_DIR, DESKTOP_LOG_FILE_NAME)}`,
   ].join("\n\n");
 
   const task = (async () => {
     for (;;) {
       const result = await dialog.showMessageBox({
         type: "error",
-        title: "Moss's window stopped",
+        title: nativeText("Moss's window stopped", "Moss 窗口已停止"),
         message,
         detail,
-        buttons: ["Reload", "Open logs", "Quit"],
+        buttons: nativeDialogButtons(["Reload", "Open logs", "Quit"]),
         defaultId: 0,
         cancelId: 2,
         noLink: true,
@@ -8268,7 +9027,6 @@ async function bootstrap(): Promise<void> {
 
   registerIpcHandlers();
   mcpAppSandboxRuntime.registerIpcHandlers();
-  htmlPreviewRuntime.registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   try {
     await ensureBrowserHostPipeServer();
@@ -8366,12 +9124,23 @@ app.on("before-quit", (event) => {
 
 app.on("will-quit", () => {
   removeHoolaCanvasBridgeDescriptor();
+  if (browserPanelPreferences.get().cookieRetention === "untilQuit") {
+    void clearBrowserPanelData();
+  }
+});
+
+// Last lifecycle event, also after app.exit(): from here on only process teardown is left.
+app.on("quit", () => {
+  raiseDesktopExitPriority({
+    listHelperPids: () => app.getAppMetrics().map((metric) => metric.pid),
+  });
 });
 
 if (hasSingleInstanceLock) {
   app
     .whenReady()
     .then(() => {
+      ensureDownloadDirectories(app);
       writeDesktopLogHeader("app ready");
       if (betaDiagnostics) {
         betaDiagnostics.start();
@@ -8417,20 +9186,24 @@ if (hasSingleInstanceLock) {
       ) {
         console.warn("[desktop] Failed to register the connector OAuth callback protocol.");
       }
-      try {
-        mcpAppSandboxRuntime.registerProtocol();
-        registerDesktopProtocol();
-      } catch (error) {
-        if (error instanceof BundleChangedDuringStartupError) {
-          restartAfterStartupBundleSwap(error);
-          return;
-        }
-        throw error;
-      }
-      startBundleSwapWatcher();
-      void bootstrap().catch((error) => {
-        handleFatalStartupError("bootstrap", error);
-      });
+      mcpAppSandboxRuntime.registerProtocol();
+      // Not awaited: the first launch of a new archive copies thousands of files,
+      // and the app events below must be wired up while that runs.
+      void prepareServedStaticRoot()
+        .then(() => {
+          staticSnapshotProgress.finish();
+          if (isQuitting) return;
+          registerDesktopProtocol();
+          startBundleSwapWatcher();
+          return bootstrap();
+        })
+        .catch((error) => {
+          if (error instanceof BundleChangedDuringStartupError) {
+            restartAfterStartupBundleSwap(error);
+            return;
+          }
+          handleFatalStartupError("bootstrap", error);
+        });
 
       app.on("browser-window-blur", () => {
         markDesktopAppBackgrounded();

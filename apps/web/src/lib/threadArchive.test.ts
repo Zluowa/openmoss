@@ -1,13 +1,18 @@
+import { useStore } from "../store";
 // FILE: threadArchive.test.ts
 // Purpose: Verifies archive receipts and recognition of the already-unarchived invariant.
 // Layer: Web lib test
 // Exports: Vitest cases for threadArchive helpers
 
-import { ThreadId } from "@synara/contracts";
-import { THREAD_NOT_ARCHIVED_INVARIANT_MARKER } from "@synara/shared/errorMessages";
+import { SidebarOrderRevision, ThreadId } from "@moss/contracts";
+import { THREAD_NOT_ARCHIVED_INVARIANT_MARKER } from "@moss/shared/errorMessages";
 import { assert, describe, expect, it, vi } from "vitest";
 
-import { archiveThreadFromClient, isThreadAlreadyUnarchivedError } from "./threadArchive";
+import {
+  archiveThreadFromClient,
+  unarchiveThreadFromClient,
+  isThreadAlreadyUnarchivedError,
+} from "./threadArchive";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-archive");
 
@@ -35,5 +40,30 @@ describe("threadArchive client helpers", () => {
     );
 
     assert.equal(isThreadAlreadyUnarchivedError(error, THREAD_ID), false);
+  });
+  it("refreshes a stale revision once before restoring and does not retry network errors", async () => {
+    const sync = vi.spyOn(useStore.getState(), "syncServerShellSnapshot").mockImplementation(() => {
+      useStore.setState({ sidebarOrderRevision: SidebarOrderRevision.makeUnsafe(7) });
+    });
+    const getShellSnapshot = vi.fn().mockResolvedValue({ sidebarOrderRevision: 7 });
+    const dispatchCommand = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("SIDEBAR_ORDER_REVISION_CONFLICT: current revision 7"))
+      .mockResolvedValueOnce({ sequence: 42 });
+    try {
+      await unarchiveThreadFromClient({ dispatchCommand, getShellSnapshot }, THREAD_ID);
+      expect(getShellSnapshot).toHaveBeenCalledTimes(1);
+      expect(dispatchCommand.mock.calls[1]?.[0].expectedSidebarOrderRevision).toBe(7);
+      expect(dispatchCommand.mock.calls[0]?.[0].commandId).not.toBe(
+        dispatchCommand.mock.calls[1]?.[0].commandId,
+      );
+      dispatchCommand.mockReset().mockRejectedValue(new Error("network disconnected"));
+      await expect(
+        unarchiveThreadFromClient({ dispatchCommand, getShellSnapshot }, THREAD_ID),
+      ).rejects.toThrow("network disconnected");
+      expect(dispatchCommand).toHaveBeenCalledTimes(1);
+    } finally {
+      sync.mockRestore();
+    }
   });
 });

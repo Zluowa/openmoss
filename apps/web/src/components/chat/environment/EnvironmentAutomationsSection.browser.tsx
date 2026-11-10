@@ -4,7 +4,7 @@
 
 import "../../../index.css";
 
-import { AutomationId, ProjectId, ThreadId, type AutomationDefinition } from "@synara/contracts";
+import { AutomationId, ProjectId, ThreadId, type AutomationDefinition } from "@moss/contracts";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

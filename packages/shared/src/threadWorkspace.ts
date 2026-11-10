@@ -9,6 +9,15 @@ export interface AssociatedWorktreeMetadata {
   associatedWorktreeRef: string | null;
 }
 
+export const THREAD_OUTPUT_ROUTE = "/api/thread-output";
+
+/** Stable transcript link; the server resolves the thread and its cwd at download time. */
+export function threadOutputHref(threadId: string, relativePath: string, sha256?: string): string {
+  const params = new URLSearchParams({ threadId, file: relativePath });
+  if (sha256) params.set("sha256", sha256);
+  return `${THREAD_OUTPUT_ROUTE}?${params.toString()}`;
+}
+
 export interface AssociatedWorktreeMetadataPatch {
   associatedWorktreePath?: string | null;
   associatedWorktreeBranch?: string | null;
@@ -114,6 +123,30 @@ export function isScratchWorkspacePath(filePath: string): boolean {
   const normalized = filePath.trim().replace(/\\/g, "/");
   const isAbsolute = normalized.startsWith("/") || /^[a-z]:\//i.test(normalized);
   return isAbsolute && normalized.includes(`/${SCRATCH_WORKSPACES_DIRNAME}/`);
+}
+
+// Moss's own folders: `~/.moss` (state, overlays, managed homes), `.moss-<owner>` cache
+// containers, per-thread scratch workspaces, and the per-user Moss cache root.
+const MOSS_INTERNAL_SEGMENT = /^\.moss(?:-[^/]+)?$/i;
+const MOSS_CACHE_ROOT =
+  /\/(?:appdata\/local\/moss\/cache|library\/caches\/moss|\.cache\/moss)(?:\/|$)/i;
+
+/**
+ * True when an absolute path is one of Moss's own working folders rather than the person's
+ * project. Agents that Moss drove record these folders as a conversation's working
+ * directory; they must never be offered back to the person as projects.
+ */
+export function isMossInternalPath(filePath: string): boolean {
+  const normalized = filePath.trim().replace(/\\/g, "/");
+  if (!(normalized.startsWith("/") || /^[a-z]:\//i.test(normalized))) return false;
+  return (
+    MOSS_CACHE_ROOT.test(normalized) ||
+    normalized
+      .split("/")
+      .some(
+        (segment) => MOSS_INTERNAL_SEGMENT.test(segment) || segment === SCRATCH_WORKSPACES_DIRNAME,
+      )
+  );
 }
 
 export function deriveAssociatedWorktreeMetadata(input: {

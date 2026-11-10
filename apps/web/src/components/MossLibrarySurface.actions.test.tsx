@@ -1,6 +1,13 @@
 // @vitest-environment happy-dom
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as renderInDocument,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MossCanvasBinding } from "~/lib/mossCanvasClient";
 import type { MossCanvasSelection } from "~/lib/mossCanvasSelection";
@@ -40,6 +47,14 @@ vi.mock("./MossCanvasWebSurface", () => ({
 import { MossLibrarySurface } from "./MossLibrarySurface";
 import { useMossLibraryItemsStore } from "~/mossLibraryItemsStore";
 import type { MossLibraryItem } from "./MossLibrarySurface.logic";
+import { MossLocaleScope } from "~/localization";
+import { LocalizedError } from "~/lib/localizedError";
+
+// These cases assert the Chinese copy, so they render in zh-CN.
+function ChineseLocale({ children }: { children: React.ReactNode }) {
+  return <MossLocaleScope locale="zh-CN">{children}</MossLocaleScope>;
+}
+const render = (ui: React.ReactElement) => renderInDocument(ui, { wrapper: ChineseLocale });
 
 const image: MossLibraryItem = {
   id: "owned",
@@ -62,6 +77,7 @@ const selection: MossCanvasSelection = {
   threadId: "thread-a",
   sequence: 1,
   documentEpoch: 1,
+  content: [],
   items: [
     {
       shapeId: "shape:owned",
@@ -166,11 +182,19 @@ describe("Library runtime actions", () => {
     expect(screen.getByText("图片已复制到剪贴板，可粘贴分享")).toBeTruthy();
   });
   it("reports an image sharing error without copying titles or announcing success", async () => {
-    calls.share.mockRejectedValueOnce(new Error("剪贴板拒绝图片"));
+    calls.share.mockRejectedValueOnce(new Error("clipboard refused the image"));
     render(<MossLibrarySurface onClose={() => undefined} initialItems={[image]} />);
     await context("share");
-    await screen.findByText("剪贴板拒绝图片");
+    await screen.findByText("图片分享失败，请重试或下载图片。");
+    expect(screen.queryByText("clipboard refused the image")).toBeNull();
     expect(screen.queryByText("图片已复制到剪贴板，可粘贴分享")).toBeNull();
+  });
+  it("shows the helper's own reason for a failed share, in the reader's language", async () => {
+    calls.share.mockRejectedValueOnce(new LocalizedError("library.error.copyUnsupported"));
+    render(<MossLibrarySurface onClose={() => undefined} initialItems={[image]} />);
+    await context("share");
+    await screen.findByText("当前环境无法复制图片，请使用下载。");
+    expect(screen.queryByText("图片分享失败，请重试或下载图片。")).toBeNull();
   });
   it("does not announce a runtime favorite until its server acknowledgement, or fake success on false", async () => {
     let finish!: (value: boolean) => void;

@@ -3,7 +3,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationThreadShell,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Option } from "effect";
 
 import {

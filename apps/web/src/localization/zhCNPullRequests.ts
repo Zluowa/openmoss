@@ -5,6 +5,8 @@
 // Layer: Web localization
 // Exports: translateZhCnPullRequestText
 
+import { lookupPhrase } from "./zhCNPhraseTable";
+
 const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   // Sidebar entry, list header, filters, and list states.
   "Pull requests": "拉取请求",
@@ -248,7 +250,7 @@ const REPLACEMENT_TRANSLATIONS: ReadonlyArray<readonly [RegExp, string]> = [
  * branch, actor, path, and check identifiers are never independently interpreted or rewritten.
  */
 export function translateZhCnPullRequestText(value: string): string {
-  const exact = EXACT_TRANSLATIONS[value];
+  const exact = lookupPhrase(EXACT_TRANSLATIONS, value);
   if (exact !== undefined) return exact;
 
   for (const [pattern, replacement] of REPLACEMENT_TRANSLATIONS) {

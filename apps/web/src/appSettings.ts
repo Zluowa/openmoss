@@ -16,6 +16,7 @@ import {
   DEFAULT_SERVER_SETTINGS_VIEW,
   GIT_TEXT_GENERATION_PROVIDERS,
   isSupportedProviderKind,
+  PROVIDER_DISPLAY_NAMES,
   type ProviderInstanceConfig,
   ProviderInstanceConfigMap,
   type ProviderDriverKind,
@@ -34,20 +35,20 @@ import {
   type ProviderStartOptions,
   type ServerSettingsView,
   type ServerSettingsPatch,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   getDefaultModel,
   getModelOptions,
   normalizeModelSlug,
   resolveSelectableModel,
-} from "@synara/shared/model";
+} from "@moss/shared/model";
 import {
   APP_SNAP_SHORTCUT_KEYS,
   APP_SNAP_SHORTCUT_MODIFIERS,
   DEFAULT_APP_SNAP_SHORTCUT,
-} from "@synara/shared/appSnapShortcut";
-import type { MossDesktopFlavor } from "@synara/shared/desktopIdentity";
-import { codexAccountInstanceId } from "@synara/shared/providerInstances";
+} from "@moss/shared/appSnapShortcut";
+import type { MossDesktopFlavor } from "@moss/shared/desktopIdentity";
+import { codexAccountInstanceId } from "@moss/shared/providerInstances";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import { EnvMode } from "./components/BranchToolbar.logic";
 import { normalizeCursorModelVariantBaseId } from "./cursorModelVariants";
@@ -67,6 +68,10 @@ import {
 import { ensureNativeApi } from "./nativeApi";
 import { githubInboxQueryKeys } from "./lib/githubInboxQueryOptions";
 import { providerDiscoveryQueryKeys } from "./lib/providerDiscoveryReactQuery";
+import {
+  isServerConfiguredMossDefaultManagedProvider,
+  mossDefaultManagedInstanceIdForProvider,
+} from "./lib/providerAvailability";
 import {
   invalidateProviderUsageQueries,
   reconcileServerProviderStatuses,
@@ -108,7 +113,9 @@ const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;
 export const MIN_CHAT_FONT_SIZE_PX = 11;
 export const MAX_CHAT_FONT_SIZE_PX = 18;
-export const DEFAULT_CHAT_FONT_SIZE_PX = 13;
+// Missing/new settings use the comfortable UI baseline. Persisted values (including
+// 13 from older releases) remain explicit choices: there is no historical touched flag.
+export const DEFAULT_CHAT_FONT_SIZE_PX = 14;
 export const MIN_TERMINAL_FONT_SIZE_PX = 10;
 export const MAX_TERMINAL_FONT_SIZE_PX = 22;
 export const DEFAULT_TERMINAL_FONT_SIZE_PX = 12;
@@ -374,12 +381,19 @@ const PersistedHiddenModels = Schema.Array(
   ),
 );
 
+export const NewChatModelSource = Schema.Literals(["moss", "own"]);
+export type NewChatModelSource = typeof NewChatModelSource.Type;
+
 export const AppSettingsSchema = Schema.Struct({
   claudeBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   claudeEnableArtifacts: Schema.Boolean.pipe(withDefaults(() => false)),
   // Server-backed first-run marker; see ServerSettings.onboardingCompletedAt.
   onboardingCompletedAt: Schema.NullOr(Schema.String).pipe(withDefaults((): string | null => null)),
   claudeHomePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
+  claudeShareStateAcrossAccounts: Schema.Boolean.pipe(withDefaults(() => false)),
+  claudeSharedProjectsPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(
+    withDefaults(() => ""),
+  ),
   uiDensity: UiDensity.pipe(withDefaults(() => DEFAULT_UI_DENSITY)),
   chatWidth: ChatWidthMode.pipe(withDefaults(() => DEFAULT_CHAT_WIDTH)),
   chatFontSizePx: Schema.Number.pipe(withDefaults(() => DEFAULT_CHAT_FONT_SIZE_PX)),
@@ -390,6 +404,7 @@ export const AppSettingsSchema = Schema.Struct({
   ),
   codexBinaryPath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   codexHomePath: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
+  codexShareStateAcrossAccounts: Schema.Boolean.pipe(withDefaults(() => false)),
   codexAccounts: Schema.Array(CodexAccountConfig).pipe(withDefaults(() => [])),
   selectedCodexAccountId: Schema.String.check(Schema.isMaxLength(64)).pipe(
     withDefaults(() => DEFAULT_CODEX_ACCOUNT_ID),
@@ -536,6 +551,13 @@ export const AppSettingsSchema = Schema.Struct({
     withDefaults(() => ""),
   ),
   autoOpenDevicePane: Schema.Boolean.pipe(withDefaults(() => true)),
+  // Browser panel "…" menu toggles. Links in chat open in the built-in browser; an HTML
+  // page the agent writes opens there when its turn ends; and a page already open there
+  // is reloaded when a turn changes files, so the panel always shows the latest result.
+  browserOpenLinksInPanel: Schema.Boolean.pipe(withDefaults(() => true)),
+  browserAutoOpenWrittenPages: Schema.Boolean.pipe(withDefaults(() => true)),
+  browserAutoVerifyChanges: Schema.Boolean.pipe(withDefaults(() => true)),
+  errorReportsEnabled: Schema.Boolean.pipe(withDefaults(() => true)),
   enableProviderUpdateChecks: Schema.Boolean.pipe(withDefaults(() => true)),
   keepAwakeMode: KeepAwakeMode.pipe(withDefaults(() => "off" as const satisfies KeepAwakeMode)),
   lowerProviderProcessPriority: Schema.Boolean.pipe(withDefaults(() => true)),
@@ -618,6 +640,11 @@ export const AppSettingsSchema = Schema.Struct({
   sourceControlCustomInstructions: SourceControlCustomInstructions.pipe(withDefaults(() => "")),
   uiFontFamily: Schema.String.check(Schema.isMaxLength(256)).pipe(withDefaults(() => "")),
   defaultProvider: PersistedProviderKind.pipe(withDefaults(() => "codex" as const)),
+  // Local preference: the provider (服务商) a new chat, a quick action or any other entry
+  // point uses for an agent when nothing picked one. "moss" uses the agent's Moss
+  // instance while the person is signed in to Moss; "own" uses the agent's own login on
+  // this computer. Read only through `resolveDefaultProviderInstanceId`.
+  newChatModelSource: NewChatModelSource.pipe(withDefaults(() => "moss" as const)),
   // Local-only UI preference: providers explicitly hidden from the composer picker.
   // The active/locked provider for a thread is always shown regardless, so users
   // never get stuck on a thread whose provider they later chose to hide.
@@ -1038,6 +1065,8 @@ export interface ProviderInstanceOption {
   readonly enabled: boolean;
   readonly isDefault: boolean;
   readonly supported: true;
+  /** The instance a new chat uses for this agent when nothing picked one. */
+  readonly newChatDefault?: true;
 }
 
 export interface UnsupportedProviderInstanceOption {
@@ -1072,15 +1101,9 @@ function providerInstanceIdForCodexAccount(accountId: string): ProviderInstanceI
   return accountId === DEFAULT_CODEX_ACCOUNT_ID ? "codex" : codexAccountInstanceId(accountId);
 }
 
+// The agent's product name ("ZCode", "Kimi Code", "Oh My Pi"), the same everywhere it shows.
 function defaultProviderInstanceLabel(provider: ProviderKind): string {
-  switch (provider) {
-    case "claudeAgent":
-      return "Claude";
-    case "opencode":
-      return "OpenCode";
-    default:
-      return provider.charAt(0).toUpperCase() + provider.slice(1);
-  }
+  return PROVIDER_DISPLAY_NAMES[provider];
 }
 
 function fallbackProviderInstanceLabel(instanceId: ProviderInstanceId): string {
@@ -1109,11 +1132,45 @@ export function mergeProviderInstanceConfigPatch(
 }
 
 export function getProviderInstanceOptions(
-  settings: Pick<
-    AppSettings,
-    "codexAccounts" | "codexHomePath" | "providerInstances" | "selectedCodexAccountId"
-  > &
-    Partial<Pick<AppSettings, "disabledProviders">>,
+  settings: ProviderInstanceSelectionSettings,
+): ProviderInstanceOption[] {
+  const options = listProviderInstanceOptions(settings);
+  const newChatDefaults = new Set(
+    PROVIDER_INSTANCE_PROVIDER_ORDER.map((provider) =>
+      selectProviderInstanceId(options, settings, provider),
+    ),
+  );
+  // The options were just built for this call, so marking them in place is safe.
+  return options.map((option) =>
+    newChatDefaults.has(option.instanceId)
+      ? Object.assign(option, { newChatDefault: true as const })
+      : option,
+  );
+}
+
+/**
+ * The provider instance a new chat uses for an agent when nothing picked one, read from
+ * `getProviderInstanceOptions` output, so code that only holds the instance list (draft
+ * dispatch, terminal-first promotion) follows the same rule.
+ */
+export function newChatProviderInstanceIdFrom(
+  instances:
+    | ReadonlyArray<Pick<ProviderInstanceOption, "instanceId" | "provider" | "newChatDefault">>
+    | undefined,
+  provider: ProviderKind,
+): ProviderInstanceId | undefined {
+  return instances?.find((instance) => instance.provider === provider && instance.newChatDefault)
+    ?.instanceId;
+}
+
+type ProviderInstanceSelectionSettings = Pick<
+  AppSettings,
+  "codexAccounts" | "codexHomePath" | "providerInstances" | "selectedCodexAccountId"
+> &
+  Partial<Pick<AppSettings, "disabledProviders" | "newChatModelSource">>;
+
+function listProviderInstanceOptions(
+  settings: ProviderInstanceSelectionSettings,
 ): ProviderInstanceOption[] {
   const optionsById = new Map<ProviderInstanceId, ProviderInstanceOption>();
 
@@ -1418,14 +1475,45 @@ export function removeManageableProviderInstance(
   };
 }
 
+/**
+ * The one rule for the provider (服务商) an agent uses when nothing picked one: its Moss
+ * instance while the person is signed in to Moss (unless they chose their own login for
+ * new chats), otherwise the agent's own login on this computer. New chats, quick actions
+ * (Canvas, images) and the composer all reach it through `resolveSelectableProviderInstanceId`
+ * or the `newChatDefault` mark of `getProviderInstanceOptions`.
+ */
 export function resolveDefaultProviderInstanceId(
-  settings: Pick<AppSettings, "codexAccounts" | "codexHomePath" | "selectedCodexAccountId">,
+  settings: Pick<AppSettings, "codexAccounts" | "codexHomePath" | "selectedCodexAccountId"> &
+    Partial<Pick<AppSettings, "providerInstances" | "newChatModelSource">>,
   provider: ProviderKind,
 ): ProviderInstanceId {
+  const mossInstanceId = signedInMossInstanceId(settings, provider);
+  if (mossInstanceId) {
+    return mossInstanceId;
+  }
   if (provider !== "codex") {
     return provider;
   }
   return providerInstanceIdForCodexAccount(resolveSelectedCodexAccount(settings).id);
+}
+
+// The agent's Moss instance, when the person is signed in to Moss (the server provisions
+// it, managed and enabled) and has not chosen their own login for new chats.
+function signedInMossInstanceId(
+  settings: Partial<Pick<AppSettings, "providerInstances" | "newChatModelSource">>,
+  provider: ProviderKind,
+): ProviderInstanceId | undefined {
+  if (settings.newChatModelSource === "own" || !settings.providerInstances) {
+    return undefined;
+  }
+  const instanceId = mossDefaultManagedInstanceIdForProvider(provider);
+  return instanceId &&
+    isServerConfiguredMossDefaultManagedProvider(
+      { providerInstances: settings.providerInstances },
+      instanceId,
+    )
+    ? instanceId
+    : undefined;
 }
 
 export function resolveNewConversationDefaultModelSelection(
@@ -1461,10 +1549,7 @@ export function resolveNewConversationDefaultModelSelection(
 }
 
 export function resolveSelectableProviderInstanceId(
-  settings: Pick<
-    AppSettings,
-    "codexAccounts" | "codexHomePath" | "providerInstances" | "selectedCodexAccountId"
-  >,
+  settings: ProviderInstanceSelectionSettings,
   provider: ProviderKind,
   requestedInstanceId?: ProviderInstanceId | null,
 ): ProviderInstanceId {
@@ -1481,9 +1566,21 @@ export function resolveSelectableProviderInstanceId(
   ) {
     return requestedInstanceId;
   }
-  const instances = getProviderInstanceOptions(settings).filter(
-    (instance) => instance.provider === provider,
+  return selectProviderInstanceId(
+    listProviderInstanceOptions(settings),
+    settings,
+    provider,
+    requestedInstanceId,
   );
+}
+
+function selectProviderInstanceId(
+  options: ReadonlyArray<ProviderInstanceOption>,
+  settings: ProviderInstanceSelectionSettings,
+  provider: ProviderKind,
+  requestedInstanceId?: ProviderInstanceId | null,
+): ProviderInstanceId {
+  const instances = options.filter((instance) => instance.provider === provider);
   const requested = requestedInstanceId
     ? instances.find((instance) => instance.instanceId === requestedInstanceId)
     : undefined;
@@ -1701,8 +1798,11 @@ export function serverSettingsToAppSettings(settings: ServerSettingsView): Parti
     claudeBinaryPath: settings.providers.claudeAgent.binaryPath,
     claudeEnableArtifacts: settings.providers.claudeAgent.enableArtifacts,
     claudeHomePath: settings.providers.claudeAgent.homePath,
+    claudeShareStateAcrossAccounts: settings.providers.claudeAgent.shareStateAcrossAccounts,
+    claudeSharedProjectsPath: settings.providers.claudeAgent.sharedProjectsPath,
     codexBinaryPath: settings.providers.codex.binaryPath,
     codexHomePath: settings.providers.codex.homePath,
+    codexShareStateAcrossAccounts: settings.providers.codex.shareStateAcrossAccounts,
     codexAccounts: settings.providers.codex.accounts,
     selectedCodexAccountId: settings.providers.codex.selectedAccountId,
     cursorApiEndpoint: settings.providers.cursor.apiEndpoint,
@@ -1713,6 +1813,7 @@ export function serverSettingsToAppSettings(settings: ServerSettingsView): Parti
     sidechatExpiry: settings.sidechatExpiry,
     enableAssistantStreaming: settings.enableAssistantStreaming,
     enableProviderUpdateChecks: settings.enableProviderUpdateChecks,
+    errorReportsEnabled: settings.errorReportsEnabled,
     keepAwakeMode: settings.keepAwakeMode,
     lowerProviderProcessPriority: settings.lowerProviderProcessPriority,
     antigravityBinaryPath: settings.providers.antigravity.binaryPath,
@@ -1774,6 +1875,9 @@ function hasOwn<Key extends keyof AppSettings>(patch: Partial<AppSettings>, key:
 
 function touchesProviderDiscoverySettings(patch: Partial<AppSettings>): boolean {
   return (
+    hasOwn(patch, "claudeShareStateAcrossAccounts") ||
+    hasOwn(patch, "claudeSharedProjectsPath") ||
+    hasOwn(patch, "codexShareStateAcrossAccounts") ||
     hasOwn(patch, "claudeEnableArtifacts") ||
     hasOwn(patch, "codexBinaryPath") ||
     hasOwn(patch, "codexHomePath") ||
@@ -1863,6 +1967,9 @@ export function appSettingsPatchToServerSettingsPatch(
   if (hasOwn(patch, "enableProviderUpdateChecks")) {
     serverPatch.enableProviderUpdateChecks = Boolean(patch.enableProviderUpdateChecks);
   }
+  if (hasOwn(patch, "errorReportsEnabled")) {
+    serverPatch.errorReportsEnabled = Boolean(patch.errorReportsEnabled);
+  }
   if (
     patch.keepAwakeMode === "always" ||
     patch.keepAwakeMode === "agent" ||
@@ -1916,6 +2023,7 @@ export function appSettingsPatchToServerSettingsPatch(
   }
   if (
     hasOwn(patch, "codexBinaryPath") ||
+    hasOwn(patch, "codexShareStateAcrossAccounts") ||
     hasOwn(patch, "codexHomePath") ||
     hasOwn(patch, "codexAccounts") ||
     hasOwn(patch, "selectedCodexAccountId") ||
@@ -1926,6 +2034,9 @@ export function appSettingsPatchToServerSettingsPatch(
       : undefined;
     const selectedCodexAccountId = patch.selectedCodexAccountId?.trim();
     providers.codex = {
+      ...(hasOwn(patch, "codexShareStateAcrossAccounts")
+        ? { shareStateAcrossAccounts: Boolean(patch.codexShareStateAcrossAccounts) }
+        : {}),
       ...(hasOwn(patch, "codexBinaryPath") ? { binaryPath: patch.codexBinaryPath ?? "" } : {}),
       ...(hasOwn(patch, "codexHomePath") ? { homePath: patch.codexHomePath ?? "" } : {}),
       ...(codexAccounts !== undefined ? { accounts: codexAccounts } : {}),
@@ -1939,11 +2050,19 @@ export function appSettingsPatchToServerSettingsPatch(
   }
   if (
     hasOwn(patch, "claudeBinaryPath") ||
+    hasOwn(patch, "claudeShareStateAcrossAccounts") ||
+    hasOwn(patch, "claudeSharedProjectsPath") ||
     hasOwn(patch, "claudeEnableArtifacts") ||
     hasOwn(patch, "claudeHomePath") ||
     hasOwn(patch, "customClaudeModels")
   ) {
     providers.claudeAgent = {
+      ...(hasOwn(patch, "claudeShareStateAcrossAccounts")
+        ? { shareStateAcrossAccounts: Boolean(patch.claudeShareStateAcrossAccounts) }
+        : {}),
+      ...(hasOwn(patch, "claudeSharedProjectsPath")
+        ? { sharedProjectsPath: patch.claudeSharedProjectsPath ?? "" }
+        : {}),
       ...(hasOwn(patch, "claudeBinaryPath") ? { binaryPath: patch.claudeBinaryPath ?? "" } : {}),
       ...(hasOwn(patch, "claudeEnableArtifacts")
         ? { enableArtifacts: Boolean(patch.claudeEnableArtifacts) }
@@ -2126,14 +2245,18 @@ export function buildInitialServerSettingsMigrationPatch(
     "claudeBinaryPath",
     "claudeEnableArtifacts",
     "claudeHomePath",
+    "claudeShareStateAcrossAccounts",
+    "claudeSharedProjectsPath",
     "codexBinaryPath",
     "codexHomePath",
+    "codexShareStateAcrossAccounts",
     "selectedCodexAccountId",
     "cursorApiEndpoint",
     "cursorBinaryPath",
     "defaultThreadEnvMode",
     "enableAssistantStreaming",
     "enableProviderUpdateChecks",
+    "errorReportsEnabled",
     "devinBinaryPath",
     "keepAwakeMode",
     "antigravityBinaryPath",
@@ -2347,6 +2470,27 @@ export function getCustomModelsByProvider(
   };
 }
 
+/**
+ * Models a Moss-managed instance's gateway serves, or null for any other instance.
+ * A managed source lists only these: a CLI's built-in names would reach the gateway
+ * and fail, and its other providers bypass the gateway entirely.
+ */
+export function getManagedModelsForProviderInstance(
+  settings: Pick<AppSettings, "providerInstances">,
+  instance: Pick<ProviderInstanceOption, "instanceId" | "provider">,
+): ReadonlySet<string> | null {
+  const config = settings.providerInstances[instance.instanceId]?.config;
+  if (!isRecord(config) || config.managed !== true || !Array.isArray(config.modelAllowlist)) {
+    return null;
+  }
+  const models = config.modelAllowlist.filter(
+    (entry): entry is string => typeof entry === "string",
+  );
+  return models.length > 0
+    ? new Set(models.map((model) => normalizeModelSlug(model, instance.provider) ?? model))
+    : null;
+}
+
 export function getCustomModelsForProviderInstance(
   settings: Pick<AppSettings, CustomModelSettingsKey | "providerInstances"> &
     Partial<Pick<AppSettings, "codexAccounts" | "codexHomePath">>,
@@ -2558,7 +2702,11 @@ export function getGitTextGenerationPickerOptions(
           getCustomModelsForProviderInstance(settings, instance),
           selectedModelForInstance,
         );
+    const managedModels = getManagedModelsForProviderInstance(settings, instance);
     for (const option of options) {
+      if (managedModels && !managedModels.has(option.slug)) {
+        continue;
+      }
       const key = `${instance.instanceId}:${option.provider}:${option.slug}`;
       if (seen.has(key)) {
         continue;

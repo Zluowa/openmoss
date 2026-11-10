@@ -1,4 +1,4 @@
-import { SUPPORTED_PROVIDER_KINDS } from "@synara/contracts";
+import { SUPPORTED_PROVIDER_KINDS } from "@moss/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 

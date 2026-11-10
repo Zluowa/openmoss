@@ -6,12 +6,12 @@
 //   Moss reads its own theme tokens into T3's color roles; roles Moss has no token for
 //   keep T3's stock palette. See THIRD_PARTY_NOTICES.md.
 
-import { HTML_RENDER_DEFAULT_FONTS, htmlRenderTheme } from "@synara/shared/htmlRender";
+import { HTML_RENDER_DEFAULT_FONTS, htmlRenderTheme } from "@moss/shared/htmlRender";
 import {
   MOSS_DARK_THEME_COLORS,
   MOSS_LIGHT_THEME_COLORS,
   type ThemeColors,
-} from "@synara/shared/themePalettes";
+} from "@moss/shared/themePalettes";
 import { useMemo } from "react";
 
 import { isElectron } from "../env";
@@ -43,6 +43,7 @@ const MOSS_TOKEN_BY_ROLE = {
   accentSurfaceForeground: "--info-foreground",
   codeBackground: "--app-chat-code-surface",
   codeForeground: "--foreground",
+  sidebar: "--sidebar",
 } as const satisfies Partial<Record<keyof ThemeColors, string>>;
 
 const fontStack = (family: string | undefined, fallback: string) =>

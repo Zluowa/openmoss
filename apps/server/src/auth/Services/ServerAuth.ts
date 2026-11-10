@@ -11,7 +11,7 @@ import type {
   AuthWebSocketTokenResult,
   ServerAuthDescriptor,
   ServerAuthSessionMethod,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Data, DateTime, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -66,14 +66,14 @@ export interface ServerAuthShape {
   readonly listPairingLinks: () => Effect.Effect<ReadonlyArray<AuthPairingLink>, AuthError>;
   readonly revokePairingLink: (id: string) => Effect.Effect<boolean, AuthError>;
   readonly listClientSessions: (
-    currentSessionId: AuthSessionId,
+    currentSessionId?: AuthSessionId,
   ) => Effect.Effect<ReadonlyArray<AuthClientSession>, AuthError>;
   readonly revokeClientSession: (
-    currentSessionId: AuthSessionId,
+    currentSessionId: AuthSessionId | undefined,
     targetSessionId: AuthSessionId,
   ) => Effect.Effect<boolean, AuthError>;
   readonly revokeOtherClientSessions: (
-    currentSessionId: AuthSessionId,
+    currentSessionId?: AuthSessionId,
   ) => Effect.Effect<number, AuthError>;
   readonly logoutSession: (sessionId: AuthSessionId) => Effect.Effect<boolean, AuthError>;
   readonly authenticateHttpRequest: (

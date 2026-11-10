@@ -1,4 +1,4 @@
-import { normalizeGitHubPullRequestUrl } from "@synara/shared/githubRepository";
+import { normalizeGitHubPullRequestUrl } from "@moss/shared/githubRepository";
 // FILE: environmentPullRequest.logic.ts
 // Purpose: Pure display/prompt helpers for the Environment panel "Pull request" section —
 //          check-rollup summaries, review-comment display models, the repair prompts that
@@ -13,8 +13,8 @@ import {
   type PullRequestAutoFixState,
   type PullRequestCheck,
   type PullRequestComment,
-} from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
+} from "@moss/contracts";
+import { pluralize } from "@moss/shared/text";
 
 import {
   type PullRequestContextDraft,

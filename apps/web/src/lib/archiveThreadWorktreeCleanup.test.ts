@@ -2,7 +2,7 @@
 // Purpose: Characterizes the opt-in worktree release that follows an accepted archive.
 // Layer: Web orchestration helper tests
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AppState } from "../storeState";

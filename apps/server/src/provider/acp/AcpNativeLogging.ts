@@ -1,4 +1,4 @@
-import type { ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ThreadId } from "@moss/contracts";
 import { Cause, Effect } from "effect";
 
 import { isSensitiveKey } from "../../sensitiveKeys.ts";

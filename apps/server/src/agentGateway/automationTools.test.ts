@@ -5,7 +5,7 @@ import {
   type AutomationCreateInput,
   type AutomationDefinition,
   type OrchestrationThreadShell,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 

@@ -12,8 +12,8 @@ import type {
   ProviderInstanceId,
   ProviderKind,
   ThreadId,
-} from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
+} from "@moss/contracts";
+import { getDefaultModel } from "@moss/shared/model";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {

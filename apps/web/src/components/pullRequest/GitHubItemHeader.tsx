@@ -11,7 +11,7 @@ import type {
   GitHubIssueDetail,
   GitPullRequestMergeability,
   PullRequestDetail,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { ReactNode } from "react";
 
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
@@ -155,7 +155,10 @@ export function GitHubItemHeader({
         </span>
       </div>
       {/* Large heading: one of the two places a fixed size is allowed. */}
-      <h1 className="mt-3 text-[1.75rem] leading-tight font-semibold tracking-tight break-words">
+      <h1
+        className="mt-3 text-[1.75rem] leading-tight font-semibold tracking-tight break-words"
+        data-translation-skip="true"
+      >
         {item.title}
       </h1>
       <PullRequestMetaLine

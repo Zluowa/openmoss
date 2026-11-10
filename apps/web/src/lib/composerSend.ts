@@ -13,13 +13,13 @@ import {
   type ClaudeCodeEffort,
   type ProviderKind,
   type UploadChatAttachment,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
-} from "@synara/shared/binaryTransfer";
-import { applyClaudePromptEffortPrefix, getModelCapabilities } from "@synara/shared/model";
-import { parseComputerInvocation } from "@synara/shared/computerInvocation";
+} from "@moss/shared/binaryTransfer";
+import { applyClaudePromptEffortPrefix, getModelCapabilities } from "@moss/shared/model";
+import { parseComputerInvocation } from "@moss/shared/computerInvocation";
 
 import {
   cloneComposerImageAttachment,
@@ -37,8 +37,13 @@ import {
 import { appSnapUploadName, normalizeComposerImageSource } from "./composerImageSource";
 import { randomUUID } from "./utils";
 import { resolveWsHttpUrl } from "./wsHttpUrl";
+import { waitForWsTransportOpen, WsTransportUnavailableError } from "../wsTransportEvents";
 
 const ATTACHMENT_CANCEL_CONCURRENCY = 2;
+// Matches how long a send waits for the connection (wsTransport's REQUEST_TIMEOUT_MS).
+const ATTACHMENT_UPLOAD_CONNECTION_WAIT_MS = 60_000;
+const ATTACHMENT_UPLOAD_MAX_NETWORK_RETRIES = 5;
+const ATTACHMENT_UPLOAD_RETRY_DELAY_MS = 500;
 const ATTACHMENT_CANCEL_BODY_MAX_BYTES = 512;
 
 export { cloneComposerImageAttachment };
@@ -308,6 +313,24 @@ async function cancelManagedAttachments(attachmentIds: readonly string[]): Promi
   );
 }
 
+/**
+ * Uploads travel over HTTP, so unlike socket requests nothing queues them across a backend
+ * restart. Wait for the link the way a send does, and re-resolve the URL on each attempt
+ * because a restarted desktop backend listens on a new port.
+ */
+async function fetchAttachmentUpload(path: string, body: Blob): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    await waitForWsTransportOpen(ATTACHMENT_UPLOAD_CONNECTION_WAIT_MS);
+    try {
+      return await fetch(resolveWsHttpUrl(path), { method: "POST", credentials: "include", body });
+    } catch {
+      if (attempt >= ATTACHMENT_UPLOAD_MAX_NETWORK_RETRIES) throw new WsTransportUnavailableError();
+      // fetch can learn the backend is gone before the socket does.
+      await new Promise((resolve) => setTimeout(resolve, ATTACHMENT_UPLOAD_RETRY_DELAY_MS));
+    }
+  }
+}
+
 export async function stageUploadComposerAttachments(input: {
   threadId: string;
   images: ReadonlyArray<ComposerImageAttachment>;
@@ -336,13 +359,9 @@ export async function stageUploadComposerAttachments(input: {
         name: appSnapSource ? appSnapUploadName(appSnapSource, uploadFile.name) : attachment.name,
         mimeType: appSnapSource ? uploadFile.type : attachment.mimeType,
       });
-      const response = await fetch(
-        resolveWsHttpUrl(`${ATTACHMENT_UPLOAD_ROUTE_PATH}?${params.toString()}`),
-        {
-          method: "POST",
-          credentials: "include",
-          body: uploadFile,
-        },
+      const response = await fetchAttachmentUpload(
+        `${ATTACHMENT_UPLOAD_ROUTE_PATH}?${params.toString()}`,
+        uploadFile,
       );
       const payload = (await response.json().catch(() => null)) as
         | ChatImageAttachment

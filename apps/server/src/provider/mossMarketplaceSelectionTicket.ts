@@ -11,7 +11,7 @@ import type {
   ProviderCatalogSelectionContext,
   ProviderCatalogSelectionTicket,
   ProviderCatalogSelectionTicketClaims,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { isMossMarketplaceAllowedArtifactUrl } from "./mossMarketplaceAggregationSources.ts";
 

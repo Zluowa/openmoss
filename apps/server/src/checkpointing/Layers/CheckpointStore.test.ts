@@ -32,7 +32,7 @@ import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
 import { GitCoreLive } from "../../git/Layers/GitCore.ts";
 import { GitCommandError } from "../../git/Errors.ts";
 import { ServerConfig } from "../../config.ts";
-import { CheckpointRef, ThreadId, TurnId } from "@synara/contracts";
+import { CheckpointRef, ThreadId, TurnId } from "@moss/contracts";
 import { checkpointRefForThreadTurn, checkpointRefForThreadTurnLive } from "../Utils.ts";
 
 async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {

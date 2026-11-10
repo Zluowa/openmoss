@@ -4,6 +4,7 @@ import {
   codexJsonLogLineAsText,
   isCodexDiagnosticLogLine,
   isCodexDiagnosticWarningMessage,
+  isCodexLogRecord,
 } from "./codexDiagnostics";
 
 const TRUST_NOTICE =
@@ -90,11 +91,39 @@ describe("Codex's JSON log layout", () => {
         "Codex couldn't save diagnostic logs to its local database. Use /feedback with logs included before closing Codex, or run `codex doctor` for diagnostics.",
       ),
     ).toBe(true);
-    // An ERROR the user may need still reaches the transcript.
+    // The turn reports a dropped stream itself, through Codex's `error` notification.
     expect(
       isCodexDiagnosticWarningMessage(
         record("ERROR", "codex_core::codex", "stream disconnected before completion"),
       ),
-    ).toBe(false);
+    ).toBe(true);
+  });
+});
+
+describe("Codex's log records", () => {
+  // What a fresh Moss profile's first Codex turn logged while another Codex held the skills folder.
+  const firstTurnRecords = [
+    "2026-11-03T10:12:07.871469Z ERROR codex_skills_extension::host_service: failed to install system skills: io error while remove existing system skills dir: 拒绝访问。 (os error 5)",
+    "2026-11-03T10:12:23.447836Z ERROR codex_skills_extension::loader::host: failed to scan skill path file:///E:/Codex/home/skills/.system/openai-docs/agents: (os error 3)",
+    "2026-02-08T04:24:20.085687Z ERROR codex_core::runtime: unrecoverable failure",
+    "2026-02-08T04:24:19.241256Z  WARN codex_core::features: unknown feature key in config: skills",
+  ];
+
+  it("are Codex's own log at every level, never transcript rows", () => {
+    for (const line of firstTurnRecords) {
+      expect(isCodexLogRecord(line)).toBe(true);
+      expect(isCodexDiagnosticWarningMessage(line)).toBe(true);
+    }
+  });
+
+  it("leave plain messages and Moss's restated errors in the transcript", () => {
+    for (const message of [
+      "fatal: permission denied",
+      "Tool call failed because the same argument was sent twice (yield_time_ms).",
+      "Reconnecting... 2/5",
+    ]) {
+      expect(isCodexLogRecord(message)).toBe(false);
+      expect(isCodexDiagnosticWarningMessage(message)).toBe(false);
+    }
   });
 });

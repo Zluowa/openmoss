@@ -21,7 +21,7 @@ import type {
   RealtimeVoiceTransportPreference,
   RealtimeVoiceUsage,
   RealtimeVoiceQuotaSnapshot,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   RealtimeVoiceRelayError,

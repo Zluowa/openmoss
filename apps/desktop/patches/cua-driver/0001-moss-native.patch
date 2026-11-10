@@ -5796,7 +5796,7 @@ diff --git a/libs/cua-driver/rust/crates/cua-driver/src/serve.rs b/libs/cua-driv
 +        .expect("daemon metadata is serializable");
 +    #[cfg(target_os = "macos")]
 +    {
-+        metadata["synara_native_revision"] = serde_json::json!(36);
++        metadata["moss_native_revision"] = serde_json::json!(36);
 +    }
 +    DaemonResponse::ok(metadata)
 +}
@@ -7257,7 +7257,7 @@ index 000000000..ae59f9eb9
 +            crate::paint_cursor(&mut frame, &c, 0.0, 0.0, None, 2.0);
 +            assert_eq!(baseline.data(), frame.data());
 +        }
-+        if let Ok(path) = std::env::var("SYNARA_CURSOR_PREVIEW_PATH") {
++        if let Ok(path) = std::env::var("MOSS_CURSOR_PREVIEW_PATH") {
 +            image::save_buffer(path, baseline.data(), 128, 128, image::ColorType::Rgba8).unwrap();
 +        }
 +    }
@@ -7266,7 +7266,7 @@ index 000000000..ae59f9eb9
 +    fn compact_hidden_pointer_has_no_pixels_or_hover_poll() {
 +        let mut c = compact();
 +        c.pos = (16.0, 16.0);
-+        c.apply_command_base(OverlayCommand::SetSessionLabel("Synara".into()), true, true);
++        c.apply_command_base(OverlayCommand::SetSessionLabel("Moss".into()), true, true);
 +        assert!(!c.session_badge_needs_hover_poll());
 +        c.apply_command_base(OverlayCommand::SetEnabled(false), true, true);
 +        let mut frame = Pixmap::new(128, 128).unwrap();
@@ -8604,7 +8604,7 @@ index cb1e39396..64999331b 100644
      pub fn active_theme_metadata(&self) -> (String, String, String, Option<String>) {
 +        if self.cfg.compact {
 +            return (
-+                "synara.compact".into(),
++                "moss.compact".into(),
 +                "1".into(),
 +                "static-vector".into(),
 +                None,
@@ -8888,7 +8888,7 @@ index cb1e39396..64999331b 100644
 +            labelled.pos = (80.0, 80.0);
 +            labelled.idle_alpha = 1.0;
 +            labelled.apply_command_base(
-+                OverlayCommand::SetSessionLabel("synara-browser-l7".into()),
++                OverlayCommand::SetSessionLabel("moss-browser-l7".into()),
 +                true,
 +                true,
 +            );
@@ -11855,7 +11855,7 @@ diff --git a/libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs b/
      if key.is_empty() {
          return;
      }
-+    // Synara feedback is queued, never awaited. Input still performs its own
++    // Moss feedback is queued, never awaited. Input still performs its own
 +    // target validation and cancellation checks after this function returns.
 +    let compact = RENDER
 +        .lock()
@@ -11978,8 +11978,8 @@ diff --git a/libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs b/
 +
 +    static CLASS: OnceLock<&'static objc2::runtime::AnyClass> = OnceLock::new();
 +    CLASS.get_or_init(|| {
-+        let mut builder = ClassBuilder::new("SynaraCuaCursorPanel", objc2::class!(NSPanel))
-+            .expect("SynaraCuaCursorPanel already registered");
++        let mut builder = ClassBuilder::new("MossCuaCursorPanel", objc2::class!(NSPanel))
++            .expect("MossCuaCursorPanel already registered");
 +        unsafe {
 +            builder.add_method(
 +                objc2::sel!(canBecomeKeyWindow),
@@ -12001,7 +12001,7 @@ diff --git a/libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs b/
      if main_screen.is_null() {
          // Headless environment (CI without display) — skip overlay entirely.
          // The MCP server continues on the background thread.
-+        eprintln!("synara_cua_overlay_init code=overlay_display_unavailable");
++        eprintln!("moss_cua_overlay_init code=overlay_display_unavailable");
          return;
      }
      let screen_frame: NSRect = msg_send![main_screen, frame];
@@ -12028,7 +12028,7 @@ diff --git a/libs/cua-driver/rust/crates/platform-macos/src/cursor/overlay.rs b/
          w
      };
      if win.is_null() {
-+        eprintln!("synara_cua_overlay_init code=overlay_window_unavailable");
++        eprintln!("moss_cua_overlay_init code=overlay_window_unavailable");
          return;
      }
 
@@ -15728,7 +15728,7 @@ index a657ced2b..48169006b 100644
 +            let status = self.restore();
 +            // Static metadata only, including the unwind/cancel path where a
 +            // normal action result cannot carry structured diagnostics.
-+            eprintln!("synara_cua_focus_restore status={status}");
++            eprintln!("moss_cua_focus_restore status={status}");
 +        }
 +    }
 +}
@@ -18723,15 +18723,15 @@ diff --git a/libs/cua-driver/rust/crates/platform-macos/src/tools/mod.rs b/libs/
          crate::window_change_detector::Changes::no_change()
 +    } else if let Some(timeout) = action_observation_timeout(
 +        args,
-+        std::env::var("SYNARA_CUA_FOREGROUND_OBSERVATION_MS")
++        std::env::var("MOSS_CUA_FOREGROUND_OBSERVATION_MS")
 +            .ok()
 +            .and_then(|value| value.parse().ok()),
-+        std::env::var("SYNARA_CUA_BACKGROUND_OBSERVATION_MS")
++        std::env::var("MOSS_CUA_BACKGROUND_OBSERVATION_MS")
 +            .ok()
 +            .and_then(|value| value.parse().ok()),
 +    ) {
 +        // Foreground input has already restored its activation guard. Observe
-+        // prompt window changes here; Synara reads the target at task boundaries
++        // prompt window changes here; Moss reads the target at task boundaries
 +        // and before the next semantic action. Background suppression retains
 +        // the full observation window unless the host bounds it — the detector
 +        // watches for new windows/foreground changes, which typically appear
@@ -18777,7 +18777,7 @@ diff --git a/libs/cua-driver/rust/crates/platform-macos/src/tools/mod.rs b/libs/
 +            );
 +        }
 +        let mut args = json!({
-+            "delivery_mode": "foreground", "_synara_foreground_observation_ms": 0
++            "delivery_mode": "foreground", "_moss_foreground_observation_ms": 0
 +        });
 +        // The real SDK strips private arguments; the host policy must survive.
 +        cua_driver_core::tool_args::sanitize_reserved_args(&mut args);
@@ -19019,7 +19019,7 @@ index 19d54df23..37008fb2f 100644
      }
  }
 
-+/// Synara already maps delivered-image pixels into logical desktop points.
++/// Moss already maps delivered-image pixels into logical desktop points.
 +/// This mode uses exact window-local logical points, so no capture/backing-scale
 +/// conversion is necessary. Native admission still validates the live target.
 +pub fn is_window_points(args: &serde_json::Value) -> bool {
@@ -19211,7 +19211,7 @@ diff --git a/libs/cua-driver/rust/crates/platform-macos/src/tools/scroll.rs b/li
          };
          let by = args.str_or("by", "line");
          let amount = args.u64_or("amount", 3) as usize;
-+        // Synara: optional signed per-axis wheel ticks plus held modifiers.
++        // Moss: optional signed per-axis wheel ticks plus held modifiers.
 +        // delta_x/delta_y form one two-axis pixel-wheel gesture at the target;
 +        // either present switches the wheel path off the direction mapping.
 +        let delta_x_arg = args.opt_i64("delta_x");
@@ -21640,7 +21640,7 @@ index 000000000..b62e6b945
 @@ -0,0 +1,509 @@
 +//! Wait for one application's accessibility surface to go quiet.
 +//!
-+//! `wait_for_settle` is the read-only settle observation Synara runs after a
++//! `wait_for_settle` is the read-only settle observation Moss runs after a
 +//! mutation: an `AXObserver` bound to the exact pid's application element —
 +//! or, when `window_id` scopes it, to that exact AX window — reports UI churn,
 +//! and the call resolves `{settled: true}` as soon as no notification has
@@ -24093,8 +24093,8 @@ diff --git a/libs/cua-driver/rust/crates/cua-driver/src/serve.rs b/libs/cua-driv
          .expect("daemon metadata is serializable");
      #[cfg(target_os = "macos")]
      {
--        metadata["synara_native_revision"] = serde_json::json!(36);
-+        metadata["synara_native_revision"] = serde_json::json!(37);
+-        metadata["moss_native_revision"] = serde_json::json!(36);
++        metadata["moss_native_revision"] = serde_json::json!(37);
      }
      DaemonResponse::ok(metadata)
  }
@@ -24645,8 +24645,8 @@ index 4fdecf6..1930b66 100644
          .expect("daemon metadata is serializable");
      #[cfg(target_os = "macos")]
      {
--        metadata["synara_native_revision"] = serde_json::json!(37);
-+        metadata["synara_native_revision"] = serde_json::json!(38);
+-        metadata["moss_native_revision"] = serde_json::json!(37);
++        metadata["moss_native_revision"] = serde_json::json!(38);
      }
      DaemonResponse::ok(metadata)
  }
@@ -24751,8 +24751,8 @@ index 1930b66..f9aee2c 100644
          .expect("daemon metadata is serializable");
      #[cfg(target_os = "macos")]
      {
--        metadata["synara_native_revision"] = serde_json::json!(38);
-+        metadata["synara_native_revision"] = serde_json::json!(39);
+-        metadata["moss_native_revision"] = serde_json::json!(38);
++        metadata["moss_native_revision"] = serde_json::json!(39);
      }
      DaemonResponse::ok(metadata)
  }
@@ -26959,8 +26959,8 @@ diff --git a/libs/cua-driver/rust/crates/cua-driver/src/serve.rs b/libs/cua-driv
          .expect("daemon metadata is serializable");
      #[cfg(target_os = "macos")]
      {
--        metadata["synara_native_revision"] = serde_json::json!(39);
-+        metadata["synara_native_revision"] = serde_json::json!(40);
+-        metadata["moss_native_revision"] = serde_json::json!(39);
++        metadata["moss_native_revision"] = serde_json::json!(40);
      }
      DaemonResponse::ok(metadata)
  }

@@ -19,9 +19,10 @@ import type {
   BrowserOpenInput,
   BrowserSetPanelBoundsInput,
   BrowserTabInput,
+  BrowserCapturePreviewInput,
   BrowserThreadInput,
   ThreadBrowserState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { DesktopBrowserManager } from "./browserManager";
 import { BROWSER_IPC_CHANNELS } from "./ipcChannels";
@@ -106,6 +107,14 @@ export function registerBrowserIpcHandlers(
     BROWSER_IPC_CHANNELS.captureScreenshot,
     async (_event, input: BrowserTabInput): Promise<BrowserCaptureScreenshotResult> =>
       browserManager.captureScreenshot(input),
+  );
+
+  // A still of the page shown in its place while a menu or the floating card covers the
+  // native view (it paints above any web content). Only answers while the thread is
+  // occluded or in preview, so it never captures a page the person isn't looking at.
+  ipcMain.removeHandler(BROWSER_IPC_CHANNELS.capturePreview);
+  register(BROWSER_IPC_CHANNELS.capturePreview, async (_event, input: BrowserCapturePreviewInput) =>
+    browserManager.capturePreview(input),
   );
 
   ipcMain.removeHandler(BROWSER_IPC_CHANNELS.copyScreenshotToClipboard);

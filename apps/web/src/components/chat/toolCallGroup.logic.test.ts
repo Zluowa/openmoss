@@ -145,7 +145,7 @@ describe("summarizeToolCallGroup", () => {
       command("c2", "bun run lint"),
       command("s3", "rg gamma docs"),
     ]);
-    expect(summary?.label).toBe("Searched, edited files, ran commands");
+    expect(summary?.label).toBe("Searched code, edited 2 files, ran 2 commands");
     expect(summary?.iconCategory).toBe("mixed");
   });
 
@@ -162,7 +162,7 @@ describe("summarizeToolCallGroup", () => {
         toolStatus: "failed",
       }),
     ]);
-    expect(summary?.label).toBe("Read files, ran commands, searched");
+    expect(summary?.label).toBe("Read 2 files, ran 2 commands, searched code");
     expect(summary?.failedCount).toBe(1);
     expect(summary?.failedLabel).toBe("1 failed");
   });
@@ -179,7 +179,7 @@ describe("summarizeToolCallGroup", () => {
         tone: "error",
       }),
     ]);
-    expect(summary?.label).toBe("Ran commands");
+    expect(summary?.label).toBe("Ran 2 commands");
     expect(summary?.failedCount).toBe(1);
   });
 
@@ -191,9 +191,7 @@ describe("summarizeToolCallGroup", () => {
       command("s1", "rg foo src"),
       workEntry({ id: "m1", itemType: "mcp_tool_call", toolName: "linear_get_issue" }),
     ]);
-    expect(summary?.label).toBe(
-      "Read files, ran a command, edited a file, searched, called a tool",
-    );
+    expect(summary?.label).toBe("Read a file, ran a command, edited a file, and 2 more actions");
   });
 
   it("wears the kind's glyph when every call is the same kind", () => {
@@ -211,7 +209,7 @@ describe("summarizeToolCallGroup", () => {
       command("c1", "ls"),
       command("c2", 'find . -name "*.md" -not -path "./.git/*"'),
     ]);
-    expect(summary?.label).toBe("Ran a command, searched");
+    expect(summary?.label).toBe("Ran a command, searched code");
     expect(summary?.failedLabel).toBeNull();
   });
 
@@ -221,7 +219,7 @@ describe("summarizeToolCallGroup", () => {
       edit("e2", ["Sidebar.tsx"]),
       edit("e3", ["Sidebar.tsx", "Sidebar.logic.ts"]),
     ]);
-    expect(summary?.label).toBe("Edited files");
+    expect(summary?.label).toBe("Edited 2 files");
   });
 
   it("counts edits without file info as one unit each", () => {
@@ -230,7 +228,7 @@ describe("summarizeToolCallGroup", () => {
       workEntry({ id: "e2", itemType: "file_change" }),
       edit("e3", ["a.ts"]),
     ]);
-    expect(summary?.label).toBe("Edited files");
+    expect(summary?.label).toBe("Edited 3 files");
   });
 
   it("dedupes reads of the same file across command and structured entries", () => {
@@ -239,7 +237,7 @@ describe("summarizeToolCallGroup", () => {
       command("r2", "cat src/app.ts"),
       workEntry({ id: "r3", requestKind: "file-read", changedFiles: ["src/main.ts"] }),
     ]);
-    expect(summary?.label).toBe("Read files");
+    expect(summary?.label).toBe("Read 2 files");
   });
 
   it("labels an uncategorized-only run as plain tool calls", () => {
@@ -247,7 +245,7 @@ describe("summarizeToolCallGroup", () => {
       workEntry({ id: "o1", itemType: "image_view" }),
       workEntry({ id: "o2", itemType: "image_view" }),
     ]);
-    expect(summary?.label).toBe("Called tools");
+    expect(summary?.label).toBe("Used 2 tools");
   });
 
   it("keeps generated images out of the tool-call summary so they render as their own row", () => {
@@ -265,7 +263,43 @@ describe("summarizeToolCallGroup", () => {
       workEntry({ id: "err", tone: "error" }),
       workEntry({ id: "sub", subagents: [{ threadId: "thread-1" }] }),
     ]);
-    expect(summary?.label).toBe("Ran commands");
+    expect(summary?.label).toBe("Ran 2 commands");
     expect(summary?.entryCount).toBe(2);
+  });
+});
+
+describe("summarizeToolCallGroup — messages to other chats", () => {
+  const sendMessage = (id: string, threadId: string) =>
+    workEntry({
+      id,
+      itemType: "mcp_tool_call",
+      toolName: "moss_send_message",
+      detail: `moss_send_message: ${JSON.stringify({ threadId, message: "hi" })}`,
+    });
+
+  it("classifies Moss and Claude Code message tools as messages", () => {
+    expect(classifyToolCallSummaryCategory(sendMessage("m1", "t1"))).toBe("message");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "m2", itemType: "dynamic_tool_call", toolName: "SendMessage" }),
+      ),
+    ).toBe("message");
+  });
+
+  it("counts distinct target chats, as the desktop chat does", () => {
+    const summary = summarizeToolCallGroup([
+      sendMessage("m1", "thread-a"),
+      sendMessage("m2", "thread-b"),
+      sendMessage("m3", "thread-a"),
+    ]);
+    expect(summary?.label).toBe("Messaged 2 other chats");
+  });
+
+  it("uses the singular for one chat", () => {
+    const summary = summarizeToolCallGroup([
+      sendMessage("m1", "thread-a"),
+      sendMessage("m2", "thread-a"),
+    ]);
+    expect(summary?.label).toBe("Messaged another chat");
   });
 });

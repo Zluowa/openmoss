@@ -15,7 +15,7 @@ import {
   type GitStatusResult,
   type NativeApi,
   type PullRequestAutoFixState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";

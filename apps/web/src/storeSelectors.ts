@@ -2,10 +2,11 @@
 // Purpose: Stable Zustand selectors for entity lookups and lightweight sidebar projections.
 // Exports: Selector factories used by routes and sidebar-heavy components.
 
-import type { ProjectId, ThreadEnvironmentMode, ThreadId } from "@synara/contracts";
-import { isAutomationRunThread } from "@synara/shared/automationMode";
-import { isSidechatThread, sidechatContextMatchesGitHubItem } from "@synara/shared/sidechatThread";
-import { collectSubagentDescendants } from "@synara/shared/threadHierarchy";
+import { isRoomProjectThread, roomProjectIdsOf } from "./lib/mossbotRoomThreads";
+import type { ProjectId, ThreadEnvironmentMode, ThreadId } from "@moss/contracts";
+import { isAutomationRunThread } from "@moss/shared/automationMode";
+import { isSidechatThread, sidechatContextMatchesGitHubItem } from "@moss/shared/sidechatThread";
+import { collectSubagentDescendants } from "@moss/shared/threadHierarchy";
 
 import type { AppState } from "./storeState";
 import { ACCOUNT_RATE_LIMIT_ACTIVITY_KINDS } from "./lib/rateLimits";
@@ -385,19 +386,27 @@ export function createSidebarThreadSummariesSelector(): (
 ) => readonly SidebarThreadSummary[] {
   let previousThreadIds: readonly ThreadId[] | undefined;
   let previousSummaryById: Record<string, SidebarThreadSummary> | undefined;
+  let previousProjects: AppState["projects"] | undefined;
   let previousSummaries: readonly SidebarThreadSummary[] = [];
 
   return (state) => {
     const threadIds = state.threadIds;
-    if (threadIds === previousThreadIds && state.sidebarThreadSummaryById === previousSummaryById) {
+    if (
+      threadIds === previousThreadIds &&
+      state.sidebarThreadSummaryById === previousSummaryById &&
+      state.projects === previousProjects
+    ) {
       return previousSummaries;
     }
 
     previousThreadIds = threadIds;
     previousSummaryById = state.sidebarThreadSummaryById;
+    previousProjects = state.projects;
+    // Group-chat member threads hold the internal room prompt; the room view shows them.
+    const roomProjectIds = roomProjectIdsOf(state.projects);
     previousSummaries = (threadIds ?? []).flatMap((threadId) => {
       const summary = state.sidebarThreadSummaryById[threadId];
-      return summary ? [summary] : [];
+      return summary && !isRoomProjectThread(summary.projectId, roomProjectIds) ? [summary] : [];
     });
     return previousSummaries;
   };

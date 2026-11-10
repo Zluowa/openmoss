@@ -4,7 +4,7 @@ import type {
   ServerCodexResetCredit,
   ServerCodexResetCredits,
   ServerConsumeCodexResetCreditInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 

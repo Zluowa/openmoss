@@ -10,7 +10,7 @@
 // this lane (server rendering, no DOM) cannot drive; `isPending` is React
 // Query's own, and the words are pinned by `computerProvisioning.test.ts`.
 
-import type { ComputerProvisionResult, ComputerStatusResult } from "@synara/contracts";
+import type { ComputerProvisionResult, ComputerStatusResult } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";

@@ -14,9 +14,15 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 import { ServerConfig } from "../../config.ts";
+import { ServerSecretStoreLive } from "../../auth/Layers/ServerSecretStore.ts";
+import {
+  makeClaudeStateBindingAccess,
+  type ClaudeStateBindingAccount,
+} from "../../provider/claudeStateBinding.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ClaudeTextGeneration } from "../Services/TextGeneration.ts";
 import { ClaudeTextGenerationServiceLive } from "./ClaudeTextGeneration.ts";
+import { resolveClaudeCodeRuntime } from "../../provider/claudeEnvironment.ts";
 
 const encoder = new TextEncoder();
 const require = createRequire(import.meta.url);
@@ -54,7 +60,9 @@ function logicalClaudeCommand(command: {
   }
   assert.strictEqual(offset, line.length);
   assert.match(tokens[0] ?? "", /(?:^|[\\/])claude\.(?:cmd|bat)$/iu);
-  return { ...command, command: "claude", args: tokens.slice(1) };
+  // Keep the launched script path: the tests compare it with the resolved
+  // runtime, which on Windows is an npm `claude.cmd` whenever one is on PATH.
+  return { ...command, command: tokens[0]!, args: tokens.slice(1) };
 }
 
 function mockHandle(result: { stdout: string; stderr: string; code: number }) {
@@ -173,6 +181,78 @@ function resolveBundledClaudeBinaryPath(): string {
 }
 
 describe("ClaudeTextGenerationServiceLive", () => {
+  it.effect(
+    "rejects revoked Claude binding after temporary workspace allocation before spawn",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const config = yield* ServerConfig;
+        const privateHome = path.join(config.baseDir, "private");
+        const source = path.join(config.baseDir, "projects");
+        const binary = path.join(config.baseDir, "claude.exe");
+        for (const directory of [config.stateDir, path.join(privateHome, ".claude"), source]) {
+          yield* fs.makeDirectory(directory, { recursive: true });
+        }
+        yield* fs.writeFileString(binary, "fixture-program");
+        let account: ClaudeStateBindingAccount = {
+          providerInstanceId: "claude_work",
+          enabled: true,
+          managed: false,
+          homePath: privateHome,
+          configPath: path.join(privateHome, ".claude"),
+          sourceProjectsPath: source,
+        };
+        const access = yield* makeClaudeStateBindingAccess({
+          stateDir: config.stateDir,
+          readAccount: () => account,
+        });
+        const binding = yield* Effect.promise(() => access.register(account.providerInstanceId));
+        let spawns = 0;
+        const guardedFs = {
+          ...fs,
+          makeTempDirectoryScoped: (...args: Parameters<typeof fs.makeTempDirectoryScoped>) =>
+            fs.makeTempDirectoryScoped(...args).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  account = { ...account, enabled: false };
+                }),
+              ),
+            ),
+        };
+        const result = yield* Effect.gen(function* () {
+          const service = yield* ClaudeTextGeneration;
+          return yield* service.generateThreadTitle({
+            cwd: config.cwd,
+            message: "fixture",
+            modelSelection: {
+              provider: "claudeAgent",
+              instanceId: account.providerInstanceId,
+              model: "sonnet-5",
+            },
+            providerOptions: { claudeAgent: { ...binding.options, binaryPath: binary } },
+          });
+        }).pipe(
+          Effect.provide(ClaudeTextGenerationServiceLive),
+          Effect.provideService(FileSystem.FileSystem, guardedFs),
+          Effect.provide(
+            mockSpawnerLayer(() => {
+              spawns++;
+              return { stdout: "", stderr: "", code: 0 };
+            }),
+          ),
+          Effect.result,
+        );
+        assert.strictEqual(result._tag, "Failure");
+        assert.strictEqual(spawns, 0);
+        assert.strictEqual(account.enabled, false);
+      }).pipe(
+        Effect.provide(ServerSecretStoreLive),
+        Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "claude-text-bound-" })),
+        Effect.provide(NodeServices.layer),
+        Effect.scoped,
+      ),
+  );
+
   it.effect("generates a project digest with the selected Claude model", () =>
     Effect.gen(function* () {
       const textGeneration = yield* ClaudeTextGeneration;
@@ -196,7 +276,7 @@ describe("ClaudeTextGenerationServiceLive", () => {
       Effect.provide(ClaudeTextGenerationServiceLive),
       Effect.provide(
         mockSpawnerLayer((args, command) => {
-          assert.strictEqual(command, "claude");
+          assert.strictEqual(command, resolveClaudeCodeRuntime().binaryPath);
           assert.strictEqual(args[args.indexOf("--model") + 1], "claude-sonnet-4-5");
           const schema = JSON.parse(args[args.indexOf("--json-schema") + 1] ?? "{}");
           assert.includeMembers(schema.required, ["summary", "focusItems"]);
@@ -235,7 +315,7 @@ describe("ClaudeTextGenerationServiceLive", () => {
       Effect.provide(ClaudeTextGenerationServiceLive),
       Effect.provide(
         mockSpawnerLayer((args, command, env) => {
-          assert.strictEqual(command, "claude");
+          assert.strictEqual(command, resolveClaudeCodeRuntime().binaryPath);
           assert.strictEqual(args[0], "-p");
           assert.strictEqual(args[args.indexOf("--output-format") + 1], "json");
           assert.strictEqual(env?.HOME, homedir());
@@ -357,7 +437,7 @@ describe("ClaudeTextGenerationServiceLive", () => {
       Effect.provide(ClaudeTextGenerationServiceLive),
       Effect.provide(
         mockSpawnerLayer((args, command, env) => {
-          assert.strictEqual(command, "claude");
+          assert.strictEqual(command, resolveClaudeCodeRuntime().binaryPath);
           assert.strictEqual(args[0], "-p");
           assert.strictEqual(args[args.indexOf("--output-format") + 1], "json");
           // Pure text generation must run with an empty tool set so untrusted
@@ -449,7 +529,7 @@ describe("ClaudeTextGenerationServiceLive", () => {
       Effect.provide(ClaudeTextGenerationServiceLive),
       Effect.provide(
         mockSpawnerLayer((args, command, env, cwd, options) => {
-          assert.strictEqual(command, "claude");
+          assert.strictEqual(command, resolveClaudeCodeRuntime().binaryPath);
           assert.ok(cwd);
           isolatedCwd = cwd;
           assert.notStrictEqual(cwd, hostileRepoPath);

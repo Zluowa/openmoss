@@ -1,4 +1,4 @@
-import type { ProviderKind, ServerProviderUsageSnapshot } from "@synara/contracts";
+import type { ProviderKind, ServerProviderUsageSnapshot } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -20,7 +20,7 @@ import {
 import { resolveComposerAccountSourceKind } from "./providerAccountSources";
 import type { CapacityRetryState } from "./MessagesTimeline.logic";
 import { Button } from "../ui/button";
-import type { ProviderTurnTrigger, TurnId } from "@synara/contracts";
+import type { ProviderTurnTrigger, TurnId } from "@moss/contracts";
 
 const USAGE_COPY_KEYS: Record<
   SystemErrorUsageVariant,

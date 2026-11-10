@@ -1,4 +1,4 @@
-import type { ServerConsumeCodexResetCreditInput } from "@synara/contracts";
+import type { ServerConsumeCodexResetCreditInput } from "@moss/contracts";
 
 const storageKey = (accountId: string) => `moss:codex-reset-attempt:${accountId}`;
 

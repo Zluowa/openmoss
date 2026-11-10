@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { Effect } from "effect";
 import type { ChildProcess } from "node:child_process";
-import { spawnProcess } from "@synara/shared/processRuntime";
+import { spawnProcess } from "@moss/shared/processRuntime";
 import path from "node:path";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
@@ -94,7 +94,7 @@ describe("child-owned Windows snapshot preparation", () => {
     await Promise.resolve();
     expect(use).not.toHaveBeenCalled();
     expect(prepared.capture).not.toHaveBeenCalled();
-    expect(prepared.prepareWithin).toHaveBeenCalledWith(10_000, expect.any(AbortSignal));
+    expect(prepared.prepareWithin).toHaveBeenCalledWith(30_000, expect.any(AbortSignal));
     ready.resolve(undefined);
     await program;
     expect(use).toHaveBeenCalledOnce();
@@ -173,7 +173,7 @@ describe("child-owned Windows snapshot preparation", () => {
     });
     await Promise.resolve();
     expect(spawn).not.toHaveBeenCalled();
-    expect(prepared.prepareWithin).toHaveBeenCalledWith(10_000, undefined);
+    expect(prepared.prepareWithin).toHaveBeenCalledWith(30_000, undefined);
     expect(prepared.capture).not.toHaveBeenCalled();
     ready.resolve(undefined);
     expect(await binding).toBe(owned);
@@ -181,6 +181,79 @@ describe("child-owned Windows snapshot preparation", () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(prepared.dispose).toHaveBeenCalledOnce();
   });
+
+  it.each(["ready", "deadline", "cancel"] as const)(
+    "keeps the real observer startup bounded and owned on %s",
+    async (mode) => {
+      vi.useFakeTimers();
+      const readiness = deferred<void>();
+      let ready = false;
+      const worker = {
+        ready: () => readiness.promise,
+        isReady: () => ready,
+        capture: vi.fn(async () => new Map()),
+        dispose: vi.fn(),
+      };
+      const prepared = windowsSnapshots.createWindowsTeardownProcessSnapshotObserver({
+        createWorker: () => worker,
+        startImmediately: true,
+      });
+      const abort = new AbortController();
+      const owned = child();
+      const spawn = vi.fn(() => owned);
+      const beforeSpawn = vi.fn();
+      const bind = vi.fn((process: ChildProcess) => process);
+      const result = spawnChildWithPreparedTree({
+        platform: "win32",
+        signal: abort.signal,
+        createObserver: () => prepared,
+        spawn,
+        beforeSpawn,
+        bind,
+      }).then(
+        (value) => ({ value, error: undefined }),
+        (error: unknown) => ({ value: undefined, error }),
+      );
+      try {
+        if (mode === "ready") {
+          await vi.advanceTimersByTimeAsync(11_000);
+          expect(spawn).not.toHaveBeenCalled();
+          ready = true;
+          readiness.resolve(undefined);
+          expect((await result).value).toBe(owned);
+          expect(beforeSpawn).toHaveBeenCalledOnce();
+          expect(bind).toHaveBeenCalledOnce();
+          expect(worker.dispose).not.toHaveBeenCalled();
+          owned.emit("exit");
+        } else {
+          await vi.advanceTimersByTimeAsync(mode === "cancel" ? 250 : 29_999);
+          expect(spawn).not.toHaveBeenCalled();
+          const cancellation = new Error("startup cancelled");
+          if (mode === "cancel") abort.abort(cancellation);
+          else await vi.advanceTimersByTimeAsync(1);
+          const { error } = await result;
+          if (mode === "cancel") expect(error).toBe(cancellation);
+          else
+            expect(windowsSnapshots.getWindowsProcessSnapshotFailure(error)).toMatchObject({
+              kind: "deadline",
+              elapsedMs: 30_000,
+            });
+          ready = true;
+          readiness.resolve(undefined);
+          await Promise.resolve();
+          expect(beforeSpawn).not.toHaveBeenCalled();
+          expect(spawn).not.toHaveBeenCalled();
+          expect(bind).not.toHaveBeenCalled();
+        }
+        expect(worker.capture).not.toHaveBeenCalled();
+        expect(worker.dispose).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        prepared.dispose();
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it.each(["initialization", "cancel", "guard", "spawn"])(
     "releases readiness ownership on %s failure",

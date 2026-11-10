@@ -8,7 +8,7 @@ import {
   SidebarSectionId,
   ThreadId,
   NonNegativeInt,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

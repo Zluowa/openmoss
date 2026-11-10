@@ -14,8 +14,8 @@ import {
   WsFeatureRpcGroup,
   type ProviderKind,
   type ServerProviderStatus,
-} from "@synara/contracts";
-import { MOSS_CUA_DESKTOP_ORIGIN } from "@synara/shared/desktopIdentity";
+} from "@moss/contracts";
+import { MOSS_CUA_DESKTOP_ORIGIN } from "@moss/shared/desktopIdentity";
 import { Effect, Exit, Layer, ManagedRuntime, Schema, Scope } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";

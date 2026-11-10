@@ -1,5 +1,5 @@
 import type { LegendListRef } from "@legendapp/list/react";
-import { MessageId, ThreadId } from "@synara/contracts";
+import { MessageId, ThreadId } from "@moss/contracts";
 import { StrictMode, useLayoutEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

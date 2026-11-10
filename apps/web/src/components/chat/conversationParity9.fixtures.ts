@@ -1,6 +1,6 @@
 // Deterministic structured fixtures, not recordings of live provider sessions.
-import { EventId, TurnId, OrchestrationThreadActivity } from "@synara/contracts";
-import { normalizeSubagentToolData } from "@synara/shared/subagentTool";
+import { EventId, TurnId, OrchestrationThreadActivity } from "@moss/contracts";
+import { normalizeSubagentToolData } from "@moss/shared/subagentTool";
 import { Schema } from "effect";
 import { deriveWorkLogEntries } from "../../workLog";
 

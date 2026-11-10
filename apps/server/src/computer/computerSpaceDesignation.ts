@@ -1,4 +1,4 @@
-import type { OrchestrationMessage } from "@synara/contracts";
+import type { OrchestrationMessage } from "@moss/contracts";
 
 import { latestUserAuthoredMessage } from "./computerVisibleUse.ts";
 

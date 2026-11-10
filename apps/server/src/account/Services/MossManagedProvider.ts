@@ -34,6 +34,15 @@ export interface MossManagedProviderShape {
     /** Explicit login selects Moss; restore/refresh preserves the user's current Codex account. */
     readonly selectionPolicy: MossManagedSelectionPolicy;
   }) => Effect.Effect<void, MossCloudAccountServiceError>;
+  /**
+   * Whether a managed chat is mid-turn on a bearer that can still serve it. A
+   * background token refresh waits for that turn: its CLI holds the bearer in
+   * its environment, so rotating means stopping the process. Optional for
+   * surfaces with no runtimes of their own; absence never defers a rotation.
+   */
+  readonly hasRunningTurnOnLiveBearer?: (input: {
+    readonly now: number;
+  }) => Effect.Effect<boolean, MossCloudAccountServiceError>;
   readonly disable: (input?: {
     /** Cleanup proof for a credential-bearing generation persisted under an older gateway URL. */
     readonly expectedAccessToken?: string;

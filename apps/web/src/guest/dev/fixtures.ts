@@ -14,7 +14,7 @@ import {
   type OrchestrationThread,
   type OrchestrationThreadActivity,
   type OrchestrationThreadDetailSnapshot,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export const FIXTURE_THREAD_ID = ThreadId.makeUnsafe("thread-guest-fixture");
 const PROJECT_ID = ProjectId.makeUnsafe("project-guest-fixture");

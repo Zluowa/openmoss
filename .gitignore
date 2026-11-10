@@ -59,3 +59,13 @@ apps/web/.tmp/
 
 # Prepared Open Moss Canvas workspace bundle (staged by scripts/prepare-moss-canvas-bundle.ts)
 apps/desktop/canvas-bundle/
+
+# The developer-repair agent's report to its controller; read for the PR, never committed.
+/MOSS_DEVS_RESULT.md
+
+# Windows PowerShell module cache, written beside the working directory when a child
+# PowerShell runs under a profile whose AppData\Local does not exist (isolated test homes).
+**/Microsoft/Windows/PowerShell/ModuleAnalysisCache
+
+# Download cache of bun run bump:codex / bump:claude
+/.runtime-bump-cache/

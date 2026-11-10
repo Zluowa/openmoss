@@ -2,7 +2,7 @@ import {
   MOSS_ACCESS_LANE_SPECS,
   mossAccessLaneForAuthority,
   type MossAccessAuthority,
-} from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossRealmCatalog";
 
 /** @deprecated The single-authority gateway is not a trusted production route. */
 export const MOSS_MODEL_GATEWAY_URL_ENV_KEY = "MOSS_MODEL_GATEWAY_URL";

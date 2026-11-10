@@ -235,7 +235,7 @@ export type MossSubscribeNormalizedSessionEventsInput =
 // the provenance ledger written by the shared projection materializer. Ported from the 1code
 // `moss-source/projection.ts` manifest shape with moss engine ids
 // (`ProviderKind` instead of 1code AgentEngineId). Schema-only: the runtime
-// read/write logic lives in `@synara/shared/mossProjectionMaterializer`.
+// read/write logic lives in `@moss/shared/mossProjectionMaterializer`.
 
 export const MossProjectionAction = Schema.Literals([
   "native",

@@ -6,7 +6,7 @@
 //          these surfaces are mounted. Rendering is left entirely to the call sites.
 // Layer: Chat editor action hook
 
-import type { EditorId, ResolvedKeybindingsConfig } from "@synara/contracts";
+import { EDITORS, type EditorId, type ResolvedKeybindingsConfig } from "@moss/contracts";
 
 import {
   type EditorOption,
@@ -32,11 +32,19 @@ export interface EditorLaunchers {
   openInEditor: (editorId: EditorId | null) => void;
 }
 
+/** Terminals and the file manager open a folder; they cannot show a file. */
+export function isFileEditor(editorId: EditorId): boolean {
+  if (editorId === "file-manager") return false;
+  const editor = EDITORS.find((entry) => entry.id === editorId);
+  return editor !== undefined && editor.launchStyle !== "terminal-working-directory";
+}
+
 export function useEditorLaunchers({
   keybindings,
   availableEditors,
   openInTarget,
   defaultEditor,
+  preferFileEditor,
 }: {
   keybindings: ResolvedKeybindingsConfig;
   availableEditors: ReadonlyArray<EditorId>;
@@ -46,17 +54,27 @@ export function useEditorLaunchers({
   // Used by the PDF viewer to default "Open" to the OS viewer (e.g. Preview) without
   // touching the global code-editor preference shared by every other surface.
   defaultEditor?: EditorId | undefined;
+  // A file target (a changed file's row): when the preferred launcher is a terminal or the
+  // file manager, the primary action opens the file in the first installed editor instead,
+  // or in the system's default app when none is installed.
+  preferFileEditor?: boolean | undefined;
 }): EditorLaunchers {
   const [preferredEditor, setPreferredEditor] = usePreferredEditor(availableEditors);
   const isContextDefault = defaultEditor != null;
   // In context-default mode the primary action is pinned to `defaultEditor` and menu
   // selections are one-shot opens that must not overwrite the persisted preference.
-  const effectivePreferred = defaultEditor ?? preferredEditor;
   const installedOptions = resolveAvailableEditorOptions(navigator.platform, availableEditors);
+  const fileEditorFallback: EditorId | null =
+    preferFileEditor && !defaultEditor && preferredEditor && !isFileEditor(preferredEditor)
+      ? (installedOptions.find(({ value }) => isFileEditor(value))?.value ?? "system-default")
+      : null;
+  const effectivePreferred = defaultEditor ?? fileEditorFallback ?? preferredEditor;
   const options =
     defaultEditor && !installedOptions.some(({ value }) => value === defaultEditor)
       ? [resolveEditorOption(defaultEditor, navigator.platform), ...installedOptions]
-      : installedOptions;
+      : fileEditorFallback && !installedOptions.some(({ value }) => value === fileEditorFallback)
+        ? [...installedOptions, resolveEditorOption(fileEditorFallback, navigator.platform)]
+        : installedOptions;
   const primaryOption = options.find(({ value }) => value === effectivePreferred) ?? null;
   const setDefaultEditor = (editorId: EditorId) => {
     if (isContextDefault) return;

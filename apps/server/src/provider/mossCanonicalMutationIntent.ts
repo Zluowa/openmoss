@@ -1,4 +1,4 @@
-import { supportsPosixPermissions } from "@synara/shared/filesystemPlatform";
+import { supportsPosixPermissions } from "@moss/shared/filesystemPlatform";
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as nodePath from "node:path";
@@ -10,9 +10,9 @@ import {
   type MossCanonicalResourceMutationPayload as MossCanonicalResourceMutationPayloadType,
   type MossOwnershipStore,
   type MossResourceImportPlan,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 
 import { slugifyResourceName } from "./mossCreateResource.ts";
 

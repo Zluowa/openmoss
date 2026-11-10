@@ -2,7 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS_VIEW,
   type ServerConfig,
   type ServerSettingsView,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { TASKS_COACHMARK } from "../components/OneTimeCoachmark";
 import { FEATURE_TOUR_STORAGE_KEY } from "../featureTour/store";

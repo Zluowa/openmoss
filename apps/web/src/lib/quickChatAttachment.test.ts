@@ -1,4 +1,4 @@
-import { MessageId, ThreadId, type ThreadId as ThreadIdType } from "@synara/contracts";
+import { MessageId, ThreadId, type ThreadId as ThreadIdType } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { useComposerDraftStore } from "../composerDraftStore";

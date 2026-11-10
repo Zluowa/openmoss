@@ -12,9 +12,9 @@ import { cn } from "~/lib/utils";
 /** Tailwind classes per semantic icon slot in the sidebar chrome. */
 export const SIDEBAR_GLYPH = {
   /** Primary nav + footer rows inside a `size-5` leading slot (New thread, Settings). */
-  leading: "size-4 shrink-0",
+  leading: "size-ui-icon shrink-0",
   /** Square header/row icon buttons and thread identity glyphs. */
-  chrome: "size-4 shrink-0",
+  chrome: "size-ui-icon-sm shrink-0",
   /** Thread row meta badges (handoff, fork, temporary, worktree). */
   meta: "size-3 shrink-0",
   /** Subagent expand control chevrons. */
@@ -35,9 +35,9 @@ export type SidebarGlyphVariant = keyof typeof SIDEBAR_GLYPH;
 // The forced form targets BOTH `<svg>` glyphs (lucide / react-icons) and Central icons,
 // which render as a masked `<span data-slot=central-icon>` rather than an svg — without the
 // second selector those (e.g. the worktree glyph) keep their smaller base size and look off.
-export const SIDEBAR_TRAILING_ICON_CLASS = "size-4 shrink-0";
+export const SIDEBAR_TRAILING_ICON_CLASS = "size-ui-icon-sm shrink-0";
 export const SIDEBAR_TRAILING_ICON_FORCE_CLASS =
-  "[&_svg]:size-4 [&_[data-slot=central-icon]]:size-[15px]";
+  "[&_svg]:size-ui-icon-sm [&_[data-slot=central-icon]]:size-ui-icon-sm";
 
 export function sidebarGlyphClass(variant: SidebarGlyphVariant, className?: string) {
   return cn(SIDEBAR_GLYPH[variant], className);

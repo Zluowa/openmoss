@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { codexPreviewKind, shouldEmbedCodexHtml } from "./codexPreviewClassifier";
+import {
+  codexPreviewKind,
+  resolveCodexPreviewKind,
+  shouldEmbedCodexHtml,
+} from "./codexPreviewClassifier";
 
 describe("codexPreviewKind", () => {
+  it.each(["local", "attachment", "library-local", "library-cloud"] as const)(
+    "previews HTML from %s",
+    (entry) => {
+      expect(resolveCodexPreviewKind("index.html", entry)).toBe("html");
+    },
+  );
   it.each([
     ["photo.PNG", undefined, "image"],
     ["report.pdf", "application/pdf", "pdf"],

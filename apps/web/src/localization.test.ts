@@ -253,9 +253,11 @@ describe("translateMoss", () => {
     expect(translateMoss("en", "dialog.close")).toBe("Close");
     expect(translateMoss("zh-CN", "dialog.close")).toBe("关闭");
     expect(translateMoss("en", "plugins.action.importPluginsAndSkills")).toBe(
-      "Import plugins and skills",
+      "Import plugins, skills, and MCP",
     );
-    expect(translateMoss("zh-CN", "plugins.action.importPluginsAndSkills")).toBe("导入插件和技能");
+    expect(translateMoss("zh-CN", "plugins.action.importPluginsAndSkills")).toBe(
+      "导入插件、技能和 MCP",
+    );
     expect(translateMoss("en", "plugins.import.metadata.mcp")).toContain("server-sanitized");
     expect(translateMoss("zh-CN", "plugins.import.metadata.mcp")).toContain("服务器已清理");
     expect(translateMoss("en", "plugins.import.error.invalidMcpName")).toContain(

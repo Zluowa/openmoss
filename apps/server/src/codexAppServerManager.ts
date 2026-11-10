@@ -72,33 +72,35 @@ import {
   type ServerVoiceTranscriptionResult,
   type UserInputQuestion,
   type ProviderInstanceId,
-} from "@synara/contracts";
+  RESERVED_CODEX_ACCOUNT_IDS,
+} from "@moss/contracts";
 import {
   codexDiagnosticLogKey,
   codexJsonLogLineAsText,
   isCodexDiagnosticLogLine,
-} from "@synara/shared/codexDiagnostics";
-import { prewarmChatGptVoiceTranscriptionConnection } from "@synara/shared/chatGptVoiceTranscription";
+} from "@moss/shared/codexDiagnostics";
+import { prewarmChatGptVoiceTranscriptionConnection } from "@moss/shared/chatGptVoiceTranscription";
 import {
   BROWSER_SCRIPT_API_GUIDANCE,
   BROWSER_SCRIPT_BATCH_GUIDANCE,
-} from "@synara/shared/browserAutomationCatalogue";
-import { normalizeModelSlug } from "@synara/shared/model";
+} from "@moss/shared/browserAutomationCatalogue";
+import { normalizeModelSlug } from "@moss/shared/model";
 import {
   approvalSessionGrantWidensSessionPolicy,
   readProposedExecpolicyAmendment,
-} from "@synara/shared/approvalSessionGrant";
+} from "@moss/shared/approvalSessionGrant";
 import {
   JsonRpcStdioRequestRegistry,
   type JsonRpcPendingRequest,
-} from "@synara/shared/jsonrpc-stdio";
-import { decodeSubagentReceiverThreadIds } from "@synara/shared/subagents";
-import { spawnProcess } from "@synara/shared/processRuntime";
+} from "@moss/shared/jsonrpc-stdio";
+import { decodeSubagentReceiverThreadIds } from "@moss/shared/subagents";
+import { createNativeOutputDecoder } from "@moss/shared/platformEncoding";
+import { spawnProcess } from "@moss/shared/processRuntime";
 import {
   BundledCodexRuntimeUnavailableError,
   MOSS_BUNDLED_CODEX_VERSION,
-  resolveCodexExecutable,
-} from "@synara/shared/codexRuntime";
+} from "@moss/shared/codexRuntime";
+import { resolveCodexExecutable } from "@moss/shared/codexExecutable";
 import { Schema, Effect, Semaphore, ServiceMap } from "effect";
 
 import {
@@ -120,9 +122,11 @@ import {
 } from "./agentGateway/mcpInjection.ts";
 import { createChatGptConnectorClient } from "./chatGptConnectors.ts";
 import { bootstrapMossBundledPlugins } from "./account/mossBundledPluginBootstrap.ts";
+import { upgradeManagedImageSkills } from "./account/mossBundledImageSkillUpgrade.ts";
 import {
+  installMossBundledPlugin,
+  mutateMossManagedPluginConfig,
   prepareMossManagedPluginStore,
-  syncMossManagedPluginConfig,
 } from "./account/mossManagedPluginConfig.ts";
 import {
   resolveActiveCodexHomeWritePath,
@@ -130,14 +134,19 @@ import {
 } from "./codexHomePaths.ts";
 import {
   resolveCodexHomeIdentityPaths,
+  canonicalizeCodexHomeIdentityPath,
   uniqueCodexLifecycleHomeIdentityPaths,
+  uniqueCodexCredentialHomeIdentityPaths,
+  readCodexCredentialFence,
+  type CodexCredentialScopeInput,
 } from "./codexHomeIdentity.ts";
 import { assertNoReservedMossMcpServerIdentity } from "./provider/mcpCatalog.ts";
 import { filterMossManagedCodexModels } from "./provider/codexDiscoveryCatalog.ts";
+import { withMossCodexWebSearchMode } from "./provider/codexMossWebSearch.ts";
 import {
   deriveCodexMcpServerOverrides,
   deriveMossMcpServerNames,
-} from "@synara/shared/mossCodexMcpOverrides";
+} from "@moss/shared/mossCodexMcpOverrides";
 import {
   deriveMossPluginMcpServers,
   toMossPluginCodexMcpOverrides,
@@ -149,6 +158,7 @@ import {
 } from "./agentGateway/computerToolPermission.ts";
 import {
   MOSS_GATEWAY_HARNESS_POLICY,
+  PERSONAL_CODEX_GATEWAY_HARNESS_POLICY,
   renderMossHarnessPolicy,
 } from "./agentGateway/harnessPolicy.ts";
 import {
@@ -182,15 +192,25 @@ import { resolveCodexServiceTier } from "./codexServiceTier.ts";
 import { assertCodexWorkingDirectoryExists } from "./codexWorkingDirectory.ts";
 import { executableIdentity, resolveExecutable } from "./executableLookup.ts";
 import {
+  makeAgentProgramOwnership,
+  agentProgramSourceHome,
+  type AgentProgramOwnership,
+} from "./provider/agentProgramOwnership.ts";
+import {
   spawnChildWithPreparedTree,
   teardownChildProcessTree,
   teardownProviderProcessTree,
 } from "./provider/supervisedProcessTeardown.ts";
+import { spawnGuardedProviderChild } from "./platform/windowsProviderProcessGuard.ts";
 import { ensureIsolatedScratchWorkspace, resolveScratchWorkspaceCwd } from "./scratchWorkspaces.ts";
 import { createLogger } from "./logger";
 import { discoveryFailureCode } from "./discoveryFailureCode";
-import { MCP_CONNECTOR_SERVER_NAME_SUFFIX } from "@synara/shared/mcpConnectors";
+import { MCP_CONNECTOR_SERVER_NAME_SUFFIX } from "@moss/shared/mcpConnectors";
 import { transcribeVoiceWithChatGptSession } from "./voiceTranscription.ts";
+import {
+  ensureMossPluginCatalogPlugin,
+  isMossPluginCatalogMarketplacePath,
+} from "./pluginCatalog/mossPluginCatalogStore.ts";
 import {
   assertServerResolvedVoiceRouteAuthority,
   resolveReservedMossVoiceRouteIdentity,
@@ -214,6 +234,11 @@ import {
   parseCodexPluginReadResponse,
   compactRemotePluginDirectory,
   parseCodexSkillsListResponse,
+  readCodexConfiguredModel,
+  readCodexConfiguredServiceTier,
+  readCodexListedDefaultModel,
+  withCodexDefaultModel,
+  withConfiguredCodexServiceTier,
   withoutShadowedMossSkills,
 } from "./provider/codexDiscoveryCatalog.ts";
 
@@ -357,6 +382,7 @@ interface CodexPredictionThreadCollector {
 }
 
 interface CodexSessionContext {
+  registeredStopScope?: CodexRegisteredRuntimeStopScope;
   authInvalidation?: string;
   readonly autoApproveMossTools?: boolean;
   readonly enableComputerControl?: boolean;
@@ -388,6 +414,8 @@ interface CodexSessionContext {
   collabReceiverTurns: Map<string, TurnId>;
   collabReceiverParents: Map<string, string>;
   reviewTurnIds: Set<TurnId>;
+  /** The turn Moss is abandoning and why; Codex alone only reports "interrupted". */
+  abandonedTurn?: { readonly turnId: TurnId; readonly detail: string } | undefined;
   /** Set by an idle `compactThread` until its compaction item names the turn. */
   manualCompactionRequested?: boolean;
   /** The turn running a manual compaction; its compaction items are tagged manual. */
@@ -408,6 +436,8 @@ interface CodexSessionContext {
   failureStopping?: boolean;
   transportError?: Error;
   stopPromise?: Promise<void>;
+  /** Retained across failed teardown proofs; publish only after confirmed exit. */
+  pendingStopLifecycle?: { readonly turnId?: TurnId };
   teardownError?: Error;
   teardownFailed?: boolean;
   teardownCapturedBeforeExit?: boolean;
@@ -426,6 +456,16 @@ interface CodexSessionContext {
   codexRuntimeHomePath?: string;
   discovery?: boolean;
   discoveryKey?: string;
+}
+
+/** Internal stop-only snapshot. Object identity is checked against a live context. */
+export interface CodexRegisteredRuntimeStopScope {
+  readonly privateHomeIdentity: string;
+  readonly runtimeGenerationFilter?: string;
+  readonly options: CodexCredentialScopeInput & {
+    readonly homePath: string;
+    readonly accountId: string;
+  };
 }
 
 function historicalOpenTerminalError(context: CodexSessionContext): Error | undefined {
@@ -563,7 +603,7 @@ interface CodexPluginSetEnabledInput extends CodexPluginMutationContextInput {
   readonly enabled: boolean;
 }
 
-type CodexDiscoveryOptions = NonNullable<ProviderStartOptions["codex"]>;
+type CodexDiscoveryOptions = NonNullable<ProviderStartOptions["codex"]> & CodexCredentialScopeInput;
 
 export interface CodexSessionInspection {
   readonly session: ProviderSession;
@@ -869,9 +909,8 @@ function logIgnoredCodexStdout(rawLine: string, line: string, reason: string): v
   });
 }
 
-function normalizeCodexUserVisibleErrorMessage(rawMessage: string): string {
-  const message = normalizeCodexProcessLine(rawMessage);
-
+/** Codex errors Moss can restate as something a person understands, else null. */
+function restateCodexErrorMessage(message: string): string | null {
   const duplicateFunctionArgMatch = message.match(
     /failed to parse function arguments: duplicate field `([^`]+)`/i,
   );
@@ -879,8 +918,12 @@ function normalizeCodexUserVisibleErrorMessage(rawMessage: string): string {
     const fieldName = duplicateFunctionArgMatch[1];
     return `Tool call failed because the same argument was sent twice${fieldName ? ` (${fieldName})` : ""}.`;
   }
+  return null;
+}
 
-  return message;
+function normalizeCodexUserVisibleErrorMessage(rawMessage: string): string {
+  const message = normalizeCodexProcessLine(rawMessage);
+  return restateCodexErrorMessage(message) ?? message;
 }
 
 export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapshot {
@@ -1052,12 +1095,12 @@ plan content should be human and agent digestible. The final plan must be plan-o
 Do not ask "should I proceed?" in the final output. The user can easily switch out of Plan mode and request implementation if you have included a \`<proposed_plan>\` block in your response. Alternatively, they can decide to stay in Plan mode and continue refining the plan.
 
 Only produce at most one \`<proposed_plan>\` block per turn, and only when you are presenting a complete spec.
-</collaboration_mode>${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${MOSS_GATEWAY_HARNESS_POLICY}`;
+</collaboration_mode>${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${PERSONAL_CODEX_GATEWAY_HARNESS_POLICY}`;
 
 export const CODEX_ACCOUNT_CONTEXT_GRACEFUL_STOP_TIMEOUT_MS = 3_000;
 const CODEX_ACCOUNT_CONTEXT_FORCE_STOP_TIMEOUT_MS = 2_000;
 const CODEX_LEGACY_RUNTIME_GENERATION = "__moss_codex_legacy_runtime_generation__";
-const RESERVED_CODEX_ACCOUNT_IDS = new Set(["byok", "moss"]);
+const RESERVED_CODEX_ACCOUNT_ID_SET = new Set(RESERVED_CODEX_ACCOUNT_IDS);
 const CODEX_PROVIDER_FAILURE_FALLBACK =
   "The Codex provider stopped responding. Stop the thread and try again.";
 
@@ -1072,7 +1115,7 @@ Your active mode changes only when new developer instructions with a different \
 The \`request_user_input\` tool is unavailable in Default mode. If you call it while in Default mode, it will return an error.
 
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
-</collaboration_mode>${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${MOSS_GATEWAY_HARNESS_POLICY}`;
+</collaboration_mode>${CODEX_BROWSER_TOOL_ROUTING_INSTRUCTIONS}\n\n${PERSONAL_CODEX_GATEWAY_HARNESS_POLICY}`;
 
 // Maps Moss's simple runtime toggle to Codex thread-level permission overrides.
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
@@ -1103,9 +1146,14 @@ function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
   }
 }
 
+type CodexThreadConfigOverrides = Partial<ReturnType<typeof buildCodexMcpThreadConfig>> & {
+  readonly web_search?: "disabled";
+};
+
 interface CodexThreadSessionOverrides {
-  readonly config?: ReturnType<typeof buildCodexMcpThreadConfig>;
+  readonly config?: CodexThreadConfigOverrides;
   readonly model: string | null;
+  readonly modelProvider?: string;
   readonly serviceTier?: string;
   readonly cwd: string;
   readonly approvalPolicy: CodexApprovalPolicy;
@@ -1115,7 +1163,7 @@ interface CodexThreadSessionOverrides {
 
 type CodexThreadContinuationOverrides = Pick<
   CodexThreadSessionOverrides,
-  "config" | "model" | "serviceTier" | "cwd"
+  "config" | "model" | "modelProvider" | "serviceTier" | "cwd"
 >;
 
 function codexThreadContinuationOverrides(
@@ -1124,6 +1172,7 @@ function codexThreadContinuationOverrides(
   return {
     ...(overrides.config !== undefined ? { config: overrides.config } : {}),
     model: overrides.model,
+    ...(overrides.modelProvider ? { modelProvider: overrides.modelProvider } : {}),
     ...(overrides.serviceTier !== undefined ? { serviceTier: overrides.serviceTier } : {}),
     cwd: overrides.cwd,
   };
@@ -1181,10 +1230,14 @@ export function buildCodexThreadOpenRequest(input: {
 export function resolveCodexThreadOpenMinimumVersion(input: {
   readonly runtimeMode: RuntimeMode;
   readonly threadOpenMethod: CodexThreadOpenRequest["method"];
+  readonly forkThroughTurn?: boolean;
 }): string | undefined {
   const capabilityFloors = [
     ...(input.runtimeMode === "auto" ? [MINIMUM_CODEX_AUTO_REVIEW_CLI_VERSION] : []),
     ...(input.threadOpenMethod === "thread/start" ? [] : [MINIMUM_CODEX_EXCLUDE_TURNS_CLI_VERSION]),
+    // Both 0.163 and 0.166 have a verified inclusive lastTurnId; older CLIs
+    // may ignore unknown fields. Never risk copying turns after the selection.
+    ...(input.forkThroughTurn ? ["0.163.0"] : []),
   ];
   return capabilityFloors.reduce<string | undefined>(
     (highest, candidate) =>
@@ -1283,7 +1336,7 @@ export function resolveCodexModelForAccount(
   return CODEX_DEFAULT_MODEL;
 }
 
-function spawnCodexAppServer(input: {
+export function spawnCodexAppServer(input: {
   readonly lowerPriority: boolean;
   readonly binaryPath: string;
   readonly cwd: string;
@@ -1294,21 +1347,23 @@ function spawnCodexAppServer(input: {
   if (!sourceHomePath) {
     throw new Error("Codex app-server requires a verified shared continuation home.");
   }
-  return spawnProcess(
-    input.binaryPath,
-    [
-      ...buildCodexAppServerArgs(sourceHomePath),
-      "--config",
-      "thread_unload_delay_secs=0",
-      ...(input.extraArgs ?? []),
-    ],
-    {
-      lowerPriority: input.lowerPriority,
-      requireExecutable: true,
-      cwd: input.cwd,
-      env: input.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    },
+  return spawnGuardedProviderChild(() =>
+    spawnProcess(
+      input.binaryPath,
+      [
+        ...buildCodexAppServerArgs(sourceHomePath),
+        "--config",
+        "thread_unload_delay_secs=0",
+        ...(input.extraArgs ?? []),
+      ],
+      {
+        lowerPriority: input.lowerPriority,
+        requireExecutable: true,
+        cwd: input.cwd,
+        env: input.env,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    ),
   );
 }
 
@@ -1674,6 +1729,7 @@ function codexInProgressSourceError(cause: unknown): Error {
 }
 
 export function buildCodexCollaborationMode(input: {
+  readonly mossManagedAccount?: boolean;
   readonly enableComputerControl?: boolean;
   readonly interactionMode?: ProviderInteractionMode;
   readonly model?: string;
@@ -1705,13 +1761,19 @@ export function buildCodexCollaborationMode(input: {
       developer_instructions:
         input.enableComputerControl === true
           ? instructions.replace(
-              MOSS_GATEWAY_HARNESS_POLICY,
+              PERSONAL_CODEX_GATEWAY_HARNESS_POLICY,
               renderMossHarnessPolicy({
                 gatewayControlAvailable: true,
                 enableComputerControl: true,
+                personalCodex: input.mossManagedAccount !== true,
               }),
             )
-          : instructions,
+          : input.mossManagedAccount
+            ? instructions.replace(
+                PERSONAL_CODEX_GATEWAY_HARNESS_POLICY,
+                MOSS_GATEWAY_HARNESS_POLICY,
+              )
+            : instructions,
     },
   };
 }
@@ -1865,6 +1927,16 @@ export function classifyCodexStderrLine(rawLine: string): { message: string } | 
       }
       return null;
     }
+
+    // Every other record is Codex's own log too (see isCodexLogRecord): a fresh
+    // install's skills folder held by another Codex, a dropped stream Codex
+    // retries. The transcript gets one only when Moss can say what to do about it.
+    const restated = restateCodexErrorMessage(line);
+    if (restated) {
+      return { message: restated };
+    }
+    logCodexDiagnosticLine(line);
+    return null;
   }
 
   return { message: normalizeCodexUserVisibleErrorMessage(line) };
@@ -1962,6 +2034,7 @@ function normalizeCodexDiscoveryOptions(
     return undefined;
   }
   const environment = normalizeProviderEnvironment(options.environment);
+  const credentialFence = readCodexCredentialFence(options);
   const normalized = {
     ...(options.binaryPath?.trim() ? { binaryPath: options.binaryPath.trim() } : {}),
     ...(options.homePath?.trim() ? { homePath: options.homePath.trim() } : {}),
@@ -1971,6 +2044,7 @@ function normalizeCodexDiscoveryOptions(
       ? { runtimeGeneration: options.runtimeGeneration.trim() }
       : {}),
     ...(environment ? { environment } : {}),
+    ...(credentialFence ? { credentialFence } : {}),
   } satisfies CodexDiscoveryOptions;
   return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
@@ -2015,8 +2089,11 @@ function codexHomeRuntimeGenerationKey(homeIdentity: string, runtimeGeneration: 
 }
 
 function codexAccountRuntimeGenerationKey(options: CodexDiscoveryOptions | undefined): string {
+  const credentialFence = readCodexCredentialFence(options);
   return JSON.stringify({
-    account: codexAccountLifecycleKey(options),
+    account: credentialFence
+      ? JSON.stringify({ privateHomeIdentity: credentialFence.privateHomeIdentity })
+      : codexAccountLifecycleKey(options),
     runtimeGeneration: codexRuntimeGeneration(options),
   });
 }
@@ -2088,6 +2165,9 @@ function codexProcessEnvInputForOptions(
     ...(options?.homePath ? { homePath: options.homePath } : {}),
     ...(options?.shadowHomePath ? { shadowHomePath: options.shadowHomePath } : {}),
     ...(options?.accountId ? { accountId: options.accountId } : {}),
+    ...(options?.credentialFence
+      ? { credentialFence: options.credentialFence, runtimeGeneration: options.runtimeGeneration }
+      : {}),
   };
 }
 
@@ -2166,11 +2246,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
     | undefined;
   private readonly spawnAppServer: typeof spawnCodexAppServer;
+  private readonly runtimePrograms: AgentProgramOwnership;
   private readonly teardownProcessTree: typeof teardownProviderProcessTree;
   private readonly taskCompleteFallbackGraceMs: number;
   private readonly discoverySessionIdleMs: number;
   private readonly authRevalidationTimeoutMs: number;
   private readonly managedCodexHomePath: string | undefined;
+  /** Moss's plugin catalog marketplace; its plugins' files arrive on first use. */
+  private readonly mossPluginCatalogRoot: string | undefined;
   private readonly readManagedHomeAuthority:
     | ((
         options: CodexDiscoveryOptions | undefined,
@@ -2182,8 +2265,19 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   // Stay below libuv's default four-worker pool so auth reads cannot occupy it all.
   private readonly authReadSlots = Semaphore.makeUnsafe(2);
 
-  /** Codex deep-merges MCP tables: never mix a connector with the user's server. */
+  /** Per-thread config overrides: Moss's MCP servers, plus Moss's web search mode. */
   private async gatewayThreadConfig(
+    context: CodexSessionContext,
+    connection: AgentGatewaySessionLease["connection"],
+  ): Promise<CodexThreadConfigOverrides> {
+    return withMossCodexWebSearchMode(await this.gatewayMcpThreadConfig(context, connection), {
+      accountId: context.codexOptions?.accountId,
+      runtimeMode: context.session.runtimeMode,
+    })!;
+  }
+
+  /** Codex deep-merges MCP tables: never mix a connector with the user's server. */
+  private async gatewayMcpThreadConfig(
     context: CodexSessionContext,
     connection: AgentGatewaySessionLease["connection"],
   ): Promise<ReturnType<typeof buildCodexMcpThreadConfig>> {
@@ -2220,6 +2314,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     options?: {
       readonly mossSkillsDir?: string;
       readonly managedCodexHomePath?: string;
+      readonly mossPluginCatalogRoot?: string;
       readonly readManagedHomeAuthority?: (
         options: CodexDiscoveryOptions | undefined,
       ) => Promise<ManagedCodexHomeAuthority | undefined>;
@@ -2231,6 +2326,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ) => AgentGatewaySessionLease;
       };
       readonly spawnAppServer?: typeof spawnCodexAppServer;
+      readonly runtimePrograms?: AgentProgramOwnership;
       readonly pluginApprovalStore?: MossPluginApprovalStore;
       readonly teardownProcessTree?: typeof teardownProviderProcessTree;
       readonly taskCompleteFallbackGraceMs?: number;
@@ -2242,9 +2338,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.runPromise = services ? Effect.runPromiseWith(services) : Effect.runPromise;
     this.mossSkillsDir = options?.mossSkillsDir;
     this.managedCodexHomePath = options?.managedCodexHomePath;
+    this.mossPluginCatalogRoot = options?.mossPluginCatalogRoot;
     this.readManagedHomeAuthority = options?.readManagedHomeAuthority;
     this.agentGatewayMcp = options?.agentGatewayMcp;
-    this.spawnAppServer = options?.spawnAppServer ?? spawnCodexAppServer;
+    const spawnAppServer = options?.spawnAppServer ?? spawnCodexAppServer;
+    const runtimePrograms = options?.runtimePrograms ?? makeAgentProgramOwnership("codex");
+    this.runtimePrograms = runtimePrograms;
+    this.spawnAppServer = (input) =>
+      runtimePrograms.spawn({
+        binaryPath: input.binaryPath,
+        cwd: input.cwd,
+        sourceHomePath: agentProgramSourceHome("codex", input.env, input.cwd),
+        env: input.env,
+        spawn: () => spawnAppServer(input),
+      });
     this.pluginApprovalStore = options?.pluginApprovalStore;
     this.mossSkillsDir = options?.mossSkillsDir;
     this.teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
@@ -2421,7 +2528,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     initializeResponse: unknown,
   ): Promise<void> {
     const managedHome = this.managedSourceHomeForOptions(context.codexOptions);
-    if (!managedHome || !context.codexOptions || !context.codexRuntimeHomePath) return;
+    const runtimeHome = context.codexRuntimeHomePath;
+    if (!managedHome || !context.codexOptions || !runtimeHome) return;
     const initializedHomePath = this.readString(this.readObject(initializeResponse), "codexHome");
     if (!initializedHomePath) {
       throw new Error(
@@ -2442,39 +2550,71 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ? { expectedRuntimeHomePath: context.codexRuntimeHomePath }
         : {}),
       install: async (selector) => {
-        this.assertContextAuthCurrent(context);
-        this.parsePluginInstallResponse(
-          await this.sendRequest(context, "plugin/install", selector),
+        await this.mutatePluginConfig(context, () =>
+          installMossBundledPlugin({
+            runtimeHomePath: runtimeHome,
+            pluginName: selector.pluginName,
+            assertCurrent: () => this.assertContextAuthCurrent(context),
+            install: async () => {
+              this.parsePluginInstallResponse(
+                await this.sendRequest(context, "plugin/install", selector),
+              );
+            },
+            isInstalledAndEnabled: async () => {
+              this.assertContextAuthCurrent(context);
+              const detail = parseCodexPluginReadResponse(
+                await this.sendRequest(context, "plugin/read", selector),
+              );
+              return (
+                detail.summary.name === selector.pluginName &&
+                detail.summary.installed &&
+                detail.summary.enabled
+              );
+            },
+          }),
         );
-        const detail = parseCodexPluginReadResponse(
-          await this.sendRequest(context, "plugin/read", selector),
-        );
-        if (
-          detail.summary.name !== selector.pluginName ||
-          !detail.summary.installed ||
-          !detail.summary.enabled
-        ) {
-          throw new Error(
-            `The official Moss plugin ${selector.pluginName} did not finish installing.`,
-          );
-        }
-        this.assertContextAuthCurrent(context);
-        await this.persistManagedPluginConfig(context);
         this.pluginsCache.clear();
         this.pluginDetailCache.clear();
         this.skillsCache.clear();
       },
     });
+    const cwd = context.session.cwd ?? managedHome;
+    const changed = await upgradeManagedImageSkills({
+      managedHomePath: managedHome,
+      runtimeHomePath: runtimeHome,
+      assertCurrent: () => this.assertContextAuthCurrent(context),
+      readPlugin: async (selector) =>
+        parseCodexPluginReadResponse(await this.sendRequest(context, "plugin/read", selector)),
+      listSkills: async () =>
+        parseCodexSkillsListResponse(
+          await this.sendRequest(context, "skills/list", { cwds: [cwd], forceReload: true }),
+          cwd,
+        ),
+    }).catch((error) => {
+      this.assertContextAuthCurrent(context);
+      log.warn("Managed image skill upgrade deferred", { error });
+      return false;
+    });
+    if (changed) {
+      this.skillsCache.clear();
+      this.pluginDetailCache.clear();
+    }
   }
 
-  private async persistManagedPluginConfig(context: CodexSessionContext): Promise<void> {
+  private async mutatePluginConfig<T>(
+    context: CodexSessionContext,
+    mutation: () => Promise<T>,
+  ): Promise<T> {
     const managedHome = this.managedSourceHomeForOptions(context.codexOptions);
-    if (!managedHome || !context.codexRuntimeHomePath) return;
-    await syncMossManagedPluginConfig({
-      managedHomePath: managedHome,
-      runtimeHomePath: context.codexRuntimeHomePath,
-      assertCurrent: () => this.assertContextAuthCurrent(context),
-    });
+    if (!managedHome || !context.codexRuntimeHomePath) return mutation();
+    return mutateMossManagedPluginConfig(
+      {
+        managedHomePath: managedHome,
+        runtimeHomePath: context.codexRuntimeHomePath,
+        assertCurrent: () => this.assertContextAuthCurrent(context),
+      },
+      mutation,
+    );
   }
 
   private managedSourceHomeForOptions(
@@ -2547,7 +2687,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const accountId = codexOptions?.accountId?.trim();
     if (
       accountId &&
-      RESERVED_CODEX_ACCOUNT_IDS.has(accountId) &&
+      RESERVED_CODEX_ACCOUNT_ID_SET.has(accountId) &&
       !codexOptions?.runtimeGeneration?.trim()
     ) {
       throw new Error(
@@ -2784,9 +2924,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       );
       this.assertDiscoveryAuthMatchesRequest(context, codexOptions, authFingerprint);
       try {
-        const result = await mutation(context);
-        await this.persistManagedPluginConfig(context);
-        return result;
+        return await this.mutatePluginConfig(context, () => mutation(context));
       } catch (error) {
         // An ambiguous write (crash, transport failure) leaves the session
         // tearing down asynchronously. Surface the failure only after the
@@ -2950,11 +3088,88 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  async stopAccountContextsAndWait(input: {
-    readonly homePath: string;
-    readonly accountId: string;
-    readonly runtimeGeneration?: string;
-  }): Promise<ReadonlyArray<ProviderSession>> {
+  private registeredPrivateHomeIdentity(context: CodexSessionContext): string | undefined {
+    const fence = readCodexCredentialFence(context.codexOptions);
+    if (fence) return fence.privateHomeIdentity;
+    const authPath = context.authTracking?.authoritativeAuthFilePath;
+    return authPath ? canonicalizeCodexHomeIdentityPath(path.dirname(authPath)) : undefined;
+  }
+
+  listAccountRuntimeScopes(
+    input: CodexCredentialScopeInput,
+  ): readonly CodexRegisteredRuntimeStopScope[] {
+    const requestedHomes = new Set(uniqueCodexLifecycleHomeIdentityPaths(input));
+    return [...this.sessions.values(), ...this.discoverySessions.values()].flatMap((context) => {
+      const options = context.codexOptions;
+      if (
+        !options?.accountId ||
+        options.accountId !== input.accountId ||
+        (input.runtimeGeneration &&
+          options.runtimeGeneration &&
+          input.runtimeGeneration !== options.runtimeGeneration)
+      )
+        return [];
+      const privateHomeIdentity = this.registeredPrivateHomeIdentity(context);
+      if (!privateHomeIdentity || !requestedHomes.has(privateHomeIdentity)) return [];
+      if (
+        !context.registeredStopScope ||
+        context.registeredStopScope.runtimeGenerationFilter !== input.runtimeGeneration
+      ) {
+        const paths = resolveCodexHomeIdentityPaths(options);
+        context.registeredStopScope = Object.freeze({
+          privateHomeIdentity,
+          ...(input.runtimeGeneration ? { runtimeGenerationFilter: input.runtimeGeneration } : {}),
+          options: Object.freeze({
+            homePath: paths.sourceHomePath,
+            accountId: options.accountId,
+            ...(paths.shadowHomePath ? { shadowHomePath: paths.shadowHomePath } : {}),
+            ...(options.runtimeGeneration ? { runtimeGeneration: options.runtimeGeneration } : {}),
+            ...(options.environment?.MOSS_HOME
+              ? { environment: { MOSS_HOME: options.environment.MOSS_HOME } }
+              : {}),
+            ...(options.credentialFence ? { credentialFence: options.credentialFence } : {}),
+          }),
+        });
+      }
+      return [context.registeredStopScope];
+    });
+  }
+
+  async stopRegisteredAccountScopeAndWait(
+    scope: CodexRegisteredRuntimeStopScope,
+  ): Promise<ReadonlyArray<ProviderSession>> {
+    const context = [...this.sessions.values(), ...this.discoverySessions.values()].find(
+      (candidate) => candidate.registeredStopScope === scope,
+    );
+    // A JSON copy cannot authorize a stop. A naturally exited scope needs no work.
+    if (!context) return [];
+    return this.stopAccountContextsAndWait(
+      {
+        ...context.codexOptions,
+        homePath: scope.options.homePath,
+        accountId: scope.options.accountId,
+        ...(scope.runtimeGenerationFilter
+          ? { runtimeGeneration: scope.runtimeGenerationFilter }
+          : {}),
+      },
+      scope,
+    );
+  }
+
+  async stopAccountContextsAndWait(
+    input: {
+      readonly homePath: string;
+      readonly accountId: string;
+    } & CodexCredentialScopeInput,
+    registeredScope?: CodexRegisteredRuntimeStopScope,
+  ): Promise<ReadonlyArray<ProviderSession>> {
+    if (
+      registeredScope &&
+      ![...this.sessions.values(), ...this.discoverySessions.values()].some(
+        (context) => context.registeredStopScope === registeredScope,
+      )
+    )
+      return [];
     const homePath = input.homePath.trim();
     const accountId = input.accountId.trim();
     if (!homePath || !accountId) {
@@ -2962,12 +3177,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     const codexOptions = normalizeCodexDiscoveryOptions({
+      ...input,
       homePath,
       accountId,
       ...(input.runtimeGeneration?.trim()
         ? { runtimeGeneration: input.runtimeGeneration.trim() }
         : {}),
     });
+    const credentialFence = readCodexCredentialFence(codexOptions);
     const accountRuntimeGenerationKey = codexAccountRuntimeGenerationKey(codexOptions);
     const legacyAccountRuntimeGenerationKey = codexAccountRuntimeGenerationKey(
       normalizeCodexDiscoveryOptions({ homePath, accountId }),
@@ -2981,11 +3198,36 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       // just shut down. The process snapshot is deliberately account-wide because
       // legacy and rotated contexts share the same writable overlay.
       this.revokedAccountRuntimeGenerations.add(accountRuntimeGenerationKey);
-      this.revokedAccountRuntimeGenerations.add(legacyAccountRuntimeGenerationKey);
-      const revokeHomeGenerations = (options: CodexDiscoveryOptions | undefined) => {
+      if (!credentialFence) {
+        this.revokedAccountRuntimeGenerations.add(legacyAccountRuntimeGenerationKey);
+      }
+      // Keep the old source-wide stop for legacy layouts. Only a verified
+      // private auth/config binding may exclude the shared history source.
+      const revocationHomes = (
+        options: CodexDiscoveryOptions | undefined,
+        context?: CodexSessionContext,
+      ) =>
+        registeredScope || (credentialFence && context)
+          ? [
+              context
+                ? this.registeredPrivateHomeIdentity(context)
+                : registeredScope!.privateHomeIdentity,
+              context?.codexRuntimeHomePath
+                ? canonicalizeCodexHomeIdentityPath(context.codexRuntimeHomePath)
+                : undefined,
+            ].filter((identity): identity is string => identity !== undefined)
+          : credentialFence
+            ? uniqueCodexCredentialHomeIdentityPaths(options).filter(
+                (identity) => identity !== credentialFence.sourceHomeIdentity,
+              )
+            : uniqueCodexLifecycleHomeIdentityPaths(options);
+      const revokeHomeGenerations = (
+        options: CodexDiscoveryOptions | undefined,
+        context?: CodexSessionContext,
+      ) => {
         this.revokedAccountRuntimeGenerations.add(codexAccountRuntimeGenerationKey(options));
         const runtimeGeneration = codexRuntimeGeneration(options);
-        for (const homeIdentity of uniqueCodexLifecycleHomeIdentityPaths(options)) {
+        for (const homeIdentity of revocationHomes(options, context)) {
           this.revokedHomeRuntimeGenerations.add(
             codexHomeRuntimeGenerationKey(homeIdentity, runtimeGeneration),
           );
@@ -2997,15 +3239,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       revokeHomeGenerations(codexOptions);
 
       const contexts = [...this.sessions.values(), ...this.discoverySessions.values()];
-      const targetHomeIdentities = new Set(uniqueCodexLifecycleHomeIdentityPaths(codexOptions));
+      const targetHomeIdentities = new Set(revocationHomes(codexOptions));
       // Expand transitively: a legitimate context can reveal the exact active
       // overlay selected by its environment, and an alias context may name that
       // overlay as its source or shadow auth home.
-      let expanded = true;
+      let expanded = registeredScope === undefined;
       while (expanded) {
         expanded = false;
         for (const context of contexts) {
-          const contextHomeIdentities = uniqueCodexLifecycleHomeIdentityPaths(context.codexOptions);
+          const contextHomeIdentities = revocationHomes(context.codexOptions, context);
           if (!contextHomeIdentities.some((identity) => targetHomeIdentities.has(identity))) {
             continue;
           }
@@ -3018,7 +3260,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         }
       }
       const matchesAccount = (context: CodexSessionContext): boolean =>
-        uniqueCodexLifecycleHomeIdentityPaths(context.codexOptions).some((identity) =>
+        (!(registeredScope || credentialFence) ||
+          !input.runtimeGeneration ||
+          !context.codexOptions?.runtimeGeneration ||
+          context.codexOptions.runtimeGeneration === input.runtimeGeneration) &&
+        revocationHomes(context.codexOptions, context).some((identity) =>
           targetHomeIdentities.has(identity),
         );
       const targets: Array<{
@@ -3033,7 +3279,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         if (!matchesAccount(context) || seen.has(context)) {
           continue;
         }
-        revokeHomeGenerations(normalizeCodexDiscoveryOptions(context.codexOptions));
+        revokeHomeGenerations(context.codexOptions, context);
         seen.add(context);
         stoppedSessions.push({ ...context.session });
         targets.push({
@@ -3059,7 +3305,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         if (!matchesAccount(context) || seen.has(context)) {
           continue;
         }
-        revokeHomeGenerations(normalizeCodexDiscoveryOptions(context.codexOptions));
+        revokeHomeGenerations(context.codexOptions, context);
         seen.add(context);
         targets.push({
           context,
@@ -3198,6 +3444,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!pluginName) {
       throw new Error("plugin/install requires a plugin name.");
     }
+    // A catalog plugin's files come from Moss's mirror on first use; fetch them
+    // before taking the mutation lock so a slow network never blocks other writes.
+    await this.ensureMossPluginCatalogFiles(marketplacePath, pluginName);
     return this.runPluginMutation(input, async (context) => {
       const response = await this.sendRequest<Record<string, unknown>>(context, "plugin/install", {
         ...(marketplacePath ? { marketplacePath } : { remoteMarketplaceName }),
@@ -3513,19 +3762,79 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       limit: 50,
       includeHidden: false,
     });
-    const discoveredModels = parseCodexModelListResponse(response);
-    const models =
+    const config = await this.readEffectiveConfig(context, cwd);
+    const discoveredModels = withConfiguredCodexServiceTier(
+      parseCodexModelListResponse(response),
+      readCodexConfiguredServiceTier(config),
+    );
+    // The person's own account starts on the model their config.toml (or its active
+    // profile) sets; Moss's managed account keeps its curated list and default.
+    const listedDefault = readCodexListedDefaultModel(response);
+    const catalog =
       codexOptions?.accountId === "moss"
-        ? filterMossManagedCodexModels(discoveredModels)
-        : discoveredModels;
+        ? { models: filterMossManagedCodexModels(discoveredModels) }
+        : withCodexDefaultModel(discoveredModels, {
+            configuredModel: readCodexConfiguredModel(config),
+            ...(listedDefault ? { listedDefault } : {}),
+          });
     const result: ProviderListModelsResult = {
-      models,
+      models: catalog.models,
+      ...("defaultModel" in catalog && catalog.defaultModel
+        ? { defaultModel: catalog.defaultModel }
+        : {}),
       source: "codex-app-server",
       cached: false,
     };
     this.assertDiscoveryAuthMatchesRequest(context, codexOptions, authFingerprint);
     setRecentCacheEntry(this.modelCache, cacheKey, result);
     return result;
+  }
+
+  /**
+   * The account's effective Codex config (`config/read`, active profile applied).
+   * Discovery reads its `model` (the person's default) and `service_tier` (which Codex
+   * applies to every turn that names none, so the composer keeps it off models that do
+   * not offer it). Unreadable config means "unknown", never an error.
+   */
+  private async readEffectiveConfig(
+    context: CodexSessionContext,
+    cwd: string | undefined,
+  ): Promise<unknown> {
+    try {
+      return await this.sendRequest(
+        context,
+        "config/read",
+        { includeLayers: false, ...(cwd?.trim() ? { cwd: cwd.trim() } : {}) },
+        5_000,
+      );
+    } catch {
+      // Config errors can quote secrets; do not log them.
+      return undefined;
+    }
+  }
+
+  private async boundContinuationModelProvider(
+    context: CodexSessionContext,
+    options: CodexDiscoveryOptions | undefined,
+  ) {
+    const fence = readCodexCredentialFence(options);
+    if (!fence) return undefined;
+    this.assertAccountRuntimeGenerationActive(options);
+    // Ask only the selected account, at its signed private root. Applying the
+    // previous rollout's provider ID can otherwise select a missing route.
+    const response = await this.readEffectiveConfig(context, fence.privateHomeIdentity);
+    readCodexCredentialFence(options);
+    this.assertAccountRuntimeGenerationActive(options);
+    const config = this.readObject(response, "config");
+    const value = config?.model_provider;
+    if (!config || (value != null && (typeof value !== "string" || !value.trim()))) {
+      throw new Error("无法确认当前 Codex 账号的模型提供方，请检查私有配置后重试。");
+    }
+    const provider = typeof value === "string" ? value.trim() : "openai";
+    if (options?.accountId === "moss" && provider !== "moss") {
+      throw new Error("Moss 的 Codex 模型提供方与私有配置不符，请重新连接账号。");
+    }
+    return provider;
   }
 
   /**
@@ -3647,6 +3956,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const normalizedCodexOptions = normalizeCodexDiscoveryOptions(codexOptions);
       const codexExecutable = resolveCodexExecutable({
         configuredBinaryPath: codexOptions.binaryPath,
+        accountId: codexOptions.accountId,
         env: process.env,
       });
       const codexBinaryPath = codexExecutable.binaryPath;
@@ -3655,6 +3965,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const codexAccountId = codexOptions.accountId;
       const codexEnvironment = codexOptions.environment;
       await this.assertSupportedCodexCliVersion({
+        ...(codexOptions.credentialFence
+          ? {
+              credentialFence: codexOptions.credentialFence,
+              runtimeGeneration: codexOptions.runtimeGeneration,
+            }
+          : {}),
         binaryPath: codexBinaryPath,
         ...(codexExecutable.source === "bundled"
           ? { expectedVersion: MOSS_BUNDLED_CODEX_VERSION }
@@ -3787,20 +4103,28 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         normalizeCodexModelSlug(input.model),
         context.account,
       );
+      const threadConfig = gatewaySessionLease
+        ? await this.gatewayThreadConfig(context, gatewaySessionLease.connection)
+        : withMossCodexWebSearchMode(undefined, {
+            accountId: codexOptions.accountId,
+            runtimeMode: input.runtimeMode ?? "full-access",
+          });
       const sessionOverrides = {
-        ...(gatewaySessionLease
-          ? { config: await this.gatewayThreadConfig(context, gatewaySessionLease.connection) }
-          : {}),
+        ...(threadConfig ? { config: threadConfig } : {}),
         model: normalizedModel ?? null,
         ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
         cwd: resolvedCwd,
         ...mapCodexRuntimeMode(input.runtimeMode ?? "full-access"),
       };
 
+      const modelProvider =
+        resumeThreadId || forkSourceThreadId
+          ? await this.boundContinuationModelProvider(context, normalizedCodexOptions)
+          : undefined;
       const threadOpenRequest = buildCodexThreadOpenRequest({
         ...(forkSourceThreadId ? { forkSourceThreadId } : {}),
         ...(resumeThreadId ? { resumeThreadId } : {}),
-        sessionOverrides,
+        sessionOverrides: modelProvider ? { ...sessionOverrides, modelProvider } : sessionOverrides,
       });
       const previouslyBound =
         this.previouslyBoundThreadIds.has(threadId) || input.resumeCursor !== undefined;
@@ -3856,7 +4180,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           throw context.terminalFailure.error;
         }
         const recoverableResumeFailure =
-          threadOpenRequest.method === "thread/resume" && isRecoverableThreadResumeError(error);
+          !normalizedCodexOptions?.credentialFence &&
+          threadOpenRequest.method === "thread/resume" &&
+          isRecoverableThreadResumeError(error);
         if (!recoverableResumeFailure) {
           const threadOpenError =
             threadOpenRequest.method === "thread/resume" && resumeThreadId
@@ -4046,6 +4372,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       turnStartParams.effort = input.effort;
     }
     const collaborationMode = buildCodexCollaborationMode({
+      mossManagedAccount: context.codexOptions?.accountId === "moss",
       enableComputerControl: context.enableComputerControl === true,
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
@@ -4461,6 +4788,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     log.warn("abandoning stalled codex turn", { threadId, turnId, detail });
+    context.abandonedTurn = { turnId, detail };
     try {
       await this.interruptTurn(threadId, turnId);
     } catch (error) {
@@ -4735,6 +5063,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const normalizedCodexOptions = normalizeCodexDiscoveryOptions(codexOptions);
       const codexExecutable = resolveCodexExecutable({
         configuredBinaryPath: codexOptions.binaryPath,
+        accountId: codexOptions.accountId,
         env: process.env,
       });
       const codexBinaryPath = codexExecutable.binaryPath;
@@ -4745,8 +5074,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const minimumVersion = resolveCodexThreadOpenMinimumVersion({
         runtimeMode: input.runtimeMode,
         threadOpenMethod: "thread/fork",
+        forkThroughTurn: input.throughTurnId !== undefined,
       });
       await this.assertSupportedCodexCliVersion({
+        ...(codexOptions.credentialFence
+          ? {
+              credentialFence: codexOptions.credentialFence,
+              runtimeGeneration: codexOptions.runtimeGeneration,
+            }
+          : {}),
         binaryPath: codexBinaryPath,
         ...(codexExecutable.source === "bundled"
           ? { expectedVersion: MOSS_BUNDLED_CODEX_VERSION }
@@ -4869,7 +5205,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const serviceTier = resolveCodexServiceTier(input.modelSelection);
       if (serviceTier !== undefined) context.serviceTier = serviceTier;
       signal?.throwIfAborted();
-      let lastTurnId: TurnId | undefined;
+      let lastTurnId = input.throughTurnId;
       if (input.requireCompletedSource) {
         const source = await this.readImportTurnsPage(
           context,
@@ -4894,13 +5230,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             "Wait for the source Codex conversation to finish its turn before importing it.",
           );
         }
-        lastTurnId = lastTurn?.id;
+        lastTurnId ??= lastTurn?.id;
       }
       const forkGatewayConfig = gatewaySessionLease
         ? await this.gatewayThreadConfig(context, gatewaySessionLease.connection)
         : undefined;
+      const modelProvider = await this.boundContinuationModelProvider(
+        context,
+        normalizedCodexOptions,
+      );
       const buildForkParams = (anchorTurnId: TurnId | undefined) => ({
         ...(forkGatewayConfig ? { config: forkGatewayConfig } : {}),
+        ...(modelProvider ? { modelProvider } : {}),
         threadId: sourceProviderThreadId,
         excludeTurns: true,
         deferGoalContinuation: true,
@@ -4932,7 +5273,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         // Codex refuses the anchor. Retry once without it — the fork excludes
         // turns regardless, so the copy only loses the goal-continuation
         // anchor.
-        if (lastTurnId === undefined || !isCodexInProgressAnchorError(error)) {
+        if (
+          input.throughTurnId !== undefined ||
+          lastTurnId === undefined ||
+          !isCodexInProgressAnchorError(error)
+        ) {
           throw isCodexInProgressAnchorError(error) ? codexInProgressSourceError(error) : error;
         }
         response = await this.sendThreadOpenRequest(
@@ -5819,6 +6164,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     let settleBeforeTeardown: Promise<void> | undefined;
     if (!context.stopping) {
+      if (emitClosedLifecycle && this.sessions.get(threadId) === context) {
+        context.pendingStopLifecycle = {
+          ...(context.session.activeTurnId !== undefined &&
+          context.terminalFailure === undefined &&
+          context.authInvalidation === undefined &&
+          context.failureStopping !== true
+            ? { turnId: context.session.activeTurnId }
+            : {}),
+        };
+      }
       context.stopping = true;
       this.clearTaskCompleteFallback(context);
       context.collabReceiverTurns.clear();
@@ -5860,9 +6215,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         status: "closed",
         activeTurnId: undefined,
       });
-      if (emitClosedLifecycle && this.sessions.get(threadId) === context) {
-        this.emitLifecycleEvent(context, "session/closed", "Session stopped");
-      }
     }
     let stopPromise: Promise<void>;
     // Teardown starts synchronously unless parked requests still need answering,
@@ -5873,6 +6225,29 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     stopPromise = teardown.then(
       () => {
         if (this.sessions.get(threadId) === context) {
+          if (context.pendingStopLifecycle) {
+            const turnId = context.pendingStopLifecycle.turnId;
+            if (turnId !== undefined) {
+              // This is a Moss lifecycle conclusion after process-tree exit,
+              // not a provider-native interruption or successful completion.
+              this.emitEvent({
+                id: EventId.makeUnsafe(randomUUID()),
+                kind: "session",
+                provider: "codex",
+                threadId,
+                turnId,
+                createdAt: new Date().toISOString(),
+                ...(context.lifecycleGeneration !== undefined
+                  ? { lifecycleGeneration: context.lifecycleGeneration }
+                  : {}),
+                method: "session/turn-aborted",
+                message: "Codex runtime stopped before this turn reported its final status.",
+                payload: { authoredBy: "moss", processExitConfirmed: true },
+              });
+            }
+            this.emitLifecycleEvent(context, "session/closed", "Session stopped");
+            delete context.pendingStopLifecycle;
+          }
           this.sessions.delete(threadId);
         }
       },
@@ -6249,9 +6624,22 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return result;
   }
 
+  private async ensureMossPluginCatalogFiles(
+    marketplacePath: string | null,
+    pluginName: string,
+  ): Promise<void> {
+    const root = this.mossPluginCatalogRoot;
+    if (!isMossPluginCatalogMarketplacePath(root, marketplacePath)) return;
+    if ((await ensureMossPluginCatalogPlugin({ root, name: pluginName })) === "downloaded") {
+      this.pluginsCache.clear();
+      this.pluginDetailCache.clear();
+    }
+  }
+
   async readPlugin(input: CodexPluginReadInput): Promise<ProviderReadPluginResult> {
     const marketplacePath = input.marketplacePath?.trim() ?? "";
     const pluginName = input.pluginName.trim();
+    await this.ensureMossPluginCatalogFiles(marketplacePath, pluginName);
     const codexOptions = normalizeCodexDiscoveryOptions(input.codexOptions);
     const discoveryGeneration = this.beginDiscoveryRequest();
     const authFingerprint = await this.authFingerprintForOptions(codexOptions);
@@ -6696,10 +7084,17 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const now = new Date().toISOString();
       const codexExecutable = resolveCodexExecutable({
         configuredBinaryPath: normalizedCodexOptions?.binaryPath,
+        accountId: normalizedCodexOptions?.accountId,
         env: process.env,
       });
       const codexBinaryPath = codexExecutable.binaryPath;
       await this.assertSupportedCodexCliVersion({
+        ...(normalizedCodexOptions?.credentialFence
+          ? {
+              credentialFence: normalizedCodexOptions.credentialFence,
+              runtimeGeneration: normalizedCodexOptions.runtimeGeneration,
+            }
+          : {}),
         binaryPath: codexBinaryPath,
         ...(codexExecutable.source === "bundled"
           ? { expectedVersion: MOSS_BUNDLED_CODEX_VERSION }
@@ -6971,15 +7366,26 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
     // Shared across chunks: an entry's detail lines can arrive in the next one.
     const stderrState = { continuationSuppressed: false };
+    // On Windows a launcher shim (cmd.exe) writes its errors in the system code page; decode
+    // those lines with it so a provider error reads as text, not mojibake.
+    const stderrDecoder = createNativeOutputDecoder();
+    const emitStderrText = (text: string) => {
+      if (context.stopping || text.length === 0) {
+        return;
+      }
+      const lines = text.split(/\r?\n/g);
+      for (const message of classifyCodexStderrLines(lines, stderrState)) {
+        this.emitErrorEvent(context, "process/stderr", message);
+      }
+    };
     context.child.stderr.on("data", (chunk: Buffer) => {
       if (context.stopping) {
         return;
       }
-      const lines = chunk.toString().split(/\r?\n/g);
-      for (const message of classifyCodexStderrLines(lines, stderrState)) {
-        this.emitErrorEvent(context, "process/stderr", message);
-      }
+      emitStderrText(stderrDecoder.write(chunk));
     });
+    // A last line in the system code page without a line break is held until here.
+    context.child.stderr.once("end", () => emitStderrText(stderrDecoder.end()));
 
     context.child.on("error", (error) => this.handleTransportFailure(context, error));
 
@@ -7115,10 +7521,34 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     );
   }
 
-  private handleServerNotification(
+  /**
+   * Codex reports a turn Moss abandoned as plainly "interrupted", which reads as
+   * if the user pressed stop. Report it as the failure it is, with Moss's reason.
+   */
+  private withAbandonedTurnReason(
     context: CodexSessionContext,
     notification: JsonRpcNotification,
+  ): JsonRpcNotification {
+    const abandoned = context.abandonedTurn;
+    if (abandoned === undefined || notification.method !== "turn/completed") return notification;
+    if (this.readRouteFields(notification.params).turnId !== abandoned.turnId) return notification;
+    context.abandonedTurn = undefined;
+    const turn = this.readObject(notification.params, "turn");
+    if (this.readString(turn, "status") !== "interrupted") return notification;
+    return {
+      ...notification,
+      params: {
+        ...this.readObject(notification.params),
+        turn: { ...turn, status: "failed", error: { message: abandoned.detail } },
+      },
+    };
+  }
+
+  private handleServerNotification(
+    context: CodexSessionContext,
+    incomingNotification: JsonRpcNotification,
   ): void {
+    const notification = this.withAbandonedTurnReason(context, incomingNotification);
     if (this.claimPredictionThreadNotification(context, notification)) return;
     const rawRoute = this.readRouteFields(notification.params);
     this.rememberCollabReceiverTurns(context, notification.params, rawRoute.turnId);
@@ -7251,6 +7681,19 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
       this.clearTaskCompleteFallback(context);
       const turnId = toTurnId(this.readString(this.readObject(notification.params)?.turn, "id"));
+      if (
+        turnId !== undefined &&
+        providerThreadId &&
+        !context.stopPromise &&
+        !context.gatewayCredentialRetired &&
+        !context.gatewayRenewalInProgress &&
+        providerThreadId ===
+          normalizeProviderThreadId(
+            readResumeThreadId({ resumeCursor: context.session.resumeCursor }),
+          )
+      ) {
+        context.gatewaySessionLease?.noteParentTurnStarted?.(turnId);
+      }
       if (
         turnId !== undefined &&
         context.session.activeTurnId !== undefined &&
@@ -7669,7 +8112,35 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     params: unknown,
   ): Promise<TResponse> {
     this.assertContextAuthCurrent(context);
-    return this.sendRequest(context, method, params, CODEX_THREAD_OPEN_TIMEOUT_MS);
+    const request = this.sendRequest<TResponse>(
+      context,
+      method,
+      params,
+      CODEX_THREAD_OPEN_TIMEOUT_MS,
+    );
+    if (method === "thread/start" || !this.readString(params, "modelProvider")) return request;
+    return request.catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        /This chat uses .+?but your current provider is|This chat uses model provider .+?which is no longer configured/u.test(
+          message,
+        )
+      ) {
+        throw new Error(
+          "该 Codex 原生对话不能使用目标账号的模型提供方。原历史已保留，请用原账号继续。",
+        );
+      }
+      if (
+        /This chat uses model provider .+?your organization requires|model provider settings no longer match your organization/u.test(
+          message,
+        )
+      ) {
+        throw new Error(
+          "当前组织策略不允许这个 Codex 对话切换模型提供方。原历史已保留，请使用原账号或联系管理员。",
+        );
+      }
+      throw error;
+    });
   }
 
   private writeMessage(context: CodexSessionContext, message: unknown): Promise<void> {
@@ -7896,20 +8367,23 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     });
   }
 
-  private async assertSupportedCodexCliVersion(input: {
-    readonly binaryPath: string;
-    readonly cwd: string;
-    readonly homePath?: string;
-    readonly shadowHomePath?: string;
-    readonly accountId?: string;
-    readonly environment?: Readonly<Record<string, string>>;
-    readonly minimumVersion?: string;
-    readonly expectedVersion?: string;
-    readonly minimumVersionRequirement?: string;
-    readonly expectedSharedContinuationGeneration?: string;
-  }): Promise<void> {
+  private async assertSupportedCodexCliVersion(
+    input: {
+      readonly binaryPath: string;
+      readonly cwd: string;
+      readonly homePath?: string;
+      readonly shadowHomePath?: string;
+      readonly accountId?: string;
+      readonly environment?: Readonly<Record<string, string>>;
+      readonly minimumVersion?: string;
+      readonly expectedVersion?: string;
+      readonly minimumVersionRequirement?: string;
+      readonly expectedSharedContinuationGeneration?: string;
+    } & CodexCredentialScopeInput,
+  ): Promise<void> {
     const { managedHomeAuthority } = await this.readProcessEnvInputForOptions(input);
     await assertSupportedCodexCliVersion({
+      runtimePrograms: this.runtimePrograms,
       ...input,
       ...(managedHomeAuthority ? { managedHomeAuthority } : {}),
     });
@@ -8421,15 +8895,23 @@ function runCodexVersionCommand(input: {
   readonly binaryPath: string;
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
+  readonly runtimePrograms: AgentProgramOwnership;
 }): Promise<CodexVersionCommandResult> {
   return new Promise<CodexVersionCommandResult>((resolve) => {
     let child: ChildProcess;
     try {
-      child = spawnProcess(input.binaryPath, ["--version"], {
-        requireExecutable: true,
+      child = input.runtimePrograms.spawn({
+        binaryPath: input.binaryPath,
         cwd: input.cwd,
         env: input.env,
-        stdio: ["ignore", "pipe", "pipe"],
+        sourceHomePath: agentProgramSourceHome("codex", input.env, input.cwd),
+        spawn: () =>
+          spawnProcess(input.binaryPath, ["--version"], {
+            requireExecutable: true,
+            cwd: input.cwd,
+            env: input.env,
+            stdio: ["ignore", "pipe", "pipe"],
+          }),
       });
     } catch (error) {
       resolve({
@@ -8499,20 +8981,26 @@ interface CodexCliBinaryFingerprint {
   readonly identity: string;
 }
 
-async function runCodexCliVersionGate(input: {
-  readonly binaryPath: string;
-  readonly cwd: string;
-  readonly homePath?: string;
-  readonly shadowHomePath?: string;
-  readonly accountId?: string;
-  readonly environment?: Readonly<Record<string, string>>;
-  readonly minimumVersion?: string;
-  readonly expectedVersion?: string;
-  readonly minimumVersionRequirement?: string;
-  readonly expectedSharedContinuationGeneration?: string;
-  readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
-}): Promise<CodexCliBinaryFingerprint | null> {
+async function runCodexCliVersionGate(
+  input: {
+    readonly runtimePrograms: AgentProgramOwnership;
+    readonly binaryPath: string;
+    readonly cwd: string;
+    readonly homePath?: string;
+    readonly shadowHomePath?: string;
+    readonly accountId?: string;
+    readonly environment?: Readonly<Record<string, string>>;
+    readonly minimumVersion?: string;
+    readonly expectedVersion?: string;
+    readonly minimumVersionRequirement?: string;
+    readonly expectedSharedContinuationGeneration?: string;
+    readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
+  } & CodexCredentialScopeInput,
+): Promise<CodexCliBinaryFingerprint | null> {
   const codexOptions = normalizeCodexDiscoveryOptions({
+    ...(input.credentialFence
+      ? { credentialFence: input.credentialFence, runtimeGeneration: input.runtimeGeneration }
+      : {}),
     ...(input.homePath ? { homePath: input.homePath } : {}),
     ...(input.shadowHomePath ? { shadowHomePath: input.shadowHomePath } : {}),
     ...(input.accountId ? { accountId: input.accountId } : {}),
@@ -8531,6 +9019,7 @@ async function runCodexCliVersionGate(input: {
   const resolvedPath = resolveExecutable(input.binaryPath, { env, cwd: input.cwd });
   const identity = resolvedPath ? executableIdentity(resolvedPath) : null;
   const result = await runCodexVersionCommand({
+    runtimePrograms: input.runtimePrograms,
     binaryPath: input.binaryPath,
     cwd: input.cwd,
     env,
@@ -8647,35 +9136,40 @@ function isCodexCliVersionGateStale(entry: CodexCliVersionGateEntry): boolean {
   return executableIdentity(entry.fingerprint.path) !== entry.fingerprint.identity;
 }
 
-async function assertSupportedCodexCliVersion(input: {
-  readonly binaryPath: string;
-  readonly cwd: string;
-  readonly homePath?: string;
-  readonly shadowHomePath?: string;
-  readonly accountId?: string;
-  readonly environment?: Readonly<Record<string, string>>;
-  readonly minimumVersion?: string;
-  readonly expectedVersion?: string;
-  readonly minimumVersionRequirement?: string;
-  readonly expectedSharedContinuationGeneration?: string;
-  readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
-}): Promise<void> {
+async function assertSupportedCodexCliVersion(
+  input: {
+    readonly runtimePrograms: AgentProgramOwnership;
+    readonly binaryPath: string;
+    readonly cwd: string;
+    readonly homePath?: string;
+    readonly shadowHomePath?: string;
+    readonly accountId?: string;
+    readonly environment?: Readonly<Record<string, string>>;
+    readonly minimumVersion?: string;
+    readonly expectedVersion?: string;
+    readonly minimumVersionRequirement?: string;
+    readonly expectedSharedContinuationGeneration?: string;
+    readonly managedHomeAuthority?: ManagedCodexHomeAuthority;
+  } & CodexCredentialScopeInput,
+): Promise<void> {
   // Prefer an explicit cwd check before spawning. A missing working directory
   // produces ENOENT that is otherwise misreported as a missing Codex binary. This
   // is per-call state, so it must run even when the version verdict is cached.
   assertCodexWorkingDirectoryExists(input.cwd);
+  const credentialFence = readCodexCredentialFence(input);
 
-  const key = codexCliVersionGateKey(
-    input.binaryPath,
-    input.cwd,
-    input.homePath,
-    input.shadowHomePath,
-    input.accountId,
-    input.environment,
-    input.minimumVersion,
-    input.expectedSharedContinuationGeneration,
-    input.expectedVersion,
-  );
+  const key =
+    codexCliVersionGateKey(
+      input.binaryPath,
+      input.cwd,
+      input.homePath,
+      input.shadowHomePath,
+      input.accountId,
+      input.environment,
+      input.minimumVersion,
+      input.expectedSharedContinuationGeneration,
+      input.expectedVersion,
+    ) + (credentialFence ? JSON.stringify(credentialFence) : "");
   const now = Date.now();
   const existing = codexCliVersionGates.get(key);
   if (existing) {
@@ -8721,7 +9215,15 @@ async function assertSupportedCodexCliVersion(input: {
 }
 
 export const __codexCliVersionGateTesting = {
-  assertSupportedCodexCliVersion,
+  assertSupportedCodexCliVersion: (
+    input: Omit<Parameters<typeof assertSupportedCodexCliVersion>[0], "runtimePrograms"> & {
+      readonly runtimePrograms?: AgentProgramOwnership;
+    },
+  ) =>
+    assertSupportedCodexCliVersion({
+      ...input,
+      runtimePrograms: input.runtimePrograms ?? makeAgentProgramOwnership("codex"),
+    }),
   reset: () => codexCliVersionGates.clear(),
   cacheTtlMs: CODEX_VERSION_CHECK_CACHE_TTL_MS,
 };

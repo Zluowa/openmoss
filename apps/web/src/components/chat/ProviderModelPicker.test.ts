@@ -2,7 +2,7 @@ import {
   SUPPORTED_PROVIDER_KINDS,
   type ProviderKind,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

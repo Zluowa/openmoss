@@ -10,7 +10,7 @@ import type {
   WorkspaceImportProbeResult,
   WorkspaceImportSourceKind,
   WorkspaceImportSourcePreview,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { collectImportChats, inspectCodexChatInventory, readSourceSettings } from "./chats";
 import { readWorkspaceImportHistory, readWorkspaceImportSync } from "./history";
 import { canonicalWorkspaceImportSources, workspaceImportProviderForSource } from "./providers";

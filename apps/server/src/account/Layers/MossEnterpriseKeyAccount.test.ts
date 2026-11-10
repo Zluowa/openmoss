@@ -238,4 +238,19 @@ describe("MossEnterpriseKeyAccount", () => {
     expect(state).toMatchObject({ authenticated: false, active: false });
     expect(harness.secrets.values.has(MOSS_ENTERPRISE_KEY_SECRET_NAME)).toBe(false);
   });
+
+  it("shows a key revoked since the last launch without deleting what may be its only copy", async () => {
+    const harness = makeHarness();
+    await harness.run((account) => account.signIn({ apiKey: KEY }));
+    vi.mocked(harness.fetchGatewayModels).mockImplementation(() =>
+      Effect.succeed({ status: "auth-denied", models: [] }),
+    );
+
+    const state = await harness.run((account) =>
+      account.restore().pipe(Effect.andThen(account.getState())),
+    );
+
+    expect(state).toMatchObject({ authenticated: true, modelGatewayStatus: "auth-denied" });
+    expect(harness.secrets.values.has(MOSS_ENTERPRISE_KEY_SECRET_NAME)).toBe(true);
+  });
 });

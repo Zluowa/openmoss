@@ -7,6 +7,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import {
+  canonicalizeCodexHomeIdentityPath,
+  issueCodexCredentialFence,
+  readCodexCredentialFence,
+  type CodexCredentialScopeInput,
+} from "../../codexHomeIdentity.ts";
+import { ServerConfig } from "../../config.ts";
+import { readClaudeStateBinding } from "../claudeStateBinding.ts";
+import {
+  buildMossManagedClaudeInstance,
+  stopMossManagedProviderRuntimes,
+} from "../../account/Layers/MossManagedProvider.ts";
+import type { CodexRegisteredRuntimeStopScope } from "../../codexAppServerManager.ts";
 
 import type {
   ModelSelection,
@@ -18,7 +31,7 @@ import type {
   ProviderStartReviewInput,
   ProviderSteerTurnInput,
   ProviderTurnStartResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   ApprovalRequestId,
   EventId,
@@ -30,7 +43,7 @@ import {
   RuntimeRequestId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { it, assert, vi } from "@effect/vitest";
 import { afterAll, beforeAll } from "vitest";
 import { assertFailure } from "@effect/vitest/utils";
@@ -216,7 +229,9 @@ const ProviderServiceTestSecretStoreLayer = Layer.succeed(ServerSecretStore, {
     }),
 });
 const makeProviderServiceLive = (options?: Parameters<typeof makeProviderServiceLiveBase>[0]) =>
-  makeProviderServiceLiveBase(options).pipe(Layer.provide(ProviderServiceTestSecretStoreLayer));
+  makeProviderServiceLiveBase({ codexInterruptSettlementTimeoutMs: 0, ...options }).pipe(
+    Layer.provide(ProviderServiceTestSecretStoreLayer),
+  );
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
@@ -614,6 +629,7 @@ function makeProviderServiceLayer(
     readonly includeRestartRollbackDroid?: boolean;
     readonly includePi?: boolean;
     readonly includeOpenCode?: boolean;
+    readonly getByInstance?: NonNullable<typeof ProviderAdapterRegistry.Service.getByInstance>;
     readonly codexDidResumeSession?: NonNullable<
       ProviderAdapterShape<ProviderAdapterError>["didResumeSession"]
     >;
@@ -663,6 +679,7 @@ function makeProviderServiceLayer(
         ...(providers?.includePi === true ? (["pi"] as const) : []),
         ...(providers?.includeOpenCode === true ? (["opencode"] as const) : []),
       ] as const),
+    ...(providers?.getByInstance ? { getByInstance: providers.getByInstance } : {}),
   };
 
   const providerAdapterLayer = Layer.succeed(ProviderAdapterRegistry, registry);
@@ -732,10 +749,7 @@ replacementRouting.layer("Claude replacement preparation", (it) => {
           replacementRouting.claude.prepareSessionReplacement.mockImplementationOnce(
             (preparedInput) =>
               Effect.gen(function* () {
-                assert.equal(
-                  preparedInput.providerOptions?.claudeAgent?.binaryPath,
-                  "/persisted/bin/claude",
-                );
+                assert.equal(preparedInput.providerOptions?.claudeAgent?.binaryPath, undefined);
                 assert.equal(
                   preparedInput.runtimeMode,
                   failure === "background" ? "full-access" : "auto",
@@ -851,10 +865,29 @@ const unboundStoppedOpenCodeRouting = makeProviderServiceLayer(undefined, {
   includeOpenCode: true,
 });
 const stoppedOpenCodeRouting = makeProviderServiceLayer(undefined, { includeOpenCode: true });
+const disabledDefaultInstanceRouting = makeProviderServiceLayer(undefined, {
+  // Same gate as the real registry: a disabled instance only resolves on request.
+  getByInstance: (instanceId, options) =>
+    options?.allowDisabled === true
+      ? Effect.succeed(disabledDefaultInstanceRouting.codex.adapter)
+      : Effect.fail(new ProviderUnsupportedError({ provider: instanceId })),
+});
 const stoppedOpenCodeDisabledRouting = makeProviderServiceLayer(
   { providerIsEnabled: (provider) => Effect.succeed(provider !== "opencode") },
   { includeOpenCode: true },
 );
+
+disabledDefaultInstanceRouting.layer("ProviderServiceLive capabilities", (it) => {
+  it.effect("reads static capabilities while the driver's default instance is disabled", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      // The turn path asks by driver kind. A managed Kimi, MiniMax, ZCode or Hermes
+      // session runs with its default instance off, which must not fail the turn.
+      const capabilities = yield* provider.getCapabilities(asProviderInstanceId("codex"));
+      assert.equal(capabilities.sessionModelSwitch, "in-session");
+    }),
+  );
+});
 
 routing.layer("ProviderServiceLive native forks", (it) => {
   it.effect("forks across Codex account instances sharing continuation storage", () =>
@@ -1008,6 +1041,777 @@ routing.layer("ProviderServiceLive native forks", (it) => {
     }),
   );
 });
+
+it.effect(
+  "ProviderServiceLive keeps Claude shared refs across renewal and exact managed cleanup",
+  () =>
+    Effect.gen(function* () {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "moss-claude-bound-service-"));
+      const previousGateway = process.env.MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL;
+      try {
+        const stateDir = path.join(root, "state");
+        const ownHome = path.join(root, "own");
+        const ownConfig = path.join(ownHome, ".claude");
+        const source = path.join(ownConfig, "projects");
+        const nextSource = path.join(root, "next-projects");
+        for (const dir of [stateDir, source, nextSource]) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(source, "retained.jsonl"), "original own history");
+        fs.writeFileSync(path.join(ownConfig, ".credentials.json"), '{"fixture":"own"}');
+        const gatewayBaseUrl = "https://project.supabase.co/functions/v1/moss-model-gateway/v1";
+        process.env.MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL = gatewayBaseUrl;
+        const managed = buildMossManagedClaudeInstance({
+          accessToken: "synthetic-managed-token",
+          gatewayBaseUrl,
+          runtimeGeneration: "managed-generation",
+          env: { MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL: gatewayBaseUrl },
+          realm: "global",
+        });
+        const instances = {
+          claude_own: {
+            driver: "claudeAgent",
+            config: { homePath: ownHome, configDir: ownConfig },
+          },
+          claude_moss: managed,
+        };
+        let permitResume = true;
+        let revokeSourceOnResume = false;
+        const claude = makeFakeCodexAdapter("claudeAgent", {
+          didResumeSession: (input, session) => {
+            if (input.providerInstanceId === "claude_moss" && revokeSourceOnResume) {
+              fs.writeFileSync(
+                path.join(ownConfig, ".credentials.json"),
+                '{"fixture":"new-source-generation"}',
+              );
+              return false;
+            }
+            return (
+              (permitResume || input.providerInstanceId === "claude_own") &&
+              JSON.stringify(session.resumeCursor) === JSON.stringify(input.resumeCursor)
+            );
+          },
+        });
+        const registry: typeof ProviderAdapterRegistry.Service = {
+          getByProvider: () => Effect.succeed(claude.adapter),
+          listProviders: () => Effect.succeed(["claudeAgent"]),
+        };
+        const directoryLayer = ProviderSessionDirectoryLive.pipe(
+          Layer.provide(
+            ProviderSessionRuntimeRepositoryLive.pipe(
+              Layer.provide(makeSqlitePersistenceLive(path.join(stateDir, "state.sqlite"))),
+            ),
+          ),
+        );
+        const providerLayer = makeProviderServiceLive().pipe(
+          Layer.provide(Layer.succeed(ProviderAdapterRegistry, registry)),
+          Layer.provideMerge(directoryLayer),
+          Layer.provideMerge(
+            ServerSettingsService.layerTest({
+              providers: {
+                claudeAgent: { shareStateAcrossAccounts: false, sharedProjectsPath: source },
+              },
+              providerInstances: instances,
+            }),
+          ),
+          Layer.provide(ServerConfig.layerTest(root, path.join(root, "runtime"), { stateDir })),
+        );
+        yield* Effect.gen(function* () {
+          const provider = yield* ProviderService;
+          const directory = yield* ProviderSessionDirectory;
+          const settings = yield* ServerSettingsService;
+          const legacyId = asThreadId("claude-legacy-no-ref");
+          const threadId = asThreadId("claude-shared-switch");
+          const ownId = asThreadId("claude-shared-independent-own");
+          const start = (id: ThreadId, instanceId = "claude_own") =>
+            provider.startSession(id, {
+              threadId: id,
+              provider: "claudeAgent",
+              providerInstanceId: instanceId,
+              runtimeMode: "full-access",
+              cwd: root,
+              providerOptions: {
+                claudeAgent: {
+                  homePath: path.join(root, "client-home"),
+                  environment: { ANTHROPIC_API_KEY: "synthetic-client" },
+                },
+              },
+            });
+          const legacy = yield* start(legacyId);
+          yield* settings.updateSettings({
+            providers: { claudeAgent: { shareStateAcrossAccounts: true } },
+          });
+          const first = yield* start(threadId);
+          yield* start(ownId);
+          const initial = asRuntimePayloadRecord(
+            Option.getOrThrow(yield* directory.getBinding(threadId)).runtimePayload,
+          );
+          assert.equal(typeof initial.claudeStateBindingReference, "string");
+          assert.match(String(initial.continuationIdentity), /^claudeAgent:shared-v1:/);
+          const persistedOptions = asRuntimePayloadRecord(
+            asRuntimePayloadRecord(initial.providerOptions).claudeAgent,
+          );
+          assert.equal(persistedOptions.stateBinding, undefined);
+          assert.deepEqual(persistedOptions.environment, {});
+          assert.ok(
+            readClaudeStateBinding(
+              claude.startSession.mock.calls.at(-1)![0].providerOptions?.claudeAgent,
+            ),
+          );
+          const launchIdentity = {
+            threadId,
+            provider: "claudeAgent",
+            providerInstanceId: "claude_own",
+          } as const;
+          assert.equal(yield* provider.sessionBindingMatchesLaunchOptions!(launchIdentity), true);
+          yield* settings.updateSettings({
+            providers: { claudeAgent: { sharedProjectsPath: nextSource } },
+          });
+          yield* claude.stopSession(legacyId);
+          yield* start(legacyId);
+          const legacyRestart = claude.startSession.mock.calls.at(-1)![0];
+          assert.deepEqual(legacyRestart.resumeCursor, legacy.resumeCursor);
+          assert.equal(legacyRestart.providerOptions?.claudeAgent?.homePath, ownHome);
+          assert.equal(
+            legacyRestart.providerOptions?.claudeAgent?.environment?.CLAUDE_CONFIG_DIR,
+            ownConfig,
+          );
+          assert.equal(
+            asRuntimePayloadRecord(
+              Option.getOrThrow(yield* directory.getBinding(legacyId)).runtimePayload,
+            ).claudeStateBindingReference,
+            null,
+          );
+          fs.renameSync(
+            path.join(ownConfig, ".credentials.json"),
+            path.join(ownConfig, "retained-credentials"),
+          );
+          fs.writeFileSync(path.join(ownConfig, ".credentials.json"), '{"fixture":"own"}');
+          assert.equal(yield* provider.sessionBindingMatchesLaunchOptions!(launchIdentity), false);
+          yield* claude.stopSession(threadId);
+          yield* provider.sendTurn({ threadId, input: "continue", attachments: [] });
+          assert.deepEqual(
+            claude.startSession.mock.calls.at(-1)![0].resumeCursor,
+            first.resumeCursor,
+          );
+          assert.notEqual(
+            asRuntimePayloadRecord(
+              Option.getOrThrow(yield* directory.getBinding(threadId)).runtimePayload,
+            ).claudeStateBindingReference,
+            initial.claudeStateBindingReference,
+          );
+          const request = {
+            threadId,
+            provider: "claudeAgent",
+            from: "claude_own",
+            to: "claude_moss",
+          } as const;
+          const beforeSwitch = Option.getOrThrow(yield* directory.getBinding(threadId));
+          assert.equal(
+            yield* provider.prepareSharedAccountSwitch!({ ...request, threadId: legacyId }),
+            undefined,
+          );
+          assert.equal(
+            (yield* Effect.result(
+              provider.prepareSharedAccountSwitch!({ ...request, provider: "codex" }),
+            ))._tag,
+            "Failure",
+          );
+          assert.equal(
+            (yield* Effect.result(
+              provider.prepareSharedAccountSwitch!({ ...request, from: "other" }),
+            ))._tag,
+            "Failure",
+          );
+          const prepared = (yield* provider.prepareSharedAccountSwitch!(request))!;
+          const switchWith = (proof = prepared) =>
+            provider.startSessionWithOutcome!(
+              threadId,
+              {
+                threadId,
+                provider: request.provider,
+                providerInstanceId: request.to,
+                runtimeMode: "full-access",
+                cwd: root,
+              },
+              { sharedAccountSwitch: proof },
+            );
+          assert.equal(
+            (yield* Effect.result(switchWith({ ...prepared, sourceReference: "a".repeat(64) })))
+              ._tag,
+            "Failure",
+          );
+          yield* settings.updateSettings({
+            providerInstances: {
+              ...instances,
+              claude_moss: { ...managed, enabled: false, environment: [] },
+            },
+          });
+          assert.equal((yield* Effect.result(switchWith()))._tag, "Failure");
+          yield* settings.updateSettings({ providerInstances: instances });
+          assert.deepEqual(yield* directory.getBinding(threadId), Option.some(beforeSwitch));
+          fs.renameSync(source, source + "-old");
+          fs.mkdirSync(source);
+          assert.equal((yield* Effect.result(switchWith()))._tag, "Failure");
+          fs.rmdirSync(source);
+          fs.renameSync(source + "-old", source);
+          permitResume = false;
+          assert.equal((yield* Effect.result(switchWith()))._tag, "Failure");
+          const stillOwn = Option.getOrThrow(yield* directory.getBinding(threadId));
+          assert.equal(stillOwn.providerInstanceId, request.from);
+          assert.deepEqual(stillOwn.resumeCursor, beforeSwitch.resumeCursor);
+          assert.equal(
+            asRuntimePayloadRecord(stillOwn.runtimePayload).claudeStateBindingReference,
+            prepared.sourceReference,
+          );
+          assert.ok(
+            readClaudeStateBinding(
+              claude.startSession.mock.calls.at(-1)![0].providerOptions?.claudeAgent,
+            ),
+          );
+          permitResume = true;
+          revokeSourceOnResume = true;
+          const startsBeforeRevocation = claude.startSession.mock.calls.length;
+          assert.equal((yield* Effect.result(switchWith()))._tag, "Failure");
+          assert.equal(claude.startSession.mock.calls.length, startsBeforeRevocation + 1);
+          const stopped = Option.getOrThrow(yield* directory.getBinding(threadId));
+          assert.equal(stopped.status, "stopped");
+          assert.equal(stopped.providerInstanceId, request.from);
+          assert.deepEqual(stopped.resumeCursor, beforeSwitch.resumeCursor);
+          assert.equal(
+            asRuntimePayloadRecord(stopped.runtimePayload).claudeStateBindingReference,
+            prepared.sourceReference,
+          );
+          assert.equal(yield* claude.adapter.hasSession(threadId), false);
+          revokeSourceOnResume = false;
+          assert.equal((yield* switchWith()).nativeResumeSucceeded, true);
+          const switched = claude.startSession.mock.calls.at(-1)![0];
+          assert.deepEqual(switched.resumeCursor, first.resumeCursor);
+          const bound = readClaudeStateBinding(switched.providerOptions?.claudeAgent)!;
+          const returnToPreference = (yield* provider.prepareSharedAccountSwitch!({
+            threadId,
+            provider: "claudeAgent",
+            to: "claude_own",
+          }))!;
+          assert.equal(returnToPreference.from, "claude_moss");
+          assert.equal(returnToPreference.sourceReference, prepared.targetReference);
+          assert.equal(
+            (yield* Effect.result(
+              provider.prepareSharedAccountSwitch!({
+                threadId,
+                provider: "claudeAgent",
+                to: "claude_moss",
+              }),
+            ))._tag,
+            "Failure",
+          );
+          assert.equal(
+            yield* provider.prepareSharedAccountSwitch!({
+              threadId,
+              provider: "codex",
+              to: "codex",
+            }),
+            undefined,
+          );
+          assert.equal(bound.record.source.path, canonicalizeCodexHomeIdentityPath(source));
+          assert.notEqual(bound.record.home.path, canonicalizeCodexHomeIdentityPath(ownHome));
+          assert.equal(Object.keys(switched.providerOptions!.claudeAgent!.environment!).length, 3);
+          const ownBefore = yield* directory.getBinding(ownId);
+          yield* settings.updateSettings({
+            providerInstances: {
+              ...instances,
+              claude_moss: { ...managed, enabled: false, environment: [] },
+            },
+          });
+          assert.ok(
+            bound.record.home.path.startsWith(
+              canonicalizeCodexHomeIdentityPath(stateDir) + path.sep,
+            ),
+          );
+          fs.rmSync(bound.record.home.path, { recursive: true });
+          yield* stopMossManagedProviderRuntimes(provider);
+          assert.equal(yield* claude.adapter.hasSession(threadId), false);
+          assert.equal(yield* claude.adapter.hasSession(ownId), true);
+          assert.deepEqual(yield* directory.getBinding(ownId), ownBefore);
+          assert.equal(
+            fs.readFileSync(path.join(source, "retained.jsonl"), "utf8"),
+            "original own history",
+          );
+          const before = claude.startSession.mock.calls.length;
+          assert.equal(
+            (yield* Effect.result(start(asThreadId("disabled-shared"), "claude_moss")))._tag,
+            "Failure",
+          );
+          assert.equal(claude.startSession.mock.calls.length, before);
+        }).pipe(Effect.provide(providerLayer));
+      } finally {
+        if (previousGateway === undefined)
+          delete process.env.MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL;
+        else process.env.MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL = previousGateway;
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "ProviderServiceLive owns shared state refs through recovery, account switch and credential cleanup",
+  () =>
+    Effect.gen(function* () {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "moss-bound-service-"));
+      try {
+        const stateDir = path.join(root, "state");
+        const source = path.join(root, "shared");
+        const nextSource = path.join(root, "next-source");
+        const personal = path.join(root, "personal");
+        const work = path.join(root, "work");
+        for (const dir of [stateDir, source, nextSource, personal, work]) fs.mkdirSync(dir);
+        for (const dir of [personal, work]) {
+          fs.writeFileSync(path.join(dir, "config.toml"), 'model = "private-model"\n');
+          fs.writeFileSync(path.join(dir, "auth.json"), '{"OPENAI_API_KEY":"synthetic-account"}');
+        }
+        const instances = {
+          codex_personal: {
+            driver: "codex" as const,
+            config: { homePath: personal, accountId: "personal" },
+          },
+          codex_work: { driver: "codex" as const, config: { homePath: work, accountId: "work" } },
+        };
+        const settingsLayer = ServerSettingsService.layerTest({
+          providers: { codex: { homePath: source, shareStateAcrossAccounts: false } },
+          providerInstances: instances,
+        });
+        let permitTargetResume = true;
+        const codex = makeFakeCodexAdapter("codex", {
+          didResumeSession: (input, session) =>
+            (permitTargetResume || input.providerInstanceId !== "codex_work") &&
+            Boolean(input.expectedCodexContinuationGeneration) &&
+            JSON.stringify(session.resumeCursor) === JSON.stringify(input.resumeCursor),
+        });
+        const privateIdentity = (options: CodexCredentialScopeInput) =>
+          readCodexCredentialFence(options)?.privateHomeIdentity ??
+          canonicalizeCodexHomeIdentityPath(options.shadowHomePath ?? options.homePath!);
+        const stopAccountContextsAndWait = vi.fn((input: CodexCredentialScopeInput) =>
+          Effect.gen(function* () {
+            const latest = new Map(
+              codex.startSession.mock.calls.map(([start]) => [start.threadId, start]),
+            );
+            const sessions = yield* codex.adapter.listSessions();
+            const matching = sessions.filter((session) => {
+              const options = latest.get(session.threadId)?.providerOptions?.codex;
+              return (
+                options !== undefined &&
+                options.accountId === input.accountId &&
+                privateIdentity(options) === privateIdentity(input) &&
+                options?.runtimeGeneration === input.runtimeGeneration
+              );
+            });
+            for (const session of matching) yield* codex.stopSession(session.threadId);
+            return matching;
+          }),
+        );
+        const registeredScopes = new Map<ThreadId, CodexRegisteredRuntimeStopScope>();
+        const listAccountRuntimeScopes = (input: CodexCredentialScopeInput) =>
+          Effect.gen(function* () {
+            const latest = new Map(
+              codex.startSession.mock.calls.map(([start]) => [start.threadId, start]),
+            );
+            const active = yield* codex.adapter.listSessions();
+            return active.flatMap((session) => {
+              const options = latest.get(session.threadId)?.providerOptions?.codex;
+              if (
+                !options?.homePath ||
+                options.accountId !== input.accountId ||
+                privateIdentity(options) !== privateIdentity(input)
+              )
+                return [];
+              const scope = {
+                options: options as CodexRegisteredRuntimeStopScope["options"],
+                privateHomeIdentity: privateIdentity(options),
+              };
+              registeredScopes.set(session.threadId, scope);
+              return [scope];
+            });
+          });
+        const registry: typeof ProviderAdapterRegistry.Service = {
+          getByProvider: () =>
+            Effect.succeed({
+              ...codex.adapter,
+              stopAccountContextsAndWait,
+              listAccountRuntimeScopes,
+              capabilities: { ...codex.adapter.capabilities, supportsForkThroughTurn: true },
+              stopRegisteredAccountScopeAndWait: (scope: CodexRegisteredRuntimeStopScope) =>
+                [...registeredScopes.values()].includes(scope)
+                  ? stopAccountContextsAndWait(scope.options)
+                  : Effect.succeed([]),
+            }),
+          listProviders: () => Effect.succeed(["codex"]),
+        };
+        const directoryLayer = ProviderSessionDirectoryLive.pipe(
+          Layer.provide(
+            ProviderSessionRuntimeRepositoryLive.pipe(
+              Layer.provide(makeSqlitePersistenceLive(path.join(stateDir, "state.sqlite"))),
+            ),
+          ),
+        );
+        const providerLayer = makeProviderServiceLive().pipe(
+          Layer.provide(Layer.succeed(ProviderAdapterRegistry, registry)),
+          Layer.provideMerge(directoryLayer),
+          Layer.provideMerge(settingsLayer),
+          Layer.provide(ServerConfig.layerTest(root, path.join(root, "runtime"), { stateDir })),
+        );
+        yield* Effect.gen(function* () {
+          const provider = yield* ProviderService;
+          const directory = yield* ProviderSessionDirectory;
+          const settings = yield* ServerSettingsService;
+          const threadId = asThreadId("shared-bound-thread");
+          const ownThreadId = asThreadId("shared-personal-independent");
+          const legacyThreadId = asThreadId("legacy-before-opt-in");
+          yield* Effect.promise(() =>
+            buildCodexProcessEnv({ homePath: source, env: { MOSS_HOME: process.env.MOSS_HOME } }),
+          );
+          const legacy = yield* provider.startSession(legacyThreadId, {
+            threadId: legacyThreadId,
+            provider: "codex",
+            runtimeMode: "full-access",
+            cwd: root,
+          });
+          assert.match(
+            String(
+              asRuntimePayloadRecord(
+                Option.getOrThrow(yield* directory.getBinding(legacyThreadId)).runtimePayload,
+              ).continuationIdentity,
+            ),
+            /^codex:shared-v2:/,
+          );
+          yield* settings.updateSettings({
+            providers: { codex: { shareStateAcrossAccounts: true } },
+          });
+          const start = (id: ThreadId, instanceId: string) =>
+            provider.startSession(id, {
+              threadId: id,
+              provider: "codex",
+              providerInstanceId: instanceId,
+              runtimeMode: "full-access",
+              cwd: root,
+              // Public schema values cannot replace the server's signed source/private roots.
+              providerOptions: {
+                codex: {
+                  homePath: path.join(root, "client-source"),
+                  shadowHomePath: path.join(root, "client-private"),
+                },
+              },
+            });
+          const first = yield* start(threadId, "codex_personal");
+          yield* start(ownThreadId, "codex_personal");
+          const initial = Option.getOrThrow(yield* directory.getBinding(threadId));
+          const initialPayload = asRuntimePayloadRecord(initial.runtimePayload);
+          assert.equal(typeof initialPayload.codexStateBindingReference, "string");
+          assert.equal(
+            asRuntimePayloadRecord(asRuntimePayloadRecord(initialPayload.providerOptions).codex)
+              .credentialFence,
+            undefined,
+          );
+          const firstOptions = codex.startSession.mock.calls.find(
+            ([start]) => start.threadId === threadId,
+          )![0].providerOptions?.codex;
+          assert.ok(readCodexCredentialFence(firstOptions));
+          const rejectedForkId = asThreadId("signed-boundary-rejected");
+          codex.forkThread.mockImplementationOnce(() =>
+            Effect.fail(
+              new ProviderAdapterProcessError({
+                provider: "codex",
+                threadId: rejectedForkId,
+                detail: "native boundary rejected",
+              }),
+            ),
+          );
+          const failedFork = yield* Effect.result(
+            provider.forkThread!({
+              sourceThreadId: threadId,
+              threadId: rejectedForkId,
+              throughTurnId: TurnId.makeUnsafe("selected"),
+              modelSelection: { provider: "codex", instanceId: "codex_work", model: "gpt-5.4" },
+              runtimeMode: "full-access",
+            }),
+          );
+          assert.equal(failedFork._tag, "Failure");
+          if (failedFork._tag === "Failure")
+            assert.match(String(failedFork.failure), /选中的 Codex 轮次/);
+          assert.equal(codex.forkThread.mock.calls.at(-1)?.[0].throughTurnId, "selected");
+          assert.equal(Option.isNone(yield* directory.getBinding(rejectedForkId)), true);
+          assert.deepEqual(
+            Option.getOrThrow(yield* directory.getBinding(threadId)).resumeCursor,
+            first.resumeCursor,
+          );
+          assert.equal(
+            canonicalizeCodexHomeIdentityPath(firstOptions!.homePath!),
+            canonicalizeCodexHomeIdentityPath(source),
+          );
+          assert.equal(
+            canonicalizeCodexHomeIdentityPath(firstOptions!.shadowHomePath!),
+            canonicalizeCodexHomeIdentityPath(personal),
+          );
+          const launchIdentity = {
+            threadId,
+            provider: "codex",
+            providerInstanceId: "codex_personal",
+          } as const;
+          const bindingFilesBeforeInspect = fs.readdirSync(
+            path.join(stateDir, "agent-state-bindings", "codex"),
+          );
+          assert.equal(yield* provider.sessionBindingMatchesLaunchOptions!(launchIdentity), true);
+          yield* settings.updateSettings({ providers: { codex: { homePath: nextSource } } });
+          yield* codex.stopSession(legacyThreadId);
+          yield* provider.startSession(legacyThreadId, {
+            threadId: legacyThreadId,
+            provider: "codex",
+            runtimeMode: "full-access",
+            cwd: root,
+          });
+          const legacyRestarted = codex.startSession.mock.calls.at(-1)![0];
+          assert.equal(
+            canonicalizeCodexHomeIdentityPath(legacyRestarted.providerOptions!.codex!.homePath!),
+            canonicalizeCodexHomeIdentityPath(source),
+          );
+          assert.deepEqual(legacyRestarted.resumeCursor, legacy.resumeCursor);
+          assert.equal(
+            asRuntimePayloadRecord(
+              Option.getOrThrow(yield* directory.getBinding(legacyThreadId)).runtimePayload,
+            ).codexStateBindingReference,
+            null,
+          );
+          fs.writeFileSync(
+            path.join(personal, "auth.json"),
+            '{"OPENAI_API_KEY":"synthetic-refreshed"}',
+          );
+          assert.equal(yield* provider.sessionBindingMatchesLaunchOptions!(launchIdentity), false);
+          assert.deepEqual(
+            fs.readdirSync(path.join(stateDir, "agent-state-bindings", "codex")),
+            bindingFilesBeforeInspect,
+          );
+          yield* codex.stopSession(threadId);
+          yield* provider.sendTurn({ threadId, input: "continue", attachments: [] });
+          const recovered = codex.startSession.mock.calls.at(-1)![0];
+          assert.equal(
+            canonicalizeCodexHomeIdentityPath(recovered.providerOptions!.codex!.homePath!),
+            canonicalizeCodexHomeIdentityPath(source),
+          );
+          assert.deepEqual(recovered.resumeCursor, first.resumeCursor);
+          const renewed = Option.getOrThrow(yield* directory.getBinding(threadId));
+          assert.notEqual(
+            asRuntimePayloadRecord(renewed.runtimePayload).codexStateBindingReference,
+            initialPayload.codexStateBindingReference,
+          );
+          const request = {
+            threadId,
+            provider: "codex",
+            from: "codex_personal",
+            to: "codex_work",
+          } as const;
+          const prepare = () => provider.prepareSharedAccountSwitch!(request);
+          const oldTarget = (yield* prepare())!;
+          fs.writeFileSync(
+            path.join(work, "auth.json"),
+            '{"OPENAI_API_KEY":"synthetic-new-target"}',
+          );
+          const startWith = (proof: typeof oldTarget) =>
+            provider.startSessionWithOutcome!(
+              threadId,
+              {
+                threadId,
+                provider: request.provider,
+                providerInstanceId: request.to,
+                runtimeMode: "full-access",
+                cwd: root,
+              },
+              { sharedAccountSwitch: proof },
+            );
+          assert.equal((yield* Effect.result(startWith(oldTarget)))._tag, "Failure");
+          assert.deepEqual(
+            Option.getOrThrow(yield* directory.getBinding(threadId)).resumeCursor,
+            renewed.resumeCursor,
+          );
+          permitTargetResume = false;
+          assert.equal((yield* Effect.result(startWith((yield* prepare())!)))._tag, "Failure");
+          const restored = codex.startSession.mock.calls.at(-1)![0];
+          const record = JSON.parse(
+            fs.readFileSync(
+              path.join(
+                stateDir,
+                "agent-state-bindings",
+                "codex",
+                String(asRuntimePayloadRecord(renewed.runtimePayload).codexStateBindingReference) +
+                  ".json",
+              ),
+              "utf8",
+            ),
+          );
+          assert.equal(restored.providerInstanceId, "codex_personal");
+          assert.equal(
+            restored.expectedCodexContinuationGeneration,
+            record.record.sourceGeneration,
+          );
+          assert.deepEqual(restored.resumeCursor, renewed.resumeCursor);
+          assert.equal(yield* codex.adapter.hasSession(threadId), true);
+          permitTargetResume = true;
+          assert.equal((yield* startWith((yield* prepare())!)).nativeResumeSucceeded, true);
+          const switched = codex.startSession.mock.calls.at(-1)![0];
+          assert.equal(
+            canonicalizeCodexHomeIdentityPath(switched.providerOptions!.codex!.homePath!),
+            canonicalizeCodexHomeIdentityPath(source),
+          );
+          assert.equal(
+            canonicalizeCodexHomeIdentityPath(switched.providerOptions!.codex!.shadowHomePath!),
+            canonicalizeCodexHomeIdentityPath(work),
+          );
+          assert.deepEqual(switched.resumeCursor, first.resumeCursor);
+          const ownBefore = yield* directory.getBinding(ownThreadId);
+          const oldGeneration = switched.providerOptions!.codex!.runtimeGeneration;
+          const legacyWorkId = asThreadId("legacy-work-without-ref");
+          const legacyWorkOptions = {
+            homePath: work,
+            accountId: "work",
+            runtimeGeneration: oldGeneration,
+          };
+          const legacyWork = yield* codex.startSession({
+            ...switched,
+            threadId: legacyWorkId,
+            providerOptions: { codex: legacyWorkOptions },
+          });
+          yield* directory.upsert({
+            threadId: legacyWorkId,
+            provider: "codex",
+            providerInstanceId: "codex_work",
+            status: "running",
+            resumeCursor: legacyWork.resumeCursor,
+            runtimePayload: { providerOptions: { codex: legacyWorkOptions } },
+          });
+          const orphanId = asThreadId("shared-active-without-directory");
+          yield* codex.startSession({ ...switched, threadId: orphanId });
+          assert.equal(Option.isNone(yield* directory.getBinding(orphanId)), true);
+          fs.rmSync(path.join(work, "auth.json"));
+          yield* settings.updateSettings({
+            providerInstances: {
+              ...instances,
+              codex_work: { ...instances.codex_work, enabled: false },
+            },
+          });
+          yield* provider.stopCodexAccountRuntimes!({ homePath: work, accountId: "work" });
+          assert.equal(
+            stopAccountContextsAndWait.mock.calls.at(-1)![0].runtimeGeneration,
+            oldGeneration,
+          );
+          assert.ok(readCodexCredentialFence(stopAccountContextsAndWait.mock.calls.at(-1)![0]));
+          assert.equal(Option.getOrThrow(yield* directory.getBinding(threadId)).status, "stopped");
+          assert.equal(
+            Option.getOrThrow(yield* directory.getBinding(legacyWorkId)).status,
+            "stopped",
+          );
+          assert.equal(Option.getOrThrow(yield* directory.getBinding(orphanId)).status, "stopped");
+          assert.equal(yield* codex.adapter.hasSession(legacyWorkId), false);
+          assert.equal(yield* codex.adapter.hasSession(orphanId), false);
+          assert.deepEqual(yield* directory.getBinding(ownThreadId), ownBefore);
+          yield* start(asThreadId("shared-after-setting"), "codex_personal");
+          assert.equal(
+            canonicalizeCodexHomeIdentityPath(
+              codex.startSession.mock.calls.at(-1)![0].providerOptions!.codex!.homePath!,
+            ),
+            canonicalizeCodexHomeIdentityPath(nextSource),
+          );
+        }).pipe(Effect.provide(providerLayer));
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect(
+  "ProviderServiceLive persists a private credential stop without changing the other source binding",
+  () =>
+    Effect.gen(function* () {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "moss-private-stop-"));
+      try {
+        const homePath = path.join(tempDir, "shared");
+        const shadowHomePath = path.join(tempDir, "private");
+        fs.mkdirSync(homePath);
+        fs.mkdirSync(shadowHomePath);
+        const options = {
+          homePath,
+          shadowHomePath,
+          accountId: "moss",
+          runtimeGeneration: "moss-generation-1",
+          environment: { MOSS_HOME: path.join(tempDir, "runtime") },
+        };
+        const credentialFence = issueCodexCredentialFence({
+          ...options,
+          assertBindingCurrent: () => {},
+        });
+        const threadId = asThreadId("private-stopped");
+        const ownThreadId = asThreadId("private-own");
+        const resumeCursor = { threadId: "native-history", generation: "history-generation" };
+        const codex = makeFakeCodexAdapter();
+        const stopAccountContextsAndWait = vi.fn(() =>
+          Effect.succeed([makeSession(threadId, "codex", resumeCursor)]),
+        );
+        const registry: typeof ProviderAdapterRegistry.Service = {
+          getByProvider: () => Effect.succeed({ ...codex.adapter, stopAccountContextsAndWait }),
+          listProviders: () => Effect.succeed(["codex"]),
+        };
+        const directoryLayer = ProviderSessionDirectoryLive.pipe(
+          Layer.provide(
+            ProviderSessionRuntimeRepositoryLive.pipe(
+              Layer.provide(makeSqlitePersistenceLive(path.join(tempDir, "state.sqlite"))),
+            ),
+          ),
+        );
+        const providerLayer = makeProviderServiceLive().pipe(
+          Layer.provide(Layer.succeed(ProviderAdapterRegistry, registry)),
+          Layer.provideMerge(directoryLayer),
+          Layer.provide(ServerSettingsService.layerTest()),
+        );
+        yield* Effect.gen(function* () {
+          const directory = yield* ProviderSessionDirectory;
+          const provider = yield* ProviderService;
+          for (const id of [threadId, ownThreadId]) {
+            yield* directory.upsert({
+              threadId: id,
+              provider: "codex",
+              status: "running",
+              resumeCursor,
+              runtimePayload: {
+                providerOptions: {
+                  codex: {
+                    homePath,
+                    shadowHomePath: id === threadId ? shadowHomePath : path.join(tempDir, "own"),
+                    accountId: id === threadId ? "moss" : "own",
+                    runtimeGeneration: "moss-generation-1",
+                  },
+                },
+              },
+            });
+          }
+          const ownBefore = yield* directory.getBinding(ownThreadId);
+          yield* provider.stopCodexAccountRuntimes!({ ...options, credentialFence });
+          assert.deepEqual(yield* directory.getBinding(ownThreadId), ownBefore);
+          const stopped = Option.getOrThrow(yield* directory.getBinding(threadId));
+          const payload = asRuntimePayloadRecord(stopped.runtimePayload);
+          const marker = asRuntimePayloadRecord(payload.codexAccountRuntimeStopMarker);
+          assert.equal(stopped.status, "stopped");
+          assert.deepEqual(stopped.resumeCursor, resumeCursor);
+          assert.equal(marker.privateHomeIdentity, credentialFence.privateHomeIdentity);
+          assert.equal(
+            (marker.homeIdentities as string[]).includes(credentialFence.sourceHomeIdentity),
+            false,
+          );
+          assert.equal(
+            asRuntimePayloadRecord(asRuntimePayloadRecord(payload.providerOptions).codex).homePath,
+            homePath,
+          );
+          assert.equal(stopAccountContextsAndWait.mock.calls.length, 1);
+        }).pipe(Effect.provide(providerLayer));
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    }).pipe(Effect.provide(NodeServices.layer)),
+);
 
 it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", () =>
   Effect.gen(function* () {
@@ -1690,6 +2494,59 @@ it.effect(
 );
 
 routing.layer("ProviderServiceLive routing", (it) => {
+  it.effect(
+    "discards request and persisted Codex programs while retaining continuation storage",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const fixture = yield* Effect.promise(() =>
+          makeSharedCodexContinuationFixture(["program-boundary"]),
+        );
+        const threadId = asThreadId("server-selected-codex-program");
+        const homeOptions = {
+          homePath: fixture.homePath,
+          shadowHomePath: fixture.shadowHomePath("program-boundary"),
+          accountId: "program-boundary",
+          environment: fixture.environment,
+        };
+        try {
+          yield* provider.startSession(threadId, {
+            threadId,
+            provider: "codex",
+            runtimeMode: "full-access",
+            providerOptions: { codex: { ...homeOptions, binaryPath: "/request/untrusted-codex" } },
+          });
+          assert.deepEqual(routing.codex.startSession.mock.calls.at(-1)?.[0].providerOptions, {
+            codex: homeOptions,
+          });
+          const current = Option.getOrThrow(yield* directory.getBinding(threadId));
+          yield* routing.codex.stopSession(threadId);
+          yield* directory.upsert({
+            ...current,
+            runtimePayload: {
+              ...asRuntimePayloadRecord(current.runtimePayload),
+              providerOptions: {
+                codex: { ...homeOptions, environment: {}, binaryPath: "/persisted/old-codex" },
+              },
+            },
+          });
+          yield* provider.sendTurn({ threadId, input: "continue", attachments: [] });
+          const recovered = routing.codex.startSession.mock.calls.at(-1)?.[0];
+          assert.equal(recovered?.providerOptions?.codex?.binaryPath, undefined);
+          assert.equal(recovered?.providerOptions?.codex?.homePath, fixture.homePath);
+          assert.equal(
+            recovered?.providerOptions?.codex?.shadowHomePath,
+            homeOptions.shadowHomePath,
+          );
+          assert.deepEqual(recovered?.resumeCursor, current.resumeCursor);
+          yield* provider.stopSession({ threadId });
+        } finally {
+          fs.rmSync(fixture.root, { recursive: true, force: true });
+        }
+      }),
+  );
+
   it.effect("does not stop a replacement runtime even when its createdAt is unchanged", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;
@@ -2381,7 +3238,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const codexHome = path.join(importRoot, "codex-home");
       fs.mkdirSync(codexHome, { recursive: true });
       fs.writeFileSync(path.join(codexHome, "config.toml"), "", "utf8");
-      const importEnvironment = { SYNARA_HOME: path.join(importRoot, "synara-runtime") };
+      const importEnvironment = { MOSS_HOME: path.join(importRoot, "synara-runtime") };
       const input = {
         threadId,
         provider: "codex" as const,
@@ -2424,7 +3281,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         cwd: input.cwd,
         // The copy is made in the resolved account.
         modelSelection: { ...input.modelSelection, instanceId: "codex" },
-        providerOptions: input.providerOptions,
+        providerOptions: { codex: { homePath: codexHome, environment: importEnvironment } },
         providerInstanceId: "codex",
         runtimeMode: input.runtimeMode,
         lifecycleGeneration: firstBinding.lifecycleGeneration,
@@ -2442,7 +3299,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.equal(asRuntimePayloadRecord(stopped.runtimePayload).cwd, input.cwd);
       // Runtime environments never persist; the binding keeps the redacted copy.
       assert.deepEqual(asRuntimePayloadRecord(stopped.runtimePayload).providerOptions, {
-        codex: { ...input.providerOptions.codex, environment: {} },
+        codex: { homePath: codexHome, environment: {} },
       });
       // The copy records the launch identity a normal start would, so it can resume.
       assert.equal(asRuntimePayloadRecord(stopped.runtimePayload).providerInstanceId, "codex");
@@ -2470,7 +3327,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         const codexHome = path.join(importRoot, "codex-home");
         fs.mkdirSync(codexHome, { recursive: true });
         fs.writeFileSync(path.join(codexHome, "config.toml"), "", "utf8");
-        const importEnvironment = { SYNARA_HOME: path.join(importRoot, "synara-runtime") };
+        const importEnvironment = { MOSS_HOME: path.join(importRoot, "synara-runtime") };
         const input = {
           threadId,
           provider: "codex" as const,
@@ -6854,7 +7711,9 @@ routing.layer("ProviderServiceLive routing", (it) => {
           providerOptions?: unknown;
           resumeCursor?: unknown;
         };
-        assert.deepEqual(startPayload.providerOptions, providerOptions);
+        assert.deepEqual(startPayload.providerOptions, {
+          codex: { homePath: providerOptions.codex.homePath },
+        });
         assert.equal(startPayload.resumeCursor, null);
       }
 
@@ -6893,6 +7752,120 @@ routing.layer("ProviderServiceLive routing", (it) => {
       routing.claude.startSession.mockClear();
 
       yield* serverSettings.updateSettings(settingsForKey("credential-v2"));
+      const result = yield* Effect.result(
+        provider.startSession(threadId, {
+          provider: "claudeAgent",
+          providerInstanceId,
+          threadId,
+          runtimeMode: "full-access",
+        }),
+      );
+
+      assert.equal(result._tag, "Failure");
+      assert.equal(routing.claude.startSession.mock.calls.length, 0);
+    }),
+  );
+
+  const mossClaudeSettings = (token: string, config?: Record<string, string>) => ({
+    providerInstances: {
+      claude_moss: {
+        driver: "claudeAgent",
+        enabled: true,
+        environment: [
+          { name: "ANTHROPIC_BASE_URL", value: "https://gateway.moss.test", sensitive: false },
+          { name: "ANTHROPIC_AUTH_TOKEN", value: token, sensitive: true },
+        ],
+        config: { managed: true, ...config },
+      },
+    },
+  });
+
+  it.effect("resumes stopped Moss Claude continuation after its token refreshes", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const serverSettings = yield* ServerSettingsService;
+      const threadId = asThreadId("thread-claude-moss-token-refresh");
+      const providerInstanceId = asProviderInstanceId("claude_moss");
+
+      yield* serverSettings.updateSettings(mossClaudeSettings("bearer-v1"));
+      const initial = yield* provider.startSession(threadId, {
+        provider: "claudeAgent",
+        providerInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      assert.ok(initial.resumeCursor);
+      assert.equal(typeof provider.stopRuntimeSession, "function");
+      if (!provider.stopRuntimeSession) return;
+      yield* provider.stopRuntimeSession({ threadId });
+      routing.claude.startSession.mockClear();
+
+      yield* serverSettings.updateSettings(mossClaudeSettings("bearer-v2"));
+      yield* provider.startSession(threadId, {
+        provider: "claudeAgent",
+        providerInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      assert.equal(routing.claude.startSession.mock.calls.length, 1);
+      assert.deepEqual(
+        routing.claude.startSession.mock.calls.at(-1)?.[0].resumeCursor,
+        initial.resumeCursor,
+      );
+    }),
+  );
+
+  it.effect("still restarts a live Moss Claude runtime after its token refreshes", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const serverSettings = yield* ServerSettingsService;
+      const threadId = asThreadId("thread-claude-moss-live-token-refresh");
+      const providerInstanceId = asProviderInstanceId("claude_moss");
+
+      yield* serverSettings.updateSettings(mossClaudeSettings("bearer-v1"));
+      yield* provider.startSession(threadId, {
+        provider: "claudeAgent",
+        providerInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      assert.equal(typeof provider.sessionBindingMatchesLaunchOptions, "function");
+      if (!provider.sessionBindingMatchesLaunchOptions) return;
+      const launch = { threadId, provider: "claudeAgent", providerInstanceId } as const;
+      assert.equal(yield* provider.sessionBindingMatchesLaunchOptions(launch), true);
+
+      yield* serverSettings.updateSettings(mossClaudeSettings("bearer-v2"));
+
+      assert.equal(yield* provider.sessionBindingMatchesLaunchOptions(launch), false);
+    }),
+  );
+
+  it.effect("rejects stopped Moss Claude continuation from another native store", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const serverSettings = yield* ServerSettingsService;
+      const threadId = asThreadId("thread-claude-moss-store-boundary");
+      const providerInstanceId = asProviderInstanceId("claude_moss");
+
+      yield* serverSettings.updateSettings(
+        mossClaudeSettings("bearer-v1", { homePath: "/tmp/claude-moss-store-a" }),
+      );
+      const initial = yield* provider.startSession(threadId, {
+        provider: "claudeAgent",
+        providerInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      assert.ok(initial.resumeCursor);
+      assert.equal(typeof provider.stopRuntimeSession, "function");
+      if (!provider.stopRuntimeSession) return;
+      yield* provider.stopRuntimeSession({ threadId });
+      routing.claude.startSession.mockClear();
+
+      yield* serverSettings.updateSettings(
+        mossClaudeSettings("bearer-v2", { homePath: "/tmp/claude-moss-store-b" }),
+      );
       const result = yield* Effect.result(
         provider.startSession(threadId, {
           provider: "claudeAgent",
@@ -7007,6 +7980,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       const providerOptions = {
         claudeAgent: {
           binaryPath: "/usr/local/bin/claude",
+          homePath: path.join(tempDir, "claude-private-home"),
           permissionMode: "acceptEdits",
         },
       };
@@ -8794,7 +9768,7 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
           createdAt: new Date().toISOString(),
           threadId: session.threadId,
           turnId: asTurnId("turn-1"),
-          status: "completed",
+          payload: { state: "completed" },
         },
       ];
 
@@ -8884,7 +9858,7 @@ persistedFanout.layer("ProviderServiceLive durable fanout", (it) => {
         createdAt: new Date().toISOString(),
         threadId: session.threadId,
         turnId: asTurnId("turn-persisted-fanout"),
-        status: "completed",
+        payload: { state: "completed" },
       };
       persistedFanout.codex.emit(completedEvent);
       yield* sleep(100);
@@ -8993,6 +9967,705 @@ batchFanout.layer("ProviderServiceLive durable text batches", (it) => {
           [1, 2],
         );
       }),
+  );
+});
+
+for (const [label, payload] of [
+  ["missing", undefined],
+  ["unknown", { state: "unknown" }],
+] as const) {
+  const malformedTerminal = makeProviderServiceLayer();
+  malformedTerminal.layer(`Codex malformed terminal receipt (${label})`, (it) => {
+    it.effect("does not certify completion or block the next ready event", () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const threadId = asThreadId(`thread-malformed-terminal-${label}`);
+        yield* provider.startSession(threadId, {
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const turn = yield* provider.sendTurn({ threadId, input: "hello" });
+        yield* malformedTerminal.codex.waitForRuntimeSubscribers();
+        const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+        malformedTerminal.codex.emit({
+          type: "turn.completed",
+          eventId: asEventId(`malformed-terminal-${label}`),
+          provider: "codex",
+          createdAt: new Date().toISOString(),
+          threadId,
+          turnId: turn.turnId,
+          lifecycleGeneration: binding.lifecycleGeneration,
+          ...(payload === undefined ? {} : { payload }),
+        });
+        malformedTerminal.codex.emit({
+          type: "session.state.changed",
+          eventId: asEventId(`ready-after-malformed-terminal-${label}`),
+          provider: "codex",
+          createdAt: new Date().toISOString(),
+          threadId,
+          lifecycleGeneration: binding.lifecycleGeneration,
+          payload: { state: "ready" },
+        });
+        yield* waitUntilEffect(
+          () =>
+            directory
+              .getBinding(threadId)
+              .pipe(
+                Effect.map(
+                  (value) =>
+                    asRuntimePayloadRecord(Option.getOrUndefined(value)?.runtimePayload)
+                      .lastRuntimeEvent === "session.state.changed",
+                ),
+              ),
+          1_000,
+          10,
+          "ready after malformed terminal",
+        );
+        const settled = Option.getOrThrow(yield* directory.getBinding(threadId));
+        const runtimePayload = asRuntimePayloadRecord(settled.runtimePayload);
+        assert.equal(runtimePayload.activeTurnId, null);
+        assert.equal(runtimePayload.codexTurnSettlement ?? null, null);
+        assert.ok(provider.getRuntimeEventPumpHealth);
+        const health = yield* provider.getRuntimeEventPumpHealth();
+        assert.equal(health.find((entry) => entry.provider === "codex")?.status, "healthy");
+      }),
+    );
+  });
+}
+
+for (const state of ["interrupted", "cancelled", "completed", "failed"] as const) {
+  const persisted: ProviderRuntimeEvent[] = [];
+  let terminalCommit = Effect.void;
+  const stopped = makeProviderServiceLayer({
+    codexInterruptSettlementTimeoutMs: 2_000,
+    persistRuntimeEvent: (event) =>
+      (event.type === "turn.completed" ? terminalCommit : Effect.void).pipe(
+        Effect.map(() => {
+          persisted.push(event);
+          return { sequence: persisted.length, event };
+        }),
+      ),
+  });
+  stopped.layer(`Codex Stop terminal settlement (${state})`, (it) => {
+    it.effect("preserves the native result across ACK, journal commit and retirement", () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const threadId = asThreadId(`thread-stop-native-${state}`);
+        yield* provider.startSession(threadId, {
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const turn = yield* provider.sendTurn({ threadId, input: "stream until stopped" });
+        yield* stopped.codex.waitForRuntimeSubscribers();
+        const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+        const ackStarted = yield* Deferred.make<void>();
+        const releaseAck = yield* Deferred.make<void>();
+        const commitStarted = yield* Deferred.make<void>();
+        const releaseCommit = yield* Deferred.make<void>();
+        terminalCommit = Deferred.succeed(commitStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(releaseCommit)),
+        );
+        stopped.codex.interruptTurn.mockImplementationOnce(() =>
+          Deferred.succeed(ackStarted, undefined).pipe(
+            // Natural completion can beat the Stop ACK. It must stay completed.
+            Effect.andThen(state === "completed" ? Deferred.await(releaseAck) : Effect.void),
+          ),
+        );
+        const interrupted = yield* provider.interruptTurn({ threadId }).pipe(Effect.forkChild);
+        yield* Deferred.await(ackStarted);
+        stopped.codex.emit({
+          type: "turn.completed",
+          eventId: asEventId(`stop-native-${state}`),
+          provider: "codex",
+          createdAt: new Date().toISOString(),
+          threadId,
+          turnId: turn.turnId,
+          lifecycleGeneration: binding.lifecycleGeneration,
+          payload: { state },
+        });
+        yield* Deferred.await(commitStarted);
+        assert.equal(stopped.codex.stopSession.mock.calls.length, 0);
+        assert.equal(
+          persisted.some((event) => event.type === "turn.completed"),
+          false,
+        );
+        yield* Deferred.succeed(releaseCommit, undefined);
+        yield* waitUntil(() => persisted.some((event) => event.type === "turn.completed"));
+        if (state === "completed") {
+          assert.equal(stopped.codex.stopSession.mock.calls.length, 0);
+          yield* Deferred.succeed(releaseAck, undefined);
+        }
+        yield* Fiber.join(interrupted);
+        assert.deepEqual(persisted.find((event) => event.type === "turn.completed")?.payload, {
+          state,
+        });
+        assert.equal(stopped.codex.stopSession.mock.calls.length, 1);
+        const settled = Option.getOrThrow(yield* directory.getBinding(threadId));
+        assert.deepEqual(asRuntimePayloadRecord(settled.runtimePayload).codexTurnSettlement, {
+          turnId: turn.turnId,
+          lifecycleGeneration: binding.lifecycleGeneration,
+          state: state === "failed" ? "error" : state === "completed" ? "completed" : "interrupted",
+        });
+        terminalCommit = Effect.void;
+      }),
+    );
+  });
+}
+
+const stopRacesPersisted: ProviderRuntimeEvent[] = [];
+let failStopResultPersistence = false;
+const stopRaces = makeProviderServiceLayer({
+  codexInterruptSettlementTimeoutMs: 2_000,
+  persistRuntimeEvent: (event) =>
+    Effect.suspend(() => {
+      if (failStopResultPersistence && event.type === "runtime.error")
+        return Effect.fail(new Error("fixture Stop-result journal failure"));
+      return Effect.sync(() => {
+        stopRacesPersisted.push(event);
+        return { sequence: stopRacesPersisted.length, event };
+      });
+    }),
+});
+stopRaces.layer("Codex Stop terminal failure and generation fences", (it) => {
+  it.effect("does not turn an interrupt ACK failure into a successful terminal event", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-stop-ack-failure");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      yield* provider.sendTurn({ threadId, input: "still running" });
+      stopRaces.codex.interruptTurn.mockImplementationOnce(() =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: "codex",
+            method: "turn/interrupt",
+            detail: "fixture ACK failed",
+          }),
+        ),
+      );
+      const stops = stopRaces.codex.stopSession.mock.calls.length;
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(provider.interruptTurn({ threadId }))));
+      assert.equal(stopRaces.codex.stopSession.mock.calls.length, stops);
+      assert.equal(
+        stopRacesPersisted.some(
+          (event) =>
+            event.threadId === threadId &&
+            (event.type === "turn.completed" || event.type === "turn.aborted"),
+        ),
+        false,
+      );
+      const cleanup = yield* provider.stopSession({ threadId }).pipe(Effect.forkChild);
+      yield* TestClock.adjust("2 seconds");
+      yield* Fiber.join(cleanup);
+    }),
+  );
+
+  it.effect("ignores an old generation while awaiting this turn's canonical terminal", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = asThreadId("thread-stop-stale-generation");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const turn = yield* provider.sendTurn({ threadId, input: "current generation" });
+      yield* stopRaces.codex.waitForRuntimeSubscribers();
+      const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+      const ack = yield* Deferred.make<void>();
+      stopRaces.codex.interruptTurn.mockImplementationOnce(() =>
+        Deferred.succeed(ack, undefined).pipe(Effect.asVoid),
+      );
+      const stops = stopRaces.codex.stopSession.mock.calls.length;
+      const interrupted = yield* provider.interruptTurn({ threadId }).pipe(Effect.forkChild);
+      yield* Deferred.await(ack);
+      const terminal = {
+        type: "turn.completed",
+        eventId: asEventId("stop-old-generation"),
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        threadId,
+        turnId: turn.turnId,
+        lifecycleGeneration: "retired-generation",
+        payload: { state: "interrupted" },
+      };
+      stopRaces.codex.emit(terminal);
+      yield* waitUntil(() =>
+        stopRacesPersisted.some((event) => event.eventId === terminal.eventId),
+      );
+      assert.equal(stoppedOrSettled(), false);
+      stopRaces.codex.emit({
+        ...terminal,
+        eventId: asEventId("stop-current-generation"),
+        lifecycleGeneration: binding.lifecycleGeneration,
+      });
+      yield* Fiber.join(interrupted);
+      assert.equal(stopRaces.codex.stopSession.mock.calls.length, stops + 1);
+      function stoppedOrSettled() {
+        return (
+          interrupted.pollUnsafe() !== undefined ||
+          stopRaces.codex.stopSession.mock.calls.length !== stops
+        );
+      }
+    }),
+  );
+
+  it.effect("bounds a missing terminal result and records uncertainty before retiring", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-stop-no-terminal");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      yield* provider.sendTurn({ threadId, input: "missing terminal notification" });
+      const ack = yield* Deferred.make<void>();
+      stopRaces.codex.interruptTurn.mockImplementationOnce(() =>
+        Deferred.succeed(ack, undefined).pipe(Effect.asVoid),
+      );
+      const stops = stopRaces.codex.stopSession.mock.calls.length;
+      const interrupted = yield* provider.interruptTurn({ threadId }).pipe(Effect.forkChild);
+      yield* Deferred.await(ack);
+      yield* TestClock.adjust("2 seconds");
+      yield* Fiber.join(interrupted);
+      assert.equal(stopRaces.codex.stopSession.mock.calls.length, stops + 1);
+      const events = stopRacesPersisted.filter((event) => event.threadId === threadId);
+      assert.equal(
+        events.some((event) => event.type === "turn.completed"),
+        false,
+      );
+      assert.equal(
+        events.some((event) => event.type === "runtime.error"),
+        true,
+      );
+    }),
+  );
+
+  it.effect("reports a failed uncertainty journal write after reaping the revoked runtime", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-stop-result-persistence-failure");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      yield* provider.sendTurn({ threadId, input: "journal failure during Stop" });
+      const ack = yield* Deferred.make<void>();
+      stopRaces.codex.interruptTurn.mockImplementationOnce(() =>
+        Deferred.succeed(ack, undefined).pipe(Effect.asVoid),
+      );
+      const stops = stopRaces.codex.stopSession.mock.calls.length;
+      failStopResultPersistence = true;
+      const interrupted = yield* provider
+        .interruptTurn({ threadId })
+        .pipe(Effect.exit, Effect.forkChild);
+      yield* Deferred.await(ack);
+      yield* TestClock.adjust("2 seconds");
+      const result = yield* Fiber.join(interrupted);
+      assert.isTrue(Exit.isFailure(result));
+      if (Exit.isFailure(result)) {
+        const error = Cause.squash(result.cause);
+        assert.instanceOf(error, ProviderValidationError);
+        assert.equal(error.issue, "Could not save the unconfirmed Codex Stop result.");
+      }
+      assert.equal(stopRaces.codex.stopSession.mock.calls.length, stops + 1);
+      assert.isFalse(yield* stopRaces.codex.hasSession(threadId));
+      // Cleanup also releases the interruption fence; the failure must not
+      // strand future turns behind a waiter or revoked runtime.
+      failStopResultPersistence = false;
+      yield* provider.sendTurn({ threadId, input: "recover in a new runtime" });
+      const cleanup = yield* provider.stopSession({ threadId }).pipe(Effect.forkChild);
+      yield* TestClock.adjust("2 seconds");
+      yield* Fiber.join(cleanup);
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          failStopResultPersistence = false;
+        }),
+      ),
+    ),
+  );
+
+  it.effect("finishes terminal settlement and retirement when its caller is cancelled", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = asThreadId("thread-stop-wait-caller-cancelled");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const turn = yield* provider.sendTurn({ threadId, input: "cancel the Stop caller" });
+      yield* stopRaces.codex.waitForRuntimeSubscribers();
+      const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+      const ack = yield* Deferred.make<void>();
+      stopRaces.codex.interruptTurn.mockImplementationOnce(() =>
+        Deferred.succeed(ack, undefined).pipe(Effect.asVoid),
+      );
+      const stops = stopRaces.codex.stopSession.mock.calls.length;
+      const interrupted = yield* provider.interruptTurn({ threadId }).pipe(Effect.forkChild);
+      yield* Deferred.await(ack);
+      const cancellation = yield* Fiber.interrupt(interrupted).pipe(Effect.forkChild);
+      yield* sleep(20);
+      assert.equal(stopRaces.codex.stopSession.mock.calls.length, stops);
+      stopRaces.codex.emit({
+        type: "turn.completed",
+        eventId: asEventId("stop-cancelled-caller-terminal"),
+        provider: "codex",
+        createdAt: new Date().toISOString(),
+        threadId,
+        turnId: turn.turnId,
+        lifecycleGeneration: binding.lifecycleGeneration,
+        payload: { state: "interrupted" },
+      });
+      yield* Fiber.join(cancellation);
+      assert.equal(stopRaces.codex.stopSession.mock.calls.length, stops + 1);
+      assert.isFalse(yield* stopRaces.codex.hasSession(threadId));
+      yield* provider.sendTurn({ threadId, input: "new runtime after cancelled caller" });
+      const cleanup = yield* provider.stopSession({ threadId }).pipe(Effect.forkChild);
+      yield* TestClock.adjust("2 seconds");
+      yield* Fiber.join(cleanup);
+    }),
+  );
+});
+
+for (const operation of ["stopSession", "stopRuntimeSession"] as const) {
+  const committed: ProviderRuntimeEvent[] = [];
+  let commitTerminal = Effect.void;
+  const fixture = makeProviderServiceLayer({
+    codexInterruptSettlementTimeoutMs: 2_000,
+    persistRuntimeEvent: (event) =>
+      (event.type === "turn.aborted" ? commitTerminal : Effect.void).pipe(
+        Effect.map(() => {
+          committed.push(event);
+          return { sequence: committed.length, event };
+        }),
+      ),
+  });
+  fixture.layer(`Codex session Stop (${operation})`, (it) => {
+    it.effect("journals the proven-exit abortion before retiring its exact generation", () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const threadId = asThreadId(`thread-proven-exit-${operation}`);
+        yield* provider.startSession(threadId, {
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const turn = yield* provider.sendTurn({ threadId, input: "forced session cleanup" });
+        yield* fixture.codex.waitForRuntimeSubscribers();
+        const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+        const exitStarted = yield* Deferred.make<void>();
+        const proveExit = yield* Deferred.make<void>();
+        const journalStarted = yield* Deferred.make<void>();
+        const commit = yield* Deferred.make<void>();
+        commitTerminal = Deferred.succeed(journalStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(commit)),
+        );
+        const originalStop = fixture.codex.stopSession.getMockImplementation()!;
+        fixture.codex.stopSession.mockImplementationOnce((id) =>
+          Deferred.succeed(exitStarted, undefined).pipe(
+            Effect.andThen(Deferred.await(proveExit)),
+            Effect.andThen(
+              Effect.sync(() =>
+                fixture.codex.emit({
+                  type: "turn.aborted",
+                  eventId: asEventId(`proven-exit-${operation}`),
+                  provider: "codex",
+                  threadId,
+                  turnId: turn.turnId,
+                  lifecycleGeneration: binding.lifecycleGeneration,
+                  createdAt: new Date().toISOString(),
+                  payload: { reason: "Moss confirmed runtime exit" },
+                }),
+              ),
+            ),
+            Effect.andThen(originalStop(id)),
+          ),
+        );
+        const stopped = yield* provider[operation]!({ threadId }).pipe(Effect.forkChild);
+        yield* Deferred.await(exitStarted);
+        assert.equal(stopped.pollUnsafe(), undefined);
+        assert.isFalse(committed.some((event) => event.type === "turn.aborted"));
+        yield* Deferred.succeed(proveExit, undefined);
+        yield* Deferred.await(journalStarted);
+        assert.equal(stopped.pollUnsafe(), undefined);
+        assert.equal(
+          Option.getOrThrow(yield* directory.getBinding(threadId)).lifecycleGeneration,
+          binding.lifecycleGeneration,
+        );
+        yield* Deferred.succeed(commit, undefined);
+        const receipt = yield* Fiber.join(stopped);
+        if (operation === "stopRuntimeSession")
+          assert.deepEqual(receipt as unknown, {
+            turnId: turn.turnId,
+            lifecycleGeneration: binding.lifecycleGeneration,
+            state: "interrupted",
+          });
+        assert.equal(committed.filter((event) => event.type === "turn.aborted").length, 1);
+        assert.isFalse(yield* fixture.codex.hasSession(threadId));
+        commitTerminal = Effect.void;
+      }),
+    );
+
+    it.effect(
+      "does not synthesize cancellation or wait when natural completion is already durable",
+      () =>
+        Effect.gen(function* () {
+          const provider = yield* ProviderService;
+          const directory = yield* ProviderSessionDirectory;
+          const threadId = asThreadId(`thread-completed-before-${operation}`);
+          yield* provider.startSession(threadId, {
+            provider: "codex",
+            threadId,
+            runtimeMode: "full-access",
+          });
+          const turn = yield* provider.sendTurn({ threadId, input: "naturally complete" });
+          yield* fixture.codex.waitForRuntimeSubscribers();
+          const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+          fixture.codex.emit({
+            type: "turn.completed",
+            eventId: asEventId(`completed-before-${operation}`),
+            provider: "codex",
+            threadId,
+            turnId: turn.turnId,
+            lifecycleGeneration: binding.lifecycleGeneration,
+            createdAt: new Date().toISOString(),
+            payload: { state: "completed" },
+          });
+          yield* waitUntilEffect(() =>
+            directory
+              .getBinding(threadId)
+              .pipe(
+                Effect.map(
+                  (maybe) =>
+                    asRuntimePayloadRecord(Option.getOrThrow(maybe).runtimePayload).activeTurnId ===
+                    null,
+                ),
+              ),
+          );
+          yield* provider[operation]!({ threadId });
+          assert.deepEqual(
+            committed.filter((event) => event.threadId === threadId).map((event) => event.type),
+            ["turn.completed"],
+          );
+        }),
+    );
+  });
+
+  const failedJournal = makeProviderServiceLayer({
+    codexInterruptSettlementTimeoutMs: 2_000,
+    persistRuntimeEvent: (event) =>
+      event.type === "runtime.error"
+        ? Effect.fail(new Error("fixture forced-stop diagnostic write failed"))
+        : Effect.succeed({ sequence: 1, event }),
+  });
+  failedJournal.layer(`Codex session Stop journal failure (${operation})`, (it) => {
+    it.effect("returns a persistence failure after physical cleanup, without a false receipt", () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const threadId = asThreadId(`thread-forced-stop-failed-journal-${operation}`);
+        yield* provider.startSession(threadId, {
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        yield* provider.sendTurn({ threadId, input: "missing terminal with journal unavailable" });
+        const stopped = yield* provider[operation]!({ threadId }).pipe(
+          Effect.exit,
+          Effect.forkChild,
+        );
+        yield* TestClock.adjust("2 seconds");
+        const result = yield* Fiber.join(stopped);
+        assert.isTrue(Exit.isFailure(result));
+        assert.isFalse(yield* failedJournal.codex.hasSession(threadId));
+        assert.equal(failedJournal.codex.stopSession.mock.calls.length, 1);
+      }),
+    );
+  });
+}
+
+for (const state of ["completed", "interrupted"] as const) {
+  const committed: ProviderRuntimeEvent[] = [];
+  const fixture = makeProviderServiceLayer({
+    codexInterruptSettlementTimeoutMs: 2_000,
+    persistRuntimeEvent: (event) =>
+      Effect.sync(() => {
+        committed.push(event);
+        return { sequence: committed.length, event };
+      }),
+  });
+  fixture.layer(`Codex Stop before waiter (${state})`, (it) => {
+    for (const boundary of ["during preparation", "before target capture"] as const) {
+      it.effect(`returns the exact durable ${state} result ${boundary}`, () =>
+        Effect.gen(function* () {
+          const provider = yield* ProviderService;
+          const directory = yield* ProviderSessionDirectory;
+          const threadId = asThreadId(`thread-pre-waiter-${state}-${boundary}`);
+          yield* provider.startSession(threadId, {
+            provider: "codex",
+            threadId,
+            runtimeMode: "full-access",
+          });
+          const turn = yield* provider.sendTurn({ threadId, input: "complete before Stop RPC" });
+          yield* fixture.codex.waitForRuntimeSubscribers();
+          const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+          const terminal: ProviderRuntimeEvent = {
+            eventId: asEventId(`pre-waiter-${state}-${boundary}`),
+            provider: "codex",
+            threadId,
+            turnId: turn.turnId,
+            lifecycleGeneration: binding.lifecycleGeneration,
+            createdAt: new Date().toISOString(),
+            ...(state === "completed"
+              ? { type: "turn.completed" as const, payload: { state: "completed" as const } }
+              : { type: "turn.aborted" as const, payload: { reason: "proven exit" } }),
+          };
+          const finishBeforeControl = Effect.gen(function* () {
+            fixture.codex.emit(terminal);
+            yield* waitUntilEffect(() =>
+              directory
+                .getBinding(threadId)
+                .pipe(
+                  Effect.map(
+                    (maybe) =>
+                      asRuntimePayloadRecord(Option.getOrThrow(maybe).runtimePayload)
+                        .activeTurnId === null,
+                  ),
+                ),
+            );
+            // Let the canonical publish finish before the physical Stop begins.
+            yield* sleep(20);
+            return true;
+          });
+          if (boundary === "during preparation") {
+            // This is after stopRuntimeSession captured an active target but
+            // before it invokes the adapter; a late waiter loses the terminal.
+            fixture.codex.hasSession.mockImplementationOnce(() =>
+              finishBeforeControl.pipe(Effect.orDie),
+            );
+          } else {
+            // Simulate an ingestion backlog: the canonical event has already
+            // cleared activeTurnId, but the caller still needs its exact receipt.
+            yield* finishBeforeControl;
+          }
+          const receipt = yield* provider.stopRuntimeSession!({ threadId });
+          assert.deepEqual(receipt, {
+            turnId: turn.turnId,
+            lifecycleGeneration: binding.lifecycleGeneration,
+            state,
+          });
+          assert.deepEqual(
+            committed.filter((event) => event.threadId === threadId).map((event) => event.type),
+            [terminal.type],
+          );
+        }),
+      );
+    }
+  });
+}
+
+const settlementReuse = makeProviderServiceLayer({ codexInterruptSettlementTimeoutMs: 2_000 });
+settlementReuse.layer("Codex Stop durable receipt identity", (it) => {
+  it.effect("clears a prior receipt when the same provider turn ID is reused", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = asThreadId("thread-stop-reused-turn-id");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const turn = yield* provider.sendTurn({ threadId, input: "first use" });
+      yield* settlementReuse.codex.waitForRuntimeSubscribers();
+      const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+      settlementReuse.codex.emit({
+        type: "turn.completed",
+        eventId: asEventId("reused-turn-id-first-completed"),
+        provider: "codex",
+        threadId,
+        turnId: turn.turnId,
+        lifecycleGeneration: binding.lifecycleGeneration,
+        createdAt: new Date().toISOString(),
+        payload: { state: "completed" },
+      });
+      yield* waitUntilEffect(() =>
+        directory
+          .getBinding(threadId)
+          .pipe(
+            Effect.map(
+              (maybe) =>
+                asRuntimePayloadRecord(Option.getOrThrow(maybe).runtimePayload).activeTurnId ===
+                null,
+            ),
+          ),
+      );
+      settlementReuse.codex.sendTurn.mockImplementationOnce(() => Effect.succeed(turn));
+      yield* provider.sendTurn({ threadId, input: "same ID, new dispatch" });
+      assert.equal(
+        asRuntimePayloadRecord(
+          Option.getOrThrow(yield* directory.getBinding(threadId)).runtimePayload,
+        ).codexTurnSettlement,
+        null,
+      );
+      const ack = yield* Deferred.make<void>();
+      settlementReuse.codex.stopSession.mockImplementationOnce(() =>
+        Deferred.succeed(ack, undefined).pipe(Effect.asVoid),
+      );
+      const stopping = yield* provider.stopRuntimeSession!({ threadId }).pipe(Effect.forkChild);
+      yield* Deferred.await(ack);
+      assert.equal(stopping.pollUnsafe(), undefined);
+      settlementReuse.codex.emit({
+        type: "turn.aborted",
+        eventId: asEventId("reused-turn-id-second-aborted"),
+        provider: "codex",
+        threadId,
+        turnId: turn.turnId,
+        lifecycleGeneration: binding.lifecycleGeneration,
+        createdAt: new Date().toISOString(),
+        payload: { reason: "current dispatch exited" },
+      });
+      assert.equal((yield* Fiber.join(stopping))?.state, "interrupted");
+    }),
+  );
+
+  it.effect("rejects a durable receipt from another lifecycle generation", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = asThreadId("thread-stop-old-durable-receipt");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+      });
+      const binding = Option.getOrThrow(yield* directory.getBinding(threadId));
+      yield* directory.upsert({
+        ...binding,
+        runtimePayload: {
+          activeTurnId: null,
+          codexTurnSettlement: {
+            turnId: "old-turn",
+            lifecycleGeneration: "another-generation",
+            state: "interrupted",
+          },
+        },
+      });
+      assert.equal(yield* provider.stopRuntimeSession!({ threadId }), undefined);
+    }),
   );
 });
 
@@ -9961,6 +11634,55 @@ unboundStoppedOpenCodeRouting.layer(
     );
   },
 );
+
+const managedOpenCodeRouting = makeProviderServiceLayer(undefined, { includeOpenCode: true });
+
+managedOpenCodeRouting.layer("ProviderServiceLive Moss OpenCode continuation", (it) => {
+  it.effect("keeps the native session when the Moss OpenCode token refreshes", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const serverSettings = yield* ServerSettingsService;
+      const threadId = asThreadId("thread-opencode-moss-token-refresh");
+      const providerInstanceId = asProviderInstanceId("opencode_moss");
+      const settingsForToken = (value: string) => ({
+        providerInstances: {
+          opencode_moss: {
+            driver: "opencode",
+            enabled: true,
+            environment: [{ name: "MOSS_OPENCODE_API_KEY", value, sensitive: true }],
+            config: { managed: true },
+          },
+        },
+      });
+
+      yield* serverSettings.updateSettings(settingsForToken("bearer-v1"));
+      const initial = yield* provider.startSession(threadId, {
+        provider: "opencode",
+        providerInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+      assert.ok(initial.resumeCursor);
+      assert.equal(typeof provider.stopRuntimeSession, "function");
+      if (!provider.stopRuntimeSession) return;
+      yield* provider.stopRuntimeSession({ threadId });
+      managedOpenCodeRouting.openCode.startSession.mockClear();
+
+      yield* serverSettings.updateSettings(settingsForToken("bearer-v2"));
+      yield* provider.startSession(threadId, {
+        provider: "opencode",
+        providerInstanceId,
+        threadId,
+        runtimeMode: "full-access",
+      });
+
+      assert.deepEqual(
+        managedOpenCodeRouting.openCode.startSession.mock.calls.at(-1)?.[0].resumeCursor,
+        initial.resumeCursor,
+      );
+    }),
+  );
+});
 
 stoppedOpenCodeRouting.layer("ProviderServiceLive OpenCode stopped retention", (it) => {
   it.effect("PR1160 TASK-06 recovers a stopped-retained OpenCode session for sendTurn", () =>

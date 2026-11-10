@@ -5,9 +5,9 @@
 // Layer: UI state logic
 // Exports: open-list transitions, persisted-list normalization, tab derivation, close flow
 
-import type { ProjectId, ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProjectId, ProviderKind, ThreadId } from "@moss/contracts";
 import { arrayMove } from "@dnd-kit/sortable";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
 
 import { resolveThreadStatusPill } from "./components/Sidebar.logic";
 import { resolveSubagentPresentationForThread } from "./lib/subagentPresentation";
@@ -176,6 +176,28 @@ export function resolveOpenThreadTabCloseTarget(input: {
   const closedIndex = input.tabs.findIndex((tab) => tab.threadId === input.closedThreadId);
   const remaining = input.tabs.filter((tab) => tab.threadId !== input.closedThreadId);
   return { threadId: resolveTabAfterClose(remaining, closedIndex)?.threadId ?? null };
+}
+
+/**
+ * What a tab pulled out of the strip carries onto the chat. A background tab splits the chat
+ * beside the active thread; the active tab hands its pane to the tab that would take over if
+ * it closed, then lands on the side it was dropped on. Null when it has nowhere to go: the
+ * active thread is the only tab.
+ */
+export function resolveDraggedOpenThreadTab(input: {
+  tabs: readonly Pick<OpenThreadTab, "threadId">[];
+  draggedThreadId: ThreadId;
+  activeThreadId: ThreadId | null;
+}): { threadId: ThreadId; replacementThreadId?: ThreadId } | null {
+  if (!input.tabs.some((tab) => tab.threadId === input.draggedThreadId)) return null;
+  const target = resolveOpenThreadTabCloseTarget({
+    tabs: input.tabs,
+    closedThreadId: input.draggedThreadId,
+    activeThreadId: input.activeThreadId,
+  });
+  if (target === null) return { threadId: input.draggedThreadId };
+  if (target.threadId === null) return null;
+  return { threadId: input.draggedThreadId, replacementThreadId: target.threadId };
 }
 
 export interface CloseOpenThreadTabInput {

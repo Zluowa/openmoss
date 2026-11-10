@@ -147,72 +147,60 @@ describe("resolveOnboardingCompletionToReconcile", () => {
 
 describe("classifyProviderSetup", () => {
   it("treats a disabled provider as disabled regardless of detection", () => {
-    expect(
-      classifyProviderSetup({
-        status: { available: true, authStatus: "authenticated" },
-        disabled: true,
-      }),
-    ).toBe("disabled");
+    expect(classifyProviderSetup({ readiness: { state: "ready" }, disabled: true })).toBe(
+      "disabled",
+    );
   });
 
-  it("reports missing or unavailable binaries as not installed", () => {
-    expect(classifyProviderSetup({ status: null, disabled: false })).toBe("not-installed");
-    expect(
-      classifyProviderSetup({
-        status: { available: false, authStatus: "unknown" },
-        disabled: false,
-      }),
-    ).toBe("not-installed");
+  it("offers the install for agents the server reports missing", () => {
+    expect(classifyProviderSetup({ readiness: null, disabled: false })).toBe("not-installed");
+    expect(classifyProviderSetup({ readiness: { state: "notInstalled" }, disabled: false })).toBe(
+      "not-installed",
+    );
   });
 
   it("waits for an in-flight probe before calling a provider without status not installed", () => {
-    expect(classifyProviderSetup({ status: null, disabled: false, detecting: true })).toBe(
+    expect(classifyProviderSetup({ readiness: null, disabled: false, detecting: true })).toBe(
+      "detecting",
+    );
+    expect(classifyProviderSetup({ readiness: { state: "checking" }, disabled: false })).toBe(
       "detecting",
     );
     expect(
       classifyProviderSetup({
-        status: { available: false, authStatus: "unknown" },
+        readiness: { state: "notInstalled" },
         disabled: false,
         detecting: true,
       }),
     ).toBe("not-installed");
-    expect(classifyProviderSetup({ status: null, disabled: true, detecting: true })).toBe(
+    expect(classifyProviderSetup({ readiness: null, disabled: true, detecting: true })).toBe(
       "disabled",
     );
   });
 
   it("keeps a missing provider unknown if detection fails", () => {
-    expect(classifyProviderSetup({ status: null, disabled: false, detectionFailed: true })).toBe(
+    expect(classifyProviderSetup({ readiness: null, disabled: false, detectionFailed: true })).toBe(
       "check-failed",
     );
     expect(
       classifyProviderSetup({
-        status: { available: false, authStatus: "unknown" },
+        readiness: { state: "notInstalled" },
         disabled: false,
         detectionFailed: true,
       }),
     ).toBe("not-installed");
   });
 
-  it("only asks for sign-in when auth is known to be missing", () => {
-    expect(
-      classifyProviderSetup({
-        status: { available: true, authStatus: "unauthenticated" },
-        disabled: false,
-      }),
-    ).toBe("needs-sign-in");
-    expect(
-      classifyProviderSetup({
-        status: { available: true, authStatus: "unknown" },
-        disabled: false,
-      }),
-    ).toBe("connected");
-    expect(
-      classifyProviderSetup({
-        status: { available: true, authStatus: "authenticated" },
-        disabled: false,
-      }),
-    ).toBe("connected");
+  it("follows the server's readiness for found agents", () => {
+    expect(classifyProviderSetup({ readiness: { state: "needsLogin" }, disabled: false })).toBe(
+      "needs-sign-in",
+    );
+    expect(classifyProviderSetup({ readiness: { state: "ready" }, disabled: false })).toBe(
+      "connected",
+    );
+    expect(classifyProviderSetup({ readiness: { state: "error" }, disabled: false })).toBe(
+      "unavailable",
+    );
   });
 });
 

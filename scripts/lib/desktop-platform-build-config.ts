@@ -3,11 +3,12 @@
 // Layer: Release/build helper
 // Depends on: Desktop packaging policy and electron-builder config shape.
 
-import { MOSS_CONNECTOR_OAUTH_SCHEME, MOSS_DESKTOP_SCHEME } from "@synara/shared/desktopIdentity";
+import { MOSS_CONNECTOR_OAUTH_SCHEME, MOSS_DESKTOP_SCHEME } from "@moss/shared/desktopIdentity";
 import { fileURLToPath } from "node:url";
 
 import { BUNDLED_CLAUDE_RUNTIME_DIR } from "./bundled-claude-runtime.ts";
 import { BUNDLED_CODEX_RUNTIME_DIR } from "./bundled-codex-runtime.ts";
+import { BUNDLED_CUA_DRIVER_DIR } from "./bundled-cua-driver.ts";
 
 export const MICROPHONE_USAGE_DESCRIPTION =
   "Moss needs microphone access for voice notes, transcription, and real-time voice conversations.";
@@ -56,6 +57,7 @@ export const NODE_PTY_ASAR_UNPACK_GLOBS = ["node_modules/node-pty/**"] as const;
 export const BUNDLED_RUNTIME_ASAR_EXCLUSIONS = [
   `!${BUNDLED_CODEX_RUNTIME_DIR}/**`,
   `!${BUNDLED_CLAUDE_RUNTIME_DIR}/**`,
+  `!${BUNDLED_CUA_DRIVER_DIR}/**`,
 ] as const;
 export const CONNECTOR_OAUTH_PROTOCOL_CONFIG = {
   name: "Moss connector OAuth callback",
@@ -174,9 +176,9 @@ export function createDesktopPlatformBuildConfig(
       entitlements: MAC_ENTITLEMENTS_PATH,
       entitlementsInherit: MAC_INHERITED_ENTITLEMENTS_PATH,
       binaries: [MAC_APPSNAP_HELPER_BUNDLE_PATH, MAC_CANONICAL_FILESYSTEM_HELPER_BUNDLE_PATH],
-      // The universal build stages the same pre-lipo'd helper in both app trees.
-      // @electron/universal needs this pattern to preserve that existing fat binary.
-      x64ArchFiles: MAC_APPSNAP_HELPER_BUNDLE_PATH,
+      // The universal build stages the same pre-lipo'd helper and driver in both app trees.
+      // @electron/universal needs this pattern to preserve those existing fat binaries.
+      x64ArchFiles: "Contents/{Helpers/moss-appsnap-helper,Resources/cua-driver/cua-driver}",
       extendInfo: {
         NSMicrophoneUsageDescription: MICROPHONE_USAGE_DESCRIPTION,
       },

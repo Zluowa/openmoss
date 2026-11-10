@@ -6,11 +6,7 @@
 // Layer: Chat composer presentation
 // Depends on: ComposerMenuPanel chrome, the AppSnap window picker hook, caller-owned composer state.
 
-import type {
-  DesktopAppSnapWindowEntry,
-  ProviderInteractionMode,
-  ThreadId,
-} from "@synara/contracts";
+import type { DesktopAppSnapWindowEntry, ProviderInteractionMode, ThreadId } from "@moss/contracts";
 import { useEffect, useId, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 
 import {

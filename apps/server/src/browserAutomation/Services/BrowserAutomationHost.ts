@@ -1,4 +1,4 @@
-import type { BrowserToolName, ProviderKind, ThreadId } from "@synara/contracts";
+import type { BrowserToolName, ProviderKind, ThreadId } from "@moss/contracts";
 import { ServiceMap, type Effect } from "effect";
 
 import type { BrowserHostRpcError } from "../browserHostRpcClient.ts";

@@ -4,7 +4,7 @@ import type {
   ProjectScript,
   ProviderMentionReference,
   ProviderSkillReference,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   DEFAULT_MODEL_BY_PROVIDER,
   MessageId,
@@ -13,10 +13,11 @@ import {
   ThreadId,
   type ModelSelection,
   type ProviderStartOptions,
-} from "@synara/contracts";
-import { buildTemporaryWorktreeBranchName } from "@synara/shared/git";
-import { getDefaultModel } from "@synara/shared/model";
+} from "@moss/contracts";
+import { buildTemporaryWorktreeBranchName } from "@moss/shared/git";
+import { getDefaultModel } from "@moss/shared/model";
 import { useCallback } from "react";
+import { settleFailedTurnSend, type UnconfirmedTurnSend } from "~/lib/unconfirmedTurnSends";
 import { promoteThreadCreate } from "~/lib/threadCreatePromotion";
 import { waitForDraftThreadDispatchToSettle } from "~/lib/draftThreadDispatch";
 import { runComposerSendOnce } from "~/lib/composerSendOwnership";
@@ -28,16 +29,12 @@ import {
   useProjectInstructionsStore,
 } from "~/projectInstructionsStore";
 import { dispatchThreadGoal } from "~/threadGoal";
-import { collapseExpandedComposerCursor, detectComposerTrigger } from "../../composer-logic";
 import {
   useComposerDraftStore,
   type DraftThreadEnvMode,
   type QueuedComposerChatTurn,
 } from "../../composerDraftStore";
-import {
-  cloneComposerImageAttachment,
-  stageUploadComposerAttachments,
-} from "../../lib/composerSend";
+import { stageUploadComposerAttachments } from "../../lib/composerSend";
 import { armQueuedComposerSteerGate } from "../../lib/queuedComposerDrain";
 import { clearPendingTurnDispatch } from "../../pendingTurnDispatch";
 import { useStore } from "../../store";
@@ -51,7 +48,6 @@ import {
   createWorktreeSetupResolution,
   hasServerReceivedSentMessage,
   resolveQueuedTurnDispatchSettings,
-  revokeUserMessagePreviewUrls,
   runWorktreeCreationFlow,
   steerInterruptsLiveTurn,
   threadSettingsDispatchFields,
@@ -61,6 +57,7 @@ import {
 } from "../ChatView.logic";
 import type { ChatTurnSubmissionInput } from "./chatSendTypes";
 import { waitForSetupScriptTerminalActivity } from "./projectScriptRuntime";
+import { isComposerDraftEmpty, restoreUnsentComposerMessage } from "./restoreUnsentComposerMessage";
 interface PreparedChatTurn {
   nextThreadEnvMode: DraftThreadEnvMode;
   nextThreadBranch: string | null;
@@ -151,7 +148,7 @@ type ChatTurnExecutionInput = Pick<
   | "updateSelectedComposerSkills"
   | "updateSelectedComposerMentions"
   | "setComposerTrigger"
-  | "setThreadError"
+  | "setThreadSendFailure"
   | "sendInFlightRef"
   | "worktreeSetupResolutionRef"
   | "scheduleFailedWorktreeSetupDispatchReset"
@@ -196,7 +193,7 @@ export function useChatTurnExecution({
   updateSelectedComposerSkills,
   updateSelectedComposerMentions,
   setComposerTrigger,
-  setThreadError,
+  setThreadSendFailure,
   sendInFlightRef,
   worktreeSetupResolutionRef,
   scheduleFailedWorktreeSetupDispatchReset,
@@ -662,34 +659,43 @@ export function useChatTurnExecution({
               "Choose how to resume the held message before sending another message.",
             );
           }
-          await api.orchestration
-            .dispatchCommand({
-              type: "thread.turn.start",
-              commandId: newCommandId(),
-              threadId: threadIdForSend,
-              message: {
-                messageId: messageIdForSend,
-                role: "user",
-                text: outgoingMessageText,
-                attachments: turnAttachments,
-                ...(mentionedSkillsForSend.length > 0 ? { skills: mentionedSkillsForSend } : {}),
-                ...(mentionedPluginMentionsForSend.length > 0
-                  ? { mentions: mentionedPluginMentionsForSend }
-                  : {}),
-              },
-              ...turnStartDispatchFields(dispatchSettings, dispatchMode),
-              ...(sourceProposedPlanForSend
-                ? { sourceProposedPlan: sourceProposedPlanForSend }
+          const turnStartCommand: UnconfirmedTurnSend["command"] = {
+            type: "thread.turn.start",
+            commandId: newCommandId(),
+            threadId: threadIdForSend,
+            message: {
+              messageId: messageIdForSend,
+              role: "user",
+              text: outgoingMessageText,
+              attachments: turnAttachments,
+              ...(mentionedSkillsForSend.length > 0 ? { skills: mentionedSkillsForSend } : {}),
+              ...(mentionedPluginMentionsForSend.length > 0
+                ? { mentions: mentionedPluginMentionsForSend }
                 : {}),
-              createdAt: messageCreatedAt,
-            })
-            .catch((error: unknown) => {
-              if (
-                getThreadFromState(useStore.getState(), threadIdForSend)?.claudeCacheReview
-                  ?.messageId !== messageIdForSend
-              ) {
-                throw error;
-              }
+            },
+            ...turnStartDispatchFields(dispatchSettings, dispatchMode),
+            ...(sourceProposedPlanForSend ? { sourceProposedPlan: sourceProposedPlanForSend } : {}),
+            createdAt: messageCreatedAt,
+          };
+          await api.orchestration
+            .dispatchCommand(turnStartCommand)
+            .catch(async (error: unknown) => {
+              // A lost reply is not a rejected turn. Confirm the exact message first; if
+              // that cannot be proven and the connection went, hold the message as not yet
+              // confirmed instead of returning it to the composer to be sent twice.
+              const outcome = await settleFailedTurnSend({
+                error,
+                api: api.orchestration,
+                send: { command: turnStartCommand, prompt: promptForSend },
+                alreadyReceived: () => {
+                  const thread = getThreadFromState(useStore.getState(), threadIdForSend);
+                  return (
+                    thread?.claudeCacheReview?.messageId === messageIdForSend ||
+                    hasServerReceivedSentMessage(thread, messageIdForSend)
+                  );
+                },
+              });
+              if (outcome === "rejected") throw error;
             });
         });
         turnStartSucceeded = true;
@@ -849,100 +855,51 @@ export function useChatTurnExecution({
               return next.length === existing.length ? existing : next;
             });
         }
-        const retryDraft = useComposerDraftStore.getState().draftsByThreadId[threadIdForSend];
         if (
           queuedChatTurn === null &&
           !turnStartSucceeded &&
-          (!retryDraft ||
-            (retryDraft.prompt.length === 0 &&
-              retryDraft.images.length === 0 &&
-              retryDraft.files.length === 0 &&
-              retryDraft.assistantSelections.length === 0 &&
-              retryDraft.browserAnnotations.length === 0 &&
-              retryDraft.fileComments.length === 0 &&
-              retryDraft.terminalContexts.length === 0 &&
-              retryDraft.pastedTexts.length === 0 &&
-              retryDraft.pullRequestContexts.length === 0))
+          isComposerDraftEmpty(threadIdForSend)
         ) {
-          if (isFocusedSend)
-            setOptimisticUserMessages((existing) => {
-              const removed = existing.filter((message) => message.id === messageIdForSend);
-              for (const message of removed) {
-                revokeUserMessagePreviewUrls(message);
-              }
-              const next = existing.filter((message) => message.id !== messageIdForSend);
-              return next.length === existing.length ? existing : next;
-            });
-          if (isFocusedSend) promptRef.current = promptForSend;
-          setPrompt(promptForSend);
-          if (sourceProposedPlanForSend) {
-            (isFocusedSend
-              ? setRestoredQueuedSourceProposedPlan
-              : useComposerDraftStore.getState().setRestoredSourceProposedPlan)(threadIdForSend, {
+          restoreUnsentComposerMessage(
+            {
               threadId: threadIdForSend,
-              restoredPrompt: promptForSend,
+              messageId: messageIdForSend,
+              prompt: promptForSend,
               sourceProposedPlan: sourceProposedPlanForSend,
-            });
-          }
-          if (isFocusedSend)
-            setComposerCursor(collapseExpandedComposerCursor(promptForSend, promptForSend.length));
-          (isFocusedSend
-            ? addComposerImagesToDraft
-            : (value: Parameters<typeof addComposerImagesToDraft>[0]) =>
-                useComposerDraftStore.getState().addImages(threadIdForSend, value))(
-            composerImagesSnapshot.map(cloneComposerImageAttachment),
+              images: composerImagesSnapshot,
+              files: composerFilesSnapshot,
+              assistantSelections: composerAssistantSelectionsSnapshot,
+              browserAnnotations: composerBrowserAnnotationsSnapshot,
+              fileComments: composerFileCommentsSnapshot,
+              terminalContexts: composerTerminalContextsSnapshot,
+              pastedTexts: composerPastedTextsSnapshot,
+              pullRequestContexts: composerPullRequestContextsSnapshot,
+              skills: composerSkillsSnapshot,
+              mentions: composerMentionsSnapshot,
+            },
+            {
+              activeThreadIdRef,
+              setOptimisticUserMessages,
+              promptRef,
+              setPrompt,
+              setRestoredQueuedSourceProposedPlan,
+              setComposerCursor,
+              addComposerImagesToDraft,
+              addComposerFilesToDraft,
+              addComposerAssistantSelectionToDraft,
+              addComposerDraftBrowserAnnotations,
+              addComposerFileCommentToDraft,
+              addComposerTerminalContextsToDraft,
+              addComposerPastedTextsToDraft,
+              addComposerPullRequestContextsToDraft,
+              updateSelectedComposerSkills,
+              updateSelectedComposerMentions,
+              setComposerTrigger,
+            },
           );
-          (isFocusedSend
-            ? addComposerFilesToDraft
-            : (value: Parameters<typeof addComposerFilesToDraft>[0]) =>
-                useComposerDraftStore.getState().addFiles(threadIdForSend, value))(
-            composerFilesSnapshot,
-          );
-          for (const selection of composerAssistantSelectionsSnapshot) {
-            (isFocusedSend
-              ? addComposerAssistantSelectionToDraft
-              : (value: Parameters<typeof addComposerAssistantSelectionToDraft>[0]) =>
-                  useComposerDraftStore.getState().addAssistantSelection(threadIdForSend, value))(
-              selection,
-            );
-          }
-          addComposerDraftBrowserAnnotations(threadIdForSend, composerBrowserAnnotationsSnapshot);
-          for (const comment of composerFileCommentsSnapshot) {
-            (isFocusedSend
-              ? addComposerFileCommentToDraft
-              : (value: Parameters<typeof addComposerFileCommentToDraft>[0]) =>
-                  useComposerDraftStore.getState().addFileComment(threadIdForSend, value))(comment);
-          }
-          (isFocusedSend
-            ? addComposerTerminalContextsToDraft
-            : (value: Parameters<typeof addComposerTerminalContextsToDraft>[0]) =>
-                useComposerDraftStore.getState().addTerminalContexts(threadIdForSend, value))(
-            composerTerminalContextsSnapshot,
-          );
-          (isFocusedSend
-            ? addComposerPastedTextsToDraft
-            : (value: Parameters<typeof addComposerPastedTextsToDraft>[0]) =>
-                useComposerDraftStore.getState().addPastedTexts(threadIdForSend, value))(
-            composerPastedTextsSnapshot,
-          );
-          (isFocusedSend
-            ? addComposerPullRequestContextsToDraft
-            : (value: Parameters<typeof addComposerPullRequestContextsToDraft>[0]) =>
-                value.forEach((context) =>
-                  useComposerDraftStore.getState().addPullRequestContext(threadIdForSend, context),
-                ))(composerPullRequestContextsSnapshot);
-          if (isFocusedSend) {
-            updateSelectedComposerSkills(composerSkillsSnapshot);
-            updateSelectedComposerMentions(composerMentionsSnapshot);
-          } else {
-            useComposerDraftStore.getState().setSkills(threadIdForSend, composerSkillsSnapshot);
-            useComposerDraftStore.getState().setMentions(threadIdForSend, composerMentionsSnapshot);
-          }
-          if (isFocusedSend)
-            setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
         }
-        if (!setupCancelled) {
-          setThreadError(
+        if (!setupCancelled && !turnStartSucceeded) {
+          setThreadSendFailure(
             threadIdForSend,
             err instanceof Error ? err.message : "Failed to send message.",
           );
@@ -996,7 +953,7 @@ export function useChatTurnExecution({
       updateSelectedComposerSkills,
       updateSelectedComposerMentions,
       setComposerTrigger,
-      setThreadError,
+      setThreadSendFailure,
       sendInFlightRef,
       worktreeSetupResolutionRef,
       scheduleFailedWorktreeSetupDispatchReset,

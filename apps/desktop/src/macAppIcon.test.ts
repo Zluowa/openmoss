@@ -2,12 +2,12 @@ import * as FS from "node:fs/promises";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
-import { execProcessFile } from "@synara/shared/processRuntime";
+import { execProcessFile } from "@moss/shared/processRuntime";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { persistMacAppIcon } from "./macAppIcon";
 
-vi.mock("@synara/shared/processRuntime", () => ({ execProcessFile: vi.fn() }));
+vi.mock("@moss/shared/processRuntime", () => ({ execProcessFile: vi.fn() }));
 
 let cacheDirectory: string;
 const bundlePath = "/Applications/Moss's $(literal) App.app";

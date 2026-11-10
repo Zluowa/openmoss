@@ -106,4 +106,24 @@ describe("Moss Cloud auth route and error normalization", () => {
       "Moss could not complete Google sign-in. Try again.",
     );
   });
+
+  it("reads the code on an RPC error, whose message alone doesn't name the failure", () => {
+    const expired = Object.assign(
+      new Error("The Google authentication flow is invalid or expired. Start again."),
+      { code: "session_expired" },
+    );
+    expect(mossCloudAuthErrorMessage(expired, "googleOAuth")).toBe(
+      "This Google sign-in request is invalid or has expired. Start again.",
+    );
+  });
+
+  it("accepts only the fixed Google callback outcomes", () => {
+    expect(parseMossCloudAuthRouteSearch({ oauthError: "access_denied" })).toEqual({
+      oauthError: "access_denied",
+    });
+    expect(parseMossCloudAuthRouteSearch({ oauthError: "failed" })).toEqual({
+      oauthError: "failed",
+    });
+    expect(parseMossCloudAuthRouteSearch({ oauthError: "<script>" })).toEqual({});
+  });
 });

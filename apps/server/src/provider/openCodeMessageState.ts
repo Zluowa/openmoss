@@ -107,6 +107,8 @@ export interface OpenCodeMessageState<Part extends { readonly messageID: string 
       readonly messageId: string;
       readonly text: string;
       readonly bufferedAfterKnownSnapshot: boolean;
+      /** Text length of the snapshot this delta was buffered after. */
+      readonly knownSnapshotLength: number;
     }
   >;
 }

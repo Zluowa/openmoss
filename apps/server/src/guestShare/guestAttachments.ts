@@ -8,7 +8,7 @@ import {
   type ChatAttachment,
   type GuestAccessErrorReason,
   type GuestMessageAttachment,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 /** A file from a guest's message request, saved by the multipart parser to a temporary path. */
 export interface GuestUpload {

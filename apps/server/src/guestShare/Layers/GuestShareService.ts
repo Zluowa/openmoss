@@ -1,7 +1,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { basename as pathBasename } from "node:path";
 
 import {
   CommandId,
+  GUEST_FILE_MAX_BYTES,
+  GUEST_OPTIONAL_ROUTES,
+  GUEST_RENDER_MAX_BYTES,
   GUEST_SHARE_PROTOCOL_VERSION,
   GUEST_SNAPSHOT_MESSAGE_LIMIT,
   GUEST_SNAPSHOT_USER_TURN_LIMIT,
@@ -18,14 +22,18 @@ import {
   type GuestStreamEvent,
   type ModelSelection,
   type OrchestrationEvent,
+  type OrchestrationThread,
   type OrchestrationThreadDetailSnapshot,
   type ThreadId,
-} from "@synara/contracts";
-import {
-  isThreadDetailEventFor,
-  THREAD_DETAIL_EVENT_TYPES,
-} from "@synara/shared/threadDetailEvents";
-import { formatGuestMessageAttribution } from "@synara/shared/guestShareAttribution";
+} from "@moss/contracts";
+import { isThreadDetailEventFor, THREAD_DETAIL_EVENT_TYPES } from "@moss/shared/threadDetailEvents";
+import { formatGuestMessageAttribution } from "@moss/shared/guestShareAttribution";
+import { resolveThreadWorkspaceCwd } from "@moss/shared/threadEnvironment";
+import { INLINE_VISUALS_BETA_FEATURE } from "@moss/shared/betaFeatures";
+import { htmlRenderFileName } from "@moss/shared/htmlRender";
+import { buildInlineVisualDocument } from "@moss/shared/inlineVisual";
+import { resolveGuestHtmlRenderMapConfig } from "@moss/shared/htmlRenderMaps";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   Deferred,
   Duration,
@@ -42,9 +50,20 @@ import {
 
 import { MossCloudAccountService } from "../../account/Services/MossCloudAccountService.ts";
 import { MossPhoneAccountService } from "../../account/Services/MossPhoneAccountService.ts";
+import { accountLane } from "../../account/accountLane.ts";
 import { resolveAttachmentRelativePath } from "../../attachmentPaths.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { isServerBetaFeatureEnabled } from "../../betaFeatureGate.ts";
+import { CheckpointDiffQuery } from "../../checkpointing/Services/CheckpointDiffQuery.ts";
+import { inlineVisualizationDocument } from "../../inlineVisualization.ts";
+import {
+  readInlineVisualizationLibrary,
+  readInlineVisualizationRequest,
+} from "../../inlineVisualizationAccess.ts";
+import { readInlineVisual } from "../../inlineVisualStore.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerSecretStore } from "../../auth/Services/ServerSecretStore.ts";
+import { resolveProjectCwdForKind } from "../../checkpointing/Utils.ts";
 import { ServerConfig } from "../../config.ts";
 import {
   attachmentPrincipalForGuestShare,
@@ -62,6 +81,7 @@ import {
   type GuestShareRecord,
 } from "../../persistence/Services/GuestShareRepository.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
+import { resolveScratchWorkspacesRoot } from "../../scratchWorkspaces.ts";
 import { ServerRuntimeStartup } from "../../serverRuntimeStartup.ts";
 import {
   guestAccessError,
@@ -75,7 +95,13 @@ import {
   guestMessageAttachments,
   type GuestUpload,
 } from "../guestAttachments.ts";
-import { handleGuestRequest } from "../guestRequestHandler.ts";
+import {
+  handleGuestRequest,
+  type GuestFileTarget,
+  type GuestRenderTarget,
+  type GuestServedBytes,
+  type GuestServedFile,
+} from "../guestRequestHandler.ts";
 import {
   guestInviteCredential,
   GUEST_SHARE_SIGNING_KEY_BYTES,
@@ -101,6 +127,21 @@ import {
   withSentGuestMessage,
 } from "../guestShareDecider.ts";
 import {
+  findGuestHtmlRender,
+  findGuestInlineVisual,
+  findGuestLocalArtifact,
+  guestHtmlRenderSize,
+  guestImageMentions,
+  guestReplyMentions,
+  inlineVisualizationLibraries,
+  normalizeLocalReference,
+  resolveGuestLinkedFile,
+  resolveGuestSharedImage,
+  shareableTurnDiff,
+  withOfflinePagePolicy,
+  type GuestImageMentions,
+} from "../guestSharedResources.ts";
+import {
   modelSelectionOfEvent,
   sanitizeGuestThreadEvent,
   sanitizeGuestThreadSnapshot,
@@ -113,6 +154,7 @@ import { resolveShareRelayAccount } from "../shareRelayOrigin.ts";
 import { makeCursorSafeSnapshotLiveStream } from "../../wsSnapshotLiveStream.ts";
 
 const SHARE_ID_BYTES = 16;
+const isHtmlFileName = (name: string) => /\.html?$/iu.test(name);
 // How soon an open stream notices that its session stopped working for a reason that sends no
 // `ended` (for example the share row vanished). Closing, replacing, and expiry end it at once.
 const ACCESS_RECHECK_INTERVAL = Duration.seconds(30);
@@ -121,6 +163,8 @@ const EXPIRY_SWEEP_INTERVAL = Duration.minutes(1);
 const ATTACHMENT_STAGING_GRACE_MS = 5 * 60 * 1000;
 
 const MANAGED_ATTACHMENT_ID_PATTERN = /^att_v2_[0-9a-f]{32}$/u;
+// A page load asks for every picture and page at once; they share one read of the window.
+const GUEST_WINDOW_CACHE_TTL = Duration.seconds(5);
 
 type GuestShareChange =
   | {
@@ -168,6 +212,11 @@ const make = Effect.gen(function* () {
   const cloudAccount = yield* MossCloudAccountService;
   const transport = yield* ShareRelayTransport;
   const fileSystem = yield* FileSystem.FileSystem;
+  // Visualization markers resolve through the projection and, for Codex threads, the settings.
+  const sql = yield* SqlClient.SqlClient;
+  const serverSettings = yield* Effect.serviceOption(ServerSettingsService);
+  // A turn's changes, for the guest's "review changes".
+  const diffQuery = yield* Effect.serviceOption(CheckpointDiffQuery);
   const layerScope = yield* Effect.scope;
   const services = yield* Effect.services<FileSystem.FileSystem | Path.Path>();
   const signingKey = yield* secretStore
@@ -458,6 +507,7 @@ const make = Effect.gen(function* () {
         Effect.forkIn(layerScope),
       );
       yield* persisted(repository.deleteById(record.id));
+      guestWindowCache.delete(record.threadId);
       yield* PubSub.publish(changes, {
         type: "remove",
         shareId: record.id,
@@ -907,7 +957,11 @@ const make = Effect.gen(function* () {
         Effect.sleep(Duration.millis(Math.max(0, Date.parse(share.expiresAt) - Date.now()))),
       ).pipe(Stream.map(() => ended("expired")));
       const opening: ReadonlyArray<GuestStreamEvent> = [
-        { type: "hello", protocolVersion: GUEST_SHARE_PROTOCOL_VERSION },
+        {
+          type: "hello",
+          protocolVersion: GUEST_SHARE_PROTOCOL_VERSION,
+          routes: [...GUEST_OPTIONAL_ROUTES],
+        },
         { type: "view", view: initialView },
       ];
       return Stream.fromIterable(opening).pipe(
@@ -944,6 +998,11 @@ const make = Effect.gen(function* () {
               .flatMap((message) => guestMessageAttachments(message.attachments))
               .find((candidate) => candidate.id === attachmentId);
       }
+      // A tool result's picture (an MCP image the agent produced), while the window shows it.
+      if (found === undefined && MANAGED_ATTACHMENT_ID_PATTERN.test(attachmentId)) {
+        const { thread } = yield* guestWindow(record.threadId);
+        found = findGuestLocalArtifact(thread, attachmentId) ?? undefined;
+      }
       if (found === undefined) return yield* unavailable;
       const path = yield* attachmentPath(
         found,
@@ -955,7 +1014,288 @@ const make = Effect.gen(function* () {
       return exists ? { path, attachment: found } : yield* unavailable;
     });
 
-  const operations = { redeem, check, submit, stream, attachment };
+  /**
+   * The thread as the session's stream shows it: the same scrubbed window, so a guest can load
+   * a page or picture only while the transcript it watches shows it. The pictures it names are
+   * indexed once per read.
+   */
+  const readGuestWindow = (threadId: ThreadId) =>
+    snapshotQuery
+      .getThreadDetailSnapshotById(threadId, { limit: GUEST_SNAPSHOT_MESSAGE_LIMIT })
+      .pipe(
+        Effect.mapError(() => guestAccessError("unavailable")),
+        Effect.flatMap((detail) =>
+          Option.isNone(detail) ||
+          detail.value.thread.archivedAt !== null ||
+          detail.value.thread.deletedAt !== null
+            ? Effect.fail(inactive)
+            : Effect.sync(() => {
+                const thread = sanitizeGuestThreadSnapshot(detail.value, {
+                  userTurnLimit: GUEST_SNAPSHOT_USER_TURN_LIMIT,
+                  messageLimit: GUEST_SNAPSHOT_MESSAGE_LIMIT,
+                }).thread;
+                return {
+                  thread,
+                  mentions: guestImageMentions(thread),
+                  replies: guestReplyMentions(thread),
+                };
+              }),
+        ),
+      );
+
+  const guestWindowCache = new Map<
+    ThreadId,
+    Effect.Effect<
+      {
+        readonly thread: OrchestrationThread;
+        readonly mentions: GuestImageMentions;
+        readonly replies: ReadonlyArray<string>;
+      },
+      GuestShareAccessError
+    >
+  >();
+  const guestWindow = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      let cached = guestWindowCache.get(threadId);
+      if (cached === undefined) {
+        cached = yield* Effect.cachedWithTTL(readGuestWindow(threadId), GUEST_WINDOW_CACHE_TTL);
+        guestWindowCache.set(threadId, cached);
+      }
+      return yield* cached;
+    });
+
+  /** The thread's folder, for pictures the transcript names by a relative path. */
+  const threadFolder = (threadId: ThreadId) =>
+    snapshotQuery.getThreadCheckpointContext(threadId).pipe(
+      Effect.map((context) =>
+        Option.isNone(context)
+          ? null
+          : resolveThreadWorkspaceCwd({
+              projectCwd: resolveProjectCwdForKind({
+                kind: context.value.projectKind,
+                workspaceRoot: context.value.workspaceRoot,
+                worktreePath: context.value.worktreePath,
+              }),
+              envMode: context.value.envMode,
+              worktreePath: context.value.worktreePath,
+              workingDirectory: context.value.workingDirectory,
+            }),
+      ),
+      Effect.orElseSucceed(() => null),
+    );
+
+  const media: GuestShareServiceShape["media"] = (session, src) =>
+    Effect.gen(function* () {
+      const record = yield* authorizeSession(session);
+      const { mentions } = yield* guestWindow(record.threadId);
+      const cwd = yield* threadFolder(record.threadId);
+      const picture = yield* Effect.promise(() =>
+        resolveGuestSharedImage({
+          src,
+          cwd,
+          mentions,
+          scratchWorkspacesRoot: resolveScratchWorkspacesRoot(),
+        }).catch(() => null),
+      );
+      if (picture === null) return yield* guestAccessError("unavailable");
+      return picture;
+    });
+
+  /** A page the agent published in the shared window, as stored. */
+  const sharedPage = (thread: OrchestrationThread, attachmentId: string) =>
+    Effect.gen(function* () {
+      const page = findGuestHtmlRender(thread, attachmentId, serverConfig.attachmentsDir);
+      if (page === null) return yield* guestAccessError("unavailable");
+      const sizeBytes = yield* Effect.promise(() => guestHtmlRenderSize(page.path));
+      if (sizeBytes === null) return yield* guestAccessError("unavailable");
+      return { path: page.path, sizeBytes, title: page.reference.title };
+    });
+
+  /** An inline visual the shared window shows, with its stored source. */
+  const sharedVisual = (thread: OrchestrationThread, visualId: string) =>
+    Effect.gen(function* () {
+      const unavailable = guestAccessError("unavailable");
+      // The owner's own app shows visuals only while the feature is on.
+      if (!isServerBetaFeatureEnabled(INLINE_VISUALS_BETA_FEATURE)) return yield* unavailable;
+      const visual = findGuestInlineVisual(thread, visualId);
+      if (visual === null) return yield* unavailable;
+      const source = yield* Effect.promise(() =>
+        readInlineVisual({
+          attachmentsDir: serverConfig.attachmentsDir,
+          threadId: thread.id,
+          visualId,
+        }).catch(() => null),
+      );
+      if (source === null) return yield* unavailable;
+      return { ...visual, source };
+    });
+
+  /**
+   * A visualization marker's file. The marker must be in one of the agent's replies in the
+   * window, and the file must resolve the way the owner's own frame resolves it.
+   */
+  const sharedVisualization = (threadId: ThreadId, replies: ReadonlyArray<string>, src: string) =>
+    Effect.gen(function* () {
+      const unavailable = guestAccessError("unavailable");
+      const needle = normalizeLocalReference(src);
+      if (needle.length === 0 || !replies.some((reply) => reply.includes(needle))) {
+        return yield* unavailable;
+      }
+      const lookup = readInlineVisualizationRequest({ threadId, requestedPath: src }).pipe(
+        Effect.provideService(SqlClient.SqlClient, sql),
+        Effect.provideService(ServerConfig, serverConfig),
+      );
+      const resolved = yield* (
+        Option.isSome(serverSettings)
+          ? lookup.pipe(Effect.provideService(ServerSettingsService, serverSettings.value))
+          : lookup
+      ).pipe(Effect.orElseSucceed(() => null));
+      if (resolved === null) return yield* unavailable;
+      return resolved.visualization;
+    });
+
+  /** A file the agent linked in a reply, inside the thread's folder. */
+  const sharedLinkedFile = (threadId: ThreadId, replies: ReadonlyArray<string>, src: string) =>
+    Effect.gen(function* () {
+      const cwd = yield* threadFolder(threadId);
+      const linked = yield* Effect.promise(() =>
+        resolveGuestLinkedFile({
+          src,
+          cwd,
+          replies,
+          scratchWorkspacesRoot: resolveScratchWorkspacesRoot(),
+        }).catch(() => null),
+      );
+      if (linked === null) return yield* guestAccessError("unavailable");
+      return linked;
+    });
+
+  const render: GuestShareServiceShape["render"] = (session, target: GuestRenderTarget) =>
+    Effect.gen(function* () {
+      const record = yield* authorizeSession(session);
+      const { thread, replies } = yield* guestWindow(record.threadId);
+      switch (target.kind) {
+        case "page": {
+          const page = yield* sharedPage(thread, target.attachmentId);
+          return { kind: "path", path: page.path, sizeBytes: page.sizeBytes } as GuestServedBytes;
+        }
+        case "visual": {
+          const visual = yield* sharedVisual(thread, target.visualId);
+          if (visual.format !== "html") return yield* guestAccessError("unavailable");
+          // The same document the owner's frame runs. The theme's colors follow over
+          // postMessage once the frame loads, as they do when the owner changes theme.
+          const text = buildInlineVisualDocument(visual.source, {
+            appearance: target.appearance,
+            variables: {},
+          });
+          return { kind: "text", text } as GuestServedBytes;
+        }
+        case "visualization": {
+          const visualization = yield* sharedVisualization(thread.id, replies, target.src);
+          const text = yield* Effect.promise(() =>
+            inlineVisualizationLibraries(
+              inlineVisualizationDocument(visualization.source),
+              (name) => readInlineVisualizationLibrary(name, serverConfig.staticDir),
+            ),
+          );
+          return { kind: "text", text } as GuestServedBytes;
+        }
+        case "file": {
+          const linked = yield* sharedLinkedFile(thread.id, replies, target.src);
+          if (!isHtmlFileName(linked.name) || linked.sizeBytes > GUEST_RENDER_MAX_BYTES) {
+            return yield* guestAccessError("unavailable");
+          }
+          const html = yield* fileSystem
+            .readFileString(linked.path)
+            .pipe(Effect.mapError(() => guestAccessError("unavailable")));
+          // The owner's own file preview loads nothing from the network; the page carries the
+          // same rule as its first element, since the relay sends its own frame headers.
+          return { kind: "text", text: withOfflinePagePolicy(html) } as GuestServedBytes;
+        }
+      }
+    });
+
+  const file: GuestShareServiceShape["file"] = (session, target: GuestFileTarget) =>
+    Effect.gen(function* () {
+      const record = yield* authorizeSession(session);
+      const { thread, replies } = yield* guestWindow(record.threadId);
+      // Sources and pages download as bytes; the relay plays only pictures and videos inline.
+      const bytes = "application/octet-stream";
+      switch (target.kind) {
+        case "visual": {
+          const visual = yield* sharedVisual(thread, target.visualId);
+          const extension = visual.format === "html" ? "html" : "txt";
+          return {
+            kind: "text",
+            text: visual.source,
+            name: `${visual.title}.${extension}`,
+            mimeType: bytes,
+          } as GuestServedFile;
+        }
+        case "page": {
+          const page = yield* sharedPage(thread, target.attachmentId);
+          return {
+            kind: "path",
+            path: page.path,
+            sizeBytes: page.sizeBytes,
+            name: htmlRenderFileName(page.title),
+            mimeType: bytes,
+          } as GuestServedFile;
+        }
+        case "visualization": {
+          const visualization = yield* sharedVisualization(thread.id, replies, target.src);
+          return {
+            kind: "text",
+            text: visualization.source,
+            name: pathBasename(visualization.path),
+            mimeType: bytes,
+          } as GuestServedFile;
+        }
+        case "file": {
+          const linked = yield* sharedLinkedFile(thread.id, replies, target.src);
+          return {
+            kind: "path",
+            path: linked.path,
+            sizeBytes: linked.sizeBytes,
+            name: linked.name,
+            mimeType: linked.mimeType,
+          } as GuestServedFile;
+        }
+        case "diff": {
+          // The change a turn in the window made, as the owner's "review changes" shows it.
+          const unavailable = guestAccessError("unavailable");
+          const checkpoint = thread.checkpoints.find(
+            (candidate) => candidate.turnId === target.turnId && candidate.status === "ready",
+          );
+          if (
+            Option.isNone(diffQuery) ||
+            checkpoint === undefined ||
+            checkpoint.checkpointTurnCount < 1
+          ) {
+            return yield* unavailable;
+          }
+          const result = yield* diffQuery.value
+            .getTurnDiff({
+              threadId: thread.id,
+              fromTurnCount: checkpoint.checkpointTurnCount - 1,
+              toTurnCount: checkpoint.checkpointTurnCount,
+            })
+            .pipe(Effect.mapError(() => unavailable));
+          const text = shareableTurnDiff(result.diff);
+          if (Buffer.byteLength(text, "utf8") > GUEST_FILE_MAX_BYTES) return yield* unavailable;
+          return { kind: "text", text, name: "changes.diff", mimeType: bytes } as GuestServedFile;
+        }
+        case "map": {
+          // The map the owner's own pages draw: the owner's lane, with only the map keys Moss
+          // ships publicly. A key the owner set for themselves stays on their computer.
+          const lane = yield* accountLane(phoneAccount);
+          const text = JSON.stringify(resolveGuestHtmlRenderMapConfig({ env: process.env, lane }));
+          return { kind: "text", text, name: "map.json", mimeType: bytes } as GuestServedFile;
+        }
+      }
+    });
+
+  const operations = { redeem, check, submit, stream, attachment, render, media, file };
 
   const handleGuestRequestOperation: GuestShareServiceShape["handleGuestRequest"] = (request) =>
     handleGuestRequest(operations, request).pipe(Effect.provideServices(services));
@@ -997,6 +1337,9 @@ const make = Effect.gen(function* () {
     submit,
     stream,
     attachment,
+    render,
+    media,
+    file,
     handleGuestRequest: handleGuestRequestOperation,
   } satisfies GuestShareServiceShape;
 });

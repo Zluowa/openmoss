@@ -1,4 +1,4 @@
-import { PagesMutateInput } from "@synara/contracts";
+import { PagesMutateInput } from "@moss/contracts";
 import { Schema } from "effect";
 
 export function pageOperationKey(input: Readonly<Record<string, unknown>>): string {

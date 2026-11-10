@@ -1,7 +1,7 @@
 import {
   DesktopOperationQueue as SharedDesktopOperationQueue,
   desktopOperationContext,
-} from "@synara/shared/desktopOperationQueue";
+} from "@moss/shared/desktopOperationQueue";
 
 import { ComputerBackendError } from "./ComputerBackend.ts";
 
@@ -14,7 +14,7 @@ export {
   withDesktopDeliveryMode,
   withDesktopOperationSignal,
   withoutDesktopCancellation,
-} from "@synara/shared/desktopOperationQueue";
+} from "@moss/shared/desktopOperationQueue";
 
 /** A detached continuation cannot turn a completed call into fresh input authority. */
 export function assertDesktopOperationAdmission(): void {

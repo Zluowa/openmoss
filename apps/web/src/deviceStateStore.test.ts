@@ -1,9 +1,5 @@
-import type {
-  DeviceOpenPaneRequestedEvent,
-  DeviceUdid,
-  ThreadDeviceState,
-} from "@synara/contracts";
-import { ThreadId } from "@synara/contracts";
+import type { DeviceOpenPaneRequestedEvent, DeviceUdid, ThreadDeviceState } from "@moss/contracts";
+import { ThreadId } from "@moss/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { selectThreadDeviceState, useDeviceStateStore } from "./deviceStateStore";

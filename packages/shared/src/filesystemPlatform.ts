@@ -97,3 +97,12 @@ export function isMacAppBundlePath(
 ): boolean {
   return platform === "darwin" && path.extname(directoryPath).toLowerCase() === ".app";
 }
+
+/** Windows directory junctions support a directory target without symlink privileges. */
+export function createDirectoryLink(
+  target: string,
+  link: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
+  return fs.symlink(target, link, platform === "win32" ? "junction" : "dir");
+}

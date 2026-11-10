@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import {
   MOSS_DESKTOP_UPDATE_CHANNEL,
   MOSS_PRODUCTION_BUNDLE_ID,
-} from "@synara/shared/desktopIdentity";
+} from "@moss/shared/desktopIdentity";
 
 import { DESKTOP_STAGE_LOCK_DIRECTORY } from "./lib/desktop-stage-lock.ts";
 import { assertStagedDiffDependencies } from "./lib/staged-diff-dependencies.ts";
@@ -23,7 +23,7 @@ import {
 import {
   RELEASE_LOCKFILE_PATH,
   RELEASE_PATCHES_PATH,
-  RELEASE_WORKSPACE_MANIFEST_PATHS,
+  releaseWorkspaceManifestPaths,
 } from "./lib/release-workspace-manifests.ts";
 import { parse } from "yaml";
 
@@ -539,7 +539,7 @@ const defaultReleaseSmokeProcessRunner: ReleaseSmokeProcessRunner = (invocation)
 };
 
 function copyWorkspaceManifestFixture(targetRoot: string): void {
-  for (const relativePath of RELEASE_WORKSPACE_MANIFEST_PATHS) {
+  for (const relativePath of releaseWorkspaceManifestPaths(repoRoot)) {
     const sourcePath = resolve(repoRoot, relativePath);
     const destinationPath = resolve(targetRoot, relativePath);
     mkdirSync(dirname(destinationPath), { recursive: true });
@@ -1008,7 +1008,7 @@ function assertCanonicalSigningPreamble(
 const MAC_BUILD_MATRIX_CONTRACTS = [
   {
     label: "macOS arm64",
-    runner: "macos-14",
+    runner: "macos-15",
     platform: "mac",
     target: "dmg",
     arch: "arm64",
@@ -1440,9 +1440,9 @@ export interface CanonicalCliPackageIdentity {
 }
 
 export function assertCanonicalCliBinaryIdentity(serverPackage: CanonicalCliPackageIdentity): void {
-  if (serverPackage.name !== "@synara/cli") {
+  if (serverPackage.name !== "@moss/cli") {
     throw new Error(
-      `Expected the Moss-first CLI package @synara/cli, got ${serverPackage.name ?? "<missing>"}.`,
+      `Expected the Moss-first CLI package @moss/cli, got ${serverPackage.name ?? "<missing>"}.`,
     );
   }
   const expectedBinaries: Readonly<Record<string, string>> = {
@@ -1527,7 +1527,7 @@ function verifyReleaseWorkflowSafety(): void {
   );
   assertContains(
     workflow,
-    "    timeout-minutes: 20\n    permissions:\n      contents: read\n    outputs:",
+    "    timeout-minutes: 75\n    permissions:\n      contents: read\n    outputs:",
     "Expected preflight to use a bounded timeout with read-only repository access.",
   );
   assertContains(
@@ -1841,7 +1841,7 @@ function verifyReleaseWorkflowSafety(): void {
     "Exercise current-run macOS DMG on its native build host",
   );
   for (const [needle, message] of [
-    ["runner: macos-14", "Expected arm64 builds and acceptance to run on native macOS."],
+    ["runner: macos-15", "Expected arm64 builds and acceptance to run on native macOS."],
     ["runner: macos-15-intel", "Expected x64 builds and acceptance to run on native Intel macOS."],
     ["vars.APPLE_TEAM_ID", "Expected publish acceptance to pin the Apple Team ID."],
     [
@@ -2097,7 +2097,7 @@ function verifyDesktopStageLockAuthority(): void {
     throw new Error("Expected bun.lock to contain a packages section.");
   }
   const workspaceImporters = lockfile.slice(0, packagesSectionOffset);
-  for (const manifestPath of RELEASE_WORKSPACE_MANIFEST_PATHS) {
+  for (const manifestPath of releaseWorkspaceManifestPaths(repoRoot)) {
     const workspacePath = manifestPath === "package.json" ? "" : dirname(manifestPath);
     if (!workspaceImporters.includes(`${JSON.stringify(workspacePath)}: {`)) {
       throw new Error(`Expected ${manifestPath} to have a matching importer in bun.lock.`);

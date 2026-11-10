@@ -3,7 +3,7 @@
 // Layer: Shared runtime utilities (consumed by web and server)
 // Exports: Stable reference identity, token, and type guard.
 
-import type { ProviderMentionReference } from "@synara/contracts";
+import type { ProviderMentionReference } from "@moss/contracts";
 
 /** Stable pseudo-reference used only to carry an explicit Computer History selection. */
 export const COMPUTER_HISTORY_MENTION_NAME = "Computer History" as const;

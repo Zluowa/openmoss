@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Schema } from "effect";
-import type { TurnId } from "@synara/contracts";
+import type { TurnId } from "@moss/contracts";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { ChevronDownIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";

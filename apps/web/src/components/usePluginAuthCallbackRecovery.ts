@@ -1,7 +1,7 @@
 // FILE: usePluginAuthCallbackRecovery.ts
 // Purpose: Correlates OAuth callbacks with plugin onboarding rows and recovers retry state.
 
-import type { DesktopConnectorOAuthCallback, ProviderAppInfo } from "@synara/contracts";
+import type { DesktopConnectorOAuthCallback, ProviderAppInfo } from "@moss/contracts";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 
 import { createConnectorOAuthCallbackSubscription } from "~/lib/appToolsModel";

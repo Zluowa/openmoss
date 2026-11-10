@@ -5,7 +5,7 @@ import {
   normalizeModelDisplayName,
   normalizeModelSlug,
   resolveNewestKnownClaudeFamilyModel,
-} from "@synara/shared/model";
+} from "@moss/shared/model";
 import {
   MODEL_OPTIONS_BY_PROVIDER,
   PROVIDER_DISPLAY_NAMES,
@@ -43,7 +43,7 @@ import {
   type ProviderModelOptions,
   type ZcodeModelOptions,
   type ZcodeModelSelection,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { normalizeCursorModelVariantBaseId } from "./cursorModelVariants";
 
 export type ProviderOptions = ProviderModelOptions[ProviderKind];

@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import type { ReactNode } from "react";
 
-import type { SidebarSectionItemKey } from "@synara/contracts";
+import type { SidebarSectionItemKey } from "@moss/contracts";
 
 export type SidebarItemPlacementDestination = "pinned" | "default" | "custom";
 

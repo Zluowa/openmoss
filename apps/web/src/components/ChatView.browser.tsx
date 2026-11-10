@@ -1,10 +1,11 @@
 import { resetThreadDetailResumeCursors } from "../threadDetailResumeCursors";
 import { FEATURE_TOUR_STORAGE_KEY } from "../featureTour/store";
 import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "../localization/zhCN";
+import { translateMoss } from "../localization";
 import {
   buildStalePendingRequestFailureDetail,
   pendingRequestInstanceKey,
-} from "@synara/shared/threadSummary";
+} from "@moss/shared/threadSummary";
 // Production CSS is part of the behavior under test because row height depends on it.
 import "../index.css";
 
@@ -52,14 +53,14 @@ import {
   WS_METHODS,
   WsRpcError,
   OrchestrationSessionStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
-} from "@synara/shared/binaryTransfer";
-import { LOCAL_IMAGE_ROUTE_PATH } from "@synara/shared/localPreviewFiles";
-import { MOSS_CODEX_RESPONSES_MODEL_IDS } from "@synara/shared/mossManagedModelCatalog";
-import { resolveProviderInstance } from "@synara/shared/providerInstances";
+} from "@moss/shared/binaryTransfer";
+import { LOCAL_IMAGE_ROUTE_PATH } from "@moss/shared/localPreviewFiles";
+import { MOSS_CODEX_RESPONSES_MODEL_IDS } from "@moss/shared/mossManagedModelCatalog";
+import { resolveProviderInstance } from "@moss/shared/providerInstances";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { Schema } from "effect";
 import { HttpResponse, http, ws } from "msw";
@@ -142,6 +143,7 @@ import {
 import { makeDomainEvent } from "../storeTestFixtures";
 import {
   unconfiguredMossCloudAccountState,
+  unconfiguredMossEnterpriseKeyState,
   unconfiguredMossPhoneAccountState,
 } from "../test/mossAccountStateFixtures";
 import {
@@ -478,6 +480,7 @@ interface TestFixture {
 
 let fixture: TestFixture;
 let threadDetailSnapshotBarrier: Promise<void> | null = null;
+const threadDetailSnapshotBarrierById = new Map<ThreadId, Promise<void>>();
 const wsRequests: WsRequestEnvelope["body"][] = [];
 // Per-test override for the Moss cloud account read (the default is signed out). The
 // rail's Images destination gates on it, so the gate test flips this before mounting.
@@ -1617,6 +1620,13 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.serverMossAccountSession) {
     return unconfiguredMossPhoneAccountState;
   }
+  // Answer every sign-in lane. Left to the `{}` fallback, the enterprise-key read fails
+  // decoding and ends in error with no data; each later refetch then flips it back to
+  // pending, and the account boundary reads that as an account change, so an automation
+  // or image request in flight at that moment is refused.
+  if (tag === WS_METHODS.serverMossEnterpriseKeyState) {
+    return unconfiguredMossEnterpriseKeyState;
+  }
   if (tag === WS_METHODS.serverGetProviderUsageSnapshot) {
     return fixture.providerUsageSnapshot;
   }
@@ -1771,6 +1781,7 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.projectAgentListActivity) return { activity: [], nextCursor: null };
   if (tag === WS_METHODS.projectAgentListDocuments) return { documents: [] };
   if (tag === WS_METHODS.projectAgentListThreadIndex) return { threads: [] };
+  if (tag === WS_METHODS.mossbotRoomList) return [];
   if (tag === WS_METHODS.projectAgentGetOverview) {
     const projectId = typeof body.projectId === "string" ? body.projectId : "";
     return fixture.projectAgentOverviews[projectId] ?? {};
@@ -1964,7 +1975,9 @@ const worker = setupWorker(
         };
         const sendDetailSnapshot = () =>
           sendEffectRpcChunk(client, parsed.request.id, detailSnapshot);
-        if (threadDetailSnapshotBarrier) void threadDetailSnapshotBarrier.then(sendDetailSnapshot);
+        const barrier =
+          threadDetailSnapshotBarrierById.get(threadId) ?? threadDetailSnapshotBarrier;
+        if (barrier) void barrier.then(sendDetailSnapshot);
         else sendDetailSnapshot();
         return;
       }
@@ -2398,6 +2411,13 @@ async function waitForServerConfigToApply(): Promise<void> {
   await waitForLayout();
 }
 
+/** Resolves once `performance.now()` reaches `time` (at once if it already has). */
+function waitUntilPerformanceTime(time: number): Promise<void> {
+  return new Promise<void>((resolve) =>
+    window.setTimeout(resolve, Math.max(0, time - performance.now())),
+  );
+}
+
 function dispatchComposerPickerShortcut(target: EventTarget, key: "m" | "e"): void {
   const useMetaForMod = isMacNavigatorPlatform();
   target.dispatchEvent(
@@ -2659,16 +2679,27 @@ async function measureChatLayout(host: HTMLElement): Promise<ChatLayoutMeasureme
   };
 }
 
+const CHAT_READINESS_WAIT_OPTIONS = { timeout: 20_000, interval: 16 };
+
 async function waitForSplitChatReady(threadIds: readonly ThreadId[]): Promise<void> {
   // Empty secondary threads have a composer before detail hydration. Capture
   // DOM identity after their loading layout has become the real empty landing.
   await vi.waitFor(() => {
     const state = useStore.getState();
     for (const threadId of threadIds) {
-      expect(state.threadDetailSyncById?.[threadId]).toBe("synced");
+      const subscribeRequests = wsRequests.filter(
+        (request) =>
+          request._tag === ORCHESTRATION_WS_METHODS.subscribeThread &&
+          "threadId" in request &&
+          request.threadId === threadId,
+      ).length;
+      expect(
+        state.threadDetailSyncById?.[threadId],
+        `Split thread ${threadId} did not hydrate (${subscribeRequests} subscribe requests).`,
+      ).toBe("synced");
     }
     expect(document.querySelectorAll('[contenteditable="true"]')).toHaveLength(threadIds.length);
-  });
+  }, CHAT_READINESS_WAIT_OPTIONS);
   await waitForLayout();
 }
 
@@ -2681,28 +2712,25 @@ async function waitForMountedChatReady(options: {
     (thread) => thread.id === options.routeThreadId,
   );
 
-  await vi.waitFor(
-    () => {
-      expect(
-        options.host.querySelector("[data-chat-composer-form='true']"),
-        "Chat composer did not mount.",
-      ).toBeTruthy();
-      expect(
-        wsRequests.some((request) => request._tag === WS_METHODS.serverGetConfig),
-        "Browser RPC configuration did not load.",
-      ).toBe(true);
+  await vi.waitFor(() => {
+    expect(
+      options.host.querySelector("[data-chat-composer-form='true']"),
+      "Chat composer did not mount.",
+    ).toBeTruthy();
+    expect(
+      wsRequests.some((request) => request._tag === WS_METHODS.serverGetConfig),
+      "Browser RPC configuration did not load.",
+    ).toBe(true);
 
-      if (!expectedThread) return;
-      const state = useStore.getState();
-      expect(state.threadIds?.includes(expectedThread.id)).toBe(true);
-      const hydratedMessageIdSet = new Set(state.messageIdsByThreadId?.[expectedThread.id] ?? []);
-      expect(
-        expectedThread.messages.every((message) => hydratedMessageIdSet.has(message.id)),
-        "Active thread detail did not hydrate.",
-      ).toBe(true);
-    },
-    { timeout: 20_000, interval: 16 },
-  );
+    if (!expectedThread) return;
+    const state = useStore.getState();
+    expect(state.threadIds?.includes(expectedThread.id)).toBe(true);
+    const hydratedMessageIdSet = new Set(state.messageIdsByThreadId?.[expectedThread.id] ?? []);
+    expect(
+      expectedThread.messages.every((message) => hydratedMessageIdSet.has(message.id)),
+      "Active thread detail did not hydrate.",
+    ).toBe(true);
+  }, CHAT_READINESS_WAIT_OPTIONS);
   await waitForLayout();
 }
 
@@ -3620,6 +3648,42 @@ function setImageLimitFixtureTheme(theme: "light" | "dark") {
   window.dispatchEvent(new StorageEvent("storage", { key: "moss:theme", newValue: theme }));
 }
 
+// A click on a generated image opens the lightbox; the 画布 chip opens the
+// image workspace in Canvas view, and its view toggle returns to the focused image.
+async function openGeneratedImageFocusPane(preview: HTMLElement): Promise<void> {
+  const chip = await waitForElement(
+    () =>
+      preview.parentElement?.querySelector<HTMLButtonElement>(
+        '[data-testid="generated-image-open-canvas"]',
+      ) ?? null,
+    "Unable to find the generated image Canvas chip.",
+  );
+  chip.click();
+  const pane = () =>
+    document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]');
+  // The chip opens the Canvas view; wait until it has settled there before
+  // switching, or a remembered focused view would be replaced right after.
+  await vi.waitFor(
+    () => {
+      expect(pane()?.getAttribute("data-generated-image-preview-view")).toBe("playground");
+      expect(pane()?.getAttribute("data-generated-image-preview-transitioning")).toBe("false");
+    },
+    { timeout: 8_000, interval: 16 },
+  );
+  await vi.waitFor(
+    () => {
+      const focusView = document.querySelector<HTMLButtonElement>(
+        '[data-testid="generated-image-preview-view-single"]',
+      );
+      if (pane()?.getAttribute("data-generated-image-preview-view") !== "single") {
+        if (focusView && !focusView.disabled) focusView.click();
+      }
+      expect(pane()?.getAttribute("data-generated-image-preview-view")).toBe("single");
+    },
+    { timeout: 8_000, interval: 50 },
+  );
+}
+
 function expectGeneratedImagePreviewReceipt(options?: { mobile?: boolean }): HTMLElement {
   const pane = document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]');
   expect(pane).not.toBeNull();
@@ -3703,6 +3767,57 @@ function expectGeneratedImagePreviewControlRectsInBounds(): void {
     expect(rect?.bottom).toBeLessThanOrEqual(
       Math.min(paneRect?.bottom ?? 0, window.innerHeight) + 1,
     );
+  }
+}
+
+async function openGeneratedImageEditorFromGallery(): Promise<void> {
+  // Image clicks open the lightbox. Enter Canvas explicitly, then choose the
+  // focused view that owns the preview zoom/download controls and image rail.
+  const galleryPreview = await waitForElement(
+    () => document.querySelector<HTMLButtonElement>('[data-testid="generated-image-preview"]'),
+    "Unable to find the generated image gallery preview.",
+  );
+  // The chip is pointer-inert until hover/focus-within. Establish that state on
+  // every mount, including dark/mobile runs with no preceding thumbnail clicks.
+  galleryPreview.focus();
+  await waitForElement(
+    () => document.querySelector<HTMLButtonElement>('[data-testid="generated-image-open-canvas"]'),
+    "Unable to find the loaded gallery's Canvas chip.",
+  );
+  // These fixtures do not host the Canvas runtime. A dev-server HTML fallback
+  // would mount an iframe that cannot acknowledge the save guard on view change.
+  const originalFetch = window.fetch;
+  window.fetch = (input, init) => {
+    const url = new URL(
+      input instanceof Request ? input.url : String(input),
+      window.location.origin,
+    );
+    if (url.origin === window.location.origin && url.pathname === "/canvas/") {
+      return Promise.resolve(new Response("Canvas bundle missing", { status: 503 }));
+    }
+    return originalFetch.call(window, input, init);
+  };
+  try {
+    await page.getByTestId("generated-image-open-canvas").click();
+    await vi.waitFor(() => {
+      const pane = document.querySelector<HTMLElement>(
+        '[data-testid="generated-image-preview-pane"]',
+      );
+      expect(pane?.dataset.generatedImagePreviewView).toBe("playground");
+    });
+    await expect.element(page.getByText("画布工作区暂不可用", { exact: true })).toBeVisible();
+    expect(document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
+    await page.getByTestId("generated-image-preview-view-single").click();
+    await vi.waitFor(() => {
+      const pane = document.querySelector<HTMLElement>(
+        '[data-testid="generated-image-preview-pane"]',
+      );
+      expect(pane?.dataset.generatedImagePreviewView).toBe("single");
+      expect(pane?.dataset.generatedImagePreviewTransitioning).toBe("false");
+    });
+    await waitForGeneratedImagePreviewControlsReady();
+  } finally {
+    window.fetch = originalFetch;
   }
 }
 
@@ -4033,6 +4148,7 @@ describe("ChatView transcript geometry (full app)", () => {
     await resetHomeChatProjectPrewarmStateForTests();
     attachmentResponseDelayMs = 0;
     threadDetailSnapshotBarrier = null;
+    threadDetailSnapshotBarrierById.clear();
     attachmentUploadSequence = 0;
     attachmentUploadBarrier = null;
     attachmentCancelBarrier = null;
@@ -4733,6 +4849,10 @@ describe("ChatView transcript geometry (full app)", () => {
         configurable: true,
         value: {
           ...api,
+          githubInbox: {
+            ...api.githubInbox,
+            connection: async () => ({ state: "connected", login: "fixture-user" }),
+          },
           git: {
             ...api.git,
             githubRepository: async () => ({ repository, repositories: [repository] }),
@@ -5074,10 +5194,27 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it.each(["source", "non-source"] as const)(
+  it.each(["source", "non-source", "delayed non-source"] as const)(
     "closes only the inactive ordinary %s pane and preserves the focused chat",
-    async (closing) => {
+    async (scenario) => {
+      const closing = scenario === "source" ? "source" : "non-source";
+      const detailDelayMs = scenario === "delayed non-source" ? 2_000 : 0;
       const thirdId = ThreadId.makeUnsafe("third-ordinary-grid-chat");
+      let releaseDetail: (() => void) | undefined;
+      let detailDelayTimeout: ReturnType<typeof setTimeout> | undefined;
+      if (detailDelayMs > 0) {
+        threadDetailSnapshotBarrierById.set(
+          thirdId,
+          new Promise<void>((resolve) => {
+            releaseDetail = resolve;
+          }),
+        );
+        onTestFinished(() => {
+          if (detailDelayTimeout !== undefined) clearTimeout(detailDelayTimeout);
+          releaseDetail?.();
+          threadDetailSnapshotBarrierById.delete(thirdId);
+        });
+      }
       const snapshot = addThreadToSnapshot(
         addThreadToSnapshot(createSnapshotWithLongAssistantResponse(), OTHER_THREAD_ID),
         thirdId,
@@ -5104,6 +5241,9 @@ describe("ChatView transcript geometry (full app)", () => {
           params: { threadId: THREAD_ID },
           search: () => ({ splitViewId }),
         });
+        if (releaseDetail) {
+          detailDelayTimeout = setTimeout(releaseDetail, detailDelayMs);
+        }
         await waitForSplitChatReady([THREAD_ID, OTHER_THREAD_ID, thirdId]);
         const readySplit = useSplitViewStore.getState().splitViewsById[splitViewId]!;
         const editorForThread = (threadId: ThreadId) => {
@@ -5398,7 +5538,7 @@ describe("ChatView transcript geometry (full app)", () => {
         "Scheduled",
         "Images",
         "Inbox",
-        "Pull requests",
+        "Code review",
         "More",
       ]) {
         await expect.element(rail.getByRole("button", { name, exact: true })).toBeVisible();
@@ -5424,7 +5564,7 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect.element(rail).toBeVisible();
       // The old History proxy opened this same search palette. Both existing
       // search entries remain connected after the clock becomes Scheduled.
-      for (const name of ["Search", "Explore"]) {
+      for (const name of ["Search"]) {
         await page.getByRole("button", { name, exact: true }).click();
         await expect.element(page.getByPlaceholder("Search chats or run a command")).toBeVisible();
         await userEvent.keyboard("{Escape}");
@@ -5433,6 +5573,10 @@ describe("ChatView transcript geometry (full app)", () => {
           .not.toBeInTheDocument();
       }
       const initialPath = mounted.router.state.location.pathname;
+      await page.getByRole("button", { name: "Mossbot", exact: true }).last().click();
+      await expect.poll(() => mounted.router.state.location.pathname).toBe("/mossbot");
+      await rail.getByRole("button", { name: "Home", exact: true }).click();
+      await expect.poll(() => mounted.router.state.location.pathname).toBe(initialPath);
       await rail.getByRole("button", { name: "Scheduled", exact: true }).click();
       await expect.poll(() => mounted.router.state.location.pathname).toBe("/automations");
       await rail.getByRole("button", { name: "Home", exact: true }).click();
@@ -5462,9 +5606,13 @@ describe("ChatView transcript geometry (full app)", () => {
       for (const name of ["Plugins", "Settings"]) {
         await expect.element(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
       }
+      // Like Codex, the menu lists every destination; ones already in the rail offer Unpin.
       await expect
         .element(page.getByRole("menuitem", { name: "Scheduled", exact: true }))
-        .not.toBeInTheDocument();
+        .toBeVisible();
+      await expect
+        .element(page.getByRole("menuitem", { name: "Unpin from sidebar: Scheduled", exact: true }))
+        .toBeInTheDocument();
       await rail.getByRole("button", { name: "More", exact: true }).click();
       await expect
         .element(page.getByRole("menuitem", { name: "Settings", exact: true }))
@@ -5484,8 +5632,14 @@ describe("ChatView transcript geometry (full app)", () => {
         JSON.parse(localStorage.getItem("moss:app-settings:v1") ?? "{}").hiddenRailItems,
       ).not.toContain("tasks");
       await rail.getByRole("button", { name: "More", exact: true }).click();
+      await page.getByRole("menuitem", { name: "Projects in the sidebar", exact: true }).click();
       await page.getByRole("menuitemcheckbox", { name: "Project", exact: true }).click();
+      // Escape steps out of the submenu first, then closes the menu.
       await userEvent.keyboard("{Escape}");
+      if (document.querySelector('[role="menu"]')) await userEvent.keyboard("{Escape}");
+      await expect
+        .element(page.getByRole("menuitem", { name: "Settings", exact: true }))
+        .not.toBeInTheDocument();
       await expect
         .element(rail.getByRole("button", { name: "Project", exact: true }))
         .toBeVisible();
@@ -5553,7 +5707,7 @@ describe("ChatView transcript geometry (full app)", () => {
         "Scheduled",
         "Images",
         "Inbox",
-        "Pull requests",
+        "Code review",
         "More",
       ]) {
         await expect.element(rail.getByRole("button", { name, exact: true })).toBeVisible();
@@ -5569,9 +5723,13 @@ describe("ChatView transcript geometry (full app)", () => {
       for (const name of ["Plugins", "Settings"]) {
         await expect.element(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
       }
+      // Like Codex, the menu lists every destination; ones already in the rail offer Unpin.
       await expect
         .element(page.getByRole("menuitem", { name: "Scheduled", exact: true }))
-        .not.toBeInTheDocument();
+        .toBeVisible();
+      await expect
+        .element(page.getByRole("menuitem", { name: "Unpin from sidebar: Scheduled", exact: true }))
+        .toBeInTheDocument();
       await rail.getByRole("button", { name: "More", exact: true }).click();
       await expect
         .element(page.getByRole("menuitem", { name: "Settings", exact: true }))
@@ -5633,7 +5791,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("opens data spaces and the existing Library files from the rail and closes them on leave", async () => {
+  it("opens data spaces with the existing Library files from the rail and closes them on leave", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -5658,18 +5816,14 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect
         .poll(() => wsRequests.some((request) => request._tag === WS_METHODS.pagesList))
         .toBe(true);
-      await page.getByRole("button", { name: "资料库文件", exact: true }).click();
-      await expect.element(page.getByLabelText("Moss 资料库", { exact: true })).toBeVisible();
-      // Codex destination pages take over the content area: the chat thread panel hides.
+      // The existing Library files are items of 资料空间 itself (its 全部 view), not a
+      // separate page behind a 资料库文件 button.
       await expect
-        .poll(() => document.querySelector('[data-slot="sidebar"]')?.getAttribute("data-state"))
-        .toBe("collapsed");
+        .poll(() => wsRequests.some((request) => request._tag === WS_METHODS.libraryList))
+        .toBe(true);
       useRailShellStore.getState().selectPanelItem("home");
       await expect
         .element(page.getByRole("complementary", { name: "资料空间导航", exact: true }))
-        .not.toBeInTheDocument();
-      await expect
-        .element(page.getByLabelText("Moss 资料库", { exact: true }))
         .not.toBeInTheDocument();
       await expect
         .poll(() => document.querySelector('[data-slot="sidebar"]')?.getAttribute("data-state"))
@@ -7829,6 +7983,172 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  describe("optimistic send", () => {
+    // A provider whose last check did not settle: sending first re-checks it, which can
+    // take seconds on a real machine. The message must not wait for that.
+    const configureUncheckedCodex = (nextFixture: TestFixture) => {
+      nextFixture.serverConfig = {
+        ...nextFixture.serverConfig,
+        providers: nextFixture.serverConfig.providers.map((provider) =>
+          provider.provider === "codex"
+            ? {
+                ...provider,
+                status: "warning" as const,
+                available: false,
+                authStatus: "unknown" as const,
+              }
+            : provider,
+        ),
+      };
+    };
+    const sentRow = (prompt: string) =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>("[data-message-id][data-message-role='user']"),
+      ).find((row) => row.textContent?.includes(prompt));
+
+    it("shows the message and empties the composer right after Enter, before the checks finish", async () => {
+      const restoreSendApi = installDeterministicSendNativeApi();
+      let finishCheck!: () => void;
+      const checkFinished = new Promise<void>((resolve) => {
+        finishCheck = resolve;
+      });
+      const refreshProviders = vi.fn(async () => {
+        await checkFinished;
+        return {
+          providers: fixture.serverConfig.providers.map((provider) =>
+            provider.provider === "codex"
+              ? {
+                  ...provider,
+                  status: "ready" as const,
+                  available: true,
+                  authStatus: "authenticated" as const,
+                }
+              : provider,
+          ),
+        };
+      });
+      const restoreRefreshApi = installProviderRefreshNativeApi(refreshProviders);
+      const mounted = await mountChatView({
+        viewport: DEFAULT_VIEWPORT,
+        snapshot: createSnapshotForTargetUser({
+          targetMessageId: "msg-user-optimistic-send" as MessageId,
+          targetText: "earlier message",
+        }),
+        configureFixture: configureUncheckedCodex,
+      });
+      try {
+        const prompt = "show me right away";
+        useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
+        const editor = await waitForComposerEditor();
+        await vi.waitFor(() => expect(editor.textContent).toContain(prompt));
+        await userEvent.click(editor);
+        wsRequests.length = 0;
+
+        const pressedAt = performance.now();
+        await userEvent.keyboard("{Enter}");
+        await vi.waitFor(
+          () => {
+            expect(sentRow(prompt), "sent message on screen").toBeTruthy();
+            expect(editor.textContent ?? "").not.toContain(prompt);
+          },
+          { timeout: 2_000, interval: 4 },
+        );
+        const shownAfterMs = performance.now() - pressedAt;
+        // The provider check starts once the message is on screen, and is still running:
+        // nothing was dispatched yet.
+        await vi.waitFor(() => expect(refreshProviders).toHaveBeenCalled());
+        expect(
+          wsRequests.map(readDispatchedCommand).some((c) => c?.type === "thread.turn.start"),
+        ).toBe(false);
+        console.info(
+          `[optimistic send] message on screen ${shownAfterMs.toFixed(0)} ms after Enter`,
+        );
+        expect(shownAfterMs).toBeLessThan(1_000);
+
+        const shownId = sentRow(prompt)!.dataset.messageId;
+        finishCheck();
+        await vi.waitFor(
+          () => {
+            const turnStart = wsRequests
+              .map(readDispatchedCommand)
+              .find((command) => command?.type === "thread.turn.start");
+            // The row on screen is the message that was sent, not a second copy.
+            expect(turnStart).toMatchObject({ message: { messageId: shownId } });
+          },
+          { timeout: 8_000, interval: 16 },
+        );
+        const rows = Array.from(
+          document.querySelectorAll<HTMLElement>("[data-message-id][data-message-role='user']"),
+        ).filter((row) => row.textContent?.includes(prompt));
+        expect(rows).toHaveLength(1);
+      } finally {
+        finishCheck();
+        await mounted.cleanup();
+        restoreRefreshApi();
+        restoreSendApi();
+      }
+    });
+
+    it("hands the message back to the composer when a check stops the send", async () => {
+      const restoreSendApi = installDeterministicSendNativeApi();
+      let failCheck!: () => void;
+      const checkFailed = new Promise<void>((resolve) => {
+        failCheck = resolve;
+      });
+      const refreshProviders = vi.fn(async () => {
+        await checkFailed;
+        return {
+          providers: fixture.serverConfig.providers.map((provider) =>
+            provider.provider === "codex"
+              ? { ...provider, status: "error" as const, available: false }
+              : provider,
+          ),
+        };
+      });
+      const restoreRefreshApi = installProviderRefreshNativeApi(refreshProviders);
+      const mounted = await mountChatView({
+        viewport: DEFAULT_VIEWPORT,
+        snapshot: createSnapshotForTargetUser({
+          targetMessageId: "msg-user-optimistic-rollback" as MessageId,
+          targetText: "earlier message",
+        }),
+        configureFixture: configureUncheckedCodex,
+      });
+      try {
+        const prompt = "keep my words if this cannot be sent";
+        useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
+        const editor = await waitForComposerEditor();
+        await vi.waitFor(() => expect(editor.textContent).toContain(prompt));
+        await userEvent.click(editor);
+        wsRequests.length = 0;
+        await userEvent.keyboard("{Enter}");
+        await vi.waitFor(() => expect(sentRow(prompt)).toBeTruthy(), {
+          timeout: 2_000,
+          interval: 4,
+        });
+
+        failCheck();
+        await vi.waitFor(
+          () => {
+            expect(sentRow(prompt), "unsent message left the transcript").toBeUndefined();
+            expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+              prompt,
+            );
+          },
+          { timeout: 8_000, interval: 16 },
+        );
+        expect(
+          wsRequests.map(readDispatchedCommand).some((c) => c?.type === "thread.turn.start"),
+        ).toBe(false);
+      } finally {
+        failCheck();
+        await mounted.cleanup();
+        restoreRefreshApi();
+        restoreSendApi();
+      }
+    });
+  });
+
   it.each(["Enter", "send button", "plan follow-up"])(
     "keeps sent messages at the bottom with anchoring disabled when using %s, and follows streaming text",
     async (sendMethod) => {
@@ -8214,7 +8534,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("shows Loading until ack, then keeps Thinking through the post-ack gap", async () => {
+  it("shows Sending until ack, then keeps Thinking through the post-ack gap", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     let currentSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-thinking-bridge" as MessageId,
@@ -8252,7 +8572,7 @@ describe("ChatView transcript geometry (full app)", () => {
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain(prompt);
-          expect(document.body.textContent).toContain("Loading");
+          expect(document.body.textContent).toContain("Sending…");
           expect(document.body.textContent).not.toContain("Thinking");
         },
         { timeout: 8_000, interval: 16 },
@@ -10093,6 +10413,48 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("keeps a failed send's explanation when a re-sync replaces the thread error", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi({ rejectTurnStart: true });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-failed-send-resync" as MessageId,
+        targetText: "failed send across a reconnect",
+      }),
+    });
+
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "sent during the restart");
+      const sendButton = await waitForSendButton();
+      await vi.waitFor(() => expect(sendButton.disabled).toBe(false), {
+        timeout: 8_000,
+        interval: 16,
+      });
+      sendButton.click();
+
+      const banner = page.getByRole("alert").filter({ hasText: "Turn start failed for test." });
+      await expect.element(banner).toBeVisible();
+      await vi.waitFor(
+        () =>
+          expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+            "sent during the restart",
+          ),
+        { timeout: 8_000, interval: 16 },
+      );
+
+      // What a reconnect's snapshot does: the thread's error follows the server's session.
+      useStore.getState().setError(THREAD_ID, null);
+      await waitForLayout();
+      await expect.element(banner).toBeVisible();
+
+      await banner.getByRole("button", { name: /dismiss/i }).click();
+      await expect.element(banner).not.toBeInTheDocument();
+    } finally {
+      restoreNativeApi();
+      await mounted.cleanup();
+    }
+  });
+
   it("retains the opened terminal identity when path navigation fails", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -10260,6 +10622,16 @@ describe("ChatView transcript geometry (full app)", () => {
           );
         }
         if (entryPoint !== "draft shortcut") {
+          // Project scripts live in the Environment card (the upstream thread-details
+          // layout), not in the header: open the card, then run the action from it.
+          if (
+            document.querySelector('[data-environment-panel-variant][aria-hidden="false"]') === null
+          ) {
+            await page
+              .getByRole("button", { name: "Toggle environment panel", exact: true })
+              .first()
+              .click();
+          }
           await page.getByRole("button", { name: "Run Test", exact: true }).first().click();
         } else {
           await dispatchConfiguredShortcutWhenReady(window, {
@@ -10426,9 +10798,14 @@ describe("ChatView transcript geometry (full app)", () => {
         });
         shortcutTarget.dispatchEvent(event);
         await expect.element(searchbox, { timeout: 1_000 }).toBeVisible();
+        // The agent column beside the models shows the starred list as the open one.
         await expect
-          .element(page.getByRole("menuitem", { name: /^(?:Provider|服务商): (?:Starred|收藏)$/u }))
-          .toBeVisible();
+          .element(
+            page
+              .getByRole("group", { name: /^(?:Agent|智能体)$/u })
+              .getByRole("menuitem", { name: /^(?:Starred|收藏)$/u }),
+          )
+          .toHaveAttribute("aria-current", "true");
         await expect.element(page.getByRole("menuitem", { name: /^GPT-5\.4/u })).toBeVisible();
         expect(
           page.getByRole("dialog", { name: "Model effort", exact: true }).elements(),
@@ -10481,15 +10858,26 @@ describe("ChatView transcript geometry (full app)", () => {
         );
       const slider = page.getByRole("slider", { name: "Reasoning effort" });
       const searchbox = page.getByRole("searchbox", { name: "Search models" });
+      // Time each step from the presses, not from the checks between them: opening the
+      // picker can take most of a second on a loaded runner, and a fixed sleep after it
+      // pushes the second press past the first preview, when the picker is already gone.
+      const firstPressAt = performance.now();
       pressShortcut();
       await expect.element(searchbox, { timeout: 1_000 }).toBeVisible();
       await expect.element(slider).toHaveAttribute("aria-valuetext", "Medium");
       await vi.waitFor(() => expect(document.activeElement).toBe(searchbox.element()));
       shortcutTarget = searchbox.element() as HTMLElement;
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
+      await waitUntilPerformanceTime(firstPressAt + 900);
+      const secondPressAt = performance.now();
+      expect(
+        secondPressAt - firstPressAt,
+        "the second press must land while the first preview is still open",
+      ).toBeLessThan(1_500);
       pressShortcut();
       await expect.element(slider).toHaveAttribute("aria-valuetext", "High");
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
+      // Past the first press's 1500ms, so only the second press can still hold it open.
+      await waitUntilPerformanceTime(secondPressAt + 900);
+      expect(performance.now() - firstPressAt).toBeGreaterThan(1_500);
       await expect.element(slider).toBeVisible();
       await vi.waitFor(
         () => {
@@ -10761,10 +11149,7 @@ describe("ChatView transcript geometry (full app)", () => {
       )!;
       const statusRow = document.querySelector<HTMLElement>("[data-chat-composer-status-row]")!;
       const environmentPanel = await waitForElement(
-        () =>
-          document
-            .querySelector<HTMLButtonElement>('button[aria-label="Panel sections"]')
-            ?.closest<HTMLElement>("[data-environment-panel-variant]") ?? null,
+        () => document.querySelector<HTMLElement>("[data-environment-panel-variant]") ?? null,
         "Unable to find the actual Environment panel for the composer inset check.",
       );
       const expectRowUnderComposer = () => {
@@ -12259,153 +12644,95 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it.each([
-    { envMode: "local", intent: "send" },
-    { envMode: "worktree", intent: "send" },
-    { envMode: "worktree", intent: "compose" },
-  ] as const)(
-    "moves a selected quote through the mini composer ($envMode, $intent)",
-    async ({ envMode, intent }) => {
-      const restoreNativeApi = installDeterministicSendNativeApi();
-      const snapshot = createSnapshotForTargetUser({
-        targetMessageId: "msg-user-selection-composer" as MessageId,
-        targetText: "Selection composer test",
-      });
-      const mounted = await mountChatView({
-        viewport: DEFAULT_VIEWPORT,
-        snapshot: {
-          ...snapshot,
-          threads: snapshot.threads.map((thread) => ({
-            ...thread,
-            messages: thread.messages.slice(-2),
-          })),
-        },
-      });
-      try {
-        useComposerDraftStore.getState().setPrompt(THREAD_ID, "Keep the current draft");
-        const composerEditor = await waitForComposerEditor();
-        await vi.waitFor(() =>
-          expect(composerEditor.textContent).toContain("Keep the current draft"),
-        );
-        await waitForLayout();
-        const source = page.getByText("assistant filler 21", { exact: true });
-        await expect.element(source).toBeVisible();
-        expect(source.element().closest("[data-assistant-message-id]")).not.toBeNull();
-        await source.click();
-        const sourceNode = source.element();
-        const range = document.createRange();
-        range.selectNodeContents(sourceNode);
-        window.getSelection()?.removeAllRanges();
-        window.getSelection()?.addRange(range);
-        const rect = range.getBoundingClientRect();
-        sourceNode.dispatchEvent(
-          new MouseEvent("mouseup", {
-            bubbles: true,
-            clientX: rect.right,
-            clientY: rect.bottom,
-          }),
-        );
-        await expect
-          .element(page.getByRole("button", { name: "Add to new Chat", exact: true }))
-          .toBeVisible();
-        await page.getByRole("button", { name: "Add to new Chat", exact: true }).click();
-        const miniInput = page.getByRole("textbox", { name: "Message for new chat" });
-        await expect.element(miniInput).toHaveFocus();
-        await miniInput.fill("Explain this selected passage");
-        const miniComposer = page.getByRole("dialog", { name: "New chat from selection" });
-        const environmentChip = miniComposer.getByRole("button", { name: /^(Local|Worktree)$/ });
-        await environmentChip.click();
-        await page
-          .getByRole("menuitem", {
-            name: envMode === "local" ? "Local project" : "New worktree",
-            exact: true,
-          })
-          .click();
-        wsRequests.length = 0;
-        await page
-          .getByRole("button", {
-            name: intent === "send" ? "Send to new chat" : "Open in chat",
-            exact: true,
-          })
-          .click();
-        if (intent === "compose") {
-          const path = await waitForURL(
-            mounted.router,
-            (path) => UUID_ROUTE_RE.test(path),
-            "Open in chat should select a fresh draft.",
-          );
-          const draftId = ThreadId.makeUnsafe(path.slice(1));
-          const editor = await waitForComposerEditor();
-          await vi.waitFor(() => {
-            expect(editor.textContent).toBe("Explain this selected passage");
-            expect(document.activeElement).toBe(editor);
-            const drafts = useComposerDraftStore.getState();
-            expect(drafts.draftsByThreadId[draftId]?.assistantSelections[0]?.text).toBe(
-              "assistant filler 21",
-            );
-            expect(drafts.getDraftThread(draftId)?.envMode).toBe(envMode);
-            expect(drafts.draftsByThreadId[draftId]?.queuedTurns).toHaveLength(0);
-          });
-          expect(
-            wsRequests
-              .map(readDispatchedCommand)
-              .some((command) => command?.type === "thread.turn.start"),
-          ).toBe(false);
-        } else
-          await vi.waitFor(
-            () => {
-              const commands = wsRequests
-                .map(readDispatchedCommand)
-                .filter((command) => command !== null);
-              const create = commands.find((command) => command.type === "thread.create");
-              const send = commands.find((command) => command.type === "thread.turn.start");
-              expect(create).toMatchObject({ projectId: PROJECT_ID, envMode });
-              expect(create?.threadId).not.toBe(THREAD_ID);
-              expect(send).toMatchObject({ threadId: create?.threadId });
-              const message = send?.message as { text?: string } | undefined;
-              const text = String(message?.text ?? "");
-              expect(text).toContain("Explain this selected passage");
-              expect(text).toContain("assistant filler 21");
-              expect(text).toContain("<assistant_selection>");
-              expect(
-                commands.filter((command) => command.type === "thread.turn.start"),
-              ).toHaveLength(1);
-              expect(
-                wsRequests.some((request) => request._tag === WS_METHODS.gitCreateDetachedWorktree),
-              ).toBe(envMode === "worktree");
-              if (envMode === "worktree") {
-                expect(create?.worktreePath).toBeNull();
-                const linkedWorkspace = commands.find(
-                  (command) =>
-                    command.type === "thread.meta.update" &&
-                    command.threadId === create?.threadId &&
-                    typeof command.worktreePath === "string",
-                );
-                expect(linkedWorkspace?.worktreePath).toContain("/repo/.codex/worktrees/");
-                expect(commands.indexOf(linkedWorkspace!)).toBeLessThan(commands.indexOf(send!));
-              } else {
-                expect(create?.worktreePath).toBeNull();
-              }
-            },
-            { timeout: 15_000 },
-          );
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-          "Keep the current draft",
-        );
-        expect(useProjectEnvironmentStore.getState().envModeByProjectId[PROJECT_ID]).toBe(envMode);
-      } finally {
-        window.getSelection()?.removeAllRanges();
-        await mounted.cleanup();
-        restoreNativeApi();
-      }
-    },
-  );
+  const selectAssistantFiller = async () => {
+    const source = page.getByText("assistant filler 21", { exact: true });
+    await expect.element(source).toBeVisible();
+    expect(source.element().closest("[data-assistant-message-id]")).not.toBeNull();
+    await source.click();
+    const sourceNode = source.element();
+    const range = document.createRange();
+    range.selectNodeContents(sourceNode);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    const rect = range.getBoundingClientRect();
+    sourceNode.dispatchEvent(
+      new MouseEvent("mouseup", {
+        bubbles: true,
+        clientX: rect.right,
+        clientY: rect.bottom,
+      }),
+    );
+  };
 
-  it("keeps a failed selection send queued without a stale optimistic message", async () => {
+  it("replies to a selected passage in the same chat, quoting it", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-selection-reply" as MessageId,
+      targetText: "Selection reply test",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          messages: thread.messages.slice(-2),
+        })),
+      },
+    });
+    try {
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "Keep the current draft");
+      const composerEditor = await waitForComposerEditor();
+      await vi.waitFor(() =>
+        expect(composerEditor.textContent).toContain("Keep the current draft"),
+      );
+      await waitForLayout();
+      await selectAssistantFiller();
+      await expect
+        .element(page.getByRole("button", { name: "Start a side chat", exact: true }))
+        .toBeVisible();
+      await page.getByRole("button", { name: "Reply", exact: true }).click();
+      const replyInput = page.getByRole("textbox", { name: "Reply", exact: true });
+      await expect.element(replyInput).toHaveFocus();
+      await replyInput.fill("Explain this selected passage");
+      wsRequests.length = 0;
+      await page.getByRole("button", { name: "Send reply", exact: true }).click();
+
+      await vi.waitFor(
+        () => {
+          const commands = wsRequests
+            .map(readDispatchedCommand)
+            .filter((command) => command !== null);
+          const sends = commands.filter((command) => command.type === "thread.turn.start");
+          expect(sends).toHaveLength(1);
+          expect(sends[0]).toMatchObject({ threadId: THREAD_ID });
+          const message = sends[0]?.message as { text?: string } | undefined;
+          const text = String(message?.text ?? "");
+          expect(text).toContain("<!-- reply -->");
+          expect(text).toContain("> assistant filler 21");
+          expect(text).toContain("Explain this selected passage");
+          expect(commands.some((command) => command.type === "thread.create")).toBe(false);
+        },
+        { timeout: 15_000 },
+      );
+      await expect
+        .element(page.getByRole("textbox", { name: "Reply", exact: true }))
+        .not.toBeInTheDocument();
+      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+        "Keep the current draft",
+      );
+    } finally {
+      window.getSelection()?.removeAllRanges();
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("keeps a failed reply queued without a stale optimistic message", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi({ rejectTurnStart: true });
     const snapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-selection-composer-failed-send" as MessageId,
-      targetText: "Selection composer failed send test",
+      targetMessageId: "msg-user-selection-reply-failed-send" as MessageId,
+      targetText: "Selection reply failed send test",
     });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -12425,46 +12752,21 @@ describe("ChatView transcript geometry (full app)", () => {
     try {
       useComposerDraftStore.getState().setPrompt(THREAD_ID, "Keep the source draft");
       await waitForLayout();
-      const source = page.getByText("assistant filler 21", { exact: true });
-      await expect.element(source).toBeVisible();
-      await source.click();
-      const sourceNode = source.element();
-      const range = document.createRange();
-      range.selectNodeContents(sourceNode);
-      window.getSelection()?.removeAllRanges();
-      window.getSelection()?.addRange(range);
-      const rect = range.getBoundingClientRect();
-      sourceNode.dispatchEvent(
-        new MouseEvent("mouseup", {
-          bubbles: true,
-          clientX: rect.right,
-          clientY: rect.bottom,
-        }),
-      );
-
-      await page.getByRole("button", { name: "Add to new Chat", exact: true }).click();
-      const prompt = "Retry this selected passage";
-      await page.getByRole("textbox", { name: "Message for new chat" }).fill(prompt);
+      await selectAssistantFiller();
+      await page.getByRole("button", { name: "Reply", exact: true }).click();
+      const comment = "Retry this selected passage";
+      await page.getByRole("textbox", { name: "Reply", exact: true }).fill(comment);
       wsRequests.length = 0;
-      await page.getByRole("button", { name: "Send to new chat", exact: true }).click();
+      await page.getByRole("button", { name: "Send reply", exact: true }).click();
 
-      const newThreadPath = await waitForURL(
-        mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "A failed selection send should remain on its fresh draft.",
-      );
-      const newThreadId = ThreadId.makeUnsafe(newThreadPath.slice(1));
-      const expectRecoverableSelection = (attemptCount: number) => {
-        const draft = useComposerDraftStore.getState().draftsByThreadId[newThreadId];
+      const expectRecoverableReply = (attemptCount: number) => {
+        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
         expect(draft?.queuedTurns).toHaveLength(1);
-        expect(draft?.queuedTurns[0]).toMatchObject({
-          kind: "chat",
-          prompt,
-          assistantSelections: [{ text: "assistant filler 21" }],
-        });
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-          "Keep the source draft",
-        );
+        const queued = draft?.queuedTurns[0] as { kind?: string; prompt?: string } | undefined;
+        expect(queued?.kind).toBe("chat");
+        expect(queued?.prompt).toContain("<!-- reply -->");
+        expect(queued?.prompt).toContain(comment);
+        expect(draft?.prompt).toBe("Keep the source draft");
         expect(
           wsRequests
             .map(readDispatchedCommand)
@@ -12473,16 +12775,16 @@ describe("ChatView transcript geometry (full app)", () => {
         expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
         const staleOptimisticRows = Array.from(
           document.querySelectorAll<HTMLElement>('[data-message-role="user"]'),
-        ).filter((row) => row.textContent?.includes(prompt));
+        ).filter((row) => row.textContent?.includes(comment));
         expect(staleOptimisticRows).toHaveLength(0);
       };
-      await vi.waitFor(() => expectRecoverableSelection(1), { timeout: 8_000, interval: 16 });
+      await vi.waitFor(() => expectRecoverableReply(1), { timeout: 8_000, interval: 16 });
       await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
-      expectRecoverableSelection(1);
+      expectRecoverableReply(1);
       // One intentional retry is allowed after the backoff, and its rejection
-      // must preserve exactly the same queued selection without an optimistic row.
+      // must keep exactly the same queued reply without an optimistic row.
       retryNow += 1_000;
-      await vi.waitFor(() => expectRecoverableSelection(2), { timeout: 8_000, interval: 16 });
+      await vi.waitFor(() => expectRecoverableReply(2), { timeout: 8_000, interval: 16 });
     } finally {
       stopRetryClock();
       window.getSelection()?.removeAllRanges();
@@ -12942,6 +13244,115 @@ describe("ChatView transcript geometry (full app)", () => {
       }
     },
   );
+
+  it("keeps Mossbot secret input visible in the full native conversation timeline", async () => {
+    const previousSummaries = useProjectAgentSummariesStore.getState();
+    const snapshot = withStudioProject(
+      createSnapshotForTargetUser({
+        targetMessageId: "msg-mossbot-secret" as MessageId,
+        targetText: "Connect my research library",
+        targetIndex: 0,
+        messagePairCount: 1,
+      }),
+    );
+    const personalSnapshot = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              projectId: STUDIO_PROJECT_ID,
+              activities: [
+                ...thread.activities,
+                {
+                  id: EventId.makeUnsafe("mossbot-secret-card"),
+                  tone: "info" as const,
+                  kind: "secret.requested",
+                  summary: "Request a private credential",
+                  payload: {
+                    requestId: `secret-request:${"a".repeat(32)}`,
+                    label: "Research library key",
+                    reason: "Connect the selected research library.",
+                  },
+                  turnId: null,
+                  createdAt: isoAt(100),
+                },
+              ],
+            }
+          : thread,
+      ),
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: personalSnapshot,
+      configureFixture: (nextFixture) => {
+        nextFixture.welcome = {
+          ...nextFixture.welcome,
+          studioWorkspaceRoot: "/Users/tester/Documents/Moss/Studio",
+        };
+        nextFixture.projectAgentOverviews[STUDIO_PROJECT_ID] = {
+          projectId: STUDIO_PROJECT_ID,
+          configured: true,
+          config: {
+            agentKind: "mossbot",
+            projectId: STUDIO_PROJECT_ID,
+            coordinatorThreadId: THREAD_ID,
+            coordinatorName: "Nova",
+            coordinatorIcon: "mossbot-orbit",
+            coordinatorModelSelection: { provider: "codex", model: "gpt-5" },
+            limits: {
+              maxConcurrentWorkers: 2,
+              maxNewWorkersPerTurn: 2,
+              maxWorkerCreationsPerGoal: 8,
+              maxAutomaticContinuationsPerGoal: 4,
+              maxRepairRoundsPerTask: 1,
+            },
+            enabled: true,
+            captureEnabled: true,
+            automationId: null,
+            revision: 1,
+            createdAt: NOW_ISO,
+            updatedAt: NOW_ISO,
+            disabledAt: null,
+          },
+          linkedProjectIds: [],
+          goal: null,
+          digest: null,
+          blockers: [],
+          recentOutcomes: [],
+          coordinatorStatus: "idle",
+        };
+      },
+    });
+    try {
+      useProjectAgentSummariesStore
+        .getState()
+        .applyOverview(fixture.projectAgentOverviews[STUDIO_PROJECT_ID] as ProjectAgentOverview);
+      await expect
+        .element(page.getByLabelText("Research library key", { exact: true }))
+        .toBeVisible();
+      await expect
+        .element(page.getByRole("button", { name: "Save securely", exact: true }))
+        .toBeDisabled();
+      await page
+        .getByLabelText("Research library key", { exact: true })
+        .fill("synthetic-private-value");
+      await expect
+        .element(page.getByRole("button", { name: "Save securely", exact: true }))
+        .toBeEnabled();
+      const field = page
+        .getByLabelText("Research library key", { exact: true })
+        .element() as HTMLInputElement;
+      expect(
+        field.type === "password" ||
+          getComputedStyle(field).getPropertyValue("-webkit-text-security") === "disc",
+      ).toBe(true);
+      expect(document.querySelector("[data-mossbot-conversation]")).not.toBeNull();
+    } finally {
+      await mounted.cleanup();
+      useProjectAgentSummariesStore.setState(previousSummaries);
+    }
+  });
 
   it("keeps hub suggestions above the composer as image attachments change", async () => {
     const previousSummaries = useProjectAgentSummariesStore.getState();
@@ -14349,10 +14760,7 @@ describe("ChatView transcript geometry (full app)", () => {
             .toBeVisible();
         }
         const environmentPanel = await waitForElement(
-          () =>
-            document
-              .querySelector<HTMLButtonElement>('button[aria-label="Panel sections"]')
-              ?.closest<HTMLElement>("[data-environment-panel-variant]") ?? null,
+          () => document.querySelector<HTMLElement>("[data-environment-panel-variant]") ?? null,
           "Unable to find the actual Environment panel for this sidechat.",
         );
         await vi.waitFor(() => {
@@ -14364,9 +14772,10 @@ describe("ChatView transcript geometry (full app)", () => {
           expect(card.getBoundingClientRect().width).toBeGreaterThan(0);
           expect(card.getBoundingClientRect().height).toBeGreaterThan(0);
         });
-        await expect
-          .element(page.getByRole("button", { name: "Panel sections", exact: true }))
-          .toBeVisible();
+        // The card opens on its workspace group (the old "Panel sections" title row is gone).
+        expect(
+          environmentPanel.querySelector('[data-environment-group="workspace"]'),
+        ).not.toBeNull();
         await expect
           .element(page.getByRole("button", { name: "Local", exact: true }))
           .not.toBeInTheDocument();
@@ -15692,10 +16101,7 @@ describe("ChatView transcript geometry (full app)", () => {
       useComposerDraftStore.getState().setProjectDraftThreadId(PROJECT_ID, OTHER_THREAD_ID, {});
       useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, "Destination draft");
       const environmentPanel = await waitForElement(
-        () =>
-          document
-            .querySelector<HTMLButtonElement>('button[aria-label="Panel sections"]')
-            ?.closest<HTMLElement>("[data-environment-panel-variant]") ?? null,
+        () => document.querySelector<HTMLElement>("[data-environment-panel-variant]") ?? null,
         "Unable to find the actual Environment panel for the handoff source.",
       );
       await vi.waitFor(() => {
@@ -17531,7 +17937,7 @@ describe("ChatView transcript geometry (full app)", () => {
         () => {
           const summaryTrigger = Array.from(
             document.querySelectorAll<HTMLButtonElement>("button[aria-expanded]"),
-          ).find((element) => element.textContent?.trim() === "Called tools");
+          ).find((element) => element.textContent?.trim() === "Used 6 tools");
           expect(summaryTrigger).not.toBeUndefined();
           expect(summaryTrigger!.getAttribute("aria-expanded")).toBe("false");
           expect(document.body.textContent).not.toContain("Tool 1");
@@ -17539,7 +17945,7 @@ describe("ChatView transcript geometry (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      const toolSummary = page.getByRole("button", { name: "Called tools", exact: true });
+      const toolSummary = page.getByRole("button", { name: "Used 6 tools", exact: true });
       await toolSummary.click();
       await vi.waitFor(() => {
         for (let index = 1; index <= 6; index += 1) {
@@ -17561,7 +17967,7 @@ describe("ChatView transcript geometry (full app)", () => {
       // The first settled paint keeps the live layout: no turn disclosure yet.
       expect(document.querySelector("[data-settled-turn-collapse-transition='true']")).toBeNull();
       expect(findInlineToolsTurnDisclosure()).toBeNull();
-      expect(document.body.textContent).toContain("Called tools");
+      expect(document.body.textContent).toContain("Used 6 tools");
 
       await new Promise<void>((resolve) => {
         window.setTimeout(() => resolve(), 260);
@@ -17581,7 +17987,7 @@ describe("ChatView transcript geometry (full app)", () => {
           expect(transitionClone).not.toBeNull();
           expect(transitionClone?.hasAttribute("inert")).toBe(true);
           expect(transitionClone?.querySelector("[aria-hidden='true'][inert]")).not.toBeNull();
-          expect(transitionClone?.textContent).toContain("Called tools");
+          expect(transitionClone?.textContent).toContain("Used 6 tools");
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -17745,13 +18151,13 @@ describe("ChatView transcript geometry (full app)", () => {
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain("Wrapped up the inline tool review.");
-          expect(document.body.textContent).toContain("Called tools");
+          expect(document.body.textContent).toContain("Used 6 tools");
         },
         { timeout: 8_000, interval: 16 },
       );
       expect(findInlineToolsTurnDisclosure()).toBeNull();
 
-      const toolSummary = page.getByRole("button", { name: "Called tools", exact: true });
+      const toolSummary = page.getByRole("button", { name: "Used 6 tools", exact: true });
       await toolSummary.click();
       await vi.waitFor(() => {
         for (let index = 1; index <= 6; index += 1) {
@@ -19022,7 +19428,7 @@ describe("ChatView transcript geometry (full app)", () => {
     installZhCnUiLocalization();
 
     try {
-      const rail = page.getByRole("navigation", { name: "Primary", exact: true });
+      const rail = page.getByRole("navigation", { name: "主导航", exact: true });
       await expect.element(rail).toBeVisible();
       for (const name of ["首页", "资料空间", "定时任务", "图像", "收信箱"]) {
         await expect.element(rail.getByRole("button", { name, exact: true })).toBeVisible();
@@ -19034,6 +19440,63 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect.poll(() => mounted.router.state.location.pathname).toBe("/automations");
     } finally {
       uninstallZhCnUiLocalization();
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the zh-CN rail More menu, pinned plugin shortcuts and Help wired to the sidebar", async () => {
+    // Regression guard: a rebase once dropped this wiring from Sidebar while the
+    // AppRailMoreMenu component tests stayed green.
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+    localStorage.setItem(
+      "moss:rail-plugins:v1",
+      JSON.stringify({
+        anonymous: {
+          pinned: [{ id: "figma@local", name: "Figma", description: "Design files" }],
+          recent: [],
+        },
+      }),
+    );
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("zh-cn-rail-more"),
+        targetText: "zh-CN rail More",
+      }),
+    });
+    installZhCnUiLocalization();
+
+    try {
+      const rail = page.getByRole("navigation", { name: "主导航", exact: true });
+      await expect.element(rail).toBeVisible();
+      await expect
+        .element(rail.getByRole("button", { name: "代码审查", exact: true }))
+        .toBeVisible();
+      await expect.element(rail.getByRole("button", { name: "Figma", exact: true })).toBeVisible();
+      for (const name of ["Pull requests", "Images", "Plugins"]) {
+        await expect
+          .element(rail.getByRole("button", { name, exact: true }))
+          .not.toBeInTheDocument();
+      }
+
+      await rail.getByRole("button", { name: "更多", exact: true }).click();
+      for (const name of ["项目", "图像", "插件", "代码审查"]) {
+        await expect.element(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
+      }
+      await expect.element(page.getByText("常用插件", { exact: true })).toBeVisible();
+      await expect
+        .element(page.getByRole("menuitem", { name: "从侧边栏取消固定: 定时任务", exact: true }))
+        .toBeInTheDocument();
+
+      await page.getByRole("menuitem", { name: "帮助", exact: true }).click();
+      for (const name of ["按键绑定", "发送反馈", "文档", "完整发行说明"]) {
+        await expect.element(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
+      }
+      await page.getByRole("menuitem", { name: "按键绑定", exact: true }).click();
+      await expect.poll(() => mounted.router.state.location.pathname).toBe("/settings");
+    } finally {
+      uninstallZhCnUiLocalization();
+      localStorage.removeItem("moss:rail-plugins:v1");
       await mounted.cleanup();
     }
   });
@@ -20209,8 +20672,107 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it.each([
+    { theme: "light", locale: "en" },
+    { theme: "dark", locale: "zh-CN" },
+  ] as const)(
+    "opens generated transcript images in a full-window $theme $locale lightbox and keeps Canvas explicit",
+    async ({ theme, locale }) => {
+      useRightDockStore.setState({ dockStateByThreadId: {} });
+      setImageLimitFixtureTheme(theme);
+      localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: locale }));
+      const dialogName = translateMoss(locale, "chat.imageLightbox.title");
+      const mounted = await mountChatView({
+        viewport: { ...DEFAULT_VIEWPORT, width: theme === "light" ? 1200 : 390, height: 760 },
+        snapshot: createSnapshotWithGeneratedImagePreview(),
+      });
+      try {
+        const thumbnail = await waitForElement(
+          () =>
+            document.querySelector<HTMLButtonElement>(
+              '[data-testid="generated-image-thumbnail"][data-image-id="generated-preview-two"]',
+            ),
+          "Unable to find the second generated thumbnail.",
+        );
+        thumbnail.click();
+        expect(document.querySelector('[role="dialog"]')).toBeNull();
+        expect(document.querySelector('[data-testid="generated-image-preview-pane"]')).toBeNull();
+        const preview = await vi.waitFor(() => {
+          const button = document.querySelector<HTMLButtonElement>(
+            '[data-testid="generated-image-preview"]',
+          );
+          expect(button?.dataset.imageId).toBe("generated-preview-two");
+          return button!;
+        });
+        preview.focus();
+        const image = preview.querySelector("img");
+        expect(image).not.toBeNull();
+        image!.click();
+        await expect.element(page.getByRole("dialog", { name: dialogName })).toBeVisible();
+        const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+        await vi.waitFor(() => {
+          expect(dialog.getBoundingClientRect().width).toBe(window.innerWidth);
+          expect(dialog.getBoundingClientRect().height).toBe(window.innerHeight);
+        });
+        await expect
+          .element(page.getByRole("dialog").getByRole("img", { name: "generated-preview-two.png" }))
+          .toBeVisible();
+        expect(document.querySelector('[data-testid="generated-image-preview-pane"]')).toBeNull();
+        expect(
+          useRightDockStore
+            .getState()
+            .dockStateByThreadId[THREAD_ID]?.panes.some((pane) => pane.kind === "imagePreview") ??
+            false,
+        ).toBe(false);
+        await userEvent.keyboard("{ArrowLeft}");
+        await expect
+          .element(page.getByRole("dialog").getByRole("img", { name: "generated-preview-one.png" }))
+          .toBeVisible();
+        await userEvent.keyboard("{Escape}");
+        await expect
+          .element(page.getByRole("dialog", { name: dialogName }))
+          .not.toBeInTheDocument();
+        // Role queries can exclude a hidden popup before its exit animation
+        // finishes. Wait for the actual lightbox node to unmount as well.
+        await vi.waitFor(() => expect(dialog.isConnected).toBe(false));
+        expect(document.querySelector('[data-testid="generated-image-preview-pane"]')).toBeNull();
+        const canvasButton = await waitForElement(
+          () =>
+            document.querySelector<HTMLButtonElement>(
+              '[data-testid="generated-image-open-canvas"]',
+            ),
+          "Unable to find the explicit gallery Canvas chip.",
+        );
+        expect(canvasButton.textContent).toContain(
+          translateMoss(locale, "chat.generatedImage.canvas"),
+        );
+        canvasButton.click();
+        await vi.waitFor(() => {
+          const pane = document.querySelector<HTMLElement>(
+            '[data-testid="generated-image-preview-pane"]',
+          );
+          expect(pane?.dataset.generatedImagePreviewView).toBe("playground");
+          const canvasPane = useRightDockStore
+            .getState()
+            .dockStateByThreadId[THREAD_ID]?.panes.find(
+              (candidate) => candidate.kind === "imagePreview",
+            );
+          expect(canvasPane?.imagePreview?.activeImageId).toBe(
+            "turn-generated-image-preview:generated-preview-two",
+          );
+          // Mobile Canvas/sidebar sheets also use role="dialog".
+          expect(document.querySelector('[data-testid="image-lightbox-viewport"]')).toBeNull();
+        });
+      } finally {
+        await mounted.cleanup();
+        setImageLimitFixtureTheme("light");
+      }
+    },
+  );
+
   it("covers generated image preview B2.1 controls and full-width rail", async () => {
     useRightDockStore.setState({ dockStateByThreadId: {} });
+    const coachmarkKey = "has-dismissed-image-canvas-view-coachmark-v1";
     const desktopViewport = { ...DEFAULT_VIEWPORT, width: 1_200, height: 760 };
     const narrowViewport = {
       ...DEFAULT_VIEWPORT,
@@ -20221,6 +20783,9 @@ describe("ChatView transcript geometry (full app)", () => {
     const snapshot = createSnapshotWithGeneratedImagePreview({ imageCount: 8 });
     setImageLimitFixtureTheme("light");
     localStorage.setItem("moss:activity-onboarding:v1", "seen");
+    // Coachmark behavior has its own B2.2a coverage. Keep it from covering the
+    // zoom/download controls when the B2.1 pane becomes regular-width or mobile.
+    localStorage.setItem(coachmarkKey, "1");
     let mounted: MountedChatView | null = await mountChatView({
       viewport: desktopViewport,
       snapshot,
@@ -20275,7 +20840,7 @@ describe("ChatView transcript geometry (full app)", () => {
         });
       }
       thumbnails[0]!.click();
-      const generatedPreview = await vi.waitFor(() => {
+      await vi.waitFor(() => {
         const preview = generatedGallery.querySelector<HTMLButtonElement>(
           '[data-testid="generated-image-preview"]',
         );
@@ -20283,7 +20848,7 @@ describe("ChatView transcript geometry (full app)", () => {
         expect(thumbnails[0]?.getAttribute("aria-pressed")).toBe("true");
         return preview!;
       });
-      generatedPreview.click();
+      await openGeneratedImageEditorFromGallery();
 
       const previewPane = await waitForElement(
         () => document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]'),
@@ -20556,9 +21121,14 @@ describe("ChatView transcript geometry (full app)", () => {
       setImageLimitFixtureTheme("light");
       localStorage.removeItem("moss:theme");
       localStorage.removeItem("moss:activity-onboarding:v1");
+      localStorage.removeItem(coachmarkKey);
     }
 
+    // Unmounting leaves the durable dock open in the store. Start the dark run
+    // with the transcript visible so its Canvas chip can receive a real click.
+    useRightDockStore.setState({ dockStateByThreadId: {} });
     localStorage.setItem("moss:activity-onboarding:v1", "seen");
+    localStorage.setItem(coachmarkKey, "1");
     mounted = await mountChatView({ viewport: desktopViewport, snapshot });
     setImageLimitFixtureTheme("dark");
     try {
@@ -20566,7 +21136,7 @@ describe("ChatView transcript geometry (full app)", () => {
         () => document.querySelector<HTMLButtonElement>('[data-testid="generated-image-preview"]'),
         "Unable to find the dark B2.1 generated image preview thumbnail.",
       );
-      generatedPreview.click();
+      await openGeneratedImageFocusPane(generatedPreview);
       const previewPane = await waitForElement(
         () => document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]'),
         "Unable to find the dark B2.1 generated image preview pane.",
@@ -20789,15 +21359,28 @@ describe("ChatView transcript geometry (full app)", () => {
 
       document.querySelector<HTMLButtonElement>('[data-testid="right-dock-width-toggle"]')?.click();
       await waitForGeneratedImagePreviewDockSettled(false);
+      // Close the desktop pane before resizing so the mobile entry exercises
+      // the gallery chip too, rather than relying on a detached desktop node.
+      await page
+        .getByTestId("right-dock-panel")
+        .getByTestId("chat-header-right-dock-toggle")
+        .click();
+      await vi.waitFor(() => {
+        expect(document.querySelector('[data-testid="generated-image-preview-pane"]')).toBeNull();
+      });
       await mounted.setViewport(narrowViewport);
+      await openGeneratedImageEditorFromGallery();
+      const mobilePreviewPane = await waitForElement(
+        () => document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]'),
+        "Unable to find the mobile B2.1 generated image preview pane.",
+      );
       await vi.waitFor(() => {
         expect(document.querySelector('[data-testid="generated-image-preview-rail"]')).toBeNull();
-        expect(previewPane.getAttribute("data-generated-image-preview-full-width")).toBe("false");
+        expect(mobilePreviewPane.getAttribute("data-generated-image-preview-full-width")).toBe(
+          "false",
+        );
       });
       expectGeneratedImagePreviewReceipt({ mobile: true });
-      const mobilePreviewPane = document.querySelector<HTMLElement>(
-        '[data-testid="generated-image-preview-pane"]',
-      );
       expect(mobilePreviewPane).not.toBeNull();
       await vi.waitFor(() => {
         expect(
@@ -20828,6 +21411,7 @@ describe("ChatView transcript geometry (full app)", () => {
       setImageLimitFixtureTheme("light");
       localStorage.removeItem("moss:theme");
       localStorage.removeItem("moss:activity-onboarding:v1");
+      localStorage.removeItem(coachmarkKey);
     }
   });
 
@@ -20852,7 +21436,7 @@ describe("ChatView transcript geometry (full app)", () => {
         () => document.querySelector<HTMLButtonElement>('[data-testid="generated-image-preview"]'),
         "Unable to find the reduced-motion generated image preview thumbnail.",
       );
-      generatedPreview.click();
+      await openGeneratedImageFocusPane(generatedPreview);
       const previewPane = await waitForElement(
         () => document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]'),
         "Unable to find the reduced-motion preview pane.",
@@ -20962,7 +21546,7 @@ describe("ChatView transcript geometry (full app)", () => {
         () => document.querySelector<HTMLButtonElement>('[data-testid="generated-image-preview"]'),
         "Unable to find the B2.2a generated image preview thumbnail.",
       );
-      generatedPreview.click();
+      await openGeneratedImageFocusPane(generatedPreview);
       const previewPane = await waitForElement(
         () => document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]'),
         "Unable to find the B2.2a generated image preview pane.",
@@ -21057,15 +21641,23 @@ describe("ChatView transcript geometry (full app)", () => {
           "false",
         ),
       );
-      const updatedCoachmark = await waitForElement(
+      // The hosted Canvas has its own toolbars, so the tip never covers them.
+      expect(
+        document.querySelector('[data-testid="generated-image-preview-canvas-coachmark"]'),
+      ).toBeNull();
+      // Dismissed from the focused view, it stays dismissed.
+      previewPane
+        .querySelector<HTMLButtonElement>('[data-testid="generated-image-preview-view-single"]')!
+        .click();
+      const focusedCoachmark = await waitForElement(
         () =>
           document.querySelector<HTMLElement>(
             '[data-testid="generated-image-preview-canvas-coachmark"]',
           ),
-        "Canvas coachmark disappeared during view transition.",
+        "Canvas coachmark did not return in the focused view.",
       );
-      expect(updatedCoachmark.textContent).toContain("Try focused view");
-      updatedCoachmark
+      expect(focusedCoachmark.textContent).toContain("Try Canvas view");
+      focusedCoachmark
         .querySelector<HTMLButtonElement>(
           '[data-testid="generated-image-preview-canvas-coachmark-dismiss"]',
         )
@@ -21076,6 +21668,17 @@ describe("ChatView transcript geometry (full app)", () => {
         ).toBeNull(),
       );
       expect(localStorage.getItem(coachmarkKey)).toBe("1");
+      previewPane
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="generated-image-preview-view-playground"]',
+        )!
+        .click();
+      await vi.waitFor(() => {
+        expect(previewPane.getAttribute("data-generated-image-preview-view")).toBe("playground");
+        expect(previewPane.getAttribute("data-generated-image-preview-transitioning")).toBe(
+          "false",
+        );
+      });
       await expectCanvasUnavailable("turn-generated-image-preview:generated-preview-one");
 
       previewPane.focus();
@@ -21319,7 +21922,7 @@ describe("ChatView transcript geometry (full app)", () => {
         () => document.querySelector<HTMLButtonElement>('[data-testid="generated-image-preview"]'),
         "Unable to find the dark B2.2a generated image preview thumbnail.",
       );
-      darkPreview.click();
+      await openGeneratedImageFocusPane(darkPreview);
       const darkPane = await waitForElement(
         () => document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]'),
         "Unable to find the dark B2.2a preview pane.",

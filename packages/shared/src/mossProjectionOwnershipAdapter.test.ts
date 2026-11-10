@@ -3,7 +3,7 @@ import type {
   MossOwnershipStore,
   MossPrivateManifest,
   MossPrivateManifestReceipt,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

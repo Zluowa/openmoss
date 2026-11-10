@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 
 /** Providers without a native per-call gate. Computer tools use Moss-owned
  * approval cards for these providers (background full-access can bypass them).

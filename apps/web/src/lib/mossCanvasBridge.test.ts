@@ -67,6 +67,18 @@ describe("openMossCanvas", () => {
     expect(preloadOpen).not.toHaveBeenCalled();
   });
 
+  it("never opens the separate Canvas window for a conversation Canvas", () => {
+    const preloadOpen = vi.fn();
+    const dispatchEvent = vi.fn();
+    disposeEmbeddedHost = registerMossCanvasHost(() => false);
+    vi.stubGlobal("window", { mossCanvasBridge: { open: preloadOpen }, dispatchEvent });
+
+    openMossCanvas({ surface: "canvas", threadId: "thread-1" });
+
+    expect(preloadOpen).not.toHaveBeenCalled();
+    expect(dispatchEvent).not.toHaveBeenCalled();
+  });
+
   it("lets an embedded host decline other surfaces", () => {
     const preloadOpen = vi.fn();
     disposeEmbeddedHost = registerMossCanvasHost(() => false);

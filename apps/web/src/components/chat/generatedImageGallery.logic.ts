@@ -1,5 +1,5 @@
 // Shared typed image lifecycle grouping; failed records never become pending.
-import type { TurnId } from "@synara/contracts";
+import type { TurnId } from "@moss/contracts";
 import type { TimelineEntry, WorkLogEntry, WorkLogGeneratedImage } from "../../workLog";
 
 export interface GeneratedImageGalleryImage {

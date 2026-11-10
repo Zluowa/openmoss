@@ -21,6 +21,7 @@ import {
 import {
   MigrationBackupAuthorization,
   inspectCurrentMigrationLineage,
+  isAdoptedImportLineage,
   type MigrationLineageClassification,
 } from "./MigrationLineage.ts";
 
@@ -209,6 +210,22 @@ import Migration0147 from "./Migrations/143_ProjectionMessageTurnActivityIndex.t
 import Migration0148 from "./Migrations/148_Pages.ts";
 import Migration0149 from "./Migrations/149_AutomationCreateRequests.ts";
 import Migration0150 from "./Migrations/150_GuestShares.ts";
+import Migration0151 from "./Migrations/151_SpaceItems.ts";
+import Migration0152 from "./Migrations/152_PageApps.ts";
+import Migration0153 from "./Migrations/153_PageAppData.ts";
+import Migration0154 from "./Migrations/154_PageAppCapabilities.ts";
+import Migration0155 from "./Migrations/155_PageDrafts.ts";
+import Migration0156 from "./Migrations/156_PagesRealtime.ts";
+import Migration0157 from "./Migrations/157_PagesSharing.ts";
+import Migration0158 from "./Migrations/158_PagesSites.ts";
+import Migration0159 from "./Migrations/159_PageTypes.ts";
+import Migration0160 from "./Migrations/160_PageAppearance.ts";
+import Migration0161 from "./Migrations/161_ProjectionThreadMessagesDispatchSourceThread.ts";
+import Migration0162 from "./Migrations/162_PageGuestAuthors.ts";
+import Migration0163 from "./Migrations/163_PageRealtimeCuts.ts";
+import Migration0164 from "./Migrations/164_PageAppPublications.ts";
+import Migration0165 from "./Migrations/165_PageRoomPrivateStores.ts";
+import Migration0166 from "./Migrations/166_Mossbot.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -373,6 +390,22 @@ export const migrationEntries = [
   [148, "Pages", Migration0148],
   [149, "AutomationCreateRequests", Migration0149],
   [150, "GuestShares", Migration0150],
+  [151, "SpaceItems", Migration0151],
+  [152, "PageApps", Migration0152],
+  [153, "PageAppData", Migration0153],
+  [154, "PageAppCapabilities", Migration0154],
+  [155, "PageDrafts", Migration0155],
+  [156, "PagesRealtime", Migration0156],
+  [157, "PagesSharing", Migration0157],
+  [158, "PagesSites", Migration0158],
+  [159, "PageTypes", Migration0159],
+  [160, "PageAppearance", Migration0160],
+  [161, "ProjectionThreadMessagesDispatchSourceThread", Migration0161],
+  [162, "PageGuestAuthors", Migration0162],
+  [163, "PageRealtimeCuts", Migration0163],
+  [164, "PageAppPublications", Migration0164],
+  [165, "PageRoomPrivateStores", Migration0165],
+  [166, "Mossbot", Migration0166],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -390,9 +423,8 @@ export const makeMigrationLoader = (throughId?: number) =>
  * means the database does not come from any known lineage, so re-running
  * migrations could destroy data — refuse to start instead.
  *
- * This boundary cannot be raised past 16 today: predecessor-lineage imports
- * (see `Migrations/032_ReconcileImportedSchemaLineage.ts`) record foreign names
- * from ID 17 onward and are repaired by the replay path below. Exported because
+ * This boundary cannot be raised past 16 today: T3 Code imports record their own
+ * names from ID 17 onward and are adopted by `reconcileMigrationLineage`. Exported because
  * `MigrationBackup.inspectMigrationBackupPlan` gates the same way when it decides
  * whether a pre-migration backup is warranted. Renumbering regressions are
  * prevented at the source instead, by `scripts/check-migration-lineage.ts`.
@@ -528,29 +560,16 @@ export const planMigrationLineageAliasRepairs = (
 };
 
 /**
- * Repairs the migration tracker of an imported legacy database before the
- * migrator runs.
+ * Imported databases can carry their own `effect_sql_migrations` rows, recorded
+ * under that lineage's migration names at the same numeric IDs. The migrator
+ * gates purely on max(migration_id), so left alone it would skip Moss's
+ * migrations and startup would crash on missing columns.
  *
- * Imported databases can carry their own `effect_sql_migrations` rows,
- * recorded under that lineage's migration names
- * at the same numeric IDs. The migrator gates purely on max(migration_id), so
- * once the imported tracker's high-water mark reaches Moss's latest ID,
- * every Moss migration is skipped silently and startup crashes on missing
- * columns such as `projection_threads.env_mode`. Renumbering self-heal
- * migrations past the legacy IDs (#023, then #032) loses that race whenever
- * the legacy lineage ships more migrations.
- *
- * Instead, compare the recorded (id, name) pairs against Moss's lineage and
- * delete every tracker row from the first divergence onward. The migrator
- * then re-runs those migrations in order; every migration past
- * {@link LAST_SHARED_LINEAGE_MIGRATION_ID} is idempotent, so re-running them
- * over a legacy-evolved schema is safe and loses no data.
- *
- * Divergences caused by Moss renumbering one of its *own* released
- * migrations are handled first and separately, through
- * {@link MIGRATION_LINEAGE_ALIASES}: those trackers are repaired in place
- * rather than truncated, because the rows below the divergence are genuinely
- * ours and the schema they describe is genuinely applied.
+ * Only lineages recognized by `classifyMigrationLineage` are adopted: tracker
+ * rows from the divergence onward are deleted and the migrator re-runs them in
+ * one transaction, after consent where required and a durable backup. Blind
+ * replay of anything else stays refused. A half-applied or unknown schema can
+ * fail on a bare `ALTER TABLE ... ADD COLUMN`, or silently keep wrong tables.
  */
 const failForUnsafeClassification = (
   classification: Extract<
@@ -582,12 +601,12 @@ export const reconcileMigrationLineage = Effect.gen(function* () {
   if (classification.kind === "too-new" || classification.kind === "unknown-or-mixed") {
     return yield* failForUnsafeClassification(classification);
   }
-  if (classification.kind !== "moss-3cefd5a-prefix") return classification;
+  if (!isAdoptedImportLineage(classification)) return classification;
 
-  // An exact upstream-lineage database is adopted only after a durable
-  // pre-migration backup (see runWithPreMigrationBackup): tracker rows from the
-  // divergence onward are discarded and every later migration re-runs, which is
-  // only safe to attempt once a restorable snapshot exists.
+  // An exact recognized lineage is adopted only after a durable pre-migration
+  // backup (see runWithPreMigrationBackup): tracker rows from the divergence
+  // onward are discarded and every later migration re-runs, which is only safe
+  // to attempt once a restorable snapshot exists.
   const authorization = yield* MigrationBackupAuthorization;
   if (!authorization) {
     return yield* Effect.fail(
@@ -599,7 +618,7 @@ export const reconcileMigrationLineage = Effect.gen(function* () {
   }
 
   yield* Effect.logWarning(
-    "Adopting exact upstream 3cefd5a migration lineage after durable backup",
+    `Adopting exact ${classification.kind} lineage after durable backup`,
   ).pipe(
     Effect.annotateLogs({
       firstDivergedId: classification.firstDivergedId,
@@ -643,7 +662,7 @@ export const runMigrations = ({
     const sql = yield* SqlClient.SqlClient;
     const before = yield* inspectCurrentMigrationLineage;
     if (
-      before.classification.kind === "moss-3cefd5a-prefix" &&
+      isAdoptedImportLineage(before.classification) &&
       toMigrationInclusive !== undefined &&
       toMigrationInclusive < LATEST_MIGRATION_ID
     ) {
@@ -665,7 +684,7 @@ export const runMigrations = ({
           : `Running migrations 1 through ${toMigrationInclusive}...`,
       );
       const executed = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
-      if (classification.kind === "moss-3cefd5a-prefix") {
+      if (isAdoptedImportLineage(classification)) {
         const after = yield* inspectCurrentMigrationLineage;
         if (
           after.classification.kind !== "moss-prefix" ||
@@ -673,7 +692,7 @@ export const runMigrations = ({
         ) {
           return yield* Effect.fail(
             new MigrationLineageError({
-              firstDivergedId: 53,
+              firstDivergedId: classification.firstDivergedId,
               expectedName: `canonical Moss 1-${LATEST_MIGRATION_ID}`,
               recordedName: after.classification.kind,
             }),
@@ -682,10 +701,9 @@ export const runMigrations = ({
       }
       return executed;
     });
-    const executedMigrations =
-      before.classification.kind === "moss-3cefd5a-prefix"
-        ? yield* sql.withTransaction(migrationUnit)
-        : yield* migrationUnit;
+    const executedMigrations = isAdoptedImportLineage(before.classification)
+      ? yield* sql.withTransaction(migrationUnit)
+      : yield* migrationUnit;
     yield* Effect.log("Migrations ran successfully").pipe(
       Effect.annotateLogs({ migrations: executedMigrations.map(([id, name]) => `${id}_${name}`) }),
     );

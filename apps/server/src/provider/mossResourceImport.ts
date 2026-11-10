@@ -1,4 +1,4 @@
-import { supportsPosixPermissions } from "@synara/shared/filesystemPlatform";
+import { supportsPosixPermissions } from "@moss/shared/filesystemPlatform";
 // FILE: mossResourceImport.ts
 // Purpose: Inventory and safely import provider-native skills, plugins, and
 //          MCP servers into the workspace's Moss canonical source.
@@ -57,15 +57,15 @@ import type {
   MossPrivateStagePayload,
   MossPrivateSnapshotAuthority,
   MossPrivateStageRecoveryInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   MOSS_RESOURCE_IMPORT_JOURNAL_SCHEMA_VERSION,
   MossResourceImportJournal as MossResourceImportJournalSchema,
   MossResourceImportProvenanceManifest as MossResourceImportProvenanceManifestSchema,
   MossResourceImportReceipt as MossResourceImportReceiptSchema,
-} from "@synara/contracts";
-import { parseScalarFrontmatter, readStringField } from "@synara/shared/frontmatter";
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+} from "@moss/contracts";
+import { parseScalarFrontmatter, readStringField } from "@moss/shared/frontmatter";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import { Schema } from "effect";
 

@@ -7,7 +7,7 @@ import type {
   NativeApi,
   ProviderListAgentsResult,
   ProviderListModelsResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { hashKey, QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -18,9 +18,38 @@ import {
   providerCommandsQueryOptions,
   providerDiscoveryQueryKeys,
   providerModelsQueryOptions,
+  providerPluginsQueryOptions,
   providerSkillsQueryOptions,
 } from "./providerDiscoveryReactQuery";
 import * as nativeApi from "../nativeApi";
+
+it("keeps a local-only plugin read separate from the complete directory", async () => {
+  const listPlugins = vi.fn(async () => ({
+    marketplaces: [],
+    marketplaceLoadErrors: [],
+    remoteSyncError: null,
+    featuredPluginIds: [],
+    source: "empty",
+    cached: false,
+  }));
+  vi.spyOn(nativeApi, "ensureNativeApi").mockReturnValue({
+    provider: { listPlugins },
+  } as unknown as NativeApi);
+  const all = providerPluginsQueryOptions({ provider: "codex", cwd: null });
+  const local = providerPluginsQueryOptions({
+    provider: "codex",
+    cwd: null,
+    marketplaceKinds: ["local"],
+  });
+  expect(hashKey(all.queryKey)).not.toBe(hashKey(local.queryKey));
+  const client = new QueryClient();
+  try {
+    await client.fetchQuery(local);
+    expect(listPlugins).toHaveBeenCalledWith({ provider: "codex", marketplaceKinds: ["local"] });
+  } finally {
+    client.clear();
+  }
+});
 
 function mockListModels(listModels: ReturnType<typeof vi.fn>) {
   vi.spyOn(nativeApi, "ensureNativeApi").mockReturnValue({

@@ -8,9 +8,9 @@ import type {
   ProjectSearchContentResult,
   ProjectSearchEntriesResult,
   ProjectSearchLocalEntriesResult,
-} from "@synara/contracts";
-import { PROJECT_SEARCH_CONTENT_MIN_QUERY_LENGTH } from "@synara/contracts";
-import { isLocalAbsolutePath } from "@synara/shared/path";
+} from "@moss/contracts";
+import { PROJECT_SEARCH_CONTENT_MIN_QUERY_LENGTH } from "@moss/contracts";
+import { isLocalAbsolutePath } from "@moss/shared/path";
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 import {
@@ -33,6 +33,7 @@ export const projectQueryKeys = {
     ["projects", "resolve-workspace-file-reference", cwd, relativePath] as const,
   discoverScripts: (cwd: string | null, depth: number) =>
     ["projects", "discover-scripts", cwd, depth] as const,
+  launchConfigurations: (cwd: string | null) => ["projects", "launch-configurations", cwd] as const,
   searchEntries: (
     cwd: string | null,
     query: string,
@@ -373,6 +374,11 @@ export function projectLocalPreviewGrantQueryOptions(input: {
   path: string | null;
   enabled?: boolean;
   staleTime?: number;
+  /**
+   * Keep re-granting while the window is hidden. A rendered HTML preview keeps the
+   * grant it opened with, and each re-grant of the same file keeps that one alive.
+   */
+  refreshWhileHidden?: boolean;
 }) {
   return queryOptions<ProjectCreateLocalFilePreviewGrantResult>({
     queryKey: projectQueryKeys.localPreviewGrant(input.path),
@@ -386,6 +392,7 @@ export function projectLocalPreviewGrantQueryOptions(input: {
     enabled: (input.enabled ?? true) && input.path !== null,
     staleTime: input.staleTime ?? 60_000,
     refetchInterval: (query) => localPreviewGrantRefetchIntervalMs(query.state.data),
+    refetchIntervalInBackground: input.refreshWhileHidden ?? false,
   });
 }
 
@@ -411,6 +418,31 @@ export function projectDiscoverScriptsQueryOptions(input: {
     enabled: (input.enabled ?? true) && input.cwd !== null,
     staleTime: input.staleTime ?? DEFAULT_DISCOVER_SCRIPTS_STALE_TIME,
     placeholderData: (previous) => previous ?? EMPTY_DISCOVER_SCRIPTS_RESULT,
+  });
+}
+
+/**
+ * The servers a project lists for preview (`.moss/launch.json`, `.claude/launch.json` or
+ * its package.json dev scripts). Read while a list is on screen; a few seconds of reuse
+ * keeps opening a new tab cheap, and focus brings back edits made to the file.
+ */
+export function projectLaunchConfigurationsQueryOptions(input: {
+  cwd: string | null | undefined;
+  enabled?: boolean;
+}) {
+  const cwd = input.cwd ?? null;
+  return queryOptions({
+    queryKey: projectQueryKeys.launchConfigurations(cwd),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!cwd || !api.projects.readLaunchConfigurations) {
+        throw new Error("Launch configurations are unavailable.");
+      }
+      return api.projects.readLaunchConfigurations({ cwd });
+    },
+    enabled: (input.enabled ?? true) && cwd !== null,
+    staleTime: 5_000,
+    refetchOnWindowFocus: true,
   });
 }
 

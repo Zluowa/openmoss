@@ -2,6 +2,8 @@ import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, Option } from "effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { ServerConfig } from "./config";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveMossCanvasWorkspace } from "./mossCanvasWorkspace";
 import { mossCanvasStorageFor } from "./mossCanvasStorage";
@@ -49,6 +51,8 @@ function resolve(projection: ReturnType<typeof query>, id = "thread-a") {
   return Effect.runPromise(
     resolveMossCanvasWorkspace(id).pipe(
       Effect.provideService(ProjectionSnapshotQuery, projection as never),
+      Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "moss-canvas-config-" })),
+      Effect.provide(NodeServices.layer),
     ),
   );
 }

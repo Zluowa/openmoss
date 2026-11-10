@@ -21,7 +21,7 @@ import {
   type OrchestrationShellSnapshot,
   type OrchestrationSidebarSectionShell,
   type OrchestrationSidebarOrderItem,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,

@@ -2,7 +2,7 @@
 // Purpose: Shared authoritative section-creation dialog used by Sidebar and browser receipts.
 // Layer: Web production component
 
-import { SIDEBAR_SECTION_NAME_MAX_LENGTH } from "@synara/contracts";
+import { SIDEBAR_SECTION_NAME_MAX_LENGTH } from "@moss/contracts";
 
 import type { MossLocaleCode } from "../uiLocale";
 import { sidebarSectionManagementCopy } from "./sidebarSectionManagement";

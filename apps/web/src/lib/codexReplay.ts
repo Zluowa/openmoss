@@ -1,6 +1,6 @@
 // Native history has authoritative item order and turn boundaries. Timestamps
 // alone cannot recover either (thread/read only supplies turn-level times).
-import { CodexReplayTurn, type OrchestrationThreadActivity } from "@synara/contracts";
+import { CodexReplayTurn, type OrchestrationThreadActivity } from "@moss/contracts";
 import { Schema } from "effect";
 import type { ChatMessage } from "../types";
 import type { TimelineEntry } from "../workLog";

@@ -394,6 +394,50 @@ describe("stopWindowsBackendAndWait", () => {
     expect(pendingRequest.cancel).toHaveBeenCalledOnce();
   });
 
+  it("raises the backend's priority before asking it to stop", async () => {
+    const child = makeTestBackendShutdownProcess();
+    const calls: string[] = [];
+    const shutdown = stopWindowsBackendAndWait({
+      child,
+      backendHttpUrl: "http://127.0.0.1:3773",
+      shutdownToken: "desktop-only-token",
+      forceKillDelayMs: 8_000,
+      timeoutMs: 10_000,
+      raiseExitPriority: (raised) => {
+        expect(raised).toBe(child);
+        calls.push("raise");
+      },
+      startRequest: () => {
+        calls.push("request");
+        return makePendingRequest(Promise.resolve({ type: "response", statusCode: 202 }));
+      },
+    });
+
+    expect(calls).toEqual(["raise", "request"]);
+    child.exit(0);
+    await expect(shutdown).resolves.toEqual({ type: "exited", forced: false });
+  });
+
+  it("still stops the backend when its priority cannot be raised", async () => {
+    const child = makeTestBackendShutdownProcess();
+    const startRequest = vi.fn(() => makePendingRequest());
+    const shutdown = stopWindowsBackendAndWait({
+      child,
+      backendHttpUrl: "http://127.0.0.1:3773",
+      shutdownToken: "desktop-only-token",
+      forceKillDelayMs: 8_000,
+      timeoutMs: 10_000,
+      raiseExitPriority: () => {
+        throw new Error("access denied");
+      },
+      startRequest,
+    });
+
+    expect(startRequest).toHaveBeenCalledOnce();
+    child.exit(0);
+    await expect(shutdown).resolves.toEqual({ type: "exited", forced: false });
+  });
+
   it("shares duplicate shutdown calls for the same process", async () => {
     const child = makeTestBackendShutdownProcess();
     const pendingRequest = makePendingRequest();

@@ -3,7 +3,7 @@
 // Layer: Chat right-dock pure state helpers
 // Depends on: Resolved keybindings and their shared label formatter.
 
-import type { ResolvedKeybindingsConfig } from "@synara/contracts";
+import type { ResolvedKeybindingsConfig } from "@moss/contracts";
 
 import { formatShortcutLabel, shortcutLabelForCommand } from "../../keybindings";
 

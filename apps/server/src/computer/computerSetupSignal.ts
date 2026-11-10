@@ -28,9 +28,9 @@ import type {
   ComputerAvailability,
   ComputerBuildSignature,
   ComputerPermission,
-} from "@synara/contracts";
-import { computerGrantsBlockControl, listComputerPermissions } from "@synara/shared/computerGrants";
-import { MOSS_DESKTOP_BUNDLE_ID_ENV } from "@synara/shared/desktopIdentity";
+} from "@moss/contracts";
+import { computerGrantsBlockControl, listComputerPermissions } from "@moss/shared/computerGrants";
+import { MOSS_DESKTOP_BUNDLE_ID_ENV } from "@moss/shared/desktopIdentity";
 
 import { ComputerBackendError } from "./ComputerBackend.ts";
 

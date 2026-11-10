@@ -92,6 +92,17 @@ function setDarkBrowserTheme(): void {
 }
 
 async function blockingAxeViolations() {
+  // Streamed words fade in on a queue (up to 600ms out); contrast is judged once they land.
+  await Promise.all(
+    document
+      .getAnimations()
+      .filter(
+        (animation) =>
+          animation instanceof CSSAnimation &&
+          animation.animationName === "codex-stream-word-enter",
+      )
+      .map((animation) => animation.finished.catch(() => undefined)),
+  );
   const result = await axe.run(document.body);
   return result.violations.filter(
     (violation) => violation.impact === "serious" || violation.impact === "critical",

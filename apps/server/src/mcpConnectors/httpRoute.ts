@@ -300,9 +300,18 @@ const mossAppsCallbackRoute = HttpRouter.add(
       slug.length <= 120 && MOSS_APP_SLUG.test(slug)
         ? connectors.mossApps.cachedToolkit(slug)
         : null;
+    const ok = connectors.mossApps.completeAuthorization
+      ? yield* connectors.mossApps.completeAuthorization({
+          ...(query?.get("state") ? { state: query.get("state")! } : {}),
+          ...(query?.get("connected_account_id")
+            ? { connectionId: query.get("connected_account_id")! }
+            : {}),
+          failed: status === "failed" || status === "error",
+        })
+      : false;
     return callbackPageResponse(
       mossAppsCallbackView({
-        ok: status !== "failed" && status !== "error",
+        ok,
         app,
         chinese: prefersChinese(request.headers["accept-language"]),
       }),
@@ -364,6 +373,8 @@ const authorizeConnectorRequest = Effect.gen(function* () {
     connectors,
     request,
     connectorId,
+    authorityKey: credentials.connectorAuthorityKey?.(token, connectorId),
+    isAuthorized: () => credentials.canUseConnector?.(token, connectorId) ?? false,
     sessionId: request.headers["mcp-session-id"],
     protocolVersion: request.headers["mcp-protocol-version"],
   };
@@ -398,6 +409,8 @@ const postRoute = HttpRouter.add(
       body: body.body,
       sessionId: access.sessionId,
       protocolVersion: access.protocolVersion,
+      authorityKey: access.authorityKey,
+      isAuthorized: access.isAuthorized,
     });
     return toHttpResponse(result);
   }),
@@ -415,6 +428,8 @@ const deleteRoute = HttpRouter.add(
       method: "DELETE",
       sessionId: access.sessionId,
       protocolVersion: access.protocolVersion,
+      authorityKey: access.authorityKey,
+      isAuthorized: access.isAuthorized,
     });
     return HttpServerResponse.empty({ status: result.status === 404 ? 404 : 204 });
   }),

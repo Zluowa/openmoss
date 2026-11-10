@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { ComposerThreadMentionSource, Project } from "../types";
 import {
   buildThreadMentionComposerItems,
+  devsReportMenuItems,
   resolveThreadMentionForThreadId,
+  useComposerCommandMenuItems,
 } from "./useComposerCommandMenuItems";
 
 function project(id: string, kind: Project["kind"], name: string): Project {
@@ -232,6 +234,82 @@ describe("resolveThreadMentionForThreadId", () => {
           threadId,
         }),
       ).toBeNull();
+    }
+  });
+});
+
+function slashItemSource(id: string): string {
+  return id.slice(0, id.indexOf(":"));
+}
+
+describe("useComposerCommandMenuItems slash commands", () => {
+  function slashItems(query: string) {
+    return useComposerCommandMenuItems({
+      composerTrigger: { kind: "slash-command", query, rangeStart: 0, rangeEnd: query.length + 1 },
+      provider: "claudeAgent",
+      providerPlugins: [],
+      providerNativeCommands: [
+        { name: "design", description: "Make a new Design artifact from a brief" },
+        { name: "dataviz", description: "Use this skill whenever you are about to chart data" },
+      ],
+      providerSkills: [
+        {
+          name: "deploy-preview",
+          description: "Ship a preview build",
+          path: "/skills/deploy-preview",
+          enabled: true,
+        },
+      ],
+      workspaceEntries: [],
+      searchableModelOptions: [],
+      supportsFastSlashCommand: false,
+      canOfferCompactCommand: false,
+      canOfferReviewCommand: false,
+      canOfferForkCommand: false,
+      canOfferSideCommand: false,
+      canOfferExportCommand: false,
+      dynamicAgents: [],
+    }).map((item) => item.id);
+  }
+
+  it("lists Moss commands, then the provider's, then skills when nothing is typed", () => {
+    const ids = slashItems("");
+    const firstProvider = ids.findIndex((id) => id.startsWith("provider-command:"));
+    const firstSkill = ids.findIndex((id) => id.startsWith("skill:"));
+
+    expect(ids[0]?.startsWith("slash:")).toBe(true);
+    expect(firstProvider).toBeGreaterThan(0);
+    expect(firstSkill).toBeGreaterThan(firstProvider);
+    expect(
+      ids.slice(firstProvider, firstSkill).every((id) => id.startsWith("provider-command:")),
+    ).toBe(true);
+  });
+
+  it("leads with the best match across every source", () => {
+    const ids = slashItems("design");
+
+    expect(ids[0]).toBe("provider-command:claudeAgent:design");
+  });
+
+  it("keeps each source's rows together after ranking", () => {
+    const ids = slashItems("de");
+    const runs = ids.map(slashItemSource).filter((source, index, all) => source !== all[index - 1]);
+
+    expect(new Set(runs).size).toBe(runs.length);
+    expect(ids).toContain("skill:/skills/deploy-preview");
+  });
+});
+
+describe("devsReportMenuItems", () => {
+  it("offers @devs while the mention query is empty or still spells devs", () => {
+    for (const query of ["", "d", "de", "dev", "devs", "DEVS"]) {
+      expect(devsReportMenuItems(query).map((item) => item.label)).toEqual(["@devs"]);
+    }
+  });
+
+  it("stays out of the way of every other mention", () => {
+    for (const query of ["devin", "devsx", "doc", "x"]) {
+      expect(devsReportMenuItems(query)).toEqual([]);
     }
   });
 });

@@ -3,7 +3,7 @@ import type { Dirent } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
-import type { ServerManagedWorktree } from "@synara/contracts";
+import type { ServerManagedWorktree } from "@moss/contracts";
 import { Effect } from "effect";
 
 import type { GitCoreShape } from "./git/Services/GitCore.ts";
@@ -443,7 +443,7 @@ export function pruneArchivedManagedWorktrees(input: {
         { discard: true, concurrency: 1 },
       );
     }
-    // The age sweep runs on every pass (startup, retention, listing) even when
+    // The age sweep runs on every pass (daily maintenance, deletes, archives) even when
     // nothing was removed now, so snapshots from earlier passes still expire.
     yield* pruneExpiredManagedWorktreeSnapshots({ snapshotsDir: input.snapshotsDir });
     return inventory.filter((entry) => !removedPaths.has(entry.path));

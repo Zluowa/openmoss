@@ -9,7 +9,7 @@ import type {
   ContextMenuNode,
   ContextMenuShortcutKey,
   ContextMenuSubmenu,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 /** Maximum submenu depth, counting the root menu as depth zero. */
 export const CONTEXT_MENU_MAX_DEPTH = 4;

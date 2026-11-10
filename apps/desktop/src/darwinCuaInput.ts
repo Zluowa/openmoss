@@ -1,7 +1,7 @@
 import { access } from "node:fs/promises";
 import { constants as FsConstants } from "node:fs";
 import { spawn } from "node:child_process";
-import type { CuaPerformActionArgs } from "@synara/shared/cuaDriverProtocol";
+import type { CuaPerformActionArgs } from "@moss/shared/cuaDriverProtocol";
 
 const CLICLICK_CANDIDATES = [
   "/opt/homebrew/bin/cliclick",

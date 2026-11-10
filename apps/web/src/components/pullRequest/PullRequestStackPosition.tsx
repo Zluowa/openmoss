@@ -3,7 +3,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestStackPosition
 
-import type { PullRequestStackSummary } from "@synara/contracts";
+import type { PullRequestStackSummary } from "@moss/contracts";
 
 import { Badge } from "~/components/ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -60,7 +60,7 @@ export function PullRequestStackPosition({
         }
       />
       <TooltipPopup side="top">
-        Stack #{stack.number} · PR {stack.position} of {stack.size} · targets {stack.baseBranch}
+        {`Stack #${stack.number} · PR ${stack.position} of ${stack.size} · targets ${stack.baseBranch}`}
       </TooltipPopup>
     </Tooltip>
   );

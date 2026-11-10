@@ -8,7 +8,7 @@ import type {
   ResolvedKeybindingsConfig,
   ServerConfig,
   ServerKeybindingEdit,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 

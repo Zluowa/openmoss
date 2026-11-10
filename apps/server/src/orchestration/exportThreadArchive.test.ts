@@ -5,7 +5,7 @@
 
 import zlib from "node:zlib";
 
-import type { OrchestrationThread } from "@synara/contracts";
+import type { OrchestrationThread } from "@moss/contracts";
 import { describe, expect, it } from "@effect/vitest";
 
 import { threadArchiveChunks, threadArchiveFileName } from "./exportThreadArchive.ts";

@@ -5,7 +5,7 @@ import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
-import { cuaRequest, CUA_HOST_SOCKET_ENV, type CuaReply } from "@synara/shared/cuaDriverProtocol";
+import { cuaRequest, CUA_HOST_SOCKET_ENV, type CuaReply } from "@moss/shared/cuaDriverProtocol";
 import { CuaDriverHost } from "../cuaDriverHost";
 import { pngDimensions } from "../../../server/src/pngHeader";
 

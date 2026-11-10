@@ -3,8 +3,8 @@
 // Layer: Web display helper
 // Exports: resolveThreadDisplayProvider
 
-import type { ModelSelection, ProviderKind } from "@synara/contracts";
-import { inferLegacyProviderKindFromModelSelection } from "@synara/shared/providerInstances";
+import type { ModelSelection, ProviderKind } from "@moss/contracts";
+import { inferLegacyProviderKindFromModelSelection } from "@moss/shared/providerInstances";
 
 /** The live session's provider wins over the configured model selection. */
 export function resolveThreadDisplayProvider(thread: {

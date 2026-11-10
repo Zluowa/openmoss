@@ -2,7 +2,7 @@ import {
   BROWSER_TOOL_NAMES,
   type ProviderInteractionMode,
   type RuntimeMode,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 /** Exact tool names owned by Moss's capability-gated Computer gateway. */
 export const MOSS_COMPUTER_TOOL_NAMES = [
@@ -202,6 +202,8 @@ const MOSS_GATEWAY_OWNED_TOOL_NAMES = [
   "moss_create_threads",
   "moss_create_thread",
   "moss_send_message",
+  "moss_room_read",
+  "moss_room_post",
   "moss_interrupt_thread",
   "moss_set_thread_title",
   "moss_set_thread_pull_request",
@@ -244,6 +246,11 @@ const MOSS_GATEWAY_OWNED_TOOL_NAMES = [
   "moss_e2e_review",
   // OpenUI chat component catalog (openUIReferenceTool.ts)
   "openui_reference",
+  // Turn-end next-step box (wrapUpTool.ts): validates its input, changes nothing.
+  "moss_wrap_up",
+  // Static visual guide (visualGuideTool.ts). place_photos reaches the network,
+  // so it stays with html_preview outside this auto-approved set.
+  "visual_guide",
   // Inline visuals (inlineVisualTools.ts). The catalog name already includes
   // the moss_ prefix, same as moss_create_thread.
   "moss_show_visual",

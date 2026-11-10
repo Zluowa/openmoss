@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ThreadId, type RealtimeVoiceTransportPreference } from "@synara/contracts";
+import { ThreadId, type RealtimeVoiceTransportPreference } from "@moss/contracts";
 
 import type {
   RelayControlConnection,

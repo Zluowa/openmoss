@@ -5,7 +5,7 @@
 
 /** Sidebar row height shared by projects, threads, chats, and settings nav: 32px, 34px apart. */
 export const SIDEBAR_ROW_HEIGHT_CLASS_NAME =
-  "min-h-[var(--app-density-row-height,2rem)] h-[var(--app-density-row-height,2rem)]";
+  "min-h-[var(--app-density-row-height,calc(2rem*var(--app-ui-scale,1)))]";
 
 export const SIDEBAR_ROW_RADIUS_CLASS_NAME = "rounded-row";
 
@@ -13,7 +13,7 @@ export const SIDEBAR_ROW_PADDING_CLASS_NAME = "px-2 py-[var(--app-density-row-pa
 
 export const SIDEBAR_ROW_GAP_CLASS_NAME = "gap-[var(--app-density-row-gap,0.5rem)]";
 
-export const SIDEBAR_ROW_TEXT_CLASS_NAME = "text-ui-lg font-normal";
+export const SIDEBAR_ROW_TEXT_CLASS_NAME = "text-ui font-normal";
 
 export const SIDEBAR_ROW_FOCUS_CLASS_NAME =
   "outline-hidden transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
@@ -39,7 +39,7 @@ export const SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME = "text-foreground/95";
 
 /** A project's display name in sidebar project rows and headers. */
 export const SIDEBAR_PROJECT_NAME_CLASS_NAME = [
-  "min-w-0 flex-1 truncate font-system-ui text-ui-lg font-normal",
+  "min-w-0 flex-1 truncate font-system-ui text-ui font-normal",
   SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
 ].join(" ");
 
@@ -64,7 +64,7 @@ export const SIDEBAR_THREAD_ROW_BASE_CLASS_NAME = [
   "flex w-full min-w-0 translate-x-0 cursor-pointer flex-nowrap items-center justify-start text-left select-none",
   SIDEBAR_ROW_HEIGHT_CLASS_NAME,
   SIDEBAR_ROW_RADIUS_CLASS_NAME,
-  "pl-8 text-ui-lg",
+  "pl-8 text-ui",
   SIDEBAR_ROW_FOCUS_CLASS_NAME,
 ].join(" ");
 

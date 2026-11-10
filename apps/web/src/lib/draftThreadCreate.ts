@@ -14,7 +14,7 @@ import type {
   ProviderStartOptions,
   RuntimeMode,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { composerDraftsMatchForCleanup } from "../composerDraftDomain";
 import { useComposerDraftStore, type DraftThreadEnvMode } from "../composerDraftStore";

@@ -18,7 +18,7 @@ import {
   type ProviderStartOptions,
   type RuntimeMode,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as Equal from "effect/Equal";
 import * as Schema from "effect/Schema";
 import { shallow } from "zustand/vanilla/shallow";

@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import {
   COMPUTER_HISTORY_MAX_QUERY_RESULTS,
   type ComputerHistoryListHistoryInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { ComputerHistoryService } from "../computerHistory/service.ts";
 import { projectComputerHistoryEntryForModel } from "../computerHistory/summaryProjection.ts";

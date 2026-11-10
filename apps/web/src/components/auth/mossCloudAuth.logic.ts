@@ -1,4 +1,4 @@
-import type { MossCloudGoogleOAuthFlowId } from "@synara/contracts";
+import type { MossCloudGoogleOAuthFlowId } from "@moss/contracts";
 
 export const MOSS_CLOUD_PASSWORD_MIN_LENGTH = 8;
 export const MOSS_CLOUD_PASSWORD_MAX_LENGTH = 128;
@@ -24,8 +24,11 @@ export interface MossCloudPasswordValues {
   readonly confirmPassword: string;
 }
 
+export type MossCloudOAuthCallbackError = "access_denied" | "failed";
+
 export interface MossCloudAuthRouteSearch {
   readonly code?: string;
+  readonly oauthError?: MossCloudOAuthCallbackError;
   readonly flowId?: MossCloudGoogleOAuthFlowId;
   readonly email?: string;
   readonly type?: "recovery" | "verify";
@@ -99,8 +102,13 @@ export function parseMossCloudAuthRouteSearch(search: unknown): MossCloudAuthRou
   const rawEmail = typeof record.email === "string" ? record.email.trim() : "";
   const email = rawEmail.length <= 320 ? rawEmail : "";
   const type = record.type === "recovery" || record.type === "verify" ? record.type : undefined;
+  const oauthError =
+    record.oauthError === "access_denied" || record.oauthError === "failed"
+      ? record.oauthError
+      : undefined;
   return {
     ...(code ? { code } : {}),
+    ...(oauthError ? { oauthError } : {}),
     ...(flowId ? { flowId } : {}),
     ...(email ? { email } : {}),
     ...(type ? { type } : {}),
@@ -108,7 +116,6 @@ export function parseMossCloudAuthRouteSearch(search: unknown): MossCloudAuthRou
 }
 
 function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message.toLowerCase();
   if (typeof error === "string") return error.toLowerCase();
   if (error && typeof error === "object") {
     const record = error as Record<string, unknown>;

@@ -76,8 +76,21 @@ class NodePtyProcess implements PtyProcess {
   }
 
   kill(signal?: string): void {
+    // node-pty throws "Signals not supported on windows" for any signal there. The
+    // terminal manager ends the process tree itself (taskkill); here only the console
+    // closes.
+    if (process.platform === "win32") {
+      // Closing the console already ends every process attached to it; a second close
+      // (the manager's SIGKILL escalation) has nothing left to do.
+      if (this.closedOnWindows) return;
+      this.closedOnWindows = true;
+      this.process.kill();
+      return;
+    }
     this.process.kill(signal);
   }
+
+  private closedOnWindows = false;
 
   pause(): void {
     this.process.pause();

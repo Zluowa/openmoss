@@ -22,9 +22,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { ThreadId, type ProviderSession } from "@synara/contracts";
-import { deriveMossAcpMcpServers } from "@synara/shared/mossAcpMcpServers";
-import * as mossAcpMcpServers from "@synara/shared/mossAcpMcpServers";
+import { ThreadId, type ProviderSession } from "@moss/contracts";
+import { deriveMossAcpMcpServers } from "@moss/shared/mossAcpMcpServers";
+import * as mossAcpMcpServers from "@moss/shared/mossAcpMcpServers";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Cause, Effect, Exit, Fiber, Layer, Stream, type Scope } from "effect";
@@ -501,13 +501,57 @@ async function waitForRequestMethod(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const requestLog = readFileSync(requestLogPath, "utf8");
-    if (parseRequests(requestLog).some((request) => request.method === method)) {
-      return requestLog;
+    // Poll only complete records while the mock is still appending to the log.
+    const completeRequestLog = requestLog.slice(0, requestLog.lastIndexOf("\n") + 1);
+    if (parseRequests(completeRequestLog).some((request) => request.method === method)) {
+      return completeRequestLog;
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
   return readFileSync(requestLogPath, "utf8");
 }
+
+describe("Gemini request log polling", () => {
+  it("waits for a fragmented request record to finish before parsing it", async () => {
+    const requestLogPath = path.join(makeTempDir("sy9-gemini-partial-log-"), "requests.ndjson");
+    const requestLog = `${JSON.stringify({
+      method: "session/prompt",
+      params: { input: "x".repeat(4096) },
+    })}\n`;
+    writeFileSync(requestLogPath, requestLog.slice(0, 3398), "utf8");
+
+    // The first polling read happens synchronously before this call returns.
+    // Complete the valid record only after that read has observed its prefix.
+    const pending = waitForRequestMethod(requestLogPath, "session/prompt").then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    appendFileSync(requestLogPath, requestLog.slice(3398), "utf8");
+
+    expect(await pending).toEqual({ value: requestLog });
+    expect(findRequest(parseRequests(requestLog), "session/prompt")).toBeDefined();
+  });
+
+  it("returns the complete matching record without an unfinished following record", async () => {
+    const requestLogPath = path.join(makeTempDir("sy9-gemini-following-log-"), "requests.ndjson");
+    const complete = `${JSON.stringify({ method: "session/prompt", params: {} })}\n`;
+    writeFileSync(requestLogPath, `${complete}{"method":"session/cancel`, "utf8");
+
+    const requestLog = await waitForRequestMethod(requestLogPath, "session/prompt");
+
+    expect(requestLog).toBe(complete);
+    expect(parseRequests(requestLog)).toEqual([{ method: "session/prompt", params: {} }]);
+  });
+
+  it("still rejects malformed JSON in a newline-terminated record", async () => {
+    const requestLogPath = path.join(makeTempDir("sy9-gemini-invalid-log-"), "requests.ndjson");
+    writeFileSync(requestLogPath, '{"method":"session/prompt"\n', "utf8");
+
+    await expect(waitForRequestMethod(requestLogPath, "session/prompt")).rejects.toThrow(
+      SyntaxError,
+    );
+  });
+});
 
 function makeWorkspaceWithMossConfig(): string {
   const cwd = makeTempDir("sy9-gemini-ws-");

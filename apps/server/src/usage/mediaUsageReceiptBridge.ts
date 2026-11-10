@@ -13,7 +13,7 @@ import {
   type UsageCreditEntry,
   type UsageEventSubject,
   type UsageMeter,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
 const MEDIA_RECEIPT_ADAPTER_VERSION = "v1";

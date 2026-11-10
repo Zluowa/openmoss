@@ -67,6 +67,17 @@ export function requireSupabaseGoogleAuthorizationUrl(input: {
   return input.authorizationUrl;
 }
 
+/** Google needs an overseas network, so a connection failure must say so. */
+export function mossGoogleOAuthStartErrorMessage(error: unknown): string {
+  const code =
+    error && typeof error === "object" && "code" in error && typeof error.code === "string"
+      ? error.code
+      : null;
+  return code === "network_error"
+    ? "无法连接 Google 登录服务。Google 登录需要可访问海外的网络，请检查网络后重试。"
+    : "无法安全打开 Google 登录，请稍后重试。";
+}
+
 export async function beginMossGoogleOAuth(input: {
   readonly start: () => Promise<{
     readonly authorizationUrl: string;

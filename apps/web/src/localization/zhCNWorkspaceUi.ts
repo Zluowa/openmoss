@@ -7,6 +7,9 @@
 // path, provider, model, user-authored, and diagnostic values are captured by
 // anchored patterns and reinserted verbatim. Unknown text is returned unchanged.
 
+import { nameSlotRule } from "./zhCNNameSlot";
+import { lookupPhrase } from "./zhCNPhraseTable";
+
 type DynamicTranslation = readonly [pattern: RegExp, translate: (match: RegExpExecArray) => string];
 
 const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
@@ -48,10 +51,6 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Dev server running": "开发服务器正在运行",
   "Updating providers...": "正在更新服务商…",
   "New sessions will use the refreshed provider tools.": "新会话将使用更新后的服务商工具。",
-  "Hiding old chats...": "正在隐藏旧对话…",
-  "Preparing background maintenance.": "正在准备后台维护。",
-  "Chat maintenance paused": "对话维护已暂停",
-  "Old chats hidden": "旧对话已隐藏",
   Pending: "待处理",
   "Intel build on Apple Silicon": "在 Apple Silicon 上运行 Intel 版本",
   "Stop dev": "停止开发服务器",
@@ -307,6 +306,15 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Shown partially": "仅显示部分内容",
   "File path": "文件路径",
   "Markdown view": "Markdown 视图",
+  "HTML view": "HTML 视图",
+  "HTML source": "源码",
+  "HTML preview": "预览",
+  "View HTML source": "查看 HTML 源码",
+  "Render HTML document": "预览 HTML 网页",
+  // Hover card and page card on files named in a reply.
+  "HTML page": "网页",
+  "Markdown document": "Markdown 文档",
+  "PDF document": "PDF 文档",
   "Source view — select text to reference exact lines in chat":
     "源代码视图 — 选择文本以在对话中引用准确行号",
   "Rendered preview — browse and toggle task lists": "渲染预览 — 浏览任务列表并切换任务状态",
@@ -953,13 +961,13 @@ const ZH_CN_SIDEBAR_NAMES: Readonly<Record<string, string>> = {
 };
 
 function zhCnWeekday(value: string): string {
-  return ZH_CN_WEEKDAYS[value] ?? value;
+  return lookupPhrase(ZH_CN_WEEKDAYS, value) ?? value;
 }
 
 const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   // Git progress, branch names, repository paths, and diagnostic details stay verbatim.
   // The working indicator while a provider session starts ("Starting Codex…").
-  [/^Starting (\S.*)…$/u, (match) => `正在启动 ${match[1] ?? ""}…`],
+  [nameSlotRule("Starting", "…"), (match) => `正在启动 ${match[1] ?? ""}…`],
   [
     /^Retrying: (.+) \((\d+)\/(\d+)\)$/,
     (match) => {
@@ -1023,10 +1031,10 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
     },
   ],
   [/^Committed ([0-9a-fA-F]{7,40})$/, (match) => `已提交 ${match[1]}`],
-  [/^Commit & push to (.+)$/, (match) => `提交并推送到 ${match[1]}`],
-  [/^Push to (.+)$/, (match) => `推送到 ${match[1]}`],
   [/^Commit & push to default branch\?$/, () => "提交并推送到默认分支？"],
   [/^Push to default branch\?$/, () => "推送到默认分支？"],
+  [/^Commit & push to (.+)$/, (match) => `提交并推送到 ${match[1]}`],
+  [/^Push to (.+)$/, (match) => `推送到 ${match[1]}`],
   [/^Create feature branch, commit & PR\?$/, () => "创建功能分支、提交并创建 PR？"],
   [/^Create feature branch & PR\?$/, () => "创建功能分支并创建 PR？"],
   [
@@ -1054,10 +1062,10 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   [/^Turn (\d+)$/, (match) => `第 ${match[1]} 轮`],
   [/^Loading (.+) diff\.\.\.$/, (match) => `正在加载 ${match[1]} 差异…`],
   [/^Preview of (.+)$/, (match) => `${match[1]} 的预览`],
-  [/^Preview (.+)$/, (match) => `预览 ${match[1]}`],
+  [nameSlotRule("Preview"), (match) => `预览 ${match[1]}`],
   [/^(\d+) lines$/, (match) => `${match[1]} 行`],
   [/^Comment on line (\d+)$/, (match) => `评论第 ${match[1]} 行`],
-  [/^Close (.+)$/, (match) => `关闭 ${match[1]}`],
+  [nameSlotRule("Close"), (match) => `关闭 ${match[1]}`],
 
   // Workspace, recent-view, and sidebar values are not interpreted.
   [/^(\d+) recent views?$/, (match) => `${match[1]} 个最近视图`],
@@ -1066,7 +1074,7 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   [/^Failed to run script "(.+)"\.$/, (match) => `运行脚本“${match[1]}”失败。`],
   [/^Deleted action "(.+)"$/, (match) => `已删除操作“${match[1]}”`],
   [/^Failed to run "(.+)"$/, (match) => `运行“${match[1]}”失败`],
-  [/^Unable to open (.+)$/, (match) => `无法打开 ${match[1]}`],
+  [nameSlotRule("Unable to open"), (match) => `无法打开 ${match[1]}`],
   [/^Switch to (.+) theme$/, (match) => `切换到 ${match[1]} 主题`],
   [/^Apply to the current (.+) theme slot\.$/, (match) => `应用到当前 ${match[1]} 主题槽位。`],
   [
@@ -1168,11 +1176,11 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
     /^(Show|Hide) (plan|files|search|tasks|chat) sidebar$/,
     (match) => {
       const verb = match[1] === "Show" ? "显示" : "隐藏";
-      const sidebar = ZH_CN_SIDEBAR_NAMES[match[2] ?? ""] ?? match[2];
+      const sidebar = lookupPhrase(ZH_CN_SIDEBAR_NAMES, match[2] ?? "") ?? match[2];
       return `${verb}${sidebar}侧边栏`;
     },
   ],
-  [/^Hide (.+)$/, (match) => `隐藏 ${match[1]}`],
+  [nameSlotRule("Hide"), (match) => `隐藏 ${match[1]}`],
   [
     /^You can attach up to (\d+) references per message\.$/,
     (match) => `每条消息最多可附加 ${match[1]} 个引用。`,
@@ -1181,7 +1189,8 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
     /^The browser screenshot exceeded the (\d+) attachment limit\.$/,
     (match) => `浏览器截图超出了 ${match[1]} 个附件的限制。`,
   ],
-  [/^Thread (.+)$/, (match) => `对话 ${match[1]}`],
+  // A thread id is one token; "Thread title cannot be empty" is a sentence.
+  [/^Thread (\S+)$/, (match) => `对话 ${match[1]}`],
   [/^No (.+) events$/, (match) => `没有 ${match[1]} 事件`],
   [/^(\d+) chars$/, (match) => `${match[1]} 个字符`],
   [
@@ -1193,8 +1202,8 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   ],
   [/^Warning (.+)$/, (match) => `警告 ${match[1]}`],
   [/^Field (.+)$/, (match) => `字段 ${match[1]}`],
-  [/^source (.+)$/, (match) => `来源 ${match[1]}`],
-  [/^hash (.+)$/, (match) => `哈希 ${match[1]}`],
+  [nameSlotRule("source"), (match) => `来源 ${match[1]}`],
+  [/^hash (\S+)$/, (match) => `哈希 ${match[1]}`],
   [/^Sign in for (.+)$/, (match) => `登录 ${match[1]}`],
   [/^Cancel sign-in for (.+)$/, (match) => `取消 ${match[1]} 的登录`],
   [
@@ -1233,8 +1242,9 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   [/^Every (\d+)m$/, (match) => `每 ${match[1]} 分钟`],
   [/^Every (\d+)s$/, (match) => `每 ${match[1]} 秒`],
   [/^Once (.+)$/, (match) => `一次 · ${match[1]}`],
-  [/^Daily(?: at)? (.+)$/, (match) => `每天 ${match[1]}`],
-  [/^Weekdays(?: at)? (.+)$/, (match) => `工作日 ${match[1]}`],
+  // A schedule always carries a clock time; "Daily standup summary" is a name.
+  [/^Daily(?: at)? (.*\d.*)$/, (match) => `每天 ${match[1]}`],
+  [/^Weekdays(?: at)? (.*\d.*)$/, (match) => `工作日 ${match[1]}`],
   [
     /^Weekly (Sun|Mon|Tue|Wed|Thu|Fri|Sat) (.+)$/,
     (match) => `每${zhCnWeekday(match[1] ?? "")} ${match[2]}`,
@@ -1260,7 +1270,7 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
 
 /** Translates known workspace/UI chrome while leaving unknown or runtime text untouched. */
 export function translateZhCnWorkspaceUiText(value: string): string {
-  const exact = EXACT_TRANSLATIONS[value];
+  const exact = lookupPhrase(EXACT_TRANSLATIONS, value);
   if (exact !== undefined) return exact;
 
   for (const [pattern, translate] of DYNAMIC_TRANSLATIONS) {

@@ -1,5 +1,5 @@
-import { ThreadId } from "@synara/contracts";
-import { MOSS_SESSION_START_EVENT, type MossHookRunSummary } from "@synara/shared/mossHooks";
+import { ThreadId } from "@moss/contracts";
+import { MOSS_SESSION_START_EVENT, type MossHookRunSummary } from "@moss/shared/mossHooks";
 import { describe, expect, it } from "vitest";
 
 import {

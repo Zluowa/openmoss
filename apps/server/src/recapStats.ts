@@ -14,9 +14,9 @@ import {
   type StatsRecapSlot,
   type StatsRecapTokens,
   WsRpcError,
-} from "@synara/contracts";
-import { INBOX_BETA_FEATURE } from "@synara/shared/betaFeatures";
-import { normalizeModelSlug, stripClaudeContextWindowSuffix } from "@synara/shared/model";
+} from "@moss/contracts";
+import { INBOX_BETA_FEATURE } from "@moss/shared/betaFeatures";
+import { normalizeModelSlug, stripClaudeContextWindowSuffix } from "@moss/shared/model";
 import { Effect, Layer, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 

@@ -95,30 +95,40 @@ describe("ComputerServiceLive", () => {
   });
 
   /**
-   * On Windows there is no backend to build, and the pre-fix fallback was the
-   * fake — which answers "available" and succeeds at every action against a
-   * phantom desktop. An agent on Windows must see a refused surface, not a
-   * fabricated one, so the platform verdict has to reach the pane's blocked
-   * state untouched.
+   * Cua supports Windows. When this Windows server has no host endpoint, the
+   * desktop's control host did not start, which is this instance's problem and
+   * not the platform's. The surface must stay refused (never the fake desktop)
+   * and must say "not running", never "unsupported platform".
    */
-  it("reports an unsupported platform instead of a fake desktop on Windows", async () => {
+  it("reports a Windows server without a host as not running, not as unsupported", async () => {
     await Effect.runPromise(
       Effect.scoped(
         Effect.gen(function* () {
           const service = yield* ComputerService;
           expect(service.supported).toBe(false);
           expect(service.availability).toEqual({
-            kind: "unsupported-platform",
-            platform: "win32",
+            kind: "backend-unavailable",
+            message: "Moss's computer control is not running yet. Restart Moss, then refresh.",
           });
           const state = yield* Effect.promise(() =>
             service.manager.getThreadState("thread-windows"),
           );
-          expect(state.availability).toEqual({
-            kind: "unsupported-platform",
-            platform: "win32",
-          });
+          expect(state.availability.kind).toBe("backend-unavailable");
         }).pipe(Effect.provide(makeComputerServiceLayer({ platform: "win32" }))),
+      ),
+    );
+  });
+
+  it("still reports a platform Cua has no host for as unsupported", async () => {
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const service = yield* ComputerService;
+          expect(service.availability).toEqual({
+            kind: "unsupported-platform",
+            platform: "freebsd",
+          });
+        }).pipe(Effect.provide(makeComputerServiceLayer({ platform: "freebsd" }))),
       ),
     );
   });

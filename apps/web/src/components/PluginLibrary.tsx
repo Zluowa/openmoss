@@ -11,6 +11,7 @@ import {
   isSupportedProviderKind,
   type ProviderAddMarketplaceInput,
   type ProviderAddMarketplaceResult,
+  type McpConnector,
   type MossAppConnection,
   type MossAppToolkit,
   type ProviderAppInfo,
@@ -26,11 +27,11 @@ import {
   type ProviderPluginMarketplaceKind,
   type ProviderSkillDescriptor,
   type ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   codexAccountInstanceId,
   inferLegacyProviderKindFromModelSelection,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import { queryOptions, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import React, {
@@ -44,6 +45,9 @@ import React, {
   useState,
 } from "react";
 import { useStore } from "~/store";
+import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
+import { mossAppsErrorMessage } from "~/lib/mossAppsCopy";
+import { translateZhCnPresentationText } from "~/localization/zhCN";
 import {
   type BrandArtwork,
   KNOWN_BRAND_ARTWORK,
@@ -134,7 +138,6 @@ import {
   FolderIcon,
   MessageCircleIcon,
   PluginIcon,
-  PlusIcon,
   RefreshCwIcon,
   Trash2,
 } from "~/lib/icons";
@@ -197,6 +200,33 @@ import {
 } from "./PluginLibraryPrimitives";
 import { MossDetectedResourcesSection } from "./MossDetectedResourcesSection";
 import { MossAppConnectDialog, type MossAppConnectTarget } from "./MossAppConnectDialog";
+import { MossAppsAccountNotice } from "./MossAppsAccountNotice";
+import {
+  McpConnectorConnectDialog,
+  mcpConnectorPresetTarget,
+  type McpConnectorTarget,
+} from "./settings/McpConnectorConnectDialog";
+import { serverMossAccountSessionQueryOptions } from "./auth/mossServerReactQuery";
+import { findMcpConnectorPreset } from "@moss/shared/mcpConnectors";
+import {
+  MCP_CONNECTORS_QUERY_KEY,
+  mcpConnectorsQueryOptions,
+  mossServicePluginsQueryOptions,
+} from "~/lib/mcpConnectorsReactQuery";
+import {
+  isMossServicePlugin,
+  mossServicePluginDetail,
+  mossServicePluginDirectoryEntries,
+  mossServicePluginFromPluginId,
+  mossServicePluginSkillReference,
+  mossServiceSkillPreview,
+} from "~/lib/mossServicePlugins";
+import {
+  isMossPluginCatalogPlugin,
+  withMossPluginCatalogEntryPresentation,
+  withMossPluginCatalogPresentation,
+} from "~/lib/mossPluginCatalogPresentation";
+import { MOSS_PLUGIN_CATALOG_FEATURED_PLUGIN_IDS } from "@moss/shared/mossPluginCatalog";
 import {
   MOSS_APP_CONNECTIONS_QUERY_KEY,
   mossAppCatalogQueryOptions,
@@ -245,6 +275,7 @@ import {
 } from "./ui/alert-dialog";
 import { toastManager } from "./ui/toast";
 import { useTranslation, type TranslationKey } from "~/localization";
+import { localizePluginCategory } from "~/lib/pluginCategoryLabel";
 import {
   createSingleFlightPluginExternalOpener,
   openPluginExternalUrl,
@@ -559,6 +590,11 @@ type SkillScopeGroup = ReturnType<typeof skillScopeGroup>;
 // ~54s refetched), and "local" + "vertical" narrows to the curated vertical.
 const NO_MOSS_APP_TOOLKITS: readonly MossAppToolkit[] = [];
 const NO_MOSS_APP_CONNECTIONS: readonly MossAppConnection[] = [];
+const NO_MCP_CONNECTORS: readonly McpConnector[] = [];
+
+/** Apps Moss connects itself (hosted catalog or regional connector), not CLI plugins. */
+const isMossManagedAppPlugin = (plugin: Pick<ProviderPluginDescriptor, "id">) =>
+  isMossAppPlugin(plugin) || isMossServicePlugin(plugin);
 
 const PRIMARY_PLUGIN_MARKETPLACE_KINDS = [
   "local",
@@ -572,6 +608,11 @@ const SHARED_PLUGIN_MARKETPLACE_KINDS = [
 const CREATED_PLUGIN_MARKETPLACE_KINDS = [
   "created-by-me-remote",
 ] as const satisfies readonly ProviderPluginMarketplaceKind[];
+/** The category tab that shows the whole directory. */
+const PLUGIN_CATEGORY_ALL = "all";
+/** The server's wording for a catalog plugin whose files could not be fetched. */
+const MOSS_PLUGIN_CATALOG_DOWNLOAD_FAILURE = /couldn't download this plugin/iu;
+
 /** Codex keeps its directory for six hours; mutations re-read it sooner. */
 const PLUGIN_DIRECTORY_STALE_TIME_MS = 6 * 60 * 60_000;
 
@@ -713,7 +754,10 @@ function PluginGlyph({
   const rawLogo = resolvePluginLogo(plugin);
   const logo = rawLogo ? resolvePluginArtworkUrl({ src: rawLogo, cwd: artworkCwd }) : undefined;
   const brand = resolvePluginBrand(plugin);
-  const [logoFailed, setLogoFailed] = useState(false);
+  // Remembered per address: a plugin whose files just arrived swaps a missing
+  // mirror icon for its own, which must get its chance to load.
+  const [failedLogo, setFailedLogo] = useState<string | null>(null);
+  const logoFailed = logo !== undefined && failedLogo === logo;
 
   const wrapArtwork = (artwork: ReactNode) =>
     installed ? (
@@ -738,7 +782,7 @@ function PluginGlyph({
         alt=""
         className="size-full rounded-[2px] object-contain"
         loading="lazy"
-        onError={() => setLogoFailed(true)}
+        onError={() => setFailedLogo(logo)}
       />,
     );
   }
@@ -885,6 +929,46 @@ function InlineWarning({
     >
       <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
       <div>{children}</div>
+    </div>
+  );
+}
+
+/**
+ * What is already listed stays usable while one source is slow or failed: a
+ * quiet line says more is on its way, or offers a retry, instead of hiding
+ * the page behind a spinner or an error.
+ */
+function PluginSourcesNotice({
+  state,
+  retrying,
+  onRetry,
+}: {
+  readonly state: "loading" | "failed";
+  readonly retrying: boolean;
+  readonly onRetry: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      role="status"
+      data-testid="plugin-sources-notice"
+      className="flex min-h-9 items-center gap-2 rounded-xl bg-foreground/[0.03] px-3 py-1.5 text-ui-sm text-muted-foreground"
+    >
+      {state === "loading" || retrying ? (
+        <Spinner className="size-3.5 shrink-0" />
+      ) : (
+        <CircleAlertIcon className="size-4 shrink-0" />
+      )}
+      <span className="min-w-0 flex-1">
+        {state === "loading"
+          ? t("plugins.catalog.loadingMore")
+          : t("plugins.catalog.partialFailed")}
+      </span>
+      {state === "failed" ? (
+        <Button size="xs" variant="ghost" disabled={retrying} onClick={onRetry}>
+          {t("plugins.action.retry")}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -1060,24 +1144,33 @@ function PluginRowAction({
     canEnable,
     pending: installing,
   });
+
+  // Installed rows say so quietly; their "…" menu holds the rest.
+  if (action.action === "try") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-1.5 text-ui text-muted-foreground"
+        data-testid="plugin-row-installed"
+      >
+        <CheckIcon className="size-3.5" aria-hidden />
+        {t("plugins.action.installed")}
+      </span>
+    );
+  }
+
+  // Like installing a small app: 安装, then a spinner while it installs, then 已安装.
   const label =
-    action.action === "try"
-      ? t("plugins.action.tryInChat")
-      : action.action === "enable"
-        ? t("plugins.action.enableInCodex")
-        : installing
-          ? t("plugins.action.installing")
-          : t("settings.providers.docs.install");
-
-  if (action.action === "try") return null;
-
-  // Codex directory rows use a quiet trailing "+" affordance for install /
-  // enable (shot 13); installed rows expose only the hover overflow "...".
+    action.action === "enable"
+      ? t("plugins.action.enableInCodex")
+      : installing
+        ? t("plugins.action.installing")
+        : t("settings.providers.docs.install");
   return (
     <Button
-      variant="ghost"
-      size="icon-sm"
-      className="shrink-0"
+      variant="outline"
+      shape="capsule"
+      size="xs"
+      className="shrink-0 px-3"
       disabled={action.disabled}
       aria-label={label}
       title={label}
@@ -1089,7 +1182,8 @@ function PluginRowAction({
         else onInstall();
       }}
     >
-      <PlusIcon className="size-4" />
+      {installing ? <Spinner className="size-3.5" /> : null}
+      {label}
     </Button>
   );
 }
@@ -1097,35 +1191,6 @@ function PluginRowAction({
 // ── Directory section labels ───────────────────────────────────────────────
 
 type Translate = (key: TranslationKey) => string;
-
-const PLUGIN_CATEGORY_LABEL_KEYS: Readonly<Record<string, TranslationKey>> = {
-  productivity: "plugins.category.productivity",
-  "small business": "plugins.category.smallBusiness",
-  coding: "plugins.category.coding",
-  research: "plugins.category.research",
-  design: "plugins.category.design",
-  lifestyle: "plugins.category.lifestyle",
-  "developer tools": "plugins.category.developerTools",
-  engineering: "plugins.category.engineering",
-  "education & research": "plugins.category.educationResearch",
-  communication: "plugins.category.communication",
-  creativity: "plugins.category.creativity",
-  healthcare: "plugins.category.healthcare",
-  finance: "plugins.category.finance",
-  travel: "plugins.category.travel",
-  entertainment: "plugins.category.entertainment",
-  "business & operations": "plugins.category.businessOperations",
-  "data & analytics": "plugins.category.dataAnalytics",
-  "scientific research": "plugins.category.scientificResearch",
-  security: "plugins.category.security",
-  other: "plugins.category.other",
-};
-
-/** Marketplace categories arrive in English; known ones read in the UI language. */
-function localizePluginCategory(category: string | null, t: Translate): string {
-  const key = PLUGIN_CATEGORY_LABEL_KEYS[(category ?? "other").trim().toLowerCase()];
-  return key ? t(key) : (category ?? t("plugins.category.other"));
-}
 
 function pluginSectionLabel(
   section: Pick<CodexPluginDirectorySection<unknown>, "kind" | "title">,
@@ -1220,7 +1285,11 @@ export function PluginLibrary({
   cwd: cwdProp,
   embedded = false,
 }: PluginLibraryProps = {}) {
-  const { format, t } = useTranslation();
+  const { format, locale, t } = useTranslation();
+  const connectorCopy = useCallback(
+    (english: string) => (locale === "zh-CN" ? translateZhCnPresentationText(english) : english),
+    [locale],
+  );
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const router = useRouter();
@@ -1640,14 +1709,49 @@ export function PluginLibrary({
 
   // Apps are plugins, as in Codex: once the server has an app backend, the
   // Moss Apps catalog joins the directory as one more marketplace.
-  const mossAppsStatusQuery = useQuery(mossAppsStatusQueryOptions());
-  const mossAppsReady = mossAppsStatusQuery.data?.availability === "ready";
+  const appsAccount = useMossImagesAccountBoundary();
+  const mossAppsStatusQuery = useQuery(
+    mossAppsStatusQueryOptions({
+      accountKey: appsAccount.key,
+      enabled: !appsAccount.transitioning,
+    }),
+  );
+  const mossAppsReady =
+    !appsAccount.transitioning && mossAppsStatusQuery.data?.availability === "ready";
   const mossAppCatalogQuery = useQuery(mossAppCatalogQueryOptions({ enabled: mossAppsReady }));
   const mossAppConnectionsQuery = useQuery(
-    mossAppConnectionsQueryOptions({ enabled: mossAppsReady, polling: false }),
+    mossAppConnectionsQueryOptions({
+      enabled: mossAppsReady,
+      polling: false,
+      accountKey: appsAccount.key,
+    }),
   );
   const mossAppToolkits = mossAppCatalogQuery.data?.toolkits ?? NO_MOSS_APP_TOOLKITS;
-  const mossAppConnections = mossAppConnectionsQuery.data?.connections ?? NO_MOSS_APP_CONNECTIONS;
+  const mossAppConnections = mossAppsReady
+    ? (mossAppConnectionsQuery.data?.connections ?? NO_MOSS_APP_CONNECTIONS)
+    : NO_MOSS_APP_CONNECTIONS;
+  // Regional connector presets join Moss Apps for the account's region only:
+  // mainland China presets need a phone sign-in (the server checks it too).
+  const phoneSessionQuery = useQuery(serverMossAccountSessionQueryOptions());
+  const connectorRegion = phoneSessionQuery.data?.authenticated === true ? "cn" : "global";
+  const mcpConnectorsQuery = useQuery({
+    ...mcpConnectorsQueryOptions(),
+    enabled: connectorRegion === "cn",
+  });
+  const mcpConnectors = mcpConnectorsQuery.data ?? NO_MCP_CONNECTORS;
+  const servicePluginsQuery = useQuery(
+    mossServicePluginsQueryOptions({ enabled: connectorRegion === "cn" }),
+  );
+  const installedServicePlugins = useMemo(
+    () => new Set(servicePluginsQuery.data?.installed ?? []),
+    [servicePluginsQuery.data],
+  );
+  // The service plugin list sits under the Connectors key, so this refreshes both.
+  const refreshServicePlugins = () =>
+    queryClient.invalidateQueries({ queryKey: MCP_CONNECTORS_QUERY_KEY });
+  const [connectorConnectTarget, setConnectorConnectTarget] = useState<McpConnectorTarget | null>(
+    null,
+  );
   const [mossAppConnectTarget, setMossAppConnectTarget] = useState<MossAppConnectTarget | null>(
     null,
   );
@@ -1663,19 +1767,39 @@ export function PluginLibrary({
       enabled:
         detailOpen &&
         detail?.kind === "plugin" &&
-        !isMossAppPlugin(detail.plugin) &&
+        !isMossManagedAppPlugin(detail.plugin) &&
         canListPlugins,
     }),
   );
   const mossAppDetail = useMemo(() => {
     if (detail?.kind !== "plugin") return null;
+    const servicePlugin = mossServicePluginFromPluginId(detail.plugin.id);
+    if (servicePlugin) {
+      return mossServicePluginDetail(
+        servicePlugin,
+        installedServicePlugins.has(servicePlugin.id),
+        connectorCopy,
+      );
+    }
     const slug = mossAppSlugFromPluginId(detail.plugin.id);
     const toolkit = slug ? mossAppToolkits.find((candidate) => candidate.slug === slug) : undefined;
     return toolkit
       ? mossAppPluginDetail(toolkit, activeMossAppConnection(mossAppConnections, toolkit.slug))
       : null;
-  }, [detail, mossAppConnections, mossAppToolkits]);
-  const activePluginDetail = mossAppDetail ?? pluginDetailQuery.data?.plugin;
+  }, [connectorCopy, detail, installedServicePlugins, mossAppConnections, mossAppToolkits]);
+  const nativePluginDetail = pluginDetailQuery.data?.plugin;
+  const activePluginDetail = useMemo(() => {
+    if (mossAppDetail) return mossAppDetail;
+    if (!nativePluginDetail || !isMossPluginCatalogPlugin(nativePluginDetail.summary)) {
+      return nativePluginDetail;
+    }
+    const summary = withMossPluginCatalogPresentation(nativePluginDetail.summary, locale);
+    return {
+      ...nativePluginDetail,
+      summary,
+      description: summary.interface?.longDescription ?? null,
+    };
+  }, [locale, mossAppDetail, nativePluginDetail]);
   const activePluginDetailLoading = mossAppDetail ? false : pluginDetailQuery.isFetching;
   // A connect or disconnect settles outside this page; keep its install state live.
   useEffect(() => {
@@ -1737,35 +1861,40 @@ export function PluginLibrary({
 
   const nativePluginEntries = useMemo<PluginEntry[]>(
     () =>
-      uniquePluginEntries(
-        withRemotePluginDirectory(
-          [
-            ...providerPluginDirectoryEntries({
-              result: primaryPluginsQuery.data,
-              provenance: "local-or-vertical",
+      // Moss's catalog copy names and describes its plugins in the page's language.
+      withMossPluginCatalogEntryPresentation(
+        uniquePluginEntries(
+          withRemotePluginDirectory(
+            [
+              ...providerPluginDirectoryEntries({
+                result: primaryPluginsQuery.data,
+                provenance: "local-or-vertical",
+              }),
+              ...providerPluginDirectoryEntries({
+                result: workspacePluginsData,
+                provenance: "workspace-directory",
+              }),
+              ...providerPluginDirectoryEntries({
+                result: sharedPluginsData,
+                provenance: "shared-with-me",
+              }),
+              ...providerPluginDirectoryEntries({
+                result: createdPluginsData,
+                provenance: "created-by-me-remote",
+              }),
+            ],
+            providerPluginDirectoryEntries({
+              result: directoryPluginsData,
+              provenance: "remote-directory",
             }),
-            ...providerPluginDirectoryEntries({
-              result: workspacePluginsData,
-              provenance: "workspace-directory",
-            }),
-            ...providerPluginDirectoryEntries({
-              result: sharedPluginsData,
-              provenance: "shared-with-me",
-            }),
-            ...providerPluginDirectoryEntries({
-              result: createdPluginsData,
-              provenance: "created-by-me-remote",
-            }),
-          ],
-          providerPluginDirectoryEntries({
-            result: directoryPluginsData,
-            provenance: "remote-directory",
-          }),
+          ),
         ),
+        locale,
       ),
     [
       createdPluginsData,
       directoryPluginsData,
+      locale,
       primaryPluginsQuery.data,
       sharedPluginsData,
       workspacePluginsData,
@@ -1774,18 +1903,35 @@ export function PluginLibrary({
   const pluginEntries = useMemo<PluginEntry[]>(
     () => [
       ...nativePluginEntries,
+      ...mossServicePluginDirectoryEntries({
+        region: connectorRegion,
+        installed: installedServicePlugins,
+        copy: connectorCopy,
+      }),
       ...mossAppDirectoryEntries({
         toolkits: mossAppToolkits,
         connections: mossAppConnections,
       }),
     ],
-    [mossAppConnections, mossAppToolkits, nativePluginEntries],
+    [
+      connectorCopy,
+      connectorRegion,
+      installedServicePlugins,
+      mossAppConnections,
+      mossAppToolkits,
+      nativePluginEntries,
+    ],
+  );
+  // Moss's plugin catalog features its own picks wherever the CLI lists it.
+  const listsMossPluginCatalog = nativePluginEntries.some((entry) =>
+    isMossPluginCatalogPlugin(entry.plugin),
   );
   const pluginFeaturedIds = useMemo(
     () => [
       ...new Set([
         ...(directoryPluginsData?.featuredPluginIds ?? []),
         ...(primaryPluginsQuery.data?.featuredPluginIds ?? []),
+        ...(listsMossPluginCatalog ? MOSS_PLUGIN_CATALOG_FEATURED_PLUGIN_IDS : []),
         ...(workspacePluginsData?.featuredPluginIds ?? []),
         ...(sharedPluginsData?.featuredPluginIds ?? []),
         ...(createdPluginsData?.featuredPluginIds ?? []),
@@ -1794,6 +1940,7 @@ export function PluginLibrary({
     [
       createdPluginsData?.featuredPluginIds,
       directoryPluginsData?.featuredPluginIds,
+      listsMossPluginCatalog,
       primaryPluginsQuery.data?.featuredPluginIds,
       sharedPluginsData?.featuredPluginIds,
       workspacePluginsData?.featuredPluginIds,
@@ -1802,6 +1949,15 @@ export function PluginLibrary({
   // Optional directory shards can be slow or unavailable for an account. They
   // must not hold the authoritative local catalog in a skeleton state.
   const pluginsLoading = primaryPluginsQuery.isLoading || primaryPluginsQuery.isPlaceholderData;
+  // Moss's own sections can be on screen before the CLI's listing answers (a
+  // cold start) or after it fails; the rest of the page then says so calmly.
+  const nativeListingSettled = !pluginsLoading && !primaryPluginsQuery.error;
+  const pluginSourcesNotice: "loading" | "failed" | null =
+    canListPlugins && pluginEntries.length > 0 && !nativeListingSettled
+      ? pluginsLoading
+        ? "loading"
+        : "failed"
+      : null;
   const pluginsFetching =
     primaryPluginsQuery.isFetching ||
     workspacePluginsQuery.isFetching ||
@@ -1832,7 +1988,7 @@ export function PluginLibrary({
     pluginLibraryErrorMessage(sharedPluginsQuery.error),
     pluginLibraryErrorMessage(createdPluginsQuery.error),
     pluginLibraryErrorMessage(directoryPluginsQuery.error),
-    pluginLibraryErrorMessage(mossAppCatalogQuery.error),
+    mossAppCatalogQuery.error ? mossAppsErrorMessage(mossAppCatalogQuery.error, locale) : null,
     ...[...pluginLoadErrors, ...(directoryPluginsData?.marketplaceLoadErrors ?? [])]
       .filter(isProviderPluginListingLoadError)
       .map((error) => error.message),
@@ -1892,9 +2048,24 @@ export function PluginLibrary({
       ),
     [pluginEntries],
   );
+  // Connected regional connectors are listed with the user's connected apps.
+  // Their key is the plugin id ("amap@moss-connector-apps"), which no hosted
+  // toolkit slug can collide with.
   const connectedMossApps = useMemo(
-    () =>
-      mossAppToolkits.flatMap((toolkit) =>
+    () => [
+      ...pluginEntries.flatMap((entry) =>
+        isMossServicePlugin(entry.plugin) && entry.plugin.installed
+          ? [
+              {
+                slug: entry.plugin.id,
+                name: entry.plugin.interface?.displayName ?? entry.plugin.name,
+                description: entry.plugin.interface?.shortDescription ?? "",
+                logoUrl: entry.plugin.interface?.logoUrl ?? null,
+              },
+            ]
+          : [],
+      ),
+      ...mossAppToolkits.flatMap((toolkit) =>
         activeMossAppConnection(mossAppConnections, toolkit.slug)
           ? [
               {
@@ -1906,10 +2077,15 @@ export function PluginLibrary({
             ]
           : [],
       ),
-    [mossAppConnections, mossAppToolkits],
+    ],
+    [mossAppConnections, mossAppToolkits, pluginEntries],
   );
   const mossAppResource = (slug: string): Extract<ResourceDetail, { kind: "plugin" }> | null => {
-    const entry = pluginEntries.find((candidate) => candidate.plugin.id === mossAppPluginId(slug));
+    const entry = pluginEntries.find(
+      (candidate) =>
+        candidate.plugin.id === mossAppPluginId(slug) ||
+        (isMossServicePlugin(candidate.plugin) && candidate.plugin.id === slug),
+    );
     return entry
       ? {
           kind: "plugin",
@@ -2103,7 +2279,7 @@ export function PluginLibrary({
       pluginsLoading ||
       (routePluginId !== null &&
         mossAppSlugFromPluginId(routePluginId) !== null &&
-        (mossAppsStatusQuery.isPending || mossAppCatalogQuery.isPending)),
+        (mossAppsStatusQuery.isPending || (mossAppsReady && mossAppCatalogQuery.isPending))),
     error: pluginsError,
     found: routePluginEntry !== null,
   });
@@ -2203,6 +2379,16 @@ export function PluginLibrary({
         layout: activeBucket === "personal" ? "marketplaces" : "categories",
       }),
     [activeBucket, filteredPluginEntries, pluginFeaturedIds],
+  );
+
+  const pluginCategoryTabs = useMemo(
+    () => [
+      { id: PLUGIN_CATEGORY_ALL, label: t("plugins.category.all") },
+      ...pluginDirectorySections
+        .filter(isBrowsablePluginDirectorySection)
+        .map((section) => ({ id: section.id, label: pluginSectionLabel(section, t) })),
+    ],
+    [pluginDirectorySections, t],
   );
 
   const visiblePluginDirectorySections = useMemo(
@@ -2591,6 +2777,9 @@ export function PluginLibrary({
 
   const loadSkillContent = useCallback(
     async (skill: ProviderSkillDescriptor) => {
+      // A service plugin's skill is Moss's own text, shown whether or not it is installed.
+      const servicePreview = mossServiceSkillPreview(skill.path);
+      if (servicePreview) return servicePreview;
       if (!discoveryCwd) throw new Error("No workspace available for skill discovery");
       return ensureNativeApi().provider.readSkill({
         provider: selectedProvider,
@@ -2676,10 +2865,15 @@ export function PluginLibrary({
   const handleTryInChat = (resource: ResourceDetail, promptOverride?: string) => {
     const prompt =
       promptOverride ??
-      (resource.kind === "plugin" && isMossAppPlugin(resource.plugin)
+      (resource.kind === "plugin" && isMossManagedAppPlugin(resource.plugin)
         ? format("apps.tryPrompt", { name: resourceActions.resourceName(resource) })
         : undefined);
-    void resourceActions.tryInChat(resource, prompt).then((started) => {
+    // A service plugin brings its skill along, so Claude and the other CLIs get it too.
+    const serviceSkill =
+      resource.kind === "plugin"
+        ? mossServicePluginSkillReference(resource.plugin, servicePluginsQuery.data?.skills ?? [])
+        : null;
+    void resourceActions.tryInChat(resource, prompt, { serviceSkill }).then((started) => {
       if (!started) {
         toastManager.add({
           type: "error",
@@ -2720,7 +2914,43 @@ export function PluginLibrary({
     setConnectTarget(app);
   };
 
+  /** Installs a service plugin: connect its MCP (the server adds the skill), or add a skill-only one. */
+  const installServicePlugin = (plugin: ProviderPluginDescriptor): boolean => {
+    const servicePlugin = mossServicePluginFromPluginId(plugin.id);
+    if (!servicePlugin) return false;
+    const preset = servicePlugin.connectorPresetId
+      ? findMcpConnectorPreset(servicePlugin.connectorPresetId)
+      : undefined;
+    if (preset) {
+      setConnectorConnectTarget(mcpConnectorPresetTarget(preset));
+      return true;
+    }
+    void ensureNativeApi()
+      .server.setMossServicePluginInstalled({ pluginId: servicePlugin.id, installed: true })
+      .then(async () => {
+        await refreshServicePlugins();
+        toastManager.add({
+          type: "success",
+          title: format("plugins.install.success", {
+            pluginName: plugin.interface?.displayName ?? plugin.name,
+          }),
+          ...(servicePlugin.requirements
+            ? { description: connectorCopy(servicePlugin.requirements) }
+            : {}),
+        });
+      })
+      .catch((error: unknown) =>
+        toastManager.add({
+          type: "error",
+          title: t("plugins.toast.installFailedTitle"),
+          description: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    return true;
+  };
+
   const openMossAppConnect = (plugin: ProviderPluginDescriptor) => {
+    if (installServicePlugin(plugin)) return;
     const slug = mossAppSlugFromPluginId(plugin.id);
     if (!slug) return;
     setMossAppConnectTarget({
@@ -2735,6 +2965,28 @@ export function PluginLibrary({
   const disconnectMossApp = async (
     plugin: ProviderPluginDescriptor,
   ): Promise<{ readonly removed: boolean }> => {
+    const servicePlugin = mossServicePluginFromPluginId(plugin.id);
+    if (servicePlugin) {
+      // Removing the MCP half (or the skill-only flag) makes the server drop the skill too.
+      const preset = servicePlugin.connectorPresetId
+        ? findMcpConnectorPreset(servicePlugin.connectorPresetId)
+        : undefined;
+      if (preset) {
+        const connector = mcpConnectors.find((entry) => entry.url === preset.url);
+        if (!connector) return { removed: false };
+        const result = await ensureNativeApi().server.disconnectMcpConnector({
+          connectorId: connector.connectorId,
+        });
+        await refreshServicePlugins();
+        return { removed: result.disconnected };
+      }
+      await ensureNativeApi().server.setMossServicePluginInstalled({
+        pluginId: servicePlugin.id,
+        installed: false,
+      });
+      await refreshServicePlugins();
+      return { removed: true };
+    }
     const slug = mossAppSlugFromPluginId(plugin.id);
     const connection = slug ? activeMossAppConnection(mossAppConnections, slug) : null;
     if (!connection) return { removed: false };
@@ -2747,7 +2999,7 @@ export function PluginLibrary({
 
   const handleInstallPlugin = (resource: ResourceDetail) => {
     if (resource.kind !== "plugin") return;
-    if (isMossAppPlugin(resource.plugin)) {
+    if (isMossManagedAppPlugin(resource.plugin)) {
       openMossAppConnect(resource.plugin);
       return;
     }
@@ -2817,10 +3069,14 @@ export function PluginLibrary({
         showPluginInstallSuccess(resource, resourceName);
       })
       .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
         toastManager.add({
           type: "error",
           title: t("plugins.toast.installFailedTitle"),
-          description: error instanceof Error ? error.message : String(error),
+          // A catalog download that failed is a network matter, said in the page's language.
+          description: MOSS_PLUGIN_CATALOG_DOWNLOAD_FAILURE.test(message)
+            ? t("plugins.catalog.downloadFailed")
+            : message,
         });
       })
       .finally(() => {
@@ -2830,7 +3086,7 @@ export function PluginLibrary({
   };
 
   const updatePluginEnabled = (entry: ManagedPlugin, enabled: boolean): Promise<boolean> => {
-    if (isMossAppPlugin(entry.plugin)) {
+    if (isMossManagedAppPlugin(entry.plugin)) {
       if (enabled) openMossAppConnect(entry.plugin);
       else setConfirmUninstall({ kind: "plugin", ...entry });
       return Promise.resolve(false);
@@ -2924,7 +3180,7 @@ export function PluginLibrary({
     if (!resource || uninstallingRef.current) return;
     uninstallingRef.current = true;
     setUninstalling(true);
-    const mossApp = resource.kind === "plugin" && isMossAppPlugin(resource.plugin);
+    const mossApp = resource.kind === "plugin" && isMossManagedAppPlugin(resource.plugin);
     const mutation =
       resource.kind === "plugin" && mossApp
         ? disconnectMossApp(resource.plugin)
@@ -3662,10 +3918,28 @@ export function PluginLibrary({
                           }
                         />
 
-                        {/* Codex directory tabs: Public · Workspace · Personal, each
-                            shown only when it has plugins. A category page drops
-                            them; its breadcrumb leads back to the directory. */}
-                        {selectedTab === "plugins" && !selectedPluginSection ? (
+                        {selectedTab === "plugins" &&
+                        !appsAccount.transitioning &&
+                        (mossAppsStatusQuery.data || mossAppsStatusQuery.isError) ? (
+                          <MossAppsAccountNotice
+                            availability={mossAppsStatusQuery.data?.availability ?? "unavailable"}
+                            onAction={() => {
+                              const availability = mossAppsStatusQuery.data?.availability;
+                              if (availability === "authentication-required")
+                                void navigate({ to: "/login" });
+                              else if (availability === "login-account-required")
+                                void navigate({ to: "/account" });
+                              else void mossAppsStatusQuery.refetch();
+                            }}
+                          />
+                        ) : null}
+
+                        {/* Codex directory tabs: Public · Workspace · Personal, shown
+                            when there is more than one to choose. A category page
+                            drops them; its breadcrumb leads back to the directory. */}
+                        {selectedTab === "plugins" &&
+                        !selectedPluginSection &&
+                        availableBuckets.size > 1 ? (
                           <PluginLibraryPillTabs
                             ariaLabel={t("plugins.directoryAria")}
                             testId="plugin-directory-tabs"
@@ -3687,6 +3961,22 @@ export function PluginLibrary({
                             }}
                           />
                         ) : null}
+                        {/* Categories, as in Claude's and Codex's directories: All,
+                            then each section of this directory, one tap away. */}
+                        {selectedTab === "plugins" && pluginCategoryTabs.length > 2 ? (
+                          <PluginLibraryPillTabs
+                            ariaLabel={t("plugins.categoriesAria")}
+                            testId="plugin-category-tabs"
+                            tabs={pluginCategoryTabs}
+                            selected={selectedSectionId ?? PLUGIN_CATEGORY_ALL}
+                            onSelect={(sectionId) => {
+                              setSelectedSectionId(
+                                sectionId === PLUGIN_CATEGORY_ALL ? null : sectionId,
+                              );
+                              browseScrollRef.current?.scrollTo({ top: 0 });
+                            }}
+                          />
+                        ) : null}
                       </div>
 
                       {/* Warnings */}
@@ -3697,6 +3987,13 @@ export function PluginLibrary({
                         <InlineWarning title={pluginRemoteSyncDetails}>
                           {[...new Set(pluginRemoteSyncErrors)].join(" • ")}
                         </InlineWarning>
+                      ) : null}
+                      {selectedTab === "plugins" && pluginSourcesNotice ? (
+                        <PluginSourcesNotice
+                          state={pluginSourcesNotice}
+                          retrying={primaryPluginsQuery.isFetching}
+                          onRetry={refetchPlugins}
+                        />
                       ) : null}
                       {selectedTab === "plugins" && pluginMarketplaceLoadErrors.length > 0 ? (
                         <InlineWarning>
@@ -3856,6 +4153,21 @@ export function PluginLibrary({
         target={mossAppConnectTarget}
         onOpenChange={(open) => {
           if (!open) setMossAppConnectTarget(null);
+        }}
+      />
+
+      <McpConnectorConnectDialog
+        target={connectorConnectTarget}
+        onOpenChange={(open) => {
+          if (!open) setConnectorConnectTarget(null);
+        }}
+        onConnected={(connector) => {
+          setConnectorConnectTarget(null);
+          void refreshServicePlugins();
+          toastManager.add({
+            type: "success",
+            title: format("plugins.install.success", { pluginName: connector.name }),
+          });
         }}
       />
 

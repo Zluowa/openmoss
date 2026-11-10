@@ -11,7 +11,7 @@ import {
   type ProjectId,
   type ThreadId,
   type TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Option, Schema } from "effect";
 
 import { stableGatewayDigest } from "../agentGateway/creationUtils";

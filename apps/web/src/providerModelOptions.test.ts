@@ -3,7 +3,7 @@
 // Layer: Web unit tests
 // Depends on: providerModelOptions shared formatting helpers.
 
-import { MODEL_OPTIONS_BY_PROVIDER } from "@synara/contracts";
+import { MODEL_OPTIONS_BY_PROVIDER } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import { getAppModelOptions } from "./appSettings";
 

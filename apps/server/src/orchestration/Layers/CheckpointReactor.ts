@@ -13,7 +13,7 @@ import {
   type OrchestrationThreadShell,
   type ProviderSession,
   type ProviderRuntimeEvent,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   Cause,
   Clock,
@@ -28,7 +28,7 @@ import {
   ServiceMap,
   Stream,
 } from "effect";
-import { makeKeyedDrainableWorker } from "@synara/shared/KeyedDrainableWorker";
+import { makeKeyedDrainableWorker } from "@moss/shared/KeyedDrainableWorker";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   CHECKPOINT_RUNTIME_CONSUMER,
@@ -40,7 +40,7 @@ import { OrchestrationEventStore } from "../../persistence/Services/Orchestratio
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationEventDeliveryRepository } from "../../persistence/Services/OrchestrationEventDeliveries.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
-import { isProviderKind } from "@synara/shared/providerInstances";
+import { isProviderKind } from "@moss/shared/providerInstances";
 
 import { parseCheckpointFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import {

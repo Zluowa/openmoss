@@ -3,12 +3,7 @@
 // Layer: Orchestration command handler
 // Exports: makeImportThreadHandler.
 
-import { execFile } from "node:child_process";
-import { promises as fsPromises } from "node:fs";
-import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import nodePath from "node:path";
-import { pathToFileURL } from "node:url";
 
 import type { SDKSessionInfo, SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -24,25 +19,24 @@ import {
   type ServerSettings,
   type ThreadHandoffImportedMessage,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   providerStartOptionsFromInstance,
   resolveModelSelectionInstanceId,
   resolveProviderInstance,
   type ResolvedProviderInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import {
   deriveAssociatedWorktreeMetadata,
   workspaceRootsEqual,
-} from "@synara/shared/threadWorkspace";
+} from "@moss/shared/threadWorkspace";
 import type { FileSystem, Path } from "effect";
 import { Data, Effect, Option } from "effect";
 
 import { resolveThreadWorkspaceCwd } from "../checkpointing/Utils";
 import type { ServerConfigShape } from "../config";
-import { loadClaudeAgentSdk } from "../provider/claudeAgentSdk.ts";
-import { selectClaudeHistoryPage, type ClaudeHistoryPage } from "../provider/claudeHistoryPage.ts";
 import { buildClaudeInstanceProcessEnv } from "../provider/claudeEnvironment.ts";
+import { queryClaudeHistoricalSession } from "../provider/claudeAgentSdk.ts";
 import { ensureProviderEnabled } from "../provider/enabledProviderAdapter";
 import type { OrchestrationEngineShape } from "./Services/OrchestrationEngine";
 import type { ProjectionSnapshotQueryShape } from "./Services/ProjectionSnapshotQuery";
@@ -83,149 +77,12 @@ function providerResumeCursorForImport(provider: ProviderKind, externalId: strin
   }
 }
 
-// The Claude agent SDK resolves its config dir from the process environment
-// (HOME/CLAUDE_CONFIG_DIR). Imports for instances with a custom home must not
-// mutate the server's process.env — concurrent health checks, text generation,
-// or session startups would observe the wrong Claude account — so the session
-// query runs in a short-lived child process that gets the custom environment.
-const CLAUDE_SESSION_QUERY_SCRIPT = `const [moduleUrl, method, sessionId, optionsJson] = process.argv.slice(2);
-const sdk = await import(moduleUrl);
-const options = JSON.parse(optionsJson);
-const selectPage = ${selectClaudeHistoryPage.toString()};
-const result =
-  method === "listSessions"
-    ? await sdk.listSessions(options ?? undefined)
-    : method === "getSessionMessagePage"
-      ? selectPage(await sdk.getSessionMessages(sessionId, options?.dir ? { dir: options.dir } : undefined), options?.before)
-    : await sdk[method](sessionId, options ?? undefined);
-process.stdout.write(JSON.stringify(result ?? null));
-`;
-
-type ClaudeSessionQueryMethod =
-  | "getSessionInfo"
-  | "getSessionMessages"
-  | "listSessions"
-  | "getSessionMessagePage";
-
-export function claudeHistoricalSessionChildEnvironment(
-  environment: NodeJS.ProcessEnv,
-): NodeJS.ProcessEnv {
-  return environment;
-}
-
-async function runClaudeSessionQueryInChildProcess<T>(input: {
-  readonly method: ClaudeSessionQueryMethod;
-  readonly sessionId: string;
-  readonly dir: string | undefined;
-  readonly environment: NodeJS.ProcessEnv;
-  readonly before?: string;
-}): Promise<T> {
-  const moduleUrl = pathToFileURL(
-    createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"),
-  ).href;
-  const scriptDir = await fsPromises.mkdtemp(nodePath.join(tmpdir(), "moss-claude-import-"));
-  const scriptPath = nodePath.join(scriptDir, "claudeSessionQuery.mjs");
-  try {
-    await fsPromises.writeFile(scriptPath, CLAUDE_SESSION_QUERY_SCRIPT, "utf8");
-    const stdout = await new Promise<string>((resolve, reject) => {
-      execFile(
-        process.execPath,
-        [
-          scriptPath,
-          moduleUrl,
-          input.method,
-          input.sessionId,
-          JSON.stringify({
-            ...(input.dir ? { dir: input.dir } : {}),
-            ...(input.before ? { before: input.before } : {}),
-          }),
-        ],
-        {
-          env: claudeHistoricalSessionChildEnvironment(input.environment),
-          maxBuffer: 64 * 1024 * 1024,
-        },
-        (error, childStdout, childStderr) => {
-          if (error) {
-            const detail = childStderr.toString().trim();
-            reject(detail.length > 0 ? new Error(detail) : error);
-            return;
-          }
-          resolve(childStdout.toString());
-        },
-      );
-    });
-    return JSON.parse(stdout) as T;
-  } finally {
-    await fsPromises.rm(scriptDir, { recursive: true, force: true }).catch(() => {});
-  }
-}
-
-export function readClaudeSessionMessagePageInEnvironment(input: {
-  readonly sessionId: string;
-  readonly dir: string | undefined;
-  readonly environment: NodeJS.ProcessEnv | undefined;
-  readonly before?: string;
-}): Promise<ClaudeHistoryPage> {
-  return queryClaudeHistoricalSession<ClaudeHistoryPage>({
-    method: "getSessionMessagePage",
-    ...input,
-  });
-}
-
-/** Lists one Claude account's sessions without touching the server's process.env. */
-export function listClaudeSessionsInEnvironment(
-  environment: NodeJS.ProcessEnv,
-): Promise<ReadonlyArray<SDKSessionInfo>> {
-  return runClaudeSessionQueryInChildProcess<ReadonlyArray<SDKSessionInfo>>({
-    method: "listSessions",
-    sessionId: "",
-    dir: undefined,
-    environment,
-  });
-}
-
-/** Reads one Claude account's session messages, in a child process when needed. */
-export function readClaudeSessionMessagesInEnvironment(input: {
-  readonly sessionId: string;
-  readonly dir: string | undefined;
-  readonly environment: NodeJS.ProcessEnv | undefined;
-}): Promise<ReadonlyArray<SessionMessage>> {
-  return queryClaudeHistoricalSession<ReadonlyArray<SessionMessage>>({
-    method: "getSessionMessages",
-    ...input,
-  });
-}
-
-async function queryClaudeHistoricalSession<T>(input: {
-  readonly method: ClaudeSessionQueryMethod;
-  readonly sessionId: string;
-  readonly dir: string | undefined;
-  readonly environment: NodeJS.ProcessEnv | undefined;
-  readonly before?: string;
-}): Promise<T> {
-  if (input.environment && Object.keys(input.environment).length > 0) {
-    return runClaudeSessionQueryInChildProcess<T>({
-      method: input.method,
-      sessionId: input.sessionId,
-      dir: input.dir,
-      environment: input.environment,
-      ...(input.before ? { before: input.before } : {}),
-    });
-  }
-  const options = input.dir ? { dir: input.dir } : undefined;
-  const sdk = await loadClaudeAgentSdk();
-  return (
-    input.method === "listSessions"
-      ? sdk.listSessions(options)
-      : input.method === "getSessionInfo"
-        ? sdk.getSessionInfo(input.sessionId, options)
-        : input.method === "getSessionMessagePage"
-          ? sdk
-              .getSessionMessages(input.sessionId, options)
-              .then((messages) => selectClaudeHistoryPage(messages, input.before))
-          : sdk.getSessionMessages(input.sessionId, options)
-  ) as Promise<T>;
-}
+export {
+  claudeHistoricalSessionChildEnvironment,
+  listClaudeSessionsInEnvironment,
+  readClaudeSessionMessagePageInEnvironment,
+  readClaudeSessionMessagesInEnvironment,
+} from "../provider/claudeAgentSdk.ts";
 
 export function claudeHistoricalSessionEnvironment(
   providerOptions: ProviderStartOptions | undefined,

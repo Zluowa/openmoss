@@ -7,6 +7,58 @@ let emitter = NDJSONEmitter()
 do {
     let options = try AppSnapOptions.parse(Array(CommandLine.arguments.dropFirst()))
     switch options.mode {
+    case .historyApplications:
+        emitter.emitHistoryApplications(installedApplications())
+    case let .historyKeychain(operation, namespace):
+        switch operation {
+        case "get", "create":
+            let key: Data
+            if operation == "get" { key = try readComputerHistoryKey(namespace: namespace) }
+            else { key = try createComputerHistoryKey(namespace: namespace) }
+            emitter.emit(["type": "history_key", "key": key.base64EncodedString()])
+        case "destroy":
+            try destroyComputerHistoryKey(namespace: namespace)
+            emitter.emit(["type": "history_keychain_destroyed"])
+        default:
+            throw AppSnapFailure(code: "invalid_arguments", message: "Unknown history key operation.")
+        }
+    case .screenCaptureChild:
+        runHistoryScreenCaptureChildProtocol()
+    case let .historySelfTest(name):
+        let passed: Bool
+        switch name {
+        case "--history-self-test":
+            passed = runAppSnapHistoryParsingSelfTest() && runHistoryWatchSelfTest()
+                && runHistoryDisplayCaptureSupervisorSelfTest()
+        case "--history-parser-self-test": passed = runAppSnapHistoryParsingSelfTest()
+        case "--history-watch-self-test": passed = runHistoryWatchSelfTest()
+        case "--history-visual-activity-self-test": passed = runHistoryVisualActivityPolicySelfTest()
+        case "--history-semantic-summary-self-test": passed = runHistorySemanticSummarySelfTest()
+        case "--history-privacy-self-test": passed = runHistoryPrivacyFilterSelfTest()
+        case "--history-display-session-self-test": passed = runHistoryDisplaySessionSelfTest()
+        case "--history-screen-capture-child-self-test": passed = runHistoryScreenCaptureChildSelfTest()
+        case "--history-display-supervisor-self-test": passed = runHistoryDisplayCaptureSupervisorSelfTest()
+        case "--history-pipeline-self-test": passed = runHistoryDisplayPipelineGateSelfTest()
+        default: passed = false
+        }
+        emitter.emit(["type": "history_self_test", "name": name, "passed": passed])
+        if !passed { exit(EXIT_FAILURE) }
+    case .historyWatch:
+        _ = NSApplication.shared.setActivationPolicy(.accessory)
+        let coordinator = ComputerHistoryWatchCoordinator(emitter: emitter)
+        let parentProcessMonitor = ParentProcessMonitor()
+        parentProcessMonitor.start()
+        let terminationSources = [SIGTERM, SIGINT, SIGHUP].map { signalNumber in
+            signal(signalNumber, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: signalNumber, queue: .main)
+            source.setEventHandler { coordinator.stop(); exit(EXIT_SUCCESS) }
+            source.resume()
+            return source
+        }
+        coordinator.start()
+        withExtendedLifetime((coordinator, parentProcessMonitor, terminationSources)) {
+            RunLoop.main.run()
+        }
     case let .checkPermissions(selectedPermissions):
         emitter.emitPermissions(preflightAppSnapPermissions(selectedPermissions))
     case let .requestPermissions(selectedPermissions, appPath):

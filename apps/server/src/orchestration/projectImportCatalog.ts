@@ -1,9 +1,10 @@
 // Merge native provider metadata by local workspace identity, retaining each thread's source cwd.
+import os from "node:os";
 import path from "node:path";
 import { setImmediate } from "node:timers/promises";
 
-import type { ProjectId, ProjectImportProvider, ProviderInstanceId } from "@synara/contracts";
-import { isWorkspaceRootWithin } from "@synara/shared/threadWorkspace";
+import type { ProjectId, ProjectImportProvider, ProviderInstanceId } from "@moss/contracts";
+import { isMossInternalPath, isWorkspaceRootWithin } from "@moss/shared/threadWorkspace";
 
 import type {
   NativeImportSession,
@@ -14,6 +15,7 @@ import {
   findImportGitWorkspace,
   importDirectoryExists,
   importPathIdentity,
+  isTemporaryImportRoot,
   projectImportKey,
 } from "./projectImportPaths";
 
@@ -30,6 +32,8 @@ export interface ResolvedImportProject {
   title: string;
   workspaceRoot: string;
   directoryExists: boolean;
+  /** In a temp directory: an agent's own test or scratch run, not selected by default. */
+  temporary: boolean;
   existingProjectId: ProjectId | null;
   providers: ProjectImportProvider[];
   threads: ResolvedImportSession[];
@@ -91,7 +95,19 @@ export async function buildProjectImportCatalog(
     providerInstanceId?: ProviderInstanceId;
   }>,
   existingProjects: ReadonlyArray<ExistingProject>,
+  options: {
+    /** Folders never offered as projects; Moss's own working folders by default. */
+    readonly excludeRoot?: (root: string) => boolean;
+    /** Temp directories besides the usual ones; the process's own by default. */
+    readonly tempDirs?: ReadonlyArray<string>;
+  } = {},
 ): Promise<ResolvedImportProject[]> {
+  const excluded = options.excludeRoot ?? isMossInternalPath;
+  const tempDirs =
+    options.tempDirs ??
+    [os.tmpdir(), process.env.TEMP, process.env.TMP, process.env.TMPDIR].filter(
+      (dir): dir is string => typeof dir === "string" && dir.trim().length > 0,
+    );
   const canonical = cachedLookup(canonicalImportPath);
   const gitWorkspace = cachedLookup(findImportGitWorkspace);
   const directoryExists = cachedLookup(importDirectoryExists);
@@ -112,12 +128,13 @@ export async function buildProjectImportCatalog(
   }
   const declaredRoots = new Map<string, { root: string; title: string }>();
   for (const { provider, catalog } of sources) {
-    if (provider !== "codex" || !isAbsoluteDirectory(catalog.sourceHome)) continue;
+    // Claude's groups are only cwd hints; every other agent's projects are declared folders.
+    if (provider === "claudeAgent" || !isAbsoluteDirectory(catalog.sourceHome)) continue;
     for (const project of catalog.projects) {
       for (const value of project.roots) {
         if (!isAbsoluteDirectory(value)) continue;
         const root = await availableImportEntry(() => canonical(value));
-        if (!root) continue;
+        if (!root || excluded(root)) continue;
         const identity = importPathIdentity(root);
         if (!declaredRoots.has(identity))
           declaredRoots.set(identity, { root, title: project.title });
@@ -155,6 +172,7 @@ export async function buildProjectImportCatalog(
         title: existing?.title ?? declaredRoots.get(identity)?.title ?? title,
         workspaceRoot: root,
         directoryExists: await directoryExists(root),
+        temporary: isTemporaryImportRoot(root, tempDirs),
         existingProjectId: existing?.id ?? null,
         providers: [],
         threads: [],
@@ -192,6 +210,7 @@ export async function buildProjectImportCatalog(
           hasUnavailableRoot = true;
           continue;
         }
+        if (excluded(root)) continue;
         const project = await availableImportEntry(() =>
           ensureProject(
             root,
@@ -222,7 +241,7 @@ export async function buildProjectImportCatalog(
       const cwd = await availableImportEntry(() => canonical(session.cwd));
       if (!cwd) continue;
       const sourceProject =
-        provider === "codex" && session.projectId
+        provider !== "claudeAgent" && session.projectId
           ? sourceProjects.get(session.projectId)
           : undefined;
       let root: string | undefined;
@@ -242,7 +261,8 @@ export async function buildProjectImportCatalog(
       }
       const assigned = root !== undefined;
       if (!root) root = await availableImportEntry(() => derivedWorkspace(cwd));
-      if (!root) continue;
+      // Conversations Moss itself ran in its scratch or cache folders are not the person's projects.
+      if (!root || excluded(root)) continue;
       const title = assigned ? sourceProject!.title : path.basename(root) || root;
       const project = await availableImportEntry(() => ensureProject(root, title, provider));
       if (!project) continue;

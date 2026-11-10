@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CommandId, DEFAULT_SERVER_SETTINGS, MessageId } from "@synara/contracts";
+import { CommandId, DEFAULT_SERVER_SETTINGS, MessageId } from "@moss/contracts";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { expect, it, vi } from "vitest";
 import { ServerConfig } from "../config";
@@ -75,6 +75,9 @@ it.each(["pending", "completed"] as const)(
         serverSettings: {
           getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
         } as unknown as ServerSettingsShape,
+        readImportedTranscript: async () => [
+          { id: "m1", role: "user" as const, text: "Original conversation", createdAt },
+        ],
         discover: async () => ({
           sourceHome: "/codex",
           projects: [{ id: "source-project", title: "Source project", roots: [process.cwd()] }],
@@ -125,7 +128,11 @@ it.each(["pending", "completed"] as const)(
 
       expect(replacement.status).toBe("imported");
       expect(replacement.threadId).not.toBe(original.threadId);
-      expect(copy).toHaveBeenCalledTimes(2);
+      // Registration copies nothing; the transcript arrives when the conversation is opened.
+      expect(copy).not.toHaveBeenCalled();
+      await runtime.runPromise(
+        handlers.loadProjectImportHistory({ threadId: replacement.threadId! }),
+      );
       expect(await runtime.runPromise(repository.find(input.threadKey))).toMatchObject({
         threadId: replacement.threadId,
         status: "completed",
@@ -212,6 +219,13 @@ it.each(["codex", "claudeAgent"] as const)(
         handlers.importProject({ projectKey: project.key, threadKey: project.threads[0]!.key }),
       );
       const threadId = imported.threadId!;
+      // Conversations imported by the earlier native-copy importer keep paging older messages.
+      const { lazy: _lazy, ...registered } = (await runtime.runPromise(
+        repository.getHistory(threadId),
+      ))!;
+      const native = { ...registered, nativeId: "frozen-copy", cursor: "older" };
+      await runtime.runPromise(repository.saveHistory(native));
+      await runtime.runPromise(repository.saveHistory({ ...native, revision: 1 }));
       expect(await runtime.runPromise(handlers.loadProjectImportHistory({ threadId }))).toEqual({
         nextCursor: "1",
         messages: [],
@@ -232,7 +246,7 @@ it.each(["codex", "claudeAgent"] as const)(
         restarted.loadProjectImportHistory({ threadId, cursor: "1" }),
       );
       expect(older).toMatchObject({ nextCursor: "2", messages: [{ text: "older" }] });
-      expect(readHistory).toHaveBeenCalledTimes(2);
+      expect(readHistory).toHaveBeenCalledTimes(1);
       const oldest = await runtime.runPromise(
         restarted.loadProjectImportHistory({ threadId, cursor: "2" }),
       );
@@ -244,7 +258,7 @@ it.each(["codex", "claudeAgent"] as const)(
       expect(
         await runtime.runPromise(restarted.loadProjectImportHistory({ threadId, cursor: "2" })),
       ).toEqual(oldest);
-      expect(readHistory).toHaveBeenCalledTimes(3);
+      expect(readHistory).toHaveBeenCalledTimes(2);
       expect(await runtime.runPromise(query.getThreadDetailById(threadId))).toEqual(before);
       expect(await runtime.runPromise(restarted.loadProjectImportHistory({ threadId }))).toEqual({
         nextCursor: "1",
@@ -256,14 +270,9 @@ it.each(["codex", "claudeAgent"] as const)(
   },
 );
 
-it.each([
-  { provider: "codex" as const, persisted: 100 },
-  { provider: "codex" as const, persisted: 140 },
-  { provider: "claudeAgent" as const, persisted: 100 },
-  { provider: "claudeAgent" as const, persisted: 140 },
-])(
-  "finishes a legacy interrupted $provider import with $persisted persisted messages",
-  async ({ provider, persisted }) => {
+it.each(["codex", "claudeAgent"] as const)(
+  "keeps the messages an interrupted older %s import already copied, without duplicating them",
+  async (provider) => {
     const runtime = makeRuntime();
     try {
       const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
@@ -271,34 +280,13 @@ it.each([
       const source = resolveProjectImportSources(DEFAULT_SERVER_SETTINGS, [provider])[0]!;
       const sourceHome = await resolveProjectImportSourceHome(source);
       const createdAt = "2026-09-16T00:00:00.000Z";
-      const messages = (threadId: string, start: number, end: number) =>
-        Array.from({ length: end - start }, (_, index) => ({
-          messageId: MessageId.makeUnsafe(`import:${threadId}:${provider}:${start + index}`),
-          role: "assistant" as const,
-          text: `Original message ${start + index}`,
-          // Undated native records get page-local fallback dates.
-          createdAt: new Date(Date.parse(createdAt) + index).toISOString(),
-          updatedAt: new Date(Date.parse(createdAt) + index).toISOString(),
-        }));
-      const readHistory = vi.fn(({ threadId, cursor }: { threadId: string; cursor?: string }) => {
-        const end = cursor === undefined ? 140 : Number(cursor);
-        const start = Math.max(0, end - 20);
-        return Effect.succeed({
-          messages: messages(threadId, start, end),
-          nextCursor: start === 0 ? null : String(start),
-        });
-      });
-      const options = {
+      const readImportedTranscript = vi.fn(async () => [
+        { id: "m1", role: "user" as const, text: "Transcript message", createdAt },
+      ]);
+      const handlers = makeProjectImportHandlers({
         repository,
         orchestrationEngine: engine,
-        providerService: {
-          importExternalThread: ({ threadId }: { threadId: string }) =>
-            Effect.succeed({
-              threadId,
-              resumeCursor: provider === "codex" ? { threadId: "copy" } : { resume: "copy" },
-            }),
-          stopRuntimeSession: () => Effect.void,
-        } as unknown as ProviderServiceShape,
+        providerService: {} as unknown as ProviderServiceShape,
         providerAdapterRegistry: {} as ProviderAdapterRegistryShape,
         serverSettings: {
           getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
@@ -318,60 +306,57 @@ it.each([
             },
           ],
         }),
-        readHistory,
-      };
-      const handlers = makeProjectImportHandlers(options);
+        readImportedTranscript,
+      });
       const project = (
         await runtime.runPromise(handlers.listProjectImports({ providers: [provider] }))
       ).projects[0]!;
       const input = { projectKey: project.key, threadKey: project.threads[0]!.key };
-      readHistory.mockReturnValueOnce(Effect.die("old server interrupted before history"));
-      await expect(runtime.runPromise(handlers.importProject(input))).rejects.toThrow(
-        "old server interrupted",
-      );
-      const origin = (await runtime.runPromise(repository.find(input.threadKey)))!;
-      // The old importer committed its first 100 messages before interruption.
-      // Use the real engine so SQLite owns the receipt and projected message rows.
-      for (let offset = 0; offset < persisted; offset += 100) {
-        await runtime.runPromise(
-          engine.dispatch({
-            type: "thread.messages.import",
-            commandId: CommandId.makeUnsafe(`project-import:${origin.threadId}:messages:${offset}`),
-            threadId: origin.threadId,
-            messages: messages(origin.threadId, offset, Math.min(offset + 100, persisted)).map(
-              (message, index) => ({
-                ...message,
-                text: `Persisted full message ${offset + index}`,
-                createdAt: new Date(Date.parse(createdAt) + offset + index).toISOString(),
-              }),
-            ),
-            createdAt,
-          }),
-        );
-      }
-      await runtime.runPromise(engine.refreshCommandReadModel());
-      const restarted = makeProjectImportHandlers(options);
-      await runtime.runPromise(restarted.listProjectImports({ providers: [provider] }));
       const complete = repository.complete;
       repository.complete = vi
         .fn(complete)
-        .mockReturnValueOnce(Effect.die("interrupted completion"));
-      await expect(runtime.runPromise(restarted.importProject(input))).rejects.toThrow(
-        "interrupted completion",
+        .mockReturnValueOnce(Effect.die("old server interrupted"));
+      await expect(runtime.runPromise(handlers.importProject(input))).rejects.toThrow(
+        "old server interrupted",
+      );
+      repository.complete = complete;
+      const origin = (await runtime.runPromise(repository.find(input.threadKey)))!;
+      // The old importer committed its first messages under its own receipt before stopping.
+      await runtime.runPromise(
+        engine.dispatch({
+          type: "thread.messages.import",
+          commandId: CommandId.makeUnsafe(`project-import:${origin.threadId}:messages:0`),
+          threadId: origin.threadId,
+          messages: [
+            {
+              messageId: MessageId.makeUnsafe(`import:${origin.threadId}:${provider}:0`),
+              role: "assistant" as const,
+              text: "Persisted full message",
+              createdAt,
+              updatedAt: createdAt,
+            },
+          ],
+          createdAt,
+        }),
       );
       await runtime.runPromise(engine.refreshCommandReadModel());
-      await runtime.runPromise(restarted.importProject(input));
+      // Clear the registration the interrupted attempt saved, as the old importer had none.
+      await runtime.runPromise(
+        repository.saveHistory({
+          ...(await runtime.runPromise(repository.getHistory(origin.threadId)))!,
+          lazy: { transcript: "pending", continuation: "pending" },
+        }),
+      );
+
+      await runtime.runPromise(handlers.importProject(input));
+      await runtime.runPromise(handlers.loadProjectImportHistory({ threadId: origin.threadId }));
+
       const query = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
       const detail = await runtime.runPromise(query.getThreadDetailById(origin.threadId));
-      expect(Option.getOrThrow(detail).messages.map((message) => message.text)).toEqual(
-        Array.from(
-          { length: 140 },
-          (_, index) => `${index < persisted ? "Persisted full" : "Original"} message ${index}`,
-        ),
-      );
-      expect(
-        await runtime.runPromise(restarted.loadProjectImportHistory({ threadId: origin.threadId })),
-      ).toEqual({ messages: [], nextCursor: null });
+      expect(Option.getOrThrow(detail).messages.map((message) => message.text)).toEqual([
+        "Persisted full message",
+      ]);
+      expect(readImportedTranscript).not.toHaveBeenCalled();
     } finally {
       await runtime.dispose();
     }

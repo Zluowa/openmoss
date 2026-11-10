@@ -7,7 +7,7 @@ import type {
   MossCanonicalRootDescriptor,
   MossFilesystemIdentity,
   MossOwnershipStore,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {

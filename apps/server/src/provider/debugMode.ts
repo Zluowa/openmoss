@@ -2,7 +2,7 @@
 // Purpose: Applies Moss's provider-independent evidence-first Debug instructions.
 // Layer: Provider prompt policy
 
-import type { ProviderInteractionMode } from "@synara/contracts";
+import type { ProviderInteractionMode } from "@moss/contracts";
 
 export const PROVIDER_DEBUG_MODE_PROMPT_PREFIX = `<moss_debug_mode>
 You are operating in Moss Debug mode. Diagnose the reported defect using this evidence-first loop: observe -> reproduce -> investigate -> fix -> verify.

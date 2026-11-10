@@ -23,7 +23,7 @@ const BASE_COMPOSER_FOOTER_PADDING_REM = 0.375;
 const BASE_COMPOSER_FOOTER_PADDING_END_REM = 0.5;
 
 function scaleRem(baseRem: number, scale: number): string {
-  return `${baseRem * scale}rem`;
+  return `calc(${baseRem * scale}rem * var(--app-ui-scale, 1))`;
 }
 
 export function isUiDensity(value: unknown): value is UiDensity {
@@ -49,7 +49,7 @@ export function getDensityCssVariables(mode: UiDensity = DEFAULT_UI_DENSITY) {
     "--app-density-settings-row-padding-y": scaleRem(BASE_SETTINGS_ROW_PADDING_Y_REM, scale),
     "--app-density-chat-gutter-x": scaleRem(BASE_CHAT_GUTTER_X_REM, scale),
     "--app-density-chat-gutter-x-lg": scaleRem(BASE_CHAT_GUTTER_X_LG_REM, scale),
-    "--app-density-composer-editor-min-height": `calc(var(--min-height-composer, 2.75rem) * ${scale})`,
+    "--app-density-composer-editor-min-height": `calc(var(--min-height-composer, 2.75rem) * ${scale} * var(--app-ui-scale, 1))`,
     "--app-density-composer-editor-padding-top": scaleRem(
       BASE_COMPOSER_EDITOR_PADDING_TOP_REM,
       scale,

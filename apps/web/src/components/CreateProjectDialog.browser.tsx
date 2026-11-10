@@ -1,6 +1,6 @@
 import "../index.css";
 
-import { DEFAULT_SERVER_SETTINGS_VIEW } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS_VIEW } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import axe from "axe-core";
 import { page, userEvent } from "vitest/browser";
@@ -59,11 +59,71 @@ async function blockingAxeViolations() {
 
 describe("CreateProjectDialog (Codex form)", () => {
   afterEach(async () => {
+    vi.unstubAllGlobals();
     nativeApi.pickFolder.mockClear();
     nativeApi.pickFolder.mockResolvedValue(null);
     localStorage.clear();
     await cleanup();
   });
+
+  it.each(["zh-CN", "en"] as const)(
+    "accepts a remote project path without opening a host OS folder picker (%s)",
+    async (locale) => {
+      vi.stubGlobal("mossRemoteWorkspace", { getWsUrl: () => "ws://127.0.0.1/fixture" });
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      await renderDialog(locale, {
+        open: true,
+        activeSpaceId: null,
+        onOpenChange: vi.fn(),
+        onSubmit,
+      });
+      const pathLabel =
+        locale === "zh-CN" ? "SSH 设备上的文件夹路径" : "Folder path on the SSH device";
+      const input = page.getByRole("textbox", { name: pathLabel, exact: true });
+      await expect.element(input).toBeVisible();
+      expect(
+        page
+          .getByRole("button", { name: locale === "zh-CN" ? "添加" : "Add", exact: true })
+          .elements(),
+      ).toHaveLength(0);
+      await input.fill("/home/fixture/new-project");
+      await page
+        .getByRole("button", {
+          name: locale === "zh-CN" ? "创建项目" : "Create project",
+          exact: true,
+        })
+        .click();
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+      expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({
+        source: "local",
+        workspaceRoot: "/home/fixture/new-project",
+        createIfMissing: true,
+      });
+      expect(nativeApi.pickFolder).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["zh-CN", "en"] as const)(
+    "names a paired computer's folder path as a paired device, not SSH (%s)",
+    async (locale) => {
+      vi.stubGlobal("mossRemoteWorkspace", {
+        getWsUrl: () => "ws://127.0.0.1/fixture",
+        getKind: () => "paired",
+      });
+      await renderDialog(locale, {
+        open: true,
+        activeSpaceId: null,
+        onOpenChange: vi.fn(),
+        onSubmit: vi.fn().mockResolvedValue(undefined),
+      });
+      const pathLabel =
+        locale === "zh-CN" ? "配对设备上的文件夹路径" : "Folder path on the paired computer";
+      await expect
+        .element(page.getByRole("textbox", { name: pathLabel, exact: true }))
+        .toBeVisible();
+      await expect.element(page.getByText(/SSH/)).not.toBeInTheDocument();
+    },
+  );
 
   it("focuses the name field on open and explains a missing source folder on submit", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);

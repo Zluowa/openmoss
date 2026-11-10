@@ -1,17 +1,22 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { mkdir, mkdtemp, open, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { parse } from "smol-toml";
+import { parse, stringify } from "smol-toml";
 import { afterEach, describe, expect, it } from "vitest";
 import { createRejectedFileAlias } from "../../../../scripts/fixtures/filesystem-links.ts";
 
 import {
+  installMossBundledPlugin,
+  mutateMossManagedPluginConfig,
   prepareMossManagedPluginStore,
   readMossManagedPluginConfig,
   syncMossManagedPluginConfig,
   writeMossManagedPluginConfig,
 } from "./mossManagedPluginConfig.ts";
+import { bootstrapMossBundledPlugins } from "./mossBundledPluginBootstrap.ts";
 
 const homes: string[] = [];
 async function setup(contents?: string) {
@@ -30,6 +35,196 @@ afterEach(async () => {
 });
 
 describe("managed native plugin config", () => {
+  it("queues managed config regeneration behind an active native edit in the same home", async () => {
+    const { managedHomePath, configPath } = await setup("model = 'old'\n");
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const edited = mutateMossManagedPluginConfig(
+      {
+        managedHomePath,
+        runtimeHomePath: managedHomePath,
+        assertCurrent() {},
+      },
+      async () => {
+        entered.resolve();
+        await release.promise;
+        await writeFile(configPath, '[plugins."local@market"]\nenabled=true\n');
+      },
+    );
+    await entered.promise;
+    const refreshed = writeMossManagedPluginConfig({
+      managedHomePath,
+      configPath,
+      generatedConfig: "model = 'new'\n",
+    });
+    // A writer with an independent lock would finish while the native edit is paused.
+    const first = await Promise.race([
+      refreshed.then(() => "written"),
+      new Promise<"pending">((resolve) => setTimeout(() => resolve("pending"), 50)),
+    ]);
+    release.resolve();
+    expect(first).toBe("pending");
+    await Promise.all([edited, refreshed]);
+    const config = parse(await readFile(configPath, "utf8"));
+    expect(config.model).toBe("new");
+    expect(config.plugins).toEqual({ "local@market": { enabled: true } });
+  });
+
+  it.runIf(process.platform === "win32").each([false, true])(
+    "recovers a Windows replacement conflict only when the file can be replaced (permanent=%s)",
+    async (permanent) => {
+      const { managedHomePath, configPath } = await setup("model = 'kept'\n");
+      const held = await open(configPath, "r");
+      const attempts: string[] = [];
+      const nativeError = new Error(
+        "plugin/install failed: failed to persist installed plugin config: Access is denied. (os error 5)",
+      );
+      const boot = bootstrapMossBundledPlugins({
+        expectedHomePath: managedHomePath,
+        initializedHomePath: managedHomePath,
+        homePath: managedHomePath,
+        accountId: "moss",
+        install: ({ pluginName }) =>
+          installMossBundledPlugin({
+            runtimeHomePath: managedHomePath,
+            pluginName,
+            assertCurrent() {},
+            install: async () => {
+              attempts.push(pluginName);
+              const config = parse(await readFile(configPath, "utf8"));
+              const key = `${pluginName}@moss-bundled`;
+              config.plugins = { ...(config.plugins as object), [key]: { enabled: true } };
+              const temporary = path.join(managedHomePath, `temp-${randomUUID()}`);
+              await writeFile(temporary, stringify(config));
+              try {
+                await rename(temporary, configPath);
+              } catch (error) {
+                expect(["EPERM", "EACCES"]).toContain((error as NodeJS.ErrnoException).code);
+                if (!permanent) await held.close();
+                throw nativeError;
+              } finally {
+                await rm(temporary, { force: true });
+              }
+            },
+            isInstalledAndEnabled: async () => true,
+          }),
+      });
+      try {
+        if (permanent) {
+          await expect(boot).rejects.toBe(nativeError);
+          expect(attempts).toEqual(Array(5).fill("moss-imagegen"));
+          await expect(
+            readFile(path.join(managedHomePath, ".moss-imagegen-bootstrap-v1")),
+          ).rejects.toMatchObject({ code: "ENOENT" });
+        } else {
+          await boot;
+          expect(attempts).toEqual([
+            "moss-imagegen",
+            "moss-imagegen",
+            "moss-plugin-creator",
+            "moss-videogen",
+            "moss-canvas",
+          ]);
+          const config = parse(await readFile(configPath, "utf8"));
+          expect(config.model).toBe("kept");
+          for (const plugin of new Set(attempts)) {
+            expect(config.plugins).toHaveProperty([`${plugin}@moss-bundled`, "enabled"], true);
+            await expect(
+              readFile(path.join(managedHomePath, `.${plugin}-bootstrap-v1`), "utf8"),
+            ).resolves.toMatch(/-v1\n$/);
+          }
+        }
+      } finally {
+        await held.close();
+      }
+    },
+  );
+
+  it.runIf(process.platform === "win32")(
+    "verifies durable native state before accepting an ambiguous install",
+    async () => {
+      const { managedHomePath } = await setup(
+        '[plugins."moss-imagegen@moss-bundled"]\nenabled=true\n',
+      );
+      let attempts = 0;
+      let checks = 0;
+      await installMossBundledPlugin({
+        runtimeHomePath: managedHomePath,
+        pluginName: "moss-imagegen",
+        assertCurrent() {},
+        install: async () => {
+          attempts++;
+          throw new Error(
+            "plugin/install failed: failed to persist installed plugin config: 拒绝访问。 (os error 5)",
+          );
+        },
+        isInstalledAndEnabled: async () => {
+          checks++;
+          return true;
+        },
+      });
+      expect([attempts, checks]).toEqual([1, 1]);
+    },
+  );
+
+  it.runIf(process.platform === "win32").each([false, true])(
+    "only reads back while an exclusive config handle prevents inspection (permanent=%s)",
+    async (permanent) => {
+      const { managedHomePath, configPath } = await setup(
+        '[plugins."moss-imagegen@moss-bundled"]\nenabled=true\n',
+      );
+      const systemRoot = process.env.SystemRoot!;
+      const holder = spawn(
+        path.join(systemRoot, "System32/WindowsPowerShell/v1.0/powershell.exe"),
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "$h=[IO.File]::Open($env:MOSS_TEST_CONFIG,'Open','Read','None');" +
+            "[Console]::WriteLine('held');[void][Console]::ReadLine();$h.Dispose()",
+        ],
+        { windowsHide: true, env: { SystemRoot: systemRoot, MOSS_TEST_CONFIG: configPath } },
+      );
+      const closed = once(holder, "close");
+      const nativeError = new Error(
+        "plugin/install failed: failed to persist installed plugin config: Access is denied. (os error 5)",
+      );
+      let attempts = 0;
+      let checks = 0;
+      let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const [ready] = await Promise.race([
+          once(holder.stdout, "data"),
+          closed.then(() => {
+            throw new Error("Config holder exited before taking the lock");
+          }),
+        ]);
+        expect(String(ready).trim()).toBe("held");
+        const install = installMossBundledPlugin({
+          runtimeHomePath: managedHomePath,
+          pluginName: "moss-imagegen",
+          assertCurrent() {},
+          install: async () => {
+            attempts++;
+            if (!permanent) releaseTimer = setTimeout(() => holder.stdin.end("\n"), 150);
+            throw nativeError;
+          },
+          isInstalledAndEnabled: async () => {
+            checks++;
+            return true;
+          },
+        });
+        if (permanent) await expect(install).rejects.toBe(nativeError);
+        else await install;
+        expect(attempts).toBe(1);
+        expect(checks).toBe(permanent ? 0 : 1);
+      } finally {
+        clearTimeout(releaseTimer);
+        if (!holder.stdin.writableEnded) holder.stdin.end("\n");
+        await closed;
+      }
+    },
+  );
   it("preserves install and disable choices plus custom marketplaces without overriding managed routing", async () => {
     const input = await setup(`model_provider = "untrusted"
 [model_providers.untrusted]
@@ -88,6 +283,48 @@ sparse_paths = ["plugins", ".agents"]
           sparse_paths: ["plugins", ".agents"],
         },
       },
+    });
+  });
+
+  it("leaves the server-owned plugin catalog marketplace to the generated config", async () => {
+    const source = await setup(
+      `model_provider = "moss"
+[marketplaces.moss-bundled]
+source_type = "local"
+source = "/owned/bundled"
+[marketplaces.moss-catalog]
+source_type = "local"
+source = "/owned/catalog"
+[plugins."superpowers@moss-catalog"]
+enabled = true
+`,
+    );
+    // A regenerated config writes both Moss marketplaces again; preserving them
+    // too would declare the same table twice.
+    const preserved = await readMossManagedPluginConfig(source);
+    expect(parse(preserved)).toEqual({
+      plugins: { "superpowers@moss-catalog": { enabled: true } },
+    });
+    const runtime = await setup(
+      `[marketplaces.moss-catalog]
+source_type = "local"
+source = "/runtime/catalog"
+[plugins."superpowers@moss-catalog"]
+enabled = false
+`,
+    );
+    await syncMossManagedPluginConfig({
+      managedHomePath: source.managedHomePath,
+      runtimeHomePath: runtime.managedHomePath,
+      assertCurrent: () => undefined,
+    });
+    expect(parse(await readFile(source.configPath, "utf8"))).toEqual({
+      model_provider: "moss",
+      marketplaces: {
+        "moss-bundled": { source_type: "local", source: "/owned/bundled" },
+        "moss-catalog": { source_type: "local", source: "/owned/catalog" },
+      },
+      plugins: { "superpowers@moss-catalog": { enabled: false } },
     });
   });
 

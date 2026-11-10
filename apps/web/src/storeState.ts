@@ -9,7 +9,7 @@ import type {
   OrchestrationThreadHistory,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type {
   ChatMessage,

@@ -9,7 +9,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationShellStreamEvent,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {

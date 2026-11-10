@@ -6,11 +6,12 @@
  *
  * @module CursorAcpSupport
  */
-import { type CursorModelOptions, type ProviderModelDescriptor } from "@synara/contracts";
-import { formatModelDisplayName, parseCursorCliReasoningEffort } from "@synara/shared/model";
+import { type CursorModelOptions, type ProviderModelDescriptor } from "@moss/contracts";
+import { formatModelDisplayName, parseCursorCliReasoningEffort } from "@moss/shared/model";
 import { Effect, Layer, Schema, Scope, ServiceMap } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import * as AcpErrors from "./AcpErrors.ts";
+import { readAcpCurrentModel } from "./AcpConfigOptions.ts";
 import type * as Acp from "@agentclientprotocol/sdk";
 import { SessionConfigOption as SessionConfigOptionCodec } from "./AcpExtensions.ts";
 
@@ -205,6 +206,20 @@ function flattenSessionConfigSelectOptions(
             : {}),
         })),
   );
+}
+
+export function readCursorAcpDefaultModel(
+  response: unknown,
+  models: ReadonlyArray<ProviderModelDescriptor>,
+): string | undefined {
+  const current = readAcpCurrentModel(response);
+  if (!current) return undefined;
+  const candidates = [current, stripCursorParameterizedSuffix(current)];
+  for (const candidate of candidates) {
+    const slug = candidate === CURSOR_ACP_AUTO_MODEL_ID ? "auto" : candidate;
+    if (models.some((model) => model.slug === slug)) return slug;
+  }
+  return undefined;
 }
 
 function findCursorModelConfigOption(

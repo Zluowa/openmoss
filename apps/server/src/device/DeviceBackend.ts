@@ -25,8 +25,8 @@ import type {
   DeviceScreenshotResult,
   DeviceStartRecordingResult,
   DeviceStopRecordingResult,
-} from "@synara/contracts";
-import { DEVICE_MESSAGE_MAX_LENGTH } from "@synara/contracts";
+} from "@moss/contracts";
+import { DEVICE_MESSAGE_MAX_LENGTH } from "@moss/contracts";
 
 /**
  * One encoded video frame as the backend produces it. `sequence` is owned by

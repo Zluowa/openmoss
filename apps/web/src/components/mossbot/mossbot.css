@@ -1,0 +1,741 @@
+.mossbot-avatar {
+  color: var(--mossbot-ink, #9955ff);
+}
+.dark .mossbot-avatar {
+  --mossbot-ink: #9955ff;
+}
+.mossbot-avatar[data-tone="mint"] {
+  --mossbot-ink: #05c988;
+}
+.mossbot-avatar[data-tone="jade"] {
+  --mossbot-ink: #10c58c;
+}
+.mossbot-avatar[data-tone="teal"] {
+  --mossbot-ink: #16bda7;
+}
+.mossbot-avatar[data-tone="green"] {
+  --mossbot-ink: #68866e;
+}
+.mossbot-avatar[data-tone="blue"],
+.mossbot-avatar[data-tone="cyan"] {
+  --mossbot-ink: #718fa8;
+}
+.mossbot-avatar[data-tone="amber"],
+.mossbot-avatar[data-tone="orange"] {
+  --mossbot-ink: #b28b4d;
+}
+.mossbot-avatar[data-tone="violet"],
+.mossbot-avatar[data-tone="rose"] {
+  --mossbot-ink: #a66aff;
+}
+.mossbot-avatar-choice {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+/* Current mobile references supplied by the user, adapted to the native Moss shell.
+   These feature surfaces deliberately override the older desktop palette/geometry. */
+.mossbot-home,
+.mossbot-profile,
+.mossbot-menu,
+.mossbot-reference-room,
+[data-mossbot-native-chat] {
+  --mossbot-surface: var(--muted);
+  --mossbot-canvas: var(--background);
+  --mossbot-line: color-mix(in srgb, var(--foreground) 12%, transparent);
+  --color-text-accent: #9955ff;
+}
+[data-mossbot-native-chat] {
+  --composer-radius: 24px;
+}
+.dark .mossbot-home,
+.dark .mossbot-reference-room,
+.dark [data-mossbot-native-chat] {
+  --app-content-surface: #121212;
+  --mossbot-canvas: #121212;
+  --mossbot-surface: #29292b;
+  background: var(--mossbot-canvas);
+}
+.dark .mossbot-profile {
+  --mossbot-canvas: #1d1d1d;
+  --mossbot-surface: #2a2a2c;
+}
+/* The native rail clears nested route surfaces; a personal chat owns its opaque canvas. */
+.dark
+  [data-sidebar-layout="rail"]
+  .chat-content-card
+  [data-mossbot-native-chat].app-content-surface {
+  background: #121212;
+}
+@media (width < 768px) {
+  /* The desktop inset frame starts at 44px; the personal mobile navigation is taller. */
+  [data-sidebar-layout="rail"] .chat-content-card:has([data-mossbot-native-chat])::after {
+    border: 0;
+  }
+  [data-sidebar-layout="rail"] .chat-content-card:has([data-mossbot-room])::after {
+    border: 0;
+  }
+}
+.mossbot-home {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  background: var(--mossbot-canvas);
+  color: var(--foreground);
+}
+.mossbot-conversation-roster {
+  width: 100%;
+  min-width: 0;
+}
+.mossbot-conversation-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 0;
+}
+.mossbot-folder-menu[data-slot="button"] {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+.mossbot-sidebar-roster .mossbot-assistant-row {
+  min-height: 58px;
+  padding: 8px;
+  gap: 10px;
+}
+.mossbot-sidebar-roster .mossbot-list-avatar,
+.mossbot-sidebar-roster .mossbot-group-avatar {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  --mossbot-group-portrait: 23px;
+}
+.mossbot-sidebar-roster .text-ui-lg {
+  font-size: var(--text-ui);
+}
+.mossbot-sidebar-roster .mossbot-conversation-section-header {
+  padding: 0 8px;
+}
+.mossbot-list-item[data-active] {
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  border-radius: 16px;
+}
+.mossbot-group-avatar {
+  position: relative;
+  display: inline-block;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  --mossbot-group-portrait: 35px;
+}
+.mossbot-group-avatar > .mossbot-avatar {
+  position: absolute;
+  width: var(--mossbot-group-portrait);
+  height: var(--mossbot-group-portrait);
+}
+.mossbot-group-avatar > :nth-child(1) {
+  left: 0;
+  top: 0;
+}
+.mossbot-group-avatar > :nth-child(2) {
+  right: 0;
+  top: 0;
+}
+.mossbot-group-avatar > :nth-child(3) {
+  left: 0;
+  bottom: 0;
+}
+.mossbot-group-avatar > :nth-child(4) {
+  right: 0;
+  bottom: 0;
+}
+.mossbot-room-header {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 2px 20px;
+  flex-shrink: 0;
+}
+.mossbot-room-header .mossbot-round-button {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+}
+.mossbot-room-identity {
+  height: 36px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 12px 2px 6px;
+  border: 1px solid var(--mossbot-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+.mossbot-room-header-avatar {
+  width: 34px;
+  height: 30px;
+  --mossbot-group-portrait: 21px;
+}
+.dark .mossbot-reference-room [data-chat-bubble="simple"][data-author="assistant"] {
+  background: #222224;
+}
+.dark .mossbot-reference-room [data-chat-bubble="simple"][data-author="user"] {
+  background: #505052;
+}
+.mossbot-reference-room [data-chat-bubble="simple"] {
+  border-radius: 24px;
+  padding: 12px 14px;
+}
+.mossbot-reference-room .mossbot-room-composer-surface {
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--foreground) 10%, var(--background));
+}
+@media (width < 768px) {
+  .mossbot-room-header {
+    min-height: 76px;
+    padding: max(16px, env(safe-area-inset-top)) 16px 16px;
+  }
+  .mossbot-room-header .mossbot-round-button {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+  .mossbot-room-identity {
+    height: 44px;
+  }
+}
+.mossbot-home-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+}
+.mossbot-round-button {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border: 1px solid var(--mossbot-line, var(--border));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  color: var(--foreground);
+}
+.mossbot-home-header > .mossbot-round-button:first-of-type {
+  margin-right: auto;
+}
+.mossbot-home-scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mossbot-home-content {
+  width: min(100%, 680px);
+  margin-inline: auto;
+  padding: 0 12px 24px;
+}
+.mossbot-main-assistant {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  max-width: 100%;
+  margin: 28px auto 32px;
+  padding: 12px 24px;
+  border-radius: 24px;
+}
+.mossbot-main-assistant:focus-visible,
+.mossbot-assistant-row:focus-visible,
+.mossbot-profile-row:focus-visible,
+.mossbot-onboarding-option:focus-visible {
+  outline: 2px solid var(--color-text-accent);
+  outline-offset: 3px;
+}
+.mossbot-main-avatar {
+  width: 104px;
+  height: 104px;
+}
+.mossbot-list-avatar {
+  width: 52px;
+  height: 52px;
+}
+.mossbot-assistant-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.mossbot-list-item {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  border-radius: 20px;
+}
+.mossbot-list-item:hover {
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+.mossbot-assistant-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  flex: 1;
+  padding: 16px 8px;
+  border-radius: inherit;
+}
+.mossbot-assistant-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mossbot-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9955ff;
+}
+.mossbot-list-item > .mossbot-overflow {
+  margin-right: 4px;
+}
+.mossbot-home-empty {
+  max-width: 380px;
+  margin: 0 auto 28px;
+  text-align: center;
+}
+.mossbot-primary[data-slot="button"] {
+  background: #8544e8;
+  color: white;
+}
+.mossbot-home-footer {
+  flex-shrink: 0;
+  padding: 16px 20px max(16px, env(safe-area-inset-bottom));
+}
+.mossbot-home-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 656px);
+  margin: auto;
+}
+.mossbot-search-field {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  height: 46px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--mossbot-line);
+  background: var(--mossbot-surface);
+}
+.mossbot-search-input[data-slot="input-control"] {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.mossbot-search-input::before,
+.mossbot-search-input::after {
+  display: none;
+}
+.mossbot-search-input input {
+  min-width: 0;
+  padding-inline: 0;
+  font-size: max(16px, var(--app-font-size-ui));
+}
+.mossbot-home .mossbot-room-list [data-slot="sidebar-menu-button"] {
+  min-height: 52px;
+  border-radius: 16px;
+}
+.mossbot-home .mossbot-room-list [data-slot="sidebar-menu-button"] > svg {
+  width: 36px;
+  height: 36px;
+  padding: 7px;
+  border-radius: 50%;
+  background: var(--mossbot-surface);
+}
+.mossbot-menu[data-slot="menu-popup"] {
+  width: 252px;
+  max-width: calc(100vw - 24px);
+  border-radius: 24px;
+}
+.dark .mossbot-menu[data-slot="menu-popup"] {
+  background: #2b2b2d;
+  border: 1px solid #454547;
+}
+.mossbot-menu [data-slot="menu-popup-body"] {
+  padding: 9px;
+}
+.mossbot-menu [data-slot="menu-item"],
+.mossbot-menu [data-slot="menu-sub-trigger"] {
+  min-height: 44px;
+  gap: 14px;
+  padding-inline: 14px;
+  border-radius: 12px;
+  font-size: var(--app-font-size-ui-lg);
+}
+.mossbot-menu [data-slot="menu-item"] > svg,
+.mossbot-menu [data-slot="menu-sub-trigger"] > svg {
+  width: 19px;
+  height: 19px;
+  color: var(--muted-foreground);
+}
+.mossbot-menu [data-variant="destructive"],
+.mossbot-menu [data-variant="destructive"] > svg {
+  color: #b73d4d;
+}
+.dark .mossbot-menu [data-variant="destructive"],
+.dark .mossbot-menu [data-variant="destructive"] > svg {
+  color: #eb8994;
+}
+.mossbot-conversation-identity {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-right: 4px;
+}
+.mossbot-conversation-pill[data-slot="button"] {
+  flex: 0 1 auto;
+  height: 44px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 14px 5px 8px;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 7%, transparent);
+}
+.mossbot-profile[data-slot="dialog-popup"] {
+  max-width: 520px;
+  max-height: min(800px, 92dvh);
+  min-height: min(600px, 92dvh);
+  border-radius: 28px;
+  background: var(--mossbot-canvas);
+}
+.mossbot-profile-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px;
+  flex-shrink: 0;
+}
+.mossbot-profile-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 20px 32px;
+  min-height: 0;
+}
+.mossbot-profile-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0 28px;
+}
+.mossbot-profile-avatar {
+  height: 100px;
+  width: 100px;
+}
+.mossbot-profile-card {
+  border: 1px solid color-mix(in srgb, var(--foreground) 7%, transparent);
+  border-radius: 20px;
+  background: var(--mossbot-surface);
+  overflow: hidden;
+}
+.mossbot-profile-row {
+  display: flex;
+  width: 100%;
+  min-height: 58px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  text-align: left;
+  font-size: var(--app-font-size-ui-lg);
+}
+.mossbot-profile-row + .mossbot-profile-row {
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+button.mossbot-profile-row:hover {
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+.mossbot-profile-row > :is(svg, [data-slot="central-icon"]) {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  color: var(--muted-foreground);
+}
+.mossbot-profile-row > span:not([data-slot="central-icon"]):not([data-slot="switch"]) {
+  flex: 1;
+}
+.mossbot-profile-row > small {
+  font-size: var(--app-font-size-ui);
+  color: var(--muted-foreground);
+}
+.mossbot-notification-switch[data-slot="switch"] {
+  --thumb-size: 24px;
+  flex: 0 0 auto;
+  position: relative;
+}
+.mossbot-notification-switch::after {
+  content: "";
+  position: absolute;
+  inset: -8px 0;
+  min-height: 44px;
+}
+.mossbot-notification-switch[data-checked] {
+  background: #8544e8;
+  border-color: #8544e8;
+}
+.mossbot-onboarding {
+  max-width: 400px;
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--foreground) 4%, var(--background));
+  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  padding: 14px;
+}
+.mossbot-onboarding-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 7px 0;
+  text-align: left;
+  font-size: var(--app-font-size-ui-lg);
+  border-radius: 10px;
+}
+.mossbot-onboarding-option:hover {
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+.mossbot-option-letter {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--foreground) 9%, transparent);
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  font-size: var(--app-font-size-ui-sm);
+}
+.dark [data-mossbot-native-chat] [data-chat-composer-surface] {
+  background: #2b2b2d;
+}
+[data-mossbot-native-chat] [data-chat-composer-surface] {
+  border-radius: 24px;
+}
+@media (min-width: 768px) {
+  .mossbot-home-header {
+    padding: 12px 24px;
+  }
+  .mossbot-main-assistant {
+    margin-block: 48px 40px;
+  }
+  .mossbot-main-avatar {
+    width: 120px;
+    height: 120px;
+  }
+  .mossbot-list-item > .mossbot-overflow {
+    opacity: 0;
+  }
+  .mossbot-list-item:hover > .mossbot-overflow,
+  .mossbot-list-item:focus-within > .mossbot-overflow {
+    opacity: 1;
+  }
+  .mossbot-home-header > .mossbot-round-button:first-of-type {
+    margin-right: 0;
+  }
+}
+/* Desktop with a mouse: the app's comfortable role tokens, the density the installed Claude
+   desktop requests (controls 32, small controls 28, icons 20, body 14, radius roles 6/10,
+   composer 14). The roomy touch sizes above stay for phones and touch screens. */
+@media (min-width: 768px) and (pointer: fine) {
+  .mossbot-round-button,
+  .mossbot-room-header .mossbot-round-button,
+  .mossbot-folder-menu[data-slot="button"] {
+    width: var(--spacing-control);
+    min-width: var(--spacing-control);
+    height: var(--spacing-control);
+  }
+  .mossbot-round-button :is(svg, [data-slot="central-icon"]) {
+    width: var(--spacing-ui-icon);
+    height: var(--spacing-ui-icon);
+  }
+  .mossbot-home-header {
+    padding: var(--spacing-ui-pad-sm) var(--spacing-ui-pad-lg);
+  }
+  .mossbot-main-assistant {
+    margin-block: 40px 28px;
+    padding: var(--spacing-ui-pad-sm) var(--spacing-ui-pad-lg);
+    border-radius: 10px;
+  }
+  .mossbot-main-avatar {
+    width: 72px;
+    height: 72px;
+  }
+  .mossbot-list-avatar,
+  .mossbot-group-avatar {
+    width: 36px;
+    height: 36px;
+  }
+  .mossbot-list-item {
+    border-radius: 10px;
+  }
+  .mossbot-list-item[data-active] {
+    border-radius: 6px;
+  }
+  .mossbot-assistant-row {
+    padding: var(--spacing-ui-pad-sm);
+  }
+  .mossbot-sidebar-roster .mossbot-assistant-row {
+    min-height: 48px;
+    padding: var(--spacing-ui-pad-xs) var(--spacing-ui-pad-sm);
+  }
+  .mossbot-sidebar-roster .mossbot-group-avatar {
+    width: var(--spacing-control);
+    height: var(--spacing-control);
+  }
+  .mossbot-home .mossbot-room-list [data-slot="sidebar-menu-button"] {
+    min-height: var(--spacing-control-lg);
+    border-radius: 6px;
+  }
+  .mossbot-home .mossbot-room-list [data-slot="sidebar-menu-button"] > svg {
+    width: var(--spacing-control);
+    height: var(--spacing-control);
+    padding: var(--spacing-ui-pad-xs);
+  }
+  .mossbot-search-field {
+    height: var(--spacing-control);
+    padding: 0 var(--spacing-ui-pad-md);
+    border-radius: 10px;
+  }
+  .mossbot-search-input input {
+    font-size: var(--text-ui);
+  }
+  .mossbot-home-footer {
+    padding: var(--spacing-ui-pad-md) var(--spacing-ui-pad-lg);
+  }
+  .mossbot-room-header {
+    min-height: 48px;
+    padding: 2px var(--spacing-ui-pad-lg);
+  }
+  .mossbot-room-identity,
+  .mossbot-conversation-pill[data-slot="button"] {
+    height: var(--spacing-control);
+    padding: 2px 12px 2px 4px;
+  }
+  .mossbot-room-header-avatar {
+    width: 30px;
+    height: 26px;
+  }
+  .mossbot-reference-room [data-chat-bubble="simple"] {
+    border-radius: 14px;
+    padding: 10px 14px;
+  }
+  .mossbot-reference-room .mossbot-room-composer-surface,
+  [data-mossbot-native-chat] [data-chat-composer-surface] {
+    border-radius: 14px;
+  }
+  .mossbot-menu[data-slot="menu-popup"] {
+    width: 240px;
+    border-radius: 10px;
+  }
+  .mossbot-menu [data-slot="menu-popup-body"] {
+    padding: var(--spacing-ui-pad-xs);
+  }
+  .mossbot-menu [data-slot="menu-item"],
+  .mossbot-menu [data-slot="menu-sub-trigger"] {
+    min-height: var(--spacing-control);
+    gap: var(--spacing-ui-pad-sm);
+    padding-inline: var(--spacing-ui-pad-sm);
+    border-radius: 6px;
+    font-size: var(--text-ui);
+  }
+  .mossbot-menu [data-slot="menu-item"] > svg,
+  .mossbot-menu [data-slot="menu-sub-trigger"] > svg {
+    width: var(--spacing-ui-icon);
+    height: var(--spacing-ui-icon);
+  }
+  .mossbot-profile[data-slot="dialog-popup"] {
+    max-width: 480px;
+    min-height: 0;
+    border-radius: 10px;
+  }
+  .mossbot-profile-nav {
+    padding: var(--spacing-ui-pad-md) var(--spacing-ui-pad-lg);
+  }
+  .mossbot-profile-scroll {
+    padding: var(--spacing-ui-pad-xs) var(--spacing-ui-pad-lg) var(--spacing-ui-pad-xl);
+  }
+  .mossbot-profile-identity {
+    padding: var(--spacing-ui-pad-sm) 0 var(--spacing-ui-pad-lg);
+  }
+  .mossbot-profile-avatar {
+    width: 72px;
+    height: 72px;
+  }
+  .mossbot-profile-card {
+    border-radius: 10px;
+  }
+  .mossbot-profile-row {
+    min-height: 44px;
+    padding: var(--spacing-ui-pad-sm) var(--spacing-ui-pad-md);
+    font-size: var(--text-ui);
+  }
+  .mossbot-profile-row > :is(svg, [data-slot="central-icon"]) {
+    width: var(--spacing-ui-icon);
+    height: var(--spacing-ui-icon);
+  }
+  .mossbot-onboarding {
+    border-radius: 10px;
+    padding: var(--spacing-ui-pad-md);
+  }
+  .mossbot-onboarding-option {
+    min-height: var(--spacing-control);
+    padding: var(--spacing-ui-pad-xs) 0;
+    font-size: var(--text-ui);
+    border-radius: 6px;
+  }
+  .mossbot-option-letter {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+  }
+}
+@media (max-width: 767px) {
+  .mossbot-profile[data-slot="dialog-popup"] {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100%;
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+  }
+  .mossbot-profile-scroll {
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+  .mossbot-home-header {
+    padding-top: max(16px, env(safe-area-inset-top));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mossbot-notification-switch,
+  .mossbot-notification-switch [data-slot="switch-thumb"] {
+    transition: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mossbot-avatar-choice {
+    transition: none;
+  }
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WsProviderGetComposerCapabilitiesRpc, WsRpcError } from "@synara/contracts";
+import { WsProviderGetComposerCapabilitiesRpc, WsRpcError } from "@moss/contracts";
 import { Cause, Exit, Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 

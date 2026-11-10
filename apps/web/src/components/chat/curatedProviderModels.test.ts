@@ -1,4 +1,4 @@
-import { resolveSelectableModel } from "@synara/shared/model";
+import { resolveSelectableModel } from "@moss/shared/model";
 import { describe, expect, it } from "vitest";
 
 import type { ProviderModelOption } from "../../providerModelOptions";

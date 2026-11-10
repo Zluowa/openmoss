@@ -82,6 +82,27 @@ describe("desktop signing subprocess environments", () => {
     assert.equal(source.ssl_com_es_password, "mixed-case-secret");
   });
 
+  it("opts child Node fetches into the configured environment proxy", () => {
+    const sanitized = createNonSigningSubprocessEnvironment({
+      HTTPS_PROXY: "http://127.0.0.1:7897",
+      SAFE_BUILD_VALUE: "retained",
+    });
+
+    assert.equal(sanitized.NODE_USE_ENV_PROXY, "1");
+    assert.equal(sanitized.ELECTRON_GET_USE_PROXY, "1");
+    assert.equal(sanitized.HTTPS_PROXY, "http://127.0.0.1:7897");
+  });
+
+  it("preserves an explicit Node proxy setting", () => {
+    const sanitized = createNonSigningSubprocessEnvironment({
+      HTTPS_PROXY: "http://127.0.0.1:7897",
+      NODE_USE_ENV_PROXY: "0",
+    });
+
+    assert.equal(sanitized.NODE_USE_ENV_PROXY, "0");
+    assert.equal(sanitized.ELECTRON_GET_USE_PROXY, undefined);
+  });
+
   it("replaces host Node options and fixes Turbo concurrency for desktop builds", () => {
     const source = {
       ...credentialEnvironment(),
@@ -211,10 +232,10 @@ describe("desktop signing subprocess environments", () => {
     const desktopBuildEnvironmentCalls =
       buildSource.match(/createDesktopBuildSubprocessEnvironment\(process\.env\)/g) ?? [];
 
-    assert.equal(buildSource.match(/ChildProcess\.make/g)?.length, 12);
+    assert.equal(buildSource.match(/ChildProcess\.make/g)?.length, 14);
     assert.equal(spawnSyncCalls.length, sanitizedSpawnSyncCalls.length);
-    assert.equal(nonSigningEnvironmentCalls.length, 13);
-    assert.equal(desktopBuildEnvironmentCalls.length, 1);
+    assert.equal(nonSigningEnvironmentCalls.length, 14);
+    assert.equal(desktopBuildEnvironmentCalls.length, 2);
     assert.match(
       buildSource,
       /const buildEnv = createElectronBuilderEnvironment\([\s\S]*?const electronBuilderCliPath = requireFromScriptsWorkspace\.resolve\("electron-builder\/cli\.js"\);[\s\S]*?ChildProcess\.make\(\s*process\.execPath,\s*\[[\s\S]*?electronBuilderCliPath,[\s\S]*?env: buildEnv/,
@@ -222,6 +243,12 @@ describe("desktop signing subprocess environments", () => {
     assert.match(
       buildSource,
       /ChildProcess\.make\(\{[\s\S]*?env: createDesktopBuildSubprocessEnvironment\(process\.env\)[\s\S]*?\}\)`bun run build:desktop --force`/,
+    );
+    // The SSH runtime pack runs the server CLI; it must never inherit signing keys or
+    // injection variables straight from process.env.
+    assert.match(
+      buildSource,
+      /ChildProcess\.make\(\s*"bun",\s*\[\s*"apps\/server\/scripts\/cli\.ts",\s*"pack",[^\]]*\],\s*\{\s*cwd: repoRoot,\s*env: createDesktopBuildSubprocessEnvironment\(process\.env\),/,
     );
     assert.match(
       buildSource,

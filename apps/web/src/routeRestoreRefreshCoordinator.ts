@@ -1,4 +1,4 @@
-import type { OrchestrationReadModel, OrchestrationShellSnapshot } from "@synara/contracts";
+import type { OrchestrationReadModel, OrchestrationShellSnapshot } from "@moss/contracts";
 
 type EmptyRouteRestoreRefreshHandler = () => Promise<boolean>;
 

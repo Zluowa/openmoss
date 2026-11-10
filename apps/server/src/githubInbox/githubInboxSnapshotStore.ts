@@ -7,7 +7,7 @@
 // viewer's `involves:@me` search. Each takes its own read slot and releases it on completion, so
 // a read never holds one slot while waiting for another.
 
-import type { GitHubInboxRateLimit, GitHubInboxSort, GitHubInboxState } from "@synara/contracts";
+import type { GitHubInboxRateLimit, GitHubInboxSort, GitHubInboxState } from "@moss/contracts";
 import { Effect, type Scope } from "effect";
 
 import { GitHubCliError } from "../git/Errors";
@@ -71,6 +71,7 @@ export interface GitHubInboxSnapshotStore {
   /** After a mutation: drop in-flight reads and force a full read next time, keeping the old
    * snapshot only as a fallback. */
   readonly invalidateRepository: (repository: string) => Effect.Effect<void>;
+  readonly clearAccount: Effect.Effect<void>;
   readonly rateLimit: () => GitHubInboxRateLimit | null;
 }
 
@@ -121,6 +122,7 @@ export const makeGitHubInboxSnapshotStore = (dependencies: {
 }): Effect.Effect<GitHubInboxSnapshotStore, never, Scope.Scope> =>
   Effect.gen(function* () {
     const now = dependencies.now ?? Date.now;
+    let accountEpoch = 0;
     const entries = new Map<string, GitHubInboxSnapshotEntry>();
     // Bumped by invalidation so a read that started earlier cannot store its result.
     const generations = new Map<string, number>();
@@ -140,7 +142,7 @@ export const makeGitHubInboxSnapshotStore = (dependencies: {
     });
 
     const isCurrentGeneration = (key: string, generation: number) =>
-      (generations.get(key) ?? 0) === generation;
+      key.startsWith(accountEpoch + ":") && (generations.get(key) ?? 0) === generation;
 
     const store = (key: string, generation: number, entry: GitHubInboxSnapshotEntry) => {
       if (!isCurrentGeneration(key, generation)) return;
@@ -271,7 +273,7 @@ export const makeGitHubInboxSnapshotStore = (dependencies: {
           { concurrency: 2 },
         );
         const snapshot = mergeRepositoryInbox(lists, involved.involvement);
-        recordRateLimit(snapshot);
+        if (isCurrentGeneration(input.key, input.generation)) recordRateLimit(snapshot);
         const readAt = now();
         const entry: GitHubInboxSnapshotEntry = {
           snapshot,
@@ -293,7 +295,12 @@ export const makeGitHubInboxSnapshotStore = (dependencies: {
     ): GitHubInboxSnapshotLoad => {
       const failedAt = now();
       if (error.reason === "rate-limited") {
-        return { _tag: "stale", entry, error, retryAt: pauseAfterRateLimitError(failedAt) };
+        return {
+          _tag: "stale",
+          entry,
+          error,
+          retryAt: key.startsWith(accountEpoch + ":") ? pauseAfterRateLimitError(failedAt) : null,
+        };
       }
       // Existing waiters may finish after invalidation, but their failure must not
       // replace the newer generation's backoff. Rate limits above remain global.
@@ -308,7 +315,7 @@ export const makeGitHubInboxSnapshotStore = (dependencies: {
 
     const load: GitHubInboxSnapshotStore["load"] = (input) =>
       Effect.gen(function* () {
-        const key = snapshotKey(input.repository, input.state, input.sort);
+        const key = accountEpoch + ":" + snapshotKey(input.repository, input.state, input.sort);
         const startedAt = now();
         const existing = entries.get(key) ?? null;
         // Repeated clicks on refresh share the full read the first one made. A mutation in
@@ -397,7 +404,7 @@ export const makeGitHubInboxSnapshotStore = (dependencies: {
       Effect.gen(function* () {
         for (const state of ["open", "closed"] as const) {
           for (const sort of ["created", "updated"] as const) {
-            const key = snapshotKey(repository, state, sort);
+            const key = accountEpoch + ":" + snapshotKey(repository, state, sort);
             generations.set(key, (generations.get(key) ?? 0) + 1);
             fullReadRequired.add(key);
             yield* inFlight.invalidate(key);
@@ -408,6 +415,15 @@ export const makeGitHubInboxSnapshotStore = (dependencies: {
     return {
       load,
       invalidateRepository,
+      clearAccount: Effect.sync(() => {
+        ++accountEpoch;
+        entries.clear();
+        failures.clear();
+        generations.clear();
+        fullReadRequired.clear();
+        latestRateLimit = null;
+        pausedUntil = 0;
+      }).pipe(Effect.andThen(inFlight.invalidateAll)),
       rateLimit: () =>
         latestRateLimit
           ? {

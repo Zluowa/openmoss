@@ -1,5 +1,5 @@
-import type { ClaudeCacheObservation } from "@synara/contracts";
-import { assessClaudeCache } from "@synara/shared/claudeCache";
+import type { ClaudeCacheObservation } from "@moss/contracts";
+import { assessClaudeCache } from "@moss/shared/claudeCache";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
 
 export function ClaudeCacheDetails({
@@ -23,17 +23,17 @@ export function ClaudeCacheDetails({
       <div className="font-medium text-foreground">Claude prompt cache: {label}</div>
       {observation?.ttlSeconds !== undefined ? (
         <div>
-          Observed lifetime:{" "}
-          {observation.partialTtlSeconds !== undefined
-            ? `${formatCacheDuration(observation.partialTtlSeconds)} to `
-            : ""}
-          {formatCacheDuration(observation.ttlSeconds)}
+          {`Observed lifetime: ${
+            observation.partialTtlSeconds !== undefined
+              ? `${formatCacheDuration(observation.partialTtlSeconds)} to `
+              : ""
+          }${formatCacheDuration(observation.ttlSeconds)}`}
         </div>
       ) : (
         <div>Cache lifetime is unavailable.</div>
       )}
       {assessment.idleSeconds !== undefined ? (
-        <div>Last response: {formatCacheDuration(assessment.idleSeconds)} ago</div>
+        <div>{`Last response: ${formatCacheDuration(assessment.idleSeconds)} ago`}</div>
       ) : null}
       {assessment.state === "likely-expired" && observation?.contextTokens !== undefined ? (
         <p className="max-w-72 leading-relaxed">

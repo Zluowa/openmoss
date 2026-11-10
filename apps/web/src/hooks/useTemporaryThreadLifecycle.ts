@@ -3,7 +3,7 @@
 // Layer: Web route lifecycle hook
 // Exports: useTemporaryThreadLifecycle
 
-import { SidebarOrderRevision, type ThreadId } from "@synara/contracts";
+import { SidebarOrderRevision, type ThreadId } from "@moss/contracts";
 import { useEffect, useRef } from "react";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";

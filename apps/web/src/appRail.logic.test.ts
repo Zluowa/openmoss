@@ -1,4 +1,4 @@
-import { ProjectId, SpaceId } from "@synara/contracts";
+import { ProjectId, SpaceId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { DEFAULT_VOID_SPACE } from "./lib/spaceGrouping";
@@ -52,6 +52,7 @@ describe("rail item order", () => {
       "automations",
       "home",
       "inbox",
+      "mossbot",
       "library",
       "images",
       "pullRequests",
@@ -69,6 +70,7 @@ describe("rail item order", () => {
       "home",
       "inbox",
       "spaces",
+      "mossbot",
       "library",
       "automations",
       "images",
@@ -99,7 +101,16 @@ describe("rail item order", () => {
         inboxAvailable: false,
         imagesAvailable: false,
       }),
-    ).toEqual(["home", "library", "automations", "pullRequests", "skills", "kanban", "tasks"]);
+    ).toEqual([
+      "home",
+      "mossbot",
+      "library",
+      "automations",
+      "pullRequests",
+      "skills",
+      "kanban",
+      "tasks",
+    ]);
     expect(
       buildRailItemOrder({
         order,
@@ -116,6 +127,7 @@ describe("rail item order", () => {
     const stable = { studioAvailable: false, inboxAvailable: false, imagesAvailable: false };
     expect(RAIL_ORDERABLE_ITEM_IDS.filter((id) => isRailItemAvailable(id, stable))).toEqual([
       "home",
+      "mossbot",
       "library",
       "automations",
       "pullRequests",
@@ -147,7 +159,12 @@ describe("rail item order", () => {
 
 describe("restored Codex destination defaults", () => {
   it("places the real Scheduled destination after Home and data spaces", () => {
-    expect(normalizeRailItemOrder([]).slice(0, 3)).toEqual(["home", "library", "automations"]);
+    expect(normalizeRailItemOrder([]).slice(0, 4)).toEqual([
+      "home",
+      "mossbot",
+      "library",
+      "automations",
+    ]);
     expect(DEFAULT_HIDDEN_RAIL_ITEMS).not.toContain("automations");
     expect(
       normalizeHiddenRailItems(["spaces", "kanban", "tasks", "studio", "automations", "skills"]),
@@ -215,6 +232,7 @@ describe("railItemShowsPanel", () => {
     expect(railItemShowsPanel("pullRequests")).toBe(false);
     expect(railItemShowsPanel("inbox")).toBe(false);
     expect(railItemShowsPanel("skills")).toBe(false);
+    expect(railItemShowsPanel("mossbot")).toBe(true);
     for (const id of [
       "home",
       "spaces",
@@ -236,6 +254,7 @@ describe("railItemForPathname", () => {
     expect(railItemForPathname("/tasks")).toBe("tasks");
     expect(railItemForPathname("/pull-requests/42")).toBe("pullRequests");
     expect(railItemForPathname("/automations")).toBe("automations");
+    expect(railItemForPathname("/mossbot")).toBe("mossbot");
     expect(railItemForPathname("/skills")).toBe("skills");
     expect(railItemForPathname("/skills/manage")).toBe("skills");
     expect(railItemForPathname("/studio/abc")).toBe("studio");

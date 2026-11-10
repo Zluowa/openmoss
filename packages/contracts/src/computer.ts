@@ -213,7 +213,7 @@ export type ComputerWindowId = typeof ComputerWindowId.Type;
  * Named rather than described so every surface says the same words: the chat's
  * setup card, the settings panel, and the tool result the agent reads all key
  * off these identifiers, and their user-facing labels live in one place
- * (`@synara/shared/computerGrants`). There is no fourth surface — the
+ * (`@moss/shared/computerGrants`). There is no fourth surface — the
  * Electron-side permission preflight that used to be one was deleted, because
  * the prompt has to come from the process that actually needs the grant.
  *
@@ -673,9 +673,19 @@ export type ComputerGetStatusInput = typeof ComputerGetStatusInput.Type;
  * the answer to. Availability is corrected by live health the same way a thread
  * snapshot's is.
  */
+/**
+ * The OS the computer-control host actually runs on, as its driver reported it. Cua runs on
+ * macOS and Windows (and observation-only on Linux); this is the host's platform, which can
+ * differ from the window showing the status.
+ */
+export const ComputerHostPlatform = Schema.Literals(["darwin", "win32", "linux"]);
+export type ComputerHostPlatform = typeof ComputerHostPlatform.Type;
+
 export const ComputerStatusResult = Schema.Struct({
   /** Optional for compatibility with older servers and thread-state probes. */
   provisionable: Schema.optional(Schema.Boolean),
+  /** Absent from older servers and from backends that do not report a host. */
+  hostPlatform: Schema.optional(ComputerHostPlatform),
   computerId: ComputerId,
   availability: ComputerAvailability,
   health: ComputerHealth,

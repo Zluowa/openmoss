@@ -1,19 +1,31 @@
-import { SUPPORTED_PROVIDER_KINDS, type ProviderKind } from "@synara/contracts";
-import { EXPLICIT_BROWSER_ENVIRONMENT_GUIDANCE } from "@synara/shared/browserAutomationCatalogue";
-import { INLINE_VISUALS_BETA_FEATURE } from "@synara/shared/betaFeatures";
+import { SUPPORTED_PROVIDER_KINDS, type ProviderKind } from "@moss/contracts";
+import { EXPLICIT_BROWSER_ENVIRONMENT_GUIDANCE } from "@moss/shared/browserAutomationCatalogue";
+import { INLINE_VISUALS_BETA_FEATURE } from "@moss/shared/betaFeatures";
 
 import { isServerBetaFeatureEnabled } from "../betaFeatureGate.ts";
 
 import { computerToolInstructions } from "./computerGuidance.ts";
 
 import { AUTOMATION_AUTHORING_GUIDANCE } from "./automationAuthoringGuidance.ts";
+import {
+  MOSS_DEFAULT_IMAGE_MODEL_ID,
+  MOSS_DEFAULT_VIDEO_MODEL_ID,
+} from "@moss/shared/mossMediaPlugins";
 
 /** Canonical, versioned host policy delivered to every supported provider. */
-export const MOSS_HARNESS_POLICY_VERSION = "2026-10-25.1";
+export const MOSS_HARNESS_POLICY_VERSION = "2026-11-06.1";
 export const MOSS_HARNESS_POLICY_MARKER = `[Moss harness policy ${MOSS_HARNESS_POLICY_VERSION}]`;
+
+/**
+ * Moss Canvas and media generation, for every provider. Canvas is not a
+ * document space: agents without this line built 资料空间 pages for "画布".
+ */
+export const MOSS_CANVAS_AND_MEDIA_GUIDANCE = `For images/videos use moss_media_generate directly (${MOSS_DEFAULT_IMAGE_MODEL_ID}/${MOSS_DEFAULT_VIDEO_MODEL_ID}). Once accepted, finish the reply; Moss delivers the image here. No polling or shell waits. Only use moss_canvas_open (画布) when asked. Never resubmit on failure.`;
 
 export interface MossHarnessCapabilities {
   readonly gatewayControlAvailable: boolean;
+  /** The user selected their own Codex account rather than Moss's managed Codex instance. */
+  readonly personalCodex?: boolean;
   readonly automationAuthoring?: "tool-descriptions";
   readonly enableComputerControl?: boolean | undefined;
   /** The `moss_show_visual` tool is offered by this session. */
@@ -32,6 +44,9 @@ export function renderMossHarnessPolicy(capabilities: MossHarnessCapabilities): 
   const controlPolicy = capabilities.gatewayControlAvailable
     ? [
         "Use the moss_* tools for Moss threads, projects, pages, automations, and coordination.",
+        capabilities.personalCodex
+          ? "For the person's own Codex account, prefer Codex's native image generation if offered for this model. If unavailable, explain. Use Moss for images only when the person explicitly requests Moss or selects its skill. Moss delivers accepted images here; finish without polling. Use moss_canvas_open only on request."
+          : MOSS_CANVAS_AND_MEDIA_GUIDANCE,
         "Give a completion report: outcome, checks, limitations. Inspect browser_screenshot({kind:'proof'}); embed artifactPath as ![Result description](/absolute/path.png), also for generated images. No secrets or invented proof; skip open-only proof.",
         "When explicitly asked for E2E/end-to-end tests, call moss_e2e_review. Do not load it for unrelated work.",
         EXPLICIT_BROWSER_ENVIRONMENT_GUIDANCE,
@@ -48,7 +63,7 @@ export function renderMossHarnessPolicy(capabilities: MossHarnessCapabilities): 
               "When a chart, table, or comparison says more than prose, call moss_show_visual and place its block in your reply. Use complete OpenUI Lang source.",
             ]
           : []),
-        "### Showing visuals\nUse one Moss visual language: OpenUI Lang 1.0. Call openui_reference before your first openui block; use its catalog, $state, and local @functions for working tools. A reply may use a fenced `openui` code block, or the visual tool may carry the same source. Use html_preview + html_render only for custom animation, games, or simulations OpenUI cannot express.",
+        "### Showing visuals\nUse one Moss visual language: OpenUI Lang 1.0. Call openui_reference before your first openui block; use its catalog, $state, and local @functions for working tools. A reply may use a fenced `openui` code block, or the visual tool may carry the same source. Use html_preview + html_render (see visual_guide) for maps, diagrams, tools, simulations beyond OpenUI.",
         "Use moss_capabilities.targetConstruction: Codex options.reasoningEffort and Claude Agent options.effort are not interchangeable.",
         "For requested results, use moss_wait_for_threads and wait for all, then synthesize. Hub coordinator packets allow async reports unless results are requested now.",
         "After operationId, retry the same requestId and exact plan. Report failures; no replacement threads without a new user request. Hub retries are server-owned.",
@@ -87,6 +102,12 @@ export function renderMossHarnessPolicy(capabilities: MossHarnessCapabilities): 
 export const MOSS_GATEWAY_HARNESS_POLICY = renderMossHarnessPolicy({
   gatewayControlAvailable: true,
   inlineVisuals: INLINE_VISUALS_ENABLED,
+});
+
+export const PERSONAL_CODEX_GATEWAY_HARNESS_POLICY = renderMossHarnessPolicy({
+  gatewayControlAvailable: true,
+  inlineVisuals: INLINE_VISUALS_ENABLED,
+  personalCodex: true,
 });
 
 export interface MossHarnessPolicyDeliveryState {

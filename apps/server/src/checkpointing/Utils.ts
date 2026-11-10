@@ -7,8 +7,8 @@ import {
   type ProjectKind,
   type ThreadId,
   TurnId,
-} from "@synara/contracts";
-import { resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
+} from "@moss/contracts";
+import { resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd } from "@moss/shared/threadEnvironment";
 
 export const CHECKPOINT_REFS_PREFIX = "refs/moss/checkpoints";
 

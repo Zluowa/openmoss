@@ -11,11 +11,20 @@ import {
   type ProviderInstanceId,
   ProviderKind,
   type ServerProviderStatus,
-} from "@synara/contracts";
-import { getDefaultModel, resolveSelectableModel } from "@synara/shared/model";
-import { inferLegacyProviderKindFromInstanceId } from "@synara/shared/providerInstances";
+} from "@moss/contracts";
+import { getDefaultModel, resolveSelectableModel } from "@moss/shared/model";
+import { inferLegacyProviderKindFromInstanceId } from "@moss/shared/providerInstances";
 import * as Schema from "effect/Schema";
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  type ReactNode,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
 import { appHistory } from "../../appNavigation";
 import {
@@ -72,7 +81,12 @@ import {
   type FavoriteModelProvider as StoredFavoriteModelProvider,
 } from "../../lib/modelFavorites";
 import { Skeleton } from "../ui/skeleton";
-import { isProviderUsable } from "../../lib/providerAvailability";
+import { agentSettingsHref } from "../../lib/agentInstall";
+import {
+  isMossDefaultManagedProviderInstanceId,
+  isProviderUsable,
+  resolveAgentReadiness,
+} from "../../lib/providerAvailability";
 import { useTranslation } from "../../localization";
 import { isProtectedGenericSettingsProviderInstance } from "../../genericProviderSettingsProtection";
 import {
@@ -83,6 +97,7 @@ import {
 } from "./providerAccountSources";
 import { curateProviderModelOptions } from "./curatedProviderModels";
 import {
+  agentAccountRowLabel,
   MISSING_PROVIDER_INSTANCE_LABEL,
   providerAccountQualifiedLabel,
 } from "../../lib/providerInstancePresentation";
@@ -517,6 +532,45 @@ type ProviderModelMenuItemsProps = {
   onAfterSelection?: () => void;
 };
 
+/**
+ * An agent row that cannot be picked yet: its name and one short word on one line. A word
+ * that is an action (登录, 安装) makes the row open where that happens.
+ */
+function UnavailableProviderMenuRow(props: {
+  icon: ReactNode;
+  label: string;
+  status: string;
+  href: string | null;
+  onAfterSelection?: (() => void) | undefined;
+}) {
+  const { href, onAfterSelection } = props;
+  return (
+    <MenuItem
+      disabled={href === null}
+      data-provider-row-action={href ? "open" : "none"}
+      onClick={
+        href
+          ? () => {
+              appHistory.push(href);
+              onAfterSelection?.();
+            }
+          : undefined
+      }
+    >
+      {props.icon}
+      <span className="min-w-0 truncate">{props.label}</span>
+      <span
+        className={cn(
+          "ms-auto shrink-0 whitespace-nowrap ps-3 text-ui-xs",
+          href ? "font-medium text-foreground/80" : "text-muted-foreground/80",
+        )}
+      >
+        {props.status}
+      </span>
+    </MenuItem>
+  );
+}
+
 // Renders only the popup body of the provider/model picker. Designed to be
 // dropped into any shared picker popup or submenu so the same selection logic can
 // be reused by the standalone picker and the combined composer trait picker.
@@ -787,6 +841,53 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
       );
     },
     [props.providerStatusesResolved, props.providers],
+  );
+
+  // What a row that cannot be picked says, from the server's readiness, and where it leads:
+  // 登录 opens the sign-in (Moss's own, or the agent's row in Settings), 安装 opens the
+  // agent's row in Settings where it installs in place. Everything else just says why.
+  const resolveUnavailableRow = useCallback(
+    (
+      instance: ProviderModelPickerInstance,
+    ): { readonly label: string; readonly href: string | null } => {
+      if (!instance.enabled) return { label: t("chat.modelSource.disabled"), href: null };
+      const status = findProviderStatusForInstance({
+        providers: props.providers,
+        provider: instance.provider,
+        instanceId: instance.instanceId,
+      });
+      if (!status) {
+        return {
+          label: props.providerStatusesResolved
+            ? t("chat.modelSource.unavailable")
+            : t("chat.modelSource.checking"),
+          href: null,
+        };
+      }
+      const readiness = resolveAgentReadiness(status);
+      switch (readiness.state) {
+        case "needsLogin":
+          if (isMossDefaultManagedProviderInstanceId(instance.instanceId)) {
+            return { label: t("provider.readiness.signInAction"), href: "/login" };
+          }
+          return isProtectedGenericSettingsProviderInstance(instance.instanceId)
+            ? { label: t("chat.modelSource.unavailable"), href: null }
+            : {
+                label: t("provider.readiness.signInAction"),
+                href: agentSettingsHref(instance.provider),
+              };
+        case "notInstalled":
+          return {
+            label: t("provider.readiness.installAction"),
+            href: agentSettingsHref(instance.provider),
+          };
+        case "checking":
+          return { label: t("chat.modelSource.checking"), href: null };
+        default:
+          return { label: t("chat.modelSource.unavailable"), href: null };
+      }
+    },
+    [props.providerStatusesResolved, props.providers, t],
   );
 
   const resolveProviderOptionAvailability = useCallback(
@@ -1551,7 +1652,13 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
           // Several accounts: each is its own entry, like another provider would be.
           return accounts.map((account) => {
             const accountAvailability = resolveInstanceAvailability(account);
-            const accountLabel = providerAccountQualifiedLabel(option.label, account.label);
+            const accountLabel = agentAccountRowLabel({
+              providerLabel: option.label,
+              provider: option.value,
+              instanceId: account.instanceId,
+              accountLabel: account.label,
+              mossManaged: isMossDefaultManagedProviderInstanceId(account.instanceId),
+            });
             const accountIcon = (
               <span className="relative flex shrink-0">
                 <OptionIcon
@@ -1569,23 +1676,16 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
               </span>
             );
             if (accountAvailability.disabled) {
-              const canOpenProviderSettings = accountAvailability.label === "Sign in";
+              const row = resolveUnavailableRow(account);
               return (
-                <MenuItem
+                <UnavailableProviderMenuRow
                   key={account.instanceId}
-                  disabled={!canOpenProviderSettings}
-                  onClick={
-                    canOpenProviderSettings
-                      ? () => appHistory.push("/settings?section=providers")
-                      : undefined
-                  }
-                >
-                  {accountIcon}
-                  <span className="truncate">{accountLabel}</span>
-                  <span className="ms-auto text-ui-sm text-muted-foreground/80">
-                    {accountAvailability.label}
-                  </span>
-                </MenuItem>
+                  icon={accountIcon}
+                  label={accountLabel}
+                  status={row.label}
+                  href={row.href}
+                  onAfterSelection={onAfterSelection}
+                />
               );
             }
             return (
@@ -1605,48 +1705,30 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
           });
         }
         if (availability.disabled) {
-          const hasPersonalUnauthenticatedInstance = instances.some((instance) => {
-            if (
-              !instance.enabled ||
-              isProtectedGenericSettingsProviderInstance(instance.instanceId)
-            ) {
-              return false;
-            }
-            return (
-              findProviderStatusForInstance({
-                providers: props.providers,
-                provider: instance.provider,
-                instanceId: instance.instanceId,
-              })?.authStatus === "unauthenticated"
-            );
-          });
-          const canOpenProviderSettings = availability.label === "Sign in";
-          const statusLabel =
-            availability.label === "Sign in" && !hasPersonalUnauthenticatedInstance
-              ? "Unavailable"
-              : availability.label;
+          const rowInstance =
+            instances.find((instance) => instance.isDefault && instance.enabled) ??
+            instances.find((instance) => instance.enabled) ??
+            instances[0];
+          const row = rowInstance
+            ? resolveUnavailableRow(rowInstance)
+            : { label: t("chat.modelSource.unavailable"), href: null };
           return (
-            <MenuItem
+            <UnavailableProviderMenuRow
               key={option.value}
-              disabled={!canOpenProviderSettings}
-              onClick={
-                canOpenProviderSettings
-                  ? () => appHistory.push("/settings?section=providers")
-                  : undefined
+              icon={
+                <OptionIcon
+                  aria-hidden="true"
+                  className={cn(
+                    "size-3 shrink-0 opacity-80",
+                    providerIconClassName(option.value, "text-muted-foreground/85"),
+                  )}
+                />
               }
-            >
-              <OptionIcon
-                aria-hidden="true"
-                className={cn(
-                  "size-3 shrink-0 opacity-80",
-                  providerIconClassName(option.value, "text-muted-foreground/85"),
-                )}
-              />
-              <span>{option.label}</span>
-              <span className="ms-auto text-ui-xs text-muted-foreground/80">
-                {localizedAvailabilityLabel(statusLabel)}
-              </span>
-            </MenuItem>
+              label={option.label}
+              status={row.label}
+              href={row.href}
+              onAfterSelection={onAfterSelection}
+            />
           );
         }
         return (

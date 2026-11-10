@@ -8,7 +8,7 @@ import type {
   MossCloudAccountState,
   MossCloudAccountSummary,
   MossEnterpriseKeyState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   serverMossAccountSessionQueryOptions,
   serverMossCloudAccountStateQueryOptions,
@@ -24,9 +24,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { ChevronRightIcon, CircleQuestionIcon, SettingsIcon, SparklesIcon } from "~/lib/icons";
-import { GaugeIcon, LogInIcon, LogOutIcon } from "./auth/mossIcons";
+import {
+  ChevronRightIcon,
+  CirclePersonIcon,
+  CircleQuestionIcon,
+  SettingsIcon,
+  SparklesIcon,
+} from "~/lib/icons";
+import { GaugeIcon, LogOutIcon } from "./auth/mossIcons";
 import { resolveMossPayQuotaAccountIdentity } from "~/lib/mossPayQuotaIdentity";
+import {
+  type MossAccessLaneStates,
+  resolveActiveMossAccessLane,
+} from "./auth/mossAccessLanes.logic";
 
 import { isMacPlatform } from "~/lib/utils";
 import { useTranslation } from "~/localization";
@@ -113,6 +123,24 @@ export function maskPhoneNumber(phoneNumber: string): string {
   return normalized.startsWith("+") ? `+${masked}` : masked;
 }
 
+/**
+ * The lane the account footer speaks for: the one providing models right now,
+ * or while none is, the first signed-in lane. Naming or signing out any other
+ * lane would describe an account that isn't the one the chats are using.
+ */
+export function resolveSidebarAccountLane(states: MossAccessLaneStates) {
+  return (
+    resolveActiveMossAccessLane(states) ??
+    (states.phone?.authenticated
+      ? ("cn" as const)
+      : states.cloud?.authenticated
+        ? ("global" as const)
+        : states.enterprise?.authenticated
+          ? ("enterprise" as const)
+          : null)
+  );
+}
+
 export function resolveSidebarAccountIdentity(input: {
   readonly phoneState?: MossAccountSessionState | null | undefined;
   readonly enterpriseState?: MossEnterpriseKeyState | null | undefined;
@@ -128,8 +156,13 @@ export function resolveSidebarAccountIdentity(input: {
   const savedAccount =
     input.accounts?.find((account) => account.selected) ?? input.accounts?.[0] ?? null;
   const account = authenticatedAccount ?? savedAccount;
+  const lane = resolveSidebarAccountLane({
+    phone: input.phoneState,
+    cloud: input.state,
+    enterprise: input.enterpriseState,
+  });
 
-  if (phoneSession) {
+  if (phoneSession && lane === "cn") {
     const phoneNumber = phoneSession.user.phoneNumber;
     const maskedPhoneNumber = maskPhoneNumber(phoneNumber);
     return {
@@ -142,7 +175,7 @@ export function resolveSidebarAccountIdentity(input: {
     };
   }
 
-  if (authenticatedAccount) {
+  if (authenticatedAccount && lane === "global") {
     return {
       kind: "authenticated",
       label: accountLabel(authenticatedAccount),
@@ -151,7 +184,7 @@ export function resolveSidebarAccountIdentity(input: {
     };
   }
 
-  if (input.enterpriseState?.authenticated) {
+  if (input.enterpriseState?.authenticated && lane === "enterprise") {
     const keyLabel = `${input.enterpriseState.keyPrefix ?? "moss_sk_"}…`;
     return {
       kind: "authenticated",
@@ -315,7 +348,7 @@ function SidebarAccountMenuPopupSections({
           </MenuItem>
         ) : identity.kind === "saved" || identity.kind === "anonymous" ? (
           <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenAccount}>
-            <LogInIcon aria-hidden="true" className="size-4" />
+            <CirclePersonIcon aria-hidden="true" className="size-4" />
             <span>{identity.kind === "saved" ? labels.chooseAccount : labels.signIn}</span>
           </MenuItem>
         ) : null}
@@ -415,6 +448,22 @@ interface SidebarAccountMenuModel {
   readonly onSignOut: () => void;
 }
 
+/** The signed-in person as the sidebar shows them, for places that sign their work (comments). */
+export function useCurrentAccountIdentity(): SidebarAccountIdentity {
+  const phoneQuery = useQuery(serverMossAccountSessionQueryOptions());
+  const accountQuery = useQuery(serverMossCloudAccountStateQueryOptions());
+  const accountsQuery = useQuery(serverMossCloudAccountsQueryOptions());
+  const enterpriseQuery = useQuery(serverMossEnterpriseKeyStateQueryOptions());
+  return resolveSidebarAccountIdentity({
+    phoneState: phoneQuery.data,
+    enterpriseState: enterpriseQuery.data,
+    state: accountQuery.data,
+    accounts: accountsQuery.data?.accounts,
+    pending: phoneQuery.isPending && accountQuery.isPending,
+    unavailable: phoneQuery.isError && accountQuery.isError && accountsQuery.isError,
+  });
+}
+
 function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -441,7 +490,6 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
         (accountQuery.isPending || (!accountsQuery.data && accountsQuery.isPending))),
     unavailable: phoneQuery.isError && accountQuery.isError && accountsQuery.isError,
   });
-  const phoneAuthenticated = Boolean(phoneQuery.data?.authenticated && phoneQuery.data.session);
 
   // Codex header slot: avatar + name + current plan tier. Quota carries planCode,
   // the catalog resolves it to a display name; hide the subtitle when unknown.
@@ -486,12 +534,17 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
 
   const handleSignOut = async () => {
     try {
-      if (phoneAuthenticated) {
+      const lane = resolveSidebarAccountLane({
+        phone: phoneQuery.data,
+        cloud: accountQuery.data,
+        enterprise: enterpriseQuery.data,
+      });
+      if (lane === "cn") {
         await phoneLogoutMutation.mutateAsync();
-      } else if (accountQuery.data?.authenticated || !enterpriseQuery.data?.authenticated) {
-        await cloudLogoutMutation.mutateAsync();
-      } else {
+      } else if (lane === "enterprise") {
         await enterpriseSignOutMutation.mutateAsync();
+      } else {
+        await cloudLogoutMutation.mutateAsync();
       }
       await navigate({ to: "/login" });
     } catch {

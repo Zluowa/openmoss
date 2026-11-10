@@ -32,8 +32,8 @@ import {
   type McpAppSandboxDescriptor,
   type McpAppSandboxDimensions,
   type McpAppSandboxRegisterInput,
-} from "@synara/contracts";
-import type { McpAppResourceReadyResult } from "@synara/contracts";
+} from "@moss/contracts";
+import type { McpAppResourceReadyResult } from "@moss/contracts";
 
 import type { WorkLogMcpToolResult } from "./toolCallDetails";
 import { embeddedMcpAppHtml } from "./mcpAppBrowserFrame";

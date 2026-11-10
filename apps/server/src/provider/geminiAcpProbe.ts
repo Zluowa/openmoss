@@ -1,4 +1,4 @@
-import { spawnProcess } from "@synara/shared/processRuntime";
+import { spawnProcess } from "@moss/shared/processRuntime";
 import { signalOwnedChildProcess } from "../platform/processTreeController";
 import * as readline from "node:readline";
 
@@ -7,15 +7,16 @@ import type {
   ProviderModelDescriptor,
   ServerProviderAuthStatus,
   ServerProviderStatusState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   DEFAULT_GEMINI_MODEL_CAPABILITIES,
   GEMINI_2_5_MODEL_CAPABILITIES,
   GEMINI_3_MODEL_CAPABILITIES,
   geminiCapabilitiesForModel,
-} from "@synara/shared/model";
+} from "@moss/shared/model";
 import { Effect } from "effect";
 import { asNumber, asRecord, trimToUndefined } from "./geminiValue.ts";
+import { readAcpCurrentModel } from "./acp/AcpConfigOptions.ts";
 
 // Gemini ACP cold starts can take noticeably longer than a normal request path,
 // especially when the CLI has to warm caches or discover auth state. Keep the
@@ -46,6 +47,7 @@ export {
 
 export type GeminiCapabilityProbeResult = {
   readonly models: ReadonlyArray<ProviderModelDescriptor>;
+  readonly defaultModel?: string;
   readonly status: ServerProviderStatusState;
   readonly auth: { readonly status: ServerProviderAuthStatus };
   readonly message?: string;
@@ -456,12 +458,16 @@ export const probeGeminiCapabilities = (input: {
             result,
             input.capabilities ?? DEFAULT_GEMINI_MODEL_CAPABILITIES,
           );
+          const defaultModel = readAcpCurrentModel(result);
 
           finalize(
             normalizeGeminiCapabilityProbeResult({
               status: "ready",
               auth: { status: "authenticated" },
               models,
+              ...(defaultModel && models.some((model) => model.slug === defaultModel)
+                ? { defaultModel }
+                : {}),
               ...(models.length > 0
                 ? { message: "Gemini CLI is installed and authenticated." }
                 : {}),

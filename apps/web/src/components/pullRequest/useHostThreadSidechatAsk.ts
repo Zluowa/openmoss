@@ -5,7 +5,7 @@
 // Layer: Pull request presentation hook
 // Exports: useHostThreadSidechatAsk
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import { useState } from "react";
 
 import { createGitHubItemContextDraft } from "~/components/chat/environment/environmentPullRequest.logic";

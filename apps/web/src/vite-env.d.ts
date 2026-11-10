@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { NativeApi, DesktopBridge } from "@synara/contracts";
+import type { NativeApi, DesktopBridge } from "@moss/contracts";
 
 interface ImportMetaEnv {
   readonly APP_VERSION: string;
@@ -18,6 +18,11 @@ interface ImportMeta {
 
 declare global {
   interface Window {
+    mossRemoteWorkspace?: {
+      getWsUrl: () => string | null;
+      /** Missing on older desktop builds; treat that as an SSH device. */
+      getKind?: () => "ssh" | "paired" | null;
+    };
     nativeApi?: NativeApi;
     desktopBridge?: DesktopBridge;
   }

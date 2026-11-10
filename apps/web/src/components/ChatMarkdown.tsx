@@ -4,14 +4,26 @@
 // Exports: ChatMarkdown
 
 import { StreamingMarkdownProvider, StreamingMarkdownText } from "./chat/StreamingMarkdownText";
+import { THREAD_OUTPUT_ROUTE, threadOutputHref } from "@moss/shared/threadWorkspace";
+import { downloadUrlAsBlob } from "~/lib/browserDownload";
+import { openSpacePage, SPACE_PAGE_LINK_PREFIX, spacePageIdOfLink } from "~/lib/spacePageLink";
+import { ChatDeckCardPagesContext, openSpacePageFromChat } from "~/lib/chatSpacePageLink";
+import { useSpacesUiStore } from "~/spacesUiStore";
+import { ensureNativeApi } from "~/nativeApi";
+import { ChatOutputFileCard, openDeckInSidePanel } from "./chat/ChatArtifactCards";
+import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
+import { toastManager } from "./ui/toast";
 import {
   CheckIcon,
+  CodeIcon,
   CopyIcon,
   InfoIcon,
   LightbulbIcon,
   OctagonAlertIcon,
+  TerminalIcon,
   TextWrapIcon,
   TriangleAlertIcon,
+  WorkflowIcon,
   type LucideIcon,
 } from "~/lib/icons";
 import {
@@ -20,13 +32,15 @@ import {
   ThreadId,
   type ProviderMentionReference,
   type ThreadMarker,
-} from "@synara/contracts";
-import { readInlineVisualEmbedId } from "@synara/shared/inlineVisual";
-import { isLocalAbsolutePath } from "@synara/shared/path";
+} from "@moss/contracts";
+import { readInlineVisualEmbedId } from "@moss/shared/inlineVisual";
+import { isLocalAbsolutePath } from "@moss/shared/path";
 import "katex/dist/katex.min.css";
 import { matchWikiLinkAt, remarkWikiLinks } from "../lib/remarkWikiLinks";
 import { remarkGithubAlerts, type GithubAlertKind } from "../lib/remarkGithubAlerts";
 import { remarkHtmlBreaks } from "../lib/remarkHtmlBreaks";
+import { isFenceClosedInSource } from "../lib/markdownFence";
+import { holdBackPartialBlockMarker } from "../lib/streamingBlockHoldback";
 import React, {
   Children,
   createContext,
@@ -59,14 +73,14 @@ import { copyTextToClipboard } from "../hooks/useCopyToClipboard";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
 import { dedentCode, parseCodeFenceInfo, type CodeFenceInfo } from "../lib/codeFence";
 import { MAX_SYNTAX_HIGHLIGHT_INPUT_CHARS } from "../lib/syntaxHighlightingLimits";
-import { getFileIconName, pathLooksLikeKnownFile } from "../file-icons";
+import { basenameOfPath, getFileIconName, pathLooksLikeKnownFile } from "../file-icons";
 import { CentralIcon } from "~/lib/central-icons";
 import { isLocalImageMarkdownSrc } from "../lib/localImageUrls";
 import { repairMarkdownTableDelimiters } from "../lib/markdownTableRepair";
 import { showFileReferenceContextMenu } from "../lib/fileReferenceContextMenu";
 import {
   ChatLinkActionsContext,
-  resolveGitHubItemClickOpener,
+  resolveChatLinkClickOpener,
   showLinkContextMenu,
 } from "../lib/linkContextMenu";
 import { useTheme } from "../hooks/useTheme";
@@ -79,12 +93,33 @@ import {
   extractAbsoluteFilesystemPaths,
   resolveChatFileChipTarget,
   resolveMarkdownFileLinkTarget,
+  resolveSharedViewerFileLinkTarget,
   rewriteMarkdownFileUriHref,
 } from "../markdown-links";
-import { useTranslation } from "../localization";
-import { decodePythonBytesLiteral } from "@synara/shared/textPayload";
+import { type TranslationKey, useTranslation } from "../localization";
+import { decodePythonBytesLiteral } from "@moss/shared/textPayload";
 import type { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { GeneratedMarkdownImage } from "./chat/GeneratedMarkdownImage";
+import {
+  TranscriptThreadChip,
+  useTranscriptThreadLabel,
+} from "./chat/transcript/TranscriptThreadChip";
+import { RedactedSecret } from "./chat/transcript/RedactedSecret";
+import { ForgeRefChip } from "./chat/transcript/ForgeRefChip";
+import { ExternalImage } from "./chat/transcript/ExternalImage";
+import {
+  TranscriptMarkdownContext,
+  parseExternalImageSrc,
+} from "./chat/transcript/externalImageHosts";
+import {
+  CodeRunContext,
+  isRunnableShellFence,
+  prepareShellCommand,
+} from "./chat/transcript/codeRun";
+import { linkTextIsForgeRef, parseForgeRef } from "./chat/transcript/forgeRef";
+import { SECRET_ELEMENT_TAG, rehypeRedactSecrets } from "../lib/transcriptSecrets";
+import { ZONED_TIME_ELEMENT_TAG, rehypeZonedTimes } from "../lib/zonedTimes";
+import { ZonedTimeText } from "./chat/transcript/ZonedTimeText";
 import { TerminalContextInlineChip } from "./chat/TerminalContextInlineChip";
 import type { ParsedTerminalContextEntry } from "../lib/terminalContext";
 import { formatInlineTerminalContextLabel } from "./chat/userMessageTerminalContexts";
@@ -95,7 +130,9 @@ import {
 import { LinkChipIcon } from "./LinkChipIcon";
 import { InlineAgentChip } from "./chat/InlineAgentChip";
 import { InlineLinkChip } from "./InlineLinkChip";
+import { FileChipHoverCardContent } from "./chat/FileChipHoverCard";
 import { InlineMentionChip } from "./chat/InlineMentionChip";
+import { isOwnerLocalUrl, useIsSharedViewer, useSharedFileOpener } from "~/lib/sharedViewer";
 import { InlineSkillChip } from "./chat/InlineSkillChip";
 import { InlineSlashCommandChip } from "./chat/InlineSlashCommandChip";
 import { InlineVisualizationFrame } from "./chat/InlineVisualizationFrame";
@@ -146,21 +183,43 @@ const MARKDOWN_EXTERNAL_LINK_CLASS_NAME =
   "inline font-medium text-[var(--info-foreground)] underline-offset-2 hover:underline";
 const MARKDOWN_EXTERNAL_LINK_ICON_CLASS_NAME = `${COMPOSER_INLINE_CHIP_TOKEN_ICON_CLASS_NAME} ${COMPOSER_INLINE_CHIP_ICON_LABEL_GAP_CLASS_NAME}`;
 
+/** A URL as people read it; a malformed escape leaves it as written. */
+function safeDecodeUri(url: string): string {
+  try {
+    return decodeURI(url);
+  } catch {
+    return url;
+  }
+}
+
 function isExternalHttpHref(href: string | undefined): href is string {
   return typeof href === "string" && EXTERNAL_HTTP_HREF_PATTERN.test(href);
 }
 
+type RenderErrorBoundaryProps = {
+  fallback: ReactNode;
+  children: ReactNode;
+  /** A change retries after an error, without remounting healthy children. */
+  resetKey?: unknown;
+};
+
 class CodeHighlightErrorBoundary extends React.Component<
-  { fallback: ReactNode; children: ReactNode },
+  RenderErrorBoundaryProps,
   { hasError: boolean }
 > {
-  constructor(props: { fallback: ReactNode; children: ReactNode }) {
+  constructor(props: RenderErrorBoundaryProps) {
     super(props);
     this.state = { hasError: false };
   }
 
   static getDerivedStateFromError() {
     return { hasError: true };
+  }
+
+  override componentDidUpdate(previous: RenderErrorBoundaryProps) {
+    if (this.state.hasError && previous.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
   }
 
   override render() {
@@ -349,7 +408,7 @@ const MARKDOWN_REMARK_PLUGINS: MarkdownRemarkPlugins = [
 // newlines and skip math entirely (the composer chip plugin is appended per
 // render because it closes over the message's mention references).
 const USER_MARKDOWN_REMARK_PLUGINS: MarkdownRemarkPlugins = [remarkGfm, remarkBreaks];
-const USER_MARKDOWN_REHYPE_PLUGINS: MarkdownRehypePlugins = [];
+const USER_MARKDOWN_REHYPE_PLUGINS: MarkdownRehypePlugins = [rehypeRedactSecrets, rehypeZonedTimes];
 const LITERAL_DOLLAR_PLACEHOLDER = "\uE000";
 // `\$` is two source characters that render as a single `$`. Collapsing it to one placeholder used
 // to shorten the protected string, which shifted every downstream offset (thread-marker positions
@@ -377,11 +436,47 @@ function decodeMossThreadLinkTarget(target: string): string {
   }
 }
 
+// A link to a known Moss thread reads as the desktop chat's session chip (live title,
+// status, hover card). A target the store does not know (a title, a thread from
+// elsewhere) keeps the plain underlined link.
+function MarkdownThreadLink(props: {
+  target: string;
+  onOpenThread: (threadId: ThreadId) => void;
+  fallbackChildren: ReactNode;
+}) {
+  const threadId = ThreadId.makeUnsafe(props.target);
+  const knownTitle = useTranscriptThreadLabel(threadId);
+  if (knownTitle !== null) {
+    return (
+      <TranscriptThreadChip
+        threadId={threadId}
+        fallbackLabel={props.fallbackChildren}
+        onOpenThread={props.onOpenThread}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="inline p-0 text-inherit underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground/70"
+      onClick={() => props.onOpenThread(threadId)}
+    >
+      {props.fallbackChildren}
+    </button>
+  );
+}
+
 function markdownUrlTransform(href: string): string {
   const restoredHref = restoreLiteralDollarPlaceholders(href);
-  if (restoredHref.startsWith("thread://") || restoredHref.startsWith("moss://thread/")) {
+  if (
+    restoredHref.startsWith("thread://") ||
+    restoredHref.startsWith("moss://thread/") ||
+    restoredHref.startsWith(SPACE_PAGE_LINK_PREFIX)
+  ) {
     return restoredHref;
   }
+  // Windows agents may emit a drive path directly instead of a file URI.
+  if (/^[a-z]:[\\/]/iu.test(restoredHref)) return restoredHref;
   return rewriteMarkdownFileUriHref(restoredHref) ?? defaultUrlTransform(restoredHref);
 }
 
@@ -410,6 +505,10 @@ function rehypeRestoreLiteralDollars() {
 const MARKDOWN_REHYPE_PLUGINS: MarkdownRehypePlugins = [
   [rehypeKatex, { output: "htmlAndMathml", strict: false, throwOnError: false }],
   rehypeRestoreLiteralDollars,
+  // Credentials in a message read "Redacted <kind>" until the reader reveals them.
+  rehypeRedactSecrets,
+  // "15:00 PST" gets the reader's local time on hover when the zone is not theirs.
+  rehypeZonedTimes,
 ];
 
 type BidiHastNode = {
@@ -1302,35 +1401,126 @@ function OpenableFileChip(props: {
   label?: ReactNode;
   href?: string;
 }) {
-  const opener = useWorkspaceFileOpener();
-  const chipPath = props.targetPath.replace(MARKDOWN_LINK_POSITION_SUFFIX_PATTERN, "");
-  const revealPath = isLocalAbsolutePath(chipPath) ? chipPath : undefined;
+  const sharedViewer = useIsSharedViewer();
+  return sharedViewer ? <SharedViewerFileChip {...props} /> : <LocalOpenableFileChip {...props} />;
+}
+
+// A guest reads the owner's conversation, not the owner's disk: the chip keeps the file's name
+// and kind and never shows the path. It opens the file in the guest's viewer pane through the
+// share, which serves only files the agent's replies link inside the thread's folder; with an
+// owner whose Moss cannot serve files it stays a plain name.
+function SharedViewerFileChip(props: {
+  targetPath: string;
+  theme: "light" | "dark";
+  label?: ReactNode;
+}) {
+  const { format } = useTranslation();
+  const openSharedFile = useSharedFileOpener();
+  const linkPath = props.targetPath.replace(MARKDOWN_LINK_POSITION_SUFFIX_PATTERN, "");
+  const name = basenameOfPath(linkPath);
   return (
     <InlineMentionChip
-      path={chipPath}
+      path={name}
+      kind="path"
       theme={props.theme}
-      href={props.href ?? props.targetPath}
-      onActivate={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const forceExternalEditor = event.metaKey || event.ctrlKey;
-        openWorkspaceFileReference(forceExternalEditor ? null : opener, props.targetPath);
-      }}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void showFileReferenceContextMenu({
-          path: chipPath,
-          ...(revealPath ? { revealPath } : {}),
-          position: { x: event.clientX, y: event.clientY },
-          onReferenceInChat: undefined,
-        });
-      }}
-      {...(opener?.prefetchFile
-        ? { onHoverPrefetch: () => opener.prefetchFile?.(props.targetPath) }
+      title={openSharedFile ? name : format("chat.fileChip.onOwnerDevice", { name })}
+      {...(openSharedFile
+        ? {
+            href: "#",
+            onActivate: (event: React.MouseEvent<HTMLAnchorElement>) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openSharedFile({ path: linkPath, name });
+            },
+          }
         : {})}
       {...(props.label !== undefined ? { label: props.label } : {})}
     />
+  );
+}
+
+function LocalOpenableFileChip(props: {
+  targetPath: string;
+  theme: "light" | "dark";
+  label?: ReactNode;
+  href?: string;
+}) {
+  const opener = useWorkspaceFileOpener();
+  const renderContext = useContext(MarkdownRenderContext);
+  const chipPath = props.targetPath.replace(MARKDOWN_LINK_POSITION_SUFFIX_PATTERN, "");
+  const revealPath = isLocalAbsolutePath(chipPath) ? chipPath : undefined;
+  return (
+    <>
+      <InlineMentionChip
+        path={chipPath}
+        theme={props.theme}
+        hoverCard={
+          <FileChipHoverCardContent
+            path={chipPath}
+            theme={props.theme}
+            threadId={renderContext?.threadId}
+            messageId={renderContext?.messageId}
+          />
+        }
+        href={props.href ?? props.targetPath}
+        onActivate={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const forceExternalEditor = event.metaKey || event.ctrlKey;
+          openWorkspaceFileReference(forceExternalEditor ? null : opener, props.targetPath);
+        }}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void showFileReferenceContextMenu({
+            path: chipPath,
+            ...(revealPath ? { revealPath } : {}),
+            position: { x: event.clientX, y: event.clientY },
+            onReferenceInChat: undefined,
+          });
+        }}
+        {...(opener?.prefetchFile
+          ? { onHoverPrefetch: () => opener.prefetchFile?.(props.targetPath) }
+          : {})}
+        {...(props.label !== undefined ? { label: props.label } : {})}
+      />
+      {renderContext?.threadId &&
+      !renderContext.isUserVariant &&
+      /\.(pptx|docx|xlsx|pdf|txt|md|csv|tsv|zip)$/iu.test(chipPath) ? (
+        <ThreadOutputDownload
+          href={threadOutputHref(renderContext.threadId, chipPath)}
+          fileName={basenameOfPath(chipPath)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function ThreadOutputDownload(props: { href: string; fileName: string; children?: ReactNode }) {
+  const { t } = useTranslation();
+  return (
+    <a
+      href={resolveWsHttpUrl(props.href, { includeLegacyToken: false })}
+      download={props.fileName}
+      data-thread-output-download=""
+      aria-label={`${t("chat.localImage.download")} ${props.fileName}`}
+      className="ml-1 underline"
+      onClick={(event) => {
+        event.preventDefault();
+        void downloadUrlAsBlob({
+          url: resolveWsHttpUrl(props.href),
+          filename: props.fileName,
+        }).catch((error: unknown) =>
+          toastManager.add({
+            type: "error",
+            title: t("chat.localImage.download"),
+            description: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }}
+    >
+      {props.children ?? t("chat.localImage.download")}
+    </a>
   );
 }
 
@@ -1401,13 +1591,21 @@ function MarkdownCodeBlock({
   fence,
   children,
   direction,
+  actions,
+  canWrap,
 }: {
   code: string;
   fence: CodeFenceInfo;
   children: ReactNode;
   direction?: "ltr" | undefined;
+  /** Extra header controls before wrap and copy, such as a diagram/code toggle. */
+  actions?: ReactNode;
+  /** False while the body is not text (a drawn diagram), which hides soft wrap. */
+  canWrap?: boolean;
 }) {
   const { t } = useTranslation();
+  // No default in the destructuring above: it would make React Compiler skip this component.
+  const wrapAvailable = canWrap !== false;
   const [copied, setCopied] = useState(false);
   const [wrap, setWrap] = useState(false);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1440,25 +1638,59 @@ function MarkdownCodeBlock({
   const wrapLabel = t(
     wrap ? "chat.markdown.code.disableSoftWrap" : "chat.markdown.code.enableSoftWrap",
   );
+  // Desktop chat: a shell block in a reply can run in this chat's terminal.
+  const codeRun = useContext(CodeRunContext);
+  const runnable =
+    codeRun !== null && isRunnableShellFence(fence.language) && prepareShellCommand(code) !== "";
+  const runLabel = t(
+    codeRun?.shell === "powershell"
+      ? "transcript.code.runInPowerShell"
+      : "transcript.code.runInTerminal",
+  );
   const copyLabel = t(copied ? "chat.markdown.code.copied" : "chat.markdown.code.copy");
+  // In the chat transcript a block takes the desktop chat's bare form: no title bar or
+  // wrap toggle, its buttons pinned to the corner (styled in index.css).
+  const inTranscript = useContext(TranscriptMarkdownContext);
 
   return (
-    <div className="chat-markdown-codeblock" data-wrap={wrap ? "true" : "false"} dir={direction}>
+    <div
+      className="chat-markdown-codeblock"
+      data-wrap={wrap && wrapAvailable && !inTranscript ? "true" : "false"}
+      data-transcript-fence={inTranscript ? "" : undefined}
+      data-multiline={code.includes("\n") ? "" : undefined}
+      dir={direction}
+    >
       <div className="chat-markdown-codeblock__header">
-        <CodeBlockHeaderTitle fence={fence} />
+        {inTranscript ? null : <CodeBlockHeaderTitle fence={fence} />}
         <div className="chat-markdown-codeblock__actions">
-          <IconButton
-            className="chat-markdown-codeblock__action"
-            onClick={toggleWrap}
-            title={wrapLabel}
-            label={wrapLabel}
-            aria-pressed={wrap}
-            data-active={wrap ? "true" : "false"}
-            size="icon-xs"
-            variant="ghost"
-          >
-            <TextWrapIcon className="size-4" />
-          </IconButton>
+          {actions}
+          {runnable ? (
+            <IconButton
+              className="chat-markdown-codeblock__action"
+              onClick={() => codeRun?.runInTerminal(prepareShellCommand(code))}
+              title={runLabel}
+              label={runLabel}
+              data-code-run=""
+              size="icon-xs"
+              variant="ghost"
+            >
+              <TerminalIcon className="size-4" />
+            </IconButton>
+          ) : null}
+          {wrapAvailable && !inTranscript ? (
+            <IconButton
+              className="chat-markdown-codeblock__action"
+              onClick={toggleWrap}
+              title={wrapLabel}
+              label={wrapLabel}
+              aria-pressed={wrap}
+              data-active={wrap ? "true" : "false"}
+              size="icon-xs"
+              variant="ghost"
+            >
+              <TextWrapIcon className="size-4" />
+            </IconButton>
+          ) : null}
           <IconButton
             className="chat-markdown-codeblock__action"
             onClick={handleCopy}
@@ -1473,6 +1705,85 @@ function MarkdownCodeBlock({
       </div>
       <div className="chat-markdown-codeblock__body">{children}</div>
     </div>
+  );
+}
+
+// The diagram renderer and its sanitizer stay out of the chat hot path.
+const MermaidDiagram = React.lazy(() => import("./chat/MermaidDiagram"));
+
+const MAX_MERMAID_SOURCE_CHARS = 50_000;
+
+/**
+ * A ```mermaid block drawn as a diagram, with a toggle back to its source. An
+ * open fence, a user message, or a diagram that fails stays plain code.
+ */
+function MarkdownMermaidBlock({
+  code,
+  fence,
+  direction,
+  isStreaming,
+  onImageExpand,
+  children,
+}: {
+  code: string;
+  fence: CodeFenceInfo;
+  direction?: "ltr" | undefined;
+  isStreaming: boolean;
+  onImageExpand: ChatMarkdownProps["onImageExpand"];
+  children: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const [showCode, setShowCode] = useState(false);
+  const showDiagram = !showCode && !isStreaming && code.trim().length > 0;
+  const toggleLabel = t(
+    showCode ? "chat.markdown.mermaid.showDiagram" : "chat.markdown.mermaid.showCode",
+  );
+  const imageName = t("chat.markdown.mermaid.imageName");
+  return (
+    <MarkdownCodeBlock
+      code={code}
+      fence={fence}
+      direction={direction}
+      canWrap={!showDiagram}
+      actions={
+        isStreaming ? null : (
+          <IconButton
+            className="chat-markdown-codeblock__action"
+            onClick={() => setShowCode((value) => !value)}
+            title={toggleLabel}
+            label={toggleLabel}
+            aria-pressed={showCode}
+            size="icon-xs"
+            variant="ghost"
+          >
+            {showCode ? <WorkflowIcon className="size-4" /> : <CodeIcon className="size-4" />}
+          </IconButton>
+        )
+      }
+    >
+      {showDiagram ? (
+        <CodeHighlightErrorBoundary key={code} fallback={children}>
+          <Suspense
+            fallback={
+              <pre className="invisible" aria-hidden>
+                {code}
+              </pre>
+            }
+          >
+            <MermaidDiagram
+              source={code}
+              onExpand={
+                onImageExpand
+                  ? (src) => onImageExpand({ images: [{ src, name: imageName }], index: 0 })
+                  : undefined
+              }
+            />
+          </Suspense>
+        </CodeHighlightErrorBoundary>
+      ) : (
+        children
+      )}
+    </MarkdownCodeBlock>
   );
 }
 
@@ -1635,12 +1946,12 @@ const MarkdownRenderContext = createContext<MarkdownRenderContextValue | null>(n
 const MarkdownSourceTextContext = createContext("");
 
 // Stable component types preserve code highlighting timers, copy state and image state.
-const GITHUB_ALERTS: Record<GithubAlertKind, { title: string; icon: LucideIcon }> = {
-  note: { title: "Note", icon: InfoIcon },
-  tip: { title: "Tip", icon: LightbulbIcon },
-  important: { title: "Important", icon: InfoIcon },
-  warning: { title: "Warning", icon: TriangleAlertIcon },
-  caution: { title: "Caution", icon: OctagonAlertIcon },
+const GITHUB_ALERTS: Record<GithubAlertKind, { title: TranslationKey; icon: LucideIcon }> = {
+  note: { title: "chat.markdown.alert.note", icon: InfoIcon },
+  tip: { title: "chat.markdown.alert.tip", icon: LightbulbIcon },
+  important: { title: "chat.markdown.alert.important", icon: InfoIcon },
+  warning: { title: "chat.markdown.alert.warning", icon: TriangleAlertIcon },
+  caution: { title: "chat.markdown.alert.caution", icon: OctagonAlertIcon },
 };
 
 function TechnicalBidiIsolate(props: { active: boolean; children: ReactNode }) {
@@ -1673,6 +1984,24 @@ function PythonBytesParagraph(props: {
 }
 
 const MARKDOWN_COMPONENTS: Components = {
+  // Emitted by rehypeRedactSecrets; react-markdown passes custom tags by name.
+  ...({
+    [SECRET_ELEMENT_TAG]: function MarkdownRedactedSecret(props: {
+      "data-kind"?: string;
+      "data-value"?: string;
+    }) {
+      return <RedactedSecret kind={props["data-kind"] ?? ""} value={props["data-value"] ?? ""} />;
+    },
+    // Emitted by rehypeZonedTimes around a time written with a zone.
+    [ZONED_TIME_ELEMENT_TAG]: function MarkdownZonedTime(props: {
+      "data-original"?: string;
+      children?: ReactNode;
+    }) {
+      return (
+        <ZonedTimeText original={props["data-original"] ?? ""}>{props.children}</ZonedTimeText>
+      );
+    },
+  } as unknown as Components),
   p: function MarkdownParagraph({ node, children, ...props }) {
     const { isUserVariant } = useContext(MarkdownRenderContext)!;
     const start = node?.position?.start.offset;
@@ -1694,6 +2023,9 @@ const MARKDOWN_COMPONENTS: Components = {
     return <p {...props}>{children}</p>;
   },
   blockquote: function MarkdownBlockquote({ node: _node, children, ...props }) {
+    // The title is Moss's own label, not agent text. Message text skips the presentation layer, so
+    // the label is translated here and the quoted text around it stays as written.
+    const { t } = useTranslation();
     const kind = (props as { "data-github-alert"?: GithubAlertKind })["data-github-alert"];
     const alert = kind ? GITHUB_ALERTS[kind] : undefined;
     if (!alert) return <blockquote {...props}>{children}</blockquote>;
@@ -1702,7 +2034,7 @@ const MARKDOWN_COMPONENTS: Components = {
       <blockquote {...props}>
         <p className="markdown-alert-title">
           <Icon aria-hidden className="size-[1.1em] shrink-0" />
-          {alert.title}
+          {t(alert.title)}
         </p>
         {children}
       </blockquote>
@@ -1729,21 +2061,73 @@ const MARKDOWN_COMPONENTS: Components = {
       </MarkdownRenderContext.Provider>
     );
     const linkActions = useContext(ChatLinkActionsContext);
+    const cardedDeckPages = useContext(ChatDeckCardPagesContext);
+    const sharedViewer = useIsSharedViewer();
+    const { t, format } = useTranslation();
     const restoredHref = href ? restoreLiteralDollarPlaceholders(href) : href;
+    if (restoredHref?.startsWith(`${THREAD_OUTPUT_ROUTE}?`)) {
+      const target = new URL(restoredHref, "http://moss.invalid");
+      const file = target.searchParams.get("file");
+      if (
+        sharedViewer ||
+        isUserVariant ||
+        !context.threadId ||
+        !file ||
+        target.searchParams.get("threadId") !== context.threadId
+      )
+        return <span>{children}</span>;
+      // Moss's own download link: the file as a card (打开 in the side panel, 另存为).
+      const label = nodeToPlainText(children).trim();
+      return (
+        <ChatOutputFileCard
+          threadId={context.threadId}
+          file={file}
+          name={label && /\.[a-z0-9]{1,8}$/iu.test(label) ? label : basenameOfPath(file)}
+          sha256={target.searchParams.get("sha256")}
+        />
+      );
+    }
     const threadHref = restoredHref?.startsWith("thread://")
       ? restoredHref.slice("thread://".length)
       : restoredHref?.startsWith("moss://thread/")
         ? decodeMossThreadLinkTarget(restoredHref.slice("moss://thread/".length))
         : null;
-    if (threadHref && onOpenThread) {
+    const spacePageId = spacePageIdOfLink(restoredHref);
+    // One entry per deck: the card under this answer is it, so its link is not drawn again.
+    if (spacePageId && cardedDeckPages.has(spacePageId)) return null;
+    // A guest has no 资料空间 to open, and a malformed id opens nothing: plain text then.
+    if (restoredHref?.startsWith(SPACE_PAGE_LINK_PREFIX) && (!spacePageId || sharedViewer))
+      return <span>{linkedChildren}</span>;
+    if (spacePageId) {
+      const chatThreadId = context.threadId;
       return (
         <button
           type="button"
+          data-space-page-link=""
           className="inline p-0 text-inherit underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground/70"
-          onClick={() => onOpenThread(ThreadId.makeUnsafe(threadHref))}
+          onClick={() =>
+            // In a chat a deck opens in the right panel; other pages open 资料空间.
+            void openSpacePageFromChat(spacePageId, chatThreadId, {
+              readPage: (input) => ensureNativeApi().pages.read(input),
+              scopes: [null, useSpacesUiStore.getState().activeSpaceId],
+              openDeck: (deck) => {
+                if (chatThreadId) openDeckInSidePanel(chatThreadId, deck);
+              },
+              openSpacePage,
+            })
+          }
         >
           {linkedChildren}
         </button>
+      );
+    }
+    if (threadHref && onOpenThread) {
+      return (
+        <MarkdownThreadLink
+          target={threadHref}
+          onOpenThread={onOpenThread}
+          fallbackChildren={linkedChildren}
+        />
       );
     }
     const isExternalHttp = isExternalHttpHref(restoredHref);
@@ -1765,9 +2149,51 @@ const MARKDOWN_COMPONENTS: Components = {
         );
       }
     }
+    if (sharedViewer && isExternalHttp && isOwnerLocalUrl(restoredHref)) {
+      // A page on the owner's machine (a dev server, the browser panel's local page): the
+      // guest's browser would open its own machine instead, so say where it runs.
+      return (
+        <span
+          className="text-muted-foreground underline decoration-dotted underline-offset-2"
+          title={format("guest.localPage.title", { url: safeDecodeUri(restoredHref) })}
+          data-shared-local-link=""
+        >
+          {linkedChildren}
+          <span className="ms-1 rounded bg-muted px-1 text-ui-xs no-underline">
+            {t("guest.localPage.badge")}
+          </span>
+        </span>
+      );
+    }
+    // A pull request or issue named only by its link reads as the desktop chat's
+    // reference chip ("owner/repo#123"); a descriptive link text stays a link.
+    const forgeRef = isExternalHttp && restoredHref ? parseForgeRef(restoredHref) : null;
+    if (
+      forgeRef &&
+      restoredHref &&
+      linkTextIsForgeRef(nodeToPlainText(children), restoredHref, forgeRef)
+    ) {
+      return (
+        <TechnicalBidiIsolate active={usesAutomaticBlockDirection}>
+          <ForgeRefChip
+            href={restoredHref}
+            forgeRef={forgeRef}
+            onClick={(event) => {
+              if (event.metaKey || event.ctrlKey) return;
+              const openGitHubItem = resolveChatLinkClickOpener(restoredHref, linkActions);
+              if (!openGitHubItem) return;
+              event.preventDefault();
+              openGitHubItem(restoredHref);
+            }}
+          />
+        </TechnicalBidiIsolate>
+      );
+    }
     const targetPath = isExternalHttp
       ? null
-      : resolveChatFileChipTarget(restoredHref, cwd, knownAbsoluteFilePaths);
+      : (resolveChatFileChipTarget(restoredHref, cwd, knownAbsoluteFilePaths) ??
+        // A guest has no folder to resolve against; the share resolves the link as written.
+        (sharedViewer ? resolveSharedViewerFileLinkTarget(restoredHref) : null));
     if (!targetPath) {
       return (
         <a
@@ -1782,7 +2208,7 @@ const MARKDOWN_COMPONENTS: Components = {
                 // the app by default); cmd/ctrl-click keeps the default external open.
                 onClick: (event: React.MouseEvent) => {
                   if (event.metaKey || event.ctrlKey) return;
-                  const openGitHubItem = resolveGitHubItemClickOpener(restoredHref, linkActions);
+                  const openGitHubItem = resolveChatLinkClickOpener(restoredHref, linkActions);
                   if (!openGitHubItem) return;
                   event.preventDefault();
                   openGitHubItem(restoredHref);
@@ -1821,8 +2247,13 @@ const MARKDOWN_COMPONENTS: Components = {
     );
   },
   pre: function MarkdownPre({ node, children, ...props }) {
-    const { diffThemeName, isStreaming, isUserVariant, usesAutomaticBlockDirection } =
-      useContext(MarkdownRenderContext)!;
+    const {
+      diffThemeName,
+      isStreaming,
+      isUserVariant,
+      usesAutomaticBlockDirection,
+      onImageExpand,
+    } = useContext(MarkdownRenderContext)!;
     const sourceText = useContext(MarkdownSourceTextContext);
     const renderInlineVisual = useContext(InlineVisualEmbedContext);
     const codeBlock = extractCodeBlock(children);
@@ -1859,27 +2290,45 @@ const MARKDOWN_COMPONENTS: Components = {
       </pre>
     );
 
+    const highlightedCode =
+      code.length > MAX_SYNTAX_HIGHLIGHT_INPUT_CHARS ? (
+        highlightedFallback
+      ) : (
+        <CodeHighlightErrorBoundary fallback={highlightedFallback}>
+          <Suspense fallback={highlightedFallback}>
+            <SuspenseShikiCodeBlock
+              language={fence.language}
+              code={code}
+              themeName={diffThemeName}
+              isStreaming={isStreaming}
+              sourceOffset={sourceOffset}
+            />
+          </Suspense>
+        </CodeHighlightErrorBoundary>
+      );
+    if (fence.language === "mermaid" && !isUserVariant && code.length <= MAX_MERMAID_SOURCE_CHARS) {
+      // While the reply streams, only a fence that has closed is drawn.
+      const fenceOpen = isStreaming && !isFenceClosedInSource(sourceText, code, codeOffsetInSource);
+      return (
+        <MarkdownMermaidBlock
+          code={code}
+          fence={fence}
+          direction={usesAutomaticBlockDirection ? "ltr" : undefined}
+          isStreaming={fenceOpen}
+          onImageExpand={onImageExpand}
+        >
+          {highlightedCode}
+        </MarkdownMermaidBlock>
+      );
+    }
+
     return (
       <MarkdownCodeBlock
         code={code}
         fence={fence}
         direction={usesAutomaticBlockDirection ? "ltr" : undefined}
       >
-        {code.length > MAX_SYNTAX_HIGHLIGHT_INPUT_CHARS ? (
-          highlightedFallback
-        ) : (
-          <CodeHighlightErrorBoundary fallback={highlightedFallback}>
-            <Suspense fallback={highlightedFallback}>
-              <SuspenseShikiCodeBlock
-                language={fence.language}
-                code={code}
-                themeName={diffThemeName}
-                isStreaming={isStreaming}
-                sourceOffset={sourceOffset}
-              />
-            </Suspense>
-          </CodeHighlightErrorBoundary>
-        )}
+        {highlightedCode}
       </MarkdownCodeBlock>
     );
   },
@@ -1892,6 +2341,7 @@ const MARKDOWN_COMPONENTS: Components = {
       usesAutomaticBlockDirection,
     } = useContext(MarkdownRenderContext)!;
     const sourceText = useContext(MarkdownSourceTextContext);
+    const sharedViewer = useIsSharedViewer();
     const codeSource = sourceText.slice(node?.position?.start?.offset, node?.position?.end?.offset);
     if (!isUserVariant && !className && codeSource.startsWith("`") && !codeSource.includes("\n")) {
       const raw = nodeToPlainText(children);
@@ -1914,9 +2364,10 @@ const MARKDOWN_COMPONENTS: Components = {
         const nodeStart = node?.position?.start?.offset ?? 0;
         const filePathOffset = sourceText.indexOf(filePath, nodeStart);
         const sourceOffset = filePathOffset < 0 ? nodeStart : filePathOffset;
-        const findLabelProps = {
-          label: <FindAwareMarkdownText text={filePath} sourceOffset={sourceOffset} />,
-        };
+        // A shared viewer sees the file's name; the path is the owner's.
+        const findLabelProps = sharedViewer
+          ? {}
+          : { label: <FindAwareMarkdownText text={filePath} sourceOffset={sourceOffset} /> };
         const knownTarget = resolveChatFileChipTarget(filePath, undefined, knownAbsoluteFilePaths);
         if (knownTarget) {
           return (
@@ -1951,6 +2402,7 @@ const MARKDOWN_COMPONENTS: Components = {
   },
   img: function MarkdownImage({ node: _node, src, alt: altProp, ...props }) {
     const { cwd, onImageExpand, isInsideLink } = useContext(MarkdownRenderContext)!;
+    const asksForExternalImages = useContext(TranscriptMarkdownContext);
     const alt = altProp ?? "";
     const restoredSrc = src ? restoreLiteralDollarPlaceholders(src) : "";
     if (isLocalImageMarkdownSrc(restoredSrc)) {
@@ -1963,6 +2415,10 @@ const MARKDOWN_COMPONENTS: Components = {
           isLinked={isInsideLink}
         />
       );
+    }
+    // The chat never fetches an image from another site; it shows a "Show Image" box.
+    if (asksForExternalImages && parseExternalImageSrc(restoredSrc)) {
+      return <ExternalImage src={restoredSrc} alt={alt} />;
     }
     if (!onImageExpand || !restoredSrc) {
       return <img {...props} src={restoredSrc} alt={alt} loading="lazy" />;
@@ -2163,6 +2619,7 @@ function ChatMarkdown({
   const { resolvedTheme } = useTheme();
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
   const isUserVariant = variant === "user";
+  const codeRun = useContext(CodeRunContext);
   // A fresh array per streamed token would rebuild the render context and
   // re-render every link and code node; keep it while its paths are unchanged.
   const extractedAbsoluteFilePaths = useStableValue(
@@ -2192,12 +2649,14 @@ function ChatMarkdown({
   );
   const normalizedText = useMemo(() => {
     if (isUserVariant) return smoothedText;
+    // A last line that is only "-", "##" or "```" waits for its first real character.
+    const revealedText = isStreaming ? holdBackPartialBlockMarker(smoothedText) : smoothedText;
     // Once the reveal has caught up (and always outside streaming) the smoothed
     // text is the raw text, whose repair is already done above.
     const repairedText =
-      smoothedText === text ? sourceText : repairMarkdownTableDelimiters(smoothedText);
+      revealedText === text ? sourceText : repairMarkdownTableDelimiters(revealedText);
     return protectLiteralMarkdownDollars(repairedText);
-  }, [isUserVariant, smoothedText, text, sourceText]);
+  }, [isStreaming, isUserVariant, smoothedText, text, sourceText]);
   // While streaming, let React deprioritize and coalesce the markdown re-parse so a
   // fast token stream (one flush per ~100ms) doesn't re-render the full ReactMarkdown
   // tree on every flush. The deferred value always converges to the latest text, and
@@ -2340,14 +2799,32 @@ function ChatMarkdown({
       >
         <MarkdownRenderContext.Provider value={renderContext}>
           <MarkdownSourceTextContext.Provider value={sourceText}>
-            <StreamingMarkdownProvider active={animateStreamingText}>
-              <ParsedMarkdown
-                text={renderedText}
-                splitBlocks={splitBlocks}
-                remarkPlugins={remarkPlugins}
-                rehypePlugins={rehypePlugins}
-                components={MARKDOWN_COMPONENTS}
-              />
+            <StreamingMarkdownProvider
+              active={animateStreamingText}
+              textLength={renderedText.length}
+              streamKey={messageId === undefined ? undefined : `${messageId}:${segmentIndex ?? 0}`}
+            >
+              {/* A message whose markdown fails to render still reads, as plain text;
+                  settling the stream gives the markdown another try. */}
+              <CodeHighlightErrorBoundary
+                resetKey={isStreaming}
+                fallback={
+                  <p className="whitespace-pre-wrap" data-markdown-fallback="">
+                    {text}
+                  </p>
+                }
+              >
+                {/* What the user typed is never offered to run. */}
+                <CodeRunContext.Provider value={isUserVariant ? null : codeRun}>
+                  <ParsedMarkdown
+                    text={renderedText}
+                    splitBlocks={splitBlocks}
+                    remarkPlugins={remarkPlugins}
+                    rehypePlugins={rehypePlugins}
+                    components={MARKDOWN_COMPONENTS}
+                  />
+                </CodeRunContext.Provider>
+              </CodeHighlightErrorBoundary>
             </StreamingMarkdownProvider>
           </MarkdownSourceTextContext.Provider>
         </MarkdownRenderContext.Provider>

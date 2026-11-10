@@ -28,6 +28,16 @@ export const MOSS_CANVAS_BUNDLE_REQUIRED_PATHS = [
   "electron/native-renderer-api.mjs",
 ] as const;
 const PAGE_EDITOR_RUNTIME_PATH = "apps/codex-canvas/dist/page-editor.html";
+// Editor entries the desktop app loads in iframes. A source that declares one must ship it built.
+const EDITOR_RUNTIME_PATHS = [
+  { source: "apps/codex-canvas/page-editor.html", runtime: PAGE_EDITOR_RUNTIME_PATH },
+  {
+    source: "apps/codex-canvas/deck-editor.html",
+    runtime: "apps/codex-canvas/dist/deck-editor.html",
+  },
+] as const;
+const nonEmptyFile = (file: string) =>
+  FS.existsSync(file) && FS.statSync(file).isFile() && FS.statSync(file).size > 0;
 
 // Self-contained subset of the canvas checkout. The renderer dist is fully
 // bundled by Vite; the Electron main modules import only host-provided
@@ -114,17 +124,13 @@ export function validateMossCanvasBundle(directory: string): MossCanvasBundleVal
       fileCount?: unknown;
       requiredPaths?: unknown;
     };
-    if (
-      Array.isArray(receipt.requiredPaths) &&
-      receipt.requiredPaths.includes(PAGE_EDITOR_RUNTIME_PATH)
-    ) {
-      const pageEditor = Path.join(directory, PAGE_EDITOR_RUNTIME_PATH);
+    for (const { runtime } of EDITOR_RUNTIME_PATHS) {
       if (
-        !FS.existsSync(pageEditor) ||
-        !FS.statSync(pageEditor).isFile() ||
-        FS.statSync(pageEditor).size === 0
+        Array.isArray(receipt.requiredPaths) &&
+        receipt.requiredPaths.includes(runtime) &&
+        !nonEmptyFile(Path.join(directory, runtime))
       )
-        throw new Error(`Moss Canvas bundle is missing ${PAGE_EDITOR_RUNTIME_PATH}`);
+        throw new Error(`Moss Canvas bundle is missing ${runtime}`);
     }
     if (receipt.hashAlgorithm === undefined) {
       // Unversioned receipts used a depth-first locale-sorted traversal. Keep
@@ -162,15 +168,12 @@ export function prepareMossCanvasBundle(input: {
 }): MossCanvasBundleValidation {
   const source = Path.resolve(input.sourceDir);
   const target = Path.resolve(input.targetDir);
-  const declaresPageEditor = FS.existsSync(Path.join(source, "apps/codex-canvas/page-editor.html"));
-  if (declaresPageEditor) {
-    const pageEditor = Path.join(source, PAGE_EDITOR_RUNTIME_PATH);
-    if (
-      !FS.existsSync(pageEditor) ||
-      !FS.statSync(pageEditor).isFile() ||
-      FS.statSync(pageEditor).size === 0
-    )
-      throw new Error(`Moss Canvas source is missing ${PAGE_EDITOR_RUNTIME_PATH}`);
+  const declaredEditors = EDITOR_RUNTIME_PATHS.filter((entry) =>
+    FS.existsSync(Path.join(source, entry.source)),
+  ).map((entry) => entry.runtime);
+  for (const runtime of declaredEditors) {
+    if (!nonEmptyFile(Path.join(source, runtime)))
+      throw new Error(`Moss Canvas source is missing ${runtime}`);
   }
   const inside = (parent: string, child: string) => {
     const relative = Path.relative(parent, child);
@@ -234,10 +237,7 @@ export function prepareMossCanvasBundle(input: {
           preparedAt: new Date().toISOString(),
           hashAlgorithm: MOSS_CANVAS_BUNDLE_HASH_ALGORITHM,
           ...(input.sourcePin ? { sourcePin: input.sourcePin } : {}),
-          requiredPaths: [
-            ...MOSS_CANVAS_BUNDLE_REQUIRED_PATHS,
-            ...(declaresPageEditor ? [PAGE_EDITOR_RUNTIME_PATH] : []),
-          ],
+          requiredPaths: [...MOSS_CANVAS_BUNDLE_REQUIRED_PATHS, ...declaredEditors],
           fileCount: validation.fileCount,
           sha256: validation.sha256,
         },

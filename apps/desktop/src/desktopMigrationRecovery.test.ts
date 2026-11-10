@@ -4,7 +4,7 @@ import * as Path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@synara/shared/migrationRecovery";
+import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@moss/shared/migrationRecovery";
 
 import {
   hasVerifiedDesktopMigrationRestore,

@@ -5,7 +5,7 @@
 
 import { useId, useState } from "react";
 
-import type { AutomaticApprovalReviewUpdatePayload } from "@synara/contracts";
+import type { AutomaticApprovalReviewUpdatePayload } from "@moss/contracts";
 
 import { ChevronRightIcon } from "~/lib/icons";
 import { disclosureChevronClassName } from "~/lib/disclosureMotion";

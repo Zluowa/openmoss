@@ -1,5 +1,5 @@
-import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@synara/contracts";
-import { compileKeybindingRule } from "@synara/shared/keybindingRules";
+import type { KeybindingCommand, ResolvedKeybindingsConfig } from "@moss/contracts";
+import { compileKeybindingRule } from "@moss/shared/keybindingRules";
 import { describe, expect, it } from "vitest";
 
 import { htmlRenderShortcutPolicy, isHtmlRenderShortcut } from "./htmlRenderShortcuts";

@@ -5,8 +5,8 @@ import type {
   ComputerUiNode,
   ComputerWindow,
   ThreadComputerState,
-} from "@synara/contracts";
-import { decodeComputerFrame } from "@synara/shared/computerFrame";
+} from "@moss/contracts";
+import { decodeComputerFrame } from "@moss/shared/computerFrame";
 
 import {
   COMPUTER_ACTION_OBSERVATION_MAX_DIMENSION,
@@ -22,7 +22,7 @@ import {
 } from "./computerCallContext.ts";
 import { withComputerTask } from "./computerTaskContext.ts";
 import { FakeComputerBackend } from "./FakeComputerBackend.ts";
-import type { FrameSink } from "@synara/shared/frameTransport";
+import type { FrameSink } from "@moss/shared/frameTransport";
 
 class RecordingSink implements FrameSink {
   readonly received: Uint8Array[] = [];
@@ -590,6 +590,8 @@ describe("ComputerManager and FakeComputerBackend", () => {
     const status = await manager.getStatus();
     expect(status.computerId).toBe("desktop");
     expect(status.availability).toEqual({ kind: "available", backend: "fake" });
+    // The fake reports no host, so the status leaves the platform out rather than guessing.
+    expect(status.hostPlatform).toBeUndefined();
     expect(status.health.status).toBe("connected");
     expect(status.capabilities.input).toBe(true);
     // No thread state was created as a side effect of asking, and merely
@@ -621,6 +623,17 @@ describe("ComputerManager and FakeComputerBackend", () => {
     });
 
     await manager.dispose();
+  });
+
+  it("carries the host platform the backend reports into getStatus", async () => {
+    for (const hostPlatform of ["darwin", "win32", "linux"] as const) {
+      const backend = Object.assign(new FakeComputerBackend(), {
+        reportedHostPlatform: () => hostPlatform,
+      });
+      const manager = new ComputerManager({ backend });
+      expect((await manager.getStatus()).hostPlatform).toBe(hostPlatform);
+      await manager.dispose();
+    }
   });
 
   it("reports a failed availability probe as backend-unavailable instead of throwing", async () => {

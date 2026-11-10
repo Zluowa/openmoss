@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CommandId, MessageId, ProjectId, ThreadId } from "@synara/contracts";
-import * as processRuntime from "@synara/shared/processRuntime";
+import { CommandId, MessageId, ProjectId, ThreadId } from "@moss/contracts";
+import * as processRuntime from "@moss/shared/processRuntime";
 import { Effect, Option } from "effect";
 import { expect, it, vi } from "vitest";
 
@@ -57,7 +57,7 @@ it.each([false, true])(
             // this case's fresh source home. Pointing MOSS_HOME at the harness
             // root makes the per-case CODEX_HOME the managed home itself.
             vi.stubEnv("MOSS_HOME", harness.rootDir);
-            vi.stubEnv("SYNARA_HOME", harness.rootDir);
+            vi.stubEnv("MOSS_HOME", harness.rootDir);
             vi.stubEnv("CODEX_HOME", codexState);
             vi.stubEnv("CODEX_SQLITE_HOME", codexState);
             fs.copyFileSync(

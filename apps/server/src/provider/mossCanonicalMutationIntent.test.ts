@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-import type { MossCanonicalResourceMutationPayload, MossOwnershipStore } from "@synara/contracts";
+import type { MossCanonicalResourceMutationPayload, MossOwnershipStore } from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const compactionBarrier = vi.hoisted(() => ({

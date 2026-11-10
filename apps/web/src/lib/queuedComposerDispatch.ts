@@ -3,7 +3,7 @@
 // Layer: Web orchestration helper
 // Exports: dispatchQueuedComposerTurnHeadless
 
-import type { AssistantDeliveryMode, MessageId, ThreadId } from "@synara/contracts";
+import type { AssistantDeliveryMode, MessageId, ThreadId } from "@moss/contracts";
 
 import {
   persistModelSelectionBeforeRuntimeMode,

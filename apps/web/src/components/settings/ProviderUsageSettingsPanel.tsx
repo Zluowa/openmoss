@@ -10,19 +10,18 @@ import {
   type ProviderInstanceId,
   type ServerProviderStatus,
   type ServerProviderUsageSnapshot,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   providerUsageDisplayName,
   providerUsageNeedsAuthDetail,
   selectVisibleProviderUsageSnapshots,
-} from "@synara/shared/providerUsage";
-import { deriveProviderInstances } from "@synara/shared/providerInstances";
+} from "@moss/shared/providerUsage";
+import { deriveProviderInstances } from "@moss/shared/providerInstances";
 import { useId, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAppSettings, type RailUsageWindow } from "~/appSettings";
 import {
-  MAX_RAIL_USAGE_ACCOUNTS,
   getRailUsageAccounts,
   resolveRailUsageAccounts,
   toggleRailUsageAccount,
@@ -425,7 +424,6 @@ export function ProviderUsageSettingsPanel() {
     settings.railUsageInstanceIds ?? settings.railUsageProviders,
     railUsageAccounts,
   ).map((account) => account.instance.instanceId);
-  const railUsageFull = railUsageInstanceIds.length >= MAX_RAIL_USAGE_ACCOUNTS;
   const usageQuery = useQuery(serverAllProviderUsageQueryOptions());
   const mossPhoneQuery = useQuery(serverMossAccountSessionQueryOptions());
   const mossAccountQuery = useQuery(serverMossCloudAccountStateQueryOptions());
@@ -480,7 +478,7 @@ export function ProviderUsageSettingsPanel() {
           <MossUsageCard state={mossUsageState} />
         </SettingsSection>
       )}
-      <SettingsSection title={`Sidebar · up to ${MAX_RAIL_USAGE_ACCOUNTS} accounts`}>
+      <SettingsSection title="Sidebar usage rings">
         {railUsageAccounts.map(({ instance, label }) => {
           const checked = railUsageInstanceIds.includes(instance.instanceId);
           return (
@@ -499,14 +497,13 @@ export function ProviderUsageSettingsPanel() {
               actions={
                 <Switch
                   checked={checked}
-                  disabled={serverSettingsQuery.isPending || (!checked && railUsageFull)}
+                  disabled={serverSettingsQuery.isPending}
                   onCheckedChange={(next) =>
                     updateSettings({
                       railUsageInstanceIds: toggleRailUsageAccount(
                         savedRailUsageInstanceIds,
                         instance.instanceId,
                         Boolean(next),
-                        railUsageAccounts,
                       ),
                     })
                   }

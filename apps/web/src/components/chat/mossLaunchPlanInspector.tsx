@@ -10,7 +10,7 @@ import {
   type MossLaunchPlanEnvironmentVariable,
   type ProviderGetLaunchPlanResult,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { readNativeApi } from "../../nativeApi";

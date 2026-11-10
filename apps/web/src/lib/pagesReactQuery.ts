@@ -1,4 +1,4 @@
-import type { PageId, PagesReadResult, SpaceId } from "@synara/contracts";
+import type { PageId, PagesReadResult, SpaceId } from "@moss/contracts";
 import { ensureNativeApi } from "~/nativeApi";
 
 export const pagesQueryKeys = {

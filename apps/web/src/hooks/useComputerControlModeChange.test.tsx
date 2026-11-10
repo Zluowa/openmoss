@@ -1,5 +1,5 @@
-import { ThreadId, type DesktopAppSnapState } from "@synara/contracts";
-import { COMPUTER_PERMISSION_KINDS } from "@synara/shared/computerGrants";
+import { ThreadId, type DesktopAppSnapState } from "@moss/contracts";
+import { COMPUTER_PERMISSION_KINDS } from "@moss/shared/computerGrants";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useComputerControlModeChange } from "./useComputerControlModeChange";

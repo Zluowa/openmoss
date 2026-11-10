@@ -6,6 +6,8 @@
 // window titles, paths, native error details, and feedback report diagnostics are
 // either captured and preserved by a narrow pattern or returned unchanged.
 
+import { lookupPhrase } from "./zhCNPhraseTable";
+
 type DynamicTranslation = readonly [pattern: RegExp, translate: (match: RegExpExecArray) => string];
 
 const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
@@ -21,6 +23,11 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Permission status": "权限状态",
   Capture: "截图",
   "Available on macOS only": "仅可在 macOS 上使用",
+  "Computer control is not ready for AppSnap on Windows yet.":
+    "电脑控制尚未就绪，暂时无法在 Windows 上使用应用截图。",
+  "Computer control is not ready.": "电脑控制尚未就绪。",
+  "Computer control returned no Windows screenshot.": "电脑控制没有返回 Windows 截图。",
+  "Computer control returned an invalid Windows screenshot.": "电脑控制返回的 Windows 截图无效。",
   "Listening — press both Option keys to snap": "正在监听 — 同时按下两个 Option 键即可截图",
   Off: "关闭",
   "Starting the capture listener…": "正在启动截图监听器…",
@@ -166,6 +173,12 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
     "诊断信息仅包含应用版本、操作系统、服务商/模型、模式和会话状态，绝不包含提示词、消息、路径或日志。",
   "Feedback delivery is not configured for this Moss build.": "此 Moss 版本尚未配置反馈发送服务。",
   "Feedback sent": "反馈已发送",
+  "Feedback saved for delivery": "反馈已保存，正在发送",
+  "Your feedback is saved on this computer and will be sent to the developers when connected.":
+    "反馈已保存在这台电脑，连接恢复后将发送给开发者。",
+  "Submit to the developers to investigate and prepare a fix. Review the exact report before sending. Only app version, OS, language and provider/model are included; chats, paths and logs stay private.":
+    "提交给开发者检查并修复。发送前会展示完整报告供你确认。只附带应用版本、系统、语言及智能体和模型，不读取对话、路径或日志。",
+  "The Moss developer service is not connected yet.": "暂时无法连接开发者服务，请稍后重试。",
   "Thanks for helping make Moss better.": "感谢你帮助 Moss 变得更好。",
   "Could not send feedback": "无法发送反馈",
   "An unexpected delivery error occurred.": "发生了意外的发送错误。",
@@ -173,6 +186,27 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Sending...": "发送中…",
   Submit: "提交",
   "Feedback delivery timed out. Please try again.": "反馈发送超时，请重试。",
+  // Feedback screenshots and delivery failures.
+  "Add images": "添加图片",
+  "Choose images": "选择图片",
+  "Attached images": "已添加的图片",
+  "Drop images to attach them": "松开即可添加图片",
+  "Paste, drop or choose up to 5 images (PNG, JPG, WebP, 5 MB each)":
+    "可粘贴、拖入或选择最多 5 张图片（PNG、JPG、WebP，每张不超过 5 MB）",
+  "Only PNG, JPG and WebP images can be added.": "只能添加 PNG、JPG 或 WebP 图片。",
+  "Each image must be 5 MB or smaller.": "每张图片不能超过 5 MB。",
+  "You can add up to 5 images.": "最多可添加 5 张图片。",
+  "One of the images could not be read. Remove it and try again.":
+    "有一张图片无法读取，请移除后重试。",
+  "The images are too large to send. Remove one and try again.":
+    "图片太大，无法发送，请移除一张后重试。",
+  "Too much feedback was sent from this computer today. Please try again tomorrow.":
+    "这台电脑今天发送的反馈已达上限，请明天再试。",
+  "This feedback could not be accepted. Please try again.": "这条反馈未被接收，请重试。",
+  "The feedback service is not available right now. Please try again later.":
+    "反馈服务暂时不可用，请稍后再试。",
+  "Feedback could not be sent. Check your network connection and try again.":
+    "反馈未能发送，请检查网络连接后重试。",
 };
 
 const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
@@ -272,6 +306,8 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   // Only the local HTTP status wrapper is translated. Arbitrary server error
   // payloads deliberately miss this pattern and remain untouched.
   [/^Feedback could not be sent \((\d+)\)\.$/, (match) => `反馈无法发送（${match[1]}）。`],
+  // The image's own file name is kept as is.
+  [/^Remove image: (.+)$/s, (match) => `移除图片：${match[1]}`],
 ];
 
 /**
@@ -280,7 +316,7 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
  * diagnostics are never guessed at or translated.
  */
 export function translateZhCnAppSnapFeedbackText(value: string): string {
-  const exact = EXACT_TRANSLATIONS[value];
+  const exact = lookupPhrase(EXACT_TRANSLATIONS, value);
   if (exact !== undefined) return exact;
 
   for (const [pattern, translate] of DYNAMIC_TRANSLATIONS) {

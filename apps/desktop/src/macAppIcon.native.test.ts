@@ -2,7 +2,7 @@ import * as FS from "node:fs/promises";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
-import { spawnProcessSync } from "@synara/shared/processRuntime";
+import { spawnProcessSync } from "@moss/shared/processRuntime";
 import { describe, expect, it } from "vitest";
 
 import { persistMacAppIcon } from "./macAppIcon";

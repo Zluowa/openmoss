@@ -2,6 +2,7 @@ import {
   BROWSER_ANNOTATION_MAX_COMMENT_LENGTH,
   BROWSER_ANNOTATION_MAX_DOCUMENT_KEY_LENGTH,
   BROWSER_ANNOTATION_MAX_FINGERPRINT_LENGTH,
+  BROWSER_ANNOTATION_MAX_HTML_LENGTH,
   BROWSER_ANNOTATION_MAX_ID_LENGTH,
   BROWSER_ANNOTATION_MAX_MARKERS,
   BROWSER_ANNOTATION_MAX_NAME_LENGTH,
@@ -12,11 +13,12 @@ import {
   BROWSER_ANNOTATION_MAX_TEXT_LENGTH,
   BROWSER_ANNOTATION_MAX_URL_LENGTH,
   type BrowserAnnotation,
+  type BrowserAnnotationElementBox,
   type BrowserAnnotationMarker,
   type BrowserAnnotationSource,
   type BrowserAnnotationTheme,
-} from "@synara/contracts";
-import { sanitizeBrowserAnnotationPageTitle } from "@synara/shared/browserAnnotations";
+} from "@moss/contracts";
+import { sanitizeBrowserAnnotationPageTitle } from "@moss/shared/browserAnnotations";
 
 export const BROWSER_ANNOTATION_PROTOCOL_VERSION = 1 as const;
 
@@ -33,6 +35,7 @@ export interface AnnotationGuestCommittedMessage {
   readonly documentToken: string;
   readonly sessionId: string;
   readonly annotation: BrowserAnnotation;
+  readonly elementBox?: BrowserAnnotationElementBox;
 }
 
 export interface AnnotationGuestCancelledMessage {
@@ -151,7 +154,12 @@ function parseUrl(value: unknown): string | null {
   if (!url) return null;
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
+    return parsed.protocol === "http:" ||
+      parsed.protocol === "https:" ||
+      parsed.protocol === "file:" ||
+      parsed.protocol === "moss-local-preview:"
+      ? parsed.href
+      : null;
   } catch {
     return null;
   }
@@ -241,6 +249,11 @@ function parseAnnotation(value: unknown): BrowserAnnotation | null {
   let text = parseNullableText(value.text, BROWSER_ANNOTATION_MAX_TEXT_LENGTH);
   const fingerprint = parseFingerprint(value.fingerprint);
   const comment = parseNullableText(value.comment, BROWSER_ANNOTATION_MAX_COMMENT_LENGTH);
+  // Markup is optional (older guests send none); an unusable value is dropped, not fatal.
+  const html =
+    value.html === undefined
+      ? null
+      : (parseNullableText(value.html, BROWSER_ANNOTATION_MAX_HTML_LENGTH) ?? null);
   const capturedAt = boundedString(value.capturedAt, 40);
   if (
     !id ||
@@ -271,8 +284,39 @@ function parseAnnotation(value: unknown): BrowserAnnotation | null {
     name,
     text,
     fingerprint,
+    ...(html ? { html } : {}),
     comment,
     capturedAt: new Date(capturedAt).toISOString(),
+  };
+}
+
+const MAX_ELEMENT_BOX_COORDINATE = 1_000_000;
+
+function finiteInRange(value: unknown, minimum: number): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= minimum &&
+    value <= MAX_ELEMENT_BOX_COORDINATE
+  );
+}
+
+function parseElementBox(rect: unknown, viewport: unknown): BrowserAnnotationElementBox | null {
+  if (!isRecord(rect) || !isRecord(viewport)) return null;
+  const { x, y, width, height } = rect;
+  if (
+    !finiteInRange(x, -MAX_ELEMENT_BOX_COORDINATE) ||
+    !finiteInRange(y, -MAX_ELEMENT_BOX_COORDINATE) ||
+    !finiteInRange(width, 0) ||
+    !finiteInRange(height, 0) ||
+    !finiteInRange(viewport.width, 1) ||
+    !finiteInRange(viewport.height, 1)
+  ) {
+    return null;
+  }
+  return {
+    rect: { x, y, width, height },
+    viewport: { width: viewport.width, height: viewport.height },
   };
 }
 
@@ -289,6 +333,7 @@ export function parseAnnotationGuestMessage(value: unknown): AnnotationGuestMess
   if (value.kind === "committed") {
     const sessionId = parseIdentifier(value.sessionId);
     const annotation = parseAnnotation(value.annotation);
+    const elementBox = parseElementBox(value.rect, value.viewport);
     return sessionId && annotation
       ? {
           version: BROWSER_ANNOTATION_PROTOCOL_VERSION,
@@ -296,6 +341,7 @@ export function parseAnnotationGuestMessage(value: unknown): AnnotationGuestMess
           documentToken,
           sessionId,
           annotation,
+          ...(elementBox ? { elementBox } : {}),
         }
       : null;
   }

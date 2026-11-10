@@ -317,6 +317,39 @@ describe("applyAcpAgentModelSelection", () => {
     ]);
   });
 
+  it("sends the managed MiniMax model value the running CLI advertises", async () => {
+    const value = "m:custom_provider%3Amoss:minimax-m3:v:thinking";
+    const { runtime, calls } = fakeConfigurableRuntime({
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "m:minimax:MiniMax-M3:v:",
+          options: [
+            { value: "m:minimax:MiniMax-M3:v:", name: "MiniMax M3" },
+            { value, name: "MiniMax M3" },
+          ],
+        },
+      ],
+    });
+    await Effect.runPromise(
+      applyAcpAgentModelSelection({
+        spec: MINIMAX_ACP_AGENT_SPEC,
+        runtime,
+        selection: { model: "minimax-m3" },
+        managed: {
+          realm: "cn",
+          gatewayBaseUrl: "https://gateway.example/v1",
+          homePath: "/home",
+          models: ["minimax-m3"],
+        },
+      }),
+    );
+    expect(calls).toEqual([{ method: "setConfigOption", args: ["model", value] }]);
+  });
+
   it("falls back to the legacy session/set_model request only where the CLI implements it", async () => {
     const kimi = fakeConfigurableRuntime({ configOptions: [] });
     await Effect.runPromise(

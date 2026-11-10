@@ -3,7 +3,7 @@
 // Layer: Browser storage helper
 // Exports: sidebar UI state read/write helpers.
 
-import { normalizeWorkspaceRootForComparison } from "@synara/shared/threadWorkspace";
+import { normalizeWorkspaceRootForComparison } from "@moss/shared/threadWorkspace";
 import type { LastThreadRoute, SafeMainNavigationTarget } from "../chatRouteRestore";
 import type { ActivityScopeSelection } from "./SidebarActivityView.logic";
 

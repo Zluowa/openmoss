@@ -1,5 +1,5 @@
 // Shared dock opening and selection for the route shell and reusable chat surfaces.
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import { useCallback, useMemo } from "react";
 import { useRightDockStore } from "../../rightDockStore";
 import type { RightDockPane, RightDockPaneKind } from "../../rightDockStore.logic";

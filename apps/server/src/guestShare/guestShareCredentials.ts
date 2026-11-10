@@ -9,7 +9,7 @@
  */
 import { createHash } from "node:crypto";
 
-import { GuestShareId, ThreadId } from "@synara/contracts";
+import { GuestShareId, ThreadId } from "@moss/contracts";
 import { Schema } from "effect";
 
 import {

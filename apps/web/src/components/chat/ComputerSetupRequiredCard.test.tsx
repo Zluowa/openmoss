@@ -4,7 +4,7 @@
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { ComputerStatusResult } from "@synara/contracts";
+import type { ComputerStatusResult } from "@moss/contracts";
 
 import { ComputerSetupRequiredCard } from "./ComputerSetupRequiredCard";
 
@@ -147,7 +147,7 @@ describe("ComputerSetupRequiredCard", () => {
     const unsupported = renderToStaticMarkup(
       <ComputerSetupRequiredCard
         missing={["accessibility", "screenRecording"]}
-        status={status({ kind: "unsupported-platform", platform: "win32" })}
+        status={status({ kind: "unsupported-platform", platform: "freebsd" })}
         onSetUp={() => undefined}
       />,
     );

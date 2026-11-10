@@ -1,4 +1,4 @@
-import type { ProjectImportProject } from "@synara/contracts";
+import type { ProjectImportProject } from "@moss/contracts";
 import { useState } from "react";
 
 import { ProviderIcon } from "~/components/ProviderIcon";
@@ -12,7 +12,13 @@ import { disclosureChevronClassName } from "~/lib/disclosureMotion";
 import { ChevronRightIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
-import { IMPORT_PROVIDER_LABELS, projectImportItemKey, selectableProjectImportKeys } from "./logic";
+import { useWorkspacePathsStore } from "~/workspacePathsStore";
+import {
+  IMPORT_PROVIDER_LABELS,
+  projectImportItemKey,
+  selectableProjectImportKeys,
+  shortenImportPath,
+} from "./logic";
 
 export function ProjectImportProjectCard(props: {
   readonly project: ProjectImportProject;
@@ -20,17 +26,23 @@ export function ProjectImportProjectCard(props: {
   readonly includeArchived: boolean;
   readonly disabled: boolean;
   readonly completedKeys: ReadonlySet<string>;
+  /** Imported or skipped (it couldn't be imported and retrying won't help): not offered again. */
+  readonly skippedKeys?: ReadonlySet<string>;
+  /** Offer to link a moved folder; when off, a missing folder just imports as history. */
+  readonly relinkMissingFolders?: boolean;
   readonly workspaceRoot: string;
   readonly onWorkspaceRootChange: (path: string) => void;
   readonly onSelectionChange: (keys: readonly string[], checked: boolean) => void;
   readonly onPickerBusyChange: (busy: boolean) => void;
 }) {
   const { project } = props;
+  const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const [expanded, setExpanded] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const availableKeys = selectableProjectImportKeys(project, props.includeArchived).filter(
-    (key) => !props.completedKeys.has(key),
+    (key) => !props.completedKeys.has(key) && !props.skippedKeys?.has(key),
   );
+  const relink = props.relinkMissingFolders ?? true;
   const selectedCount = availableKeys.filter((key) => props.selected.has(key)).length;
   const visibleThreads = project.threads.filter(
     (thread) => props.includeArchived || !thread.archived,
@@ -70,13 +82,15 @@ export function ProjectImportProjectCard(props: {
               className={cn("block truncate text-muted-foreground", "text-ui-sm")}
               title={project.workspaceRoot}
             >
-              {project.workspaceRoot}
+              {shortenImportPath(project.workspaceRoot, homeDir)}
             </span>
           </span>
           <span className={cn("shrink-0 text-right text-muted-foreground", "text-ui-sm")}>
             <span className="block">{conversationLabel}</span>
-            {!project.directoryExists ? (
+            {!project.directoryExists && relink ? (
               <span className="block text-warning">Folder unavailable</span>
+            ) : !project.directoryExists ? (
+              <span className="block text-muted-foreground/70">History only</span>
             ) : (
               <span className="block text-muted-foreground/70">
                 {project.existingProjectId ? "Adds to existing" : "New project"}
@@ -93,7 +107,7 @@ export function ProjectImportProjectCard(props: {
           <ChevronRightIcon className={disclosureChevronClassName(expanded)} aria-hidden />
         </CollapsibleTrigger>
       </div>
-      {!project.directoryExists ? (
+      {!project.directoryExists && relink ? (
         <div className="space-y-2 px-3 pb-2.5 ps-[2.375rem]">
           <p className={cn("text-muted-foreground", "text-ui-sm")}>
             The folder moved or is missing. Link its new location to continue these conversations,
@@ -139,11 +153,12 @@ export function ProjectImportProjectCard(props: {
           {visibleThreads.map((thread) => {
             const key = projectImportItemKey(project.key, thread.key);
             const imported = thread.alreadyImported || props.completedKeys.has(key);
+            const skipped = !imported && props.skippedKeys?.has(key) === true;
             return (
               <label key={thread.key} className="flex cursor-pointer items-center gap-2.5 py-1.5">
                 <Checkbox
-                  checked={imported || props.selected.has(key)}
-                  disabled={props.disabled || imported}
+                  checked={imported || (!skipped && props.selected.has(key))}
+                  disabled={props.disabled || imported || skipped}
                   onCheckedChange={(checked) => props.onSelectionChange([key], checked)}
                   aria-label={`Import ${thread.title || "Untitled conversation"}`}
                 />
@@ -159,9 +174,11 @@ export function ProjectImportProjectCard(props: {
                 <span className={cn("shrink-0 text-muted-foreground", "text-ui-sm")}>
                   {imported
                     ? "Already present"
-                    : thread.archived
-                      ? "Archived"
-                      : new Date(thread.updatedAt).toLocaleDateString()}
+                    : skipped
+                      ? "Not imported"
+                      : thread.archived
+                        ? "Archived"
+                        : new Date(thread.updatedAt).toLocaleDateString()}
                 </span>
               </label>
             );

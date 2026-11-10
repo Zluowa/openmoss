@@ -14,6 +14,7 @@ import {
   type GuestStreamState,
 } from "./guestStream.logic";
 import type { GuestShareView } from "./protocol";
+import { setGuestOwnerRoutes } from "./resources";
 import type { GuestTransport } from "./transport";
 
 export interface GuestStreamSession {
@@ -36,6 +37,8 @@ export function useGuestStream(transport: GuestTransport): GuestStreamSession {
     const connection = startGuestConnection({
       transport,
       onEvent: (event) => {
+        // Before the thread renders: its pages and pictures ask which routes the owner serves.
+        if (event.type === "hello") setGuestOwnerRoutes(event.routes);
         // Applied outside the reducer: the store write is a side effect, and StrictMode runs
         // reducers twice.
         stateRef.current = applyGuestStreamEvent(stateRef.current, event, useStore.getState());
@@ -107,6 +110,45 @@ export function useSeenPendingIds(
     setSeen(next);
   }, [view, seen, shareId]);
   return seen;
+}
+
+const clearedReceiptsKey = (shareId: string) => `moss-guest:cleared:${shareId}`;
+
+/**
+ * Receipts (sent / not sent) the guest put away in this tab, so they stay away on reload.
+ */
+export function useClearedReceipts(
+  shareId: string,
+): readonly [ReadonlySet<string>, (id: string) => void] {
+  const [cleared, setCleared] = useState<ReadonlySet<string>>(() => {
+    try {
+      const stored: unknown = JSON.parse(
+        sessionStorage.getItem(clearedReceiptsKey(shareId)) ?? "[]",
+      );
+      return new Set(Array.isArray(stored) ? stored.filter((id) => typeof id === "string") : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const clear = useCallback(
+    (id: string) => {
+      setCleared((current) => {
+        const next = new Set(current);
+        next.add(id);
+        try {
+          sessionStorage.setItem(
+            clearedReceiptsKey(shareId),
+            JSON.stringify([...next].slice(-SEEN_PENDING_LIMIT)),
+          );
+        } catch {
+          // Private mode: the receipt then stays away for this load only.
+        }
+        return next;
+      });
+    },
+    [shareId],
+  );
+  return [cleared, clear] as const;
 }
 
 /**

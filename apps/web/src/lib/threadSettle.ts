@@ -3,7 +3,7 @@
 // Layer: Web orchestration helper
 // Exports: setThreadSettledFromClient
 
-import type { NativeApi, ThreadId } from "@synara/contracts";
+import type { NativeApi, ThreadId } from "@moss/contracts";
 
 import { newCommandId } from "./utils";
 

@@ -8,8 +8,15 @@ import type {
   LibraryItemKind as ServerLibraryItemKind,
   LibraryRegisterItem,
   LibrarySourceCli,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
+import type { TranslationKey } from "~/localization";
+
+/** Formats a translation key in the reader's language (`format` from useTranslation). */
+export type MossLibraryFormat = (
+  key: TranslationKey,
+  values: Record<string, string | number>,
+) => string;
 
 export type MossLibrarySectionId = "recommended" | "favorites" | "folders" | "images" | "all";
 
@@ -19,23 +26,27 @@ export type MossLibrarySortId = "recent" | "name" | "kind";
 
 export interface MossLibrarySection {
   readonly id: MossLibrarySectionId;
+  /** Both languages feed search, so a section is found whatever the UI language. */
   readonly labelZh: string;
   readonly labelEn: string;
   /** Empty-state hint — Moss brand only (no OpenAI/Codex product copy). */
   readonly emptyHintZh: string;
+  /** Shown label and empty-state hint, in the reader's language. */
+  readonly labelKey: TranslationKey;
+  readonly emptyHintKey: TranslationKey;
   /** Keywords used by local search against section chrome (scaffold stage). */
   readonly searchTokens: readonly string[];
 }
 
 export interface MossLibraryNewAction {
   readonly id: "folder" | "import" | "from-chatgpt" | "from-canvas";
-  readonly labelZh: string;
-  readonly hintZh: string;
+  readonly labelKey: TranslationKey;
+  readonly hintKey: TranslationKey;
 }
 
 export interface MossLibrarySortOption {
   readonly id: MossLibrarySortId;
-  readonly labelZh: string;
+  readonly labelKey: TranslationKey;
 }
 
 /** Codex Library sections: 推荐 / 收藏 / 文件夹 / 图像 / 全部 */
@@ -44,6 +55,8 @@ export const MOSS_LIBRARY_SECTIONS: readonly MossLibrarySection[] = [
     id: "recommended",
     labelZh: "推荐",
     labelEn: "Recommended",
+    labelKey: "library.section.recommended",
+    emptyHintKey: "library.section.recommended.empty",
     emptyHintZh: "创建新内容。你创建的内容（如图像和文档）将显示在这里。",
     searchTokens: ["推荐", "recommended"],
   },
@@ -51,6 +64,8 @@ export const MOSS_LIBRARY_SECTIONS: readonly MossLibrarySection[] = [
     id: "favorites",
     labelZh: "收藏",
     labelEn: "Favorites",
+    labelKey: "library.section.favorites",
+    emptyHintKey: "library.section.favorites.empty",
     emptyHintZh: "暂无收藏。收藏的资料会显示在这里。",
     searchTokens: ["收藏", "favorites", "starred"],
   },
@@ -58,6 +73,8 @@ export const MOSS_LIBRARY_SECTIONS: readonly MossLibrarySection[] = [
     id: "folders",
     labelZh: "文件夹",
     labelEn: "Folders",
+    labelKey: "library.section.folders",
+    emptyHintKey: "library.section.folders.empty",
     emptyHintZh: "创建你的第一个文件夹。创建文件夹以整理资料库中的项目。",
     searchTokens: ["文件夹", "folders", "folder"],
   },
@@ -65,6 +82,8 @@ export const MOSS_LIBRARY_SECTIONS: readonly MossLibrarySection[] = [
     id: "images",
     labelZh: "图像",
     labelEn: "Images",
+    labelKey: "library.section.images",
+    emptyHintKey: "library.section.images.empty",
     emptyHintZh: "暂无图像。生成或从 Moss Canvas 保存的图像会显示在这里。",
     searchTokens: ["图像", "images", "image", "canvas"],
   },
@@ -72,6 +91,8 @@ export const MOSS_LIBRARY_SECTIONS: readonly MossLibrarySection[] = [
     id: "all",
     labelZh: "全部",
     labelEn: "All",
+    labelKey: "library.section.all",
+    emptyHintKey: "library.section.all.empty",
     emptyHintZh: "暂无文件。上传文件，开始构建你的资料库。",
     searchTokens: ["全部", "all", "library", "资料库"],
   },
@@ -86,30 +107,30 @@ export const MOSS_LIBRARY_EMPTY_TILE_HEIGHTS: readonly number[] = [
 export const MOSS_LIBRARY_NEW_ACTIONS: readonly MossLibraryNewAction[] = [
   {
     id: "folder",
-    labelZh: "新建文件夹",
-    hintZh: "在资料库中整理条目",
+    labelKey: "library.newAction.folder",
+    hintKey: "library.newAction.folder.hint",
   },
   {
     id: "import",
-    labelZh: "导入文件",
-    hintZh: "复制进 Moss 资料库（任意类型均可）",
+    labelKey: "library.newAction.import",
+    hintKey: "library.newAction.import.hint",
   },
   {
     id: "from-chatgpt",
-    labelZh: "从 ChatGPT 资料库导入…",
-    hintZh: "选择在 chatgpt.com/library 批量下载的文件夹",
+    labelKey: "library.newAction.fromChatgpt",
+    hintKey: "library.newAction.fromChatgpt.hint",
   },
   {
     id: "from-canvas",
-    labelZh: "从 Moss Canvas 保存",
-    hintZh: "把当前画布导出到图像分区",
+    labelKey: "library.newAction.fromCanvas",
+    hintKey: "library.newAction.fromCanvas.hint",
   },
 ];
 
 export const MOSS_LIBRARY_SORT_OPTIONS: readonly MossLibrarySortOption[] = [
-  { id: "recent", labelZh: "最近更新" },
-  { id: "name", labelZh: "名称" },
-  { id: "kind", labelZh: "类型" },
+  { id: "recent", labelKey: "library.sort.recent" },
+  { id: "name", labelKey: "library.sort.name" },
+  { id: "kind", labelKey: "library.sort.kind" },
 ];
 
 /**
@@ -361,6 +382,31 @@ export function sourceCliLabelZh(cli: MossLibrarySourceCli): string {
   }
 }
 
+/** Source name shown on a card; null for an unrecognised CLI, which the UI labels itself. */
+export function mossLibrarySourceCliName(cli: MossLibrarySourceCli): string | null {
+  return cli === "other" ? null : sourceCliLabelZh(cli);
+}
+
+const MOSS_LIBRARY_KIND_LABEL_KEYS: Record<MossLibraryItemKind, TranslationKey> = {
+  document: "library.kind.document",
+  image: "library.kind.image",
+  folder: "library.kind.folder",
+  code: "library.kind.code",
+  video: "library.kind.video",
+  archive: "library.kind.archive",
+  other: "library.kind.file",
+};
+
+/** Card subtitle (source · kind) in the reader's language. */
+export function formatMossLibraryItemSubtitle(
+  item: Pick<MossLibraryItem, "sourceCli" | "kind">,
+  format: MossLibraryFormat,
+): string {
+  const source = mossLibrarySourceCliName(item.sourceCli) ?? format("library.source.other", {});
+  return `${source} · ${format(MOSS_LIBRARY_KIND_LABEL_KEYS[item.kind], {})}`;
+}
+
+// Chinese labels persisted in `subtitleZh`, which also feeds search.
 function kindLabelZh(kind: MossLibraryItemKind): string {
   switch (kind) {
     case "document":
@@ -516,24 +562,28 @@ export function resolveMossLibraryCatalog(input: {
   return { items: [], source: "empty", hasDemo: false };
 }
 
-/** Codex-like relative time for card footers (Asia/Shanghai-facing zh labels). */
-export function formatMossLibraryRelativeTime(updatedAt: number, now: number = Date.now()): string {
-  if (!Number.isFinite(updatedAt) || updatedAt <= 0) return "未知时间";
+/** Codex-like relative time for card footers, in the reader's language. */
+export function formatMossLibraryRelativeTime(
+  updatedAt: number,
+  now: number,
+  format: MossLibraryFormat,
+): string {
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0) return format("library.time.unknown", {});
   const deltaMs = now - updatedAt;
-  if (deltaMs < 0) return "刚刚";
+  if (deltaMs < 0) return format("library.time.justNow", {});
   const sec = Math.floor(deltaMs / 1000);
-  if (sec < 45) return "刚刚";
+  if (sec < 45) return format("library.time.justNow", {});
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} 分钟前`;
+  if (min < 60) return format("library.time.minutesAgo", { count: min });
   const hour = Math.floor(min / 60);
-  if (hour < 24) return `${hour} 小时前`;
+  if (hour < 24) return format("library.time.hoursAgo", { count: hour });
   const day = Math.floor(hour / 24);
-  if (day === 1) return "昨天";
-  if (day < 30) return `${day} 天前`;
+  if (day === 1) return format("library.time.yesterday", {});
+  if (day < 30) return format("library.time.daysAgo", { count: day });
   const month = Math.floor(day / 30);
-  if (month < 12) return `${month} 个月前`;
+  if (month < 12) return format("library.time.monthsAgo", { count: month });
   const year = Math.floor(day / 365);
-  return `${Math.max(1, year)} 年前`;
+  return format("library.time.yearsAgo", { count: Math.max(1, year) });
 }
 
 export function mossLibraryItemMatchesSection(
@@ -702,7 +752,7 @@ export type MossLibraryContextActionId =
 
 export interface MossLibraryContextMenuEntry {
   readonly id: MossLibraryContextActionId;
-  readonly labelZh: string;
+  readonly labelKey: TranslationKey;
   /** Codex renders 删除 in red. */
   readonly danger?: boolean;
 }
@@ -712,13 +762,16 @@ export function buildMossLibraryContextMenu(
   item: Pick<MossLibraryItem, "favorite" | "kind">,
 ): readonly MossLibraryContextMenuEntry[] {
   return [
-    { id: "chat", labelZh: "围绕此内容展开对话" },
-    { id: "favorite", labelZh: item.favorite ? "从收藏夹移除" : "添加到收藏夹" },
-    { id: "download", labelZh: "下载" },
-    { id: "share", labelZh: "分享" },
-    { id: "rename", labelZh: "重命名" },
-    { id: "add-to-folder", labelZh: "添加到文件夹" },
-    { id: "delete", labelZh: "删除", danger: true },
+    { id: "chat", labelKey: "library.action.chat" },
+    {
+      id: "favorite",
+      labelKey: item.favorite ? "library.action.unfavorite" : "library.action.favorite",
+    },
+    { id: "download", labelKey: "library.action.download" },
+    { id: "share", labelKey: "library.action.share" },
+    { id: "rename", labelKey: "library.action.rename" },
+    { id: "add-to-folder", labelKey: "library.action.addToFolder" },
+    { id: "delete", labelKey: "library.action.delete", danger: true },
   ];
 }
 
@@ -853,10 +906,6 @@ export function partitionMossLibraryAllSection(items: readonly MossLibraryItem[]
 /** Selection-bar action ids (Codex 底部选择栏, image ref 7). */
 export type MossLibrarySelectionActionId = "chat" | "download" | "delete" | "more" | "dismiss";
 
-export function mossLibrarySelectionSummaryZh(count: number): string {
-  return `已选择 ${count} 个`;
-}
-
 // ---------------------------------------------------------------------------
 // Server index mapping (Moss 资料库 local index ↔ Codex-shaped cards)
 // ---------------------------------------------------------------------------
@@ -966,17 +1015,3 @@ export function mossLibraryRenameKeepsExtension(currentTitle: string, nextTitle:
   };
   return extensionOf(currentTitle) === extensionOf(nextTitle);
 }
-
-/** Codex 回收站 subtitle (§2.6). */
-export const MOSS_LIBRARY_TRASH_SUBTITLE_ZH = "恢复最近删除的文件。这些文件将在 30 天后永久删除。";
-
-/** Codex 删除 confirmation copy (§2.5). */
-export function mossLibraryTrashConfirmZh(title: string): string {
-  return `“${title}”将移至回收站，并在 30 天后永久删除。`;
-}
-
-/** Codex 永久删除 confirmation copy (§2.6). */
-export const MOSS_LIBRARY_DELETE_FOREVER_CONFIRM_ZH = "此操作无法撤消。";
-
-/** Codex 拖拽导入 prompt (§2.3). */
-export const MOSS_LIBRARY_DROP_PROMPT_ZH = "将任意文件拖放到此处，即可添加到你的资料库";

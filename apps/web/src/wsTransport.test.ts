@@ -24,7 +24,7 @@ import {
   WS_SERVER_RUNTIME_STATUS_CAPABILITY,
   WsCompatibilityError,
   type WsBootstrapNegotiateResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   shouldKeepServerLifecycleStream,
@@ -65,12 +65,14 @@ import {
   hasThreadDetailResumeCursor,
   resetThreadDetailResumeCursorsForTests,
 } from "./threadDetailResumeCursors";
+import { isRequestOutcomeUnknown } from "./lib/requestOutcome";
 import { RpcRequestQueue } from "./lib/rpcRequestQueue";
-import { WS_REQUEST_CLASS_LIMITS } from "@synara/shared/wsRequestClass";
+import { WS_REQUEST_CLASS_LIMITS } from "@moss/shared/wsRequestClass";
 import {
   addWsCompatibilityIssueListener,
   emitWsCompatibilityIssue,
   getWsSettlingThreadIds,
+  WS_MESSAGE_NOT_SENT_DETAIL,
   readLatestWsCompatibilityIssue,
 } from "./wsTransportEvents";
 
@@ -2655,6 +2657,69 @@ describe("WsTransport", () => {
     expect(getReconnectRetryDelayMs(3)).toBe(4_000);
     expect(getReconnectRetryDelayMs(4)).toBe(5_000);
     expect(getReconnectRetryDelayMs(100)).toBe(5_000);
+    expect(getReconnectRetryDelayMs(0, 1_000)).toBe(500);
+    expect(getReconnectRetryDelayMs(100, 1_000)).toBe(1_000);
+  });
+
+  it("fails a send as not sent when its deadline passes waiting for a connection", async () => {
+    vi.useFakeTimers();
+    bindWindowTimersToCurrentGlobals();
+    try {
+      const { transport, internals } = makeBareTransport();
+      Object.assign(internals, {
+        unaryRequestQueue: new RpcRequestQueue(WS_REQUEST_CLASS_LIMITS),
+        getClient: () => new Promise(() => undefined),
+      });
+      const failure = transport
+        .request(
+          ORCHESTRATION_WS_METHODS.dispatchCommand,
+          { command: { type: "thread.turn.start", threadId: "gap-thread" } },
+          { timeoutMs: 20 },
+        )
+        .catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(20);
+      await expect(failure).resolves.toMatchObject({
+        code: "WS_REQUEST_NOT_SENT",
+        retryable: true,
+        message: WS_MESSAGE_NOT_SENT_DETAIL,
+      });
+      expect(isRequestOutcomeUnknown(await failure)).toBe(false);
+      expect(getWsSettlingThreadIds().size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports each drop of the desktop's own backend link once, and only that link", () => {
+    const report = vi.fn();
+    const { internals } = makeBareTransport();
+    const setState = (state: string) =>
+      (internals as unknown as { setState: (next: string) => void }).setState(state);
+    const bridge = { getWsUrl: () => "ws://127.0.0.1:4321/", reportBackendLink: report };
+    Object.assign(window, { desktopBridge: bridge });
+    try {
+      Object.assign(internals, { explicitUrl: null, state: "connecting" });
+      setState("open");
+      expect(report).toHaveBeenLastCalledWith({ phase: "up" });
+      report.mockClear();
+      Object.assign(internals, { dropReason: "silence-timeout" });
+      setState("connecting");
+      setState("closed");
+      setState("connecting");
+      expect(report.mock.calls).toEqual([[{ phase: "down", reason: "silence-timeout" }]]);
+      report.mockClear();
+      setState("open");
+      expect(report.mock.calls).toEqual([[{ phase: "up" }]]);
+      report.mockClear();
+      setState("disposed");
+      expect(report).not.toHaveBeenCalled();
+
+      Object.assign(internals, { explicitUrl: "ws://127.0.0.1:4321/", state: "open" });
+      setState("connecting");
+      expect(report).not.toHaveBeenCalled();
+    } finally {
+      Object.assign(window, { desktopBridge: undefined });
+    }
   });
 
   it("joins an active reconnect instead of returning the detached prior client", async () => {
@@ -2830,16 +2895,8 @@ describe("WsTransport", () => {
     }
   });
 
-  it("keeps the shared lifecycle stream while either lifecycle channel is active", () => {
+  it("keeps the shared lifecycle stream while the welcome channel is active", () => {
     expect(shouldKeepServerLifecycleStream(new Set([WS_CHANNELS.serverWelcome]))).toBe(true);
-    expect(shouldKeepServerLifecycleStream(new Set([WS_CHANNELS.serverMaintenanceUpdated]))).toBe(
-      true,
-    );
-    expect(
-      shouldKeepServerLifecycleStream(
-        new Set([WS_CHANNELS.serverWelcome, WS_CHANNELS.serverMaintenanceUpdated]),
-      ),
-    ).toBe(true);
     expect(shouldKeepServerLifecycleStream(new Set([WS_CHANNELS.serverConfigUpdated]))).toBe(false);
   });
 
@@ -3038,6 +3095,19 @@ describe("WsTransport", () => {
     expect(getWsUrl).toHaveBeenCalled();
     expect(sockets[0]?.url).toBe("ws://127.0.0.1:53036/ws/bootstrap?token=old");
 
+    await transport.dispose();
+  });
+
+  it("uses the narrow remote workspace bridge before any local backend URL", async () => {
+    const localUrl = vi.fn().mockReturnValue("ws://127.0.0.1:53036/?token=local");
+    Object.assign(window, {
+      desktopBridge: { getWsUrl: localUrl },
+      mossRemoteWorkspace: { getWsUrl: () => "ws://127.0.0.1:53037/" },
+    });
+    const transport = new WsTransport();
+    await waitForSockets(1);
+    expect(sockets[0]?.url).toBe("ws://127.0.0.1:53037/ws/bootstrap");
+    expect(localUrl).not.toHaveBeenCalled();
     await transport.dispose();
   });
 

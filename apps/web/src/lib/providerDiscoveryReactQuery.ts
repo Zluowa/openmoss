@@ -6,9 +6,10 @@ import type {
   ProviderListCommandsResult,
   ProviderListModelsResult,
   ProviderListPluginsResult,
+  ProviderPluginMarketplaceKind,
   ProviderListSkillsResult,
   ProviderSkillsCatalogResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 import {
@@ -687,15 +688,17 @@ export function providerPluginsQueryOptions(input: {
   instanceId?: ProviderInstanceId | null;
   cwd: string | null;
   threadId?: string | null;
+  marketplaceKinds?: readonly ProviderPluginMarketplaceKind[];
   enabled?: boolean;
 }) {
+  const key = providerDiscoveryQueryKeys.plugins(
+    input.provider,
+    input.cwd,
+    input.threadId ?? null,
+    input.instanceId ?? null,
+  );
   return queryOptions({
-    queryKey: providerDiscoveryQueryKeys.plugins(
-      input.provider,
-      input.cwd,
-      input.threadId ?? null,
-      input.instanceId ?? null,
-    ),
+    queryKey: input.marketplaceKinds ? [...key, input.marketplaceKinds] : key,
     queryFn: async () => {
       const api = ensureNativeApi();
       return api.provider.listPlugins({
@@ -703,6 +706,7 @@ export function providerPluginsQueryOptions(input: {
         ...(input.instanceId ? { instanceId: input.instanceId } : {}),
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(input.threadId ? { threadId: input.threadId } : {}),
+        ...(input.marketplaceKinds ? { marketplaceKinds: [...input.marketplaceKinds] } : {}),
       });
     },
     enabled: input.enabled ?? true,

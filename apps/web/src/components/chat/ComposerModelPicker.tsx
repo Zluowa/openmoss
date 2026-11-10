@@ -1,7 +1,8 @@
 import { PROVIDER_OPTIONS } from "../../session-logic";
 // FILE: ComposerModelPicker.tsx
-// Purpose: Single composer picker — provider tabs, searchable model rows, starred
-//   model + trait presets, and per-trait rows (effort, speed, …) in one panel.
+// Purpose: Single composer picker — the agent column on the left, and beside it the open
+//   agent's providers, searchable model rows, starred model + trait presets, and per-trait
+//   rows (effort, speed, …), all visible at once.
 // Layer: Chat composer presentation
 // Depends on: the picker's tabs/row/trait-row pieces, composer trait helpers, starred
 //   model storage, and shared menu primitives.
@@ -15,17 +16,19 @@ import {
   type ProviderModelOptions,
   type ServerProviderStatus,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   useDeferredValue,
   useEffect,
   useEffectEvent,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 
 import { appHistory } from "../../appNavigation";
+import { agentSettingsHref } from "../../lib/agentInstall";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useStarredModels } from "../../hooks/useStarredModels";
 import type { ProviderModelCatalog } from "../../hooks/useProviderModelCatalog";
@@ -39,13 +42,12 @@ import {
 import { SearchIcon } from "~/lib/icons";
 import { starredModelInstanceId, starredModelSlotKey } from "~/lib/starredModels";
 import { cn, isMacNavigatorPlatform } from "~/lib/utils";
-import { ProviderAccountAvatar } from "../ProviderAccountMark";
-import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuGroup, MenuGroupLabel } from "../ui/menu";
 import { Skeleton } from "../ui/skeleton";
 import { ComposerModelMenuTrigger } from "./ComposerModelMenuTrigger";
 import { ModelCatalogRefresh } from "./ModelCatalogRefresh";
+import { ModelPickerEmptyCatalog } from "./ModelPickerEmptyCatalog";
 import {
   buildProviderTabRows,
   buildStarredModelOptionsPatch,
@@ -62,7 +64,11 @@ import {
 } from "./ComposerModelPicker.logic";
 import { ComposerModelPickerRow } from "./ComposerModelPickerRow";
 import {
-  ComposerModelPickerSourceMenu,
+  ComposerModelPickerAgentColumn,
+  ComposerModelPickerProviderRows,
+  ComposerModelPickerSourceNotice,
+  composerSourceListsModels,
+  MODEL_PICKER_AGENT_TAB_ATTRIBUTE,
   resolveComposerModelPickerProviderTabs,
 } from "./ComposerModelPickerTabs";
 import {
@@ -93,6 +99,24 @@ import {
 } from "./ProviderModelPicker";
 import { resolveRuntimeModelDescriptor } from "./runtimeModelCapabilities";
 
+/** Marks the right column: the open agent's providers, search, models and traits. */
+const MODEL_PICKER_MODELS_ATTRIBUTE = "data-model-picker-models";
+// Keys that move within one column; Left and Right move between the columns.
+const MENU_COLUMN_KEYS: ReadonlySet<string> = new Set(["ArrowDown", "ArrowUp", "Home", "End"]);
+
+function focusRow(row: HTMLElement | undefined): boolean {
+  if (!row) return false;
+  row.focus();
+  row.scrollIntoView({ block: "nearest" });
+  return true;
+}
+
+function rowsOf(column: HTMLElement | null | undefined): HTMLElement[] {
+  return Array.from(
+    column?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([data-disabled])') ?? [],
+  );
+}
+
 export type ComposerModelSelectionOptions = {
   /** Provider options to commit together with the model (starred presets, row effort). */
   modelOptions?: ProviderOptions;
@@ -115,6 +139,10 @@ type ComposerModelPickerProps = {
   loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
   onRefreshModels?: ProviderModelCatalog["refreshModels"];
   discoveryErrorsByProvider?: Partial<Record<ProviderKind, string | undefined>>;
+  /** Each account's own configured default model (from its CLI config). */
+  defaultModelByProviderInstance?: Partial<Record<ProviderInstanceId, string>>;
+  /** Accounts whose model list has not answered yet. */
+  modelDiscoveryPendingByProviderInstance?: Partial<Record<ProviderInstanceId, boolean>>;
   hiddenProviders?: ReadonlyArray<ProviderKind>;
   providerOrder?: ReadonlyArray<ProviderKind>;
   providerInstances?: ReadonlyArray<ProviderModelPickerInstance>;
@@ -256,8 +284,16 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     }
   };
 
+  const popupBodyRef = useRef<HTMLDivElement | null>(null);
+  const agentColumnRef = useRef<HTMLDivElement | null>(null);
+  // Where focus goes once a newly chosen tab has rendered: the search field (opening the
+  // panel, a click, Tab), or nowhere while arrow keys walk the agent column.
+  const focusAfterTabChangeRef = useRef<"search" | "stay">("search");
   useEffect(() => {
     if (!isMenuOpen) return;
+    const target = focusAfterTabChangeRef.current;
+    focusAfterTabChangeRef.current = "search";
+    if (target === "stay") return;
     const frame = requestAnimationFrame(() => searchInputRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [isMenuOpen, tab]);
@@ -350,6 +386,11 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
   const activeProviderTab = providerTabs.find(
     (providerTab) => providerTab.instanceId === activeInstanceId,
   );
+  // Without the composer's own account, open on the first provider that lists models.
+  const fallbackProviderTab =
+    providerTabs.find((providerTab) => composerSourceListsModels(providerTab)) ??
+    providerTabs[0] ??
+    null;
   // Reset to the fastest starting point on every open: presets when the user has any,
   // unless the composer's own account is waiting to be set up.
   const [wasMenuOpen, setWasMenuOpen] = useState(isMenuOpen);
@@ -357,9 +398,10 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     setWasMenuOpen(isMenuOpen);
     if (isMenuOpen) {
       setTab(
-        usableStarredModels.length > 0 && !activeProviderTab?.setupMessage
+        usableStarredModels.length > 0 &&
+          (activeProviderTab === undefined || composerSourceListsModels(activeProviderTab))
           ? STARRED_TAB
-          : (activeProviderTab?.instanceId ?? providerTabs[0]?.instanceId ?? STARRED_TAB),
+          : (activeProviderTab?.instanceId ?? fallbackProviderTab?.instanceId ?? STARRED_TAB),
       );
       setQuery("");
     }
@@ -367,11 +409,32 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
 
   // A tab that is no longer offered falls back to the first visible account.
   const openProviderTab = providerTabs.find((providerTab) => providerTab.instanceId === tab);
-  const tabAccount = tab === STARRED_TAB ? null : (openProviderTab ?? providerTabs[0] ?? null);
-  const setupMessage = tab === STARRED_TAB ? null : (tabAccount?.setupMessage ?? null);
+  const tabAccount = tab === STARRED_TAB ? null : (openProviderTab ?? fallbackProviderTab);
+  const openTab: ComposerModelPickerTab =
+    tab === STARRED_TAB ? STARRED_TAB : (tabAccount?.instanceId ?? STARRED_TAB);
+  // A provider that cannot run yet explains itself with one action instead of a model list.
+  const noticeSource =
+    tabAccount === null || composerSourceListsModels(tabAccount) ? null : tabAccount;
   const openProviderSettings = () => {
     setMenuOpen(false);
     appHistory.push("/settings?section=providers");
+  };
+  const signInToMoss = () => {
+    setMenuOpen(false);
+    appHistory.push("/login");
+  };
+  const openAgentSettings = (provider: ProviderKind) => {
+    setMenuOpen(false);
+    appHistory.push(agentSettingsHref(provider));
+  };
+  const chooseTab = (nextTab: ComposerModelPickerTab, focus: "search" | "stay" = "search") => {
+    focusAfterTabChangeRef.current = focus;
+    setTab(nextTab);
+    // The same tab renders nothing new, so the effect above would not move focus.
+    if (nextTab === tab && focus === "search") {
+      focusAfterTabChangeRef.current = "search";
+      requestAnimationFrame(() => searchInputRef.current?.focus());
+    }
   };
 
   const modelOptionsFor = (
@@ -406,6 +469,7 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     const defaultModel = resolveDefaultRowModel({
       provider: input.provider,
       options: input.options,
+      configuredDefault: props.defaultModelByProviderInstance?.[input.instanceId],
     });
     const defaultName = t("chat.modelPicker.default.label");
     const defaultMatchesQuery =
@@ -440,7 +504,7 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
   };
 
   const rows =
-    setupMessage !== null
+    noticeSource !== null
       ? []
       : tabAccount === null
         ? buildStarredTabRows({
@@ -461,7 +525,11 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
             instanceId: tabAccount.instanceId,
             options: modelOptionsFor(tabAccount.provider, tabAccount.instanceId),
             query: normalizedQuery,
-            selectedModel: tabAccount.instanceId === activeInstanceId ? props.model : null,
+            // Another account's tab marks the model it starts on: its own configured default.
+            selectedModel:
+              tabAccount.instanceId === activeInstanceId
+                ? props.model
+                : (props.defaultModelByProviderInstance?.[tabAccount.instanceId] ?? null),
           });
   const starredModelSlots = new Set(starredModels.map(starredModelSlotKey));
 
@@ -569,11 +637,78 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     return () => window.removeEventListener("keydown", listener, { capture: true });
   }, [isMenuOpen]);
 
+  // Arrow keys stay inside a column: up and down walk it, right goes from the agents to
+  // the models, left comes back. Walking the agent column opens each agent it reaches.
+  const onColumnKeyDown = (event: ReactKeyboardEvent<HTMLElement>): boolean => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+    const body = popupBodyRef.current;
+    const target = event.target;
+    // Effort side menus are portaled: their own keys are theirs.
+    if (!body || !(target instanceof HTMLElement) || !body.contains(target)) return false;
+    // Only rows and the search field move between columns. The effort slider and the
+    // other controls below the models keep their own arrow keys.
+    if (target !== searchInputRef.current && target.closest('[role="menuitem"]') === null) {
+      return false;
+    }
+    const agentColumn = agentColumnRef.current;
+    const inAgents = agentColumn?.contains(target) ?? false;
+    const modelsColumn = body.querySelector<HTMLElement>(`[${MODEL_PICKER_MODELS_ATTRIBUTE}]`);
+    if (event.key === "ArrowRight") {
+      if (!inAgents) return false;
+      searchInputRef.current?.focus();
+      return true;
+    }
+    if (event.key === "ArrowLeft") {
+      if (inAgents) return false;
+      const input = searchInputRef.current;
+      // In the search field, Left first moves the caret.
+      if (target === input && (input.selectionStart !== 0 || input.selectionEnd !== 0)) {
+        return false;
+      }
+      const agentRows = rowsOf(agentColumn);
+      return focusRow(
+        agentRows.find((row) => row.getAttribute("aria-current") === "true") ?? agentRows[0],
+      );
+    }
+    if (!MENU_COLUMN_KEYS.has(event.key)) return false;
+    const column = inAgents ? agentColumn : modelsColumn;
+    const columnRows = rowsOf(column);
+    if (columnRows.length === 0) return false;
+    let index = columnRows.findIndex((row) => row === target || row.contains(target));
+    if (index === -1) {
+      // From the search field: down to the first row below it, up to the last above it.
+      const below = columnRows.findIndex(
+        (row) => (target.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      );
+      index = event.key === "ArrowDown" ? (below === -1 ? 0 : below) - 1 : below;
+      if (index < 0 && event.key === "ArrowUp") index = 0;
+    }
+    const last = columnRows.length - 1;
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? last
+          : event.key === "ArrowDown"
+            ? index >= last
+              ? 0
+              : index + 1
+            : index <= 0
+              ? last
+              : index - 1;
+    const next = columnRows[nextIndex];
+    if (!focusRow(next)) return false;
+    const agentTab = inAgents ? next?.getAttribute(MODEL_PICKER_AGENT_TAB_ATTRIBUTE) : null;
+    if (agentTab) chooseTab(agentTab as ComposerModelPickerTab, "stay");
+    return true;
+  };
+
   const shortcutModifierLabel = isMacNavigatorPlatform() ? "⌘" : "Ctrl ";
   const isTabLoading =
     tabAccount !== null &&
-    (props.loadingModelProviders?.[tabAccount.provider] ?? false) &&
-    rows.length === 0;
+    rows.length === 0 &&
+    ((props.loadingModelProviders?.[tabAccount.provider] ?? false) ||
+      (props.modelDiscoveryPendingByProviderInstance?.[tabAccount.instanceId] ?? false));
   const discoveryError =
     tabAccount === null ? undefined : props.discoveryErrorsByProvider?.[tabAccount.provider];
 
@@ -606,11 +741,18 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
       />
       <ComposerPickerMenuPopup
         align="start"
+        // The agent column sits left of the trigger, so the models stay where they open.
+        alignOffset={() => -(agentColumnRef.current?.offsetWidth ?? 0)}
         side="top"
         // Glassier than the stock picker shell: thinner fill over a deeper, more saturated blur.
-        className="w-[min(18.5rem,92vw)] bg-popover/55 [--picker-option-min-h:1.75rem] before:backdrop-blur-3xl before:backdrop-saturate-200"
+        className="w-[min(28.5rem,92vw)] bg-popover/55 [--picker-option-min-h:1.75rem] before:backdrop-blur-3xl before:backdrop-saturate-200"
         {...{ [MODEL_PICKER_POPUP_ATTRIBUTE]: "" }}
         onKeyDownCapture={(event) => {
+          if (onColumnKeyDown(event)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           // Tab walks the provider tabs instead of leaving (and closing) the menu.
           if (event.key !== "Tab") return;
           event.preventDefault();
@@ -618,145 +760,168 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
           cycleTab(event.shiftKey ? -1 : 1);
         }}
       >
-        {/* -m-1 bleeds over the popup body padding so headers/dividers run edge to edge. */}
-        <div className="-m-1 flex flex-col">
-          <ComposerModelPickerSourceMenu
-            tab={tab === STARRED_TAB ? STARRED_TAB : (tabAccount?.instanceId ?? STARRED_TAB)}
-            providerTabs={providerTabs}
-            onTabChange={setTab}
-            onManageModels={lockedProvider === null ? openProviderSettings : undefined}
-          />
-          {tabAccount?.provider === "codex" && !setupMessage ? (
-            <div className={PICKER_PANEL_GROUP_LABEL_CLASS_NAME}>
-              {t("chat.modelPicker.selectModel")}
-            </div>
-          ) : null}
-          <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 *:min-w-0">
-            <SearchIcon aria-hidden="true" className={PICKER_PANEL_PLAIN_SEARCH_ICON_CLASS_NAME} />
-            <Input
-              className={PICKER_PANEL_PLAIN_SEARCH_INPUT_CLASS_NAME}
-              nativeInput
-              unstyled
-              ref={searchInputRef}
-              size="sm"
-              type="search"
-              aria-label="Search models"
-              placeholder={tab === STARRED_TAB ? "Search starred…" : "Search models…"}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDownCapture={(event) => {
-                if (event.key === "Enter") {
-                  // Focus is still in the field, so no row is highlighted: take the top hit.
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const firstRow = rows[0];
-                  if (firstRow) selectRow(firstRow);
-                  return;
-                }
-                if (event.key === "Tab" || MENU_NAVIGATION_KEYS.has(event.key)) return;
-                // Keep typing out of the menu's typeahead.
-                event.stopPropagation();
-              }}
+        {/* -m-1 bleeds over the popup body padding so dividers run edge to edge. Both
+            columns share one fixed height, so switching agents never resizes the panel. */}
+        <div
+          ref={popupBodyRef}
+          className="-m-1 flex h-[min(24rem,calc(var(--available-height)-0.5rem))] min-h-0"
+        >
+          <div ref={agentColumnRef} className="flex w-40 shrink-0 border-e border-border">
+            <ComposerModelPickerAgentColumn
+              className="w-full"
+              tab={openTab}
+              providerTabs={providerTabs}
+              activeInstanceId={activeInstanceId}
+              onSelectTab={chooseTab}
+              onManageProviders={lockedProvider === null ? openProviderSettings : undefined}
             />
           </div>
           <div
-            role="tabpanel"
-            className={cn(
-              "max-h-[min(12.5rem,40vh)] min-h-20 overflow-y-auto overscroll-contain p-1",
-              COMPOSER_PICKER_MODEL_LIST_SCROLL_CLASS_NAME,
-            )}
+            className="flex min-h-0 min-w-0 flex-1 flex-col"
+            {...{ [MODEL_PICKER_MODELS_ATTRIBUTE]: "" }}
           >
-            {modelSelectionIssue ? (
-              <div role="status" className="px-2 py-1.5 text-ui leading-snug text-destructive">
-                {modelSelectionIssue}
-              </div>
-            ) : null}
-            {setupMessage !== null ? (
-              <div className="flex flex-col items-center gap-2 px-3 py-4 text-center">
-                {openProviderTab ? (
-                  <ProviderAccountAvatar
-                    provider={openProviderTab.provider}
-                    accentColor={openProviderTab.accentColor}
-                  />
-                ) : null}
-                <span className="text-ui font-medium text-foreground">
-                  {openProviderTab?.label ?? "This account"} needs setup
-                </span>
-                <span className="text-ui-sm leading-snug text-muted-foreground">
-                  {setupMessage}
-                </span>
-                <Button type="button" size="xs" variant="outline" onClick={openProviderSettings}>
-                  Open provider setup
-                </Button>
-              </div>
-            ) : discoveryError ? (
-              <div className="px-2 py-1.5 text-ui leading-snug text-destructive">
-                {discoveryError}
-              </div>
-            ) : null}
-            {setupMessage !== null ? null : isTabLoading ? (
-              <div className="space-y-2 px-2 py-2" aria-label="Loading models">
-                {Array.from({ length: 5 }, (_, index) => (
-                  <Skeleton
-                    key={index}
-                    className={cn("h-3.5 rounded-full", index % 3 === 0 ? "w-32" : "w-44")}
-                  />
-                ))}
-              </div>
-            ) : rows.length > 0 ? (
-              <div className="flex flex-col gap-px">
-                {groupRowElements(rows, (row, index) => (
-                  <ComposerModelPickerRow
-                    key={row.key}
-                    row={row}
-                    shortcutHint={
-                      row.selectableModel !== null && index < MODEL_PICKER_SHORTCUT_ROW_LIMIT
-                        ? `${shortcutModifierLabel}${index + 1}`
-                        : null
-                    }
-                    providerOptions={providerOptionsFor(row.provider)}
-                    runtimeModels={props.runtimeModelsByProvider?.[row.provider]}
-                    prompt={promptFor(row.provider)}
-                    starredModelSlots={starredModelSlots}
-                    onSelect={selectRow}
-                    // The footer slider owns effort in slider mode; rows stay plain.
-                    onSelectEffort={usesEffortSlider ? null : selectRowWithEffort}
-                    onToggleStar={toggleStarredModel}
-                    onUnstarModel={unstarModel}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="px-2 py-3 text-muted-foreground text-ui leading-relaxed">
-                {normalizedQuery.length > 0
-                  ? "No matches"
-                  : tab === STARRED_TAB
-                    ? "Star a model to pin it here together with its effort and speed, then pick it in one click."
-                    : "No models found"}
-              </div>
-            )}
-          </div>
-          {isMenuOpen && tabAccount && !setupMessage && props.onRefreshModels ? (
-            <ModelCatalogRefresh
-              key={tabAccount.instanceId}
-              provider={tabAccount.provider}
-              instanceId={tabAccount.instanceId}
-              onRefresh={props.onRefreshModels}
+            <ComposerModelPickerProviderRows
+              tab={openTab}
+              providerTabs={providerTabs}
+              onSelectTab={chooseTab}
             />
-          ) : null}
-          <ComposerModelPickerTraitRows
-            provider={props.provider}
-            providerInstanceId={props.selectedProviderInstanceId}
-            threadId={threadId}
-            model={props.model}
-            runtimeModel={props.runtimeModel}
-            runtimeAgents={props.runtimeAgents}
-            modelOptions={props.modelOptions}
-            prompt={props.prompt}
-            onPromptChange={props.onPromptChange}
-            effortControl={effortControl}
-            fastModeNotice={props.provider === "claudeAgent" ? props.fastModeNotice : null}
-          />
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 *:min-w-0">
+              <SearchIcon
+                aria-hidden="true"
+                className={PICKER_PANEL_PLAIN_SEARCH_ICON_CLASS_NAME}
+              />
+              <Input
+                className={PICKER_PANEL_PLAIN_SEARCH_INPUT_CLASS_NAME}
+                nativeInput
+                unstyled
+                ref={searchInputRef}
+                size="sm"
+                type="search"
+                aria-label="Search models"
+                placeholder={tab === STARRED_TAB ? "Search starred…" : "Search models…"}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDownCapture={(event) => {
+                  if (event.key === "Enter") {
+                    // Focus is still in the field, so no row is highlighted: take the top hit.
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const firstRow = rows[0];
+                    if (firstRow) selectRow(firstRow);
+                    return;
+                  }
+                  if (event.key === "Tab" || MENU_NAVIGATION_KEYS.has(event.key)) return;
+                  // Keep typing out of the menu's typeahead.
+                  event.stopPropagation();
+                }}
+              />
+            </div>
+            <div
+              role="tabpanel"
+              className={cn(
+                "flex min-h-20 flex-1 flex-col overflow-y-auto overscroll-contain p-1",
+                COMPOSER_PICKER_MODEL_LIST_SCROLL_CLASS_NAME,
+              )}
+            >
+              {modelSelectionIssue ? (
+                <div role="status" className="px-2 py-1.5 text-ui leading-snug text-destructive">
+                  {modelSelectionIssue}
+                </div>
+              ) : null}
+              {noticeSource !== null ? (
+                <div className="my-auto">
+                  <ComposerModelPickerSourceNotice
+                    source={noticeSource}
+                    onSignInToMoss={signInToMoss}
+                    onOpenAgentSettings={openAgentSettings}
+                  />
+                </div>
+              ) : discoveryError && rows.length > 0 ? (
+                // Discovery errors are diagnostics: the panel says it plainly and keeps the
+                // detail in the tooltip.
+                <div
+                  className="px-2 py-1.5 text-ui leading-snug text-destructive"
+                  title={discoveryError}
+                >
+                  {t("chat.modelPicker.discoveryFailed")}
+                </div>
+              ) : null}
+              {noticeSource !== null ? null : isTabLoading ? (
+                <div className="space-y-2 px-2 py-2" aria-label="Loading models">
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <Skeleton
+                      key={index}
+                      className={cn("h-3.5 rounded-full", index % 3 === 0 ? "w-32" : "w-44")}
+                    />
+                  ))}
+                </div>
+              ) : rows.length > 0 ? (
+                <div className="flex flex-col gap-px">
+                  {groupRowElements(rows, (row, index) => (
+                    <ComposerModelPickerRow
+                      key={row.key}
+                      row={row}
+                      shortcutHint={
+                        row.selectableModel !== null && index < MODEL_PICKER_SHORTCUT_ROW_LIMIT
+                          ? `${shortcutModifierLabel}${index + 1}`
+                          : null
+                      }
+                      providerOptions={providerOptionsFor(row.provider)}
+                      runtimeModels={props.runtimeModelsByProvider?.[row.provider]}
+                      prompt={promptFor(row.provider)}
+                      starredModelSlots={starredModelSlots}
+                      onSelect={selectRow}
+                      // The footer slider owns effort in slider mode; rows stay plain.
+                      onSelectEffort={usesEffortSlider ? null : selectRowWithEffort}
+                      onToggleStar={toggleStarredModel}
+                      onUnstarModel={unstarModel}
+                    />
+                  ))}
+                </div>
+              ) : tabAccount !== null && normalizedQuery.length === 0 ? (
+                // An agent that runs but listed nothing (or could not be read) says so in
+                // one plain sentence with a retry.
+                <ModelPickerEmptyCatalog
+                  key={tabAccount.instanceId}
+                  provider={tabAccount.provider}
+                  instanceId={tabAccount.instanceId}
+                  agentLabel={tabAccount.agentLabel}
+                  failure={discoveryError}
+                  onRefresh={props.onRefreshModels}
+                />
+              ) : (
+                <div className="px-2 py-3 text-muted-foreground text-ui leading-relaxed">
+                  {normalizedQuery.length > 0
+                    ? "No matches"
+                    : "Star a model to pin it here together with its effort and speed, then pick it in one click."}
+                </div>
+              )}
+            </div>
+            {/* The model list gives up height first; the rows under it keep theirs. */}
+            <div className="flex shrink-0 flex-col">
+              {isMenuOpen && tabAccount && noticeSource === null && props.onRefreshModels ? (
+                <ModelCatalogRefresh
+                  key={tabAccount.instanceId}
+                  provider={tabAccount.provider}
+                  instanceId={tabAccount.instanceId}
+                  onRefresh={props.onRefreshModels}
+                />
+              ) : null}
+              <ComposerModelPickerTraitRows
+                provider={props.provider}
+                providerInstanceId={props.selectedProviderInstanceId}
+                threadId={threadId}
+                model={props.model}
+                runtimeModel={props.runtimeModel}
+                runtimeAgents={props.runtimeAgents}
+                modelOptions={props.modelOptions}
+                prompt={props.prompt}
+                onPromptChange={props.onPromptChange}
+                effortControl={effortControl}
+                fastModeNotice={props.provider === "claudeAgent" ? props.fastModeNotice : null}
+              />
+            </div>
+          </div>
         </div>
       </ComposerPickerMenuPopup>
     </Menu>

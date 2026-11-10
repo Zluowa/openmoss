@@ -1,4 +1,4 @@
-import { embeddedTerminalName } from "@synara/shared/platformEnvironment";
+import { embeddedTerminalName } from "@moss/shared/platformEnvironment";
 // FILE: Manager.ts
 // Purpose: Implements server-side terminal sessions, cleanup orchestration, history persistence, and PTY output flow control.
 // Layer: Terminal infrastructure
@@ -18,8 +18,8 @@ import {
   TerminalWriteInput,
   type TerminalEvent,
   type TerminalSessionSnapshot,
-} from "@synara/contracts";
-import { describeErrorMessage } from "@synara/shared/errorMessages";
+} from "@moss/contracts";
+import { describeErrorMessage } from "@moss/shared/errorMessages";
 import {
   consumeTerminalIdentityInput,
   terminalCliKindFromValue,
@@ -28,7 +28,7 @@ import {
   type TerminalActivityState,
   type TerminalAgentHookEventType,
   type TerminalCliKind,
-} from "@synara/shared/terminalThreads";
+} from "@moss/shared/terminalThreads";
 import { Effect, Encoding, Layer, Schema } from "effect";
 
 import { createLogger } from "../../logger";
@@ -45,7 +45,7 @@ import {
   prepareManagedTerminalAgentWrappers,
   type ManagedTerminalProfile,
 } from "../managedTerminalWrappers";
-import { prepareProcess } from "@synara/shared/platformProcess";
+import { prepareProcess } from "@moss/shared/platformProcess";
 import {
   prepareProviderAuthenticationSettings,
   resolveProviderAuthenticationLaunch,
@@ -2448,6 +2448,10 @@ export class TerminalManagerRuntime extends EventEmitter<TerminalManagerEvents> 
     return session;
   }
 
+  liveHistory(threadId: string, terminalId: string): string | null {
+    return this.sessions.get(toSessionKey(threadId, terminalId))?.history.toString() ?? null;
+  }
+
   private snapshot(session: TerminalSessionState): TerminalSessionSnapshot {
     const replayPreamble = this.buildModeReplayPreamble(session);
     return {
@@ -2605,6 +2609,8 @@ export const TerminalManagerLive = Layer.effect(
           try: () => runtime.close(input),
           catch: (cause) => terminalErrorFromCause("Failed to close terminal", cause),
         }),
+      readHistory: (input) =>
+        Effect.sync(() => runtime.liveHistory(input.threadId, input.terminalId)),
       closeSessionsOpenedAtOrBefore: (input) =>
         Effect.tryPromise({
           try: () => runtime.closeSessionsOpenedAtOrBefore(input),

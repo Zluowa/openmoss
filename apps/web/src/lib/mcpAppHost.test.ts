@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { MCP_APP_RESOURCE_MAX_HTML_BYTES, MCP_APP_SANDBOX_INNER_SANDBOX } from "@synara/contracts";
+import { MCP_APP_RESOURCE_MAX_HTML_BYTES, MCP_APP_SANDBOX_INNER_SANDBOX } from "@moss/contracts";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 
 import {

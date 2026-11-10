@@ -1,4 +1,4 @@
-import type { ComputerHistoryObservation, ComputerHistorySemanticSummary } from "@synara/contracts";
+import type { ComputerHistoryObservation, ComputerHistorySemanticSummary } from "@moss/contracts";
 
 import { normalizeComputerHistorySemanticSummary } from "./store.ts";
 import {

@@ -5,7 +5,7 @@ import type {
   ProviderCatalogEntry,
   ProviderCatalogFieldProvenance,
   ProviderCatalogSelectionContext,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { MossMarketplaceSelectionTicketService } from "./mossMarketplaceSelectionTicket.ts";
 

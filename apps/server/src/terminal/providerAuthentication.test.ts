@@ -12,12 +12,12 @@ import os from "node:os";
 import path from "node:path";
 import { Effect, Layer } from "effect";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { DEFAULT_SERVER_SETTINGS, type ProviderKind, type ServerSettings } from "@synara/contracts";
-import { applyServerSettingsPatch } from "@synara/shared/serverSettings";
+import { DEFAULT_SERVER_SETTINGS, type ProviderKind, type ServerSettings } from "@moss/contracts";
+import { applyServerSettingsPatch } from "@moss/shared/serverSettings";
 import {
   providerStartOptionsFromInstance,
   deriveProviderInstances,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import { afterEach, expect, it } from "vitest";
 import { ServerSettingsService } from "../serverSettings";
 import { getDevinApiKeyEnv } from "../provider/acp/DevinAcpSupport";

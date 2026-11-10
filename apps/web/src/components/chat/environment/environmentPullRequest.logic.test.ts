@@ -5,7 +5,7 @@ import {
   type GitPullRequestComment,
   type PullRequestAutoFixState,
   type PullRequestComment,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   describePullRequestAutoFix,

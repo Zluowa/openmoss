@@ -1,13 +1,14 @@
 import "../../index.css";
 
 import {
+  DEFAULT_SERVER_SETTINGS,
   ThreadId,
   type ServerProviderStatus,
   type ServerProviderUsageSnapshot,
   type TerminalEvent,
   type TerminalOpenInput,
-} from "@synara/contracts";
-import { PROVIDER_DESCRIPTORS } from "@synara/shared/providerMetadata";
+} from "@moss/contracts";
+import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
 import { page, userEvent } from "vitest/browser";
 import { beforeEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -21,6 +22,7 @@ const harness = vi.hoisted(() => ({
   invalidate: vi.fn(async () => {}),
   terminalListener: null as ((event: TerminalEvent) => void) | null,
   api: {
+    dialogs: { pickFolder: vi.fn<() => Promise<string | null>>() },
     terminal: {
       open: vi.fn(),
       write: vi.fn(async () => {}),
@@ -30,6 +32,18 @@ const harness = vi.hoisted(() => ({
       onEvent: vi.fn(),
     },
     shell: { openExternal: vi.fn(async () => {}) },
+    server: {
+      installProvider: vi.fn(async (_input: { provider: string }) => ({
+        providers: [] as ServerProviderStatus[],
+      })),
+      refreshProviders: vi.fn(async () => ({ providers: [] })),
+      startProviderLogin: vi.fn(async (_input: { provider: string; instanceId: string }) => ({
+        providers: [] as ServerProviderStatus[],
+      })),
+      cancelProviderLogin: vi.fn(async (_input: { provider: string; instanceId: string }) => ({
+        providers: [] as ServerProviderStatus[],
+      })),
+    },
   },
 }));
 
@@ -42,7 +56,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
       data:
         options.queryKey?.[1] === "allProviderUsage"
           ? harness.usage
-          : { providers: harness.statuses, cwd: "/tmp" },
+          : options.queryKey?.[1] === "settings"
+            ? DEFAULT_SERVER_SETTINGS
+            : { providers: harness.statuses, cwd: "/tmp" },
       isPending: false,
     }),
   };
@@ -50,8 +66,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 vi.mock("~/lib/serverReactQuery", async (importOriginal) => ({
   ...(await importOriginal<typeof import("~/lib/serverReactQuery")>()),
   serverConfigQueryOptions: () => ({}),
-  serverSettingsQueryOptions: () => ({}),
+  serverSettingsQueryOptions: () => ({ queryKey: ["server", "settings"] }),
   hasReconciledServerProviderStatuses: () => harness.reconciled,
+  reconcileServerProviderStatuses: vi.fn(async () => {}),
   serverQueryKeys: {
     config: () => ["config"],
     settings: () => ["settings"],
@@ -94,6 +111,7 @@ vi.mock("~/localization", async (importOriginal) => {
 
 import { AppSettingsSchema, type AppSettings } from "~/appSettings";
 import { isMossActiveProvider } from "~/providerProductCatalog";
+import { installZhCnUiLocalization } from "~/localization/zhCN";
 
 import { ProvidersSettingsPanel } from "./ProvidersSettingsPanel";
 import TerminalViewport from "../terminal/TerminalViewport";
@@ -107,9 +125,14 @@ const props = {
   updateSettingsAndWait: vi.fn(async () => {}),
   active: true,
   resetEpoch: 0,
+  // These legacy cases exercise advanced tools explicitly; the default-collapse
+  // regression below mounts without a target.
+  providerTarget: "codex" as const,
 };
 
 beforeEach(() => {
+  harness.api.shell.openExternal.mockClear();
+  harness.api.dialogs.pickFolder.mockReset();
   harness.usage = [];
   harness.reconciled = true;
   harness.refresh.mockReset();
@@ -151,6 +174,49 @@ function activityRow(provider: string) {
     .closest('[data-slot="settings-row"]')!;
 }
 
+it("keeps technical settings folded until the person asks for them", async () => {
+  await page.viewport(1000, 780);
+  await render(<ProvidersSettingsPanel {...props} providerTarget={null} />);
+  expect(page.getByRole("switch", { name: "Keep Moss responsive" }).elements()).toHaveLength(0);
+  await page.getByRole("button", { name: "Advanced settings", exact: true }).click();
+  await expect.element(page.getByRole("switch", { name: "Keep Moss responsive" })).toBeVisible();
+});
+
+it("opens setup guides through the native browser action", async () => {
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "cursor"
+      ? {
+          ...status,
+          available: false,
+          status: "error",
+          readiness: { state: "error", reason: "failed-to-run" },
+        }
+      : status,
+  );
+  await render(<ProvidersSettingsPanel {...props} providerTarget={null} />);
+  await page.getByRole("button", { name: "Cursor setup guide", exact: true }).click();
+  expect(harness.api.shell.openExternal).toHaveBeenCalledWith(
+    "https://cursor.com/docs/cli/overview",
+  );
+});
+
+it("uses a progress cursor while saving an agent switch", async () => {
+  let settle!: () => void;
+  const updateSettingsAndWait = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+  );
+  await render(<ProvidersSettingsPanel {...props} updateSettingsAndWait={updateSettingsAndWait} />);
+  const control = page.getByRole("switch", { name: "Disable Codex", exact: true });
+  await control.click();
+  await expect.element(control).toBeDisabled();
+  expect(getComputedStyle(control.element()).cursor).toBe("progress");
+  settle();
+  await expect.element(control).toBeEnabled();
+});
+
 it("saves provider CPU priority opt-out and exposes reset to the default", async () => {
   const updateSettings = vi.fn();
   const result = await render(
@@ -174,11 +240,135 @@ it("saves provider CPU priority opt-out and exposes reset to the default", async
   );
 });
 
-it("shows installation and auth beside activity switches with visible setup guides", async () => {
+it("installs a missing agent in one click and says plainly how it went", async () => {
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "opencode"
+      ? {
+          ...status,
+          message:
+            "OpenCode CLI (`opencode`) is not installed or not on PATH. Install it with `npm install -g opencode-ai`.",
+        }
+      : status,
+  );
+  let finish!: () => void;
+  harness.api.server.installProvider.mockReset().mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve({ providers: [] });
+      }),
+  );
   await render(<ProvidersSettingsPanel {...props} />);
-  expect(activityRow("OpenCode").textContent).toContain("Unavailable");
-  expect(activityRow("OpenCode").textContent).toContain("not installed or not on PATH");
-  expect(activityRow("Claude").textContent).toContain("Needs sign-in");
+  const install = page
+    .elementLocator(activityRow("OpenCode"))
+    .getByRole("button", { name: "Install", exact: true });
+  await install.click();
+  expect(harness.api.server.installProvider).toHaveBeenCalledWith({ provider: "opencode" });
+  await expect.element(page.getByText("Installing OpenCode…")).toBeVisible();
+  await expect.element(install).toBeDisabled();
+  finish();
+  await expect.element(page.getByText("OpenCode is installed.")).toBeVisible();
+});
+
+it("reads how a finished install ended from the agent's install state", async () => {
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "opencode"
+      ? { ...status, readiness: { state: "notInstalled", install: "oneClick" } }
+      : status,
+  );
+  harness.api.server.installProvider.mockReset().mockResolvedValueOnce({
+    providers: [
+      {
+        ...harness.statuses.find((status) => status.provider === "opencode")!,
+        installState: {
+          status: "failed",
+          phase: null,
+          source: "cn-mirror",
+          startedAt: null,
+          finishedAt: null,
+          version: null,
+          reason: "download-failed",
+        },
+      },
+    ],
+  });
+  await render(<ProvidersSettingsPanel {...props} />);
+  await page
+    .elementLocator(activityRow("OpenCode"))
+    .getByRole("button", { name: "Install", exact: true })
+    .click();
+  await expect
+    .element(page.getByText("Couldn't download OpenCode. Check your network and try again."))
+    .toBeVisible();
+  expect(page.getByText(/download-failed/u).elements()).toHaveLength(0);
+});
+
+it("opens the official page for an agent Moss cannot install in one click", async () => {
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "opencode"
+      ? {
+          ...status,
+          readiness: {
+            state: "notInstalled",
+            install: "externalPage",
+            installUrl: "https://opencode.ai/download",
+          },
+        }
+      : status,
+  );
+  harness.api.server.installProvider.mockReset();
+  harness.api.shell.openExternal.mockClear();
+  await render(<ProvidersSettingsPanel {...props} />);
+  await page
+    .elementLocator(activityRow("OpenCode"))
+    .getByRole("button", { name: "Install", exact: true })
+    .click();
+  expect(harness.api.shell.openExternal).toHaveBeenCalledWith("https://opencode.ai/download");
+  expect(harness.api.server.installProvider).not.toHaveBeenCalled();
+});
+
+it("says a failed install plainly and lets the person try again", async () => {
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "opencode"
+      ? {
+          ...status,
+          message:
+            "OpenCode CLI (`opencode`) is not installed or not on PATH. Install it with `npm install -g opencode-ai`.",
+        }
+      : status,
+  );
+  harness.api.server.installProvider
+    .mockReset()
+    .mockRejectedValueOnce(new Error("npm ERR! code E404 /usr/lib/node_modules"));
+  await render(<ProvidersSettingsPanel {...props} />);
+  await page
+    .elementLocator(activityRow("OpenCode"))
+    .getByRole("button", { name: "Install", exact: true })
+    .click();
+  await expect
+    .element(page.getByText("Couldn't download OpenCode. Check your network and try again."))
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+  expect(page.getByText(/npm ERR/u).elements()).toHaveLength(0);
+});
+
+it("shows each agent's state with one plain line and one action, no setup guides", async () => {
+  await render(<ProvidersSettingsPanel {...props} />);
+  // A missing agent says so plainly and offers one install button, not the CLI's diagnostic.
+  expect(activityRow("OpenCode").textContent).toContain("OpenCode isn't on this computer yet.");
+  expect(activityRow("OpenCode").textContent).not.toContain("not on PATH");
+  await expect
+    .element(
+      page
+        .elementLocator(activityRow("OpenCode"))
+        .getByRole("button", { name: "Install", exact: true }),
+    )
+    .toBeVisible();
+  // A signed-out agent asks for a sign-in Moss runs itself, never a command.
+  expect(activityRow("Claude").textContent).toContain("Sign in to your Claude account to use it.");
+  expect(activityRow("Claude").textContent).not.toMatch(/auth login|codex login/u);
+  await expect
+    .element(page.getByRole("button", { name: "Sign in for Claude", exact: true }))
+    .toBeVisible();
   expect(activityRow("Codex").textContent).toContain("Connected");
   await page.getByRole("button", { name: /Disabled providers/u }).click();
   expect(
@@ -191,16 +381,75 @@ it("shows installation and auth beside activity switches with visible setup guid
   await expect
     .element(page.getByRole("switch", { name: "Disable OpenCode", exact: true }))
     .toBeChecked();
-  // The panel lists only product-active providers; retired kinds (e.g.
-  // antigravity) stay in PROVIDER_DESCRIPTORS for legacy threads but get no row.
-  for (const descriptor of PROVIDER_DESCRIPTORS.filter((d) => isMossActiveProvider(d.kind))) {
-    const guide = page.getByRole("link", {
-      name: `${descriptor.displayName} setup guide`,
-      exact: true,
-    });
-    await expect.element(guide).toBeVisible();
-    expect(guide.element().getAttribute("href")).toBe(descriptor.setupDocsHref);
-  }
+  // Moss installs and signs agents in itself, so no row sends people to a setup guide.
+  expect(page.getByRole("link", { name: /setup guide/u }).elements()).toHaveLength(0);
+});
+
+it("signs an agent in through the browser and lets the person cancel", async () => {
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "codex"
+      ? {
+          ...status,
+          status: "error",
+          authStatus: "unauthenticated",
+          message: "Codex CLI is not authenticated. Run `codex login` and try again.",
+        }
+      : status,
+  );
+  harness.api.server.startProviderLogin.mockClear();
+  harness.api.server.cancelProviderLogin.mockClear();
+  const result = await render(<ProvidersSettingsPanel {...props} />);
+  expect(activityRow("Codex").textContent).not.toContain("codex login");
+  await page.getByRole("button", { name: "Sign in for Codex", exact: true }).click();
+  expect(harness.api.server.startProviderLogin).toHaveBeenCalledWith({
+    provider: "codex",
+    instanceId: "codex",
+  });
+
+  // The server reports the browser step; the row waits calmly with a way out.
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "codex"
+      ? {
+          ...status,
+          loginState: {
+            status: "waiting_browser",
+            startedAt: "2026-09-16T21:47:00.000Z",
+            finishedAt: null,
+            message: "Finish sign-in in your browser.",
+          },
+        }
+      : status,
+  );
+  await result.rerender(<ProvidersSettingsPanel {...props} />);
+  await expect.element(page.getByText("Finish signing in in your browser")).toBeVisible();
+  await page.getByRole("button", { name: "Cancel sign-in for Codex", exact: true }).click();
+  expect(harness.api.server.cancelProviderLogin).toHaveBeenCalledWith({
+    provider: "codex",
+    instanceId: "codex",
+  });
+
+  // The credential landed: the row reads connected and the action is gone.
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "codex"
+      ? {
+          ...status,
+          status: "ready",
+          authStatus: "authenticated",
+          message: undefined,
+          loginState: {
+            status: "succeeded",
+            startedAt: "2026-09-16T21:47:00.000Z",
+            finishedAt: "2026-09-16T21:47:09.000Z",
+            message: "Signed in.",
+          },
+        }
+      : status,
+  );
+  await result.rerender(<ProvidersSettingsPanel {...props} />);
+  expect(activityRow("Codex").textContent).toContain("Connected");
+  expect(
+    page.getByRole("button", { name: "Sign in for Codex", exact: true }).elements(),
+  ).toHaveLength(0);
 });
 
 it("keeps disabled providers only in a collapsed recovery list", async () => {
@@ -437,6 +686,148 @@ it("lists every account of a provider, default included, with a status title and
   const editor = page.getByRole("group", { name: "Codex account", exact: true });
   await expect.element(editor.getByText("Codex binary path")).toBeVisible();
   expect(editor.getByRole("button", { name: "Remove" }).elements()).toHaveLength(0);
+});
+
+async function captureHistorySettings(provider: "codex" | "claude", group: HTMLElement) {
+  if (import.meta.env.VITE_MOSS_HISTORY_SETTINGS_SHOTS !== "1") return;
+  const root = document.documentElement;
+  const previous = {
+    lang: root.lang,
+    locale: root.getAttribute("data-moss-locale"),
+    dark: root.classList.contains("dark"),
+  };
+  try {
+    await page.viewport(1040, 980);
+    for (const locale of ["en", "zh-CN"] as const) {
+      root.lang = locale;
+      root.setAttribute("data-moss-locale", locale);
+      const restore = installZhCnUiLocalization();
+      try {
+        const label =
+          locale === "en"
+            ? `Share ${provider === "codex" ? "Codex" : "Claude"} history across accounts`
+            : `在账号之间共享 ${provider === "codex" ? "Codex" : "Claude"} 历史`;
+        expect(group.textContent).toContain(label);
+        for (const theme of ["light", "dark"]) {
+          root.classList.toggle("dark", theme === "dark");
+          await page.elementLocator(group).screenshot({
+            path: `../../../node_modules/.cache/history-settings/${provider}-${locale}-${theme}.png`,
+          });
+        }
+      } finally {
+        restore();
+      }
+    }
+  } finally {
+    root.lang = previous.lang;
+    if (previous.locale === null) root.removeAttribute("data-moss-locale");
+    else root.setAttribute("data-moss-locale", previous.locale);
+    root.classList.toggle("dark", previous.dark);
+  }
+}
+
+it("shows an unavailable version lookup for the installed Codex account in the row and summary", async () => {
+  const codex = harness.statuses.find((s) => s.provider === "codex")!;
+  harness.statuses = [
+    ...harness.statuses.filter((s) => s.provider !== "codex"),
+    { ...codex, available: false },
+    {
+      ...codex,
+      instanceId: "codex_own",
+      available: true,
+      version: "0.166.0",
+      versionAdvisory: {
+        currentVersion: "0.166.0",
+        latestVersion: null,
+        latestVersionKnowable: true,
+        status: "unknown",
+        canUpdate: false,
+        updateCommand: null,
+        checkedAt: codex.checkedAt,
+        message: null,
+      },
+    },
+  ];
+  await render(<ProvidersSettingsPanel {...props} />);
+  await expect
+    .element(page.getByText("Installed v0.166.0 · Latest version unavailable", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(page.getByText("Latest version unavailable for some tools", { exact: true }).first())
+    .toBeVisible();
+  const root = document.documentElement;
+  const previous = { lang: root.lang, locale: root.getAttribute("data-moss-locale") };
+  root.lang = "zh-CN";
+  root.setAttribute("data-moss-locale", "zh-CN");
+  const restore = installZhCnUiLocalization();
+  try {
+    await expect
+      .element(page.getByText("已安装 v0.166.0；暂时无法查询最新版本", { exact: true }))
+      .toBeVisible();
+    await expect
+      .element(page.getByText("部分工具暂时无法查询最新版本", { exact: true }).first())
+      .toBeVisible();
+  } finally {
+    restore();
+    root.lang = previous.lang;
+    if (previous.locale === null) root.removeAttribute("data-moss-locale");
+    else root.setAttribute("data-moss-locale", previous.locale);
+  }
+});
+
+it("keeps the Codex shared source and default account's private directory separate", async () => {
+  const { props: panelProps, updateSettings } = accountProps({
+    codexShareStateAcrossAccounts: true,
+    codexHomePath: "/existing/history",
+    providerInstances: { codex: { driver: "codex", config: { cliAlias: "codex-personal" } } },
+  });
+  vi.stubGlobal("desktopBridge", {});
+  try {
+    await render(<ProvidersSettingsPanel {...panelProps} />);
+    const editor = page.getByRole("group", { name: "Codex account", exact: true });
+    const source = editor.getByRole("textbox", { name: "CODEX_HOME path" });
+    await expect.element(source).toHaveValue("/existing/history");
+    harness.api.dialogs.pickFolder.mockResolvedValueOnce("/private/own");
+    await editor.getByRole("button", { name: "Choose folder" }).last().click();
+    expect(updateSettings).toHaveBeenLastCalledWith({
+      providerInstances: {
+        codex: {
+          driver: "codex",
+          config: { cliAlias: "codex-personal", shadowHomePath: "/private/own" },
+        },
+      },
+    });
+    await editor.getByRole("switch", { name: /Share Codex history across accounts/u }).click();
+    expect(updateSettings).toHaveBeenLastCalledWith({ codexShareStateAcrossAccounts: false });
+    await captureHistorySettings("codex", editor.element() as HTMLElement);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
+it("picks a Claude projects source without enabling sharing or rewriting an account", async () => {
+  const { props: panelProps, updateSettings } = accountProps();
+  vi.stubGlobal("desktopBridge", {});
+  try {
+    await render(<ProvidersSettingsPanel {...panelProps} providerTarget="claudeAgent" />);
+    const editor = page.getByRole("group", { name: "Claude account", exact: true });
+    await expect
+      .element(editor.getByRole("switch", { name: /Share Claude history across accounts/u }))
+      .not.toBeChecked();
+    harness.api.dialogs.pickFolder.mockResolvedValueOnce("/existing/projects");
+    await editor.getByRole("button", { name: "Choose folder" }).last().click();
+    expect(updateSettings).toHaveBeenLastCalledWith({
+      claudeSharedProjectsPath: "/existing/projects",
+    });
+    await editor.getByRole("switch", { name: /Share Claude history across accounts/u }).click();
+    expect(updateSettings).toHaveBeenLastCalledWith({ claudeShareStateAcrossAccounts: true });
+    await expect
+      .element(editor.getByText(/Existing chats keep their original source/u))
+      .toBeVisible();
+    await captureHistorySettings("claude", editor.element() as HTMLElement);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it("edits the selected account beside the list and offers one-click sign-in", async () => {

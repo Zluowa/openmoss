@@ -1054,6 +1054,8 @@ export const OrchestrationMessage = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  /** Thread whose agent sent this message (moss_send_message); absent for human sends. */
+  dispatchSourceThreadId: Schema.optional(ThreadId),
   startsNewTurn: Schema.optional(Schema.Boolean),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,
@@ -2200,6 +2202,8 @@ export const ThreadTurnStartCommand = Schema.Struct({
   // Set by the automation engine when it dispatches a turn. Clients cannot set it:
   // ClientThreadTurnStartCommand omits the field, so decoding strips any spoofed value.
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  // Server-only: the thread whose agent sent this message. Clients cannot set it.
+  dispatchSourceThreadId: Schema.optional(ThreadId),
   runtimeMode: RuntimeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_RUNTIME_MODE)),
   interactionMode: ProviderInteractionMode.pipe(
     Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
@@ -3192,6 +3196,7 @@ export const ThreadMessageSentPayload = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  dispatchSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   startsNewTurn: Schema.optional(Schema.Boolean),
   turnId: Schema.NullOr(TurnId),
   streaming: Schema.Boolean,

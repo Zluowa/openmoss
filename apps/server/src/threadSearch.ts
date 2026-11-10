@@ -10,7 +10,7 @@ import {
   type OrchestrationSearchThreadsInput,
   type OrchestrationSearchThreadsResult,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 

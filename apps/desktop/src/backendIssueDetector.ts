@@ -1,4 +1,4 @@
-import { DESKTOP_DIAGNOSTIC_ISSUE_PREFIX } from "@synara/contracts";
+import { DESKTOP_DIAGNOSTIC_ISSUE_PREFIX } from "@moss/contracts";
 import type { BackendOutputDetector } from "./backendProcessOutput";
 
 const LEGACY_DIAGNOSTIC_ISSUE_PREFIX = "SYNARA_DIAGNOSTIC_ISSUE ";

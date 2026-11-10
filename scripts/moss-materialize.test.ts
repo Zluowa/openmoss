@@ -4,7 +4,7 @@ import type {
   MaterializedMossEngineProjection,
   MaterializedMossWorkspaceProjections,
   MossProjectionManifestSummary,
-} from "@synara/shared/mossProjectionMaterializer";
+} from "@moss/shared/mossProjectionMaterializer";
 
 import {
   mossMaterializeExitCode,

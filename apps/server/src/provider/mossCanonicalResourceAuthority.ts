@@ -5,7 +5,7 @@ import type {
   MossOwnershipStore,
   MossPrivateStage,
   MossPrivateStagePayload,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   makeMossNativeFilesystemCapability,

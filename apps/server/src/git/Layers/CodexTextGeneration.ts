@@ -21,10 +21,23 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_GIT_TEXT_GENERATION_REASONING_EFFORT,
-} from "@synara/contracts";
-import { sanitizeGeneratedThreadTitle } from "@synara/shared/chatThreads";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@synara/shared/git";
-import { NEXT_MESSAGE_PREDICTION_TIMEOUT_MS } from "@synara/shared/nextMessagePrediction";
+} from "@moss/contracts";
+import { sanitizeGeneratedThreadTitle } from "@moss/shared/chatThreads";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@moss/shared/git";
+import { NEXT_MESSAGE_PREDICTION_TIMEOUT_MS } from "@moss/shared/nextMessagePrediction";
+import { resolveCodexExecutable } from "@moss/shared/codexExecutable";
+import { ServerConfig } from "../../config.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
+import { readCodexCredentialFence } from "../../codexHomeIdentity.ts";
+import {
+  readManagedCodexHomeAuthority,
+  requiresManagedCodexHomeAuthority,
+} from "../../account/mossManagedHomeAuthority.ts";
+import {
+  agentProgramsForServer,
+  agentProgramSourceHome,
+  makeAgentProgramOwnership,
+} from "../../provider/agentProgramOwnership.ts";
 
 import {
   hydrateCodexProviderCredentialEnvironment,
@@ -32,6 +45,7 @@ import {
   type CodexPreparedAuthSource,
 } from "../../codexProcessEnv.ts";
 import { formatMissingCodexWorkingDirectoryError } from "../../codexWorkingDirectory.ts";
+import { CodexProviderHttpError, requestCodexProviderJson } from "./codexTextGenerationHttp.ts";
 import {
   makeEffectProcessCommand,
   spawnProviderProcess,
@@ -226,6 +240,11 @@ export function codexAuthenticationFailureDetail(output: string): string | undef
 }
 
 const makeCodexTextGeneration = Effect.gen(function* () {
+  const serverConfig = Option.getOrUndefined(yield* Effect.serviceOption(ServerConfig));
+  const serverSettings = Option.getOrUndefined(yield* Effect.serviceOption(ServerSettingsService));
+  const runtimePrograms = serverConfig
+    ? agentProgramsForServer(serverConfig, "codex")
+    : makeAgentProgramOwnership("codex");
   const timingOption = yield* Effect.serviceOption(CodexTextGenerationTimingConfig);
   const timing = Option.getOrElse(timingOption, () => DEFAULT_CODEX_TEXT_GENERATION_TIMING);
   const fileSystem = yield* FileSystem.FileSystem;
@@ -367,6 +386,54 @@ const makeCodexTextGeneration = Effect.gen(function* () {
 
   const tempDir = () => process.env.TMPDIR ?? process.env.TEMP ?? process.env.TMP ?? "/tmp";
 
+  const prepareAccountAuth = (
+    operation: TextGenerationOperation,
+    providerOptions: BranchNameGenerationInput["providerOptions"],
+    env: NodeJS.ProcessEnv,
+    homePath: string | undefined,
+  ) =>
+    Effect.tryPromise({
+      try: async () => {
+        const options = {
+          ...providerOptions?.codex,
+          ...(homePath ? { homePath } : {}),
+          shadowHomePath: providerOptions?.codex?.shadowHomePath?.trim() || undefined,
+          accountId: resolveCodexAccountId(providerOptions),
+        };
+        const credentialFence = readCodexCredentialFence(options);
+        const managedHomeAuthority =
+          serverConfig && serverSettings
+            ? await readManagedCodexHomeAuthority({
+                stateDir: serverConfig.stateDir,
+                readSettings: () => Effect.runPromise(serverSettings.getSettings),
+                readSettingsSync: () => Effect.runSync(serverSettings.getSettings),
+                input: { ...options, env },
+              })
+            : undefined;
+        if (
+          credentialFence &&
+          requiresManagedCodexHomeAuthority(options.accountId) &&
+          !managedHomeAuthority
+        ) {
+          throw new Error("Moss 账户目录缺少服务器所有权验证，请重启 Moss 后重试。");
+        }
+        return prepareCodexAuthTracking({
+          ...options,
+          env,
+          ...(managedHomeAuthority ? { managedHomeAuthority } : {}),
+        });
+      },
+      catch: (cause) =>
+        new TextGenerationError({
+          operation,
+          detail:
+            cause instanceof Error
+              ? cause.message
+              : "Codex authentication storage cannot be resolved safely.",
+          cause,
+        }),
+    });
+
   const verifyCodexTextGenerationVersion = (
     operation: TextGenerationOperation,
     binaryPath: string,
@@ -374,27 +441,45 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     env: Record<string, string>,
   ) =>
     Effect.gen(function* () {
-      const command = makeEffectProcessCommand(binaryPath, ["--version"], {
-        cwd,
-        detached: true,
-        env,
-        killSignal: "SIGKILL",
-        stdin: "ignore",
-      });
-      const child = yield* commandSpawner
-        .spawn(command)
+      const result = yield* runtimePrograms
+        .withOperation(
+          { binaryPath, cwd, env, sourceHomePath: agentProgramSourceHome("codex", env, cwd) },
+          (spawned) =>
+            Effect.gen(function* () {
+              const command = makeEffectProcessCommand(binaryPath, ["--version"], {
+                cwd,
+                detached: true,
+                env,
+                killSignal: "SIGKILL",
+                stdin: "ignore",
+              });
+              const child = yield* commandSpawner
+                .spawn(command)
+                .pipe(
+                  Effect.mapError((cause) =>
+                    normalizeCodexError(
+                      binaryPath,
+                      operation,
+                      cause,
+                      "Failed to probe Codex CLI version",
+                    ),
+                  ),
+                );
+              spawned();
+              return yield* collectCodexChildResult({
+                binaryPath,
+                child,
+                operation,
+                timeoutMs: CODEX_VERSION_PROBE_TIMEOUT_MS,
+                timeoutDetail: "Codex CLI version probe timed out.",
+              });
+            }).pipe(Effect.scoped),
+        )
         .pipe(
           Effect.mapError((cause) =>
             normalizeCodexError(binaryPath, operation, cause, "Failed to probe Codex CLI version"),
           ),
         );
-      const result = yield* collectCodexChildResult({
-        binaryPath,
-        child,
-        operation,
-        timeoutMs: CODEX_VERSION_PROBE_TIMEOUT_MS,
-        timeoutDetail: "Codex CLI version probe timed out.",
-      });
       const version = parseCodexCliVersion(`${result.stdout}\n${result.stderr}`);
       if (
         result.exitCode !== 0 ||
@@ -566,8 +651,99 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             detail: formatMissingCodexWorkingDirectoryError(cwd),
           });
         }
+        // Where the CLI cannot run (Windows), a provider that is only an endpoint and a
+        // key is still reached directly. Only the account's own home is read (never the
+        // person's default Codex home), and nothing is written or spawned.
         const platformError = codexTextGenerationPlatformError(process.platform, operation);
-        if (platformError) return yield* platformError;
+        if (platformError) {
+          const accountHomePath = resolveCodexHomePath(codexHomePath, providerOptions);
+          if (!accountHomePath) return yield* platformError;
+          const credentialFence = yield* Effect.try({
+            try: () => readCodexCredentialFence(providerOptions?.codex),
+            catch: (cause) =>
+              new TextGenerationError({
+                operation,
+                detail: "Codex 账户绑定已失效，请重新选择账户。",
+                cause,
+              }),
+          });
+          const config: Effect.Effect<string | undefined, TextGenerationError> = credentialFence
+            ? prepareAccountAuth(
+                operation,
+                providerOptions,
+                {
+                  ...withoutProviderCredentialEnvironment(process.env),
+                  ...providerOptions?.codex?.environment,
+                },
+                accountHomePath,
+              ).pipe(Effect.map((tracking) => tracking.sourceConfigSnapshot))
+            : fileSystem
+                .readFileString(path.join(accountHomePath, "config.toml"))
+                .pipe(Effect.catch(() => Effect.succeed(undefined)));
+          const direct = yield* config.pipe(
+            Effect.map((source) => {
+              if (source === undefined) return undefined;
+              try {
+                return buildCodexTextGenerationConfig(source);
+              } catch {
+                return undefined;
+              }
+            }),
+          );
+          const provider = direct?.directHttpProvider;
+          const envKey = direct?.providerEnvKey;
+          const accountScoped =
+            Boolean(resolveCodexAccountId(providerOptions)) ||
+            (modelSelection?.provider === "codex" && modelSelection.instanceId !== "codex");
+          const credential = envKey
+            ? (
+                providerOptions?.codex?.environment?.[envKey] ??
+                (accountScoped ? undefined : process.env[envKey])
+              )?.trim()
+            : undefined;
+          if (!provider || !credential) return yield* platformError;
+          const predictionRequest = operation === "generateNextMessagePrediction";
+          const json = yield* Effect.tryPromise({
+            try: () =>
+              requestCodexProviderJson({
+                baseUrl: provider.baseUrl,
+                wireApi: provider.wireApi,
+                credential,
+                model:
+                  resolveCodexModel(model, modelSelection) ?? DEFAULT_GIT_TEXT_GENERATION_MODEL,
+                prompt,
+                jsonSchema: toJsonSchemaObject(outputSchemaJson),
+                // A title or a prediction is wanted in seconds, not after deep thought.
+                reasoningEffort:
+                  predictionRequest || operation === "generateThreadTitle"
+                    ? "low"
+                    : DEFAULT_GIT_TEXT_GENERATION_REASONING_EFFORT,
+                timeoutMs: predictionRequest
+                  ? NEXT_MESSAGE_PREDICTION_TIMEOUT_MS
+                  : timing.requestTimeoutMs,
+              }),
+            catch: (cause) =>
+              new TextGenerationError({
+                operation,
+                detail:
+                  cause instanceof CodexProviderHttpError
+                    ? cause.message
+                    : "The model service request failed.",
+                cause,
+              }),
+          });
+          return yield* Schema.decodeEffect(Schema.fromJsonString(outputSchemaJson))(json).pipe(
+            Effect.catchTag("SchemaError", (cause) =>
+              Effect.fail(
+                new TextGenerationError({
+                  operation,
+                  detail: "The model service returned invalid structured output.",
+                  cause,
+                }),
+              ),
+            ),
+          );
+        }
         yield* Effect.try({
           try: assertNoExternalCodexConfigLayers,
           catch: (cause) =>
@@ -580,9 +756,17 @@ const makeCodexTextGeneration = Effect.gen(function* () {
               cause,
             }),
         });
-        const codexBinaryPath = resolveCodexBinaryPath(providerOptions);
+        const codexBinaryPath = yield* Effect.try({
+          try: () => resolveCodexBinaryPath(providerOptions),
+          catch: (cause) =>
+            new TextGenerationError({
+              operation,
+              detail:
+                cause instanceof Error ? cause.message : "Failed to resolve the Codex program.",
+              cause,
+            }),
+        });
         const resolvedCodexHomePath = resolveCodexHomePath(codexHomePath, providerOptions);
-        const resolvedCodexAuthHomePath = resolveCodexAuthHomePath(providerOptions);
         const resolvedCodexAccountId = resolveCodexAccountId(providerOptions);
         const accountScoped =
           Boolean(resolvedCodexAccountId) ||
@@ -595,24 +779,12 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           ...trustedProcessEnv,
           ...explicitProviderEnvironment,
         };
-        const authTracking = yield* Effect.try({
-          try: () =>
-            prepareCodexAuthTracking({
-              env: instanceLaunchEnv,
-              ...(resolvedCodexHomePath ? { homePath: resolvedCodexHomePath } : {}),
-              ...(resolvedCodexAuthHomePath ? { shadowHomePath: resolvedCodexAuthHomePath } : {}),
-              ...(resolvedCodexAccountId ? { accountId: resolvedCodexAccountId } : {}),
-            }),
-          catch: (cause) =>
-            new TextGenerationError({
-              operation,
-              detail:
-                cause instanceof Error
-                  ? cause.message
-                  : "Codex authentication storage cannot be resolved safely.",
-              cause,
-            }),
-        });
+        const authTracking = yield* prepareAccountAuth(
+          operation,
+          providerOptions,
+          instanceLaunchEnv,
+          resolvedCodexHomePath,
+        );
         const isolatedConfig = yield* parsePreparedCodexConfig(
           operation,
           authTracking.sourceConfigSnapshot,
@@ -716,33 +888,56 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             outputPath,
             "-",
           ];
-          const child = yield* spawnProviderProcess(commandSpawner, codexBinaryPath, args, {
-            cwd: isolatedCodexHome.workDirectoryPath,
-            detached: true,
-            env,
-            killSignal: "SIGKILL",
-            stdin: {
-              stream: Stream.make(new TextEncoder().encode(prompt)),
-            },
-          }).pipe(
-            Effect.mapError((cause) =>
-              normalizeCodexError(
-                codexBinaryPath,
-                operation,
-                cause,
-                "Failed to spawn Codex CLI process",
+          const { exitCode, stdout, stderr } = yield* runtimePrograms
+            .withOperation(
+              {
+                binaryPath: codexBinaryPath,
+                cwd: isolatedCodexHome.workDirectoryPath,
+                env,
+                sourceHomePath: agentProgramSourceHome("codex", env, isolatedCodexHome.homePath),
+              },
+              (spawned) =>
+                Effect.gen(function* () {
+                  const child = yield* spawnProviderProcess(commandSpawner, codexBinaryPath, args, {
+                    cwd: isolatedCodexHome.workDirectoryPath,
+                    detached: true,
+                    env,
+                    killSignal: "SIGKILL",
+                    stdin: {
+                      stream: Stream.make(new TextEncoder().encode(prompt)),
+                    },
+                  }).pipe(
+                    Effect.mapError((cause) =>
+                      normalizeCodexError(
+                        codexBinaryPath,
+                        operation,
+                        cause,
+                        "Failed to spawn Codex CLI process",
+                      ),
+                    ),
+                  );
+                  spawned();
+                  return yield* collectCodexChildResult({
+                    binaryPath: codexBinaryPath,
+                    child,
+                    operation,
+                    timeoutMs: predictionRequest
+                      ? NEXT_MESSAGE_PREDICTION_TIMEOUT_MS
+                      : timing.requestTimeoutMs,
+                    timeoutDetail: "Codex CLI request timed out.",
+                  });
+                }).pipe(Effect.scoped),
+            )
+            .pipe(
+              Effect.mapError((cause) =>
+                normalizeCodexError(
+                  codexBinaryPath,
+                  operation,
+                  cause,
+                  "Failed to run Codex CLI process",
+                ),
               ),
-            ),
-          );
-          const { exitCode, stdout, stderr } = yield* collectCodexChildResult({
-            binaryPath: codexBinaryPath,
-            child,
-            operation,
-            timeoutMs: predictionRequest
-              ? NEXT_MESSAGE_PREDICTION_TIMEOUT_MS
-              : timing.requestTimeoutMs,
-            timeoutDetail: "Codex CLI request timed out.",
-          });
+            );
 
           if (exitCode !== 0) {
             const stderrDetail = stderr.trim();
@@ -760,7 +955,14 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         });
 
         const request = Effect.gen(function* () {
-          yield* runCodexCommand.pipe(Effect.scoped);
+          yield* runCodexCommand.pipe(
+            Effect.scoped,
+            Effect.ensuring(
+              Effect.sync(() =>
+                runtimePrograms.forgetCompletedTemporarySource(isolatedCodexHome.homePath),
+              ),
+            ),
+          );
 
           return yield* fileSystem.readFileString(outputPath).pipe(
             Effect.mapError(
@@ -1035,7 +1237,12 @@ const makeCodexTextGeneration = Effect.gen(function* () {
 function resolveCodexBinaryPath(
   providerOptions: BranchNameGenerationInput["providerOptions"] | undefined,
 ): string {
-  return providerOptions?.codex?.binaryPath?.trim() || "codex";
+  // Same runtime as the chat itself: the person's own CLI, else the copy Moss ships.
+  return resolveCodexExecutable({
+    configuredBinaryPath: providerOptions?.codex?.binaryPath,
+    accountId: providerOptions?.codex?.accountId,
+    env: process.env,
+  }).binaryPath;
 }
 
 function resolveCodexHomePath(
@@ -1045,13 +1252,6 @@ function resolveCodexHomePath(
   // The routed instance home wins: the legacy top-level codexHomePath is the
   // global default and must not override a selected account's own home.
   const resolved = providerOptions?.codex?.homePath?.trim() || codexHomePath?.trim();
-  return resolved && resolved.length > 0 ? resolved : undefined;
-}
-
-function resolveCodexAuthHomePath(
-  providerOptions: BranchNameGenerationInput["providerOptions"] | undefined,
-): string | undefined {
-  const resolved = providerOptions?.codex?.shadowHomePath?.trim();
   return resolved && resolved.length > 0 ? resolved : undefined;
 }
 

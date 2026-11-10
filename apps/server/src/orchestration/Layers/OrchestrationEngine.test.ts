@@ -5,18 +5,31 @@ import {
   EventId,
   MessageId,
   ProjectId,
+  SidebarOrderRevision,
   THREAD_GOAL_INLINE_MAX_CHARS,
   THREAD_GOAL_MAX_CHARS,
   ThreadId,
   TurnId,
   type OrchestrationCommand,
   type OrchestrationEvent,
-} from "@synara/contracts";
-import { makeKeyedDrainableWorker } from "@synara/shared/KeyedDrainableWorker";
-import type { DrainableWorkerStatus } from "@synara/shared/DrainableWorker";
+} from "@moss/contracts";
+import { makeKeyedDrainableWorker } from "@moss/shared/KeyedDrainableWorker";
+import type { DrainableWorkerStatus } from "@moss/shared/DrainableWorker";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { Cause, Effect, Fiber, Layer, ManagedRuntime, Option, PubSub, Stream } from "effect";
+import {
+  Cause,
+  Effect,
+  Exit,
+  Fiber,
+  Layer,
+  ManagedRuntime,
+  Option,
+  PubSub,
+  Scope,
+  ServiceMap,
+  Stream,
+} from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe, expect, it, vi } from "vitest";
 
@@ -34,7 +47,10 @@ import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedA
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
 import { materializeThreadGoalFile, pruneThreadGoalFiles } from "../threadGoalMaterialization.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
-import { OrchestrationProjectionPipelineLive } from "./ProjectionPipeline.ts";
+import {
+  ORCHESTRATION_PROJECTOR_NAMES,
+  OrchestrationProjectionPipelineLive,
+} from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive as OrchestrationProjectionSnapshotQueryBase } from "./ProjectionSnapshotQuery.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
@@ -56,8 +72,8 @@ const OrchestrationProjectionSnapshotQueryLive = OrchestrationProjectionSnapshot
  */
 const fingerprintPoison = vi.hoisted(() => new Set<string>());
 
-vi.mock("@synara/shared/KeyedDrainableWorker", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@synara/shared/KeyedDrainableWorker")>();
+vi.mock("@moss/shared/KeyedDrainableWorker", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@moss/shared/KeyedDrainableWorker")>();
   return { ...actual, makeKeyedDrainableWorker: vi.fn(actual.makeKeyedDrainableWorker) };
 });
 
@@ -194,6 +210,26 @@ async function createOrchestrationSystem(pipeline?: OrchestrationProjectionPipel
     managedAttachmentRepository,
     stateDir: serverConfig.stateDir,
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
+    /** Starts a second engine over the same database, as a restart would. */
+    startAnotherEngine: async () => {
+      const scope = await Effect.runPromise(Scope.make("sequential"));
+      try {
+        const services = await runtime.runPromise(
+          Layer.build(
+            Layer.fresh(
+              OrchestrationEngineLive.pipe(Layer.provide(OrchestrationProjectionSnapshotQueryLive)),
+            ),
+          ).pipe(Scope.provide(scope)),
+        );
+        return {
+          engine: ServiceMap.get(services, OrchestrationEngineService),
+          stop: () => Effect.runPromise(Scope.close(scope, Exit.void)),
+        };
+      } catch (error) {
+        await Effect.runPromise(Scope.close(scope, Exit.void));
+        throw error;
+      }
+    },
     dispose: () => runtime.dispose(),
   };
 }
@@ -203,6 +239,250 @@ function now() {
 }
 
 describe("OrchestrationEngine", () => {
+  it("persists archive revisions before returning and repairs a legacy sidebar projection", async () => {
+    const system = await createOrchestrationSystem();
+    const projectId = asProjectId("sidebar-durable-project");
+    const threadId = ThreadId.makeUnsafe("sidebar-durable-thread");
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.makeUnsafe("sidebar-create-project"),
+          projectId,
+          title: "Sidebar",
+          workspaceRoot: "/tmp/sidebar-durable",
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("sidebar-create-thread"),
+          threadId,
+          projectId,
+          title: "Sidebar",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          interactionMode: "default",
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("sidebar-legacy-thread"),
+          threadId: ThreadId.makeUnsafe("legacy-retained-thread"),
+          projectId,
+          title: "Retained history",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          interactionMode: "default",
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        }),
+      );
+      const before = await system.run(system.engine.getReadModel());
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("sidebar-archive-thread"),
+          threadId,
+          expectedSidebarOrderRevision:
+            before.sidebarOrderRevision ?? SidebarOrderRevision.makeUnsafe(0),
+        }),
+      );
+      const archived = await system.run(system.engine.getReadModel());
+      const stored = await system.run(
+        system.sql<{ revision: number }>`SELECT revision FROM projection_sidebar_order_state`,
+      );
+      expect(stored[0]?.revision).toBe(archived.sidebarOrderRevision);
+      expect(archived.sidebarOrderRevision).toBeGreaterThan(before.sidebarOrderRevision ?? 0);
+      await system.run(system.sql`UPDATE projection_sidebar_order_state SET revision = 0`);
+      await system.run(
+        system.sql`DELETE FROM projection_state WHERE projector = 'projection.sidebar-order'`,
+      );
+      await system.run(system.sql`DELETE FROM orchestration_events
+        WHERE stream_id = 'legacy-retained-thread' AND event_type = 'thread.created'`);
+      await system.run(system.engine.repairState());
+      const repaired = await system.run(system.engine.getReadModel());
+      expect(repaired.sidebarOrderRevision).toBe(archived.sidebarOrderRevision);
+      expect(
+        repaired.sidebarOrderItems?.some((item) => item.key === "thread:legacy-retained-thread"),
+      ).toBe(true);
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.unarchive",
+          commandId: CommandId.makeUnsafe("sidebar-restore-thread"),
+          threadId,
+          expectedSidebarOrderRevision: repaired.sidebarOrderRevision!,
+        }),
+      );
+      const restored = await system.run(system.engine.getReadModel());
+      expect(restored.threads.find((thread) => thread.id === threadId)?.archivedAt).toBeNull();
+      expect(
+        (
+          await system.run(
+            system.sql<{ revision: number }>`SELECT revision FROM projection_sidebar_order_state`,
+          )
+        )[0]?.revision,
+      ).toBe(restored.sidebarOrderRevision);
+    } finally {
+      await system.dispose();
+    }
+  });
+
+  it("starts when a stored sidebar event no longer decodes or the sidebar rebuild fails", async () => {
+    const system = await createOrchestrationSystem();
+    const projectId = asProjectId("sidebar-startup-project");
+    const threadId = ThreadId.makeUnsafe("sidebar-startup-thread");
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.makeUnsafe("sidebar-startup-create-project"),
+          projectId,
+          title: "Startup",
+          workspaceRoot: "/tmp/sidebar-startup",
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      await system.run(
+        system.engine.dispatch({
+          type: "thread.create",
+          commandId: CommandId.makeUnsafe("sidebar-startup-create-thread"),
+          threadId,
+          projectId,
+          title: "Startup",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          interactionMode: "default",
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+        }),
+      );
+      const before = await system.run(system.engine.getReadModel());
+      const highWater = await system.run(system.eventStore.getHighWaterSequence());
+      // As on a long-running install, every projector has applied the journal;
+      // only the missing durable sidebar order makes the next start replay it.
+      for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
+        await system.run(system.sql`INSERT INTO projection_state
+          (projector, last_applied_sequence, updated_at)
+          VALUES (${projector}, ${highWater}, ${createdAt})
+          ON CONFLICT (projector) DO UPDATE SET
+            last_applied_sequence = excluded.last_applied_sequence`);
+      }
+      // The stored record can no longer be decoded, and the durable sidebar
+      // order is missing, so the next start replays the whole sidebar journal.
+      await system.run(system.sql`UPDATE orchestration_events SET payload_json = '{'
+        WHERE stream_id = ${threadId} AND event_type = 'thread.created'`);
+      await system.run(
+        system.sql`DELETE FROM projection_state WHERE projector = 'projection.sidebar-order'`,
+      );
+
+      // Even a rebuild that cannot be saved must not keep the server from
+      // starting; it keeps the stored order instead.
+      await system.run(system.sql`CREATE TRIGGER block_sidebar_order_rebuild
+        BEFORE INSERT ON projection_state WHEN NEW.projector = 'projection.sidebar-order'
+        BEGIN SELECT RAISE(ABORT, 'sidebar order write blocked'); END`);
+      const blocked = await system.startAnotherEngine();
+      try {
+        const model = await system.run(blocked.engine.getReadModel());
+        expect(model.threads.some((thread) => thread.id === threadId)).toBe(true);
+        expect(model.sidebarOrderRevision).toBe(before.sidebarOrderRevision);
+      } finally {
+        await blocked.stop();
+      }
+      await system.run(system.sql`DROP TRIGGER block_sidebar_order_rebuild`);
+
+      // With the write allowed, the rebuild skips only the undecodable record
+      // and still saves a complete order for every live item.
+      const restarted = await system.startAnotherEngine();
+      try {
+        const model = await system.run(restarted.engine.getReadModel());
+        expect(model.sidebarOrderItems?.some((item) => item.key === `thread:${threadId}`)).toBe(
+          true,
+        );
+        const cursor = await system.run(
+          system.sql<{ lastAppliedSequence: number }>`
+            SELECT last_applied_sequence AS "lastAppliedSequence" FROM projection_state
+            WHERE projector = 'projection.sidebar-order'`,
+        );
+        expect(cursor[0]?.lastAppliedSequence).toBe(highWater);
+      } finally {
+        await restarted.stop();
+      }
+    } finally {
+      await system.dispose();
+    }
+  });
+
+  it("starts when a projector replaying from the start meets a record that no longer decodes", async () => {
+    const system = await createOrchestrationSystem();
+    const projectId = asProjectId("replay-startup-project");
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.makeUnsafe("replay-startup-create-project"),
+          projectId,
+          title: "Replay",
+          workspaceRoot: "/tmp/replay-startup",
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      for (const name of ["bad", "good"]) {
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.makeUnsafe(`replay-startup-create-${name}`),
+            threadId: ThreadId.makeUnsafe(`replay-startup-${name}`),
+            projectId,
+            title: `Replay ${name}`,
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            interactionMode: "default",
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+          }),
+        );
+      }
+      const highWater = await system.run(system.eventStore.getHighWaterSequence());
+      await system.run(system.sql`UPDATE orchestration_events SET payload_json = '{'
+        WHERE stream_id = 'replay-startup-bad' AND event_type = 'thread.created'`);
+      // A missing cursor makes this projector replay the journal from the start.
+      await system.run(
+        system.sql`DELETE FROM projection_state WHERE projector = ${ORCHESTRATION_PROJECTOR_NAMES.threads}`,
+      );
+
+      const restarted = await system.startAnotherEngine();
+      try {
+        const model = await system.run(restarted.engine.getReadModel());
+        expect(model.threads.some((thread) => thread.id === "replay-startup-good")).toBe(true);
+        const cursor = await system.run(
+          system.sql<{ lastAppliedSequence: number }>`
+            SELECT last_applied_sequence AS "lastAppliedSequence" FROM projection_state
+            WHERE projector = ${ORCHESTRATION_PROJECTOR_NAMES.threads}`,
+        );
+        expect(cursor[0]?.lastAppliedSequence).toBe(highWater);
+      } finally {
+        await restarted.stop();
+      }
+    } finally {
+      await system.dispose();
+    }
+  });
+
   it("commits the metadata snapshot cursor before publishing its accepted event", async () => {
     const system = await createOrchestrationSystem();
     const commandId = CommandId.makeUnsafe("metadata-phase-commit");

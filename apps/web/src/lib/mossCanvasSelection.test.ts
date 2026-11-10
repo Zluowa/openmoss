@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseMossCanvasComposeContext, parseMossCanvasSelection } from "./mossCanvasSelection";
+import {
+  formatMossCanvasSelectionContext,
+  parseMossCanvasComposeContext,
+  parseMossCanvasSelection,
+} from "./mossCanvasSelection";
 const selection = {
   type: "moss-canvas-selection",
   version: 1,
@@ -16,7 +20,7 @@ const selection = {
 };
 describe("Canvas selection protocol", () => {
   it("accepts a bounded owned selection and explicit deselection", () => {
-    expect(parseMossCanvasSelection(selection, "thread-a")).toEqual(selection);
+    expect(parseMossCanvasSelection(selection, "thread-a")).toEqual({ ...selection, content: [] });
     expect(parseMossCanvasSelection({ ...selection, items: [] }, "thread-a")?.items).toEqual([]);
   });
   it("rejects another thread, invalid epochs and duplicate shapes", () => {
@@ -72,6 +76,45 @@ const contextResult = {
   ok: true,
   items: [contextItem],
 };
+
+describe("Canvas selected text and shapes", () => {
+  it("accepts selected text with the live selection and turns it into a composer chip", () => {
+    const parsed = parseMossCanvasSelection(
+      {
+        ...selection,
+        items: [],
+        content: [
+          { shapeId: "shape:love", kind: "text", text: "我爱你" },
+          { shapeId: "shape:box", kind: "geo" },
+        ],
+      },
+      "thread-a",
+    );
+    expect(parsed?.content).toEqual([
+      { shapeId: "shape:love", kind: "text", text: "我爱你" },
+      { shapeId: "shape:box", kind: "geo" },
+    ]);
+    expect(formatMossCanvasSelectionContext(parsed!.content)).toBe(
+      ["画布上选中的内容", "- 文字：我爱你", "- 图形（无文字）"].join("\n"),
+    );
+    expect(formatMossCanvasSelectionContext([])).toBeNull();
+  });
+
+  it("still accepts an older Canvas that sends no content", () => {
+    expect(parseMossCanvasSelection(selection, "thread-a")?.content).toEqual([]);
+  });
+
+  it("refuses unbounded or foreign content", () => {
+    const withContent = (content: unknown) =>
+      parseMossCanvasSelection({ ...selection, content }, "thread-a");
+    expect(withContent([{ shapeId: "shape:x", kind: "text", text: "x".repeat(501) }])).toBeNull();
+    expect(withContent([{ shapeId: "https://outside.test", kind: "text" }])).toBeNull();
+    expect(withContent([{ shapeId: "shape:x", kind: "<img>" }])).toBeNull();
+    expect(
+      withContent(Array.from({ length: 33 }, (_, i) => ({ shapeId: `shape:${i}`, kind: "geo" }))),
+    ).toBeNull();
+  });
+});
 
 describe("Canvas compose context protocol", () => {
   it("accepts complete owned context, an unannotated selection and explicit deselection", () => {

@@ -34,19 +34,20 @@ import {
   MOSS_STABLE_RELEASES_URL,
   MOSS_STABLE_WINDOWS_INSTALLER_GUID,
   type BetaImportResult,
-} from "@synara/shared/betaChannel";
-import { MOSS_DESKTOP_SMOKE_USER_DATA_ENV } from "@synara/shared/desktopIdentity";
+} from "@moss/shared/betaChannel";
+import { MOSS_DESKTOP_SMOKE_USER_DATA_ENV } from "@moss/shared/desktopIdentity";
+import { readWindowsRegistryString } from "@moss/shared/windowsRegistry";
 import type {
   DesktopBetaActionError,
   DesktopBetaActionResult,
   DesktopBetaChannelState,
   DesktopBetaInstallProgress,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { installBetaFromFeed, type BetaInstallDeps, type ExpectedTeamId } from "./betaInstaller";
 
 // electron-builder registers the uninstall key under the raw NSIS guid (no
-// braces); the value itself lives in @synara/shared/betaChannel.
+// braces); the value itself lives in @moss/shared/betaChannel.
 export const BETA_WINDOWS_UNINSTALL_GUID = MOSS_BETA_WINDOWS_INSTALLER_GUID;
 const BETA_MAC_APP_NAME = "Moss Beta.app";
 const BETA_MAC_EXECUTABLE_NAME = "Moss Beta";
@@ -213,19 +214,10 @@ export function betaMacInstallDirs(input?: {
   ];
 }
 
-const readRegistryValue = (key: string, value: string): string | null => {
-  try {
-    const output = execFileSync("reg.exe", ["query", key, "/v", value], {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 5_000,
-    });
-    const match = output.match(new RegExp(`${value}\\s+REG_(?:SZ|EXPAND_SZ)\\s+(.+)`, "i"));
-    return match?.[1]?.trim() ?? null;
-  } catch {
-    return null;
-  }
-};
+// A missing uninstall key is the normal "not installed" answer: it must stay silent rather
+// than print reg.exe's "key not found" message into desktop-main.log.
+const readRegistryValue = (key: string, value: string): string | null =>
+  readWindowsRegistryString(key, value);
 
 export function detectBetaInstall(
   platform: NodeJS.Platform = process.platform,
@@ -306,7 +298,8 @@ function readMacBundleVersion(appPath: string): string | null {
     const output = execFileSync(
       "/usr/bin/defaults",
       ["read", join(appPath, "Contents", "Info"), "CFBundleShortVersionString"],
-      { encoding: "utf8", timeout: 5_000 },
+      // Piped stderr: execFileSync would otherwise copy a failure message into the log.
+      { encoding: "utf8", timeout: 5_000, stdio: ["ignore", "pipe", "pipe"] },
     );
     return output.trim() || null;
   } catch {

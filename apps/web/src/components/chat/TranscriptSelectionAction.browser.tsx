@@ -19,13 +19,10 @@ const action = {
 function props() {
   return {
     action,
-    defaultEnvMode: "local" as const,
-    canUseWorktree: true,
     canAddToSide: true,
     onDismiss: vi.fn(),
-    onAddToChat: vi.fn(),
     onAddToSide: vi.fn().mockResolvedValue(undefined),
-    onNewChat: vi.fn().mockResolvedValue(undefined),
+    onSendReply: vi.fn().mockResolvedValue(true),
   };
 }
 
@@ -33,13 +30,13 @@ afterEach(() => {
   window.getSelection()?.removeAllRanges();
 });
 
-it("shows the three segmented actions and routes the quote to Side", async () => {
+it("shows the desktop chat's two actions and routes the quote to a side chat", async () => {
   const callbacks = props();
   const screen = await render(<TranscriptSelectionActionLayer {...callbacks} />);
   try {
     const toolbar = page.getByRole("toolbar", { name: "Selection actions" });
     await expect.element(toolbar).toBeVisible();
-    expect(toolbar.element().textContent).toBe("Add to ChatAdd to SideAdd to new Chat");
+    expect(toolbar.element().textContent).toBe("Start a side chatReply");
     expect(toolbar.element().querySelectorAll("svg")).toHaveLength(0);
     // Labels must never clip, and the rendered height must match the height the
     // layout reserves when placing the toolbar above the selection.
@@ -48,87 +45,108 @@ it("shows the three segmented actions and routes the quote to Side", async () =>
     }
     const bar = toolbar.element().firstElementChild!;
     expect(bar.getBoundingClientRect().height).toBe(TRANSCRIPT_SELECTION_ACTION_HEIGHT_PX);
-    await page.getByRole("button", { name: "Add to Side", exact: true }).click();
+    await page.getByRole("button", { name: "Start a side chat", exact: true }).click();
     expect(callbacks.onAddToSide).toHaveBeenCalledExactlyOnceWith(action.selection);
   } finally {
     await screen.unmount();
   }
 });
 
-it("keeps the quote when the browser selection disappears and submits once", async () => {
-  let finish: () => void = () => {};
+it("sends into the open side chat once one exists", async () => {
+  const screen = await render(<TranscriptSelectionActionLayer {...props()} sideChatStarted />);
+  try {
+    await expect
+      .element(page.getByRole("button", { name: "Send to side chat", exact: true }))
+      .toBeVisible();
+  } finally {
+    await screen.unmount();
+  }
+});
+
+it("replies to the quote with Enter and sends the desktop chat's reply format", async () => {
   const callbacks = props();
-  callbacks.onNewChat.mockImplementation(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
   const screen = await render(<TranscriptSelectionActionLayer {...callbacks} />);
   try {
-    await page.getByRole("button", { name: "Add to new Chat" }).click();
-    await screen.rerender(<TranscriptSelectionActionLayer {...callbacks} action={null} />);
-    const input = page.getByRole("textbox", { name: "Message for new chat" });
-    await expect.element(input).toHaveFocus();
-    await expect.element(page.getByText("1 selection")).toBeVisible();
-    await input.fill("Explain the cache lifetime");
-    await page.getByRole("button", { name: "Local", exact: true }).click();
-    await page.getByRole("menuitem", { name: "New worktree", exact: true }).click();
-    await page.getByRole("button", { name: "Send to new chat" }).click();
-    await expect.element(page.getByRole("button", { name: "Send to new chat" })).toBeDisabled();
-    expect(callbacks.onNewChat).toHaveBeenCalledExactlyOnceWith(
-      action.selection,
-      "Explain the cache lifetime",
-      "worktree",
-      "send",
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    const box = page.getByRole("dialog", { name: "Reply" });
+    await expect.element(box).toBeVisible();
+    expect(box.element().querySelector("[data-reply-quote]")?.textContent).toBe(
+      action.selection.text,
     );
-    finish();
+    const input = page.getByRole("textbox", { name: "Reply" });
+    await expect.element(input).toHaveFocus();
+    expect(input.element().getAttribute("placeholder")).toBe("Reply to the agent");
+    await input.fill("Why does the TTL stay?");
+    await userEvent.keyboard("{Enter}");
+    expect(callbacks.onSendReply).toHaveBeenCalledExactlyOnceWith(
+      `<!-- reply -->\n> ${action.selection.text}\n\nWhy does the TTL stay?`,
+    );
     await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
   } finally {
     await screen.unmount();
   }
 });
 
-it("retains the mini-composer text and environment when creation fails", async () => {
+it("opens Reply from the Enter key while the toolbar is up", async () => {
+  const screen = await render(<TranscriptSelectionActionLayer {...props()} />);
+  try {
+    await expect.element(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(page.getByRole("dialog", { name: "Reply" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  } finally {
+    await screen.unmount();
+  }
+});
+
+it("keeps the reply text when sending fails", async () => {
   const callbacks = props();
-  callbacks.onNewChat.mockRejectedValue(new Error("Worktree creation unavailable"));
+  callbacks.onSendReply.mockResolvedValue(false);
   const screen = await render(<TranscriptSelectionActionLayer {...callbacks} />);
   try {
-    await page.getByRole("button", { name: "Add to new Chat" }).click();
-    const input = page.getByRole("textbox", { name: "Message for new chat" });
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    const input = page.getByRole("textbox", { name: "Reply" });
     await input.fill("Keep this message");
-    await userEvent.keyboard("{Enter}");
+    await page.getByRole("button", { name: "Send reply" }).click();
+    expect(callbacks.onSendReply).toHaveBeenCalledOnce();
+    await expect.element(page.getByRole("dialog", { name: "Reply" })).toBeVisible();
+    await expect.element(input).toHaveValue("Keep this message");
+  } finally {
+    await screen.unmount();
+  }
+});
+
+it("keeps a rejected reply for retry without exposing transport errors", async () => {
+  const callbacks = props();
+  callbacks.onSendReply.mockRejectedValueOnce(new Error("private transport detail"));
+  const screen = await render(<TranscriptSelectionActionLayer {...callbacks} />);
+  try {
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    const input = page.getByRole("textbox", { name: "Reply" });
+    await input.fill("Keep this reply");
+    await page.getByRole("button", { name: "Send reply" }).click();
     await expect
       .element(page.getByRole("alert"))
-      .toHaveTextContent("Worktree creation unavailable");
-    await expect.element(input).toHaveTextContent("Keep this message");
-    await expect.element(page.getByRole("button", { name: "Local", exact: true })).toBeVisible();
-    await userEvent.keyboard("{Escape}");
+      .toHaveTextContent("The reply couldn't be sent. Try again.");
+    await expect.element(input).toHaveValue("Keep this reply");
+    await page.getByRole("button", { name: "Send reply" }).click();
     await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+    expect(callbacks.onSendReply).toHaveBeenCalledTimes(2);
   } finally {
     await screen.unmount();
   }
 });
 
-it("fits the composer in a narrow viewport and disables Worktree outside Git projects", async () => {
+it("fits the reply box inside a narrow viewport", async () => {
   await page.viewport(360, 480);
   const screen = await render(
-    <TranscriptSelectionActionLayer
-      {...props()}
-      action={{ ...action, left: 8, top: 8 }}
-      canUseWorktree={false}
-    />,
+    <TranscriptSelectionActionLayer {...props()} action={{ ...action, left: 8, top: 8 }} />,
   );
   try {
-    await page.getByRole("button", { name: "Add to new Chat" }).click();
-    await page.getByRole("button", { name: "Local", exact: true }).click();
-    await expect
-      .element(page.getByRole("menuitem", { name: "New worktree", exact: true }))
-      .not.toBeInTheDocument();
-    await userEvent.keyboard("{Escape}");
-    const rect = page.getByRole("dialog").element().getBoundingClientRect();
+    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    const rect = page.getByRole("dialog", { name: "Reply" }).element().getBoundingClientRect();
     expect(rect.left).toBeGreaterThanOrEqual(8);
-    expect(rect.right).toBeLessThanOrEqual(352);
     expect(rect.top).toBeGreaterThanOrEqual(8);
     expect(rect.bottom).toBeLessThanOrEqual(472);
   } finally {
@@ -136,27 +154,3 @@ it("fits the composer in a narrow viewport and disables Worktree outside Git pro
     await page.viewport(1280, 720);
   }
 });
-
-it.each([""])(
-  "opens the full composer with the quote and draft %j without sending",
-  async (prompt) => {
-    const callbacks = props();
-    const screen = await render(<TranscriptSelectionActionLayer {...callbacks} />);
-    try {
-      await page.getByRole("button", { name: "Add to new Chat" }).click();
-      if (prompt) await page.getByRole("textbox", { name: "Message for new chat" }).fill(prompt);
-      await page.getByRole("button", { name: "Local", exact: true }).click();
-      await page.getByRole("menuitem", { name: "New worktree", exact: true }).click();
-      await page.getByRole("button", { name: "Open in chat", exact: true }).click();
-      expect(callbacks.onNewChat).toHaveBeenCalledExactlyOnceWith(
-        action.selection,
-        prompt,
-        "worktree",
-        "compose",
-      );
-      await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-    } finally {
-      await screen.unmount();
-    }
-  },
-);

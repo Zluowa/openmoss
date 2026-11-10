@@ -10,7 +10,7 @@ import type {
   OrchestrationSidebarOrderItem,
   SidebarOrderDestination,
   SidebarSectionItemType,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export type SidebarOrderItem = OrchestrationSidebarOrderItem;
 export type SidebarOrderContainer = {

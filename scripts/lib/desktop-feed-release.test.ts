@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import {
   MOSS_DESKTOP_DEFAULT_UPDATE_REPOSITORY,
   desktopUpdateChannel,
-} from "@synara/shared/desktopIdentity";
+} from "@moss/shared/desktopIdentity";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -522,6 +522,40 @@ describe("createCurlFeedClient", () => {
       for (const asset of prepared.assets) {
         expect(uploads.get(asset.name)).toEqual(readFileSync(asset.path));
       }
+    } finally {
+      await new Promise((done) => server.close(done));
+    }
+  }, 30_000);
+
+  it("keeps non-ASCII release notes intact on their way through curl", async () => {
+    const notes = "这个版本没有代码签名。“更多信息” — Moss 1.0.2";
+    let received = "";
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on("data", (chunk: Buffer) => chunks.push(chunk));
+      request.on("end", () => {
+        received = Buffer.concat(chunks).toString("utf8");
+        response.writeHead(201, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            id: 7,
+            tag_name: "v1.0.2",
+            draft: true,
+            prerelease: false,
+            html_url: "http://localhost/release",
+          }),
+        );
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    try {
+      const client = createCurlFeedClient({
+        repository: "o/r",
+        token: "test-token",
+        apiBaseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      });
+      await client.createDraft({ tag: "v1.0.2", name: "Moss 1.0.2", body: notes });
+      expect((JSON.parse(received) as { body: string }).body).toBe(notes);
     } finally {
       await new Promise((done) => server.close(done));
     }

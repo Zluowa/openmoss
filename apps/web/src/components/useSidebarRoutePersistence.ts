@@ -2,7 +2,7 @@
 // Purpose: Durably records the active main route before deferred sidebar state settles.
 // Layer: Web route-persistence hook
 
-import type { ProjectId, ThreadId } from "@synara/contracts";
+import type { ProjectId, ThreadId } from "@moss/contracts";
 import { useEffect, type Dispatch, type SetStateAction } from "react";
 
 import type { LastThreadRoute, SafeMainNavigationTarget } from "../chatRouteRestore";

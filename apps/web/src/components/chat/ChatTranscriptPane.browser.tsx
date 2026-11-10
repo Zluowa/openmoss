@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@moss/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import { page } from "vitest/browser";
 import { useRef, useState } from "react";
@@ -162,7 +162,8 @@ describe("ChatTranscriptPane", () => {
       )!;
       const scrollTop = scroll.scrollTop;
       const messageTop = message.getBoundingClientRect().top;
-      expect(getComputedStyle(paragraph).fontSize).toBe("16px");
+      // The harness reads at base 15; the comfortable prose role is 16/14 of the base.
+      expect(getComputedStyle(paragraph).fontSize).toBe("17px");
       observer.observe(message, {
         subtree: true,
         childList: true,
@@ -190,7 +191,8 @@ describe("ChatTranscriptPane", () => {
           '[data-message-role="assistant"] p',
         );
         expect(currentParagraph?.isConnected).toBe(true);
-        expect(getComputedStyle(currentParagraph!).fontSize).toBe("19px");
+        // Base 18 in the comfortable prose role: 18 x 16 / 14, rounded.
+        expect(getComputedStyle(currentParagraph!).fontSize).toBe("21px");
         expect([...mutations, ...observer.takeRecords()].length).toBeGreaterThan(0);
       });
     } finally {

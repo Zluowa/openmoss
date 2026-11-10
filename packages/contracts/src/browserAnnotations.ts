@@ -11,6 +11,8 @@ export const BROWSER_ANNOTATION_MAX_NAME_LENGTH = 256;
 export const BROWSER_ANNOTATION_MAX_TEXT_LENGTH = 280;
 export const BROWSER_ANNOTATION_MAX_FINGERPRINT_LENGTH = 128;
 export const BROWSER_ANNOTATION_MAX_COMMENT_LENGTH = 4_000;
+/** The picked element's markup, trimmed, sent beside its selector (as Claude does). */
+export const BROWSER_ANNOTATION_MAX_HTML_LENGTH = 1_200;
 export const BROWSER_ANNOTATION_MAX_MARKERS = 32;
 
 export interface BrowserAnnotationDocument {
@@ -36,8 +38,16 @@ export interface BrowserAnnotation {
   name: string | null;
   text: string | null;
   fingerprint: string;
+  /** The element's markup, trimmed, with typed values and secrets left out. */
+  html?: string | null;
   comment: string | null;
   capturedAt: string;
+}
+
+/** Where a picked element sat in the page's viewport (CSS pixels), for its screenshot. */
+export interface BrowserAnnotationElementBox {
+  rect: { x: number; y: number; width: number; height: number };
+  viewport: { width: number; height: number };
 }
 
 export interface BrowserAnnotationMarker {
@@ -134,6 +144,8 @@ export type BrowserAnnotationEvent =
       kind: "committed";
       sessionId: string;
       annotation: BrowserAnnotation;
+      /** Where the element sat on the page when it was picked. */
+      elementBox?: BrowserAnnotationElementBox;
     });
 
 export interface BrowserAnnotationMethods {

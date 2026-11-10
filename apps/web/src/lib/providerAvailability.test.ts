@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ServerProviderStatus } from "@synara/contracts";
+import type { ServerProviderStatus } from "@moss/contracts";
 import {
   findProviderStatus,
   isMossDefaultManagedProviderInstanceId,
@@ -9,6 +9,7 @@ import {
   mossDefaultManagedProviderDriver,
   normalizeProviderStatusForLocalConfig,
   providerUnavailableReason,
+  resolveAgentReadiness,
   resolveAvailableProviderPreference,
   resolveProviderSendAvailability,
   resolveProviderSendAvailabilityWithRefresh,
@@ -380,7 +381,7 @@ describe("isProviderUsable", () => {
     expect(
       isProviderUsable({ ...BASE_STATUS, available: true, authStatus: "unauthenticated" }),
     ).toBe(false);
-    // Advisory warnings the health layer marks available (Pi bundled SDK,
+    // Advisory warnings the health layer marks available (unverified CLIs,
     // Cursor model-discovery warnings) stay sendable.
     expect(
       isProviderUsable({
@@ -549,6 +550,37 @@ describe("resolveProviderSendAvailabilityWithRefresh", () => {
 });
 
 describe("providerUnavailableReason", () => {
+  const managed = (message: string): ServerProviderStatus => ({
+    ...BASE_STATUS,
+    provider: "zcode",
+    instanceId: "zcode_moss",
+    driver: "zcode",
+    status: "error",
+    available: false,
+    message,
+  });
+
+  it("gives a managed source's reason when the user can act on it", () => {
+    for (const message of [
+      "The ZCode CLI could not be started. Install the ZCode desktop app (it bundles the CLI) or set ZCODE_BIN to the zcode CLI path, then retry.",
+      "Kimi Code needs Git Bash on Windows, and Moss could not find it. Install Git for Windows, or set KIMI_SHELL_PATH to a bash.exe, then retry.",
+      "OpenCode CLI (`opencode`) is not installed or not on PATH. Install it with `npm install -g opencode-ai`.",
+      "Grok CLI (`grok`) is not installed or not on PATH. Grok has no npm package for every platform, so use the installer at docs.x.ai/build/overview.",
+    ]) {
+      expect(providerUnavailableReason(managed(message))).toBe(message);
+    }
+  });
+
+  it("keeps local diagnostics out of chat", () => {
+    for (const message of [
+      "EACCES /Users/person/.config/agy/token.json",
+      "OpenCode CLI (`opencode`) is not installed or not on PATH. EACCES C:\\Users\\person\\x",
+      "The ZCode CLI could not be started. C:\\Users\\person\\zcode.cjs\n    at run (x.js:1:1)",
+    ]) {
+      expect(providerUnavailableReason(managed(message))).toBe("Moss is temporarily unavailable.");
+    }
+  });
+
   it("uses provider instance display names when available", () => {
     expect(
       providerUnavailableReason({
@@ -571,6 +603,7 @@ describe("findProviderStatus", () => {
       driver: "privateAcp",
       instanceId: "private_acp",
       displayName: "Private ACP",
+      message: "Provider driver 'privateAcp' is not supported by this Moss build.",
       enabled: false,
       availability: "unavailable",
     };
@@ -708,5 +741,75 @@ describe("Moss-managed provider instances", () => {
         "kimi_moss",
       ),
     ).toBe(false);
+  });
+});
+
+describe("resolveAgentReadiness", () => {
+  it("prefers the server's readiness and keeps only an https install page", () => {
+    expect(
+      resolveAgentReadiness({
+        ...BASE_STATUS,
+        readiness: {
+          state: "notInstalled",
+          install: "externalPage",
+          installUrl: "https://example.com/get",
+        },
+      }),
+    ).toEqual({
+      state: "notInstalled",
+      install: "externalPage",
+      installUrl: "https://example.com/get",
+    });
+    expect(
+      resolveAgentReadiness({
+        ...BASE_STATUS,
+        readiness: { state: "notInstalled", install: "oneClick" },
+      }),
+    ).toEqual({ state: "notInstalled", install: "oneClick" });
+    expect(
+      resolveAgentReadiness({
+        ...READY_STATUS,
+        readiness: { state: "notInstalled", installUrl: "http://example.com/get" },
+      }),
+    ).toEqual({ state: "notInstalled" });
+    expect(
+      resolveAgentReadiness({
+        ...READY_STATUS,
+        readiness: { state: "error", reason: "failed-to-run" },
+      }),
+    ).toEqual({ state: "error", reason: "failed-to-run" });
+  });
+
+  it("reads today's health fields when the server sends no readiness", () => {
+    expect(resolveAgentReadiness(undefined)).toEqual({ state: "checking" });
+    expect(resolveAgentReadiness(READY_STATUS)).toEqual({ state: "ready" });
+    expect(
+      resolveAgentReadiness({ ...READY_STATUS, status: "warning", authStatus: "unauthenticated" }),
+    ).toEqual({ state: "needsLogin" });
+    expect(
+      resolveAgentReadiness({
+        ...BASE_STATUS,
+        message:
+          "OpenCode CLI (`opencode`) is not installed or not on PATH. Install it with `npm install -g opencode-ai`.",
+      }),
+    ).toEqual({ state: "notInstalled", install: "oneClick" });
+    expect(
+      resolveAgentReadiness({
+        ...BASE_STATUS,
+        message:
+          "Grok CLI (`grok`) is not installed or not on PATH. Grok has no npm package for every platform, so use the installer at docs.x.ai/build/overview.",
+      }),
+    ).toEqual({
+      state: "notInstalled",
+      installUrl: "https://docs.x.ai/build/overview",
+      install: "externalPage",
+    });
+    // Any other failure is an error; its diagnostic stays out of the result.
+    expect(
+      resolveAgentReadiness({
+        ...BASE_STATUS,
+        message: "Codex shared continuation v2 marker at /home/someone/.codex is malformed.",
+      }),
+    ).toEqual({ state: "error" });
   });
 });

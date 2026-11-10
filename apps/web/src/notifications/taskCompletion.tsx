@@ -3,7 +3,7 @@
 // Layer: Notification runtime
 // Exports: TaskCompletionNotifications and browser permission helpers
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo, useEffect, useRef, useState } from "react";
 import { toastManager } from "../components/ui/toast";
@@ -39,6 +39,29 @@ import {
   shouldShowThreadNotificationToast,
 } from "./taskCompletion.logic";
 import { claimSnoozeReminder } from "./snoozeReminderReceipts";
+import { assistantNotificationsMuted, useMossbotPreferencesStore } from "~/mossbotPreferencesStore";
+import { isRoomProjectThread, roomProjectIdsOf } from "~/lib/mossbotRoomThreads";
+import { useProjectAgentSummariesStore } from "~/components/chat/project/useProjectAgentSummaries";
+
+function isAssistantThreadMuted(threadId: ThreadId): boolean {
+  const state = useStore.getState();
+  // A group-chat member thread holds the internal room prompt; its reply shows in the room
+  // and its roster row, never as a toast that would open that thread.
+  const projectId =
+    state.sidebarThreadSummaryById[threadId]?.projectId ??
+    state.threadShellById?.[threadId]?.projectId;
+  if (isRoomProjectThread(projectId, roomProjectIdsOf(state.projects))) return true;
+  const mutedProjectIds = useMossbotPreferencesStore.getState().mutedProjectIds;
+  if (!mutedProjectIds.length) return false;
+  return assistantNotificationsMuted({
+    threadId,
+    projectId:
+      state.sidebarThreadSummaryById[threadId]?.projectId ??
+      state.threadShellById?.[threadId]?.projectId,
+    mutedProjectIds,
+    assistants: useProjectAgentSummariesStore.getState().summariesByProjectId.values(),
+  });
+}
 
 export type BrowserNotificationPermissionState =
   | NotificationPermission
@@ -248,6 +271,7 @@ export function TaskCompletionNotifications() {
         if (notifiedSnoozeKeysRef.current.has(key)) continue;
         notifiedSnoozeKeysRef.current.add(key);
         if (!claimSnoozeReminder(reminder.threadId, reminder.reminderAt, storage)) continue;
+        if (isAssistantThreadMuted(reminder.threadId)) continue;
         const copy = {
           title: reminder.title.trim() || "Untitled thread",
           body: "Ready to pick this thread back up.",
@@ -327,6 +351,7 @@ export function TaskCompletionNotifications() {
 
     for (const completion of completions) {
       notifiedCompletionKeysRef.current.add(completedThreadNotificationKey(completion));
+      if (isAssistantThreadMuted(completion.threadId)) continue;
       const copy = buildTaskCompletionCopy(completion, locale);
       if (
         settings.enableTaskCompletionToasts &&
@@ -344,6 +369,7 @@ export function TaskCompletionNotifications() {
     }
 
     for (const candidate of inputNeededCandidates) {
+      if (isAssistantThreadMuted(candidate.threadId)) continue;
       const copy = buildInputNeededCopy(candidate, locale);
       if (
         settings.enableTaskCompletionToasts &&
@@ -361,6 +387,7 @@ export function TaskCompletionNotifications() {
     }
 
     for (const completion of terminalCompletions) {
+      if (isAssistantThreadMuted(completion.threadId)) continue;
       const copy = buildTerminalCompletionCopy(completion, locale);
       if (
         settings.enableTaskCompletionToasts &&
@@ -378,6 +405,7 @@ export function TaskCompletionNotifications() {
     }
 
     for (const candidate of terminalAttentionCandidates) {
+      if (isAssistantThreadMuted(candidate.threadId)) continue;
       const copy = buildTerminalAttentionCopy(candidate, locale);
       if (
         settings.enableTaskCompletionToasts &&

@@ -2,7 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type ServerProviderUsageSnapshot,
   type ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -61,6 +61,24 @@ describe("ProviderUsageSettingsPanel", () => {
       expect(appSettings.railUsageProviders).toEqual(["codex", "claudeAgent"]);
     } finally {
       appSettings.disabledProviders = [];
+      appSettings.railUsageProviders = [];
+    }
+  });
+
+  it("keeps every account switch clickable when two or more rings are already on", () => {
+    appSettings.railUsageProviders = ["codex", "claudeAgent", "opencode"];
+    try {
+      const markup = render([]);
+      expect(markup).toContain("Sidebar usage rings");
+      expect(markup).not.toMatch(/up to \d+ accounts/u);
+      const switches = markup.match(
+        /<[^>]+aria-label="Show [^"]+ usage at the bottom of the sidebar"[^>]*>/gu,
+      );
+      expect(switches?.length ?? 0).toBeGreaterThan(3);
+      for (const switchMarkup of switches ?? []) {
+        expect(switchMarkup).not.toMatch(/\sdata-disabled=/u);
+      }
+    } finally {
       appSettings.railUsageProviders = [];
     }
   });

@@ -5,8 +5,8 @@
 import type {
   ServerGetProviderUsageSnapshotResult,
   ServerProviderUsageSnapshot,
-} from "@synara/contracts";
-import { PROVIDER_USAGE_PROVIDERS } from "@synara/shared/providerUsage";
+} from "@moss/contracts";
+import { PROVIDER_USAGE_PROVIDERS } from "@moss/shared/providerUsage";
 
 import type { OpenUsageUsageLine } from "./openUsageRateLimits";
 import type { ProviderRateLimit } from "./rateLimits";

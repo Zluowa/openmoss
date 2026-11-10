@@ -1,3 +1,6 @@
+import { compactSidebarOrderItems } from "../sidebarOrder";
+import { ProjectionSidebarOrderRepository } from "../../persistence/Services/ProjectionSidebarOrder";
+import { ProjectionSidebarOrderRepositoryLive } from "../../persistence/Layers/ProjectionSidebarOrder";
 import type {
   ChatAttachment,
   OrchestrationEvent,
@@ -5,10 +8,14 @@ import type {
   ProjectId,
   SpaceId,
   ThreadId,
-} from "@synara/contracts";
-import { OrchestrationCommand, ORCHESTRATION_WS_METHODS } from "@synara/contracts";
-import { makeKeyedDrainableWorker } from "@synara/shared/KeyedDrainableWorker";
-import { SIDECHAT_INACTIVITY_EXPIRY_MS, sidechatExpiryMs } from "@synara/shared/sidechatExpiry";
+} from "@moss/contracts";
+import {
+  OrchestrationCommand,
+  ORCHESTRATION_WS_METHODS,
+  SidebarOrderRevision,
+} from "@moss/contracts";
+import { makeKeyedDrainableWorker } from "@moss/shared/KeyedDrainableWorker";
+import { SIDECHAT_INACTIVITY_EXPIRY_MS, sidechatExpiryMs } from "@moss/shared/sidechatExpiry";
 import {
   Cause,
   Deferred,
@@ -78,7 +85,7 @@ import {
   threadGoalFileReference,
 } from "../threadGoalMaterialization.ts";
 import { PROJECT_METADATA_SNAPSHOT_PROJECTORS } from "../projectMetadataProjection.ts";
-import { createEmptyReadModel, projectEvent } from "../projector.ts";
+import { createEmptyReadModel, deriveSidebarOrderItems, projectEvent } from "../projector.ts";
 import {
   OrchestrationProjectionPipeline,
   type ShellMetadataOrchestrationEvent,
@@ -185,6 +192,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const messageRepository = yield* ProjectionThreadMessageRepository;
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const sidebarOrderRepository = yield* ProjectionSidebarOrderRepository;
   const serverConfig = yield* ServerConfig;
   const serverSettings = yield* Effect.serviceOption(ServerSettingsService);
   const deciderWorkspacePaths = {
@@ -193,6 +201,102 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   } as const;
 
   let commandReadModel = createEmptyReadModel(new Date().toISOString());
+
+  const sidebarEventTypes: ReadonlyArray<OrchestrationEvent["type"]> = [
+    "project.created",
+    "project.meta-updated",
+    "project.deleted",
+    "thread.created",
+    "thread.meta-updated",
+    "thread.archived",
+    "thread.unarchived",
+    "thread.deleted",
+    "sidebar-order.legacy-imported",
+    "sidebar-section.created",
+    "sidebar-section.renamed",
+    "sidebar-section.collapsed",
+    "sidebar-section.deleted",
+    "sidebar-section.order-updated",
+    "sidebar-section.thread-placed",
+    "sidebar-section.project-placed",
+    "sidebar-section.thread-order-updated",
+  ];
+  const persistSidebarOrder = (model: OrchestrationReadModel, sequence: number) =>
+    Effect.gen(function* () {
+      yield* sidebarOrderRepository.replaceAll({
+        items: model.sidebarOrderItems ?? [],
+        revision: model.sidebarOrderRevision ?? SidebarOrderRevision.makeUnsafe(0),
+        migrationState: model.sidebarOrderMigrationState ?? "legacy_import_required",
+        updatedAt: model.updatedAt,
+      });
+      yield* sql`INSERT INTO projection_state (projector, last_applied_sequence, updated_at)
+        VALUES ('projection.sidebar-order', ${sequence}, ${model.updatedAt})
+        ON CONFLICT (projector) DO UPDATE SET
+          last_applied_sequence = excluded.last_applied_sequence,
+          updated_at = excluded.updated_at`;
+    }).pipe(Effect.mapError(toPersistenceSqlError("OrchestrationEngine.persistSidebarOrder")));
+
+  const logSkippedSidebarEvent = (sequence: number, cause: unknown) =>
+    Effect.logWarning("sidebar order rebuild skipped an unreadable event").pipe(
+      Effect.annotateLogs({
+        sequence,
+        cause: Cause.isCause(cause) ? Cause.pretty(cause) : String(cause),
+      }),
+    );
+
+  // Older builds only updated this relation in memory. Rebuild its missing
+  // durable projection from metadata events once; never replay transcript bodies.
+  const rebuildSidebarOrder = Effect.gen(function* () {
+    const highWater = yield* eventStore.getHighWaterSequence();
+    if (highWater === 0) return;
+    const rows = yield* sql<{ lastAppliedSequence: number }>`
+      SELECT last_applied_sequence AS "lastAppliedSequence" FROM projection_state
+      WHERE projector = 'projection.sidebar-order'`;
+    // Only the presence of a later sidebar event matters here, so look at the
+    // index instead of decoding a stored record that might not decode.
+    const pending = yield* sql<{ sequence: number }>`
+      SELECT sequence FROM orchestration_events
+      WHERE sequence > ${rows[0]?.lastAppliedSequence ?? 0}
+        AND sequence <= ${highWater}
+        AND event_type IN ${sql.in(sidebarEventTypes)}
+      LIMIT 1`;
+    if (pending.length === 0 && rows.length > 0) return;
+    let rebuilt = createEmptyReadModel(new Date().toISOString());
+    // One stored record that no longer decodes or projects is skipped and
+    // logged, so it cannot keep the server from starting.
+    yield* Stream.runForEach(
+      eventStore.readFromSequence(0, Number.MAX_SAFE_INTEGER, highWater, {
+        eventTypes: sidebarEventTypes,
+        onUndecodableEvent: ({ sequence, error }) => logSkippedSidebarEvent(sequence, error),
+      }),
+      (event) =>
+        projectEvent(rebuilt, event).pipe(
+          Effect.map((next) => {
+            rebuilt = next;
+          }),
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : logSkippedSidebarEvent(event.sequence, cause),
+          ),
+        ),
+    );
+    // Some installations retain thread projections after pruning old journal
+    // records. Preserve those live items instead of dropping them during repair.
+    const existing = yield* projectionSnapshotQuery.getCommandReadModel();
+    const fallback = deriveSidebarOrderItems(existing);
+    const liveKeys = new Set(fallback.map((item) => item.key));
+    const replayed = (rebuilt.sidebarOrderItems ?? []).filter((item) => liveKeys.has(item.key));
+    const replayedKeys = new Set(replayed.map((item) => item.key));
+    rebuilt = {
+      ...rebuilt,
+      sidebarOrderItems: compactSidebarOrderItems([
+        ...replayed,
+        ...fallback.filter((item) => !replayedKeys.has(item.key)),
+      ]),
+    };
+    yield* sql.withTransaction(persistSidebarOrder(rebuilt, highWater));
+  }).pipe(Effect.mapError(toPersistenceSqlError("OrchestrationEngine.rebuildSidebarOrder")));
 
   const eventPubSub = yield* PubSub.sliding<OrchestrationEvent>(
     ORCHESTRATION_EVENT_PUBSUB_CAPACITY,
@@ -1329,6 +1433,15 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               });
             }
 
+            if (
+              nextCommandReadModel.sidebarOrderItems !== commandReadModel.sidebarOrderItems ||
+              nextCommandReadModel.sidebarOrderRevision !== commandReadModel.sidebarOrderRevision ||
+              nextCommandReadModel.sidebarOrderMigrationState !==
+                commandReadModel.sidebarOrderMigrationState
+            ) {
+              yield* persistSidebarOrder(nextCommandReadModel, lastSavedEvent.sequence);
+            }
+
             const receiptInserted = yield* commandReceiptRepository.insert({
               commandId: envelope.command.commandId,
               aggregateKind: lastSavedEvent.aggregateKind,
@@ -1590,6 +1703,18 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   };
 
   yield* projectionPipeline.bootstrap;
+  // The durable sidebar order is a repairable cache. If rebuilding it fails for
+  // any other reason, start from the stored order, as builds before it did;
+  // the next sidebar change persists a fresh copy.
+  yield* rebuildSidebarOrder.pipe(
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Effect.failCause(cause)
+        : Effect.logWarning("sidebar order rebuild failed; keeping the stored order").pipe(
+            Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+          ),
+    ),
+  );
 
   commandReadModel = yield* projectionSnapshotQuery.getCommandReadModel();
   lastPublishedSequence = yield* eventStore.getHighWaterSequence();
@@ -1969,6 +2094,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
         const rebuildResult = yield* Effect.exit(
           projectionPipeline.bootstrap.pipe(
+            Effect.andThen(rebuildSidebarOrder),
             Effect.flatMap(() => verifyProjectionRepairFence(repairFence)),
           ),
         );
@@ -2113,6 +2239,7 @@ export const OrchestrationEngineLive = Layer.effect(
   OrchestrationEngineService,
   makeOrchestrationEngine,
 ).pipe(
+  Layer.provide(ProjectionSidebarOrderRepositoryLive),
   Layer.provide(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ManagedAttachmentRepositoryLive),
 );

@@ -5,7 +5,7 @@
 // Layer: Chat timeline UI
 // Exports: McpServerIcon
 
-import { MCP_CONNECTOR_SERVER_NAME_SUFFIX } from "@synara/shared/mcpConnectors";
+import { MCP_CONNECTOR_SERVER_NAME_SUFFIX } from "@moss/shared/mcpConnectors";
 import { useQuery } from "@tanstack/react-query";
 
 import { MCP_CONNECTORS_ON } from "~/betaFeatures";

@@ -1,4 +1,4 @@
-import type { ComputerEvent } from "@synara/contracts";
+import type { ComputerEvent } from "@moss/contracts";
 
 export const MAX_COMPUTER_THREAD_INTERESTS_PER_CONNECTION = 64;
 

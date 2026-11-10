@@ -8,12 +8,13 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type * as Acp from "@agentclientprotocol/sdk";
-import { ProviderInstanceId, ThreadId, type ProviderRuntimeEvent } from "@synara/contracts";
+import { ProviderInstanceId, ThreadId, type ProviderRuntimeEvent } from "@moss/contracts";
 import { Effect, Layer, Queue, Stream } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
 import { KIMI_ACP_AGENT_SPEC } from "../acp/AcpAgentSpec.ts";
+import { ProviderAdapterProcessError } from "../Errors.ts";
 import { type AcpAgentRuntimeInput, buildAcpAgentSpawnInput } from "../acp/AcpAgentSupport.ts";
 import { buildMossManagedAcpAgentProviderInstance } from "../mossManagedAcpAgentEnvironment.ts";
 import { AcpRequestError, type AcpError } from "../acp/AcpErrors.ts";
@@ -176,6 +177,54 @@ const modelOption: Acp.SessionConfigOption = {
   ],
 };
 
+it("reports a managed turn that ends with nothing to show as failed", async () => {
+  const cwd = await withAdapterCwd();
+  const gateway = "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
+  vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", gateway);
+  const homePath = path.join(cwd, "kimi-home");
+  const instance = buildMossManagedAcpAgentProviderInstance(KIMI_ACP_AGENT_SPEC, {
+    accessToken: "gateway-bearer",
+    gatewayBaseUrl: gateway,
+    homePath,
+    runtimeGeneration: "generation",
+    realm: "enterprise",
+  });
+  const instanceId = ProviderInstanceId.makeUnsafe("kimi_moss");
+  const environment = Object.fromEntries(
+    instance.environment.map((entry) => [entry.name, entry.value]),
+  );
+  // Kimi Code answers a refused model request exactly like this: end_turn, nothing else.
+  const agent = makeFakeAgent({ modes: KIMI_MODES, configOptions: [] });
+  const events: ProviderRuntimeEvent[] = [];
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const adapter = yield* KimiAdapter;
+      yield* collectEvents(adapter.streamEvents, events);
+      yield* Effect.yieldNow;
+      const threadId = ThreadId.makeUnsafe("kimi-managed-empty");
+      yield* adapter.startSession({
+        threadId,
+        provider: "kimi",
+        providerInstanceId: instanceId,
+        cwd,
+        runtimeMode: "approval-required",
+        modelSelection: { provider: "kimi", instanceId, model: "kimi-k3" },
+        providerOptions: { kimi: { environment, homePath } },
+      });
+      yield* adapter.sendTurn({ threadId, input: "say hi" });
+      while (!events.some((event) => event.type === "turn.completed")) yield* Effect.sleep(5);
+      const completed = events.find((event) => event.type === "turn.completed");
+      expect(completed).toMatchObject({ payload: { state: "failed" } });
+      expect(JSON.stringify(completed)).toContain("ended the turn without a reply");
+    }).pipe(
+      Effect.provide(
+        withServerLayers(cwd)(makeKimiAdapterLive({}, { makeRuntime: agent.makeRuntime })),
+      ),
+      Effect.scoped,
+    ),
+  );
+});
+
 it("runs a Kimi prompt round-trip through model selection, native modes and runtime events", async () => {
   const cwd = await withAdapterCwd();
   const agent = makeFakeAgent({
@@ -281,6 +330,10 @@ it("surfaces a signed-out Kimi startup as a sign-in instruction and refuses the 
         .pipe(Effect.flip);
       expect(failed.message).toContain("Kimi Code is not signed in");
       expect(failed.message).toContain("kimi login");
+      // No prompt was sent, so the turn must be retryable rather than a thread-blocking
+      // uncertain delivery (see classifyProviderAttemptOutcome).
+      expect(failed).toBeInstanceOf(ProviderAdapterProcessError);
+      expect((failed as ProviderAdapterProcessError).reason).toBe("startup-failed");
       expect(yield* adapter.hasSession(threadId)).toBe(false);
       const managed = yield* adapter
         .startSession({

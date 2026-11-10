@@ -1,7 +1,7 @@
 // Production CSS is required for the immersive surface geometry and accessibility gate.
 import "../../index.css";
 
-import { ThreadId, type RealtimeVoiceState } from "@synara/contracts";
+import { ThreadId, type RealtimeVoiceState } from "@moss/contracts";
 import axe from "axe-core";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";

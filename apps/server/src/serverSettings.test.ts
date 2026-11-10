@@ -6,13 +6,13 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
   type ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   deriveProviderInstances,
   providerStartOptionsFromInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import { Effect, FileSystem, Layer, Schema } from "effect";
-import { isBetaFeatureEnabled } from "@synara/shared/betaFeatures";
+import { isBetaFeatureEnabled } from "@moss/shared/betaFeatures";
 import { describe, expect, it } from "vitest";
 import { providerDisabledSettingsMessage } from "./provider/enabledProviderAdapter";
 import { ServerConfig } from "./config";
@@ -27,7 +27,7 @@ import {
   ServerSettings as ServerSettingsSchema,
   ServerSettingsPatch as ServerSettingsPatchSchema,
   MAX_SOURCE_CONTROL_CUSTOM_INSTRUCTIONS_LENGTH,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const serverConfigLayer = ServerConfig.layerTest(process.cwd(), {
   prefix: "moss-settings-test-",

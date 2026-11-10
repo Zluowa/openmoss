@@ -10,13 +10,14 @@ import type {
   ProviderKind,
   ProviderListModelsResult,
   ProviderModelDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { hashKey, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo } from "react";
 
 import {
   getAppModelOptions,
   getCustomModelsForProviderInstance,
+  getManagedModelsForProviderInstance,
   getCustomModelsByProvider,
   getProviderInstanceOptions,
   getProviderStartOptions,
@@ -73,6 +74,14 @@ export interface ProviderModelCatalog {
   selectedProviderRuntimeModelDiscoveryPending: boolean;
   /** Discovery failure detail per provider (268 passthrough). */
   discoveryErrorsByProvider: Partial<Record<ProviderKind, string | undefined>>;
+  /**
+   * The model each account's own config sets as default (Codex config.toml, Pi
+   * settings.json, Claude settings.json, an ACP agent's current model). A new composer
+   * with no saved choice starts on it.
+   */
+  defaultModelByProviderInstance: Partial<Record<ProviderInstanceId, string>>;
+  /** Accounts whose model list has not answered yet (neither data nor a failure). */
+  modelDiscoveryPendingByProviderInstance: Partial<Record<ProviderInstanceId, boolean>>;
 }
 
 const EMPTY_PROVIDER_AGENTS: ReadonlyArray<ProviderAgentDescriptor> = [];
@@ -82,6 +91,16 @@ function selectQueryData<Data>(
   results: ReadonlyArray<{ data: Data | undefined }>,
 ): Array<Data | undefined> {
   return results.map((result) => result.data);
+}
+
+// One character per query: answered (`d`), failed (`e`) or still waiting (`p`). A string keeps
+// its identity while nothing changes, so the picker re-renders only when an account answers.
+function selectQueryAnswerStates(
+  results: ReadonlyArray<{ data: unknown; status: string }>,
+): string {
+  return results
+    .map((result) => (result.data !== undefined ? "d" : result.status === "error" ? "e" : "p"))
+    .join("");
 }
 
 const CWD_SCOPED_MODEL_DISCOVERY_PROVIDERS: ReadonlySet<ProviderKind> = new Set([
@@ -206,24 +225,38 @@ export function useProviderModelCatalog(input: {
   // default instance, so that is the only instance discovery must warm.
   const effectiveSelectedInstanceId = (selectedProviderInstanceId?.trim() ||
     selectedProvider) as ProviderInstanceId;
+  const instanceModelQueries = providerInstances.map((instance) =>
+    modelQueryOptionsForProviderInstance({
+      settings,
+      provider: instance.provider,
+      instanceId: instance.instanceId,
+      cwd: discoveryCwd,
+      // Keep the closed picker scoped to the active account. Enabling every
+      // instance would fan model discovery out across all configured accounts.
+      enabled: discoveryEnabled || effectiveSelectedInstanceId === instance.instanceId,
+    }),
+  );
   const instanceModelData = useQueries({
-    queries: providerInstances.map((instance) =>
-      modelQueryOptionsForProviderInstance({
-        settings,
-        provider: instance.provider,
-        instanceId: instance.instanceId,
-        cwd: discoveryCwd,
-        // Keep the closed picker scoped to the active account. Enabling every
-        // instance would fan model discovery out across all configured accounts.
-        enabled: discoveryEnabled || effectiveSelectedInstanceId === instance.instanceId,
-      }),
-    ),
+    queries: instanceModelQueries,
     // Only the data is read. `useQueries` otherwise returns a new array on every render,
     // which rebuilt every instance's model options (and re-rendered the model picker) on
     // every keystroke and streamed token; the combined result keeps its identity while
     // the data is unchanged.
     combine: selectQueryData,
   });
+  // Same queries, observed only for whether each account has answered yet: a tab opened
+  // before its agent answers shows a calm loading state, not an empty list.
+  const instanceAnswerStates = useQueries({
+    queries: instanceModelQueries,
+    combine: selectQueryAnswerStates,
+  });
+  const modelDiscoveryPendingByProviderInstance = useMemo(() => {
+    const byInstance: Partial<Record<ProviderInstanceId, boolean>> = {};
+    providerInstances.forEach((instance, index) => {
+      if (instanceAnswerStates[index] === "p") byInstance[instance.instanceId] = true;
+    });
+    return byInstance;
+  }, [instanceAnswerStates, providerInstances]);
   const dynamicModelsByProviderInstance = useMemo(() => {
     const byInstance: Partial<Record<ProviderInstanceId, ProviderListModelsResult>> = {};
     providerInstances.forEach((instance, index) => {
@@ -676,6 +709,12 @@ export function useProviderModelCatalog(input: {
           (option) => !getOmpModelSelectionIssue(option.slug, options),
         );
       }
+      const managedModels = getManagedModelsForProviderInstance(settings, instance);
+      if (managedModels) {
+        byInstance[instance.instanceId] = byInstance[instance.instanceId]!.filter((option) =>
+          managedModels.has(option.slug),
+        );
+      }
     }
     return byInstance;
   }, [
@@ -763,6 +802,15 @@ export function useProviderModelCatalog(input: {
       // runtime metadata. Its static/custom model options remain available above.
       byInstance[instance.instanceId] =
         dynamicModelsByProviderInstance[instance.instanceId]?.models ?? [];
+    }
+    return byInstance;
+  }, [dynamicModelsByProviderInstance, providerInstances]);
+
+  const defaultModelByProviderInstance = useMemo(() => {
+    const byInstance: Partial<Record<ProviderInstanceId, string>> = {};
+    for (const instance of providerInstances) {
+      const defaultModel = dynamicModelsByProviderInstance[instance.instanceId]?.defaultModel;
+      if (defaultModel) byInstance[instance.instanceId] = defaultModel;
     }
     return byInstance;
   }, [dynamicModelsByProviderInstance, providerInstances]);
@@ -909,10 +957,14 @@ export function useProviderModelCatalog(input: {
       selectedProviderModelsLoading,
       selectedProviderRuntimeModelDiscoveryPending,
       discoveryErrorsByProvider,
+      defaultModelByProviderInstance,
+      modelDiscoveryPendingByProviderInstance,
     }),
     [
+      modelDiscoveryPendingByProviderInstance,
       refreshModels,
       customModelsByProvider,
+      defaultModelByProviderInstance,
       discoveryErrorsByProvider,
       loadingModelProviders,
       modelOptionsByProvider,

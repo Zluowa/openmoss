@@ -1,4 +1,4 @@
-import { OrchestrationThreadActivity, type TurnId } from "@synara/contracts";
+import { OrchestrationThreadActivity, type TurnId } from "@moss/contracts";
 import { useMemo } from "react";
 import { setsEqual, useStableValue } from "../../hooks/useStableValue";
 import { deriveWorkLogEntries, deriveSubagentTaskEnds } from "../../session-logic";

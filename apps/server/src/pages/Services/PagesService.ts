@@ -5,6 +5,9 @@ import type {
   PagesListResult,
   PagesMutateInput,
   PagesMutateResult,
+  PagesOutputStateInput,
+  PagesOutputsInput,
+  PagesOutputsResult,
   PagesReadInput,
   PagesReadResult,
   PagesScopeInput,
@@ -12,7 +15,7 @@ import type {
   PagesVersionsInput,
   PagesVersionsResult,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -58,6 +61,15 @@ export interface PagesServiceShape {
     input: PagesMutateInput,
     principal: PagesPrincipal,
   ) => Effect.Effect<PagesMutateResult, PagesServiceError>;
+  /** Files agents wrote in chat turns of this scope (auto-ingest; nothing is copied). */
+  readonly outputs: (
+    input: PagesOutputsInput,
+    principal: PagesPrincipal,
+  ) => Effect.Effect<PagesOutputsResult, PagesServiceError>;
+  readonly outputState: (
+    input: PagesOutputStateInput,
+    principal: PagesPrincipal,
+  ) => Effect.Effect<void, PagesServiceError>;
 }
 
 export class PagesService extends ServiceMap.Service<PagesService, PagesServiceShape>()(

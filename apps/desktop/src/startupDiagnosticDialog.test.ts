@@ -40,6 +40,23 @@ it("copies the report without consuming retry/quit or changing the cancel choice
   );
 });
 
+it("shows the diagnostic row in the caller's language", async () => {
+  const show = vi.mocked(dialog.showMessageBox);
+  show.mockResolvedValueOnce({ response: 0, checkboxChecked: false });
+  await showDiagnosticStartupDialog(
+    { message: "数据库不可用", buttons: ["退出"], detail: "详情" },
+    "12345678-1234-4234-8234-123456789012",
+    { getReportStatus: () => "queued" },
+    (_english, chinese) => chinese,
+  );
+  expect(show).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      buttons: ["退出", "复制诊断 ID"],
+      detail: "详情\n\n诊断 ID： 12345678-1234-4234-8234-123456789012 (已在本地排队)",
+    }),
+  );
+});
+
 it("leaves Stable dialogs untouched and survives clipboard failure in Beta", async () => {
   const options = { message: "Database unavailable", buttons: ["Quit"] };
   const show = vi.mocked(dialog.showMessageBox);

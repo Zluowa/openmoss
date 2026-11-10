@@ -4,8 +4,8 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { MOSS_CUA_BUNDLE_ID } from "@synara/shared/desktopIdentity";
-import { spawnProcessSync } from "@synara/shared/processRuntime";
+import { MOSS_CUA_BUNDLE_ID } from "@moss/shared/desktopIdentity";
+import { spawnProcessSync } from "@moss/shared/processRuntime";
 import release from "../../packages/shared/src/cuaDriverRelease.json";
 
 const APPLICATION_LOOKUP_SCRIPT = `

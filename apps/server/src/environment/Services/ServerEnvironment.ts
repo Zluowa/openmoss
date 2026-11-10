@@ -1,4 +1,4 @@
-import type { ExecutionEnvironmentDescriptor } from "@synara/contracts";
+import type { ExecutionEnvironmentDescriptor } from "@moss/contracts";
 import { Effect, ServiceMap } from "effect";
 
 export interface ServerEnvironmentShape {

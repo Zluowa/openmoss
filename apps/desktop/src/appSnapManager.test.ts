@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 
-import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@synara/contracts";
-import { MOSS_DEVELOPMENT_BUNDLE_ID } from "@synara/shared/desktopIdentity";
+import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@moss/contracts";
+import { MOSS_DEVELOPMENT_BUNDLE_ID } from "@moss/shared/desktopIdentity";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
 import {
@@ -325,7 +325,7 @@ describe("desktop AppSnap platform state", () => {
     manager.dispose();
   });
 
-  it("exposes an explicit unsupported state outside macOS", async () => {
+  it("exposes Windows as a supported Cua-backed AppSnap platform", async () => {
     const onState = vi.fn();
     const manager = new DesktopAppSnapManager({
       platform: "win32",
@@ -335,18 +335,92 @@ describe("desktop AppSnap platform state", () => {
       onState,
       onCaptured: vi.fn(),
       onError: vi.fn(),
+      cuaEndpoint: () => "fixture",
+      cuaCapability: "capability",
+      shortcutRegistry: { register: vi.fn(() => true), unregister: vi.fn() },
     });
 
     expect(desktopAppSnapPlatform("darwin")).toBe("macos");
     expect(desktopAppSnapPlatform("linux")).toBe("linux");
+    await manager.setShortcut({ kind: "key-chord", modifier: "control", key: "KeyS" });
     expect(await manager.setEnabled(true)).toMatchObject({
       platform: "windows",
-      supported: false,
-      enabled: false,
-      status: "unsupported",
-      shortcut: null,
+      supported: true,
+      enabled: true,
+      status: "ready",
+      shortcut: { kind: "key-chord", modifier: "control", key: "KeyS" },
     });
-    expect(onState).not.toHaveBeenCalled();
+    expect(onState).toHaveBeenCalled();
+  });
+
+  it("captures a Windows window through the embedded Cua host", async () => {
+    const captureDirectory = mkdtempSync(join(tmpdir(), "moss-appsnap-cua-"));
+    const request = vi.fn(async (_endpoint: string, body: { name: string }) => {
+      if (body.name === "list_windows") {
+        return {
+          ok: true,
+          result: {
+            structuredContent: {
+              windows: [
+                {
+                  pid: 42,
+                  window_id: 7,
+                  app_name: "Notepad",
+                  bundle_id: "notepad.exe",
+                  title: "Notes",
+                },
+              ],
+            },
+          },
+        };
+      }
+      return {
+        ok: true,
+        result: {
+          content: [
+            {
+              type: "image",
+              data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1]).toString(
+                "base64",
+              ),
+              mimeType: "image/png",
+            },
+          ],
+          structuredContent: { app_name: "Notepad", bundle_id: "notepad.exe", title: "Notes" },
+        },
+      };
+    });
+    const onCaptured = vi.fn();
+    const manager = new DesktopAppSnapManager({
+      platform: "win32",
+      helperPath: "C:\\missing\\moss-appsnap-helper.exe",
+      captureDirectory,
+      excludedBundleId: MOSS_DEVELOPMENT_BUNDLE_ID,
+      onState: vi.fn(),
+      onCaptured,
+      onError: vi.fn(),
+      cuaEndpoint: () => "fixture",
+      cuaCapability: "capability",
+      cuaRequest: request as never,
+      shortcutRegistry: { register: vi.fn(() => true), unregister: vi.fn() },
+    });
+    try {
+      await manager.setEnabled(true);
+      const windows = await manager.listWindows();
+      expect(windows).toMatchObject([{ appName: "Notepad", windowTitle: "Notes" }]);
+      const capture = await manager.captureWindow(windows[0]!.windowId);
+      expect(capture.sourceAppName).toBe("Notepad");
+      expect(capture.sourceWindowTitle).toBe("Notes");
+      expect(request).toHaveBeenCalledWith(
+        "fixture",
+        expect.objectContaining({ method: "call", capability: "capability" }),
+        expect.any(Object),
+      );
+      expect(onCaptured).not.toHaveBeenCalled();
+    } finally {
+      manager.dispose();
+      rmSync(captureDirectory, { recursive: true, force: true });
+    }
   });
 
   it("preserves a missing-helper error instead of reporting a permission problem", async () => {
@@ -407,7 +481,7 @@ describe("AppSnap shortcut availability", () => {
 
     expect(manager.checkShortcut({ kind: "key-chord", modifier: "option", key: "KeyS" })).toEqual({
       available: false,
-      reason: "macOS or another app is already using this shortcut.",
+      reason: "The operating system or another app is already using this shortcut.",
     });
     // Universal in-app chords never reach the registry probe: reserving them
     // would hijack the action (Copy, Spotlight, …) in every foreground app.
@@ -1383,7 +1457,7 @@ describe("AppSnap window picker requests", () => {
     const { manager, watchChild, dispose } = await createEnabledManager();
     try {
       await expect(manager.captureWindow(0x1_0000_0000)).rejects.toThrow(
-        "captureWindow requires a valid macOS window id.",
+        "captureWindow requires a valid window id.",
       );
       expect(lastStdinLine(watchChild)).toBe("");
     } finally {

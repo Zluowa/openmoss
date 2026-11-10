@@ -12,8 +12,8 @@ import {
   type WorkspaceImportHistoryEntry,
   type WorkspaceImportSourceKind,
   type WorkspaceImportSyncPreferences,
-} from "@synara/contracts";
-import { normalizeWorkspaceImportSource } from "@synara/contracts";
+} from "@moss/contracts";
+import { normalizeWorkspaceImportSource } from "@moss/contracts";
 
 export const WORKSPACE_IMPORT_HISTORY_FILENAME = "workspace-import-history.json";
 export const WORKSPACE_IMPORT_SYNC_FILENAME = "workspace-import-sync.json";

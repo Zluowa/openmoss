@@ -10,8 +10,8 @@ import type {
   ProviderKind,
   ThreadEnvironmentMode,
   ThreadId,
-} from "@synara/contracts";
-import { buildPromptThreadTitleFallback } from "@synara/shared/chatThreads";
+} from "@moss/contracts";
+import { buildPromptThreadTitleFallback } from "@moss/shared/chatThreads";
 import {
   KANBAN_COLUMN_V2_LABELS,
   deriveKanbanAttention as deriveKanbanAttentionShared,
@@ -20,8 +20,8 @@ import {
   type KanbanAttentionFlag,
   type KanbanColumnV2Key,
   type KanbanThreadDerivationInput,
-} from "@synara/shared/kanban";
-import { isPendingThreadWorktree } from "@synara/shared/threadEnvironment";
+} from "@moss/shared/kanban";
+import { isPendingThreadWorktree } from "@moss/shared/threadEnvironment";
 import { composerDraftHasAttachments } from "../../composerDraftDomain";
 import type { ComposerThreadDraftState } from "../../composerDraftStore";
 import {
@@ -398,7 +398,7 @@ export function refineAttentionFlagsForLivePr(
 /**
  * v2-path column adapter. The web ↔ shared mapping lives only here: it projects
  * the web thread summary into the shared structural input and delegates to
- * `@synara/shared/kanban` with the injected board clock (`now`) that drives the
+ * `@moss/shared/kanban` with the injected board clock (`now`) that drives the
  * stuck-staleness rules. Typed as the shared `KanbanColumnV2Key` so `awaitingYou`
  * cannot leak into the classic path.
  */

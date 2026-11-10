@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Effect, Layer, Scope, ServiceMap } from "effect";
+import type { AuthenticatedSession } from "./auth/Services/ServerAuth";
 
 import {
   CurrentManagedAttachmentPrincipal,
@@ -23,9 +24,16 @@ export const CurrentWsSessionRole = ServiceMap.Reference<WsSessionRole>(
   { defaultValue: () => "client" },
 );
 
+/** Metadata from the verified upgrade, never a bearer or bootstrap credential. */
+export const CurrentWsAuthenticatedSession = ServiceMap.Reference<AuthenticatedSession | null>(
+  "moss/ws/CurrentAuthenticatedSession",
+  { defaultValue: () => null },
+);
+
 export interface WsConnectionSession {
   readonly role: WsSessionRole;
   readonly attachmentPrincipal: ManagedAttachmentPrincipal;
+  readonly authenticatedSession?: AuthenticatedSession;
 }
 
 /**
@@ -96,6 +104,7 @@ export function provideWsConnectionSession<A, E, R>(
   return session
     ? effect.pipe(
         Effect.provideService(CurrentWsSessionRole, session.role),
+        Effect.provideService(CurrentWsAuthenticatedSession, session.authenticatedSession ?? null),
         Effect.provideService(CurrentManagedAttachmentPrincipal, session.attachmentPrincipal),
       )
     : effect;

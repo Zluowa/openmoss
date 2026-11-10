@@ -4,7 +4,7 @@ import {
   type KeybindingCommand,
   type ProjectScript,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
 function normalizeScriptId(value: string): string {

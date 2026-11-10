@@ -1,5 +1,6 @@
 // FILE: RunningChatsQuitDialog.tsx
-// Purpose: Confirms desktop quit, including when no chats are running.
+// Purpose: Confirms desktop quit while work is running (it is never shown for an idle app),
+//          listing the chats and the other work that quitting would stop.
 // Layer: Root web overlay
 // Depends on: Base UI alert-dialog primitives, the ⌘P palette surface, the shared running spinner,
 // and the persisted "resume chats after quit" app setting.
@@ -21,9 +22,11 @@ import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import { commandDialogPopupClassName } from "~/components/ui/command";
 import {
+  RUNNING_WORK_QUIT_LABELS,
   runningChatsQuitCopy,
   type RunningChatQuitSummary,
   type RunningChatsQuitCopy,
+  type RunningWorkQuitItem,
 } from "~/lib/runningChatsQuitConfirmation";
 import { cn } from "~/lib/utils";
 
@@ -34,6 +37,8 @@ export interface RunningChatsQuitDecision {
 
 export interface RunningChatsQuitDialogProps {
   readonly chats: ReadonlyArray<RunningChatQuitSummary> | null;
+  /** Running work besides chats (terminal commands, dev servers, imports, an update download). */
+  readonly work?: ReadonlyArray<RunningWorkQuitItem>;
   /** Quit was confirmed and is being finalized; the dialog stays visible but inert. */
   readonly quitting?: boolean;
   readonly onStay: () => void;
@@ -50,13 +55,16 @@ const BODY_CLASS =
 const FOOTER_CLASS = "relative flex items-center gap-2 px-3 py-2";
 const KEY_HINT_CLASS = "text-ui-sm font-normal tabular-nums opacity-55";
 
+const NO_WORK: ReadonlyArray<RunningWorkQuitItem> = [];
+
 export function RunningChatsQuitDialog({
   chats,
+  work = NO_WORK,
   quitting = false,
   onStay,
   onQuit,
 }: RunningChatsQuitDialogProps) {
-  const copy = chats != null ? runningChatsQuitCopy(chats, APP_DISPLAY_NAME) : null;
+  const copy = chats != null ? runningChatsQuitCopy(chats, APP_DISPLAY_NAME, work) : null;
 
   return (
     <AlertDialog
@@ -79,6 +87,7 @@ export function RunningChatsQuitDialog({
             {copy && chats ? (
               <RunningChatsQuitDialogContent
                 chats={chats}
+                work={work}
                 copy={copy}
                 quitting={quitting}
                 onQuit={onQuit}
@@ -94,11 +103,13 @@ export function RunningChatsQuitDialog({
 // Mounted only while the dialog is open so the settings subscription costs nothing otherwise.
 function RunningChatsQuitDialogContent({
   chats,
+  work,
   copy,
   quitting,
   onQuit,
 }: {
   readonly chats: ReadonlyArray<RunningChatQuitSummary>;
+  readonly work: ReadonlyArray<RunningWorkQuitItem>;
   readonly copy: RunningChatsQuitCopy;
   readonly quitting: boolean;
   readonly onQuit: (decision: RunningChatsQuitDecision) => void;
@@ -121,7 +132,7 @@ function RunningChatsQuitDialogContent({
         >
           {copy.description}
         </AlertDialogPrimitive.Description>
-        {chats.length > 0 ? (
+        {chats.length > 0 || work.length > 0 ? (
           <ul className="m-0 mt-3 flex max-h-[40vh] list-none flex-col gap-2 overflow-y-auto p-0">
             {chats.map((chat) => (
               <li key={chat.id} className="flex min-w-0 items-center gap-2.5">
@@ -129,6 +140,28 @@ function RunningChatsQuitDialogContent({
                 <span className={cn(uiFont, "truncate text-ui-lg font-normal leading-[18px]")}>
                   {chat.title}
                 </span>
+              </li>
+            ))}
+            {work.map((item) => (
+              <li
+                key={item.id}
+                data-running-work={item.kind}
+                className="flex min-w-0 items-center gap-2.5"
+              >
+                <ThreadRunningSpinner />
+                <span className={cn(uiFont, "shrink-0 text-ui-lg font-normal leading-[18px]")}>
+                  {RUNNING_WORK_QUIT_LABELS[item.kind]}
+                </span>
+                {item.detail ? (
+                  <span
+                    className={cn(
+                      uiFont,
+                      "min-w-0 truncate text-ui-lg font-normal leading-[18px] text-muted-foreground",
+                    )}
+                  >
+                    {item.detail}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -156,7 +189,6 @@ function RunningChatsQuitDialogContent({
         ) : null}
         <div className="ml-auto flex items-center gap-2">
           <AlertDialogClose
-            autoFocus={chats.length === 0}
             disabled={quitting}
             render={<Button variant="ghost" size="sm" className={cn(uiFont, "gap-1.5")} />}
           >
@@ -164,7 +196,7 @@ function RunningChatsQuitDialogContent({
             <span className={KEY_HINT_CLASS}>Esc</span>
           </AlertDialogClose>
           <Button
-            autoFocus={chats.length > 0}
+            autoFocus
             variant="default"
             size="sm"
             className={cn(uiFont, "gap-1.5")}
@@ -172,11 +204,9 @@ function RunningChatsQuitDialogContent({
             onClick={() => onQuit({ resume: chats.length > 0 && resume })}
           >
             {copy.quitLabel}
-            {chats.length > 0 ? (
-              <span aria-hidden className={KEY_HINT_CLASS}>
-                ↵
-              </span>
-            ) : null}
+            <span aria-hidden className={KEY_HINT_CLASS}>
+              ↵
+            </span>
           </Button>
         </div>
       </div>

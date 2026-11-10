@@ -1,4 +1,4 @@
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import { useMutation } from "@tanstack/react-query";
 
 import { interruptThreadTurn } from "~/lib/threadTurnInterrupt";

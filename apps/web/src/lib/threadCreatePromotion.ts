@@ -8,7 +8,7 @@ import {
   type ClientOrchestrationCommand,
   type NativeApi,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { markPromotedDraftThreads } from "../composerDraftStore";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";

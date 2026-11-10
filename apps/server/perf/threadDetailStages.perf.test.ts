@@ -7,7 +7,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
 import { Effect, Layer, Option, Schema } from "effect";
 import { describe } from "vitest";
-import { OrchestrationThreadStreamItem, ThreadId } from "@synara/contracts";
+import { OrchestrationThreadStreamItem, ThreadId } from "@moss/contracts";
 
 import { makeSqlitePersistenceLive } from "../src/persistence/Layers/Sqlite.ts";
 import { OrchestrationProjectionSnapshotQueryLive as OrchestrationProjectionSnapshotQueryBase } from "../src/orchestration/Layers/ProjectionSnapshotQuery.ts";

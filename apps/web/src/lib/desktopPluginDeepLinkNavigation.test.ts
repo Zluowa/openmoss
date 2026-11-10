@@ -2,7 +2,7 @@
 // Purpose: Locks the renderer-side trust boundary and ACK lifecycle for desktop plugin deep links.
 // Layer: Web routing utility test
 
-import type { DesktopPluginDeepLinkNavigation } from "@synara/contracts";
+import type { DesktopPluginDeepLinkNavigation } from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {

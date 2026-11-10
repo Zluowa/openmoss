@@ -5,7 +5,7 @@
 import "../../index.css";
 
 import { page } from "vitest/browser";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 const harness = vi.hoisted(() => ({
@@ -13,7 +13,14 @@ const harness = vi.hoisted(() => ({
     keybindingsConfigPath: "/tmp/keybindings.json",
     availableEditors: [],
   },
-  auth: { authenticated: true, role: "client" },
+  auth: {
+    authenticated: true,
+    role: "client",
+    sessionMethod: "browser-session-cookie" as
+      | "browser-session-cookie"
+      | "bearer-session-token"
+      | undefined,
+  },
   threadShells: [] as unknown[],
   allThreadsMessageless: false,
   projects: [{ id: "project-1" }],
@@ -57,9 +64,34 @@ vi.mock("~/store", () => ({
 import { AdvancedSettingsPanel } from "./AdvancedSettingsPanel";
 
 describe("AdvancedSettingsPanel", () => {
+  beforeEach(() => {
+    harness.auth.sessionMethod = "browser-session-cookie";
+    harness.auth.role = "client";
+  });
   afterEach(() => {
     document.body.innerHTML = "";
   });
+
+  it("does not offer HTTP browser sign-out for a sessionless startup owner", async () => {
+    harness.auth.sessionMethod = undefined;
+    harness.auth.role = "owner";
+    await render(<AdvancedSettingsPanel active onOpenReleaseHistory={() => {}} resetEpoch={0} />);
+    await expect
+      .element(page.getByRole("button", { name: "Sign out", exact: true }))
+      .not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("This browser");
+  });
+
+  it.each(["browser-session-cookie", "bearer-session-token"] as const)(
+    "keeps sign-out available for a real %s session",
+    async (method) => {
+      harness.auth.sessionMethod = method;
+      await render(<AdvancedSettingsPanel active onOpenReleaseHistory={() => {}} resetEpoch={0} />);
+      await expect
+        .element(page.getByRole("button", { name: "Sign out", exact: true }))
+        .toBeVisible();
+    },
+  );
 
   it("owns recovery eligibility, shared disclosure motion, and the release-history handoff", async () => {
     const onOpenReleaseHistory = vi.fn();

@@ -3,9 +3,10 @@
 import { lstat, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { Effect, Option } from "effect";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
-import { resolveThreadWorkspaceCwd } from "./checkpointing/Utils";
+import { ServerConfig } from "./config";
+import { resolveThreadExecutionWorkspace } from "./threadExecutionWorkspace";
 import { MossMediaJobsError } from "./mossMediaJobsService";
 
 export interface MossCanvasWorkspace {
@@ -33,7 +34,13 @@ export const resolveMossCanvasWorkspace = (threadId: string) =>
     const project = yield* query.getProjectShellById(thread.value.projectId);
     if (Option.isNone(project))
       return yield* Effect.fail(new MossMediaJobsError("canvas_workspace_unavailable", 404));
-    const selected = resolveThreadWorkspaceCwd({ thread: thread.value, projects: [project.value] });
+    const config = yield* ServerConfig;
+    const selected = yield* resolveThreadExecutionWorkspace({
+      thread: thread.value,
+      project: project.value,
+      config,
+      query,
+    });
     if (!selected) return yield* Effect.fail(new MossMediaJobsError("workspace_required"));
     const cwd = yield* Effect.tryPromise({
       try: async () => {

@@ -4,7 +4,7 @@ import type {
   MossPayGetOrderInput,
   MossPayOrder,
   MossPayQuota,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { Effect } from "effect";
 import { ServiceMap } from "effect";
 

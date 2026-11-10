@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { BrowserCookieImportResult, BrowserVaultMethods, ThreadId } from "@synara/contracts";
+import type { BrowserCookieImportResult, BrowserVaultMethods, ThreadId } from "@moss/contracts";
 import { Button } from "./ui/button";
 import { DisclosureRegion } from "./ui/DisclosureRegion";
 

@@ -9,7 +9,7 @@ import {
   type MossSubscribeNormalizedSessionEventsInput,
   type ProviderSubmitPermissionActionResult,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { readNativeApi } from "../../nativeApi";

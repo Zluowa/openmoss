@@ -1,5 +1,5 @@
 import "../../index.css";
-import { ApprovalRequestId, MessageId, TurnId } from "@synara/contracts";
+import { ApprovalRequestId, MessageId, TurnId } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commands, page } from "vitest/browser";
 import { render } from "vitest-browser-react";

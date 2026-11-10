@@ -13,7 +13,7 @@ import {
   ThreadGuestMessage,
   ThreadId,
   TrimmedNonEmptyString,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 

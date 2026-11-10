@@ -4,7 +4,7 @@
 // Layer: Chat composer UI
 // Exports: ActiveTaskListCard
 
-import { pluralize } from "@synara/shared/text";
+import { pluralize } from "@moss/shared/text";
 
 import type { ActiveTaskListState } from "../../session-logic";
 import { TaskProgressSteps } from "./TaskProgressSteps";

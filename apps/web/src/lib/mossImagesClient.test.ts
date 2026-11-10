@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   describeMossImagesError,
+  describeMossImagesReadError,
   isMossImageJob,
   isMossImageOutputUrl,
   loadMossImagesCatalog,
@@ -182,6 +183,68 @@ describe("account-bound image client", () => {
       "/api/moss/media/history?limit=24&kind=image",
       expect.objectContaining({ method: "GET", credentials: "include" }),
     );
+  });
+  // The owner's Images page opened while the local server was stalled for 35 s:
+  // the read timed out with no answer and the page blamed the image service.
+  it("asks again when a read gets no answer, and says so plainly when it never does", async () => {
+    vi.useFakeTimers();
+    const flaky = vi
+      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
+      .mockRejectedValueOnce(new DOMException("The operation timed out.", "TimeoutError"))
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(response({ account, jobs: [historyJob], nextCursor: null }));
+    const loaded = loadMossImagesHome(undefined, flaky);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect((await loaded).jobs).toEqual([historyJob]);
+    expect(flaky).toHaveBeenCalledTimes(3);
+
+    const down = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const failed = loadMossImagesHome(undefined, down).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(4_000);
+    const error = await failed;
+    expect(down).toHaveBeenCalledTimes(3);
+    expect(describeMossImagesReadError(error)).toBe(
+      "图像记录暂时没有加载出来，请稍后再打开这一页。",
+    );
+    // A real answer is never asked again, and a submission keeps its duplicate warning.
+    const answered = vi.fn(async () =>
+      response({ error: { code: "media_history_unavailable" } }, 503),
+    );
+    await expect(loadMossImagesHome(undefined, answered)).rejects.toMatchObject({
+      code: "media_history_unavailable",
+    });
+    expect(answered).toHaveBeenCalledTimes(1);
+    expect(describeMossImagesError(new TypeError("Failed to fetch"))).toContain("请勿重复提交");
+  });
+  it("reports a local start failure as itself, not as an unreachable image service", () => {
+    // Starting an Images conversation fails before any image request when the
+    // CLI's image Skill is missing or the agent RPC fails.
+    expect(
+      describeMossImagesError(new Error("所选 CLI 的生图 Skill 尚未连接，请在插件中启用后发送。")),
+    ).toBe("所选 CLI 的生图 Skill 尚未连接，请在插件中启用后发送。");
+    const rpcFailure = describeMossImagesError(new Error("RpcClientError: request timed out"));
+    expect(rpcFailure).not.toContain("图像服务");
+    expect(rpcFailure).toBe("这次没能发出，请稍后再试。");
+    expect(describeMossImagesError(new DOMException("timed out", "TimeoutError"))).toContain(
+      "请勿重复提交",
+    );
+  });
+  it("stops asking again once the page stops waiting", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const loaded = loadMossImagesHome(controller.signal, fetchImpl).catch(
+      (error: unknown) => error,
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await loaded).toBeDefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
   it("keeps a signed-out CLI entry empty but reports local history failures", async () => {
     expect(

@@ -5,13 +5,17 @@ import { defineConfig, mergeConfig } from "vitest/config";
 import browserConfig from "./vitest.browser.config";
 
 // The normal browser harness deliberately removes the build-only React Compiler
-// plugin. Compile just the transcript component here so the render-budget test
-// exercises production memoization without slowing every browser spec.
-const timelineCompilerPlugin: Plugin = {
-  name: "moss:timeline-react-compiler-test",
+// plugin. Compile only the components whose regressions depend on production memoization.
+const scopedCompilerPlugin: Plugin = {
+  name: "moss:scoped-react-compiler-test",
   enforce: "pre",
   async transform(code, id) {
-    if (!/[/\\]MessagesTimeline\.tsx(?:\?|$)/u.test(id)) return null;
+    if (
+      !/[/\\](?:MessagesTimeline|GitHubSignInIntroduction|GitHubConnectionGate)\.tsx(?:\?|$)/u.test(
+        id,
+      )
+    )
+      return null;
     const compiled = await transformAsync(code, {
       babelrc: false,
       configFile: false,
@@ -21,7 +25,7 @@ const timelineCompilerPlugin: Plugin = {
       sourceMaps: false,
     });
     if (!compiled?.code) {
-      throw new Error("React Compiler did not return MessagesTimeline output.");
+      throw new Error(`React Compiler did not return output for ${id}.`);
     }
     return { code: compiled.code, map: null };
   },
@@ -30,7 +34,8 @@ const timelineCompilerPlugin: Plugin = {
 const compilerConfig = mergeConfig(
   browserConfig,
   defineConfig({
-    cacheDir: "node_modules/.vite/vitest-compiler",
+    cacheDir:
+      process.env.MOSS_BROWSER_VITE_CACHE_DIR?.trim() || "node_modules/.vite/vitest-compiler",
     // Keep this isolated lane deterministic: compiler output introduces the
     // runtime import, while LegendList reaches a nested CommonJS shim.
     optimizeDeps: {
@@ -45,7 +50,7 @@ const compilerConfig = mergeConfig(
     define: {
       "import.meta.env.VITE_MOSS_BROWSER_REACT_COMPILER": JSON.stringify("1"),
     },
-    plugins: [timelineCompilerPlugin],
+    plugins: [scopedCompilerPlugin],
   }),
 );
 
@@ -54,6 +59,9 @@ export default defineConfig({
   test: {
     ...compilerConfig.test,
     // mergeConfig concatenates include arrays; replace the broad browser glob.
-    include: ["src/components/chat/MessagesTimeline.renderScope.browser.tsx"],
+    include: [
+      "src/components/chat/MessagesTimeline.renderScope.browser.tsx",
+      "src/components/githubInbox/GitHubConnection.browser.tsx",
+    ],
   },
 });

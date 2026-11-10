@@ -5,7 +5,7 @@ import {
   SUPPORTED_PROVIDER_KINDS,
   ThreadId,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -56,7 +56,7 @@ vi.mock("~/lib/mossImagesClient", async (original) => ({
 // The actual composer and picker run against deterministic CLI discovery results.
 // Opening menus cannot start a provider process or a paid request in this suite.
 vi.mock("~/hooks/useProviderStatusesForLocalConfig", async () => {
-  const { SUPPORTED_PROVIDER_KINDS } = await import("@synara/contracts");
+  const { SUPPORTED_PROVIDER_KINDS } = await import("@moss/contracts");
   return {
     useProviderStatusesForLocalConfig: () =>
       SUPPORTED_PROVIDER_KINDS.flatMap((provider) =>
@@ -76,8 +76,8 @@ vi.mock("~/hooks/useProviderStatusesForLocalConfig", async () => {
   };
 });
 vi.mock("~/hooks/useProviderModelCatalog", async () => {
-  const { SUPPORTED_PROVIDER_KINDS } = await import("@synara/contracts");
-  const { getDefaultModel } = await import("@synara/shared/model");
+  const { SUPPORTED_PROVIDER_KINDS } = await import("@moss/contracts");
+  const { getDefaultModel } = await import("@moss/shared/model");
   const providers = [
     "codex",
     "claudeAgent",
@@ -266,12 +266,24 @@ async function expectDecodedImage(source: string) {
   });
 }
 
-const MODEL_PICKER_SOURCE_TRIGGER = /^(?:Provider|服务商): /;
+// The model picker lists the agents (which program runs the turn) in their own column.
+// Beside it, the open agent's providers (where its models come from) sit above its models.
+function pickerAgentRow(name: string) {
+  return page
+    .getByRole("group", { name: /^(?:Agent|智能体)$/ })
+    .getByRole("menuitem", { name, exact: true });
+}
 
-// The model picker's source row opens into every provider/account it can list models for.
-async function selectPickerSource(name: string | RegExp) {
-  await page.getByRole("menuitem", { name: MODEL_PICKER_SOURCE_TRIGGER }).click();
-  await page.getByRole("menuitemradio", { name, exact: typeof name === "string" }).click();
+async function selectPickerAgent(name: string) {
+  await pickerAgentRow(name).click();
+  await expect.element(pickerAgentRow(name)).toHaveAttribute("aria-current", "true");
+}
+
+async function selectPickerProvider(name: string | RegExp) {
+  await page
+    .getByRole("group", { name: /^(?:Provider|服务商)$/ })
+    .getByRole("menuitem", { name, exact: typeof name === "string" })
+    .click();
 }
 
 async function capture(name: string) {
@@ -291,7 +303,7 @@ describe("Moss Images browser workflow", () => {
       });
       const label = PROVIDER_OPTIONS.find((option) => option.value === provider)!.label;
       await page.getByRole("button", { name: "Change model and reasoning" }).click();
-      await selectPickerSource(label);
+      await selectPickerAgent(label);
       const modelName =
         provider === "codex"
           ? "GPT-5.4"
@@ -338,7 +350,8 @@ describe("Moss Images browser workflow", () => {
         },
       });
       await page.getByRole("button", { name: "Change model and reasoning" }).click();
-      await selectPickerSource(new RegExp(`Custom ${provider}$`));
+      await selectPickerAgent(PROVIDER_OPTIONS.find((option) => option.value === provider)!.label);
+      await selectPickerProvider(new RegExp(`Custom ${provider}$`));
       const modelName =
         provider === "opencode" ? "Custom ACP image model" : `Custom ${provider} image model`;
       await page
@@ -372,7 +385,8 @@ describe("Moss Images browser workflow", () => {
       },
     });
     await page.getByRole("button", { name: "Change model and reasoning" }).click();
-    await selectPickerSource("OpenCode · Custom ACP");
+    await selectPickerAgent("OpenCode");
+    await selectPickerProvider("Custom ACP");
     await page
       .getByRole("menuitem", { name: /Custom ACP image model/ })
       .first()
@@ -404,7 +418,11 @@ describe("Moss Images browser workflow", () => {
     await expect
       .element(page.getByRole("button", { name: "生成图像", exact: true }))
       .toBeDisabled();
-    expect(document.body.textContent).toContain("not authenticated");
+    // Signed-out copy is in the UI language and says where to sign in.
+    expect(document.body.textContent).toContain(
+      "Codex 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。",
+    );
+    expect(document.body.textContent).not.toContain("not authenticated");
     await page.getByRole("button", { name: "预览海报" }).click();
     await expect.element(page.getByRole("button", { name: "试一试", exact: true })).toBeDisabled();
     expect(startConversation).not.toHaveBeenCalled();
@@ -416,19 +434,19 @@ describe("Moss Images browser workflow", () => {
     const startConversation = vi.fn(async (_input: MossImagesConversationInput) => undefined);
     await mountWorkspace(startConversation);
     await page.getByRole("button", { name: "Change model and reasoning" }).click();
-    await selectPickerSource("Codex");
+    await selectPickerAgent("Codex");
     await page
       .getByRole("menuitem", { name: /GPT-5\.4/ })
       .first()
       .click();
     await userEvent.keyboard("{Escape}");
     await page.getByRole("tab", { name: "热门", exact: true }).click();
-    await page.getByRole("button", { name: "选择柔和水彩样式", exact: true }).click();
+    await page.getByRole("button", { name: "选择手绘水粉样式", exact: true }).click();
     await page.getByRole("button", { name: "清除样式", exact: true }).click();
     await expect
-      .element(page.getByRole("button", { name: "选择柔和水彩样式", exact: true }))
+      .element(page.getByRole("button", { name: "选择手绘水粉样式", exact: true }))
       .toHaveAttribute("aria-pressed", "false");
-    await page.getByRole("button", { name: "选择几何纸艺样式", exact: true }).click();
+    await page.getByRole("button", { name: "选择立体空间样式", exact: true }).click();
     await page.getByRole("textbox", { name: "描述要创建的图像" }).fill("山间小屋");
     await page.getByRole("button", { name: "生成图像", exact: true }).click();
     await vi.waitFor(() => expect(startConversation).toHaveBeenCalledTimes(1));
@@ -465,7 +483,7 @@ describe("Moss Images browser workflow", () => {
     const frame = () => document.querySelector("[data-moss-images-composer-frame]")!;
     expect(frame().getAttribute("data-moss-composer-provider")).toBe("codex");
     await page.getByRole("button", { name: "Change model and reasoning" }).click();
-    await selectPickerSource(/^Claude/);
+    await selectPickerAgent("Claude");
     await page
       .getByRole("menuitem", { name: /Claude Sonnet 4.6/ })
       .first()
@@ -517,9 +535,7 @@ describe("Moss Images browser workflow", () => {
     expect(document.body.textContent).not.toContain("按实际成本计入套餐用量");
     await capture("reference-frame-visual-parity-v1");
     await page.getByRole("button", { name: "Change model and reasoning" }).click();
-    await expect
-      .element(page.getByRole("menuitem", { name: MODEL_PICKER_SOURCE_TRIGGER }))
-      .toHaveAccessibleName(/: Codex$/);
+    await expect.element(pickerAgentRow("Codex")).toHaveAttribute("aria-current", "true");
     expect(page.getByRole("combobox", { name: "图像模型" }).elements()).toHaveLength(0);
     expect(page.getByRole("combobox", { name: "图像比例" }).elements()).toHaveLength(0);
     expect(document.body.textContent).not.toContain("即时");
@@ -741,7 +757,7 @@ describe("Moss Images browser workflow", () => {
     await page.getByRole("button", { name: "打开图像：山间日出" }).click();
     await page.getByRole("textbox", { name: "描述要如何修改当前图像" }).fill("读取失败时保留描述");
     await page.getByRole("button", { name: "编辑图像", exact: true }).click();
-    await expect.element(page.getByRole("alert")).toHaveTextContent("暂时无法连接图像服务");
+    await expect.element(page.getByRole("alert")).toHaveTextContent("这次没能发出");
     await expect
       .element(page.getByRole("textbox", { name: "描述要如何修改当前图像" }))
       .toHaveTextContent("读取失败时保留描述");

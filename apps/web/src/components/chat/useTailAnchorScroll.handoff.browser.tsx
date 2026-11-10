@@ -1,5 +1,5 @@
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@moss/contracts";
 import { createRef, useRef } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";

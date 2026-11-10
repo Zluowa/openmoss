@@ -10,7 +10,7 @@ import {
   MessageId,
   ProjectId,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
 import { expect, it } from "vitest";
 import { ServerConfig } from "../../config.ts";

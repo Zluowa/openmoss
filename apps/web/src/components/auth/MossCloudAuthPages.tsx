@@ -1,4 +1,4 @@
-import type { MossCloudAccountState, MossCloudGoogleOAuthFlowId } from "@synara/contracts";
+import type { MossCloudAccountState, MossCloudGoogleOAuthFlowId } from "@moss/contracts";
 import {
   serverMossCloudAccountStateQueryOptions,
   serverMossCloudAccountsQueryOptions,
@@ -28,7 +28,7 @@ import {
   MossCloudResetPasswordForm,
   MossCloudSignUpForm,
 } from "./MossCloudAuthForms";
-import { mossCloudAuthErrorMessage } from "./mossCloudAuth.logic";
+import { mossCloudAuthErrorMessage, type MossCloudOAuthCallbackError } from "./mossCloudAuth.logic";
 import { resolveMossCloudCallbackDestination } from "./mossCloudAuthRoutes.logic";
 import {
   activateMossChatSelection,
@@ -263,8 +263,7 @@ export function MossCloudVerifyEmailPage({
       <Alert aria-live="polite" role="status" variant="info">
         <AlertTitle>Check your email</AlertTitle>
         <AlertDescription>
-          Moss sent a verification link{email ? ` to ${email}` : ""}. Open it on this device, then
-          return to sign in.
+          {`Moss sent a verification link${email ? ` to ${email}` : ""}. Open it on this device, then return to sign in.`}
         </AlertDescription>
       </Alert>
     );
@@ -288,9 +287,11 @@ export function MossCloudVerifyEmailPage({
 export function MossCloudAuthCallbackPage({
   code,
   flowId,
+  oauthError,
 }: {
   readonly code?: string | undefined;
   readonly flowId?: MossCloudGoogleOAuthFlowId | undefined;
+  readonly oauthError?: MossCloudOAuthCallbackError | undefined;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -338,7 +339,22 @@ export function MossCloudAuthCallbackPage({
   }, [completedExchangeState, flowId, navigate, queryClient]);
 
   let content;
-  if (!code || !flowId) {
+  if (oauthError) {
+    content = (
+      <Alert variant="error">
+        <AlertTitle>
+          {oauthError === "access_denied"
+            ? "Google sign-in was cancelled"
+            : "Google sign-in unavailable"}
+        </AlertTitle>
+        <AlertDescription>
+          {oauthError === "access_denied"
+            ? "You cancelled at Google. Try again when you’re ready."
+            : "Google didn’t complete the sign-in. Try again."}
+        </AlertDescription>
+      </Alert>
+    );
+  } else if (!code || !flowId) {
     content = (
       <Alert variant="error">
         <AlertTitle>Invalid account link</AlertTitle>
@@ -378,11 +394,9 @@ export function MossCloudAuthCallbackPage({
     <MossAuthShell
       title="Signing in with Google"
       footer={
-        !code || !flowId ? (
-          <Link className={linkClassName} to="/login">
-            Return to sign in
-          </Link>
-        ) : undefined
+        <Link className={linkClassName} to="/login">
+          Return to sign in
+        </Link>
       }
     >
       {content}
@@ -656,26 +670,13 @@ export function MossCloudAccountPage() {
               )}
             </section>
 
-            <section className="flex min-w-0 items-center justify-between gap-4 rounded-xl border p-4">
-              <div className="min-w-0">
-                <h2 className="text-ui-lg font-medium">Optional Moss Key</h2>
-                <p className="mt-1 text-ui-lg text-muted-foreground">
-                  Codex and Claude work after sign-in. Add a key only for a separate key-backed
-                  profile.
-                </p>
-              </div>
-              <Link className={linkClassName} to="/login/api-key">
-                Manage
-              </Link>
-            </section>
-
             {account && state.session ? <MossPayPanel /> : null}
             {account && state.session ? (
               <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border p-4">
                 <div className="min-w-0">
                   <h2 className="text-ui-lg font-medium">Usage and credits</h2>
                   <p className="mt-1 text-ui-lg text-muted-foreground">
-                    Same as Codex: open Settings → Usage to see quota and buy credits.
+                    Open Settings → Usage to see quota and buy credits.
                   </p>
                 </div>
                 <Button

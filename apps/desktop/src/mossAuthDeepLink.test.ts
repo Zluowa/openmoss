@@ -260,4 +260,49 @@ describe("buildMossAuthCallbackRendererUrl", () => {
       ),
     ).toThrow("Invalid Moss authentication callback route.");
   });
+
+  it("carries a cancelled Google sign-in to the renderer", () => {
+    const route = "/auth/callback?oauthError=access_denied";
+    expect(buildMossAuthCallbackRendererUrl("moss://app/index.html", route)).toBe(
+      `moss://app/index.html#${route}`,
+    );
+  });
+});
+
+describe("Google error callbacks", () => {
+  const flowId = "flow_abcdefghijklmnopqrstuvwxyz-0123456789";
+
+  it("maps what Auth really sends on cancel, fragment included", () => {
+    // Exactly what the live Global project answered on 2026-11-01.
+    expect(
+      resolveMossAuthCallbackRoute(
+        `moss://auth/callback?error=access_denied&error_description=cancelled&flow_id=${flowId}#error=access_denied&error_description=cancelled&sb=`,
+      ),
+    ).toBe(`/auth/callback?oauthError=access_denied&flowId=${flowId}`);
+  });
+
+  it("reduces every other provider error to a fixed outcome and drops its text", () => {
+    expect(
+      resolveMossAuthCallbackRoute(
+        `moss://auth/callback?error=server_error&error_code=signup_disabled&error_description=%3Cscript%3E&flow_id=${flowId}#sb=`,
+      ),
+    ).toBe(`/auth/callback?oauthError=failed&flowId=${flowId}`);
+    expect(resolveMossAuthCallbackRoute("moss://auth/callback?error=access_denied")).toBe(
+      "/auth/callback?oauthError=access_denied",
+    );
+  });
+
+  it("still rejects a fragment on a code callback and malformed error callbacks", () => {
+    for (const value of [
+      `moss://auth/callback?code=test&flow_id=${flowId}#sb=`,
+      "moss://auth/callback?error=first&error=second",
+      "moss://auth/callback?error=has%20space",
+      "moss://auth/callback?error=access_denied&code=test",
+      "moss://auth/callback?error=access_denied&next=https%3A%2F%2Fexample.com",
+      "moss://auth/callback?error=access_denied&flow_id=short",
+      "moss://other/callback?error=access_denied",
+    ]) {
+      expect(resolveMossAuthCallbackRoute(value), value).toBeNull();
+    }
+  });
 });

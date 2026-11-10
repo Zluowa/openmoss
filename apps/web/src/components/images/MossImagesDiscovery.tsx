@@ -54,7 +54,7 @@ function Preview({
           key={attempt}
           src={url}
           alt={`${title}模板预览`}
-          className="h-full w-full object-cover"
+          className={`h-full w-full ${compact ? "object-cover" : "object-contain"}`}
           loading={compact ? "lazy" : "eager"}
           onError={() => setFailed(true)}
         />
@@ -137,7 +137,7 @@ function DiscoveryPanel({
                 }}
               >
                 <Preview url={template.previewUrl} title={template.title} compact />
-                <span className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/25 to-transparent px-3 pb-3 pt-10 text-ui-sm font-medium text-white">
+                <span className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/25 to-transparent px-3 pb-3 pt-10 text-ui-sm font-medium text-white truncate whitespace-nowrap">
                   {template.title}
                 </span>
               </button>
@@ -153,7 +153,7 @@ function DiscoveryPanel({
                 onClick={() => onSelectStyle(style)}
               >
                 <Preview url={style.previewUrl} title={style.title} compact />
-                <span className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/30 to-transparent px-3 pb-3 pt-10 text-ui-sm font-medium text-white">
+                <span className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/30 to-transparent px-3 pb-3 pt-10 text-ui-sm font-medium text-white truncate whitespace-nowrap">
                   {style.title}
                 </span>
               </button>

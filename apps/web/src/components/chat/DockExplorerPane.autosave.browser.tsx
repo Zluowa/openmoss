@@ -1,6 +1,6 @@
 import "../../index.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ThreadId, type NativeApi } from "@synara/contracts";
+import { ThreadId, type NativeApi } from "@moss/contracts";
 import { page } from "vitest/browser";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-react";

@@ -81,13 +81,6 @@ export function isAgentActivityWorkEntry(entry: WorkLogEntry): boolean {
   );
 }
 
-// Unmapped provider events keep their native type as the title and a safe detail as preview.
-export function isUnmappedProviderEventWorkEntry(
-  entry: Pick<WorkLogEntry, "activityKind">,
-): boolean {
-  return entry.activityKind === "provider.event.unmapped";
-}
-
 export function formatAgentActivityEntryTitle(entry: WorkLogEntry): string {
   if (isSubagentProgressWorkEntry(entry)) {
     return subagentProgressTitle(entry);
@@ -98,11 +91,6 @@ export function formatAgentActivityEntryTitle(entry: WorkLogEntry): string {
   const heading = normalizeCompactToolLabel(entry.toolTitle ?? entry.label).trim();
   if (heading) {
     return capitalizePhrase(heading);
-  }
-  if (isUnmappedProviderEventWorkEntry(entry) && entry.nativeEventType) {
-    // The raw native type/label is the only title the event carries; use it
-    // verbatim instead of degrading to the generic "Activity" label.
-    return capitalizePhrase(entry.nativeEventType);
   }
   return entry.itemType === "collab_agent_tool_call" ? "Agent task" : "Activity";
 }

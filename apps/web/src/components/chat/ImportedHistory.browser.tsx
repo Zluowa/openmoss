@@ -6,7 +6,7 @@ import {
   type OrchestrationThreadDetailSnapshot,
   type LoadProjectImportHistoryInput,
   type LoadProjectImportHistoryResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import { act, createRef, useMemo, type ComponentProps } from "react";
 import { page } from "vitest/browser";
@@ -561,9 +561,9 @@ it("loads earlier tool-only work through the native history affordance with no c
     await expect.poll(() => getThreadFromState(useStore.getState(), id)?.activities.length).toBe(2);
     await props.listRef.current!.scrollToOffset({ offset: 0, animated: false });
     await expect
-      .element(page.getByRole("button", { name: "Ran commands", exact: true }))
+      .element(page.getByRole("button", { name: "Ran 2 commands", exact: true }))
       .toBeVisible();
-    await page.getByRole("button", { name: "Ran commands", exact: true }).click();
+    await page.getByRole("button", { name: "Ran 2 commands", exact: true }).click();
     await expect.poll(() => host.textContent).toContain("earlier-tool-only");
     expect(
       api.getThreadDetailSnapshot.mock.calls[0]?.[0]?.messageWindow.beforeActivity.activityId,

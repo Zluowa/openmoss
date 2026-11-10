@@ -10,7 +10,7 @@ import {
   ServerProviderStatus,
   defaultInstanceIdForDriver,
   type ProviderInstanceId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Cause, Effect, FileSystem, Schema } from "effect";
 import { writeFileStringAtomically } from "../atomicWrite";
 

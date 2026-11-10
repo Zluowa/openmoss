@@ -2,7 +2,7 @@ import {
   ModelSafetyBufferingUpdatedPayload,
   type OrchestrationThreadActivity,
   type TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
 const isSafetyBufferingPayload = Schema.is(ModelSafetyBufferingUpdatedPayload);

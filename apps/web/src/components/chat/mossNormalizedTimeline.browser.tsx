@@ -9,7 +9,7 @@ import {
   TurnId,
   type MossNormalizedSessionEvent,
   type NativeApi,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useState } from "react";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";

@@ -8,8 +8,8 @@ import {
   type OrchestrationSidebarOrderItem,
   type ProjectId,
   ThreadId,
-} from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
+} from "@moss/contracts";
+import { pluralize } from "@moss/shared/text";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

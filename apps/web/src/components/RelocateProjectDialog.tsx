@@ -3,7 +3,7 @@
 // Layer: Sidebar UI
 
 import { useState } from "react";
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@moss/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { ensureNativeApi } from "../nativeApi";

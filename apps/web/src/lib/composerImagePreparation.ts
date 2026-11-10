@@ -1,4 +1,4 @@
-import { MODEL_SCREEN_IMAGE_MAX_DIMENSION } from "@synara/shared/modelImageBudget";
+import { MODEL_SCREEN_IMAGE_MAX_DIMENSION } from "@moss/shared/modelImageBudget";
 // FILE: composerImagePreparation.ts
 // Purpose: Normalize oversized composer images without decoding unbounded pixels on the UI thread.
 // Layer: Web composer utility
@@ -6,7 +6,7 @@ import { MODEL_SCREEN_IMAGE_MAX_DIMENSION } from "@synara/shared/modelImageBudge
 import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_IMPORT_BYTES,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const MEBIBYTE = 1024 * 1024;
 const JPEG_HEADER_READ_BYTES = 1024 * 1024;

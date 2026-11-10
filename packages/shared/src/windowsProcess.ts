@@ -71,7 +71,13 @@ function quoteWindowsBatchToken(token: string, label: string): string {
       `Cannot safely execute Windows batch ${label} containing cmd.exe control characters.`,
     );
   }
-  return `"${token.replaceAll('"', '""')}"`;
+  // Batch shims forward %* to a native executable. Keep cmd's doubled quotes,
+  // but also double the backslashes immediately before those quotes and the
+  // closing quote; otherwise the native argv parser consumes them as escapes.
+  const quoted = token
+    .replace(/(\\*)"/gu, (_match, backslashes: string) => `${backslashes}${backslashes}""`)
+    .replace(/\\+$/gu, (backslashes) => `${backslashes}${backslashes}`);
+  return `"${quoted}"`;
 }
 
 export function buildWindowsBatchCommandArgs(

@@ -23,7 +23,7 @@ vi.mock("./config", async () => {
   const { ServiceMap } = await import("effect");
   return { ServerConfig: ServiceMap.Service("media-origin-test/ServerConfig") };
 });
-vi.mock("@synara/shared/providerInstances", () => ({
+vi.mock("@moss/shared/providerInstances", () => ({
   codexAccountInstanceId: (id: string) => `codex_${id}`,
 }));
 

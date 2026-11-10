@@ -9,14 +9,14 @@
 //          resolveDockFileOpenTarget,
 //          openWorkspaceFileReference, prefetchWorkspaceFile
 
-import { isSupportedLocalPreviewFilePath } from "@synara/shared/localPreviewFiles";
+import { isSupportedLocalPreviewFilePath } from "@moss/shared/localPreviewFiles";
 import {
   isLocalAbsolutePath,
   isWorkspaceRelativePathSafe,
   localPathsEqual,
   workspaceRelativePathOf,
-} from "@synara/shared/path";
-import { isScratchWorkspacePath } from "@synara/shared/threadWorkspace";
+} from "@moss/shared/path";
+import { isScratchWorkspacePath } from "@moss/shared/threadWorkspace";
 import type { QueryClient } from "@tanstack/react-query";
 import { createContext, useContext } from "react";
 
@@ -31,9 +31,24 @@ export interface WorkspaceFileOpener {
    * handled by an in-app viewer; false tells the caller to fall back to the
    * external editor (path outside the workspace, no viewer on this surface).
    */
-  openFile: (path: string, options?: { previewEntry?: CodexPreviewEntry }) => boolean;
+  openFile: (
+    path: string,
+    options?: {
+      previewEntry?: CodexPreviewEntry;
+      /**
+       * `source` opens a page's file in the file viewer; by default an HTML page opens
+       * rendered in the browser panel where the surface has one.
+       */
+      view?: "source";
+    },
+  ) => boolean;
   /** Optional hover warm-up for the file contents + syntax highlighter. */
   prefetchFile?: (path: string) => void;
+  /**
+   * Shows an HTML page rendered in the surface's browser panel. Present only where one
+   * exists (the desktop app's chat dock); the file viewer then shows a page's source.
+   */
+  openPage?: (path: string) => boolean;
 }
 
 export const WorkspaceFileOpenerContext = createContext<WorkspaceFileOpener | null>(null);

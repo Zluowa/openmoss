@@ -2,7 +2,7 @@
 // Purpose: Keep the single Realtime Voice media owner alive across route and thread changes.
 // Layer: Application voice runtime / chat-surface adapter
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import {
   createContext,
   useCallback,

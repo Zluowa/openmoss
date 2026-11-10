@@ -29,14 +29,15 @@ import {
   PROJECT_SEARCH_CONTENT_MAX_LIMIT,
   PROJECT_SEARCH_CONTENT_MAX_LINE_LENGTH,
   PROJECT_SEARCH_CONTENT_MIN_QUERY_LENGTH,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   isExplicitRelativePath,
   isWindowsAbsolutePath,
   isWorkspaceRelativePathSafe,
-} from "@synara/shared/path";
-import { normalizeWorkspaceEntrySearchQuery } from "@synara/shared/searchQuery";
+} from "@moss/shared/path";
+import { normalizeWorkspaceEntrySearchQuery } from "@moss/shared/searchQuery";
 import { resolveRealPathWithinRoot } from "./workspace/realPathContainment";
+import { gitCommandEnvironment } from "./git/gitProcessEnvironment";
 
 const WORKSPACE_CACHE_TTL_MS = 15_000;
 const WORKSPACE_CACHE_MAX_KEYS = 4;
@@ -481,8 +482,10 @@ async function mapWithConcurrency<TInput, TOutput>(
 }
 
 async function isInsideGitWorkTree(cwd: string): Promise<boolean> {
-  const insideWorkTree = await runProcess("git", ["rev-parse", "--is-inside-work-tree"], {
+  const args = ["rev-parse", "--is-inside-work-tree"];
+  const insideWorkTree = await runProcess("git", args, {
     cwd,
+    env: { ...process.env, ...gitCommandEnvironment({ args }) },
     allowNonZeroExit: true,
     timeoutMs: 5_000,
     maxBufferBytes: 4_096,

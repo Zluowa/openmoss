@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import type { NativeApi } from "@synara/contracts";
+import type { NativeApi } from "@moss/contracts";
 
 const harness = vi.hoisted(() => ({
   showContextMenu: vi.fn(async () => "copy-image"),

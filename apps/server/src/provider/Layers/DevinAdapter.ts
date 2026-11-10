@@ -29,7 +29,7 @@ import {
   TurnId,
   type ProviderSessionStartInput,
   type RuntimeMode,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   getDevinStaticModelVariants,
   getModelCapabilities,
@@ -38,7 +38,7 @@ import {
   normalizeModelSlug,
   resolveDevinModelVariant,
   trimOrNull,
-} from "@synara/shared/model";
+} from "@moss/shared/model";
 import {
   Cause,
   DateTime,

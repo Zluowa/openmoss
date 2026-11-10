@@ -11,7 +11,7 @@ import type {
   ProviderMentionReference,
   ProviderSkillReference,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { type Dispatch, type MutableRefObject, type RefObject, type SetStateAction } from "react";
 
 import type { ComposerPromptEditorHandle } from "~/components/ComposerPromptEditor";

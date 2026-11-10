@@ -7,6 +7,9 @@
 // emails, provider and skill names, paths, dates, identifiers, and quota values.
 // Unknown strings (including server diagnostics and user-authored content) pass through.
 
+import { nameSlotRule } from "./zhCNNameSlot";
+import { lookupPhrase } from "./zhCNPhraseTable";
+
 type DynamicTranslation = readonly [pattern: RegExp, translate: (match: RegExpExecArray) => string];
 
 const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
@@ -89,8 +92,6 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Checking email verification…": "正在检查邮箱验证状态…",
   "Verifying your email…": "正在验证邮箱…",
   "Verification link unavailable": "验证链接不可用",
-  "Moss sent a verification link": "Moss 已发送验证链接",
-  ". Open it on this device, then return to sign in.": "。请在此设备上打开链接，然后返回登录。",
   "Verify your email": "验证邮箱",
   "Open the link we sent to finish signing in.": "打开我们发送的链接以完成登录。",
   "Return to sign in": "返回登录",
@@ -147,7 +148,6 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Log out": "退出登录",
   "Send code": "发送验证码",
   "Verification code": "验证码",
-  "Code expires at": "验证码有效期至",
   "API users": "API 用户",
   "Create API user": "创建 API 用户",
   "API users are for programmatic Moss access, separate from the signed-in phone account.":
@@ -264,6 +264,10 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   Personal: "个人",
   "Shared skills": "共享技能",
   "No description.": "暂无描述。",
+  "Create, validate, or update a portable Codex or Claude plugin with skills, optional MCP tools, and a local marketplace entry.":
+    "创建、验证或更新可供 Codex 或 Claude 使用的插件，支持技能、可选的 MCP 工具和本地插件市场条目。",
+  "Create or update a skill (a SKILL.md with optional scripts, references, and assets) that Codex, Claude, and every other agent in Moss can use. Use when the user asks to make, write, or improve a skill.":
+    "创建或更新 Moss 中所有智能体均可使用的技能，包含 SKILL.md 及可选的脚本、参考资料和资源。适用于编写或改进技能。",
 
   // Profile dashboard and profile editing/share dialogs.
   "Couldn’t load your local stats.": "无法加载本地统计数据。",
@@ -453,17 +457,25 @@ function translatedThemeTitle(value: string): string {
   return "深色主题";
 }
 
+const THEME_CONTROLS: Readonly<Record<string, string>> = {
+  "accent color": "强调色",
+  "background color": "背景色",
+  "foreground color": "前景色",
+  "sidebar color": "侧边栏颜色",
+  "UI font": "界面字体",
+  "code font": "代码字体",
+  "translucent sidebar": "半透明侧边栏",
+  "translucent sidebar only": "仅侧边栏半透明",
+  "translucency opacity": "半透明不透明度",
+  "automatic background blur": "自动背景模糊",
+  "background blur": "背景模糊",
+  "window material": "窗口材质",
+  contrast: "对比度",
+};
+const THEME_CONTROL = Object.keys(THEME_CONTROLS).join("|");
+
 function translatedThemeControl(value: string): string {
-  const controls: Readonly<Record<string, string>> = {
-    "accent color": "强调色",
-    "background color": "背景色",
-    "foreground color": "前景色",
-    "UI font": "界面字体",
-    "code font": "代码字体",
-    "translucent sidebar": "半透明侧边栏",
-    contrast: "对比度",
-  };
-  return controls[value] ?? value;
+  return lookupPhrase(THEME_CONTROLS, value) ?? value;
 }
 
 function translatedPattern(value: string): string {
@@ -478,7 +490,7 @@ function translatedPattern(value: string): string {
     "dots-2": "双点阵",
     define: "轮廓",
   };
-  return patterns[value] ?? value;
+  return lookupPhrase(patterns, value) ?? value;
 }
 
 function translatedCompactDuration(value: string): string {
@@ -556,8 +568,8 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   ],
   [/^Enable the (.+) skill$/, (match) => `启用 ${capture(match, 1)} 技能`],
   // Short labels only: a whole sentence must not come out half translated.
-  [/^Enable ([^.]+)$/, (match) => `启用 ${capture(match, 1)}`],
-  [/^From (.+)$/, (match) => `来自 ${capture(match, 1)}`],
+  [nameSlotRule("Enable"), (match) => `启用 ${capture(match, 1)}`],
+  [/^From (?!.* (?:to|and) )(.+)$/, (match) => `来自 ${capture(match, 1)}`],
 
   // Profile values retain project names, counts, dates, models, and provider labels.
   [/^([\d,]+) runs$/, (match) => `${capture(match, 1)} 次运行`],
@@ -617,8 +629,8 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   [
     /^Usage pace: (ahead|on-track|behind)$/,
     (match) => {
-      const labels = { ahead: "充足", "on-track": "符合预期", behind: "超出预期" } as const;
-      return `用量进度：${labels[capture(match, 1) as keyof typeof labels]}`;
+      const labels = { ahead: "充足", "on-track": "符合预期", behind: "超出预期" };
+      return `用量进度：${lookupPhrase(labels, capture(match, 1))}`;
     },
   ],
 
@@ -628,18 +640,18 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
     (match) => `${translatedThemeTitle(capture(match, 1)).replace(/主题$/, "")}代码主题`,
   ],
   [
-    new RegExp(
-      `^(${THEME_TITLE}) (accent color|background color|foreground color|UI font|code font|translucent sidebar|contrast)$`,
-    ),
+    new RegExp(`^(${THEME_TITLE}) (${THEME_CONTROL})$`),
     (match) =>
       `${translatedThemeTitle(capture(match, 1))}${translatedThemeControl(capture(match, 2))}`,
   ],
   [
-    new RegExp(
-      `^Reset (${THEME_TITLE}) (accent color|background color|foreground color|UI font|code font|translucent sidebar|contrast)$`,
-    ),
+    new RegExp(`^Reset (${THEME_TITLE}) (${THEME_CONTROL})$`),
     (match) =>
       `重置${translatedThemeTitle(capture(match, 1))}${translatedThemeControl(capture(match, 2))}`,
+  ],
+  [
+    new RegExp(`^(${THEME_TITLE}) preview: (.+)$`),
+    (match) => `${translatedThemeTitle(capture(match, 1))}预览：${capture(match, 2)}`,
   ],
   [
     new RegExp(`^(${THEME_TITLE}) (accent color|background color|foreground color) hex value$`),
@@ -656,7 +668,7 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
 ];
 
 export function translateZhCnAccountSettingsText(value: string): string {
-  const exact = EXACT_TRANSLATIONS[value];
+  const exact = lookupPhrase(EXACT_TRANSLATIONS, value);
   if (exact !== undefined) return exact;
 
   for (const [pattern, translate] of DYNAMIC_TRANSLATIONS) {

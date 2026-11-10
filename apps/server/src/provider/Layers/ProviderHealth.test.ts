@@ -8,12 +8,23 @@ import {
   writeFileSync,
 } from "node:fs";
 import * as OS from "node:os";
+import { rm as removeDirectory, chmod as changeMode } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import type { ChildProcess } from "node:child_process";
 import { join, win32 } from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import type { ProviderInstanceId, ServerProviderStatus } from "@synara/contracts";
-import { DEFAULT_SERVER_SETTINGS, ServerProviderUpdateError } from "@synara/contracts";
-import { MOSS_BUNDLED_CODEX_VERSION } from "@synara/shared/codexRuntime";
+import type { ProviderInstanceId, ServerProviderStatus } from "@moss/contracts";
+import { DEFAULT_SERVER_SETTINGS, ServerProviderUpdateError } from "@moss/contracts";
+import { MOSS_BUNDLED_CODEX_VERSION } from "@moss/shared/codexRuntime";
+import { resetLocalAgentPathLookupCache } from "@moss/shared/localAgentExecutable";
+import { resolveCodexExecutable } from "@moss/shared/codexExecutable";
+import * as ProcessRuntime from "@moss/shared/processRuntime";
+import { agentProgramsForServer } from "../agentProgramOwnership.ts";
+import * as ProviderLoginManagerModule from "../providerLoginManager.ts";
+import * as ManagedProviderInstallationModule from "../managedProviderInstallation.ts";
+import * as ProviderInstallModule from "../providerInstall.ts";
+import * as AgentInstallRuntimeModule from "../agentInstallRuntime.ts";
 import { describe, it, assert } from "@effect/vitest";
 import {
   Deferred,
@@ -34,8 +45,10 @@ import { vi } from "vitest";
 
 import { MOSS_CODEX_HOME_OVERLAY_DIR, resolveActiveCodexHomeWritePath } from "../../codexHomePaths";
 import { CODEX_CLI_UNPARSEABLE_VERSION_MESSAGE } from "../codexCliVersion.ts";
-import { claudeIsolatedHomePath } from "../claudeEnvironment";
+import { claudeIsolatedHomePath, resolveClaudeCodeRuntime } from "../claudeEnvironment";
 import { ServerConfig } from "../../config";
+import { ServerSecretStoreLive } from "../../auth/Layers/ServerSecretStore.ts";
+import { canonicalizeCodexHomeIdentityPath } from "../../codexHomeIdentity.ts";
 import { ServerSettingsService } from "../../serverSettings";
 import {
   buildMossManagedHomeOwnershipMarker,
@@ -49,6 +62,7 @@ import {
 } from "../providerStatusCache";
 import {
   checkClaudeProviderStatus,
+  runsMossBundledAgentRuntime,
   checkAntigravityProviderStatus,
   checkCodexProviderStatus,
   checkCursorProviderStatus,
@@ -67,6 +81,7 @@ import {
   makeCheckOpenCodeProviderStatus,
   makeDisabledProviderStatus,
   makeProviderHealthLive,
+  PROVIDER_UPDATES_DISABLED_ENV,
   parseAuthStatusFromOutput,
   parseClaudeAuthStatusFromOutput,
   PACKAGE_MANAGED_PROVIDER_UPDATES,
@@ -88,6 +103,8 @@ import {
 import { buildMossManagedAcpAgentProviderInstance } from "../mossManagedAcpAgentEnvironment";
 import { resolvePackageManagedProviderMaintenance } from "../providerMaintenance";
 import { providerIsolatedHomePath } from "../providerProcessEnv.ts";
+import { PROVIDER_NOT_INSTALLED_READINESS } from "../providerReadiness.ts";
+import * as AgentCliPathFloor from "../agentCliPathFloor.ts";
 
 // ── Test helpers ────────────────────────────────────────────────────
 
@@ -203,6 +220,8 @@ function hangingSpawnerLayer(input: {
   readonly onKill: () => void;
   readonly onHang?: () => void;
   readonly shouldHang: (args: ReadonlyArray<string>, command: string) => boolean;
+  /** What a non-hanging `--version` probe prints; the update path needs a verified floor. */
+  readonly versionOutput?: string;
 }) {
   const handle = ChildProcessSpawner.makeHandle({
     pid: ChildProcessSpawner.ProcessId(0x7fff_fffe),
@@ -226,13 +245,42 @@ function hangingSpawnerLayer(input: {
       };
       const invocation = providerInvocationForTest(cmd);
       if (!input.shouldHang(invocation.args, invocation.command)) {
-        return Effect.succeed(mockHandle({ stdout: "", stderr: "", code: 0 }));
+        const stdout =
+          input.versionOutput && invocation.args.includes("--version") ? input.versionOutput : "";
+        return Effect.succeed(mockHandle({ stdout, stderr: "", code: 0 }));
       }
       input.onHang?.();
       return Effect.succeed(handle);
     }),
   );
 }
+
+/**
+ * One-click npm updates now need the official registry's latest version (#449). Answer it
+ * offline so update tests never reach the network or depend on a real release number.
+ */
+const stubNpmLatestVersion = (versions: Readonly<Record<string, string>>) =>
+  Effect.acquireRelease(
+    Effect.sync(() => {
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = (async (input: string | URL | Request) => {
+        const url =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        for (const [packageName, version] of Object.entries(versions)) {
+          if (url.endsWith(`/${encodeURIComponent(packageName)}/latest`)) {
+            return Response.json({ version });
+          }
+        }
+        return new Response(null, { status: 404 });
+      }) as typeof fetch;
+      return realFetch;
+    }),
+    (realFetch) => Effect.sync(() => (globalThis.fetch = realFetch)),
+  );
+
+const CODEX_UPDATE_INSTALLED_VERSION = "7.3.46";
+const CODEX_UPDATE_LATEST_VERSION = "7.3.47";
+const CODEX_UPDATE_PINNED_INSTALL = `install -g --prefix /Users/test/.nvm/versions/node/v24.13.0 @openai/codex@${CODEX_UPDATE_LATEST_VERSION}`;
 
 function withProcessPlatform<T, E, R>(
   platform: NodeJS.Platform,
@@ -294,6 +342,21 @@ const allProvidersDisabledServerSettings = {
     zcode: { ...DEFAULT_SERVER_SETTINGS.providers.zcode, enabled: false },
   },
 } satisfies typeof DEFAULT_SERVER_SETTINGS;
+
+function removalTestDirectory(fs: FileSystem.FileSystem, prefix: string) {
+  return Effect.acquireRelease(fs.makeTempDirectory({ prefix }), (directory) =>
+    Effect.promise(async () => {
+      if (!directory.startsWith(join(OS.tmpdir(), "agent-removal-")))
+        throw new Error("Unexpected removal-test cleanup target.");
+      await removeDirectory(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 10,
+      });
+    }),
+  );
+}
 
 describe("provider health probe concurrency", () => {
   it.effect("bounds concurrent probes while preserving every result", () =>
@@ -478,6 +541,32 @@ function withPackagedRuntimeEnv(overrides: Readonly<Record<string, string>>) {
   );
 }
 
+/** PATH holding only fake shims for `commands`, so "own install on PATH" is deterministic. */
+function withFakePath(commands: ReadonlyArray<string>) {
+  return Effect.acquireRelease(
+    Effect.sync(() => {
+      const directory = mkdtempSync(join(OS.tmpdir(), "moss-fake-path-"));
+      for (const command of commands) {
+        const name = process.platform === "win32" ? `${command}.cmd` : command;
+        writeFileSync(join(directory, name), "", { mode: 0o755 });
+      }
+      const previous = { PATH: process.env.PATH, PATHEXT: process.env.PATHEXT };
+      process.env.PATH = directory;
+      process.env.PATHEXT = ".COM;.EXE;.BAT;.CMD";
+      resetLocalAgentPathLookupCache();
+      return { directory, previous };
+    }),
+    ({ directory, previous }) =>
+      Effect.sync(() => {
+        process.env.PATH = previous.PATH;
+        if (previous.PATHEXT === undefined) delete process.env.PATHEXT;
+        else process.env.PATHEXT = previous.PATHEXT;
+        resetLocalAgentPathLookupCache();
+        rmSync(directory, { recursive: true, force: true });
+      }),
+  );
+}
+
 function withManagedProbeHome() {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -523,6 +612,632 @@ function withManagedProbeHome() {
 }
 
 it.layer(NodeServices.layer)("ProviderHealth", (it) => {
+  it.effect(
+    "keeps disabled Pi installation evidence across independent health restarts without running the CLI",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const baseDir = yield* removalTestDirectory(fs, "agent-removal-disabled-pi-");
+        const binary = join(baseDir, process.platform === "win32" ? "pi.cmd" : "pi");
+        yield* fs.writeFileString(binary, "owned-fixture-pi");
+        yield* Effect.promise(() => changeMode(binary, 0o755));
+        const cachePath = resolveProviderStatusCachePath({ stateDir: baseDir, provider: "pi" });
+        yield* writeProviderStatusCache({
+          filePath: cachePath,
+          provider: {
+            provider: "pi",
+            driver: "pi",
+            instanceId: "pi",
+            status: "ready",
+            available: true,
+            authStatus: "authenticated",
+            version: "1.5.0",
+            checkedAt: "2026-11-06T12:00:00Z",
+          },
+        });
+        const commands: string[] = [];
+        for (let restart = 0; restart < 2; restart++) {
+          const layer = makeProviderHealthLive().pipe(
+            Layer.provideMerge(
+              ServerSettingsService.layerTest({
+                ...allProvidersDisabledServerSettings,
+                enableProviderUpdateChecks: false,
+                providers: {
+                  ...allProvidersDisabledServerSettings.providers,
+                  pi: {
+                    ...allProvidersDisabledServerSettings.providers.pi,
+                    binaryPath: binary,
+                  },
+                },
+              }),
+            ),
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), baseDir, {
+                homeDir: baseDir,
+                stateDir: baseDir,
+              }),
+            ),
+            Layer.provideMerge(
+              mockSpawnerLayer((_args, command) => {
+                commands.push(command);
+                return { stdout: "", stderr: "", code: 0 };
+              }),
+            ),
+          );
+          yield* Effect.gen(function* () {
+            const health = yield* ProviderHealth;
+            yield* health.refresh;
+            const status = (yield* health.getStatuses).find((entry) => entry.instanceId === "pi");
+            assert.strictEqual(status?.version, "1.5.0");
+            assert.strictEqual(status?.enabled, false);
+            assert.strictEqual(status?.available, false);
+          }).pipe(Effect.provide(layer));
+        }
+        assert.strictEqual((yield* readProviderStatusCache(cachePath))?.version, "1.5.0");
+        assert.strictEqual(commands.length, 0);
+      }).pipe(Effect.scoped),
+  );
+  it.effect(
+    "keeps the selected external Codex version and program epoch when removing an idle Moss copy",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const baseDir = yield* removalTestDirectory(fs, "agent-removal-external-");
+        const previous = process.env[PROVIDER_UPDATES_DISABLED_ENV];
+        delete process.env[PROVIDER_UPDATES_DISABLED_ENV];
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (previous === undefined) delete process.env[PROVIDER_UPDATES_DISABLED_ENV];
+            else process.env[PROVIDER_UPDATES_DISABLED_ENV] = previous;
+          }),
+        );
+        const external = join(
+          baseDir,
+          process.platform === "win32" ? "external-codex.cmd" : "external-codex",
+        );
+        yield* fs.writeFileString(external, "external-user-owned-fixture");
+        yield* Effect.promise(() => changeMode(external, 0o755));
+        const prefix = join(baseDir, "agents");
+        const packageRoot = join(prefix, "node_modules", "@openai", "codex");
+        const bin = process.platform === "win32" ? prefix : join(prefix, "bin");
+        yield* fs.makeDirectory(packageRoot, { recursive: true });
+        yield* fs.makeDirectory(bin, { recursive: true });
+        yield* fs.writeFileString(
+          join(packageRoot, "package.json"),
+          JSON.stringify({ name: "@openai/codex", bin: { codex: "bin/codex.js" } }),
+        );
+        const shim = join(bin, process.platform === "win32" ? "codex.cmd" : "codex");
+        yield* fs.writeFileString(shim, "node_modules/@openai/codex/bin/codex.js");
+        const cachePath = resolveProviderStatusCachePath({ stateDir: baseDir, provider: "codex" });
+        yield* writeProviderStatusCache({
+          filePath: cachePath,
+          provider: {
+            provider: "codex",
+            driver: "codex",
+            instanceId: "codex",
+            status: "ready",
+            available: true,
+            authStatus: "authenticated",
+            version: "0.166.0",
+            checkedAt: "2026-11-06T12:00:00Z",
+          },
+        });
+        const commands: string[] = [];
+        const layer = makeProviderHealthLive().pipe(
+          Layer.provideMerge(
+            ServerSettingsService.layerTest({
+              ...allProvidersDisabledServerSettings,
+              enableProviderUpdateChecks: false,
+              providers: {
+                ...allProvidersDisabledServerSettings.providers,
+                codex: {
+                  ...allProvidersDisabledServerSettings.providers.codex,
+                  binaryPath: external,
+                },
+              },
+            }),
+          ),
+          Layer.provideMerge(
+            ServerConfig.layerTest(process.cwd(), baseDir, { homeDir: baseDir, stateDir: baseDir }),
+          ),
+          Layer.provideMerge(
+            mockSpawnerLayer((_args, command) => {
+              commands.push(command);
+              return { stdout: "", stderr: "", code: 0 };
+            }),
+          ),
+        );
+        yield* Effect.gen(function* () {
+          const health = yield* ProviderHealth;
+          const result = yield* health.manageProviderInstallation!({
+            provider: "codex",
+            action: "uninstall",
+          });
+          assert.strictEqual(result.source, "external");
+          assert.strictEqual(result.path, external);
+          assert.strictEqual(result.removed, true);
+          assert.strictEqual(result.canUninstall, false);
+          const status = (yield* health.getStatuses).find((entry) => entry.instanceId === "codex");
+          assert.strictEqual(status?.version, "0.166.0");
+          const config = yield* ServerConfig;
+          agentProgramsForServer(config, "codex").assertCompatible({
+            binaryPath: external,
+            sourceHomePath: baseDir,
+          });
+        }).pipe(Effect.provide(layer));
+        assert.strictEqual((yield* readProviderStatusCache(cachePath))?.version, "0.166.0");
+        assert.strictEqual(yield* fs.readFileString(external), "external-user-owned-fixture");
+        assert.strictEqual(yield* fs.exists(packageRoot), false);
+        assert.strictEqual(yield* fs.exists(shim), false);
+        assert.strictEqual(commands.length, 0);
+      }).pipe(Effect.scoped),
+  );
+  it.effect("refuses removal while any additional account remains enabled", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* removalTestDirectory(fs, "agent-removal-enabled-");
+      const previous = process.env[PROVIDER_UPDATES_DISABLED_ENV];
+      delete process.env[PROVIDER_UPDATES_DISABLED_ENV];
+      const remove = vi
+        .spyOn(ManagedProviderInstallationModule, "removeManagedProviderInstallation")
+        .mockResolvedValue(false);
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          remove.mockRestore();
+          if (previous === undefined) delete process.env[PROVIDER_UPDATES_DISABLED_ENV];
+          else process.env[PROVIDER_UPDATES_DISABLED_ENV] = previous;
+        }),
+      );
+      const layer = makeProviderHealthLive().pipe(
+        Layer.provideMerge(
+          ServerSettingsService.layerTest({
+            ...allProvidersDisabledServerSettings,
+            providerInstances: { opencode_work: { driver: "opencode", enabled: true, config: {} } },
+          }),
+        ),
+        Layer.provideMerge(
+          ServerConfig.layerTest(process.cwd(), baseDir, { homeDir: baseDir, stateDir: baseDir }),
+        ),
+        Layer.provideMerge(mockSpawnerLayer(() => ({ stdout: "", stderr: "", code: 0 }))),
+      );
+      const error = yield* Effect.gen(function* () {
+        const health = yield* ProviderHealth;
+        return yield* Effect.flip(
+          health.manageProviderInstallation!({ provider: "opencode", action: "uninstall" }),
+        );
+      }).pipe(Effect.provide(layer));
+      assert.match(error.reason, /Turn this agent off/u);
+      assert.strictEqual(remove.mock.calls.length, 0);
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "serializes removal and another agent installation through the shared install lock",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const baseDir = yield* removalTestDirectory(fs, "agent-removal-lock-");
+        const previous = process.env[PROVIDER_UPDATES_DISABLED_ENV];
+        const previousPath = process.env.PATH;
+        delete process.env[PROVIDER_UPDATES_DISABLED_ENV];
+        let release!: () => void;
+        let started!: () => void;
+        const began = new Promise<void>((resolve) => {
+          started = resolve;
+        });
+        const blocked = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const remove = vi
+          .spyOn(ManagedProviderInstallationModule, "removeManagedProviderInstallation")
+          .mockImplementation(async () => {
+            started();
+            await blocked;
+            return true;
+          });
+        const inspect = vi
+          .spyOn(ManagedProviderInstallationModule, "inspectProviderInstallation")
+          .mockResolvedValue({
+            provider: "opencode",
+            source: "missing",
+            path: null,
+            managedPath: null,
+            canUninstall: false,
+            removed: false,
+          });
+        const install = vi
+          .spyOn(ProviderInstallModule, "runOneClickAgentInstall")
+          .mockImplementation(() =>
+            Effect.succeed({
+              ok: true as const,
+              version: "1.5.0",
+              source: "official" as const,
+              binDirectory: join(baseDir, "agents"),
+            }),
+          );
+        const runtime = vi
+          .spyOn(AgentInstallRuntimeModule, "resolveMossNodeRuntime")
+          .mockReturnValue(null);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            release();
+            remove.mockRestore();
+            inspect.mockRestore();
+            install.mockRestore();
+            runtime.mockRestore();
+            if (previous === undefined) delete process.env[PROVIDER_UPDATES_DISABLED_ENV];
+            else process.env[PROVIDER_UPDATES_DISABLED_ENV] = previous;
+            if (previousPath === undefined) delete process.env.PATH;
+            else process.env.PATH = previousPath;
+            resetLocalAgentPathLookupCache();
+          }),
+        );
+        const layer = makeProviderHealthLive().pipe(
+          Layer.provideMerge(
+            ServerSettingsService.layerTest({
+              ...allProvidersDisabledServerSettings,
+              enableProviderUpdateChecks: false,
+              providers: {
+                ...allProvidersDisabledServerSettings.providers,
+                pi: { ...DEFAULT_SERVER_SETTINGS.providers.pi, enabled: true },
+              },
+            }),
+          ),
+          Layer.provideMerge(
+            ServerConfig.layerTest(process.cwd(), baseDir, { homeDir: baseDir, stateDir: baseDir }),
+          ),
+          Layer.provideMerge(mockSpawnerLayer(() => ({ stdout: "", stderr: "", code: 0 }))),
+        );
+        yield* Effect.gen(function* () {
+          const health = yield* ProviderHealth;
+          yield* health.refresh;
+          const removing = yield* health.manageProviderInstallation!({
+            provider: "opencode",
+            action: "uninstall",
+          }).pipe(Effect.forkChild);
+          yield* Effect.promise(() => began);
+          const installing = yield* health
+            .installProvider({ provider: "pi" })
+            .pipe(Effect.forkChild);
+          let queued = false;
+          for (let attempt = 0; attempt < 30; attempt++) {
+            yield* Effect.yieldNow;
+            queued = (yield* health.getStatuses).some(
+              (status) => status.provider === "pi" && status.installState?.status === "queued",
+            );
+            if (queued) break;
+          }
+          assert.strictEqual(queued, true);
+          assert.strictEqual(install.mock.calls.length, 0);
+          release();
+          assert.strictEqual((yield* Fiber.join(removing)).removed, true);
+          yield* Fiber.join(installing);
+          assert.strictEqual(install.mock.calls.length, 1);
+        }).pipe(Effect.provide(layer));
+      }).pipe(Effect.scoped),
+  );
+  it.effect("uses bound private Claude state for health and login and rechecks each probe", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "health-claude-bound-" });
+      const source = join(baseDir, "projects");
+      const privateHome = join(baseDir, "private");
+      const configDir = join(privateHome, ".claude");
+      const binary = join(baseDir, "claude.exe");
+      for (const directory of [source, configDir])
+        yield* fs.makeDirectory(directory, { recursive: true });
+      yield* fs.writeFileString(binary, "fixture-program");
+      const authFile = join(configDir, ".credentials.json");
+      yield* fs.writeFileString(authFile, '{"fixture":"private"}');
+      yield* fs.writeFileString(join(source, "history-marker"), "preserved");
+      const probeEnvs: NodeJS.ProcessEnv[] = [];
+      let invalidate = false;
+      let invalidated = false;
+      let loginTarget: ProviderLoginManagerModule.ProviderLoginProcessRunnerInput | undefined;
+      let finishLogin:
+        | ((result: ProviderLoginManagerModule.ProviderLoginCompletion) => void)
+        | undefined;
+      const originalManager = ProviderLoginManagerModule.makeProviderLoginManager;
+      yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          vi
+            .spyOn(ProviderLoginManagerModule, "makeProviderLoginManager")
+            .mockImplementation((dependencies) =>
+              originalManager({
+                ...dependencies,
+                runClaude: (input) => {
+                  loginTarget = input;
+                  return {
+                    completion: new Promise((resolve) => {
+                      finishLogin = resolve;
+                    }),
+                    cancel: () => finishLogin?.({ status: "cancelled" }),
+                  };
+                },
+              }),
+            ),
+        ),
+        (mock) => Effect.sync(() => mock.mockRestore()),
+      );
+      const layer = ProviderHealthLive.pipe(
+        Layer.provideMerge(ServerSecretStoreLive),
+        Layer.provideMerge(
+          ServerSettingsService.layerTest({
+            ...allProvidersDisabledServerSettings,
+            enableProviderUpdateChecks: false,
+            providers: {
+              ...allProvidersDisabledServerSettings.providers,
+              claudeAgent: {
+                ...DEFAULT_SERVER_SETTINGS.providers.claudeAgent,
+                enabled: true,
+                shareStateAcrossAccounts: true,
+                sharedProjectsPath: source,
+              },
+            },
+            providerInstances: {
+              claudeAgent: { driver: "claudeAgent", enabled: false },
+              claude_work: {
+                driver: "claudeAgent",
+                config: { binaryPath: binary, homePath: privateHome },
+                environment: [{ name: "ANTHROPIC_API_KEY", value: "fixture-key", sensitive: true }],
+              },
+            },
+          }),
+        ),
+        Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+        Layer.provideMerge(
+          mockSpawnerLayer((args, _command, env) => {
+            probeEnvs.push(env!);
+            if (invalidate && !invalidated && args.includes("--version")) {
+              invalidated = true;
+              writeFileSync(authFile, '{"fixture":"rotated"}');
+            }
+            return {
+              stdout: args.includes("--version")
+                ? "2.1.318"
+                : JSON.stringify({
+                    loggedIn: true,
+                    authMethod: "claude.ai",
+                    subscriptionType: "max",
+                  }),
+              stderr: "",
+              code: 0,
+            };
+          }),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const health = yield* ProviderHealth;
+        assert.strictEqual(
+          (yield* health.refresh).find((status) => status.instanceId === "claude_work")?.status,
+          "ready",
+        );
+        for (const env of probeEnvs) {
+          assert.strictEqual(env.HOME, canonicalizeCodexHomeIdentityPath(privateHome));
+          assert.strictEqual(env.CLAUDE_CONFIG_DIR, canonicalizeCodexHomeIdentityPath(configDir));
+          assert.strictEqual(env.ANTHROPIC_API_KEY, "fixture-key");
+        }
+        yield* health.startLogin({ provider: "claudeAgent", instanceId: "claude_work" });
+        assert.isDefined(loginTarget);
+        assert.strictEqual(loginTarget!.env.HOME, canonicalizeCodexHomeIdentityPath(privateHome));
+        assert.strictEqual(
+          loginTarget!.env.CLAUDE_CONFIG_DIR,
+          canonicalizeCodexHomeIdentityPath(configDir),
+        );
+        assert.isUndefined(loginTarget!.env.ANTHROPIC_API_KEY);
+        assert.isUndefined(loginTarget!.env.ANTHROPIC_AUTH_TOKEN);
+        assert.doesNotThrow(() => loginTarget!.assertStateBindingCurrent!());
+        finishLogin?.({ status: "cancelled" });
+        yield* Effect.promise(() => Promise.resolve());
+        const before = probeEnvs.length;
+        invalidate = true;
+        const revoked = (yield* health.refresh).find(
+          (status) => status.instanceId === "claude_work",
+        );
+        assert.strictEqual(probeEnvs.length, before + 1);
+        assert.notEqual(revoked?.status, "ready");
+        assert.throws(() => loginTarget!.assertStateBindingCurrent!(), /绑定已更换/);
+        assert.strictEqual(readFileSync(join(source, "history-marker"), "utf8"), "preserved");
+      }).pipe(Effect.provide(layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("shares the bound program epoch across health and private-only Codex sign-in", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "health-shared-state-" });
+      const source = join(baseDir, "history");
+      const privateHome = join(baseDir, "private");
+      const first = join(baseDir, "first.exe");
+      const second = join(baseDir, "second.exe");
+      for (const directory of [source, privateHome]) yield* fs.makeDirectory(directory);
+      yield* fs.writeFileString(first, "synthetic-program-one");
+      yield* fs.writeFileString(second, "synthetic-program-two");
+      yield* fs.writeFileString(join(source, "config.toml"), 'model_provider = "wrong-source"\n');
+      yield* fs.writeFileString(join(source, "auth.json"), '{"account":"untouched-source"}');
+      yield* fs.writeFileString(
+        join(privateHome, "config.toml"),
+        'model_provider = "openai"\n# private-config\n',
+      );
+      yield* fs.writeFileString(join(privateHome, "auth.json"), '{"account":"synthetic-private"}');
+      const probeEnvs: NodeJS.ProcessEnv[] = [];
+      const loginChild = Object.assign(new EventEmitter(), { kill: vi.fn(() => true) });
+      let loginEnv: NodeJS.ProcessEnv | undefined;
+      const loginSpawn = yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          vi
+            .spyOn(ProcessRuntime, "spawnProcess")
+            .mockImplementation((_command, _args, options) => {
+              loginEnv = options?.env;
+              return loginChild as unknown as ChildProcess;
+            }),
+        ),
+        (mock) => Effect.sync(() => mock.mockRestore()),
+      );
+      const layer = ProviderHealthLive.pipe(
+        Layer.provideMerge(ServerSecretStoreLive),
+        Layer.provideMerge(
+          ServerSettingsService.layerTest({
+            ...allProvidersDisabledServerSettings,
+            enableProviderUpdateChecks: false,
+            providers: {
+              ...allProvidersDisabledServerSettings.providers,
+              codex: {
+                ...DEFAULT_SERVER_SETTINGS.providers.codex,
+                enabled: true,
+                homePath: source,
+                shareStateAcrossAccounts: true,
+              },
+            },
+            providerInstances: {
+              codex: { driver: "codex", enabled: false },
+              codex_work: {
+                driver: "codex",
+                config: { binaryPath: first, homePath: privateHome, accountId: "work" },
+              },
+            },
+          }),
+        ),
+        Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+        Layer.provideMerge(
+          mockSpawnerLayer((args, _command, env) => {
+            probeEnvs.push(env!);
+            return {
+              stdout: args.includes("--version") ? "codex-cli 0.166.0" : "Logged in using ChatGPT",
+              stderr: "",
+              code: 0,
+            };
+          }),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const health = yield* ProviderHealth;
+        const config = yield* ServerConfig;
+        const statuses = yield* health.refresh;
+        assert.strictEqual(
+          statuses.find((row) => row.instanceId === "codex_work")?.status,
+          "ready",
+        );
+        assert.isAbove(probeEnvs.length, 0);
+        for (const env of probeEnvs) {
+          assert.strictEqual(env.CODEX_SQLITE_HOME, canonicalizeCodexHomeIdentityPath(source));
+          assert.include(
+            readFileSync(join(env.CODEX_HOME!, "config.toml"), "utf8"),
+            "private-config",
+          );
+          assert.include(
+            readFileSync(join(env.CODEX_HOME!, "auth.json"), "utf8"),
+            "synthetic-private",
+          );
+        }
+        yield* health.startLogin({ provider: "codex", instanceId: "codex_work" });
+        assert.strictEqual(loginSpawn.mock.calls.length, 1);
+        assert.strictEqual(loginEnv?.CODEX_HOME, canonicalizeCodexHomeIdentityPath(privateHome));
+        assert.strictEqual(
+          loginEnv?.CODEX_SQLITE_HOME,
+          canonicalizeCodexHomeIdentityPath(privateHome),
+        );
+        assert.strictEqual(loginEnv?.OPENAI_API_KEY, undefined);
+        const programs = agentProgramsForServer(config, "codex");
+        assert.throws(
+          () => programs.assertCompatible({ binaryPath: second, sourceHomePath: source }),
+          /Restart Moss/,
+        );
+        assert.doesNotThrow(() =>
+          programs.assertCompatible({ binaryPath: second, sourceHomePath: privateHome }),
+        );
+        assert.include(readFileSync(join(source, "auth.json"), "utf8"), "untouched-source");
+        loginChild.emit("exit", 0);
+        loginChild.emit("close", 0);
+        yield* Effect.promise(() => Promise.resolve());
+      }).pipe(Effect.provide(layer));
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "refreshes the own Codex release advisory for local and managed accounts without updating",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const fixture = yield* withManagedProbeHome();
+        const { runtimeDir } = yield* withTempCodexHome();
+        yield* withFakePath(["codex"]);
+        yield* withPackagedRuntimeEnv({
+          MOSS_BUNDLED_CODEX_PATH: join(runtimeDir, "bundled", "codex.exe"),
+        });
+        yield* fs.writeFileString(
+          join(fixture.homePath, "config.toml"),
+          'model_provider = "moss"\n',
+        );
+        const requestedUrls: string[] = [];
+        yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+              const url = String(input);
+              requestedUrls.push(url);
+              assert.match(url, /\/%40openai%2Fcodex\/latest$/iu);
+              return Response.json({ version: "0.999.0" });
+            }),
+          ),
+          (mock) => Effect.sync(() => mock.mockRestore()),
+        );
+        const invocations: string[][] = [];
+        const layer = ProviderHealthLive.pipe(
+          Layer.provideMerge(
+            ServerSettingsService.layerTest({
+              ...fixture.settings,
+              enableProviderUpdateChecks: true,
+              providers: {
+                ...allProvidersDisabledServerSettings.providers,
+                codex: { ...fixture.settings.providers.codex, enabled: true },
+              },
+            }),
+          ),
+          Layer.provideMerge(
+            ServerConfig.layerTest(process.cwd(), runtimeDir, {
+              stateDir: fixture.stateDir,
+              homeDir: runtimeDir,
+            }),
+          ),
+          Layer.provideMerge(
+            mockSpawnerLayer((args) => {
+              invocations.push([...args]);
+              return {
+                stdout: args.includes("--version")
+                  ? "codex 0.160.0\n"
+                  : "Logged in using ChatGPT\n",
+                stderr: "",
+                code: 0,
+              };
+            }),
+          ),
+        );
+        yield* Effect.gen(function* () {
+          const health = yield* ProviderHealth;
+          const settings = yield* ServerSettingsService;
+          const statuses = yield* health.refresh;
+          for (const instanceId of ["codex", "codex_moss"]) {
+            const status = statuses.find((row) => row.instanceId === instanceId);
+            assert.strictEqual(status?.version, "0.160.0");
+            assert.strictEqual(status?.versionAdvisory?.latestVersion, "0.999.0");
+            assert.strictEqual(status?.versionAdvisory?.status, "behind_latest");
+          }
+          assert.ok(requestedUrls.length > 0);
+          assert.ok(
+            invocations.every((args) => args.includes("--version") || args.includes("login")),
+          );
+          const requestsBeforeDisabled = requestedUrls.length;
+          yield* settings.updateSettings({ enableProviderUpdateChecks: false });
+          const disabled = yield* health.refresh;
+          assert.strictEqual(
+            disabled.find((row) => row.instanceId === "codex")?.versionAdvisory?.latestVersion,
+            null,
+          );
+          assert.strictEqual(requestedUrls.length, requestsBeforeDisabled);
+        }).pipe(Effect.provide(layer));
+      }),
+  );
+
   describe("packaged runtime health", () => {
     const codexBinary = join(OS.tmpdir(), "Moss packaged runtime", "codex.exe");
     const claudeBinary = join(OS.tmpdir(), "Moss packaged runtime", "claude.exe");
@@ -533,6 +1248,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
           const fixture = yield* withManagedProbeHome();
+          yield* withFakePath([]);
           yield* fs.writeFileString(
             join(fixture.homePath, "config.toml"),
             'model_provider = "moss"\n',
@@ -608,6 +1324,9 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
               id === "codex_moss" ? codexBinary : claudeBinary,
             );
           }
+          const managedCodex = statuses.find((row) => row.instanceId === "codex_moss");
+          assert.strictEqual(managedCodex?.message, "Using the Moss managed gateway.");
+          assert.strictEqual(managedCodex?.authStatus, "authenticated");
           assert.ok(commands.includes(codexBinary));
           assert.ok(commands.includes(claudeBinary));
         }),
@@ -621,6 +1340,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         const commands: string[] = [];
         return Effect.gen(function* () {
           const { homePath, issue } = yield* withManagedProbeHome();
+          yield* withFakePath([]);
           yield* withPackagedRuntimeEnv({ MOSS_BUNDLED_CODEX_PATH: codexBinary });
           const status = yield* makeCheckCodexProviderStatus(
             configuredBinary,
@@ -652,10 +1372,11 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       });
     }
 
-    it.effect("fails closed on a declared packaged Codex failure without probing PATH", () => {
+    it.effect("fails closed on a damaged bundle when no own Codex is installed", () => {
       let spawns = 0;
       return Effect.gen(function* () {
         const { homePath, issue } = yield* withManagedProbeHome();
+        yield* withFakePath([]);
         yield* withPackagedRuntimeEnv({
           MOSS_BUNDLED_CODEX_ERROR: "Bundled Codex is damaged. Reinstall Moss.",
         });
@@ -685,6 +1406,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       const calls: string[] = [];
       return Effect.gen(function* () {
         const { homePath, issue } = yield* withManagedProbeHome();
+        yield* withFakePath([]);
         yield* withPackagedRuntimeEnv({ MOSS_BUNDLED_CODEX_PATH: codexBinary });
         const status = yield* makeCheckCodexProviderStatus(
           undefined,
@@ -711,13 +1433,14 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       );
     });
 
-    for (const configuredBinary of [undefined, "/untrusted/managed-override/claude"]) {
+    for (const configuredBinary of [undefined, "/user/configured/claude"]) {
       it.effect(
         `resolves managed packaged Claude with configured ${String(configuredBinary)}`,
         () => {
           const commands: string[] = [];
           return Effect.gen(function* () {
             const { tmpDir } = yield* withTempCodexHome();
+            yield* withFakePath([]);
             yield* withPackagedRuntimeEnv({ MOSS_BUNDLED_CLAUDE_PATH: claudeBinary });
             const status = yield* makeCheckClaudeProviderStatus(
               undefined,
@@ -731,8 +1454,9 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
               { MOSS_BUNDLED_CLAUDE_PATH: "/untrusted/instance/claude" },
             );
             assert.strictEqual(status.status, "ready");
-            assert.strictEqual(status.autoRuntimeModeBinaryPath, claudeBinary);
-            assert.deepStrictEqual(commands, [claudeBinary, claudeBinary]);
+            const expected = configuredBinary ?? claudeBinary;
+            assert.strictEqual(status.autoRuntimeModeBinaryPath, expected);
+            assert.deepStrictEqual(commands, [expected, expected]);
           }).pipe(
             Effect.provide(
               mockSpawnerLayer((args, command) => {
@@ -758,13 +1482,19 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           Effect.gen(function* () {
             const { tmpDir } = yield* withTempCodexHome();
             yield* withPackagedRuntimeEnv({ MOSS_BUNDLED_CLAUDE_PATH: claudeBinary });
+            // The person has their own Claude; it wins over the shipped one.
+            const fakePath = yield* withFakePath(["claude"]);
             const status = yield* makeCheckClaudeProviderStatus(
               undefined,
               configuredBinary,
               tmpDir,
             );
             assert.strictEqual(status.status, "ready");
-            assert.strictEqual(status.autoRuntimeModeBinaryPath, configuredBinary ?? "claude");
+            assert.strictEqual(
+              status.autoRuntimeModeBinaryPath,
+              configuredBinary ??
+                join(fakePath.directory, process.platform === "win32" ? "claude.CMD" : "claude"),
+            );
           }).pipe(
             Effect.provide(
               mockSpawnerLayer((args, command) => {
@@ -782,6 +1512,110 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           ),
       );
     }
+  });
+
+  describe("shipped runtimes on a computer without agent CLIs", () => {
+    const codexBinary = join(OS.tmpdir(), "Moss packaged runtime", "codex.exe");
+    const claudeBinary = join(OS.tmpdir(), "Moss packaged runtime", "claude.exe");
+
+    it.effect("runs the shipped Claude Code for a person's own Claude instance", () => {
+      const commands: string[] = [];
+      return Effect.gen(function* () {
+        const { tmpDir } = yield* withTempCodexHome();
+        yield* withPackagedRuntimeEnv({ MOSS_BUNDLED_CLAUDE_PATH: claudeBinary });
+        yield* withFakePath([]);
+        const status = yield* makeCheckClaudeProviderStatus(undefined, undefined, tmpDir, {
+          falseNegativeRetryDelayMs: 0,
+        });
+        assert.strictEqual(status.autoRuntimeModeBinaryPath, claudeBinary);
+        assert.ok(commands.length >= 2 && commands.every((command) => command === claudeBinary));
+        // Not signed in yet: available, but asks for a sign-in instead of "not installed".
+        assert.strictEqual(status.available, true);
+        assert.strictEqual(status.authStatus, "unauthenticated");
+        assert.strictEqual(status.readiness, undefined);
+      }).pipe(
+        Effect.provide(
+          mockSpawnerLayer((args, command) => {
+            commands.push(command);
+            return {
+              stdout: args.join(" ").includes("--version") ? "2.1.285\n" : '{"loggedIn":false}\n',
+              stderr: "",
+              code: 0,
+            };
+          }),
+        ),
+      );
+    });
+
+    for (const ownCodex of [true, false]) {
+      it.effect(
+        `runs ${ownCodex ? "the person's own" : "the shipped"} Codex for a local instance`,
+        () => {
+          const commands: string[] = [];
+          return Effect.gen(function* () {
+            const { tmpDir } = yield* withTempCodexHome();
+            yield* withPackagedRuntimeEnv({ MOSS_BUNDLED_CODEX_PATH: codexBinary });
+            const fakePath = yield* withFakePath(ownCodex ? ["codex"] : []);
+            const status = yield* makeCheckCodexProviderStatus(undefined, tmpDir);
+            const expected = ownCodex
+              ? join(fakePath.directory, process.platform === "win32" ? "codex.CMD" : "codex")
+              : codexBinary;
+            assert.strictEqual(status.autoRuntimeModeBinaryPath, expected);
+            assert.strictEqual(status.status, "ready");
+            assert.ok(
+              commands.every(
+                (command) =>
+                  command === (ownCodex && process.platform === "win32" ? "codex" : expected),
+              ),
+            );
+          }).pipe(
+            Effect.provide(
+              mockSpawnerLayer((args, command) => {
+                commands.push(command);
+                return {
+                  stdout: args.join(" ").includes("--version")
+                    ? `codex ${MOSS_BUNDLED_CODEX_VERSION}\n`
+                    : "Logged in using ChatGPT\n",
+                  stderr: "",
+                  code: 0,
+                };
+              }),
+            ),
+          );
+        },
+      );
+    }
+
+    it("never offers an npm update for the shipped runtimes", () => {
+      const previous = {
+        codex: process.env.MOSS_BUNDLED_CODEX_PATH,
+        claude: process.env.MOSS_BUNDLED_CLAUDE_PATH,
+      };
+      process.env.MOSS_BUNDLED_CODEX_PATH = codexBinary;
+      process.env.MOSS_BUNDLED_CLAUDE_PATH = claudeBinary;
+      try {
+        assert.strictEqual(
+          runsMossBundledAgentRuntime("codex", codexBinary, "codex_moss", "moss"),
+          true,
+        );
+        assert.strictEqual(
+          runsMossBundledAgentRuntime("claudeAgent", claudeBinary, "claude_moss"),
+          true,
+        );
+        assert.strictEqual(
+          runsMossBundledAgentRuntime("claudeAgent", "/custom/claude", "claudeAgent"),
+          false,
+        );
+      } finally {
+        for (const [key, value] of [
+          ["MOSS_BUNDLED_CODEX_PATH", previous.codex],
+          ["MOSS_BUNDLED_CLAUDE_PATH", previous.claude],
+        ] as const) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      }
+    });
   });
 
   describe("provider update commands", () => {
@@ -871,6 +1705,85 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       });
     });
 
+    it.effect(
+      "blocks update while another account still owns the program, then requires restart after update",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          yield* stubNpmLatestVersion({ "@openai/codex": "0.167.0" });
+          const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "provider-update-owner-" });
+          const configuredBinaryPath =
+            "/Users/test/.nvm/versions/node/v24.13.0/lib/node_modules/@openai/codex/bin/codex";
+          const binaryPath = resolveCodexExecutable({
+            configuredBinaryPath,
+            env: process.env,
+          }).binaryPath;
+          let updates = 0;
+          const settings = {
+            ...allProvidersDisabledServerSettings,
+            enableProviderUpdateChecks: false,
+            providers: {
+              ...allProvidersDisabledServerSettings.providers,
+              codex: {
+                ...DEFAULT_SERVER_SETTINGS.providers.codex,
+                enabled: true,
+                binaryPath: configuredBinaryPath,
+              },
+            },
+          } satisfies typeof DEFAULT_SERVER_SETTINGS;
+          const layer = makeProviderHealthLive().pipe(
+            Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+            Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+            Layer.provideMerge(
+              mockSpawnerLayer((args, command) => {
+                if (command === "npm" && args[0] === "install") updates++;
+                return {
+                  stdout: args.includes("--version")
+                    ? "codex-cli 0.166.0"
+                    : "Logged in using ChatGPT",
+                  stderr: "",
+                  code: 0,
+                };
+              }),
+            ),
+          );
+          yield* Effect.gen(function* () {
+            const health = yield* ProviderHealth;
+            const config = yield* ServerConfig;
+            const programs = agentProgramsForServer(config, "codex");
+            const child = programs.spawn({
+              binaryPath,
+              sourceHomePath: join(baseDir, "other-account"),
+              spawn: () => new EventEmitter(),
+            });
+            const busy = yield* Effect.flip(health.updateProvider({ provider: "codex" }));
+            assert.include(busy.reason, "still in use");
+            assert.strictEqual(updates, 0);
+            child.emit("exit");
+            assert.include(
+              (yield* Effect.flip(health.updateProvider({ provider: "codex" }))).reason,
+              "still in use",
+            );
+            child.emit("close");
+            const result = yield* health.updateProvider({ provider: "codex" });
+            assert.strictEqual(updates, 1);
+            assert.include(
+              result.providers.find((status) => status.provider === "codex")?.updateState
+                ?.message ?? "",
+              "Restart Moss",
+            );
+            assert.throws(
+              () =>
+                programs.beginOperation({
+                  binaryPath,
+                  sourceHomePath: join(baseDir, "new-account"),
+                }),
+              /Restart Moss/,
+            );
+          }).pipe(Effect.provide(layer));
+        }).pipe(Effect.scoped),
+    );
+
     it("prepends update PATH entries under one Windows path key", () => {
       assert.deepStrictEqual(
         prependPathEntry({ Path: "C:\\Windows", HOME: "home" }, "C:\\npm", "win32"),
@@ -955,6 +1868,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
     it.effect("stops a hung provider process and persists a failed update state", () =>
       Effect.gen(function* () {
+        yield* stubNpmLatestVersion({ "@openai/codex": CODEX_UPDATE_LATEST_VERSION });
         let killed = false;
         const fileSystem = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
@@ -997,9 +1911,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             hangingSpawnerLayer({
               onKill: () => (killed = true),
               shouldHang: (args, command) =>
-                command === "npm" &&
-                args.join(" ") ===
-                  "install -g --prefix /Users/test/.nvm/versions/node/v24.13.0 @openai/codex@latest",
+                command === "npm" && args.join(" ") === CODEX_UPDATE_PINNED_INSTALL,
+              versionOutput: `codex-cli ${CODEX_UPDATE_INSTALLED_VERSION}`,
             }),
           ),
         );
@@ -1019,8 +1932,211 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       }),
     );
 
+    it.effect("says why a failed update failed, in the updater's own words", () =>
+      Effect.gen(function* () {
+        yield* stubNpmLatestVersion({ "@openai/codex": CODEX_UPDATE_LATEST_VERSION });
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "provider-update-failure-",
+        });
+        yield* writeProviderStatusCache({
+          filePath: resolveProviderStatusCachePath({
+            stateDir: path.join(baseDir, "userdata"),
+            provider: "codex",
+          }),
+          provider: {
+            provider: "codex",
+            instanceId: "codex",
+            driver: "codex",
+            status: "ready",
+            available: true,
+            authStatus: "authenticated",
+            checkedAt: "2026-07-15T12:00:00.000Z",
+            message: "Codex CLI is installed and authenticated.",
+            version: "7.3.46",
+          },
+        });
+        const settings = {
+          ...allProvidersDisabledServerSettings,
+          providers: {
+            ...allProvidersDisabledServerSettings.providers,
+            codex: {
+              ...DEFAULT_SERVER_SETTINGS.providers.codex,
+              enabled: true,
+              binaryPath:
+                "/Users/test/.nvm/versions/node/v24.13.0/lib/node_modules/@openai/codex/bin/codex",
+            },
+          },
+        } satisfies typeof DEFAULT_SERVER_SETTINGS;
+        // A fake npm: nothing here installs anything.
+        const layer = makeProviderHealthLive().pipe(
+          Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+          Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+          Layer.provideMerge(
+            mockSpawnerLayer((args, command) =>
+              command === "npm" && args[0] === "install"
+                ? {
+                    stdout: "",
+                    stderr:
+                      "npm error code EACCES\nnpm error A complete log of this run can be found in: /tmp/npm.log\n",
+                    code: 1,
+                  }
+                : {
+                    stdout: args.includes("--version")
+                      ? `codex-cli ${CODEX_UPDATE_INSTALLED_VERSION}`
+                      : "",
+                    stderr: "",
+                    code: 0,
+                  },
+            ),
+          ),
+        );
+
+        const result = yield* Effect.gen(function* () {
+          const providerHealth = yield* ProviderHealth;
+          return yield* providerHealth.updateProvider({ provider: "codex" });
+        }).pipe(Effect.provide(layer));
+        const codex = result.providers.find((provider) => provider.provider === "codex");
+
+        assert.strictEqual(codex?.updateState?.status, "failed");
+        assert.strictEqual(
+          codex?.updateState?.message,
+          "Update command exited with code 1: npm error code EACCES",
+        );
+      }).pipe(Effect.scoped),
+    );
+
+    it("updates npm-managed Pi with npm at the prefix that owns it, never with pi update", () => {
+      const definition = PACKAGE_MANAGED_PROVIDER_UPDATES.pi;
+      assert.ok(definition);
+
+      const capabilities = resolvePackageManagedProviderMaintenance(definition, {
+        binaryPath: "pi",
+        realCommandPath:
+          "/Users/test/.nvm/versions/node/v24.13.0/lib/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        commandDirectory: "/Users/test/.nvm/versions/node/v24.13.0/bin",
+      });
+
+      assert.deepStrictEqual(capabilities.update, {
+        command:
+          "npm install -g --prefix /Users/test/.nvm/versions/node/v24.13.0 @earendil-works/pi-coding-agent@latest",
+        executable: "npm",
+        args: [
+          "install",
+          "-g",
+          "--prefix",
+          "/Users/test/.nvm/versions/node/v24.13.0",
+          "@earendil-works/pi-coding-agent@latest",
+        ],
+        lockKey: "npm-global",
+        pathPrepend: "/Users/test/.nvm/versions/node/v24.13.0/bin",
+      });
+    });
+
+    it.effect("refuses one-click updates when MOSS_DISABLE_PROVIDER_UPDATES=1", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "provider-update-disabled-env-",
+        });
+        const previous = process.env[PROVIDER_UPDATES_DISABLED_ENV];
+        process.env[PROVIDER_UPDATES_DISABLED_ENV] = "1";
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (previous === undefined) delete process.env[PROVIDER_UPDATES_DISABLED_ENV];
+            else process.env[PROVIDER_UPDATES_DISABLED_ENV] = previous;
+          }),
+        );
+        const settings = {
+          ...allProvidersDisabledServerSettings,
+          providers: {
+            ...allProvidersDisabledServerSettings.providers,
+            codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, enabled: true },
+          },
+        } satisfies typeof DEFAULT_SERVER_SETTINGS;
+        const spawned: string[] = [];
+        const layer = makeProviderHealthLive().pipe(
+          Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+          Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+          Layer.provideMerge(
+            mockSpawnerLayer((args, command) => {
+              spawned.push([command, ...args].join(" "));
+              return { stdout: "", stderr: "", code: 0 };
+            }),
+          ),
+        );
+
+        const error = yield* Effect.gen(function* () {
+          const providerHealth = yield* ProviderHealth;
+          return yield* Effect.flip(providerHealth.updateProvider({ provider: "codex" }));
+        }).pipe(Effect.provide(layer));
+
+        assert.ok(error instanceof ServerProviderUpdateError);
+        assert.match(error.reason, /MOSS_DISABLE_PROVIDER_UPDATES=1/);
+        assert.ok(!spawned.some((command) => /\bupdate\b|\binstall\b/.test(command)));
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("refuses one-click installs and removals when MOSS_DISABLE_PROVIDER_UPDATES=1", () =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "provider-install-disabled-env-",
+        });
+        const previous = process.env[PROVIDER_UPDATES_DISABLED_ENV];
+        process.env[PROVIDER_UPDATES_DISABLED_ENV] = "1";
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            if (previous === undefined) delete process.env[PROVIDER_UPDATES_DISABLED_ENV];
+            else process.env[PROVIDER_UPDATES_DISABLED_ENV] = previous;
+          }),
+        );
+        const settings = {
+          ...allProvidersDisabledServerSettings,
+          providers: {
+            ...allProvidersDisabledServerSettings.providers,
+            pi: { ...DEFAULT_SERVER_SETTINGS.providers.pi, enabled: true },
+          },
+        } satisfies typeof DEFAULT_SERVER_SETTINGS;
+        const spawned: string[] = [];
+        const layer = makeProviderHealthLive().pipe(
+          Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+          Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+          Layer.provideMerge(
+            mockSpawnerLayer((args, command) => {
+              spawned.push([command, ...args].join(" "));
+              return { stdout: "", stderr: "", code: 0 };
+            }),
+          ),
+        );
+
+        const errors = yield* Effect.gen(function* () {
+          const providerHealth = yield* ProviderHealth;
+          const providers: Array<"pi" | "cursor"> = ["pi"];
+          if (process.platform === "win32" && ["x64", "arm64"].includes(process.arch))
+            providers.push("cursor");
+          const errors = [];
+          for (const provider of providers) {
+            errors.push(yield* Effect.flip(providerHealth.installProvider({ provider })));
+            errors.push(
+              yield* Effect.flip(
+                providerHealth.manageProviderInstallation!({ provider, action: "uninstall" }),
+              ),
+            );
+          }
+          return errors;
+        }).pipe(Effect.provide(layer));
+
+        for (const error of errors) assert.match(error.reason, /MOSS_DISABLE_PROVIDER_UPDATES=1/);
+        assert.ok(!spawned.some((command) => /\binstall\b/u.test(command)));
+        assert.ok(!spawned.some((command) => /Get-CimInstance|\.partial-/u.test(command)));
+      }).pipe(Effect.scoped),
+    );
+
     it.effect("stops a running provider update when the provider is disabled", () =>
       Effect.gen(function* () {
+        yield* stubNpmLatestVersion({ "@openai/codex": CODEX_UPDATE_LATEST_VERSION });
         let killed = false;
         let markStarted!: () => void;
         const started = new Promise<void>((resolve) => {
@@ -1069,9 +2185,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
               onKill: () => (killed = true),
               onHang: markStarted,
               shouldHang: (args, command) =>
-                command === "npm" &&
-                args.join(" ") ===
-                  "install -g --prefix /Users/test/.nvm/versions/node/v24.13.0 @openai/codex@latest",
+                command === "npm" && args.join(" ") === CODEX_UPDATE_PINNED_INSTALL,
+              versionOutput: `codex-cli ${CODEX_UPDATE_INSTALLED_VERSION}`,
             }),
           ),
         );
@@ -1588,6 +2703,133 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
   });
 
   describe("startup refresh behavior", () => {
+    it.effect("re-probes when Re-detect joins a health check already past CLI discovery", () =>
+      Effect.gen(function* () {
+        yield* withFakePath(["opencode"]);
+        let release!: () => void;
+        let markStarted!: () => void;
+        let markForcedAgain!: () => void;
+        const released = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const started = new Promise<void>((resolve) => {
+          markStarted = resolve;
+        });
+        const forcedAgain = new Promise<void>((resolve) => {
+          markForcedAgain = resolve;
+        });
+        let version = "1.0.0";
+        let forceCount = 0;
+        let probes = 0;
+        yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            vi
+              .spyOn(AgentCliPathFloor, "ensureAgentCliPath")
+              .mockImplementation(async (_home, options) => {
+                if (options?.force && ++forceCount === 2) {
+                  version = "2.0.0";
+                  markForcedAgain();
+                }
+                return [];
+              }),
+          ),
+          (mock) => Effect.sync(() => mock.mockRestore()),
+        );
+        const spawner = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make(() => {
+            probes += 1;
+            const result = { stdout: version, stderr: "", code: 0 };
+            if (probes !== 1) return Effect.succeed(mockHandle(result));
+            markStarted();
+            return Effect.succeed(
+              mockHandle(result, {
+                exitCode: Effect.promise(() => released).pipe(
+                  Effect.as(ChildProcessSpawner.ExitCode(0)),
+                ),
+              }),
+            );
+          }),
+        );
+        const layer = makeProviderHealthLive({ maintainAgentCliPath: true }).pipe(
+          Layer.provideMerge(
+            ServerSettingsService.layerTest({
+              ...allProvidersDisabledServerSettings,
+              enableProviderUpdateChecks: false,
+              providers: {
+                ...allProvidersDisabledServerSettings.providers,
+                opencode: { ...DEFAULT_SERVER_SETTINGS.providers.opencode, enabled: true },
+              },
+            }),
+          ),
+          Layer.provideMerge(
+            ServerConfig.layerTest(process.cwd(), { prefix: "provider-redetect-race-" }),
+          ),
+          Layer.provideMerge(spawner),
+        );
+        yield* Effect.gen(function* () {
+          const health = yield* ProviderHealth;
+          const first = yield* health.refresh.pipe(Effect.forkChild);
+          yield* Effect.promise(() => started);
+          const second = yield* health.refresh.pipe(Effect.forkChild);
+          yield* Effect.promise(() => forcedAgain);
+          yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+          release();
+          const statuses = yield* Fiber.join(second);
+          yield* Fiber.join(first);
+          assert.strictEqual(statuses.find((row) => row.provider === "opencode")?.version, "2.0.0");
+          assert.strictEqual(probes, 2);
+        }).pipe(Effect.provide(layer));
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("forces CLI discovery before an explicit re-detect probes existing tools", () =>
+      Effect.gen(function* () {
+        yield* withFakePath(["opencode"]);
+        const scans: boolean[] = [];
+        const scanner = yield* Effect.acquireRelease(
+          Effect.sync(() =>
+            vi
+              .spyOn(AgentCliPathFloor, "ensureAgentCliPath")
+              .mockImplementation(async (_home, options) => {
+                scans.push(options?.force === true);
+                return [];
+              }),
+          ),
+          (mock) => Effect.sync(() => mock.mockRestore()),
+        );
+        let probes = 0;
+        const layer = makeProviderHealthLive({ maintainAgentCliPath: true }).pipe(
+          Layer.provideMerge(
+            ServerSettingsService.layerTest({
+              ...allProvidersDisabledServerSettings,
+              enableProviderUpdateChecks: false,
+              providers: {
+                ...allProvidersDisabledServerSettings.providers,
+                opencode: { ...DEFAULT_SERVER_SETTINGS.providers.opencode, enabled: true },
+              },
+            }),
+          ),
+          Layer.provideMerge(
+            ServerConfig.layerTest(process.cwd(), { prefix: "provider-redetect-" }),
+          ),
+          Layer.provideMerge(
+            mockSpawnerLayer((args) => {
+              assert.isTrue(scans.includes(true));
+              probes += 1;
+              return { stdout: args.includes("--version") ? "1.18.31" : "{}", stderr: "", code: 0 };
+            }),
+          ),
+        );
+        const statuses = yield* Effect.gen(function* () {
+          return yield* (yield* ProviderHealth).refresh;
+        }).pipe(Effect.provide(layer));
+        assert.isTrue(scanner.mock.calls.some(([, options]) => options?.force === true));
+        assert.isAbove(probes, 0);
+        assert.isTrue(statuses.find((row) => row.provider === "opencode")?.available);
+      }).pipe(Effect.scoped),
+    );
+
     it.effect("serves cached statuses without spawning provider CLIs on layer startup", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;
@@ -2510,7 +3752,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         assert.strictEqual(status.status, "ready");
         assert.strictEqual(status.available, true);
         assert.strictEqual(status.supportsAutoRuntimeMode, false);
-        assert.strictEqual(status.autoRuntimeModeBinaryPath, "claude");
+        assert.strictEqual(status.autoRuntimeModeBinaryPath, resolveClaudeCodeRuntime().binaryPath);
       }).pipe(
         Effect.provide(
           mockSpawnerLayer((args) => {
@@ -2646,10 +3888,18 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
               }),
           );
 
+          // The program Moss picks for the explicit "claude" selection: a real `claude` on PATH
+          // where there is one, otherwise the bundled Claude Agent SDK binary (isolated runs).
+          // The spawner reports Windows .cmd/.bat shims by their bare name.
+          const selectedClaude = resolveClaudeCodeRuntime({ binaryPath: "claude" }).binaryPath;
+          assert.ok(selectedClaude);
+          const expectedCommand = /\.(?:cmd|bat)$/iu.test(selectedClaude)
+            ? win32.basename(selectedClaude).replace(/\.(?:cmd|bat)$/iu, "")
+            : selectedClaude;
           const status = yield* makeCheckClaudeProviderStatus(undefined, "claude", homeDir).pipe(
             Effect.provide(
               mockSpawnerLayer((args, command, env) => {
-                assert.strictEqual(command, "claude");
+                assert.strictEqual(command, expectedCommand);
                 assert.strictEqual(env?.ANTHROPIC_API_KEY, undefined);
                 assert.strictEqual(env?.ANTHROPIC_AUTH_TOKEN, undefined);
                 assert.strictEqual(env?.CLAUDE_CODE_OAUTH_TOKEN, undefined);
@@ -3175,7 +4425,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         assert.strictEqual(status.authStatus, "unknown");
         assert.strictEqual(
           status.message,
-          "OpenCode CLI (`opencode`) is not installed or not on PATH.",
+          "OpenCode CLI (`opencode`) is not installed or not on PATH. Install it with `npm install -g opencode-ai`.",
         );
       }).pipe(Effect.provide(failingSpawnerLayer("spawn opencode ENOENT"))),
     );
@@ -3191,7 +4441,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
               ChildProcessSpawner.make(() =>
                 Effect.succeed(
                   mockHandle(
-                    { stdout: "pi 0.87.1\n", stderr: "", code: 0 },
+                    { stdout: "pi 1.5.0\n", stderr: "", code: 0 },
                     {
                       exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)).pipe(
                         Effect.delay(Duration.seconds(12)),
@@ -3207,7 +4457,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         yield* TestClock.adjust(Duration.seconds(12));
         const status = yield* Fiber.join(probe);
         assert.strictEqual(status.status, "ready");
-        assert.strictEqual(status.version, "0.87.1");
+        assert.strictEqual(status.version, "1.5.0");
       }),
     );
 
@@ -3219,8 +4469,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         );
         yield* TestClock.adjust(Duration.seconds(20));
         const status = yield* Fiber.join(probe);
-        assert.strictEqual(status.status, "warning");
-        assert.strictEqual(status.available, true);
+        assert.strictEqual(status.status, "error");
+        assert.strictEqual(status.available, false);
         assert.match(status.message ?? "", /health check timed out/);
       }),
     );
@@ -3241,14 +4491,14 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           mockSpawnerLayer((args, command) => {
             assert.strictEqual(win32.basename(command).replace(/\.exe$/iu, ""), "pi");
             const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "pi 0.74.0\n", stderr: "", code: 0 };
+            if (joined === "--version") return { stdout: "pi 1.5.0\n", stderr: "", code: 0 };
             throw new Error(`Unexpected args: ${joined}`);
           }),
         ),
       ),
     );
 
-    it.effect("uses configured Pi binary and agent dir without SDK registry reads", () =>
+    it.effect("uses the configured Pi binary and agent dir", () =>
       Effect.gen(function* () {
         const status = yield* checkPiProviderStatus("/tmp/pi-agent", "/custom/bin/pi");
         assert.strictEqual(status.status, "ready");
@@ -3261,7 +4511,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           mockSpawnerLayer((args, command) => {
             assert.strictEqual(command, "/custom/bin/pi");
             const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "pi 0.74.0\n", stderr: "", code: 0 };
+            if (joined === "--version") return { stdout: "pi 1.5.0\n", stderr: "", code: 0 };
             throw new Error(`Unexpected args: ${joined}`);
           }),
         ),
@@ -3280,25 +4530,42 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             assert.strictEqual(command, "/custom/bin/pi");
             assertProviderInstanceEnv(env, "PROVIDER_TEST_INSTANCE", "pi-work");
             const joined = args.join(" ");
-            if (joined === "--version") return { stdout: "pi 0.74.0\n", stderr: "", code: 0 };
+            if (joined === "--version") return { stdout: "pi 1.5.0\n", stderr: "", code: 0 };
             throw new Error(`Unexpected args: ${joined}`);
           }),
         ),
       ),
     );
 
-    it.effect("keeps Pi usable when the advisory CLI probe is missing", () =>
+    it.effect("asks for an update when the Pi CLI is older than Moss supports", () =>
       Effect.gen(function* () {
         const status = yield* checkPiProviderStatus();
-        assert.strictEqual(status.provider, "pi");
-        assert.strictEqual(status.status, "warning");
-        assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "unknown");
+        assert.strictEqual(status.status, "error");
+        assert.strictEqual(status.available, false);
+        assert.strictEqual(status.version, "0.87.1");
         assert.strictEqual(
           status.message,
-          "Pi SDK is bundled, but the Pi CLI (`pi`) is not on PATH, so Moss could not verify the installed CLI version.",
+          "Pi CLI 0.87.1 is too old for Moss. Upgrade to 1.5.0 or newer.",
         );
-      }).pipe(Effect.provide(failingSpawnerLayer("spawn pi ENOENT"))),
+      }).pipe(
+        Effect.provide(mockSpawnerLayer(() => ({ stdout: "pi 0.87.1\n", stderr: "", code: 0 }))),
+      ),
+    );
+
+    it.effect(
+      "offers the Pi install when there is no Pi CLI, because Moss runs the person's Pi",
+      () =>
+        Effect.gen(function* () {
+          const status = yield* checkPiProviderStatus();
+          assert.strictEqual(status.provider, "pi");
+          assert.strictEqual(status.status, "error");
+          assert.strictEqual(status.available, false);
+          assert.deepStrictEqual(status.readiness, PROVIDER_NOT_INSTALLED_READINESS);
+          assert.strictEqual(
+            status.message,
+            "Pi CLI (`pi`) is not on PATH. Install it to use the Pi provider.",
+          );
+        }).pipe(Effect.provide(failingSpawnerLayer("spawn pi ENOENT"))),
     );
   });
 
@@ -3346,7 +4613,9 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
   describe("checkAcpAgentProviderStatus", () => {
     it.effect("reports the installed CLI version with its sign-in hint", () =>
       Effect.gen(function* () {
-        const status = yield* checkAcpAgentProviderStatus(KIMI_ACP_AGENT_SPEC);
+        const status = yield* checkAcpAgentProviderStatus(KIMI_ACP_AGENT_SPEC, undefined, {
+          KIMI_SHELL_PATH: process.execPath,
+        });
         assert.strictEqual(status.provider, "kimi");
         assert.strictEqual(status.status, "ready");
         assert.strictEqual(status.available, true);
@@ -3369,7 +4638,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         const status = yield* checkAcpAgentProviderStatus(
           ZCODE_ACP_AGENT_SPEC,
           "/opt/zcode-acp/dist/cli.js",
-          { ZCODE_BIN: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs" },
+          { ZCODE_BIN: process.execPath },
         );
         assert.strictEqual(status.provider, "zcode");
         assert.strictEqual(status.status, "ready");
@@ -3379,14 +4648,24 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           mockSpawnerLayer((args, command, env) => {
             assert.strictEqual(command, "/opt/zcode-acp/dist/cli.js");
             assert.deepStrictEqual(args, ["--version"]);
-            assertProviderInstanceEnv(
-              env,
-              "ZCODE_BIN",
-              "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs",
-            );
+            assertProviderInstanceEnv(env, "ZCODE_BIN", process.execPath);
             return { stdout: "0.80.0\n", stderr: "", code: 0 };
           }),
         ),
+      ),
+    );
+
+    it.effect("is not ready when the bridge is installed but the ZCode CLI is missing", () =>
+      Effect.gen(function* () {
+        const status = yield* checkAcpAgentProviderStatus(ZCODE_ACP_AGENT_SPEC, undefined, {
+          ZCODE_BIN: join(OS.tmpdir(), "moss-health-no-such-zcode.cjs"),
+        });
+        assert.strictEqual(status.status, "error");
+        assert.strictEqual(status.available, false);
+        assert.strictEqual(status.version, "0.80.0");
+        assert.include(status.message, "Install the ZCode desktop app");
+      }).pipe(
+        Effect.provide(mockSpawnerLayer(() => ({ stdout: "0.80.0\n", stderr: "", code: 0 }))),
       ),
     );
 
@@ -3404,6 +4683,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         const environment = Object.fromEntries(
           instance.environment.map((entry) => [entry.name, entry.value]),
         );
+        // The mocked probe never starts a shell; do not depend on a host Git install.
+        environment.KIMI_SHELL_PATH = process.execPath;
         const managed = yield* checkAcpAgentProviderStatus(
           KIMI_ACP_AGENT_SPEC,
           undefined,
@@ -3878,7 +5159,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         assert.strictEqual(status.status, "error");
         assert.strictEqual(status.available, false);
         assert.strictEqual(status.authStatus, "unknown");
-        assert.strictEqual(status.message, "Grok CLI (`grok`) is not installed or not on PATH.");
+        assert.include(status.message, "Grok CLI (`grok`) is not installed or not on PATH.");
+        assert.include(status.message, "docs.x.ai/build/overview");
       }).pipe(Effect.provide(failingSpawnerLayer("spawn grok ENOENT"))),
     );
   });

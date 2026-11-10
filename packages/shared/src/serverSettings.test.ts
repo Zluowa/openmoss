@@ -1,4 +1,4 @@
-import { DEFAULT_SERVER_SETTINGS, ProviderSessionStartInput } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS, ProviderSessionStartInput } from "@moss/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { providerStartOptionsFromServerSettings } from "./serverSettings";
@@ -169,4 +169,37 @@ describe("providerStartOptionsFromServerSettings", () => {
       accountId: "work",
     });
   });
+
+  it.each(["moss", "byok"])(
+    "keeps the plain Codex launch on the person's own login when Moss selects its reserved '%s' account",
+    (reservedAccountId) => {
+      // What Moss sign-in writes: the reserved account plus a selection of it.
+      // The reserved account runs only through its own server-provisioned
+      // instance; the plain Codex launch must not borrow its id or home.
+      const settings = {
+        ...DEFAULT_SERVER_SETTINGS,
+        providers: {
+          ...DEFAULT_SERVER_SETTINGS.providers,
+          codex: {
+            ...DEFAULT_SERVER_SETTINGS.providers.codex,
+            homePath: "/person/codex-home",
+            accounts: [
+              {
+                id: reservedAccountId,
+                label: "Moss",
+                homePath: "/moss/managed-codex-home",
+                shadowHomePath: "",
+              },
+            ],
+            selectedAccountId: reservedAccountId,
+          },
+        },
+      };
+
+      expect(providerStartOptionsFromServerSettings(settings).codex).toEqual({
+        binaryPath: "codex",
+        homePath: "/person/codex-home",
+      });
+    },
+  );
 });

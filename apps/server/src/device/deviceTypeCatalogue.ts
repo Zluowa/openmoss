@@ -18,7 +18,7 @@
  */
 import * as path from "node:path";
 
-import type { DeviceFamily, DeviceGeometry } from "@synara/contracts";
+import type { DeviceFamily, DeviceGeometry } from "@moss/contracts";
 
 import type { runProcess } from "../processRunner.ts";
 

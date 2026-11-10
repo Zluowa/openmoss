@@ -4,11 +4,14 @@ import path from "node:path";
 
 import { readRegularFileNoFollow } from "../workspaceImport/safeFile.ts";
 import {
+  MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
   MOSS_BUNDLED_IMAGEGEN_PLUGIN_NAME,
   MOSS_BUNDLED_PLUGIN_CREATOR_NAME,
+  MOSS_BUNDLED_VIDEOGEN_PLUGIN_NAME,
   mossBundledPluginMarketplaceRoot,
 } from "./mossBundledPluginMarketplace.ts";
 
+/** One marker per default plugin, so a later uninstall is never undone. */
 const DEFAULT_PLUGINS = [
   {
     name: MOSS_BUNDLED_IMAGEGEN_PLUGIN_NAME,
@@ -19,6 +22,17 @@ const DEFAULT_PLUGINS = [
     name: MOSS_BUNDLED_PLUGIN_CREATOR_NAME,
     marker: ".moss-plugin-creator-bootstrap-v1",
     content: "moss-bundled-plugin-creator-v1\n",
+  },
+  // Added in 1.0.4: homes bootstrapped earlier install these once on their next start.
+  {
+    name: MOSS_BUNDLED_VIDEOGEN_PLUGIN_NAME,
+    marker: ".moss-videogen-bootstrap-v1",
+    content: "moss-bundled-videogen-v1\n",
+  },
+  {
+    name: MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
+    marker: ".moss-canvas-bootstrap-v1",
+    content: "moss-bundled-canvas-v1\n",
   },
 ] as const;
 const MANAGED_OWNERSHIP_PATTERN =

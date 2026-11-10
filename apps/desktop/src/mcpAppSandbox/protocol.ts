@@ -18,7 +18,7 @@ import {
   MCP_APP_SANDBOX_PROXY_READY_METHOD,
   MCP_APP_SANDBOX_SCHEME,
   MCP_APP_RESOURCE_MAX_HTML_BYTES,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { buildMcpAppSandboxCsp } from "./csp";
 import { isExactMcpAppSandboxContentUrl } from "./policy";

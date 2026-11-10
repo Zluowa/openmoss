@@ -3,7 +3,7 @@ import {
   WsRpcError,
   type RealtimeVoiceEvent,
   type RealtimeVoiceState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {

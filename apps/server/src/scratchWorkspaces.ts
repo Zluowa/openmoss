@@ -11,8 +11,8 @@ import { closeSync, constants, fchmodSync, fstatSync, lstatSync, openSync } from
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
-import type { ThreadId } from "@synara/contracts";
-import { SCRATCH_WORKSPACES_DIRNAME } from "@synara/shared/threadWorkspace";
+import type { ThreadId } from "@moss/contracts";
+import { SCRATCH_WORKSPACES_DIRNAME } from "@moss/shared/threadWorkspace";
 import { ensurePrivateDirectorySync } from "./privatePathPermissions";
 
 function scratchOwnerSegment(homeDirectory = homedir()): string {
@@ -190,6 +190,16 @@ export function ensureIsolatedScratchWorkspace(
     if (repairedLegacyWorkspace) return repairedLegacyWorkspace;
   }
   return ensurePrivateScratchWorkspace(workspaceRoot, workspaceSegment);
+}
+
+/** An earlier provider may already have written files here before the chat root was usable. */
+export function findExistingThreadScratchWorkspace(threadId: ThreadId): string | undefined {
+  const segment = scratchWorkspaceSegment(threadId);
+  const root = resolveScratchWorkspacesRoot();
+  if (isOwnedRealDirectory(root) && isOwnedRealDirectory(path.join(root, segment))) {
+    return ensurePrivateScratchWorkspace(root, segment);
+  }
+  return repairLegacyScratchWorkspace(path.join(tmpdir(), SCRATCH_WORKSPACES_DIRNAME), segment);
 }
 
 export function resolveScratchWorkspaceCwd(

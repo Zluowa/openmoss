@@ -3,21 +3,26 @@ import {
   type PagesReadResult,
   type ProjectId,
   type ProviderInstanceId,
+  type ProviderKind,
   ThreadId,
-} from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
+} from "@moss/contracts";
+import { getDefaultModel } from "@moss/shared/model";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { startTransition, useCallback, useMemo, useRef } from "react";
 import {
   getProviderInstanceOptions,
+  newChatProviderInstanceIdFrom,
   getProviderStartOptions,
   resolveAssistantDeliveryMode,
+  resolveNewConversationDefaultModelSelection,
   resolveSelectableProviderInstanceId,
   serverSettingsToAppSettings,
   useAppSettings,
 } from "../appSettings";
 import { prefetchModelsForNewThread } from "../lib/providerModelPrefetch";
+import { providerInstanceModelSelectionKey } from "../composerDraftModels";
+import { createPastedTextDraft } from "../lib/composerPastedText";
 import { hasActiveComposerSend } from "../lib/composerSendOwnership";
 import { useProviderStatusesForLocalConfig } from "../hooks/useProviderStatusesForLocalConfig";
 import {
@@ -68,8 +73,11 @@ import {
   type MossImagesConversationInput,
 } from "../lib/mossImagesConversation";
 import { toastManager } from "../components/ui/toast";
+import { LocalizedError, localizedMessage } from "../lib/localizedError";
 import type { MossLibraryItem } from "../components/MossLibrarySurface.logic";
 import { readGeneratedImageContextFile } from "../lib/generatedImageContextMenu";
+import { ensureHomeChatProject } from "../lib/chatProjects";
+import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { formatComposerMentionToken } from "../lib/composerMentions";
 import { getThreadFromState } from "../threadDerivation";
 import { useFocusedChatContext } from "../focusedChatContext";
@@ -111,6 +119,9 @@ export function useHandleNewThread() {
   const providerInstances = useMemo(() => getProviderInstanceOptions(settings), [settings]);
   const resolveProviderForInstanceId = (instanceId: ProviderInstanceId) =>
     providerInstances.find((instance) => instance.instanceId === instanceId)?.provider ?? null;
+  // An agent nothing picked a provider for opens on the default one (Moss while signed in).
+  const defaultInstanceIdForProvider = (provider: ProviderKind) =>
+    newChatProviderInstanceIdFrom(providerInstances, provider);
   const queryClient = useQueryClient();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const serverCwd = serverConfigQuery.data?.cwd ?? null;
@@ -127,17 +138,21 @@ export function useHandleNewThread() {
   const clearTemporaryThread = useTemporaryThreadStore((store) => store.clearTemporaryThread);
   const imagesStartRef = useRef<Promise<void> | null>(null);
 
-  const resolveNewConversationContext = (originThreadId?: string) => {
+  const resolveNewConversationContext = (
+    originThreadId?: string,
+    fallbackProjectId?: ProjectId | null,
+  ) => {
     const api = readNativeApi();
     const origin = originThreadId
       ? getThreadFromState(useStore.getState(), originThreadId as ThreadId)
       : undefined;
     const sourceThread = origin ?? activeThread;
     const sourceDraft = origin ? null : activeDraftThread;
-    const projectId = sourceDraft?.projectId ?? sourceThread?.projectId ?? activeProjectId;
+    const projectId =
+      sourceDraft?.projectId ?? sourceThread?.projectId ?? activeProjectId ?? fallbackProjectId;
     const project = useStore.getState().projects.find((entry) => entry.id === projectId);
     if (!api || !project || !useStore.getState().threadsHydrated)
-      throw new Error("请先选择此会话的工作文件夹。");
+      throw new LocalizedError("newThread.error.chooseFolder");
     const creation = resolveTerminalThreadCreationState({
       activeDraftThread: sourceDraft,
       activeThread: sourceThread,
@@ -154,9 +169,10 @@ export function useHandleNewThread() {
         activeDraftThread: sourceDraft,
       }),
       resolveProviderForInstanceId,
+      defaultInstanceIdForProvider,
     });
     if (creation.envMode === "worktree" && !creation.worktreePath)
-      throw new Error("工作文件夹尚未就绪，请稍后发送。");
+      throw new LocalizedError("newThread.error.folderNotReadySend");
     return { api, project, creation };
   };
 
@@ -165,13 +181,13 @@ export function useHandleNewThread() {
     onOpen: () => void,
     isCurrent: () => boolean,
   ) => {
-    if (!isCurrent()) throw new Error("账号已变化，请重新打开资料库。");
+    if (!isCurrent()) throw new LocalizedError("newThread.error.accountChangedLibrary");
     const { project, creation } = resolveNewConversationContext(items[0]?.originationThreadId);
     const files = await Promise.all(
       items
         .filter((item) => item.kind === "image")
         .map(async (item) => {
-          if (!item.thumbnailUrl) throw new Error("图像暂时无法读取，请刷新资料库。");
+          if (!item.thumbnailUrl) throw new LocalizedError("newThread.error.imageUnreadable");
           return readGeneratedImageContextFile({
             image: { src: item.thumbnailUrl, name: item.title },
             resolveImageUrl: ({ src }) => src,
@@ -179,10 +195,10 @@ export function useHandleNewThread() {
           });
         }),
     );
-    if (!isCurrent()) throw new Error("账号已变化，请重新打开资料库。");
+    if (!isCurrent()) throw new LocalizedError("newThread.error.accountChangedLibrary");
     const documents = items.filter((item) => item.kind !== "image");
     if (documents.some((item) => !item.path))
-      throw new Error("此文件尚未保存到本地，请先导入文件。");
+      throw new LocalizedError("newThread.error.fileNotSaved");
     const threadId = createDraftThread({
       projectId: project.id,
       prompt: documents.map((item) => formatComposerMentionToken(item.path!)).join("\n"),
@@ -212,12 +228,12 @@ export function useHandleNewThread() {
     onOpen: () => void,
     isCurrent: () => boolean,
   ) => {
-    if (!isCurrent()) throw new Error("账号已变化，请重新打开资料空间。");
+    if (!isCurrent()) throw new LocalizedError("newThread.error.accountChangedPage");
     const { project, creation } = resolveNewConversationContext(
       document.page.sourceThreadId ?? undefined,
     );
     if ((project.spaceId ?? null) !== document.page.scopeSpaceId)
-      throw new Error("请先选择与此页面相同工作区内的工作文件夹。");
+      throw new LocalizedError("newThread.error.pageWorkspaceMismatch");
     const threadId = createDraftThread({
       projectId: project.id,
       prompt: `请读取资料空间页面“${document.page.title}”（页面 ID：${document.page.id}，当前版本：${document.page.revision}），在这份页面的基础上继续工作。请用资料空间工具读取最新内容，需要修改时更新同一页面并保留版本记录。`,
@@ -236,21 +252,124 @@ export function useHandleNewThread() {
     onOpen();
   };
 
+  /**
+   * The agent a page sends work to: the one last chosen in the chat composer, else the new-chat
+   * default (which resolves the account instance, such as the Moss lane).
+   */
+  const pageAgentSelection = (): ModelSelection => {
+    const { stickyActiveProvider, stickyModelSelectionByProvider } =
+      useComposerDraftStore.getState();
+    const stickyProvider = stickyActiveProvider
+      ? (stickyModelSelectionByProvider[stickyActiveProvider]?.provider ??
+        resolveProviderForInstanceId(stickyActiveProvider))
+      : null;
+    if (stickyActiveProvider && stickyProvider) {
+      const instanceId = resolveSelectableProviderInstanceId(
+        settings,
+        stickyProvider,
+        stickyActiveProvider,
+      );
+      const sticky =
+        stickyModelSelectionByProvider[
+          providerInstanceModelSelectionKey(stickyProvider, instanceId)
+        ];
+      if (sticky) return { ...sticky, instanceId };
+    }
+    // A page has no chat of its own to inherit from; start where a new chat would.
+    return resolveNewConversationDefaultModelSelection(settings);
+  };
+
+  /** Which agent a page AI action would use, or null when none is ready for this page. */
+  const describePageAgent = (document: PagesReadResult) => {
+    try {
+      const { project } = resolveNewConversationContext(document.page.sourceThreadId ?? undefined);
+      if ((project.spaceId ?? null) !== document.page.scopeSpaceId) return null;
+      return { modelSelection: pageAgentSelection() };
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Sends one turn from a page to the selected agent without leaving the page. The new
+   * conversation keeps the work, and the page links to it from drafts and attribution.
+   */
+  const startPageAiTurn = async (
+    document: PagesReadResult,
+    prompt: { readonly request: string; readonly context: string },
+    isCurrent: () => boolean,
+  ): Promise<ThreadId> => {
+    if (!isCurrent()) throw new LocalizedError("newThread.error.accountChangedPage");
+    const { project, creation } = resolveNewConversationContext(
+      document.page.sourceThreadId ?? undefined,
+    );
+    if ((project.spaceId ?? null) !== document.page.scopeSpaceId)
+      throw new LocalizedError("newThread.error.pageWorkspaceMismatch");
+    const selection = pageAgentSelection();
+    // The request names the chat; the page context travels as an attached text block.
+    const threadId = createDraftThread({
+      projectId: project.id,
+      prompt: prompt.request,
+      modelSelection: selection,
+      runtimeMode: creation.runtimeMode,
+      interactionMode: creation.interactionMode,
+      envMode: creation.envMode,
+      workingDirectory: creation.workingDirectory,
+    });
+    const draftStore = useComposerDraftStore.getState();
+    draftStore.setDraftThreadContext(threadId, {
+      branch: creation.branch,
+      worktreePath: creation.worktreePath,
+    });
+    draftStore.addPastedTexts(threadId, [
+      createPastedTextDraft({
+        id: `page-ai:${document.page.id}`,
+        createdAt: new Date().toISOString(),
+        text: prompt.context,
+      }),
+    ]);
+    const dispatch = await dispatchDraftThread({
+      threadId,
+      projectId: project.id,
+      thread: null,
+      defaultProvider: selection.provider,
+      assistantDeliveryMode: resolveAssistantDeliveryMode(settings),
+      providerOptions: getProviderStartOptions(
+        settings,
+        selection.instanceId ?? selection.provider,
+      ),
+      providerInstances,
+    });
+    if (dispatch.kind === "error") throw new Error(dispatch.message);
+    if (dispatch.kind === "unavailable")
+      throw new LocalizedError("newThread.error.connectionUnavailable");
+    if (dispatch.kind === "open-thread")
+      throw new LocalizedError("newThread.error.folderNotReadySend");
+    return threadId;
+  };
+
   const startImagesConversation = (
     input: MossImagesConversationInput,
     onOpen: () => void,
   ): Promise<void> => {
     if (imagesStartRef.current) return imagesStartRef.current;
     const pending = (async () => {
-      const { api, project, creation } = resolveNewConversationContext();
-      if (!input.isCurrent()) throw new Error("账号已变化，请重新打开图像页面。");
+      // The Images page is reachable with no chat open (e.g. straight from home).
+      // Like 新对话, it then starts in the chats folder instead of failing with
+      // 请先选择此会话的工作文件夹 (which the page used to show as an
+      // unreachable image service).
+      const homeProjectId = activeProjectId
+        ? null
+        : await ensureHomeChatProject(useWorkspacePathsStore.getState());
+      const { api, project, creation } = resolveNewConversationContext(undefined, homeProjectId);
+      if (!input.isCurrent()) throw new LocalizedError("newThread.error.accountChangedImages");
       const selection = input.modelSelection;
       const selectedInstanceId = selection.instanceId ?? selection.provider;
       if (
         resolveSelectableProviderInstanceId(settings, selection.provider, selectedInstanceId) !==
         selectedInstanceId
       )
-        throw new Error("所选 CLI 账号已变化，请重新选择后发送。");
+        throw new LocalizedError("newThread.error.cliAccountChanged");
       const skill = await resolveMossImagesConversationSkill(input.modelId, async () => {
         const result = await api.provider.listSkills({
           provider: selection.provider,
@@ -259,7 +378,7 @@ export function useHandleNewThread() {
         });
         return result.skills;
       });
-      if (!input.isCurrent()) throw new Error("账号已变化，请重新打开图像页面。");
+      if (!input.isCurrent()) throw new LocalizedError("newThread.error.accountChangedImages");
       const threadId = createDraftThread({
         projectId: project.id,
         prompt: mossImagesConversationPrompt(input, skill?.name),
@@ -296,7 +415,9 @@ export function useHandleNewThread() {
         toastManager.add({
           type: "error",
           title:
-            dispatch.kind === "error" ? dispatch.message : "连接暂不可用，描述已保留在新会话。",
+            dispatch.kind === "error"
+              ? dispatch.message
+              : localizedMessage("newThread.error.connectionUnavailable"),
         });
     })();
     imagesStartRef.current = pending;
@@ -440,7 +561,7 @@ export function useHandleNewThread() {
       if (!pending) return;
       setPendingSidebarPlacement({
         threadId,
-        sectionId: pending.sectionId as import("@synara/contracts").SidebarSectionId,
+        sectionId: pending.sectionId as import("@moss/contracts").SidebarSectionId,
         sectionCreatedAt: pending.sectionCreatedAt,
       });
     };
@@ -528,6 +649,7 @@ export function useHandleNewThread() {
           projectModelSelection: projectDefaultModelSelection,
           defaultProvider: fallbackProvider,
           resolveProviderForInstanceId,
+          defaultInstanceIdForProvider,
         }),
       );
     };
@@ -549,6 +671,7 @@ export function useHandleNewThread() {
         projectDefaultModelSelection,
         projectId,
         resolveProviderForInstanceId,
+        defaultInstanceIdForProvider,
       });
     // Terminal-first threads need a real orchestration thread immediately so
     // the sidebar can render them as durable rows instead of draft-only routes.
@@ -770,9 +893,9 @@ export function useHandleNewThread() {
     if (activeThread) return activeThread.id;
     if (!activeDraftThread || !routeThreadId) return null;
     const api = readNativeApi();
-    if (!api) throw new Error("画布连接暂不可用，请稍后重试。");
+    if (!api) throw new LocalizedError("newThread.error.canvasUnavailable");
     const project = projects.find((entry) => entry.id === activeDraftThread.projectId);
-    if (!project) throw new Error("工作文件夹尚未就绪，请稍后重试。");
+    if (!project) throw new LocalizedError("newThread.error.folderNotReadyRetry");
     const creation = resolveTerminalThreadCreationState({
       activeDraftThread,
       activeThread: null,
@@ -784,6 +907,8 @@ export function useHandleNewThread() {
       options: undefined,
       resolveProviderForInstanceId: (id) =>
         providerInstances.find((instance) => instance.instanceId === id)?.provider ?? null,
+      defaultInstanceIdForProvider: (provider) =>
+        newChatProviderInstanceIdFrom(providerInstances, provider),
     });
     return promoteCanvasDraftThread(
       { threadId: routeThreadId, projectId: activeDraftThread.projectId, creation },
@@ -800,6 +925,8 @@ export function useHandleNewThread() {
 
   return {
     startPageConversation,
+    startPageAiTurn,
+    describePageAgent,
     startImagesConversation,
     startLibraryConversation,
     prepareActiveThreadForCanvas,

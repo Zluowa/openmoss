@@ -5,11 +5,18 @@
 
 import nodePath from "node:path";
 
-import type { ProviderListModelsResult } from "@synara/contracts";
-import type { MossAccessLane } from "@synara/shared/mossRealmCatalog";
+import type { ProviderListModelsResult } from "@moss/contracts";
+import type { MossAccessLane } from "@moss/shared/mossRealmCatalog";
 import type * as Acp from "@agentclientprotocol/sdk";
 
 import { withMossManagedAcpAgentHooks } from "../mossManagedAcpAgentEnvironment.ts";
+import { knownAgentDesktopInstall } from "../agentDesktopInstalls.ts";
+import {
+  commandExistsOnPath,
+  directoriesContainingCommand,
+  firstExistingPath,
+  type ProviderBinaryResolutionOptions,
+} from "../providerBinaryResolution.ts";
 import type { AcpSessionModeAliases } from "./AcpAdapterSessionSupport.ts";
 import type * as AcpErrors from "./AcpErrors.ts";
 import { type AcpSessionStartupTimeouts, isAcpAuthRequiredError } from "./AcpSessionRuntime.ts";
@@ -34,7 +41,9 @@ export interface AcpAgentRuntimeSettings {
  * - `buildSpawnEnvironment` replaces the own-login child environment with the
  *   gateway catalog/token variables plus the MOSS_* keys the child may inherit;
  * - `listModels` returns the realm catalog without spawning the CLI;
- * - `modelId` maps a Moss model slug to the CLI's managed model value.
+ * - `modelId` maps a Moss model slug to the CLI's managed model value;
+ * - `advertisedModelValue` picks a slug's value from what the running CLI
+ *   advertises, for a CLI whose value format changes between releases.
  */
 export interface AcpAgentManagedConfig {
   readonly realm: MossAccessLane;
@@ -61,6 +70,10 @@ export interface AcpAgentManagedHooks<
   ) => AcpAgentManagedSpawnEnvironment;
   readonly listModels: (config: Config) => ProviderListModelsResult;
   readonly modelId?: (model: string, config: Config) => string;
+  readonly advertisedModelValue?: (
+    model: string,
+    advertisedValues: ReadonlyArray<string>,
+  ) => string | undefined;
 }
 
 export type AcpAgentAuthPolicy =
@@ -95,6 +108,13 @@ export interface AcpAgentSpec<Kind extends AcpAgentKind = AcpAgentKind> {
   readonly environmentDefaults: Readonly<Record<string, string>>;
   /** Variables that relocate the CLI's data root to `homePath`. */
   readonly homeEnvironment: (homePath: string) => Readonly<Record<string, string>>;
+  /** Host-discovered variables the CLI cannot work out itself; explicit values win. */
+  readonly hostEnvironment?: (env: NodeJS.ProcessEnv) => Readonly<Record<string, string>>;
+  /**
+   * What the CLI needs from the host beyond its own install. Returns what to tell the
+   * user when that is missing, so a CLI that cannot run never reports "ready".
+   */
+  readonly hostRequirement?: (env: NodeJS.ProcessEnv) => string | undefined;
   readonly auth: AcpAgentAuthPolicy;
   readonly clientCapabilities?: Acp.InitializeRequest["clientCapabilities"];
   /** `session/set_config_option` ids; the category fallback covers renamed ids. */
@@ -163,11 +183,55 @@ export function classifySignedOutFailure(
     : undefined;
 }
 
+const KIMI_GIT_BASH_MISSING_MESSAGE =
+  "Kimi Code needs Git Bash on Windows, and Moss could not find it. Install Git for Windows, or set KIMI_SHELL_PATH to a bash.exe, then retry.";
+const KIMI_GIT_BASH_MISSING_PATTERN = /Git Bash was not found/iu;
+
+/** Kimi Code stops at startup on Windows without Git Bash; its own wording names the fix. */
+export function classifyKimiFailure(
+  error: AcpErrors.AcpError,
+  spec: Pick<AcpAgentSpec, "displayName" | "signIn">,
+): AcpAgentFailure | undefined {
+  return KIMI_GIT_BASH_MISSING_PATTERN.test(acpAgentErrorText(error))
+    ? { reason: "backend_unavailable", message: KIMI_GIT_BASH_MISSING_MESSAGE }
+    : classifySignedOutFailure(error, spec);
+}
+
+/** Follows Kimi Code's own search: `KIMI_SHELL_PATH`, Git on PATH, then Git's usual folders. */
+export function kimiHostRequirement(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+  pathExists?: ProviderBinaryResolutionOptions["pathExists"],
+): string | undefined {
+  if (platform !== "win32") return undefined;
+  const lookup = { env, platform, ...(pathExists ? { pathExists } : {}) };
+  const override = env.KIMI_SHELL_PATH?.trim();
+  const localAppData = env.LOCALAPPDATA?.trim();
+  const candidates = [
+    ...(override ? [override] : []),
+    ...["C:\\Program Files\\Git", "C:\\Program Files (x86)\\Git"].flatMap((git) => [
+      nodePath.win32.join(git, "bin", "bash.exe"),
+      nodePath.win32.join(git, "usr", "bin", "bash.exe"),
+    ]),
+    ...(localAppData
+      ? [
+          nodePath.win32.join(localAppData, "Programs", "Git", "bin", "bash.exe"),
+          nodePath.win32.join(localAppData, "Programs", "Git", "usr", "bin", "bash.exe"),
+        ]
+      : []),
+  ];
+  return commandExistsOnPath("git", lookup) || firstExistingPath(candidates, lookup) !== undefined
+    ? undefined
+    : KIMI_GIT_BASH_MISSING_MESSAGE;
+}
+
 const ZCODE_BACKEND_UNAVAILABLE_PATTERN =
   /spawn failed|ZCODE_BIN|backend reader exited|backend dead|backend pipe broken|install the ZCode CLI/iu;
 const ZCODE_AUTH_FAILURE_PATTERN =
   /unauthori[sz]ed|invalid[ _-]?(?:api[ _-]?key|token)|authentication|credential|api key|login|未登录|鉴权|认证|凭据/iu;
 const ZCODE_TURN_FAILED_PREFIX = /^ZCode turn failed\b/iu;
+const ZCODE_BACKEND_UNAVAILABLE_MESSAGE =
+  "The ZCode CLI could not be started. Install the ZCode desktop app (it bundles the CLI) or set ZCODE_BIN to the zcode CLI path, then retry.";
 
 function zcodeTurnFailureStatusCode(error: AcpErrors.AcpRequestError): number | undefined {
   const data = error.data;
@@ -186,11 +250,7 @@ export function classifyZcodeFailure(
 ): AcpAgentFailure | undefined {
   const text = acpAgentErrorText(error);
   if (ZCODE_BACKEND_UNAVAILABLE_PATTERN.test(text)) {
-    return {
-      reason: "backend_unavailable",
-      message:
-        "The ZCode CLI could not be started. Install the ZCode desktop app (it bundles the CLI) or set ZCODE_BIN to the zcode CLI path, then retry.",
-    };
+    return { reason: "backend_unavailable", message: ZCODE_BACKEND_UNAVAILABLE_MESSAGE };
   }
   if (error._tag !== "AcpRequestError") return undefined;
   // `authenticate` is the only startup request that answers -32000.
@@ -212,6 +272,101 @@ export function classifyZcodeFailure(
   return undefined;
 }
 
+/**
+ * The ZCode bridge looks for Node with POSIX `which`, which a normal Windows host
+ * lacks, and then tries to execute `zcode.cjs` itself (`spawn EFTYPE`). Its npm
+ * shim already runs on the PATH's Node, so hand that one over.
+ */
+export function zcodeHostEnvironment(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+  isExecutable?: (candidate: string) => boolean,
+): Readonly<Record<string, string>> {
+  const backend = zcodeDesktopBackendEnvironment(env, platform);
+  if (platform !== "win32" || env.ZCODE_NODE?.trim()) return backend;
+  const directories = (env.PATH ?? env.Path ?? "")
+    .split(";")
+    .map((directory) => directory.trim())
+    .filter(Boolean);
+  const [directory] = directoriesContainingCommand("node.exe", directories, {
+    env,
+    platform,
+    ...(isExecutable ? { isExecutable } : {}),
+  });
+  return directory
+    ? { ...backend, ZCODE_NODE: nodePath.win32.join(directory, "node.exe") }
+    : backend;
+}
+
+/**
+ * The bridge only searches the desktop app's default folders; an app installed elsewhere
+ * (found through its uninstall entry) is handed over as ZCODE_BIN. A person's own
+ * ZCODE_BIN or `zcode` on PATH still wins.
+ */
+function zcodeDesktopBackendEnvironment(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): Readonly<Record<string, string>> {
+  const script = knownAgentDesktopInstall("zcode")?.cliScript;
+  if (!script || env.ZCODE_BIN?.trim() || commandExistsOnPath("zcode", { env, platform })) {
+    return {};
+  }
+  return { ZCODE_BIN: script };
+}
+
+/** The ZCode app found in a custom folder (through its uninstall entry), if any. */
+function knownZcodeDesktopScript(): ReadonlyArray<string> {
+  const script = knownAgentDesktopInstall("zcode")?.cliScript;
+  return script ? [script] : [];
+}
+
+function zcodeDesktopCliPaths(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): ReadonlyArray<string> {
+  if (platform === "win32") {
+    const localAppData =
+      env.LOCALAPPDATA?.trim() ||
+      (env.USERPROFILE?.trim()
+        ? nodePath.win32.join(env.USERPROFILE.trim(), "AppData", "Local")
+        : undefined);
+    return [
+      ...(localAppData
+        ? [nodePath.win32.join(localAppData, "Programs", "ZCode", "resources", "glm", "zcode.cjs")]
+        : []),
+      ...knownZcodeDesktopScript(),
+    ];
+  }
+  const home = env.HOME?.trim();
+  return [
+    "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs",
+    ...(home
+      ? [nodePath.posix.join(home, "Applications/ZCode.app/Contents/Resources/glm/zcode.cjs")]
+      : []),
+    "/opt/ZCode/resources/glm/zcode.cjs",
+    "/usr/share/zcode/resources/glm/zcode.cjs",
+    ...knownZcodeDesktopScript(),
+  ];
+}
+
+/**
+ * The npm bridge does not include the CLI it drives. This follows the bridge's own
+ * search: `ZCODE_BIN`, then `zcode` on PATH, then the desktop app's usual folders.
+ */
+export function zcodeHostRequirement(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+  pathExists?: ProviderBinaryResolutionOptions["pathExists"],
+): string | undefined {
+  const lookup = { env, platform, ...(pathExists ? { pathExists } : {}) };
+  const explicit = env.ZCODE_BIN?.trim();
+  const found = explicit
+    ? firstExistingPath([explicit], lookup) !== undefined || commandExistsOnPath(explicit, lookup)
+    : commandExistsOnPath("zcode", lookup) ||
+      firstExistingPath(zcodeDesktopCliPaths(env, platform), lookup) !== undefined;
+  return found ? undefined : ZCODE_BACKEND_UNAVAILABLE_MESSAGE;
+}
+
 const ACP_AGENT_CLIENT_CAPABILITIES = { elicitation: { form: {} } } as const;
 
 export const KIMI_ACP_AGENT_SPEC: AcpAgentSpec<"kimi"> = withMossManagedAcpAgentHooks({
@@ -231,6 +386,7 @@ export const KIMI_ACP_AGENT_SPEC: AcpAgentSpec<"kimi"> = withMossManagedAcpAgent
   },
   environmentDefaults: {},
   homeEnvironment: (homePath) => ({ KIMI_CODE_HOME: homePath }),
+  hostRequirement: kimiHostRequirement,
   // Signed-out `session/new` answers -32000 "Authentication required"; its
   // `authenticate` only re-checks the same state, so there is nothing to call.
   auth: { policy: "on-demand" },
@@ -241,7 +397,7 @@ export const KIMI_ACP_AGENT_SPEC: AcpAgentSpec<"kimi"> = withMossManagedAcpAgent
   // default (manual approvals), plan (read-only), auto, yolo.
   modes: { plan: ["plan"], implement: ["default"], approval: ["default"], never: ["auto", "yolo"] },
   turnIdleTimeoutEnvVar: "MOSS_KIMI_TURN_IDLE_TIMEOUT_MS",
-  classifyFailure: classifySignedOutFailure,
+  classifyFailure: classifyKimiFailure,
 });
 
 export const MINIMAX_ACP_AGENT_SPEC: AcpAgentSpec<"minimax"> = withMossManagedAcpAgentHooks({
@@ -305,6 +461,8 @@ export const ZCODE_ACP_AGENT_SPEC: AcpAgentSpec<"zcode"> = withMossManagedAcpAge
     ZCODE_HOME:
       nodePath.basename(homePath) === ".zcode" ? homePath : nodePath.join(homePath, ".zcode"),
   }),
+  hostEnvironment: zcodeHostEnvironment,
+  hostRequirement: zcodeHostRequirement,
   // `session/new` never fails on auth, so probe credentials up front.
   auth: { policy: "upfront", methodId: "zcode-credentials" },
   clientCapabilities: ACP_AGENT_CLIENT_CAPABILITIES,

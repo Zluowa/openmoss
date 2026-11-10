@@ -1,7 +1,7 @@
 import { loadavg } from "node:os";
 import { monitorEventLoopDelay, performance, type Histogram } from "node:perf_hooks";
 import { Effect, Layer, ServiceMap } from "effect";
-import type { ServerRuntimeStatus } from "@synara/contracts";
+import type { ServerRuntimeStatus } from "@moss/contracts";
 import { reportBetaOperationalIssue } from "./betaOperationalIssue";
 
 const SAMPLE_MS = 1000;

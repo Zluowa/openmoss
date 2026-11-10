@@ -1,6 +1,7 @@
 // FILE: codexDiagnostics.ts
 // Purpose: Recognizes Codex app-server diagnostics that belong in the server log, not the
-//   transcript: background auth/model-list/MCP-transport retries and config-parsing notices.
+//   transcript: Codex's own log records at every level, plus config notices and transport
+//   fallbacks that also arrive as `warning` notifications.
 // Layer: Shared provider presentation policy (server stderr routing + web replay of old rows)
 
 // Codex's own background subsystems log every retry on stderr. Codex reports the
@@ -78,14 +79,25 @@ export function isCodexDiagnosticLogLine(line: string): boolean {
   );
 }
 
+/**
+ * One of Codex's tracing log records (text or JSON layout), at any level. These are Codex's
+ * own log: its CLI and desktop app keep them in log files and never show them in a
+ * conversation, because anything a person must act on also reaches the turn through the
+ * protocol (a failed turn carries its error). A fresh install logs several at startup, such
+ * as a skills folder another Codex holds open.
+ */
+export function isCodexLogRecord(line: string): boolean {
+  const trimmed = line.trim();
+  return CODEX_TEXT_LOG_LEVEL_REGEX.test(codexJsonLogLineAsText(trimmed) ?? trimmed);
+}
+
 /** A `warning` notification message (or a replayed stderr row) the transcript skips. */
 export function isCodexDiagnosticWarningMessage(message: string): boolean {
   const trimmed = message.trim();
-  // The live stderr path keeps only ERROR records; rows saved before it read the
-  // JSON layout still hold the rest.
-  const level = CODEX_TEXT_LOG_LEVEL_REGEX.exec(codexJsonLogLineAsText(trimmed) ?? "")?.[1];
-  if (level !== undefined && level !== "ERROR") return true;
+  // Rows saved before the live stderr path routed every log record to the server log
+  // still hold raw records.
   return (
+    isCodexLogRecord(trimmed) ||
     isCodexDiagnosticLogLine(trimmed) ||
     CODEX_DIAGNOSTIC_WARNING_REGEXES.some((pattern) => pattern.test(trimmed))
   );

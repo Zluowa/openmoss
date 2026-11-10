@@ -1,4 +1,4 @@
-import type { RealtimeVoiceDescriptor } from "@synara/contracts";
+import type { RealtimeVoiceDescriptor } from "@moss/contracts";
 import { ChevronLeftIcon, ChevronRightIcon } from "~/lib/icons";
 import {
   type KeyboardEvent as ReactKeyboardEvent,

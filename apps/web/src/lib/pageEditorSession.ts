@@ -1,4 +1,4 @@
-import type { PagesMutateInput, PagesMutateResult, PagesReadResult } from "@synara/contracts";
+import type { PagesMutateInput, PagesMutateResult, PagesReadResult } from "@moss/contracts";
 import { WORKSPACE_EDITOR_AUTOSAVE_MS } from "./workspaceEditorSession";
 
 type PageUpdate = Extract<PagesMutateInput, { op: "update" }>;

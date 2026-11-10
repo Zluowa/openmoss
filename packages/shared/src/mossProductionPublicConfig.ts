@@ -30,8 +30,22 @@ export const MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS = [
 export const MOSS_PRODUCTION_PUBLIC_CONFIG_KEYS = MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS;
 
 export type MossProductionPublicConfigKey = (typeof MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS)[number];
+
+/**
+ * The map keys Moss ships for visual replies, projected into the backend environment.
+ * They are browser keys (a page uses them), optional, and empty until Moss has them; the
+ * person's own MOSS_GOOGLE_MAPS_API_KEY / MOSS_AMAP_* values win over them.
+ */
+export const MOSS_PUBLIC_MAPS_ENV = {
+  googleApiKey: "MOSS_PUBLIC_MAPS_GOOGLE_API_KEY",
+  amapKey: "MOSS_PUBLIC_MAPS_AMAP_KEY",
+  amapSecurityCode: "MOSS_PUBLIC_MAPS_AMAP_SECURITY_CODE",
+} as const;
+export const MOSS_PUBLIC_MAPS_ENV_KEYS = Object.values(MOSS_PUBLIC_MAPS_ENV);
+export type MossPublicMapsEnvKey = (typeof MOSS_PUBLIC_MAPS_ENV)[keyof typeof MOSS_PUBLIC_MAPS_ENV];
+
 export type MossProductionPublicConfigInput = Readonly<
-  Partial<Record<MossProductionPublicConfigKey, string | undefined>>
+  Partial<Record<MossProductionPublicConfigKey | MossPublicMapsEnvKey, string | undefined>>
 >;
 
 export const MOSS_LEGACY_PRODUCTION_PUBLIC_CONFIG_KEYS = [
@@ -70,8 +84,17 @@ export interface MossSupabaseGooglePublicRealm {
   readonly realtimeRelayUrl: string;
 }
 
+/** Map keys for visual replies; each may be empty. */
+export interface MossPublicMapsConfig {
+  readonly googleApiKey: string;
+  readonly amapKey: string;
+  readonly amapSecurityCode: string;
+}
+
 export interface MossProductionPublicConfig {
   readonly version: typeof MOSS_PRODUCTION_CONFIG_VERSION;
+  /** Absent in releases from before map keys existed. */
+  readonly maps?: MossPublicMapsConfig;
   readonly authRealms: Readonly<{
     readonly "memfire-phone": MossMemFirePhonePublicRealm;
     readonly "supabase-google": MossSupabaseGooglePublicRealm;
@@ -170,6 +193,32 @@ function requireInputValue(
     throw new MossProductionPublicConfigError(`Missing required production setting ${key}.`);
   }
   return value;
+}
+
+/** What a shipped map key may contain; "" means Moss ships none. */
+export const MOSS_PUBLIC_MAP_KEY_PATTERN = /^[A-Za-z0-9_-]{0,200}$/u;
+
+/** A shipped map key, or "". The message never repeats the value. */
+function readPublicMapKey(input: MossProductionPublicConfigInput, key: MossPublicMapsEnvKey) {
+  const value = input[key]?.trim() ?? "";
+  if (!MOSS_PUBLIC_MAP_KEY_PATTERN.test(value)) {
+    throw new MossProductionPublicConfigError(
+      `${key} must be a map key of letters, digits, _ and -.`,
+    );
+  }
+  return value;
+}
+
+/** The maps section, present only when the input names one of its settings. */
+function resolvePublicMaps(
+  input: MossProductionPublicConfigInput,
+): MossPublicMapsConfig | undefined {
+  if (!MOSS_PUBLIC_MAPS_ENV_KEYS.some((key) => input[key] !== undefined)) return undefined;
+  return {
+    googleApiKey: readPublicMapKey(input, MOSS_PUBLIC_MAPS_ENV.googleApiKey),
+    amapKey: readPublicMapKey(input, MOSS_PUBLIC_MAPS_ENV.amapKey),
+    amapSecurityCode: readPublicMapKey(input, MOSS_PUBLIC_MAPS_ENV.amapSecurityCode),
+  };
 }
 
 function requireLegacyInputValue(
@@ -370,9 +419,11 @@ export function resolveMossProductionPublicConfig(
 
   const phonePayValue = input.MOSS_MEMFIRE_PHONE_PAY_BASE_URL?.trim();
   const phonePayBaseUrl = phonePayValue ? requirePhonePaymentBaseUrl(phonePayValue) : undefined;
+  const maps = resolvePublicMaps(input);
 
   return {
     version: MOSS_PRODUCTION_CONFIG_VERSION,
+    ...(maps ? { maps } : {}),
     authRealms: {
       "memfire-phone": {
         authority: "memfire-phone",
@@ -466,7 +517,18 @@ export function parseMossProductionPublicConfig(rawJson: string): MossProduction
       "Strict production public config must use version 2 with both auth realms.",
     );
   }
-  requireExactKeys(document, ["version", "authRealms"], "Production public config");
+  requireExactKeys(document, ["version", "authRealms"], "Production public config", ["maps"]);
+  const maps =
+    "maps" in document ? requireRecord(document.maps, "Production public config maps") : null;
+  if (maps) {
+    requireExactKeys(maps, [], "Production public config maps", [
+      "googleApiKey",
+      "amapKey",
+      "amapSecurityCode",
+    ]);
+  }
+  const mapKey = (key: keyof MossPublicMapsConfig) =>
+    maps && key in maps ? requireStringField(maps, key, "maps") : maps ? "" : undefined;
 
   const realms = requireRecord(document.authRealms, "Production public config authRealms");
   requireExactKeys(realms, MOSS_AUTH_AUTHORITIES, "Production public config authRealms");
@@ -551,6 +613,9 @@ export function parseMossProductionPublicConfig(rawJson: string): MossProduction
       "realtimeRelayUrl",
       "supabase-google",
     ),
+    [MOSS_PUBLIC_MAPS_ENV.googleApiKey]: mapKey("googleApiKey"),
+    [MOSS_PUBLIC_MAPS_ENV.amapKey]: mapKey("amapKey"),
+    [MOSS_PUBLIC_MAPS_ENV.amapSecurityCode]: mapKey("amapSecurityCode"),
   });
 }
 
@@ -561,7 +626,9 @@ export function serializeMossProductionPublicConfig(config: MossProductionPublic
 
 export function toMossProductionPublicConfigEnv(
   config: MossProductionPublicConfig,
-): Readonly<Record<MossProductionPublicConfigKey, string>> {
+): Readonly<
+  Record<MossProductionPublicConfigKey, string> & Partial<Record<MossPublicMapsEnvKey, string>>
+> {
   const validated = parseMossProductionPublicConfig(JSON.stringify(config));
   const memFire = validated.authRealms["memfire-phone"];
   const supabase = validated.authRealms["supabase-google"];
@@ -577,6 +644,14 @@ export function toMossProductionPublicConfigEnv(
     MOSS_SUPABASE_GOOGLE_AUTH_REDIRECT_URL: supabase.authRedirectUrl,
     MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL: supabase.modelGatewayUrl,
     MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL: supabase.realtimeRelayUrl,
+    // Only a release that ships map keys projects them, so older releases project as before.
+    ...(validated.maps
+      ? {
+          [MOSS_PUBLIC_MAPS_ENV.googleApiKey]: validated.maps.googleApiKey,
+          [MOSS_PUBLIC_MAPS_ENV.amapKey]: validated.maps.amapKey,
+          [MOSS_PUBLIC_MAPS_ENV.amapSecurityCode]: validated.maps.amapSecurityCode,
+        }
+      : {}),
   };
 }
 
@@ -592,6 +667,7 @@ export function applyMossProductionPublicConfigEnv(
   const applied = { ...env };
   for (const key of MOSS_LEGACY_PRODUCTION_PUBLIC_CONFIG_KEYS) delete applied[key];
   for (const key of MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS) delete applied[key];
+  for (const key of MOSS_PUBLIC_MAPS_ENV_KEYS) delete applied[key];
   return { ...applied, ...toMossProductionPublicConfigEnv(config) };
 }
 

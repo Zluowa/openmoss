@@ -4,7 +4,7 @@
 
 import "../index.css";
 
-import { CheckpointRef, TurnId, type NativeApi } from "@synara/contracts";
+import { CheckpointRef, TurnId, type NativeApi } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { page } from "vitest/browser";

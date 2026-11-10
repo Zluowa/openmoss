@@ -2,7 +2,7 @@
 import React, { useEffect, type ComponentProps } from "react";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, ThreadId } from "@synara/contracts";
+import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, ThreadId } from "@moss/contracts";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { makeFile, makeImage, resetComposerDraftStore } from "~/composerDraftStoreTestFixtures";
 import {
@@ -20,20 +20,29 @@ const state = vi.hoisted(() => ({
   prepare: vi.fn(),
   readGenerated: vi.fn(),
   compose: vi.fn(),
+  report: vi.fn(),
   selection: null as MossCanvasSelection | null,
   current: true,
   key: "account-a",
   props: null as ComponentProps<typeof MossCanvasWebSurface> | null,
   isCurrent: () => state.current,
 }));
-vi.mock("~/lib/mossImagesAccountBoundary", () => ({
+vi.mock("~/lib/mossImagesAccountBoundary", async (original) => ({
+  isMossImagesAccountIdentityChange: (
+    await original<typeof import("~/lib/mossImagesAccountBoundary")>()
+  ).isMossImagesAccountIdentityChange,
   useMossImagesAccountBoundary: () => ({
     key: state.key,
+    identityKey: JSON.stringify([state.key]),
     transitioning: false,
     isCurrent: state.isCurrent,
   }),
 }));
-vi.mock("~/lib/mossCanvasClient", () => ({ readMossCanvasSelectionFile: state.read }));
+vi.mock("~/lib/mossCanvasClient", async (original) => ({
+  ...(await original<typeof import("~/lib/mossCanvasClient")>()),
+  readMossCanvasSelectionFile: state.read,
+  reportMossCanvasLiveSelection: state.report,
+}));
 vi.mock("~/lib/generatedImageContextMenu", () => ({
   readGeneratedImageContextFile: state.readGenerated,
 }));
@@ -84,6 +93,7 @@ function select(sequence: number, names: string | readonly string[]) {
     threadId,
     sequence,
     documentEpoch: 1,
+    content: [],
     items: (typeof names === "string" ? [names] : names).map((name) => ({
       shapeId: `shape:${name}`,
       title: name,
@@ -144,6 +154,45 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("original canvas and ordinary conversation composer", () => {
+  it("turns selected text into a live composer chip and reports the selection for the agent", async () => {
+    render(<ConversationImageWorkspace {...props} />);
+    const chips = () =>
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.pastedTexts ?? [];
+    const textSelection = (sequence: number, content: MossCanvasSelection["content"]) => {
+      const selection: MossCanvasSelection = {
+        type: "moss-canvas-selection",
+        version: 1,
+        threadId,
+        sequence,
+        documentEpoch: 1,
+        items: [],
+        content,
+      };
+      state.selection = selection;
+      state.props?.onSelectionChange?.(selection, binding);
+      return selection;
+    };
+    let selected: MossCanvasSelection | null = null;
+    await act(async () => {
+      selected = textSelection(1, [{ shapeId: "shape:love", kind: "text", text: "我爱你" }]);
+    });
+    expect(chips().map((chip) => chip.text)).toEqual([
+      ["画布上选中的内容", "- 文字：我爱你"].join("\n"),
+    ]);
+    expect(state.report).toHaveBeenLastCalledWith(threadId, selected);
+    await act(async () => {
+      textSelection(2, [{ shapeId: "shape:hi", kind: "note", text: "你好" }]);
+    });
+    expect(chips().map((chip) => chip.text)).toEqual([
+      ["画布上选中的内容", "- 便签：你好"].join("\n"),
+    ]);
+    await act(async () => {
+      textSelection(3, []);
+    });
+    expect(chips()).toEqual([]);
+    expect(state.report).toHaveBeenCalledTimes(3);
+  });
+
   it("reuses an existing user image without claiming or clearing its ownership", async () => {
     const userImage = makeImage({
       id: "user-cat",

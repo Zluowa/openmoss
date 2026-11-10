@@ -3,11 +3,31 @@ import { describe, expect, it } from "vitest";
 import {
   formatHostForUrl,
   isLoopbackHost,
+  isLoopbackStartupBearer,
   isWildcardHost,
   resolveListeningPort,
 } from "./startupAccess";
 
 describe("startupAccess", () => {
+  it("keeps startup bearer credentials private to loopback without a public origin", () => {
+    const base = {
+      host: "127.0.0.1",
+      publicUrl: undefined,
+      authToken: "fixture",
+      authorization: "Bearer fixture",
+    };
+    expect(isLoopbackStartupBearer(base)).toBe(true);
+    for (const change of [
+      { host: undefined },
+      { host: "0.0.0.0" },
+      { publicUrl: "https://example.com" },
+      { authToken: undefined },
+      { authorization: "Bearer wrong" },
+      { authorization: undefined },
+    ]) {
+      expect(isLoopbackStartupBearer({ ...base, ...change })).toBe(false);
+    }
+  });
   it("detects wildcard hosts", () => {
     expect(isWildcardHost("0.0.0.0")).toBe(true);
     expect(isWildcardHost("::")).toBe(true);

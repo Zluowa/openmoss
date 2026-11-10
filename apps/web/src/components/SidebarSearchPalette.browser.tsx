@@ -9,6 +9,8 @@ import { render } from "vitest-browser-react";
 import { SidebarSearchPalette, type SidebarSearchPaletteMode } from "./SidebarSearchPalette";
 import type { SidebarSearchThread } from "./SidebarSearchPalette.logic";
 import type { ThreadImportTarget } from "../lib/threadImport";
+import { MossLocaleScope } from "../localization";
+import type { MossLocaleCode } from "../uiLocale";
 
 const searchThreads = vi.hoisted(() => vi.fn());
 vi.mock("~/nativeApi", async (importOriginal) => ({
@@ -31,38 +33,90 @@ const thread: SidebarSearchThread = {
 async function renderPalette(
   searchThread: SidebarSearchThread = thread,
   overrides: Partial<ComponentProps<typeof SidebarSearchPalette>> = {},
+  locale: MossLocaleCode = "en",
 ) {
   const onOpenThread = vi.fn();
   const onOpenSettings = vi.fn();
   const onOpenChange = vi.fn();
+  const onModeChange = vi.fn();
   await render(
-    <QueryClientProvider client={new QueryClient()}>
-      <SidebarSearchPalette
-        open
-        mode="search"
-        onModeChange={vi.fn()}
-        onOpenChange={onOpenChange}
-        actions={[]}
-        projects={[]}
-        threads={[searchThread]}
-        onCreateChat={vi.fn()}
-        onCreateThread={vi.fn()}
-        onAddProjectPath={vi.fn().mockResolvedValue(undefined)}
-        homeDir={null}
-        onOpenSettings={onOpenSettings}
-        onOpenFeedback={vi.fn()}
-        onOpenUsageSettings={vi.fn()}
-        onOpenProject={vi.fn()}
-        onOpenThread={onOpenThread}
-        importTargets={[]}
-        onImportThread={vi.fn().mockResolvedValue(undefined)}
-        onImportProjects={vi.fn()}
-        {...overrides}
-      />
-    </QueryClientProvider>,
+    <MossLocaleScope locale={locale}>
+      <QueryClientProvider client={new QueryClient()}>
+        <SidebarSearchPalette
+          open
+          mode="search"
+          onModeChange={onModeChange}
+          onOpenChange={onOpenChange}
+          actions={[]}
+          projects={[]}
+          threads={[searchThread]}
+          onCreateChat={vi.fn()}
+          onCreateThread={vi.fn()}
+          onAddProjectPath={vi.fn().mockResolvedValue(undefined)}
+          homeDir={null}
+          onOpenSettings={onOpenSettings}
+          onOpenFeedback={vi.fn()}
+          onOpenUsageSettings={vi.fn()}
+          onOpenProject={vi.fn()}
+          onOpenThread={onOpenThread}
+          importTargets={[]}
+          onImportThread={vi.fn().mockResolvedValue(undefined)}
+          onImportProjects={vi.fn()}
+          {...overrides}
+        />
+      </QueryClientProvider>
+    </MossLocaleScope>,
   );
-  return { onOpenThread, onOpenSettings, onOpenChange };
+  return { onOpenThread, onOpenSettings, onOpenChange, onModeChange };
 }
+
+it.each(["导入项目", "项目和对话导入", "Import projects", "folders"])(
+  "finds the displayed Chinese import action through its query layer: %s",
+  async (query) => {
+    const { onModeChange, onOpenChange } = await renderPalette(
+      thread,
+      {
+        actions: [
+          {
+            id: "import-projects",
+            label: "Import projects from…",
+            description: "Bring Codex and Claude Code projects and conversations into Moss.",
+            keywords: ["import", "projects", "codex", "claude", "conversations", "folders"],
+          },
+        ],
+      },
+      "zh-CN",
+    );
+    await page.getByRole("combobox").fill(query);
+    const result = page.getByRole("option", { name: "导入项目来源…", exact: true });
+    await expect.element(result).toBeVisible();
+    await result.click();
+    expect(onModeChange).toHaveBeenCalledWith("import-projects");
+    expect(onOpenChange).not.toHaveBeenCalled();
+  },
+);
+
+it("finds other actions through their localized descriptions", async () => {
+  const run = vi.fn();
+  await renderPalette(
+    thread,
+    {
+      actions: [
+        {
+          id: "add-project",
+          label: "Add project",
+          description: "Open a repository or folder in the sidebar.",
+          keywords: ["repo"],
+          run,
+        },
+      ],
+    },
+    "zh-CN",
+  );
+  await page.getByRole("combobox").fill("侧边栏打开仓库");
+  await page.getByRole("option", { name: "添加项目", exact: true }).click();
+  expect(run).toHaveBeenCalledOnce();
+});
 
 it("searches settings and opens the matching section and row", async () => {
   const { onOpenSettings, onOpenChange } = await renderPalette();
@@ -222,11 +276,15 @@ it("opens a source page for importing projects and hands the chosen source to th
   expect(onOpenChange).not.toHaveBeenCalled();
   await expect.element(page.getByPlaceholder("Import projects from…")).toBeVisible();
   await expect.element(page.getByRole("option", { name: "From Codex", exact: true })).toBeVisible();
-  await expect
-    .element(page.getByRole("option", { name: "From Claude Code and Codex" }))
-    .toBeVisible();
+  expect(page.getByRole("option", { name: "From Claude Code and Codex" }).query()).toBeNull();
 
-  await page.getByRole("option", { name: "From Claude Code", exact: true }).click();
+  await page.getByRole("option", { name: "From Codex", exact: true }).click();
+  expect(onImportProjects).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByRole("option", { name: "From Codex", exact: true }))
+    .toHaveAttribute("aria-checked", "false");
+  await page.screenshot({ path: "../../../../output/playwright/import-source-selection.png" });
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   expect(onImportProjects).toHaveBeenCalledWith(["claudeAgent"]);
   expect(onOpenChange).toHaveBeenCalledWith(false);
 });

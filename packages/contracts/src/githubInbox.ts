@@ -24,6 +24,47 @@ import {
 // sequence per repository, so (project, repository, number) identifies either kind and the pin
 // table needs no kind column.
 
+const GitHubConnectionTicket = Schema.String.check(Schema.isUUID(4));
+export const GitHubConnectionInput = Schema.Union([
+  // `install` starts (or joins) the one-click GitHub CLI install; `status` reports its progress.
+  Schema.Struct({ op: Schema.Literals(["status", "install"]) }),
+  Schema.Struct({
+    op: Schema.Literals(["start", "poll", "cancel"]),
+    requestId: GitHubConnectionTicket,
+  }),
+]);
+export type GitHubConnectionInput = typeof GitHubConnectionInput.Type;
+export const GitHubConnectionResult = Schema.Union([
+  Schema.Struct({
+    state: Schema.Literal("connected"),
+    login: TrimmedNonEmptyString.check(Schema.isMaxLength(39)),
+  }),
+  Schema.Struct({
+    state: Schema.Literal("pending"),
+    code: Schema.NullOr(Schema.String.check(Schema.isPattern(/^[A-Z0-9]{4}-[A-Z0-9]{4}$/u))),
+  }),
+  Schema.Struct({
+    state: Schema.Literal("installing"),
+    phase: Schema.Literals(["downloading", "installing", "verifying"]),
+  }),
+  Schema.Struct({
+    state: Schema.Literal("installFailed"),
+    reason: Schema.Literals(["unsupported", "download-failed", "install-failed", "verify-failed"]),
+  }),
+  Schema.Struct({
+    state: Schema.Literals([
+      "disconnected",
+      "missing",
+      "unavailable",
+      "failed",
+      "busy",
+      "cancelled",
+      "expired",
+    ]),
+  }),
+]);
+export type GitHubConnectionResult = typeof GitHubConnectionResult.Type;
+
 export const GitHubInboxItemKind = Schema.Literals(["pullRequest", "issue"]);
 export type GitHubInboxItemKind = typeof GitHubInboxItemKind.Type;
 
@@ -130,6 +171,8 @@ export const GitHubInboxRateLimit = Schema.Struct({
 export type GitHubInboxRateLimit = typeof GitHubInboxRateLimit.Type;
 
 export const GitHubInboxListResult = Schema.Struct({
+  /** Older servers did not report inventory separately from an empty GitHub result. */
+  repositoryState: Schema.optional(Schema.Literals(["configured", "none", "incomplete"])),
   viewer: Schema.NullOr(TrimmedNonEmptyString),
   items: Schema.Array(GitHubInboxItem),
   errors: Schema.Array(GitHubInboxListError),

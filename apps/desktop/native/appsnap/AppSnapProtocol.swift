@@ -36,6 +36,11 @@ enum AppSnapMode {
     case audioLevel(sources: Set<AudioLevelSource>, inputDeviceUID: String?)
     /// One-shot list of the Mac's audio input devices (`audio-inputs`).
     case listAudioInputs
+    case historyWatch
+    case historyApplications
+    case historyKeychain(operation: String, namespace: String)
+    case screenCaptureChild
+    case historySelfTest(String)
 }
 
 struct AppSnapOptions {
@@ -55,6 +60,7 @@ struct AppSnapOptions {
         var frameOwnerPID: String?
         var audioSources = Set<AudioLevelSource>()
         var inputDeviceUID: String?
+        var historyKeychainNamespace: String?
         var index = 0
 
         // Consumes the value token after a flag, keeping the "--flag requires
@@ -83,7 +89,7 @@ struct AppSnapOptions {
         while index < arguments.count {
             let argument = arguments[index]
             switch argument {
-            case "--check-permissions", "--request-permissions", "--prepare-permission-setup", "--release-held-input", "--watch", "--permission-guide", "--computer-frames", "--escape-monitor", "--shield", "--audio-level", "--list-audio-inputs":
+            case "--check-permissions", "--request-permissions", "--prepare-permission-setup", "--release-held-input", "--watch", "--permission-guide", "--computer-frames", "--escape-monitor", "--shield", "--audio-level", "--list-audio-inputs", "--history-watch", "--history-applications", "--history-keychain-get", "--history-keychain-create", "--history-keychain-destroy", "--screen-capture-child", "--history-self-test", "--history-watch-self-test", "--history-visual-activity-self-test", "--history-semantic-summary-self-test", "--history-privacy-self-test", "--history-display-session-self-test", "--history-screen-capture-child-self-test", "--history-display-supervisor-self-test", "--history-pipeline-self-test", "--history-parser-self-test":
                 guard requestedMode == nil else {
                     throw AppSnapFailure(
                         code: "invalid_arguments",
@@ -106,6 +112,8 @@ struct AppSnapOptions {
                     )
                 }
                 permissions.insert(permission)
+            case "--history-keychain-namespace":
+                historyKeychainNamespace = try readValue("--history-keychain-namespace", "a namespace")
             case "--pane":
                 guidePane = try readValue("--pane", "a value")
             case "--app-path":
@@ -143,6 +151,10 @@ struct AppSnapOptions {
         }
 
         let usesSetupAppPath = requestedMode == "--request-permissions" || requestedMode == "--prepare-permission-setup"
+        let keychainModes = ["--history-keychain-get", "--history-keychain-create", "--history-keychain-destroy"]
+        if historyKeychainNamespace != nil && !keychainModes.contains(requestedMode ?? "") {
+            throw AppSnapFailure(code: "invalid_arguments", message: "The history Keychain namespace is only used by history key operations.")
+        }
         if requestedMode != "--permission-guide",
            guidePane != nil || guideAppName != nil || (guideAppPath != nil && !usesSetupAppPath) {
             throw AppSnapFailure(code: "invalid_arguments", message: "Guide metadata is only used by the permission guide.")
@@ -158,6 +170,29 @@ struct AppSnapOptions {
             throw AppSnapFailure(code: "invalid_arguments", message: "--input-device is only used with --audio-level --source microphone.")
         }
         switch requestedMode {
+        case "--history-watch", "--history-applications", "--screen-capture-child":
+            try rejectWatchArguments("History modes do not accept screenshot watch arguments.")
+            guard permissions.isEmpty else {
+                throw AppSnapFailure(code: "invalid_arguments", message: "History modes do not accept permission requests.")
+            }
+            if requestedMode == "--history-watch" { return AppSnapOptions(mode: .historyWatch) }
+            if requestedMode == "--history-applications" { return AppSnapOptions(mode: .historyApplications) }
+            return AppSnapOptions(mode: .screenCaptureChild)
+        case "--history-keychain-get", "--history-keychain-create", "--history-keychain-destroy":
+            try rejectWatchArguments("History key operations do not accept watch arguments.")
+            guard permissions.isEmpty, let namespace = historyKeychainNamespace,
+                  namespace.range(of: "^[a-z0-9-]{1,80}$", options: .regularExpression) != nil else {
+                throw AppSnapFailure(code: "invalid_arguments", message: "History key operations require a bounded namespace.")
+            }
+            return AppSnapOptions(mode: .historyKeychain(
+                operation: String(requestedMode!.dropFirst("--history-keychain-".count)), namespace: namespace
+            ))
+        case "--history-self-test", "--history-watch-self-test", "--history-visual-activity-self-test", "--history-semantic-summary-self-test", "--history-privacy-self-test", "--history-display-session-self-test", "--history-screen-capture-child-self-test", "--history-display-supervisor-self-test", "--history-pipeline-self-test", "--history-parser-self-test":
+            try rejectWatchArguments("History self-tests do not accept watch arguments.")
+            guard permissions.isEmpty else {
+                throw AppSnapFailure(code: "invalid_arguments", message: "History self-tests do not accept permission requests.")
+            }
+            return AppSnapOptions(mode: .historySelfTest(requestedMode!))
         case "--permission-guide":
             try rejectWatchArguments("The permission guide does not accept watch arguments.")
             guard permissions.isEmpty, let guidePane,
@@ -317,6 +352,28 @@ struct AppSnapOptions {
             )
         }
     }
+}
+
+func runAppSnapHistoryParsingSelfTest() -> Bool {
+    do {
+        guard case .historyWatch = try AppSnapOptions.parse(["--history-watch"]).mode,
+              case .historyApplications = try AppSnapOptions.parse(["--history-applications"]).mode,
+              case .screenCaptureChild = try AppSnapOptions.parse(["--screen-capture-child"]).mode,
+              case let .historyKeychain(operation, namespace) = try AppSnapOptions.parse([
+                  "--history-keychain-get", "--history-keychain-namespace", "moss-qa-fixture"
+              ]).mode, operation == "get", namespace == "moss-qa-fixture" else { return false }
+        for arguments in [
+            ["--history-watch", "--permission", "screenRecording"],
+            ["--history-self-test", "--history-watch"],
+            ["--history-keychain-get"],
+            ["--history-keychain-get", "--history-keychain-namespace", "../unsafe"],
+            ["--history-applications", "--history-keychain-namespace", "moss-qa-fixture"],
+            ["--screen-capture-child", "--output-dir", "/unused-fixture"],
+        ] {
+            if (try? AppSnapOptions.parse(arguments)) != nil { return false }
+        }
+        return true
+    } catch { return false }
 }
 
 func appSnapTimestamp() -> String {

@@ -4,7 +4,7 @@ import type {
   MossAccountSessionState,
   MossCloudAccountState,
   MossCloudAccountSummary,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -101,6 +101,14 @@ describe("SidebarAccountMenu", () => {
         .toBeVisible();
       await expect.element(page.getByRole("menuitem", { name: /设置.*⌘,/ })).toBeVisible();
       await expect.element(page.getByRole("menuitem", { name: "退出登录" })).toBeVisible();
+      expect(
+        page
+          .getByRole("menuitem", { name: "退出登录" })
+          .element()
+          .querySelector("[data-slot=central-icon]")
+          ?.getAttribute("style"),
+      ).toContain("arrow-box-left.svg");
+      await page.screenshot({ path: "../../../../output/playwright/account-sign-out.png" });
       expect(document.body.textContent).not.toMatch(/显示宠物|Show pet|显示 ?Mini|Show Mini/i);
     } finally {
       await screen.unmount();
@@ -194,6 +202,14 @@ describe("SidebarAccountMenu", () => {
     try {
       await openAccountMenu();
       await expect.element(page.getByRole("menuitem", { name: "登录" })).toBeVisible();
+      expect(
+        page
+          .getByRole("menuitem", { name: "登录" })
+          .element()
+          .querySelector("[data-slot=central-icon]")
+          ?.getAttribute("style"),
+      ).toContain("circle-person.svg");
+      await page.screenshot({ path: "../../../../output/playwright/account-sign-in.png" });
       expect(page.getByRole("menuitem", { name: "退出登录" }).length).toBe(0);
       await page.getByRole("menuitem", { name: "登录" }).click();
       expect(callbacks.onOpenAccount).toHaveBeenCalledOnce();

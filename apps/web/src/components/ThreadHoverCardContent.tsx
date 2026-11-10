@@ -8,7 +8,7 @@
 // Why: Shared by both the pinned and the nested thread-row tooltips so the two
 //      surfaces cannot drift apart.
 
-import type { ModelSelection, OrchestrationThreadPullRequest, ThreadId } from "@synara/contracts";
+import type { ModelSelection, OrchestrationThreadPullRequest, ThreadId } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import type { MouseEvent, ReactNode } from "react";
 
@@ -61,6 +61,11 @@ export type ThreadHoverCardContentProps = {
   status: ThreadStatusPill | null;
 };
 
+// A chat title can hold a whole multi-paragraph prompt (a provider may name the
+// thread after its first message). The card shows at most two lines of it, close to
+// T3 Code's one-line title, so it stays a compact summary at the shared card width.
+const TITLE_CLASS_NAME =
+  "line-clamp-2 min-w-0 flex-1 whitespace-normal [overflow-wrap:anywhere] font-medium leading-tight text-foreground";
 const META_ROW_CLASS_NAME = `${SIDEBAR_HOVER_CARD_ROW_CLASS_NAME} text-foreground/80`;
 const META_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground/75";
 
@@ -179,11 +184,8 @@ export function ThreadHoverCardContent({
     <div
       className={`flex w-full flex-col gap-0 ${SIDEBAR_HOVER_CARD_CONTAINER_PADDING_CLASS_NAME}`}
     >
-      <div className={SIDEBAR_HOVER_CARD_ROW_CLASS_NAME}>
-        <span
-          className="min-w-0 flex-1 whitespace-normal font-medium leading-tight text-foreground"
-          data-translation-skip="true"
-        >
+      <div className={cn(SIDEBAR_HOVER_CARD_ROW_CLASS_NAME, "items-baseline")}>
+        <span className={TITLE_CLASS_NAME} data-translation-skip="true">
           {title}
         </span>
         {timeLabel ? (

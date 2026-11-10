@@ -1,9 +1,9 @@
-import { collectErrorMessages } from "@synara/shared/errorMessages";
-import { MessageId, type ThreadId } from "@synara/contracts";
+import { collectErrorMessages } from "@moss/shared/errorMessages";
+import { MessageId, type ThreadId } from "@moss/contracts";
 import {
   ASYNC_USER_INPUT_ALREADY_ANSWERED,
   formatAsyncUserInputResponse,
-} from "@synara/shared/asyncUserInput";
+} from "@moss/shared/asyncUserInput";
 import { useCallback } from "react";
 import { newCommandId, randomUUID } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";

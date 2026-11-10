@@ -1,4 +1,4 @@
-import type { BrowserAnnotationMarker } from "@synara/contracts";
+import type { BrowserAnnotationMarker } from "@moss/contracts";
 
 import type { AnnotationGuestCommand } from "./protocol";
 
@@ -6,6 +6,7 @@ import type { AnnotationGuestCommand } from "./protocol";
 // keeps these values aligned with the public contracts.
 export const GUEST_ANNOTATION_PROTOCOL_VERSION = 1 as const;
 export const GUEST_ANNOTATION_MAX_COMMENT_LENGTH = 4_000;
+export const GUEST_ANNOTATION_MAX_HTML_LENGTH = 1_200;
 export const GUEST_ANNOTATION_MAX_NAME_LENGTH = 256;
 export const GUEST_ANNOTATION_MAX_PAGE_TITLE_LENGTH = 256;
 export const GUEST_ANNOTATION_MAX_ROLE_LENGTH = 64;

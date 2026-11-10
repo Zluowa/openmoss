@@ -10,7 +10,7 @@ import {
   type RuntimeMode,
   type ThreadId,
   type ToolLifecycleItemType,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 import * as AcpErrors from "./AcpErrors.ts";
 

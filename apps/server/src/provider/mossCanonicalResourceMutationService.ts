@@ -19,8 +19,8 @@ import type {
   MossUpdateResourceInput,
   MossUpdateResourcePayload,
   MossUpdateResourceResult,
-} from "@synara/contracts";
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+} from "@moss/contracts";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 
 import {
   canonicalMutationPlanHash,

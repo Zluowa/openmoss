@@ -1,6 +1,6 @@
 import { Effect, Layer, PubSub, Ref, ServiceMap, Stream } from "effect";
 
-import type { ProjectId, ThreadId } from "@synara/contracts";
+import type { ProjectId, ThreadId } from "@moss/contracts";
 
 export interface ServerLifecycleWelcomePayload {
   readonly cwd: string;
@@ -17,16 +17,6 @@ export interface ServerLifecycleReadyPayload {
   readonly at: string;
 }
 
-export interface ServerLifecycleMaintenancePayload {
-  readonly task: "thread-retention";
-  readonly state: "started" | "progress" | "completed" | "failed";
-  readonly at: string;
-  /** Legacy wire name retained so maintenance events remain backward-compatible. */
-  readonly deletedCount?: number;
-  readonly totalCount?: number;
-  readonly error?: string;
-}
-
 export type ServerLifecycleEvent =
   | {
       readonly sequence: number;
@@ -37,17 +27,11 @@ export type ServerLifecycleEvent =
       readonly sequence: number;
       readonly type: "ready";
       readonly payload: ServerLifecycleReadyPayload;
-    }
-  | {
-      readonly sequence: number;
-      readonly type: "maintenance";
-      readonly payload: ServerLifecycleMaintenancePayload;
     };
 
 type LifecycleEventInput =
   | Omit<Extract<ServerLifecycleEvent, { type: "welcome" }>, "sequence">
-  | Omit<Extract<ServerLifecycleEvent, { type: "ready" }>, "sequence">
-  | Omit<Extract<ServerLifecycleEvent, { type: "maintenance" }>, "sequence">;
+  | Omit<Extract<ServerLifecycleEvent, { type: "ready" }>, "sequence">;
 
 export interface ServerLifecycleSnapshot {
   readonly sequence: number;

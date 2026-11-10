@@ -13,7 +13,7 @@ import type {
   ProviderModelDescriptor,
   ServerProviderStatus,
   ThreadId as ThreadIdType,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   SidebarOrderRevision,
   AutomationId,
@@ -28,8 +28,8 @@ import {
   THREAD_GOAL_MAX_CHARS,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
-import { isTemporaryWorktreeBranch } from "@synara/shared/git";
+} from "@moss/contracts";
+import { isTemporaryWorktreeBranch } from "@moss/shared/git";
 import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -1571,6 +1571,8 @@ function makeClaudeGatewayRuntime(models: ModelInfo[]) {
           refresh: Effect.succeed([]),
           updateProvider: () =>
             Effect.die("Provider updates are not used by Claude gateway tests."),
+          installProvider: () =>
+            Effect.die("Provider installs are not used by Claude gateway tests."),
           startLogin: () => Effect.die("Provider login is not used by Claude gateway tests."),
           cancelLogin: () => Effect.die("Provider login is not used by Claude gateway tests."),
           streamChanges: Stream.empty,

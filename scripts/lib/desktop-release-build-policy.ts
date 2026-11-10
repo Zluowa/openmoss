@@ -3,6 +3,8 @@
 // Layer: Release/build helper
 // Depends on: Explicit release intent, platform signing state, and public config mode.
 
+import { normalizeSentryDsn } from "@moss/shared/sentryDsn";
+
 export const DESKTOP_RELEASE_MODES = ["build-only", "publish"] as const;
 
 export type DesktopReleaseMode = (typeof DESKTOP_RELEASE_MODES)[number];
@@ -30,6 +32,9 @@ export const WINDOWS_SSL_COM_RELEASE_SIGNING_ENV_KEYS = [
   "SSL_COM_CERTIFICATE_THUMBPRINT",
   "CODE_SIGN_TOOL_PATH",
 ] as const;
+
+/** The renderer reads the first at Vite build time; Electron main embeds the second. */
+export const RELEASE_SENTRY_DSN_ENV_KEYS = ["VITE_SENTRY_DSN", "MOSS_SENTRY_DSN"] as const;
 
 export interface DesktopReleaseBuildPolicyInput {
   readonly env: NodeJS.ProcessEnv;
@@ -98,6 +103,16 @@ export function validateDesktopReleaseBuildPolicy(input: DesktopReleaseBuildPoli
   if (input.productionConfigMode !== "strict") {
     throw new Error(
       "Public desktop releases require --production-config-mode strict so the allowlisted production endpoints are validated and embedded.",
+    );
+  }
+
+  // A build without a DSN looks healthy and silently drops every error it hits.
+  const missingSentryKeys = RELEASE_SENTRY_DSN_ENV_KEYS.filter(
+    (key) => !normalizeSentryDsn(input.env[key]),
+  );
+  if (missingSentryKeys.length > 0) {
+    throw new Error(
+      `Public desktop releases require a valid HTTPS Sentry DSN in: ${missingSentryKeys.join(", ")}.`,
     );
   }
 

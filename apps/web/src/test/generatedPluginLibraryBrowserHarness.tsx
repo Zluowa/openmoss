@@ -8,7 +8,7 @@ import type {
   OrchestrationReadModel,
   OrchestrationShellSnapshot,
   RealtimeVoiceState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render } from "vitest-browser-react";
 
@@ -20,6 +20,7 @@ import { useWorkspacePathsStore } from "~/workspacePathsStore";
 import { resetWsNativeApiForTest } from "~/wsNativeApi";
 import {
   unconfiguredMossCloudAccountState,
+  unconfiguredMossEnterpriseKeyState,
   unconfiguredMossPhoneAccountState,
 } from "./mossAccountStateFixtures";
 import {
@@ -132,6 +133,12 @@ function fallbackNativeMethod(namespace: string, method: string): unknown {
   // Contract-shaped list endpoints: server.listProviderUsage and server.listMcpConnectors
   // return bare arrays.
   if (method === "listProviderUsage" || method === "listMcpConnectors") return async () => [];
+  // The shell's Mossbot roster reads mossbotRooms.list, which returns a bare MossbotRoom[].
+  if (namespace === "mossbotRooms" && method === "list") return async () => [];
+  // ChatView's @devs receipts read server.listDevsReports; a thread with no reports gets this.
+  if (namespace === "server" && method === "listDevsReports") {
+    return async () => ({ configured: false, reports: [] });
+  }
   if (method.startsWith("list")) return async () => ({ data: [], entries: [], items: [] });
   if (method.startsWith("get")) return async () => null;
   return async () => undefined;
@@ -177,14 +184,7 @@ function createGeneratedRouteNativeApi(
 
   server.getMossCloudAccountState = async () => unconfiguredMossCloudAccountState;
   server.getMossAccountSession = async () => unconfiguredMossPhoneAccountState;
-  server.getMossEnterpriseKeyState = async () => ({
-    configured: false,
-    authenticated: false,
-    keyPrefix: null,
-    verifiedAt: null,
-    modelCount: 0,
-    active: false,
-  });
+  server.getMossEnterpriseKeyState = async () => unconfiguredMossEnterpriseKeyState;
   server.listWorktrees = async () => ({ worktrees: [] });
 
   const orchestration = {

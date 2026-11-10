@@ -29,6 +29,21 @@ describe("translateZhCnAppSnapFeedbackText", () => {
     );
   });
 
+  it("translates feedback screenshot copy and delivery failures, keeping file names", () => {
+    expect(translateZhCnAppSnapFeedbackText("Add images")).toBe("添加图片");
+    expect(translateZhCnAppSnapFeedbackText("Each image must be 5 MB or smaller.")).toBe(
+      "每张图片不能超过 5 MB。",
+    );
+    expect(
+      translateZhCnAppSnapFeedbackText(
+        "Too much feedback was sent from this computer today. Please try again tomorrow.",
+      ),
+    ).toBe("这台电脑今天发送的反馈已达上限，请明天再试。");
+    expect(translateZhCnAppSnapFeedbackText("Remove image: 截图 1.png")).toBe(
+      "移除图片：截图 1.png",
+    );
+  });
+
   it("preserves app names while translating dynamic AppSnap UI", () => {
     expect(
       translateZhCnAppSnapFeedbackText("AppSnap requires the Moss desktop app on macOS."),

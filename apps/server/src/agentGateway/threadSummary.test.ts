@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
-import type { OrchestrationMessage, OrchestrationThreadActivity } from "@synara/contracts";
-import { EventId, MessageId, ThreadId, TurnId } from "@synara/contracts";
+import type { OrchestrationMessage, OrchestrationThreadActivity } from "@moss/contracts";
+import { EventId, MessageId, ThreadId, TurnId } from "@moss/contracts";
 
 import {
   deriveAgentThreadLastError,

@@ -806,6 +806,47 @@ export class HoolaCanvasBridgeBroker {
     return running;
   }
 
+  async #cacheReturnedOutputs(record: HoolaCanvasJobRecord, urls: readonly string[]) {
+    if (!this.#cacheOutputs) return;
+    try {
+      record.assets = await this.#cacheOutputs(
+        record.jobId,
+        urls,
+        record.input.operation === "video" ? "video" : "image",
+      );
+      record.outputPersistenceStatus = record.assets.length === urls.length ? "ready" : "failed";
+    } catch {
+      record.outputPersistenceStatus = "failed";
+    }
+  }
+
+  async retrySavedOutput(jobId: string): Promise<HoolaCanvasJobSnapshot> {
+    const record = this.#jobs.get(jobId);
+    if (!record) throw new Error("job_not_found");
+    if (record.running) return record.running;
+    const urls = record.outputUrls ?? (record.outputAssetUrl ? [record.outputAssetUrl] : []);
+    if (
+      record.status !== "succeeded" ||
+      record.outputPersistenceStatus !== "failed" ||
+      !urls.length ||
+      !this.#cacheOutputs ||
+      this.#now() - record.updatedAt < 5_000
+    )
+      return snapshot(record);
+    // A completed, paid job already has supplier URLs. Only fetch its bytes on a later status check.
+    const running = this.#cacheReturnedOutputs(record, urls)
+      .then(async () => {
+        record.updatedAt = this.#now();
+        await this.#checkpoint(record);
+        return snapshot(record);
+      })
+      .finally(() => {
+        if (record.running === running) record.running = undefined;
+      });
+    record.running = running;
+    return running;
+  }
+
   async refreshBilling(
     jobId: string,
     credential: HoolaCanvasAuthorityCredential,
@@ -1051,17 +1092,7 @@ export class HoolaCanvasBridgeBroker {
               // They also receive their own public revision before this await.
               record.updatedAt = this.#now();
               await this.#checkpoint(record);
-              try {
-                record.assets = await this.#cacheOutputs(
-                  record.jobId,
-                  urls,
-                  record.input.operation === "video" ? "video" : "image",
-                );
-                record.outputPersistenceStatus =
-                  record.assets.length === urls.length ? "ready" : "failed";
-              } catch {
-                record.outputPersistenceStatus = "failed";
-              }
+              await this.#cacheReturnedOutputs(record, urls);
             }
             record.status = "succeeded";
             delete record.errorCode;

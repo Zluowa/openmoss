@@ -68,7 +68,7 @@ describe("PluginLibraryHeader", () => {
       await page.getByRole("button", { name: "Create" }).click();
       for (const label of [
         "Create plugin",
-        "Import plugins and skills",
+        "Import plugins, skills, and MCP",
         "Add marketplace",
         "Request a plugin",
       ]) {
@@ -82,7 +82,7 @@ describe("PluginLibraryHeader", () => {
       expect(menuLabels).toEqual([
         "Create plugin",
         "Add marketplace",
-        "Import plugins and skills",
+        "Import plugins, skills, and MCP",
         "Request a plugin",
       ]);
       for (const label of ["Create skill", "Record a skill"]) {
@@ -92,7 +92,7 @@ describe("PluginLibraryHeader", () => {
       expect(onCreatePlugin).toHaveBeenCalledOnce();
 
       await page.getByRole("button", { name: "Create" }).click();
-      await page.getByText("Import plugins and skills", { exact: true }).click();
+      await page.getByText("Import plugins, skills, and MCP", { exact: true }).click();
       expect(onImportPluginsAndSkills).toHaveBeenCalledOnce();
     } finally {
       await screen.unmount();

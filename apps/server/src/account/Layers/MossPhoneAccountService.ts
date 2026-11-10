@@ -9,10 +9,10 @@ import type {
   MossAccountUser,
   MossAccountUserId,
   MossPhoneNumber,
-} from "@synara/contracts";
-import { MossAccountSession as MossAccountSessionSchema } from "@synara/contracts";
-import type { MossAccountSession } from "@synara/contracts";
-import { Effect, Layer, Schema, Semaphore } from "effect";
+} from "@moss/contracts";
+import { MossAccountSession as MossAccountSessionSchema } from "@moss/contracts";
+import type { MossAccountSession } from "@moss/contracts";
+import { Duration, Effect, Layer, Schedule, Schema, Semaphore } from "effect";
 
 import { ServerSecretStore } from "../../auth/Services/ServerSecretStore";
 import {
@@ -47,6 +47,9 @@ const CHALLENGES_SECRET_NAME = "moss.phone.challenges";
 const CHALLENGE_GENERATION_SECRET_NAME = "moss.phone.challenge_generation";
 const OTP_TTL_MS = 10 * 60_000;
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000;
+// Background refresh leaves room for a deferred rotation before the bearer lapses.
+const MAINTENANCE_REFRESH_SKEW_MS = 5 * 60_000;
+const SESSION_MAINTENANCE_INTERVAL = Duration.minutes(1);
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 const JWT_SEGMENT_PATTERN = /^[A-Za-z0-9_-]+$/u;
@@ -778,6 +781,7 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
         authority: "memfire-phone",
         accessToken: stored.accessToken,
         gatewayBaseUrl,
+        now: now(),
       })
       .pipe(
         Effect.mapError(mapManagedProviderError),
@@ -787,6 +791,8 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
               return Effect.sync(() => (activeRealm = "cn")).pipe(Effect.as(modelGatewayStatus));
             case "owned-by-other":
               return Effect.sync(() => (activeRealm = null)).pipe(Effect.as(modelGatewayStatus));
+            case "same-authority-busy":
+              return Effect.sync(() => (activeRealm = "cn")).pipe(Effect.as(modelGatewayStatus));
             case "same-authority-stale":
             case "missing":
               return reconcile;
@@ -888,6 +894,7 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
 
   const resolveSession = (
     mode: ResolveSessionMode = "synchronize",
+    refreshSkewMs = ACCESS_TOKEN_REFRESH_SKEW_MS,
   ): Effect.Effect<ResolvedPhoneSession, MossAccountServiceError> =>
     Effect.gen(function* () {
       const finishedPendingLogout = yield* finishPendingLogout();
@@ -970,7 +977,7 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
       }
 
       let current = stored;
-      if (stored.accessTokenExpiresAt <= now() + ACCESS_TOKEN_REFRESH_SKEW_MS) {
+      if (stored.accessTokenExpiresAt <= now() + refreshSkewMs) {
         const refreshed = yield* Effect.tryPromise({
           try: () => auth.client.refresh(stored.refreshToken),
           catch: (cause) => cause,
@@ -1029,7 +1036,14 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
               ),
             ),
           );
-          yield* disableManagedProviderPreservingStoredSession(stored.accessToken);
+          // A running turn keeps its bearer until it ends; synchronization
+          // below then reports the surface as busy and maintenance retries.
+          const turnRunning = yield* managedProviderCoordinator
+            .hasRunningTurn({ authority: "memfire-phone", now: now() })
+            .pipe(Effect.mapError(mapManagedProviderError));
+          if (!turnRunning) {
+            yield* disableManagedProviderPreservingStoredSession(stored.accessToken);
+          }
         } else {
           if (current.version !== 3) {
             yield* disableManagedProviderPreservingStoredSession();
@@ -1067,10 +1081,9 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
         ),
       );
       if (
-        validation.kind === "expired" ||
-        (validation.kind === "valid" &&
-          (validation.result.id !== current.session.user.id ||
-            !authPhoneMatchesStored(validation.result.phone, current.session.user.phoneNumber)))
+        validation.kind === "valid" &&
+        (validation.result.id !== current.session.user.id ||
+          !authPhoneMatchesStored(validation.result.phone, current.session.user.phoneNumber))
       ) {
         yield* clearStoredSessionAndManagedProvider();
         return unresolvedPhoneSession(
@@ -1078,6 +1091,58 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
           "session_expired",
           "手机号登录状态已过期，请重新登录。",
         );
+      }
+      // The bearer was rejected before its local expiry (a wrong clock, a
+      // rotated signing key). Only the refresh token decides the session ended.
+      if (validation.kind === "expired") {
+        const previous = current;
+        const recovered = yield* Effect.tryPromise({
+          try: () => auth.client.refresh(previous.refreshToken),
+          catch: (cause) => cause,
+        }).pipe(
+          Effect.map((session) => ({ kind: "refreshed" as const, session })),
+          Effect.catch((cause) =>
+            Effect.succeed(
+              cause instanceof SupabaseMossAuthError &&
+                !isExpiredAuthError(cause) &&
+                (cause.retryable || cause.code === "network_error")
+                ? { kind: "offline" as const }
+                : { kind: "expired" as const },
+            ),
+          ),
+        );
+        if (
+          recovered.kind === "expired" ||
+          (recovered.kind === "refreshed" &&
+            (recovered.session.user.id !== previous.session.user.id ||
+              !authPhoneMatchesStored(
+                recovered.session.user.phone,
+                previous.session.user.phoneNumber,
+              )))
+        ) {
+          yield* clearStoredSessionAndManagedProvider();
+          return unresolvedPhoneSession(
+            true,
+            "session_expired",
+            "手机号登录状态已过期，请重新登录。",
+          );
+        }
+        if (recovered.kind === "refreshed") {
+          current = {
+            version: 3,
+            realm: "memfire-phone",
+            issuer: auth.config.issuer,
+            accessToken: recovered.session.accessToken,
+            refreshToken: recovered.session.refreshToken,
+            accessTokenExpiresAt: recovered.session.expiresAt,
+            session: {
+              ...previous.session,
+              expiresAt: new Date(recovered.session.expiresAt).toISOString(),
+              lastSeenAt: new Date(now()).toISOString(),
+            },
+          };
+          yield* persistStoredSession(current);
+        }
       }
       if (mode === "validate-only" && validation.kind === "offline") {
         return yield* Effect.fail(
@@ -1138,6 +1203,23 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
 
   const getSession: MossPhoneAccountServiceShape["getSession"] = () =>
     serialize(resolveSession()).pipe(Effect.map((resolved) => resolved.state));
+
+  const maintainSession: NonNullable<MossPhoneAccountServiceShape["maintainSession"]> = () =>
+    serialize(
+      Effect.gen(function* () {
+        if (!auth.available) return;
+        const stored = yield* readStoredSession();
+        if (!stored) return;
+        if (
+          stored.version !== 3 ||
+          stored.accessTokenExpiresAt <= now() + MAINTENANCE_REFRESH_SKEW_MS
+        ) {
+          yield* resolveSession("synchronize", MAINTENANCE_REFRESH_SKEW_MS);
+          return;
+        }
+        yield* synchronizeManagedProvider(stored, "preserve");
+      }),
+    );
 
   const getLocalAuthority: MossPhoneAccountServiceShape["getLocalAuthority"] = () =>
     Effect.gen(function* () {
@@ -1275,6 +1357,18 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
           ...(gatewayStatus ? { modelGatewayStatus: gatewayStatus } : {}),
         } satisfies MossAccountActiveRealmState;
       }),
+    );
+
+  const activateRealmOnStartup: NonNullable<
+    MossPhoneAccountServiceShape["activateRealmOnStartup"]
+  > = () =>
+    managedProviderCoordinator.getLocalActiveAuthority().pipe(
+      Effect.orElseSucceed(() => null),
+      Effect.flatMap((owner) =>
+        owner !== null && owner !== "memfire-phone"
+          ? Effect.succeed({ activeRealm: null } satisfies MossAccountActiveRealmState)
+          : activateRealm({ realm: "cn" }),
+      ),
     );
 
   const startPhoneLogin: MossPhoneAccountServiceShape["startPhoneLogin"] = (input) =>
@@ -1452,16 +1546,42 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
   // publish or consume account/provider state.
   return {
     getSession,
+    maintainSession,
     getLocalAuthority,
     restoreSession,
     getAccessToken,
     getAuthorityCredential,
     activateRealm,
+    activateRealmOnStartup,
     startPhoneLogin,
     verifyPhoneLogin,
     logout,
   };
 });
+
+export const maintainMossPhoneAccountSession = (
+  service: Pick<MossPhoneAccountServiceShape, "maintainSession">,
+) =>
+  (service.maintainSession?.() ?? Effect.void).pipe(
+    Effect.catch((error) =>
+      Effect.logWarning("failed to maintain Moss phone account session", {
+        code: error.code,
+        message: error.message,
+      }),
+    ),
+  );
+
+/** The cloud lane's maintenance loop, for a session nobody is reading from the UI. */
+export const startMossPhoneAccountSessionMaintenance = (
+  service: Pick<MossPhoneAccountServiceShape, "maintainSession">,
+) =>
+  maintainMossPhoneAccountSession(service).pipe(
+    // The delay stays outside the repeat: inside it, every tick waits for both.
+    Effect.repeat(Schedule.spaced(SESSION_MAINTENANCE_INTERVAL)),
+    Effect.delay(SESSION_MAINTENANCE_INTERVAL),
+    Effect.forkScoped,
+    Effect.asVoid,
+  );
 
 export const MossPhoneAccountServiceLive = Layer.effect(
   MossPhoneAccountService,

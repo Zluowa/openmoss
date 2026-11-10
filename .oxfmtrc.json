@@ -14,6 +14,9 @@
     ".claude",
     ".moss",
     "third_party/**",
+    "scripts/lib/runtime-bump/reviewed-notices/*.md",
+    "scripts/lib/runtime-bump/reviewed-notices/*.txt",
+    "apps/server/src/pages/apps/vendor/**",
     "apps/web/public/mockServiceWorker.js",
     "apps/web/public/inline-visualization-libs/**"
   ],

@@ -1,6 +1,6 @@
 import "../index.css";
-import type { BrowserVaultMethods, BrowserVaultSnapshot } from "@synara/contracts";
-import { ThreadId } from "@synara/contracts";
+import type { BrowserVaultMethods, BrowserVaultSnapshot } from "@moss/contracts";
+import { ThreadId } from "@moss/contracts";
 import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

@@ -5,7 +5,7 @@
 
 import "../../index.css";
 
-import type { ProfileHeatmapCell, ProfileStats, ProfileTokenStats } from "@synara/contracts";
+import type { ProfileHeatmapCell, ProfileStats, ProfileTokenStats } from "@moss/contracts";
 import { page, userEvent } from "vitest/browser";
 import { beforeEach, describe, expect, it } from "vitest";
 import { render } from "vitest-browser-react";

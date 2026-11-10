@@ -27,6 +27,12 @@ whose result depends directly on pixel/font/layout measurements.
 Total quarantined cases: **5**. This inventory reflects the existing source tags;
 the CI partition change adds no quarantine markers.
 
+Geometry collection includes only files in this tag inventory. CI runs that
+inventory once on component worker `1/2`, without component file sharding;
+the blocking stable workers still cover every untagged test. The partition
+contract rejects missing, renamed, newly added, or uncountable geometry tags
+until the inventory and collection configuration are reviewed together.
+
 Explicitly not quarantined:
 
 - delayed attachment loading must remain bottom-stuck;

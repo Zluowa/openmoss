@@ -14,7 +14,7 @@ const allowedGenericReadSources = new Set([
 const files = execFileSync(
   "git",
   ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-  { encoding: "utf8" },
+  { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
 )
   .split("\0")
   .filter((file) => sourceExtensions.test(file));

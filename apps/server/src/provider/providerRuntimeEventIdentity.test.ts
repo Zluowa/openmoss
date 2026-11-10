@@ -1,4 +1,4 @@
-import { EventId, ThreadId, type ProviderRuntimeEvent } from "@synara/contracts";
+import { EventId, ThreadId, type ProviderRuntimeEvent } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { assignDerivedProviderRuntimeEventIds } from "./providerRuntimeEventIdentity.ts";

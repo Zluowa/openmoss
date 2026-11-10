@@ -6,7 +6,7 @@ import type {
   MossAccountSessionState,
   MossCloudAccountState,
   MossEnterpriseKeyState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 
 import {

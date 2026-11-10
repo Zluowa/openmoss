@@ -14,7 +14,7 @@ import {
   type ServerSettings,
   type ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   RouterProvider,
@@ -158,6 +158,8 @@ function makeNativeApi(
       getProviderUsageSnapshot: vi.fn(async () => options.providerUsageSnapshot ?? null),
       listProviderUsage: vi.fn(async () => []),
       listMcpConnectors: vi.fn(async () => []),
+      // The real ChatView mounts @devs receipts; a thread with no reports gets this.
+      listDevsReports: vi.fn(async () => ({ configured: false, reports: [] })),
     }) as NativeApi["server"],
     orchestration: makeNamespace({
       dispatchCommand: vi.fn(async () => undefined),

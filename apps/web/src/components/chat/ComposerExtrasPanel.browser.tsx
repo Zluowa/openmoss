@@ -13,7 +13,7 @@ import type {
   DesktopAppSnapState,
   ProviderInteractionMode,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const harness = vi.hoisted(() => ({
   insertAppSnapCaptureIntoDraft: vi.fn(),

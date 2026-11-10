@@ -3,7 +3,7 @@
 //   MOSS_LIVE_OMP=1 bunx vitest run src/provider/Layers/OmpAdapter.live.test.ts
 // Requires `omp` on PATH (or OMP_LIVE_BINARY) with working provider credentials.
 
-import { ThreadId, type ProviderRuntimeEvent } from "@synara/contracts";
+import { ThreadId, type ProviderRuntimeEvent } from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as OfficialAcp from "@agentclientprotocol/sdk";
 import { Effect, Layer, Queue, Sink, Stream } from "effect";

@@ -3,7 +3,7 @@ import {
   type PagesMutateInput,
   type PagesMutateResult,
   type PagesReadResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PageEditorSession } from "./pageEditorSession";
 

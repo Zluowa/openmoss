@@ -9,6 +9,12 @@ const CustomModels = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).
   Schema.withDecodingDefault(() => []),
 );
 export const DEFAULT_CODEX_ACCOUNT_ID = "default";
+/**
+ * Codex account ids owned by Moss itself. Each launches only through its own
+ * server-provisioned provider instance (`codex_moss`, `codex_byok`), which
+ * carries the runtime generation and credentials the Codex runtime requires.
+ */
+export const RESERVED_CODEX_ACCOUNT_IDS: ReadonlyArray<string> = ["moss", "byok"];
 
 // How long an idle side chat stays usable before the server expires it.
 export const SidechatExpiry = Schema.Literals(["1h", "24h", "never"]);
@@ -46,6 +52,7 @@ export const CodexServerProviderSettings = Schema.Struct({
   ...ProviderSettingsBase,
   binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "codex")),
   homePath: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
+  shareStateAcrossAccounts: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   accounts: CodexAccountConfigs,
   selectedAccountId: CodexAccountId.pipe(
     Schema.withDecodingDefault(() => DEFAULT_CODEX_ACCOUNT_ID),
@@ -57,6 +64,8 @@ export const ClaudeServerProviderSettings = Schema.Struct({
   ...ProviderSettingsBase,
   binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "claude")),
   homePath: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
+  shareStateAcrossAccounts: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  sharedProjectsPath: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
   launchArgs: Schema.String.check(Schema.isMaxLength(4096)).pipe(
     Schema.withDecodingDefault(() => ""),
   ),
@@ -168,6 +177,7 @@ export type KeepAwakeMode = typeof KeepAwakeMode.Type;
 export const DEFAULT_KEEP_AWAKE_MODE: KeepAwakeMode = "off";
 
 export const ServerSettings = Schema.Struct({
+  errorReportsEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
   keepAwakeMode: KeepAwakeMode.pipe(Schema.withDecodingDefault(() => DEFAULT_KEEP_AWAKE_MODE)),
@@ -245,11 +255,10 @@ export function hasConfiguredLegacyProviderSettings(
     }
     return (
       settings.providers.codex.accounts.some(
-        (account) => account.id !== "moss" && account.id !== "byok",
+        (account) => !RESERVED_CODEX_ACCOUNT_IDS.includes(account.id),
       ) ||
       (settings.providers.codex.selectedAccountId !== DEFAULT_CODEX_ACCOUNT_ID &&
-        settings.providers.codex.selectedAccountId !== "moss" &&
-        settings.providers.codex.selectedAccountId !== "byok")
+        !RESERVED_CODEX_ACCOUNT_IDS.includes(settings.providers.codex.selectedAccountId))
     );
   }
   const bucket = (settings.providers as Record<string, unknown>)[provider];
@@ -289,6 +298,7 @@ const AcpAgentServerProviderSettingsPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  errorReportsEnabled: Schema.optionalKey(Schema.Boolean),
   enableAssistantStreaming: Schema.optionalKey(Schema.Boolean),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   keepAwakeMode: Schema.optionalKey(KeepAwakeMode),
@@ -306,6 +316,7 @@ export const ServerSettingsPatch = Schema.Struct({
         Schema.Struct({
           ...ProviderSettingsBasePatch,
           homePath: Schema.optionalKey(StringSetting),
+          shareStateAcrossAccounts: Schema.optionalKey(Schema.Boolean),
           accounts: Schema.optionalKey(CodexAccountConfigs),
           selectedAccountId: Schema.optionalKey(CodexAccountId),
         }),
@@ -314,6 +325,8 @@ export const ServerSettingsPatch = Schema.Struct({
         Schema.Struct({
           ...ProviderSettingsBasePatch,
           homePath: Schema.optionalKey(StringSetting),
+          shareStateAcrossAccounts: Schema.optionalKey(Schema.Boolean),
+          sharedProjectsPath: Schema.optionalKey(StringSetting),
           launchArgs: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4096))),
           enableArtifacts: Schema.optionalKey(Schema.Boolean),
         }),

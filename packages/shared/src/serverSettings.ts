@@ -2,13 +2,14 @@ import {
   DEFAULT_CODEX_ACCOUNT_ID,
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
+  RESERVED_CODEX_ACCOUNT_IDS,
   type ModelSelection,
   type ProviderStartOptions,
   type ProviderKind,
   type ServerSettings,
   type ServerSettingsPatch,
   isSupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { deepMerge, type DeepPartial } from "./Struct";
 import { defaultInstanceIdForProvider, deriveProviderInstances } from "./providerInstances";
 
@@ -105,8 +106,14 @@ export function providerStartOptionsFromServerSettings(
   settings: ServerSettings,
 ): ProviderStartOptions {
   const { providers } = settings;
+  // Moss sign-in points the legacy account selection at its reserved account,
+  // but that account only runs through its own provider instance, which holds
+  // the server-issued runtime generation and credentials. Resolving it here
+  // would launch the plain Codex instance as that account without either, and
+  // Codex refuses the start; the plain instance keeps the person's own login.
   const selectedCodexAccount =
-    providers.codex.selectedAccountId === DEFAULT_CODEX_ACCOUNT_ID
+    providers.codex.selectedAccountId === DEFAULT_CODEX_ACCOUNT_ID ||
+    RESERVED_CODEX_ACCOUNT_IDS.includes(providers.codex.selectedAccountId)
       ? undefined
       : providers.codex.accounts.find(
           (account) => account.id === providers.codex.selectedAccountId,

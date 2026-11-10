@@ -1,8 +1,8 @@
 import "~/index.css";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ProjectId, ThreadId } from "@synara/contracts";
-import type { ProjectAgentOverview } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
+import type { ProjectAgentOverview } from "@moss/contracts";
 import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -69,8 +69,10 @@ vi.mock("~/components/PluginLibrary", () => ({
   PluginLibrary: () => <div data-testid="plugin-library-stub">PluginLibrary stub</div>,
 }));
 
+import { MossLocaleScope } from "~/localization";
 import { makeProject } from "~/storeTestFixtures";
 import { useStore } from "~/store";
+import { useWorkspacePathsStore } from "~/workspacePathsStore";
 
 import { GroupSettingsDialog } from "./GroupSettingsDialog";
 
@@ -184,6 +186,39 @@ describe("GroupSettingsDialog", () => {
     expect(typeof payload.requestId).toBe("string");
     // Name unchanged: no rename command dispatched.
     expect(api.orchestration.dispatchCommand).not.toHaveBeenCalled();
+  });
+
+  it("tells the server the active locale and leaves out a home folder that isn't a name", async () => {
+    const savedHomeDir = useWorkspacePathsStore.getState().homeDir;
+    useWorkspacePathsStore.getState().setHomeDir("C:\\Users\\60948");
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await render(
+        <QueryClientProvider client={queryClient}>
+          <MossLocaleScope locale="zh-CN">
+            <GroupSettingsDialog
+              open
+              mode="edit"
+              projectId={PROJECT_ID}
+              projectName="alpha"
+              workspacePath="/tmp/group"
+              defaultModelSelection={{ provider: "codex", model: "gpt-5-codex" }}
+              onOpenChange={vi.fn()}
+            />
+          </MossLocaleScope>
+        </QueryClientProvider>,
+      );
+
+      await page.getByLabelText("Hub goal").fill("grow the library");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+
+      await vi.waitFor(() => expect(api.projectAgent.configure).toHaveBeenCalledOnce());
+      const payload = api.projectAgent.configure.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(payload.userLocale).toBe("zh-CN");
+      expect(payload).not.toHaveProperty("userDisplayName");
+    } finally {
+      useWorkspacePathsStore.getState().setHomeDir(savedHomeDir);
+    }
   });
 
   it("shows the effective ceiling for a legacy limit while preserving the saved value until explicitly changed", async () => {

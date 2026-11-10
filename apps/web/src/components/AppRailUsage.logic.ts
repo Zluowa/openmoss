@@ -1,16 +1,13 @@
 // FILE: AppRailUsage.logic.ts
 // Purpose: Pure selection rules for the provider usage rings at the bottom of the app rail.
 
-import type { ProviderInstanceId, ProviderKind } from "@synara/contracts";
-import type { ResolvedProviderInstance } from "@synara/shared/providerInstances";
-import { PROVIDER_USAGE_PROVIDERS, providerUsageDisplayName } from "@synara/shared/providerUsage";
+import type { ProviderInstanceId, ProviderKind } from "@moss/contracts";
+import type { ResolvedProviderInstance } from "@moss/shared/providerInstances";
+import { PROVIDER_USAGE_PROVIDERS, providerUsageDisplayName } from "@moss/shared/providerUsage";
 
 import type { RailUsageWindow } from "~/appSettings";
 import { providerAccountQualifiedLabel } from "~/lib/providerInstancePresentation";
 import type { ProviderUsageDisplayRow } from "~/lib/providerUsageDisplay";
-
-/** The rail is one icon wide, so only a couple of rings fit above the Help button. */
-export const MAX_RAIL_USAGE_ACCOUNTS = 2;
 
 export interface RailUsageAccount {
   readonly instance: ResolvedProviderInstance;
@@ -49,38 +46,29 @@ export function getRailUsageAccounts(
   });
 }
 
-/** Stored selection → unique available accounts, capped after dropping stale ids. */
+/** Stored selection → unique available accounts, in the order they were chosen. */
 export function resolveRailUsageAccounts(
   selected: ReadonlyArray<ProviderInstanceId>,
   available: ReadonlyArray<RailUsageAccount>,
 ): ReadonlyArray<RailUsageAccount> {
   const byId = new Map(available.map((account) => [account.instance.instanceId, account]));
-  return [...new Set(selected)]
-    .flatMap((instanceId) => {
-      const account = byId.get(instanceId);
-      return account ? [account] : [];
-    })
-    .slice(0, MAX_RAIL_USAGE_ACCOUNTS);
+  return [...new Set(selected)].flatMap((instanceId) => {
+    const account = byId.get(instanceId);
+    return account ? [account] : [];
+  });
 }
 
-/** Next selection after a Settings toggle; an account past the cap is ignored. */
+/** Next selection after a Settings toggle. Any number of accounts can sit in the rail. */
 export function toggleRailUsageAccount(
   selected: ReadonlyArray<ProviderInstanceId>,
   instanceId: ProviderInstanceId,
   enabled: boolean,
-  available: ReadonlyArray<RailUsageAccount>,
 ): ReadonlyArray<ProviderInstanceId> {
   const current = [...new Set(selected)];
   if (!enabled) {
     return current.filter((entry) => entry !== instanceId);
   }
-  if (
-    current.includes(instanceId) ||
-    resolveRailUsageAccounts(current, available).length >= MAX_RAIL_USAGE_ACCOUNTS
-  ) {
-    return current;
-  }
-  return [...current, instanceId];
+  return current.includes(instanceId) ? current : [...current, instanceId];
 }
 
 /**

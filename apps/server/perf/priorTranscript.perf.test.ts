@@ -1,7 +1,7 @@
 // MOSS_PERF=1 MOSS_PERF_OUT=/tmp/prior-transcript.json bun run --cwd apps/server test perf/priorTranscript.perf.test.ts
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { MessageId, type OrchestrationMessage } from "@synara/contracts";
+import { MessageId, type OrchestrationMessage } from "@moss/contracts";
 import { expect, it } from "vitest";
 import { listPriorTranscriptMessages } from "../src/orchestration/handoff";
 

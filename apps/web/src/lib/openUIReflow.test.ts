@@ -3,7 +3,7 @@
 //          building, URL routing, composer draft injection).
 // Layer: Web chat presentation logic tests
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { useComposerDraftStore } from "../composerDraftStore";

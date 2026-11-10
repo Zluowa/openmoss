@@ -1,4 +1,4 @@
-import type { MossResourceImportApplyResult } from "@synara/contracts";
+import type { MossResourceImportApplyResult } from "@moss/contracts";
 
 export class MossResourceImportReceiptAdapterError extends Error {
   readonly code: "durability-unsupported" | "transaction-invalid";

@@ -42,18 +42,19 @@ import {
   type ProviderInstanceId,
   type ProviderRuntimeEvent,
   type ProviderSession,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   mergeProviderStartOptions,
   providerStartOptionsFromInstance,
+  withServerSelectedAgentProgram,
   type ResolvedProviderInstance,
   resolveModelSelectionInstanceId,
   resolveProviderInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import {
   providerSupportsAutoRuntimeMode,
   unsupportedAutoRuntimeModeMessage,
-} from "@synara/shared/runtimeMode";
+} from "@moss/shared/runtimeMode";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import {
@@ -70,8 +71,8 @@ import {
   Scope,
   Stream,
 } from "effect";
-import { nonEmptyTrimmed } from "@synara/shared/text";
-import { isCompactionCommandText } from "@synara/shared/contextCompaction";
+import { nonEmptyTrimmed } from "@moss/shared/text";
+import { isCompactionCommandText } from "@moss/shared/contextCompaction";
 import { computerApprovalGate } from "../../computer/ComputerApprovalGate.ts";
 
 import {
@@ -82,13 +83,16 @@ import {
 } from "../Errors.ts";
 import type {
   ProviderAdapterShape,
+  ProviderAdapterSessionStartInput,
   ProviderTurnDispatchOptions,
 } from "../Services/ProviderAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
+  type SharedAccountSwitch,
   type ProviderRuntimeStopControlReceipt,
+  type ProviderRuntimeStoppedTurn,
 } from "../Services/ProviderService.ts";
 import {
   MossLaunchPlan,
@@ -101,13 +105,31 @@ import {
   ProviderGetLaunchPlanResult,
   ProviderGetLoopLedgerDashboardSnapshotInput,
   ProviderGetLoopLedgerDashboardSnapshotResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { normalizeProviderRuntimeEvents } from "../mossNormalizeEvent.ts";
 import type { CodexAdapterShape } from "../Services/CodexAdapter.ts";
+import type { CodexRegisteredRuntimeStopScope } from "../../codexAppServerManager.ts";
 import type { ProviderPermissionActionContext } from "../Services/ProviderAdapter.ts";
-import { uniqueCodexLifecycleHomeIdentityPaths } from "../../codexHomeIdentity.ts";
+import {
+  uniqueCodexCredentialHomeIdentityPaths,
+  readCodexCredentialFence,
+  canonicalizeCodexHomeIdentityPath,
+  type CodexCredentialScopeInput,
+} from "../../codexHomeIdentity.ts";
+import {
+  codexStateBindingAccountFromSettings,
+  codexStateBindingReference,
+  makeCodexStateBindingAccess,
+} from "../codexStateBinding.ts";
+import {
+  claudeStateBindingAccountFromSettings,
+  claudeStateBindingReference,
+  makeClaudeStateBindingAccess,
+  readClaudeStateBinding,
+  type ClaudeStateBindingOptions,
+} from "../claudeStateBinding.ts";
 import { readMossLoopLedgerDashboardSnapshot } from "../../../../../scripts/lib/moss-loop-ledger-snapshot.ts";
-import { MOSS_RELATIVE_PATHS } from "@synara/shared/mossSourceLayout";
+import { MOSS_RELATIVE_PATHS } from "@moss/shared/mossSourceLayout";
 import {
   ProviderSessionDirectory,
   type ProviderRuntimeBinding,
@@ -142,6 +164,8 @@ import {
 } from "../../agentGateway/sessionLease.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerConfig } from "../../config.ts";
+import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { resolveThreadExecutionWorkspace } from "../../threadExecutionWorkspace.ts";
 import {
   readManagedCodexHomeAuthority,
   type ManagedCodexHomeAuthority,
@@ -156,6 +180,10 @@ import {
   prepareProviderContinuationIdentityForImport,
   providerContinuationIdentity,
 } from "../continuationIdentity.ts";
+import { MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID } from "../claudeEnvironment.ts";
+import { MOSS_MANAGED_OPENCODE_PROVIDER_INSTANCE_ID } from "../mossManagedOpenCodeEnvironment.ts";
+import { MOSS_MANAGED_PI_PROVIDER_INSTANCE_ID } from "../mossManagedPiEnvironment.ts";
+import { isMossManagedRelayInstanceId } from "../../account/managedRelayProviders.ts";
 
 // Devin and Grok report a cursor they cannot reload faithfully (missing native
 // state, or created for other process-start model flags) as resume-state-unavailable.
@@ -185,6 +213,8 @@ export interface ProviderServiceLiveOptions {
   /** Test override for supervised event retry timing. */
   readonly runtimeEventRetryBaseDelayMs?: number;
   readonly runtimeEventRetryMaxDelayMs?: number;
+  /** Bounded grace period for Codex terminal journaling after Stop/interrupt ACK. */
+  readonly codexInterruptSettlementTimeoutMs?: number;
   /** Server-authoritative start gate. Omit only in isolated tests and embedded callers. */
   readonly providerIsEnabled?: (
     provider: ProviderKind,
@@ -376,6 +406,12 @@ function toRuntimePayloadFromSession(
       ? redactProviderOptionsForPersistence(extra.providerOptions)
       : undefined;
   const hasPersistableProviderOptions = Schema.is(ProviderStartOptions)(extra?.providerOptions);
+  const stateBindingReference = hasPersistableProviderOptions
+    ? codexStateBindingReference(extra.providerOptions.codex)
+    : undefined;
+  const claudeBindingReference = hasPersistableProviderOptions
+    ? claudeStateBindingReference(extra.providerOptions.claudeAgent)
+    : undefined;
   const credentialsFingerprint =
     hasPersistableProviderOptions && Schema.is(ProviderKind)(session.provider)
       ? credentialsFingerprintForProvider(
@@ -409,6 +445,16 @@ function toRuntimePayloadFromSession(
       ? { providerOptions: persistedProviderOptions }
       : extra?.launchOptionsAuthoritative
         ? { providerOptions: null }
+        : {}),
+    ...(stateBindingReference !== undefined
+      ? { codexStateBindingReference: stateBindingReference }
+      : extra?.launchOptionsAuthoritative
+        ? { codexStateBindingReference: null }
+        : {}),
+    ...(claudeBindingReference !== undefined
+      ? { claudeStateBindingReference: claudeBindingReference }
+      : extra?.launchOptionsAuthoritative
+        ? { claudeStateBindingReference: null }
         : {}),
     ...(hasPersistableProviderOptions
       ? { providerOptionsCredentialsFingerprint: credentialsFingerprint ?? null }
@@ -446,10 +492,16 @@ function redactProviderOptionsForPersistence(value: unknown): unknown {
   if (!Schema.is(ProviderStartOptions)(value)) {
     return value;
   }
+  const { credentialFence: _fence, ...codex } = (value.codex ?? {}) as NonNullable<
+    ProviderStartOptions["codex"]
+  > &
+    CodexCredentialScopeInput;
+  const { stateBinding: _claudeBinding, ...claudeAgent } = (value.claudeAgent ??
+    {}) as ClaudeStateBindingOptions;
   return {
     ...value,
-    ...(value.codex ? { codex: redactRuntimeEnvironment(value.codex) } : {}),
-    ...(value.claudeAgent ? { claudeAgent: redactRuntimeEnvironment(value.claudeAgent) } : {}),
+    ...(value.codex ? { codex: redactRuntimeEnvironment(codex) } : {}),
+    ...(value.claudeAgent ? { claudeAgent: redactRuntimeEnvironment(claudeAgent) } : {}),
     ...(value.cursor ? { cursor: redactRuntimeEnvironment(value.cursor) } : {}),
     ...(value.devin ? { devin: redactRuntimeEnvironment(value.devin) } : {}),
     ...(value.antigravity ? { antigravity: redactRuntimeEnvironment(value.antigravity) } : {}),
@@ -484,6 +536,57 @@ function readPersistedModelSelection(
 ): ModelSelection | undefined {
   const raw = runtimePayloadRecord(runtimePayload).modelSelection;
   return Option.getOrUndefined(Schema.decodeUnknownOption(ModelSelection)(raw));
+}
+
+function codexTurnSettlementForEvent(
+  event: ProviderRuntimeEvent,
+): ProviderRuntimeStoppedTurn | undefined {
+  if (
+    event.provider !== "codex" ||
+    event.turnId === undefined ||
+    event.providerRefs?.providerParentThreadId !== undefined ||
+    (event.type !== "turn.completed" && event.type !== "turn.aborted")
+  )
+    return undefined;
+  const state = event.type === "turn.aborted" ? "interrupted" : event.payload?.state;
+  if (
+    state !== "completed" &&
+    state !== "failed" &&
+    state !== "interrupted" &&
+    state !== "cancelled"
+  )
+    return undefined;
+  return {
+    turnId: event.turnId,
+    lifecycleGeneration: event.lifecycleGeneration,
+    state:
+      state === "interrupted" || state === "cancelled"
+        ? "interrupted"
+        : state === "failed"
+          ? "error"
+          : "completed",
+  };
+}
+
+function readCodexTurnSettlement(
+  binding: ProviderRuntimeBinding | undefined,
+): ProviderRuntimeStoppedTurn | undefined {
+  if (binding?.provider !== "codex") return undefined;
+  const receipt = runtimePayloadRecord(
+    runtimePayloadRecord(binding.runtimePayload).codexTurnSettlement,
+  );
+  if (
+    typeof receipt.turnId !== "string" ||
+    receipt.turnId.length === 0 ||
+    receipt.lifecycleGeneration !== binding.lifecycleGeneration ||
+    (receipt.state !== "completed" && receipt.state !== "interrupted" && receipt.state !== "error")
+  )
+    return undefined;
+  return {
+    turnId: TurnId.makeUnsafe(receipt.turnId),
+    lifecycleGeneration: binding.lifecycleGeneration,
+    state: receipt.state,
+  };
 }
 
 function readPersistedProviderOptions(
@@ -594,6 +697,23 @@ function continuationOwningProviderOptions(
   return Object.keys(owning).length > 0 ? owning : undefined;
 }
 
+function continuationOwningOptionsEqual(
+  provider: ProviderKind,
+  persisted: ProviderStartOptions | undefined,
+  current: ProviderStartOptions | undefined,
+): boolean {
+  return isDeepStrictEqual(
+    continuationOwningProviderOptions(
+      provider,
+      redactProviderOptionsForPersistence(persisted) as ProviderStartOptions | undefined,
+    ),
+    continuationOwningProviderOptions(
+      provider,
+      redactProviderOptionsForPersistence(current) as ProviderStartOptions | undefined,
+    ),
+  );
+}
+
 function providerStartOptionsEqualForProvider(
   provider: ProviderKind,
   credentialsFingerprintKey: Uint8Array,
@@ -603,17 +723,8 @@ function providerStartOptionsEqualForProvider(
   },
   current: ProviderStartOptions | undefined,
 ): boolean {
-  const persistedOptions = redactProviderOptionsForPersistence(persisted.options) as
-    | ProviderStartOptions
-    | undefined;
-  const currentOptions = redactProviderOptionsForPersistence(current) as
-    | ProviderStartOptions
-    | undefined;
   return (
-    isDeepStrictEqual(
-      continuationOwningProviderOptions(provider, persistedOptions),
-      continuationOwningProviderOptions(provider, currentOptions),
-    ) &&
+    continuationOwningOptionsEqual(provider, persisted.options, current) &&
     persisted.credentialsFingerprint ===
       credentialsFingerprintForProvider(provider, current, credentialsFingerprintKey)
   );
@@ -630,18 +741,33 @@ function persistedLaunchMatchesExactly(input: {
   readonly providerOptions: ProviderStartOptions | undefined;
   readonly credentialsFingerprintKey: Uint8Array;
 }): boolean {
-  return (
-    input.binding.provider === input.provider &&
-    providerInstanceIdFromBinding(input.binding) === input.providerInstanceId &&
-    providerStartOptionsEqualForProvider(
-      input.provider,
-      input.credentialsFingerprintKey,
-      {
-        options: readPersistedProviderOptions(input.binding.runtimePayload),
-        credentialsFingerprint: readPersistedCredentialsFingerprint(input.binding.runtimePayload),
-      },
-      input.providerOptions,
-    )
+  if (
+    input.binding.provider !== input.provider ||
+    providerInstanceIdFromBinding(input.binding) !== input.providerInstanceId
+  ) {
+    return false;
+  }
+  const persistedOptions = readPersistedProviderOptions(input.binding.runtimePayload);
+  // A Moss gateway token refreshes about hourly and sits in this fingerprint, so
+  // comparing it would strand a Claude thread and silently restart the others
+  // without their history. Threads are not scoped to an account here, and Codex
+  // already resumes across account overlays.
+  if (
+    input.providerInstanceId === MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID ||
+    input.providerInstanceId === MOSS_MANAGED_OPENCODE_PROVIDER_INSTANCE_ID ||
+    input.providerInstanceId === MOSS_MANAGED_PI_PROVIDER_INSTANCE_ID ||
+    isMossManagedRelayInstanceId(input.providerInstanceId)
+  ) {
+    return continuationOwningOptionsEqual(input.provider, persistedOptions, input.providerOptions);
+  }
+  return providerStartOptionsEqualForProvider(
+    input.provider,
+    input.credentialsFingerprintKey,
+    {
+      options: persistedOptions,
+      credentialsFingerprint: readPersistedCredentialsFingerprint(input.binding.runtimePayload),
+    },
+    input.providerOptions,
   );
 }
 
@@ -659,7 +785,11 @@ function persistedContinuationMatchesLaunch(input: {
   const persistedIdentity = readPersistedContinuationIdentity(input.binding.runtimePayload);
   if (persistedIdentity !== undefined) {
     if (persistedIdentity === input.currentIdentity) {
-      return input.provider !== "claudeAgent" || persistedLaunchMatchesExactly(input);
+      return (
+        input.provider !== "claudeAgent" ||
+        readClaudeStateBinding(input.providerOptions?.claudeAgent) !== undefined ||
+        persistedLaunchMatchesExactly(input)
+      );
     }
     return (
       input.provider === "codex" &&
@@ -1012,6 +1142,7 @@ const CODEX_ACCOUNT_RUNTIME_STOP_MARKER_KEY = "codexAccountRuntimeStopMarker";
 interface CodexAccountRuntimeStopMarker {
   readonly lifecycleGeneration: string;
   readonly accountIdentity?: string;
+  readonly privateHomeIdentity?: string;
   readonly homeIdentities?: readonly string[];
   readonly runtimeGeneration?: string;
   readonly stoppedAt: string;
@@ -1083,7 +1214,7 @@ function codexHomeIdentitiesForLaunch(
   if (provider !== "codex") {
     return undefined;
   }
-  return uniqueCodexLifecycleHomeIdentityPaths(providerOptions?.codex);
+  return uniqueCodexCredentialHomeIdentityPaths(providerOptions?.codex);
 }
 
 function codexHomeIdentitiesOverlap(left: readonly string[], right: readonly string[]): boolean {
@@ -1130,6 +1261,10 @@ function readCodexAccountRuntimeStopMarker(
     typeof marker.accountIdentity === "string" && marker.accountIdentity.length > 0
       ? marker.accountIdentity
       : undefined;
+  const privateHomeIdentity =
+    typeof marker.privateHomeIdentity === "string" && marker.privateHomeIdentity.length > 0
+      ? marker.privateHomeIdentity
+      : undefined;
   const homeIdentities = Array.isArray(marker.homeIdentities)
     ? marker.homeIdentities.filter(
         (identity): identity is string => typeof identity === "string" && identity.length > 0,
@@ -1138,6 +1273,7 @@ function readCodexAccountRuntimeStopMarker(
   return {
     lifecycleGeneration: marker.lifecycleGeneration,
     ...(accountIdentity ? { accountIdentity } : {}),
+    ...(privateHomeIdentity ? { privateHomeIdentity } : {}),
     ...(homeIdentities && homeIdentities.length > 0 ? { homeIdentities } : {}),
     ...(runtimeGeneration ? { runtimeGeneration } : {}),
     stoppedAt: marker.stoppedAt,
@@ -1281,6 +1417,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const directory = yield* ProviderSessionDirectory;
     const serverSettings = yield* ServerSettingsService;
     const serverConfig = Option.getOrUndefined(yield* Effect.serviceOption(ServerConfig));
+    const workspaceQuery = Option.getOrUndefined(
+      yield* Effect.serviceOption(ProjectionSnapshotQuery),
+    );
     const readManagedHomeAuthority = (options: ProviderStartOptions | undefined) =>
       serverConfig
         ? readManagedCodexHomeAuthority({
@@ -1295,6 +1434,57 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       PROVIDER_OPTIONS_FINGERPRINT_HMAC_SECRET,
       32,
     );
+    const codexStateBindings = serverConfig
+      ? yield* makeCodexStateBindingAccess({
+          stateDir: serverConfig.stateDir,
+          runtimeHomePath: serverConfig.baseDir,
+          readAccount: (instanceId) =>
+            codexStateBindingAccountFromSettings(
+              Effect.runSync(serverSettings.getSettings),
+              instanceId,
+            ),
+        })
+      : undefined;
+    const claudeStateBindings = serverConfig
+      ? yield* makeClaudeStateBindingAccess({
+          stateDir: serverConfig.stateDir,
+          readAccount: (instanceId) =>
+            claudeStateBindingAccountFromSettings(
+              Effect.runSync(serverSettings.getSettings),
+              instanceId,
+            ),
+        })
+      : undefined;
+    const claudeBindingRequest = (binding: ProviderRuntimeBinding | undefined) => {
+      if (!binding || binding.provider !== "claudeAgent") return undefined;
+      const reference = runtimePayloadRecord(binding.runtimePayload).claudeStateBindingReference;
+      if (reference === undefined || reference === null) return undefined;
+      if (typeof reference !== "string" || !reference)
+        throw new Error("Claude 对话的账户绑定不完整，请保留原历史并重新打开对话。");
+      return {
+        providerInstanceId: providerInstanceIdFromBinding(binding),
+        reference,
+        expectedReference: reference,
+      };
+    };
+    const codexBindingRequest = (binding: ProviderRuntimeBinding | undefined) => {
+      if (!binding || binding.provider !== "codex") return undefined;
+      const reference = runtimePayloadRecord(binding.runtimePayload).codexStateBindingReference;
+      if (reference === undefined || reference === null) return undefined;
+      const accountId = readPersistedProviderOptions(binding.runtimePayload)?.codex?.accountId;
+      if (typeof reference !== "string" || !accountId) {
+        throw new Error("Codex 对话的账户绑定不完整，请保留原历史并重新打开对话。");
+      }
+      return {
+        providerInstanceId:
+          binding.providerInstanceId ??
+          readPersistedProviderInstanceId(binding.runtimePayload) ??
+          binding.provider,
+        accountId,
+        reference,
+        expectedReference: reference,
+      };
+    };
     const getAdapterForInstance = (
       instance: ResolvedProviderInstance,
       options?: { readonly allowDisabled?: boolean },
@@ -1350,11 +1540,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       adapter: ProviderAdapterShape<ProviderAdapterError>,
       startInput: ResolvedProviderSessionStartInput,
       startSession = adapter.startSession,
+      allowFreshStart = true,
     ) =>
       startSession(startInput).pipe(
         Effect.map((session) => ({ session, staleSessionFallbackOccurred: false })),
         Effect.catchIf(
           (error) =>
+            allowFreshStart &&
             hasResumeCursor(startInput.resumeCursor) &&
             isStaleNativeSessionLoadError(startInput.provider, error),
           (error) =>
@@ -1634,6 +1826,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
        * created before the instance was disabled.
        */
       readonly allowDisabled?: boolean;
+      /** Only an existing server directory binding can authorize a source/ref. */
+      readonly stateBinding?: ProviderRuntimeBinding;
+      readonly initializeStateBinding?: boolean;
     }) =>
       Effect.gen(function* () {
         const explicitProvider = input.provider !== undefined;
@@ -1679,20 +1874,199 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             `Model selection provider '${input.modelSelection.provider}' does not match provider instance '${instance.instanceId}' driver '${instance.driver}'.`,
           );
         }
+        let providerOptions = withServerSelectedAgentProgram(
+          instance,
+          input.providerOptionsPrecedence === "caller"
+            ? mergeProviderStartOptions(
+                providerStartOptionsFromInstance(instance),
+                input.providerOptions,
+              )
+            : mergeProviderStartOptions(
+                input.providerOptions,
+                providerStartOptionsFromInstance(instance),
+              ),
+        );
+        if (instance.driver === "codex" && input.initializeStateBinding) {
+          providerOptions = yield* Effect.tryPromise({
+            try: async () => {
+              const prior = codexBindingRequest(input.stateBinding);
+              // Existing unbound threads keep their legacy source/cursor. The
+              // opt-in only creates bindings for newly created conversations.
+              if (
+                !prior &&
+                (input.stateBinding || !settings.providers.codex.shareStateAcrossAccounts)
+              ) {
+                if (
+                  settings.providers.codex.shareStateAcrossAccounts &&
+                  input.stateBinding?.provider === "codex" &&
+                  (input.stateBinding.providerInstanceId ?? input.stateBinding.provider) ===
+                    instance.instanceId
+                ) {
+                  const legacy = readPersistedProviderOptions(
+                    input.stateBinding.runtimePayload,
+                  )?.codex;
+                  if (legacy)
+                    return {
+                      ...providerOptions,
+                      codex: {
+                        ...providerOptions?.codex,
+                        ...(legacy.homePath ? { homePath: legacy.homePath } : {}),
+                        ...(legacy.shadowHomePath ? { shadowHomePath: legacy.shadowHomePath } : {}),
+                        ...(legacy.accountId ? { accountId: legacy.accountId } : {}),
+                      },
+                    };
+                }
+                return providerOptions;
+              }
+              if (!codexStateBindings)
+                throw new Error("Codex 共享历史需要完整的 Moss 服务器配置，请重启 Moss 后重试。");
+              const account = codexStateBindingAccountFromSettings(settings, instance.instanceId);
+              if (!account) throw new Error("Codex 账户已移除，请重新选择账户。");
+              // Validate the existing server reservation before any managed
+              // private config is read while issuing a shared-source binding.
+              await readManagedHomeAuthority(providerStartOptionsFromInstance(instance));
+              const owner = {
+                providerInstanceId: instance.instanceId,
+                accountId: account.accountId,
+              };
+              const access = prior
+                ? await codexStateBindings.rebind(prior, owner)
+                : await codexStateBindings.register(owner);
+              if (!access) throw new Error("Codex 历史绑定未能恢复，请重试。");
+              return {
+                ...providerOptions,
+                codex: {
+                  ...providerOptions?.codex,
+                  ...access.options,
+                  environment: {
+                    ...providerOptions?.codex?.environment,
+                    ...access.options.environment,
+                  },
+                },
+              };
+            },
+            catch: (cause) =>
+              toValidationError(
+                input.operation,
+                cause instanceof Error ? cause.message : "Codex 历史绑定无法恢复。",
+                cause,
+              ),
+          });
+        }
+        if (instance.driver === "claudeAgent" && input.initializeStateBinding) {
+          providerOptions = yield* Effect.tryPromise({
+            try: async () => {
+              const prior = claudeBindingRequest(input.stateBinding);
+              // No-ref conversations retain the original continuation rules.
+              // Enabling a global source never upgrades or migrates them.
+              if (
+                !prior &&
+                (input.stateBinding || !settings.providers.claudeAgent.shareStateAcrossAccounts)
+              )
+                return providerOptions;
+              if (!claudeStateBindings)
+                throw new Error("Claude 共享历史需要完整的 Moss 服务器配置，请重启 Moss 后重试。");
+              const access = prior
+                ? await claudeStateBindings.rebind(prior, instance.instanceId)
+                : await claudeStateBindings.register(instance.instanceId);
+              if (!access) throw new Error("Claude 历史绑定未能恢复，请重试。");
+              return {
+                ...providerOptions,
+                claudeAgent: { ...providerOptions?.claudeAgent, ...access.options },
+              };
+            },
+            catch: (cause) =>
+              toValidationError(
+                input.operation,
+                cause instanceof Error ? cause.message : "Claude 历史绑定无法恢复。",
+                cause,
+              ),
+          });
+        }
         return {
           instance,
           modelSelection: modelSelectionForInstance(input.modelSelection, instance),
-          providerOptions:
-            input.providerOptionsPrecedence === "caller"
-              ? mergeProviderStartOptions(
-                  providerStartOptionsFromInstance(instance),
-                  input.providerOptions,
-                )
-              : mergeProviderStartOptions(
-                  input.providerOptions,
-                  providerStartOptionsFromInstance(instance),
-                ),
+          providerOptions,
         } as const;
+      });
+
+    const signedSourceReference = (binding: ProviderRuntimeBinding | undefined) =>
+      binding?.provider === "codex"
+        ? codexBindingRequest(binding)?.reference
+        : binding?.provider === "claudeAgent"
+          ? claudeBindingRequest(binding)?.reference
+          : undefined;
+    const signedTargetReference = (
+      provider: SharedAccountSwitch["provider"],
+      options?: ProviderStartOptions,
+    ) =>
+      provider === "codex"
+        ? codexStateBindingReference(options?.codex)
+        : claudeStateBindingReference(options?.claudeAgent);
+    const prepareSharedAccountSwitch: NonNullable<
+      ProviderServiceShape["prepareSharedAccountSwitch"]
+    > = (input) =>
+      Effect.gen(function* () {
+        if (input.provider !== "claudeAgent" && input.provider !== "codex") return undefined;
+        const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+        const operation = "ProviderService.prepareSharedAccountSwitch";
+        if (!binding) return undefined;
+        // Explicit cross-driver handoffs retain the established transcript path. The stored
+        // model preference can outlive a direct turn on another account of the same driver.
+        if (input.from === undefined && binding.provider !== input.provider) return undefined;
+        const sourceReference = yield* Effect.try({
+          try: () => signedSourceReference(binding),
+          catch: (cause) =>
+            toValidationError(operation, "原对话的共享历史绑定不完整，请选择原账号。", cause),
+        });
+        if (!sourceReference) return undefined;
+        const settings = yield* serverSettings.getSettings.pipe(
+          Effect.mapError((cause) =>
+            toValidationError(operation, "无法读取服务端账号设置。", cause),
+          ),
+        );
+        const from = providerInstanceIdFromBinding(binding);
+        if (from === input.to)
+          return yield* toValidationError(operation, "这个对话已在目标账号上，请直接继续对话。");
+        if (
+          binding.provider !== input.provider ||
+          (input.from !== undefined && from !== input.from) ||
+          !hasResumeCursor(binding.resumeCursor) ||
+          readPersistedContinuationResetRequested(binding.runtimePayload) ||
+          !settings.providers[input.provider].shareStateAcrossAccounts
+        ) {
+          return yield* toValidationError(
+            operation,
+            "原对话的账号或续聊状态已变化，或历史共享已关闭；请选择原账号。",
+          );
+        }
+        // The existing rebind verifies the original signed source and current target account,
+        // keeps the original source even after settings changed, and never rewrites the thread.
+        const resolved = yield* resolveLaunchProviderInstance({
+          operation,
+          provider: input.provider,
+          providerInstanceId: input.to,
+          stateBinding: binding,
+          initializeStateBinding: true,
+        });
+        const targetReference = signedTargetReference(input.provider, resolved.providerOptions);
+        if (resolved.instance.driver !== input.provider || !targetReference) {
+          return yield* toValidationError(
+            operation,
+            "目标账号不能恢复这个历史来源，请选择兼容账号。",
+          );
+        }
+        const modelSelection = readPersistedModelSelection(binding.runtimePayload);
+        return {
+          provider: input.provider,
+          from,
+          to: input.to,
+          sourceReference,
+          targetReference,
+          ...(modelSelection?.provider === input.provider
+            ? { sourceModelSelection: modelSelection }
+            : {}),
+        };
       });
 
     const runIdleSensitiveProviderWork = <A, E, R>(
@@ -2094,6 +2468,52 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             ? { providerOptions: input.providerOptions }
             : {}),
         });
+        let currentOptions = resolved.providerOptions;
+        if (input.provider === "codex") {
+          const inspected = yield* Effect.tryPromise({
+            try: async () => {
+              const prior = codexBindingRequest(binding);
+              if (!prior) return { options: currentOptions };
+              const access = await codexStateBindings?.restoreLaunch(prior);
+              if (!access) throw new Error("Codex 账户绑定尚未恢复。");
+              return {
+                options: {
+                  ...currentOptions,
+                  codex: {
+                    ...currentOptions?.codex,
+                    ...access.options,
+                    environment: {
+                      ...currentOptions?.codex?.environment,
+                      ...access.options.environment,
+                    },
+                  },
+                },
+              };
+            },
+            catch: () => undefined,
+          }).pipe(Effect.orElseSucceed(() => undefined));
+          if (!inspected) return false;
+          currentOptions = inspected.options;
+        }
+        if (input.provider === "claudeAgent") {
+          const inspected = yield* Effect.try({
+            try: () => {
+              const prior = claudeBindingRequest(binding);
+              if (!prior) return { options: currentOptions };
+              const access = claudeStateBindings?.restoreLaunch(prior);
+              if (!access) throw new Error("Claude 账户绑定尚未恢复。");
+              return {
+                options: {
+                  ...currentOptions,
+                  claudeAgent: { ...currentOptions?.claudeAgent, ...access.options },
+                },
+              };
+            },
+            catch: () => undefined,
+          }).pipe(Effect.orElseSucceed(() => undefined));
+          if (!inspected) return false;
+          currentOptions = inspected.options;
+        }
         return providerStartOptionsEqualForProvider(
           resolved.instance.driver,
           credentialsFingerprintKey,
@@ -2101,7 +2521,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             options: readPersistedProviderOptions(binding.runtimePayload),
             credentialsFingerprint: readPersistedCredentialsFingerprint(binding.runtimePayload),
           },
-          resolved.providerOptions,
+          currentOptions,
         );
       });
 
@@ -2226,9 +2646,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         },
       });
 
-    const stopCodexAccountRuntimes: NonNullable<
-      ProviderServiceShape["stopCodexAccountRuntimes"]
-    > = (input) =>
+    const stopCodexAccountRuntimeScope = (
+      input: Parameters<NonNullable<ProviderServiceShape["stopCodexAccountRuntimes"]>>[0],
+      registeredScope?: CodexRegisteredRuntimeStopScope,
+    ) =>
       Effect.gen(function* () {
         const adapter = yield* registry.getByProvider("codex");
         const stopAccountContextsAndWait = (adapter as Partial<CodexAdapterShape>)
@@ -2240,25 +2661,36 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           );
         }
         const stoppedRuntimeGeneration = normalizedRuntimeGeneration(input.runtimeGeneration);
-        const { stoppedHomeIdentities, stoppedAccountIdentity } = yield* Effect.try({
-          try: () => ({
-            stoppedHomeIdentities: codexHomeIdentitiesForLaunch("codex", { codex: input }),
-            stoppedAccountIdentity: codexAccountIdentityForLaunch("codex", { codex: input }),
-          }),
-          catch: (cause) =>
-            toValidationError(
-              "ProviderService.stopCodexAccountRuntimes",
-              "Failed to resolve Codex account lifecycle identities.",
-              cause,
-            ),
-        });
+        const { stoppedHomeIdentities, stoppedAccountIdentity, credentialFence } =
+          yield* Effect.try({
+            try: () => ({
+              stoppedHomeIdentities: codexHomeIdentitiesForLaunch("codex", { codex: input }),
+              stoppedAccountIdentity: codexAccountIdentityForLaunch("codex", { codex: input }),
+              credentialFence: readCodexCredentialFence(input),
+            }),
+            catch: (cause) =>
+              toValidationError(
+                "ProviderService.stopCodexAccountRuntimes",
+                "Failed to resolve Codex account lifecycle identities.",
+                cause,
+              ),
+          });
         if (stoppedHomeIdentities !== undefined) {
           recordCodexLaunchStopFence(stoppedHomeIdentities, stoppedRuntimeGeneration);
         }
         const bindingsBeforeStop = new Map(
           (yield* directory.listBindings()).map((binding) => [binding.threadId, binding] as const),
         );
-        const stoppedSessions = yield* stopAccountContextsAndWait(input);
+        const stopRegistered = (adapter as Partial<CodexAdapterShape>)
+          .stopRegisteredAccountScopeAndWait;
+        if (registeredScope && !stopRegistered)
+          return yield* toValidationError(
+            "ProviderService.stopCodexAccountRuntimes",
+            "Codex 适配器无法安全停止已登记的账户进程。",
+          );
+        const stoppedSessions = yield* registeredScope
+          ? stopRegistered!(registeredScope)
+          : stopAccountContextsAndWait(input);
         const stoppedAt = new Date().toISOString();
         yield* Effect.forEach(
           stoppedSessions,
@@ -2339,6 +2771,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                     lifecycleGeneration,
                     ...(stoppedAccountIdentity ? { accountIdentity: stoppedAccountIdentity } : {}),
                     ...(stoppedHomeIdentities ? { homeIdentities: stoppedHomeIdentities } : {}),
+                    ...(registeredScope || credentialFence
+                      ? {
+                          privateHomeIdentity:
+                            registeredScope?.privateHomeIdentity ??
+                            credentialFence!.privateHomeIdentity,
+                        }
+                      : {}),
                     ...(stoppedRuntimeGeneration
                       ? { runtimeGeneration: stoppedRuntimeGeneration }
                       : {}),
@@ -2362,6 +2801,78 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             }),
           { discard: true },
         );
+      });
+
+    const stopCodexAccountRuntimes: NonNullable<
+      ProviderServiceShape["stopCodexAccountRuntimes"]
+    > = (input) =>
+      Effect.gen(function* () {
+        if (input.credentialFence || !codexStateBindings)
+          return yield* stopCodexAccountRuntimeScope(input);
+        const adapter = yield* registry.getByProvider("codex");
+        const listScopes = (adapter as Partial<CodexAdapterShape>).listAccountRuntimeScopes;
+        const activeScopes = listScopes ? yield* listScopes(input) : [];
+        const bindings = yield* directory.listBindings();
+        const targets = yield* Effect.try({
+          try: () => {
+            const selected = new Map<string, Parameters<typeof stopCodexAccountRuntimeScope>[0]>();
+            const privatePath = input.shadowHomePath ?? input.homePath;
+            if (!privatePath || !input.accountId) return selected;
+            const privateIdentity = canonicalizeCodexHomeIdentityPath(privatePath);
+            for (const binding of bindings) {
+              const persisted = readPersistedProviderOptions(binding.runtimePayload)?.codex;
+              if (
+                persisted?.accountId !== input.accountId ||
+                !persisted.shadowHomePath ||
+                canonicalizeCodexHomeIdentityPath(persisted.shadowHomePath) !== privateIdentity ||
+                (input.runtimeGeneration && input.runtimeGeneration !== persisted.runtimeGeneration)
+              )
+                continue;
+              const prior = codexBindingRequest(binding);
+              if (!prior) continue;
+              // Never derive teardown generations from current auth/config.
+              // The old signed ref remains valid after disable/refresh/logout.
+              const target = codexStateBindings.restoreStop(prior)!;
+              selected.set(target.reference, target.options);
+            }
+            return selected;
+          },
+          catch: (cause) =>
+            toValidationError(
+              "ProviderService.stopCodexAccountRuntimes",
+              cause instanceof Error ? cause.message : "Codex 原账户绑定无法安全停止。",
+              cause,
+            ),
+        });
+        if (targets.size === 0 && activeScopes.length === 0)
+          return yield* stopCodexAccountRuntimeScope(input);
+        const stopped = new Set<string>();
+        const scopeKey = (
+          accountId: string | undefined,
+          privateHomeIdentity: string,
+          generation: string | undefined,
+        ) => JSON.stringify([accountId, privateHomeIdentity, generation ?? null]);
+        for (const scope of activeScopes) {
+          const key = scopeKey(
+            scope.options.accountId,
+            scope.privateHomeIdentity,
+            scope.options.runtimeGeneration,
+          );
+          if (stopped.has(key)) continue;
+          yield* stopCodexAccountRuntimeScope(scope.options, scope);
+          stopped.add(key);
+        }
+        for (const target of targets.values()) {
+          const fence = readCodexCredentialFence(target)!;
+          const key = scopeKey(
+            target.accountId,
+            fence.privateHomeIdentity,
+            target.runtimeGeneration,
+          );
+          if (stopped.has(key)) continue;
+          yield* stopCodexAccountRuntimeScope(target);
+          stopped.add(key);
+        }
       });
 
     const listSessions: ProviderServiceShape["listSessions"] = () =>
@@ -2787,6 +3298,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 : {}),
               ...(enableComputerControl ? { enableComputerControl: true } : {}),
               activeTurnId: input.turnId,
+              ...(input.provider === "codex" ? { codexTurnSettlement: null } : {}),
               lastRuntimeEvent: input.lastRuntimeEvent,
               lastRuntimeEventAt: new Date().toISOString(),
             },
@@ -2981,6 +3493,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             // retain its cursor without reviving the durable runtime state.
             const preserveShutdownStop =
               shutdownStartedAt !== undefined && eventStatus === "running";
+            const codexTurnSettlement =
+              event.lifecycleGeneration === binding.lifecycleGeneration
+                ? codexTurnSettlementForEvent(event)
+                : undefined;
 
             yield* directory.upsert({
               threadId: event.threadId,
@@ -2997,6 +3513,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 activeTurnId: preserveShutdownStop ? null : activeTurnId,
                 lastRuntimeEvent: preserveShutdownStop ? "provider.stopAll" : event.type,
                 lastRuntimeEventAt: preserveShutdownStop ? shutdownStartedAt : event.createdAt,
+                ...(event.provider === "codex" && event.type === "turn.started"
+                  ? { codexTurnSettlement: null }
+                  : {}),
+                ...(codexTurnSettlement !== undefined ? { codexTurnSettlement } : {}),
                 ...(lastError !== undefined ? { lastError } : {}),
                 ...(runtimeEventRetiredGatewayTurnAuthority(event)
                   ? { [AGENT_GATEWAY_CREDENTIAL_ROTATION_REQUIRED]: true }
@@ -3043,6 +3563,64 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       registry.getByProvider(provider),
     );
     const runtimeEventPumpHealth = makeProviderRuntimeEventPumpHealthRegistry(providers);
+    type CodexTurnSettlement = {
+      readonly threadId: ThreadId;
+      readonly turnId: TurnId;
+      readonly lifecycleGeneration: string | undefined;
+      readonly settled: Deferred.Deferred<ProviderRuntimeStoppedTurn["state"]>;
+    };
+    const pendingCodexTurnSettlements = new Set<CodexTurnSettlement>();
+    // Observe the target and register its latch under the same lock used by
+    // canonical binding updates. A terminal cannot clear this active turn and
+    // finish publishing between our snapshot and registration. The scope owns
+    // the latch through all asynchronous control preparation, not just the RPC.
+    const acquireStopTurnTarget = (threadId: ThreadId) =>
+      Effect.acquireRelease(
+        withBindingWriteLock(
+          threadId,
+          Effect.gen(function* () {
+            const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+            const turnId = binding ? runtimeActiveTurnId(binding.runtimePayload) : undefined;
+            const settlement: CodexTurnSettlement | undefined =
+              binding?.provider === "codex" &&
+              turnId !== undefined &&
+              (options?.codexInterruptSettlementTimeoutMs ?? 2_000) > 0
+                ? {
+                    threadId,
+                    turnId: TurnId.makeUnsafe(turnId),
+                    lifecycleGeneration: binding.lifecycleGeneration,
+                    settled: Deferred.makeUnsafe<ProviderRuntimeStoppedTurn["state"]>(),
+                  }
+                : undefined;
+            if (settlement) pendingCodexTurnSettlements.add(settlement);
+            return {
+              binding,
+              settlement,
+              // One durable receipt per binding closes the earlier boundary:
+              // canonical settlement may have cleared activeTurnId before this
+              // Stop begins, while the projection still awaits ingestion.
+              settledTurn: turnId === undefined ? readCodexTurnSettlement(binding) : undefined,
+            };
+          }),
+        ),
+        ({ settlement }) =>
+          Effect.sync(() => {
+            if (settlement) pendingCodexTurnSettlements.delete(settlement);
+          }),
+      );
+    const settleCodexTurn = (event: ProviderRuntimeEvent) =>
+      Effect.gen(function* () {
+        const receipt = codexTurnSettlementForEvent(event);
+        if (receipt === undefined) return;
+        for (const pending of pendingCodexTurnSettlements) {
+          if (
+            pending.threadId === event.threadId &&
+            pending.turnId === event.turnId &&
+            pending.lifecycleGeneration === event.lifecycleGeneration
+          )
+            yield* Deferred.succeed(pending.settled, receipt.state);
+        }
+      });
     let scheduleRetiredGatewaySessionRecovery = (
       _event: ProviderRuntimeEvent,
     ): Effect.Effect<void> => Effect.void;
@@ -3064,6 +3642,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                     }).pipe(
                       Effect.andThen(updateSessionBindingFromRuntimeEvent(canonicalEvent)),
                       Effect.andThen(publishRuntimeEvent(canonicalEvent, persisted)),
+                      Effect.andThen(settleCodexTurn(canonicalEvent)),
                       Effect.andThen(scheduleRetiredGatewaySessionRecovery(canonicalEvent)),
                     ),
                   ),
@@ -3184,6 +3763,90 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }),
       );
 
+    // Run the physical control first, then keep this generation current while
+    // its exact terminal result drains through ingress and the durable journal.
+    // Idle sessions and other providers incur no extra shutdown grace period.
+    const withCodexTurnSettlement = (
+      input: {
+        readonly threadId: ThreadId;
+        readonly settlement: CodexTurnSettlement | undefined;
+        readonly settledTurn?: ProviderRuntimeStoppedTurn | undefined;
+        readonly afterInterruptAck?: boolean;
+        readonly operation?: string;
+        readonly onSettled?: (receipt: ProviderRuntimeStoppedTurn) => void;
+      },
+      control: Effect.Effect<void, ProviderAdapterError>,
+    ): Effect.Effect<ProviderValidationError | undefined, ProviderAdapterError> =>
+      Effect.gen(function* () {
+        const timeoutMs = options?.codexInterruptSettlementTimeoutMs ?? 2_000;
+        const pending = input.settlement;
+        if (pending === undefined) {
+          yield* control;
+          if (input.settledTurn) input.onSettled?.(input.settledTurn);
+          return undefined;
+        }
+        return yield* Effect.gen(function* () {
+          yield* control;
+          const settled = yield* Deferred.await(pending.settled).pipe(
+            Effect.interruptible,
+            Effect.timeoutOption(Duration.millis(timeoutMs)),
+          );
+          if (Option.isSome(settled)) {
+            input.onSettled?.({
+              turnId: pending.turnId,
+              lifecycleGeneration: pending.lifecycleGeneration,
+              state: settled.value,
+            });
+            return undefined;
+          }
+          yield* Effect.logWarning("provider.codex.stop_terminal_wait_expired", {
+            threadId: input.threadId,
+            turnId: pending.turnId,
+            lifecycleGeneration: pending.lifecycleGeneration,
+            afterInterruptAck: input.afterInterruptAck === true,
+          });
+          return yield* processRuntimeEvent({
+            type: "runtime.error",
+            eventId: EventId.makeUnsafe(randomUUID()),
+            provider: "codex",
+            threadId: input.threadId,
+            turnId: pending.turnId,
+            createdAt: new Date().toISOString(),
+            ...(pending.lifecycleGeneration !== undefined
+              ? { lifecycleGeneration: pending.lifecycleGeneration }
+              : {}),
+            payload: {
+              class: "provider_error",
+              message: input.afterInterruptAck
+                ? "Codex acknowledged Stop but did not report the turn's final status before its runtime was stopped."
+                : "Codex runtime stopped before this turn reported its final status.",
+            },
+          }).pipe(
+            Effect.tap(() =>
+              Effect.sync(() =>
+                input.onSettled?.({
+                  turnId: pending.turnId,
+                  lifecycleGeneration: pending.lifecycleGeneration,
+                  state: "error",
+                }),
+              ),
+            ),
+            Effect.as(undefined),
+            // Reap/retire even if this durable diagnostic fails, then return the
+            // failure to the caller rather than a successful Stop receipt.
+            Effect.catch((cause) =>
+              Effect.succeed(
+                toValidationError(
+                  input.operation ?? "ProviderService.interruptTurn",
+                  "Could not save the unconfirmed Codex Stop result.",
+                  cause,
+                ),
+              ),
+            ),
+          );
+        });
+      });
+
     const recoverSessionForThread = (input: {
       readonly binding: ProviderRuntimeBinding;
       readonly operation: string;
@@ -3298,6 +3961,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             const resolved = yield* resolveLaunchProviderInstance({
               operation: input.operation,
               ...providerKindConstraint(binding.provider),
+              stateBinding: binding,
+              initializeStateBinding: true,
               providerInstanceId: persistedProviderInstanceId,
               ...(persistedModelSelection ? { modelSelection: persistedModelSelection } : {}),
               ...(!hasProviderInstanceBinding && persistedProviderOptions
@@ -3861,8 +4526,35 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             `Unknown provider '${resolvedProvider}'.`,
           );
         }
+        const { cwd: requestedCwd, ...requestOptions } = parsed;
+        let sessionCwd = requestedCwd;
+        if (workspaceQuery && serverConfig) {
+          const lookupError = () =>
+            toValidationError("provider.session.start", "Could not verify the thread workspace.");
+          const thread = Option.getOrUndefined(
+            yield* workspaceQuery.getThreadShellById(threadId).pipe(Effect.mapError(lookupError)),
+          );
+          if (thread) {
+            const project = Option.getOrUndefined(
+              yield* workspaceQuery
+                .getProjectShellById(thread.projectId)
+                .pipe(Effect.mapError(lookupError)),
+            );
+            if (!project) return yield* lookupError();
+            if (project.kind === "chat" || !sessionCwd) {
+              sessionCwd = yield* resolveThreadExecutionWorkspace({
+                thread,
+                project,
+                config: serverConfig,
+                query: workspaceQuery,
+              });
+              if (project.kind === "chat" && !sessionCwd) return yield* lookupError();
+            }
+          }
+        }
         const input = {
-          ...parsed,
+          ...requestOptions,
+          ...(sessionCwd === undefined ? {} : { cwd: sessionCwd }),
           threadId,
           provider: resolvedProvider,
         };
@@ -3884,6 +4576,44 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           binding.provider;
         const resolveStartInstance = (binding: ProviderRuntimeBinding | undefined) =>
           Effect.gen(function* () {
+            const sharedSwitch = outcomeOptions?.sharedAccountSwitch;
+            if (sharedSwitch) {
+              const settings = yield* serverSettings.getSettings.pipe(
+                Effect.mapError((cause) =>
+                  toValidationError(
+                    "ProviderService.startSession",
+                    "无法读取服务端账号设置。",
+                    cause,
+                  ),
+                ),
+              );
+              const ref = yield* Effect.try({
+                try: () => signedSourceReference(binding),
+                catch: (cause) =>
+                  toValidationError(
+                    "ProviderService.startSession",
+                    "原对话的共享历史绑定无效。",
+                    cause,
+                  ),
+              });
+              if (
+                !binding ||
+                binding.provider !== sharedSwitch.provider ||
+                parsed.provider !== sharedSwitch.provider ||
+                providerInstanceIdFromBinding(binding) !== sharedSwitch.from ||
+                requestedProviderInstanceId !== sharedSwitch.to ||
+                ref !== sharedSwitch.sourceReference ||
+                !settings.providers[sharedSwitch.provider].shareStateAcrossAccounts ||
+                !hasResumeCursor(binding.resumeCursor) ||
+                readPersistedContinuationResetRequested(binding.runtimePayload) ||
+                hasResumeCursor(input.resumeCursor)
+              ) {
+                return yield* toValidationError(
+                  "ProviderService.startSession",
+                  "账号或共享历史已变化，请重新选择；原对话仍保留原历史。",
+                );
+              }
+            }
             const persistedProviderInstanceId = binding
               ? readPersistedInstanceId(binding)
               : undefined;
@@ -3896,6 +4626,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               : undefined;
             const resolved = yield* resolveLaunchProviderInstance({
               operation: "ProviderService.startSession",
+              ...(binding ? { stateBinding: binding } : {}),
+              initializeStateBinding: true,
               provider: parsed.provider,
               providerInstanceId: requestedProviderInstanceId,
               ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
@@ -3903,6 +4635,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 ? { providerOptions: input.providerOptions ?? persistedProviderOptions }
                 : {}),
             });
+            if (
+              sharedSwitch &&
+              (resolved.instance.driver !== sharedSwitch.provider ||
+                signedTargetReference(sharedSwitch.provider, resolved.providerOptions) !==
+                  sharedSwitch.targetReference)
+            ) {
+              return yield* toValidationError(
+                "ProviderService.startSession",
+                "目标账号的凭据或历史目录已变化，请重新选择。",
+              );
+            }
             return { resolved, persistedProviderInstanceId, persistedProviderOptions } as const;
           });
         // Resolve the instance up front so the driver's adapter can prepare a
@@ -4007,6 +4750,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 persistedBinding !== undefined &&
                 hasResumeCursor(persistedBinding.resumeCursor) &&
                 continuationCompatible;
+              if (outcomeOptions?.sharedAccountSwitch && !canReusePersistedResumeCursor) {
+                return yield* toValidationError(
+                  "ProviderService.startSession",
+                  "目标账号不能恢复原对话，请保留原历史。",
+                );
+              }
               if (
                 persistedBinding !== undefined &&
                 !continuationResetRequested &&
@@ -4116,6 +4865,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                     adapter,
                     resolvedAdapterStartInput,
                     preparedStart,
+                    outcomeOptions?.sharedAccountSwitch === undefined,
                   ),
                   { lifecycle: startupLifecycle, timeout: PROVIDER_START_SESSION_TIMEOUT },
                 ).pipe(
@@ -4165,15 +4915,25 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 const nativeResumeAttempted = hasResumeCursor(effectiveResumeCursor);
                 const nativeResumeSucceeded =
                   nativeResumeAttempted && !staleSessionFallbackOccurred
-                    ? (adapter.didResumeSession?.(resolvedAdapterStartInput, session) ?? true)
+                    ? (adapter.didResumeSession?.(resolvedAdapterStartInput, session) ??
+                      !outcomeOptions?.sharedAccountSwitch)
                     : false;
+                if (outcomeOptions?.sharedAccountSwitch && !nativeResumeSucceeded) {
+                  yield* adapter.stopSession(threadId);
+                  replacementStarted = false;
+                  return yield* toValidationError(
+                    "ProviderService.startSession",
+                    "目标账号未能恢复原生对话，已停止新进程；原历史保留。",
+                  );
+                }
                 const priorTranscriptBootstrapPending =
-                  persistedPriorTranscriptBootstrapPending ||
-                  staleSessionFallbackOccurred ||
-                  abandonsOtherProviderContinuation ||
-                  ((nativeResumeAttempted ||
-                    outcomeOptions?.registerPriorTranscriptBootstrapOnFreshStart === true) &&
-                    !nativeResumeSucceeded);
+                  !outcomeOptions?.sharedAccountSwitch &&
+                  (persistedPriorTranscriptBootstrapPending ||
+                    staleSessionFallbackOccurred ||
+                    abandonsOtherProviderContinuation ||
+                    ((nativeResumeAttempted ||
+                      outcomeOptions?.registerPriorTranscriptBootstrapOnFreshStart === true) &&
+                      !nativeResumeSucceeded));
 
                 if (session.provider !== adapter.provider) {
                   return yield* toValidationError(
@@ -4280,7 +5040,64 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                         if (replacementStarted) {
                           yield* adapter.stopSession(threadId);
                         }
-                        const restored = yield* previousAdapter.startSession({
+                        // A signed switch must never restart the previous process using its
+                        // redacted persisted options. If its authorization expired, keep the
+                        // original binding/cursor stopped for explicit recovery.
+                        let rollbackOptions = previousProviderOptions;
+                        let rollbackCodexGeneration: string | undefined;
+                        const retainStoppedSource = () =>
+                          withBindingWriteLock(
+                            threadId,
+                            Effect.gen(function* () {
+                              const current = Option.getOrUndefined(
+                                yield* directory.getBinding(threadId),
+                              );
+                              if (
+                                current?.lifecycleGeneration ===
+                                  persistedBinding.lifecycleGeneration &&
+                                current &&
+                                signedSourceReference(current) ===
+                                  outcomeOptions?.sharedAccountSwitch?.sourceReference
+                              ) {
+                                yield* directory.upsert({ ...current, status: "stopped" });
+                              }
+                            }),
+                          );
+                        if (outcomeOptions?.sharedAccountSwitch) {
+                          const prior = yield* resolveLaunchProviderInstance({
+                            operation: "ProviderService.restoreSharedAccount",
+                            provider: persistedBinding.provider,
+                            providerInstanceId: persistedProviderInstanceId,
+                            stateBinding: persistedBinding,
+                            initializeStateBinding: true,
+                          }).pipe(Effect.option);
+                          if (
+                            Option.isNone(prior) ||
+                            signedTargetReference(
+                              outcomeOptions.sharedAccountSwitch.provider,
+                              prior.value.providerOptions,
+                            ) !== outcomeOptions.sharedAccountSwitch.sourceReference
+                          ) {
+                            return yield* retainStoppedSource();
+                          }
+                          rollbackOptions = prior.value.providerOptions;
+                          if (persistedBinding.provider === "codex") {
+                            const original = yield* Effect.tryPromise({
+                              try: async () => {
+                                const request = codexBindingRequest(persistedBinding);
+                                return (
+                                  request &&
+                                  (await codexStateBindings?.restoreLaunch(request))
+                                    ?.sourceGeneration
+                                );
+                              },
+                              catch: () => undefined,
+                            }).pipe(Effect.option);
+                            rollbackCodexGeneration = Option.getOrUndefined(original);
+                            if (!rollbackCodexGeneration) return yield* retainStoppedSource();
+                          }
+                        }
+                        const restoreInput: ProviderAdapterSessionStartInput = {
                           threadId,
                           provider: persistedBinding.provider,
                           ...(persistedProviderInstanceId
@@ -4292,8 +5109,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                           ...(previousModelSelection !== undefined
                             ? { modelSelection: previousModelSelection }
                             : {}),
-                          ...(previousProviderOptions !== undefined
-                            ? { providerOptions: previousProviderOptions }
+                          ...(rollbackOptions !== undefined
+                            ? { providerOptions: rollbackOptions }
+                            : {}),
+                          ...(rollbackCodexGeneration
+                            ? { expectedCodexContinuationGeneration: rollbackCodexGeneration }
                             : {}),
                           ...(restoredComputerControl ? { enableComputerControl: true } : {}),
                           ...(restoredAutoApproveMossTools ? { autoApproveMossTools: true } : {}),
@@ -4303,7 +5123,15 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                           ...(persistedBinding.resumeCursor !== undefined
                             ? { resumeCursor: persistedBinding.resumeCursor }
                             : {}),
-                        });
+                        };
+                        const restored = yield* previousAdapter.startSession(restoreInput);
+                        if (
+                          outcomeOptions?.sharedAccountSwitch &&
+                          previousAdapter.didResumeSession?.(restoreInput, restored) !== true
+                        ) {
+                          yield* previousAdapter.stopSession(threadId);
+                          return yield* retainStoppedSource();
+                        }
                         if (restored.provider !== previousAdapter.provider) {
                           return yield* toValidationError(
                             "ProviderService.startSession",
@@ -4321,7 +5149,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                           upsertSessionBinding(restoredWithInstance, threadId, {
                             lifecycleGeneration: previousGeneration,
                             modelSelection: previousModelSelection,
-                            providerOptions: previousProviderOptions,
+                            providerOptions: rollbackOptions,
                             enableComputerControl: restoredComputerControl,
                             autoApproveMossTools: restoredAutoApproveMossTools,
                             additionalDirectories: previousAdditionalDirectories,
@@ -4458,6 +5286,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           sourcePersistedProviderOptions !== undefined;
         const resolvedSource = yield* resolveLaunchProviderInstance({
           operation: "ProviderService.forkThread",
+          stateBinding: sourceBinding,
+          initializeStateBinding: true,
           providerInstanceId: sourceProviderInstanceId,
           ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
           providerOptions:
@@ -4503,6 +5333,23 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         const expectedCodexContinuationGeneration = canReuseSourceResumeCursor
           ? codexSharedContinuationGeneration(currentContinuationIdentity)
           : undefined;
+        const signedCodexBoundary =
+          resolvedSource.instance.driver === "codex" &&
+          input.throughTurnId !== undefined &&
+          typeof runtimePayloadRecord(sourceBinding.runtimePayload).codexStateBindingReference ===
+            "string";
+        const boundaryFailure = () =>
+          new ProviderValidationError({
+            operation: "ProviderService.forkThread",
+            issue:
+              "无法在选中的 Codex 轮次保留原生历史。原对话未变。请确认目标账号能续接原对话，使用 Codex 0.163.0 或更高版本，并选择已结束的轮次。",
+          });
+        if (
+          signedCodexBoundary &&
+          (!canReuseSourceResumeCursor || !expectedCodexContinuationGeneration)
+        ) {
+          return yield* Effect.fail(boundaryFailure());
+        }
         if (
           canReuseSourceResumeCursor &&
           resolvedSource.instance.driver === "codex" &&
@@ -4560,12 +5407,14 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
         const adapter = yield* getAdapterForInstance(resolvedSource.instance);
         if (!adapter.forkThread) {
+          if (signedCodexBoundary) return yield* Effect.fail(boundaryFailure());
           return null;
         }
         if (
           input.throughTurnId !== undefined &&
           adapter.capabilities.supportsForkThroughTurn !== true
         ) {
+          if (signedCodexBoundary) return yield* Effect.fail(boundaryFailure());
           yield* Effect.logInfo(
             "provider native fork skipped because the provider cannot fork at an earlier turn",
             {
@@ -4597,15 +5446,19 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             runtimeMode: input.runtimeMode,
           })
           .pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("provider native fork failed; falling back", {
+            Effect.catch((error) => {
+              if (input.throughTurnId !== undefined && resolvedSource.instance.driver === "codex") {
+                return Effect.fail(boundaryFailure());
+              }
+              return Effect.logWarning("provider native fork failed; falling back", {
                 sourceThreadId: input.sourceThreadId,
                 targetThreadId: input.threadId,
                 cause: error instanceof Error ? error.message : String(error),
-              }).pipe(Effect.as(null)),
-            ),
+              }).pipe(Effect.as(null));
+            }),
           );
         if (!forked) {
+          if (signedCodexBoundary) return yield* Effect.fail(boundaryFailure());
           return null;
         }
 
@@ -4726,6 +5579,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             const resolved = yield* resolveLaunchProviderInstance({
               operation,
               provider: input.provider,
+              initializeStateBinding: true,
               providerInstanceId: resolveModelSelectionInstanceId(input.modelSelection),
               modelSelection: input.modelSelection,
               ...(input.providerOptions !== undefined
@@ -5211,6 +6065,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           payload: rawInput,
         });
         let rotationStarted = false;
+        let stopResultPersistenceFailure: ProviderValidationError | undefined;
         // Conditional controls use the same deadline, but fail on contention
         // instead of bypassing the lock protecting their observed generation.
         const runInterrupt: typeof lifecycle.runCurrentUrgent =
@@ -5264,7 +6119,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 );
               }
 
-              const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+              const stopTarget = yield* acquireStopTurnTarget(input.threadId);
+              const { binding } = stopTarget;
               if (!binding) {
                 return yield* toValidationError(
                   "ProviderService.interruptTurn",
@@ -5376,10 +6232,19 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               }
 
               rotationStarted = input.providerThreadId === undefined;
-              yield* routed.adapter.interruptTurn(
+              const interrupt = routed.adapter.interruptTurn(
                 input.threadId,
                 TurnId.makeUnsafe(providerTurnId),
                 input.providerThreadId,
+              );
+              stopResultPersistenceFailure = yield* withCodexTurnSettlement(
+                {
+                  threadId: input.threadId,
+                  settlement:
+                    input.providerThreadId === undefined ? stopTarget.settlement : undefined,
+                  afterInterruptAck: true,
+                },
+                interrupt,
               );
               // Begin the physical Stop before SQLite retries, then drain text
               // while this generation still owns it, ahead of runtime retirement.
@@ -5390,7 +6255,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   state: "confirmed",
                 });
               }
-            }),
+            }).pipe(Effect.scoped),
           rawInput.expectedLifecycleGeneration !== undefined ||
             rawInput.controlRequestId !== undefined
             ? Effect.fail(
@@ -5443,6 +6308,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               providerInterruptionFences.delete(input.threadId);
             }
             fence.resolve();
+            yield* Effect.suspend(() =>
+              stopResultPersistenceFailure === undefined
+                ? Effect.void
+                : Effect.fail(stopResultPersistenceFailure),
+            );
           }),
         );
       });
@@ -5643,7 +6513,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         yield* waitForRuntimeIdleStop(input.threadId);
         clearRuntimeIdleTimer(input.threadId);
         let hasRoutableBinding = false;
-        return yield* lifecycle.run(
+        let stopResultPersistenceFailure: ProviderValidationError | undefined;
+        yield* lifecycle.run(
           input.threadId,
           (lease) =>
             Effect.gen(function* () {
@@ -5672,14 +6543,37 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             );
             if (routed === null) return;
             hasRoutableBinding = true;
+            const stopTarget = yield* acquireStopTurnTarget(input.threadId);
             // Start the physical cleanup under the old generation, alongside
             // its durable drain. Neither may wait for the other to begin, and
             // one failure must not cancel the remaining cleanup/drain work.
             yield* settleConcurrentTeardowns(
-              [routed.adapter.stopSession(input.threadId), flushRuntimeText(input.threadId)],
+              [
+                withCodexTurnSettlement(
+                  {
+                    threadId: input.threadId,
+                    operation: "ProviderService.stopSession",
+                    settlement: stopTarget.settlement,
+                  },
+                  routed.adapter.stopSession(input.threadId),
+                ).pipe(
+                  Effect.tap((failure) =>
+                    Effect.sync(() => {
+                      stopResultPersistenceFailure = failure;
+                    }),
+                  ),
+                  Effect.asVoid,
+                ),
+                flushRuntimeText(input.threadId),
+              ],
               (teardown) => teardown,
             );
-          }),
+          }).pipe(Effect.scoped),
+        );
+        yield* Effect.suspend(() =>
+          stopResultPersistenceFailure === undefined
+            ? Effect.void
+            : Effect.fail(stopResultPersistenceFailure),
         );
       });
 
@@ -5733,6 +6627,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         } else if (!isExpectedIdleStopCurrent()) {
           return;
         }
+        let stopResultPersistenceFailure: ProviderValidationError | undefined;
+        let stoppedTurn: ProviderRuntimeStoppedTurn | undefined;
         let stoppedState:
           | {
               readonly binding: ProviderRuntimeBinding;
@@ -5740,7 +6636,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               readonly controlReceipt?: ProviderRuntimeStopControlReceipt;
             }
           | undefined;
-        return yield* lifecycle.run(
+        yield* lifecycle.run(
           input.threadId,
           (lease): StopRuntimeSessionEffect =>
             Effect.gen(function* () {
@@ -5788,7 +6684,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             }),
           Effect.gen(function* () {
             if (!isExpectedIdleStopCurrent()) return;
-            const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+            const stopTarget = yield* acquireStopTurnTarget(input.threadId);
+            const { binding } = stopTarget;
             if (
               !binding &&
               rawInput.expectedLifecycleGeneration !== undefined &&
@@ -5848,7 +6745,36 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             // its generation current through both exit proof and text drain.
             if (!isExpectedIdleStopCurrent()) return;
             yield* settleConcurrentTeardowns(
-              [adapter.stopSession(input.threadId), flushRuntimeText(input.threadId)],
+              [
+                withCodexTurnSettlement(
+                  {
+                    threadId: input.threadId,
+                    operation: "ProviderService.stopRuntimeSession",
+                    // interruptTurn has already drained (or timed out) this
+                    // result. Its credential retirement must not wait twice.
+                    settlement:
+                      options?.requireAgentGatewayCredentialRotation === true
+                        ? undefined
+                        : stopTarget.settlement,
+                    settledTurn:
+                      options?.requireAgentGatewayCredentialRotation === true
+                        ? undefined
+                        : stopTarget.settledTurn,
+                    onSettled: (receipt) => {
+                      stoppedTurn = receipt;
+                    },
+                  },
+                  adapter.stopSession(input.threadId),
+                ).pipe(
+                  Effect.tap((failure) =>
+                    Effect.sync(() => {
+                      stopResultPersistenceFailure = failure;
+                    }),
+                  ),
+                  Effect.asVoid,
+                ),
+                flushRuntimeText(input.threadId),
+              ],
               (teardown) => teardown,
             );
             if (isExpectedIdleStopCurrent())
@@ -5857,7 +6783,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 resumeCursor,
                 ...(controlReceipt ? { controlReceipt } : {}),
               };
-          }),
+          }).pipe(Effect.scoped),
           rawInput.expectedLifecycleGeneration !== undefined ||
             rawInput.controlRequestId !== undefined
             ? Effect.fail(
@@ -5870,6 +6796,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               )
             : undefined,
         );
+        yield* Effect.suspend(() =>
+          stopResultPersistenceFailure === undefined
+            ? Effect.void
+            : Effect.fail(stopResultPersistenceFailure),
+        );
+        return stoppedTurn;
       });
 
     const stopRuntimeSession: StopRuntimeSession = (rawInput) =>
@@ -6143,7 +7075,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             `Provider instance '${instanceId}' is not configured.`,
           );
         }
-        const adapter = yield* getAdapterForInstance(instance);
+        // Callers ask by driver kind, and a driver's default instance may be off
+        // while its Moss-managed instance runs. Capabilities are static per driver.
+        const adapter = yield* getAdapterForInstance(instance, { allowDisabled: true });
         return adapter.capabilities;
       });
 
@@ -6432,6 +7366,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       submitPermissionAction,
       readMcpAppResource,
       sessionBindingMatchesLaunchOptions,
+      prepareSharedAccountSwitch,
       fenceProviderInstanceLaunchesAndWait,
       stopCodexAccountRuntimes,
     } satisfies ProviderServiceShape;

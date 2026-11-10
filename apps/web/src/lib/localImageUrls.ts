@@ -3,13 +3,13 @@
 // Layer: Web utility
 // Exports: local image URL detection and builders
 // Depends on: wsHttpUrl (so desktop requests carry the legacy startup token used by attachments)
-//             and @synara/shared/localPreviewFiles for the canonical route + extension allowlist.
+//             and @moss/shared/localPreviewFiles for the canonical route + extension allowlist.
 
 import {
   LOCAL_IMAGE_ROUTE_PATH,
   SUPPORTED_LOCAL_IMAGE_EXTENSION_REGEX,
-} from "@synara/shared/localPreviewFiles";
-import { isLocalAbsolutePath, isWindowsAbsolutePath } from "@synara/shared/path";
+} from "@moss/shared/localPreviewFiles";
+import { isLocalAbsolutePath, isWindowsAbsolutePath } from "@moss/shared/path";
 
 import { resolveWsHttpUrl } from "./wsHttpUrl";
 
@@ -56,6 +56,24 @@ export function localImageAbsolutePath(src: string): string | null {
   return isLocalImageMarkdownSrc(src) && isLocalAbsolutePath(normalized) ? normalized : null;
 }
 
+let localImageUrlResolver: ((src: string) => string) | null = null;
+
+/**
+ * Lets a host that reaches the owner's pictures through another route say where they load from.
+ * The guest page (served by the share relay) sets this once at startup, so a shared transcript's
+ * local images load through the share's `media` route. The app itself never calls this.
+ */
+export function setLocalImageUrlResolver(resolver: ((src: string) => string) | null): void {
+  localImageUrlResolver = resolver;
+}
+
+const mediaAssetRoute =
+  /^\/api\/moss\/media\/assets\/moss_[A-Za-z0-9_-]{1,128}\/(\d{1,2})\?accountScope=[a-f0-9]{64}$/u;
+
+export function isMossConversationImageSource(src: string): boolean {
+  return mediaAssetRoute.test(src);
+}
+
 export function buildLocalImageUrl(input: {
   readonly src: string;
   readonly cwd: string | undefined;
@@ -67,6 +85,11 @@ export function buildLocalImageUrl(input: {
   /** Changes the preview URL so an explicit reload bypasses browser caching. */
   readonly cacheKey?: string | number | undefined;
 }): string {
+  if (localImageUrlResolver !== null) return localImageUrlResolver(input.src.trim());
+  if (isMossConversationImageSource(input.src)) {
+    const revision = input.cacheKey === undefined ? "" : `&v=${encodeURIComponent(input.cacheKey)}`;
+    return resolveWsHttpUrl(input.src + revision + (input.download ? "&download=1" : ""));
+  }
   const params = new URLSearchParams({ path: normalizeMarkdownImagePath(input.src) });
   if (input.cwd) {
     params.set("cwd", input.cwd);
@@ -107,6 +130,8 @@ export function resolvePluginArtworkUrl(input: {
 }
 
 export function localImageFileName(src: string): string {
+  const media = mediaAssetRoute.exec(src);
+  if (media) return `image-${Number(media[1]) + 1}`;
   const normalized = normalizeMarkdownImagePath(src);
   const slash = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
   return slash >= 0 ? normalized.slice(slash + 1) : normalized;

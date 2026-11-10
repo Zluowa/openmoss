@@ -2,10 +2,7 @@
 // Purpose: Validates desktop plugin-route deliveries and ACKs only committed TanStack navigation.
 // Layer: Web routing utility
 
-import type {
-  DesktopPluginDeepLinkNavigation,
-  DesktopPluginDeepLinkSource,
-} from "@synara/contracts";
+import type { DesktopPluginDeepLinkNavigation, DesktopPluginDeepLinkSource } from "@moss/contracts";
 
 type DesktopPluginDeepLinkBridge = NonNullable<
   NonNullable<Window["desktopBridge"]>["pluginDeepLinks"]

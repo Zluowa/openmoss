@@ -1,10 +1,10 @@
-import type {
-  ClientOrchestrationCommand,
-  OrchestrationCommand,
-  ProjectId,
-} from "@synara/contracts";
-import { HTML_RENDER_ACTIVITY_KIND } from "@synara/shared/htmlRenderActivity";
-import { isWorkspaceRootWithin, workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+import type { ClientOrchestrationCommand, OrchestrationCommand, ProjectId } from "@moss/contracts";
+import {
+  SLIDES_DECK_ACTIVITY_KIND,
+  THREAD_OUTPUT_FILE_ACTIVITY_KIND,
+} from "@moss/shared/chatArtifactActivity";
+import { HTML_RENDER_ACTIVITY_KIND } from "@moss/shared/htmlRenderActivity";
+import { isWorkspaceRootWithin, workspaceRootsEqual } from "@moss/shared/threadWorkspace";
 import type { FileSystem, Path } from "effect";
 import { Effect, Schedule } from "effect";
 
@@ -298,6 +298,14 @@ export function makeDispatchCommandNormalizer<E>(options: DispatchCommandNormali
       input.command.activity.kind === HTML_RENDER_ACTIVITY_KIND
     ) {
       return yield* Effect.fail(new Error("HTML render activities are published by html_render."));
+    }
+    // Deck and exported-file cards come only from the agent's moss_slides_* tools.
+    if (
+      input.command.type === "thread.activity.append" &&
+      (input.command.activity.kind === SLIDES_DECK_ACTIVITY_KIND ||
+        input.command.activity.kind === THREAD_OUTPUT_FILE_ACTIVITY_KIND)
+    ) {
+      return yield* Effect.fail(new Error("Deck and file cards are published by Moss's tools."));
     }
 
     // Generated images (including pending/failed observations) are published only

@@ -7,7 +7,7 @@ import type {
   ServerProviderUsageLimit,
   ServerProviderUsageLine,
   ServerProviderUsageSnapshot,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { getDroidApiKeyEnv } from "../../provider/acp/DroidAcpSupport";
 import { credentialFingerprint } from "../credentials";

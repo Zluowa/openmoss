@@ -4,7 +4,7 @@
 // Exports: PluginMarketplaceDialog and its exact mutation result shape
 
 import { useEffect, useState } from "react";
-import type { ProviderAddMarketplaceResult } from "@synara/contracts";
+import type { ProviderAddMarketplaceResult } from "@moss/contracts";
 
 import {
   normalizePluginMarketplaceForm,

@@ -11,7 +11,7 @@
 // reads out is decided at render time. Interaction (pressing Set up) belongs to
 // `useProvisionComputer.test.tsx`, which owns that mutation.
 
-import type { ComputerStatusResult } from "@synara/contracts";
+import type { ComputerStatusResult } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -184,7 +184,33 @@ describe("ComputerSettingsPanel", () => {
     expect(markup).toContain("verified browser runtime");
     expect(markup).not.toContain("shares your Mac");
     expect(markup).not.toContain("macOS desktop");
+    // An instance without input is not a platform Cua lacks: no Windows/Mac support claim is
+    // withdrawn and nothing says "unsupported".
+    expect(markup).not.toContain("Unsupported");
   });
+
+  /**
+   * Cua runs on macOS and Windows. The sentence follows the host the server reports, so a
+   * Windows window looking at a Mac host (or the reverse) describes the host it controls.
+   */
+  it.each([
+    ["win32", "On Windows, Moss works with your apps through UI Automation", "shares your Mac"],
+    ["darwin", "The agent shares your Mac desktop", "On Windows, Moss works"],
+  ] as const)(
+    "describes a %s Cua host with native input from the reported host platform",
+    (hostPlatform, expected, absent) => {
+      const markup = render({
+        status: status({
+          availability: { kind: "available", backend: "cua" },
+          hostPlatform,
+          capabilities: capabilities({ input: true, focus: true, raise: true }),
+        }),
+      });
+      expect(markup).toContain(expected);
+      expect(markup).not.toContain(absent);
+      expect(markup).not.toContain("native desktop input is unavailable");
+    },
+  );
 
   describe("agent cursor colors", () => {
     it("keeps the cursor stock by default and hides the color editors", () => {

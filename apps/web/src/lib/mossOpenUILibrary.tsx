@@ -8,7 +8,11 @@
 //          Tabs, Accordion, Carousel) are re-scoped so the new components are
 //          legal at every nesting level; stock renderers are reused verbatim.
 //          When upstream registers official bindings for these charts, drop ours
-//          and re-take the stock ones.
+//          and re-take the stock ones. The dashboard kit (openui/oiuDashboard.tsx)
+//          adds the Dashboard root, its sections, rows, cards and filters, and
+//          re-scopes IconText, ListItem and ListBlock for its forms. The standard
+//          catalog (openui/oiuStandard.tsx) adds grids, media, flip cards, overlays
+//          and the LinkCard/Citation/EntityCard/ImageGrid composites.
 // Layer: Chat UI support (imported by the lazy OpenUI chunk, validation, and the
 //        build-time reference generator)
 
@@ -21,7 +25,15 @@ import {
 import { lazy, type ComponentType } from "react";
 import { z } from "zod/v4";
 import { Chart } from "./openui/oiuChart";
+import { createDashboardKit, dashboardComponentGroups } from "./openui/oiuDashboard";
 import { MathBlock } from "./openui/oiuExtra";
+import { FollowUpBlockView } from "./openui/oiuFollowUp";
+import {
+  DateTimeInput,
+  SegmentedControl,
+  standardComponentGroups,
+  standardComponents,
+} from "./openui/oiuStandard";
 import { svgComponents } from "./openui/oiuSvg";
 import { Table as OpenUITable } from "./openui/oiuTable";
 import { functions as openUIFunctions } from "./openui/functions/index";
@@ -264,6 +276,7 @@ const newContentComponents = [
   MathBlock,
   OpenUITable,
   ...svgComponents,
+  ...standardComponents,
 ];
 
 // Everything a nested container may hold — mirrors the stock chat union (all
@@ -361,6 +374,62 @@ const MossCard = defineComponent({
   component: stockRenderer("Card").component,
 });
 
+// ── Follow-ups ──
+// The stock block's heading is fixed English; Moss's draws the same markup with the heading in
+// the reader's language (OpenUICopyContext, provided by the renderer chunk).
+
+const MossFollowUpBlock = defineComponent({
+  name: "FollowUpBlock",
+  props: z.object({ items: z.array(stockRenderer("FollowUpItem").ref) }),
+  description: stockRenderer("FollowUpBlock").description,
+  component: FollowUpBlockView,
+});
+
+// ── Re-scoped form fields ──
+// The stock FormControl input union is closed over the stock inputs; widen it so the
+// standard catalog's DateTimeInput and SegmentedControl can be labelled form fields.
+// Form's fields slot names FormControl, so it points at the re-scoped one.
+
+const stockFormControl = stockRenderer("FormControl");
+const MossFormControl = defineComponent({
+  name: "FormControl",
+  props: stockFormControl.props.extend({
+    input: z.union([
+      ...stockFormControl.props.shape.input.options,
+      DateTimeInput.ref,
+      SegmentedControl.ref,
+    ]),
+  }),
+  description: stockFormControl.description,
+  component: stockFormControl.component,
+});
+
+const stockForm = stockRenderer("Form");
+const MossForm = defineComponent({
+  name: "Form",
+  props: stockForm.props.extend({ fields: z.array(MossFormControl.ref).default([]) }),
+  description: stockForm.description,
+  component: stockForm.component,
+});
+
+// ── Dashboard kit ──
+// Its card slots name Moss's own content (Table, the extra charts) before the stock
+// components, and its re-scoped IconText, ListItem and ListBlock replace the stock ones.
+
+const mossContentByName = new Map<string, (typeof newContentComponents)[number]>(
+  newContentComponents.map((component) => [component.name, component] as const),
+);
+const dashboardKit = createDashboardKit(
+  (name) => mossContentByName.get(name) ?? stockRenderer(name),
+);
+const REPLACED_STOCK_NAMES = new Set([
+  "Table",
+  "FollowUpBlock",
+  "Form",
+  "FormControl",
+  ...dashboardKit.overrides.map((component) => component.name),
+]);
+
 // ── Library ──
 
 const mossExtraComponentGroups: ComponentGroup[] = [
@@ -394,8 +463,13 @@ export const mossOpenUILibrary = createLibrary({
   root: "Card",
   components: [
     ...Object.values(chat).filter(
-      (component) => !CONTAINER_NAMES.has(component.name) && component.name !== "Table",
+      (component) =>
+        !CONTAINER_NAMES.has(component.name) && !REPLACED_STOCK_NAMES.has(component.name),
     ),
+    ...dashboardKit.overrides,
+    MossFollowUpBlock,
+    MossForm,
+    MossFormControl,
     MossCard,
     MossSectionBlock,
     MossSectionItem,
@@ -407,9 +481,15 @@ export const mossOpenUILibrary = createLibrary({
     Modal,
     Stack,
     ...newContentComponents,
+    ...dashboardKit.components,
   ],
   functions: mossOpenUIFunctions,
-  componentGroups: [...openuiChatComponentGroups, ...mossExtraComponentGroups],
+  componentGroups: [
+    ...openuiChatComponentGroups,
+    ...mossExtraComponentGroups,
+    ...standardComponentGroups,
+    ...dashboardComponentGroups,
+  ],
 });
 
 /** Component names the Moss library exposes — the closed set a program may call. */

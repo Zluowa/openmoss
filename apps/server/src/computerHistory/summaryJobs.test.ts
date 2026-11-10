@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import type { ComputerHistoryObservation, ComputerHistorySemanticSummary } from "@synara/contracts";
+import type { ComputerHistoryObservation, ComputerHistorySemanticSummary } from "@moss/contracts";
 
 import {
   COMPUTER_HISTORY_SIX_HOUR_MS,

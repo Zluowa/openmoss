@@ -8,7 +8,7 @@ import {
   DESKTOP_WINDOW_BLUR_RADIUS_MAX,
   DESKTOP_WINDOW_BLUR_RADIUS_MIN,
   type DesktopWindowMaterial,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { BrowserWindow } from "electron";
 
 export const MAC_WINDOW_VIBRANCY = "under-window";

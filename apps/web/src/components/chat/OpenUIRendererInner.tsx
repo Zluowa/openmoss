@@ -9,6 +9,9 @@ import { ThemeProvider } from "@openuidev/react-ui/ThemeProvider";
 import "@openuidev/react-ui/styles/index.css";
 import { useMemo, useState } from "react";
 
+import { useTranslation } from "~/localization";
+import { OpenUICopyContext } from "~/lib/openui/oiuFollowUp";
+
 import type { OpenUIDirective } from "~/lib/inlineVisualizationDirective";
 import { mossOpenUILibrary } from "~/lib/mossOpenUILibrary";
 import type { OpenUIFormStateLease } from "~/lib/openUIFormState";
@@ -23,6 +26,9 @@ export default function OpenUIRendererInner(props: {
   readonly onAction: (event: ActionEvent) => void;
 }) {
   const { resolvedTheme } = useTheme();
+  const { t } = useTranslation();
+  const followUpsHeading = t("chat.visualReply.followUps");
+  const copy = useMemo(() => ({ followUpsHeading }), [followUpsHeading]);
   const [initialState] = useState(() => props.formState.read());
   // The renderer silently drops unknown component calls, which would otherwise
   // surface as a blank frame. While streaming, partial programs routinely look
@@ -39,14 +45,16 @@ export default function OpenUIRendererInner(props: {
   }
   return (
     <ThemeProvider mode={resolvedTheme === "dark" ? "dark" : "light"}>
-      <Renderer
-        response={props.directive.code}
-        library={mossOpenUILibrary}
-        isStreaming={props.isStreaming}
-        onAction={props.onAction}
-        onStateUpdate={(state) => props.formState.write(state)}
-        {...(initialState ? { initialState } : {})}
-      />
+      <OpenUICopyContext.Provider value={copy}>
+        <Renderer
+          response={props.directive.code}
+          library={mossOpenUILibrary}
+          isStreaming={props.isStreaming}
+          onAction={props.onAction}
+          onStateUpdate={(state) => props.formState.write(state)}
+          {...(initialState ? { initialState } : {})}
+        />
+      </OpenUICopyContext.Provider>
     </ThemeProvider>
   );
 }

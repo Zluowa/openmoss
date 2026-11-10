@@ -1,3 +1,6 @@
+import { MossbotMark } from "./mossbot/MossbotAvatar";
+import { MossbotSidebar } from "./mossbot/MossbotSidebar";
+import { resolveMossbotForThread } from "./mossbot/mossbot.logic";
 import { SidebarGettingStarted } from "./SidebarGettingStarted";
 import { useProjectImportDialogStore } from "~/projectImport/projectImportDialogStore";
 import { useTranslation, type TranslationKey } from "~/localization";
@@ -14,7 +17,6 @@ import {
   CircleQuestionIcon,
   ClockIcon,
   CodeReviewIcon,
-  CompassLineIcon,
   PluginIcon,
   CopyIcon,
   CustomizeIcon,
@@ -51,7 +53,7 @@ import {
   resolvePrStatePresentation,
 } from "~/components/pullRequest/pullRequestStatePresentation";
 import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
-import { type RealtimeVoiceState } from "@synara/contracts";
+import { type RealtimeVoiceState } from "@moss/contracts";
 import { useTasksNeedingAttentionCount, useTodoEventSubscription } from "./tasks/useTodos";
 import { THREAD_CONTEXT_MENU_ICONS } from "~/lib/contextMenuIcons";
 import { ensureNativeApi } from "~/nativeApi";
@@ -112,12 +114,12 @@ import {
   ThreadId,
   type ResolvedKeybindingsConfig,
   pendingGuestMessageCount,
-} from "@synara/contracts";
-import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
-import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@synara/shared/githubRepository";
-import { getDefaultModel } from "@synara/shared/model";
-import { pluralize } from "@synara/shared/text";
-import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
+} from "@moss/contracts";
+import { isGenericChatThreadTitle } from "@moss/shared/chatThreads";
+import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@moss/shared/githubRepository";
+import { getDefaultModel } from "@moss/shared/model";
+import { pluralize } from "@moss/shared/text";
+import { resolveThreadWorkspaceCwd } from "@moss/shared/threadEnvironment";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import {
@@ -146,7 +148,11 @@ import {
 } from "../appRail.logic";
 import { useRailShellStore } from "../railShellStore";
 import { isElectron } from "../env";
-import { openMossCanvas, openMossLibraryDestination } from "../lib/mossCanvasBridge";
+import {
+  closeMossCanvas,
+  openMossCanvas,
+  openMossLibraryDestination,
+} from "../lib/mossCanvasBridge";
 import { RailAccountMenu } from "./SidebarAccountMenu";
 import { formatRelativeTime } from "../lib/relativeTime";
 import {
@@ -262,6 +268,9 @@ import {
   SidebarCustomizeList,
 } from "./SidebarCustomizeList";
 import { AppRailMoreMenu } from "./AppRailMoreMenu";
+import { useAppRailPlugins } from "~/hooks/useAppRailPlugins";
+import { resolveResourceIcon } from "~/lib/resourceIcon";
+import type { AppRailPlugin } from "~/lib/appRailPlugins";
 import { AppRailUsage } from "./AppRailUsage";
 import { ProjectDisclosureChevron, ProjectSidebarIcon } from "./ProjectSidebarIcon";
 import { ThreadHoverCardContent } from "./ThreadHoverCardContent";
@@ -548,7 +557,7 @@ import {
   spaceKey,
   resolveActiveSpaceId,
 } from "../lib/spaceGrouping";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
 
 // Central glyphs for the sidebar section-header buttons (expand/collapse, sort, add).
 const ExpandAllIcon = createCentralIconComponent("expand-45");
@@ -557,6 +566,15 @@ const SortFilterIcon = createCentralIconComponent("filter-2");
 const BackArrowIcon = createCentralIconComponent("arrow-left");
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
+/** The "…" menu leads with Codex's destinations (项目, 图像, 资料空间, 代码审查, 定时任务, 插件). */
+const RAIL_MORE_MENU_LEADING_ITEMS: readonly RailOrderableItemId[] = [
+  "home",
+  "images",
+  "library",
+  "pullRequests",
+  "automations",
+  "skills",
+];
 const THREAD_PREVIEW_LIMIT = 5;
 // The bottom "Recent" group shows this many of the most recently active threads
 // across every project in the active Space.
@@ -984,12 +1002,14 @@ export function resolveSidebarRealtimeVoiceStatusLabel(
   }
 }
 
-function SidebarHelpMenu({
+export function SidebarHelpMenu({
   onOpenShortcuts,
   onOpenFeedback,
   onCustomizeSidebar,
   inRail: inRailProp,
+  renderMenu,
 }: {
+  renderMenu?: (helpMenu: ReactNode) => ReactNode;
   onOpenShortcuts: () => void;
   onOpenFeedback: () => void;
   /** Null hides the entry (e.g. on surfaces without the primary nav block). */
@@ -1012,82 +1032,99 @@ function SidebarHelpMenu({
     setReleaseHistory((prev) => ({ open: true, version, openCount: prev.openCount + 1 }));
   };
 
+  const content = (
+    <>
+      <MenuGroup>
+        <div className="px-2 py-1 sm:text-ui leading-snug font-medium text-muted-foreground">
+          {t("sidebar.helpMenu.whatsNew")}
+        </div>
+        {HELP_MENU_RELEASE_ENTRIES.map((entry) => (
+          <MenuItem
+            key={entry.version}
+            className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
+            onClick={() => openReleaseHistory(entry.version)}
+          >
+            <span className="min-w-0 flex-1 truncate">
+              {entry.features[0]?.title ?? `Version ${entry.version}`}
+            </span>
+            <span className="shrink-0 text-[var(--color-text-foreground-secondary)] tabular-nums">
+              {entry.date}
+            </span>
+          </MenuItem>
+        ))}
+        <MenuItem
+          className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
+          onClick={() => openReleaseHistory(null)}
+        >
+          <SidebarContextMenuIcon icon={GiftIcon} />
+          <span>{t("sidebar.helpMenu.changelog")}</span>
+        </MenuItem>
+      </MenuGroup>
+      <MenuSeparator />
+      <MenuGroup>
+        {onCustomizeSidebar ? (
+          <MenuItem className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME} onClick={onCustomizeSidebar}>
+            <SidebarContextMenuIcon icon={CustomizeIcon} />
+            <span>{t("sidebar.helpMenu.customize")}</span>
+          </MenuItem>
+        ) : null}
+        <MenuItem className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME} onClick={onOpenShortcuts}>
+          <SidebarContextMenuIcon icon={KeyboardIcon} />
+          <span>{t("sidebar.helpMenu.shortcuts")}</span>
+        </MenuItem>
+        <MenuItem className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME} onClick={onOpenFeedback}>
+          <SidebarContextMenuIcon icon={FeedbackIcon} />
+          <span>{t("sidebar.helpMenu.feedback")}</span>
+        </MenuItem>
+        <MenuItem
+          className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
+          onClick={() => openExternalLink(MOSS_DOCS_URL)}
+        >
+          <SidebarContextMenuIcon icon={BookIcon} />
+          <span>{t("sidebar.helpMenu.docs")}</span>
+        </MenuItem>
+      </MenuGroup>
+    </>
+  );
+
   return (
     <>
-      <Menu>
-        <SidebarIconButton
-          render={<MenuTrigger />}
-          icon={CircleQuestionIcon}
-          label={t("sidebar.help")}
-          tooltip={t("sidebar.help")}
-          {...(inRail
-            ? {
-                tooltipSide: "right" as const,
-                iconClassName: APP_RAIL_GLYPH_CLASS_NAME,
-                className: appRailButtonClassName(false),
-              }
-            : {})}
-        />
-        <ComposerPickerMenuPopup
-          align="end"
-          side={inRail ? "right" : "top"}
-          className="w-64 min-w-64"
-        >
-          <MenuGroup>
-            <div className="px-2 py-1 sm:text-ui leading-snug font-medium text-muted-foreground">
-              What’s new
-            </div>
-            {HELP_MENU_RELEASE_ENTRIES.map((entry) => (
-              <MenuItem
-                key={entry.version}
-                className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
-                onClick={() => openReleaseHistory(entry.version)}
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {entry.features[0]?.title ?? `Version ${entry.version}`}
-                </span>
-                <span className="shrink-0 text-[var(--color-text-foreground-secondary)] tabular-nums">
-                  {entry.date}
-                </span>
-              </MenuItem>
-            ))}
-            <MenuItem
-              className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
-              onClick={() => openReleaseHistory(null)}
-            >
-              <SidebarContextMenuIcon icon={GiftIcon} />
-              <span>Full changelog</span>
-            </MenuItem>
-          </MenuGroup>
-          <MenuSeparator />
-          <MenuGroup>
-            {onCustomizeSidebar ? (
-              <MenuItem
-                className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
-                onClick={onCustomizeSidebar}
-              >
-                <SidebarContextMenuIcon icon={CustomizeIcon} />
-                <span>Customize sidebar</span>
-              </MenuItem>
-            ) : null}
-            <MenuItem className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME} onClick={onOpenShortcuts}>
-              <SidebarContextMenuIcon icon={KeyboardIcon} />
-              <span>Keybindings</span>
-            </MenuItem>
-            <MenuItem className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME} onClick={onOpenFeedback}>
-              <SidebarContextMenuIcon icon={FeedbackIcon} />
-              <span>Send feedback</span>
-            </MenuItem>
-            <MenuItem
-              className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
-              onClick={() => openExternalLink(MOSS_DOCS_URL)}
-            >
-              <SidebarContextMenuIcon icon={BookIcon} />
-              <span>Docs</span>
-            </MenuItem>
-          </MenuGroup>
-        </ComposerPickerMenuPopup>
-      </Menu>
+      {renderMenu ? (
+        renderMenu(
+          <MenuSub>
+            <MenuSubTrigger className="font-normal">
+              <CircleQuestionIcon className="size-4 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">{t("sidebar.more.help")}</span>
+            </MenuSubTrigger>
+            <ComposerPickerMenuSubPopup className="w-64 min-w-64">
+              {content}
+            </ComposerPickerMenuSubPopup>
+          </MenuSub>,
+        )
+      ) : (
+        <Menu>
+          <SidebarIconButton
+            render={<MenuTrigger />}
+            icon={CircleQuestionIcon}
+            label={t("sidebar.help")}
+            tooltip={t("sidebar.help")}
+            {...(inRail
+              ? {
+                  tooltipSide: "right" as const,
+                  iconClassName: APP_RAIL_GLYPH_CLASS_NAME,
+                  className: appRailButtonClassName(false),
+                }
+              : {})}
+          />
+          <ComposerPickerMenuPopup
+            align="end"
+            side={inRail ? "right" : "top"}
+            className="w-64 min-w-64"
+          >
+            {content}
+          </ComposerPickerMenuPopup>
+        </Menu>
+      )}
       <ReleaseHistoryDialog
         key={releaseHistory.openCount}
         open={releaseHistory.open}
@@ -1387,6 +1424,8 @@ function collapseSameTitleSidebarThreads(
 
 export default function Sidebar() {
   const { format, t } = useTranslation();
+  const [railFeaturesOpen, setRailFeaturesOpen] = useState(false);
+  const railPlugins = useAppRailPlugins(railFeaturesOpen);
   const { state: realtimeVoiceState } = useRealtimeVoiceGlobalRuntime();
   const [showDebugFeatureFlagsMenu, setShowDebugFeatureFlagsMenu] = useState(
     readDebugFeatureFlagsMenuVisibility,
@@ -2210,6 +2249,13 @@ export default function Sidebar() {
     : null;
   // Use the list's validated containers and member index: a hub worker's projectId
   // points at its execution repo, which must not move its chat out of Hubs.
+  const activeMossbot = resolveMossbotForThread({
+    projectId: activeRouteProjectId,
+    threadId: routeThreadId,
+    summaries: summariesByProjectId,
+  });
+  // Mossbot is open in every flavor; only the hub surfaces stay behind GROUPS_ON.
+  const isOnMossbot = pathname === "/mossbot" || activeMossbot !== null;
   const isOnGroups =
     isOnGroupsRoute ||
     isGroupThreadRoute({
@@ -2222,9 +2268,10 @@ export default function Sidebar() {
     reconcileRailShell({
       pathname,
       onStudioSurface: isOnGroups,
+      onMossbotSurface: isOnMossbot,
       projectIds: threadsHydrated ? new Set(projects.map((project) => project.id)) : null,
     });
-  }, [isOnGroups, pathname, projects, reconcileRailShell, threadsHydrated]);
+  }, [isOnGroups, isOnMossbot, pathname, projects, reconcileRailShell, threadsHydrated]);
   const ordinarySpaceProjects = useMemo(
     () =>
       projects.filter((project) =>
@@ -3532,7 +3579,10 @@ export default function Sidebar() {
       const continueHandoffTargets = handoffTargets.filter((target) =>
         canContinueThreadHandoff({
           sourceProvider: thread.modelSelection.provider,
+          sourceProviderInstanceId:
+            thread.session?.providerInstanceId ?? thread.modelSelection.instanceId,
           targetProvider: target.provider,
+          targetProviderInstanceId: target.instanceId,
         }),
       );
       const handoffTargetById = new Map(
@@ -4765,15 +4815,23 @@ export default function Sidebar() {
   );
   const groupProjects = useMemo(
     () =>
-      sortedProjects.filter((project) =>
-        isGroupContainerProject(project, {
-          homeDir,
-          chatWorkspaceRoot,
-          studioWorkspaceRoot,
-          groupsWorkspaceRoot,
-        }),
+      sortedProjects.filter(
+        (project) =>
+          isGroupContainerProject(project, {
+            homeDir,
+            chatWorkspaceRoot,
+            studioWorkspaceRoot,
+            groupsWorkspaceRoot,
+          }) && summariesByProjectId.get(project.id)?.agentKind !== "mossbot",
       ),
-    [chatWorkspaceRoot, groupsWorkspaceRoot, homeDir, sortedProjects, studioWorkspaceRoot],
+    [
+      chatWorkspaceRoot,
+      groupsWorkspaceRoot,
+      homeDir,
+      sortedProjects,
+      studioWorkspaceRoot,
+      summariesByProjectId,
+    ],
   );
   const visibleChatThreadRows = useMemo(() => {
     if (!chatSectionExpanded) {
@@ -6753,25 +6811,28 @@ export default function Sidebar() {
       : null;
   const searchPaletteProjects = useMemo<SidebarSearchProject[]>(
     () =>
-      projects.map((project) => ({
-        id: project.id,
-        name: project.name,
-        remoteName: project.remoteName,
-        folderName: project.folderName,
-        localName: project.localName,
-        appearance: project.appearance ?? null,
-        cwd: project.cwd,
-        // Containers (Chats, Groups) are reachable from every Space, so they search as "Global".
-        spaceName: isOrdinarySpaceProject(project, {
-          homeDir,
-          chatWorkspaceRoot,
-          studioWorkspaceRoot,
-        })
-          ? spaceDisplayName(project.spaceId, spaces, voidSpace)
-          : "Global",
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt,
-      })),
+      // A group chat's hidden container never appears in search.
+      projects
+        .filter((project) => project.kind !== "room")
+        .map((project) => ({
+          id: project.id,
+          name: project.name,
+          remoteName: project.remoteName,
+          folderName: project.folderName,
+          localName: project.localName,
+          appearance: project.appearance ?? null,
+          cwd: project.cwd,
+          // Containers (Chats, Groups) are reachable from every Space, so they search as "Global".
+          spaceName: isOrdinarySpaceProject(project, {
+            homeDir,
+            chatWorkspaceRoot,
+            studioWorkspaceRoot,
+          })
+            ? spaceDisplayName(project.spaceId, spaces, voidSpace)
+            : "Global",
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt,
+        })),
     [chatWorkspaceRoot, homeDir, projects, spaces, studioWorkspaceRoot, voidSpace],
   );
   const searchPaletteActions = useMemo<SidebarSearchAction[]>(
@@ -7102,6 +7163,7 @@ export default function Sidebar() {
   // Home and Spaces switch the panel; route items navigate (prewarm included). The store's
   // active item keeps one item selected.
   const isOnThreadsSection =
+    !isOnMossbot &&
     !isOnSettings &&
     !isOnGroups &&
     !isOnKanban &&
@@ -7157,18 +7219,20 @@ export default function Sidebar() {
         return RAIL_PANEL_ITEM_LABELS[id];
       case "studio":
         return "Hubs";
+      case "mossbot":
+        return "Mossbot";
       case "automations":
         // The DOM dictionary reads a bare "Scheduled" as the status 已定时;
         // the destination name needs the keyed nav term (定时任务).
         return t("sidebar.nav.scheduled");
       case "pullRequests":
-        return "Pull requests";
+        return t("sidebar.more.codeReview");
       case "images":
-        return "Images";
+        return t("sidebar.nav.images");
       case "library":
         return "资料空间";
       case "skills":
-        return "Plugins";
+        return t("sidebar.nav.plugins");
       default:
         return sidebarNavDescriptors[id].label;
     }
@@ -7188,6 +7252,17 @@ export default function Sidebar() {
           // Projects live next to the threads only: from another section, Home and
           // Spaces go back to the thread view instead of opening over that section.
           if (!isOnThreadsSection) handleSidebarViewChange("threads");
+        },
+      };
+    }
+    if (id === "mossbot") {
+      return {
+        ...base,
+        badge: null,
+        active: railActiveItem === "mossbot",
+        onSelect: () => {
+          selectRailRouteItem("mossbot");
+          void navigate({ to: "/mossbot" });
         },
       };
     }
@@ -7217,7 +7292,11 @@ export default function Sidebar() {
       return {
         ...base,
         badge: null,
-        active: railSlotActiveItem === "skills",
+        active:
+          railSlotActiveItem === "skills" &&
+          !railPlugins.pinned.some(
+            (plugin) => pathname === `/skills/plugins/${encodeURIComponent(plugin.id)}`,
+          ),
         onSelect: () => {
           selectRailRouteItem("skills");
           void navigate({ to: "/skills" });
@@ -7432,48 +7511,94 @@ export default function Sidebar() {
   const projectContextMenuHasOpenServer =
     projectContextMenuServer !== null && firstLocalServerUrl(projectContextMenuServer) !== null;
 
+  const openRailPlugin = (plugin: AppRailPlugin) => {
+    railPlugins.recordOpen(plugin.id);
+    closeMossCanvas("destination-switch");
+    selectRailRouteItem("skills");
+    void navigate({ to: "/skills/plugins/$pluginId", params: { pluginId: plugin.id } });
+  };
+  const railPluginItems: AppRailItem[] = railPlugins.pinned.map((plugin) => {
+    const Icon = resolveResourceIcon(plugin.name, plugin.description, PluginIcon);
+    return {
+      id: `plugin:${plugin.id}`,
+      label: plugin.name,
+      glyphs: { idle: Icon, active: Icon },
+      badge: null,
+      active: pathname === `/skills/plugins/${encodeURIComponent(plugin.id)}`,
+      onSelect: () => openRailPlugin(plugin),
+    };
+  });
   const appRailProps = {
     items: railItems.filter((item) => item.id !== "pullRequests"),
     shortcuts: [
       ...(railVisibleItemIds.includes("pullRequests") ? [railItemFor("pullRequests")] : []),
+      ...railPluginItems,
       ...railShortcutItems,
     ],
     moreSlot: (
-      <AppRailMoreMenu
-        active={false}
-        spaces={spaces.map((space) => ({
-          key: railSpaceShortcutKey(space.id),
-          label: spaceDisplayName(space.id, spaces, voidSpace),
-        }))}
-        projects={allStandardProjectsBase.map((project) => ({
-          key: railProjectShortcutKey(project.id),
-          label: resolveSidebarProjectRowLabel(project),
-        }))}
-        pinnedKeys={new Set(appSettings.railShortcuts)}
-        onToggleShortcut={(key) =>
-          updateSettings({ railShortcuts: toggleRailShortcutKey(appSettings.railShortcuts, key) })
-        }
-        onOpenStudio={null}
-        onCustomize={() => setIsCustomizingNav(true)}
-        destinations={[
-          ...railItemOrder
-            .filter(
-              (id) =>
-                id !== "home" &&
-                isRailItemAvailable(id, railAvailability) &&
-                hiddenRailItems.has(id),
-            )
-            .map((id) => {
-              const item = railItemFor(id);
-              return { key: id, label: item.label, onSelect: item.onSelect };
-            }),
-          ...railBottomItems.map((item) => ({
-            key: item.id,
-            label: item.label,
-            onSelect: item.onSelect,
-          })),
-          { key: "help", label: "帮助", onSelect: sidebarHelpMenuProps.onOpenShortcuts },
-        ]}
+      <SidebarHelpMenu
+        {...sidebarHelpMenuProps}
+        renderMenu={(helpMenu) => (
+          <AppRailMoreMenu
+            open={railFeaturesOpen}
+            onOpenChange={setRailFeaturesOpen}
+            onCustomize={() => setIsCustomizingNav(true)}
+            // Codex order leads (项目, 图像, …); every other available destination follows in the
+            // user's Customize order so hidden ones (Spaces, Inbox, Kanban/Tasks, Hubs) stay reachable.
+            destinations={[
+              ...new Set<RailOrderableItemId>([...RAIL_MORE_MENU_LEADING_ITEMS, ...railItemOrder]),
+            ]
+              .filter((id) => isRailItemAvailable(id, railAvailability))
+              .map((id) => {
+                const item = railItemFor(id);
+                return {
+                  key: id,
+                  label:
+                    id === "home"
+                      ? t("sidebar.more.projects")
+                      : id === "pullRequests"
+                        ? t("sidebar.more.codeReview")
+                        : item.label,
+                  icon: id === "home" ? railItemGlyphs("spaces").idle : item.glyphs.idle,
+                  onSelect: item.onSelect,
+                  pinned: !hiddenRailItems.has(id),
+                  onTogglePin: railItemCanHide(id)
+                    ? () => handleRailItemVisibleChange(id, hiddenRailItems.has(id))
+                    : undefined,
+                };
+              })}
+            plugins={railPlugins.items.map((plugin) => ({
+              key: `plugin:${plugin.id}`,
+              label: plugin.name,
+              icon: resolveResourceIcon(plugin.name, plugin.description, PluginIcon),
+              onSelect: () => openRailPlugin(plugin),
+              pinned: railPlugins.pinned.some(({ id }) => id === plugin.id),
+              onTogglePin: () => railPlugins.togglePin(plugin),
+            }))}
+            shortcuts={{
+              spaces: spaces.map((space) => ({
+                key: railSpaceShortcutKey(space.id),
+                label: spaceDisplayName(space.id, spaces, voidSpace),
+              })),
+              projects: allStandardProjectsBase.map((project) => ({
+                key: railProjectShortcutKey(project.id),
+                label: resolveSidebarProjectRowLabel(project),
+              })),
+              pinnedKeys: new Set(appSettings.railShortcuts),
+              onToggle: (key) =>
+                updateSettings({
+                  railShortcuts: toggleRailShortcutKey(appSettings.railShortcuts, key),
+                }),
+            }}
+            utilities={railBottomItems.map((item) => ({
+              key: item.id,
+              label: item.label,
+              icon: item.glyphs.idle,
+              onSelect: item.onSelect,
+            }))}
+            helpMenu={helpMenu}
+          />
+        )}
       />
     ),
     bottomItems: [],
@@ -7589,7 +7714,9 @@ export default function Sidebar() {
                 </SidebarMenu>
               </SidebarGroup>
             ) : null}
-            {isOnSettings ? (
+            {isOnMossbot ? (
+              <MossbotSidebar activeProjectId={activeMossbot?.projectId ?? null} />
+            ) : isOnSettings ? (
               <SidebarGroup className="p-0">
                 {/* The rail is the way back, so the panel opens on its title like every section. */}
                 <SidebarPanelTitle title="Settings" />
@@ -7681,14 +7808,15 @@ export default function Sidebar() {
                           );
                         })}
                         <SidebarPrimaryAction
-                          icon={CompassLineIcon}
-                          label={t("sidebar.nav.explore")}
-                          active={searchPaletteOpen}
-                          onClick={() => setSearchPaletteOpen(true)}
+                          icon={MossbotMark}
+                          label="Mossbot"
+                          onClick={() => void navigate({ to: "/mossbot" })}
                         />
                       </SidebarMenu>
                     </SidebarGroup>
                   ) : null}
+
+                  {!isOnGroups && <MossbotSidebar compact activeProjectId={null} />}
 
                   {isOnGroups ? (
                     <SidebarGroupsSurface
@@ -7874,7 +8002,8 @@ export default function Sidebar() {
                 </div>
               </>
             )}
-            {!isOnSettings &&
+            {!isOnMossbot &&
+            !isOnSettings &&
             !isOnGroups &&
             !activityViewEnabled &&
             !showRailSpacesPanel &&
@@ -7888,7 +8017,8 @@ export default function Sidebar() {
                 />
               </SidebarGroup>
             ) : null}
-            {!isOnSettings &&
+            {!isOnMossbot &&
+            !isOnSettings &&
             !isOnGroups &&
             !activityViewEnabled &&
             !showRailSpacesPanel &&
@@ -8010,7 +8140,8 @@ export default function Sidebar() {
                 </div>
               </SidebarGroup>
             ) : null}
-            {!isOnSettings &&
+            {!isOnMossbot &&
+            !isOnSettings &&
             !isOnGroups &&
             !activityViewEnabled &&
             !showRailSpacesPanel &&
@@ -8036,8 +8167,14 @@ export default function Sidebar() {
                 </SidebarMenu>
               </SidebarGroup>
             ) : null}
-            {!isOnSettings && !isOnGroups && !activityViewEnabled ? (
-              <SidebarGettingStarted />
+            {!isOnMossbot && !isOnSettings && !isOnGroups && !activityViewEnabled ? (
+              <SidebarGettingStarted
+                onOpenAutomations={() => void navigate({ to: "/automations" })}
+                onOpenConnectors={() =>
+                  void navigate({ to: "/settings", search: { section: "connectors" } })
+                }
+                onCreateChat={() => void handleCreateHomeChat()}
+              />
             ) : null}
           </SidebarContent>
 

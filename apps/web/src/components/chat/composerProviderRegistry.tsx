@@ -17,7 +17,7 @@ import {
   type GeminiThinkingBudget,
   type GeminiThinkingLevel,
   type ModelCapabilities,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   getDefaultContextWindow,
   getDefaultEffort,
@@ -31,10 +31,11 @@ import {
   normalizeOpenCodeModelOptions,
   normalizePiModelOptions,
   resolveDevinModelVariant,
+  resolveCodexSpeedSelection,
   resolveLabeledOptionValue,
   trimOrNull,
   getModelCapabilities,
-} from "@synara/shared/model";
+} from "@moss/shared/model";
 import type { ReactNode } from "react";
 import { TraitsMenuContent, TraitsPicker } from "./TraitsPicker";
 import { getComposerTraitSelection, hasVisibleComposerTraitControls } from "./composerTraits";
@@ -161,12 +162,15 @@ function getProviderStateFromCapabilities(
         rawEffort !== defaultReasoningEffort
           ? rawEffort
           : undefined;
-      const fastModeEnabled = caps.supportsFastMode && providerOptions?.fastMode === true;
+      // Only a speed this model offers is sent; see resolveCodexSpeedSelection.
+      const { dispatchFastMode } = resolveCodexSpeedSelection({
+        supportsFastMode: caps.supportsFastMode,
+        fastMode: providerOptions?.fastMode,
+        runtimeModel,
+      });
       const nextOptions = {
         ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(fastModeEnabled || providerOptions?.fastMode === false
-          ? { fastMode: fastModeEnabled }
-          : {}),
+        ...(dispatchFastMode !== undefined ? { fastMode: dispatchFastMode } : {}),
       };
       normalizedOptions = Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
       break;

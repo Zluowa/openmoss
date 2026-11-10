@@ -1,5 +1,6 @@
 // Account-bound media jobs. The desktop server owns credentials, billing and persistence.
 import { resolveWsHttpUrl } from "./wsHttpUrl";
+import { LocalizedError } from "./localizedError";
 import { isMediaNanoAmount } from "./mossMediaMoney";
 
 export interface MossImageModel {
@@ -382,15 +383,63 @@ function parseMossImagesHistory(
   return value as unknown as MossImagesHistoryPage;
 }
 
+/**
+ * The request never got an HTTP answer: the connection dropped, or the local
+ * server was too busy to answer within the time limit.
+ */
+export function isMossImagesTransportError(error: unknown): boolean {
+  return (
+    !(error instanceof MossImagesError) &&
+    (error instanceof TypeError || (error instanceof Error && error.name === "TimeoutError"))
+  );
+}
+
+const READ_RETRY_DELAYS_MS = [1_000, 3_000] as const;
+
+function waitBeforeRetry(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Reads only: a GET that never reached an answer is safe to ask again, and a
+ * page that merely opens should not fail on one dropped or slow request.
+ * Submissions never come through here; they are never retried automatically.
+ */
+async function readMossImagesGet(
+  path: string,
+  signal: AbortSignal | undefined,
+  fetchImpl: ImagesFetch,
+): Promise<unknown> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await readJson(path, { method: "GET", ...(signal ? { signal } : {}) }, fetchImpl);
+    } catch (error) {
+      const delay = READ_RETRY_DELAYS_MS[attempt];
+      if (signal?.aborted || delay === undefined || !isMossImagesTransportError(error)) throw error;
+      await waitBeforeRetry(delay, signal);
+    }
+  }
+}
+
 /** The CLI entry needs local image history, never the supplier model catalog. */
 export async function loadMossImagesHome(
   signal?: AbortSignal,
   fetchImpl: ImagesFetch = globalThis.fetch,
 ): Promise<MossImagesCatalog> {
   try {
-    const value = await readJson(
+    const value = await readMossImagesGet(
       "/api/moss/media/history?limit=24&kind=image",
-      { method: "GET", ...(signal ? { signal } : {}) },
+      signal,
       fetchImpl,
     );
     signal?.throwIfAborted();
@@ -432,11 +481,7 @@ export async function loadMossImagesHistory(
   const endpoint = input.conversationId
     ? `/api/moss/media/conversations/${encodeURIComponent(input.conversationId)}`
     : "/api/moss/media/history";
-  const value = await readJson(
-    `${endpoint}?${query}`,
-    { method: "GET", ...(signal ? { signal } : {}) },
-    fetchImpl,
-  );
+  const value = await readMossImagesGet(`${endpoint}?${query}`, signal, fetchImpl);
   signal?.throwIfAborted();
   return parseMossImagesHistory(value, input);
 }
@@ -456,6 +501,16 @@ function isImageModel(value: unknown): value is MossImageModel {
     (value.unavailableReason === undefined || typeof value.unavailableReason === "string") &&
     (value.priceLabel === undefined || typeof value.priceLabel === "string")
   );
+}
+
+/**
+ * For loading images that already exist. Nothing was submitted, so the person
+ * is not warned about duplicate tasks, and a dropped or slow connection reads
+ * as what it is rather than as a broken image service.
+ */
+export function describeMossImagesReadError(error: unknown): string {
+  if (isMossImagesTransportError(error)) return "图像记录暂时没有加载出来，请稍后再打开这一页。";
+  return describeMossImagesError(error);
 }
 
 export function describeMossImagesError(error: unknown): string {
@@ -512,7 +567,20 @@ export function describeMossImagesError(error: unknown): string {
   }
   if (error instanceof Error && error.name === "AbortError")
     return "已停止等待。后台任务可能继续运行，可刷新查看结果。";
-  return "暂时无法连接图像服务，请刷新任务状态。请勿重复提交尚未确认的任务。";
+  // Only a request that never got an answer is a connection problem. Starting
+  // an Images conversation fails earlier for local reasons (the CLI's image
+  // Skill, an account change, a slow agent reply); reporting those as an
+  // unreachable image service sent people looking in the wrong place.
+  if (isMossImagesTransportError(error))
+    return "暂时无法连接图像服务，请刷新任务状态。请勿重复提交尚未确认的任务。";
+  if (error instanceof LocalizedError) return error.message;
+  if (error instanceof Error && isPersonFacingMessage(error.message)) return error.message;
+  return "这次没能发出，请稍后再试。";
+}
+
+/** Moss's own failures are written in Chinese for people; library errors are not. */
+function isPersonFacingMessage(message: string): boolean {
+  return message.length > 0 && message.length <= 200 && /[一-鿿]/u.test(message);
 }
 
 export async function readMossImagesJson(
@@ -560,11 +628,7 @@ export async function loadMossImagesCatalog(
   signal?: AbortSignal,
   fetchImpl: ImagesFetch = globalThis.fetch,
 ): Promise<MossImagesCatalog> {
-  const body = await readJson(
-    JOBS_PATH,
-    { method: "GET", ...(signal ? { signal } : {}) },
-    fetchImpl,
-  );
+  const body = await readMossImagesGet(JOBS_PATH, signal, fetchImpl);
   if (
     !isRecord(body) ||
     !Array.isArray(body.models) ||

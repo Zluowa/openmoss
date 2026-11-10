@@ -4,11 +4,25 @@
 
 import { resolveWsHttpUrl } from "./wsHttpUrl";
 
+let frameUrlResolver: ((path: string) => Promise<string | null>) | null = null;
+
+/**
+ * Lets a host that reaches visualizations through another route say where they load from. The
+ * shared conversation's guest page sets this once, so a marker's file loads through the share's
+ * `render` route instead of the owner's server. The app itself never calls this.
+ */
+export function setInlineVisualizationFrameUrlResolver(
+  resolver: ((path: string) => Promise<string | null>) | null,
+): void {
+  frameUrlResolver = resolver;
+}
+
 export async function resolveInlineVisualizationFrameUrl(input: {
   readonly threadId: string | undefined;
   readonly path: string | undefined;
 }): Promise<string | null> {
   if (!input.threadId || !input.path) return null;
+  if (frameUrlResolver !== null) return frameUrlResolver(input.path);
   const params = new URLSearchParams({ threadId: input.threadId, path: input.path });
   try {
     const response = await fetch(

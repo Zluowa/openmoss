@@ -624,12 +624,14 @@ it.effect("strips client-sent agent dispatchOrigin from thread.turn.start comman
       },
       dispatchMode: "queue",
       dispatchOrigin: "agent",
+      dispatchSourceThreadId: "spoofed-sender-thread",
       runtimeMode: "full-access",
       interactionMode: "default",
       createdAt: "2026-01-01T00:00:00.000Z",
     });
     assert.strictEqual(command.type, "thread.turn.start");
     assert.strictEqual("dispatchOrigin" in command, false);
+    assert.strictEqual("dispatchSourceThreadId" in command, false);
   }),
 );
 

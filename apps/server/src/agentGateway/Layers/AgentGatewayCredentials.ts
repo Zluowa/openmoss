@@ -9,8 +9,8 @@
  */
 import { randomUUID } from "node:crypto";
 
-import type { ProviderKind } from "@synara/contracts";
-import { providerSupportsMcpConnectors } from "@synara/shared/mcpConnectors";
+import type { ProviderKind } from "@moss/contracts";
+import { providerSupportsMcpConnectors } from "@moss/shared/mcpConnectors";
 import { Effect, Layer } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -164,9 +164,24 @@ export function makeAgentGatewayConnectorRegistry(input: {
   readonly sessionIsActive: (token: string) => boolean;
 }) {
   let registrations: ReadonlyArray<AgentGatewayConnectorRegistration> = [];
-  const grants = new Map<string, ReadonlySet<string>>();
+  let nextEpoch = 0;
+  const current = new Map<string, { authorityKey: string | undefined; epoch: number }>();
+  const grants = new Map<
+    string,
+    ReadonlyMap<string, { authorityKey: string | undefined; epoch: number }>
+  >();
   return {
     set: (next: ReadonlyArray<AgentGatewayConnectorRegistration>) => {
+      const ids = new Set(next.map((registration) => registration.connectorId));
+      for (const id of current.keys()) if (!ids.has(id)) current.delete(id);
+      for (const registration of next) {
+        const previous = current.get(registration.connectorId);
+        if (!previous || previous.authorityKey !== registration.authorityKey)
+          current.set(registration.connectorId, {
+            authorityKey: registration.authorityKey,
+            epoch: ++nextEpoch,
+          });
+      }
       registrations = [...next];
     },
     /** The connectors a new bearer receives; Pi, Devin, and Antigravity get none. */
@@ -176,12 +191,31 @@ export function makeAgentGatewayConnectorRegistry(input: {
     ): ReadonlyArray<AgentGatewayConnectorRegistration> => {
       const granted = providerSupportsMcpConnectors(provider) ? registrations : [];
       if (granted.length > 0) {
-        grants.set(token, new Set(granted.map((registration) => registration.connectorId)));
+        grants.set(
+          token,
+          new Map(
+            granted.map((registration) => [
+              registration.connectorId,
+              current.get(registration.connectorId)!,
+            ]),
+          ),
+        );
       }
       return granted;
     },
-    canUse: (token: string, connectorId: string): boolean =>
-      input.sessionIsActive(token) && (grants.get(token)?.has(connectorId) ?? false),
+    canUse: (token: string, connectorId: string): boolean => {
+      const granted = grants.get(token)?.get(connectorId);
+      const active = current.get(connectorId);
+      return (
+        input.sessionIsActive(token) &&
+        !!granted &&
+        !!active &&
+        granted.authorityKey === active.authorityKey &&
+        (active.authorityKey === undefined || granted.epoch === active.epoch)
+      );
+    },
+    authorityKey: (token: string, connectorId: string) =>
+      grants.get(token)?.get(connectorId)?.authorityKey,
     revokeSession: (token: string) => {
       grants.delete(token);
     },
@@ -304,6 +338,7 @@ export const makeAgentGatewayCredentials = Effect.gen(function* () {
     issueStdioBootstrapToken,
     exchangeStdioBootstrapToken,
     bindWriteAuthority: sessionRegistry.bindWriteAuthority,
+    observeNativeTurn: sessionRegistry.observeNativeTurn,
     verifyWriteAuthority: sessionRegistry.verifyWriteAuthority,
     registerInFlightRequest: inFlightRequests.register,
     cancelInFlightRequests: inFlightRequests.cancel,
@@ -330,6 +365,7 @@ export const makeAgentGatewayCredentials = Effect.gen(function* () {
     },
     setConnectorServers: connectors.set,
     canUseConnector: connectors.canUse,
+    connectorAuthorityKey: connectors.authorityKey,
   } satisfies AgentGatewayCredentialsShape;
 });
 

@@ -1,7 +1,7 @@
 // FILE: useSidebarThreadPlacement.ts
 // Purpose: Owns the optimistic, revision-guarded sidebar thread placement flow.
 
-import type { OrchestrationSidebarOrderItem, ThreadId } from "@synara/contracts";
+import type { OrchestrationSidebarOrderItem, ThreadId } from "@moss/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {

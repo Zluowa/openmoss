@@ -3,10 +3,7 @@
 // Layer: Cross-package orchestration utility
 // Exports: stale-callback matcher, reclaim timing, and response-status predicates.
 
-import type {
-  OrchestrationPendingInteraction,
-  OrchestrationThreadActivity,
-} from "@synara/contracts";
+import type { OrchestrationPendingInteraction, OrchestrationThreadActivity } from "@moss/contracts";
 import { isStalePendingRequestFailureDetail, pendingRequestInstanceKey } from "./threadSummary";
 
 export function createStalePendingInteractionMatcher(

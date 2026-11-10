@@ -5,7 +5,7 @@ import { Effect } from "effect";
 import { vi } from "vitest";
 
 import { AuthError } from "./auth/Services/ServerAuth";
-import { WsRpcError } from "@synara/contracts";
+import { WsRpcError } from "@moss/contracts";
 import {
   authenticateRpcWebSocketUpgrade,
   authorizeDeviceFrameWebSocketUpgrade,
@@ -407,6 +407,36 @@ it.effect("preserves the legacy query token for loopback desktop sessions", () =
 
     assert.equal(session, null);
     assert.equal(authenticateWebSocketUpgrade.mock.calls.length, 0);
+  }),
+);
+
+it.effect("accepts a startup bearer only on a private loopback socket", () =>
+  Effect.gen(function* () {
+    const authenticateWebSocketUpgrade = vi.fn(() =>
+      Effect.fail(new AuthError({ message: "Session authentication required.", status: 401 })),
+    );
+    const request = { headers: { authorization: "Bearer desktop-secret" }, cookies: {} };
+    const accepted = yield* authenticateRpcWebSocketUpgrade({
+      config: { host: "127.0.0.1", authToken: "desktop-secret", publicUrl: undefined },
+      legacyToken: null,
+      request,
+      serverAuth: { authenticateWebSocketUpgrade },
+    });
+    assert.equal(accepted, null);
+    assert.equal(authenticateWebSocketUpgrade.mock.calls.length, 0);
+    for (const config of [
+      { host: "0.0.0.0", authToken: "desktop-secret", publicUrl: undefined },
+      { host: "127.0.0.1", authToken: "desktop-secret", publicUrl: "https://example.com" },
+      { host: "127.0.0.1", authToken: "different-secret", publicUrl: undefined },
+    ]) {
+      const denied = yield* authenticateRpcWebSocketUpgrade({
+        config,
+        legacyToken: null,
+        request,
+        serverAuth: { authenticateWebSocketUpgrade },
+      }).pipe(Effect.flip);
+      assert.instanceOf(denied, AuthError);
+    }
   }),
 );
 

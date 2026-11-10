@@ -1,3 +1,5 @@
+import type { TranslationKey } from "~/localization";
+
 export function normalizeMainlandPhoneInput(value: string): string {
   const compact = value.trim().replace(/[\s().-]/gu, "");
   if (compact.startsWith("+86")) return compact.slice(3);
@@ -15,24 +17,28 @@ export function validatePhoneCode(value: string): string | null {
   return /^\d{6}$/u.test(value.trim()) ? null : "请输入 6 位短信验证码";
 }
 
-const PHONE_AUTH_MESSAGES_BY_CODE = {
-  invalid_phone_number: "请输入有效的中国大陆手机号。",
-  sms_send_failed: "验证码发送失败，请稍后再试。",
-  sms_rate_limited: "验证码请求过于频繁，请稍后再试。",
-  challenge_not_found: "验证码请求无效，请重新获取。",
-  challenge_expired: "验证码已过期，请重新获取。",
-  challenge_consumed: "验证码已使用，请重新获取。",
-  challenge_attempts_exceeded: "验证码错误次数过多，请重新获取。",
-  invalid_verification_code: "验证码无效或已过期，请重新获取。",
-  authentication_service_unavailable: "手机号登录服务暂时不可用，请稍后再试。",
-  invalid_authentication_response: "手机号登录响应异常，请重新获取验证码后再试。",
-  session_expired: "登录状态已过期，请重新登录。",
-  authentication_required: "登录状态已失效，请重新登录。",
-  persistence_failed: "无法安全保存手机号登录状态，请稍后重试。",
-} as const;
+const PHONE_AUTH_MESSAGE_KEYS_BY_CODE = {
+  invalid_phone_number: "mossPhoneLogin.error.invalidPhone",
+  sms_send_failed: "mossPhoneLogin.error.sendFailed",
+  sms_rate_limited: "mossPhoneLogin.error.rateLimited",
+  challenge_not_found: "mossPhoneLogin.error.challengeNotFound",
+  challenge_expired: "mossPhoneLogin.error.challengeExpired",
+  challenge_consumed: "mossPhoneLogin.error.challengeConsumed",
+  challenge_attempts_exceeded: "mossPhoneLogin.error.attemptsExceeded",
+  // MemFire answers 403 both for a wrong code and for one that a newer
+  // request replaced or that outlived the Auth console's OTP lifetime.
+  invalid_verification_code: "mossPhoneLogin.error.invalidCode",
+  authentication_service_unavailable: "mossPhoneLogin.error.serviceUnavailable",
+  invalid_authentication_response: "mossPhoneLogin.error.invalidResponse",
+  session_expired: "mossPhoneLogin.error.sessionExpired",
+  authentication_required: "mossPhoneLogin.error.authenticationRequired",
+  persistence_failed: "mossPhoneLogin.error.persistenceFailed",
+} as const satisfies Readonly<Record<string, TranslationKey>>;
 
-type PhoneAuthErrorCode = keyof typeof PHONE_AUTH_MESSAGES_BY_CODE;
+type PhoneAuthErrorCode = keyof typeof PHONE_AUTH_MESSAGE_KEYS_BY_CODE;
 
+// The backend reports account failures by their zh-CN message only, so these
+// exact strings are the wire contract (MossPhoneAccountService.mapAuthError).
 const PHONE_AUTH_CODE_BY_EXACT_MESSAGE: Readonly<Record<string, PhoneAuthErrorCode>> = {
   "请输入有效的中国大陆手机号。": "invalid_phone_number",
   "Invalid phone number.": "invalid_phone_number",
@@ -60,6 +66,9 @@ const PHONE_AUTH_CODE_BY_EXACT_MESSAGE: Readonly<Record<string, PhoneAuthErrorCo
   "Moss account persistence failed.": "persistence_failed",
 };
 
+/** Which step failed: asking for a code, or signing in with one. */
+export type PhoneAuthStep = "send" | "verify";
+
 function safeErrorRecord(error: unknown): Readonly<Record<string, unknown>> | null {
   return typeof error === "object" && error !== null
     ? (error as Readonly<Record<string, unknown>>)
@@ -69,14 +78,32 @@ function safeErrorRecord(error: unknown): Readonly<Record<string, unknown>> | nu
 function knownPhoneAuthErrorCode(error: unknown): PhoneAuthErrorCode | null {
   const record = safeErrorRecord(error);
   const code = typeof record?.code === "string" ? record.code.trim() : "";
-  if (code in PHONE_AUTH_MESSAGES_BY_CODE) return code as PhoneAuthErrorCode;
+  if (Object.hasOwn(PHONE_AUTH_MESSAGE_KEYS_BY_CODE, code)) return code as PhoneAuthErrorCode;
   const message = error instanceof Error ? error.message.trim() : "";
   return PHONE_AUTH_CODE_BY_EXACT_MESSAGE[message] ?? null;
 }
 
-export function phoneAuthErrorMessage(error: unknown): string {
-  const code = knownPhoneAuthErrorCode(error);
-  return code ? PHONE_AUTH_MESSAGES_BY_CODE[code] : "手机号登录失败，请稍后重试。";
+function transportErrorCode(error: unknown): string {
+  const code = safeErrorRecord(error)?.code;
+  return typeof code === "string" ? code : "";
+}
+
+/**
+ * Picks the sign-in message for a failed send or verify. A send that timed out
+ * or lost its connection may still have reached the SMS provider, so it gets
+ * its own message that asks the person to wait instead of resending at once.
+ */
+export function phoneAuthErrorMessageKey(error: unknown, step: PhoneAuthStep): TranslationKey {
+  const known = knownPhoneAuthErrorCode(error);
+  if (known) return PHONE_AUTH_MESSAGE_KEYS_BY_CODE[known];
+  const transport = transportErrorCode(error);
+  if (transport === "WS_REQUEST_TIMEOUT" || transport === "WS_REQUEST_RECONNECTED") {
+    return step === "send"
+      ? "mossPhoneLogin.error.sendTimedOut"
+      : "mossPhoneLogin.error.verifyTimedOut";
+  }
+  if (transport === "WS_REQUEST_NOT_SENT") return "mossPhoneLogin.error.serviceUnavailable";
+  return "mossPhoneLogin.error.generic";
 }
 
 export type MossAccountSettingsErrorContext = "apiUser" | "apiKey";

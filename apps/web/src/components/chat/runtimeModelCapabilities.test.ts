@@ -1,4 +1,4 @@
-import type { ProviderModelDescriptor } from "@synara/contracts";
+import type { ProviderModelDescriptor } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { providerModelSupportsAutoRuntimeMode } from "../../lib/runtimeMode";

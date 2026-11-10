@@ -2,7 +2,7 @@ import Path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { MOSS_PRODUCTION_BUNDLE_ID } from "@synara/shared/desktopIdentity";
+import { MOSS_PRODUCTION_BUNDLE_ID } from "@moss/shared/desktopIdentity";
 import type { BrowserWindow } from "electron";
 
 import {

@@ -14,11 +14,14 @@ import type {
   ProviderKind,
   ProviderMentionReference,
   ProviderSkillReference,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { ResourceDetail } from "~/components/PluginResourceDetailDialog";
+import { localizeMossMediaPluginPrompt } from "~/localization/zhCNMossMediaPluginsCopy";
+import { documentMossLocale, type MossLocaleCode } from "~/uiLocale";
 import { formatComposerMentionToken, skillMentionPrefix } from "./composerMentions";
 import { MOSS_APPS_MARKETPLACE_NAME } from "./mossAppsPlugins";
+import { MOSS_SERVICE_PLUGINS_MARKETPLACE_NAME } from "./mossServicePlugins";
 
 /**
  * Codex's prefillCwd / usable-cwd rule: the first workspace root, unless it is
@@ -85,10 +88,21 @@ export interface TryInChatSeed {
   readonly mentions: ProviderMentionReference[];
 }
 
+export interface TryInChatSeedOptions {
+  /**
+   * The installed skill of a Moss service plugin, by its path on disk. Only
+   * Codex picks up shared skills on its own; attaching it reaches every CLI.
+   */
+  readonly serviceSkill?: ProviderSkillReference | null;
+  /** The UI language; defaults to the one the localization provider set on the document. */
+  readonly locale?: MossLocaleCode;
+}
+
 export function buildTryInChatSeed(
   resource: ResourceDetail,
   provider: ProviderKind,
   promptOverride?: string,
+  options: TryInChatSeedOptions = {},
 ): TryInChatSeed {
   switch (resource.kind) {
     case "skill":
@@ -102,18 +116,39 @@ export function buildTryInChatSeed(
         mentions: [],
       };
     case "plugin": {
-      // A Moss app is no CLI plugin a mention could resolve; its tools reach
-      // every agent through the Moss Apps connector, so the prompt names it.
-      if (resource.marketplaceName === MOSS_APPS_MARKETPLACE_NAME) {
+      // A Moss app (hosted or a service plugin) is no CLI plugin a mention
+      // could resolve; its tools reach every agent through a Moss connector,
+      // so the prompt names it. A service plugin's skill rides along as a
+      // skill chip, the same token and reference the composer picker sets.
+      if (
+        resource.marketplaceName === MOSS_APPS_MARKETPLACE_NAME ||
+        resource.marketplaceName === MOSS_SERVICE_PLUGINS_MARKETPLACE_NAME
+      ) {
         const name = resource.plugin.interface?.displayName ?? resource.plugin.name;
-        return { prompt: promptOverride ?? `${name} `, skills: [], mentions: [] };
+        const text = promptOverride ?? `${name} `;
+        const skill =
+          resource.marketplaceName === MOSS_SERVICE_PLUGINS_MARKETPLACE_NAME
+            ? options.serviceSkill
+            : null;
+        return skill
+          ? {
+              prompt: `${skillMentionPrefix(provider)}${skill.name} ${text}`,
+              skills: [{ name: skill.name, path: skill.path }],
+              mentions: [],
+            }
+          : { prompt: text, skills: [], mentions: [] };
       }
       // Plugins are `@name` mentions backed by a `plugin://name@marketplace`
       // reference; that reference is what makes the composer render the "plugin"
       // chip variant (`resolveMentionChipKind`) instead of a plain path chip. The
       // plugin's defaultPrompt trails the chip (`[@name](uri) ${defaultPrompt}`).
       const mentionToken = formatComposerMentionToken(resource.plugin.name);
-      const defaultPrompt = resource.plugin.interface?.defaultPrompt;
+      // A Moss media plugin's example prompt follows the UI language, so the
+      // agent answers a Chinese person in Chinese.
+      const locale = options.locale ?? documentMossLocale();
+      const defaultPrompt = resource.plugin.interface?.defaultPrompt?.map((prompt) =>
+        localizeMossMediaPluginPrompt(prompt, locale),
+      );
       const trailing =
         promptOverride ??
         (defaultPrompt && defaultPrompt.length > 0 ? defaultPrompt.join("\n") : "");

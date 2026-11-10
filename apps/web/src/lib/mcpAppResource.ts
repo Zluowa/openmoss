@@ -6,8 +6,8 @@ import {
   McpAppResourceReadInput,
   McpAppResourceReadResult,
   type McpAppResourceReadResult as McpAppResourceReadResultData,
-} from "@synara/contracts";
-import { MCP_APP_RESOURCE_READ_ROUTE_PATH } from "@synara/shared/mcpAppResource";
+} from "@moss/contracts";
+import { MCP_APP_RESOURCE_READ_ROUTE_PATH } from "@moss/shared/mcpAppResource";
 import { Schema } from "effect";
 
 import { resolveWsHttpUrl } from "./wsHttpUrl";

@@ -1,5 +1,5 @@
-import type { OrchestrationThreadActivity, ThreadId } from "@synara/contracts";
-import { pendingRequestInstanceKey } from "@synara/shared/threadSummary";
+import type { OrchestrationThreadActivity, ThreadId } from "@moss/contracts";
+import { pendingRequestInstanceKey } from "@moss/shared/threadSummary";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useComposerDraftStore, useComposerThreadDraft } from "../../composerDraftStore";
 import type { PendingUserInput } from "../../pendingInteractionDerivation";

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@moss/contracts";
 
 import { deriveManagedTerminalProfiles } from "./providerTerminalProfiles.ts";
 import { buildMossManagedHomeOwnershipMarker } from "../account/mossManagedHomeAuthority.ts";

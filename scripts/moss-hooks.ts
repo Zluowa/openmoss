@@ -6,7 +6,7 @@
  * trust decisions in `.moss/hooks/.trust.json` at the CURRENT content hash.
  *
  * This is a control-plane tool only — the runtime trust gate itself lives in
- * `@synara/shared/mossHooks` and is enforced on the real session-start path
+ * `@moss/shared/mossHooks` and is enforced on the real session-start path
  * by `ProviderService` (see `mossSessionStartHookRunner`). Trusting a hook
  * here is what allows that runtime path to execute it.
  *
@@ -17,8 +17,8 @@
  */
 import { pathToFileURL } from "node:url";
 
-import { trustAllHooks, trustHook } from "@synara/shared/mossHookTrust";
-import { discoverMossHooks, type MossHookResource } from "@synara/shared/mossHooks";
+import { trustAllHooks, trustHook } from "@moss/shared/mossHookTrust";
+import { discoverMossHooks, type MossHookResource } from "@moss/shared/mossHooks";
 
 export interface MossHooksCliCommand {
   readonly action: "list" | "trust";

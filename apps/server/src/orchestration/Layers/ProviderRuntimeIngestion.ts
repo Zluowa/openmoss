@@ -22,7 +22,7 @@ import {
   type ProviderKind,
   type ProviderRuntimeEvent,
   type RuntimeMode,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   Cache,
   Cause,
@@ -36,10 +36,10 @@ import {
   Stream,
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
-import { makeDrainableWorker, startDrainableWorkerProducers } from "@synara/shared/DrainableWorker";
-import { isGroupContainerKind } from "@synara/shared/projectContainers";
-import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
-import { isProviderKind } from "@synara/shared/providerInstances";
+import { makeDrainableWorker, startDrainableWorkerProducers } from "@moss/shared/DrainableWorker";
+import { isGroupContainerKind } from "@moss/shared/projectContainers";
+import { providerSupportsNativeTurnSteering } from "@moss/shared/providerMetadata";
+import { isProviderKind } from "@moss/shared/providerInstances";
 import {
   coalesceProviderRuntimeProgress,
   providerRuntimeCommandProgressKey,
@@ -51,7 +51,7 @@ import {
   collectSubagentProviderThreadIds,
   extractSubagentIdentityHints,
   resolveSubagentIdentityFromDirectory,
-} from "@synara/shared/subagents";
+} from "@moss/shared/subagents";
 
 import {
   generatedImageMarkdown,
@@ -1814,7 +1814,7 @@ const make = Effect.gen(function* () {
     commandTag: string;
     finalDeltaCommandTag: string;
     fallbackText?: string;
-    asyncQuestions?: import("@synara/contracts").AsyncUserInputQuestions;
+    asyncQuestions?: import("@moss/contracts").AsyncUserInputQuestions;
   }) =>
     Effect.gen(function* () {
       const bufferedText = yield* getBufferedAssistantText(input.messageId);

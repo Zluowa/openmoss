@@ -17,6 +17,7 @@ export function createLinuxCuaDriverHost(options: {
     binaryPath: options.isPackaged
       ? join(options.resourcesPath, "cua-driver", "cua-driver")
       : join(options.appRoot, "apps/desktop/resources/cua-driver/cua-driver"),
+    isPackaged: options.isPackaged,
     bundleId: options.bundleId,
     capability: options.capability,
     ownPids: options.ownPids,
@@ -31,8 +32,10 @@ export function createLinuxCuaDriverHost(options: {
       throw new Error(
         "Start Moss inside your Linux desktop session with its display and accessibility " +
           "bus available. Screen capture and input depend on the X11 or Wayland compositor; " +
-          "the macOS permission guide does not apply. If the driver is missing, reinstall " +
-          "the Linux package or run apps/desktop/scripts/provision-cua-driver.mjs --platform linux.",
+          "the macOS permission guide does not apply. If the driver is missing, " +
+          (options.isPackaged
+            ? "reinstall Moss."
+            : "run apps/desktop/scripts/provision-cua-driver.mjs --platform linux."),
       );
     },
   });

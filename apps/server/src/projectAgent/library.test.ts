@@ -4,7 +4,7 @@ import * as path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { ProjectId } from "@synara/contracts";
+import { ProjectId } from "@moss/contracts";
 import { Effect, Exit, FileSystem, Layer } from "effect";
 import { describe, expect } from "vitest";
 

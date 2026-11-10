@@ -5,7 +5,7 @@
 import * as FS from "node:fs";
 import * as Path from "node:path";
 
-import { DesktopAppIcon, type DesktopDockIconPreference } from "@synara/contracts";
+import { DesktopAppIcon, type DesktopDockIconPreference } from "@moss/contracts";
 import { Schema } from "effect";
 
 type DesktopPlatform = "darwin" | "linux" | "win32";

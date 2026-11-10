@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
-import type { OrchestrationCommand, OrchestrationEvent } from "@synara/contracts";
+import type { OrchestrationCommand, OrchestrationEvent } from "@moss/contracts";
 
 import { MossAccountServiceError } from "../../account/mossAccountErrors";
 import { MossCloudAccountServiceError } from "../../account/mossCloudAccountErrors";

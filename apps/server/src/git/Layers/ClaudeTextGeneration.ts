@@ -1,10 +1,10 @@
 import { Effect, Fiber, FileSystem, Layer, Option, Schema, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 
-import { sanitizeGeneratedThreadTitle } from "@synara/shared/chatThreads";
-import { supportsPosixPermissions } from "@synara/shared/filesystemPlatform";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@synara/shared/git";
-import { getModelSelectionStringOptionValue, resolveApiModelId } from "@synara/shared/model";
+import { sanitizeGeneratedThreadTitle } from "@moss/shared/chatThreads";
+import { supportsPosixPermissions } from "@moss/shared/filesystemPlatform";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@moss/shared/git";
+import { getModelSelectionStringOptionValue, resolveApiModelId } from "@moss/shared/model";
 
 import { TextGenerationError } from "../Errors.ts";
 import {
@@ -34,9 +34,17 @@ import {
   toJsonSchemaObject,
 } from "../textGenerationShared.ts";
 import { ServerConfig } from "../../config.ts";
+import {
+  agentProgramsForServer,
+  agentProgramSourceHome,
+} from "../../provider/agentProgramOwnership.ts";
+import { readClaudeStateBinding } from "../../provider/claudeStateBinding.ts";
 import { spawnProviderProcess } from "../../platform/effectProcessRuntime.ts";
 import { forceTeardownEffectProcessTree } from "../../platform/supervisedProcessTeardown.ts";
-import { buildClaudeInstanceProcessEnv } from "../../provider/claudeEnvironment.ts";
+import {
+  buildClaudeInstanceProcessEnv,
+  resolveClaudeCodeExecutablePath,
+} from "../../provider/claudeEnvironment.ts";
 
 const CLAUDE_TIMEOUT_MS = 180_000;
 const CLAUDE_SAFE_MODE_ENV_KEY = "CLAUDE_CODE_SAFE_MODE";
@@ -96,8 +104,16 @@ function resolveClaudeBinaryPath(input: {
   readonly providerOptions?: Parameters<
     TextGenerationShape["generateThreadTitle"]
   >[0]["providerOptions"];
+  readonly providerInstanceId?: string | undefined;
 }): string {
-  return input.providerOptions?.claudeAgent?.binaryPath?.trim() || "claude";
+  // Same runtime as the chat itself: the person's own CLI, else the copy Moss ships.
+  return (
+    resolveClaudeCodeExecutablePath({
+      binaryPath: input.providerOptions?.claudeAgent?.binaryPath,
+      providerInstanceId: input.providerInstanceId,
+      env: process.env,
+    }) ?? "claude"
+  );
 }
 
 function resolveClaudeEnvironment(input: {
@@ -130,6 +146,7 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
   const commandSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fileSystem = yield* FileSystem.FileSystem;
   const serverConfig = yield* ServerConfig;
+  const runtimePrograms = agentProgramsForServer(serverConfig, "claudeAgent");
 
   const readStreamAsString = <E>(
     operation: TextGenerationOperation,
@@ -168,7 +185,23 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     providerOptions?: Parameters<TextGenerationShape["generateThreadTitle"]>[0]["providerOptions"];
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
     Effect.gen(function* () {
-      const binaryPath = resolveClaudeBinaryPath({ providerOptions });
+      const assertStateBindingCurrent = () => {
+        readClaudeStateBinding(providerOptions?.claudeAgent);
+      };
+      yield* Effect.try({
+        try: assertStateBindingCurrent,
+        catch: (cause) =>
+          new TextGenerationError({
+            operation,
+            detail:
+              cause instanceof Error ? cause.message : "Claude 账户绑定已失效，请重新选择账户。",
+            cause,
+          }),
+      });
+      const binaryPath = resolveClaudeBinaryPath({
+        providerOptions,
+        providerInstanceId: modelSelection.instanceId,
+      });
       const env = resolveClaudeEnvironment({
         providerOptions,
         homeDir: serverConfig.homeDir,
@@ -219,39 +252,63 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
         "--tools",
         "",
       ];
-      const child = yield* spawnProviderProcess(commandSpawner, binaryPath, args, {
-        cwd: isolatedCwd,
-        env,
-        // Auxiliary generation has no state to preserve. A hard scoped kill
-        // avoids waiting forever when a CLI or descendant ignores SIGTERM.
-        killSignal: "SIGKILL",
-        stdin: { stream: Stream.make(new TextEncoder().encode(prompt)) },
-      }).pipe(
-        Effect.mapError((cause) =>
-          normalizeClaudeError(binaryPath, operation, cause, "Failed to spawn Claude CLI process"),
-        ),
-      );
-      const [stdout, stderr, exitCode] = yield* collectClaudeChildWithInterruptKill(
-        Effect.all(
-          [
-            readStreamAsString(operation, child.stdout),
-            readStreamAsString(operation, child.stderr),
-            child.exitCode.pipe(
-              Effect.map((value) => Number(value)),
-              Effect.mapError((cause) =>
-                normalizeClaudeError(
-                  binaryPath,
-                  operation,
-                  cause,
-                  "Failed to read Claude CLI exit code",
+      const [stdout, stderr, exitCode] = yield* runtimePrograms
+        .withOperation(
+          {
+            binaryPath,
+            cwd: isolatedCwd,
+            env,
+            sourceHomePath: agentProgramSourceHome("claudeAgent", env, serverConfig.homeDir),
+          },
+          (spawned) =>
+            Effect.gen(function* () {
+              yield* Effect.try({ try: assertStateBindingCurrent, catch: (cause) => cause });
+              const child = yield* spawnProviderProcess(commandSpawner, binaryPath, args, {
+                cwd: isolatedCwd,
+                env,
+                // Auxiliary generation has no state to preserve. A hard scoped kill
+                // avoids waiting forever when a CLI or descendant ignores SIGTERM.
+                killSignal: "SIGKILL",
+                stdin: { stream: Stream.make(new TextEncoder().encode(prompt)) },
+              }).pipe(
+                Effect.mapError((cause) =>
+                  normalizeClaudeError(
+                    binaryPath,
+                    operation,
+                    cause,
+                    "Failed to spawn Claude CLI process",
+                  ),
                 ),
-              ),
-            ),
-          ],
-          { concurrency: "unbounded" },
-        ),
-        child,
-      );
+              );
+              spawned();
+              return yield* collectClaudeChildWithInterruptKill(
+                Effect.all(
+                  [
+                    readStreamAsString(operation, child.stdout),
+                    readStreamAsString(operation, child.stderr),
+                    child.exitCode.pipe(
+                      Effect.map((value) => Number(value)),
+                      Effect.mapError((cause) =>
+                        normalizeClaudeError(
+                          binaryPath,
+                          operation,
+                          cause,
+                          "Failed to read Claude CLI exit code",
+                        ),
+                      ),
+                    ),
+                  ],
+                  { concurrency: "unbounded" },
+                ),
+                child,
+              );
+            }).pipe(Effect.scoped),
+        )
+        .pipe(
+          Effect.mapError((cause) =>
+            normalizeClaudeError(binaryPath, operation, cause, "Failed to run Claude CLI process"),
+          ),
+        );
 
       if (exitCode !== 0) {
         const stderrDetail = stderr.trim();

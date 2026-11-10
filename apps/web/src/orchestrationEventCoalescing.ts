@@ -6,7 +6,7 @@
 // Why: Coalesce text across interleaved threads without moving a thread's state
 //      transitions ahead of its other events.
 
-import type { OrchestrationEvent } from "@synara/contracts";
+import type { OrchestrationEvent } from "@moss/contracts";
 
 type ThreadMessageSentEvent = Extract<OrchestrationEvent, { type: "thread.message-sent" }>;
 

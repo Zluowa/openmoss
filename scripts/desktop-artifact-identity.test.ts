@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  resolveMossDesktopRuntimeFlavor,
-  mossDesktopIdentity,
-} from "@synara/shared/desktopIdentity";
+import { resolveMossDesktopRuntimeFlavor, mossDesktopIdentity } from "@moss/shared/desktopIdentity";
 import { createDesktopArtifactIdentity } from "./lib/desktop-artifact-identity.ts";
 
 describe("desktop artifact identity", () => {

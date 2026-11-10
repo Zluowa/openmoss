@@ -3,7 +3,7 @@ import { File } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef, type KeyboardEvent, type RefObject } from "react";
 
-import type { ResolvedKeybindingsConfig } from "@synara/contracts";
+import type { ResolvedKeybindingsConfig } from "@moss/contracts";
 import { isBrowserSaveChord } from "~/hooks/useWorkspaceFileEditorShortcuts";
 import { buildDiffPanelUnsafeCSS, resolveDiffThemeName } from "~/lib/diffRendering";
 import { isEditorFileSaveShortcut } from "~/keybindings";

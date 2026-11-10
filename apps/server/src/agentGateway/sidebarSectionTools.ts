@@ -21,7 +21,7 @@ import {
   ThreadId,
   type OrchestrationThreadShell,
   type OrchestrationShellSnapshot,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Schema } from "effect";
 
 import type { OrchestrationEngineShape } from "../orchestration/Services/OrchestrationEngine.ts";

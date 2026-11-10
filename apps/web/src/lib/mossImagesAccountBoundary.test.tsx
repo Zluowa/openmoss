@@ -7,7 +7,9 @@ import {
   mossServerQueryKeys,
 } from "~/components/auth/mossServerReactQuery";
 import {
+  isMossImagesAccountIdentityChange,
   readMossImagesAccountBoundary,
+  readMossImagesAccountIdentity,
   useMossImagesAccountBoundary,
 } from "./mossImagesAccountBoundary";
 
@@ -28,6 +30,30 @@ function fixture() {
 }
 
 describe("image account boundary uses the existing auth cache", () => {
+  it("tells the first account read apart from an account change", () => {
+    const empty = readMossImagesAccountIdentity(new QueryClient());
+    const signedIn = readMossImagesAccountIdentity(fixture());
+    expect(isMossImagesAccountIdentityChange(empty, signedIn)).toBe(false);
+    expect(isMossImagesAccountIdentityChange(signedIn, signedIn)).toBe(false);
+    const other = fixture();
+    other.setQueryData(mossServerQueryKeys.mossAccountSession(), {
+      authenticated: true,
+      session: { user: { id: "user-b" } },
+      activeRealm: "cn",
+    });
+    expect(isMossImagesAccountIdentityChange(signedIn, readMossImagesAccountIdentity(other))).toBe(
+      true,
+    );
+    const signedOut = fixture();
+    signedOut.setQueryData(mossServerQueryKeys.mossAccountSession(), {
+      authenticated: false,
+      session: null,
+      activeRealm: "cn",
+    });
+    expect(
+      isMossImagesAccountIdentityChange(signedIn, readMossImagesAccountIdentity(signedOut)),
+    ).toBe(true);
+  });
   it("reacts to identity and realm updates without a focus or catalog request", () => {
     const client = fixture();
     const { result } = renderHook(useMossImagesAccountBoundary, {

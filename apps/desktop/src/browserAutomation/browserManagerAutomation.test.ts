@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { nativeTheme, type WebContents } from "electron";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -412,12 +412,19 @@ describe("DesktopBrowserManager automation runtime boundary", () => {
       isEmpty: () => false,
       getSize: () => ({ width: 1280, height: 800 }),
       resize: vi.fn(() => thumbnail),
+      toBitmap: () => Buffer.from("pixels"),
+      toJPEG: vi.fn(() => Buffer.from("full-frame")),
     };
     const capturePage = vi.fn(async () => image);
     Object.assign(contents, { capturePage });
+    // Models a WebContentsView: getBounds answers what setBounds last set.
+    let viewBounds = { x: 0, y: 0, width: 0, height: 0 };
     const view = {
       webContents: contents,
-      setBounds: vi.fn(),
+      setBounds: vi.fn((next: typeof viewBounds) => {
+        viewBounds = next;
+      }),
+      getBounds: vi.fn(() => viewBounds),
       setVisible: vi.fn(),
       setBorderRadius: vi.fn(),
       setBackgroundColor: vi.fn(),
@@ -448,6 +455,13 @@ describe("DesktopBrowserManager automation runtime boundary", () => {
       expect(manager.getVisibleAutomationRuntime(input).webContents).toBe(contents);
       expect(contents.loadURL).toHaveBeenCalledTimes(loads);
       expect(await manager.capturePreview(input)).toBeNull();
+      // A resting still of the page on screen: taken, then "unchanged" until it changes.
+      const fullFrame = `data:image/jpeg;base64,${Buffer.from("full-frame").toString("base64")}`;
+      expect(await manager.capturePreview({ ...input, ifChanged: true })).toBe(fullFrame);
+      expect(await manager.capturePreview({ ...input, ifChanged: true })).toBeNull();
+      expect(await manager.capturePreview({ ...input, ifChanged: true, force: true })).toBe(
+        fullFrame,
+      );
       expect(contents.close).not.toHaveBeenCalled();
     } finally {
       manager.dispose();
@@ -757,6 +771,51 @@ describe("DesktopBrowserManager automation runtime boundary", () => {
 
       expect(view.setBounds).not.toHaveBeenCalledWith(panelBounds);
       expect(view.setVisible).not.toHaveBeenCalledWith(true);
+    } finally {
+      manager.dispose();
+    }
+  });
+
+  it("copies the visible panel from its composited frame and falls back to capturePage", async () => {
+    const contents = new FakeWebContents(103);
+    const capturePage = vi.fn(async () => ({ toPNG: () => Buffer.from("capturePage") }));
+    const composited = Buffer.alloc(24, 7);
+    const sendCommand = vi.fn(async () => ({ data: composited.toString("base64") }));
+    Object.assign(contents, {
+      capturePage,
+      debugger: { isAttached: () => true, attach: vi.fn(), detach: vi.fn(), sendCommand },
+    });
+    const view = {
+      webContents: contents,
+      setBounds: vi.fn(),
+      setVisible: vi.fn(),
+      setBorderRadius: vi.fn(),
+      setBackgroundColor: vi.fn(),
+    };
+    webContentsViewConstructor.mockReturnValueOnce(view);
+    const manager = new DesktopBrowserManager();
+    manager.setWindow({
+      isDestroyed: () => false,
+      contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+    } as never);
+    try {
+      const state = manager.open({ threadId: THREAD_ID, initialUrl: "https://example.test/" });
+      const input = { threadId: THREAD_ID, tabId: state.activeTabId! };
+      manager.setPanelBounds({
+        threadId: THREAD_ID,
+        surface: "native",
+        bounds: { x: 700, y: 70, width: 415, height: 651 },
+      });
+
+      // capturePage magnifies a page that navigated while its view was detached.
+      const shot = await manager.captureScreenshot(input);
+      expect(Buffer.from(shot.bytes)).toEqual(composited);
+      expect(sendCommand).toHaveBeenCalledWith("Page.captureScreenshot", { format: "png" });
+      expect(capturePage).not.toHaveBeenCalled();
+
+      sendCommand.mockRejectedValueOnce(new Error("No frame"));
+      const fallback = await manager.captureScreenshot(input);
+      expect(Buffer.from(fallback.bytes).toString()).toBe("capturePage");
     } finally {
       manager.dispose();
     }

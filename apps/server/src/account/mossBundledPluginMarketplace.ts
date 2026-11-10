@@ -18,7 +18,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { syncDirectoryEntrySync } from "@synara/shared/filesystemPlatform";
+import { syncDirectoryEntrySync } from "@moss/shared/filesystemPlatform";
+import {
+  MOSS_CANVAS_PLUGIN_NAME,
+  MOSS_CANVAS_SKILL_DESCRIPTION,
+  MOSS_MEDIA_PLUGINS,
+  mossMediaPlugin,
+  type MossMediaPluginSpec,
+} from "@moss/shared/mossMediaPlugins";
 import {
   MOSS_BUNDLED_MEDIA_PLUGINS,
   type MossBundledMediaPlugin,
@@ -29,39 +36,35 @@ import {
   MOSS_PLUGIN_CREATOR_SKILL,
 } from "./mossPluginCreatorSkill";
 export { MOSS_BUNDLED_PLUGIN_CREATOR_NAME } from "./mossPluginCreatorSkill";
-export { MOSS_BUNDLED_IMAGEGEN_PLUGIN_NAME } from "./mossBundledMediaPlugins";
+export {
+  MOSS_BUNDLED_IMAGEGEN_PLUGIN_NAME,
+  MOSS_BUNDLED_VIDEOGEN_PLUGIN_NAME,
+} from "./mossBundledMediaPlugins";
 
 export const MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME = "moss-bundled";
 export const MOSS_BUNDLED_WEB_BUILDER_PLUGIN_NAME = "moss-web-builder";
-export const MOSS_BUNDLED_CANVAS_PLUGIN_NAME = "moss-canvas";
+export const MOSS_BUNDLED_CANVAS_PLUGIN_NAME = MOSS_CANVAS_PLUGIN_NAME;
 
 const MARKETPLACE_DIRECTORY_NAME = "moss-bundled-marketplace-v1";
 const MARKETPLACE_MANIFEST_RELATIVE_PATH = path.join(".agents", "plugins", "marketplace.json");
 
-const MEDIA_MARKETPLACE_ENTRIES = MOSS_BUNDLED_MEDIA_PLUGINS.map((plugin) => ({
+const MEDIA_MARKETPLACE_ENTRIES = MOSS_MEDIA_PLUGINS.map((plugin) => ({
   name: plugin.name,
   source: { source: "local", path: `./plugins/${plugin.name}` },
   policy: {
-    installation: "defaultInstalled" in plugin ? "INSTALLED_BY_DEFAULT" : "AVAILABLE",
+    installation: plugin.defaultInstalled ? "INSTALLED_BY_DEFAULT" : "AVAILABLE",
     authentication: "ON_USE",
   },
   category: "Creativity",
 }));
 
-// Listed in the order Moss presents its presets: image generation and Canvas
-// first, then the other media models, then the developer workflows.
+// Listed in the order Moss presents its presets: the general image and video
+// skills and Canvas first, then each model vendor, then the developer workflows.
 const MARKETPLACE_MANIFEST = {
   name: MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME,
   interface: { displayName: "Moss Built-ins" },
   plugins: [
-    ...MEDIA_MARKETPLACE_ENTRIES.slice(0, 1),
-    {
-      name: MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
-      source: { source: "local", path: `./plugins/${MOSS_BUNDLED_CANVAS_PLUGIN_NAME}` },
-      policy: { installation: "AVAILABLE", authentication: "ON_USE" },
-      category: "Creativity",
-    },
-    ...MEDIA_MARKETPLACE_ENTRIES.slice(1),
+    ...MEDIA_MARKETPLACE_ENTRIES,
     {
       name: MOSS_BUNDLED_WEB_BUILDER_PLUGIN_NAME,
       source: {
@@ -139,57 +142,46 @@ const PLUGIN_CREATOR_MANIFEST = {
   },
 } as const;
 
-const CANVAS_MANIFEST = {
-  name: MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
-  version: "1.0.0",
-  description: "Open Moss Canvas to lay out, compare and edit this conversation's images.",
-  author: { name: "Moss" },
-  license: "MIT",
-  skills: "./skills/",
-  interface: {
-    displayName: "Moss Canvas",
-    shortDescription: "Lay out and edit images on a canvas",
-    developerName: "Moss",
-    category: "Creativity",
-    defaultPrompt: ["Open this image in Moss Canvas."],
-  },
-} as const;
-
-const CANVAS_SKILL = `---
-name: moss-canvas
-description: Open Moss Canvas when the user asks to open Canvas or to edit an image there.
----
-
-# Moss Canvas
-
-Moss Canvas is Moss's full image workspace for this conversation.
-
-1. Call \`moss_canvas_open\` only when the user explicitly asks to open Canvas or to edit an image there. Ordinary image generation stays in the conversation and never opens Canvas on its own.
-2. To open Canvas on an image from this conversation, pass that image's \`jobId\` (from \`moss_media_list\` or \`moss_media_generate\`) and, for a job with several outputs, its \`imageIndex\`. Without a \`jobId\` it opens this conversation's canvas.
-3. Opening Canvas generates nothing and costs nothing; creating or editing images still goes through the media tools.
-
-The tool is provided by the Moss host. If it is absent, say that Canvas is unavailable in this session.
-`;
-
-function mediaPluginManifest(plugin: MossBundledMediaPlugin) {
+function pluginManifest(plugin: MossMediaPluginSpec) {
   return {
     name: plugin.name,
-    version: "1.0.0",
-    description: `Create and edit with ${plugin.title} using your Moss account.`,
+    version: "1.1.0",
+    description: plugin.en.longDescription,
     author: { name: "Moss" },
     license: "MIT",
     skills: "./skills/",
     interface: {
-      displayName: plugin.title,
-      shortDescription: `Generate ${plugin.kind}s with your Moss account`,
+      displayName: plugin.en.displayName,
+      shortDescription: plugin.en.shortDescription,
+      longDescription: plugin.en.longDescription,
       developerName: "Moss",
       category: "Creativity",
-      defaultPrompt: [
-        `Use ${plugin.title} to ${plugin.kind === "image" ? "create or edit an image" : "create a video"}.`,
-      ],
+      defaultPrompt: [plugin.en.defaultPrompt],
     },
   };
 }
+
+const CANVAS_SKILL = `---
+name: moss-canvas
+description: ${MOSS_CANVAS_SKILL_DESCRIPTION.en}
+---
+
+# Moss 画布
+
+Moss 画布是这段对话自己的图片和视频画板：这段对话里生成的图片和视频会自动放到画布上，对方可以在上面排版、比较、标注和继续编辑。
+
+画布不是「资料空间」。资料空间是文档页面，用 \`moss_pages_*\` 工具管理；对方说「画布」「Canvas」「打开画布」时，指的都是 Moss 画布，不要去建文档空间或页面。
+
+## 怎么做
+
+1. 用对方说话的语言回复。
+2. 对方要打开或查看画布时，直接调用 \`moss_canvas_open\`。想定位到某张生成的图片时，传入它的 \`jobId\`（多张输出时再传 \`imageIndex\`）。
+3. 想知道画布上已经有什么时，调用 \`moss_canvas_read\`：它返回画布上的形状、文字和这段对话放上去的图片与视频。
+4. 对方想在画布上放一张新图时，用「生图」技能（\`moss_media_generate\`）生成；完成后按对方的画布要求，用 \`moss_canvas_open\` 加上 jobId 打开画布给对方看。
+5. 打开和读取画布不会生成任何内容，也不扣积分；只有生成或编辑图片、视频才会消耗 Moss 积分。
+
+这些工具由 Moss 提供。如果它们不存在，告诉对方这次对话暂时用不了画布，请对方登录 Moss 账号后再试。
+`;
 
 function lstatIfExists(candidate: string): ReturnType<typeof lstatSync> | undefined {
   try {
@@ -281,14 +273,14 @@ const BUNDLED_PLUGIN_FILES: ReadonlyArray<BundledPluginFiles> = [
   },
   {
     name: MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
-    manifest: CANVAS_MANIFEST,
+    manifest: pluginManifest(mossMediaPlugin(MOSS_BUNDLED_CANVAS_PLUGIN_NAME)!),
     manifestDirectories: [".codex-plugin", ".claude-plugin"],
     skillName: MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
     skill: CANVAS_SKILL,
   },
-  ...MOSS_BUNDLED_MEDIA_PLUGINS.map((plugin) => ({
+  ...MOSS_BUNDLED_MEDIA_PLUGINS.map((plugin: MossBundledMediaPlugin) => ({
     name: plugin.name,
-    manifest: mediaPluginManifest(plugin),
+    manifest: pluginManifest(plugin),
     manifestDirectories: [".codex-plugin", ".claude-plugin"] as const,
     skillName: plugin.name,
     skill: buildMossBundledMediaSkill(plugin),

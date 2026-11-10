@@ -113,7 +113,12 @@ export function AdvancedSettingsPanel(props: {
   }, [isRepairingLocalState, syncServerReadModel]);
 
   const logoutCurrentSession = useCallback(async () => {
-    if (isLoggingOut) return;
+    if (
+      isLoggingOut ||
+      !authSessionQuery.data?.authenticated ||
+      !authSessionQuery.data.sessionMethod
+    )
+      return;
     const api = readNativeApi() ?? ensureNativeApi();
     setIsLoggingOut(true);
     const result = await logoutCurrentBrowserSession({
@@ -131,13 +136,13 @@ export function AdvancedSettingsPanel(props: {
         }),
     });
     if (result !== "redirecting") setIsLoggingOut(false);
-  }, [isLoggingOut]);
+  }, [isLoggingOut, authSessionQuery.data?.authenticated, authSessionQuery.data?.sessionMethod]);
 
   if (!props.active) return null;
 
   return (
     <div className="space-y-6">
-      {authSessionQuery.data?.authenticated ? (
+      {authSessionQuery.data?.authenticated && authSessionQuery.data.sessionMethod ? (
         <SettingsSection title="Session">
           <SettingsRow
             title="This browser"

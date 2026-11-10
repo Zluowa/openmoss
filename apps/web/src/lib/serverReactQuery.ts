@@ -8,7 +8,7 @@ import type {
   ServerStopLocalServerInput,
   StatsGetRecapInput,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 import { EXPENSIVE_READ_RETRY_OPTIONS } from "./expensiveReadRetry";

@@ -3,7 +3,7 @@ import type {
   MossCloudAccountId,
   MossCloudAccountState,
   MossCloudEmail,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   serverMossAccountSessionQueryOptions,
   serverMossEnterpriseKeyStateQueryOptions,

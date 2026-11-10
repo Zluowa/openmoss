@@ -5,7 +5,7 @@
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type * as Acp from "@agentclientprotocol/sdk";
-import { ThreadId, TurnId } from "@synara/contracts";
+import { ThreadId, TurnId } from "@moss/contracts";
 import {
   Cause,
   Deferred,

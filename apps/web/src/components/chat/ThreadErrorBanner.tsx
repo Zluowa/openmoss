@@ -7,7 +7,7 @@
 // the same banner inside the timeline. Threads off screen still toast live
 // session errors via useThreadErrorToast.
 
-import { isProviderDeliveryBlockDetail } from "@synara/shared/providerDeliveryBlock";
+import { isProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
@@ -72,6 +72,7 @@ function ThreadErrorBannerContent({
   const presentation = resolveThreadErrorPresentation(error, locale);
   const displayError = presentation.title;
   const canRetry = onRetry !== undefined && presentation.retryable === true;
+  const changeModelFirst = presentation.changeModelFirst === true;
   return (
     <Alert variant="error" className={cn("w-full max-w-[36rem] shadow-sm", className)}>
       <CircleAlertIcon />
@@ -135,17 +136,27 @@ function ThreadErrorBannerContent({
               {t("chat.error.openProviderSettings")}
             </Button>
           ) : null}
-          {onContinue ? (
+          {onContinue && onChangeModel && changeModelFirst ? (
             <Button
               size="xs"
               variant="destructive-outline"
+              disabled={recoveryDisabled}
+              onClick={onChangeModel}
+            >
+              {t("chat.error.changeModel")}
+            </Button>
+          ) : null}
+          {onContinue ? (
+            <Button
+              size="xs"
+              variant={changeModelFirst && onChangeModel ? "outline" : "destructive-outline"}
               disabled={recoveryDisabled}
               onClick={onContinue}
             >
               {t("chat.error.continueTask")}
             </Button>
           ) : null}
-          {onContinue && onChangeModel ? (
+          {onContinue && onChangeModel && !changeModelFirst ? (
             <Button size="xs" variant="outline" disabled={recoveryDisabled} onClick={onChangeModel}>
               {t("chat.error.changeModel")}
             </Button>

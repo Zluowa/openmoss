@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ProviderApprovalDecision } from "@synara/contracts";
+import type { ProviderApprovalDecision } from "@moss/contracts";
 
 interface PendingApproval {
   readonly threadId: string;

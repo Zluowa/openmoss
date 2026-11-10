@@ -151,7 +151,7 @@ function FeatureTourSlides({
       details={
         <div className="min-h-[104px] shrink-0 pt-3">
           <p aria-live="polite" aria-atomic="true" className="sr-only">
-            Since 0.9.2, {index + 1} of {slides.length}
+            {`Since 0.9.2, ${index + 1} of ${slides.length}`}
           </p>
           <ul className="space-y-1.5 text-ui leading-snug text-muted-foreground">
             {slide.highlights.map((highlight) => (

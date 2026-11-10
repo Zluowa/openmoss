@@ -6,7 +6,7 @@ import type {
   ThreadArchivedSidebarPlacement,
   ThreadId,
   ThreadRestoredSidebarPlacement,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -17,27 +17,27 @@ import {
   ThreadAsyncUserInputAnsweredPayload,
   ThreadClaudeCacheSetPayload,
   type OrchestrationMessageTextSegment,
-} from "@synara/contracts";
-import { clearRemovedAsyncUserInputResponses } from "@synara/shared/asyncUserInput";
-import { isGroupContainerKind } from "@synara/shared/projectContainers";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
+} from "@moss/contracts";
+import { clearRemovedAsyncUserInputResponses } from "@moss/shared/asyncUserInput";
+import { isGroupContainerKind } from "@moss/shared/projectContainers";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
 import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
   setPinnedMessageLabel,
-} from "@synara/shared/pinnedMessages";
+} from "@moss/shared/pinnedMessages";
 import {
   addThreadMarker,
   removeThreadMarker,
   setThreadMarkerDone,
   setThreadMarkerLabel,
-} from "@synara/shared/threadMarkers";
+} from "@moss/shared/threadMarkers";
 import { Effect, Schema } from "effect";
 import {
   inferLegacyProviderKindFromModelSelection,
   resolveModelSelectionInstanceId,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
 import {
@@ -94,7 +94,7 @@ import {
   rehomeSidebarSectionItems,
 } from "./sidebarOrder.ts";
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
-import { deriveTurnStopActivity } from "@synara/shared/turnStopActivity";
+import { deriveTurnStopActivity } from "@moss/shared/turnStopActivity";
 import { maxIso, settleTurnStateFromSession } from "./turnLifecycle.ts";
 import {
   canAdoptFirstTurnProvider,
@@ -224,7 +224,9 @@ function syncSidebarSectionItemsFromOrder(
   });
 }
 
-function deriveSidebarOrderItems(model: OrchestrationReadModel): OrchestrationSidebarOrderItem[] {
+export function deriveSidebarOrderItems(
+  model: OrchestrationReadModel,
+): OrchestrationSidebarOrderItem[] {
   const items: OrchestrationSidebarOrderItem[] = [];
   for (const section of model.sidebarSections ?? []) {
     for (const item of section.items) {
@@ -2163,6 +2165,9 @@ export function projectEvent(
             ...(payload.dispatchOrigin !== undefined
               ? { dispatchOrigin: payload.dispatchOrigin }
               : {}),
+            ...(payload.dispatchSourceThreadId != null
+              ? { dispatchSourceThreadId: payload.dispatchSourceThreadId }
+              : {}),
             ...(payload.startsNewTurn !== undefined
               ? { startsNewTurn: payload.startsNewTurn }
               : {}),
@@ -2204,6 +2209,10 @@ export function projectEvent(
           const nextMessages = thread.messages.slice();
           const entryWithoutTextSegments = { ...entry };
           delete entryWithoutTextSegments.textSegments;
+          // A re-sent message that states its origin also states its sender (or none).
+          if (message.dispatchOrigin !== undefined) {
+            delete entryWithoutTextSegments.dispatchSourceThreadId;
+          }
           nextMessages[existingIndex] = {
             ...entryWithoutTextSegments,
             ...(message.asyncUserInput ? { asyncUserInput: message.asyncUserInput } : {}),
@@ -2229,6 +2238,9 @@ export function projectEvent(
               : entry.dispatchOrigin !== undefined
                 ? { dispatchOrigin: entry.dispatchOrigin }
                 : {}),
+            ...(message.dispatchSourceThreadId !== undefined
+              ? { dispatchSourceThreadId: message.dispatchSourceThreadId }
+              : {}),
             ...(message.startsNewTurn !== undefined
               ? { startsNewTurn: message.startsNewTurn }
               : entry.startsNewTurn !== undefined

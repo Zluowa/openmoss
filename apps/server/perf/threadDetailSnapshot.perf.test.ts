@@ -8,8 +8,8 @@ import { ServerSettingsService } from "../src/serverSettings.ts";
 import { Effect, Layer, Option, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { describe } from "vitest";
-import { ThreadId } from "@synara/contracts";
-import { THREAD_DETAIL_EVENT_TYPES } from "@synara/shared/threadDetailEvents";
+import { ThreadId } from "@moss/contracts";
+import { THREAD_DETAIL_EVENT_TYPES } from "@moss/shared/threadDetailEvents";
 
 import { OrchestrationEventStoreLive } from "../src/persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationEventStore } from "../src/persistence/Services/OrchestrationEventStore.ts";

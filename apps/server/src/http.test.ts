@@ -1,5 +1,5 @@
 import { ServerEventLoopMonitor, unavailableEventLoopStatus } from "./eventLoopMonitor";
-import type { ServerRuntimeStatus } from "@synara/contracts";
+import type { ServerRuntimeStatus } from "@moss/contracts";
 import http from "node:http";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -8,8 +8,15 @@ import zlib from "node:zlib";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect, Exit, Layer, Scope } from "effect";
+import { Effect, Exit, Layer, Option, Scope } from "effect";
 import { HttpRouter } from "effect/unstable/http";
+import { createHash } from "node:crypto";
+import { threadOutputHref } from "@moss/shared/threadWorkspace";
+import {
+  ProjectionSnapshotQuery,
+  type ProjectionSnapshotQueryShape,
+} from "./orchestration/Services/ProjectionSnapshotQuery";
+import { fakeProjectionSnapshotQuery } from "./orchestration/testing/fakeProjectionSnapshotQuery";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AuthError, ServerAuth, type ServerAuthShape } from "./auth/Services/ServerAuth";
@@ -24,6 +31,8 @@ import {
   canvasStaticEffectRouteLayer,
   editorIconEffectRouteLayer,
   isLegacyTokenAuthorized,
+  localHtmlPreviewEffectRouteLayer,
+  threadOutputEffectRouteLayer,
   makeDesktopComputerEmergencyStopRouteLayer,
   makeDesktopShutdownEffectRouteLayer,
   makeHealthEffectRouteLayer,
@@ -36,6 +45,7 @@ import {
 } from "./project/Services/ProjectFaviconResolver";
 import { makeProjectFaviconResolver } from "./project/Layers/ProjectFaviconResolver";
 import { makeBoundedNodeHttpServer } from "./nodeHttpServer";
+import { createLocalPreviewGrant } from "./localImageFiles";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -166,12 +176,14 @@ type TestedRoute =
     }
   | { readonly kind: "static" }
   | { readonly kind: "canvas" }
+  | { readonly kind: "local-html" }
   | {
       readonly kind: "favicon";
       readonly auth?: ServerAuthShape;
       readonly resolver?: ProjectFaviconResolverShape;
     }
-  | { readonly kind: "editor-icon" };
+  | { readonly kind: "editor-icon" }
+  | { readonly kind: "thread-output"; readonly query: ProjectionSnapshotQueryShape };
 
 async function withEffectServer(
   config: ServerConfigShape,
@@ -198,6 +210,10 @@ async function withEffectServer(
             yield* httpServer.serve(yield* HttpRouter.toHttpEffect(staticAndDevEffectRouteLayer));
           } else if (route.kind === "canvas") {
             yield* httpServer.serve(yield* HttpRouter.toHttpEffect(canvasStaticEffectRouteLayer));
+          } else if (route.kind === "local-html") {
+            yield* httpServer.serve(
+              yield* HttpRouter.toHttpEffect(localHtmlPreviewEffectRouteLayer),
+            );
           } else if (route.kind === "shutdown") {
             yield* httpServer.serve(
               yield* HttpRouter.toHttpEffect(makeDesktopShutdownEffectRouteLayer(route.controller)),
@@ -208,6 +224,10 @@ async function withEffectServer(
             );
           } else if (route.kind === "favicon") {
             yield* httpServer.serve(yield* HttpRouter.toHttpEffect(projectFaviconEffectRouteLayer));
+          } else if (route.kind === "thread-output") {
+            yield* httpServer
+              .serve(yield* HttpRouter.toHttpEffect(threadOutputEffectRouteLayer))
+              .pipe(Effect.provideService(ProjectionSnapshotQuery, route.query));
           } else if (route.kind === "editor-icon") {
             yield* httpServer.serve(yield* HttpRouter.toHttpEffect(editorIconEffectRouteLayer));
           } else {
@@ -251,6 +271,171 @@ async function withEffectServer(
 }
 
 describe("production Effect HTTP routes", () => {
+  it("downloads only the bytes linked in the authenticated chat's own workspace", async () => {
+    const homeDir = makeTempDir("moss-chat-download-");
+    const chatWorkspaceRoot = path.join(homeDir, "Documents", "Moss");
+    const workspaceRoot = path.join(chatWorkspaceRoot, "2026-11-06", "slides");
+    mkdirSync(workspaceRoot, { recursive: true });
+    const bytes = Buffer.from("PK\x03\x04sample");
+    const name = "会议.pptx";
+    const file = path.join(workspaceRoot, name);
+    writeFileSync(file, bytes);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    const href = threadOutputHref("chat-1", name, digest);
+    const thread = {
+      id: "chat-1",
+      projectId: "project-1",
+      workingDirectory: null,
+      worktreePath: null,
+      envMode: "local",
+      messages: [{ role: "assistant", text: `[Presentation](${href})` }],
+    };
+    const query = fakeProjectionSnapshotQuery({
+      getThreadDetailForExportById: (id) =>
+        Effect.succeed(id === thread.id ? Option.some(thread as never) : Option.none()),
+      getProjectShellById: () =>
+        Effect.succeed(Option.some({ id: "project-1", kind: "chat", workspaceRoot } as never)),
+      getOriginalThreadIdByProjectId: () => Effect.succeed(Option.some("chat-1" as never)),
+    });
+    const config = makeConfig({ homeDir, chatWorkspaceRoot, authToken: "output-test-private" });
+    await withEffectServer(config, { kind: "thread-output", query }, async (origin) => {
+      const response = await fetch(origin + href);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Disposition")).toContain(encodeURIComponent(name));
+      expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+      expect((await fetch(origin + threadOutputHref("chat-2", name, digest))).status).toBe(404);
+      expect(
+        (await fetch(origin + threadOutputHref("chat-1", "../private.pptx", digest))).status,
+      ).toBe(404);
+      writeFileSync(file, "later bytes");
+      expect((await fetch(origin + href)).status).toBe(404);
+    });
+    await withEffectServer(
+      config,
+      { kind: "thread-output", query },
+      async (origin) => {
+        expect((await fetch(origin + href)).status).toBe(401);
+      },
+      rejectingServerAuth,
+    );
+  });
+  it("serves isolated local HTML and relative web assets using only a scoped grant", async () => {
+    const directory = makeTempDir("moss-local-html-");
+    mkdirSync(path.join(directory, "assets"));
+    const html =
+      '<h1>山野咖啡</h1><img src="assets/咖啡.svg"><link rel="stylesheet" href="assets/style.css"><script src="assets/main.js"></script>';
+    writeFileSync(path.join(directory, "index.html"), html);
+    writeFileSync(
+      path.join(directory, "assets", "咖啡.svg"),
+      '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    );
+    writeFileSync(path.join(directory, "assets", "style.css"), "body { color: coral }");
+    writeFileSync(path.join(directory, "assets", "main.js"), "document.title = 'Coffee';");
+    writeFileSync(path.join(directory, "private.txt"), "private");
+    writeFileSync(path.join(directory, ".secret.json"), "{}");
+    writeFileSync(path.join(directory, "data.json"), "{}");
+    const { grant } = await createLocalPreviewGrant({
+      requestedPath: path.join(directory, "index.html"),
+    });
+    await withEffectServer(
+      makeConfig({ authToken: "app-secret-not-for-html" }),
+      { kind: "local-html" },
+      async (origin) => {
+        const base = `${origin}/api/local-html/${grant}/`;
+        const response = await fetch(`${base}index.html`);
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe(html);
+        expect(response.headers.get("content-type")).toContain("text/html");
+        const csp = response.headers.get("content-security-policy")!;
+        const directives = new Map(
+          csp.split(";").map((part) => {
+            const [name = "", ...values] = part.trim().split(/\s+/u);
+            return [name, values] as const;
+          }),
+        );
+        // Opaque origin: scripts may run, but never with Moss's origin.
+        expect(directives.get("sandbox")).toEqual(["allow-scripts"]);
+        expect(directives.get("default-src")).toEqual(["'none'"]);
+        // No network at all: no fetch/XHR/WebSocket/beacon, frames, workers or forms,
+        // and every loadable resource is inline/data or inside the grant's own folder.
+        for (const name of ["connect-src", "frame-src", "child-src", "worker-src", "form-action"]) {
+          expect(directives.get(name)).toEqual(["'none'"]);
+        }
+        for (const [name, values] of directives) {
+          if (name === "sandbox") continue;
+          for (const value of values) {
+            expect(
+              value === base ||
+                ["'none'", "'unsafe-inline'", "'unsafe-eval'", "data:", "blob:"].includes(value),
+              `${name} ${value}`,
+            ).toBe(true);
+          }
+        }
+        expect(csp).not.toContain("https:");
+        expect(csp).not.toContain("app-secret-not-for-html");
+        expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+        expect(response.headers.get("x-dns-prefetch-control")).toBe("off");
+        expect(response.headers.get("access-control-allow-credentials")).toBeNull();
+        // Nothing the page receives names where it lives on disk.
+        for (const header of response.headers.values()) {
+          for (const form of [directory, directory.replaceAll("\\", "/")]) {
+            expect(header).not.toContain(form);
+          }
+        }
+        // Scripts and styles need CORS to load into an opaque origin; images, media
+        // and pages do not get it, so a script cannot read their contents.
+        expect(response.headers.get("access-control-allow-origin")).toBeNull();
+        for (const [asset, cors] of [
+          ["assets/咖啡.svg", null],
+          ["assets/style.css", "*"],
+          ["assets/main.js", "*"],
+        ] as const) {
+          const result = await fetch(new URL(asset, `${base}index.html`));
+          expect(result.status).toBe(200);
+          expect(result.headers.get("access-control-allow-origin"), asset).toBe(cors);
+          expect(result.headers.get("content-security-policy")).toBe(csp);
+        }
+        for (const denied of [
+          "private.txt",
+          ".secret.json",
+          "data.json",
+          "%2e%2e%2fprivate.txt",
+          "assets%5cmain.js",
+          "index.html%3Asecret",
+          "C%3A%5CWindows%5Cwin.ini",
+          "C:/Windows/win.ini",
+          "%5C%5Cserver%5Cshare%5Cphoto.png",
+          "/server/share/photo.png",
+          "missing.png",
+        ]) {
+          const result = await fetch(`${base}${denied}`);
+          expect(result.status, denied).toBe(404);
+          expect(await result.text()).toBe("Not Found");
+        }
+        expect((await fetch(`${origin}/api/local-html/unknown/index.html`)).status).toBe(404);
+      },
+      rejectingServerAuth,
+    );
+  });
+
+  it("serves Canvas when the configured directory uses forward slashes on Windows", async () => {
+    const canvasDir = makeTempDir("moss-effect-canvas-slashes-");
+    mkdirSync(path.join(canvasDir, "assets"));
+    writeFileSync(path.join(canvasDir, "index.html"), "<main>Canvas path fixture</main>");
+    writeFileSync(path.join(canvasDir, "assets", "canvas.js"), "globalThis.canvasPath = true;");
+    vi.stubEnv("MOSS_CANVAS_STATIC_DIR", canvasDir.replaceAll("\\", "/"));
+
+    await withEffectServer(makeConfig(), { kind: "canvas" }, async (origin) => {
+      for (const route of ["/canvas/", "/canvas/project/demo", "/canvas/assets/canvas.js"]) {
+        const response = await fetch(`${origin}${route}`);
+        expect(response.status).toBe(200);
+        expect(await response.text()).toContain(
+          route.endsWith(".js") ? "globalThis.canvasPath" : "Canvas path fixture",
+        );
+      }
+    });
+  });
+
   it("serves the real Page editor entry separately from the Canvas app shell", async () => {
     const canvasDir = makeTempDir("moss-effect-page-editor-");
     mkdirSync(path.join(canvasDir, "assets"));

@@ -36,6 +36,9 @@ const requireFromElectronBuilder = createRequire(
 const { sign: signWithRetry } = requireFromElectronBuilder(
   "app-builder-lib/out/codeSign/macCodeSign",
 );
+const { signingIdentifier: CUA_DRIVER_SIGNING_IDENTIFIER } = requireFromScriptsWorkspace(
+  "../packages/shared/src/cuaDriverRelease.json",
+);
 
 const HELPER_NAME = "moss-canonical-filesystem-helper";
 const PROTOCOL_VERSION = 2;
@@ -67,6 +70,12 @@ export const MAC_CANONICAL_FILESYSTEM_HELPER_METADATA_APP_RELATIVE_PATH = path.j
   "Contents",
   "Resources",
   `${HELPER_NAME}.build.json`,
+);
+const MAC_CUA_DRIVER_APP_RELATIVE_PATH = path.join(
+  "Contents",
+  "Resources",
+  "cua-driver",
+  "cua-driver",
 );
 
 function normalizeMode(mode) {
@@ -484,6 +493,7 @@ export function refreshPackagedCanonicalFilesystemHelperMetadata(appPath, hooks)
 
 export function wrapMacSignOptionsForCanonicalFilesystemHelper(options) {
   const appPath = path.resolve(options.app);
+  const cuaDriverPath = path.join(appPath, MAC_CUA_DRIVER_APP_RELATIVE_PATH);
   const originalOptionsForFile = options.optionsForFile;
   const state = { refreshCount: 0 };
 
@@ -491,11 +501,24 @@ export function wrapMacSignOptionsForCanonicalFilesystemHelper(options) {
     options: {
       ...options,
       optionsForFile(filePath) {
-        if (path.resolve(filePath) === appPath) {
+        const resolvedFilePath = path.resolve(filePath);
+        if (resolvedFilePath === appPath) {
           refreshPackagedCanonicalFilesystemHelperMetadata(appPath);
           state.refreshCount += 1;
         }
-        return originalOptionsForFile ? originalOptionsForFile(filePath) : undefined;
+        const fileOptions = originalOptionsForFile ? originalOptionsForFile(filePath) : undefined;
+        if (resolvedFilePath !== cuaDriverPath) return fileOptions;
+        // osx-sign re-signs every Mach-O it finds with --force, which would
+        // reset the driver to a file-name identifier. Scoped to this one path:
+        // every other payload keeps the signing arguments its audits expect.
+        return {
+          ...fileOptions,
+          additionalArguments: [
+            ...(fileOptions?.additionalArguments ?? []),
+            "--identifier",
+            CUA_DRIVER_SIGNING_IDENTIFIER,
+          ],
+        };
       },
     },
     state,

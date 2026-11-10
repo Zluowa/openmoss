@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { INITIAL_PROJECT_DIGEST_SUMMARY } from "@synara/shared/projectAgent";
+import { INITIAL_PROJECT_DIGEST_SUMMARY } from "@moss/shared/projectAgent";
 
 import {
   rewriteThreadIdsAsMarkdownLinks,

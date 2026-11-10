@@ -2,7 +2,7 @@ import type {
   CodexAccountConfig,
   ProviderInstanceConfig,
   ProviderInstanceConfigMap,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { JsonObject } from "effect/Schema";
 
 export const RESERVED_MOSS_CODEX_ACCOUNT_IDS = ["moss", "byok"] as const;

@@ -4,8 +4,8 @@
 // Layer: Chat transcript row content
 // Exports: InlineVisualCalculator
 
-import type { InlineVisualBlock } from "@synara/contracts";
-import { compileInlineVisualFormula } from "@synara/shared/inlineVisualFormula";
+import type { InlineVisualBlock } from "@moss/contracts";
+import { compileInlineVisualFormula } from "@moss/shared/inlineVisualFormula";
 import { useMemo } from "react";
 
 import { cn } from "~/lib/utils";

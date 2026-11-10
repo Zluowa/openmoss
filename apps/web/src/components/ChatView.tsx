@@ -1,3 +1,9 @@
+import { MossbotConversationIdentity } from "./mossbot/MossbotConversationIdentity";
+import {
+  CONVERSATION_PANEL_REQUEST,
+  type ConversationPanelRequest,
+} from "./chat/auxiliary/conversationPanelRequest";
+import { DevsReportStatus } from "./chat/DevsReportStatus";
 import { ensureThreadHistoryLoaded, useThreadHistory } from "../threadHistory";
 import { createPortal } from "react-dom";
 import {
@@ -14,7 +20,7 @@ import { type LegendListRef } from "@legendapp/list/react";
 import {
   parseComputerInvocation,
   resolveComputerInvocationMode,
-} from "@synara/shared/computerInvocation";
+} from "@moss/shared/computerInvocation";
 import {
   MessageId,
   OrchestrationThreadActivity,
@@ -36,17 +42,18 @@ import {
   type ServerProviderStatus,
   type ThreadGoalAchievement,
   type TurnId,
-} from "@synara/contracts";
-import { resolveLatestTailUserMessageEditTarget } from "@synara/shared/conversationEdit";
-import { getModelCapabilities, resolveApiModelId } from "@synara/shared/model";
+} from "@moss/contracts";
+import { resolveLatestTailUserMessageEditTarget } from "@moss/shared/conversationEdit";
+import { MOSS_DEVS_REPORTS_ENABLED, parseDevsInvocation } from "@moss/shared/devsReport";
+import { getModelCapabilities, resolveApiModelId } from "@moss/shared/model";
 import {
   resolveThreadWorkspaceCwd as resolveSharedThreadWorkspaceCwd,
   resolveThreadBranchSourceCwd,
   resolveThreadWorkspaceState,
-} from "@synara/shared/threadEnvironment";
-import { threadExportBlockedReason } from "@synara/shared/threadExport";
-import { pendingRequestInstanceKey } from "@synara/shared/threadSummary";
-import { deriveAssociatedWorktreeMetadata } from "@synara/shared/threadWorkspace";
+} from "@moss/shared/threadEnvironment";
+import { threadExportBlockedReason } from "@moss/shared/threadExport";
+import { pendingRequestInstanceKey } from "@moss/shared/threadSummary";
+import { deriveAssociatedWorktreeMetadata } from "@moss/shared/threadWorkspace";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
@@ -73,7 +80,8 @@ import { useRepoDiffTotals } from "~/hooks/useRepoDiffTotals";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useThreadRecap } from "~/hooks/useThreadRecap";
 import { SINGLE_CHAT_PANE_SCOPE_ID } from "~/lib/chatPaneScope";
-import type { RightDockHtmlDocument } from "~/rightDockStore.logic";
+import { htmlRenderSurfacePaneUpdates, type RightDockHtmlDocument } from "~/rightDockStore.logic";
+import { latestHtmlRenderBySurface } from "~/lib/htmlRenderSurfaces";
 import { formatComposerMentionToken } from "~/lib/composerMentions";
 import {
   GIT_WORKING_TREE_DIFF_LIVE_REFETCH_INTERVAL_MS,
@@ -110,7 +118,17 @@ import {
 import { resolveProviderInstanceLabel } from "~/lib/providerInstancePresentation";
 import { holdQueuedComposerTurnsForStop } from "~/lib/queuedComposerDrain";
 import { resolveAuxiliaryTextGenerationSelection } from "~/lib/textGenerationCapabilities";
-import { cn, isMacNavigatorPlatform, newCommandId, newThreadId, randomUUID } from "~/lib/utils";
+import {
+  cn,
+  getNavigatorPlatform,
+  isMacNavigatorPlatform,
+  isWindowsPlatform,
+  newCommandId,
+  newThreadId,
+  randomUUID,
+} from "~/lib/utils";
+import { CodeRunContext, type CodeRunActions } from "./chat/transcript/codeRun";
+import { TranscriptMarkdownContext } from "./chat/transcript/externalImageHosts";
 import { readNativeApi } from "~/nativeApi";
 import { dispatchThreadSnoozedUntil, resolveSnoozeDeadline } from "~/lib/threadSnooze";
 import {
@@ -118,6 +136,7 @@ import {
   parseGitHubItemUrl,
   type ChatLinkActions,
 } from "~/lib/linkContextMenu";
+import { VisualFollowUpContext, visualFollowUpForThread } from "~/lib/visualFollowUp";
 import { openExternalLink } from "~/lib/linkChips";
 import {
   mergeProjectInstructionsIntoThreadNotes,
@@ -134,7 +153,7 @@ import {
 } from "../appSettings";
 import { GROUPS_ON, MCP_CONNECTORS_ON } from "../betaFeatures";
 import { mcpConnectorsQueryOptions } from "../lib/mcpConnectorsReactQuery";
-import { providerSupportsMcpConnectors } from "@synara/shared/mcpConnectors";
+import { providerSupportsMcpConnectors } from "@moss/shared/mcpConnectors";
 import {
   collapseExpandedComposerCursor,
   detectComposerTrigger,
@@ -160,6 +179,8 @@ import {
 } from "../composerSlashCommands";
 import { stripDiffSearchParams } from "../diffRouteSearch";
 import { isElectron } from "../env";
+import { openUrlInThreadBrowser } from "./browser/browserPanelNavigation";
+import { useBrowserTurnFollowUp } from "./browser/useBrowserTurnFollowUp";
 import { useFeatureFlags } from "../featureFlags";
 import {
   resolveThreadMentionForThreadId,
@@ -186,7 +207,7 @@ import {
 } from "../computerStateStore";
 import { formatShortcutLabel, shortcutLabelForCommand } from "../keybindings";
 import { useTranslation } from "../localization";
-import { dispatchThreadNotes } from "~/pinnedMessages";
+import { dispatchThreadNotes, displayLabelFor } from "~/pinnedMessages";
 import { promoteThreadCreate } from "~/lib/threadCreatePromotion";
 import { useChatShellStateStore } from "~/chatShellStateStore";
 import { ComposerRealtimeVoiceButton } from "./chat/ComposerRealtimeVoiceButton";
@@ -198,6 +219,7 @@ import {
   RealtimeVoiceOnboarding,
 } from "./chat/RealtimeVoiceOnboarding";
 import { RealtimeVoiceStage } from "./chat/RealtimeVoiceStage";
+import { RealtimeVoiceEmptyState } from "./chat/RealtimeVoiceEmptyState";
 import { RealtimeVoiceViewportLayer } from "./chat/RealtimeVoiceViewportLayer";
 import { useRealtimeVoiceController } from "./chat/RealtimeVoiceControllerProvider";
 import { isHomeChatContainerProject } from "../lib/chatProjects";
@@ -222,7 +244,7 @@ import {
   normalizeRuntimeModeForProvider,
   providerModelSupportsAutoRuntimeMode,
 } from "../lib/runtimeMode";
-import { addSelectionToSide, startSelectionChat } from "../lib/selectionChat";
+import { addSelectionToSide } from "../lib/selectionChat";
 import { waitForSidechatCreator } from "../lib/sidechatCreatorRegistry";
 import {
   formatSubagentModelLabel,
@@ -248,7 +270,6 @@ import {
 } from "../lib/threadHandoff";
 import { FORK_THREAD_TARGET_LABELS } from "../lib/threadFork";
 import { buildDraftThreadRenameCreateInput, dispatchThreadRename } from "../lib/threadRename";
-import { useProjectEnvironmentStore } from "../projectEnvironmentStore";
 import { proposedPlanTitle } from "../proposedPlan";
 import { buildModelSelection, buildNextProviderOptions } from "../providerModelOptions";
 import { selectRightDockState, useRightDockStore } from "../rightDockStore";
@@ -388,6 +409,7 @@ import {
 } from "./chat/ComposerModelPicker";
 import { ProviderInstancePicker } from "./chat/ProviderInstancePicker";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
+import { ComposerUnconfirmedSendNotice } from "./chat/ComposerUnconfirmedSendNotice";
 import { HubPendingApprovals } from "./chat/group/HubPendingApprovals";
 import { shouldShowHubPendingApprovals } from "./chat/group/HubPendingApprovals.logic";
 import { ComposerPendingBackgroundWorkRow } from "./chat/ComposerPendingBackgroundWorkRow";
@@ -412,6 +434,7 @@ import {
   COMPOSER_PREDICTION_ACCEPTED_STORAGE_KEY,
   deriveModelComposerPrediction,
 } from "./chat/composerPrediction";
+import { ComposerImageModelNotice } from "./chat/ComposerImageModelNotice";
 import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachments";
 import { ComposerSlashStatusDialog } from "./chat/ComposerSlashStatusDialog";
 import {
@@ -426,7 +449,10 @@ import {
 } from "./chat/ComposerSubagentStrip.logic";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { ExpandedImageOverlay } from "./chat/ExpandedImageOverlay";
-import { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
+import {
+  ExpandedImagePreview,
+  shouldOpenGeneratedImageInCanvas,
+} from "./chat/ExpandedImagePreview";
 import { useExpandedImagePreview } from "./chat/useExpandedImagePreview";
 import { ExpiredSidechatNotice } from "./chat/ExpiredSidechatNotice";
 import type { MessagesTimelineController } from "./chat/MessagesTimeline";
@@ -566,7 +592,8 @@ import { Button } from "./ui/button";
 import { SidebarHeaderTrigger } from "./ui/sidebar";
 import { Skeleton } from "./ui/skeleton";
 import { toastManager } from "./ui/toast";
-import { isSidechatThread, isStandaloneSidechatThread } from "@synara/shared/sidechatThread";
+import { isSidechatThread, isStandaloneSidechatThread } from "@moss/shared/sidechatThread";
+import { selectNextThreadSendRequest, useThreadSendRequestStore } from "../threadSendRequestStore";
 
 // The terminal panel loads xterm plus its addons (~223 KB gzip). Its mount point
 // is conditional, so loading it lazily keeps the terminal stack out of the initial
@@ -978,7 +1005,7 @@ export default function ChatView({
   const { expandedImage, setExpandedImage, closeExpandedImage, navigateExpandedImage } =
     useExpandedImagePreview();
 
-  const [localDraftErrorsByThreadId, setLocalDraftErrorsByThreadId] = useState<
+  const [localThreadErrorsByThreadId, setLocalThreadErrorsByThreadId] = useState<
     Record<ThreadId, string | null>
   >({});
 
@@ -1110,7 +1137,8 @@ export default function ChatView({
   const terminalOpenByThreadRef = useRef<Record<string, boolean>>({});
   const activatedThreadIdRef = useRef<ThreadId | null>(null);
 
-  const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
+  const localThreadError = localThreadErrorsByThreadId[threadId] ?? null;
+  const localDraftError = serverThread ? null : localThreadError;
   const localDraftThread = useMemo(
     () =>
       draftThread
@@ -1612,6 +1640,8 @@ export default function ChatView({
     loadingModelProviders,
     refreshModels,
     discoveryErrorsByProvider,
+    defaultModelByProviderInstance,
+    modelDiscoveryPendingByProviderInstance,
     runtimeModelsByProvider,
     runtimeModelsByProviderInstance,
     dynamicAgents,
@@ -1635,6 +1665,7 @@ export default function ChatView({
     resolvedThreadWorktreePath,
     // Same gate as the Hand off menu: a coordinator is one per-group identity.
     allowProviderHandoff: isServerThread && !isCoordinatorConversation,
+    threadModelSelectionIsPlaceholder: !isServerThread,
   });
   const imageGenerationLimitFailure = useMemo(
     () =>
@@ -2216,6 +2247,7 @@ export default function ChatView({
     GroupSettingsSection | undefined
   >(undefined);
   const coordinatorSuggestionChips = visibleCoordinatorSuggestionChips({
+    personal: activeGroupSummary?.agentKind === "mossbot",
     hasGoal: activeGroupSummary?.hasGoal,
     instructionsConfigured: activeGroupSummary?.instructionsConfigured,
     linkedProjectCount: activeGroupSummary?.linkedProjectIds?.length ?? 0,
@@ -2288,6 +2320,19 @@ export default function ChatView({
         imagePreview: { ...pane.imagePreview, images: merged },
       });
   }, [conversationGeneratedImages, threadId]);
+  // A dock pane showing an agent's surface follows the surface's newest page.
+  const latestHtmlRenderSurfaces = useMemo(
+    () => latestHtmlRenderBySurface(agentActivityTimelineState.timelineWorkEntries),
+    [agentActivityTimelineState.timelineWorkEntries],
+  );
+  useEffect(() => {
+    if (latestHtmlRenderSurfaces.size === 0) return;
+    const dock = useRightDockStore.getState();
+    const panes = dock.dockStateByThreadId[threadId]?.panes ?? [];
+    for (const update of htmlRenderSurfacePaneUpdates(panes, latestHtmlRenderSurfaces)) {
+      dock.updatePane(threadId, update.paneId, { htmlDocument: update.htmlDocument });
+    }
+  }, [latestHtmlRenderSurfaces, threadId]);
   // The user message a local send anchored at the top of the transcript viewport.
   // Set at the send sites and kept after the turn settles — collapsing the tail
   // spacer when a turn ends would visibly yank the settled transcript. The next
@@ -2317,6 +2362,15 @@ export default function ChatView({
     }
     return textById;
   }, [pinnedMessageIds, timelineMessages]);
+  // Chapter headings in the transcript read the same label the pinned list shows.
+  const pinnedMessageTitles = useMemo(() => {
+    const titles = new Map<MessageId, string>();
+    for (const pin of pinnedMessages) {
+      const title = displayLabelFor(pin, pinnedMessageTextById.get(pin.messageId));
+      if (title) titles.set(pin.messageId, title);
+    }
+    return titles;
+  }, [pinnedMessages, pinnedMessageTextById]);
   const {
     handleTogglePinMessage,
     handleTogglePinnedMessageDone,
@@ -2759,6 +2813,7 @@ export default function ChatView({
       currentThreadId: threadId,
     },
     connectors: mentionableConnectors,
+    offerDevsReport: true,
   });
   const composerMenuItems = useMemo(() => {
     if (composerCommandPicker === "fork-target") {
@@ -2870,10 +2925,12 @@ export default function ChatView({
           activeThreadProvider !== null &&
           canContinueThreadHandoff({
             sourceProvider: activeThreadProvider,
+            sourceProviderInstanceId: activeThreadProviderInstanceId,
             targetProvider: target.provider,
+            targetProviderInstanceId: target.instanceId,
           }),
       ),
-    [activeThreadProvider, handoffTargets],
+    [activeThreadProvider, activeThreadProviderInstanceId, handoffTargets],
   );
   const sidechatTargetProviders = useMemo(
     () => [...new Set(handoffTargets.map((target) => target.provider))],
@@ -3015,14 +3072,18 @@ export default function ChatView({
   const openBrowserUrl = useCallback(
     (url: string) => {
       const api = readNativeApi();
-      void api?.browser.open({ threadId, initialUrl: url }).catch((error) => {
-        toastManager.add({
-          type: "error",
-          title: "Could not open repository",
-          description:
-            error instanceof Error ? error.message : "The in-app browser could not open GitHub.",
+      // Reuses the tab already on this page, else a blank one, else a new tab, so a
+      // link never replaces the page the person was reading.
+      if (api) {
+        void openUrlInThreadBrowser({ api, threadId, url }).catch((error) => {
+          toastManager.add({
+            type: "error",
+            title: "Could not open the page",
+            description:
+              error instanceof Error ? error.message : "The in-app browser could not open it.",
+          });
         });
-      });
+      }
       if (onOpenBrowserUrl) {
         onOpenBrowserUrl(url);
         return;
@@ -3094,7 +3155,25 @@ export default function ChatView({
     openInBrowserPanel: openLinkInBrowser,
     openGitHubItem: openGitHubItemLink,
     githubLinkOpenTarget: settings.githubLinkOpenTarget,
+    // A side chat in a dock has no browser panel of its own on screen.
+    openLinksInBrowserPanel: settings.browserOpenLinksInPanel && isElectron && !hideHeader,
   };
+  // "Auto-open files Moss writes" and "Auto-verify changes" act when a turn finishes.
+  useBrowserTurnFollowUp({
+    threadId: activeThread?.id ?? null,
+    workspaceRoot: threadWorkspaceCwd ?? null,
+    turnDiffSummaries,
+    enabled: isElectron && !hideHeader,
+    autoOpenPages: settings.browserAutoOpenWrittenPages,
+    autoVerify: settings.browserAutoVerifyChanges,
+    openPage: openBrowserUrl,
+  });
+  // A page's follow-up goes to the open thread's composer, like an OpenUI action. Stable per
+  // thread, so the pages that read it do not re-render with every ChatView render.
+  const sendVisualFollowUp = useMemo(
+    () => visualFollowUpForThread(activeThreadId),
+    [activeThreadId],
+  );
 
   const envLocked = Boolean(
     activeThread &&
@@ -3107,6 +3186,16 @@ export default function ChatView({
   const shouldShowProviderHealthBanner = shouldRenderProviderHealthBanner({
     threadEntryPoint: terminalState.entryPoint,
     terminalWorkspaceTerminalTabActive,
+    conversationIsLive:
+      (activeThread?.messages.length ?? 0) > 0 &&
+      activeThread?.session != null &&
+      activeThread.session.status !== "closed" &&
+      activeThread.session.status !== "disconnected",
+    selectionMatchesConversation:
+      activeThreadProvider === selectedProvider &&
+      (activeThreadProviderInstanceId ?? activeThreadProvider) ===
+        (selectedProviderInstanceId ?? selectedProvider),
+    status: visibleActiveProviderStatus,
   });
   // Terminal-only threads should not pay to mount the hidden chat/composer pane.
   const shouldRenderChatPaneContent = !(
@@ -3115,21 +3204,35 @@ export default function ChatView({
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
       if (!targetThreadId) return;
+      const setLocalError = (nextError: string | null) =>
+        setLocalThreadErrorsByThreadId((existing) => {
+          if ((existing[targetThreadId] ?? null) === nextError) {
+            return existing;
+          }
+          return {
+            ...existing,
+            [targetThreadId]: nextError,
+          };
+        });
       if (getThreadFromState(useStore.getState(), targetThreadId)) {
         setStoreThreadError(targetThreadId, error);
+        // Clearing also clears a kept send failure; see setThreadSendFailure.
+        if (error === null) setLocalError(null);
         return;
       }
-      setLocalDraftErrorsByThreadId((existing) => {
-        if ((existing[targetThreadId] ?? null) === error) {
-          return existing;
-        }
-        return {
-          ...existing,
-          [targetThreadId]: error,
-        };
-      });
+      setLocalError(error);
     },
-    [setLocalDraftErrorsByThreadId, setStoreThreadError],
+    [setLocalThreadErrorsByThreadId, setStoreThreadError],
+  );
+  // A send that fails around a reconnect lands just before the re-sync, which replaces the
+  // thread and its error. Keep the explanation until the next send or a dismiss, or the
+  // message pops back into the composer with no word about why.
+  const setThreadSendFailure = useCallback(
+    (targetThreadId: ThreadId, error: string) => {
+      setThreadError(targetThreadId, error);
+      setLocalThreadErrorsByThreadId((existing) => ({ ...existing, [targetThreadId]: error }));
+    },
+    [setLocalThreadErrorsByThreadId, setThreadError],
   );
   const composerImageAttachmentCount = useCallback(
     () =>
@@ -3577,6 +3680,10 @@ export default function ChatView({
     (store) => selectRightDockState(threadId)(store).open,
   );
   const rightDockOpen = rightDockOpenOverride ?? storeRightDockOpen;
+  // With the dock open beside this chat, the dock header owns the window's right edge
+  // and reserves the caption-button gutter; the chat header must not reserve it again,
+  // or its controls float 138px short of the column's edge.
+  const chatHeaderBesideOpenDock = onToggleRightDock !== undefined && rightDockOpen;
   const isMobileViewport = useIsMobile();
   // Temporary threads are visually identical to regular chats — they use the same
   // Environment panel + header controls. "Temporary" is purely a sidebar badge +
@@ -3638,6 +3745,7 @@ export default function ChatView({
     projectId: activeProjectId,
     projectPanelEnabled,
     environmentPanelVisible,
+    startWithConversation: activeGroupSummary?.agentKind === "mossbot",
   });
   const setEnvironmentFromAuxiliary = useCallback(
     (open: boolean) => {
@@ -3662,6 +3770,26 @@ export default function ChatView({
     },
     [chooseAuxiliarySurface, setGroupPanelClosed, closeEnvironmentPanelAfterAction],
   );
+  useEffect(() => {
+    const onPanelRequest = (event: Event) => {
+      const request = (event as CustomEvent<ConversationPanelRequest>).detail;
+      if (!request || request.threadId !== threadId) return;
+      if (request.action === "find") {
+        setThreadFindOpen(true);
+        setThreadFindFocusNonce((nonce) => nonce + 1);
+        return;
+      }
+      if (!projectPanelEnabled) return;
+      if (request.action === "overview") setProjectFromAuxiliary(auxiliarySurface !== "project");
+      else if (request.action === "settings") {
+        setCoordinatorSettingsSection(request.section);
+        setCoordinatorSettingsOpen(true);
+      }
+    };
+    window.addEventListener(CONVERSATION_PANEL_REQUEST, onPanelRequest);
+    return () => window.removeEventListener(CONVERSATION_PANEL_REQUEST, onPanelRequest);
+  }, [threadId, projectPanelEnabled, auxiliarySurface, setProjectFromAuxiliary]);
+
   const setLibraryFromAuxiliary = useCallback(
     (open: boolean) => {
       chooseAuxiliarySurface(open ? "library" : null);
@@ -3872,12 +4000,8 @@ export default function ChatView({
     tailAnchorScrollInFlightRef.current = false;
     setTailAnchor(null);
   }, [settings.anchorSentMessagesToTop, tailAnchorScrollInFlightRef]);
-  const selectionChatEnvMode = useProjectEnvironmentStore((state) =>
-    activeProject ? state.envModeByProjectId[activeProject.id] : undefined,
-  );
   const {
     pendingTranscriptSelectionAction,
-    commitTranscriptAssistantSelection,
     dismissTranscriptSelectionAction,
     onMessagesClickCapture,
     onMessagesMouseUp,
@@ -3996,11 +4120,14 @@ export default function ChatView({
   // Started threads get the single-row composer while the draft is one plain line. Anything
   // that needs the block's room (approvals, questions, plan follow-up, banners, attachment
   // chips) keeps the block layout.
+  // A draft that starts with `@devs` reports a problem; a hint above the editor says so.
+  const showsDevsReportHint = MOSS_DEVS_REPORTS_ENABLED && parseDevsInvocation(prompt) !== null;
   const composerSingleRow = useComposerSingleRow({
     formRef: composerFormRef,
     prompt,
     eligible:
       !isCenteredEmptyLanding &&
+      !showsDevsReportHint &&
       !isComposerApprovalState &&
       pendingUserInputs.length === 0 &&
       !showPlanFollowUpPrompt &&
@@ -4352,13 +4479,17 @@ export default function ChatView({
         scheduleComposerFocus();
         return;
       }
+      // A model of the agent already open keeps its provider; another agent opens on its
+      // default provider (Moss while signed in).
       const resolvedInstanceId =
-        selectionOptions?.instanceId ?? resolveDefaultProviderInstanceId(settings, provider);
-      // Picking another provider is a handoff, but the bound provider stays on
-      // its own account either way.
-      const instanceLockedProvider = lockedProvider ?? boundProvider;
+        selectionOptions?.instanceId ??
+        (provider === selectedProvider
+          ? selectedProviderInstanceId
+          : resolveDefaultProviderInstanceId(settings, provider));
+      // Picking another provider, or another account of the bound one, is a handoff.
+      // A thread that cannot hand off stays on its own account.
       const lockedInstanceId =
-        instanceLockedProvider !== null && provider === instanceLockedProvider
+        lockedProvider !== null && provider === lockedProvider
           ? (activeThread.session?.providerInstanceId ??
             activeThread.modelSelection.instanceId ??
             // A thread that never stored an account runs in the one the composer shows.
@@ -4431,7 +4562,6 @@ export default function ChatView({
     },
     [
       activeThread,
-      boundProvider,
       customModelsByProvider,
       lockedProvider,
       modelOptionsByProvider,
@@ -4442,6 +4572,7 @@ export default function ChatView({
       runtimeModelsByProvider,
       runtimeModelsByProviderInstance,
       scheduleComposerFocus,
+      selectedProvider,
       selectedProviderInstanceId,
       settings,
       setComposerDraftModelSelectionAndSticky,
@@ -4938,23 +5069,23 @@ export default function ChatView({
   });
 
   const onRevertToTurnCount = useCallback(
-    async (turnCount: number) => {
+    async (turnCount: number): Promise<boolean> => {
       const api = readNativeApi();
-      if (!api || !activeThread || isRevertingCheckpoint) return;
+      if (!api || !activeThread || isRevertingCheckpoint) return false;
 
       if (hasLiveTurn || isSendBusy || isConnecting) {
-        setThreadError(activeThread.id, "Interrupt the current turn before reverting checkpoints.");
-        return;
+        setThreadError(activeThread.id, t("transcript.rewind.unavailableWorking"));
+        return false;
       }
       const confirmed = await api.dialogs.confirm(
         [
-          format("chat.checkpointRevert.title", { turnCount }),
-          t("chat.checkpointRevert.description"),
+          t("transcript.rewind.confirmTitle"),
+          t("transcript.rewind.description"),
           t("chat.checkpointRevert.irreversible"),
         ].join("\n"),
       );
       if (!confirmed) {
-        return;
+        return false;
       }
 
       setIsRevertingCheckpoint(true);
@@ -4973,8 +5104,11 @@ export default function ChatView({
           activeThread.id,
           err instanceof Error ? err.message : "Failed to revert thread state.",
         );
+        setIsRevertingCheckpoint(false);
+        return false;
       }
       setIsRevertingCheckpoint(false);
+      return true;
     },
     [
       setIsRevertingCheckpoint,
@@ -5401,10 +5535,13 @@ export default function ChatView({
   const canSendWithProviderHandoff = useStableCallback(
     (modelSelection?: ModelSelection): boolean => {
       const targetProvider = modelSelection?.provider ?? selectedProvider;
+      const targetInstanceId =
+        modelSelection?.instanceId ??
+        (modelSelection === undefined ? selectedProviderInstanceId : targetProvider);
       if (
         !activeThread ||
         boundProvider === null ||
-        targetProvider === boundProvider ||
+        (targetProvider === boundProvider && targetInstanceId === boundProviderInstanceId) ||
         !handoffDisabled
       ) {
         return true;
@@ -5471,6 +5608,7 @@ export default function ChatView({
     environmentPanelPreferenceOpen,
     setTailAnchor,
     setThreadError,
+    setThreadSendFailure,
     setComposerHighlightedItemId,
     setStoreThreadWorkspace,
     createWorktreeMutation,
@@ -5577,6 +5715,7 @@ export default function ChatView({
     onEditUserMessage,
     onResumeWorkflowRun,
     onImplementPlanInNewThread,
+    onSendPromptTurn,
   } = useChatTurnFollowUps({
     threadId,
     activeThread,
@@ -5828,17 +5967,14 @@ export default function ChatView({
       provider={selectedProvider}
       model={selectedModelForPickerWithCustomFallback}
       lockedProvider={lockedProvider}
-      boundProviderInstance={
-        lockedProvider === null && boundProvider !== null && boundProviderInstanceId !== null
-          ? { provider: boundProvider, instanceId: boundProviderInstanceId }
-          : null
-      }
       providers={providerStatuses}
       modelOptionsByProvider={modelOptionsByProvider}
       modelOptionsByProviderInstance={modelOptionsByProviderInstance}
       loadingModelProviders={loadingModelProviders}
       onRefreshModels={refreshModels}
       discoveryErrorsByProvider={discoveryErrorsByProvider}
+      defaultModelByProviderInstance={defaultModelByProviderInstance}
+      modelDiscoveryPendingByProviderInstance={modelDiscoveryPendingByProviderInstance}
       hiddenProviders={settings.hiddenProviders}
       providerOrder={settings.providerOrder}
       providerInstances={providerInstances}
@@ -5977,6 +6113,16 @@ export default function ChatView({
     },
     [composerEditorRef, promptRef, setComposerPromptValue, threadId, isPreparingComposerImages],
   );
+
+  // A page comment sent to the agent from the side panel goes the same way as a choice.
+  const pendingThreadSendRequest = useThreadSendRequestStore(
+    useMemo(() => selectNextThreadSendRequest(threadId), [threadId]),
+  );
+  useEffect(() => {
+    if (!pendingThreadSendRequest) return;
+    useThreadSendRequestStore.getState().take(pendingThreadSendRequest.id);
+    onSendVisualChoice(pendingThreadSendRequest.message);
+  }, [onSendVisualChoice, pendingThreadSendRequest]);
 
   // A denied task offers the same visible, one-request invocation as the slash menu.
   const handleEnableComputerControlFromDenial = useCallback(() => {
@@ -6186,7 +6332,7 @@ export default function ChatView({
   });
   const onExpandTimelineImage = useCallback(
     async (preview: ExpandedImagePreview) => {
-      if (preview.generated?.kind === "generated-image") {
+      if (preview.generated && shouldOpenGeneratedImageInCanvas(preview)) {
         if (!(await flushConversationImageEditors(threadId))) return;
         const groupId = preview.generated.groupId;
         openRightDockPane(threadId, {
@@ -6204,7 +6350,7 @@ export default function ChatView({
             conversationTitle: activeThread?.title ?? null,
             groupId: preview.generated.groupId,
             createdAt: preview.generated.createdAt,
-            view: preview.generated.initialView ?? "single",
+            view: "playground",
           },
         });
         setExpandedImage(null);
@@ -6359,19 +6505,88 @@ export default function ChatView({
   const onCloseEditorTerminal = useCallback(() => {
     void closeTerminal(terminalState.activeTerminalId);
   }, [closeTerminal, terminalState.activeTerminalId]);
+  // Desktop chat fork point: forks of this chat, grouped by the message each left from.
+  // The selector returns a string, so other chats' updates never re-render this view.
+  const forkPointsKey = useStore((store) => {
+    let key = "";
+    for (const summary of Object.values(store.sidebarThreadSummaryById)) {
+      if (summary?.forkSourceThreadId !== threadId || !summary.forkSourceMessageId) continue;
+      if (summary.archivedAt) continue;
+      key += `${summary.forkSourceMessageId}\t${summary.id}\n`;
+    }
+    return key;
+  });
+  const forksBySourceMessageId = useMemo(() => {
+    if (forkPointsKey === "") return undefined;
+    const forks = new Map<MessageId, ThreadId[]>();
+    for (const line of forkPointsKey.split("\n")) {
+      const [messageId, forkId] = line.split("\t");
+      if (!messageId || !forkId) continue;
+      const key = messageId as MessageId;
+      forks.set(key, [...(forks.get(key) ?? []), forkId as ThreadId]);
+    }
+    return forks;
+  }, [forkPointsKey]);
+  // Desktop chat "Rewind to here": removes this message and what follows, leaves a
+  // "Rewound here" marker under the last kept message, and puts the rewound prompt
+  // back in an empty composer.
+  const [rewindMarker, setRewindMarker] = useState<{
+    threadId: ThreadId;
+    afterMessageId: MessageId | null;
+  } | null>(null);
   const onRevertUserMessage = useCallback(
     (messageId: MessageId) => {
       const targetTurnCount = revertTurnCountByUserMessageId.get(messageId);
       if (typeof targetTurnCount !== "number") {
         return;
       }
-      void onRevertToTurnCount(targetTurnCount);
+      const index = timelineMessages.findIndex((message) => message.id === messageId);
+      const rewound = index >= 0 ? timelineMessages[index] : undefined;
+      const keptBefore = index > 0 ? (timelineMessages[index - 1]?.id ?? null) : null;
+      void onRevertToTurnCount(targetTurnCount).then((reverted) => {
+        if (!reverted) return;
+        setRewindMarker({ threadId, afterMessageId: keptBefore });
+        if (rewound && promptRef.current.trim() === "") {
+          promptRef.current = rewound.text;
+          setComposerDraftPrompt(threadId, rewound.text);
+          setPrompt(rewound.text);
+        }
+      });
     },
-    [onRevertToTurnCount, revertTurnCountByUserMessageId],
+    [
+      onRevertToTurnCount,
+      revertTurnCountByUserMessageId,
+      timelineMessages,
+      threadId,
+      promptRef,
+      setComposerDraftPrompt,
+      setPrompt,
+    ],
   );
   const onRunProjectScriptFromHeader = useStableCallback((script: ProjectScript) => {
     void runProjectScript(script);
   });
+  // "Run in terminal" on a shell block in a reply: the block runs as an unsaved
+  // one-off action in this chat's right-side terminal, one line per Enter.
+  const runCodeBlockInTerminal = useStableCallback((command: string) => {
+    void runProjectScript(
+      {
+        id: `code-block-${randomUUID()}`,
+        name: t("transcript.code.runInTerminal"),
+        command: command.replace(/\n/g, "\r"),
+        icon: "play",
+        runOnWorktreeCreate: false,
+      },
+      { rememberAsLastInvoked: false },
+    );
+  });
+  const codeRunActions = useMemo<CodeRunActions>(
+    () => ({
+      runInTerminal: runCodeBlockInTerminal,
+      shell: isWindowsPlatform(getNavigatorPlatform()) ? "powershell" : "posix",
+    }),
+    [runCodeBlockInTerminal],
+  );
   // A thread-strip `+` uses the active project's workspace. A pending, reusable draft wins
   // so this never retargets unsent work to the thread currently on screen.
   const onNewThreadFromHeader = useStableCallback(() => {
@@ -7159,6 +7374,7 @@ export default function ChatView({
     onToggleDiff,
     onOpenAutomation: (definition: AutomationDefinition) => onOpenAutomation(definition.id),
     onOpenGithubRepository: openBrowserUrl,
+    onOpenLocalServer: isElectron ? openBrowserUrl : openExternalLink,
     onJumpToPinnedMessage: handleJumpToPinnedMessage,
     onTogglePinnedMessageDone: handleTogglePinnedMessageDone,
     onUnpinMessage: handleUnpinMessage,
@@ -7167,6 +7383,18 @@ export default function ChatView({
     onOpenEditorView: viewModeAction?.onClick ?? null,
     onClose: closeEnvironmentPanelAfterAction,
     onRegisterCommitAndPushTrigger,
+    contextWindow: activeContextWindow,
+    projectScripts:
+      activeProject && activeProjectScripts !== undefined && !activeThreadIsSidechat
+        ? {
+            scripts: activeProjectScripts,
+            preferredScriptId: lastInvokedScriptByProjectId[activeProject.id] ?? null,
+            onRunScript: onRunProjectScriptFromHeader,
+            onAddScript: saveProjectScript,
+            onUpdateScript: updateProjectScript,
+            onDeleteScript: deleteProjectScript,
+          }
+        : null,
   };
   // Full-width single chat: overlay plus transcript/composer inset. Floating overlay when the
   // column is already narrow — right dock open or a split pane (same as header compact mode).
@@ -7302,6 +7530,9 @@ export default function ChatView({
             canDetachToGlobalOverlay={realtimeVoice.canDetachToGlobalOverlay}
             onDetachToGlobalOverlay={realtimeVoice.detachToGlobalOverlay}
             onConnectionHandoffComplete={realtimeVoice.completeLaunchHandoff}
+            onStop={() => void realtimeVoice.stop()}
+            // An empty thread shows the whole live transcript in RealtimeVoiceEmptyState.
+            showCaption={timelineEntries.length > 0}
           />
         ) : null}
         <form
@@ -7328,6 +7559,7 @@ export default function ChatView({
             activeThread.session?.activeTurnId ? String(activeThread.session.activeTurnId) : ""
           }
         >
+          <DevsReportStatus threadId={threadId} />
           <ComposerColumnFrame>
             {/* A bare wrapper keeps the normal-flow panels' -mb-px seam onto the input shell
                 via margin collapse. */}
@@ -7441,7 +7673,7 @@ export default function ChatView({
                   instead of a banner fused into the composer surface. An approval takes
                   precedence and suppresses the question card while one is active. */}
               {shouldShowHubPendingApprovals({
-                groupsOn: GROUPS_ON,
+                groupsOn: GROUPS_ON || activeGroupSummary?.agentKind === "mossbot",
                 isCoordinatorConversation,
                 hasActiveThread: activeThread != null,
               }) && activeThread ? (
@@ -7523,6 +7755,26 @@ export default function ChatView({
                   }}
                 />
               ) : null}
+              <ComposerUnconfirmedSendNotice
+                threadId={threadId}
+                onDiscard={(discardedPrompt, discardedMessageId) => {
+                  setOptimisticUserMessages((existing) =>
+                    existing.filter((message) => message.id !== discardedMessageId),
+                  );
+                  // Nothing is lost: the text goes back into the composer, ahead of
+                  // anything typed since.
+                  const store = useComposerDraftStore.getState();
+                  const current = store.draftsByThreadId[threadId]?.prompt ?? "";
+                  const nextPrompt =
+                    current.trim().length === 0
+                      ? discardedPrompt
+                      : `${discardedPrompt}\n\n${current}`;
+                  store.setPrompt(threadId, nextPrompt);
+                  promptRef.current = nextPrompt;
+                  setComposerCursor(collapseExpandedComposerCursor(nextPrompt, nextPrompt.length));
+                  scheduleComposerFocus();
+                }}
+              />
               {emptyLandingControls}
               {imageGenerationLimitBannerVisible &&
               imageGenerationLimitFailure &&
@@ -7565,6 +7817,7 @@ export default function ChatView({
               >
                 <ComposerInputBanners
                   roundedTopReset={false}
+                  devsReport={showsDevsReportHint}
                   planFollowUp={
                     !activePendingApproval &&
                     pendingUserInputs.length === 0 &&
@@ -7662,7 +7915,7 @@ export default function ChatView({
                         role="status"
                       >
                         <LoaderCircleIcon className="size-4 animate-spin" />
-                        Optimizing {pendingComposerImageCount === 1 ? "image" : "images"}…
+                        {`Optimizing ${pendingComposerImageCount === 1 ? "image" : "images"}…`}
                       </div>
                     )}
                   {!isComposerApprovalState &&
@@ -7694,6 +7947,14 @@ export default function ChatView({
                         onRemoveImage={removeComposerImage}
                       />
                     )}
+                  {!isComposerApprovalState && pendingUserInputs.length === 0 ? (
+                    <ComposerImageModelNotice
+                      imageCount={composerImages.length}
+                      instanceId={turnDispatchSettings.modelSelection.instanceId}
+                      model={turnDispatchSettings.modelSelection.model}
+                      onChangeModel={() => handleModelPickerOpenChange(true)}
+                    />
+                  ) : null}
                   {/* Keep chrome mounted; reset only the editor's undo history per chat. */}
                   <ComposerPromptEditor
                     key={threadId}
@@ -7873,6 +8134,9 @@ export default function ChatView({
         CHAT_BACKGROUND_CLASS_NAME,
       )}
       data-shell-surface="chat"
+      data-mossbot-native-chat={
+        isCoordinatorConversation && activeGroupSummary?.agentKind === "mossbot" ? "" : undefined
+      }
       data-shell-state={chatShellState}
       data-moss-product-shell={showMossControlPlane ? "true" : undefined}
       data-presentation-mode={presentationMode}
@@ -7937,16 +8201,24 @@ export default function ChatView({
             !isEditorRail && CHAT_SURFACE_HEADER_PADDING_X_CLASS,
             "flex items-center",
             isEditorRail ? "h-10" : CHAT_SURFACE_HEADER_HEIGHT_CLASS,
+            isCoordinatorConversation &&
+              activeGroupSummary?.agentKind === "mossbot" &&
+              "max-md:h-[76px] max-md:px-4",
             isElectron && "drag-region",
             // The editor-rail chat header sits in the editor's second row (inside the
             // right-side chat pane), not flush against the window edges — the editor's
             // own top bar already reserves both desktop window-control gutters. Applying
             // them here just leaves redundant empty space on the sides.
             !isEditorRail && desktopTopBarTrafficLightGutterClassName,
-            !isEditorRail && desktopTopBarWindowControlsGutterClassName,
+            !isEditorRail &&
+              !chatHeaderBesideOpenDock &&
+              desktopTopBarWindowControlsGutterClassName,
           )}
         >
           <ChatHeader
+            compactAssistantHeader={
+              isCoordinatorConversation && activeGroupSummary?.agentKind === "mossbot"
+            }
             activeThreadId={activeThread.id}
             activeThreadTitle={activeThreadDisplayTitle}
             activeThreadEntryPoint={terminalState.entryPoint}
@@ -7956,23 +8228,32 @@ export default function ChatView({
             {...(isEditorRail
               ? { className: cn(CHAT_SURFACE_HEADER_PADDING_X_CLASS, "h-full") }
               : {})}
-            {...(showOpenThreadTabs
+            {...(isCoordinatorConversation && activeGroupSummary?.agentKind === "mossbot"
               ? {
                   threadTabs: (
-                    <OpenThreadTabStrip
-                      activeThreadId={activeThread.id}
-                      keybindings={keybindings}
-                      closeActiveTabRef={closeActiveThreadTabRef}
-                      onRenameActiveThread={() => setRenameDialogOpen(true)}
-                      onNewThread={
-                        activeProjectScripts !== undefined && !isCenteredEmptyLanding
-                          ? onNewThreadFromHeader
-                          : null
-                      }
+                    <MossbotConversationIdentity
+                      assistant={activeGroupSummary}
+                      onOpenWorkbench={onToggleRightDock}
                     />
                   ),
                 }
-              : {})}
+              : showOpenThreadTabs
+                ? {
+                    threadTabs: (
+                      <OpenThreadTabStrip
+                        activeThreadId={activeThread.id}
+                        keybindings={keybindings}
+                        closeActiveTabRef={closeActiveThreadTabRef}
+                        onRenameActiveThread={() => setRenameDialogOpen(true)}
+                        onNewThread={
+                          activeProjectScripts !== undefined && !isCenteredEmptyLanding
+                            ? onNewThreadFromHeader
+                            : null
+                        }
+                      />
+                    ),
+                  }
+                : {})}
             isSidechat={isSidechatThread(activeThread)}
             hideSidebarControls={isEditorRail}
             hideHandoffControls={terminalWorkspaceTerminalTabActive || isEditorRail}
@@ -8043,7 +8324,9 @@ export default function ChatView({
             threadId={threadId}
             className={cn(
               terminalWorkspaceTerminalTabActive && "invisible",
-              !isEditorRail && desktopTopBarWindowControlsGutterClassName,
+              !isEditorRail &&
+                !chatHeaderBesideOpenDock &&
+                desktopTopBarWindowControlsGutterClassName,
             )}
             onClose={() => setThreadFindOpen(false)}
             onJump={handleThreadFindJump}
@@ -8232,141 +8515,162 @@ export default function ChatView({
               {shouldRenderChatPaneContent && !isCenteredEmptyLandingVisible ? (
                 <div className="flex min-h-0 flex-1 flex-col">
                   <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-                    <ChatTranscriptPane
-                      activeThreadId={activeThread.id}
-                      activeTurnId={activeTurnIdForTranscript}
-                      agentActivityDetail={openAgentActivityDetail}
-                      hasMessages={timelineEntries.length > 0}
-                      isWorking={isWorking}
-                      suppressWorkingIndicator={activePendingApproval?.requestKind === "command"}
-                      workingLabel={resolveWorkingLabel({
-                        isSettlingTurnDispatch,
-                        isSendBusy,
-                        turnTakenOver,
-                        isConnecting,
-                        providerName: providerDisplayName,
-                        ...(providerRetryLabel ? { retryLabel: providerRetryLabel } : {}),
-                      })}
-                      worktreeSetup={activeWorktreeSetup}
-                      worktreeSetupPendingAction={worktreeSetupPendingAction}
-                      onResolveWorktreeSetup={onResolveWorktreeSetup}
-                      activeTurnInProgress={activeTurnInProgress}
-                      subagentsRunning={hasRunningSubagents}
-                      subagentRun={subagentRunContext}
-                      runningSubagentRun={runningSubagentRun}
-                      subagentThread={subagentThread}
-                      collapseFinishedTurns={settings.collapseFinishedTurns}
-                      activeTurnStartedAt={activeWorkStartedAt}
-                      listRef={legendListRef}
-                      timelineControllerRef={timelineControllerRef}
-                      findHighlightStore={threadFindHighlightStore}
-                      pinnedMessageIds={pinnedMessageIds}
-                      canPinMessage={canPinMessage}
-                      onTogglePinMessage={handleTogglePinMessageGuarded}
-                      onForkFromMessage={handleForkFromMessage}
-                      goalAchievements={goalAchievements}
-                      enteringUserMessageIds={enteringUserMessageIds}
-                      tailAnchorMessageId={
-                        settings.anchorSentMessagesToTop &&
-                        tailAnchor !== null &&
-                        tailAnchor.threadId === activeThread.id
-                          ? tailAnchor.messageId
-                          : null
-                      }
-                      tailAnchorScrollInFlightRef={tailAnchorScrollInFlightRef}
-                      crossTaskOrigin={resolvedCrossTaskOrigin}
-                      forkSource={forkSource}
-                      isTemporaryThread={isThreadTemporary}
-                      isLocalDraft={isLocalDraftThread}
-                      isProjectImport={activeThread.isProjectImport === true}
-                      timelineEntries={timelineEntries}
-                      messageChangeSignal={timelineMessages}
-                      turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                      turnTimingByTurnId={turnTimingByTurnId}
-                      conversationOnly={isCoordinatorConversation}
-                      hubWorkItemsByMessageId={hubWorkItemsByMessageId}
-                      threadError={
-                        quotaOwnedActiveThreadError === null ? (activeThread?.error ?? null) : null
-                      }
-                      recoverableTurnId={
-                        activeLatestTurnState === "error" ? activeLatestTurnId : null
-                      }
-                      turnRecoveryDisabled={
-                        isSendBusy ||
-                        isConnecting ||
-                        isWorking ||
-                        pendingApprovals.length > 0 ||
-                        pendingUserInputs.length > 0
-                      }
-                      onContinueFailedTurn={onContinueFailedTurn}
-                      onChangeRecoveryModel={() => handleModelPickerOpenChange(true)}
-                      unblockingThread={unblockingActiveThread}
-                      onDismissThreadError={dismissActiveThreadError}
-                      {...(canRetryActiveThreadStart
-                        ? { onRetryThreadError: retryActiveThreadStart }
-                        : {})}
-                      onUnblockThread={unblockThread}
-                      onOpenTurnDiff={onOpenTurnDiff}
-                      {...(onOpenHtmlDocument ? { onOpenHtmlDocument } : {})}
-                      onOpenThread={onNavigateToThread}
-                      onOpenAutomation={onOpenAutomation}
-                      {...(threadDetailSyncState === "cached" ? {} : { onStopBackgroundTask })}
-                      computerControlEnabled={enableComputerControl}
-                      onEnableComputerControl={handleEnableComputerControlFromDenial}
-                      revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                      onRevertUserMessage={onRevertUserMessage}
-                      onUndoTurnFiles={onUndoTurnFiles}
-                      onEditUserMessage={onEditUserMessage}
-                      onRespondToAsyncUserInput={onRespondToAsyncUserInput}
-                      editableUserMessageId={editableUserMessageId}
-                      isRevertingCheckpoint={isRevertingCheckpoint}
-                      onExpandTimelineImage={onExpandTimelineImage}
-                      followLiveOutput={!isUserScrollDetached}
-                      animateTailAnchorSlide={!hasStreamingAssistantText}
-                      onIsAtEndChange={onIsAtEndChange}
-                      onNavigate={onTranscriptNavigate}
-                      markdownCwd={threadWorkspaceCwd ?? undefined}
-                      resolvedTheme={resolvedTheme}
-                      chatFontSizePx={settings.chatFontSizePx}
-                      timestampFormat={timestampFormat}
-                      messageTrailAudioSource={settings.messageTrailAudioSource}
-                      messageTrailMicrophoneId={settings.messageTrailMicrophoneId}
-                      workspaceRoot={threadArtifactWorkspaceRoot ?? undefined}
-                      keybindings={keybindings}
-                      availableEditors={availableEditors}
-                      // An active voice session owns the empty transcript surface with
-                      // RealtimeVoiceStage. Keep MessagesTimeline's default hero out of that
-                      // surface; otherwise the old empty-thread heading remains underneath the
-                      // live voice stage until the first persisted message arrives.
-                      emptyStateContent={
-                        realtimeVoice.isMainThreadPresentationVisible ? (
-                          <span aria-hidden="true" />
-                        ) : (
-                          transcriptEmptyStateContent
-                        )
-                      }
-                      emptyStateProjectName={activeProjectDisplayName}
-                      terminalWorkspaceTerminalTabActive={terminalWorkspaceTerminalTabActive}
-                      onMessagesScroll={onMessagesScroll}
-                      onMessagesClickCapture={onMessagesClickCapture}
-                      onMessagesMouseUp={onMessagesMouseUp}
-                      onMessagesWheel={onMessagesWheel}
-                      onEmbeddedScrollIntent={onEmbeddedScrollIntent}
-                      onSendVisualChoice={onSendVisualChoice}
-                      onMessagesPointerDown={onMessagesPointerDown}
-                      onMessagesPointerUp={onMessagesPointerUp}
-                      onMessagesPointerCancel={onMessagesPointerCancel}
-                      onMessagesTouchStart={onMessagesTouchStart}
-                      onMessagesTouchMove={onMessagesTouchMove}
-                      onMessagesTouchEnd={onMessagesTouchEnd}
-                      onOpenAgentActivity={setOpenAgentActivityId}
-                      onCloseAgentActivityDetail={closeAgentActivityDetail}
-                      scrollButtonVisible={showScrollToBottom}
-                      onScrollToBottom={onScrollToBottom}
-                      contentInsetRightPx={contentInsetRightPx}
-                      contentInsetBottomPx={composerTranscriptInsetPx}
-                      contentInsetBottomClearancePx={composerOverlayBottomClearancePx}
-                    />
+                    <CodeRunContext.Provider value={codeRunActions}>
+                      <TranscriptMarkdownContext.Provider value>
+                        <ChatTranscriptPane
+                          activeThreadId={activeThread.id}
+                          activeTurnId={activeTurnIdForTranscript}
+                          agentActivityDetail={openAgentActivityDetail}
+                          hasMessages={timelineEntries.length > 0}
+                          isWorking={isWorking}
+                          suppressWorkingIndicator={
+                            activePendingApproval?.requestKind === "command"
+                          }
+                          workingLabel={resolveWorkingLabel({
+                            isSettlingTurnDispatch,
+                            isSendBusy,
+                            turnTakenOver,
+                            isConnecting,
+                            providerName: providerDisplayName,
+                            ...(providerRetryLabel ? { retryLabel: providerRetryLabel } : {}),
+                          })}
+                          worktreeSetup={activeWorktreeSetup}
+                          worktreeSetupPendingAction={worktreeSetupPendingAction}
+                          onResolveWorktreeSetup={onResolveWorktreeSetup}
+                          activeTurnInProgress={activeTurnInProgress}
+                          subagentsRunning={hasRunningSubagents}
+                          subagentRun={subagentRunContext}
+                          runningSubagentRun={runningSubagentRun}
+                          subagentThread={subagentThread}
+                          collapseFinishedTurns={settings.collapseFinishedTurns}
+                          activeTurnStartedAt={activeWorkStartedAt}
+                          listRef={legendListRef}
+                          timelineControllerRef={timelineControllerRef}
+                          findHighlightStore={threadFindHighlightStore}
+                          pinnedMessageIds={pinnedMessageIds}
+                          pinnedMessageTitles={pinnedMessageTitles}
+                          onRenamePinnedMessage={handleRenamePinnedMessage}
+                          canPinMessage={canPinMessage}
+                          onTogglePinMessage={handleTogglePinMessageGuarded}
+                          onForkFromMessage={handleForkFromMessage}
+                          onSendPromptTurn={onSendPromptTurn}
+                          goalAchievements={goalAchievements}
+                          enteringUserMessageIds={enteringUserMessageIds}
+                          tailAnchorMessageId={
+                            settings.anchorSentMessagesToTop &&
+                            tailAnchor !== null &&
+                            tailAnchor.threadId === activeThread.id
+                              ? tailAnchor.messageId
+                              : null
+                          }
+                          tailAnchorScrollInFlightRef={tailAnchorScrollInFlightRef}
+                          crossTaskOrigin={resolvedCrossTaskOrigin}
+                          forkSource={forkSource}
+                          isTemporaryThread={isThreadTemporary}
+                          isLocalDraft={isLocalDraftThread}
+                          isProjectImport={activeThread.isProjectImport === true}
+                          timelineEntries={timelineEntries}
+                          messageChangeSignal={timelineMessages}
+                          turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                          turnTimingByTurnId={turnTimingByTurnId}
+                          conversationOnly={
+                            isCoordinatorConversation && activeGroupSummary?.agentKind !== "mossbot"
+                          }
+                          hubWorkItemsByMessageId={hubWorkItemsByMessageId}
+                          threadError={
+                            quotaOwnedActiveThreadError === null
+                              ? (activeThread?.error ?? localThreadError)
+                              : null
+                          }
+                          recoverableTurnId={
+                            activeLatestTurnState === "error" ? activeLatestTurnId : null
+                          }
+                          turnRecoveryDisabled={
+                            isSendBusy ||
+                            isConnecting ||
+                            isWorking ||
+                            pendingApprovals.length > 0 ||
+                            pendingUserInputs.length > 0
+                          }
+                          onContinueFailedTurn={onContinueFailedTurn}
+                          onChangeRecoveryModel={() => handleModelPickerOpenChange(true)}
+                          unblockingThread={unblockingActiveThread}
+                          onDismissThreadError={dismissActiveThreadError}
+                          {...(canRetryActiveThreadStart
+                            ? { onRetryThreadError: retryActiveThreadStart }
+                            : {})}
+                          onUnblockThread={unblockThread}
+                          onOpenTurnDiff={onOpenTurnDiff}
+                          {...(onOpenHtmlDocument ? { onOpenHtmlDocument } : {})}
+                          onOpenThread={onNavigateToThread}
+                          onOpenAutomation={onOpenAutomation}
+                          {...(threadDetailSyncState === "cached" ? {} : { onStopBackgroundTask })}
+                          computerControlEnabled={enableComputerControl}
+                          onEnableComputerControl={handleEnableComputerControlFromDenial}
+                          revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                          onRevertUserMessage={onRevertUserMessage}
+                          forksBySourceMessageId={forksBySourceMessageId}
+                          rewindMarkerAfterMessageId={
+                            rewindMarker?.threadId === threadId
+                              ? rewindMarker.afterMessageId
+                              : undefined
+                          }
+                          onUndoTurnFiles={onUndoTurnFiles}
+                          onEditUserMessage={onEditUserMessage}
+                          onRespondToAsyncUserInput={onRespondToAsyncUserInput}
+                          editableUserMessageId={editableUserMessageId}
+                          isRevertingCheckpoint={isRevertingCheckpoint}
+                          onExpandTimelineImage={onExpandTimelineImage}
+                          followLiveOutput={!isUserScrollDetached}
+                          animateTailAnchorSlide={!hasStreamingAssistantText}
+                          onIsAtEndChange={onIsAtEndChange}
+                          onNavigate={onTranscriptNavigate}
+                          markdownCwd={threadWorkspaceCwd ?? undefined}
+                          resolvedTheme={resolvedTheme}
+                          chatFontSizePx={settings.chatFontSizePx}
+                          timestampFormat={timestampFormat}
+                          messageTrailAudioSource={settings.messageTrailAudioSource}
+                          messageTrailMicrophoneId={settings.messageTrailMicrophoneId}
+                          workspaceRoot={threadArtifactWorkspaceRoot ?? undefined}
+                          keybindings={keybindings}
+                          availableEditors={availableEditors}
+                          // An active voice session owns the empty transcript surface: instead
+                          // of the old empty-thread heading it shows the voice status, the live
+                          // transcript as it arrives and, the first time, how voice chat works.
+                          emptyStateContent={
+                            realtimeVoice.isMainThreadPresentationVisible ? (
+                              <RealtimeVoiceEmptyState
+                                state={realtimeVoice.state}
+                                transcript={realtimeVoice.transcript}
+                              />
+                            ) : (
+                              transcriptEmptyStateContent
+                            )
+                          }
+                          emptyStateProjectName={activeProjectDisplayName}
+                          terminalWorkspaceTerminalTabActive={terminalWorkspaceTerminalTabActive}
+                          onMessagesScroll={onMessagesScroll}
+                          onMessagesClickCapture={onMessagesClickCapture}
+                          onMessagesMouseUp={onMessagesMouseUp}
+                          onMessagesWheel={onMessagesWheel}
+                          onEmbeddedScrollIntent={onEmbeddedScrollIntent}
+                          onSendVisualChoice={onSendVisualChoice}
+                          onMessagesPointerDown={onMessagesPointerDown}
+                          onMessagesPointerUp={onMessagesPointerUp}
+                          onMessagesPointerCancel={onMessagesPointerCancel}
+                          onMessagesTouchStart={onMessagesTouchStart}
+                          onMessagesTouchMove={onMessagesTouchMove}
+                          onMessagesTouchEnd={onMessagesTouchEnd}
+                          onOpenAgentActivity={setOpenAgentActivityId}
+                          onCloseAgentActivityDetail={closeAgentActivityDetail}
+                          scrollButtonVisible={showScrollToBottom}
+                          onScrollToBottom={onScrollToBottom}
+                          contentInsetRightPx={contentInsetRightPx}
+                          contentInsetBottomPx={composerTranscriptInsetPx}
+                          contentInsetBottomClearancePx={composerOverlayBottomClearancePx}
+                        />
+                      </TranscriptMarkdownContext.Provider>
+                    </CodeRunContext.Provider>
                     {/* The composer floats `bottom-full` over this trailing                      block, so the last in-flow element must reserve the
                       same `pb-28` clearance CoordinatorSuggestions does or
                       the composer surface covers its controls. */}
@@ -8397,6 +8701,14 @@ export default function ChatView({
                     ) : null}
                     {showCoordinatorSuggestions ? (
                       <CoordinatorSuggestions
+                        personal={activeGroupSummary?.agentKind === "mossbot"}
+                        onPrompt={(text) => {
+                          setPrompt(text);
+                          promptRef.current = text;
+                          setComposerCursor(collapseExpandedComposerCursor(text, text.length));
+                          setComposerTrigger(detectComposerTrigger(text, text.length));
+                          scheduleComposerFocus();
+                        }}
                         chips={coordinatorSuggestionChips}
                         composerHeightPx={composerOverlayHeightPx}
                         onOpenSettings={(section) => {
@@ -8545,6 +8857,7 @@ export default function ChatView({
                 {...environmentPanelProps}
                 open={environmentPanelVisibleEffective}
                 variant={environmentOverlayVariant}
+                onDismiss={() => setEnvironmentFromAuxiliary(false)}
                 railBottom={
                   previewSession ? (
                     <AmbientRailSlot envOpen={environmentPanelVisible}>
@@ -8653,11 +8966,11 @@ export default function ChatView({
           <TranscriptSelectionActionLayer
             key={threadId}
             action={pendingTranscriptSelectionAction}
-            defaultEnvMode={selectionChatEnvMode ?? settings.defaultThreadEnvMode}
-            canUseWorktree={isGitRepo && !isContainerLandingProject}
             canAddToSide={isServerThread && !isSidechatThread(activeThread)}
+            sideChatStarted={sourceThreadSidechats.some(
+              (sidechat) => sidechat.sidechatExpiredAt == null,
+            )}
             onDismiss={dismissTranscriptSelectionAction}
-            onAddToChat={commitTranscriptAssistantSelection}
             onAddToSide={(selection) =>
               addSelectionToSide({
                 selection,
@@ -8667,21 +8980,7 @@ export default function ChatView({
                 runtimeMode,
               })
             }
-            onNewChat={(selection, prompt, envMode, intent) =>
-              startSelectionChat({
-                selection,
-                prompt,
-                envMode,
-                intent,
-                projectId: activeProject.id,
-                projectCwd: activeProject.cwd,
-                modelSelection: selectedModelSelection,
-                selectedPromptEffort,
-                providerOptionsForDispatch,
-                runtimeMode,
-                createThread: handleNewThread,
-              })
-            }
+            onSendReply={onSendPromptTurn}
           />
         ) : null}
         <ExpandedImageOverlay
@@ -8694,7 +8993,9 @@ export default function ChatView({
   );
   return (
     <ChatLinkActionsContext.Provider value={chatLinkActions}>
-      {chatView}
+      <VisualFollowUpContext.Provider value={sendVisualFollowUp}>
+        {chatView}
+      </VisualFollowUpContext.Provider>
     </ChatLinkActionsContext.Provider>
   );
 }

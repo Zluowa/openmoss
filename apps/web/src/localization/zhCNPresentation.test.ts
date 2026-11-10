@@ -8,6 +8,18 @@ import { describe, expect, it } from "vitest";
 import { translateZhCnPresentationText } from "./zhCN";
 
 describe("translateZhCnPresentationText merged-shell coverage", () => {
+  it("keeps HTML preview labels distinct from voice audition labels", () => {
+    expect(translateZhCnPresentationText("HTML view")).toBe("HTML 视图");
+    expect(translateZhCnPresentationText("HTML source")).toBe("源码");
+    expect(translateZhCnPresentationText("HTML preview")).toBe("预览");
+    expect(translateZhCnPresentationText("View HTML source")).toBe("查看 HTML 源码");
+    expect(translateZhCnPresentationText("Render HTML document")).toBe("预览 HTML 网页");
+    expect(
+      translateZhCnPresentationText("Unable to render preview. You can still view the source."),
+    ).toBe("无法显示预览。你仍可查看源码。");
+    expect(translateZhCnPresentationText("Preview")).toBe("试听");
+  });
+
   it("translates the provider-update toast through the shared chain", () => {
     expect(translateZhCnPresentationText("4 provider updates available")).toBe(
       "4 个服务商有可用更新",
@@ -153,13 +165,35 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
     expect(translateZhCnPresentationText("Safari import setup")).toBe("Safari 导入设置");
   });
 
+  it("says in Chinese what an error report sends, what it doesn't, and where it goes", () => {
+    expect(translateZhCnPresentationText("Send error reports")).toBe("发送错误报告");
+    expect(
+      translateZhCnPresentationText(
+        "When Moss hits an error, it sends a report so the problem can be fixed. Reports go to Sentry, a service in the United States.",
+      ),
+    ).toBe("Moss 出错时会发送一份报告，以便修复问题。报告会发送到位于美国的 Sentry 服务。");
+    expect(
+      translateZhCnPresentationText(
+        "Changes apply right away. While this is off, nothing is sent.",
+      ),
+    ).toBe("更改立即生效。关闭期间不会发送任何内容。");
+    expect(translateZhCnPresentationText("Your chats, prompts, and agent replies")).toBe(
+      "你的对话、提示词和智能体回复",
+    );
+  });
+
   it("translates the Moss Beta card and its install lifecycle", () => {
     expect(
       translateZhCnPresentationText(
-        "Try new features before everyone else. Moss Beta is a separate app with its own data, and this app stays exactly as it is. Beta shares crash reports and anonymous usage stats to help us improve it.",
+        "Try new features before everyone else. Moss Beta is a separate app with its own data, and this app stays exactly as it is.",
+      ),
+    ).toBe("先于所有人体验新功能。Moss Beta 是独立的应用，拥有独立数据，此应用保持原样。");
+    expect(
+      translateZhCnPresentationText(
+        "Moss Beta works like Moss here: it sends error reports only while Send error reports is on in Settings, and it doesn't send usage counts or crash dumps.",
       ),
     ).toBe(
-      "先于所有人体验新功能。Moss Beta 是独立的应用，拥有独立数据，此应用保持原样。Beta 会分享崩溃报告和匿名使用统计，以帮助我们改进。",
+      "Moss Beta 在这方面与 Moss 相同：只有设置中的“发送错误报告”开启时才会发送错误报告，也不会发送使用统计或崩溃转储。",
     );
     expect(translateZhCnPresentationText("Install Moss Beta")).toBe("安装 Moss Beta");
     expect(translateZhCnPresentationText("Copy my data and open")).toBe("复制我的数据并打开");
@@ -230,6 +264,11 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
       ["Quit", "退出"],
       ["A chat is still running", "有一个对话正在运行"],
       ["Chats are still running", "有多个对话正在运行"],
+      ["Work is still running", "仍有工作在运行"],
+      ["Terminal command", "终端命令"],
+      ["Dev server", "开发服务器"],
+      ["Importing conversations", "正在导入对话"],
+      ["Downloading an app update", "正在下载应用更新"],
       ["Resume chat automatically", "下次启动时自动继续这个对话"],
       ["Resume chats automatically", "下次启动时自动继续这些对话"],
       ["Spaces in the rail", "侧边栏中的空间"],
@@ -237,8 +276,8 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
       ["No projects yet", "暂无项目"],
       ["Customize…", "自定义…"],
       [
-        "Enable providers across Moss. Disabled providers are hidden from pickers and settings; their saved configuration and existing threads are kept, and running turns continue. Enabling does not install a CLI or sign it in.",
-        "在 Moss 中启用服务商。已停用的服务商不会出现在选择器和设置里，但已保存的配置和现有对话都会保留，正在运行的回合也会继续。启用不会安装 CLI，也不会自动登录。",
+        "Turn agents on or off across Moss. Agents you turn off are hidden from pickers; their settings and conversations are kept, and running turns continue.",
+        "在 Moss 中开启或关闭智能体。关闭的智能体不会出现在选择器里，它们的设置和对话都会保留，正在运行的回合也会继续。",
       ],
       ["Refresh status", "刷新状态"],
       ["Checking setup", "正在检查设置"],

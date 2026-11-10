@@ -13,9 +13,9 @@ import type {
   RuntimeMode,
   ThreadId,
   ThreadSidechatContext,
-} from "@synara/contracts";
-import { buildPromptThreadTitleFallback } from "@synara/shared/chatThreads";
-import { autoRuntimeModeSelectionIssue } from "@synara/shared/runtimeMode";
+} from "@moss/contracts";
+import { buildPromptThreadTitleFallback } from "@moss/shared/chatThreads";
+import { autoRuntimeModeSelectionIssue } from "@moss/shared/runtimeMode";
 
 import { newCommandId, newMessageId, newThreadId } from "./utils";
 import { buildThreadHandoffImportedMessages } from "./threadHandoff";

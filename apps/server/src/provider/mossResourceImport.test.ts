@@ -26,7 +26,7 @@ import type {
   MossPrivateSnapshotPublishInput,
   MossPrivateSnapshotAuthority,
   MossPrivateStage,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   applyMossResourceImport as applyMossResourceImportImpl,
@@ -43,7 +43,7 @@ import { makeMossCanonicalFilesystemHelper } from "./mossCanonicalFilesystemHelp
 import { canonicalFilesystemHelperTestArch } from "./mossCanonicalFilesystemHelperTestRuntime.ts";
 import { makeMossNativeFilesystemCapability } from "./mossNativeFilesystemCapability.ts";
 import { discoverMossPluginCatalog } from "./pluginsCatalog.ts";
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 
 const execFile = promisify(execFileCallback);
 const testHelperPath = join(

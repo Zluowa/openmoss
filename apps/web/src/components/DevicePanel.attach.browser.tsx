@@ -5,8 +5,8 @@ import {
   type DeviceDescriptor,
   type DeviceUdid,
   type ThreadDeviceState,
-} from "@synara/contracts";
-import type { DeviceFrame } from "@synara/shared/deviceFrame";
+} from "@moss/contracts";
+import type { DeviceFrame } from "@moss/shared/deviceFrame";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";

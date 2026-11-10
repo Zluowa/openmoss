@@ -4,7 +4,7 @@
 // Layer: Settings UI components
 // Depends on: the shortcut editor model, key capture, the shared dialog, and Keycap.
 
-import type { KeybindingShortcut, ServerKeybindingEdit } from "@synara/contracts";
+import type { KeybindingShortcut, ServerKeybindingEdit } from "@moss/contracts";
 import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -400,7 +400,7 @@ function ShortcutRecorder({
           ) : (
             <>
               <CircleCheckIcon className="mt-px size-4 shrink-0 text-success" />
-              <span className="text-foreground/85">{shortcutLabel(recorded)} is available.</span>
+              <span className="text-foreground/85">{`${shortcutLabel(recorded)} is available.`}</span>
             </>
           )
         ) : (

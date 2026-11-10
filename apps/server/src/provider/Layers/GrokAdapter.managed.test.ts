@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer, Stream } from "effect";
-import { ProviderInstanceId, ThreadId, type ProviderRuntimeEvent } from "@synara/contracts";
+import { ProviderInstanceId, ThreadId, type ProviderRuntimeEvent } from "@moss/contracts";
 import { afterEach, expect, it, vi } from "vitest";
 import { ServerConfig } from "../../config";
 import { GrokAdapter } from "../Services/GrokAdapter";

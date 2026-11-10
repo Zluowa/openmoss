@@ -3,7 +3,7 @@ import {
   type ProjectAgentStreamEvent,
   type ProjectAgentSummary,
   type ProjectId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useEffect } from "react";
 import { create } from "zustand";
 
@@ -15,6 +15,9 @@ import { projectAgentOverviewConfigured } from "./projectAgentOverview.logic";
 type ProjectAgentSummariesState = {
   summariesByProjectId: ReadonlyMap<ProjectId, ProjectAgentSummary>;
   loaded: boolean;
+  // The last list request failed and none has succeeded since. Views that wait on
+  // `loaded` stop waiting; the shared poll keeps retrying.
+  loadFailed: boolean;
   // Only a completed list carries member lists. Stream rows land without them.
   membersLoaded: boolean;
   setSummaries: (
@@ -32,6 +35,7 @@ function summaryFromOverview(
 ): ProjectAgentSummary {
   return {
     projectId: overview.projectId,
+    ...(overview.config?.agentKind ? { agentKind: overview.config.agentKind } : {}),
     configured: projectAgentOverviewConfigured(overview),
     coordinatorName: overview.config?.coordinatorName ?? null,
     coordinatorThreadId: overview.config?.coordinatorThreadId ?? null,
@@ -57,6 +61,7 @@ function summaryFromOverview(
 export const useProjectAgentSummariesStore = create<ProjectAgentSummariesState>((set) => ({
   summariesByProjectId: new Map(),
   loaded: false,
+  loadFailed: false,
   membersLoaded: false,
   setSummaries: (summaries, requestBaseline) =>
     set((current) => {
@@ -96,7 +101,7 @@ export const useProjectAgentSummariesStore = create<ProjectAgentSummariesState>(
           });
         }
       }
-      return { loaded: true, membersLoaded, summariesByProjectId: next };
+      return { loaded: true, loadFailed: false, membersLoaded, summariesByProjectId: next };
     }),
   applySummary: (summary) =>
     set((current) => {
@@ -137,6 +142,7 @@ export const useProjectAgentSummariesStore = create<ProjectAgentSummariesState>(
         const next = new Map(current.summariesByProjectId);
         next.set(event.config.projectId, {
           projectId: event.config.projectId,
+          ...(event.config.agentKind ? { agentKind: event.config.agentKind } : {}),
           configured: projectAgentOverviewConfigured({ config: event.config }),
           coordinatorName: event.config.coordinatorName,
           coordinatorThreadId: event.config.coordinatorThreadId,
@@ -321,6 +327,7 @@ export async function loadProjectAgentSummaries(): Promise<void> {
     } catch {
       // Preserve membership and cards through a transient failure. The shared
       // visible poll (including an unfinished initial load) retries next period.
+      useProjectAgentSummariesStore.setState({ loadFailed: true });
     }
   })().finally(() => {
     summariesLoadPromise = null;
@@ -331,6 +338,7 @@ export async function loadProjectAgentSummaries(): Promise<void> {
 export function useProjectAgentSummaries() {
   const summariesByProjectId = useProjectAgentSummariesStore((state) => state.summariesByProjectId);
   const loaded = useProjectAgentSummariesStore((state) => state.loaded);
+  const loadFailed = useProjectAgentSummariesStore((state) => state.loadFailed);
   const membersLoaded = useProjectAgentSummariesStore((state) => state.membersLoaded);
   const applyOverview = useProjectAgentSummariesStore((state) => state.applyOverview);
   const applyEvent = useProjectAgentSummariesStore((state) => state.applyEvent);
@@ -363,6 +371,7 @@ export function useProjectAgentSummaries() {
   return {
     summariesByProjectId,
     loaded,
+    loadFailed,
     membersLoaded,
     applyOverview,
     refresh: loadProjectAgentSummaries,

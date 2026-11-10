@@ -74,21 +74,61 @@ describe("running chats quit guard", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("waits for an explicit decision even when no chats are running", async () => {
+  it("quits straight away without showing anything when nothing is running", async () => {
     const guard = makeRunningChatsQuitGuard(() => "q1");
     const send = vi.fn();
+    const onPrompt = vi.fn();
     const decision = guard.askRenderer({
       send,
+      onPrompt,
       isRendererAvailable: () => true,
     });
 
     expect(send).toHaveBeenCalledWith({ requestId: "q1", presentation: "in-app" });
     guard.receiveResponse({ requestId: "q1", phase: "ready", runningCount: 0, chats: [] });
+    await expect(decision).resolves.toBe(true);
+    expect(guard.hasPendingAsk()).toBe(false);
+    expect(guard.hasAllowedQuit()).toBe(true);
+    expect(onPrompt).not.toHaveBeenCalled();
+  });
+
+  it("brings the window forward and waits for a decision while work is running", async () => {
+    const guard = makeRunningChatsQuitGuard(() => "q1");
+    const send = vi.fn();
+    const onPrompt = vi.fn();
+    const decision = guard.askRenderer({
+      send,
+      onPrompt,
+      updateDownloading: true,
+      isRendererAvailable: () => true,
+    });
+
+    expect(send).toHaveBeenCalledWith({
+      requestId: "q1",
+      presentation: "in-app",
+      updateDownloading: true,
+    });
+    guard.receiveResponse({ requestId: "q1", phase: "ready", runningCount: 1, chats: [] });
+    expect(onPrompt).toHaveBeenCalledOnce();
     expect(guard.hasPendingAsk()).toBe(true);
     expect(guard.hasAllowedQuit()).toBe(false);
     guard.receiveResponse({ requestId: "q1", phase: "decision", allow: true });
     await expect(decision).resolves.toBe(true);
     expect(guard.hasAllowedQuit()).toBe(true);
+  });
+
+  it("passes the update download flag through quit requests", () => {
+    expect(
+      parseQuitConfirmationRequest({
+        requestId: "q1",
+        presentation: "in-app",
+        updateDownloading: true,
+      }),
+    ).toEqual({ requestId: "q1", presentation: "in-app", updateDownloading: true });
+    expect(parseQuitConfirmationRequest({ requestId: "q1", updateDownloading: "yes" })).toEqual({
+      requestId: "q1",
+      presentation: "in-app",
+    });
   });
 
   it("stays when the user declines, then can prompt again", async () => {

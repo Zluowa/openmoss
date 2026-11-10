@@ -3,7 +3,7 @@
 // omitted: that flag is only safe on a dedicated origin, and would attach a srcdoc
 // guest to the Moss origin.
 
-import { MCP_APP_RESOURCE_MAX_HTML_BYTES } from "@synara/contracts";
+import { MCP_APP_RESOURCE_MAX_HTML_BYTES } from "@moss/contracts";
 
 import type { WorkLogMcpToolResult } from "./toolCallDetails";
 

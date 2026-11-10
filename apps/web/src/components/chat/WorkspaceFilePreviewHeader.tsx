@@ -1,19 +1,18 @@
 // FILE: WorkspaceFilePreviewHeader.tsx
 // Purpose: Editor-style header for the shared workspace file preview — a path
-//          breadcrumb (project › …dirs › file) on the left, and an overflow
-//          menu + "Open in editor" split button on the right. Shared by the
+//          breadcrumb (project › …dirs › file) on the left; on the right, the
+//          upstream file panel's quiet row: an icon-only "Open in editor" split
+//          button, the source/preview switch and one overflow menu. Shared by the
 //          right-dock file/explorer panes and the editor center pane so every
 //          surface reads identically. Under width pressure the breadcrumb
 //          collapses whole middle directories behind a single "…" crumb
 //          (never letter-shards like "S… › O…"), keeping the nearest parent
 //          folders and the filename readable; only once every directory is
-//          hidden does the filename itself truncate. The header is a
-//          `header-actions` inline-size query container so the "Open" control
-//          sheds its text label for an icon as the pane narrows.
+//          hidden does the filename itself truncate.
 // Layer: Chat/editor file-preview UI
 // Exports: WorkspaceFilePreviewHeader
 
-import { isWorkspaceRelativePathSafe, joinWorkspaceRelativePath } from "@synara/shared/path";
+import { isWorkspaceRelativePathSafe, joinWorkspaceRelativePath } from "@moss/shared/path";
 import { Fragment, useLayoutEffect, useRef, useState } from "react";
 
 import { basenameOfPath } from "~/file-icons";
@@ -21,15 +20,20 @@ import { useCopyFileContentsToClipboard, useCopyPathToClipboard } from "~/hooks/
 import type { ChatFileReference } from "~/lib/chatReferences";
 import {
   ChevronRightIcon,
+  CircleQuestionIcon,
   CodeIcon,
   CopyIcon,
   EllipsisIcon,
   EyeOpenIcon,
+  GlobeIcon,
+  MessageCircleIcon,
+  PageTextIcon,
   PencilIcon,
   RefreshCwIcon,
 } from "~/lib/icons";
 import { StatusDot } from "~/components/ui/status-chip";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
 import { CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME, ChatHeaderIconButton } from "./chatHeaderControls";
 import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
@@ -44,6 +48,8 @@ interface WorkspaceFilePreviewHeaderProps {
   filePath: string;
   /** Markdown files get an inline Source/Preview segmented switcher. */
   isMarkdown: boolean;
+  /** HTML uses the same Source/Preview control with its own view state. */
+  isHtml?: boolean;
   /** True while the rendered preview is shown; false for the source view. */
   markdownPreviewEnabled: boolean;
   onMarkdownPreviewChange: (rendered: boolean) => void;
@@ -68,6 +74,11 @@ interface WorkspaceFilePreviewHeaderProps {
   /** Re-fetches the current file without discarding a dirty edit buffer. */
   onReload?: (() => void) | undefined;
   reloading?: boolean;
+  /**
+   * Shows the page rendered in the browser panel. Where it is set, a page's rendered view
+   * lives there, so the header offers this in place of the source/preview switch.
+   */
+  onOpenInBrowser?: (() => void) | undefined;
 }
 
 // Source (raw file, where selecting text yields a precise line/column chat
@@ -79,15 +90,21 @@ const MARKDOWN_VIEW_SEGMENTS = [
     rendered: false,
     label: "Source",
     title: "Source view — select text to reference exact lines in chat",
+    htmlLabel: "HTML source",
+    htmlTitle: "View HTML source",
     Icon: CodeIcon,
   },
   {
     rendered: true,
     label: "Preview",
     title: "Rendered preview — browse and toggle task lists",
+    htmlLabel: "HTML preview",
+    htmlTitle: "Render HTML document",
     Icon: EyeOpenIcon,
   },
 ] as const;
+
+const MENU_ICON_CLASS_NAME = "size-4 shrink-0 text-muted-foreground";
 
 interface BreadcrumbSegment {
   name: string;
@@ -243,6 +260,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
   props: WorkspaceFilePreviewHeaderProps,
 ) {
   const { filePath, workspaceRoot } = props;
+  const { t } = useTranslation();
 
   // Out-of-workspace previews (e.g. a session's scratch directory under the
   // OS temp dir) arrive as absolute paths; everything in-workspace is relative.
@@ -315,7 +333,9 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
           {props.saveState}
         </span>
       ) : null}
-      <div className="flex shrink-0 items-center gap-1.5">
+      {/* One quiet row, as in the upstream file panel: open in an editor, the
+          source/preview switch, and everything else behind "More actions". */}
+      <div className="flex shrink-0 items-center gap-1">
         {props.onSave ? (
           <button
             type="button"
@@ -326,10 +346,21 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
             Save
           </button>
         ) : null}
-        {props.isMarkdown ? (
+        <OpenInPicker openInTarget={openInTarget} labelMode="icon" />
+        {props.onOpenInBrowser ? (
+          <ChatHeaderIconButton
+            label={t("browser.file.openInBrowser")}
+            tone="plain"
+            data-file-open-in-browser=""
+            onClick={props.onOpenInBrowser}
+          >
+            <GlobeIcon aria-hidden="true" className="size-4" />
+          </ChatHeaderIconButton>
+        ) : null}
+        {props.isMarkdown || (props.isHtml && !props.onOpenInBrowser) ? (
           <div
             role="radiogroup"
-            aria-label="Markdown view"
+            aria-label={props.isHtml ? "HTML view" : "Markdown view"}
             className="flex h-7 shrink-0 items-center rounded-lg bg-[var(--color-background-elevated-secondary)] p-0.5"
           >
             {MARKDOWN_VIEW_SEGMENTS.map((segment) => {
@@ -340,7 +371,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  title={segment.title}
+                  title={props.isHtml ? segment.htmlTitle : segment.title}
                   className={cn(
                     "flex h-6 w-7 cursor-pointer items-center justify-center rounded-md transition-colors",
                     selected
@@ -350,46 +381,42 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
                   onClick={() => props.onMarkdownPreviewChange(segment.rendered)}
                 >
                   <segment.Icon className="size-4 shrink-0" />
-                  <span className="sr-only">{segment.label}</span>
+                  <span className="sr-only">
+                    {props.isHtml ? segment.htmlLabel : segment.label}
+                  </span>
                 </button>
               );
             })}
           </div>
         ) : null}
 
-        {props.onEditFile ? (
-          <ChatHeaderIconButton
-            type="button"
-            tone="plain"
-            label="Edit file"
-            title="Edit file"
-            onClick={props.onEditFile}
-          >
-            <PencilIcon aria-hidden="true" className="size-4" />
-          </ChatHeaderIconButton>
-        ) : null}
-
-        {props.onReload ? (
-          <ChatHeaderIconButton
-            label="Reload file from disk"
-            title="Reload file from disk"
-            tone="plain"
-            onClick={props.onReload}
-          >
-            <RefreshCwIcon
-              aria-hidden="true"
-              className={cn("size-4", props.reloading && "animate-spin")}
-            />
-          </ChatHeaderIconButton>
-        ) : null}
-
         <Menu>
-          <MenuTrigger render={<ChatHeaderIconButton label="More actions" tone="plain" />}>
+          <MenuTrigger
+            render={
+              <ChatHeaderIconButton
+                label="More actions"
+                tone="plain"
+                className={props.reloading ? "[&_svg]:animate-pulse" : undefined}
+              />
+            }
+          >
             <EllipsisIcon aria-hidden="true" className="size-4" />
           </MenuTrigger>
           <ComposerPickerMenuPopup align="end" side="bottom" className="w-52 min-w-52">
+            {props.onEditFile ? (
+              <MenuItem onClick={props.onEditFile}>
+                <PencilIcon className={MENU_ICON_CLASS_NAME} />
+                <span>Edit file</span>
+              </MenuItem>
+            ) : null}
+            {props.onReload ? (
+              <MenuItem onClick={props.onReload}>
+                <RefreshCwIcon className={MENU_ICON_CLASS_NAME} />
+                <span>Reload file from disk</span>
+              </MenuItem>
+            ) : null}
             <MenuItem onClick={() => copyPathToClipboard(openInTarget)}>
-              <CopyIcon className="size-4 shrink-0 text-muted-foreground" />
+              <CopyIcon className={MENU_ICON_CLASS_NAME} />
               <span>Copy path</span>
             </MenuItem>
             {canCopyContents ? (
@@ -400,22 +427,24 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
                   })
                 }
               >
-                Copy contents
+                <PageTextIcon className={MENU_ICON_CLASS_NAME} />
+                <span>Copy contents</span>
               </MenuItem>
             ) : null}
             {onReferenceInChat ? (
-              <MenuItem onClick={referenceWholeFile}>Reference in chat</MenuItem>
+              <MenuItem onClick={referenceWholeFile}>
+                <MessageCircleIcon className={MENU_ICON_CLASS_NAME} />
+                <span>Reference in chat</span>
+              </MenuItem>
             ) : null}
             {onAskWhyInChat ? (
-              <MenuItem onClick={askWhyWholeFile}>Ask why this changed</MenuItem>
+              <MenuItem onClick={askWhyWholeFile}>
+                <CircleQuestionIcon className={MENU_ICON_CLASS_NAME} />
+                <span>Ask why this changed</span>
+              </MenuItem>
             ) : null}
           </ComposerPickerMenuPopup>
         </Menu>
-
-        {/* Responsive (default) mode: the "Open" label rides the same
-            `header-actions` container declared on this header, so it shows on a
-            wide pane and collapses to the editor icon when the pane is narrow. */}
-        <OpenInPicker openInTarget={openInTarget} />
       </div>
     </div>
   );

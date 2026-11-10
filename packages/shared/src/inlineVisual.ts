@@ -11,7 +11,7 @@ import {
   INLINE_VISUAL_EMBED_FENCE_UPSTREAM_ALIAS,
   INLINE_VISUAL_MAX_HEIGHT,
   INLINE_VISUAL_MIN_HEIGHT,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 /**
  * The agent's HTML only ever runs inside an opaque-origin frame (`sandbox`

@@ -4,7 +4,7 @@
 // Exports: routeSingleDockPaneOpenRequest
 // Depends on: nothing (pure)
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 
 interface DockPaneOpenRequestInput {
   readonly currentThreadId: ThreadId;

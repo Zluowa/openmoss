@@ -5,7 +5,7 @@ import { ensureThreadHistoryLoaded, useThreadHistory } from "../../threadHistory
 // Layer: Chat transcript shell
 // Depends on: MessagesTimeline and ChatView's list-owned scroll contract.
 
-import { type MessageId, ThreadId, type TurnId } from "@synara/contracts";
+import { type MessageId, ThreadId, type TurnId } from "@moss/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
   useEffect,
@@ -90,9 +90,14 @@ interface ChatTranscriptPaneProps {
   listRef: RefObject<LegendListRef | null>;
   timelineControllerRef?: RefObject<MessagesTimelineController | null>;
   pinnedMessageIds?: ReadonlySet<MessageId>;
+  /** Chapter titles of pinned messages (label override or derived). */
+  pinnedMessageTitles?: ReadonlyMap<MessageId, string>;
+  onRenamePinnedMessage?: (messageId: MessageId, label: string | null) => void;
   canPinMessage?: (messageId: MessageId) => boolean;
   onTogglePinMessage?: (messageId: MessageId) => void;
   onForkFromMessage?: (messageId: MessageId) => void;
+  /** Sends a text as its own turn (wrap-up box answers). */
+  onSendPromptTurn?: (prompt: string) => Promise<boolean>;
   goalAchievements?: ComponentProps<typeof MessagesTimeline>["goalAchievements"];
   enteringUserMessageIds?: ComponentProps<typeof MessagesTimeline>["enteringUserMessageIds"];
   tailAnchorMessageId?: ComponentProps<typeof MessagesTimeline>["tailAnchorMessageId"];
@@ -127,6 +132,8 @@ interface ChatTranscriptPaneProps {
   computerControlEnabled?: ComponentProps<typeof MessagesTimeline>["computerControlEnabled"];
   onEnableComputerControl?: ComponentProps<typeof MessagesTimeline>["onEnableComputerControl"];
   onRevertUserMessage: (messageId: MessageId) => void;
+  rewindMarkerAfterMessageId?: MessageId | null | undefined;
+  forksBySourceMessageId?: ReadonlyMap<MessageId, readonly ThreadId[]> | undefined;
   onUndoTurnFiles?: ComponentProps<typeof MessagesTimeline>["onUndoTurnFiles"];
   onRespondToAsyncUserInput?: ComponentProps<typeof MessagesTimeline>["onRespondToAsyncUserInput"];
   onEditUserMessage?: (messageId: MessageId, text: string) => boolean | Promise<boolean>;
@@ -201,9 +208,12 @@ export function ChatTranscriptPane({
   listRef,
   timelineControllerRef,
   pinnedMessageIds,
+  pinnedMessageTitles,
+  onRenamePinnedMessage,
   canPinMessage,
   onTogglePinMessage,
   onForkFromMessage,
+  onSendPromptTurn,
   goalAchievements,
   enteringUserMessageIds,
   tailAnchorMessageId,
@@ -236,6 +246,8 @@ export function ChatTranscriptPane({
   computerControlEnabled,
   onEnableComputerControl,
   onRevertUserMessage,
+  rewindMarkerAfterMessageId,
+  forksBySourceMessageId,
   onUndoTurnFiles,
   onEditUserMessage,
   onRespondToAsyncUserInput,
@@ -492,9 +504,12 @@ export function ChatTranscriptPane({
               listRef={listRef}
               {...(timelineControllerRef ? { controllerRef: timelineControllerRef } : {})}
               {...(pinnedMessageIds ? { pinnedMessageIds } : {})}
+              {...(pinnedMessageTitles ? { pinnedMessageTitles } : {})}
+              {...(onRenamePinnedMessage ? { onRenamePinnedMessage } : {})}
               canPinMessage={canActOnMessage}
               {...(onTogglePinMessage ? { onTogglePinMessage } : {})}
               {...(onForkFromMessage ? { onForkFromMessage } : {})}
+              {...(onSendPromptTurn ? { onSendPromptTurn } : {})}
               {...(goalAchievements ? { goalAchievements } : {})}
               {...(enteringUserMessageIds ? { enteringUserMessageIds } : {})}
               tailAnchorMessageId={tailAnchorMessageId ?? null}
@@ -521,6 +536,8 @@ export function ChatTranscriptPane({
               {...(onEnableComputerControl ? { onEnableComputerControl } : {})}
               revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
               onRevertUserMessage={onRevertUserMessage}
+              {...(rewindMarkerAfterMessageId !== undefined ? { rewindMarkerAfterMessageId } : {})}
+              {...(forksBySourceMessageId ? { forksBySourceMessageId } : {})}
               {...(onUndoTurnFiles ? { onUndoTurnFiles } : {})}
               {...(onEditUserMessage ? { onEditUserMessage } : {})}
               {...(onRespondToAsyncUserInput ? { onRespondToAsyncUserInput } : {})}

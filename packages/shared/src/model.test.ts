@@ -7,7 +7,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   MODEL_OPTIONS_BY_PROVIDER,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   applyClaudePromptEffortPrefix,
@@ -41,6 +41,9 @@ import {
   getProviderOptionDescriptors,
   hasEffortLevel,
   resolveGrokEffortFamily,
+  codexServiceTiersInclude,
+  isCodexFastServiceTier,
+  resolveCodexSpeedSelection,
 } from "./model";
 
 describe("parseCursorCliReasoningEffort", () => {
@@ -1174,5 +1177,83 @@ describe("isClaudeUltrathinkPrompt", () => {
     expect(isClaudeUltrathinkPrompt("Ultrathink:\nInvestigate")).toBe(true);
     expect(isClaudeUltrathinkPrompt("Think hard about this")).toBe(false);
     expect(isClaudeUltrathinkPrompt(undefined)).toBe(false);
+  });
+});
+
+describe("resolveCodexSpeedSelection", () => {
+  const FAST_ONLY = [{ value: "priority", label: "Fast" }];
+  const FAST_AND_ULTRA = [...FAST_ONLY, { value: "ultrafast", label: "Ultrafast" }];
+
+  it("treats Codex's fast and priority ids as the one Fast tier", () => {
+    expect(isCodexFastServiceTier("priority")).toBe(true);
+    expect(isCodexFastServiceTier(" Fast ")).toBe(true);
+    expect(isCodexFastServiceTier("ultrafast")).toBe(false);
+    expect(codexServiceTiersInclude(FAST_ONLY, "fast")).toBe(true);
+    expect(codexServiceTiersInclude(FAST_ONLY, "ultrafast")).toBe(false);
+  });
+
+  it("keeps an explicit choice the model can honor", () => {
+    expect(
+      resolveCodexSpeedSelection({ supportsFastMode: true, fastMode: true, runtimeModel: null }),
+    ).toEqual({ fastModeEnabled: true, dispatchFastMode: true });
+    expect(
+      resolveCodexSpeedSelection({
+        supportsFastMode: true,
+        fastMode: false,
+        runtimeModel: { serviceTiers: FAST_ONLY, configuredServiceTier: "priority" },
+      }),
+    ).toEqual({ fastModeEnabled: false, dispatchFastMode: false });
+  });
+
+  it("asks for standard speed when the configured tier is one the model lacks", () => {
+    // The owner's case: `service_tier = "ultrafast"` in the Codex config, GPT-6 Luna selected.
+    expect(
+      resolveCodexSpeedSelection({
+        supportsFastMode: true,
+        fastMode: undefined,
+        runtimeModel: { serviceTiers: FAST_ONLY, configuredServiceTier: "ultrafast" },
+      }),
+    ).toEqual({ fastModeEnabled: false, dispatchFastMode: false });
+  });
+
+  it("leaves a configured tier the model offers to Codex and shows Fast when it is Fast", () => {
+    expect(
+      resolveCodexSpeedSelection({
+        supportsFastMode: true,
+        fastMode: undefined,
+        runtimeModel: { serviceTiers: FAST_AND_ULTRA, configuredServiceTier: "ultrafast" },
+      }),
+    ).toEqual({ fastModeEnabled: false, dispatchFastMode: undefined });
+    expect(
+      resolveCodexSpeedSelection({
+        supportsFastMode: true,
+        fastMode: undefined,
+        runtimeModel: { serviceTiers: FAST_ONLY, configuredServiceTier: "fast" },
+      }),
+    ).toEqual({ fastModeEnabled: true, dispatchFastMode: undefined });
+  });
+
+  it("does not carry a Fast choice to a model without Fast", () => {
+    expect(
+      resolveCodexSpeedSelection({
+        supportsFastMode: false,
+        fastMode: true,
+        runtimeModel: { serviceTiers: [] },
+      }),
+    ).toEqual({ fastModeEnabled: false, dispatchFastMode: false });
+  });
+
+  it("keeps the old behavior when nothing is known about the model's speed", () => {
+    expect(
+      resolveCodexSpeedSelection({
+        supportsFastMode: true,
+        fastMode: undefined,
+        runtimeModel: { configuredServiceTier: "ultrafast" },
+      }),
+    ).toEqual({ fastModeEnabled: false, dispatchFastMode: undefined });
+    expect(resolveCodexSpeedSelection({ supportsFastMode: true, fastMode: undefined })).toEqual({
+      fastModeEnabled: false,
+      dispatchFastMode: undefined,
+    });
   });
 });

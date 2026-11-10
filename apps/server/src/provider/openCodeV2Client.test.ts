@@ -1,7 +1,11 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { FormInfo } from "@opencode/client";
 import { describe, expect, it } from "vitest";
-import { withOpenCodeV2Client, openCodeV2ExecutionOutcome } from "./openCodeV2Client.ts";
+import {
+  withOpenCodeV2Client,
+  openCodeV2ExecutionOutcome,
+  readOpenCodeDefaultModel,
+} from "./openCodeV2Client.ts";
 import type { NormalizedOpenCodeEvent } from "./openCodeV2Messages.ts";
 
 const json = (data: unknown) => Response.json(data);
@@ -83,6 +87,7 @@ function fixture(options?: { coldProviders?: boolean }) {
             ? new Response("<html>OpenCode</html>", { headers: { "content-type": "text/html" } })
             : json({ version: "2.0.25", pid: 10, urls: [], paths: { tmp: "/tmp" } });
       if (protocol === "v1") {
+        if (url.pathname === "/config") return json({ model: "local/configured" });
         if (url.pathname === "/session" && request.method === "POST")
           return json({ ...session, directory });
         throw new Error(`Unexpected V1 request: ${request.method} ${url.pathname}`);
@@ -187,6 +192,9 @@ function fixture(options?: { coldProviders?: boolean }) {
           location: { directory },
           data: [{ name: "review", template: "Review $ARGUMENTS" }],
         });
+      if (url.pathname === "/api/model/default") {
+        return json({ location: { directory }, data: { id: "configured", providerID: "local" } });
+      }
       if (url.pathname === "/api/model") {
         modelsLoaded = true;
         return json({
@@ -273,6 +281,25 @@ function fixture(options?: { coldProviders?: boolean }) {
 }
 
 describe("OpenCode V2 client boundary", () => {
+  it("reads the native V2 default before any other discovery without a legacy config request", async () => {
+    const server = fixture();
+    expect(await readOpenCodeDefaultModel(server.client, new AbortController().signal)).toBe(
+      "local/configured",
+    );
+    expect(server.calls.some((call) => call.path === "/api/model/default")).toBe(true);
+    expect(server.calls.some((call) => call.path === "/config")).toBe(false);
+  });
+
+  it("reads configured models from the V1 config endpoint on V1 installations", async () => {
+    const server = fixture();
+    server.protocol = "v1";
+    expect(await readOpenCodeDefaultModel(server.client, new AbortController().signal)).toBe(
+      "local/configured",
+    );
+    expect(server.calls.some((call) => call.path === "/config")).toBe(true);
+    expect(server.calls.some((call) => call.path === "/api/model/default")).toBe(false);
+  });
+
   it("discovers Console providers populated by the first model lookup", async () => {
     const server = fixture({ coldProviders: true });
     const inventory = (await server.client.provider.list()).data!;

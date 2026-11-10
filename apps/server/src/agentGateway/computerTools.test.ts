@@ -11,7 +11,7 @@ import {
   type ComputerPermission,
   type ComputerUiNode,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   COMPUTER_ACTION_OBSERVATION_MAX_DIMENSION,

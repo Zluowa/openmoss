@@ -5,7 +5,7 @@
 
 import * as Path from "node:path";
 
-import { MOSS_AUTH_PROTOCOL_REGISTRATION_DISABLED_ENV } from "@synara/shared/desktopIdentity";
+import { MOSS_AUTH_PROTOCOL_REGISTRATION_DISABLED_ENV } from "@moss/shared/desktopIdentity";
 
 const MOSS_AUTH_CALLBACK_SCHEME = "moss:";
 const MOSS_AUTH_CALLBACK_HOST = "auth";
@@ -14,6 +14,13 @@ const MOSS_AUTH_CALLBACK_ROUTE = "/auth/callback";
 const MOSS_AUTH_CALLBACK_CODE_MAX_LENGTH = 4096;
 const MOSS_AUTH_CALLBACK_FLOW_ID_PATTERN = /^[A-Za-z0-9._~-]{32,512}$/u;
 const MOSS_AUTH_CALLBACK_URL_MAX_LENGTH = 16_384;
+const MOSS_AUTH_CALLBACK_ERROR_PATTERN = /^[A-Za-z0-9_]{1,64}$/u;
+const MOSS_AUTH_CALLBACK_ERROR_PARAMETERS = new Set([
+  "error",
+  "error_code",
+  "error_description",
+  "flow_id",
+]);
 const MOSS_AUTH_PROTOCOL_RELAY_ARGUMENT = "--moss-auth-callback-relay";
 const ELECTRON_USER_DATA_ARGUMENT_PREFIX = "--user-data-dir=";
 
@@ -93,6 +100,33 @@ export function shouldRegisterMossAuthCallbackProtocolClient(
 }
 
 /**
+ * Auth reports a cancelled or failed sign-in on the same callback, repeating the
+ * error in a fragment. Any page can open this URL, so only a fixed outcome goes
+ * to the renderer, never the provider's text.
+ */
+function resolveMossAuthErrorCallbackRoute(callbackUrl: URL): string | null {
+  const errorValues = callbackUrl.searchParams.getAll("error");
+  const flowIdValues = callbackUrl.searchParams.getAll("flow_id");
+  const flowId = flowIdValues[0] ?? null;
+  if (
+    errorValues.length !== 1 ||
+    !MOSS_AUTH_CALLBACK_ERROR_PATTERN.test(errorValues[0] ?? "") ||
+    flowIdValues.length > 1 ||
+    (flowId !== null && !MOSS_AUTH_CALLBACK_FLOW_ID_PATTERN.test(flowId)) ||
+    [...callbackUrl.searchParams.keys()].some(
+      (name) => !MOSS_AUTH_CALLBACK_ERROR_PARAMETERS.has(name),
+    )
+  ) {
+    return null;
+  }
+  const oauthError = errorValues[0] === "access_denied" ? "access_denied" : "failed";
+  const safeSearch = new URLSearchParams(
+    flowId === null ? { oauthError } : { oauthError, flowId },
+  ).toString();
+  return `${MOSS_AUTH_CALLBACK_ROUTE}?${safeSearch}`;
+}
+
+/**
  * Accept only the OAuth callback authority owned by Moss. Keeping this parser
  * independent of Electron makes every OS entry point share the same boundary.
  */
@@ -105,17 +139,19 @@ export function resolveMossAuthCallbackRoute(value: unknown): string | null {
   ) {
     return null;
   }
-  if (containsAsciiControlCharacter(value) || value.includes("#")) {
+  if (containsAsciiControlCharacter(value)) {
     return null;
   }
-  const rawAuthority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(value)?.[1];
+  const fragmentStart = value.indexOf("#");
+  const callbackValue = fragmentStart === -1 ? value : value.slice(0, fragmentStart);
+  const rawAuthority = /^[a-z][a-z0-9+.-]*:\/\/([^/?#]*)/i.exec(callbackValue)?.[1];
   if (rawAuthority?.toLowerCase() !== MOSS_AUTH_CALLBACK_HOST) {
     return null;
   }
 
   let callbackUrl: URL;
   try {
-    callbackUrl = new URL(value);
+    callbackUrl = new URL(callbackValue);
   } catch {
     return null;
   }
@@ -125,9 +161,15 @@ export function resolveMossAuthCallbackRoute(value: unknown): string | null {
     callbackUrl.host !== MOSS_AUTH_CALLBACK_HOST ||
     callbackUrl.pathname !== MOSS_AUTH_CALLBACK_PATH ||
     callbackUrl.username.length > 0 ||
-    callbackUrl.password.length > 0 ||
-    callbackUrl.hash.length > 0
+    callbackUrl.password.length > 0
   ) {
+    return null;
+  }
+
+  if (callbackUrl.searchParams.has("error")) {
+    return resolveMossAuthErrorCallbackRoute(callbackUrl);
+  }
+  if (fragmentStart !== -1) {
     return null;
   }
 
@@ -179,9 +221,11 @@ export function buildMossAuthCallbackRendererUrl(appUrl: string, route: string):
     : null;
   const routeEntries = routeQuery === null ? [] : [...new URLSearchParams(routeQuery).entries()];
   const code = routeEntries[0]?.[0] === "code" ? routeEntries[0][1] : null;
+  const oauthError = routeEntries[0]?.[0] === "oauthError" ? routeEntries[0][1] : null;
   const flowId = routeEntries[1]?.[0] === "flowId" ? routeEntries[1][1] : null;
   const hasExactParameters =
-    code !== null && (routeEntries.length === 1 || (routeEntries.length === 2 && flowId !== null));
+    (code !== null || oauthError !== null) &&
+    (routeEntries.length === 1 || (routeEntries.length === 2 && flowId !== null));
   const protocolUrl = new URL(
     `${MOSS_AUTH_CALLBACK_SCHEME}//${MOSS_AUTH_CALLBACK_HOST}${MOSS_AUTH_CALLBACK_PATH}`,
   );
@@ -190,6 +234,9 @@ export function buildMossAuthCallbackRendererUrl(appUrl: string, route: string):
   }
   if (hasExactParameters && code !== null) {
     protocolUrl.searchParams.set("code", code);
+  }
+  if (hasExactParameters && oauthError !== null) {
+    protocolUrl.searchParams.set("error", oauthError);
   }
   const callbackRoute = hasExactParameters
     ? resolveMossAuthCallbackRoute(protocolUrl.toString())

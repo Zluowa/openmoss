@@ -103,6 +103,7 @@ export function makeAgentGatewaySessionRegistry(options?: {
       const registered = sessions.get(token);
       if (!registered || registered.retiredWriteTurnId !== undefined) return null;
       const { identity } = registered;
+      if (identity.nativeTurnId !== undefined && identity.nativeTurnId !== turnId) return null;
       return {
         sessionKey: identity.sessionKey,
         threadId: identity.threadId,
@@ -116,9 +117,23 @@ export function makeAgentGatewaySessionRegistry(options?: {
       return (
         identity !== undefined &&
         registered?.retiredWriteTurnId === undefined &&
+        (identity.nativeTurnId === undefined || identity.nativeTurnId === authority.turnId) &&
         identity.threadId === authority.threadId &&
         identity.provider === authority.provider
       );
+    },
+    observeNativeTurn: (token, turnId) => {
+      const row = sessions.get(token);
+      if (!row || row.identity.provider !== "codex" || row.retiredWriteTurnId !== undefined) return;
+      const prior = row.identity.nativeTurnId;
+      if (prior != null) {
+        // A second native parent turn on one bearer must retire the old claim even if
+        // the earlier terminal notification was lost. Neither turn may use it now.
+        if (turnId !== null && turnId !== prior) row.retiredWriteTurnId = prior;
+        return;
+      }
+      // The identity captured at ingress must keep the turn it had at that instant.
+      row.identity = { ...row.identity, nativeTurnId: turnId };
     },
     retireWriteAuthority: (token, turnId) => {
       const registered = sessions.get(token);

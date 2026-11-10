@@ -11,6 +11,7 @@ const sentryMocks = vi.hoisted(() => ({
   ),
   captureException: vi.fn(() => "event-id"),
   ErrorBoundary: () => null,
+  makeFetchTransport: vi.fn(),
 }));
 
 vi.mock("@sentry/react", () => sentryMocks);
@@ -39,6 +40,16 @@ describe("web Sentry observability", () => {
     ]);
     expect(sentryMocks.reactErrorHandler).toHaveBeenCalledTimes(3);
     expect(Object.values(options).every((handler) => typeof handler === "function")).toBe(true);
+  });
+
+  it("leaves React's own error reporting in place when there is no DSN", async () => {
+    vi.stubEnv("VITE_SENTRY_DSN", "");
+
+    const { getSentryReactRootOptions, initializeSentry } = await import("./observability");
+
+    expect(initializeSentry()).toBe(false);
+    expect(getSentryReactRootOptions()).toEqual({});
+    expect(sentryMocks.reactErrorHandler).not.toHaveBeenCalled();
   });
 
   it("reports handled operational query failures but filters expected auth failures", async () => {

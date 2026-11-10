@@ -2,9 +2,9 @@
 // snapshot modules. No renderer path or account field chooses a storage root.
 import { access, lstat, mkdir, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { join, resolve, toNamespacedPath } from "node:path";
 import { pathToFileURL } from "node:url";
-import { outboundHttp } from "@synara/shared/outboundHttp";
+import { outboundHttp } from "@moss/shared/outboundHttp";
 import {
   mediaAccountScope,
   MossMediaJobsError,
@@ -64,13 +64,14 @@ export async function resolveMossCanvasBundleRoot(): Promise<string> {
   throw new MossMediaJobsError("canvas_bundle_unavailable", 503);
 }
 
-export function mossCanvasStorageFor(
+/** Where one account's Canvas for one conversation (or the account-wide Canvas) lives. */
+export function mossCanvasStorageDirectory(
   stateDirectory: string,
   credential: MossMediaIdentity,
   workspace?: MossCanvasWorkspace | null,
-): Promise<CanvasStorage> {
+): string {
   const scope = mediaAccountScope(credential);
-  const directory = workspace
+  return workspace
     ? join(
         workspace.cwd,
         ".moss",
@@ -79,6 +80,31 @@ export function mossCanvasStorageFor(
         createHash("sha256").update(workspace.threadId).digest("hex"),
       )
     : join(stateDirectory, "moss-canvas", scope);
+}
+
+/** Whether this conversation's Canvas exists yet. Never creates it. */
+export async function mossCanvasStorageExists(
+  stateDirectory: string,
+  credential: MossMediaIdentity,
+  workspace?: MossCanvasWorkspace | null,
+): Promise<boolean> {
+  const directory = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
+  if (stores.has(directory)) return true;
+  try {
+    const info = await lstat(directory);
+    return info.isDirectory() && !info.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+export function mossCanvasStorageFor(
+  stateDirectory: string,
+  credential: MossMediaIdentity,
+  workspace?: MossCanvasWorkspace | null,
+): Promise<CanvasStorage> {
+  const scope = mediaAccountScope(credential);
+  const directory = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
   let pending = stores.get(directory);
   if (!pending) {
     pending = (async () => {
@@ -112,7 +138,8 @@ export function mossCanvasStorageFor(
         }): Promise<CanvasStorage>;
       };
       return upstream.createMossCanvasHostedStorage({
-        stateDirectory: directory,
+        // SQLite opens the same validated folder through the Windows long-path namespace.
+        stateDirectory: toNamespacedPath(directory),
         ...(workspace
           ? { conversation: { threadId: workspace.threadId, title: workspace.title } }
           : {}),

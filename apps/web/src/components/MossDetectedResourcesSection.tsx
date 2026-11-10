@@ -8,7 +8,7 @@
 // Layer: Web destination content (inside PluginLibrary's Skills tab)
 // Exports: MossDetectedResourcesSection, groupDetectedResources
 
-import type { MossResourceImportProvider, MossResourceImportResource } from "@synara/contracts";
+import type { MossResourceImportProvider, MossResourceImportResource } from "@moss/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 

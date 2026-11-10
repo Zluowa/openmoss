@@ -17,8 +17,8 @@ import {
   MCP_APP_SANDBOX_SCHEME,
   type McpAppSandboxDescriptor,
   type McpAppSandboxRegisterInput,
-} from "@synara/contracts";
-import { MCP_APP_RESOURCE_READ_ROUTE_PATH } from "@synara/shared/mcpAppResource";
+} from "@moss/contracts";
+import { MCP_APP_RESOURCE_READ_ROUTE_PATH } from "@moss/shared/mcpAppResource";
 
 import { McpAppSandboxRuntime } from "../../../desktop/src/mcpAppSandbox/runtime";
 import { DESKTOP_IPC_CHANNELS } from "../../../desktop/src/ipcChannels";

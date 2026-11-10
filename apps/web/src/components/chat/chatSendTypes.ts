@@ -4,7 +4,7 @@ import type {
   ProviderKind,
   ServerSettings,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { QueryClient, UseMutationResult } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
@@ -115,6 +115,7 @@ export interface ChatTurnSubmissionInput {
   environmentPanelPreferenceOpen: boolean | null;
   setTailAnchor: Dispatch<SetStateAction<{ threadId: ThreadId; messageId: MessageId } | null>>;
   setThreadError: (targetThreadId: ThreadId | null, error: string | null) => void;
+  setThreadSendFailure: (targetThreadId: ThreadId, error: string) => void;
   setComposerHighlightedItemId: Dispatch<SetStateAction<string | null>>;
   setStoreThreadWorkspace: ReturnType<typeof useStore.getState>["setThreadWorkspace"];
   createWorktreeMutation: UseMutationResult<

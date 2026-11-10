@@ -35,7 +35,7 @@ import type {
   RuntimeMode,
   ThreadCreationSource,
   ThreadEnvironmentMode,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { ProjectAppearance } from "./lib/projectAppearance";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -79,7 +79,7 @@ export type ChatAttachment =
   | ChatAssistantSelectionAttachment;
 
 export type OrchestrationMessageTextSegment =
-  import("@synara/contracts").OrchestrationMessageTextSegment;
+  import("@moss/contracts").OrchestrationMessageTextSegment;
 
 export interface ChatMessage {
   realtimeHandoffId?: string;
@@ -88,12 +88,14 @@ export interface ChatMessage {
   text: string;
   /** Slices of streamed assistant text between row-making provider events. */
   textSegments?: OrchestrationMessageTextSegment[];
-  asyncUserInput?: import("@synara/contracts").AsyncUserInput;
+  asyncUserInput?: import("@moss/contracts").AsyncUserInput;
   attachments?: ChatAttachment[];
   skills?: ProviderSkillReference[];
   mentions?: ProviderMentionReference[];
   dispatchMode?: TurnDispatchMode;
   dispatchOrigin?: MessageDispatchOrigin;
+  /** Thread whose agent sent this message; absent for human sends. */
+  dispatchSourceThreadId?: ThreadId;
   startsNewTurn?: boolean;
   turnId?: TurnId | null;
   createdAt: string;
@@ -101,7 +103,7 @@ export interface ChatMessage {
   completedAt?: string | undefined;
   streaming: boolean;
   source?: OrchestrationMessageSource;
-  codexReplay?: { turn: import("@synara/contracts").CodexReplayTurn; openingUser: boolean };
+  codexReplay?: { turn: import("@moss/contracts").CodexReplayTurn; openingUser: boolean };
 }
 
 export interface ProposedPlan {
@@ -253,6 +255,8 @@ export interface Thread extends ThreadWorkspaceState {
   subagentNickname?: string | null;
   subagentRole?: string | null;
   forkSourceThreadId?: ThreadId | null;
+  /** Message a fork was taken from; null for a whole-thread fork. */
+  forkSourceMessageId?: MessageId | null;
   sidechatSourceThreadId?: ThreadId | null;
   sidechatContext?: ThreadSidechatContext | null;
   sidechatLastActivityAt?: string | null;
@@ -308,6 +312,8 @@ export interface ThreadShell extends ThreadWorkspaceState {
   subagentNickname?: string | null;
   subagentRole?: string | null;
   forkSourceThreadId?: ThreadId | null;
+  /** Message a fork was taken from; null for a whole-thread fork. */
+  forkSourceMessageId?: MessageId | null;
   sidechatSourceThreadId?: ThreadId | null;
   sidechatContext?: ThreadSidechatContext | null;
   sidechatLastActivityAt?: string | null;
@@ -371,6 +377,8 @@ export interface SidebarThreadSummary {
   hasLiveTailWork: boolean;
   pendingBackgroundWorkCount: number;
   forkSourceThreadId?: ThreadId | null;
+  /** Message a fork was taken from; null for a whole-thread fork. */
+  forkSourceMessageId?: MessageId | null;
   sidechatSourceThreadId?: ThreadId | null;
   sidechatContext?: ThreadSidechatContext | null;
   sidechatLastActivityAt?: string | null;

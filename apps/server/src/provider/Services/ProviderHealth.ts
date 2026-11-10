@@ -7,6 +7,11 @@
  * @module ProviderHealth
  */
 import type {
+  ServerProviderInstallError,
+  ServerProviderInstallInput,
+  ServerProviderInstallResult,
+  ServerProviderInstallationInput,
+  ServerProviderInstallationResult,
   ServerProviderLoginError,
   ServerProviderLoginInput,
   ServerProviderLoginResult,
@@ -14,7 +19,7 @@ import type {
   ServerProviderUpdateInput,
   ServerProviderUpdateResult,
   ServerProviderUpdateError,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
@@ -36,6 +41,18 @@ export interface ProviderHealthShape {
   readonly updateProvider: (
     input: ServerProviderUpdateInput,
   ) => Effect.Effect<ServerProviderUpdateResult, ServerProviderUpdateError>;
+
+  /**
+   * Install an agent CLI into the Moss-managed folder with one click, publishing
+   * progress as `installState` on the provider statuses.
+   */
+  readonly installProvider: (
+    input: ServerProviderInstallInput,
+  ) => Effect.Effect<ServerProviderInstallResult, ServerProviderInstallError>;
+
+  readonly manageProviderInstallation?: (
+    input: ServerProviderInstallationInput,
+  ) => Effect.Effect<ServerProviderInstallationResult, ServerProviderInstallError>;
 
   /** Start the official provider login flow for one configured account. */
   readonly startLogin: (

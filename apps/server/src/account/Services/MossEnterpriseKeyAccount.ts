@@ -1,4 +1,4 @@
-import type { MossEnterpriseKeySignInInput, MossEnterpriseKeyState } from "@synara/contracts";
+import type { MossEnterpriseKeySignInInput, MossEnterpriseKeyState } from "@moss/contracts";
 import { Data, Effect, ServiceMap } from "effect";
 
 export class MossEnterpriseKeyError extends Data.TaggedError("MossEnterpriseKeyError")<{

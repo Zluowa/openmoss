@@ -15,7 +15,7 @@ import {
   parseCodexExecutableVersion,
   resolveCodexRuntimeTarget,
   type CodexRuntimeTarget,
-} from "@synara/shared/codexRuntime";
+} from "@moss/shared/codexRuntime";
 
 export { MOSS_BUNDLED_CODEX_PATH_ENV_KEY };
 

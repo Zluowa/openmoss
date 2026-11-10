@@ -9,7 +9,7 @@ import nodePath from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { outboundHttp } from "@synara/shared/outboundHttp";
+import { outboundHttp } from "@moss/shared/outboundHttp";
 import { codexUsageFetcher, parseCodexAppServerUsage } from "./codex";
 
 const { readKeychainPasswordMock } = vi.hoisted(() => ({

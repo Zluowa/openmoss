@@ -2,6 +2,13 @@
 // Purpose: Locks Computer control Chinese chrome, composed status text, and preservation boundaries.
 // Layer: Pure localization tests
 
+import type { ComputerPermission } from "@moss/contracts";
+import {
+  COMPUTER_PERMISSIONS,
+  computerPermissionSetupMessage,
+  computerStaleGrantAdvice,
+  listComputerPermissions,
+} from "@moss/shared/computerGrants";
 import { describe, expect, it } from "vitest";
 
 import { summarizeComputerControlToast } from "../composerSlashCommands";
@@ -85,6 +92,10 @@ describe("translateZhCnComputerControlText", () => {
     ["Computer control is coming soon on Linux.", "电脑控制即将支持 Linux。"],
     ["Computer control is unavailable on this platform.", "此平台暂不支持电脑控制。"],
     ["Moss Computer Use is not available on this platform.", "此平台暂不支持 Moss 电脑控制。"],
+    [
+      "Moss couldn't find its computer control component. Reinstall Moss to use computer control.",
+      "Moss 找不到电脑控制组件。请重新安装 Moss 后再使用电脑控制。",
+    ],
     ["Computer Use is unavailable", "电脑控制不可用"],
     [
       "Open Moss on a supported desktop to use Computer Use.",
@@ -124,6 +135,39 @@ describe("translateZhCnComputerControlText", () => {
       ).toBe(`可在 macOS 上使用（${backend}）；正在等待原生捕获辅助程序`);
     },
   );
+
+  it("translates the Windows Computer control copy without naming third-party components", () => {
+    const cases: ReadonlyArray<readonly [string, string]> = [
+      ["Available on Windows (cua)", "可在 Windows 上使用（cua）"],
+      [
+        "Available on Windows (cua); waiting for native capture helper",
+        "可在 Windows 上使用（cua）；正在等待原生捕获辅助程序",
+      ],
+      ["Computer control is ready on Windows.", "电脑控制已可在 Windows 上使用。"],
+      ["Available on Linux (cua)", "可在 Linux 上使用（cua）"],
+      ["Available on this computer (cua)", "可在这台电脑上使用（cua）"],
+      [
+        "Moss's computer control is not running yet. Restart Moss, then refresh.",
+        "Moss 的电脑控制还没有运行。请重新打开 Moss，然后刷新。",
+      ],
+      [
+        "Allow Moss Accessibility and Screen Recording access in Windows, then refresh.",
+        "请在 Windows 中为 Moss 允许辅助功能和屏幕录制权限，然后刷新。",
+      ],
+      [
+        "Allow Moss the UI Automation and screen access Windows asks for, then refresh.",
+        "请允许 Windows 为 Moss 请求的界面自动化和屏幕权限，然后刷新。",
+      ],
+      [
+        "Open the Moss desktop app to review Computer control.",
+        "请打开 Moss 桌面应用查看电脑控制。",
+      ],
+    ];
+    for (const [source, expected] of cases) {
+      expect(translateZhCnPresentationText(source)).toBe(expected);
+      expect(expected).not.toMatch(/Cua Driver/);
+    }
+  });
 
   it.each([true, false])("translates composed helper rows with input ready = %s", (input) => {
     for (const capture of [true, false]) {
@@ -209,6 +253,111 @@ describe("translateZhCnComputerControlText", () => {
   ])("preserves unknown runtime content and unmatched patterns: %s", (source) => {
     expect(translateZhCnComputerControlText(source)).toBe(source);
     expect(translateZhCnPresentationText(source)).toBe(source);
+  });
+
+  describe("the macOS permission flow", () => {
+    const zh = (value: string) => translateZhCnPresentationText(value);
+    // Everything else English in these messages is a real failure to translate.
+    const expectFullyTranslated = (value: string) => {
+      const translated = zh(value);
+      expect(translated).not.toBe(value);
+      expect(
+        translated
+          .replace(/`tccutil reset \w+ [\w.]+`/g, "")
+          .replace(/\b(?:Moss|macOS|Mac|Esc)\b/g, ""),
+      ).not.toMatch(/[A-Za-z]{2,}/);
+    };
+    const grantSets: ReadonlyArray<readonly ComputerPermission[]> = [
+      ["accessibility"],
+      ["screenRecording"],
+      ["inputMonitoring"],
+      ["accessibility", "screenRecording"],
+      ["accessibility", "inputMonitoring"],
+      ["screenRecording", "inputMonitoring"],
+      ["accessibility", "screenRecording", "inputMonitoring"],
+    ];
+
+    it("reads the state the packaged app reports when grants are missing", () => {
+      const missing = ["accessibility", "inputMonitoring"] as const;
+      const labels = listComputerPermissions(missing);
+      expect(zh(`Computer control needs ${labels}`)).toBe("电脑控制需要辅助功能和输入监控权限");
+      expect(zh(computerPermissionSetupMessage(missing, "unknown"))).toBe(
+        "Moss 需要辅助功能和输入监控权限才能控制这台 Mac。请前往“系统设置 › 隐私与安全性 › 辅助功能和输入监控”打开 Moss，然后重试。",
+      );
+      expect(zh("Set up")).toBe("设置");
+    });
+
+    it("lists three grants the way Chinese does", () => {
+      expect(zh(`Computer control needs ${listComputerPermissions(COMPUTER_PERMISSIONS)}`)).toBe(
+        "电脑控制需要辅助功能、屏幕录制和输入监控权限",
+      );
+    });
+
+    it.each(grantSets)("translates every message for %j", (...missing) => {
+      const labels = listComputerPermissions(missing);
+      for (const message of [
+        `Computer control needs ${labels}`,
+        `macOS may ask to allow ${labels} for Moss.`,
+        `Allow ${labels} for this copy of Moss in System Settings. Return here to check again; if macOS asks you to quit and reopen the app, do so.`,
+        computerPermissionSetupMessage(missing, "unknown"),
+        computerPermissionSetupMessage(missing, "adhoc"),
+        computerPermissionSetupMessage(missing, "adhoc", "com.moss.desktop"),
+        computerStaleGrantAdvice(missing, "adhoc")!,
+        computerStaleGrantAdvice(missing, "adhoc", "com.moss.desktop")!,
+      ]) {
+        expectFullyTranslated(message);
+        // No other table in the chain may answer these with a second wording.
+        expect(zh(message)).toBe(translateZhCnComputerControlText(message));
+      }
+    });
+
+    it("keeps each tccutil command exactly as it must be typed", () => {
+      const translated = zh(
+        computerStaleGrantAdvice(
+          ["accessibility", "screenRecording"],
+          "adhoc",
+          "com.moss.desktop",
+        )!,
+      );
+      expect(translated).toContain("`tccutil reset Accessibility com.moss.desktop`");
+      expect(translated).toContain("`tccutil reset ScreenCapture com.moss.desktop`");
+    });
+
+    it("translates the generic message and the fixed copy around it", () => {
+      for (const message of [
+        computerPermissionSetupMessage([], "unknown"),
+        "Setting up…",
+        "Recheck",
+        "Setting up computer control",
+        "Setting up the desktop may require installing a helper or allowing the permissions Moss needs.",
+        "Choose Set up to request missing permissions or open System Settings. Allow access for this Moss app, then return here to recheck.",
+        "Choose Set up to check permissions and prepare computer control.",
+        "Computer control needs setup",
+        "Computer control still needs setup",
+        "Couldn't set up computer control",
+        "Computer control is ready",
+        "Send a message and the agent will pick up where it left off.",
+        "Screen capture is not allowed yet",
+        "The agent can act on the desktop but cannot see it, so screenshots fail. Turn Moss on in System Settings › Privacy & Security › Screen Recording, then press Set up to reconnect.",
+        "The agent can act on the desktop but cannot see it, so screenshots fail. Press Set up to reconnect.",
+        "Computer permissions are ready. Send a message to continue; no action is retried automatically.",
+        "Computer control is paused until the Escape and human-input listener is ready. Moss reconnects it automatically; check Computer settings if it remains unavailable.",
+      ]) {
+        expectFullyTranslated(message);
+      }
+    });
+
+    it.each([
+      "Computer control needs Bluetooth",
+      "Computer control needs Accessibility and Bluetooth",
+      "Computer control needs constructor",
+      "macOS may ask to allow toString for Moss.",
+      "macOS may ask to allow Bluetooth for Moss.",
+      "Moss needs Accessibility to control this Mac. Turn Moss on in System Settings › Privacy & Security › Input Monitoring, then try again.",
+      "Moss needs Accessibility to control this Mac. Turn Moss on in System Settings › Privacy & Security › Accessibility, then try again. Unknown diagnostic.",
+    ])("leaves anything it does not recognize alone: %s", (source) => {
+      expect(translateZhCnComputerControlText(source)).toBe(source);
+    });
   });
 
   it("uses the existing localized navigation keys for settings search, retaining English", () => {

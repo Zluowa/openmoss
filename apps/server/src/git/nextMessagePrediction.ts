@@ -3,12 +3,12 @@ import type {
   ProviderInteractionMode,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
-import type { KeyedSingleFlightCache } from "@synara/shared/KeyedSingleFlightCache";
+} from "@moss/contracts";
+import type { KeyedSingleFlightCache } from "@moss/shared/KeyedSingleFlightCache";
 import {
   NEXT_MESSAGE_PREDICTION_TIMEOUT_MS,
   NEXT_MESSAGE_PREDICTION_TRANSCRIPT_MAX_CHARS,
-} from "@synara/shared/nextMessagePrediction";
+} from "@moss/shared/nextMessagePrediction";
 import { Effect } from "effect";
 
 import type {

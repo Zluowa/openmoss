@@ -1,5 +1,5 @@
-import type { ModelSelection } from "@synara/contracts";
-import { getModelSelectionBooleanOptionValue } from "@synara/shared/model";
+import type { ModelSelection } from "@moss/contracts";
+import { getModelSelectionBooleanOptionValue } from "@moss/shared/model";
 
 export function resolveCodexServiceTier(
   modelSelection: ModelSelection | undefined,

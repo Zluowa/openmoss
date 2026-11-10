@@ -1,6 +1,6 @@
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import { isWorkspaceRelativePathSafe } from "@synara/shared/path";
-import type { ProjectId, ResolvedKeybindingsConfig, ThreadId, TurnId } from "@synara/contracts";
+import { isWorkspaceRelativePathSafe } from "@moss/shared/path";
+import type { ProjectId, ResolvedKeybindingsConfig, ThreadId, TurnId } from "@moss/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -106,6 +106,7 @@ import {
   useMcpAppDockEntries,
 } from "~/lib/mcpAppDockRegistry";
 import { ConversationImageWorkspace } from "./ConversationImageWorkspace";
+import { DeckDockPane, useAgentDeckAutoOpen } from "./DeckDockPane";
 import { flushConversationImageEditors } from "~/lib/conversationImageComposer";
 import { HtmlRenderPreviewPane } from "./HtmlRenderPreviewPane";
 import { SubagentsDockPane } from "./SubagentsDockPane";
@@ -127,6 +128,10 @@ import {
   CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
   CHAT_ROUTE_INSET_SHELL_CLASS_NAME,
 } from "./composerPickerStyles";
+import {
+  browserPanelAvailable,
+  useBrowserDockIntegration,
+} from "../browser/useBrowserDockIntegration";
 import { routeSingleBrowserPanelOpenRequest } from "./browserPanelOpenRequest";
 import {
   selectFloatingBrowserRequested,
@@ -213,6 +218,7 @@ function RightDockPanePlaceholder(props: { kind: RightDockPaneKind }) {
 }
 
 export function SingleChatSurface(props: {
+  containerMode?: "viewport" | "parent";
   threadId: ThreadId;
   search: DiffRouteSearch;
   projectId: ProjectId | null;
@@ -477,6 +483,8 @@ export function SingleChatSurface(props: {
   }, [dismissFloatingBrowserForThread, props.threadId]);
 
   const activePane = resolveActivePane(dockState);
+  // A deck the agent has just created opens beside the chat, like the Canvas.
+  useAgentDeckAutoOpen(props.threadId);
   useEffect(() => {
     if (dockState.open && (activePane?.kind === "imagePreview" || activePane?.kind === "canvas"))
       handleRightDockFullWidthChange(true);
@@ -551,6 +559,23 @@ export function SingleChatSurface(props: {
     },
     [requestImmediateDockHydration, openPane, props.threadId],
   );
+
+  // The browser panel hosts every page: an HTML file the agent wrote, a dev server, a
+  // link. It draws its own header row (tabs, servers, "…", expand, close).
+  const browserDock = useBrowserDockIntegration({
+    threadId: props.threadId,
+    workspaceRoot,
+    showBrowserPane: () => {
+      requestImmediateDockHydration("browser");
+      openPane(props.threadId, { kind: "browser" });
+    },
+    openSource: (absolutePath) => {
+      const targetPath = resolveDockFileOpenTarget(absolutePath, workspaceRoot);
+      if (!targetPath) return;
+      requestImmediateDockHydration("file");
+      openPane(props.threadId, { kind: "file", filePath: targetPath });
+    },
+  });
 
   const handleOpenWorkspaceSearchDirectory = useCallback(
     (relativePath: string) => {
@@ -769,6 +794,10 @@ export function SingleChatSurface(props: {
   // editor.
   const dockFileOpener: WorkspaceFileOpener = {
     openFile: (path, options) => {
+      // A page opens in the browser panel, rendered; its source stays one "…" away.
+      if (options?.view !== "source" && browserDock.openHtmlFile(path)) {
+        return true;
+      }
       // In-workspace references map to relative paths for the file-read RPC;
       // binary previews in a session's scratch workspace (outside the chat
       // workspace) open by absolute path through the local-image route.
@@ -785,6 +814,7 @@ export function SingleChatSurface(props: {
       return true;
     },
     prefetchFile: prefetchOpenerFile,
+    ...(browserPanelAvailable() ? { openPage: browserDock.openHtmlFile } : {}),
   };
   // Editor surface: the center file pane is already the file viewer, so file
   // references select into it instead of opening a dock pane.
@@ -821,13 +851,18 @@ export function SingleChatSurface(props: {
 
   const handleDropThread = (payload: {
     threadId: ThreadId;
+    replacementThreadId?: ThreadId | undefined;
     direction: SplitDirection;
     side: SplitDropSide;
   }) => {
     if (!props.projectId) return;
-    if (payload.threadId === props.threadId) return;
+    // This chat's own tab, pulled down onto it: the tab that takes over its slot keeps this
+    // pane, and the dragged chat lands on the side it was dropped on.
+    const sourceThreadId =
+      payload.threadId === props.threadId ? payload.replacementThreadId : props.threadId;
+    if (!sourceThreadId || sourceThreadId === payload.threadId) return;
     const splitViewId = createSplitViewFromDrop({
-      sourceThreadId: props.threadId,
+      sourceThreadId,
       ownerProjectId: props.projectId,
       droppedThreadId: payload.threadId,
       direction: payload.direction,
@@ -1094,7 +1129,16 @@ export function SingleChatSurface(props: {
           <Suspense fallback={<PanelStateMessage>Loading browser...</PanelStateMessage>}>
             <LazyBrowserPanel
               mode="sidebar"
+              chrome="dock"
               threadId={props.threadId}
+              workspaceRoot={workspaceRoot}
+              projectId={props.projectId}
+              onViewSource={browserDock.openSourceFile}
+              layout={{
+                expanded: effectiveRightDockFullWidth,
+                onToggleExpanded: () =>
+                  handleRightDockFullWidthChange(!effectiveRightDockFullWidth),
+              }}
               onClosePanel={() => closePane(props.threadId, pane.id)}
               runtimeMode={context.runtimeMode}
               onRequestLive={requestActiveDockPaneLive}
@@ -1241,6 +1285,12 @@ export function SingleChatSurface(props: {
             }}
           />
         );
+      case "deck":
+        return pane.deck ? (
+          <DeckDockPane threadId={props.threadId} deck={pane.deck} />
+        ) : (
+          <RightDockPanePlaceholder kind="deck" />
+        );
       case "sidechat":
         return (
           <SidechatDockPane
@@ -1328,7 +1378,11 @@ export function SingleChatSurface(props: {
     return (
       <WorkspaceFileOpenerContext.Provider value={editorFileOpener}>
         <div
-          className={cn(CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME, CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME)}
+          className={cn(
+            CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
+            CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME,
+            props.containerMode === "parent" && "h-full",
+          )}
         >
           <Suspense fallback={<ChatMountLoader />}>
             <EditorWorkspaceView
@@ -1411,6 +1465,7 @@ export function SingleChatSurface(props: {
         className={cn(
           CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME,
           CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME,
+          props.containerMode === "parent" && "h-full",
           "relative",
         )}
         data-right-dock-layout-host
@@ -1440,7 +1495,10 @@ export function SingleChatSurface(props: {
                 className: "flex h-full min-h-0 min-w-0 flex-1",
               }}
               inset={{
-                className: CHAT_ROUTE_INSET_SHELL_CLASS_NAME,
+                className: cn(
+                  CHAT_ROUTE_INSET_SHELL_CLASS_NAME,
+                  props.containerMode === "parent" && "h-full",
+                ),
                 surfaceClassName: CHAT_BACKGROUND_CLASS_NAME,
               }}
             >
@@ -1507,6 +1565,9 @@ export function SingleChatSurface(props: {
           }}
           onCloseMcpApp={(entryId) => void closeMcpAppDockEntry(entryId)}
           onSelectPane={handleSelectDockPane}
+          activePaneOwnsWidthToggle={
+            !mcpAppDockEntries.some((entry) => entry.selected) && activePane?.kind === "browser"
+          }
           onClosePane={(paneId) => {
             if (
               ["imagePreview", "canvas"].includes(

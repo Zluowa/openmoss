@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { EventId, MessageId, ThreadId, TurnId } from "@synara/contracts";
+import { EventId, MessageId, ThreadId, TurnId } from "@moss/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";

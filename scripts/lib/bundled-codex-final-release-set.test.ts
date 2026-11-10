@@ -350,7 +350,7 @@ function writeComponent(input: {
     arch: input.arch,
     releaseMode: "publish",
     signed: input.signed,
-    expectedVersion: "0.163.0",
+    expectedVersion: "0.166.0",
     verification: input.verification,
     ...(input.linuxFinalVerifier ? { linuxFinalVerifier: input.linuxFinalVerifier } : {}),
   });

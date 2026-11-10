@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-import { TurnId } from "@synara/contracts";
+import { TurnId } from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";

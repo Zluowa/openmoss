@@ -4,7 +4,7 @@ import type {
   MossCloudEmail,
   MossCloudGoogleOAuthFlowId,
   MossCloudListAccountsResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   serverMossAccountSessionQueryOptions,
   serverMossCloudAccountStateQueryOptions,
@@ -368,5 +368,38 @@ describe("Moss auth pages", () => {
     expect(textContent(codeOnlyMarkup)).toContain("This Google sign-in link is incomplete.");
     expect(textContent(completeMarkup)).toContain("Completing Google sign-in…");
     expect(textContent(completeMarkup)).not.toContain("email link");
+  });
+
+  it("always leaves a way out of the Google callback page", async () => {
+    const state = {
+      configured: true,
+      authenticated: false,
+      account: null,
+      session: null,
+      emailVerificationRequired: false,
+      modelGatewayConfigured: true,
+      authProvider: "supabase_google",
+    } satisfies MossCloudAccountState;
+    const seed = (queryClient: QueryClient) => {
+      queryClient.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, state);
+    };
+    const flowId = "flow_abcdefghijklmnopqrstuvwxyz-0123456789" as MossCloudGoogleOAuthFlowId;
+
+    const cancelled = textContent(
+      await renderWithQueryClient(<MossCloudAuthCallbackPage oauthError="access_denied" />, seed),
+    );
+    const failed = textContent(
+      await renderWithQueryClient(<MossCloudAuthCallbackPage oauthError="failed" />, seed),
+    );
+    const exchanging = textContent(
+      await renderWithQueryClient(<MossCloudAuthCallbackPage code="code" flowId={flowId} />, seed),
+    );
+
+    expect(cancelled).toContain("Google sign-in was cancelled");
+    expect(cancelled).toContain("Return to sign in");
+    expect(failed).toContain("Google didn’t complete the sign-in. Try again.");
+    expect(failed).toContain("Return to sign in");
+    // A stalled or failed exchange is the same page: nothing else offers a way back.
+    expect(exchanging).toContain("Return to sign in");
   });
 });

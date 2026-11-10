@@ -9,9 +9,11 @@ import {
   findMcpConnectorPreset,
   MCP_CONNECTOR_CATEGORIES,
   MCP_CONNECTOR_PRESETS,
+  mcpConnectorCategoriesForRegion,
   mcpConnectorServerName,
   mcpConnectorSlug,
   normalizeMcpConnectorUrl,
+  splitMcpConnectorUrlApiKey,
 } from "./mcpConnectors";
 
 describe("MCP_CONNECTOR_PRESETS", () => {
@@ -105,5 +107,54 @@ describe("connector mentions", () => {
     for (const provider of ["pi", "devin", "antigravity"]) {
       expect(providerSupportsMcpConnectors(provider)).toBe(false);
     }
+  });
+});
+
+describe("API-key presets", () => {
+  it("say where the key goes and where to get it", () => {
+    for (const preset of MCP_CONNECTOR_PRESETS) {
+      if (!("apiKey" in preset)) continue;
+      expect(preset.apiKeyUrl?.startsWith("https://")).toBe(true);
+      // The stored URL never carries a key itself.
+      expect(splitMcpConnectorUrlApiKey(preset.url)).toEqual({ url: preset.url, apiKey: null });
+    }
+    expect(findMcpConnectorPreset("amap")).toMatchObject({
+      apiKey: { kind: "query", param: "key" },
+      region: "cn",
+      category: "life",
+    });
+    expect(findMcpConnectorPreset("mcdonalds_cn")).toMatchObject({ apiKey: { kind: "bearer" } });
+  });
+
+  it("lists daily-life services first for mainland accounts only", () => {
+    expect(mcpConnectorCategoriesForRegion("cn")[0]).toBe("life");
+    expect(mcpConnectorCategoriesForRegion("global")).toEqual(MCP_CONNECTOR_CATEGORIES);
+    expect([...mcpConnectorCategoriesForRegion("cn")].toSorted()).toEqual(
+      [...MCP_CONNECTOR_CATEGORIES].toSorted(),
+    );
+  });
+});
+
+describe("splitMcpConnectorUrlApiKey", () => {
+  it("takes the key out and keeps the other parameters", () => {
+    expect(splitMcpConnectorUrlApiKey("https://mcp.map.qq.com/mcp?format=0&key=abc")).toEqual({
+      url: "https://mcp.map.qq.com/mcp?format=0",
+      apiKey: { param: "key", value: "abc" },
+    });
+    expect(splitMcpConnectorUrlApiKey("https://mcp.map.baidu.com/mcp?ak=xyz")).toEqual({
+      url: "https://mcp.map.baidu.com/mcp",
+      apiKey: { param: "ak", value: "xyz" },
+    });
+  });
+
+  it("leaves URLs without a key, or with an empty one, unchanged", () => {
+    expect(splitMcpConnectorUrlApiKey("https://mcp.example.com/mcp?region=bj")).toEqual({
+      url: "https://mcp.example.com/mcp?region=bj",
+      apiKey: null,
+    });
+    expect(splitMcpConnectorUrlApiKey("https://mcp.example.com/mcp?key=")).toEqual({
+      url: "https://mcp.example.com/mcp?key=",
+      apiKey: null,
+    });
   });
 });

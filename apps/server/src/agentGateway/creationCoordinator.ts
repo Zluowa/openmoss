@@ -17,11 +17,11 @@ import {
   type RuntimeMode,
   type MossCreateThreadsInput,
   type MossCreateThreadsResult,
-} from "@synara/contracts";
-import { buildPromptThreadTitleFallback } from "@synara/shared/chatThreads";
-import { WORKTREE_BRANCH_PREFIX } from "@synara/shared/git";
-import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@synara/shared/githubRepository";
-import { runtimeModeEscalatesPrivilege } from "@synara/shared/runtimeMode";
+} from "@moss/contracts";
+import { buildPromptThreadTitleFallback } from "@moss/shared/chatThreads";
+import { WORKTREE_BRANCH_PREFIX } from "@moss/shared/git";
+import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@moss/shared/githubRepository";
+import { runtimeModeEscalatesPrivilege } from "@moss/shared/runtimeMode";
 import { Cause, Effect, Option, Semaphore } from "effect";
 
 import type { ServerConfigShape } from "../config.ts";

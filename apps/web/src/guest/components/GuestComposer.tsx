@@ -11,7 +11,7 @@ import {
   GUEST_PENDING_MESSAGE_LIMIT,
   type ChatAttachmentId,
   type GuestThreadModel,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   useCallback,
   useEffect,
@@ -57,6 +57,13 @@ export interface GuestComposerNotice {
   readonly tone: "hint" | "error";
 }
 
+/** Text a page or a card in the transcript asked to send; the guest reviews it first. */
+export interface GuestComposerFollowUp {
+  readonly text: string;
+  /** Changes for every request, so the same text twice is added twice. */
+  readonly nonce: number;
+}
+
 const MAX_TEXTAREA_HEIGHT_PX = 200;
 
 type StagedAttachment = ComposerImageAttachment | ComposerFileAttachment;
@@ -91,6 +98,7 @@ export function GuestComposer({
   onExpandImage,
   onSubmitted,
   onNotice,
+  followUp = null,
 }: {
   readonly transport: GuestTransport;
   readonly model: GuestThreadModel;
@@ -101,6 +109,8 @@ export function GuestComposer({
   readonly onSubmitted: () => void;
   /** The line under the composer: the standing hint, or the latest error. */
   readonly onNotice: (notice: GuestComposerNotice) => void;
+  /** The latest follow-up from the transcript, added to what the guest is writing. */
+  readonly followUp?: GuestComposerFollowUp | null;
 }) {
   const { t, format } = useTranslation();
   const coarsePointer = useCoarsePointer();
@@ -117,11 +127,10 @@ export function GuestComposer({
   const trimmed = text.trim();
   const hasContent = trimmed !== "" || staged.length > 0;
 
+  // Every message waits for the owner, so that is what the line says, on every device.
   const hint = limitReached
     ? format("guest.composer.limitReached", { count: pendingCount })
-    : coarsePointer
-      ? t("guest.composer.hint")
-      : t("guest.composer.hintDesktop");
+    : t("guest.composer.hint");
   const showHint = useCallback(() => onNotice({ text: hint, tone: "hint" }), [hint, onNotice]);
   useEffect(() => {
     showHint();
@@ -133,6 +142,23 @@ export function GuestComposer({
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, MAX_TEXTAREA_HEIGHT_PX)}px`;
   }, []);
+
+  // A follow-up lands in the draft for the guest to read and send, as in the owner's composer.
+  const lastFollowUpNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (followUp === null || followUp.nonce === lastFollowUpNonce.current) return;
+    lastFollowUpNonce.current = followUp.nonce;
+    if (limitReached) return;
+    setText((current) => {
+      const existing = current.trim();
+      const next = existing ? `${existing}\n\n${followUp.text}` : followUp.text;
+      return next.slice(0, GUEST_MESSAGE_MAX_LENGTH);
+    });
+    requestAnimationFrame(() => {
+      resize();
+      textareaRef.current?.focus();
+    });
+  }, [followUp, limitReached, resize]);
 
   const addFiles = (added: ReadonlyArray<File>) => {
     if (added.length === 0) return;

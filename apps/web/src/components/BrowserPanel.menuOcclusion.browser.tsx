@@ -4,7 +4,7 @@ import {
   ThreadId,
   type BrowserSetPanelBoundsInput,
   type ThreadBrowserState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -74,8 +74,15 @@ if (!customElements.get(SYNTHETIC_WEBVIEW_TAG)) {
 }
 
 const originalCreateElement = document.createElement.bind(document);
-document.createElement = (tagName: string, options?: ElementCreationOptions) =>
-  originalCreateElement(tagName === "webview" ? SYNTHETIC_WEBVIEW_TAG : tagName, options);
+document.createElement = new Proxy(originalCreateElement, {
+  apply(target, receiver, args) {
+    const [tag, ...options] = args;
+    return Reflect.apply(target, receiver, [
+      tag === "webview" ? SYNTHETIC_WEBVIEW_TAG : tag,
+      ...options,
+    ]);
+  },
+});
 
 const threadId = ThreadId.makeUnsafe("menu-occlusion-fixture");
 const previewSrc = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="600"><rect width="640" height="600" fill="#227755"/></svg>')}`;
@@ -252,8 +259,8 @@ describe("native browser menu occlusion", () => {
     await vi.waitFor(() => expect(lastBounds()?.width).toBeGreaterThan(0));
     const original = lastBounds();
     api.browser.capturePreview.mockClear();
-    await page.getByRole("button", { name: "Browser actions" }).click();
-    await expect.element(page.getByRole("menuitem", { name: "New tab" })).toBeVisible();
+    await page.getByRole("button", { name: "Browser options" }).click();
+    await expect.element(page.getByRole("menuitem", { name: "Copy URL" })).toBeVisible();
     await expect.element(page.getByAltText("Browser preview")).toBeVisible();
     expect(api.browser.capturePreview).toHaveBeenCalledWith({ threadId, tabId: state.activeTabId });
     await vi.waitFor(() => expect(lastBounds()).toBeNull());

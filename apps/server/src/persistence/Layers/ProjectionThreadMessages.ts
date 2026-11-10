@@ -4,7 +4,7 @@ import {
   selectSegmentEndedAt,
   joinMessageTextChunks,
 } from "../messageTextChunks.ts";
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@moss/contracts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { Effect, Layer, Option, Schema } from "effect";
@@ -64,6 +64,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           async_user_input_json,
           dispatch_mode,
           dispatch_origin,
+          dispatch_source_thread_id,
           starts_new_turn,
           is_streaming,
           source,
@@ -85,6 +86,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           ${row.asyncUserInput !== undefined ? JSON.stringify(row.asyncUserInput) : null},
           ${row.dispatchMode ?? null},
           ${row.dispatchOrigin ?? null},
+          ${row.dispatchSourceThreadId ?? null},
           ${row.startsNewTurn === undefined ? null : row.startsNewTurn ? 1 : 0},
           ${row.isStreaming ? 1 : 0},
           ${row.source},
@@ -123,6 +125,13 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
             excluded.dispatch_origin,
             projection_thread_messages.dispatch_origin
           ),
+          dispatch_source_thread_id = CASE
+            WHEN excluded.dispatch_origin IS NOT NULL THEN excluded.dispatch_source_thread_id
+            ELSE COALESCE(
+              excluded.dispatch_source_thread_id,
+              projection_thread_messages.dispatch_source_thread_id
+            )
+          END,
           starts_new_turn = COALESCE(
             excluded.starts_new_turn,
             projection_thread_messages.starts_new_turn
@@ -156,6 +165,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           async_user_input_json AS "asyncUserInput",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          dispatch_source_thread_id AS "dispatchSourceThreadId",
           starts_new_turn AS "startsNewTurn",
           is_streaming AS "isStreaming",
           source,
@@ -246,6 +256,7 @@ const makeProjectionThreadMessageRepository = Effect.gen(function* () {
           async_user_input_json AS "asyncUserInput",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          dispatch_source_thread_id AS "dispatchSourceThreadId",
           starts_new_turn AS "startsNewTurn",
           is_streaming AS "isStreaming",
           source,

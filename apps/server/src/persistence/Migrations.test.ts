@@ -88,7 +88,15 @@ it.effect("appends upstream cursor invalidation without reusing Moss migration 9
       149,
       "AutomationCreateRequests",
     ]);
-    assert.deepStrictEqual(migrationEntries.at(-1)?.slice(0, 2), [150, "GuestShares"]);
+    assert.deepStrictEqual(migrationEntries.find(([id]) => id === 164)?.slice(0, 2), [
+      164,
+      "PageAppPublications",
+    ]);
+    assert.deepStrictEqual(migrationEntries.find(([id]) => id === 165)?.slice(0, 2), [
+      165,
+      "PageRoomPrivateStores",
+    ]);
+    assert.deepStrictEqual(migrationEntries.at(-1)?.slice(0, 2), [166, "Mossbot"]);
     assert.equal(new Set(migrationEntries.map(([id]) => id)).size, migrationEntries.length);
   }),
 );

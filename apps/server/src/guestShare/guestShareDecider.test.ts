@@ -9,7 +9,7 @@ import {
   ThreadId,
   type GuestMessageAttachment,
   type ThreadGuestMessage,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { GuestShareRecord } from "../persistence/Services/GuestShareRepository.ts";

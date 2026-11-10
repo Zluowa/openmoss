@@ -1,5 +1,5 @@
-import { isMossEnterpriseApiKey } from "@synara/shared/mossRealmCatalog";
-import type { ResolvedProviderInstance } from "@synara/shared/providerInstances";
+import { isMossEnterpriseApiKey } from "@moss/shared/mossRealmCatalog";
+import type { ResolvedProviderInstance } from "@moss/shared/providerInstances";
 import {
   isTrustedMossManagedGatewayUrlForAuthority,
   type MossManagedGatewayAuthority,
@@ -28,6 +28,24 @@ const MOSS_ACCESS_TOKEN_DRIVERS = new Set<string>([
   "zcode",
 ]);
 
+/** A session bearer's own expiry, or null for a key or anything else that is not a JWT. */
+export function readManagedBearerExpiryMs(token: string | undefined): number | null {
+  try {
+    const payload: unknown = JSON.parse(
+      Buffer.from(token?.split(".")[1] ?? "", "base64url").toString(),
+    );
+    return payload &&
+      typeof payload === "object" &&
+      "exp" in payload &&
+      typeof payload.exp === "number" &&
+      Number.isFinite(payload.exp)
+      ? payload.exp * 1000
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** JWT expiry is only a scheduling hint; account services still validate Auth. */
 export function managedCredentialRefreshAuthority(
   instance: ResolvedProviderInstance | undefined,
@@ -50,21 +68,8 @@ export function managedCredentialRefreshAuthority(
   const token = instance.environment[credentialKey];
   // Enterprise keys do not expire on a schedule; revocation surfaces as a 401.
   if (token && isMossEnterpriseApiKey(token)) return null;
-  try {
-    const payload: unknown = JSON.parse(
-      Buffer.from(token?.split(".")[1] ?? "", "base64url").toString(),
-    );
-    if (
-      payload &&
-      typeof payload === "object" &&
-      "exp" in payload &&
-      typeof payload.exp === "number" &&
-      Number.isFinite(payload.exp) &&
-      payload.exp * 1000 > now + REFRESH_SKEW_MS
-    )
-      return null;
-  } catch {
-    // Missing/malformed managed credentials must reconcile before dispatch.
-  }
+  // Missing/malformed managed credentials must reconcile before dispatch.
+  const expiresAt = readManagedBearerExpiryMs(token);
+  if (expiresAt !== null && expiresAt > now + REFRESH_SKEW_MS) return null;
   return authority;
 }

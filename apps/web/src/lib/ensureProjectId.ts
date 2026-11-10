@@ -9,7 +9,7 @@
 // Layer: Web orchestration helper
 // Exports: ensureProjectId
 
-import type { ModelSelection, ProjectId } from "@synara/contracts";
+import type { ModelSelection, ProjectId } from "@moss/contracts";
 
 import { createOrRecoverProjectFromPath } from "~/lib/projectCreation";
 import { waitForRecoverableProjectInReadModel } from "~/lib/projectCreateRecovery";

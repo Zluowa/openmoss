@@ -11,7 +11,9 @@ import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { MossAccountStartPhoneLoginResult } from "@synara/contracts";
+import type { MossAccountStartPhoneLoginResult } from "@moss/contracts";
+import { MossLocaleScope } from "~/localization";
+import type { MossLocaleCode } from "~/uiLocale";
 import { MossOtherLoginOptions, MossPhoneLoginForm } from "./MossPhoneAuth";
 
 const challenge = {
@@ -22,20 +24,27 @@ const challenge = {
   delivery: "sent",
 } as MossAccountStartPhoneLoginResult;
 
-async function enterChallenge(onSendCode: () => Promise<MossAccountStartPhoneLoginResult>) {
+async function enterChallenge(
+  onSendCode: () => Promise<MossAccountStartPhoneLoginResult>,
+  locale: MossLocaleCode = "zh-CN",
+) {
   await render(
-    <MossPhoneLoginForm
-      pending={false}
-      resendCooldownMs={0}
-      serverError={null}
-      onSendCode={onSendCode}
-      onVerifyCode={async () => undefined}
-    />,
+    <MossLocaleScope locale={locale}>
+      <MossPhoneLoginForm
+        pending={false}
+        resendCooldownMs={0}
+        serverError={null}
+        onSendCode={onSendCode}
+        onVerifyCode={async () => undefined}
+      />
+    </MossLocaleScope>,
   );
   await page.getByLabelText("手机号").fill("13800138000");
   await page.getByRole("button", { name: "获取验证码" }).click();
   await expect.element(page.getByLabelText("短信验证码")).toBeVisible();
 }
+
+const LIFETIME_PROMISE = /有效期|分钟内有效|valid until|expires/iu;
 
 describe("Moss phone authentication", () => {
   it("renders one native OTP input behind six visual slots", async () => {
@@ -105,6 +114,57 @@ describe("Moss phone authentication", () => {
 
     await expect.element(codeInput).toHaveValue("123456");
     expect(onSendCode).toHaveBeenCalledTimes(2);
+  });
+
+  it("says the code was sent without promising how long it lasts", async () => {
+    // The challenge carries Moss's own 10-minute bookkeeping time; MemFire's
+    // real code lifetime is unknown to the app and must not be shown.
+    await enterChallenge(async () => challenge);
+
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("验证码已发送。如果重新获取，只有最新一条短信里的验证码有效。");
+    expect(document.body.textContent).not.toMatch(LIFETIME_PROMISE);
+    expect(page.getByRole("button", { name: "重新获取" }).length).toBe(1);
+  });
+
+  it("says plainly that only the newest code works after a resend", async () => {
+    await enterChallenge(async () => challenge);
+
+    await page.getByRole("button", { name: "重新获取" }).click();
+
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("新验证码已发送，之前的验证码已失效。");
+    expect(document.body.textContent).not.toMatch(LIFETIME_PROMISE);
+  });
+
+  it("treats a code that follows a failed or timed-out request as a replacement", async () => {
+    const onSendCode = vi
+      .fn<() => Promise<MossAccountStartPhoneLoginResult>>()
+      .mockRejectedValueOnce(new Error("timed out"))
+      .mockResolvedValueOnce(challenge);
+    await render(
+      <MossLocaleScope locale="en">
+        <MossPhoneLoginForm
+          pending={false}
+          resendCooldownMs={0}
+          serverError={null}
+          onSendCode={onSendCode}
+          onVerifyCode={async () => undefined}
+        />
+      </MossLocaleScope>,
+    );
+    await page.getByLabelText("手机号").fill("13800138000");
+    await page.getByRole("button", { name: "获取验证码" }).click();
+    await expect.poll(() => onSendCode.mock.calls.length).toBe(1);
+    expect(page.getByRole("status").length).toBe(0);
+
+    await page.getByRole("button", { name: "获取验证码" }).click();
+
+    await expect
+      .element(page.getByRole("status"))
+      .toHaveTextContent("New code sent. Earlier codes no longer work.");
   });
 
   it("clears the previous code after requesting a replacement succeeds", async () => {

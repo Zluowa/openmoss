@@ -15,7 +15,7 @@ import * as Command from "effect/unstable/cli/Command";
 import { FetchHttpClient } from "effect/unstable/http";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, beforeEach, vi } from "vitest";
-import { NetService } from "@synara/shared/Net";
+import { NetService } from "@moss/shared/Net";
 
 import { ServerConfig, type ServerConfigShape } from "./config";
 import {
@@ -27,10 +27,16 @@ import { Server, type ServerShape } from "./effectServer";
 import { makeServerShutdownController } from "./serverShutdown";
 import { makePrivateRuntimeTestRoot } from "./testing/privateRuntimeFixtures.ts";
 
-vi.mock("./threadRetention", async () => {
+vi.mock("./legacyThreadRetention", async () => {
   const Effect = await import("effect/Effect");
   return {
-    startThreadRetentionJob: () => Effect.void,
+    startRetentionArchiveRestore: () => Effect.void,
+  };
+});
+vi.mock("./managedWorktreeMaintenance", async () => {
+  const Effect = await import("effect/Effect");
+  return {
+    startManagedWorktreeMaintenanceJob: () => Effect.void,
   };
 });
 

@@ -8,7 +8,7 @@ import {
   UsageEventSubject as UsageEventSubjectSchema,
   type UsageCreditEntry,
   type UsageEventSubject,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
 import {

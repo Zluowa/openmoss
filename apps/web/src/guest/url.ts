@@ -5,7 +5,7 @@
 //      it from the address bar at once (screenshots and copied links must not leak it) and keeps
 //      it in sessionStorage until the name form redeems it, so a reload before joining still works.
 
-import { GUEST_PAGE_PATH_PREFIX } from "@synara/contracts";
+import { GUEST_PAGE_PATH_PREFIX } from "@moss/contracts";
 
 export interface GuestEntry {
   readonly shareId: string | null;

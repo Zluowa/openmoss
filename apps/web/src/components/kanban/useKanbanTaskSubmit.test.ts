@@ -2,7 +2,7 @@
 // Purpose: Locks new-task draft-vs-start routing, ordering, and honest fallbacks.
 // Layer: Kanban UI hook unit tests
 
-import { ProjectId, ThreadId, type ServerProviderStatus } from "@synara/contracts";
+import { ProjectId, ThreadId, type ServerProviderStatus } from "@moss/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {

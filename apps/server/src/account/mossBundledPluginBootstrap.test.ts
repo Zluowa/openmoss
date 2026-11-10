@@ -28,7 +28,9 @@ afterEach(async () => {
 describe("managed image plugin bootstrap", () => {
   it("installs once and preserves a user's later uninstall across restarts", async () => {
     const home = await managedHome();
-    const install = vi.fn(async () => undefined);
+    const install = vi.fn(
+      async (_input: { marketplacePath: string; pluginName: string }) => undefined,
+    );
     await bootstrapMossBundledPlugins({ ...inputFor(home), install });
     expect(install).toHaveBeenCalledWith({
       marketplacePath: path.join(
@@ -50,6 +52,13 @@ describe("managed image plugin bootstrap", () => {
       ),
       pluginName: "moss-plugin-creator",
     });
+    // Canvas and the general video skill are defaults too, so chat can reach them at once.
+    expect(install.mock.calls.map((call) => call[0].pluginName)).toEqual([
+      "moss-imagegen",
+      "moss-plugin-creator",
+      "moss-videogen",
+      "moss-canvas",
+    ]);
     const afterUninstall = vi.fn(
       async (_input: { marketplacePath: string; pluginName: string }) => undefined,
     );
@@ -78,7 +87,8 @@ describe("managed image plugin bootstrap", () => {
       bootstrapMossBundledPlugins({ ...inputFor(home), install }),
       bootstrapMossBundledPlugins({ ...inputFor(home), install }),
     ]);
-    expect(install).toHaveBeenCalledTimes(2);
+    // Image, Plugin Creator, video and Canvas: each once, despite two sessions.
+    expect(install).toHaveBeenCalledTimes(4);
   });
 
   it("never bootstraps personal or shadow homes", async () => {

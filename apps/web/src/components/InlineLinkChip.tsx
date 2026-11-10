@@ -9,7 +9,7 @@ import { type MouseEvent, useContext } from "react";
 import { describeLinkChip, openExternalLink } from "~/lib/linkChips";
 import {
   ChatLinkActionsContext,
-  resolveGitHubItemClickOpener,
+  resolveChatLinkClickOpener,
   showLinkContextMenu,
 } from "~/lib/linkContextMenu";
 import {
@@ -43,7 +43,7 @@ export function InlineLinkChip({
     // A plain click on a pull request or issue follows the user's setting (in the app by
     // default); cmd/ctrl-click goes to GitHub.
     const openGitHubItem =
-      event.metaKey || event.ctrlKey ? undefined : resolveGitHubItemClickOpener(url, linkActions);
+      event.metaKey || event.ctrlKey ? undefined : resolveChatLinkClickOpener(url, linkActions);
     if (openGitHubItem) {
       openGitHubItem(url);
       return;

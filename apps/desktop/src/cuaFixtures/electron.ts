@@ -5,8 +5,8 @@ import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { randomBytes } from "node:crypto";
-import type { ComputerUiNode } from "@synara/contracts";
-import { cuaRequest, CUA_ACTION_TOOLS, type CuaReply } from "@synara/shared/cuaDriverProtocol";
+import type { ComputerUiNode } from "@moss/contracts";
+import { cuaRequest, CUA_ACTION_TOOLS, type CuaReply } from "@moss/shared/cuaDriverProtocol";
 import { CuaDriverHost } from "../cuaDriverHost";
 import {
   CuaActionError,

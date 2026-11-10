@@ -13,7 +13,7 @@ import {
   type ProjectTask,
   type ProjectThreadIndexEntry,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { mergeHubWorkItems } from "./hubWorkItems";

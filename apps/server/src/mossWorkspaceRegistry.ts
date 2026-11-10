@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 
-import { workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+import { workspaceRootsEqual } from "@moss/shared/threadWorkspace";
 
 export type MossWorkspaceRegistryCode = "authorization-required" | "workspace-unregistered";
 

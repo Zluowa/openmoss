@@ -2,22 +2,22 @@ import { readFile } from "node:fs/promises";
 import { relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { MossCanonicalConfig, MossConfigProjectionTarget } from "@synara/contracts";
+import type { MossCanonicalConfig, MossConfigProjectionTarget } from "@moss/contracts";
 import {
   MOSS_PROJECTION_TARGETS,
   parseMossCanonicalConfig,
   projectAllMossConfig,
   projectMossConfig,
   type MossProjectionReportOptions,
-} from "@synara/shared/mossConfigProjection";
-import { MOSS_RELATIVE_PATHS, getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+} from "@moss/shared/mossConfigProjection";
+import { MOSS_RELATIVE_PATHS, getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 
 export {
   MOSS_PROJECTION_TARGETS,
   parseMossCanonicalConfig,
   projectAllMossConfig,
   projectMossConfig,
-} from "@synara/shared/mossConfigProjection";
+} from "@moss/shared/mossConfigProjection";
 
 export async function loadMossCanonicalConfig(
   repoRoot = process.cwd(),

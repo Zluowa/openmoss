@@ -8,8 +8,8 @@
 // Layer: Chat UI component
 
 import { SidePanelOverlay } from "~/components/chat/SidePanelOverlay";
-import type { LibraryCommit, LibraryEntry, ProjectId } from "@synara/contracts";
-import { formatBytes } from "@synara/shared/formatBytes";
+import type { LibraryCommit, LibraryEntry, ProjectId } from "@moss/contracts";
+import { formatBytes } from "@moss/shared/formatBytes";
 import {
   type MouseEvent as ReactMouseEvent,
   useCallback,
@@ -734,7 +734,9 @@ function LibraryListRow(props: {
             expanded={props.expanded}
             className="size-4 shrink-0 opacity-75"
           />
-          <span className="min-w-0 truncate font-medium">{entry.name}</span>
+          <span className="min-w-0 truncate font-medium" data-translation-skip="true">
+            {entry.name}
+          </span>
         </button>
       )}
       <span className="pr-1 text-ui-xs text-muted-foreground/80">
@@ -789,7 +791,9 @@ function LibraryGridTile(props: {
         className="size-4 shrink-0 opacity-80"
       />
       <span className="flex min-w-0 flex-1 flex-col items-start overflow-hidden">
-        <span className="w-full truncate font-medium">{entry.name}</span>
+        <span className="w-full truncate font-medium" data-translation-skip="true">
+          {entry.name}
+        </span>
         {depth > 0 ? (
           <span className="w-full truncate text-ui-xs text-muted-foreground/70">
             {entry.relativePath}

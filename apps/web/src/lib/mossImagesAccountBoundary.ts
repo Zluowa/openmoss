@@ -2,7 +2,7 @@ import type {
   MossAccountSessionState,
   MossCloudAccountState,
   MossEnterpriseKeyState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useCallback, useSyncExternalStore } from "react";
 import {
@@ -90,6 +90,23 @@ export function readMossImagesAccountBoundary(queryClient: QueryClient): string 
     enterprise?.data?.keyPrefix ?? null,
     enterprise?.data?.active ?? null,
   ])}`;
+}
+
+/**
+ * Whether the account identity really changed between two snapshots from
+ * `readMossImagesAccountIdentity`. A record answering for the first time
+ * (null to a value) is the account loading, not changing.
+ */
+export function isMossImagesAccountIdentityChange(previous: string, next: string): boolean {
+  if (previous === next) return false;
+  try {
+    const before: unknown = JSON.parse(previous);
+    const after: unknown = JSON.parse(next);
+    if (!Array.isArray(before) || !Array.isArray(after)) return true;
+    return before.some((value, index) => value !== null && value !== after[index]);
+  } catch {
+    return true;
+  }
 }
 
 /** React Query is already the app's account-change source; observe it without another auth cache. */

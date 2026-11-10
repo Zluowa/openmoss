@@ -1,6 +1,6 @@
 import "../../index.css";
 
-import { ThreadId, type SecretRequestActivityPayload } from "@synara/contracts";
+import { ThreadId, type SecretRequestActivityPayload } from "@moss/contracts";
 import { expect, it } from "vitest";
 import { render } from "vitest-browser-react";
 

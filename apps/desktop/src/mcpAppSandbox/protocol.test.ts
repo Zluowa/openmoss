@@ -3,7 +3,7 @@ import {
   MCP_APP_SANDBOX_NAVIGATION_PORT_NAME,
   MCP_APP_SANDBOX_PORT_NAME,
   MCP_APP_SANDBOX_PORT_NAMES,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import desktopBuildConfig from "../../tsdown.config.mts";
@@ -126,7 +126,7 @@ describe("MCP App sandbox protocol routing", () => {
     }
 
     expect(preloadConfig.noExternal("effect", undefined)).toBe(true);
-    expect(preloadConfig.noExternal("@synara/future-runtime", undefined)).toBe(true);
+    expect(preloadConfig.noExternal("@moss/future-runtime", undefined)).toBe(true);
     expect(preloadConfig.noExternal("electron", undefined)).toBe(false);
     expect(preloadConfig.noExternal("electron/common", undefined)).toBe(false);
     expect(preloadConfig.noExternal("node:fs", undefined)).toBe(false);

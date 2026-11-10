@@ -1,5 +1,6 @@
 // FILE: runningChatsQuitGuard.ts
 // Purpose: Coordinates the renderer Stay/Quit handshake before a user-initiated desktop quit.
+//          An idle app quits straight away; the dialog only appears while work is running.
 // Layer: Desktop quit policy
 // Depends on: Quit confirmation IPC payloads from the renderer.
 
@@ -8,7 +9,7 @@ import type {
   DesktopQuitConfirmationPresentation,
   DesktopQuitConfirmationRequest,
   DesktopQuitConfirmationResponse,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const DEFAULT_READY_TIMEOUT_MS = 3000;
 
@@ -31,9 +32,12 @@ export function parseQuitConfirmationRequest(
     return null;
   }
   const presentationRaw = (payload as { readonly presentation?: unknown }).presentation;
+  const updateDownloading =
+    (payload as { readonly updateDownloading?: unknown }).updateDownloading === true;
   return {
     requestId,
     presentation: presentationRaw === "native" ? "native" : "in-app",
+    ...(updateDownloading ? { updateDownloading: true } : {}),
   };
 }
 
@@ -110,6 +114,14 @@ export interface RunningChatsQuitGuard {
   readonly askRenderer: (input: {
     readonly send: (request: DesktopQuitConfirmationRequest) => void;
     readonly isRendererAvailable: () => boolean;
+    /** Passed through on the request so the renderer can list the download. */
+    readonly updateDownloading?: boolean;
+    /**
+     * Called once the renderer reports running work and is about to show its dialog,
+     * so a hidden or minimized window can be brought forward. Never called for an
+     * idle app, which quits without showing anything.
+     */
+    readonly onPrompt?: () => void;
     readonly readyTimeoutMs?: number;
     readonly presentation?: DesktopQuitConfirmationPresentation;
     readonly presentNativeConfirmation?: (
@@ -124,6 +136,7 @@ interface PendingQuitConfirmation {
   readonly presentNativeConfirmation:
     | ((chats: ReadonlyArray<DesktopQuitConfirmationChat>) => boolean | Promise<boolean>)
     | undefined;
+  readonly onPrompt: (() => void) | undefined;
   waitingForDecision: boolean;
   readyTimer: ReturnType<typeof setTimeout> | null;
   readonly resolve: (allow: boolean) => void;
@@ -201,11 +214,17 @@ export function makeRunningChatsQuitGuard(
         clearTimeout(pending.readyTimer);
         pending.readyTimer = null;
       }
-      if (response.runningCount <= 0 && pending.presentation === "native") {
+      // Nothing is running: quit straight away, as other desktop apps do.
+      if (response.runningCount <= 0) {
         finish(true);
         return;
       }
       pending.waitingForDecision = true;
+      try {
+        pending.onPrompt?.();
+      } catch {
+        // Bringing the window forward is best effort; the renderer still shows its dialog.
+      }
       if (pending.presentation === "native") {
         presentNativeSheet(pending, response.chats);
       }
@@ -228,6 +247,7 @@ export function makeRunningChatsQuitGuard(
           requestId,
           presentation,
           presentNativeConfirmation: input.presentNativeConfirmation,
+          onPrompt: input.onPrompt,
           waitingForDecision: false,
           readyTimer: setTimeout(() => {
             if (pending?.requestId === requestId && !pending.waitingForDecision) {
@@ -240,7 +260,11 @@ export function makeRunningChatsQuitGuard(
           },
         };
         try {
-          input.send({ requestId, presentation });
+          input.send({
+            requestId,
+            presentation,
+            ...(input.updateDownloading === true ? { updateDownloading: true } : {}),
+          });
         } catch {
           finish(true);
         }

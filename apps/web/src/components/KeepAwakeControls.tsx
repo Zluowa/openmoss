@@ -1,4 +1,4 @@
-import type { KeepAwakeMode, ServerKeepAwakeState } from "@synara/contracts";
+import type { KeepAwakeMode, ServerKeepAwakeState } from "@moss/contracts";
 import {
   KEEP_AWAKE_MODE_OPTIONS,
   KEEP_AWAKE_ROW_TITLE,

@@ -6,7 +6,7 @@ import {
   SidebarSectionId,
   SidebarSectionItemKey,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, ManagedRuntime, Option, Stream } from "effect";

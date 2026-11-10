@@ -29,28 +29,29 @@ import type {
   ProviderInstanceConfigMap,
   ServerSettings,
   ServerSettingsPatch,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   DEFAULT_CODEX_ACCOUNT_ID,
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   MODEL_OPTIONS_BY_PROVIDER,
-} from "@synara/contracts";
-import { codexAccountInstanceId } from "@synara/shared/providerInstances";
+} from "@moss/contracts";
+import { codexAccountInstanceId } from "@moss/shared/providerInstances";
+import { MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME } from "@moss/shared/mossPluginCatalog";
 import {
   MANAGED_GATEWAY_CLAUDE_DEFAULT_MODEL,
   MANAGED_GATEWAY_CLAUDE_ENABLED_MODELS,
   MANAGED_GATEWAY_CODEX_DEFAULT_MODEL,
   MANAGED_GATEWAY_CODEX_ENABLED_MODELS,
   MOSS_SOURCE_MODEL_IDS,
-} from "@synara/shared/mossManagedModelCatalog";
+} from "@moss/shared/mossManagedModelCatalog";
 import {
   buildMossCodexModelCatalogEntry,
   getMossManagedModelDefinition,
   type MossAccessLane,
   mossAccessLaneForAuthority,
   mossLaneEngineLineup,
-} from "@synara/shared/mossRealmCatalog";
-import { Effect, FileSystem, Layer, Path } from "effect";
+} from "@moss/shared/mossRealmCatalog";
+import { Effect, FileSystem, Layer, Option, Path } from "effect";
 
 import { writeFileStringAtomically } from "../../atomicWrite";
 import { PRIVATE_DIRECTORY_MODE, supportsPosixPermissions } from "../../privatePathPermissions";
@@ -59,6 +60,14 @@ import {
   uniqueCodexLifecycleHomeIdentityPaths,
 } from "../../codexHomeIdentity";
 import { ServerConfig } from "../../config";
+import { ServerSecretStore } from "../../auth/Services/ServerSecretStore.ts";
+import { makeClaudeStateBindingAccess } from "../../provider/claudeStateBinding.ts";
+import { agentProgramsForServer } from "../../provider/agentProgramOwnership.ts";
+import {
+  materializeMossPluginCatalogMarketplace,
+  mossPluginCatalogRoot,
+  prefetchMossPluginCatalog,
+} from "../../pluginCatalog/mossPluginCatalogStore.ts";
 import {
   MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY,
   MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
@@ -98,6 +107,7 @@ import {
   isVerifiedMossManagedPiProviderInstance,
   matchesMossManagedPiProviderInstance,
 } from "../../provider/mossManagedPiEnvironment";
+import { readManagedBearerExpiryMs } from "../managedCredentialFreshness";
 import { ServerSettingsService } from "../../serverSettings";
 import { MOSS_MANAGED_SELECTION_FALLBACK_CONFIG_KEY } from "../../reservedSettingsBoundary";
 import { withMossAccountLifecycleLock } from "../mossAccountLifecycleLock";
@@ -121,6 +131,9 @@ import {
   type MossManagedProviderShape,
 } from "../Services/MossManagedProvider";
 
+/** Lets startup and sign-in finish before the catalog's background download begins. */
+const CATALOG_PREFETCH_DELAY_MS = 15_000;
+
 export const MOSS_MANAGED_CODEX_ACCOUNT_ID = "moss";
 export const MOSS_MANAGED_PROVIDER_INSTANCE_ID = codexAccountInstanceId(
   MOSS_MANAGED_CODEX_ACCOUNT_ID,
@@ -129,6 +142,8 @@ export const MOSS_MANAGED_PROVIDER_INSTANCE_ID = codexAccountInstanceId(
 // on the provider-credential allowlist instead of the MOSS_* control-plane
 // namespace, which is intentionally stripped from provider child processes.
 export const MOSS_MANAGED_PROVIDER_ENV_KEY = "OPENAI_API_KEY";
+/** A model stream authenticated just before expiry may still be finishing. */
+const MOSS_MANAGED_RUNNING_TURN_BEARER_GRACE_MS = 5 * 60_000;
 export const MOSS_BUNDLED_CODEX_PATH_ENV_KEY = "MOSS_BUNDLED_CODEX_PATH";
 export const MOSS_MANAGED_GATEWAY_API_KEY_ENV_KEY = "MOSS_MODEL_GATEWAY_API_KEY";
 export const MOSS_MANAGED_GATEWAY_MODEL_ENV_KEY = "MOSS_MODEL_GATEWAY_MODEL";
@@ -1132,6 +1147,8 @@ export function buildMossManagedCodexConfig(input: {
   readonly defaultModel: string;
   readonly credentialEnvKey?: string;
   readonly bundledPluginMarketplaceRoot?: string;
+  /** Moss's plugin catalog marketplace (open-source plugins fetched from Moss's mirror). */
+  readonly catalogPluginMarketplaceRoot?: string;
   /** Absolute path of the managed `models.json`; omitted only by legacy callers. */
   readonly modelCatalogPath?: string;
 }): string {
@@ -1166,6 +1183,14 @@ export function buildMossManagedCodexConfig(input: {
           `source = ${quoteTomlString(input.bundledPluginMarketplaceRoot)}`,
         ]
       : []),
+    ...(input.catalogPluginMarketplaceRoot
+      ? [
+          "",
+          `[marketplaces.${MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME}]`,
+          'source_type = "local"',
+          `source = ${quoteTomlString(input.catalogPluginMarketplaceRoot)}`,
+        ]
+      : []),
     "",
     "[model_providers.moss]",
     'name = "Moss"',
@@ -1177,10 +1202,11 @@ export function buildMossManagedCodexConfig(input: {
     // history, so retrying inside the child could create a second paid operation.
     "request_max_retries = 0",
     "stream_max_retries = 0",
-    // Bound silent upstream stalls so Codex surfaces a stream error instead of
-    // waiting for the Cloudflare/edge ~120s cut. Keep this above typical CN
-    // DeepSeek TTFT (~15-25s) but under MemFire/CF hang windows.
-    "stream_idle_timeout_ms = 60000",
+    // Codex doesn't count the ": PING" comments APIMart sends as activity, so a
+    // lower limit fails a healthy slow turn, with no retry. Stay above the gateway's
+    // own limits (120 s to the first real event, 90 s of silence): the gateway ends a
+    // stalled stream itself, and Codex reports that. Claude Code's watchdog is also 300 s.
+    "stream_idle_timeout_ms = 300000",
     "requires_openai_auth = false",
     "",
   ].join("\n");
@@ -1275,10 +1301,19 @@ const isCodexLifecycleIdentityResolutionFailure = (cause: unknown): boolean =>
   cause.operation === "ProviderService.stopCodexAccountRuntimes" &&
   cause.issue === "Failed to resolve Codex account lifecycle identities.";
 
+const isMossManagedClaudeSession = (
+  session: { readonly provider: string; readonly providerInstanceId?: string | undefined } | null,
+): boolean =>
+  session?.provider === "claudeAgent" &&
+  session.providerInstanceId === MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID;
+
 export const stopMossManagedProviderRuntimes = (
   providerService: Pick<
     ProviderServiceShape,
-    "fenceProviderInstanceLaunchesAndWait" | "listSessions"
+    | "fenceProviderInstanceLaunchesAndWait"
+    | "getRuntimeSessionStopTarget"
+    | "listSessions"
+    | "stopRuntimeSession"
   >,
 ) =>
   Effect.gen(function* () {
@@ -1297,17 +1332,36 @@ export const stopMossManagedProviderRuntimes = (
     yield* fenceProviderInstanceLaunchesAndWait({
       providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
     });
-    const sessions = yield* providerService.listSessions();
-    const hasManagedClaudeRuntime = sessions.some(
-      (session) =>
-        session.provider === "claudeAgent" &&
-        session.providerInstanceId === MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+    const managedSessions = (yield* providerService.listSessions()).filter(
+      isMossManagedClaudeSession,
     );
-    if (hasManagedClaudeRuntime) {
+    if (managedSessions.length === 0) return;
+    const { getRuntimeSessionStopTarget, stopRuntimeSession } = providerService;
+    if (!getRuntimeSessionStopTarget || !stopRuntimeSession) {
       return yield* Effect.fail(
         new Error(
           "Managed Claude runtime cleanup has no exact-session stop; stop the active Moss Claude session and retry.",
         ),
+      );
+    }
+    // A thread can move to a replacement runtime after the snapshot. Stop only
+    // what the thread still runs as Moss Claude, pinned to that lifecycle epoch.
+    yield* Effect.forEach(
+      managedSessions,
+      (session) =>
+        Effect.gen(function* () {
+          const target = yield* getRuntimeSessionStopTarget({ threadId: session.threadId });
+          if (!isMossManagedClaudeSession(target.session)) return;
+          yield* stopRuntimeSession({
+            threadId: session.threadId,
+            expectedLifecycleGeneration: target.lifecycleGeneration,
+          });
+        }),
+      { discard: true },
+    );
+    if ((yield* providerService.listSessions()).some(isMossManagedClaudeSession)) {
+      return yield* Effect.fail(
+        new Error("Managed Claude runtime remained live after its exact-session stop."),
       );
     }
   });
@@ -1681,6 +1735,7 @@ export const MossManagedProviderLive = Layer.effect(
     const config = yield* ServerConfig;
     const providerService = yield* ProviderService;
     const settingsService = yield* ServerSettingsService;
+    const bindingSecrets = Option.getOrUndefined(yield* Effect.serviceOption(ServerSecretStore));
     // Account layers reconcile pending logout state while the application
     // layer graph is still being constructed. Ensure those lifecycle calls
     // inspect the durable settings snapshot instead of the service's empty
@@ -1849,6 +1904,27 @@ export const MossManagedProviderLive = Layer.effect(
         catch: toProviderError,
       });
 
+    // The catalog is an extra the account works without: a failure leaves it out of the config.
+    const materializeCatalogPluginMarketplace = Effect.tryPromise(async () => {
+      const root = await materializeMossPluginCatalogMarketplace(
+        mossPluginCatalogRoot(config.stateDir),
+      );
+      // Off the sign-in path: the plugins' own files arrive in the background
+      // (never from unit tests, which must not reach the network).
+      if (!process.env.VITEST) {
+        setTimeout(() => {
+          void prefetchMossPluginCatalog(root);
+        }, CATALOG_PREFETCH_DELAY_MS).unref?.();
+      }
+      return root;
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Moss plugin catalog marketplace unavailable", {
+          error: error instanceof Error ? error.message : String(error),
+        }).pipe(Effect.as(undefined)),
+      ),
+    );
+
     const stopManagedAccountContexts = (
       runtimeGeneration: string | undefined,
     ): Effect.Effect<void, unknown> => {
@@ -1979,6 +2055,41 @@ export const MossManagedProviderLive = Layer.effect(
         }
         const failure = failures[0];
         if (failure) return yield* Effect.fail(failure);
+        if (
+          input.checkClaude &&
+          ((yield* fs.exists(path.join(config.stateDir, "agent-state-bindings", "claudeAgent"))) ||
+            (yield* fs.exists(path.join(config.stateDir, "provider-homes", "claude-shared"))))
+        ) {
+          if (!bindingSecrets)
+            return yield* Effect.fail(
+              new Error("Claude 私有清理需要服务器密钥服务，请重启 Moss 后重试退出。"),
+            );
+          const bindings = yield* makeClaudeStateBindingAccess({
+            stateDir: config.stateDir,
+            readAccount: () => undefined,
+          }).pipe(Effect.provideService(ServerSecretStore, bindingSecrets));
+          yield* Effect.tryPromise({
+            try: () =>
+              bindings.clearManagedPrivateState({
+                providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+                assertAccountDisabled: () => {
+                  const current = inspectVerifiedManagedSurfaces(
+                    Effect.runSync(settingsService.getSettings),
+                  ).claudeInstance;
+                  if (!current || !launchSurfaceIsDurablyDisabled(current)) {
+                    throw new Error(
+                      "Claude 托管账户的停用状态已变化，未清理私有内容，请重试退出。",
+                    );
+                  }
+                },
+                assertPrivateIdle: (privateConfigPath) =>
+                  agentProgramsForServer(config, "claudeAgent").assertPrivateSourceIdle(
+                    privateConfigPath,
+                  ),
+              }),
+            catch: (cause) => cause,
+          });
+        }
       }).pipe(Effect.asVoid);
 
     const removeManagedAccountOverlay = () =>
@@ -2863,6 +2974,7 @@ export const MossManagedProviderLive = Layer.effect(
         if (!managedReservation) return false;
         yield* ensureVerifiedManagedHome(managedReservation);
         const bundledMarketplace = yield* materializeManagedPluginMarketplace(managedReservation);
+        const catalogMarketplaceRoot = yield* materializeCatalogPluginMarketplace;
         // Desktop keeps Moss catalog ids; the gateway resolves them against the OpenRouter upstream.
         const defaultModel = input.models[0] ?? MOSS_MANAGED_DEFAULT_MODEL;
         yield* writeManagedFileAtomically({
@@ -2883,6 +2995,9 @@ export const MossManagedProviderLive = Layer.effect(
               defaultModel,
               credentialEnvKey: input.credentialEnvKey,
               bundledPluginMarketplaceRoot: bundledMarketplace.root,
+              ...(catalogMarketplaceRoot
+                ? { catalogPluginMarketplaceRoot: catalogMarketplaceRoot }
+                : {}),
               modelCatalogPath: managedModelCatalogPath,
             }),
           }),
@@ -3141,6 +3256,7 @@ export const MossManagedProviderLive = Layer.effect(
         yield* prepareManagedHome(managedReservation);
         const verifiedManagedReservation = managedReservation;
         const bundledMarketplace = yield* materializeManagedPluginMarketplace(managedReservation);
+        const catalogMarketplaceRoot = yield* materializeCatalogPluginMarketplace;
         // Desktop keeps Moss catalog ids; the gateway resolves them against the OpenRouter upstream.
         const defaultModel = models[0] ?? MOSS_MANAGED_DEFAULT_MODEL;
         yield* writeManagedFileAtomically({
@@ -3162,6 +3278,9 @@ export const MossManagedProviderLive = Layer.effect(
               defaultModel,
               credentialEnvKey,
               bundledPluginMarketplaceRoot: bundledMarketplace.root,
+              ...(catalogMarketplaceRoot
+                ? { catalogPluginMarketplaceRoot: catalogMarketplaceRoot }
+                : {}),
               modelCatalogPath: managedModelCatalogPath,
             }),
           }),
@@ -3356,6 +3475,42 @@ export const MossManagedProviderLive = Layer.effect(
         }),
         Effect.mapError(toProviderError),
       );
+
+    const hasRunningTurnOnLiveBearer: NonNullable<
+      MossManagedProviderShape["hasRunningTurnOnLiveBearer"]
+    > = (input) =>
+      Effect.gen(function* () {
+        const managedInstanceIds = new Set<string>([
+          MOSS_MANAGED_PROVIDER_INSTANCE_ID,
+          MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+          MOSS_MANAGED_OPENCODE_PROVIDER_INSTANCE_ID,
+          MOSS_MANAGED_PI_PROVIDER_INSTANCE_ID,
+          ...MOSS_MANAGED_RELAY_PROVIDERS.map((relay) => relay.instanceId),
+        ]);
+        const managedSessions = (yield* providerService.listSessions()).filter(
+          (session) =>
+            session.providerInstanceId !== undefined &&
+            managedInstanceIds.has(session.providerInstanceId),
+        );
+        const hasRunningTurn = managedSessions.some(
+          (session) => session.status === "running" || session.activeTurnId !== undefined,
+        );
+        if (!hasRunningTurn && !managedSessions.some((s) => s.status === "connecting")) {
+          return false;
+        }
+        const settings = yield* settingsService.getSettings;
+        const bearer = settings.providerInstances[
+          MOSS_MANAGED_PROVIDER_INSTANCE_ID
+        ]?.environment?.find((entry) => entry.name === MOSS_MANAGED_PROVIDER_ENV_KEY)?.value;
+        const bearerExpiresAt = readManagedBearerExpiryMs(bearer);
+        // A session still starting has no stream to protect, and a runtime that
+        // reopens after a 401 must not keep the expired bearer for the next message.
+        return (
+          bearerExpiresAt !== null &&
+          input.now <
+            bearerExpiresAt + (hasRunningTurn ? MOSS_MANAGED_RUNNING_TURN_BEARER_GRACE_MS : 0)
+        );
+      }).pipe(Effect.mapError(toProviderError));
 
     const getProvisioningState = (input: {
       readonly authority: MossManagedGatewayAuthority;
@@ -3565,6 +3720,8 @@ export const MossManagedProviderLive = Layer.effect(
       needsDisable: () => withMossAccountLifecycleLock(settingsService, needsDisable()),
       getProvisioningState: (input) =>
         withMossAccountLifecycleLock(settingsService, getProvisioningState(input)),
+      hasRunningTurnOnLiveBearer: (input) =>
+        withMossAccountLifecycleLock(settingsService, hasRunningTurnOnLiveBearer(input)),
       provision: (input) => withMossAccountLifecycleLock(settingsService, provision(input)),
       disable: (input) => withMossAccountLifecycleLock(settingsService, disable(input)),
     };

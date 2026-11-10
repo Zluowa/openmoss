@@ -3,9 +3,9 @@ import { constants as NodeFsConstants, type BigIntStats } from "node:fs";
 import * as NodeFs from "node:fs/promises";
 import * as NodePath from "node:path";
 
-import { isLocalAbsolutePath } from "@synara/shared/path";
-import { normalizeLineEndings } from "@synara/shared/text";
-import { PROJECT_PREVIEW_READ_FILE_MAX_BYTES } from "@synara/contracts";
+import { isLocalAbsolutePath } from "@moss/shared/path";
+import { normalizeLineEndings } from "@moss/shared/text";
+import { PROJECT_PREVIEW_READ_FILE_MAX_BYTES } from "@moss/contracts";
 import { Effect, Layer, Path } from "effect";
 
 import {

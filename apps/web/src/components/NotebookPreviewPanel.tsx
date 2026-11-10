@@ -257,7 +257,7 @@ function Cell({
                 {title}
               </span>
               <span className="shrink-0 text-ui-sm text-muted-foreground">
-                Cell {index + 1} of {total}
+                {`Cell ${index + 1} of ${total}`}
               </span>
             </span>
             {cell.cellType === "code" && (

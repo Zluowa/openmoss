@@ -1,4 +1,4 @@
-import type { ServerProviderStatus } from "@synara/contracts";
+import type { ServerProviderStatus } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { formatMossTranslation, translateMoss } from "~/localization";
@@ -140,14 +140,35 @@ describe("getProviderUpdatePillView", () => {
     expect(success?.dismissAfterVisibleMs).toBe(PROVIDER_UPDATE_SUCCESS_VISIBLE_MS);
 
     const failure = getProviderUpdatePillView(
-      [provider("pi", updateState("failed", CHECKED_AT, "Update command exited with code 1."))],
+      [provider("codex", updateState("failed", CHECKED_AT, "Update command exited with code 1."))],
       EN,
     );
     expect(failure?.tone).toBe("error");
-    expect(failure?.title).toBe("Pi v1.1.0 update failed");
-    expect(failure?.description).toBe("Update command exited with code 1.");
+    expect(failure?.title).toBe("Codex v1.1.0 update failed");
+    expect(failure?.description).toBe(
+      "Update command exited with code 1. Codex keeps working on the version it has. To update it yourself, open agent settings and run its update command in a terminal.",
+    );
     expect(failure?.dismissible).toBe(true);
     expect(failure?.dismissAfterVisibleMs).toBeUndefined();
+  });
+
+  it("says why an update failed and what a person can do about it", () => {
+    const failed = [
+      provider(
+        "claudeAgent",
+        updateState(
+          "failed",
+          CHECKED_AT,
+          "Update command exited with code 1: npm error code EACCES",
+        ),
+      ),
+    ];
+    expect(getProviderUpdatePillView(failed, EN)?.description).toBe(
+      "Update command exited with code 1: npm error code EACCES. Claude keeps working on the version it has. To update it yourself, open agent settings and run its update command in a terminal.",
+    );
+    expect(getProviderUpdatePillView(failed, ZH)?.description).toBe(
+      "更新命令出错退出（退出码 1）：npm error code EACCES。Claude 会继续用现在的版本工作。想自己更新的话，打开智能体设置，在终端里运行它的更新命令。",
+    );
   });
 
   it("warns when the command ran but the old version remains", () => {

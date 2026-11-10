@@ -14,7 +14,7 @@ import {
   migrationBackupProvenancePath,
   migrationRecoveryMarkerPath,
   parseMigrationSchemaTooNewStartupBlock,
-} from "@synara/shared/migrationRecovery";
+} from "@moss/shared/migrationRecovery";
 
 import {
   inspectCompletedMigrationBackupForSchemaTooNew,

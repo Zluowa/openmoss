@@ -1,7 +1,8 @@
-import { isBetaFeatureEnabled, MCP_CONNECTORS_BETA_FEATURE } from "@synara/shared/betaFeatures";
+import { isBetaFeatureEnabled, MCP_CONNECTORS_BETA_FEATURE } from "@moss/shared/betaFeatures";
 import { describe, expect, it } from "vitest";
 
 import {
+  CODEX_RESOURCE_LEGACY_SECTIONS,
   isSettingsSectionAvailable,
   normalizeSettingsSection,
   SETTINGS_NAV_ITEMS,
@@ -20,7 +21,7 @@ describe("settings sections", () => {
     expect(isSettingsSectionAvailable("integrations", () => false)).toBe(true);
   });
 
-  it("lists Connectors without a Beta badge and allows them on Stable", () => {
+  it("keeps the legacy resource sections out of navigation", () => {
     expect(
       isSettingsSectionAvailable("connectors", (feature) =>
         isBetaFeatureEnabled(feature, "production"),
@@ -28,9 +29,21 @@ describe("settings sections", () => {
     ).toBe(true);
     const ids = SETTINGS_NAV_ITEMS.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids.toSorted()).toEqual(SETTINGS_SECTION_IDS.toSorted());
+    expect(ids.toSorted()).toEqual(
+      SETTINGS_SECTION_IDS.filter((id) => !["connectors", "skills"].includes(id)).toSorted(),
+    );
+    expect(SETTINGS_NAV_ITEMS.some((item) => item.id === "connectors")).toBe(false);
+    expect(SETTINGS_NAV_ITEMS.some((item) => item.id === "skills")).toBe(false);
     expect(normalizeSettingsSection("connectors")).toBe("connectors");
-    expect(SETTINGS_NAV_ITEMS.find((item) => item.id === "connectors")?.badge).toBeUndefined();
+  });
+
+  it("keeps MCP connections and System tools reachable, since the library has neither", () => {
+    expect(CODEX_RESOURCE_LEGACY_SECTIONS).not.toContain("integrations");
+    expect(CODEX_RESOURCE_LEGACY_SECTIONS).not.toContain("advanced");
+    expect(SETTINGS_NAV_ITEMS.find((item) => item.id === "integrations")?.group).toBe(
+      "integrations",
+    );
+    expect(SETTINGS_NAV_ITEMS.find((item) => item.id === "advanced")?.group).toBe("system");
   });
 
   it("falls back to General for unknown sections", () => {

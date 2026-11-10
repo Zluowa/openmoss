@@ -6,7 +6,7 @@ import type {
   GitHubIssueDetail,
   GitHubIssueDetailInput,
   OrchestrationProject,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -39,6 +39,7 @@ export interface GitHubInboxSharedReads {
 }
 
 export interface GitHubInboxServiceShape extends GitHubInboxSharedReads {
+  readonly clearAccount: Effect.Effect<void>;
   readonly list: (input: GitHubInboxListInput) => Effect.Effect<GitHubInboxListResult, unknown>;
   readonly issueDetail: (
     input: GitHubIssueDetailInput,

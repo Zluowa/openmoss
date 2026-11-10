@@ -42,15 +42,24 @@ export type ToolCallSummaryCategory =
   | "command"
   | "fetch"
   | "agent"
+  | "message"
   | "tool"
   | "other";
+
+/** Named parts shown before the rest folds into "N more actions" (desktop chat rule). */
+export const TOOL_GROUP_SUMMARY_LEADING_PARTS = 3;
 
 export interface ToolCallGroupSummaryPart {
   category: ToolCallSummaryCategory;
   count: number;
-  // File search stays "Searched"; only a web-search bucket uses Codex's
-  // "Searched the web" segment (localConversation.agentActivity.summary.webSearch).
+  // A bucket made only of web searches reads "searched the web"; one made only of
+  // file-name searches reads "searched for files"; anything else "searched code".
   webSearch?: boolean;
+  fileSearch?: boolean;
+  /** The folded tail: `count` calls of several kinds ("and 4 more actions"). */
+  rest?: boolean;
+  /** An edit bucket whose every file is new reads "created N files". */
+  created?: boolean;
 }
 
 export interface ToolCallGroupSummary {
@@ -77,20 +86,27 @@ type ToolCallGroupTranslationFormat = (
 ) => string;
 
 function summaryPartTranslationKey(
-  category: ToolCallSummaryCategory,
-  count: number,
+  part: ToolCallGroupSummaryPart,
   isSolePart: boolean,
 ): TranslationKey {
+  const { category, count } = part;
   const plural = count === 1 ? "one" : "many";
+  if (part.rest) return `chat.toolGroup.rest.${plural}`;
   switch (category) {
     case "command":
       return `chat.toolGroup.command.${plural}`;
     case "edit":
-      return `chat.toolGroup.edit.${plural}`;
+      return part.created ? `chat.toolGroup.create.${plural}` : `chat.toolGroup.edit.${plural}`;
     case "read":
       return `chat.toolGroup.read.${plural}`;
     case "search":
-      return `chat.toolGroup.search.${plural}`;
+      return part.webSearch
+        ? `chat.toolGroup.search.web.${plural}`
+        : part.fileSearch
+          ? "chat.toolGroup.search.files"
+          : "chat.toolGroup.search.code";
+    case "message":
+      return `chat.toolGroup.message.${plural}`;
     case "fetch":
       return `chat.toolGroup.fetch.${plural}`;
     case "agent":
@@ -115,11 +131,7 @@ export function formatToolCallGroupSummary(
 ): string {
   return summary.parts
     .map((part) =>
-      part.category === "search" && part.webSearch
-        ? format("chat.toolGroup.search.web", {})
-        : format(summaryPartTranslationKey(part.category, part.count, summary.parts.length === 1), {
-            count: part.count,
-          }),
+      format(summaryPartTranslationKey(part, summary.parts.length === 1), { count: part.count }),
     )
     .join(format("chat.toolGroup.separator", {}));
 }
@@ -151,6 +163,7 @@ const SEARCH_VERBS = new Set(["Searched", "Searching", "Found", "Finding"]);
 // report them (`Read`, `Grep`, `Glob`, `WebSearch`).
 const READ_TOOL_NAMES = new Set(["read", "readfile", "viewfile"]);
 const SEARCH_TOOL_NAMES = new Set(["grep", "glob", "websearch", "findfiles", "searchfiles"]);
+const FILE_SEARCH_TOOL_NAMES = new Set(["glob", "findfiles"]);
 
 function normalizedToolName(entry: WorkLogEntry): string {
   return (entry.toolName ?? "").toLowerCase().replace(/[^a-z]/g, "");
@@ -166,11 +179,19 @@ function classifyCommandVerb(verb: string): ToolCallSummaryCategory {
   return "command";
 }
 
+// Tools that hand a message to another chat or agent: Moss's own and Claude Code's.
+function isThreadMessageTool(toolName: string): boolean {
+  return toolName.endsWith("mosssendmessage") || toolName === "sendmessage";
+}
+
 export function classifyToolCallSummaryCategory(entry: WorkLogEntry): ToolCallSummaryCategory {
   if (isFileChangeWorkLogEntry(entry)) {
     return "edit";
   }
   const toolName = normalizedToolName(entry);
+  if (isThreadMessageTool(toolName)) {
+    return "message";
+  }
   if (entry.requestKind === "file-read" || READ_TOOL_NAMES.has(toolName)) {
     return "read";
   }
@@ -241,59 +262,54 @@ function entryFileKeys(entry: WorkLogEntry): ReadonlyArray<string> {
   return [];
 }
 
-// Collapsed summaries (joined by Intl.ListFormat type "unit") name the kind, not
-// the count. The first segment uses the leading (capitalized) string; later
-// segments use the following form.
+// English phrase for one part, in the desktop chat's wording: counted nouns
+// ("Read 3 files", "ran a command"); the first part is capitalized.
 function summaryPartPhrase(part: ToolCallGroupSummaryPart, leading: boolean): string {
-  const one = part.count === 1;
-  switch (part.category) {
-    case "read":
-      return leading ? "Read files" : "read files";
-    case "edit":
-      return leading
-        ? one
-          ? "Edited a file"
-          : "Edited files"
-        : one
-          ? "edited a file"
-          : "edited files";
-    case "search":
-      if (part.webSearch) {
-        return leading ? "Searched the web" : "searched the web";
-      }
-      return leading ? "Searched" : "searched";
-    case "command":
-      return leading
-        ? one
-          ? "Ran a command"
-          : "Ran commands"
-        : one
-          ? "ran a command"
-          : "ran commands";
-    case "fetch":
-      return leading
-        ? one
-          ? "Fetched a page"
-          : "Fetched pages"
-        : one
-          ? "fetched a page"
-          : "fetched pages";
-    case "agent":
-    case "tool":
-    case "other":
-      return leading
-        ? one
-          ? "Called a tool"
-          : "Called tools"
-        : one
-          ? "called a tool"
-          : "called tools";
-  }
+  const { count } = part;
+  const one = count === 1;
+  const phrase = (() => {
+    if (part.rest) return `and ${count} more ${one ? "action" : "actions"}`;
+    switch (part.category) {
+      case "read":
+        return one ? "read a file" : `read ${count} files`;
+      case "edit":
+        if (part.created) return one ? "created a file" : `created ${count} files`;
+        return one ? "edited a file" : `edited ${count} files`;
+      case "search":
+        if (part.webSearch) return one ? "searched the web" : `searched the web ${count} times`;
+        return part.fileSearch ? "searched for files" : "searched code";
+      case "command":
+        return one ? "ran a command" : `ran ${count} commands`;
+      case "fetch":
+        return one ? "fetched a page" : `fetched ${count} pages`;
+      case "agent":
+        return one ? "ran an agent" : `ran ${count} agents`;
+      case "message":
+        return one ? "messaged another chat" : `messaged ${count} other chats`;
+      case "tool":
+      case "other":
+        return one ? "used a tool" : `used ${count} tools`;
+    }
+  })();
+  return leading ? phrase.charAt(0).toUpperCase() + phrase.slice(1) : phrase;
 }
 
 function joinSummaryParts(parts: ReadonlyArray<ToolCallGroupSummaryPart>): string {
-  const phrases = parts.map((part, index) => summaryPartPhrase(part, index === 0));
-  return new Intl.ListFormat("en", { type: "unit", style: "long" }).format(phrases);
+  return parts.map((part, index) => summaryPartPhrase(part, index === 0)).join(", ");
+}
+
+// Five or more kinds keep the first three and fold the rest into one counted tail,
+// so the line stays one line.
+function capSummaryParts(
+  parts: ReadonlyArray<ToolCallGroupSummaryPart>,
+  restCallCount: (parts: ReadonlyArray<ToolCallGroupSummaryPart>) => number,
+): ReadonlyArray<ToolCallGroupSummaryPart> {
+  if (parts.length < TOOL_GROUP_SUMMARY_LEADING_PARTS + 2) return parts;
+  const rest = parts.slice(TOOL_GROUP_SUMMARY_LEADING_PARTS);
+  return [
+    ...parts.slice(0, TOOL_GROUP_SUMMARY_LEADING_PARTS),
+    { category: "other", count: restCallCount(rest), rest: true },
+  ];
 }
 
 export function summarizeToolCallGroup(
@@ -308,10 +324,15 @@ export function summarizeToolCallGroup(
   // Map insertion order is first appearance, so parts read in the order the
   // agent did the work.
   const countByCategory = new Map<ToolCallSummaryCategory, number>();
+  const callsByCategory = new Map<ToolCallSummaryCategory, number>();
   const webSearchCountByCategory = new Map<ToolCallSummaryCategory, number>();
+  let fileSearchCount = 0;
   const distinctFilesByCategory = new Map<ToolCallSummaryCategory, Set<string>>();
+  const messageTargets = new Set<string>();
   let hasRunningEntry = false;
   let failedCount = 0;
+  // Edits read "created" only when every file they touched was added.
+  let editsAllCreate = true;
 
   for (const entry of summarizable) {
     if (entry.toolStatus === "running") {
@@ -321,9 +342,31 @@ export function summarizeToolCallGroup(
       failedCount += 1;
     }
     const category = classifyToolCallSummaryCategory(entry);
+    callsByCategory.set(category, (callsByCategory.get(category) ?? 0) + 1);
     const count = countByCategory.get(category) ?? 0;
+    if (category === "message") {
+      // Messages count chats, not calls: two messages to one chat is one chat.
+      const target = entry.detail
+        ? extractToolArgumentField(entry.detail, ["threadId", "thread_id", "to", "session_id"], {
+            fallbackScan: "whenUnparsed",
+          })
+        : null;
+      if (target) {
+        countByCategory.set(category, count);
+        messageTargets.add(target);
+      } else {
+        countByCategory.set(category, count + 1);
+      }
+      continue;
+    }
     if (category === "edit" || category === "read") {
       const fileKeys = entryFileKeys(entry);
+      if (
+        category === "edit" &&
+        (fileKeys.length === 0 || fileKeys.some((file) => entry.fileChangeKinds?.[file] !== "add"))
+      ) {
+        editsAllCreate = false;
+      }
       if (fileKeys.length === 0) {
         countByCategory.set(category, count + 1);
         continue;
@@ -340,7 +383,12 @@ export function summarizeToolCallGroup(
     countByCategory.set(category, count + 1);
     if (category === "search" && isWebSearchEntry(entry)) {
       webSearchCountByCategory.set(category, (webSearchCountByCategory.get(category) ?? 0) + 1);
+    } else if (category === "search" && FILE_SEARCH_TOOL_NAMES.has(normalizedToolName(entry))) {
+      fileSearchCount += 1;
     }
+  }
+  if (messageTargets.size > 0) {
+    countByCategory.set("message", (countByCategory.get("message") ?? 0) + messageTargets.size);
   }
 
   for (const [category, distinctFiles] of distinctFilesByCategory) {
@@ -348,16 +396,26 @@ export function summarizeToolCallGroup(
   }
 
   // "Other" calls always trail the named kinds.
-  const parts = [...countByCategory.entries()]
+  const namedParts = [...countByCategory.entries()]
     .filter(([, count]) => count > 0)
     .toSorted(([left], [right]) => Number(left === "other") - Number(right === "other"))
-    .map(([category, count]) => ({
-      category,
-      count,
-      ...(category === "search" && (webSearchCountByCategory.get(category) ?? 0) === count
-        ? { webSearch: true }
-        : {}),
-    }));
+    .map(([category, count]): ToolCallGroupSummaryPart => {
+      const searchCalls = callsByCategory.get(category) ?? 0;
+      return {
+        category,
+        count,
+        ...(category === "search" && (webSearchCountByCategory.get(category) ?? 0) === count
+          ? { webSearch: true }
+          : {}),
+        ...(category === "search" && searchCalls > 0 && fileSearchCount === searchCalls
+          ? { fileSearch: true }
+          : {}),
+        ...(category === "edit" && editsAllCreate ? { created: true } : {}),
+      };
+    });
+  const parts = capSummaryParts(namedParts, (rest) =>
+    rest.reduce((total, part) => total + (callsByCategory.get(part.category) ?? part.count), 0),
+  );
 
   return {
     label: joinSummaryParts(parts),

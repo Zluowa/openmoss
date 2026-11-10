@@ -10,10 +10,12 @@
  *
  * @module CodexAdapter
  */
-import type { ProviderSession, RuntimeSessionId, ThreadId } from "@synara/contracts";
+import type { ProviderSession, RuntimeSessionId, ThreadId } from "@moss/contracts";
 import { ServiceMap, type Effect } from "effect";
 
 import type { ProviderAdapterError } from "../Errors.ts";
+import type { CodexCredentialScopeInput } from "../../codexHomeIdentity.ts";
+import type { CodexRegisteredRuntimeStopScope } from "../../codexAppServerManager.ts";
 import type { ProviderAdapterShape } from "./ProviderAdapter.ts";
 
 /**
@@ -21,16 +23,24 @@ import type { ProviderAdapterShape } from "./ProviderAdapter.ts";
  */
 export interface CodexAdapterShape extends ProviderAdapterShape<ProviderAdapterError> {
   readonly provider: "codex";
+  /** Internal process snapshots only; never exposed through the transport schema. */
+  readonly listAccountRuntimeScopes?: (
+    input: CodexCredentialScopeInput,
+  ) => Effect.Effect<readonly CodexRegisteredRuntimeStopScope[], ProviderAdapterError>;
+  readonly stopRegisteredAccountScopeAndWait?: (
+    scope: CodexRegisteredRuntimeStopScope,
+  ) => Effect.Effect<ReadonlyArray<ProviderSession>, ProviderAdapterError>;
 
   /**
    * Stop all normal and discovery runtimes bound to one exact Codex account,
    * and resolve only after every child process has exited.
    */
-  readonly stopAccountContextsAndWait: (input: {
-    readonly homePath: string;
-    readonly accountId: string;
-    readonly runtimeGeneration?: string;
-  }) => Effect.Effect<ReadonlyArray<ProviderSession>, ProviderAdapterError>;
+  readonly stopAccountContextsAndWait: (
+    input: {
+      readonly homePath: string;
+      readonly accountId: string;
+    } & CodexCredentialScopeInput,
+  ) => Effect.Effect<ReadonlyArray<ProviderSession>, ProviderAdapterError>;
 
   /** Stop only the exact Codex launch currently occupying a thread slot. */
   readonly stopSessionIfCurrent?: (

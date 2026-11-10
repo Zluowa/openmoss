@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { makeReadModelThread, makeState, makeThread } from "../storeTestFixtures";
 import {
   readThreadDetailCache,

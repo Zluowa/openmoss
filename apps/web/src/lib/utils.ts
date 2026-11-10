@@ -1,4 +1,4 @@
-import { CommandId, MessageId, ProjectId, SpaceId, ThreadId } from "@synara/contracts";
+import { CommandId, MessageId, ProjectId, SpaceId, ThreadId } from "@moss/contracts";
 import { type CxOptions, cx } from "class-variance-authority";
 import { extendTailwindMerge } from "tailwind-merge";
 import * as Random from "effect/Random";
@@ -10,9 +10,29 @@ import * as Effect from "effect/Effect";
 const twMerge = extendTailwindMerge({
   extend: {
     theme: {
+      spacing: [
+        "control-xs",
+        "control-sm",
+        "control",
+        "control-lg",
+        "ui-icon",
+        "ui-icon-sm",
+        "ui-icon-lg",
+        "ui-pad-xs",
+        "ui-pad-sm",
+        "ui-pad-md",
+        "ui-pad-lg",
+        "ui-pad-xl",
+        "ui-gap-xs",
+        "ui-gap-sm",
+        "ui-gap-md",
+        "ui-gap-lg",
+        "ui-gap-xl",
+      ],
       text: [
         "ui",
         "ui-lg",
+        "ui-xl",
         "ui-sm",
         "ui-xs",
         "ui-2xs",
@@ -22,6 +42,7 @@ const twMerge = extendTailwindMerge({
         "chat-code",
         "chat-meta",
         "chat-tiny",
+        "title",
         // Custom classes in index.css (`text-size-chat`), not Tailwind font sizes.
         "size-chat",
         "size-chat-sm",

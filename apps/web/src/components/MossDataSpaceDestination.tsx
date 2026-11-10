@@ -1,63 +1,87 @@
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+// FILE: MossDataSpaceDestination.tsx
+// Purpose: The 资料空间 rail destination: its sidebar, the item views (全部, one kind, one
+//          资料空间, 回收站), and whichever item is open (a page, a chat output, an 应用页…).
+// Layer: Space UI composition
+// Why: Pages, 应用页, files agents wrote in chats and 资料库 files are different stores; the
+//      Space lists them as one set of items (`space/spaceItems.ts`) so people find a thing
+//      where they expect it, whichever store holds it.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  type AutomationDefinition,
+  LIBRARY_IMPORT_FILE_MAX_BYTES,
   type Page,
   PageId,
+  type PageSpace,
   type PagesMutateInput,
   type PagesReadResult,
   type SpaceId,
-} from "@synara/contracts";
+  type ThreadId,
+} from "@moss/contracts";
+
 import { ensureNativeApi } from "~/nativeApi";
-import { useTheme } from "~/hooks/useTheme";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
-import { pageReadQueryOptions, pagesQueryKeys } from "~/lib/pagesReactQuery";
-import { PageEditorSession } from "~/lib/pageEditorSession";
-import { PageDraftJournal } from "~/lib/pageDraftJournal";
+import { pagesQueryKeys } from "~/lib/pagesReactQuery";
 import { isPageMutationRejected, PageMutationIntent } from "~/lib/pageMutationIntent";
-import { downloadBlob } from "~/lib/browserDownload";
-import { useStore } from "~/store";
+import { listSpacePageApps, promoteHtmlToPageApp } from "~/lib/spacePageApps";
+import { clearSpacePageHash, readSpacePageHash, SPACE_PAGE_HASH_PREFIX } from "~/lib/spacePageLink";
 import { useSpacesUiStore } from "~/spacesUiStore";
-import { useAutomations } from "~/routes/-automations.shared";
-import { AutomationCreateDialog } from "~/routes/-automations.list";
+
+import { MossLibraryDestination } from "./MossLibraryDestination";
+import { PageView } from "./pages/PageView";
+import type { SpaceCreateAction } from "./space/SpaceCreateMenu";
+import { SpaceHome } from "./space/SpaceHome";
+import {
+  buildSpaceItems,
+  recentItems,
+  spaceTitle,
+  type SpaceItem,
+  type SpaceSection,
+} from "./space/spaceItems";
+import {
+  SpaceAppViewer,
+  SpaceComingSoon,
+  SpaceOutputViewer,
+  readOutputText,
+} from "./space/SpaceItemViewers";
+import { AccountPageRecovery } from "./space/AccountPageRecovery";
+import { SpaceSidebar } from "./space/SpaceSidebar";
+import { SpaceTrash } from "./space/SpaceTrash";
+import { convertSpaceFile } from "./spaceTypes/spaceFileConversion";
+import { queueDeckGeneration } from "./spaceTypes/slides/deckAiPrompt";
+import { NewDeckDialog } from "./spaceTypes/slides/NewDeckDialog";
+import {
+  convertPptxToSlides,
+  createAppPageFromTemplate,
+  createSpaceItem,
+  isTypedSpaceKind,
+} from "./spaceTypes/spaceItemTypes";
+import { SpaceTypedItemView } from "./spaceTypes/SpaceTypedItemView";
+import { TemplatePickerDialog } from "./spaceTypes/templates/TemplatePickerDialog";
+import { MossSitesView } from "./pages/sites/MossSitesView";
 import { Button } from "./ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "./ui/dialog";
-import { CodeEditorPane } from "./codeEditor/CodeEditorPane";
-import { MossPageRichEditor } from "./MossPageRichEditor";
-import { DisclosureRegion } from "./ui/DisclosureRegion";
-import ChatMarkdown from "./ChatMarkdown";
-import { MossLibraryDestination } from "./MossLibraryDestination";
-import { SidebarIconButton } from "./SidebarIconButton";
-import { SidebarPanelTitle } from "./SidebarPanelTitle";
-import { SearchInput } from "./ui/search-input";
-import { AddPlusIcon, XIcon } from "~/lib/icons";
-import { cn } from "~/lib/utils";
-import {
-  SIDEBAR_HEADER_ROW_CLASS_NAME,
-  SIDEBAR_NESTED_LIST_GAP_CLASS_NAME,
-  SIDEBAR_ROW_ACTIVE_CLASS_NAME,
-  SIDEBAR_ROW_HOVER_CLASS_NAME,
-  SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
-  SIDEBAR_SECTION_LABEL_CLASS_NAME,
-} from "~/sidebarRowStyles";
-import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
 
 type LibraryProps = Parameters<typeof MossLibraryDestination>[0];
 type Props = LibraryProps & {
   onStartPageConversation: (document: PagesReadResult, isCurrent: () => boolean) => Promise<void>;
 };
-type Section = "all" | "pinned" | "recent" | "personal" | "files" | "trash";
+
+/** What fills the content sheet besides a section's item list. */
+type Open =
+  | { readonly type: "page"; readonly pageId: PageId }
+  | { readonly type: "item"; readonly key: string }
+  | { readonly type: "stub"; readonly kind: string }
+  | { readonly type: "library" };
+
+/** Kinds stored as page rows whose editor is the rich page editor. */
+const PAGE_EDITOR_KINDS = new Set(["page"]);
+
 const INPUT =
-  "w-full rounded-lg border border-border bg-transparent px-3 py-2 text-ui-sm outline-none focus:ring-2 focus:ring-ring";
+  "h-8 w-full rounded-control border border-border bg-transparent px-2.5 text-ui outline-none focus:ring-2 focus:ring-ring";
+
+export { SPACE_PAGE_HASH_PREFIX };
 
 /** Data spaces own Pages; the existing Library remains the file/asset surface. */
 export function MossDataSpaceDestination(props: Props) {
@@ -82,16 +106,11 @@ function DataSpaceWorkspace({
   isCurrent,
   onStartPageConversation,
   ...libraryProps
-}: Props & {
-  account: string;
-  scopeSpaceId: SpaceId | null;
-  isCurrent: () => boolean;
-}) {
+}: Props & { account: string; scopeSpaceId: SpaceId | null; isCurrent: () => boolean }) {
   const client = useQueryClient();
-  const [section, setSection] = useState<Section>("all");
-  const [selectedId, setSelectedId] = useState<PageId | null>(null);
-  const [query, setQuery] = useState("");
-  const [expanded, setExpanded] = useState<ReadonlySet<PageId>>(new Set());
+  const navigate = useNavigate();
+  const [section, setSection] = useState<SpaceSection>({ type: "all" });
+  const [open, setOpen] = useState<Open | null>(null);
   const [createIntent] = useState(
     () =>
       new PageMutationIntent(
@@ -101,9 +120,16 @@ function DataSpaceWorkspace({
           (input.op === "create" || input.op === "create-space"),
       ),
   );
-  const [create, setCreate] = useState<{ space: boolean; parent: Page | null } | null>(() =>
+  const [dialog, setDialog] = useState<
+    | { mode: "page"; parent: Page | null; spaceId: Page["spaceId"] }
+    | { mode: "space" }
+    | { mode: "rename"; space: PageSpace }
+    | null
+  >(() =>
     createIntent.pending
-      ? { space: createIntent.pending.op === "create-space", parent: null }
+      ? createIntent.pending.op === "create-space"
+        ? { mode: "space" }
+        : { mode: "page", parent: null, spaceId: null }
       : null,
   );
   const [name, setName] = useState(() => {
@@ -112,15 +138,73 @@ function DataSpaceWorkspace({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  // A confirmation ("已上传…") is read once; it clears itself after a few seconds.
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 6_000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+  const uploadInput = useRef<HTMLInputElement | null>(null);
+  const [templatePicker, setTemplatePicker] = useState<{ kind?: "app" | "slides" } | null>(null);
+  const [newDeck, setNewDeck] = useState(false);
+  const pptxInput = useRef<HTMLInputElement>(null);
+  const createDeck = (prompt: string | null, named?: string) =>
+    run("创建", async () => {
+      const spaceId = section.type === "space" ? section.spaceId : null;
+      const title =
+        named?.slice(0, 200) ||
+        (prompt ? prompt.replace(/\s+/gu, " ").slice(0, 40) : "未命名幻灯片");
+      const created = await createSpaceItem(ensureNativeApi(), {
+        scopeSpaceId,
+        kind: "slides",
+        spaceId,
+        title,
+      });
+      if (prompt) queueDeckGeneration(created.page.id, prompt);
+      setNewDeck(false);
+      await refresh();
+      setOpen({ type: "item", key: `page:${created.page.id}` });
+    });
   const leaveGuard = useRef<(() => Promise<boolean>) | null>(null);
+  const { onCanvasLeaveGuardChange } = libraryProps;
   const registerGuard = useCallback(
     (guard: (() => Promise<boolean>) | null) => {
       leaveGuard.current = guard;
-      libraryProps.onCanvasLeaveGuardChange?.(guard);
+      onCanvasLeaveGuardChange?.(guard);
     },
-    [libraryProps.onCanvasLeaveGuardChange],
+    [onCanvasLeaveGuardChange],
   );
   useEffect(() => () => registerGuard(null), [registerGuard]);
+  // `#space-page=<id>` (a chat's 打开 link, 在新窗口中打开): open that item, as a page or in
+  // its own editor by kind, whether the Space is just mounting or already open.
+  const openFromHash = useRef<() => void>(() => {});
+  openFromHash.current = () => {
+    const id = readSpacePageHash();
+    if (!id) return;
+    clearSpacePageHash();
+    const pageId = PageId.makeUnsafe(id);
+    void (async () => {
+      if (!(await leave())) return;
+      const kind = await ensureNativeApi()
+        .pages.read({ scopeSpaceId, pageId })
+        .then((document) => document.page.kind ?? "page")
+        .catch(() => "page");
+      if (!isCurrent()) return;
+      await refresh();
+      setOpen(
+        PAGE_EDITOR_KINDS.has(kind)
+          ? { type: "page", pageId }
+          : { type: "item", key: `page:${id}` },
+      );
+    })();
+  };
+  useEffect(() => {
+    openFromHash.current();
+    const onHash = () => openFromHash.current();
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   const spacesQuery = useQuery({
     queryKey: pagesQueryKeys.spaces(account, scopeSpaceId),
@@ -132,38 +216,260 @@ function DataSpaceWorkspace({
     queryFn: () => ensureNativeApi().pages.list({ scopeSpaceId, includeTrashed: true }),
     refetchInterval: 5_000,
   });
-  const allPages = listQuery.data?.pages ?? [];
-  const pages = allPages.filter((page) => !page.trashedAt);
+  const outputsQuery = useQuery({
+    queryKey: [...pagesQueryKeys.scope(account, scopeSpaceId), "outputs"],
+    queryFn: () => ensureNativeApi().pages.outputs({ scopeSpaceId, includeTrashed: true }),
+    refetchInterval: 10_000,
+  });
+  const appsQuery = useQuery({
+    queryKey: [...pagesQueryKeys.scope(account, scopeSpaceId), "apps"],
+    queryFn: () => listSpacePageApps(scopeSpaceId),
+    refetchInterval: 10_000,
+  });
+  const libraryQuery = useQuery({
+    queryKey: [...pagesQueryKeys.scope(account, scopeSpaceId), "library"],
+    queryFn: () => ensureNativeApi().library.list({ includeTrashed: true }),
+    refetchInterval: 15_000,
+  });
+  const allPages = useMemo(() => listQuery.data?.pages ?? [], [listQuery.data]);
   const spaces = spacesQuery.data?.spaces ?? [];
+  const items = useMemo(
+    () =>
+      buildSpaceItems({
+        pages: allPages,
+        apps: appsQuery.data ?? [],
+        outputs: outputsQuery.data?.outputs ?? [],
+        library: libraryQuery.data?.items ?? [],
+      }),
+    [allPages, appsQuery.data, outputsQuery.data, libraryQuery.data],
+  );
   const refresh = useCallback(
     () => client.invalidateQueries({ queryKey: pagesQueryKeys.scope(account, scopeSpaceId) }),
     [account, client, scopeSpaceId],
   );
-  const select = async (id: PageId | null, nextSection?: Section) => {
-    if (!(await (leaveGuard.current?.() ?? Promise.resolve(true))) || !isCurrent()) return;
-    setSelectedId(id);
-    if (nextSection) setSection(nextSection);
+  const leave = async () =>
+    (await (leaveGuard.current?.() ?? Promise.resolve(true))) && isCurrent();
+
+  const showSection = async (next: SpaceSection) => {
+    if (!(await leave())) return;
+    setOpen(null);
+    setSection(next);
   };
-  const openCreate = async (space: boolean, parent: Page | null = null) => {
-    if (!(await (leaveGuard.current?.() ?? Promise.resolve(true))) || !isCurrent()) return;
-    if (createIntent.pending) {
-      setCreate({ space: createIntent.pending.op === "create-space", parent: null });
-      setError("上次创建的结果尚未确认，请核对同一次创建。");
+  const openPage = async (pageId: PageId) => {
+    if (!(await leave())) return;
+    setOpen({ type: "page", pageId });
+  };
+  const openItem = async (item: SpaceItem) => {
+    if (!(await leave())) return;
+    if (item.source.type === "page") {
+      const kind = item.source.page.kind ?? "page";
+      setOpen(
+        PAGE_EDITOR_KINDS.has(kind)
+          ? { type: "page", pageId: item.source.page.id }
+          : { type: "item", key: item.key },
+      );
       return;
     }
-    setName("");
-    setError(null);
-    setCreate({ space, parent });
+    setOpen({ type: "item", key: item.key });
   };
-  const createPage = async () => {
-    if (!create || !name.trim() || busy || !isCurrent()) return;
+  const openedItem =
+    open?.type === "item" ? (items.find((item) => item.key === open.key) ?? null) : null;
+
+  const run = async (label: string, task: () => Promise<void>) => {
+    if (busy || !isCurrent()) return;
     setBusy(true);
     setError(null);
     try {
+      await task();
+      await refresh();
+    } catch (cause) {
+      if (isCurrent()) setError(cause instanceof Error ? cause.message : `${label}失败，请重试。`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pageMutation = (page: Page, operation: Record<string, unknown>) =>
+    ensureNativeApi().pages.mutate({
+      ...operation,
+      requestId: crypto.randomUUID(),
+      scopeSpaceId,
+      pageId: page.id,
+      expectedRevision: page.revision,
+    } as PagesMutateInput);
+
+  const trashItem = (item: SpaceItem) =>
+    run("移到回收站", async () => {
+      if (item.source.type === "page") {
+        const page = item.source.page;
+        await pageMutation(page, { op: isSpaceRoot(page) ? "trash-space" : "trash" });
+      } else if (item.source.type === "output") {
+        await ensureNativeApi().pages.outputState({
+          scopeSpaceId,
+          outputId: item.source.output.id,
+          action: "trash",
+        });
+      } else if (item.source.type === "library") {
+        await ensureNativeApi().library.trash({ ids: [item.source.item.id] });
+      } else {
+        throw new Error("应用页的删除会在这个版本中接入。");
+      }
+      if (open?.type === "item" && open.key === item.key) setOpen(null);
+    });
+  const restoreItem = (item: SpaceItem) =>
+    run("恢复", async () => {
+      if (item.source.type === "page") {
+        const page = item.source.page;
+        await pageMutation(page, { op: isSpaceRoot(page) ? "restore-space" : "restore" });
+      } else if (item.source.type === "output") {
+        await ensureNativeApi().pages.outputState({
+          scopeSpaceId,
+          outputId: item.source.output.id,
+          action: "restore",
+        });
+      } else if (item.source.type === "library") {
+        await ensureNativeApi().library.restore({ ids: [item.source.item.id] });
+      } else {
+        throw new Error("应用页的恢复会在这个版本中接入。");
+      }
+    });
+  const purgeItems = (targets: readonly SpaceItem[]) =>
+    run("永久删除", async () => {
+      const libraryIds: string[] = [];
+      for (const item of targets) {
+        if (item.source.type === "page") await pageMutation(item.source.page, { op: "purge" });
+        else if (item.source.type === "output")
+          await ensureNativeApi().pages.outputState({
+            scopeSpaceId,
+            outputId: item.source.output.id,
+            action: "purge",
+          });
+        else if (item.source.type === "library") libraryIds.push(item.source.item.id);
+      }
+      if (libraryIds.length) await ensureNativeApi().library.deletePermanently({ ids: libraryIds });
+    });
+  const togglePin = (item: SpaceItem) =>
+    run("收藏", async () => {
+      if (item.source.type === "page")
+        await pageMutation(item.source.page, { op: "pin", pinned: !item.pinned });
+      else if (item.source.type === "library")
+        await ensureNativeApi().library.favorite({
+          ids: [item.source.item.id],
+          favorite: !item.pinned,
+        });
+    });
+  const continueInChat = async (item: SpaceItem) => {
+    if (item.source.type === "page") {
+      const document = await ensureNativeApi().pages.read({
+        scopeSpaceId,
+        pageId: item.source.page.id,
+      });
+      if (isCurrent()) await onStartPageConversation(document, isCurrent);
+      return;
+    }
+    if (!item.sourceThreadId || !(await leave())) return;
+    await navigate({ to: "/$threadId", params: { threadId: item.sourceThreadId as ThreadId } });
+    libraryProps.onClose?.();
+  };
+  const saveAsApp = (item: SpaceItem) =>
+    run("保存为应用页", async () => {
+      const html = await readOutputText(item);
+      await promoteHtmlToPageApp({
+        scopeSpaceId,
+        title: item.title.replace(/\.html?$/i, ""),
+        html,
+        sourceThreadId: (item.sourceThreadId as ThreadId | null) ?? null,
+        // File it beside the output: the item's own space, else the space being viewed.
+        spaceId: item.spaceId ?? (section.type === "space" ? section.spaceId : null),
+      });
+      setNotice(`已把“${item.title}”保存为应用页。`);
+    });
+
+  const startCreate = async (action: SpaceCreateAction, parent: Page | null = null) => {
+    if (!(await leave())) return;
+    if (action === "page" || action === "space") {
+      if (createIntent.pending) {
+        setDialog(
+          createIntent.pending.op === "create-space"
+            ? { mode: "space" }
+            : { mode: "page", parent: null, spaceId: null },
+        );
+        setError("上次创建的结果尚未确认，请核对同一次创建。");
+        return;
+      }
+      setName("");
+      setError(null);
+      setDialog(
+        action === "space"
+          ? { mode: "space" }
+          : {
+              mode: "page",
+              parent,
+              spaceId: parent?.spaceId ?? (section.type === "space" ? section.spaceId : null),
+            },
+      );
+      return;
+    }
+    if (action === "upload") {
+      uploadInput.current?.click();
+      return;
+    }
+    if (action === "image") {
+      setOpen({ type: "stub", kind: "image" });
+      return;
+    }
+    // 幻灯片, 电子表格, 白板 and 从模板开始 / 仪表盘 (types stream).
+    if (action === "slides") {
+      setNewDeck(true);
+      return;
+    }
+    if (action === "sheet" || action === "board") {
+      const spaceId = section.type === "space" ? section.spaceId : null;
+      await run("创建", async () => {
+        const created = await createSpaceItem(ensureNativeApi(), {
+          scopeSpaceId,
+          kind: action,
+          spaceId,
+        });
+        await refresh();
+        setOpen({ type: "item", key: `page:${created.page.id}` });
+      });
+      return;
+    }
+    if (action === "template" || action === "app") {
+      setTemplatePicker(action === "app" ? { kind: "app" } : {});
+      return;
+    }
+    // Kinds another stream of this build owns open its placeholder until that stream lands.
+    setOpen({ type: "stub", kind: action });
+  };
+  const submitDialog = async () => {
+    if (!dialog || !name.trim() || busy || !isCurrent()) return;
+    if (dialog.mode === "rename") {
+      const root = allPages.find((page) => page.id === dialog.space.rootPageId);
+      if (!root) return;
+      await run("重命名", async () => {
+        await pageMutation(root, { op: "update", title: name.trim() });
+        setDialog(null);
+      });
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      let spaceTarget: Page["spaceId"] = null;
+      let parentTarget: Page["parentPageId"] = null;
+      if (dialog.mode === "page") {
+        spaceTarget = dialog.spaceId;
+        parentTarget =
+          dialog.parent?.id ??
+          (dialog.spaceId
+            ? (spaces.find((space) => space.id === dialog.spaceId)?.rootPageId ?? null)
+            : null);
+      }
       const input: PagesMutateInput =
         createIntent.pending ??
         createIntent.remember(
-          create.space
+          dialog.mode === "space"
             ? {
                 op: "create-space",
                 requestId: crypto.randomUUID(),
@@ -175,8 +481,8 @@ function DataSpaceWorkspace({
                 requestId: crypto.randomUUID(),
                 scopeSpaceId,
                 title: name.trim(),
-                spaceId: create.parent?.spaceId ?? null,
-                parentPageId: create.parent?.id ?? null,
+                spaceId: spaceTarget,
+                parentPageId: parentTarget,
               },
         );
       const result = await createIntent.submit(input, (pending) =>
@@ -185,10 +491,9 @@ function DataSpaceWorkspace({
       createIntent.clear();
       if (!isCurrent()) return;
       client.setQueryData(pagesQueryKeys.read(account, scopeSpaceId, result.page.id), result);
-      if (create.parent) setExpanded((previous) => new Set([...previous, create.parent!.id]));
-      setCreate(null);
-      setSelectedId(result.page.id);
-      setSection("all");
+      setDialog(null);
+      if (result.space) setSection({ type: "space", spaceId: result.space.id });
+      setOpen({ type: "page", pageId: result.page.id });
       await refresh();
     } catch (cause) {
       if (isPageMutationRejected(cause)) createIntent.clear();
@@ -197,284 +502,377 @@ function DataSpaceWorkspace({
       setBusy(false);
     }
   };
-  const filteredPages = pages.filter((page) =>
-    page.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-  );
-  const roots = pages.filter((page) => page.parentPageId === null && page.spaceId === null);
-  const renderTree = (page: Page, depth = 0, visited = new Set<PageId>()): ReactNode => {
-    if (visited.has(page.id) || depth > 64) return null;
-    const next = new Set([...visited, page.id]);
-    const children = pages.filter((entry) => entry.parentPageId === page.id);
-    return (
-      <div key={page.id}>
-        <div
-          className="flex min-w-0 items-center rounded-lg hover:bg-accent"
-          style={{ paddingLeft: `${depth * 12}px` }}
-        >
-          <button
-            className="w-6 shrink-0 py-2 text-muted-foreground"
-            aria-label={`${expanded.has(page.id) ? "收起" : "展开"} ${page.title}`}
-            disabled={children.length === 0}
-            onClick={() =>
-              setExpanded((previous) => {
-                const value = new Set(previous);
-                if (value.has(page.id)) value.delete(page.id);
-                else value.add(page.id);
-                return value;
-              })
-            }
-          >
-            {children.length ? (expanded.has(page.id) ? "⌄" : "›") : "·"}
-          </button>
-          <button
-            className="min-w-0 flex-1 truncate py-2 text-left text-ui-sm"
-            aria-current={selectedId === page.id ? "page" : undefined}
-            onClick={() => void select(page.id)}
-          >
-            {page.title}
-          </button>
-          <button
-            className="px-2 text-muted-foreground"
-            aria-label={`在 ${page.title} 新建子页面`}
-            onClick={() => void openCreate(false, page)}
-          >
-            +
-          </button>
-        </div>
-        {children.length ? (
-          <DisclosureRegion open={expanded.has(page.id)}>
-            {children.map((child) => renderTree(child, depth + 1, next))}
-          </DisclosureRegion>
-        ) : null}
-      </div>
-    );
+  const uploadFiles = (files: FileList | null) => {
+    if (!files?.length) return;
+    void run("上传", async () => {
+      const picked = [...files];
+      const tooLarge = picked.find((file) => file.size > LIBRARY_IMPORT_FILE_MAX_BYTES);
+      if (tooLarge)
+        throw new Error(
+          `“${tooLarge.name}”超过 ${LIBRARY_IMPORT_FILE_MAX_BYTES / 1024 / 1024} MB。`,
+        );
+      const encoded = await Promise.all(
+        picked.map(async (file) => ({
+          name: file.name,
+          ...(file.type ? { mimeType: file.type } : {}),
+          dataBase64: await fileToBase64(file),
+        })),
+      );
+      await ensureNativeApi().library.importFiles({ files: encoded });
+      await client.invalidateQueries({
+        queryKey: [...pagesQueryKeys.scope(account, scopeSpaceId), "library"],
+      });
+      setNotice(
+        picked.length === 1 ? `已上传“${picked[0]!.name}”。` : `已上传 ${picked.length} 个文件。`,
+      );
+    });
   };
-  const cards =
-    section === "pinned"
-      ? filteredPages.filter((page) => page.pinned)
-      : section === "personal"
-        ? filteredPages.filter((page) => page.spaceId === null)
-        : section === "recent"
-          ? [...filteredPages].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 30)
-          : section === "trash"
-            ? allPages.filter(
-                (page) =>
-                  page.trashedAt &&
-                  page.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-              )
-            : filteredPages;
-  const failed = listQuery.error ?? spacesQuery.error;
+
+  const placeOf = (item: SpaceItem) => {
+    if (item.source.type === "output") return item.source.output.threadTitle || "对话";
+    if (item.source.type === "library") return item.sourceThreadId ? "对话生成" : "资料库";
+    return spaceTitle(spaces, item.spaceId);
+  };
+  const failure = listQuery.error ?? spacesQuery.error;
+  const sectionCopy = (() => {
+    switch (section.type) {
+      case "all":
+        return { title: "全部", description: "页面、应用页和对话里生成的文件都在这里。" };
+      case "kind": {
+        const labels = {
+          page: "页面",
+          slides: "幻灯片",
+          site: "站点",
+          image: "图像",
+          app: "应用",
+        } as const;
+        return { title: labels[section.kind], description: "" };
+      }
+      case "space": {
+        const space = spaces.find((entry) => entry.id === section.spaceId);
+        return { title: space?.title ?? "资料空间", description: "这个资料空间里的页面。" };
+      }
+      default:
+        return { title: "回收站", description: "" };
+    }
+  })();
+  const openKey =
+    open?.type === "page" ? `page:${open.pageId}` : open?.type === "item" ? open.key : null;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden" data-moss-data-spaces>
-      <aside
-        className="flex w-70 shrink-0 flex-col border-r border-[color:var(--app-rail-inset-border,var(--border))] bg-[var(--app-rail-panel-background,var(--sidebar))] max-md:w-52"
-        aria-label="资料空间导航"
-      >
-        <SidebarPanelTitle title="资料空间">
-          <SidebarIconButton
-            icon={XIcon}
-            label="关闭资料空间"
-            size="header"
-            onClick={libraryProps.onClose}
-          />
-        </SidebarPanelTitle>
-        <div className="px-3">
-          <SearchInput
-            aria-label="搜索页面"
-            placeholder="搜索页面"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              void select(null);
-            }}
-          />
-        </div>
-        <nav className={cn("mt-2 flex flex-col px-2", SIDEBAR_NESTED_LIST_GAP_CLASS_NAME)}>
-          {(
-            [
-              ["all", "全部"],
-              ["pinned", "置顶"],
-              ["recent", "最近"],
-              ["personal", "个人"],
-              ["files", "资料库文件"],
-              ["trash", "回收站"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              className={cn(
-                SIDEBAR_HEADER_ROW_CLASS_NAME,
-                section === id && !selectedId
-                  ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
-                  : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
-              )}
-              aria-current={section === id && !selectedId ? "page" : undefined}
-              onClick={() => void select(null, id)}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-        <div className="mt-4 flex items-center justify-between pr-2.5 pl-4.5">
-          <span className={SIDEBAR_SECTION_LABEL_CLASS_NAME}>资料空间</span>
-          <SidebarIconButton
-            icon={AddPlusIcon}
-            label="新建资料空间"
-            onClick={() => void openCreate(true)}
-          />
-        </div>
-        <div className="min-h-0 flex-1 overflow-auto px-2">
-          {spaces
-            .filter((space) => !space.trashedAt)
-            .map((space) => {
-              const root = pages.find((page) => page.id === space.rootPageId);
-              return root ? renderTree(root) : null;
-            })}
-          <div className={cn("mt-4 px-2.5", SIDEBAR_SECTION_LABEL_CLASS_NAME)}>个人</div>
-          {roots.map((page) => renderTree(page))}
-        </div>
-        <div className="p-2">
-          <button
-            type="button"
-            className={cn(
-              SIDEBAR_HEADER_ROW_CLASS_NAME,
-              SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
-              SIDEBAR_ROW_HOVER_CLASS_NAME,
-            )}
-            onClick={() => void openCreate(false)}
-          >
-            <AddPlusIcon aria-hidden className="size-4 shrink-0" />
-            新建页面
-          </button>
-        </div>
-      </aside>
+      <SpaceSidebar
+        scopeSpaceId={scopeSpaceId}
+        section={section}
+        openKey={openKey}
+        recent={recentItems(items)}
+        spaces={spaces}
+        pages={allPages}
+        onSection={(next) => void showSection(next)}
+        onOpen={(item) => void openItem(item)}
+        onOpenPage={(pageId) => void openPage(pageId)}
+        onCreate={(action) => void startCreate(action)}
+        onCreateSubpage={(parent) => void startCreate("page", parent)}
+        onRenameSpace={(space) => {
+          setName(space.title);
+          setError(null);
+          setDialog({ mode: "rename", space });
+        }}
+        onSpaceIcon={(space, icon) => {
+          const root = allPages.find((page) => page.id === space.rootPageId);
+          if (root)
+            void run("更换图标", () =>
+              pageMutation(root, { op: "space-icon", icon }).then(() => undefined),
+            );
+        }}
+        onTrashSpace={(space) => {
+          const root = allPages.find((page) => page.id === space.rootPageId);
+          if (root)
+            void run("移到回收站", async () => {
+              await pageMutation(root, { op: "trash-space" });
+              if (section.type === "space" && section.spaceId === space.id)
+                setSection({ type: "all" });
+            });
+        }}
+        onClose={libraryProps.onClose}
+      />
       <main className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="资料空间内容">
-        {error && !create ? (
-          <div role="alert" className="p-3 text-destructive">
-            {error}
+        {(error && !dialog) || notice ? (
+          <div
+            role={error ? "alert" : "status"}
+            className="flex items-center gap-2 border-b border-border px-4 py-2 text-ui-sm"
+          >
+            <span className={error ? "flex-1 text-destructive" : "flex-1"}>{error ?? notice}</span>
+            <Button size="xs" variant="ghost" onClick={() => (setError(null), setNotice(null))}>
+              知道了
+            </Button>
           </div>
         ) : null}
-        {section === "files" ? (
+        {open?.type === "library" ? (
           <MossLibraryDestination {...libraryProps} onCanvasLeaveGuardChange={registerGuard} />
-        ) : selectedId ? (
-          <PageDocument
-            key={selectedId}
-            pageId={selectedId}
+        ) : open?.type === "page" ? (
+          <PageView
+            key={open.pageId}
+            pageId={open.pageId}
             account={account}
             scopeSpaceId={scopeSpaceId}
             pages={allPages}
             isCurrent={isCurrent}
             onChanged={refresh}
-            onSelect={(id) => void select(id)}
-            onCreateChild={(parent) => void openCreate(false, parent)}
+            onSelect={(id) => void openPage(id)}
+            onCreateChild={(parent) => void startCreate("page", parent)}
             onGuardChange={registerGuard}
-            onFiles={() => void select(null, "files")}
+            onFiles={() => void leave().then((ok) => ok && setOpen({ type: "library" }))}
             onStartConversation={onStartPageConversation}
+            onOpenCreated={(document) => {
+              client.setQueryData(
+                pagesQueryKeys.read(account, scopeSpaceId, document.page.id),
+                document,
+              );
+              setOpen({ type: "page", pageId: document.page.id });
+            }}
+            onOpenInNewWindow={(pageId) => {
+              const url = `${window.location.origin}${window.location.pathname}${SPACE_PAGE_HASH_PREFIX}${encodeURIComponent(pageId)}`;
+              const opened = window.open(url, "_blank", "noopener");
+              if (!opened) setNotice("这个窗口不能再打开新窗口。页面仍在当前窗口中。");
+            }}
+          />
+        ) : open?.type === "stub" ? (
+          <SpaceComingSoon
+            kind={open.kind}
+            action={
+              open.kind === "image"
+                ? { label: "在图像工作区创建", onClick: () => libraryProps.onClose?.() }
+                : undefined
+            }
+          />
+        ) : openedItem ? (
+          openedItem.source.type === "output" || openedItem.source.type === "library" ? (
+            <SpaceOutputViewer
+              item={openedItem}
+              onContinueInChat={(item) => void continueInChat(item)}
+              onSaveAsApp={(item) => void saveAsApp(item)}
+              onTrash={(item) => void trashItem(item)}
+              onConvert={(file) =>
+                void run("转换", async () => {
+                  const { item, skipped } = await convertSpaceFile({ scopeSpaceId, ...file });
+                  await refresh();
+                  setOpen({ type: "item", key: `page:${item.page.id}` });
+                  if (skipped) setNotice(`已转换。${skipped} 个图表、表格或组合未能转换。`);
+                })
+              }
+            />
+          ) : openedItem.source.type === "page" && isTypedSpaceKind(openedItem.source.page.kind) ? (
+            <SpaceTypedItemView
+              key={openedItem.key}
+              account={account}
+              scopeSpaceId={scopeSpaceId}
+              pageId={openedItem.source.page.id}
+              onSaved={() => void refresh()}
+              onGuardChange={registerGuard}
+            />
+          ) : openedItem.source.type === "app" ? (
+            <SpaceAppViewer
+              item={openedItem}
+              onContinueInChat={(item) => void continueInChat(item)}
+            />
+          ) : (
+            <SpaceComingSoon kind={openedItem.kind} item={openedItem} />
+          )
+        ) : open?.type === "item" ? (
+          <p role="status" className="p-8 text-ui text-muted-foreground">
+            这个条目已不可用。
+          </p>
+        ) : section.type === "trash" ? (
+          <SpaceTrash
+            items={items}
+            busy={busy}
+            error={null}
+            onRestore={(item) => void restoreItem(item)}
+            canPurge={(item) => item.source.type !== "app"}
+            onPurge={purgeItems}
+          />
+        ) : section.type === "kind" && section.kind === "site" ? (
+          // 站点: published pages and 应用页, owned by sharing.
+          <MossSitesView
+            account={account}
+            scopeSpaceId={scopeSpaceId}
+            onOpenPage={(pageId) => void openPage(pageId)}
           />
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col p-6 md:p-10">
-            <header className="mb-8 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h1 className={PAGE_TITLE_CLASS_NAME}>
-                  {section === "trash"
-                    ? "回收站"
-                    : section === "pinned"
-                      ? "已置顶"
-                      : section === "recent"
-                        ? "最近页面"
-                        : section === "personal"
-                          ? "个人"
-                          : "资料空间"}
-                </h1>
-                <p className="mt-2 text-ui-sm text-muted-foreground">
-                  页面、子页面和文件，保存在你的 Moss 工作区。
-                </p>
-              </div>
-              <Button onClick={() => void openCreate(false)}>新建页面</Button>
-            </header>
-            {failed ? (
-              <div role="alert">
-                <p>{failed.message}</p>
-                <Button variant="ghost" onClick={() => void refresh()}>
-                  重新加载
-                </Button>
-              </div>
-            ) : listQuery.isLoading || spacesQuery.isLoading ? (
-              <p role="status">正在加载…</p>
-            ) : cards.length === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
-                <p>
-                  {section === "trash" ? "回收站为空" : query ? "没有匹配的页面" : "还没有页面"}
-                </p>
-                {section !== "trash" ? (
-                  <Button variant="ghost" onClick={() => void openCreate(false)}>
-                    创建第一个页面
-                  </Button>
-                ) : null}
-              </div>
-            ) : (
-              <div className="grid auto-rows-max grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4 overflow-auto">
-                {cards.map((page) => (
-                  <button
-                    key={page.id}
-                    className="min-h-28 rounded-xl border border-border p-5 text-left hover:bg-accent"
-                    onClick={() => void select(page.id)}
-                  >
-                    <div className="truncate font-medium">
-                      {page.pinned ? "★ " : ""}
-                      {page.title}
-                    </div>
-                    <div className="mt-4 text-ui-xs text-muted-foreground">
-                      {page.spaceId
-                        ? (spaces.find((space) => space.id === page.spaceId)?.title ?? "资料空间")
-                        : "个人"}{" "}
-                      · {new Date(page.updatedAt).toLocaleDateString()}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <SpaceHome
+            headerAction={
+              scopeSpaceId === null && section.type === "all" ? (
+                <AccountPageRecovery
+                  onRestored={(pageId) => {
+                    if (!isCurrent()) return;
+                    void openPage(pageId);
+                    void refresh();
+                  }}
+                />
+              ) : undefined
+            }
+            section={section}
+            title={sectionCopy.title}
+            description={sectionCopy.description}
+            items={items}
+            loading={listQuery.isLoading || spacesQuery.isLoading}
+            error={failure ? failure.message : null}
+            onRetry={() => void refresh()}
+            onCreate={(action) => void startCreate(action)}
+            emptyCreate={
+              section.type === "kind" && section.kind !== "image" ? section.kind : "page"
+            }
+            placeOf={placeOf}
+            onOpen={(item) => void openItem(item)}
+            onContinueInChat={(item) => void continueInChat(item)}
+            onSaveAsApp={(item) => void saveAsApp(item)}
+            onTogglePin={(item) => void togglePin(item)}
+            onTrash={(item) => void trashItem(item)}
+          />
         )}
       </main>
+      <input
+        ref={uploadInput}
+        type="file"
+        multiple
+        hidden
+        aria-hidden
+        tabIndex={-1}
+        onChange={(event) => {
+          uploadFiles(event.target.files);
+          event.target.value = "";
+        }}
+      />
+      <NewDeckDialog
+        open={newDeck}
+        onOpenChange={setNewDeck}
+        busy={busy}
+        onBlank={() => void createDeck(null)}
+        onTemplate={() => {
+          setNewDeck(false);
+          setTemplatePicker({ kind: "slides" });
+        }}
+        onImport={() => pptxInput.current?.click()}
+        onGenerate={(prompt) => void createDeck(prompt)}
+        pages={allPages
+          .filter((page) => (page.kind ?? "page") === "page" && page.trashedAt === null)
+          .map((page) => ({ id: page.id, title: page.title }))}
+        onFromPage={(page) =>
+          void createDeck(
+            `根据资料空间页面“${page.title}”（pageId: ${page.id}）的内容做一份演示文稿。先用 moss_pages_read 读取这个页面，提炼要点，再做成幻灯片。`,
+            `${page.title} · 演示`,
+          )
+        }
+      />
+      <input
+        ref={pptxInput}
+        type="file"
+        hidden
+        accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) return;
+          void run("导入", async () => {
+            const { item, skipped } = await convertPptxToSlides(ensureNativeApi(), {
+              scopeSpaceId,
+              bytes: await file.arrayBuffer(),
+              fileName: file.name,
+              spaceId: section.type === "space" ? section.spaceId : null,
+            });
+            setNewDeck(false);
+            await refresh();
+            setOpen({ type: "item", key: `page:${item.page.id}` });
+            if (skipped) setNotice(`已导入。${skipped} 个对象无法转换为可编辑元素，已跳过。`);
+          });
+        }}
+      />
+      <TemplatePickerDialog
+        key={templatePicker?.kind ?? "all"}
+        open={templatePicker !== null}
+        onOpenChange={(next) => {
+          if (!next) setTemplatePicker(null);
+        }}
+        account={account}
+        scopeSpaceId={scopeSpaceId}
+        spaceId={section.type === "space" ? section.spaceId : null}
+        {...(templatePicker?.kind ? { initialKind: templatePicker.kind } : {})}
+        onCreated={(item) => {
+          void refresh();
+          setOpen({ type: "item", key: `page:${item.page.id}` });
+        }}
+        createAppPage={async (template) => {
+          const app = await createAppPageFromTemplate({
+            ...template,
+            scopeSpaceId,
+            spaceId: section.type === "space" ? section.spaceId : null,
+          });
+          await refresh();
+          setOpen({ type: "item", key: `app:${app.id}` });
+        }}
+      />
       <Dialog
-        open={create !== null}
-        onOpenChange={(open) => {
-          if (!open && !busy) setCreate(null);
+        open={dialog !== null}
+        onOpenChange={(next) => {
+          if (!next && !busy) setDialog(null);
         }}
       >
         <DialogPopup>
           <DialogTitle>
-            {create?.space ? "新建资料空间" : create?.parent ? "新建子页面" : "新建个人页面"}
+            {dialog?.mode === "space"
+              ? "新建资料空间"
+              : dialog?.mode === "rename"
+                ? "重命名资料空间"
+                : dialog?.mode === "page" && dialog.parent
+                  ? "新建子页面"
+                  : "新建页面"}
           </DialogTitle>
           <form
-            className="mt-4 space-y-4"
+            className="mt-4 flex flex-col gap-4"
             onSubmit={(event) => {
               event.preventDefault();
-              void createPage();
+              void submitDialog();
             }}
           >
-            <label className="block text-ui-sm">
-              名称
+            <label className="flex flex-col gap-1.5 text-ui">
+              {dialog?.mode === "page" ? "页面名称" : "资料空间名称"}
               <input
                 autoFocus
-                className={`${INPUT} mt-2`}
+                className={INPUT}
                 maxLength={256}
+                placeholder={dialog?.mode === "page" ? "未命名页面" : "为话题或小组起个名字"}
                 value={name}
-                disabled={busy || createIntent.pending !== null}
+                disabled={busy || (dialog?.mode !== "rename" && createIntent.pending !== null)}
                 onChange={(event) => setName(event.target.value)}
               />
             </label>
             {error || createIntent.error ? (
-              <p role="alert" className="text-destructive">
-                {error ?? createIntent.error} 重试会核对同一次创建。
+              <p role="alert" className="text-ui-sm text-destructive">
+                {error ?? createIntent.error}
+                {dialog?.mode === "rename" ? "" : " 重试会核对同一次创建。"}
               </p>
             ) : null}
-            <Button type="submit" disabled={busy || !name.trim()}>
-              {busy ? "正在创建…" : createIntent.pending ? "核对创建结果" : "创建"}
-            </Button>
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                type="button"
+                disabled={busy}
+                onClick={() => setDialog(null)}
+              >
+                取消
+              </Button>
+              <Button size="sm" type="submit" disabled={busy || !name.trim()}>
+                {busy
+                  ? "正在保存…"
+                  : dialog?.mode === "rename"
+                    ? "保存"
+                    : createIntent.pending
+                      ? "核对创建结果"
+                      : "创建"}
+              </Button>
+            </div>
           </form>
         </DialogPopup>
       </Dialog>
@@ -482,909 +880,14 @@ function DataSpaceWorkspace({
   );
 }
 
-function PageDocument(props: {
-  pageId: PageId;
-  account: string;
-  scopeSpaceId: SpaceId | null;
-  pages: readonly Page[];
-  isCurrent: () => boolean;
-  onChanged: () => Promise<void>;
-  onSelect: (id: PageId) => void;
-  onCreateChild: (parent: Page) => void;
-  onGuardChange: (guard: (() => Promise<boolean>) | null) => void;
-  onFiles: () => void;
-  onStartConversation: Props["onStartPageConversation"];
-}) {
-  const read = useQuery(pageReadQueryOptions(props.account, props.scopeSpaceId, props.pageId));
-  return read.error && !read.data ? (
-    <div role="alert" className="p-8">
-      {read.error.message}
-      <Button variant="ghost" onClick={() => void read.refetch()}>
-        重新加载
-      </Button>
-    </div>
-  ) : !read.data ? (
-    <p role="status" className="p-8">
-      正在打开页面…
-    </p>
-  ) : (
-    <>
-      <div role={read.error ? "alert" : undefined}>
-        {read.error ? "页面刷新失败，已保留当前内容和草稿。" : null}
-      </div>
-      <PageEditor {...props} document={read.data} />
-    </>
-  );
+function isSpaceRoot(page: Page): boolean {
+  return page.spaceId !== null && page.rootPageId === page.id;
 }
 
-function PageEditor({
-  document,
-  ...props
-}: Parameters<typeof PageDocument>[0] & { document: PagesReadResult }) {
-  const client = useQueryClient();
-  const navigate = useNavigate();
-  const { resolvedTheme } = useTheme();
-  const current = useRef(props.isCurrent);
-  current.current = props.isCurrent;
-  const [actionIntent] = useState(
-    () =>
-      new PageMutationIntent(
-        `moss:page-action:${props.account}:${props.scopeSpaceId}:${document.page.id}`,
-        (input) =>
-          input.scopeSpaceId === props.scopeSpaceId &&
-          "pageId" in input &&
-          input.pageId === document.page.id,
-      ),
-  );
-  const [draftJournal] = useState(
-    () =>
-      new PageDraftJournal(
-        `moss:page-draft:${props.account}:${props.scopeSpaceId}:${document.page.id}`,
-      ),
-  );
-  const [session] = useState(() => {
-    const editor = new PageEditorSession(
-      document,
-      (input) => {
-        if (!current.current()) return Promise.reject(new Error("账号已变化，请重新打开页面。"));
-        return ensureNativeApi().pages.mutate(input);
-      },
-      (saved) => {
-        client.setQueryData(
-          pagesQueryKeys.read(props.account, props.scopeSpaceId, saved.page.id),
-          saved,
-        );
-        void props.onChanged();
-      },
-      draftJournal,
-    );
-    if (actionIntent.pending || actionIntent.error) editor.pause();
-    return editor;
-  });
-  const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
-  const [editing, setEditing] = useState(true);
-  const [sourceEditing, setSourceEditing] = useState(false);
-  const richFlush = useRef<(() => Promise<boolean>) | null>(null);
-  const richUnavailable = useRef(false);
-  const registerRichUnavailable = useCallback((unavailable: boolean) => {
-    richUnavailable.current = unavailable;
-  }, []);
-  const registerRichFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
-    richFlush.current = flush;
-  }, []);
-  const flushPage = useCallback(async () => {
-    if (!current.current() || (richFlush.current && !(await richFlush.current()))) return false;
-    if (!current.current()) return false;
-    return session.flush();
-  }, [session]);
-  const leavePage = useCallback(async () => {
-    if (!current.current()) return false;
-    // A correlated load failure leaves the old document locked in the host.
-    // Permit leaving a clean saved document without claiming it was saved.
-    if (
-      richUnavailable.current &&
-      !session.dirty &&
-      !session.getSnapshot().saving &&
-      !actionIntent.pending &&
-      !actionIntent.error
-    )
-      return true;
-    return flushPage();
-  }, [actionIntent, flushPage, session]);
-  const downloadDraft = async () => {
-    const captured = !richFlush.current || (await richFlush.current());
-    if (!current.current()) return;
-    const draft = session.getSnapshot();
-    downloadBlob(
-      new Blob([draft.richContent ?? draft.content], {
-        type: draft.richContent !== null ? "application/json" : "text/markdown;charset=utf-8",
-      }),
-      `${draft.title || "页面"}${draft.richContent !== null ? ".page.json" : ".md"}`,
-    );
-    if (!captured)
-      setActionError("无法确认编辑器最新内容，已下载当前保留的草稿。请重试编辑器并再次备份。");
-  };
-  const [panel, setPanel] = useState<"versions" | "comments" | "assets" | "move" | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [comment, setComment] = useState("");
-  const [targetParent, setTargetParent] = useState("");
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [reloadConfirm, setReloadConfirm] = useState(false);
-  const [versionPreview, setVersionPreview] = useState<number | null>(null);
-  const requestedEnabled = useRef(true);
-  const page = state.document.page;
-  const projects = useStore((store) => store.projects);
-  const scopedProjects = projects.filter(
-    (project) => (project.spaceId ?? null) === props.scopeSpaceId,
-  );
-  const automation = useAutomations();
-  const versions = useQuery({
-    queryKey: [...pagesQueryKeys.read(props.account, props.scopeSpaceId, page.id), "versions"],
-    queryFn: () =>
-      ensureNativeApi().pages.versions({ scopeSpaceId: props.scopeSpaceId, pageId: page.id }),
-    enabled: panel === "versions",
-  });
-  const comments = useQuery({
-    queryKey: [...pagesQueryKeys.read(props.account, props.scopeSpaceId, page.id), "comments"],
-    queryFn: () =>
-      ensureNativeApi().pages.comments({ scopeSpaceId: props.scopeSpaceId, pageId: page.id }),
-    enabled: panel === "comments",
-    refetchInterval: 5_000,
-  });
-  const assets = useQuery({
-    queryKey: ["pages-assets", props.account],
-    queryFn: () => ensureNativeApi().library.list({}),
-    enabled: panel === "assets" || page.assetIds.length > 0,
-  });
-  useEffect(() => {
-    const existing = session.getSnapshot().document;
-    if (
-      document.page.revision === existing.page.revision &&
-      document.content === existing.content &&
-      document.richContent === existing.richContent
-    )
-      return;
-    let active = true;
-    void (async () => {
-      if ((!richFlush.current || (await richFlush.current())) && active && current.current())
-        session.load(document);
-    })();
-    return () => {
-      active = false;
-    };
-  }, [document, session]);
-  useEffect(() => {
-    props.onGuardChange(leavePage);
-    return () => props.onGuardChange(null);
-  }, [props.onGuardChange, leavePage]);
-  useEffect(() => {
-    const handler = (event: BeforeUnloadEvent) => {
-      if (session.dirty || session.getSnapshot().saving || actionIntent.pending) {
-        event.preventDefault();
-        event.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [actionIntent, session]);
-  const perform = async (operation: (saved: PagesReadResult) => Promise<PagesReadResult>) => {
-    if (busy || !current.current() || !(await flushPage())) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      const result = await operation(session.getSnapshot().document);
-      if (!current.current()) return;
-      session.load(result);
-      client.setQueryData(pagesQueryKeys.read(props.account, props.scopeSpaceId, page.id), result);
-      await props.onChanged();
-    } catch (cause) {
-      if (current.current())
-        setActionError(cause instanceof Error ? cause.message : "操作失败，请重试。");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const mutate = async (saved: PagesReadResult, operation: Record<string, unknown>) => {
-    if (!current.current()) throw new Error("账号已变化，请重新打开页面。");
-    const input = actionIntent.remember({
-      ...operation,
-      requestId: crypto.randomUUID(),
-      scopeSpaceId: props.scopeSpaceId,
-      pageId: page.id,
-      expectedRevision: saved.page.revision,
-    } as PagesMutateInput);
-    session.pause();
-    try {
-      const result = await actionIntent.submit(input, (pending) =>
-        ensureNativeApi().pages.mutate(pending),
-      );
-      actionIntent.clear();
-      session.resume();
-      return result;
-    } catch (cause) {
-      if (isPageMutationRejected(cause)) {
-        actionIntent.clear();
-        session.resume();
-      }
-      throw cause;
-    }
-  };
-  const reconcileAction = async () => {
-    if (busy || !current.current() || !actionIntent.pending) return;
-    setBusy(true);
-    setActionError(null);
-    try {
-      await actionIntent.submit(actionIntent.pending, (pending) =>
-        ensureNativeApi().pages.mutate(pending),
-      );
-      actionIntent.clear();
-      session.resume();
-      if (!current.current()) return;
-      const latest = await ensureNativeApi().pages.read({
-        scopeSpaceId: props.scopeSpaceId,
-        pageId: page.id,
-      });
-      if (!current.current()) return;
-      session.load(latest);
-      session.resume();
-      client.setQueryData(pagesQueryKeys.read(props.account, props.scopeSpaceId, page.id), latest);
-      await props.onChanged();
-    } catch (cause) {
-      if (isPageMutationRejected(cause)) {
-        actionIntent.clear();
-        session.resume();
-      }
-      if (current.current())
-        setActionError(cause instanceof Error ? cause.message : "无法确认上次操作，请稍后核对。");
-    } finally {
-      setBusy(false);
-    }
-  };
-  const isRoot = page.spaceId !== null && page.rootPageId === page.id;
-  const ancestors = useMemo(() => {
-    const result: Page[] = [];
-    const seen = new Set<PageId>([page.id]);
-    let parent = page.parentPageId;
-    while (parent && !seen.has(parent)) {
-      seen.add(parent);
-      const entry = props.pages.find((item) => item.id === parent);
-      if (!entry) break;
-      result.unshift(entry);
-      parent = entry.parentPageId;
-    }
-    return result;
-  }, [page.id, page.parentPageId, props.pages]);
-  const isDescendant = (candidate: Page) => {
-    const seen = new Set<PageId>();
-    let entry: Page | undefined = candidate;
-    while (entry && !seen.has(entry.id)) {
-      if (entry.id === page.id) return true;
-      seen.add(entry.id);
-      entry = props.pages.find((item) => item.id === entry!.parentPageId);
-    }
-    return false;
-  };
-  const attachedAutomations = automation.data.definitions.filter((definition) =>
-    page.automationIds.includes(definition.id),
-  );
-
-  return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-page-id={page.id}>
-      <header className="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3 text-ui-sm">
-        <div className="min-w-0 flex-1 truncate text-muted-foreground">
-          {ancestors.map((ancestor) => (
-            <span key={ancestor.id}>
-              <button onClick={() => props.onSelect(ancestor.id)}>{ancestor.title}</button> /{" "}
-            </span>
-          ))}
-          {state.title}
-        </div>
-        <span role="status" className="text-ui-xs text-muted-foreground">
-          {state.saving ? "正在保存…" : session.dirty ? "未保存" : "已保存"}
-        </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            try {
-              for (const draft of draftJournal.records())
-                downloadBlob(
-                  new Blob([draft.richContent ?? draft.content], {
-                    type: draft.richContent ? "application/json" : "text/markdown;charset=utf-8",
-                  }),
-                  `${draft.title || "未保存草稿"}${draft.richContent ? ".page.json" : ".md"}`,
-                );
-            } catch (cause) {
-              setActionError(cause instanceof Error ? cause.message : "无法读取本机草稿。");
-            }
-          }}
-        >
-          备份未保存草稿
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={busy || !!page.trashedAt}
-          onClick={() =>
-            void perform((saved) => mutate(saved, { op: "pin", pinned: !saved.page.pinned }))
-          }
-        >
-          {page.pinned ? "取消置顶" : "置顶"}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setPanel(panel === "versions" ? null : "versions")}
-        >
-          版本
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setPanel(panel === "comments" ? null : "comments")}
-        >
-          评论
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={busy || !!page.trashedAt || scopedProjects.length === 0}
-          onClick={() =>
-            void flushPage().then((saved) => {
-              if (saved) setScheduleOpen(true);
-            })
-          }
-        >
-          定时任务
-        </Button>
-      </header>
-      {state.error ||
-      actionError ||
-      session.warning ||
-      actionIntent.pending ||
-      actionIntent.error ? (
-        <div
-          role="alert"
-          className="flex flex-wrap items-center gap-2 border-b border-border bg-destructive/5 p-3 text-ui-sm"
-        >
-          <span className="flex-1">
-            {state.error ??
-              actionError ??
-              actionIntent.error ??
-              session.warning ??
-              "上次操作的结果尚未确认。已保留原操作，请先核对。"}
-          </span>
-          {actionIntent.pending ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => void reconcileAction()}
-            >
-              核对操作结果
-            </Button>
-          ) : (
-            <Button size="sm" variant="ghost" onClick={() => void flushPage()}>
-              重试保存
-            </Button>
-          )}
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={actionIntent.pending !== null}
-            onClick={() => setReloadConfirm(true)}
-          >
-            重新载入
-          </Button>
-          <Button size="sm" variant="ghost" onClick={() => void downloadDraft()}>
-            下载草稿
-          </Button>
-        </div>
-      ) : null}
-      <div className="flex min-h-0 flex-1">
-        <section
-          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-auto"
-          inert={busy || undefined}
-        >
-          <div className="mx-auto w-full max-w-4xl px-8 pb-4 pt-10">
-            <input
-              className="w-full bg-transparent text-3xl font-semibold outline-none"
-              aria-label="页面标题"
-              maxLength={256}
-              value={state.title}
-              disabled={!!page.trashedAt}
-              onChange={(event) => session.change({ title: event.target.value })}
-            />
-            <div className="my-5 flex flex-wrap items-center gap-2">
-              {page.trashedAt ? (
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    void perform((saved) =>
-                      mutate(saved, { op: isRoot ? "restore-space" : "restore" }),
-                    )
-                  }
-                >
-                  恢复{isRoot ? "资料空间" : "页面"}
-                </Button>
-              ) : (
-                <>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      void flushPage().then((saved) => {
-                        if (saved) setEditing(!editing);
-                      })
-                    }
-                  >
-                    {editing ? "预览" : "编辑"}
-                  </Button>
-                  {!state.richContent ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        void flushPage().then((saved) => {
-                          if (saved) setSourceEditing(!sourceEditing);
-                        })
-                      }
-                    >
-                      {sourceEditing ? "文档编辑" : "Markdown"}
-                    </Button>
-                  ) : null}
-                  <Button size="sm" variant="ghost" onClick={() => void flushPage()}>
-                    保存
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => props.onCreateChild(page)}>
-                    + 子页面
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setPanel(panel === "assets" ? null : "assets")}
-                  >
-                    关联文件
-                  </Button>
-                  {!isRoot ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setTargetParent(page.parentPageId ?? "");
-                        setPanel("move");
-                      }}
-                    >
-                      移动
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      void perform(async (saved) => {
-                        await props.onStartConversation(saved, props.isCurrent);
-                        return saved;
-                      })
-                    }
-                  >
-                    在对话中继续
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      void perform((saved) =>
-                        mutate(saved, { op: isRoot ? "trash-space" : "trash" }),
-                      )
-                    }
-                  >
-                    移到回收站
-                  </Button>
-                </>
-              )}
-            </div>
-            {page.sourceThreadId ? (
-              <button
-                className="text-ui-xs text-muted-foreground underline"
-                onClick={() =>
-                  void perform(async (saved) => {
-                    await navigate({
-                      to: "/$threadId",
-                      params: { threadId: page.sourceThreadId! },
-                    });
-                    return saved;
-                  })
-                }
-              >
-                查看来源对话
-              </button>
-            ) : null}
-            {page.assetIds.length ? (
-              <div className="my-3 flex flex-wrap gap-2">
-                {page.assetIds.map((id) => (
-                  <button
-                    key={id}
-                    className="rounded border border-border px-2 py-1 text-ui-xs"
-                    onClick={props.onFiles}
-                  >
-                    {assets.data?.items.find((item) => item.id === id)?.title ?? "关联文件"}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {attachedAutomations.length ? (
-              <div className="my-3 space-y-1">
-                {attachedAutomations.map((definition) => (
-                  <button
-                    key={definition.id}
-                    className="block text-ui-xs text-muted-foreground underline"
-                    onClick={() =>
-                      void perform(async (saved) => {
-                        await navigate({
-                          to: "/automations/$automationId",
-                          params: { automationId: definition.id },
-                        });
-                        return saved;
-                      })
-                    }
-                  >
-                    {definition.enabled ? "定时" : "已暂停"} · {definition.name}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-          {sourceEditing && editing && !page.trashedAt && !state.richContent ? (
-            <div className="min-h-80 flex-1 px-8">
-              <CodeEditorPane
-                value={state.content}
-                valueVersion={state.version}
-                fileName={`${page.id}.md`}
-                resolvedTheme={resolvedTheme}
-                onChange={(content) => session.change({ content })}
-                onSave={() => void flushPage()}
-              />
-            </div>
-          ) : (
-            <MossPageRichEditor
-              documentKey={`${props.account}:${props.scopeSpaceId}:${page.id}`}
-              content={state.content}
-              richContent={state.richContent}
-              valueVersion={state.version}
-              readOnly={!editing || !!page.trashedAt}
-              onChange={session.change}
-              onFlushChange={registerRichFlush}
-              onUnavailableChange={registerRichUnavailable}
-            />
-          )}
-        </section>
-        {panel ? (
-          <aside
-            className="w-80 shrink-0 overflow-auto border-l border-border p-5 max-lg:w-60"
-            aria-label="页面详情"
-          >
-            <div className="mb-5 flex justify-between">
-              <strong>
-                {panel === "versions"
-                  ? "版本历史"
-                  : panel === "comments"
-                    ? "评论"
-                    : panel === "assets"
-                      ? "关联文件"
-                      : "移动页面"}
-              </strong>
-              <button aria-label="关闭页面详情" onClick={() => setPanel(null)}>
-                ×
-              </button>
-            </div>
-            {panel === "versions" ? (
-              versions.error ? (
-                <p role="alert">{versions.error.message}</p>
-              ) : versions.isLoading ? (
-                <p role="status">正在加载…</p>
-              ) : (
-                <div className="space-y-4">
-                  {versions.data?.versions.map((version) => (
-                    <div
-                      key={version.page.revision}
-                      className="rounded-lg border border-border p-3 text-ui-xs"
-                    >
-                      <button
-                        className="block font-medium"
-                        onClick={() =>
-                          setVersionPreview(
-                            versionPreview === version.page.revision ? null : version.page.revision,
-                          )
-                        }
-                      >
-                        版本 {version.page.revision} · {version.author === "agent" ? "CLI" : "你"}
-                      </button>
-                      <p className="my-2 text-muted-foreground">
-                        {new Date(version.createdAt).toLocaleString()}
-                      </p>
-                      {versionPreview === version.page.revision ? (
-                        <ChatMarkdown text={version.content || "空页面"} cwd={undefined} />
-                      ) : null}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={
-                          busy || !!page.trashedAt || version.page.revision === page.revision
-                        }
-                        onClick={() =>
-                          void perform(async (saved) => {
-                            const restored = await mutate(saved, {
-                              op: "restore-version",
-                              revision: version.page.revision,
-                            });
-                            await versions.refetch();
-                            return restored;
-                          })
-                        }
-                      >
-                        恢复此版本
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )
-            ) : null}
-            {panel === "comments" ? (
-              <div className="space-y-4">
-                {comments.error ? (
-                  <p role="alert">{comments.error.message}</p>
-                ) : comments.isLoading ? (
-                  <p role="status">正在加载…</p>
-                ) : comments.data?.comments.length === 0 ? (
-                  <p className="text-ui-sm text-muted-foreground">还没有评论</p>
-                ) : (
-                  <div role="list" aria-label="页面评论" className="space-y-4">
-                    {comments.data?.comments.map((entry) => (
-                      <div
-                        key={entry.id}
-                        role="listitem"
-                        className="rounded-lg border border-border p-3"
-                      >
-                        <p className="mb-2 text-ui-xs text-muted-foreground">
-                          {entry.author === "agent" ? "CLI" : "你"} ·{" "}
-                          {new Date(entry.createdAt).toLocaleString()}
-                        </p>
-                        <p className="whitespace-pre-wrap text-ui-sm">{entry.content}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void perform(async (saved) => {
-                      const result = await mutate(saved, {
-                        op: "comment",
-                        content: comment.trim(),
-                      });
-                      setComment("");
-                      await comments.refetch();
-                      return result;
-                    });
-                  }}
-                >
-                  <textarea
-                    className={INPUT}
-                    aria-label="新评论"
-                    placeholder="写下评论"
-                    maxLength={10_000}
-                    value={comment}
-                    onChange={(event) => setComment(event.target.value)}
-                    disabled={busy || !!page.trashedAt}
-                  />
-                  <Button
-                    size="sm"
-                    className="mt-2"
-                    type="submit"
-                    disabled={busy || !!page.trashedAt || !comment.trim()}
-                  >
-                    添加评论
-                  </Button>
-                </form>
-              </div>
-            ) : null}
-            {panel === "assets" ? (
-              assets.error ? (
-                <p role="alert">{assets.error.message}</p>
-              ) : assets.isLoading ? (
-                <p role="status">正在加载…</p>
-              ) : (
-                <div className="space-y-2">
-                  <p className="mb-4 text-ui-xs text-muted-foreground">
-                    关联资料库中的真实文件。文件仍由资料库管理。
-                  </p>
-                  {assets.data?.items
-                    .filter((item) => !item.trashedAt)
-                    .map((item) => (
-                      <label key={item.id} className="flex gap-2 text-ui-sm">
-                        <input
-                          type="checkbox"
-                          checked={page.assetIds.includes(item.id)}
-                          disabled={busy || !!page.trashedAt}
-                          onChange={(event) => {
-                            const checked = event.target.checked;
-                            void perform((saved) =>
-                              mutate(saved, {
-                                op: "update",
-                                assetIds: checked
-                                  ? [...new Set([...saved.page.assetIds, item.id])]
-                                  : saved.page.assetIds.filter((id) => id !== item.id),
-                              }),
-                            );
-                          }}
-                        />
-                        <span className="truncate">{item.title}</span>
-                      </label>
-                    ))}
-                  <Button variant="ghost" size="sm" className="mt-4" onClick={props.onFiles}>
-                    打开资料库 / 导入文件
-                  </Button>
-                </div>
-              )
-            ) : null}
-            {panel === "move" ? (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void perform(async (saved) => {
-                    const result = await mutate(saved, {
-                      op: "move",
-                      spaceId: saved.page.spaceId,
-                      parentPageId: targetParent ? PageId.makeUnsafe(targetParent) : null,
-                    });
-                    setPanel(null);
-                    return result;
-                  });
-                }}
-              >
-                <label className="text-ui-sm">
-                  移动到
-                  <select
-                    className={`${INPUT} my-3`}
-                    value={targetParent}
-                    onChange={(event) => setTargetParent(event.target.value)}
-                  >
-                    {page.spaceId === null ? <option value="">个人页面顶层</option> : null}
-                    {props.pages
-                      .filter(
-                        (item) =>
-                          !item.trashedAt && item.spaceId === page.spaceId && !isDescendant(item),
-                      )
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.title}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <Button type="submit" size="sm" disabled={busy}>
-                  移动
-                </Button>
-              </form>
-            ) : null}
-          </aside>
-        ) : null}
-      </div>
-      <AutomationCreateDialog
-        key={page.id}
-        open={scheduleOpen}
-        onOpenChange={setScheduleOpen}
-        busy={automation.createMutation.isPending}
-        creationContextKey={`${props.account}:${props.scopeSpaceId}:page:${page.id}`}
-        projectIds={scopedProjects.map((project) => project.id)}
-        initialDraft={{
-          projectId: scopedProjects[0]?.id ?? "",
-          name: `更新 ${page.title}`,
-          prompt: `请读取资料空间页面 ${page.id} 的最新内容，再按页面中的要求执行并更新同一页面。请使用已连接的资料空间工具读写，不创建重复页面。`,
-          enabled: true,
-          mode: "dedicated",
-        }}
-        sourceThreadId={page.sourceThreadId}
-        createAutomation={(input, complete, onError) => {
-          if (!current.current()) {
-            const error = new Error("账号已变化，请重新打开页面。");
-            setActionError(error.message);
-            onError?.(error);
-            return;
-          }
-          requestedEnabled.current = input.enabled ?? true;
-          // The dialog owns a creation lock until this callback settles. A
-          // mutation observer's callbacks disappear when its account unmounts.
-          void automation.createMutation
-            .mutateAsync({ ...input, enabled: false })
-            .then(complete, (cause: unknown) =>
-              onError?.(
-                cause instanceof Error
-                  ? cause
-                  : new Error("Could not confirm automation creation."),
-              ),
-            );
-        }}
-        onCreated={async (definition: AutomationDefinition) => {
-          if (!current.current())
-            throw new Error("账号已变化，任务已暂停。请在定时任务中继续处理。");
-          const latest = await ensureNativeApi().pages.read({
-            scopeSpaceId: props.scopeSpaceId,
-            pageId: page.id,
-          });
-          if (!current.current()) throw new Error("账号已变化，任务保持暂停。");
-          if (latest.page.trashedAt) throw new Error("页面已在回收站中，任务保持暂停。");
-          const pendingAttach = actionIntent.pending;
-          if (
-            pendingAttach &&
-            (pendingAttach.op !== "update" || !pendingAttach.automationIds?.includes(definition.id))
-          )
-            throw new Error("请先核对页面的上次操作。");
-          const linked =
-            pendingAttach?.op === "update"
-              ? await mutate(latest, { op: "update", automationIds: pendingAttach.automationIds })
-              : latest.page.automationIds.includes(definition.id)
-                ? latest
-                : await mutate(latest, {
-                    op: "update",
-                    automationIds: [...latest.page.automationIds, definition.id],
-                  });
-          if (!current.current()) throw new Error("账号已变化，任务保持暂停。");
-          session.load(linked);
-          client.setQueryData(
-            pagesQueryKeys.read(props.account, props.scopeSpaceId, page.id),
-            linked,
-          );
-          if (requestedEnabled.current) {
-            const latestAutomations = await ensureNativeApi().automation.list({});
-            if (!current.current()) throw new Error("账号已变化，任务保持暂停。");
-            const latestDefinition = latestAutomations.definitions.find(
-              (entry) => entry.id === definition.id,
-            );
-            if (!latestDefinition) throw new Error("任务已不可用，请在定时任务中检查。");
-            if (!latestDefinition.enabled)
-              await automation.updateMutation.mutateAsync({ id: definition.id, enabled: true });
-          }
-          if (!current.current()) return;
-          await props.onChanged();
-        }}
-        onManage={(definition) =>
-          void navigate({
-            to: "/automations/$automationId",
-            params: { automationId: definition.id },
-          })
-        }
-      />
-      <Dialog open={reloadConfirm} onOpenChange={setReloadConfirm}>
-        <DialogPopup>
-          <DialogTitle>重新载入页面？</DialogTitle>
-          <p className="my-4 text-ui-sm text-muted-foreground">
-            这会放弃当前草稿，读取已保存的最新版本。你也可以先下载草稿。
-          </p>
-          <Button variant="ghost" onClick={() => void downloadDraft()}>
-            下载草稿
-          </Button>
-          <Button
-            disabled={state.saving}
-            onClick={() => {
-              void ensureNativeApi()
-                .pages.read({ scopeSpaceId: props.scopeSpaceId, pageId: page.id })
-                .then((latest) => {
-                  if (!current.current()) return;
-                  session.discardAndLoad(latest);
-                  setReloadConfirm(false);
-                })
-                .catch((cause: unknown) =>
-                  setActionError(cause instanceof Error ? cause.message : "载入失败"),
-                );
-            }}
-          >
-            放弃草稿并载入
-          </Button>
-        </DialogPopup>
-      </Dialog>
-    </div>
-  );
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
+  return btoa(binary);
 }

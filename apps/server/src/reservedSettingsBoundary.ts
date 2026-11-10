@@ -1,23 +1,14 @@
-import type {
-  ProviderInstanceConfig,
-  ServerSettings,
-  ServerSettingsPatch,
-} from "@synara/contracts";
+import {
+  RESERVED_CODEX_ACCOUNT_IDS,
+  type ProviderInstanceConfig,
+  type ServerSettings,
+  type ServerSettingsPatch,
+} from "@moss/contracts";
+import { MOSS_MANAGED_PROVIDER_INSTANCE_IDS } from "@moss/shared/mossDownloadChannel";
 import type { JsonObject } from "effect/Schema";
 
-export const RESERVED_MOSS_CODEX_ACCOUNT_IDS = ["moss", "byok"] as const;
-export const RESERVED_MOSS_PROVIDER_INSTANCE_IDS = [
-  "codex_moss",
-  "codex_byok",
-  "claude_moss",
-  "opencode_moss",
-  "pi_moss",
-  "grok_moss",
-  "hermes_moss",
-  "kimi_moss",
-  "minimax_moss",
-  "zcode_moss",
-] as const;
+export const RESERVED_MOSS_CODEX_ACCOUNT_IDS = RESERVED_CODEX_ACCOUNT_IDS;
+export const RESERVED_MOSS_PROVIDER_INSTANCE_IDS = MOSS_MANAGED_PROVIDER_INSTANCE_IDS;
 /**
  * Internal-only provenance written when managed cleanup changes routing.
  * Keeping this outside the legacy `previousSelectedAccountId` field prevents

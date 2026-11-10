@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -11,6 +11,7 @@ import {
   replaceLastTabWithFreshChat,
   normalizeOpenThreadTabIds,
   type OpenThreadTabSource,
+  resolveDraggedOpenThreadTab,
   resolveOpenThreadTabCloseTarget,
   resolveOpenThreadTabsInCloseScope,
 } from "./openThreadTabs.logic";
@@ -226,6 +227,39 @@ describe("resolveOpenThreadTabCloseTarget", () => {
         activeThreadId: ThreadId.makeUnsafe("a"),
       }),
     ).toEqual({ threadId: null });
+  });
+});
+
+describe("resolveDraggedOpenThreadTab", () => {
+  const tabs = tabIds(["a", "b", "c"]);
+  const id = ThreadId.makeUnsafe;
+
+  it("splits the chat with a background tab as it is", () => {
+    expect(
+      resolveDraggedOpenThreadTab({ tabs, draggedThreadId: id("c"), activeThreadId: id("a") }),
+    ).toEqual({ threadId: id("c") });
+  });
+
+  it("hands the active tab's pane to the tab that would take over on close", () => {
+    expect(
+      resolveDraggedOpenThreadTab({ tabs, draggedThreadId: id("b"), activeThreadId: id("b") }),
+    ).toEqual({ threadId: id("b"), replacementThreadId: id("c") });
+    expect(
+      resolveDraggedOpenThreadTab({ tabs, draggedThreadId: id("c"), activeThreadId: id("c") }),
+    ).toEqual({ threadId: id("c"), replacementThreadId: id("b") });
+  });
+
+  it("gives a lone tab, or one no longer open, nowhere to go", () => {
+    expect(
+      resolveDraggedOpenThreadTab({
+        tabs: tabIds(["a"]),
+        draggedThreadId: id("a"),
+        activeThreadId: id("a"),
+      }),
+    ).toBeNull();
+    expect(
+      resolveDraggedOpenThreadTab({ tabs, draggedThreadId: id("z"), activeThreadId: id("a") }),
+    ).toBeNull();
   });
 });
 

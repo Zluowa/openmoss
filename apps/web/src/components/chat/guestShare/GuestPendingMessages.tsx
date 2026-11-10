@@ -12,7 +12,7 @@ import type {
   GuestMessageId,
   ThreadGuestMessage,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useEffect, useMemo, useState } from "react";
 
 import { selectThreadGuestShare, useGuestShareStore } from "~/guestShareStore";

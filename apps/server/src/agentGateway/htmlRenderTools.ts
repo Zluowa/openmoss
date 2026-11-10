@@ -1,6 +1,6 @@
 // FILE: htmlRenderTools.ts
 // Purpose: The `html_render` agent tool, which shows a self-contained HTML page inline in the
-//   caller's thread above the agent's reply.
+//   caller's thread above the agent's reply, or updates the visual a named surface keeps.
 // Layer: Agent gateway tool
 // Origin: Ported from apps/server/src/mcp/toolkits/html/{tools,handlers}.ts in T3 Code
 //   (https://github.com/pingdotgg/t3code, MIT) at ba0ea3d152150f399827d36a5b4b86c5bbda2d7f
@@ -11,22 +11,26 @@
 
 import { randomUUID } from "node:crypto";
 
-import { CommandId, EventId, ThreadId, TurnId } from "@synara/contracts";
+import { CommandId, EventId, ThreadId, TurnId } from "@moss/contracts";
 import {
   HTML_RENDER_COLUMN_WIDTH,
   HTML_RENDER_LAYOUT_GUIDE,
   HTML_RENDER_MAX_FIT_HEIGHT,
   HTML_RENDER_MAX_HEIGHT,
+  HTML_RENDER_MAX_SURFACE_LENGTH,
   HTML_RENDER_MAX_TITLE_LENGTH,
   HTML_RENDER_MIN_HEIGHT,
+  HTML_RENDER_SURFACE_PATTERN,
   HTML_RENDER_THEME_GUIDE,
   HTML_RENDER_TOOL_NAME,
-} from "@synara/shared/htmlRender";
-import type { ThemeAppearance } from "@synara/shared/themePalettes";
+  isHtmlRenderSurface,
+  type HtmlRenderReference,
+} from "@moss/shared/htmlRender";
+import type { ThemeAppearance } from "@moss/shared/themePalettes";
 import {
   HTML_RENDER_ACTIVITY_KIND,
   htmlRenderActivityPayload,
-} from "@synara/shared/htmlRenderActivity";
+} from "@moss/shared/htmlRenderActivity";
 import { Effect } from "effect";
 
 import type { HtmlRenderShape } from "../htmlRender/HtmlRender.ts";
@@ -41,7 +45,11 @@ const HTML_MAX_LENGTH = 512_000;
 const PAGE_RULES =
   "Inline <style> and <script>. Local images as absolute paths are inlined. Remote URLs load as-is.";
 
-export const HTML_RENDER_TOOL_DESCRIPTION = `Show a finished HTML page (chart, diagram, mockup) inline in this thread, above your final reply. Do not announce or restate the page. The frame fits the page's height, up to ${HTML_RENDER_MAX_FIT_HEIGHT}px. ${PAGE_RULES} ${HTML_RENDER_LAYOUT_GUIDE} ${HTML_RENDER_THEME_GUIDE}`;
+// The detailed rules live in visual_guide, so this description stays short in every session.
+const VISUAL_RULES =
+  "Read visual_guide before a diagram, calculator, simulation or map. A button can hand the reader's choice to their composer with window.mossFollowUp(text).";
+
+export const HTML_RENDER_TOOL_DESCRIPTION = `Show a finished HTML page (chart, diagram, mockup, tool, map) inline in this thread, above your final reply. Do not announce or restate the page. Reuse a surface name to update one visual in place across turns (dashboard, test results, progress). The frame fits the page's height, up to ${HTML_RENDER_MAX_FIT_HEIGHT}px. ${PAGE_RULES} ${VISUAL_RULES} ${HTML_RENDER_LAYOUT_GUIDE} ${HTML_RENDER_THEME_GUIDE}`;
 
 export const HTML_PREVIEW_TOOL_DESCRIPTION = `Check an HTML page before html_render. Returns PNG, contentHeight, and console output. The first preview on a machine waits while Moss downloads its preview browser; if it says the download is still running, call again in a minute. ${PAGE_RULES} Theme and layout rules are in html_render.`;
 
@@ -64,6 +72,13 @@ const INPUT_SCHEMA = {
       type: "integer",
       description: `Frame height in CSS pixels, ${HTML_RENDER_MIN_HEIGHT} to ${HTML_RENDER_MAX_HEIGHT}. Use the contentHeight from html_preview.`,
     },
+    surface: {
+      type: "string",
+      minLength: 1,
+      maxLength: HTML_RENDER_MAX_SURFACE_LENGTH,
+      pattern: HTML_RENDER_SURFACE_PATTERN,
+      description: "Optional stable name, such as build-status. Reuse it to replace that page.",
+    },
   },
   required: ["html", "title", "height"],
   additionalProperties: false,
@@ -85,11 +100,19 @@ const PREVIEW_INPUT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-const SHOWN_MESSAGE =
-  "Shown to the reader above your reply. Don't mention or describe the page; reply with only what it doesn't already say.";
+const REPLY_RULE =
+  "Don't mention or describe the page; reply with only what it doesn't already say.";
+
+/** What the agent learns about the page it just published. */
+function publishedMessage(surface: { readonly name: string; readonly existed: boolean } | null) {
+  if (surface === null) return `Shown to the reader above your reply. ${REPLY_RULE}`;
+  return surface.existed
+    ? `Updated surface "${surface.name}" in place, where the reader first saw it. ${REPLY_RULE}`
+    : `Created surface "${surface.name}", shown to the reader above your reply. ${REPLY_RULE}`;
+}
 
 function readHtmlRenderArgs(args: Record<string, unknown>) {
-  const { html, title, height } = args;
+  const { html, title, height, surface } = args;
   if (typeof html !== "string" || html.length === 0 || html.length > HTML_MAX_LENGTH) {
     throw new ToolInputError(
       `Argument "html" must be an HTML document of 1-${HTML_MAX_LENGTH} characters.`,
@@ -107,7 +130,12 @@ function readHtmlRenderArgs(args: Record<string, unknown>) {
   if (typeof height !== "number" || !Number.isInteger(height)) {
     throw new ToolInputError(`Argument "height" must be an integer number of CSS pixels.`);
   }
-  return { html, title, height };
+  if (surface !== undefined && !isHtmlRenderSurface(surface)) {
+    throw new ToolInputError(
+      `Argument "surface" must be 1-${HTML_RENDER_MAX_SURFACE_LENGTH} lowercase letters, digits and hyphens.`,
+    );
+  }
+  return { page: { html, title, height }, surface: surface ?? null };
 }
 
 function readHtmlPreviewArgs(args: Record<string, unknown>) {
@@ -142,11 +170,15 @@ export interface AgentGatewayHtmlRenderToolsInput {
   readonly orchestrationEngine: Pick<OrchestrationEngineShape, "dispatch">;
   /** The caller thread's workspace, which scopes the local images a page may inline. */
   readonly resolveWorkspaceRoot: (context: ToolContext) => Effect.Effect<string | null>;
+  /** Whether the thread already published a page on this surface. */
+  readonly hasSurface: (threadId: ThreadId, surface: string) => Effect.Effect<boolean, unknown>;
 }
 
 export function makeAgentGatewayHtmlRenderTools(
   input: AgentGatewayHtmlRenderToolsInput,
 ): ReadonlyArray<ToolEntry> {
+  const surfaceExists = (threadId: ThreadId, surface: string) =>
+    input.hasSurface(threadId, surface).pipe(Effect.orElseSucceed(() => false));
   return [
     {
       definition: {
@@ -207,13 +239,17 @@ export function makeAgentGatewayHtmlRenderTools(
       requiresActiveTurn: true,
       handler: (args, context) =>
         Effect.gen(function* () {
-          const page = yield* Effect.try({
+          const { page, surface } = yield* Effect.try({
             try: () => readHtmlRenderArgs(args),
             catch: (error) => error,
           });
           const threadId = ThreadId.makeUnsafe(context.callerThreadId);
+          // Read before this page is recorded. A failed lookup only changes the wording.
+          const existed = surface !== null && (yield* surfaceExists(threadId, surface));
           const cwd = yield* input.resolveWorkspaceRoot(context);
-          const reference = yield* input.htmlRender.publish({ threadId, cwd, ...page });
+          const published = yield* input.htmlRender.publish({ threadId, cwd, ...page });
+          const reference: HtmlRenderReference =
+            surface === null ? published : { ...published, surface };
           const createdAt = gatewayIsoNow();
           yield* input.orchestrationEngine.dispatch({
             type: "thread.activity.append",
@@ -231,7 +267,10 @@ export function makeAgentGatewayHtmlRenderTools(
             },
             createdAt,
           });
-          const result = { htmlRender: reference, message: SHOWN_MESSAGE };
+          const result = {
+            htmlRender: reference,
+            message: publishedMessage(surface === null ? null : { name: surface, existed }),
+          };
           return {
             content: [{ type: "text" as const, text: JSON.stringify(result) }],
             structuredContent: result,

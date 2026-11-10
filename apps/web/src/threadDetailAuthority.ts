@@ -1,4 +1,4 @@
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import { useStore } from "./store";
 
 /** Read authority at the action seam, including callbacks created before restore. */

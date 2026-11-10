@@ -6,53 +6,50 @@
 // Note: raw <button>s for autocomplete-suggestion rows and tab-title activate
 // regions are intentional — list-row and tab semantics, not shadcn Buttons.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
-  type ServerLocalServerProcess,
+  type BrowserAnnotationEvent,
+  type ProjectId,
   type ThreadBrowserState,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
-  Camera01Icon,
   CircleAlertIcon,
   ExternalLinkIcon,
   GlobeIcon,
-  LinkIcon,
-  LoaderCircleIcon,
-  MoreHorizontalIcon,
-  type LucideIcon,
+  Maximize2,
+  Minimize2,
   PlusIcon,
   RefreshCwIcon,
   XIcon,
 } from "~/lib/icons";
 
-import { localServerPrimaryLabel } from "@synara/shared/localServers";
 import {
   BROWSER_BLANK_URL,
   isBlankBrowserTabUrl,
   resolveCopyableBrowserTabUrl,
-} from "@synara/shared/browserSession";
+} from "@moss/shared/browserSession";
 import {
   BROWSER_COPY_LINK_TOAST_TITLE,
   isBrowserCopyLinkChord,
-} from "@synara/shared/browserShortcuts";
+} from "@moss/shared/browserShortcuts";
 
 import { isElectron } from "~/env";
 import { CentralIcon } from "~/lib/central-icons";
 import { readNativeApi } from "~/nativeApi";
-import { BrowserVaultButton } from "./BrowserVault";
 import type { DockPaneRuntimeMode } from "~/lib/dockPaneActivation";
 import { readDesktopZoomFactor, subscribeDesktopZoomFactor } from "~/lib/desktopZoom";
-import { BROWSER_PANEL_BOUNDS_SYNC_EVENT } from "~/lib/browserPanelBoundsSync";
+import {
+  BROWSER_PANEL_BOUNDS_SYNC_EVENT,
+  requestBrowserPanelBoundsSync,
+} from "~/lib/browserPanelBoundsSync";
 import {
   NATIVE_SURFACE_MENU_OVERLAY_SELECTOR,
   NATIVE_SURFACE_OCCLUSION_SYNC_EVENT,
 } from "~/lib/nativeSurfaceOcclusion";
-import { serverLocalServersQueryOptions } from "~/lib/serverReactQuery";
 import { cn, isMacNavigatorPlatform } from "~/lib/utils";
 
 import {
@@ -61,12 +58,32 @@ import {
   selectThreadBrowserState,
 } from "../browserStateStore";
 import { useComposerDraftStore, type BrowserAnnotationDraft } from "../composerDraftStore";
-import { anchoredToastManager } from "./ui/toast";
-import { prepareComposerImageFromBrowserScreenshot } from "../lib/browserPromptContext";
+import { prepareComposerImageAttachmentsFromFiles } from "../lib/composerSend";
+import { useTranslation } from "~/localization";
+import { BROWSER_NEW_TAB_REQUEST_EVENT, BrowserPageTabs } from "./browser/BrowserPageTabs";
+import { BrowserPanelMenu } from "./browser/BrowserPanelMenu";
 import {
-  BROWSER_CHROME_CONTROL_CLASS_NAME,
-  BROWSER_CHROME_CONTROL_FILLED_CLASS_NAME,
-  browserAddressDisplayValue,
+  browserAddressDisplay,
+  browserAddressEditValue,
+  findBrowserViewportPreset,
+  resolveBrowserViewportFrame,
+} from "./browser/browserPanelChrome.logic";
+import {
+  browserViewportTabKey,
+  openUrlInThreadBrowser,
+  useBrowserViewportStore,
+} from "./browser/browserPanelNavigation";
+import { BrowserServersMenu } from "./browser/BrowserServersMenu";
+import { LaunchServersPage } from "./browser/LaunchServerList";
+import { useProjectLaunchServers } from "./browser/useProjectLaunchServers";
+import {
+  CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
+  DOCK_HEADER_ICON_BUTTON_CLASS,
+} from "./chat/chatHeaderControls";
+import { BrowserSketchOverlay } from "./browser/BrowserSketchOverlay";
+import { BrowserSketchToolbar } from "./browser/BrowserSketchToolbar";
+import { useBrowserSketch } from "./browser/useBrowserSketch";
+import {
   browserWebviewInitialUrl,
   buildBrowserAddressSuggestions,
   createBrowserPanelHideScheduler,
@@ -74,7 +91,6 @@ import {
   createBrowserRendererLossHandler,
   hasObscuringHitStackElementAboveSurface,
   normalizeBrowserAddressInput,
-  resolveBrowserChromeStatus,
   resolveBrowserAddressSync,
   shouldOccludeBrowserWebview,
   applyBrowserWebviewPresentation,
@@ -82,19 +98,13 @@ import {
   resolveBrowserRuntimePresentation,
   type BrowserAddressSuggestion,
 } from "./BrowserPanel.logic";
-import { BrowserTabStrip } from "./BrowserTabStrip";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import {
   useBrowserAnnotations,
   type BrowserAnnotationsController,
 } from "./browser/useBrowserAnnotations";
-import { LocalServerIdentity } from "./LocalServerIdentity";
 import { Button } from "./ui/button";
-import { ButtonGroup, ButtonGroupSeparator } from "./ui/button-group";
 import { IconButton } from "./ui/icon-button";
-import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
-import { Input } from "./ui/input";
-import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "./ui/menu";
 import { Skeleton } from "./ui/skeleton";
 import { toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -105,20 +115,82 @@ interface BrowserPanelProps {
   onClosePanel: () => void;
   runtimeMode?: DockPaneRuntimeMode;
   onRequestLive?: () => void;
+  /**
+   * Where the panel sits: `dock` (the side panel) or `standalone` (a split pane). Either
+   * way it draws its own header row (page tabs and "+", then servers, "…", expand and
+   * close) above its address row, as the desktop panel does.
+   */
+  chrome?: "dock" | "standalone";
+  /** The chat's project folder: local pages show their path from here. */
+  workspaceRoot?: string | null;
+  /** The chat's project: its servers are listed on a new tab and under the servers button. */
+  projectId?: ProjectId | null;
+  /** Opens a local page's file as source ("…" › View source), or the launch file. */
+  onViewSource?: (absolutePath: string) => void;
+  /** The side panel's width toggle, shown in the header as Expand / Restore. */
+  layout?: { readonly expanded: boolean; readonly onToggleExpanded: () => void } | undefined;
 }
 
 const BROWSER_BOUNDS_SYNC_BURST_FRAMES = 30;
 const BROWSER_BOUNDS_SYNC_STABLE_FRAME_TARGET = 2;
+/** How long an overlay waits for a first still of the page before hiding it anyway. */
+const BROWSER_COVER_STILL_WAIT_MS = 200;
+/** Resting stills: first one soon after the page settles, then slower while nothing changes. */
+const BROWSER_RESTING_FRAME_FIRST_MS = 400;
+const BROWSER_RESTING_FRAME_ACTIVE_MS = 1_000;
+const BROWSER_RESTING_FRAME_IDLE_MAX_MS = 4_000;
+/** A picked element is shot once its pick highlight has left the page. */
+const PICKED_ELEMENT_SHOT_DELAY_MS = 260;
+/** Room around a picked element in its picture, and the picture's largest side. */
+const PICKED_ELEMENT_SHOT_PADDING_PX = 8;
+const PICKED_ELEMENT_SHOT_MAX_PX = 1_200;
+
+/** Cuts a picked element (plus a little room) out of a screenshot of the page's viewport. */
+async function cropPickedElementShot(input: {
+  readonly bytes: Uint8Array;
+  readonly box: NonNullable<Extract<BrowserAnnotationEvent, { kind: "committed" }>["elementBox"]>;
+  readonly name: string;
+}): Promise<File | null> {
+  const bitmap = await createImageBitmap(
+    new Blob([input.bytes as BlobPart], { type: "image/png" }),
+  );
+  try {
+    const scale = bitmap.width / input.box.viewport.width;
+    const pad = PICKED_ELEMENT_SHOT_PADDING_PX;
+    const left = Math.max(0, Math.floor((input.box.rect.x - pad) * scale));
+    const top = Math.max(0, Math.floor((input.box.rect.y - pad) * scale));
+    const right = Math.min(
+      bitmap.width,
+      Math.ceil((input.box.rect.x + input.box.rect.width + pad) * scale),
+    );
+    const bottom = Math.min(
+      bitmap.height,
+      Math.ceil((input.box.rect.y + input.box.rect.height + pad) * scale),
+    );
+    const width = right - left;
+    const height = bottom - top;
+    if (width < 2 || height < 2) return null;
+    const fit = Math.min(1, PICKED_ELEMENT_SHOT_MAX_PX / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * fit));
+    canvas.height = Math.max(1, Math.round(height * fit));
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.drawImage(bitmap, left, top, width, height, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    return blob ? new File([blob], input.name, { type: "image/png" }) : null;
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** The still stays up this long after an overlay closes, while the page comes back. */
+const BROWSER_PREVIEW_FRAME_HOLD_MS = 250;
 const BROWSER_WEBVIEW_PARTITION = "persist:moss-browser";
 const BROWSER_PERF_SAMPLE_INTERVAL_MS = 5_000;
 const MOSS_BROWSER_LABEL = "Moss browser";
 const browserPanelHideScheduler = createBrowserPanelHideScheduler();
 const browserPanelRendererHandoff = createBrowserPanelRendererHandoff();
-const BROWSER_ACTION_MENU_PANEL_CLASS_NAME = "w-52 min-w-52";
-const BROWSER_ACTION_MENU_ITEM_CLASS_NAME =
-  "text-[var(--color-text-foreground)] data-highlighted:text-[var(--color-text-foreground)]";
-const BROWSER_ACTION_MENU_ICON_CLASS_NAME =
-  "inline-flex size-4 shrink-0 items-center justify-center text-[var(--color-text-foreground-secondary)] [&>svg]:size-4 [&>[data-slot=central-icon]]:size-3.5";
 const EMPTY_BROWSER_ANNOTATIONS: readonly BrowserAnnotationDraft[] = [];
 const NATIVE_BROWSER_OBSCURING_OVERLAY_SELECTOR = [
   NATIVE_SURFACE_MENU_OVERLAY_SELECTOR,
@@ -135,33 +207,31 @@ const NATIVE_BROWSER_OBSCURING_OVERLAY_SELECTOR = [
   "[role='dialog'][aria-modal='true']",
 ].join(", ");
 
-function BrowserActionMenuIcon({ icon: Icon }: { icon: LucideIcon }) {
-  return (
-    <span className={BROWSER_ACTION_MENU_ICON_CLASS_NAME}>
-      <Icon aria-hidden="true" />
-    </span>
-  );
-}
-
 export function BrowserAnnotationButton(props: {
   controller: BrowserAnnotationsController;
   disabled: boolean;
 }) {
-  const label = props.controller.active ? "Cancel annotation" : "Annotate page";
+  const { t } = useTranslation();
+  const label = props.controller.active ? t("browser.pick.close") : t("browser.pick.open");
   return (
     <Tooltip>
       <TooltipTrigger
         render={
           <Button
             type="button"
-            variant={props.controller.active ? "default" : "ghost"}
+            variant="ghost"
             size="icon-sm"
-            className="size-7 [&_[data-slot=central-icon]]:!opacity-100"
+            className={cn(
+              "size-7 text-foreground/80 hover:text-foreground [&_[data-slot=central-icon]]:!opacity-100",
+              props.controller.active &&
+                "bg-[color-mix(in_srgb,var(--color-text-accent)_13%,transparent)]! text-[var(--color-text-accent)]! hover:bg-[color-mix(in_srgb,var(--color-text-accent)_18%,transparent)]!",
+            )}
             disabled={props.disabled}
             aria-label={label}
             aria-pressed={props.controller.active}
             aria-busy={props.controller.starting || undefined}
             data-pressed={props.controller.active ? "" : undefined}
+            data-browser-annotate=""
             title={label}
             onClick={props.controller.toggle}
           />
@@ -170,9 +240,7 @@ export function BrowserAnnotationButton(props: {
         <CentralIcon name="window-cursor" className="size-4" />
       </TooltipTrigger>
       <TooltipPopup side="bottom">
-        {props.controller.active
-          ? "Cancel element selection (Esc)"
-          : "Select an element to annotate"}
+        {props.controller.active ? t("browser.pick.closeTooltip") : t("browser.pick.openTooltip")}
       </TooltipPopup>
     </Tooltip>
   );
@@ -232,6 +300,15 @@ const VIEWPORT_TRANSITION_PROPERTIES = new Set([
   "inset-block-start",
   "inset-block-end",
 ]);
+
+function withShortLocalFileDetail(
+  suggestion: BrowserAddressSuggestion,
+  workspaceRoot: string | null | undefined,
+): BrowserAddressSuggestion {
+  if (browserAddressDisplay(suggestion.detail).kind !== "file") return suggestion;
+  return { ...suggestion, detail: browserAddressEditValue(suggestion.detail, workspaceRoot) };
+}
+
 function formatBrowserActionError(error: unknown): string | null {
   if (!(error instanceof Error)) {
     return "Couldn't complete that browser action.";
@@ -375,6 +452,11 @@ function isNativeBrowserTransitionSignalTarget(
   );
 }
 
+/** Timeline marks for `moss:browser-perf` sessions (how a menu covers and uncovers the page). */
+function markBrowserPerf(name: string): void {
+  if (isBrowserPerfLoggingEnabled()) performance.mark(name);
+}
+
 function isBrowserPerfLoggingEnabled(): boolean {
   if (typeof window === "undefined") {
     return false;
@@ -446,145 +528,25 @@ function BrowserRuntimeError(props: { message: string; onReload: () => void }) {
   );
 }
 
-function browserLocalServerUrl(server: ServerLocalServerProcess): string | null {
-  const addressWithUrl = server.addresses.find((address) => address.url);
-  if (addressWithUrl?.url) {
-    return addressWithUrl.url;
-  }
-
-  const port = server.ports[0];
-  if (!port) {
-    return null;
-  }
-  return `http://localhost:${port}/`;
-}
-
-// Paints a tiny browser-preview tile without fetching screenshots or adding network work.
-// The page name and address are rendered into the tile so it reads as a real preview.
-function BrowserLocalServerThumbnail({ server }: { server: ServerLocalServerProcess }) {
-  const label = localServerPrimaryLabel(server);
-  const port = server.ports[0];
-
-  return (
-    <span
-      aria-hidden="true"
-      className="flex h-12 w-[4.5rem] shrink-0 flex-col gap-1 overflow-hidden rounded-md border border-white/12 bg-[#f7f7f2] p-1.5 shadow-[0_4px_12px_rgba(0,0,0,0.28)]"
-    >
-      <span className="flex gap-[3px]">
-        <span className="size-[3px] rounded-full bg-[#ff6b65]" />
-        <span className="size-[3px] rounded-full bg-[#f4c047]" />
-        <span className="size-[3px] rounded-full bg-[#45cf77]" />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-        <span className="truncate text-[7px] font-bold leading-none text-[#2a2a2a]">{label}</span>
-        {port ? (
-          <span className="truncate text-[6px] font-medium leading-none text-[#9a9a9a]">
-            localhost:{port}
-          </span>
-        ) : null}
-      </span>
-    </span>
-  );
-}
-
-// Replaces about:blank with a local-server launcher so the browser never opens to white.
-function BrowserLocalServersHome({
-  activeTabId,
-  loading,
-  onNavigate,
-  onRefresh,
-  servers,
-}: {
-  activeTabId: string | null;
-  loading: boolean;
-  onNavigate: (url: string, tabId: string | null) => void;
-  onRefresh: () => void;
-  servers: readonly ServerLocalServerProcess[];
-}) {
-  const hasServers = servers.length > 0;
-
-  return (
-    <div className="absolute inset-0 z-20 flex flex-col overflow-hidden bg-[var(--color-background-surface)] text-foreground">
-      <div className="mx-auto flex h-full w-full max-w-[52rem] flex-col px-8 py-9">
-        <div className="flex shrink-0 items-center justify-between">
-          <p className="text-[15px] font-medium text-muted-foreground">Local</p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="size-8 text-muted-foreground hover:bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] hover:text-foreground"
-            disabled={loading}
-            onClick={onRefresh}
-            aria-label="Refresh local servers"
-            title="Refresh local servers"
-          >
-            <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
-          </Button>
-        </div>
-
-        {!hasServers ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
-            {loading ? (
-              <>
-                <RefreshCwIcon className="mb-4 size-12 animate-spin text-muted-foreground/50" />
-                <p className="text-base font-semibold text-foreground">Scanning local servers</p>
-                <p className="mt-2 text-ui leading-snug text-muted-foreground">
-                  Checking localhost ports
-                </p>
-              </>
-            ) : (
-              <>
-                <GlobeIcon className="mb-4 size-12 text-muted-foreground/60" />
-                <p className="text-base font-semibold text-foreground">No local servers</p>
-                <p className="mt-2 text-ui leading-snug text-muted-foreground">
-                  Try another browser URL
-                </p>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="mt-4 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-6">
-            {servers.map((server) => {
-              const url = browserLocalServerUrl(server);
-
-              return (
-                <button
-                  key={server.id}
-                  type="button"
-                  disabled={!url}
-                  onClick={() => {
-                    if (url) {
-                      onNavigate(url, activeTabId);
-                    }
-                  }}
-                  className="group grid w-full shrink-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 rounded-card border border-border px-3 py-2.5 text-left transition-colors hover:border-[color:var(--color-border-heavy)] hover:bg-[color-mix(in_srgb,var(--foreground)_3.5%,transparent)] disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  <BrowserLocalServerThumbnail server={server} />
-                  <LocalServerIdentity server={server} tone="browser" />
-                  <span
-                    className="mr-1 size-2 rounded-full bg-[#36d07b] shadow-[0_0_0_2.5px_rgba(54,208,123,0.16)]"
-                    aria-hidden
-                  />
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function BrowserPanel({
   mode,
   threadId,
   onClosePanel,
   runtimeMode: runtimeModeProp,
   onRequestLive,
+  chrome: chromeProp,
+  workspaceRoot: workspaceRootProp,
+  projectId: projectIdProp,
+  onViewSource,
+  layout,
 }: BrowserPanelProps) {
   // Defaults belong in the body, never in the destructuring pattern: React Compiler cannot lower an
   // AssignmentPattern there and silently drops the whole component's memoization.
   const runtimeMode = runtimeModeProp ?? "live";
+  const chrome = chromeProp ?? "standalone";
+  const workspaceRoot = workspaceRootProp ?? null;
+  const projectId = projectIdProp ?? null;
+  const { t, format } = useTranslation();
   const isFloatingMode = mode === "floating";
   const api = readNativeApi();
   const isLiveRuntime = runtimeMode === "live";
@@ -619,13 +581,18 @@ export function BrowserPanel({
   // the same physical guest and starving its compositor with IPC churn.
   const browserWebviewAttachInFlightKeyRef = useRef<string | null>(null);
   const activeTabInitialUrlRef = useRef(BROWSER_BLANK_URL);
-  const copyScreenshotButtonRef = useRef<HTMLButtonElement>(null);
   const addressDraftsByTabIdRef = useRef(new Map<string, string>());
   const lastSyncedAddressByTabIdRef = useRef(new Map<string, string>());
   const previousActiveTabIdRef = useRef<string | null>(null);
   const lastSentBoundsRef = useRef<string | null>(null);
   const lastMeasuredBoundsKeyRef = useRef<string | null>(null);
   const lastOverlayObscuredRef = useRef(false);
+  // A pending "hide the page" for an overlay that just opened: sent once the still under it
+  // has painted, so the slot never shows empty in between.
+  const pendingCoverTokenRef = useRef(0);
+  const requestRestingFrameRef = useRef<(force?: boolean) => Promise<boolean>>(() =>
+    Promise.resolve(false),
+  );
   const isAddressEditingRef = useRef(false);
   const resizeFrameRef = useRef<number | null>(null);
   const boundsBurstFrameRef = useRef<number | null>(null);
@@ -651,15 +618,30 @@ export function BrowserPanel({
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [browserRendererGeneration, setBrowserRendererGeneration] = useState(0);
-  const [browserActionsMenuOpen, setBrowserActionsMenuOpen] = useState(false);
+  // A page opened from a local file tried to leave for a site that is not allowed.
+  const [blockedNavigation, setBlockedNavigation] = useState<{
+    tabId: string;
+    url: string;
+  } | null>(null);
   const [isBrowserSurfaceOccluded, setIsBrowserSurfaceOccluded] = useState(false);
   const [previewFrame, setPreviewFrame] = useState<{ tabId: string; src: string } | null>(null);
+  const previewFrameRef = useRef(previewFrame);
+  previewFrameRef.current = previewFrame;
+  // Keeps the still up briefly after an overlay closes, until the page is back on screen.
+  const [holdingPreviewFrame, setHoldingPreviewFrame] = useState(false);
   const runtimeReady = isLiveRuntime ? workspaceReady : true;
   const activeTab =
     threadBrowserState?.tabs.find((tab) => tab.id === threadBrowserState.activeTabId) ??
     threadBrowserState?.tabs[0] ??
     null;
   const activeTabId = activeTab?.id ?? null;
+  const activeTabIdRef = useRef(activeTabId);
+  activeTabIdRef.current = activeTabId;
+  const viewportPreset = findBrowserViewportPreset(
+    useBrowserViewportStore((store) =>
+      activeTabId ? store.presetByTabKey[browserViewportTabKey(threadId, activeTabId)] : undefined,
+    ),
+  );
   const usesNativeRuntime = activeTab?.runtimeSurface === "native";
   const rendererHasPopup =
     threadBrowserState?.tabs.some(
@@ -671,29 +653,69 @@ export function BrowserPanel({
   const loading = activeTab?.isLoading ?? false;
   const activeTabIsBlank = isBlankBrowserTabUrl(activeTab);
   const showLocalServersHome = isLiveRuntime && workspaceReady && (!activeTab || activeTabIsBlank);
-  const localServersQuery = useQuery(serverLocalServersQueryOptions(showLocalServersHome));
-  const activeTabStatus = activeTab?.status ?? "suspended";
-  const browserChromeStatus = resolveBrowserChromeStatus({
-    localError,
-    threadLastError: threadBrowserState?.lastError,
-    activeTabStatus: showLocalServersHome ? "live" : activeTabStatus,
-    hasActiveTab: activeTab !== null,
-    workspaceReady: runtimeReady,
+  // A new tab lists the project's servers, as the desktop panel does: ▷ starts one and
+  // shows it here once its port answers.
+  const openInThisBrowser = useCallback(
+    (url: string) => {
+      const nativeApi = readNativeApi();
+      if (!nativeApi) return;
+      // The address field of a new tab has focus; the page replaces what it showed.
+      isAddressEditingRef.current = false;
+      setIsAddressFocused(false);
+      void openUrlInThreadBrowser({ api: nativeApi, threadId, url }).catch((cause: unknown) => {
+        setLocalError(formatBrowserActionError(cause) ?? t("browser.menu.actionFailed"));
+      });
+    },
+    [t, threadId],
+  );
+  const launchServers = useProjectLaunchServers({
+    projectId,
+    workspaceRoot,
+    enabled: showLocalServersHome,
+    onOpen: openInThisBrowser,
   });
+
   const browserPageError = threadBrowserState?.lastError ?? null;
+  // Local pages are listed by their short name too, never by their folder chain.
   const browserAddressSuggestions = buildBrowserAddressSuggestions({
     query: addressValue,
     activeTabId: activeTab?.id ?? null,
     tabs: threadBrowserState?.tabs ?? [],
     recentHistory,
-  });
+  }).map((suggestion) => withShortLocalFileDetail(suggestion, workspaceRoot));
+  // The field still showing the current page (focused to copy or retype it) is not a
+  // search; suggestions start once the person types something else.
+  const addressShowsCurrentPage =
+    activeTab !== null && addressValue === browserAddressEditValue(activeTab.url, workspaceRoot);
   const showBrowserAddressSuggestions =
     isLiveRuntime &&
     isAddressFocused &&
     !addressSuggestionsSuppressed &&
+    !addressShowsCurrentPage &&
     browserAddressSuggestions.length > 0 &&
     runtimeReady;
   const annotationMethods = api?.browser.annotations;
+  // A local page runs at Moss's local-page address; the chat names it by its file instead,
+  // the address the panel shows and the agent can open and edit.
+  const activePageAddressRef = useRef<string | null>(null);
+  activePageAddressRef.current = activeTab?.lastCommittedUrl ?? activeTab?.url ?? null;
+  const addPickedElement = useCallback(
+    (thread: ThreadId, annotation: Omit<BrowserAnnotationDraft, "ordinal">) => {
+      const pageAddress = activePageAddressRef.current;
+      const localPage =
+        annotation.source.url.startsWith("moss-local-preview:") &&
+        pageAddress?.startsWith("file:") === true;
+      return addBrowserAnnotation(
+        thread,
+        localPage
+          ? { ...annotation, source: { ...annotation.source, url: pageAddress } }
+          : annotation,
+      );
+    },
+    [addBrowserAnnotation],
+  );
+  // Select element works on any page: a web page or one opened from a local file (the
+  // pages Moss writes), as in Claude.
   const annotationController = useBrowserAnnotations({
     methods: annotationMethods,
     threadId,
@@ -702,9 +724,91 @@ export function BrowserPanel({
     enabled:
       isElectron && isLiveRuntime && workspaceReady && activeTab !== null && !showLocalServersHome,
     annotations: browserAnnotations,
-    addAnnotation: addBrowserAnnotation,
+    addAnnotation: addPickedElement,
+    onError: setLocalError,
+    onPicked: (event) => attachPickedElementShotRef.current(event),
+  });
+  const annotationAvailable =
+    isLiveRuntime &&
+    isElectron &&
+    workspaceReady &&
+    activeTab !== null &&
+    !showLocalServersHome &&
+    annotationMethods !== undefined;
+  const elementPickAvailable = annotationAvailable;
+  const sketch = useBrowserSketch({
+    enabled: annotationAvailable,
+    selectAvailable: elementPickAvailable,
+    activeTabId,
+    pageUrl: activeTab?.lastCommittedUrl ?? activeTab?.url ?? "",
+    pageTitle: activeTab?.title ?? "",
+    elementPicker: annotationController,
+    capturePage: (tabId) =>
+      api
+        ? runBrowserAction(() => api.browser.captureScreenshot({ threadId, tabId }))
+        : Promise.resolve(null),
+    // The drawn area is the page itself: a device viewport's frame when one is set.
+    readPageWidth: () => {
+      const width = browserViewportRef.current?.clientWidth ?? 0;
+      const height = browserViewportRef.current?.clientHeight ?? 0;
+      return resolveBrowserViewportFrame({ width, height }, viewportPreset)?.width ?? width;
+    },
+    attachImage: async (file) => {
+      const existing =
+        composerDraftImageCount + composerDraftFileCount + composerDraftAssistantSelectionCount;
+      const result = await prepareComposerImageAttachmentsFromFiles({
+        files: [file],
+        existingAttachmentCount: existing,
+      });
+      const image = result.images[0];
+      if (!image || !addComposerDraftImage(threadId, image)) {
+        throw new Error(
+          result.error ??
+            `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} references per message.`,
+        );
+      }
+    },
     onError: setLocalError,
   });
+  const sketchCoversPage = sketch.coversPage;
+  // A picked element also goes to the chat as a picture of itself (Claude sends one with
+  // every selected element), cut from the page once the pick highlight is gone.
+  const attachPickedElementShotRef = useRef<
+    (event: Extract<BrowserAnnotationEvent, { kind: "committed" }>) => void
+  >(() => undefined);
+  attachPickedElementShotRef.current = (event) => {
+    const box = event.elementBox;
+    if (!api || !box || box.rect.width < 1 || box.rect.height < 1) return;
+    const tabId = event.tabId;
+    window.setTimeout(() => {
+      void (async () => {
+        try {
+          const shot = await api.browser.captureScreenshot({ threadId, tabId });
+          const file = await cropPickedElementShot({
+            bytes: shot.bytes,
+            box,
+            name: `${event.annotation.tagName.toLowerCase() || "element"}.png`,
+          });
+          if (!file) return;
+          const existing =
+            composerDraftImageCount + composerDraftFileCount + composerDraftAssistantSelectionCount;
+          const result = await prepareComposerImageAttachmentsFromFiles({
+            files: [file],
+            existingAttachmentCount: existing,
+          });
+          const image = result.images[0];
+          if (image) addComposerDraftImage(threadId, image);
+        } catch {
+          // The element is in the chat already; its picture is a bonus.
+        }
+      })();
+    }, PICKED_ELEMENT_SHOT_DELAY_MS);
+  };
+  const sketchButtonController: BrowserAnnotationsController = {
+    active: sketch.open,
+    starting: annotationController.starting,
+    toggle: sketch.toggle,
+  };
 
   const requestLiveRuntime = useCallback(() => {
     onRequestLive?.();
@@ -838,7 +942,7 @@ export function BrowserPanel({
 
   useEffect(() => {
     const activeTabId = activeTab?.id ?? null;
-    const nextDisplayValue = browserAddressDisplayValue(activeTab);
+    const nextDisplayValue = browserAddressEditValue(activeTab?.url, workspaceRoot);
     const decision = resolveBrowserAddressSync({
       activeTabId,
       previousActiveTabId: previousActiveTabIdRef.current,
@@ -861,7 +965,7 @@ export function BrowserPanel({
     }
 
     previousActiveTabIdRef.current = activeTabId;
-  }, [activeTab]);
+  }, [activeTab, workspaceRoot]);
 
   useLayoutEffect(() => {
     if (!api || !isLiveRuntime || !workspaceReady || !activeTabId) {
@@ -1146,10 +1250,14 @@ export function BrowserPanel({
         (browserPageError !== null ||
           shouldOccludeBrowserWebview({
             showLocalServersHome,
-            browserActionsMenuOpen,
+            browserActionsMenuOpen: false,
+            // Drawing covers the page with its still, so the live view steps aside.
             hasObscuringOverlay:
-              showBrowserAddressSuggestions || hasNativeBrowserObscuringOverlay(element),
+              sketchCoversPage ||
+              showBrowserAddressSuggestions ||
+              hasNativeBrowserObscuringOverlay(element),
           }));
+      const wasObscured = lastOverlayObscuredRef.current;
       lastOverlayObscuredRef.current = obscuredByOverlay;
       setIsBrowserSurfaceOccluded(usesNativeRuntime && obscuredByOverlay);
       setBrowserWebviewOverlayOcclusion(browserWebviewRef.current, obscuredByOverlay);
@@ -1160,12 +1268,14 @@ export function BrowserPanel({
           floating: isFloatingMode,
           slotWidth: element.clientWidth,
           slotHeight: element.clientHeight,
+          viewport: viewportPreset,
         });
       } else if (webview) {
         applyBrowserWebviewPresentation(webview, {
           floating: isFloatingMode,
           slotWidth: element.clientWidth,
           slotHeight: element.clientHeight,
+          viewport: viewportPreset,
         });
       }
       const rect = element.getBoundingClientRect();
@@ -1174,6 +1284,7 @@ export function BrowserPanel({
         floating: isFloatingMode,
         rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
         desktopZoom: readDesktopZoomFactor(),
+        viewport: viewportPreset,
       });
       const bounds =
         obscuredByOverlay || rect.width <= 0 || rect.height <= 0 ? null : presentation.bounds;
@@ -1188,16 +1299,62 @@ export function BrowserPanel({
       }
       lastSentBoundsRef.current = nextKey;
       perfCountersRef.current.syncSends += 1;
-      void api.browser
-        .setPanelBounds({
-          threadId,
-          bounds,
-          surface,
-          pageZoomFactor,
-          occluded: obscuredByOverlay,
-          preview: isFloatingMode,
-        })
-        .catch(ignoreBrowserBoundsSyncError);
+      const send = () => {
+        markBrowserPerf(bounds ? "moss-browser-page-shown" : "moss-browser-page-hidden");
+        void api.browser
+          .setPanelBounds({
+            threadId,
+            bounds,
+            surface,
+            pageZoomFactor,
+            occluded: obscuredByOverlay,
+            preview: isFloatingMode,
+          })
+          .catch(ignoreBrowserBoundsSyncError);
+      };
+      pendingCoverTokenRef.current += 1;
+      // A menu or popover just opened over the page. The native page paints above the DOM,
+      // so it has to step aside; first put a still of it in its place (kept fresh while the
+      // page rests) and hide it only after that still has painted. Hiding first showed the
+      // empty slot for a frame or two: the flash on every menu.
+      const startsCovering =
+        usesNativeRuntime &&
+        bounds === null &&
+        obscuredByOverlay &&
+        !wasObscured &&
+        !isFloatingMode &&
+        browserPageError === null &&
+        !showLocalServersHome &&
+        activeTabIdRef.current !== null;
+      if (!startsCovering) {
+        send();
+        return;
+      }
+      const token = pendingCoverTokenRef.current;
+      const hideWhenStillCovered = () => {
+        if (
+          pendingCoverTokenRef.current !== token ||
+          lastMeasuredBoundsKeyRef.current !== nextKey
+        ) {
+          return;
+        }
+        send();
+      };
+      const afterStillPaints = () =>
+        window.requestAnimationFrame(() => window.requestAnimationFrame(hideWhenStillCovered));
+      if (previewFrameRef.current?.tabId === activeTabIdRef.current) {
+        // The still is already painted under the page.
+        hideWhenStillCovered();
+        return;
+      }
+      let settled = false;
+      const settle = () => {
+        if (settled) return;
+        settled = true;
+        afterStillPaints();
+      };
+      window.setTimeout(settle, BROWSER_COVER_STILL_WAIT_MS);
+      void requestRestingFrameRef.current(true).finally(settle);
     };
 
     // The panel can slide horizontally without resizing. A short burst keeps the
@@ -1314,15 +1471,28 @@ export function BrowserPanel({
     };
   }, [
     api,
-    browserActionsMenuOpen,
     browserPageError,
     isLiveRuntime,
     isFloatingMode,
     showBrowserAddressSuggestions,
     showLocalServersHome,
+    sketchCoversPage,
     threadId,
     usesNativeRuntime,
+    viewportPreset,
   ]);
+
+  // Main creates a page's native view when the page starts loading, which can be after
+  // this panel last sent its bounds (opening a server from the new-tab page, say). Send
+  // them again whenever the shown page changes, so the view always lands in its slot.
+  const activePageKey = activeTab
+    ? `${activeTab.id}:${activeTab.runtimeSurface ?? ""}:${activeTab.status}:${activeTab.lastCommittedUrl ?? ""}`
+    : "";
+  useEffect(() => {
+    if (!isLiveRuntime || activePageKey.length === 0) return;
+    lastSentBoundsRef.current = null;
+    requestBrowserPanelBoundsSync();
+  }, [activePageKey, isLiveRuntime]);
 
   useEffect(() => {
     if (
@@ -1371,6 +1541,104 @@ export function BrowserPanel({
     browserPageError,
   ]);
 
+  // Resting stills: while the page is on screen, keep a recent still of it (Claude keeps a
+  // "warm" frame the same way). A menu opening over the page then shows that still at once
+  // instead of an empty slot. Main answers null when nothing changed, so a quiet page costs
+  // a pixel compare every few seconds.
+  const restingFrameActive =
+    api !== null &&
+    isLiveRuntime &&
+    workspaceReady &&
+    usesNativeRuntime &&
+    !isFloatingMode &&
+    !isBrowserSurfaceOccluded &&
+    activeTabId !== null &&
+    !showLocalServersHome &&
+    browserPageError === null;
+  useEffect(() => {
+    if (!restingFrameActive || !api || !activeTabId) {
+      requestRestingFrameRef.current = () => Promise.resolve(false);
+      return;
+    }
+    const tabId = activeTabId;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let delay = BROWSER_RESTING_FRAME_FIRST_MS;
+    let inFlight: Promise<boolean> | null = null;
+    const captureNow = (force = false): Promise<boolean> => {
+      if (inFlight && !force) return inFlight;
+      const request = (async () => {
+        try {
+          const src = await api.browser.capturePreview?.({
+            threadId,
+            tabId,
+            ifChanged: true,
+            ...(force ? { force: true } : {}),
+          });
+          if (cancelled || typeof src !== "string" || !src) {
+            markBrowserPerf("moss-browser-resting-still-unchanged");
+            return false;
+          }
+          markBrowserPerf("moss-browser-resting-still");
+          setPreviewFrame({ tabId, src });
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      inFlight = request;
+      void request.finally(() => {
+        if (inFlight === request) inFlight = null;
+      });
+      return request;
+    };
+    const tick = async () => {
+      if (cancelled) return;
+      if (document.hidden) {
+        timer = setTimeout(() => void tick(), BROWSER_RESTING_FRAME_IDLE_MAX_MS);
+        return;
+      }
+      // Main only answers "unchanged" against its own last still; without a still of this
+      // tab here (a reload, another tab) ask for one outright.
+      const changed = await captureNow(previewFrameRef.current?.tabId !== tabId);
+      if (cancelled) return;
+      delay = changed
+        ? BROWSER_RESTING_FRAME_ACTIVE_MS
+        : Math.min(delay * 2, BROWSER_RESTING_FRAME_IDLE_MAX_MS);
+      timer = setTimeout(() => void tick(), delay);
+    };
+    requestRestingFrameRef.current = (force) => captureNow(force === true);
+    timer = setTimeout(() => void tick(), BROWSER_RESTING_FRAME_FIRST_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      requestRestingFrameRef.current = () => Promise.resolve(false);
+    };
+  }, [activePageKey, activeTabId, api, restingFrameActive, threadId]);
+
+  // The pointer reaching the panel's own bar (on its way to a menu) refreshes the still,
+  // so what shows under the menu is the page as it is now.
+  const markStillPainted = useCallback((element: HTMLImageElement | null) => {
+    if (element) window.requestAnimationFrame(() => markBrowserPerf("moss-browser-still-painted"));
+  }, []);
+
+  const refreshRestingFrameSoon = useCallback(() => {
+    void requestRestingFrameRef.current(previewFrameRef.current?.tabId !== activeTabIdRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (isBrowserSurfaceOccluded) {
+      setHoldingPreviewFrame(true);
+      return;
+    }
+    if (!holdingPreviewFrame) return;
+    const timer = window.setTimeout(
+      () => setHoldingPreviewFrame(false),
+      BROWSER_PREVIEW_FRAME_HOLD_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [holdingPreviewFrame, isBrowserSurfaceOccluded]);
+
   const onSubmitAddress = useCallback(() => {
     if (!ensureLiveRuntime()) {
       return;
@@ -1380,15 +1648,29 @@ export function BrowserPanel({
     }
     isAddressEditingRef.current = false;
     setIsAddressFocused(false);
-    const normalizedAddress = normalizeBrowserAddressInput(addressValue);
-    addressDraftsByTabIdRef.current.set(activeTab.id, normalizedAddress);
-    setAddressValue(normalizedAddress);
+    // Hand focus back to the page, as a browser does once an address is entered.
+    addressInputRef.current?.blur();
+    // A local page shows as its short name; submitting that unchanged reloads the page
+    // rather than searching the web for the name.
+    const shownValue = browserAddressEditValue(activeTab.url, workspaceRoot);
+    const pageUnchanged =
+      browserAddressDisplay(activeTab.url).kind === "file" && addressValue.trim() === shownValue;
+    const normalizedAddress = pageUnchanged
+      ? activeTab.url
+      : normalizeBrowserAddressInput(addressValue);
+    addressDraftsByTabIdRef.current.set(
+      activeTab.id,
+      pageUnchanged ? shownValue : normalizedAddress,
+    );
+    setAddressValue(pageUnchanged ? shownValue : normalizedAddress);
     void runBrowserAction(() =>
-      api.browser.navigate({
-        threadId,
-        tabId: activeTab.id,
-        url: normalizedAddress,
-      }),
+      pageUnchanged
+        ? api.browser.reload({ threadId, tabId: activeTab.id })
+        : api.browser.navigate({
+            threadId,
+            tabId: activeTab.id,
+            url: normalizedAddress,
+          }),
     ).then((state) => {
       if (state) {
         upsertThreadState(state);
@@ -1402,6 +1684,7 @@ export function BrowserPanel({
     runBrowserAction,
     threadId,
     upsertThreadState,
+    workspaceRoot,
   ]);
 
   const onReloadActiveTab = useCallback(() => {
@@ -1475,37 +1758,6 @@ export function BrowserPanel({
     [activeTab, api, ensureLiveRuntime, onSelectTab, runBrowserAction, threadId, upsertThreadState],
   );
 
-  const onOpenLocalServer = useCallback(
-    (url: string, tabId: string | null) => {
-      if (!api) {
-        return;
-      }
-      if (!ensureLiveRuntime()) {
-        return;
-      }
-
-      isAddressEditingRef.current = false;
-      setIsAddressFocused(false);
-      setAddressValue(url);
-      if (tabId) {
-        addressDraftsByTabIdRef.current.set(tabId, url);
-      }
-
-      void runBrowserAction(() =>
-        api.browser.navigate({
-          threadId,
-          url,
-          ...(tabId ? { tabId } : {}),
-        }),
-      ).then((state) => {
-        if (state) {
-          upsertThreadState(state);
-        }
-      });
-    },
-    [api, ensureLiveRuntime, runBrowserAction, threadId, upsertThreadState],
-  );
-
   const onCreateTab = useCallback(() => {
     if (!api) {
       return;
@@ -1528,94 +1780,6 @@ export function BrowserPanel({
       });
     });
   }, [api, isLiveRuntime, requestLiveRuntime, runBrowserAction, threadId, upsertThreadState]);
-
-  const onCaptureScreenshot = useCallback(() => {
-    if (!ensureLiveRuntime()) {
-      return;
-    }
-    if (!api || !activeTab) {
-      return;
-    }
-
-    const attachmentCount =
-      composerDraftImageCount + composerDraftFileCount + composerDraftAssistantSelectionCount;
-    if (attachmentCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
-      setLocalError(
-        `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} references per message.`,
-      );
-      return;
-    }
-
-    void runBrowserAction(() =>
-      api.browser.captureScreenshot({ threadId, tabId: activeTab.id }),
-    ).then(async (screenshot) => {
-      if (!screenshot) {
-        return;
-      }
-      try {
-        const inserted = addComposerDraftImage(
-          threadId,
-          await prepareComposerImageFromBrowserScreenshot(screenshot),
-        );
-        if (!inserted) {
-          throw new Error(
-            `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} references per message.`,
-          );
-        }
-        setLocalError(null);
-      } catch (cause) {
-        setLocalError(
-          cause instanceof Error ? cause.message : "The browser screenshot could not be prepared.",
-        );
-      }
-    });
-  }, [
-    activeTab,
-    addComposerDraftImage,
-    api,
-    composerDraftAssistantSelectionCount,
-    composerDraftFileCount,
-    composerDraftImageCount,
-    ensureLiveRuntime,
-    runBrowserAction,
-    threadId,
-  ]);
-
-  const onCopyScreenshotToClipboard = useCallback(() => {
-    if (!ensureLiveRuntime()) {
-      return;
-    }
-    if (!api || !activeTab) {
-      return;
-    }
-
-    void runBrowserAction(() =>
-      api.browser.copyScreenshotToClipboard({ threadId, tabId: activeTab.id }),
-    ).then((result) => {
-      if (result === null) {
-        return;
-      }
-      const anchor = copyScreenshotButtonRef.current;
-      if (anchor) {
-        anchoredToastManager.add({
-          data: {
-            tooltipStyle: true,
-          },
-          positionerProps: {
-            anchor,
-          },
-          timeout: 1_200,
-          title: "Browser screenshot copied",
-        });
-        return;
-      }
-
-      toastManager.add({
-        type: "success",
-        title: "Browser screenshot copied",
-      });
-    });
-  }, [activeTab, api, ensureLiveRuntime, runBrowserAction, threadId]);
 
   const copyActiveTabLink = useCallback(() => {
     if (!activeTab) {
@@ -1692,122 +1856,138 @@ export function BrowserPanel({
     });
   }, [api, isLiveRuntime, threadId]);
 
-  const onCloseTab = useCallback(
-    (tabId: string) => {
-      if (!ensureLiveRuntime()) {
-        return;
-      }
-      if (!api) {
-        return;
-      }
-      void runBrowserAction(() => api.browser.closeTab({ threadId, tabId })).then((state) => {
-        if (!state) {
-          return;
-        }
-        upsertThreadState(state);
-        if (!state.open && state.tabs.length === 0) {
-          onClosePanel();
-        }
-      });
-    },
-    [api, ensureLiveRuntime, onClosePanel, runBrowserAction, threadId, upsertThreadState],
-  );
+  // The dock's "+" (or the standalone header's) asks for a new tab with the address field
+  // focused, the same as the panel's own new-tab action.
+  useEffect(() => {
+    const onNewTabRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ threadId?: string }>).detail;
+      if (detail?.threadId === threadId) onCreateTab();
+    };
+    window.addEventListener(BROWSER_NEW_TAB_REQUEST_EVENT, onNewTabRequest);
+    return () => window.removeEventListener(BROWSER_NEW_TAB_REQUEST_EVENT, onNewTabRequest);
+  }, [onCreateTab, threadId]);
 
-  const header = (
+  // A local page tried to leave for a site that is not allowed; offer to allow it.
+  useEffect(() => {
+    const panelApi = api?.browser.panel;
+    if (!panelApi || !isLiveRuntime) return;
+    return panelApi.onBlockedNavigation((event) => {
+      if (event.threadId !== threadId) return;
+      setBlockedNavigation({ tabId: event.tabId, url: event.url });
+    });
+  }, [api, isLiveRuntime, threadId]);
+  const visibleBlockedNavigation =
+    blockedNavigation && blockedNavigation.tabId === activeTabId ? blockedNavigation : null;
+  const blockedSite = (() => {
+    if (!visibleBlockedNavigation) return "";
+    try {
+      return new URL(visibleBlockedNavigation.url).host || visibleBlockedNavigation.url;
+    } catch {
+      return visibleBlockedNavigation.url;
+    }
+  })();
+
+  const runTabAction = (action: (tabId: string) => Promise<ThreadBrowserState>) => {
+    if (!ensureLiveRuntime()) return;
+    if (!api || !activeTab) return;
+    void runBrowserAction(() => action(activeTab.id)).then((state) => {
+      if (state) {
+        upsertThreadState(state);
+      }
+    });
+  };
+
+  const addressDisplay = browserAddressDisplay(activeTab?.url, workspaceRoot);
+  const showAddressOverlay =
+    !isAddressFocused &&
+    addressDisplay.kind !== "blank" &&
+    addressValue === browserAddressEditValue(activeTab?.url, workspaceRoot);
+  const addressOverlay = showAddressOverlay ? (
+    <span
+      aria-hidden
+      data-browser-address-display=""
+      className="pointer-events-none absolute inset-0 flex items-center justify-center overflow-hidden px-3 text-ui whitespace-nowrap"
+    >
+      <span className="flex min-w-0 max-w-full items-baseline" data-translation-skip="true">
+        {addressDisplay.kind === "file" ? (
+          <>
+            <span className="min-w-0 shrink truncate text-muted-foreground">
+              {addressDisplay.secondary}
+            </span>
+            <span className="shrink-0 text-foreground">{addressDisplay.primary}</span>
+          </>
+        ) : (
+          <>
+            <span className="shrink-0 text-foreground">{addressDisplay.primary}</span>
+            <span className="min-w-0 shrink truncate text-muted-foreground">
+              {addressDisplay.secondary}
+            </span>
+          </>
+        )}
+      </span>
+    </span>
+  ) : null;
+
+  const addressRow = (
     <div
-      className={cn("flex min-w-0 flex-1 items-center gap-2", mode === "floating" && "cursor-grab")}
+      className={cn("flex min-w-0 flex-1 items-center gap-1", mode === "floating" && "cursor-grab")}
       data-floating-browser-header={mode === "floating" ? "true" : undefined}
+      data-browser-address-row=""
     >
       {/* Keep the browser chrome interactive inside Electron's draggable titlebar. */}
-      <div className="relative flex min-w-0 flex-1 items-center gap-2 [-webkit-app-region:no-drag]">
-        <ButtonGroup label="Navigation">
-          <IconButton
-            variant="ghost"
-            size="icon-sm"
-            label="Go back"
-            disabled={!activeTab?.canGoBack}
-            onClick={() => {
-              if (!ensureLiveRuntime()) return;
-              if (!api || !activeTab) return;
-              void runBrowserAction(() =>
-                api.browser.goBack({ threadId, tabId: activeTab.id }),
-              ).then((state) => {
-                if (state) {
-                  upsertThreadState(state);
-                }
-              });
-            }}
-          >
-            <ArrowLeftIcon className="size-4" />
-          </IconButton>
-          <IconButton
-            variant="ghost"
-            size="icon-sm"
-            label="Go forward"
-            disabled={!activeTab?.canGoForward}
-            onClick={() => {
-              if (!ensureLiveRuntime()) return;
-              if (!api || !activeTab) return;
-              void runBrowserAction(() =>
-                api.browser.goForward({ threadId, tabId: activeTab.id }),
-              ).then((state) => {
-                if (state) {
-                  upsertThreadState(state);
-                }
-              });
-            }}
-          >
-            <ArrowRightIcon className="size-4" />
-          </IconButton>
-          <ButtonGroupSeparator />
-          <IconButton
-            variant="ghost"
-            size="icon-sm"
-            label="Reload"
-            disabled={!activeTab}
-            onClick={() => {
-              if (!ensureLiveRuntime()) return;
-              if (!api || !activeTab) return;
-              void runBrowserAction(() =>
-                api.browser.reload({ threadId, tabId: activeTab.id }),
-              ).then((state) => {
-                if (state) {
-                  upsertThreadState(state);
-                }
-              });
-            }}
-          >
-            {loading ? (
-              <LoaderCircleIcon className="size-4 animate-spin" />
-            ) : (
-              <RefreshCwIcon className="size-4" />
-            )}
-          </IconButton>
-        </ButtonGroup>
-        <ButtonGroup label="Page tools">
-          <BrowserAnnotationButton
-            controller={annotationController}
-            disabled={
-              !isLiveRuntime ||
-              !isElectron ||
-              !workspaceReady ||
-              !activeTab ||
-              showLocalServersHome ||
-              !annotationMethods
-            }
-          />
-        </ButtonGroup>
+      <div className="flex shrink-0 items-center gap-0.5 [-webkit-app-region:no-drag]">
+        <IconButton
+          variant="chrome"
+          size="icon-xs"
+          label={t("browser.nav.back")}
+          tooltip={t("browser.nav.back")}
+          tooltipSide="bottom"
+          className={DOCK_HEADER_ICON_BUTTON_CLASS}
+          disabled={!activeTab?.canGoBack}
+          onClick={() => runTabAction((tabId) => api!.browser.goBack({ threadId, tabId }))}
+        >
+          <ArrowLeftIcon className="size-4" />
+        </IconButton>
+        <IconButton
+          variant="chrome"
+          size="icon-xs"
+          label={t("browser.nav.forward")}
+          tooltip={t("browser.nav.forward")}
+          tooltipSide="bottom"
+          className={DOCK_HEADER_ICON_BUTTON_CLASS}
+          disabled={!activeTab?.canGoForward}
+          onClick={() => runTabAction((tabId) => api!.browser.goForward({ threadId, tabId }))}
+        >
+          <ArrowRightIcon className="size-4" />
+        </IconButton>
+        <IconButton
+          variant="chrome"
+          size="icon-xs"
+          label={t("browser.nav.reload")}
+          tooltip={t("browser.nav.reload")}
+          tooltipSide="bottom"
+          className={DOCK_HEADER_ICON_BUTTON_CLASS}
+          disabled={!activeTab}
+          onClick={() => runTabAction((tabId) => api!.browser.reload({ threadId, tabId }))}
+        >
+          <RefreshCwIcon className={cn("size-4", loading && "animate-spin")} />
+        </IconButton>
+      </div>
+      <div className="relative min-w-0 flex-1 [-webkit-app-region:no-drag]">
         <form
-          className="min-w-0 flex-1 [-webkit-app-region:no-drag]"
+          className="relative min-w-0"
           onSubmit={(event) => {
             event.preventDefault();
             onSubmitAddress();
           }}
         >
-          <Input
+          <input
             ref={addressInputRef}
-            shape="capsule"
             value={addressValue}
+            aria-label={t("browser.address.label")}
+            data-browser-address-input=""
+            spellCheck={false}
+            autoComplete="off"
             onChange={(event) => {
               if (!isLiveRuntime) {
                 requestLiveRuntime();
@@ -1820,12 +2000,13 @@ export function BrowserPanel({
                 addressDraftsByTabIdRef.current.set(activeTab.id, nextValue);
               }
             }}
-            onFocus={() => {
+            onFocus={(event) => {
               if (!isLiveRuntime) {
                 requestLiveRuntime();
               }
               isAddressEditingRef.current = true;
               setIsAddressFocused(true);
+              event.currentTarget.select();
             }}
             onBlur={() => {
               isAddressEditingRef.current = false;
@@ -1839,14 +2020,17 @@ export function BrowserPanel({
               if (event.key === "ArrowDown") {
                 setAddressSuggestionsSuppressed(false);
               }
+              if (event.key === "Escape") {
+                event.currentTarget.blur();
+              }
             }}
-            placeholder="Search or enter a URL"
+            placeholder={t("browser.address.placeholder")}
             className={cn(
-              "min-w-0 [-webkit-app-region:no-drag]",
-              BROWSER_CHROME_CONTROL_CLASS_NAME,
-              BROWSER_CHROME_CONTROL_FILLED_CLASS_NAME,
+              "h-7 w-full min-w-0 rounded-control border border-[color:var(--color-border)] bg-transparent px-3 text-ui text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 hover:border-[color:var(--color-border-heavy)] focus:border-[color:var(--color-border-focus)] focus:bg-[var(--color-background-surface)]",
+              showAddressOverlay ? "text-transparent caret-transparent" : "text-left",
             )}
           />
+          {addressOverlay}
         </form>
         {showBrowserAddressSuggestions ? (
           <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-30 overflow-hidden rounded-popover border border-border bg-popover shadow-xl [-webkit-app-region:no-drag]">
@@ -1882,102 +2066,89 @@ export function BrowserPanel({
           </div>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 [-webkit-app-region:no-drag]">
-        <ButtonGroup label="Page actions">
-          <BrowserVaultButton
-            destination={
-              activeTab
-                ? {
-                    threadId,
-                    tabId: activeTab.id,
-                    origin: /^https?:\/\//.test(activeTab.url)
-                      ? new URL(activeTab.url).origin
-                      : null,
-                  }
-                : undefined
-            }
-          />
-          <IconButton
-            ref={copyScreenshotButtonRef}
-            variant="ghost"
-            size="icon-sm"
-            label="Copy screenshot"
-            disabled={!activeTab}
-            title="Copy screenshot"
-            onClick={onCopyScreenshotToClipboard}
-          >
-            <Camera01Icon className="size-4" />
-          </IconButton>
-          <IconButton
-            variant="ghost"
-            size="icon-sm"
-            label="Copy link"
-            disabled={!activeTab}
-            title="Copy link"
-            onClick={copyActiveTabLink}
-          >
-            <LinkIcon className="size-4" />
-          </IconButton>
-        </ButtonGroup>
-        <ButtonGroup label="Browser menu">
-          <Menu
-            modal={false}
-            open={browserActionsMenuOpen}
-            onOpenChange={setBrowserActionsMenuOpen}
-          >
-            <MenuTrigger
-              render={
-                <IconButton variant="ghost" size="icon-sm" label="Browser actions">
-                  <MoreHorizontalIcon className="size-4" />
-                </IconButton>
-              }
-            />
-            <ComposerPickerMenuPopup
-              align="end"
-              side="bottom"
-              className={BROWSER_ACTION_MENU_PANEL_CLASS_NAME}
-            >
-              <MenuItem className={BROWSER_ACTION_MENU_ITEM_CLASS_NAME} onClick={onCreateTab}>
-                <BrowserActionMenuIcon icon={PlusIcon} />
-                <span>New tab</span>
-              </MenuItem>
-              <MenuItem
-                className={BROWSER_ACTION_MENU_ITEM_CLASS_NAME}
-                disabled={!activeTab}
-                onClick={onCaptureScreenshot}
-              >
-                <BrowserActionMenuIcon icon={Camera01Icon} />
-                <span>Capture screenshot</span>
-              </MenuItem>
-              <MenuItem
-                className={BROWSER_ACTION_MENU_ITEM_CLASS_NAME}
-                disabled={!activeTab}
-                onClick={() => {
-                  if (!ensureLiveRuntime()) return;
-                  if (!api || !activeTab) return;
-                  void api.shell.openExternal(activeTab.url);
-                }}
-              >
-                <BrowserActionMenuIcon icon={ExternalLinkIcon} />
-                <span>Open externally</span>
-              </MenuItem>
-              <MenuSeparator />
-              <MenuItem className={BROWSER_ACTION_MENU_ITEM_CLASS_NAME} onClick={onClosePanel}>
-                <BrowserActionMenuIcon icon={XIcon} />
-                <span>Close browser panel</span>
-              </MenuItem>
-            </ComposerPickerMenuPopup>
-          </Menu>
-        </ButtonGroup>
+      <div className="flex shrink-0 items-center [-webkit-app-region:no-drag]">
+        <BrowserAnnotationButton
+          controller={sketchButtonController}
+          disabled={!annotationAvailable}
+        />
       </div>
     </div>
   );
 
+  // The panel's own header row, as on the desktop: page tabs with "+", then the servers
+  // button, "…", expand and close. The address row sits under it.
+  const expandLabel = layout?.expanded ? t("rightDock.restorePanel") : t("rightDock.expandPanel");
+  const panelTabRow = !isFloatingMode ? (
+    <div
+      className="flex min-w-0 flex-1 items-center gap-1"
+      data-browser-tab-row=""
+      data-browser-chrome={chrome}
+      onPointerEnter={refreshRestingFrameSoon}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [-webkit-app-region:no-drag] [&::-webkit-scrollbar]:hidden">
+        <BrowserPageTabs threadId={threadId} active onLastTabClosed={onClosePanel} />
+        <IconButton
+          variant="chrome"
+          size="icon-xs"
+          label={t("browser.tabs.newTab")}
+          tooltip={t("browser.tabs.newTab")}
+          tooltipSide="bottom"
+          className={DOCK_HEADER_ICON_BUTTON_CLASS}
+          data-browser-new-tab=""
+          onClick={onCreateTab}
+        >
+          <PlusIcon className="size-4" />
+        </IconButton>
+      </div>
+      <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+        <BrowserServersMenu
+          projectId={projectId}
+          workspaceRoot={workspaceRoot}
+          onOpen={openInThisBrowser}
+          onEditFile={onViewSource}
+        />
+        <BrowserPanelMenu threadId={threadId} onViewSource={onViewSource} />
+        {layout ? (
+          <IconButton
+            variant="chrome"
+            size="icon-xs"
+            label={expandLabel}
+            tooltip={expandLabel}
+            tooltipSide="bottom"
+            className={DOCK_HEADER_ICON_BUTTON_CLASS}
+            aria-pressed={layout.expanded}
+            data-browser-expand=""
+            onClick={layout.onToggleExpanded}
+          >
+            {layout.expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </IconButton>
+        ) : null}
+        <IconButton
+          variant="chrome"
+          size="icon-xs"
+          label={t("browser.panel.close")}
+          tooltip={t("browser.panel.close")}
+          tooltipSide="bottom"
+          className={DOCK_HEADER_ICON_BUTTON_CLASS}
+          data-browser-close=""
+          onClick={onClosePanel}
+        >
+          <XIcon className="size-4" />
+        </IconButton>
+      </div>
+    </div>
+  ) : null;
+
+  const shellHeader = isFloatingMode ? null : (panelTabRow ?? addressRow);
+  const seamBesideChat = chrome === "dock" && !isFloatingMode && layout?.expanded !== true;
+  const stillStandsInForPage = isFloatingMode || isBrowserSurfaceOccluded || holdingPreviewFrame;
+  const viewportFrameActive = viewportPreset !== null && !isFloatingMode;
+
   if (!api && isLiveRuntime) {
     return (
       <div className="contents" data-browser-panel="true">
-        <DiffPanelShell mode={mode} header={isFloatingMode ? null : header}>
-          <DiffPanelLoadingState label="Browser is unavailable." />
+        <DiffPanelShell mode={mode} header={shellHeader}>
+          <DiffPanelLoadingState label={t("browser.unavailable")} />
         </DiffPanelShell>
       </div>
     );
@@ -1985,37 +2156,111 @@ export function BrowserPanel({
 
   return (
     <div className="contents" data-browser-panel="true">
-      <DiffPanelShell mode={mode} header={isFloatingMode ? null : header}>
+      <DiffPanelShell mode={mode} header={shellHeader}>
         <div className="flex min-h-0 flex-1 flex-col">
-          {!isFloatingMode ? (
-            <BrowserTabStrip
-              tabs={threadBrowserState?.tabs ?? []}
-              activeTabId={activeTabId}
-              status={browserChromeStatus}
-              dragRegion={isElectron && mode !== "sheet"}
-              onSelectTab={(tabId) => void onSelectTab(tabId)}
-              onCloseTab={onCloseTab}
-              onCreateTab={onCreateTab}
-            />
+          {panelTabRow ? (
+            <div
+              className={cn(CHAT_SURFACE_HEADER_ROW_CLASS_NAME, "gap-1.5 px-1.5")}
+              onPointerEnter={refreshRestingFrameSoon}
+            >
+              {addressRow}
+            </div>
           ) : null}
-          <div className="relative min-h-0 flex-1 bg-transparent">
+          {localError ? (
+            // Why the last browser action did not happen (a failed capture, a tab that
+            // could not open). Page load errors show over the page instead.
+            <div
+              role="alert"
+              data-browser-action-error=""
+              className="flex shrink-0 items-center gap-2 border-border/70 border-b bg-[color-mix(in_srgb,var(--destructive)_6%,var(--background))] px-3 py-1.5 text-ui"
+            >
+              <CircleAlertIcon className="size-4 shrink-0 text-destructive" aria-hidden />
+              <span className="min-w-0 flex-1 truncate" title={localError}>
+                {localError}
+              </span>
+              <IconButton
+                variant="ghost"
+                size="icon-xs"
+                label={t("browser.blocked.dismiss")}
+                onClick={() => setLocalError(null)}
+              >
+                <XIcon className="size-4" />
+              </IconButton>
+            </div>
+          ) : null}
+          {visibleBlockedNavigation ? (
+            // A strip above the page, not over it: a native page view paints above any
+            // web content laid over it.
+            <div
+              role="status"
+              data-browser-blocked-navigation=""
+              className="flex shrink-0 items-center gap-2 border-border/70 border-b bg-[color-mix(in_srgb,var(--warning)_8%,var(--background))] px-3 py-1.5 text-ui"
+            >
+              <CircleAlertIcon className="size-4 shrink-0 text-warning" aria-hidden />
+              <span className="min-w-0 flex-1 truncate" data-translation-skip="true">
+                {format("browser.blocked.message", { site: blockedSite })}
+              </span>
+              <Button
+                size="xs"
+                variant="secondary"
+                onClick={() => {
+                  const panelApi = api?.browser.panel;
+                  const target = visibleBlockedNavigation;
+                  setBlockedNavigation(null);
+                  if (!panelApi) return;
+                  void runBrowserAction(() =>
+                    panelApi.allowNavigation({
+                      threadId,
+                      tabId: target.tabId,
+                      url: target.url,
+                    }),
+                  ).then((state) => {
+                    if (state) upsertThreadState(state);
+                  });
+                }}
+              >
+                {t("browser.blocked.allow")}
+              </Button>
+              <Button size="xs" variant="ghost" onClick={() => setBlockedNavigation(null)}>
+                {t("browser.blocked.dismiss")}
+              </Button>
+            </div>
+          ) : null}
+          <div
+            className={cn(
+              "relative min-h-0 flex-1 bg-transparent",
+              // Beside the chat the page leaves a hairline strip free at the divider: a native
+              // page view takes every pointer event over it, and the divider's grip must be
+              // reachable from this side too.
+              seamBesideChat && "ml-[6px]",
+            )}
+            data-browser-page-area=""
+          >
             {!isLiveRuntime ? (
               <BrowserRuntimePreview
-                title={activeTab?.title || "Browser is sleeping"}
-                detail={activeTab?.lastCommittedUrl ?? activeTab?.url ?? "Restoring cached browser"}
+                title={activeTab?.title || t("browser.sleeping")}
+                detail={activeTab?.lastCommittedUrl ?? activeTab?.url ?? t("browser.restoring")}
               />
             ) : !workspaceReady ? (
               <div className="absolute inset-0 z-10">
-                <DiffPanelLoadingState label="Starting browser..." />
+                <DiffPanelLoadingState label={t("browser.starting")} />
               </div>
             ) : null}
             {isLiveRuntime ? (
               <div
                 ref={browserViewportRef}
+                data-browser-viewport=""
                 data-floating-browser-viewport={isFloatingMode ? "true" : undefined}
+                data-browser-viewport-preset={viewportPreset?.id}
                 className={cn(
                   "absolute overflow-hidden",
-                  isFloatingMode ? "bg-transparent" : "bg-[#0d0d0d]",
+                  // Paper behind the page: what shows while it loads, or while a menu
+                  // over it makes the native view step aside.
+                  isFloatingMode
+                    ? "bg-transparent"
+                    : viewportFrameActive
+                      ? "bg-[color-mix(in_srgb,var(--foreground)_6%,var(--background))]"
+                      : "bg-[var(--color-background-surface)]",
                   isFloatingMode && "rounded-card [clip-path:inset(0_round_10px)]",
                   "inset-0",
                 )}
@@ -2024,30 +2269,120 @@ export function BrowserPanel({
             {isLiveRuntime && browserPageError ? (
               <BrowserRuntimeError message={browserPageError} onReload={onReloadActiveTab} />
             ) : null}
-            {(isFloatingMode || isBrowserSurfaceOccluded) &&
+            {/* The page's latest still sits under the live page all the time (the native view
+                paints above it), so a menu that covers the page uncovers that still on the very
+                frame the page steps aside — no render to wait for, nothing empty in between. */}
+            {(isFloatingMode ||
+              isBrowserSurfaceOccluded ||
+              holdingPreviewFrame ||
+              restingFrameActive) &&
             usesNativeRuntime &&
             !showLocalServersHome &&
             !browserPageError &&
             previewFrame?.tabId === activeTabId ? (
-              <img
-                src={previewFrame.src}
-                alt="Browser preview"
-                draggable={false}
-                className="pointer-events-none absolute inset-0 h-full w-full select-none object-contain"
-              />
+              <BrowserViewportFrameBox
+                viewportRef={browserViewportRef}
+                preset={isFloatingMode ? null : viewportPreset}
+                className="pointer-events-none"
+              >
+                <img
+                  src={previewFrame.src}
+                  // Under the live page it is decoration; it stands in for the page only
+                  // while something covers the page.
+                  alt={stillStandsInForPage ? t("browser.previewAlt") : ""}
+                  aria-hidden={stillStandsInForPage ? undefined : true}
+                  draggable={false}
+                  data-browser-page-still=""
+                  ref={markStillPainted}
+                  className="h-full w-full select-none object-contain"
+                />
+              </BrowserViewportFrameBox>
             ) : null}
             {showLocalServersHome ? (
-              <BrowserLocalServersHome
-                activeTabId={activeTab?.id ?? null}
-                loading={localServersQuery.isLoading || localServersQuery.isFetching}
-                onNavigate={onOpenLocalServer}
-                onRefresh={() => void localServersQuery.refetch()}
-                servers={localServersQuery.data?.servers ?? []}
-              />
+              <LaunchServersPage servers={launchServers} onEditFile={onViewSource} />
+            ) : null}
+            {sketch.coversPage ? (
+              <BrowserViewportFrameBox
+                viewportRef={browserViewportRef}
+                preset={viewportPreset}
+                className="z-20"
+              >
+                <BrowserSketchOverlay
+                  pageImageUrl={sketch.pageImageUrl}
+                  tool={sketch.tool}
+                  style={sketch.style}
+                  marks={sketch.marks}
+                  onAddMark={sketch.addMark}
+                />
+              </BrowserViewportFrameBox>
             ) : null}
           </div>
+          {sketch.open && !isFloatingMode ? (
+            // A strip under the page, not over it: a native page view paints above any
+            // web content laid over it.
+            <div
+              data-browser-sketch-strip=""
+              className="flex h-12 shrink-0 items-center justify-center bg-[color-mix(in_srgb,var(--foreground)_3%,var(--background))] px-3"
+            >
+              <BrowserSketchToolbar
+                tool={sketch.tool}
+                onToolChange={sketch.setTool}
+                selectAvailable={elementPickAvailable}
+                canUndo={sketch.canUndo}
+                canRedo={sketch.canRedo}
+                hasMarks={sketch.marks.length > 0}
+                expanded={sketch.expanded}
+                style={sketch.style}
+                onStyleChange={sketch.setStyle}
+                adding={sketch.adding}
+                confirmingDiscard={sketch.confirmingDiscard}
+                onUndo={sketch.undo}
+                onRedo={sketch.redo}
+                onClear={sketch.clear}
+                onAddToChat={sketch.addToChat}
+                onRequestClose={sketch.requestClose}
+                onCancelDiscard={sketch.cancelDiscard}
+                onDiscard={sketch.close}
+              />
+            </div>
+          ) : null}
         </div>
       </DiffPanelShell>
+    </div>
+  );
+}
+
+/**
+ * Lays its child over the page itself: the whole page area, or the device frame while a
+ * viewport preset is set.
+ */
+function BrowserViewportFrameBox(props: {
+  readonly viewportRef: { readonly current: HTMLDivElement | null };
+  readonly preset: ReturnType<typeof findBrowserViewportPreset>;
+  readonly className?: string;
+  readonly children: ReactNode;
+}) {
+  const [slot, setSlot] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const element = props.viewportRef.current;
+    if (!element || !props.preset) return;
+    const measure = () => setSlot({ width: element.clientWidth, height: element.clientHeight });
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [props.preset, props.viewportRef]);
+  const frame = resolveBrowserViewportFrame(slot, props.preset);
+  return (
+    <div
+      className={cn("absolute", props.className)}
+      style={
+        frame
+          ? { left: frame.x, top: frame.y, width: frame.width, height: frame.height }
+          : { inset: 0 }
+      }
+    >
+      {props.children}
     </div>
   );
 }

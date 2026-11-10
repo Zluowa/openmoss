@@ -63,8 +63,8 @@ vi.mock("./useKanbanBoard", () => ({
   useKanbanBoard: () => ({ projects: [board], totalCount: board.totalCount }),
 }));
 
-import type { ServerProviderStatus, ThreadId } from "@synara/contracts";
-import { KANBAN_ATTENTION_LABELS, KANBAN_COLUMN_V2_LABELS } from "@synara/shared/kanban";
+import type { ServerProviderStatus, ThreadId } from "@moss/contracts";
+import { KANBAN_ATTENTION_LABELS, KANBAN_COLUMN_V2_LABELS } from "@moss/shared/kanban";
 import { dispatchKanbanDraftCardAsGoal } from "../../lib/kanbanDispatch";
 import { KanbanProjectBoardView } from "./KanbanProjectBoardView";
 import { buildKanbanBoard, type KanbanCard, type KanbanProjectBoard } from "./kanban.logic";

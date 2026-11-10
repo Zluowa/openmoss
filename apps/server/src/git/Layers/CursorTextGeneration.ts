@@ -2,9 +2,9 @@ import { Effect, Layer } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { ServerConfig } from "../../config.ts";
 
-import type { CursorModelSelection, ProviderStartOptions } from "@synara/contracts";
-import { sanitizeGeneratedThreadTitle } from "@synara/shared/chatThreads";
-import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@synara/shared/git";
+import type { CursorModelSelection, ProviderStartOptions } from "@moss/contracts";
+import { sanitizeGeneratedThreadTitle } from "@moss/shared/chatThreads";
+import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@moss/shared/git";
 
 import {
   applyCursorAcpModelSelection,

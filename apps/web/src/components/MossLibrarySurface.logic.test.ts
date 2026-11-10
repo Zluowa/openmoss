@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { formatMossTranslation, type TranslationKey } from "~/localization";
+
 import {
   MOSS_LIBRARY_CLI_SCAN_ROOT_HINTS,
   MOSS_LIBRARY_EMPTY_TILE_HEIGHTS,
@@ -26,7 +28,6 @@ import {
   mossLibraryRegisterPayloadFromLegacy,
   mossLibraryRenameKeepsExtension,
   mossLibrarySectionMatchesQuery,
-  mossLibrarySelectionSummaryZh,
   normalizeMossLibraryQuery,
   partitionMossLibraryAllSection,
   removeMossLibraryItemsById,
@@ -37,6 +38,11 @@ import {
   setMossLibraryItemsFavorite,
   toggleMossLibrarySelectedId,
 } from "./MossLibrarySurface.logic";
+
+const zh = (key: TranslationKey, values: Record<string, string | number> = {}) =>
+  formatMossTranslation("zh-CN", key, values);
+const en = (key: TranslationKey, values: Record<string, string | number> = {}) =>
+  formatMossTranslation("en", key, values);
 
 describe("MossLibrarySurface logic", () => {
   it("exposes Codex-aligned 资料库 sections", () => {
@@ -78,10 +84,10 @@ describe("MossLibrarySurface logic", () => {
     // no other action may borrow OpenAI product copy.
     expect(
       MOSS_LIBRARY_NEW_ACTIONS.filter((action) => action.id !== "from-chatgpt").some((action) =>
-        /OpenAI|ChatGPT/i.test(action.labelZh),
+        /OpenAI|ChatGPT/i.test(en(action.labelKey)),
       ),
     ).toBe(false);
-    expect(resolveMossLibrarySort("name").labelZh).toBe("名称");
+    expect(zh(resolveMossLibrarySort("name").labelKey)).toBe("名称");
     expect(resolveMossLibrarySort("bogus").id).toBe("recent");
     expect(MOSS_LIBRARY_SORT_OPTIONS).toHaveLength(3);
   });
@@ -197,13 +203,15 @@ describe("MossLibrary multi-CLI ingest mapping", () => {
     expect(createMossLibraryStubCatalog(now)).toHaveLength(catalog.length);
   });
 
-  it("formats relative time in zh for card footers", () => {
+  it("formats relative time in the reader's language for card footers", () => {
     const now = 1_800_000_000_000;
-    expect(formatMossLibraryRelativeTime(now - 10_000, now)).toBe("刚刚");
-    expect(formatMossLibraryRelativeTime(now - 5 * 60_000, now)).toBe("5 分钟前");
-    expect(formatMossLibraryRelativeTime(now - 3 * 3_600_000, now)).toBe("3 小时前");
-    expect(formatMossLibraryRelativeTime(now - 24 * 3_600_000, now)).toBe("昨天");
-    expect(formatMossLibraryRelativeTime(now - 5 * 24 * 3_600_000, now)).toBe("5 天前");
+    expect(formatMossLibraryRelativeTime(now - 10_000, now, zh)).toBe("刚刚");
+    expect(formatMossLibraryRelativeTime(now - 5 * 60_000, now, zh)).toBe("5 分钟前");
+    expect(formatMossLibraryRelativeTime(now - 3 * 3_600_000, now, zh)).toBe("3 小时前");
+    expect(formatMossLibraryRelativeTime(now - 24 * 3_600_000, now, zh)).toBe("昨天");
+    expect(formatMossLibraryRelativeTime(now - 5 * 24 * 3_600_000, now, zh)).toBe("5 天前");
+    expect(formatMossLibraryRelativeTime(now - 5 * 60_000, now, en)).toBe("5 min ago");
+    expect(formatMossLibraryRelativeTime(now - 24 * 3_600_000, now, en)).toBe("Yesterday");
   });
 
   it("resolves catalog: discovered wins over empty; demo only when empty", () => {
@@ -274,7 +282,7 @@ describe("MossLibrary Codex interaction parity", () => {
       "add-to-folder",
       "delete",
     ]);
-    expect(root.map((entry) => entry.labelZh)).toEqual([
+    expect(root.map((entry) => zh(entry.labelKey))).toEqual([
       "围绕此内容展开对话",
       "添加到收藏夹",
       "下载",
@@ -285,7 +293,9 @@ describe("MossLibrary Codex interaction parity", () => {
     ]);
     expect(root.find((entry) => entry.id === "delete")?.danger).toBe(true);
     const favorited = buildMossLibraryContextMenu({ favorite: true, kind: "image" });
-    expect(favorited.find((entry) => entry.id === "favorite")?.labelZh).toBe("从收藏夹移除");
+    const favorite = favorited.find((entry) => entry.id === "favorite");
+    expect(favorite && zh(favorite.labelKey)).toBe("从收藏夹移除");
+    expect(favorite && en(favorite.labelKey)).toBe("Remove from favorites");
   });
 
   it("toggles multi-select membership immutably", () => {
@@ -295,7 +305,6 @@ describe("MossLibrary Codex interaction parity", () => {
     expect(empty).toEqual([]);
     expect(toggleMossLibrarySelectedId(one, "b")).toEqual(["a", "b"]);
     expect(toggleMossLibrarySelectedId(["a", "b"], "a")).toEqual(["b"]);
-    expect(mossLibrarySelectionSummaryZh(16)).toBe("已选择 16 个");
   });
 
   it("creates folders, renames items, and toggles favorites", () => {

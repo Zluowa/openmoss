@@ -1,4 +1,4 @@
-import { EventId, MessageId, TurnId } from "@synara/contracts";
+import { EventId, MessageId, TurnId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import { applyOrchestrationEvents } from "./storeEventReducer";
 import { normalizeThreadFromReadModel } from "./storeNormalization";

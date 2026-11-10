@@ -7,8 +7,8 @@
 import {
   SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES,
   type ServerVoiceTranscriptionInput,
-} from "@synara/contracts";
-import { outboundHttp, type OutboundHttpResponse } from "@synara/shared/outboundHttp";
+} from "@moss/contracts";
+import { outboundHttp, type OutboundHttpResponse } from "@moss/shared/outboundHttp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { transcribeVoiceWithChatGptSession } from "./voiceTranscription";
@@ -169,9 +169,11 @@ describe("transcribeVoiceWithChatGptSession", () => {
       resolveAuth: async () => ({ token: "chatgpt-token" }),
     }).catch((cause: unknown) => cause);
 
-    expect(String(observed)).toBe(
-      "Error: Voice transcription is temporarily unavailable. Try again shortly.",
-    );
+    expect(observed).toMatchObject({
+      code: "VOICE_TRANSCRIPTION_UNAVAILABLE",
+      message: "Voice transcription is temporarily unavailable. Try again shortly.",
+      retryable: true,
+    });
     expect(String(observed)).not.toContain(secret);
   });
 });

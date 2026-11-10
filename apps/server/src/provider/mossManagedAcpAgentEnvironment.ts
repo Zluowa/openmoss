@@ -5,13 +5,13 @@
 // Layer: Provider managed environments
 
 import path from "node:path";
-import type { ProviderInstanceConfig, ProviderListModelsResult } from "@synara/contracts";
+import type { ProviderInstanceConfig, ProviderListModelsResult } from "@moss/contracts";
 import {
   getMossManagedModelDefinition,
   mossLaneEngineLineup,
   type MossAccessLane,
   type MossManagedModelDefinition,
-} from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossRealmCatalog";
 
 import {
   mossManagedChildBaseEnvironment,
@@ -74,6 +74,11 @@ interface MossManagedAcpAgentFile {
 interface MossManagedAcpAgentRecipe {
   /** Maps a Moss model slug to the CLI's ACP `model` config value. */
   readonly modelId: (slug: string) => string;
+  /** The running CLI's own value for a slug, when its format varies by release. */
+  readonly advertisedModelValue?: (
+    slug: string,
+    advertisedValues: ReadonlyArray<string>,
+  ) => string | undefined;
   /**
    * Generated provider configuration. `accessToken` is only consulted by a
    * CLI that cannot read credentials from the environment (ZCode).
@@ -162,6 +167,20 @@ export const mossManagedMinimaxModelId = (slug: string): string =>
     encodeURIComponent(slug),
     "u",
   ].join(":");
+
+/**
+ * MiniMax Code's values end in a variant that differs by release and by model
+ * capability (`:u`, `:v:thinking`), so the provider and model prefix is the
+ * stable part. Prefer the thinking variant, which the Moss catalog declares.
+ */
+export function mossManagedMinimaxAdvertisedModelValue(
+  slug: string,
+  advertisedValues: ReadonlyArray<string>,
+): string | undefined {
+  const prefix = mossManagedMinimaxModelId(slug).slice(0, -"u".length);
+  const candidates = advertisedValues.filter((value) => value.startsWith(prefix));
+  return candidates.find((value) => value.endsWith(":thinking")) ?? candidates[0];
+}
 
 export function buildMossManagedMinimaxConfig(
   gatewayBaseUrl: string,
@@ -297,6 +316,7 @@ const MOSS_MANAGED_ACP_AGENT_RECIPES: Readonly<Record<AcpAgentKind, MossManagedA
   },
   minimax: {
     modelId: mossManagedMinimaxModelId,
+    advertisedModelValue: mossManagedMinimaxAdvertisedModelValue,
     tokenInEnvironment: true,
     files: ({ config, models }) => [
       {
@@ -522,6 +542,7 @@ export function makeMossManagedAcpAgentHooks(spec: ManagedAcpAgentSpec): AcpAgen
     },
     listModels: (config) => listMossManagedAcpAgentModels(spec, config),
     modelId: (model) => recipe.modelId(model.trim()),
+    ...(recipe.advertisedModelValue ? { advertisedModelValue: recipe.advertisedModelValue } : {}),
   };
 }
 

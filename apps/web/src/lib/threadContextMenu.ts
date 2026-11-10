@@ -13,7 +13,7 @@ import type {
   ContextMenuNode,
   ContextMenuShortcutKey,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export interface ThreadContextMenuOptions {
   /** Rows the calling surface adds to the thread's menu, such as a tab's close actions. */

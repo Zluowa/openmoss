@@ -1,4 +1,4 @@
-import type { ProviderInstanceId } from "@synara/contracts";
+import type { ProviderInstanceId } from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -24,6 +24,27 @@ function deferred<A>() {
 }
 
 describe("providerLoginManager", () => {
+  it("rechecks a revoked server binding after terminal loading and before PTY spawn", async () => {
+    let checks = 0;
+    const manager = makeProviderLoginManager();
+    const handle = manager.start({
+      provider: "claudeAgent",
+      instanceId: instanceId("claude_work"),
+      executable: process.execPath,
+      cwd: process.cwd(),
+      env: { HOME: "/fixture/claude" },
+      assertStateBindingCurrent: () => {
+        if (++checks > 1) throw new Error("Claude 账户绑定已失效，请重新选择账户。");
+      },
+    });
+    await expect(handle.completion).resolves.toEqual({
+      status: "failed",
+      message: "Claude 账户绑定已失效，请重新选择账户。",
+    });
+    expect(checks).toBe(2);
+    expect(manager.hasRunning()).toBe(false);
+  });
+
   it("removes Moss and Codex direct credentials while retaining account routing", () => {
     const result = buildCodexLoginEnvironment({
       authoritativeAuthHomePath: "/accounts/codex-work",
@@ -31,6 +52,7 @@ describe("providerLoginManager", () => {
         PATH: "/bin",
         HOME: "/users/moss",
         CODEX_HOME: "/overlaid/codex-home",
+        CODEX_SQLITE_HOME: "/shared-history",
         OPENAI_API_KEY: "direct-openai-secret",
         OPENAI_BASE_URL: "https://relay.invalid/v1",
         CODEX_ACCESS_TOKEN: "direct-codex-token",
@@ -54,6 +76,7 @@ describe("providerLoginManager", () => {
       PATH: "/bin",
       HOME: "/users/moss",
       CODEX_HOME: "/accounts/codex-work",
+      CODEX_SQLITE_HOME: "/accounts/codex-work",
     });
     expect(result.OPENAI_API_KEY).toBeUndefined();
     expect(result.OPENAI_BASE_URL).toBeUndefined();
@@ -169,6 +192,64 @@ describe("providerLoginManager", () => {
     await expect(handle.completion).resolves.toEqual({ status: "succeeded" });
 
     expect(() => manager.start(target)).not.toThrow();
+  });
+
+  it("finishes the sign-in when the agent's credential lands, even if its CLI lingers", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = deferred<ProviderLoginCompletion>();
+      const cancel = vi.fn(() => pending.resolve({ status: "failed", message: "killed" }));
+      let credential = "-";
+      const manager = makeProviderLoginManager({
+        runCodex: () => ({ completion: pending.promise, cancel }),
+        credentialFingerprint: () => credential,
+        credentialPollMs: 100,
+        credentialExitGraceMs: 300,
+      });
+      const target = {
+        provider: "codex" as const,
+        instanceId: instanceId("codex"),
+        executable: "codex",
+        cwd: "/workspace",
+        env: { CODEX_HOME: "/home/.codex" },
+        credentialPaths: ["/home/.codex/auth.json"],
+      };
+      const handle = manager.start(target);
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(cancel).not.toHaveBeenCalled();
+
+      // The browser finished: the CLI wrote its credential but never exits.
+      credential = "512:1";
+      await vi.advanceTimersByTimeAsync(500);
+      expect(cancel).toHaveBeenCalledOnce();
+      await expect(handle.completion).resolves.toEqual({ status: "succeeded" });
+      expect(manager.hasRunning()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps a cancelled sign-in cancelled when no credential landed", async () => {
+    const pending = deferred<ProviderLoginCompletion>();
+    const manager = makeProviderLoginManager({
+      runClaude: () => ({
+        completion: pending.promise,
+        cancel: () => pending.resolve({ status: "failed", message: "killed" }),
+      }),
+      credentialFingerprint: () => "-",
+    });
+    const target = {
+      provider: "claudeAgent" as const,
+      instanceId: instanceId("claudeAgent"),
+      executable: "claude",
+      cwd: "/workspace",
+      env: {},
+      credentialPaths: ["/home/.claude/.credentials.json"],
+    };
+    const handle = manager.start(target);
+    manager.cancel(target);
+    await expect(handle.completion).resolves.toEqual({ status: "cancelled" });
   });
 
   it("submits the Claude browser prompt exactly once, including across PTY chunks", () => {

@@ -14,8 +14,8 @@
  * `eventId` from the launch plan) so the shaping is unit-testable without a
  * live server. `buildMossConfigProjectedLogPayload` is the exact object logged.
  */
-import type { MossProjectEventType, ProviderKind, ThreadId } from "@synara/contracts";
-import type { MossProjectionEngineFingerprintSummary } from "@synara/shared/mossProjectionFingerprint";
+import type { MossProjectEventType, ProviderKind, ThreadId } from "@moss/contracts";
+import type { MossProjectionEngineFingerprintSummary } from "@moss/shared/mossProjectionFingerprint";
 
 /** Canonical event type literal (from `MossProjectEventType`). */
 export const MOSS_CONFIG_PROJECTED_EVENT_TYPE =

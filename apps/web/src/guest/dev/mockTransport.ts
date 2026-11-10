@@ -12,11 +12,7 @@
 // Add `&lang=zh-CN|en` for the fixture language (defaults to the page locale), `&pending=3`
 // for a composer at the waiting-message limit, `&name=` for the guest's name.
 
-import type {
-  GuestAccessErrorReason,
-  GuestStreamEvent,
-  ThreadGuestMessage,
-} from "@synara/contracts";
+import type { GuestAccessErrorReason, GuestStreamEvent, ThreadGuestMessage } from "@moss/contracts";
 
 import { resolveGuestLocale } from "../guestStream.logic";
 import type { GuestFailure, GuestStreamHandlers, GuestTransport } from "../transport";
@@ -190,6 +186,19 @@ export function createMockGuestTransport(scenario: string, shareId: string): Gue
       };
     },
     attachmentUrl() {
+      return SAMPLE_IMAGE;
+    },
+    // No owner behind the mock: pages show their placeholder, pictures the sample.
+    renderUrl() {
+      return "about:blank";
+    },
+    mediaUrl() {
+      return SAMPLE_IMAGE;
+    },
+    documentUrl() {
+      return "about:blank";
+    },
+    fileUrl() {
       return SAMPLE_IMAGE;
     },
   };

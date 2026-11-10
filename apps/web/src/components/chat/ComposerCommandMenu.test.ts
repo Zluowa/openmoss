@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { groupCommandItems, type ComposerCommandItem } from "./ComposerCommandMenu";
+import { composerCommandMenuKeyHints, type ComposerCommandItem } from "./ComposerCommandMenu";
+import { groupCommandItems, orderSlashCommandItemsByGroup } from "./composerCommandGroups";
 
 describe("groupCommandItems", () => {
   it("groups mention suggestions as plugins, chats, local, then subagents", () => {
@@ -142,6 +143,138 @@ describe("groupCommandItems connectors", () => {
     ).toEqual([
       ["Connectors", ["connector:mcp_conn_1"]],
       ["Local", ["path:file:/workspace/AGENTS.md"]],
+    ]);
+  });
+});
+
+describe("groupCommandItems slash sections", () => {
+  const appCommand: ComposerCommandItem = {
+    id: "slash:model",
+    type: "slash-command",
+    command: "model",
+    label: "/model",
+    description: "Switch response model for this thread",
+    source: "shared",
+  };
+  const claudeCommand: ComposerCommandItem = {
+    id: "provider-command:claudeAgent:compact",
+    type: "provider-native-command",
+    provider: "claudeAgent",
+    command: "compact",
+    label: "/compact",
+    description: "Summarize the conversation and reduce context usage",
+  };
+  const skill: ComposerCommandItem = {
+    id: "skill:/skills/dataviz",
+    type: "skill",
+    skill: {
+      name: "dataviz",
+      description: "Charts",
+      path: "/skills/dataviz",
+      enabled: true,
+    } as Extract<ComposerCommandItem, { type: "skill" }>["skill"],
+    label: "dataviz",
+    description: "Charts",
+  };
+
+  it("names each section after where its commands come from", () => {
+    expect(
+      groupCommandItems([appCommand, claudeCommand, skill], "slash-command", true).map((group) => [
+        group.label,
+        group.items.map((item) => item.id),
+      ]),
+    ).toEqual([
+      ["Moss", ["slash:model"]],
+      ["Claude", ["provider-command:claudeAgent:compact"]],
+      ["Skills", ["skill:/skills/dataviz"]],
+    ]);
+  });
+
+  it("puts a section where its best-ranked row is, keeping the ranking inside it", () => {
+    const secondAppCommand: ComposerCommandItem = {
+      ...appCommand,
+      id: "slash:clear",
+      command: "clear",
+      label: "/clear",
+    };
+    const ranked = [claudeCommand, appCommand, skill, secondAppCommand];
+
+    expect(groupCommandItems(ranked, "slash-command", true).map((group) => group.label)).toEqual([
+      "Claude",
+      "Moss",
+      "Skills",
+    ]);
+    expect(orderSlashCommandItemsByGroup(ranked).map((item) => item.id)).toEqual([
+      "provider-command:claudeAgent:compact",
+      "slash:model",
+      "slash:clear",
+      "skill:/skills/dataviz",
+    ]);
+  });
+
+  it("keeps one unlabelled list when sections are turned off", () => {
+    expect(groupCommandItems([appCommand, claudeCommand], "slash-command", false)).toEqual([
+      { id: "default", label: null, items: [appCommand, claudeCommand] },
+    ]);
+  });
+});
+
+describe("composerCommandMenuKeyHints", () => {
+  it("names what Enter does for the open menu", () => {
+    const enterLabel = (triggerKind: "slash-command" | "slash-model" | "mention" | "skill") =>
+      composerCommandMenuKeyHints({ triggerKind, hasItems: true, escapeClosesMenu: true }).find(
+        (hint) => hint.keys.includes("↵"),
+      )?.label;
+
+    expect(enterLabel("slash-command")).toBe("Run");
+    expect(enterLabel("slash-model")).toBe("Select");
+    expect(enterLabel("mention")).toBe("Insert");
+    expect(enterLabel("skill")).toBe("Insert");
+  });
+
+  it("only offers keys that do something", () => {
+    expect(
+      composerCommandMenuKeyHints({
+        triggerKind: "slash-command",
+        hasItems: false,
+        escapeClosesMenu: true,
+      }).map((hint) => hint.label),
+    ).toEqual(["Close"]);
+    expect(
+      composerCommandMenuKeyHints({
+        triggerKind: "slash-command",
+        hasItems: true,
+        escapeClosesMenu: false,
+      }).map((hint) => hint.label),
+    ).toEqual(["Navigate", "Run"]);
+  });
+});
+
+describe("groupCommandItems @devs", () => {
+  it("keeps the @devs report above every other mention, whatever else matches", () => {
+    const items: ComposerCommandItem[] = [
+      {
+        id: "thread:thread-devin",
+        type: "thread",
+        threadId: "thread-devin",
+        provider: "devin",
+        mention: { name: "Synthetic Devin session", path: "thread://thread-devin" },
+        label: "Synthetic Devin session",
+        description: "Moss",
+      },
+      {
+        id: "devs-report",
+        type: "devs-report",
+        label: "@devs",
+        description: "Report a problem to the Moss developers",
+      },
+    ];
+
+    const groups = groupCommandItems(items, "mention", true);
+    expect(groups[0]).toEqual({ id: "devs-report", label: null, items: [items[1]] });
+    expect(groups.flatMap((group) => group.items).map((item) => item.id)).toEqual([
+      "devs-report",
+      "thread:thread-devin",
     ]);
   });
 });

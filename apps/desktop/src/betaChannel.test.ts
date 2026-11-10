@@ -56,8 +56,8 @@ import {
   MOSS_BETA_INSTALL_DIR_ENV,
   MOSS_STABLE_EXECUTABLE_ENV,
   MOSS_STABLE_HOME_ENV,
-} from "@synara/shared/betaChannel";
-import { MOSS_DESKTOP_SMOKE_USER_DATA_ENV } from "@synara/shared/desktopIdentity";
+} from "@moss/shared/betaChannel";
+import { MOSS_DESKTOP_SMOKE_USER_DATA_ENV } from "@moss/shared/desktopIdentity";
 import {
   BETA_WINDOWS_UNINSTALL_GUID,
   DesktopBetaChannel,

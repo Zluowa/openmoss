@@ -18,19 +18,19 @@ import {
   type ProviderKind,
   type ServerSettingsPatch,
   type ServerSettingsView,
-} from "@synara/contracts";
-import type { DeepPartial } from "@synara/shared/Struct";
+} from "@moss/contracts";
+import type { DeepPartial } from "@moss/shared/Struct";
 import {
   deriveConfiguredProviderInstances,
   deriveProviderInstances,
   type ResolvedProviderInstance,
   isProviderKind,
   resolveModelSelectionInstanceId,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import {
   applyServerSettingsPatch,
   normalizeRetiredTextGenerationSelection,
-} from "@synara/shared/serverSettings";
+} from "@moss/shared/serverSettings";
 import {
   Cause,
   Deferred,
@@ -59,6 +59,7 @@ import {
   type ExternalProviderServer,
 } from "./providerCredentials";
 import { isProviderCredentialKey } from "./providerChildEnvironment.ts";
+import { initialProviderSettings } from "./provider/initialProviderSettings.ts";
 
 export interface ServerSettingsShape {
   readonly start: Effect.Effect<void, ServerSettingsError>;
@@ -773,7 +774,7 @@ function decodeSettingsFromJson(settingsPath: string, raw: string) {
 }
 
 const makeServerSettings = Effect.gen(function* () {
-  const { settingsPath } = yield* ServerConfig;
+  const { settingsPath, baseDir } = yield* ServerConfig;
   const providerCredentials = yield* ProviderCredentials;
   const secretStore = yield* ServerSecretStore;
   const fs = yield* FileSystem.FileSystem;
@@ -1187,10 +1188,22 @@ const makeServerSettings = Effect.gen(function* () {
         ),
       );
       if (!exists) {
+        const initial = yield* Effect.tryPromise({
+          try: () => initialProviderSettings(DEFAULT_SERVER_SETTINGS, baseDir),
+          catch: (cause) =>
+            new ServerSettingsError({
+              settingsPath,
+              detail: "failed to find initial local agents",
+              cause,
+            }),
+        });
         return {
-          settings: yield* withCredentialState(DEFAULT_SERVER_SETTINGS),
+          settings: yield* withCredentialState(initial),
           revision: 0,
+          // Persist once: a later launch must preserve explicit opt-outs, even before
+          // the user completes onboarding or changes another setting.
           migrated: false,
+          initialized: true,
         };
       }
 
@@ -1281,8 +1294,8 @@ const makeServerSettings = Effect.gen(function* () {
       );
       const loaded = yield* loadSettingsFromDisk(providerPasswordSnapshots);
       let obsoleteSecretNames: ReadonlySet<string> | undefined;
-      if (loaded.migrated) {
-        loaded.revision += 1;
+      if (loaded.migrated || ("initialized" in loaded && loaded.initialized)) {
+        if (loaded.migrated) loaded.revision += 1;
         const persisted = yield* persistProviderEnvironmentSecrets(
           loaded.settings,
           loaded.settings,

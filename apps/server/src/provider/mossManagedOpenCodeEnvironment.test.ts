@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getMossManagedModelDefinition } from "@synara/shared/mossRealmCatalog";
+import { getMossManagedModelDefinition } from "@moss/shared/mossRealmCatalog";
 
 import {
   buildMossManagedOpenCodeProviderInstance,
@@ -30,6 +30,29 @@ describe("managed OpenCode model limits", () => {
       expect(model.limit.output, id).toBe(Math.min(definition.maxOutputTokens, 32_768));
       expect(model.limit.output, id).toBeLessThan(model.limit.context);
     }
+  });
+
+  it("offers only the Moss provider, and still recognizes a config from before that lock", () => {
+    const instance = fixture();
+    const config = JSON.parse(instance.environment![0]!.value!);
+    expect(config.enabled_providers).toEqual(["moss"]);
+
+    delete config.enabled_providers;
+    const verify = (value: string) =>
+      isVerifiedMossManagedOpenCodeProviderInstance({
+        instanceId: "opencode_moss",
+        instance: {
+          ...instance,
+          environment: instance.environment!.map((entry, index) =>
+            index === 0 ? { ...entry, value } : entry,
+          ),
+        },
+        env,
+      });
+    expect(verify(JSON.stringify(config))).toBe(true);
+    expect(verify(JSON.stringify({ ...config, enabled_providers: ["moss", "opencode"] }))).toBe(
+      false,
+    );
   });
 
   it("recognizes the prior context catalog so reconciliation can replace it", () => {

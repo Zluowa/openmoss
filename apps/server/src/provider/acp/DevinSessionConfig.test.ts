@@ -2,7 +2,7 @@ import { access, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { supportsPosixPermissions } from "@synara/shared/filesystemPlatform";
+import { supportsPosixPermissions } from "@moss/shared/filesystemPlatform";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createDevinSessionConfig, type DevinSessionConfig } from "./DevinSessionConfig.ts";

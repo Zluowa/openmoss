@@ -11,7 +11,7 @@ import type {
   DesktopAppSnapPermissionKind,
   DesktopAppSnapSettingsPane,
   DesktopAppSnapState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { DesktopAppSnapManager } from "./appSnapManager";
 import { APPSNAP_IPC_CHANNELS } from "./ipcChannels";
@@ -157,7 +157,7 @@ export function registerAppSnapIpcHandlers(
       windowId <= 0 ||
       windowId > MAX_MACOS_WINDOW_ID
     ) {
-      throw new Error("captureWindow requires a valid macOS window id.");
+      throw new Error("captureWindow requires a valid window id.");
     }
     return manager.captureWindow(windowId);
   });

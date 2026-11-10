@@ -7,7 +7,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestDockPane
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 
 import type { RightDockPane } from "~/rightDockStore.logic";
 

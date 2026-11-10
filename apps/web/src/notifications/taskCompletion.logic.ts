@@ -7,8 +7,8 @@ import {
   defaultTerminalTitleForCliKind,
   type TerminalCliKind,
   type TerminalVisualState,
-} from "@synara/shared/terminalThreads";
-import { pendingRequestInstanceKey, type ApprovalRequestKind } from "@synara/shared/threadSummary";
+} from "@moss/shared/terminalThreads";
+import { pendingRequestInstanceKey, type ApprovalRequestKind } from "@moss/shared/threadSummary";
 import type { Thread, ThreadSession } from "../types";
 import {
   derivePendingApprovals,

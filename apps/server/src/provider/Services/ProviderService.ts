@@ -47,11 +47,12 @@ import type {
   ProviderTurnStartResult,
   McpAppResourceReadInput,
   McpAppResourceReadResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { ServiceMap } from "effect";
 import type { Deferred, Effect, Stream } from "effect";
 
 import type { ProviderServiceError } from "../Errors.ts";
+import type { CodexCredentialScopeInput } from "../../codexHomeIdentity.ts";
 import type { PersistedProviderRuntimeEvent } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import type {
   ProviderAdapterCapabilities,
@@ -91,6 +92,18 @@ export interface ProviderSessionStartOutcomeOptions {
   readonly registerPriorTranscriptBootstrapOnFreshStart?: boolean;
   /** Allow a deliberate cross-provider rebind to replace native continuation. */
   readonly abandonOtherProviderContinuation?: boolean;
+  /** Internal only. Both signed references must still match under the lifecycle lease. */
+  readonly sharedAccountSwitch?: SharedAccountSwitch;
+}
+
+export interface SharedAccountSwitch {
+  readonly provider: "codex" | "claudeAgent";
+  readonly from: ProviderInstanceId;
+  readonly to: ProviderInstanceId;
+  readonly sourceReference: string;
+  readonly targetReference: string;
+  /** Presentation only: the model actually attached to the durable source session. */
+  readonly sourceModelSelection?: ModelSelection;
 }
 
 /** Durable identity of one Stop; its authority never transfers to a later turn. */
@@ -107,6 +120,13 @@ export interface ProviderRuntimeSessionStopTarget {
   readonly session: ProviderSession | null;
   readonly lifecycleGeneration: string | null;
   readonly stopControlReceipt?: ProviderRuntimeStopControlReceipt;
+}
+
+/** Already-journaled result of the exact Codex turn whose runtime was reaped. */
+export interface ProviderRuntimeStoppedTurn {
+  readonly turnId: TurnId;
+  readonly lifecycleGeneration: string | undefined;
+  readonly state: "completed" | "interrupted" | "error";
 }
 
 export interface PersistedProviderSessionProfile {
@@ -268,7 +288,7 @@ export interface ProviderServiceShape {
     /** A conditional Stop must not tear down a replacement lifecycle epoch. */
     readonly expectedLifecycleGeneration?: string | null;
     readonly controlRequestId?: string;
-  }) => Effect.Effect<void, ProviderServiceError>;
+  }) => Effect.Effect<void | ProviderRuntimeStoppedTurn, ProviderServiceError>;
 
   /** Observe one Stop target atomically; this is not a transport contract. */
   readonly getRuntimeSessionStopTarget?: (input: {
@@ -280,11 +300,12 @@ export interface ProviderServiceShape {
    * Live implementations wait for process exit so callers can safely remove
    * that account's writable runtime overlay.
    */
-  readonly stopCodexAccountRuntimes?: (input: {
-    readonly homePath: string;
-    readonly accountId: string;
-    readonly runtimeGeneration?: string;
-  }) => Effect.Effect<void, ProviderServiceError>;
+  readonly stopCodexAccountRuntimes?: (
+    input: {
+      readonly homePath: string;
+      readonly accountId: string;
+    } & CodexCredentialScopeInput,
+  ) => Effect.Effect<void, ProviderServiceError>;
 
   /**
    * Revoke launch leases captured for one exact provider instance and wait for
@@ -325,6 +346,15 @@ export interface ProviderServiceShape {
     readonly providerInstanceId: ProviderInstanceId;
     readonly providerOptions?: ProviderStartOptions;
   }) => Effect.Effect<boolean, ProviderServiceError>;
+
+  /** Inspect this server's existing binding; no client can submit a reference or an account capability. */
+  readonly prepareSharedAccountSwitch?: (input: {
+    readonly threadId: ThreadId;
+    readonly provider: ProviderKind;
+    /** Direct turns assert their observed source. Explicit handoffs resolve the actual durable owner. */
+    readonly from?: ProviderInstanceId;
+    readonly to: ProviderInstanceId;
+  }) => Effect.Effect<SharedAccountSwitch | undefined, ProviderServiceError>;
 
   /**
    * List active provider sessions.

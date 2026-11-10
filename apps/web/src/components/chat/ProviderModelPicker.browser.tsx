@@ -3,7 +3,7 @@ import {
   type ProviderInstanceId,
   type ProviderKind,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
@@ -1043,7 +1043,93 @@ describe("ProviderModelPicker", () => {
       expect(signIn.element().textContent).toContain("Sign in");
 
       await signIn.click();
-      expect(pushSpy).toHaveBeenCalledWith("/settings?section=providers");
+      // Straight to the agent's own row, where its sign-in runs.
+      expect(pushSpy).toHaveBeenCalledWith(
+        "/settings?section=providers&provider=gemini&target=provider-gemini",
+      );
+    } finally {
+      pushSpy.mockRestore();
+      await mounted.cleanup();
+    }
+  });
+
+  it("names accounts like the composer and says Install or Sign in on one line", async () => {
+    const mounted = await mountPicker({
+      provider: "codex",
+      model: "gpt-5-codex",
+      lockedProvider: null,
+      providerInstances: [
+        { instanceId: "codex", provider: "codex", label: "Codex", enabled: true, isDefault: true },
+        {
+          instanceId: "claudeAgent",
+          provider: "claudeAgent",
+          label: "Claude",
+          enabled: true,
+          isDefault: true,
+        },
+        {
+          instanceId: "claude_moss",
+          provider: "claudeAgent",
+          label: "Moss Claude",
+          enabled: true,
+          isDefault: false,
+        },
+        { instanceId: "zcode", provider: "zcode", label: "Zcode", enabled: true, isDefault: true },
+        {
+          instanceId: "zcode_moss",
+          provider: "zcode",
+          label: "Moss ZCode",
+          enabled: true,
+          isDefault: false,
+        },
+      ],
+      providers: [
+        providerStatus("codex"),
+        providerStatus("claudeAgent", {
+          status: "error",
+          available: false,
+          authStatus: "unauthenticated",
+          readiness: { state: "needsLogin", reason: "agent-sign-in" },
+        }),
+        providerStatus("claudeAgent", { instanceId: "claude_moss" }),
+        providerStatus("zcode", {
+          status: "error",
+          available: false,
+          authStatus: "unknown",
+          readiness: { state: "notInstalled", install: "oneClick" },
+        }),
+        providerStatus("zcode", { instanceId: "zcode_moss" }),
+      ],
+    });
+    const pushSpy = vi.spyOn(appHistory, "push").mockImplementation(() => undefined);
+
+    try {
+      await page.getByRole("button").click();
+      await expect
+        .element(page.getByRole("menuitem", { name: "Claude · Moss", exact: true }))
+        .toBeVisible();
+      await expect
+        .element(page.getByRole("menuitem", { name: "ZCode · Moss", exact: true }))
+        .toBeVisible();
+      const text = document.body.textContent ?? "";
+      expect(text).not.toContain("Moss Claude");
+      expect(text).not.toContain("Zcode");
+
+      const install = page.getByRole("menuitem", { name: /^ZCode\s*Install$/ });
+      await expect.element(install).not.toHaveAttribute("aria-disabled", "true");
+      // Name and status share one line: the status never wraps under the name.
+      const row = install.element();
+      const status = [...row.querySelectorAll<HTMLElement>("span")].find(
+        (element) => element.textContent === "Install",
+      )!;
+      expect(status.className).toContain("whitespace-nowrap");
+      expect(status.className).toContain("shrink-0");
+
+      const signIn = page.getByRole("menuitem", { name: /^Claude\s*Sign in$/ });
+      await signIn.click();
+      expect(pushSpy).toHaveBeenCalledWith(
+        "/settings?section=providers&provider=claudeAgent&target=provider-claudeAgent",
+      );
     } finally {
       pushSpy.mockRestore();
       await mounted.cleanup();

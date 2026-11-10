@@ -1,9 +1,9 @@
 import { join } from "node:path";
 import { ServerConfig } from "../../config.ts";
 import { Effect, Layer, Option } from "effect";
-import type { ComputerAvailability } from "@synara/contracts";
+import type { ComputerAvailability } from "@moss/contracts";
 
-import { CUA_HOST_SOCKET_ENV } from "@synara/shared/cuaDriverProtocol";
+import { CUA_HOST_SOCKET_ENV } from "@moss/shared/cuaDriverProtocol";
 import { ComputerManager } from "../ComputerManager.ts";
 import { CuaComputerBackend } from "../CuaComputerBackend.ts";
 import { FakeComputerBackend } from "../FakeComputerBackend.ts";
@@ -29,13 +29,20 @@ export function makeComputerServiceLayer(options: ComputerServiceLiveOptions = {
     Effect.gen(function* () {
       const platform = options.platform ?? process.platform;
       const requestedBackend = process.env.MOSS_COMPUTER_BACKEND?.trim().toLowerCase();
+      // Cua runs on macOS and Windows. A Windows server without a host endpoint means this
+      // instance's control host did not start, not that Windows is unsupported, so say that.
       const unavailableAvailability: ComputerAvailability =
         platform === "linux"
           ? {
               kind: "backend-unavailable",
               message: "No computer backend is available on this server.",
             }
-          : { kind: "unsupported-platform", platform };
+          : platform === "win32"
+            ? {
+                kind: "backend-unavailable",
+                message: "Moss's computer control is not running yet. Restart Moss, then refresh.",
+              }
+            : { kind: "unsupported-platform", platform };
       // macOS runs the bundled host the desktop app provisions; on other
       // platforms the same backend is routable when a host endpoint is
       // configured explicitly (the provisioned upstream driver serving the

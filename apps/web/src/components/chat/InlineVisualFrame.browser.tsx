@@ -1,7 +1,7 @@
 import "../../index.css";
 
-import { type InlineVisualActivityPayload, type NativeApi, ThreadId } from "@synara/contracts";
-import { buildInlineVisualDocument } from "@synara/shared/inlineVisual";
+import { type InlineVisualActivityPayload, type NativeApi, ThreadId } from "@moss/contracts";
+import { buildInlineVisualDocument } from "@moss/shared/inlineVisual";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { page, userEvent } from "vitest/browser";

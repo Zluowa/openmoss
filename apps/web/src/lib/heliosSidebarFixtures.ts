@@ -4,7 +4,7 @@
 // Layer: Web-only visual verification fixture
 // Exports: Helios fixture query parser and thread factory
 
-import type { ModelSelection, ProjectId } from "@synara/contracts";
+import type { ModelSelection, ProjectId } from "@moss/contracts";
 
 import type { SidebarThreadSummary } from "~/types";
 

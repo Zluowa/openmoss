@@ -16,12 +16,12 @@ import {
   type ProviderKind,
   type StatsGetProfileStatsInput,
   type StatsGetProfileTokenStatsInput,
-} from "@synara/contracts";
-import { isBuiltInComposerSlashCommandName } from "@synara/shared/composerSlashCommands";
+} from "@moss/contracts";
+import { isBuiltInComposerSlashCommandName } from "@moss/shared/composerSlashCommands";
 import {
   inferLegacyProviderKindFromInstanceId,
   inferLegacyProviderKindFromModel,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import { Effect, Layer, Schema, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import type * as Statement from "effect/unstable/sql/Statement";

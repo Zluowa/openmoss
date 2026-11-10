@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { ProviderKind, SUPPORTED_PROVIDER_KINDS } from "@synara/contracts";
+import { ProviderKind, SUPPORTED_PROVIDER_KINDS } from "@moss/contracts";
 
 import {
   MOSS_ENGINE_NATIVE_TARGETS,

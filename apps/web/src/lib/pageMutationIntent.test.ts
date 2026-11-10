@@ -1,4 +1,4 @@
-import { PageId, PagesRpcError, type PagesMutateInput } from "@synara/contracts";
+import { PageId, PagesRpcError, type PagesMutateInput } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isPageMutationRejected, PageMutationIntent } from "./pageMutationIntent";
 

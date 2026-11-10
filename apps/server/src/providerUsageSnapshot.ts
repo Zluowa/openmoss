@@ -17,7 +17,7 @@ import type {
   ServerGetProviderUsageSnapshotResult,
   ServerProviderUsageLimit,
   ServerProviderUsageLine,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 
 import { ServerConfig } from "./config";

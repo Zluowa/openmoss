@@ -5,7 +5,7 @@ import {
   MIGRATION_RUNTIME_SOURCE_RELATIVE_PATH,
   findMigrationRuntimeIdentityMismatch,
   type MigrationRuntimeIdentityMismatch,
-} from "@synara/shared/migrationRecovery";
+} from "@moss/shared/migrationRecovery";
 
 declare const __MOSS_MIGRATION_RUNTIME_SOURCE_DIGEST__: string;
 
@@ -90,7 +90,7 @@ function findMossSourceCheckoutRoot(cwd: string): string | null {
       const packageJson = JSON.parse(
         fs.readFileSync(path.join(candidate, "package.json"), "utf8"),
       ) as { readonly name?: unknown };
-      if (packageJson.name === "@synara/monorepo") return candidate;
+      if (packageJson.name === "@moss/monorepo") return candidate;
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") throw cause;
     }

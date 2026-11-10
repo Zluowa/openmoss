@@ -6,7 +6,7 @@ import {
   type OrchestrationThreadActivity,
   type ProviderKind,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import { AppSettingsSchema, getProviderInstanceOptions } from "../appSettings";
 import type { Thread } from "../types";
@@ -60,14 +60,31 @@ describe("threadHandoff", () => {
     ).toEqual({ status: "failed", detail: "Claude could not start." });
   });
 
-  it("continues in the same thread only when the provider changes", () => {
+  it("continues in the same thread on another provider or another account", () => {
     expect(
       canContinueThreadHandoff({ sourceProvider: "codex", targetProvider: "claudeAgent" }),
     ).toBe(true);
-    // Another account of the same provider still needs a new thread.
+    // An imported local-account chat continues on Moss in place.
+    expect(
+      canContinueThreadHandoff({
+        sourceProvider: "pi",
+        sourceProviderInstanceId: "pi",
+        targetProvider: "pi",
+        targetProviderInstanceId: "pi_moss",
+      }),
+    ).toBe(true);
+    // The account the thread already runs on is not a target.
     expect(canContinueThreadHandoff({ sourceProvider: "codex", targetProvider: "codex" })).toBe(
       false,
     );
+    expect(
+      canContinueThreadHandoff({
+        sourceProvider: "pi",
+        sourceProviderInstanceId: "pi_moss",
+        targetProvider: "pi",
+        targetProviderInstanceId: "pi_moss",
+      }),
+    ).toBe(false);
   });
 
   const readyStatus = (
@@ -195,6 +212,9 @@ describe("threadHandoff", () => {
   it("excludes disabled, missing, unavailable, and unauthenticated handoff targets", () => {
     const providerInstances = getProviderInstanceOptions(
       AppSettingsSchema.makeUnsafe({
+        // Optional CLIs start disabled; enable them all so each exclusion below is for the
+        // reason its status gives, and antigravity is the one turned off explicitly.
+        disabledProviders: [],
         providerInstances: { antigravity: { driver: "antigravity", enabled: false } },
       }),
     );

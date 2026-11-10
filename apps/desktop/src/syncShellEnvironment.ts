@@ -10,16 +10,16 @@ import {
   readWindowsPersistentEnvironment,
   type ShellEnvironmentReader,
   type WindowsEnvironmentReader,
-} from "@synara/shared/shell";
+} from "@moss/shared/shell";
 import {
   createCachedLoginShellEnvironmentReader,
   LOGIN_SHELL_ENVIRONMENT_NAMES,
-} from "@synara/shared/loginShellEnvironment";
+} from "@moss/shared/loginShellEnvironment";
 import {
   applyOutboundProxyEnv,
   hasOutboundProxy,
   OUTBOUND_PROXY_ENV_NAMES,
-} from "@synara/shared/outboundProxy";
+} from "@moss/shared/outboundProxy";
 
 function logShellEnvironmentWarning(message: string, error?: unknown): void {
   console.warn(`[desktop] ${message}`, error instanceof Error ? error.message : (error ?? ""));
@@ -44,6 +44,7 @@ function syncWindowsEnvironment(
   env: NodeJS.ProcessEnv,
   readWindowsEnvironment: WindowsEnvironmentReader,
   logWarning: (message: string, error?: unknown) => void,
+  readSystemProxy: (() => NodeJS.ProcessEnv) | undefined,
 ): ShellEnvironmentSyncResult {
   try {
     const persisted = readWindowsEnvironment();
@@ -59,6 +60,13 @@ function syncWindowsEnvironment(
         env[name] = value;
       }
     }
+
+    // A VPN client in system-proxy mode sets no environment variable. Without
+    // this the backend goes direct and can't reach the Global auth service.
+    applyOutboundProxyEnv(env, {
+      platform: "win32",
+      ...(readSystemProxy ? { readSystemProxy } : {}),
+    });
 
     return { pathHydrated: Boolean(persisted.PATH) };
   } catch (error) {
@@ -91,6 +99,7 @@ export function syncShellEnvironment(
       env,
       options.readWindowsEnvironment ?? readWindowsPersistentEnvironment,
       logWarning,
+      options.readSystemProxy,
     );
   }
 

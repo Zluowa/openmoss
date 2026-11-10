@@ -1,7 +1,7 @@
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 
 export interface SidechatExpiryReactorShape {
   readonly start: Effect.Effect<void, never, Scope.Scope>;

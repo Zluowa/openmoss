@@ -335,8 +335,8 @@ describe("Moss brand identity guard", () => {
     ]);
     expect(
       findPublicRuntimeBrandViolations([
-        { path: "compat.ts", contents: 'const packageName = "@synara/contracts";' },
+        { path: "scope.ts", contents: 'import { x } from "@synara/contracts";' },
       ]),
-    ).toEqual([]);
+    ).toHaveLength(1);
   });
 });

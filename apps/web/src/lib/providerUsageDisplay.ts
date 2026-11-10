@@ -2,7 +2,7 @@
 // Purpose: Single source of truth for provider usage rows shown in Settings,
 // the chat header usage chip, and compact environment/Local popovers.
 
-import type { ServerProviderUsageSnapshot } from "@synara/contracts";
+import type { ServerProviderUsageSnapshot } from "@moss/contracts";
 
 import {
   deriveVisibleRateLimitRows,

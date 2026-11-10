@@ -4,7 +4,7 @@
 // Layer: Chat transcript row content
 // Exports: InlineVisual
 
-import type { InlineVisualActivityPayload, ThreadId } from "@synara/contracts";
+import type { InlineVisualActivityPayload, ThreadId } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 
 import { inlineVisualQueryOptions } from "~/lib/providerReactQuery";

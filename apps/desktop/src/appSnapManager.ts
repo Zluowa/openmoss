@@ -27,14 +27,15 @@ import {
   type DesktopAppSnapShortcutUpdateResult,
   type DesktopAppSnapState,
   type DesktopAppSnapWindowEntry,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   DEFAULT_APP_SNAP_SHORTCUT,
   appSnapShortcutAccelerator,
   appSnapShortcutSystemConflict,
   isAppSnapShortcut,
   sameAppSnapShortcut,
-} from "@synara/shared/appSnapShortcut";
+} from "@moss/shared/appSnapShortcut";
+import { cuaRequest, type CuaReply } from "@moss/shared/cuaDriverProtocol";
 
 const MAX_PENDING_CAPTURES = PROVIDER_SEND_TURN_MAX_ATTACHMENTS;
 const MAX_HELPER_STDERR_CHARS = 4_096;
@@ -169,6 +170,10 @@ export interface DesktopAppSnapManagerOptions {
     register: (accelerator: string, callback: () => void) => boolean;
     unregister: (accelerator: string) => void;
   };
+  /** Windows AppSnap uses the embedded Cua Driver host instead of the macOS helper. */
+  cuaEndpoint?: () => string | undefined;
+  cuaCapability?: string;
+  cuaRequest?: typeof cuaRequest;
 }
 
 function normalizeDate(value: unknown, fallback: Date): string {
@@ -595,6 +600,8 @@ export class DesktopAppSnapManager {
   #pendingWindowRequests = new Map<string, PendingAppSnapRequest<DesktopAppSnapWindowEntry[]>>();
   #pendingCaptureRequests = new Map<string, PendingAppSnapRequest<DesktopAppSnapCapture>>();
   #timedOutCaptureRequestIds = new Set<string>();
+  #cuaWindowTargets = new Map<number, { pid: number; windowId: number }>();
+  #nextCuaWindowId = 1;
   #guideProcess: AppSnapHelperProcess | null = null;
   #guideOutputLines: Readline.Interface | null = null;
   #lastGuideState: DesktopAppSnapPermissionGuideState | null = null;
@@ -631,18 +638,21 @@ export class DesktopAppSnapManager {
       spawn: options.spawn ?? ChildProcess.spawn,
     };
     this.#platform = desktopAppSnapPlatform(options.platform);
-    this.#status = this.#platform === "macos" ? "disabled" : "unsupported";
+    this.#status =
+      this.#platform === "macos" || this.#platform === "windows" ? "disabled" : "unsupported";
     this.#message =
-      this.#platform === "macos" ? null : "AppSnap is available only in the macOS desktop app.";
+      this.#platform === "macos" || this.#platform === "windows"
+        ? null
+        : "AppSnap is unavailable on this desktop platform.";
   }
 
   getState(): DesktopAppSnapState {
     return {
       platform: this.#platform,
-      supported: this.#platform === "macos",
+      supported: this.#platform === "macos" || this.#platform === "windows",
       enabled: this.#enabled,
       status: this.#permissionSetupFailure ? "error" : this.#status,
-      shortcut: this.#platform === "macos" ? this.#shortcut : null,
+      shortcut: this.#platform === "macos" || this.#platform === "windows" ? this.#shortcut : null,
       inputMonitoringPermission: this.#inputMonitoringPermission,
       screenRecordingPermission: this.#screenRecordingPermission,
       ...(this.#accessibilityPermission !== undefined
@@ -660,7 +670,12 @@ export class DesktopAppSnapManager {
     permissions?: readonly DesktopAppSnapPermissionKind[],
     options: { readonly force?: boolean } = {},
   ): Promise<DesktopAppSnapState> {
-    if (this.#platform !== "macos" || this.#disposed) return this.getState();
+    if ((this.#platform !== "macos" && this.#platform !== "windows") || this.#disposed)
+      return this.getState();
+    if (this.#platform === "windows") {
+      await this.#reconcileWatchProcess();
+      return this.getState();
+    }
     if (!(await this.#runPermissionCommand("--check-permissions", permissions, !options.force))) {
       return this.getState();
     }
@@ -669,7 +684,8 @@ export class DesktopAppSnapManager {
   }
 
   async setEnabled(enabled: boolean): Promise<DesktopAppSnapState> {
-    if (this.#platform !== "macos" || this.#disposed) return this.getState();
+    if ((this.#platform !== "macos" && this.#platform !== "windows") || this.#disposed)
+      return this.getState();
     this.#enabled = enabled;
     if (!enabled) {
       this.#stopWatchProcess();
@@ -677,14 +693,18 @@ export class DesktopAppSnapManager {
       this.#setState("disabled", null);
       return this.getState();
     }
-    if (!(await this.#runPermissionCommand("--check-permissions"))) return this.getState();
+    if (this.#platform === "macos" && !(await this.#runPermissionCommand("--check-permissions")))
+      return this.getState();
     await this.#reconcileWatchProcess();
     return this.getState();
   }
 
   checkShortcut(shortcut: unknown): DesktopAppSnapShortcutAvailability {
-    if (this.#platform !== "macos") {
-      return { available: false, reason: "AppSnap shortcuts are available only on macOS." };
+    if (this.#platform !== "macos" && this.#platform !== "windows") {
+      return {
+        available: false,
+        reason: "AppSnap shortcuts are unavailable on this desktop platform.",
+      };
     }
     if (!isAppSnapShortcut(shortcut)) {
       return {
@@ -712,13 +732,13 @@ export class DesktopAppSnapManager {
       if (!registry.register(accelerator, () => undefined)) {
         return {
           available: false,
-          reason: "macOS or another app is already using this shortcut.",
+          reason: "The operating system or another app is already using this shortcut.",
         };
       }
       registry.unregister(accelerator);
       return { available: true, reason: null };
     } catch {
-      return { available: false, reason: "macOS could not register this shortcut." };
+      return { available: false, reason: "The operating system could not register this shortcut." };
     }
   }
 
@@ -730,7 +750,7 @@ export class DesktopAppSnapManager {
   async setShortcut(shortcut: unknown): Promise<DesktopAppSnapShortcutUpdateResult> {
     const availability = this.checkShortcut(shortcut);
     if (
-      this.#platform !== "macos" ||
+      (this.#platform !== "macos" && this.#platform !== "windows") ||
       !isAppSnapShortcut(shortcut) ||
       sameAppSnapShortcut(this.#shortcut, shortcut)
     ) {
@@ -748,7 +768,12 @@ export class DesktopAppSnapManager {
   async requestPermissions(
     permissions?: readonly DesktopAppSnapPermissionKind[],
   ): Promise<DesktopAppSnapState> {
-    if (this.#platform !== "macos" || this.#disposed) return this.getState();
+    if ((this.#platform !== "macos" && this.#platform !== "windows") || this.#disposed)
+      return this.getState();
+    if (this.#platform === "windows") {
+      await this.#reconcileWatchProcess();
+      return this.getState();
+    }
     this.#permissionSetupFailure = null;
     this.#permissionCheckCache.clear();
     if (!(await this.#runPermissionCommand("--request-permissions", permissions))) {
@@ -775,7 +800,9 @@ export class DesktopAppSnapManager {
   async startPermissionSetup(
     permissions: readonly DesktopAppSnapPermissionKind[],
   ): Promise<DesktopAppSnapState> {
-    if (this.#platform !== "macos" || this.#disposed) return this.getState();
+    if ((this.#platform !== "macos" && this.#platform !== "windows") || this.#disposed)
+      return this.getState();
+    if (this.#platform === "windows") return this.getState();
     if (permissions.length === 0) return this.getState();
     this.hidePermissionGuide();
     const generation = this.#guideSessionGeneration;
@@ -828,6 +855,7 @@ export class DesktopAppSnapManager {
   }
 
   async listWindows(): Promise<DesktopAppSnapWindowEntry[]> {
+    if (this.#platform === "windows") return this.#listWindowsViaCua();
     const child = this.#requireWatchProcess();
     const requestId = Crypto.randomUUID();
     return await new Promise<DesktopAppSnapWindowEntry[]>((resolve, reject) => {
@@ -852,8 +880,9 @@ export class DesktopAppSnapManager {
 
   async captureWindow(windowId: number): Promise<DesktopAppSnapCapture> {
     if (!Number.isInteger(windowId) || windowId <= 0 || windowId > MAX_MACOS_WINDOW_ID) {
-      throw new Error("captureWindow requires a valid macOS window id.");
+      throw new Error("captureWindow requires a valid window id.");
     }
+    if (this.#platform === "windows") return this.#captureWindowViaCua(windowId);
     const child = this.#requireWatchProcess();
     // The prefix keeps a request-driven helper file distinguishable from an
     // unsolicited hotkey capture after a crash. Picker requests have already
@@ -1174,6 +1203,138 @@ export class DesktopAppSnapManager {
       },
       true,
     );
+  }
+
+  async #cuaCall(name: string, args: Record<string, unknown> = {}): Promise<CuaReply> {
+    const endpoint = this.#options.cuaEndpoint?.();
+    if (!endpoint) throw new Error("Computer control is not ready.");
+    const request = this.#options.cuaRequest ?? cuaRequest;
+    const reply = await request<CuaReply>(
+      endpoint,
+      {
+        method: "call",
+        name,
+        args,
+        ...(this.#options.cuaCapability ? { capability: this.#options.cuaCapability } : {}),
+      },
+      {
+        timeoutMs:
+          name === "get_window_state" ? CAPTURE_WINDOW_TIMEOUT_MS : LIST_WINDOWS_TIMEOUT_MS,
+      },
+    );
+    if (!reply?.ok || reply.result?.isError) {
+      throw new Error(reply?.error ?? `Computer control ${name} failed.`);
+    }
+    return reply;
+  }
+
+  async #listWindowsViaCua(): Promise<DesktopAppSnapWindowEntry[]> {
+    const reply = await this.#cuaCall("list_windows", {});
+    const rows = reply.result?.structuredContent?.windows;
+    if (!Array.isArray(rows)) return [];
+    this.#cuaWindowTargets.clear();
+    const windows: DesktopAppSnapWindowEntry[] = [];
+    for (const value of rows) {
+      if (!value || typeof value !== "object") continue;
+      const row = value as Record<string, unknown>;
+      const pid = row.pid;
+      const windowId = row.window_id;
+      if (
+        typeof pid !== "number" ||
+        typeof windowId !== "number" ||
+        !Number.isSafeInteger(pid) ||
+        pid <= 0 ||
+        !Number.isSafeInteger(windowId) ||
+        windowId <= 0
+      )
+        continue;
+      const appName = normalizeOptionalText(row.app_name ?? row.appName);
+      const bundleIdentifier = normalizeOptionalText(row.bundle_id ?? row.bundleIdentifier);
+      if (bundleIdentifier === this.#options.excludedBundleId) continue;
+      const syntheticId = this.#nextCuaWindowId++;
+      this.#cuaWindowTargets.set(syntheticId, { pid, windowId });
+      const title = normalizeOptionalText(row.title ?? row.window_title ?? row.windowTitle);
+      const bounds =
+        row.bounds && typeof row.bounds === "object"
+          ? (row.bounds as Record<string, unknown>)
+          : undefined;
+      const normalizedBounds =
+        bounds && ["x", "y", "width", "height"].every((key) => typeof bounds[key] === "number")
+          ? {
+              x: bounds.x as number,
+              y: bounds.y as number,
+              width: bounds.width as number,
+              height: bounds.height as number,
+            }
+          : null;
+      windows.push({
+        windowId: syntheticId,
+        appName,
+        bundleIdentifier,
+        windowTitle: title,
+        title,
+        bounds: normalizedBounds,
+      });
+    }
+    return windows;
+  }
+
+  async #captureFocusedWindowViaCua(): Promise<DesktopAppSnapCapture> {
+    const windows = await this.#listWindowsViaCua();
+    const target = windows[0];
+    if (!target) throw new Error("No capturable Windows window is available.");
+    const capture = await this.#captureWindowViaCua(target.windowId);
+    this.#options.onCaptured(capture);
+    return capture;
+  }
+
+  async #captureWindowViaCua(windowId: number): Promise<DesktopAppSnapCapture> {
+    const target = this.#cuaWindowTargets.get(windowId);
+    if (!target) {
+      await this.#listWindowsViaCua();
+    }
+    const resolved = this.#cuaWindowTargets.get(windowId);
+    if (!resolved) throw new Error("The requested Windows window is no longer available.");
+    const reply = await this.#cuaCall("get_window_state", {
+      pid: resolved.pid,
+      window_id: resolved.windowId,
+      include_screenshot: true,
+      include_accessibility_tree: false,
+      max_dimension: 1536,
+    });
+    const image = reply.result?.content?.find(
+      (part) => part.type === "image" && typeof part.data === "string",
+    );
+    if (!image?.data) throw new Error("Computer control returned no Windows screenshot.");
+    const bytes = Buffer.from(image.data, "base64");
+    if (
+      bytes.length <= 0 ||
+      bytes.length > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES ||
+      !bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+    ) {
+      throw new Error("Computer control returned an invalid Windows screenshot.");
+    }
+    const now = this.#options.now();
+    const capture: DesktopAppSnapCapture = {
+      id: Crypto.randomUUID(),
+      capturedAt: now.toISOString(),
+      name: `AppSnap-${now.toISOString().replace(/[:.]/g, "-")}.png`,
+      mimeType: "image/png",
+      sizeBytes: bytes.length,
+      bytes: new Uint8Array(bytes),
+      sourceAppName: null,
+      sourceBundleIdentifier: null,
+      sourceAppIconDataUrl: null,
+      sourceWindowTitle: null,
+    };
+    const row = (reply.result?.structuredContent ?? {}) as Record<string, unknown>;
+    capture.sourceAppName = normalizeOptionalText(row.app_name);
+    capture.sourceBundleIdentifier = normalizeOptionalText(row.bundle_id);
+    capture.sourceWindowTitle = normalizeOptionalText(row.title);
+    await this.#ensurePendingCapturesLoaded();
+    const record = await this.#persistPendingCapture(capture);
+    await this.#recordPendingCapture(record);
+    return capture;
   }
 
   #requireWatchProcess(): AppSnapHelperProcess {
@@ -1628,7 +1789,25 @@ export class DesktopAppSnapManager {
   }
 
   async #reconcileWatchProcessOnce(): Promise<void> {
-    if (this.#disposed || this.#platform !== "macos") return;
+    if (this.#disposed || (this.#platform !== "macos" && this.#platform !== "windows")) return;
+    if (this.#platform === "windows") {
+      if (!this.#enabled) {
+        this.#releaseShortcutReservation();
+        this.#setState("disabled", null);
+        return;
+      }
+      if (!this.#options.cuaEndpoint?.()) {
+        this.#releaseShortcutReservation();
+        this.#setState("error", "Computer control is not ready for AppSnap on Windows yet.");
+        return;
+      }
+      if (this.#shortcut.kind !== "key-chord" || !this.#reserveShortcut(this.#shortcut)) {
+        this.#setState("error", "Choose a Windows AppSnap shortcut that is available.");
+        return;
+      }
+      this.#setState("ready", null);
+      return;
+    }
     if (!this.#enabled) {
       this.#stopWatchProcess();
       this.#releaseShortcutReservation();
@@ -1762,6 +1941,17 @@ export class DesktopAppSnapManager {
 
   #handleShortcutTrigger(): void {
     if (this.#disposed || !this.#enabled) return;
+    if (this.#platform === "windows") {
+      void this.#captureFocusedWindowViaCua().catch((error) => {
+        this.#emitCaptureError(
+          "capture-failed",
+          error instanceof Error ? error.message : String(error),
+          undefined,
+          false,
+        );
+      });
+      return;
+    }
     try {
       this.#watchProcess?.stdin?.write("trigger\n");
     } catch {

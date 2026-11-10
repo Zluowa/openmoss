@@ -17,6 +17,10 @@ import {
   serializeMigrationSchemaTooNewStartupBlock,
   type MigrationDivergenceConsentChallenge,
   type MigrationSchemaTooNewStartupBlock,
+  MIGRATION_REPAIR_FAILED_PREFIX,
+  parseMigrationRepairFailure,
+  parseMigrationRepairFailureRecord,
+  serializeMigrationRepairFailure,
 } from "./migrationRecovery";
 
 const divergenceChallengeWithoutToken: Omit<MigrationDivergenceConsentChallenge, "consentToken"> = {
@@ -48,6 +52,33 @@ const schemaTooNewBlock: MigrationSchemaTooNewStartupBlock = {
     backupMigrationId: 90,
   },
 };
+
+describe("migration repair failure", () => {
+  const failure = {
+    version: 1,
+    databasePath: "/data/state.sqlite",
+    backupPath: "/data/state.sqlite.backups/pre.sqlite.gz",
+    sourceVersion: "imported-v54-from17",
+    targetVersion: 150,
+    lineageFingerprint: "abc",
+    reason: "table already exists",
+    failedAt: "2026-11-01T00:00:00.000Z",
+  } as const;
+
+  it("round-trips through a log line and through its record file", () => {
+    const line = serializeMigrationRepairFailure(failure);
+    expect(parseMigrationRepairFailure(`Error: failed\n${line}\n`)).toEqual(failure);
+    expect(parseMigrationRepairFailureRecord(JSON.stringify(failure))).toEqual(failure);
+  });
+
+  it("rejects malformed records", () => {
+    expect(parseMigrationRepairFailureRecord("not json")).toBeNull();
+    expect(
+      parseMigrationRepairFailureRecord(JSON.stringify({ ...failure, targetVersion: "150" })),
+    ).toBeNull();
+    expect(parseMigrationRepairFailure(`${MIGRATION_REPAIR_FAILED_PREFIX}{}`)).toBeNull();
+  });
+});
 
 describe("migration recovery paths", () => {
   it("derives the marker and backup directory from the database path", () => {

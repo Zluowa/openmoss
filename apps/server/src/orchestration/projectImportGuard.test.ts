@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CommandId, MessageId, ProjectId, ThreadId } from "@synara/contracts";
+import { CommandId, MessageId, ProjectId, ThreadId } from "@moss/contracts";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { expect, it } from "vitest";
 import { ServerConfig } from "../config";

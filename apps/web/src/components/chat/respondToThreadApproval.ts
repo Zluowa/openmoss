@@ -12,12 +12,12 @@ import type {
   ProviderRequestKind,
   RuntimeMode,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   APPROVAL_ALREADY_ANSWERED_INVARIANT_MARKER,
   collectErrorMessages,
   describeErrorMessage,
-} from "@synara/shared/errorMessages";
+} from "@moss/shared/errorMessages";
 
 import { newCommandId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";

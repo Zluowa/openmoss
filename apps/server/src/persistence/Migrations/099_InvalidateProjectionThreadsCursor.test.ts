@@ -6,7 +6,7 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
@@ -27,6 +27,7 @@ import {
   type OrchestrationProjectionPipelineShape,
 } from "../../orchestration/Services/ProjectionPipeline.ts";
 import { runMigrations } from "../Migrations.ts";
+import addDispatchSourceThreadColumn from "./161_ProjectionThreadMessagesDispatchSourceThread.ts";
 import * as NodeSqliteClient from "../NodeSqliteClient.ts";
 import messageTextChunkSchema from "./100_MessageTextChunks.ts";
 import asyncUserInputSchema from "./105_AsyncUserInput.ts";
@@ -78,6 +79,7 @@ it.layer(Layer.fresh(testLayer))("099_InvalidateProjectionThreadsCursor", (it) =
         yield* messageTextChunkSchema;
         yield* messageTurnBoundarySchema;
         yield* asyncUserInputSchema;
+        yield* addDispatchSourceThreadColumn;
         yield* claudeCacheReviewSchema;
         yield* humanMessageSchema;
         yield* workerMonitoringLivenessSchema;

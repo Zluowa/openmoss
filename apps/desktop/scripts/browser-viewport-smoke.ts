@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { app, BrowserWindow, nativeImage } from "electron";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { DesktopBrowserManager } from "../src/browserManager";
 
 const home = mkdtempSync(join(tmpdir(), "moss-browser-viewport-"));

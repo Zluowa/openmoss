@@ -1,4 +1,4 @@
-import { GuestShareId, ThreadId } from "@synara/contracts";
+import { GuestShareId, ThreadId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

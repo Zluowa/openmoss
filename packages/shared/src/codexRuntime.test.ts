@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   BundledCodexRuntimeUnavailableError,
@@ -7,22 +7,22 @@ import {
   MOSS_BUNDLED_CODEX_PATH_ENV_KEY,
   MOSS_BUNDLED_CODEX_VERSION,
   parseCodexExecutableVersion,
-  resolveCodexExecutable,
   resolveCodexRuntimeTarget,
 } from "./codexRuntime";
+import { resolveCodexExecutable } from "./codexExecutable";
 
 describe("codexRuntime", () => {
   it("pins the public Codex npm runtime version", () => {
-    expect(MOSS_BUNDLED_CODEX_VERSION).toBe("0.163.0");
+    expect(MOSS_BUNDLED_CODEX_VERSION).toBe("0.166.0");
   });
 
   it("parses the executable version and formats the exact-bundle diagnostic", () => {
-    expect(parseCodexExecutableVersion("codex-cli 0.163.0\n")).toBe(MOSS_BUNDLED_CODEX_VERSION);
+    expect(parseCodexExecutableVersion("codex-cli 0.166.0\n")).toBe(MOSS_BUNDLED_CODEX_VERSION);
     expect(parseCodexExecutableVersion("codex-cli 0.151.0-alpha.7.1\n")).toBe("0.151.0-alpha.7.1");
     expect(parseCodexExecutableVersion("Codex development build")).toBeNull();
     expect(parseCodexExecutableVersion("codex-cli 0.151.0-alpha.7.1+untrusted")).toBeNull();
     expect(formatBundledCodexExecutableVersionMismatch("0.145.0")).toBe(
-      "Bundled Codex executable version mismatch: Moss expected v0.163.0 but the executable reported v0.145.0. Reinstall Moss before using this runtime.",
+      "Bundled Codex executable version mismatch: Moss expected v0.166.0 but the executable reported v0.145.0. Reinstall Moss before using this runtime.",
     );
   });
 
@@ -31,7 +31,7 @@ describe("codexRuntime", () => {
       "darwin",
       "arm64",
       "@openai/codex-darwin-arm64",
-      "npm:@openai/codex@0.163.0-darwin-arm64",
+      "npm:@openai/codex@0.166.0-darwin-arm64",
       "aarch64-apple-darwin",
       "codex",
     ],
@@ -39,7 +39,7 @@ describe("codexRuntime", () => {
       "darwin",
       "x64",
       "@openai/codex-darwin-x64",
-      "npm:@openai/codex@0.163.0-darwin-x64",
+      "npm:@openai/codex@0.166.0-darwin-x64",
       "x86_64-apple-darwin",
       "codex",
     ],
@@ -47,7 +47,7 @@ describe("codexRuntime", () => {
       "linux",
       "arm64",
       "@openai/codex-linux-arm64",
-      "npm:@openai/codex@0.163.0-linux-arm64",
+      "npm:@openai/codex@0.166.0-linux-arm64",
       "aarch64-unknown-linux-musl",
       "codex",
     ],
@@ -55,7 +55,7 @@ describe("codexRuntime", () => {
       "linux",
       "x64",
       "@openai/codex-linux-x64",
-      "npm:@openai/codex@0.163.0-linux-x64",
+      "npm:@openai/codex@0.166.0-linux-x64",
       "x86_64-unknown-linux-musl",
       "codex",
     ],
@@ -63,7 +63,7 @@ describe("codexRuntime", () => {
       "win32",
       "arm64",
       "@openai/codex-win32-arm64",
-      "npm:@openai/codex@0.163.0-win32-arm64",
+      "npm:@openai/codex@0.166.0-win32-arm64",
       "aarch64-pc-windows-msvc",
       "codex.exe",
     ],
@@ -71,7 +71,7 @@ describe("codexRuntime", () => {
       "win32",
       "x64",
       "@openai/codex-win32-x64",
-      "npm:@openai/codex@0.163.0-win32-x64",
+      "npm:@openai/codex@0.166.0-win32-x64",
       "x86_64-pc-windows-msvc",
       "codex.exe",
     ],
@@ -117,7 +117,7 @@ describe("codexRuntime", () => {
   });
 
   it.each([undefined, "", " codex "])(
-    "uses the bundled runtime for the default configured path %s",
+    "uses the bundled runtime for the default configured path %s when there is no own Codex",
     (configuredBinaryPath) => {
       expect(
         resolveCodexExecutable({
@@ -125,18 +125,31 @@ describe("codexRuntime", () => {
           env: {
             [MOSS_BUNDLED_CODEX_PATH_ENV_KEY]: " /app/bundled/codex ",
           },
+          isOnPath: () => false,
         }),
       ).toEqual({ binaryPath: "/app/bundled/codex", source: "bundled" });
     },
   );
 
-  it("classifies a legacy persisted copy of the active bundle path as bundled", () => {
+  it("prefers the person's own Codex on PATH over the bundled runtime", () => {
+    const isOnPath = vi.fn((command: string) => command === "codex");
+    expect(
+      resolveCodexExecutable({
+        env: { [MOSS_BUNDLED_CODEX_PATH_ENV_KEY]: "/app/bundled/codex" },
+        isOnPath,
+      }),
+    ).toEqual({ binaryPath: "codex", source: "path" });
+    expect(isOnPath).toHaveBeenCalledWith("codex");
+  });
+
+  it("keeps an instance pinned to the bundle path on the bundle even with an own Codex", () => {
     expect(
       resolveCodexExecutable({
         configuredBinaryPath: " /app/bundled/codex ",
         env: {
           [MOSS_BUNDLED_CODEX_PATH_ENV_KEY]: " /app/bundled/codex ",
         },
+        isOnPath: () => true,
       }),
     ).toEqual({ binaryPath: "/app/bundled/codex", source: "bundled" });
   });
@@ -148,7 +161,33 @@ describe("codexRuntime", () => {
     });
   });
 
-  it("fails closed instead of falling back to a global Codex when the bundle is broken", () => {
+  it("uses the same own Codex for Moss and local accounts", () => {
+    expect(
+      resolveCodexExecutable({
+        accountId: "moss",
+        env: { [MOSS_BUNDLED_CODEX_PATH_ENV_KEY]: "/app/bundled/codex" },
+        isOnPath: () => true,
+      }),
+    ).toEqual({ binaryPath: "codex", source: "path" });
+    expect(
+      resolveCodexExecutable({
+        accountId: "moss",
+        env: { [MOSS_BUNDLED_CODEX_ERROR_ENV_KEY]: "Bundled Codex is missing. Reinstall Moss." },
+        isOnPath: () => true,
+      }),
+    ).toEqual({ binaryPath: "codex", source: "path" });
+  });
+
+  it("uses the person's own Codex when the bundle is broken", () => {
+    expect(
+      resolveCodexExecutable({
+        env: { [MOSS_BUNDLED_CODEX_ERROR_ENV_KEY]: "Bundled Codex is missing. Reinstall Moss." },
+        isOnPath: () => true,
+      }),
+    ).toEqual({ binaryPath: "codex", source: "path" });
+  });
+
+  it("reports a broken bundle when there is no own Codex to fall back to", () => {
     expect(() =>
       resolveCodexExecutable({
         configuredBinaryPath: "codex",

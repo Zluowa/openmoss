@@ -4,7 +4,7 @@
 
 import "../../index.css";
 
-import { MessageId, PROVIDER_SEND_TURN_MAX_ATTACHMENTS, ThreadId, TurnId } from "@synara/contracts";
+import { MessageId, PROVIDER_SEND_TURN_MAX_ATTACHMENTS, ThreadId, TurnId } from "@moss/contracts";
 import axe from "axe-core";
 import { useCallback, useState, type ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -78,7 +78,9 @@ vi.mock("~/lib/localImageUrls", async (importOriginal) => {
   return {
     ...actual,
     buildLocalImageUrl: (input: Parameters<typeof actual.buildLocalImageUrl>[0]) =>
-      imageFixtureState.makeUrl(input.src),
+      actual.isMossConversationImageSource(input.src)
+        ? actual.buildLocalImageUrl(input)
+        : imageFixtureState.makeUrl(input.src),
   };
 });
 
@@ -1210,6 +1212,33 @@ describe("MessagesTimeline generated-image browser parity", () => {
       expect(preview.element().getAttribute("data-image-id")).toBe("key-0");
       await userEvent.keyboard(" ");
       expect(onImageExpand).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("requests a restored chat image again after the first account-bound request fails", async () => {
+    const host = createHost(720, 620);
+    const path = `/api/moss/media/assets/moss_restored/0?accountScope=${"a".repeat(64)}`;
+    const screen = await render(
+      <GeneratedImageGallery
+        gallery={{
+          turnId: TURN_ID,
+          createdAt: "2026-10-14T00:00:00.000Z",
+          images: [{ id: "restored", path }],
+          pendingImageCount: 0,
+        }}
+        cwd="/tmp"
+        onImageExpand={vi.fn()}
+      />,
+      { container: host },
+    );
+    try {
+      const img = host.querySelector("img")!;
+      img.dispatchEvent(new Event("error"));
+      await expect.poll(() => new URL(img.src).searchParams.get("v"), { timeout: 4_000 }).toBe("1");
+      expect(new URL(img.src).searchParams.get("accountScope")).toBe("a".repeat(64));
     } finally {
       await screen.unmount();
       host.remove();

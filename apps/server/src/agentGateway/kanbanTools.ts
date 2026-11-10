@@ -5,7 +5,7 @@ import {
   type TurnDispatchMode,
   MossCreateThreadsInput,
   MossCreateThreadsResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   deriveKanbanColumnV2,
   deriveKanbanAttention,
@@ -13,7 +13,7 @@ import {
   type KanbanAttentionFlag,
   type KanbanColumnV2Key,
   type KanbanThreadDerivationInput,
-} from "@synara/shared/kanban";
+} from "@moss/shared/kanban";
 import { Effect, Option, Schema } from "effect";
 
 import {

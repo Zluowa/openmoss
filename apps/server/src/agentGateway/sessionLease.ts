@@ -1,4 +1,4 @@
-import type { ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ThreadId } from "@moss/contracts";
 import { Effect, Exit } from "effect";
 
 import type {
@@ -69,6 +69,7 @@ type AgentGatewaySessionLeaseCredentials = Pick<
       | "issueStdioBootstrapToken"
       | "retireSessionTurn"
       | "awaitNativeMcpStartup"
+      | "observeNativeTurn"
     >
   >;
 
@@ -85,6 +86,7 @@ export const AGENT_GATEWAY_TURN_AUTHORITY_RETIRED = "mossGatewayTurnAuthorityRet
  */
 export interface AgentGatewaySessionLease {
   readonly connection: AgentGatewayMcpConnection;
+  readonly noteParentTurnStarted?: (turnId: string) => void;
   /** Mint a fresh one-shot proxy credential for a provider turn. */
   readonly issueStdioBootstrapToken?: () => string | null;
   /**
@@ -222,9 +224,18 @@ export function acquireAgentGatewaySessionLease(
       ? credentials.connectionForThread(threadId, provider)
       : credentials.connectionForThread(threadId, provider, options);
   let released = false;
+  const observeNativeTurn = provider === "codex" ? credentials.observeNativeTurn : undefined;
+  observeNativeTurn?.(connection.bearerToken, null);
 
   return {
     connection,
+    ...(observeNativeTurn
+      ? {
+          noteParentTurnStarted: (turnId: string) => {
+            if (!released) observeNativeTurn(connection.bearerToken, turnId);
+          },
+        }
+      : {}),
     issueStdioBootstrapToken: () => {
       if (released) return null;
       return credentials.issueStdioBootstrapToken?.(connection.bearerToken) ?? null;

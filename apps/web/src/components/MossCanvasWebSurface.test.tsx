@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   isCurrent: vi.fn(() => true),
   binding: vi.fn<() => Promise<MossCanvasBinding>>(),
   import: vi.fn<typeof importMossCanvasLocalImages>(),
+  signedOut: vi.fn<() => Promise<boolean>>(),
   navigate: vi.fn(),
   selectRoute: vi.fn(),
   blocker: vi.fn(),
@@ -38,6 +39,9 @@ vi.mock("../lib/mossImagesAccountBoundary", () => ({
 vi.mock("../lib/mossCanvasClient", () => ({
   loadMossCanvasBinding: mocks.binding,
   importMossCanvasLocalImages: mocks.import,
+  isMossCanvasSignedOut: mocks.signedOut,
+  MOSS_CANVAS_SIGN_IN_MESSAGE: "登录 Moss 账号后即可使用画布。",
+  MossCanvasSignInRequiredError: class extends Error {},
 }));
 
 type Props = ComponentProps<typeof MossCanvasWebSurface>;
@@ -100,6 +104,7 @@ beforeEach(() => {
   mocks.isCurrent.mockReset().mockImplementation(() => mocks.current);
   mocks.binding.mockReset().mockResolvedValue(binding);
   mocks.import.mockReset().mockImplementation(async (input) => resultFor(input));
+  mocks.signedOut.mockReset().mockResolvedValue(false);
   mocks.navigate.mockReset();
   mocks.selectRoute.mockReset();
   mocks.blocker.mockReset();
@@ -227,6 +232,24 @@ describe("Canvas conversation preparation", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("shows how to sign in instead of an empty editor when signed out", async () => {
+    mocks.signedOut.mockResolvedValue(true);
+    await act(async () => {
+      render(
+        <MossCanvasWebSurface
+          threadId="thread-a"
+          onClose={vi.fn()}
+          onLeaveGuardChange={vi.fn()}
+          localImages={local(1)}
+        />,
+      );
+    });
+    await tick();
+    expect(screen.queryByTitle("Moss Canvas")).toBeNull();
+    expect(screen.getByText("登录 Moss 账号后即可使用画布。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "登录 Moss 账号" }));
+    expect(mocks.navigate).toHaveBeenCalledWith({ to: "/account" });
+  });
   it("opens an existing conversation without requiring preparation", async () => {
     const prepareThread = vi.fn(async () => null);
     const host = await mount({ threadId: "thread-existing", prepareThread });
@@ -321,7 +344,11 @@ describe("complete Canvas host boundaries", () => {
     await act(async () => {
       resolveBinding(binding);
     });
-    expect(host.props.onSelectionChange).toHaveBeenCalledExactlyOnceWith(selection(5), binding);
+    // Selections without text or shapes carry an empty `content` list.
+    expect(host.props.onSelectionChange).toHaveBeenCalledExactlyOnceWith(
+      { ...selection(5), content: [] },
+      binding,
+    );
     await host.acknowledge(host.requests()[0]!);
     await host.ready();
     await host.emit(selection(4));

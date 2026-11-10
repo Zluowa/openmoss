@@ -1,4 +1,6 @@
-import { Deferred, Effect, Exit, Scope, Semaphore } from "effect";
+import type { ProviderRuntimeEvent } from "@moss/contracts";
+import { Deferred, Effect, Exit, Scope, Semaphore, Stream } from "effect";
+import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 
 import { MossAccountServiceError } from "./account/mossAccountErrors";
@@ -8,9 +10,12 @@ import {
   MOSS_CLOUD_ACCOUNT_STARTUP_RESTORE_TIMEOUT_MS,
   MOSS_PHONE_ACCOUNT_STARTUP_RESTORE_TIMEOUT_MS,
   restoreMossAccountsOnStartup,
+  retryDeferredMossRotationAfterTurns,
   restoreMossCloudAccountOnStartup,
   startServerRuntimePipeline,
 } from "./effectServer.ts";
+import { startMossCloudAccountSessionMaintenance } from "./account/Layers/MossCloudAccountService";
+import { startMossPhoneAccountSessionMaintenance } from "./account/Layers/MossPhoneAccountService";
 import { makeServerReadiness } from "./server/readiness";
 
 describe("Moss account startup restoration", () => {
@@ -815,5 +820,61 @@ describe("server runtime pipeline startup", () => {
       "automation-scheduler-started",
       "provider-runtime-reconciler-started",
     ]);
+  });
+});
+
+describe("Moss session maintenance", () => {
+  const countTicks = (
+    start: (tick: Effect.Effect<void>) => Effect.Effect<void, never, Scope.Scope>,
+  ) =>
+    Effect.gen(function* () {
+      let ticks = 0;
+      yield* start(
+        Effect.sync(() => {
+          ticks += 1;
+        }),
+      );
+      yield* TestClock.adjust("3 minutes");
+      return ticks;
+    }).pipe(Effect.provide(TestClock.layer()), Effect.scoped, Effect.runPromise);
+
+  it("ticks every minute on the phone lane, not every two", async () => {
+    const ticks = await countTicks((tick) =>
+      startMossPhoneAccountSessionMaintenance({ maintainSession: () => tick }),
+    );
+    expect(ticks).toBe(3);
+  });
+
+  it("ticks every minute on the Google lane, not every two", async () => {
+    const ticks = await countTicks((tick) =>
+      startMossCloudAccountSessionMaintenance({
+        getState: () => tick.pipe(Effect.as({} as never)),
+      }),
+    );
+    expect(ticks).toBe(3);
+  });
+
+  it("retries a deferred rotation soon after a turn ends, and only then", async () => {
+    const event = (type: string) => ({ type }) as unknown as ProviderRuntimeEvent;
+    const ticks = await Effect.gen(function* () {
+      let retries = 0;
+      yield* retryDeferredMossRotationAfterTurns({
+        events: Stream.make(
+          event("content.delta"),
+          event("turn.started"),
+          event("turn.completed"),
+          event("turn.aborted"),
+        ),
+        retry: Effect.sync(() => {
+          retries += 1;
+        }),
+      });
+      yield* Effect.yieldNow;
+      const beforeSettling = retries;
+      yield* TestClock.adjust("3 seconds");
+      return { beforeSettling, afterSettling: retries };
+    }).pipe(Effect.provide(TestClock.layer()), Effect.scoped, Effect.runPromise);
+
+    expect(ticks).toEqual({ beforeSettling: 0, afterSettling: 2 });
   });
 });

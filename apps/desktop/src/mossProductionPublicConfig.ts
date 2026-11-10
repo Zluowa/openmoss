@@ -8,9 +8,10 @@ import {
   applyMossProductionPublicConfigEnv,
   MOSS_LEGACY_PRODUCTION_PUBLIC_CONFIG_KEYS,
   MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS,
+  MOSS_PUBLIC_MAPS_ENV_KEYS,
   parseMossProductionPublicConfig,
   type MossProductionPublicConfig,
-} from "@synara/shared/mossProductionPublicConfig";
+} from "@moss/shared/mossProductionPublicConfig";
 
 export function loadMossProductionPublicConfig(input: {
   readonly isPackaged: boolean;
@@ -56,6 +57,9 @@ export function mergeMossProductionPublicConfigIntoEnv(
       delete merged[key];
     }
     for (const key of MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS) {
+      delete merged[key];
+    }
+    for (const key of MOSS_PUBLIC_MAPS_ENV_KEYS) {
       delete merged[key];
     }
   }

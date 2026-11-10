@@ -5,7 +5,7 @@
  * prevent either the WebSocket fallback or the primary HTTP upload path from
  * bypassing provider disablement.
  */
-import { PROVIDER_DISPLAY_NAMES, type ProviderKind } from "@synara/contracts";
+import { PROVIDER_DISPLAY_NAMES, type ProviderKind } from "@moss/contracts";
 import { Effect } from "effect";
 
 import { isServerBetaFeatureEnabled } from "../betaFeatureGate";

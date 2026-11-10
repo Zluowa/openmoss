@@ -11,8 +11,8 @@ import {
   isBetaFeatureEnabled,
   MCP_CONNECTORS_BETA_FEATURE,
   PULL_REQUEST_AUTO_FIX_BETA_FEATURE,
-} from "@synara/shared/betaFeatures";
-import { PROVIDER_DESCRIPTORS } from "@synara/shared/providerMetadata";
+} from "@moss/shared/betaFeatures";
+import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
 
 // The desktop serves the app from its own scheme, so the protocol names the
 // host flavor (branding.ts uses the same signal for display names). A dev

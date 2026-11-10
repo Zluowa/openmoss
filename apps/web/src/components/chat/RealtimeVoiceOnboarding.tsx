@@ -2,7 +2,7 @@
 // Purpose: Gate the first Realtime Voice launch behind the source-faithful setup flow.
 // Layer: Chat overlay
 
-import type { RealtimeVoiceDescriptor, RealtimeVoiceId } from "@synara/contracts";
+import type { RealtimeVoiceDescriptor, RealtimeVoiceId } from "@moss/contracts";
 import { FoldersIcon, Loader2Icon, MonitorIcon, SparklesIcon, XIcon } from "~/lib/icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 

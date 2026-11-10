@@ -15,8 +15,9 @@ import type {
   WorkspaceImportCanonicalSourceKind,
   WorkspaceImportCategoryKind,
   WorkspaceImportSourceKind,
-} from "@synara/contracts";
-import { normalizeWorkspaceImportSource } from "@synara/contracts";
+} from "@moss/contracts";
+import { normalizeWorkspaceImportSource } from "@moss/contracts";
+import { resolveApplicationDirectory } from "@moss/shared/platformEnvironment";
 
 export interface WorkspaceImportPathInput {
   readonly homeDir: string;
@@ -46,19 +47,15 @@ function envPath(env: NodeJS.ProcessEnv | undefined, key: string): string | null
 }
 
 function appSupportPath(input: WorkspaceImportPathInput, appName: string): string {
-  if (input.platform === "darwin") {
-    return nodePath.join(input.homeDir, "Library", "Application Support", appName);
-  }
-  if (input.platform === "win32") {
-    return nodePath.join(
-      envPath(input.env, "APPDATA") ?? nodePath.join(input.homeDir, "AppData", "Roaming"),
-      appName,
-    );
-  }
-  return nodePath.join(
-    envPath(input.env, "XDG_CONFIG_HOME") ?? nodePath.join(input.homeDir, ".config"),
-    appName.toLowerCase(),
-  );
+  return resolveApplicationDirectory({
+    platform: input.platform,
+    homeDir: input.homeDir,
+    kind: "desktop-config",
+    name: appName,
+    xdgName: appName.toLowerCase(),
+    roamingAppData: envPath(input.env, "APPDATA"),
+    xdgHome: envPath(input.env, "XDG_CONFIG_HOME"),
+  });
 }
 
 function uniquePaths(paths: readonly string[]): string[] {

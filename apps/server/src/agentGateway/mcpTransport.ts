@@ -1,4 +1,4 @@
-import { ThreadId, type OrchestrationThreadShell, type ProviderKind } from "@synara/contracts";
+import { ThreadId, type OrchestrationThreadShell, type ProviderKind } from "@moss/contracts";
 import { Cause, Deferred, Effect, Exit, Fiber, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -17,7 +17,7 @@ import type { AgentGatewayProviderInstances } from "./targetResolver.ts";
 import {
   inferLegacyProviderKindFromInstanceId,
   inferLegacyProviderKindFromModel,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import {
   buildMcpInitializeResult,
   jsonRpcError,
@@ -209,23 +209,29 @@ export function makeAgentGatewayMcpTransport(input: {
           );
         case "ping":
           return jsonRpcResult(request.id, {});
-        case "tools/list":
+        case "tools/list": {
+          const offered: ToolEntry[] = [];
+          for (const tool of filterToolsByCapability(input.tools, context.callerCapabilities)) {
+            // Discovery-only tools stay callable by exact name — toolsByName
+            // is built from the unfiltered catalog — but do not advertise.
+            if (tool.discoveryOnly === true) continue;
+            // Account-dependent tools are read at listing time; their handlers refuse by name.
+            if (tool.available !== undefined && !(yield* tool.available())) continue;
+            offered.push(tool);
+          }
           return jsonRpcResult(request.id, {
-            tools: filterToolsByCapability(input.tools, context.callerCapabilities)
-              // Discovery-only tools stay callable by exact name — toolsByName
-              // is built from the unfiltered catalog — but do not advertise.
-              .filter((tool) => tool.discoveryOnly !== true)
-              .map(
-                (tool) =>
-                  servedDefinitionByToolName.get(tool.definition.name) ?? {
-                    ...tool.definition,
-                    inputSchema: sanitizeToolInputSchema(tool.definition.inputSchema) as Record<
-                      string,
-                      unknown
-                    >,
-                  },
-              ),
+            tools: offered.map(
+              (tool) =>
+                servedDefinitionByToolName.get(tool.definition.name) ?? {
+                  ...tool.definition,
+                  inputSchema: sanitizeToolInputSchema(tool.definition.inputSchema) as Record<
+                    string,
+                    unknown
+                  >,
+                },
+            ),
           });
+        }
         case "tools/call": {
           const toolName = request.params.name;
           if (typeof toolName !== "string") {
@@ -365,6 +371,12 @@ export function makeAgentGatewayMcpTransport(input: {
         );
       }
       const callerThreadId = callerSession.threadId;
+      // ACP agents connect injected MCP servers asynchronously after session/new.
+      // An authenticated tools/list means the agent now holds the Moss catalog,
+      // so the first prompt can stop waiting for its bounded startup gate.
+      if (requestMethodClass === "tools-list") {
+        input.credentials.noteNativeMcpStartup(token);
+      }
       const callerThread = yield* input.snapshotQuery
         .getThreadShellById(ThreadId.makeUnsafe(callerThreadId))
         .pipe(Effect.catch(() => Effect.succeed(Option.none())));
@@ -443,10 +455,23 @@ export function makeAgentGatewayMcpTransport(input: {
           "re-lease",
         );
       }
-      const callerWriteAuthority =
-        callerThread.value.latestTurn?.state === "running"
-          ? input.credentials.bindWriteAuthority(token, callerThread.value.latestTurn.turnId)
-          : null;
+      const projected = callerThread.value.latestTurn;
+      const nativeAtIngress = callerSession.nativeTurnId;
+      // The native identity was captured with the bearer before any observation or projection
+      // reads. A pre-turn request cannot pick up a turn that starts during those awaits.
+      let turnAtIngress: string | null = projected?.state === "running" ? projected.turnId : null;
+      if (nativeAtIngress !== undefined) {
+        const active = callerThread.value.session?.activeTurnId;
+        turnAtIngress =
+          nativeAtIngress !== null &&
+          (active == null || active === nativeAtIngress) &&
+          (!projected || turnAtIngress === nativeAtIngress)
+            ? nativeAtIngress
+            : null;
+      }
+      const callerWriteAuthority = turnAtIngress
+        ? input.credentials.bindWriteAuthority(token, turnAtIngress)
+        : null;
       const assertCallerTurnActive = () =>
         Effect.gen(function* () {
           if (callerWriteAuthority === null) {
@@ -482,9 +507,25 @@ export function makeAgentGatewayMcpTransport(input: {
                   ),
               ),
             );
+          if (!input.credentials.verifyWriteAuthority(callerWriteAuthority)) {
+            return yield* Effect.fail(
+              new GatewayToolError(
+                "caller_session_inactive",
+                "This provider session lost write authority while verifying its turn.",
+                { callerThreadId },
+              ),
+            );
+          }
+          const stillRunning = caller.latestTurn
+            ? caller.latestTurn.state === "running" &&
+              caller.latestTurn.turnId === callerWriteAuthority.turnId
+            : nativeAtIngress === callerWriteAuthority.turnId;
+          const active = caller.session?.activeTurnId;
           if (
-            caller.latestTurn?.state !== "running" ||
-            caller.latestTurn.turnId !== callerWriteAuthority.turnId
+            !stillRunning ||
+            (nativeAtIngress !== undefined &&
+              active != null &&
+              active !== callerWriteAuthority.turnId)
           ) {
             return yield* Effect.fail(
               new GatewayToolError(

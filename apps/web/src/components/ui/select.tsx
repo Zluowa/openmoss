@@ -33,7 +33,7 @@ const SelectPopupSurfaceContext = React.createContext<SelectPopupSurface>("compo
 
 // Keep neutral select chrome on the same token families Codex uses for menus and list hover.
 const selectTriggerVariants = cva(
-  "relative inline-flex cursor-pointer select-none items-center justify-between gap-2 border rounded-md text-left text-ui outline-none transition-[color,background-color] data-disabled:pointer-events-none data-disabled:opacity-64 sm:text-ui [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4",
+  "relative inline-flex cursor-pointer select-none items-center justify-between gap-ui-gap-xs border rounded-control text-left text-ui outline-none transition-[color,background-color] data-disabled:pointer-events-none data-disabled:opacity-64 sm:text-ui [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0 [&_svg:not([class*='size-'])]:size-ui-icon",
   {
     defaultVariants: {
       size: "default",
@@ -46,10 +46,10 @@ const selectTriggerVariants = cva(
           "border-transparent text-[var(--color-text-foreground-secondary)] focus-visible:ring-1 focus-visible:ring-[color:var(--color-border-focus)]/60 data-pressed:bg-[var(--color-background-elevated-secondary)] [:hover,[data-pressed]]:bg-[var(--color-background-elevated-secondary)] [:hover,[data-pressed]]:text-[var(--color-text-foreground)]",
       },
       size: {
-        default: "min-h-8 px-[calc(--spacing(3)-1px)] sm:min-h-7",
-        lg: "min-h-9 px-[calc(--spacing(3)-1px)] sm:min-h-8",
-        sm: "min-h-8 gap-1.5 px-[calc(--spacing(2.5)-1px)] sm:min-h-7",
-        xs: "h-7 gap-1 rounded-sm px-[calc(--spacing(2)-1px)] text-ui sm:h-6 sm:text-ui [&_svg:not([class*='size-'])]:size-4 sm:[&_svg:not([class*='size-'])]:size-3.5",
+        default: "min-h-control px-ui-pad-md py-1",
+        lg: "min-h-control-lg px-ui-pad-lg py-2",
+        sm: "min-h-control-sm gap-1.5 px-ui-pad-sm py-0.5 [&_svg:not([class*='size-'])]:size-ui-icon-sm",
+        xs: "min-h-control-xs gap-1 rounded-sm px-ui-pad-xs py-0.5 text-ui-sm sm:text-ui-sm [&_svg:not([class*='size-'])]:size-ui-icon-sm",
       },
     },
   },

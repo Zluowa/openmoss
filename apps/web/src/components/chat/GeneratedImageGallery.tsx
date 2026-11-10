@@ -1,7 +1,7 @@
 // FILE: GeneratedImageGallery.tsx
 // Purpose: Renders the Codex generated-image gallery inline after an assistant answer.
 // Layer: Web chat presentation component
-// Notes: The gallery hands one safe group snapshot to the durable image-preview pane.
+// Notes: Image clicks open the shared lightbox; Canvas requests retain a safe group snapshot.
 
 import {
   useCallback,
@@ -9,13 +9,19 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ComponentProps,
   type DragEvent,
   type KeyboardEvent,
   type SyntheticEvent,
 } from "react";
 
-import { buildLocalImageUrl, localImageFileName } from "~/lib/localImageUrls";
+import {
+  buildLocalImageUrl,
+  isMossConversationImageSource,
+  localImageFileName,
+} from "~/lib/localImageUrls";
 import { setGeneratedImageDragData } from "~/lib/generatedImageDrag";
+import { useIsSharedViewer } from "~/lib/sharedViewer";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "../../localization";
 import { Button } from "../ui/button";
@@ -153,6 +159,47 @@ export function resolveGeneratedImageGalleryGroup(
   };
 }
 
+const accountRestoreRetryDelays = [500, 1_500, 4_000, 12_000, 30_000];
+
+function GalleryImage({
+  imagePath,
+  cwd,
+  onLoad,
+  onError,
+  ...props
+}: Omit<ComponentProps<"img">, "src"> & {
+  readonly imagePath: string;
+  readonly cwd: string | undefined;
+}) {
+  const base = buildLocalImageUrl({ src: imagePath, cwd });
+  const [retry, setRetry] = useState({ base, count: 0 });
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const count = retry.base === base ? retry.count : 0;
+  const url = count === 0 ? base : buildLocalImageUrl({ src: imagePath, cwd, cacheKey: count });
+  useEffect(() => {
+    // A restored chat can paint before its desktop account has been authenticated.
+    const delay = accountRestoreRetryDelays[count];
+    if (!isMossConversationImageSource(imagePath) || failedUrl !== url || delay === undefined)
+      return;
+    const timer = window.setTimeout(() => setRetry({ base, count: count + 1 }), delay);
+    return () => window.clearTimeout(timer);
+  }, [base, count, failedUrl, imagePath, url]);
+  return (
+    <img
+      {...props}
+      src={url}
+      onError={(event) => {
+        setFailedUrl(url);
+        onError?.(event);
+      }}
+      onLoad={(event) => {
+        setFailedUrl(null);
+        onLoad?.(event);
+      }}
+    />
+  );
+}
+
 export function GeneratedImageGallery({
   gallery,
   cwd,
@@ -160,6 +207,9 @@ export function GeneratedImageGallery({
   className,
 }: GeneratedImageGalleryProps) {
   const { t, format } = useTranslation();
+  // The canvas edits the owner's own files; a shared conversation's guest zooms the image
+  // instead (the click on the image itself opens it the same way for both).
+  const sharedViewer = useIsSharedViewer();
   const containerRef = useRef<HTMLDivElement>(null);
   const thumbnailsRef = useRef<HTMLDivElement>(null);
   const [containerWidthPx, setContainerWidthPx] = useState<number | null>(null);
@@ -329,7 +379,11 @@ export function GeneratedImageGallery({
             heightPx={layout.heightPx}
             onAspectRatioChange={onAspectRatioChange}
             onOpen={() => openImage(selectedImage)}
-            onOpenCanvas={onImageExpand ? () => openImage(selectedImage, "playground") : undefined}
+            onOpenCanvas={
+              onImageExpand && !sharedViewer
+                ? () => openImage(selectedImage, "playground")
+                : undefined
+            }
           />
         ) : gallery.pendingImageCount > 0 ? (
           <div data-testid="generated-image-pending">
@@ -366,8 +420,9 @@ export function GeneratedImageGallery({
               onClick={() => selectImage(image.id)}
               onKeyDown={(event) => handleThumbnailKeyDown(event, index)}
             >
-              <img
-                src={buildLocalImageUrl({ src: image.path, cwd })}
+              <GalleryImage
+                imagePath={image.path}
+                cwd={cwd}
                 alt=""
                 decoding="async"
                 draggable={false}
@@ -455,8 +510,9 @@ function GeneratedImageGalleryTile(props: {
         aria-label={alt}
         onClick={onOpen}
       >
-        <img
-          src={previewUrl}
+        <GalleryImage
+          imagePath={image.path}
+          cwd={cwd}
           alt={alt}
           decoding="async"
           referrerPolicy="no-referrer"

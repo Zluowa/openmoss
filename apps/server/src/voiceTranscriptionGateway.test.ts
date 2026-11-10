@@ -1,4 +1,4 @@
-import { DEFAULT_SERVER_SETTINGS, type ProviderInstanceId } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ProviderInstanceId } from "@moss/contracts";
 import { Effect, Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 

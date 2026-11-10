@@ -34,8 +34,10 @@ const shared = {
   define: {
     __MOSS_MIGRATION_RUNTIME_SOURCE_DIGEST__: JSON.stringify(migrationRuntimeSourceDigest),
   },
-  noExternal: (id) => id.startsWith("@synara/"),
+  noExternal: (id) => id.startsWith("@moss/"),
   inlineOnly: false,
+  // Keep upstream notices beside bundled code, once in its owning chunk.
+  outputOptions: { legalComments: "inline" },
   banner: {
     js: "#!/usr/bin/env node\n",
   },

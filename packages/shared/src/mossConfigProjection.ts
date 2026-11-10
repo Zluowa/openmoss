@@ -11,7 +11,7 @@ import {
   type MossProjectionResult,
   type MossProjectionWarning,
   type MossProjectionWrite,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export const MOSS_PROJECTION_TARGETS = [
   "moss",

@@ -20,7 +20,7 @@ import {
   WS_METHODS,
   type WsPush,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let reportShellFailure: ((failure: { code: string | null; error: Error }) => void) | undefined;
@@ -156,6 +156,10 @@ beforeEach(() => {
   latestPushByChannel.clear();
   nextPushSequence = 1;
   Reflect.deleteProperty(getWindowForTest(), "desktopBridge");
+  Object.defineProperty(getWindowForTest(), "location", {
+    configurable: true,
+    value: { origin: "http://localhost:5733" },
+  });
 });
 
 afterEach(() => {
@@ -164,6 +168,75 @@ afterEach(() => {
 });
 
 describe("wsNativeApi", () => {
+  it("binds every Computer History RPC instead of leaving the settings API undefined", async () => {
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const history = createWsNativeApi().computerHistory!;
+    const cases = [
+      [() => history.getState(), WS_METHODS.computerHistoryGetState, {}],
+      [() => history.getSettings(), WS_METHODS.computerHistoryGetSettings, {}],
+      [() => history.listApplications(), WS_METHODS.computerHistoryListApplications, {}],
+      [
+        () => history.resolveApplications({ query: "Editor" }),
+        WS_METHODS.computerHistoryResolveApplications,
+        { query: "Editor" },
+      ],
+      [
+        () => history.setEnabled({ enabled: false }),
+        WS_METHODS.computerHistorySetEnabled,
+        { enabled: false },
+      ],
+      [() => history.retryActivation(), WS_METHODS.computerHistoryRetryActivation, {}],
+      [() => history.pause(), WS_METHODS.computerHistoryPause, {}],
+      [() => history.resume(), WS_METHODS.computerHistoryResume, {}],
+      [() => history.listHistory(), WS_METHODS.computerHistoryListHistory, {}],
+      [() => history.listHistorySuggestions(), WS_METHODS.computerHistoryListSuggestions, {}],
+      [
+        () => history.listHistorySummaryIntervals({ sinceMs: 1 }),
+        WS_METHODS.computerHistoryListSummaryIntervals,
+        { sinceMs: 1 },
+      ],
+      [
+        () => history.revealInFinder({ entryId: "entry" }),
+        WS_METHODS.computerHistoryRevealInFinder,
+        { entryId: "entry" },
+      ],
+      [
+        () => history.clearHistory({ scope: "all" }),
+        WS_METHODS.computerHistoryClearHistory,
+        { scope: "all" },
+      ],
+    ] as const;
+    for (const [invoke, method, input] of cases) {
+      requestMock.mockResolvedValueOnce({});
+      await invoke();
+      expect(requestMock).toHaveBeenLastCalledWith(method, input);
+    }
+  });
+
+  it("routes installation inspection and confirmed removal through the typed server method", async () => {
+    requestMock.mockResolvedValue({
+      provider: "pi",
+      source: "moss",
+      path: "/isolated/agents/pi",
+      managedPath: "/isolated/agents/node_modules/pi",
+      canUninstall: true,
+      removed: false,
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    await api.server.manageProviderInstallation!({ provider: "pi", action: "inspect" });
+    expect(requestMock).toHaveBeenLastCalledWith(
+      WS_METHODS.serverManageProviderInstallation,
+      { provider: "pi", action: "inspect" },
+      { timeoutMs: null },
+    );
+    await api.server.manageProviderInstallation!({ provider: "pi", action: "uninstall" });
+    expect(requestMock).toHaveBeenLastCalledWith(
+      WS_METHODS.serverManageProviderInstallation,
+      { provider: "pi", action: "uninstall" },
+      { timeoutMs: null },
+    );
+  });
   it("forwards exhausted shell failures and removes unsubscribed listeners", async () => {
     const { createWsNativeApi, onShellStreamFailure } = await import("./wsNativeApi");
     createWsNativeApi();
@@ -194,6 +267,66 @@ describe("wsNativeApi", () => {
       undefined,
       { timeoutMs: 180_000 },
     );
+  });
+
+  it("keeps a server folder picker open without a deadline", async () => {
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    const controller = new AbortController();
+    requestMock.mockResolvedValueOnce({ path: "/srv/moss-app" });
+
+    await expect(api.dialogs.pickFolder({ signal: controller.signal })).resolves.toBe(
+      "/srv/moss-app",
+    );
+    expect(requestMock).toHaveBeenCalledExactlyOnceWith(
+      WS_METHODS.dialogsPickFolder,
+      {},
+      { timeoutMs: null, signal: controller.signal },
+    );
+  });
+
+  it("settles a cancelled desktop picker at once and drops its late answer", async () => {
+    let answer!: (path: string | null) => void;
+    const pickFolder = vi.fn(
+      () =>
+        new Promise<string | null>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    Object.assign(getWindowForTest(), { desktopBridge: { pickFolder } });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    const controller = new AbortController();
+
+    const picked = api.dialogs.pickFolder({ signal: controller.signal });
+    controller.abort();
+    await expect(picked).resolves.toBeNull();
+    answer("/Users/test/late-folder");
+    await expect(picked).resolves.toBeNull();
+    expect(requestMock).not.toHaveBeenCalled();
+  });
+
+  it("tells a picker that could not open apart from a cancel only when asked", async () => {
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+
+    requestMock.mockResolvedValueOnce({ path: null });
+    await expect(api.dialogs.pickFolder({ rejectWhenUnavailable: true })).resolves.toBeNull();
+
+    requestMock.mockResolvedValueOnce({ path: null, unavailable: true });
+    await expect(api.dialogs.pickFolder({ rejectWhenUnavailable: true })).rejects.toThrow(
+      "Could not open the folder picker.",
+    );
+    requestMock.mockRejectedValueOnce(new Error("socket closed"));
+    await expect(api.dialogs.pickFolder({ rejectWhenUnavailable: true })).rejects.toThrow(
+      "socket closed",
+    );
+
+    // Callers that did not ask keep the old answer: no folder.
+    requestMock.mockResolvedValueOnce({ path: null, unavailable: true });
+    await expect(api.dialogs.pickFolder()).resolves.toBeNull();
+    requestMock.mockRejectedValueOnce(new Error("socket closed"));
+    await expect(api.dialogs.pickFolder()).resolves.toBeNull();
   });
 
   it("delivers and caches valid server.welcome payloads", async () => {
@@ -304,6 +437,7 @@ describe("wsNativeApi", () => {
       settings: {
         enableAssistantStreaming: true,
         enableProviderUpdateChecks: true,
+        errorReportsEnabled: true,
         keepAwakeMode: "off",
         lowerProviderProcessPriority: true,
         defaultThreadEnvMode: "local",
@@ -320,6 +454,7 @@ describe("wsNativeApi", () => {
             homePath: "",
             selectedAccountId: "default",
             accounts: [],
+            shareStateAcrossAccounts: false,
             customModels: [],
           },
           claudeAgent: {
@@ -328,6 +463,8 @@ describe("wsNativeApi", () => {
             homePath: "",
             launchArgs: "",
             enableArtifacts: false,
+            shareStateAcrossAccounts: false,
+            sharedProjectsPath: "",
             customModels: [],
           },
           cursor: { enabled: false, binaryPath: "agent", apiEndpoint: "", customModels: [] },
@@ -648,32 +785,55 @@ describe("wsNativeApi", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("fetches auth session state over HTTP", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          authenticated: false,
-          auth: {
-            policy: "loopback-browser",
-            bootstrapMethods: ["one-time-token"],
-            sessionMethods: ["browser-session-cookie", "bearer-session-token"],
-            sessionCookieName: "moss_session",
-          },
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
-    );
+  it("routes identity and owner pairing management through the existing authenticated transport", async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+    requestMock.mockResolvedValue({ authenticated: true, role: "owner" });
+    Reflect.set(getWindowForTest(), "desktopBridge", {
+      getWsUrl: () => "ws://127.0.0.1:59111/?token=synthetic-startup-owner",
+    });
     const { createWsNativeApi } = await import("./wsNativeApi");
+    const server = createWsNativeApi().server;
+    expect(await server.getAuthSession()).toMatchObject({ authenticated: true, role: "owner" });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverGetAuthSession);
+    await server.createAuthPairingToken();
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverCreateAuthPairingToken, {});
+    await server.createAuthPairingToken({ label: "Phone" });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverCreateAuthPairingToken, {
+      label: "Phone",
+    });
+    await server.listAuthPairingLinks();
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverListAuthPairingLinks);
+    await server.revokeAuthPairingLink({ id: "pair-1" });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverRevokeAuthPairingLink, {
+      id: "pair-1",
+    });
+    await server.listAuthClients();
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverListAuthClients);
+    await server.revokeAuthClient({ sessionId: "client-1" as never });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverRevokeAuthClient, {
+      sessionId: "client-1",
+    });
+    await server.revokeOtherAuthClients();
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverRevokeOtherAuthClients);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 
-    const api = createWsNativeApi();
-    const result = await api.server.getAuthSession();
-
+  it("resolves remaining auth HTTP requests to the backend without a legacy startup token", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ revoked: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    Reflect.set(getWindowForTest(), "desktopBridge", {
+      getWsUrl: () => "ws://127.0.0.1:59111/?token=synthetic-startup-owner",
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    await createWsNativeApi().server.bootstrapBearerAuth({ credential: "synthetic-one-use" });
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/auth/session",
-      expect.objectContaining({ credentials: "same-origin", method: "GET" }),
+      "http://127.0.0.1:59111/api/auth/bootstrap/bearer",
+      expect.objectContaining({ method: "POST" }),
     );
-    expect(result).toMatchObject({ authenticated: false });
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("token=");
   });
 
   it("posts auth bootstrap payloads over HTTP", async () => {
@@ -695,7 +855,7 @@ describe("wsNativeApi", () => {
     const result = await api.server.bootstrapAuth({ credential: "PAIRINGTOKEN" });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/auth/bootstrap",
+      "http://localhost:5733/api/auth/bootstrap",
       expect.objectContaining({
         method: "POST",
         credentials: "same-origin",
@@ -719,7 +879,7 @@ describe("wsNativeApi", () => {
     await expect(api.server.logoutAuthSession()).resolves.toEqual({ revoked: true });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/auth/logout",
+      "http://localhost:5733/api/auth/logout",
       expect.objectContaining({
         method: "POST",
         credentials: "same-origin",

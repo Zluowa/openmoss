@@ -44,7 +44,15 @@ function run(args: string[]) {
     stdio: "inherit",
     windowsHide: true,
     shell: process.platform === "win32",
-    env: { ...process.env, ELECTRON_SKIP_BINARY_DOWNLOAD: "1" },
+    // Canvas isn't covered by the error-report switch, so it must never pick up
+    // a release DSN from the machine building it.
+    env: {
+      ...process.env,
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1",
+      SENTRY_DSN: "",
+      SENTRY_UPLOAD: "0",
+      VITE_SENTRY_DSN: "",
+    },
   });
   if (result.status !== 0) throw new Error(`Canvas build step failed: npm ${args.join(" ")}`);
 }

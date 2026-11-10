@@ -10,7 +10,7 @@ import {
   ThreadId,
   type OrchestrationEvent,
   type OrchestrationThread,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 import { describe, it } from "vitest";
 

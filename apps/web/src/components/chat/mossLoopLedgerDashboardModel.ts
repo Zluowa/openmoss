@@ -3,9 +3,9 @@
 // Layer: Web chat control-plane model boundary
 // Exports: current fallback snapshot, renderer props, and shared dashboard contract types
 
-import type { MossLoopLedgerDashboardSnapshot } from "@synara/contracts";
+import type { MossLoopLedgerDashboardSnapshot } from "@moss/contracts";
 
-export { deriveMossLoopLedgerDashboardModel } from "@synara/contracts";
+export { deriveMossLoopLedgerDashboardModel } from "@moss/contracts";
 export type {
   DashboardMetric,
   MossLoopLedgerDashboardReleaseFreshnessModel,
@@ -18,7 +18,7 @@ export type {
   MossLoopLedgerReviewSummary,
   MossLoopLedgerRoleSummary,
   MossLoopLedgerTaskSummary,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export interface MossLoopLedgerDashboardProps {
   readonly snapshot: MossLoopLedgerDashboardSnapshot;
@@ -100,17 +100,17 @@ export const MOSS_MOSS_LOOP_LEDGER_DASHBOARD_SNAPSHOT: MossLoopLedgerDashboardSn
         status: "pass",
       },
       {
-        label: "bun --filter @synara/web test -- mossLoopLedgerDashboard MossControlPlanePanel",
+        label: "bun --filter @moss/web test -- mossLoopLedgerDashboard MossControlPlanePanel",
         kind: "test",
         status: "pass",
       },
       {
-        label: "bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx",
+        label: "bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx",
         kind: "test",
         status: "pass",
       },
       {
-        label: "bun --filter @synara/scripts test -- moss-iteration-packet moss-loop-status",
+        label: "bun --filter @moss/scripts test -- moss-iteration-packet moss-loop-status",
         kind: "test",
         status: "pass",
       },

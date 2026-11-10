@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import type { ServerCodexResetCredits } from "@synara/contracts";
+import type { ServerCodexResetCredits } from "@moss/contracts";
 
 const harness = vi.hoisted(() => ({ confirm: vi.fn(), consume: vi.fn(), toast: vi.fn() }));
 vi.mock("~/nativeApi", () => ({

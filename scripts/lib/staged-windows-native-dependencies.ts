@@ -8,18 +8,12 @@ import * as Path from "node:path";
 import { pruneStagedWindowsNodePty } from "./staged-windows-node-pty.ts";
 
 export const STAGED_WINDOWS_NATIVE_PACKAGE_VERSIONS = {
-  // Pi 0.87.1 folds clipboard access into its platform helper; there is no
-  // separate @mariozechner/clipboard native package in the frozen stage lock.
-  "@earendil-works/pi-tui": "0.87.1",
-  "@esbuild/win32-x64": "0.28.2",
   "@msgpackr-extract/msgpackr-extract-win32-x64": "3.0.4",
   "msgpackr-extract": "3.0.4",
   "rookie-cookies-win32-x64-msvc": "0.6.0",
 } as const;
 
 export const WINDOWS_TARGET_NATIVE_DEPENDENCY_FILES = [
-  "node_modules/@earendil-works/pi-tui/native/win32/prebuilds/win32-x64/win32-platform.node",
-  "node_modules/@esbuild/win32-x64/esbuild.exe",
   "node_modules/@msgpackr-extract/msgpackr-extract-win32-x64/node.abi115.node",
   "node_modules/@msgpackr-extract/msgpackr-extract-win32-x64/node.napi.node",
   "node_modules/rookie-cookies-win32-x64-msvc/rookie_cookies.win32-x64-msvc.node",
@@ -65,21 +59,6 @@ function assertRegularFile(filePath: string, label: string): void {
   }
 }
 
-function assertRegularDirectory(directoryPath: string, label: string): void {
-  let stat: FS.Stats;
-  try {
-    stat = FS.lstatSync(directoryPath);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`Staged Windows native dependency is missing ${label}.`);
-    }
-    throw error;
-  }
-  if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    throw new Error(`Staged Windows native dependency ${label} must be a regular directory.`);
-  }
-}
-
 function resolveReviewedPackageRoot(
   stageAppDir: string,
   packageName: keyof typeof STAGED_WINDOWS_NATIVE_PACKAGE_VERSIONS,
@@ -110,40 +89,6 @@ function resolveReviewedPackageRoot(
   return packageRoot;
 }
 
-function prunePiTui(stageAppDir: string, removedPaths: string[]): void {
-  const packageRoot = resolveReviewedPackageRoot(stageAppDir, "@earendil-works/pi-tui");
-  const nativeRoot = Path.join(packageRoot, "native");
-  const win32Root = Path.join(nativeRoot, "win32");
-  const prebuildsRoot = Path.join(win32Root, "prebuilds");
-  const targetDirectory = Path.join(prebuildsRoot, "win32-x64");
-  for (const [directoryPath, label] of [
-    [nativeRoot, "@earendil-works/pi-tui/native"],
-    [win32Root, "@earendil-works/pi-tui/native/win32"],
-    [prebuildsRoot, "@earendil-works/pi-tui/native/win32/prebuilds"],
-    [targetDirectory, "@earendil-works/pi-tui/native/win32/prebuilds/win32-x64"],
-  ] as const) {
-    assertRegularDirectory(directoryPath, label);
-  }
-  assertRegularFile(
-    Path.join(targetDirectory, "win32-platform.node"),
-    "@earendil-works/pi-tui/native/win32/prebuilds/win32-x64/win32-platform.node",
-  );
-
-  for (const [directory, retainedEntry] of [
-    [nativeRoot, "win32"],
-    [win32Root, "prebuilds"],
-    [prebuildsRoot, "win32-x64"],
-    [targetDirectory, "win32-platform.node"],
-  ] as const) {
-    for (const entry of FS.readdirSync(directory)) {
-      if (entry === retainedEntry) continue;
-      const candidate = Path.join(directory, entry);
-      FS.rmSync(candidate, { force: true, recursive: true });
-      removedPaths.push(candidate);
-    }
-  }
-}
-
 export function pruneStagedWindowsNativeDependencies(input: {
   readonly stageAppDir: string;
   readonly arch: "arm64" | "x64";
@@ -158,9 +103,8 @@ export function pruneStagedWindowsNativeDependencies(input: {
     ...pruneStagedWindowsNodePty({ stageAppDir: input.stageAppDir, arch: input.arch }).removedPaths,
   ];
 
-  // Pi's extension loader and Betterwright's cookie bridge need these native
-  // runtime dependencies. Validate their exact locked versions before packing.
-  resolveReviewedPackageRoot(input.stageAppDir, "@esbuild/win32-x64");
+  // Betterwright's cookie bridge needs this native runtime dependency. Validate its
+  // exact locked version before packing.
   resolveReviewedPackageRoot(input.stageAppDir, "rookie-cookies-win32-x64-msvc");
 
   const msgpackrTargetRoot = resolveReviewedPackageRoot(
@@ -180,8 +124,6 @@ export function pruneStagedWindowsNativeDependencies(input: {
     FS.rmSync(hostBuildDirectory, { force: true, recursive: true });
     removedPaths.push(hostBuildDirectory);
   }
-
-  prunePiTui(input.stageAppDir, removedPaths);
 
   const retainedNativeFiles = WINDOWS_TARGET_NATIVE_DEPENDENCY_FILES.map((relativePath) =>
     Path.join(input.stageAppDir, ...relativePath.split("/")),

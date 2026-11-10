@@ -11,7 +11,7 @@ import {
   type SecretRequestOutcome,
   type ThreadId,
   type TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Clock, Deferred, Duration, Effect, Exit, FileSystem, Layer, Option, Path } from "effect";
 
 import { ServerConfig } from "../../config.ts";

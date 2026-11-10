@@ -4,8 +4,8 @@ import type {
   GitHubInboxListResult,
   GitHubInboxRepositoryBatch,
   OrchestrationProject,
-} from "@synara/contracts";
-import { pullRequestListProjectContexts } from "@synara/shared/githubRepository";
+} from "@moss/contracts";
+import { pullRequestListProjectContexts } from "@moss/shared/githubRepository";
 import { Effect, Layer, Scope, Stream } from "effect";
 
 import type { GitHubCliError } from "../../git/Errors";
@@ -218,6 +218,7 @@ export const makeGitHubInboxService = (
         );
         if (uniqueRepositories.size === 0) {
           return {
+            repositoryState: inventoryIncomplete ? "incomplete" : "none",
             viewer: null,
             items: [],
             errors,
@@ -374,6 +375,7 @@ export const makeGitHubInboxService = (
         });
 
         return {
+          repositoryState: inventoryIncomplete ? "incomplete" : "configured",
           viewer,
           items: orderPullRequestListEntries([...items, ...recovery.items]),
           errors: [...errors, ...recovery.errors],
@@ -451,6 +453,10 @@ export const makeGitHubInboxService = (
       withGitHubRead,
       invalidateRepository,
       invalidateRepositoryInventories: repositoryCache.invalidateAll,
+      clearAccount: Effect.all(
+        [snapshots.clearAccount, pinRecoveryCache.invalidateAll, issueDetailCache.invalidateAll],
+        { discard: true },
+      ),
     };
   });
 

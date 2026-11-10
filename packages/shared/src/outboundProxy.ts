@@ -131,8 +131,77 @@ export function parseMacOsScutilProxy(text: string): NodeJS.ProcessEnv {
   return env;
 }
 
+/**
+ * Parse `reg query` of the current user's Internet Settings, the switch a Windows
+ * VPN client flips in system-proxy mode. PAC URLs are ignored, as on macOS.
+ */
+export function parseWindowsInternetSettingsProxy(text: string): NodeJS.ProcessEnv {
+  const values = new Map<string, string>();
+  for (const line of text.split(/\r?\n/u)) {
+    const pair = /^\s+(ProxyEnable|ProxyServer|ProxyOverride)\s+REG_\w+\s+(.+?)\s*$/u.exec(line);
+    if (pair?.[1] && pair[2]) values.set(pair[1], pair[2]);
+  }
+  const server = values.get("ProxyServer");
+  if (values.get("ProxyEnable") !== "0x1" || !server) return {};
+
+  // `host:port` serves every protocol; otherwise `http=host:port;https=host:port;socks=host:port`.
+  const byProtocol = new Map<string, string>();
+  for (const part of server.split(";")) {
+    const entry = part.trim();
+    if (!entry) continue;
+    const separator = entry.indexOf("=");
+    if (separator === -1) byProtocol.set("*", entry);
+    else byProtocol.set(entry.slice(0, separator).toLowerCase(), entry.slice(separator + 1).trim());
+  }
+  const proxyUrl = (value: string | undefined, scheme: "http" | "socks5") =>
+    !value ? undefined : /^[a-z][a-z0-9+.-]*:\/\//iu.test(value) ? value : `${scheme}://${value}`;
+
+  const env: NodeJS.ProcessEnv = {};
+  const httpsProxy = proxyUrl(byProtocol.get("https") ?? byProtocol.get("*"), "http");
+  if (httpsProxy) {
+    env.HTTPS_PROXY = httpsProxy;
+    env.https_proxy = httpsProxy;
+  }
+  const httpProxy = proxyUrl(byProtocol.get("http") ?? byProtocol.get("*"), "http");
+  if (httpProxy) {
+    env.HTTP_PROXY = httpProxy;
+    env.http_proxy = httpProxy;
+  }
+  const socksProxy = proxyUrl(byProtocol.get("socks"), "socks5");
+  if (socksProxy) {
+    env.ALL_PROXY = socksProxy;
+    env.all_proxy = socksProxy;
+  }
+  if (!hasOutboundProxy(env)) return env;
+
+  // `<local>` and mid-string wildcards such as `127.*` mean nothing to NO_PROXY readers.
+  const exceptions = (values.get("ProxyOverride") ?? "")
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry && entry !== "<local>" && !entry.slice(1).includes("*"));
+  const noProxy = [...new Set(["127.0.0.1", "localhost", "::1", ...exceptions])].join(",");
+  env.NO_PROXY = noProxy;
+  env.no_proxy = noProxy;
+  return env;
+}
+
+export function readWindowsSystemProxy(
+  readCommand: (command: string, args: readonly string[]) => string = defaultReadSystemProxyCommand,
+): NodeJS.ProcessEnv {
+  try {
+    return parseWindowsInternetSettingsProxy(
+      readCommand("reg", [
+        "query",
+        "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+      ]),
+    );
+  } catch {
+    return {};
+  }
+}
+
 export function readMacOsSystemProxy(
-  readCommand: (command: string, args: readonly string[]) => string = defaultReadScutil,
+  readCommand: (command: string, args: readonly string[]) => string = defaultReadSystemProxyCommand,
 ): NodeJS.ProcessEnv {
   try {
     return parseMacOsScutilProxy(readCommand("scutil", ["--proxy"]));
@@ -141,7 +210,7 @@ export function readMacOsSystemProxy(
   }
 }
 
-function defaultReadScutil(command: string, args: readonly string[]): string {
+function defaultReadSystemProxyCommand(command: string, args: readonly string[]): string {
   return execFileSync(command, [...args], {
     encoding: "utf8",
     timeout: 2_000,
@@ -174,6 +243,7 @@ export function createCachedSystemProxyReader(
 }
 
 const readCachedMacOsSystemProxy = createCachedSystemProxyReader(() => readMacOsSystemProxy());
+const readCachedWindowsSystemProxy = createCachedSystemProxyReader(() => readWindowsSystemProxy());
 
 export function withOutboundProxyEnv(
   env: NodeJS.ProcessEnv,
@@ -185,7 +255,12 @@ export function withOutboundProxyEnv(
   if (hasOutboundProxy(env)) return env;
   const platform = options.platform ?? process.platform;
   const systemProxy =
-    options.readSystemProxy?.() ?? (platform === "darwin" ? readCachedMacOsSystemProxy() : {});
+    options.readSystemProxy?.() ??
+    (platform === "darwin"
+      ? readCachedMacOsSystemProxy()
+      : platform === "win32"
+        ? readCachedWindowsSystemProxy()
+        : {});
   if (!hasOutboundProxy(systemProxy)) return env;
   return { ...env, ...pickOutboundProxyEnv(systemProxy) };
 }

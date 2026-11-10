@@ -1,4 +1,4 @@
-import { SECRET_REQUEST_ERROR_CODES, ThreadId } from "@synara/contracts";
+import { SECRET_REQUEST_ERROR_CODES, ThreadId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

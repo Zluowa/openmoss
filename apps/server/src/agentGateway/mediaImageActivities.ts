@@ -1,5 +1,5 @@
 // Project official media into the existing transcript gallery for every CLI.
-// Only durable server-owned origins and verified Canvas files reach this boundary.
+// Only durable server-owned origins and verified media assets reach this boundary.
 import { isAbsolute } from "node:path";
 import {
   CommandId,
@@ -9,7 +9,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationCommand,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { MossConversationImageObservation } from "../mossMediaJobsService";
 import { stableGatewayDigest } from "./creationUtils";
 
@@ -68,7 +68,9 @@ export function conversationImageActivityCommands(
               Number.isInteger(output.index) &&
               output.index >= 0 &&
               output.index < 32 &&
-              isAbsolute(output.path) &&
+              (output.path ===
+                `/api/moss/media/assets/${snapshot.jobId}/${output.index}?accountScope=${accountScope}` ||
+                isAbsolute(output.path)) &&
               !output.path.includes("\0"),
           )
           .sort((left, right) => left.index - right.index)

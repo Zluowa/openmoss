@@ -15,7 +15,7 @@ import type {
   ProviderStartOptions,
   ServerGenerateAutomationIntentResult,
   SourceControlWritingStyle,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { TextGenerationError } from "../Errors.ts";
 

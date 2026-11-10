@@ -1,8 +1,4 @@
-import {
-  CUA_ACTION_TOOLS,
-  CUA_BROWSER_TOOLS,
-  type CuaReply,
-} from "@synara/shared/cuaDriverProtocol";
+import { CUA_ACTION_TOOLS, CUA_BROWSER_TOOLS, type CuaReply } from "@moss/shared/cuaDriverProtocol";
 
 const UNSUPPORTED_NATIVE_TOOLS = new Set([
   "select_text",

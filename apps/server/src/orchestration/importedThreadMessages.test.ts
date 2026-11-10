@@ -4,7 +4,7 @@
 // Depends on: importedThreadMessages.
 
 import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

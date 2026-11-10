@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EventId, MessageId, TurnId } from "@synara/contracts";
+import { EventId, MessageId, TurnId } from "@moss/contracts";
 import { makeDomainEvent, makeReadModelThread, makeState, makeThread } from "./storeTestFixtures";
 import { getThreadFromState } from "./threadDerivation";
 import {

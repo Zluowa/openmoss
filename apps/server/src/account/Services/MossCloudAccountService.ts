@@ -17,7 +17,7 @@ import type {
   MossCloudUpdatePasswordInput,
   MossAccountActiveRealmState,
   MossAccountSelectRealmInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { Effect } from "effect";
 import { ServiceMap } from "effect";
 

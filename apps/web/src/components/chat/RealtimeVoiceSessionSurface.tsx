@@ -2,7 +2,7 @@
 // Purpose: Present the immersive, full-pane Realtime Voice session and its controlled composer.
 // Layer: Chat surface presentation
 
-import type { RealtimeVoiceQuotaSnapshot, RealtimeVoiceState } from "@synara/contracts";
+import type { RealtimeVoiceQuotaSnapshot, RealtimeVoiceState } from "@moss/contracts";
 import { type FormEvent, type KeyboardEvent, useId } from "react";
 
 import type { RealtimeVoiceOutputSignal } from "../../lib/realtimeVoiceWebRtc";

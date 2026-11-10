@@ -78,15 +78,15 @@ describe("bundled Claude release runtime", () => {
       FS.readFileSync(Path.resolve(import.meta.dirname, "../../apps/server/package.json"), "utf8"),
     ) as { dependencies?: Record<string, string> };
 
-    expect(BUNDLED_CLAUDE_AGENT_SDK_VERSION).toBe("0.3.285");
-    expect(BUNDLED_CLAUDE_CODE_VERSION).toBe("2.1.285");
+    expect(BUNDLED_CLAUDE_AGENT_SDK_VERSION).toBe("0.3.318");
+    expect(BUNDLED_CLAUDE_CODE_VERSION).toBe("2.1.318");
     expect(serverPackage.dependencies?.["@anthropic-ai/claude-agent-sdk"]).toBe(
       BUNDLED_CLAUDE_AGENT_SDK_VERSION,
     );
   });
 
   it("parses and requires the exact packaged Claude Code CLI version", () => {
-    expect(parseBundledClaudeCodeVersion("2.1.285 (Claude Code)\n")).toBe(
+    expect(parseBundledClaudeCodeVersion("2.1.318 (Claude Code)\n")).toBe(
       BUNDLED_CLAUDE_CODE_VERSION,
     );
     expect(parseBundledClaudeCodeVersion("Claude Code 2.1.230\n")).toBe("2.1.230");
@@ -131,7 +131,7 @@ describe("bundled Claude release runtime", () => {
       const resourcesDir = Path.join(stageAppDir, "resources");
       const executablePath = Path.join(resourcesDir, "claude-runtime", "darwin-arm64", "claude");
       FS.mkdirSync(Path.dirname(executablePath), { recursive: true });
-      FS.writeFileSync(executablePath, "#!/bin/sh\nprintf '2.1.285 (Claude Code)\\n'\n");
+      FS.writeFileSync(executablePath, "#!/bin/sh\nprintf '2.1.318 (Claude Code)\\n'\n");
       FS.chmodSync(executablePath, 0o755);
 
       const verification = verifyFinalBundledClaudeMacRuntime({
@@ -152,7 +152,7 @@ describe("bundled Claude release runtime", () => {
             executableVerified: true,
             method: "direct-exec",
             argv: ["--version"],
-            reportedVersion: "2.1.285",
+            reportedVersion: "2.1.318",
           },
         ],
       });
@@ -231,7 +231,7 @@ describe("bundled Claude release runtime", () => {
       const runtime = resolveBundledClaudeRuntime({
         stageAppDir,
         target,
-        probeExecutableVersion: () => "2.1.285 (Claude Code)",
+        probeExecutableVersion: () => "2.1.318 (Claude Code)",
       });
       expect(runtime.sourcePath).toBe(Path.join(runtime.packageRoot, target.executable));
     }
@@ -255,7 +255,7 @@ describe("bundled Claude release runtime", () => {
         stageAppDir: wrongClaudeCodeVersionStage,
         target,
       }),
-    ).toThrow(/claudeCodeVersion 2\.1\.285/);
+    ).toThrow(/claudeCodeVersion 2.1.318/);
 
     const wrongCliVersionStage = fakeRuntime(target);
     expect(() =>
@@ -264,7 +264,7 @@ describe("bundled Claude release runtime", () => {
         target,
         probeExecutableVersion: () => "2.1.230 (Claude Code)",
       }),
-    ).toThrow(/reported 2\.1\.230.*expected 2\.1\.285/);
+    ).toThrow(/reported 2\.1\.230.*expected 2.1.318/);
   });
 
   it("rejects and then accepts an incorrect non-host CLI fixture", () => {
@@ -278,12 +278,12 @@ describe("bundled Claude release runtime", () => {
         target,
         probeExecutableVersion,
       }),
-    ).toThrow(/reported 2\.1\.230.*expected 2\.1\.285/);
+    ).toThrow(/reported 2\.1\.230.*expected 2.1.318/);
 
     const accepted = resolveBundledClaudeRuntime({
       stageAppDir,
       target,
-      probeExecutableVersion: () => "2.1.285 (Claude Code)",
+      probeExecutableVersion: () => "2.1.318 (Claude Code)",
     });
     expect(accepted.verification).toEqual({
       method: "injected-test",
@@ -401,7 +401,7 @@ describe("bundled Claude release runtime", () => {
     const source = resolveBundledClaudeRuntime({
       stageAppDir,
       target,
-      probeExecutableVersion: () => "2.1.285 (Claude Code)",
+      probeExecutableVersion: () => "2.1.318 (Claude Code)",
     }).sourcePath;
     const destination = Path.join(
       stageAppDir,

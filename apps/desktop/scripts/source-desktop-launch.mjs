@@ -6,8 +6,8 @@ import {
   MOSS_SOURCE_DESKTOP_BUILD_MARKER,
   mossDesktopIdentity,
   resolveMossDesktopFlavor,
-} from "@synara/shared/desktopIdentity";
-import { readWindowsPersistentEnvironment } from "@synara/shared/shell";
+} from "@moss/shared/desktopIdentity";
+import { readWindowsPersistentEnvironment } from "@moss/shared/shell";
 
 function environmentValue(environment, name, caseInsensitive) {
   const exactValue = environment[name];

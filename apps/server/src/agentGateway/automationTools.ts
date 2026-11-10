@@ -15,11 +15,11 @@ import {
   type AutomationWorktreeMode,
   type ModelSelection,
   type OrchestrationThreadShell,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   automationContinuesThread,
   automationRequiresTargetThread,
-} from "@synara/shared/automationMode";
+} from "@moss/shared/automationMode";
 import { Effect, Option, Schema } from "effect";
 
 import type { AutomationServiceShape } from "../automation/Services/AutomationService.ts";

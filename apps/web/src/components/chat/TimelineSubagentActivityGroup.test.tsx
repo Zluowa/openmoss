@@ -2,7 +2,7 @@
 // Purpose: Lock the compact timeline subagent chip and aggregate-status contract.
 // Layer: Web chat presentation tests
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 

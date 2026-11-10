@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { StatsGetRecapResult } from "@synara/contracts";
+import type { StatsGetRecapResult } from "@moss/contracts";
 
 import type { InboxSlotSummary } from "./inbox.logic";
 import { buildInboxDigest, buildInboxTiles, type DigestSentence } from "./inboxStories";
@@ -221,5 +221,16 @@ describe("buildInboxTiles", () => {
     expect(
       buildInboxTiles({ ...input, recap: recap(), previousRecap: undefined, quota: [] }),
     ).toEqual([]);
+  });
+});
+
+describe("Chinese recap", () => {
+  it("localizes summaries and tiles without changing model or project names", () => {
+    const chinese = { ...input, locale: "zh-CN" };
+    expect(buildInboxDigest(chinese).map(plain).join(" ")).toContain("今天已发送");
+    expect(buildInboxDigest(chinese).map(plain).join(" ")).toContain("moss");
+    expect(
+      buildInboxTiles({ ...chinese, quota: [] }).find((tile) => tile.id === "agents"),
+    ).toMatchObject({ lead: "智能体累计工作时长", detail: "2 次失败" });
   });
 });

@@ -9,7 +9,7 @@ import type {
   ProjectFileChangeEvent,
   ProjectReadFileResult,
   ProjectWatchFileInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { StrictMode } from "react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { page, userEvent, type Locator } from "vitest/browser";

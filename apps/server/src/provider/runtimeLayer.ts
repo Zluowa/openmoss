@@ -31,6 +31,7 @@ import { ProviderAdapterRegistryLive } from "./Layers/ProviderAdapterRegistry";
 import { ProviderDiscoveryServiceLive } from "./Layers/ProviderDiscoveryService";
 import { ProviderHealthLive } from "./Layers/ProviderHealth";
 import { makeDurableProviderServiceLive } from "./Layers/ProviderService";
+import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layers/ProjectionSnapshotQuery";
 import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory";
 import { ProviderSessionRuntimeRepositoryLive } from "../persistence/Layers/ProviderSessionRuntime";
 import { ProviderRuntimeEventRepositoryLive } from "../persistence/Layers/ProviderRuntimeEvents";
@@ -138,6 +139,7 @@ export function makeServerProviderLayer(
     const providerServiceLayer = makeDurableProviderServiceLive({
       ...(canonicalEventLogger ? { canonicalEventLogger } : {}),
     }).pipe(
+      Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(adapterRegistryLayer),
       Layer.provide(providerSessionDirectoryLayer),
       Layer.provide(ProviderRuntimeEventRepositoryLive),
@@ -149,6 +151,7 @@ export function makeServerProviderLayer(
       Layer.provide(adapterRegistryLayer),
       Layer.provide(ProviderHealthLive),
       Layer.provide(Layer.succeed(ServerSettingsService, serverSettings)),
+      Layer.provide(ServerSecretStoreLive),
     );
     return Layer.mergeAll(
       providerServiceLayer,

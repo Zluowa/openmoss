@@ -10,7 +10,7 @@ import {
   defaultCustomTitleBarPreference,
   resolveCustomTitleBarActive,
   supportsCustomTitleBar,
-} from "@synara/shared/desktopTitleBar";
+} from "@moss/shared/desktopTitleBar";
 
 export interface PersistedCustomTitleBarPreference {
   readonly version: 1;

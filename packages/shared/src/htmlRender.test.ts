@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  blankHtmlNonMarkup,
   HTML_RENDER_MAX_FIT_HEIGHT,
   HTML_RENDER_MIN_HEIGHT,
   htmlRenderFrameHeight,
@@ -12,6 +13,7 @@ import {
   htmlRenderThemeFragment,
   injectHtmlRenderBootstrap,
   htmlRenderThemeMessage,
+  isHtmlRenderSurface,
   readHtmlRenderContentHeight,
   readHtmlRenderImageRequest,
   readHtmlRenderKeyDown,
@@ -21,6 +23,42 @@ import {
 import { MOSS_DARK_THEME_COLORS, MOSS_LIGHT_THEME_COLORS } from "./themePalettes";
 
 const reference = { attachmentId: "thread-abc-123.html", title: "Chart", height: 420 };
+
+describe("blankHtmlNonMarkup", () => {
+  it("retains requested active raw text at original offsets but never template contents", () => {
+    const activeScript = '<script>const fake = "<template>";</script>';
+    const activeStyle = '<style>p::after{content:"<template>"}</style>';
+    const inert =
+      "<template><template><script>inert()</script></template><style>inert{}</style></template>";
+    const html = `<html><head>${activeScript}${activeStyle}</head><body>${inert}<textarea><script>text()</script></textarea></body></html>`;
+    const scan = blankHtmlNonMarkup(html, ["script", "style"]);
+    expect(scan).toHaveLength(html.length);
+    for (const block of [activeScript, activeStyle]) {
+      const at = html.indexOf(block);
+      expect(scan.slice(at, at + block.length)).toBe(block);
+    }
+    expect(scan).not.toContain("inert");
+    expect(scan).not.toContain("text()");
+    expect(blankHtmlNonMarkup(html)).not.toContain("<script>");
+  });
+
+  it("keeps unclosed template and raw text content inert", () => {
+    for (const prefix of ["<template>", "<textarea>", "<!--", "<plaintext>"]) {
+      const html = `${prefix}<script>inert()</script><style>inert{}</style>`;
+      expect(blankHtmlNonMarkup(html, ["script", "style"])).toBe(" ".repeat(html.length));
+    }
+  });
+
+  it("does not expose fake raw-text or template tags inside quoted tag attributes", () => {
+    const html =
+      '<div data-example="<script src=\'example\'></script>" data-other="<template>"></div><script>active()</script>';
+    const scan = blankHtmlNonMarkup(html, ["script"]);
+    expect(scan).toHaveLength(html.length);
+    expect(scan.match(/<script/gu)).toHaveLength(1);
+    expect(scan).toContain("<script>active()</script>");
+    expect(scan).not.toContain("<template>");
+  });
+});
 
 describe("injectHtmlRenderBootstrap", () => {
   it("puts the theme ahead of the page's own head content", () => {
@@ -222,6 +260,31 @@ describe("readHtmlRenderReference", () => {
     expect(readHtmlRenderReference({ ...reference, attachmentId: 4 })).toBeUndefined();
     expect(readHtmlRenderReference({ ...reference, height: Number.NaN })).toBeUndefined();
   });
+
+  it("keeps a valid surface and leaves a page with a malformed one standalone", () => {
+    expect(readHtmlRenderReference({ ...reference, surface: "build-status" })?.surface).toBe(
+      "build-status",
+    );
+    expect(readHtmlRenderReference(reference)).not.toHaveProperty("surface");
+    for (const surface of ["", "Build", "build status", "x".repeat(65), 7, null]) {
+      const read = readHtmlRenderReference({ ...reference, surface });
+      expect(read?.attachmentId).toBe(reference.attachmentId);
+      expect(read).not.toHaveProperty("surface");
+    }
+  });
+});
+
+describe("isHtmlRenderSurface", () => {
+  it("accepts 1-64 lowercase letters, digits and hyphens", () => {
+    for (const surface of ["a", "build-status", "test-results-2", "x".repeat(64)]) {
+      expect(isHtmlRenderSurface(surface)).toBe(true);
+    }
+    for (const surface of ["", "x".repeat(65), "Build", "build_status", "build status", "é"]) {
+      expect(isHtmlRenderSurface(surface)).toBe(false);
+    }
+    expect(isHtmlRenderSurface(undefined)).toBe(false);
+    expect(isHtmlRenderSurface(42)).toBe(false);
+  });
 });
 
 describe("htmlRenderFrameHeight", () => {
@@ -285,5 +348,6 @@ describe("htmlRenderFrameHeight", () => {
     const copy = readHtmlRenderReference(JSON.parse(JSON.stringify(measured)))!;
     expect(htmlRenderReferencesEqual(measured, copy)).toBe(true);
     expect(htmlRenderReferencesEqual(measured, { ...copy, heights: [[390, 1290]] })).toBe(false);
+    expect(htmlRenderReferencesEqual(measured, { ...copy, surface: "chart" })).toBe(false);
   });
 });

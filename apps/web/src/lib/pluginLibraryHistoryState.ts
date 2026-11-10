@@ -2,8 +2,8 @@
 // Purpose: Owns serializable Browse/Detail/Manage history snapshots for the plugin library.
 // Layer: Web routing state
 
-import type { ProviderKind } from "@synara/contracts";
-import { isProviderKind } from "@synara/shared/providerInstances";
+import type { ProviderKind } from "@moss/contracts";
+import { isProviderKind } from "@moss/shared/providerInstances";
 
 import type { LibraryBucket, LibraryTab } from "./pluginLibraryModel";
 import { isCanonicalPluginLibraryPath } from "./pluginLibraryRouteModel";

@@ -1,12 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { ThreadId } from "@synara/contracts";
-import { ProviderInstanceId, type ModelSelection, type ServerSettings } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
+import { ProviderInstanceId, type ModelSelection, type ServerSettings } from "@moss/contracts";
 import type { JsonObject } from "effect/Schema";
 import {
   MANAGED_GATEWAY_CODEX_DEFAULT_MODEL,
   MANAGED_GATEWAY_CODEX_ENABLED_MODELS,
-} from "@synara/shared/mossManagedModelCatalog";
-import { mossLaneEngineDefaultModel } from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossManagedModelCatalog";
+import { mossLaneEngineDefaultModel } from "@moss/shared/mossRealmCatalog";
 
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { serverQueryKeys } from "~/lib/serverReactQuery";

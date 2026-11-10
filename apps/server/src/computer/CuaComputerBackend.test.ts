@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CuaActionError, CuaComputerBackend } from "./CuaComputerBackend.ts";
-import { ComputerAvailability, ComputerScreenshot, ComputerState } from "@synara/contracts";
+import { ComputerAvailability, ComputerScreenshot, ComputerState } from "@moss/contracts";
 import { Effect, Schema } from "effect";
 import {
   CuaTransportError,
   CUA_SETUP_TIMEOUT_MS,
   type cuaRequest,
-} from "@synara/shared/cuaDriverProtocol";
+} from "@moss/shared/cuaDriverProtocol";
 import { ComputerManager } from "./ComputerManager.ts";
 import { FakeComputerBackend } from "./FakeComputerBackend.ts";
 import { withDesktopDeliveryMode, withDesktopOperationSignal } from "./DesktopOperationQueue.ts";
@@ -1878,6 +1878,37 @@ describe("Cua native boundary", () => {
       capture: true,
       windows: true,
     });
+  });
+
+  it("reads the Windows driver's UI Automation report and needs no screen-capture grant", async () => {
+    // The shape cua-driver-rs 0.28.2 returns on Windows: no `accessibility`, no `screen_recording`.
+    const f = fixture({ hostPlatform: "win32" });
+    f.onTool("check_permissions", () => ({
+      structuredContent: {
+        elevated: false,
+        integrity_level: "Medium",
+        integrity_level_rid: 8192,
+        post_message: true,
+        uia: true,
+      },
+    }));
+    expect(await f.backend.availability()).toMatchObject({ kind: "available", backend: "cua" });
+    expect(await f.backend.missingPermissions()).toEqual([]);
+    expect(f.backend.health().captureAvailable).toBe(true);
+    expect(f.backend.capabilities()).toMatchObject({ input: true, capture: true, windows: true });
+  });
+
+  it("asks for UI Automation on Windows when the driver reports it unavailable", async () => {
+    const f = fixture({ hostPlatform: "win32" });
+    f.onTool("check_permissions", () => ({
+      structuredContent: { elevated: false, post_message: true, uia: false },
+    }));
+    expect(await f.backend.availability()).toMatchObject({
+      kind: "permission-required",
+      missing: ["accessibility"],
+    });
+    // Capture never becomes a missing grant on Windows.
+    expect(await f.backend.missingPermissions()).not.toContain("screenRecording");
   });
 
   it("reports unavailable Wayland geometry without failing status or concealing it behind a live socket", async () => {
@@ -4189,6 +4220,21 @@ describe("host-reported platform and native revision", () => {
   const hostReply = (reply: Record<string, unknown>) =>
     (async () => ({ ok: true, ...reply })) as unknown as typeof cuaRequest;
 
+  // The web app translates this status by exact text, and it is read by people.
+  it("reports a host failure in the host's own words, without the error name or replay note", async () => {
+    const error = "Moss couldn't find its computer control component.";
+    const backend = new CuaComputerBackend({
+      endpoint: "/fixture-only",
+      request: hostReply({ ok: false, error }),
+    });
+    const unavailable = { kind: "backend-unavailable", message: error };
+    expect(await backend.probeAvailability()).toEqual(unavailable);
+    expect(await backend.availability()).toEqual(unavailable);
+    expect(backend.health().lastFailure?.message).toBe(error);
+    // An agent acting on the failure still gets the replay guidance.
+    await expect(backend.getScreenSize()).rejects.toThrow("automatic replay is forbidden");
+  });
+
   it("adopts the host platform and narrows patched-only capabilities for an unpatched driver", async () => {
     const backend = new CuaComputerBackend({
       endpoint: "/fixture-only",
@@ -4205,6 +4251,25 @@ describe("host-reported platform and native revision", () => {
     expect(backend.agentDialect).toBe("linux");
     expect(backend.focusNeutralSemanticText).toBe(false);
     expect(backend.capabilities().ghostCursor).toBe(false);
+    // Windows is a full Cua host: native input stays available and the status names Windows.
+    expect(backend.capabilities().input).toBe(true);
+    expect(backend.reportedHostPlatform()).toBe("win32");
+  });
+
+  it("reports each host platform Cua runs on, with input on macOS and Windows only", async () => {
+    for (const [hostPlatform, input] of [
+      ["darwin", true],
+      ["win32", true],
+      ["linux", false],
+    ] as const) {
+      const backend = new CuaComputerBackend({
+        endpoint: "/fixture-only",
+        request: hostReply({ hostPlatform, driverNativeRevision: 20 }),
+      });
+      await backend.probeAvailability();
+      expect(backend.reportedHostPlatform()).toBe(hostPlatform);
+      expect(backend.capabilities().input).toBe(input);
+    }
   });
 
   it("keeps the patched surface for a driver that reports its revision", async () => {

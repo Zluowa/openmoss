@@ -13,6 +13,7 @@ import {
   buildOpenUIChatExamples,
   buildOpenUIChatReference,
   buildOpenUIChatReferenceCore,
+  MOSS_DASHBOARD_EXAMPLE,
   MOSS_OPENUI_REFERENCE_INTRO,
 } from "./openUIChatReference";
 
@@ -81,6 +82,40 @@ describe("buildOpenUIChatReference", () => {
     expect(examples.startsWith("## Examples")).toBe(true);
     expect(examples).toContain("Example 1 —");
     expect(examples).toContain("root = Card(");
+  });
+
+  it("teaches the dashboard kit in the core and serves its worked example", () => {
+    const core = buildOpenUIChatReferenceCore();
+    expect(MOSS_OPENUI_REFERENCE_INTRO).toContain("root = Dashboard([header, section])");
+    expect(core).toContain("### Dashboard Layout & Filters");
+    expect(core).toContain("### Dashboard Cards");
+    for (const signature of [
+      "Dashboard(children: (DashboardHeader | Section)[])",
+      "DashboardHeader(title: string",
+      "Section(rows: CardRow[], filterBar?: FilterBar, title?: string)",
+      "CardRow(children?: (SmallCard | MediumCard | LargeCard)[]",
+      "SmallCard(top: string | IconText |",
+      "MediumCard(children?: (DashboardCardHeader |",
+      "LargeCard(children?: (DashboardCardHeader |",
+      "DashboardCardHeader(title: string",
+      "MetricIndicator(value: string",
+      "FilterBar(children?: (FilterSelect | FilterMultiSelect | DatePicker | IconButton)[]",
+      "FilterSelect(name: string, label: string",
+      "defaultValue?: $binding<string>",
+      "defaultValues?: $binding<string[]>",
+      "List(items?: ListItem[]",
+      "@WhereIn(rows: any[], field: string",
+    ]) {
+      expect(core).toContain(signature);
+    }
+    // IconText(Icon(...), variant) is the kit's bare icon badge, so its title is optional.
+    expect(core).toContain('"lg", title?: string, subtitle?: string');
+    // The examples pointer names the dashboard example; the example itself stays out of core.
+    expect(core).toContain("dashboard with working filters");
+    expect(core).not.toContain("Example 6 —");
+    const examples = buildOpenUIChatExamples();
+    expect(examples.endsWith(MOSS_DASHBOARD_EXAMPLE)).toBe(true);
+    expect(MOSS_DASHBOARD_EXAMPLE).toContain("root = Dashboard(");
   });
 
   it("matches the committed generated module the server ships", () => {

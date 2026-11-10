@@ -2,7 +2,7 @@
 // Purpose: Pure display formatters shared by the Profile page and the shareable card.
 // Layer: web profile feature (no I/O, safe to use during html-to-image render).
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 import type { MossLocaleCode } from "~/appSettings";
 
 // Compact token/count formatting: reference-card suffixes in English and native 万/亿 units
@@ -66,6 +66,35 @@ export function toDisplayName(basename: string): string {
     .split(" ")
     .map((part) => (part.length > 0 ? part[0]!.toUpperCase() + part.slice(1) : part))
     .join(" ");
+}
+
+// Home folders that name a machine account rather than a person.
+const ACCOUNT_HOME_FOLDERS = new Set([
+  "admin",
+  "administrator",
+  "default",
+  "defaultuser0",
+  "guest",
+  "owner",
+  "profile",
+  "public",
+  "root",
+  "ubuntu",
+  "user",
+]);
+
+// The name to greet someone by when they haven't set one: their home folder, if it reads like a
+// name. Empty otherwise, so nobody is greeted as "60948" or "Administrator".
+export function homeFolderGreetingName(homeDir: string | null): string {
+  const basename =
+    (homeDir ?? "")
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .pop() ?? "";
+  if (!/\p{L}/u.test(basename) || ACCOUNT_HOME_FOLDERS.has(basename.toLowerCase())) {
+    return "";
+  }
+  return toDisplayName(basename);
 }
 
 export function normalizeHandle(value: string): string {

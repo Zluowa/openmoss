@@ -18,9 +18,9 @@ import {
   type OrchestrationProjectShell,
   type OrchestrationThreadShell,
   type ProviderInstanceId,
-} from "@synara/contracts";
-import { isTemporaryWorktreeBranch } from "@synara/shared/git";
-import { unresolvedAutomationInstanceId } from "@synara/shared/providerInstances";
+} from "@moss/contracts";
+import { isTemporaryWorktreeBranch } from "@moss/shared/git";
+import { unresolvedAutomationInstanceId } from "@moss/shared/providerInstances";
 import { Duration, Effect, Layer, Option, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { afterEach, vi } from "vitest";
@@ -513,6 +513,7 @@ const projectionSnapshotQuery = {
   getProjectShellById: () => Effect.succeed(Option.some(project)),
   getSpaceShellById: () => Effect.succeed(Option.none()),
   getFirstActiveThreadIdByProjectId: () => Effect.succeed(Option.none()),
+  getOriginalThreadIdByProjectId: () => Effect.succeed(Option.none()),
   getThreadCheckpointContext: () => Effect.succeed(Option.none()),
   getFullThreadDiffContext: () => Effect.succeed(Option.none()),
   getThreadShellById: () =>

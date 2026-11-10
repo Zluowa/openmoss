@@ -1,9 +1,5 @@
 // Native history pages share the live detail store, never a second transcript.
-import {
-  ThreadId,
-  type MessageId,
-  type OrchestrationThreadDetailSnapshot,
-} from "@synara/contracts";
+import { ThreadId, type MessageId, type OrchestrationThreadDetailSnapshot } from "@moss/contracts";
 import { useSyncExternalStore } from "react";
 import { useStore } from "./store";
 import { ensureNativeApi } from "./nativeApi";

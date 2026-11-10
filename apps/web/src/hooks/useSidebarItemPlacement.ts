@@ -1,7 +1,7 @@
 // FILE: useSidebarItemPlacement.ts
 // Purpose: Revision-guarded optimistic placement for mixed sidebar items.
 
-import type { OrchestrationSidebarOrderItem, SidebarSectionItemKey } from "@synara/contracts";
+import type { OrchestrationSidebarOrderItem, SidebarSectionItemKey } from "@moss/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { placeSidebarItemOrder, type SidebarItemOrderPlacementInput } from "../sidebarThreadOrder";

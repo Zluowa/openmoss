@@ -1,7 +1,7 @@
 // Production-component probe; synthetic store ingress, no providers or WebSocket.
 // Fixed history and delta cadence PER thread. See concurrent-runner.mjs for paired runs.
 import "../src/index.css";
-import { MessageId, ThreadId, TurnId } from "@synara/contracts";
+import { MessageId, ThreadId, TurnId } from "@moss/contracts";
 import { Profiler, useMemo, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

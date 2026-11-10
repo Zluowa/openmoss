@@ -4,7 +4,7 @@
 //          skill discovery as supported for every provider.
 // Layer: Server provider tests
 
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -18,8 +18,7 @@ import type {
   ProviderListPluginsResult,
   ProviderListSkillsResult,
   ServerProviderStatus,
-  ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +32,19 @@ import {
   type ServerConfigShape,
 } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerSecretStoreLive } from "../../auth/Layers/ServerSecretStore.ts";
+import {
+  canonicalizeCodexHomeIdentityPath,
+  readCodexCredentialFence,
+  type CodexCredentialScopeInput,
+} from "../../codexHomeIdentity.ts";
+import { buildCodexProcessEnv } from "../../codexProcessEnv.ts";
+import { codexStateBindingReference } from "../codexStateBinding.ts";
+import {
+  claudeStateBindingReference,
+  readClaudeStateBinding,
+  type ClaudeStateBindingOptions,
+} from "../claudeStateBinding.ts";
 import type { ProviderAdapterError } from "../Errors.ts";
 import { ProviderAdapterRequestError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
@@ -88,6 +100,7 @@ const makeConfigLayer = (getStatuses: () => readonly ServerProviderStatus[] = ()
         getStatuses: Effect.sync(getStatuses),
         refresh: Effect.sync(getStatuses),
         updateProvider: () => Effect.die("Provider updates are not used by discovery tests."),
+        installProvider: () => Effect.die("Provider installs are not used by discovery tests."),
         startLogin: () => Effect.die("Provider login is not used by discovery tests."),
         cancelLogin: () => Effect.die("Provider login is not used by discovery tests."),
         streamChanges: Stream.empty,
@@ -153,11 +166,15 @@ const runListModels = (input: {
 
 const runDiscovery = <A>(input: {
   adapter: Partial<ProviderAdapterShape<ProviderAdapterError>>;
-  settings?: Partial<ServerSettings>;
+  settings?: Parameters<typeof ServerSettingsService.layerTest>[0];
+  stateBindingSecrets?: boolean;
   effect: Effect.Effect<A, unknown, ProviderDiscoveryService>;
 }) => {
   const baseLayer = Layer.mergeAll(
     makeConfigLayer(),
+    ...(input.stateBindingSecrets
+      ? [ServerSecretStoreLive.pipe(Layer.provide(makeConfigLayer()))]
+      : []),
     ServerSettingsService.layerTest(input.settings),
     makeRegistryLayer(input.adapter),
   ).pipe(Layer.provideMerge(NodeServices.layer));
@@ -265,6 +282,199 @@ describe("ProviderDiscoveryService.listSkills", () => {
 });
 
 describe("ProviderDiscoveryService provider instances", () => {
+  it("binds all four Claude discovery RPCs to server-selected private accounts", async () => {
+    const source = path.join(root, "shared-projects");
+    const privateHomes = [path.join(root, "claude-work"), path.join(root, "claude-own")];
+    await mkdir(source, { recursive: true });
+    for (const [index, directory] of privateHomes.entries()) {
+      await mkdir(path.join(directory, ".claude"), { recursive: true });
+      await writeFile(
+        path.join(directory, ".claude", ".credentials.json"),
+        JSON.stringify({ fixture: index }),
+      );
+    }
+    const captured: ClaudeStateBindingOptions[] = [];
+    const capture = <T>(options: ClaudeStateBindingOptions, result: T) =>
+      Effect.sync(() => {
+        captured.push(options);
+        return result;
+      });
+    await runDiscovery({
+      stateBindingSecrets: true,
+      adapter: {
+        listModels: (input) => capture(input, { models: [], source: "stub", cached: false }),
+        listCommands: (input) => capture(input, { commands: [], source: "stub", cached: false }),
+        listSkills: (input) => capture(input, { skills: [], source: "stub", cached: false }),
+        listPlugins: (input) =>
+          capture(input, {
+            marketplaces: [],
+            marketplaceLoadErrors: [],
+            remoteSyncError: null,
+            featuredPluginIds: [],
+            source: "stub",
+            cached: false,
+          }),
+      },
+      settings: {
+        providers: { claudeAgent: { shareStateAcrossAccounts: true, sharedProjectsPath: source } },
+        providerInstances: Object.fromEntries(
+          ["claude_work", "claude_own"].map((id, index) => [
+            id,
+            {
+              driver: "claudeAgent",
+              config: { homePath: privateHomes[index] },
+              environment: [
+                { name: "ANTHROPIC_API_KEY", value: `fixture-${index}`, sensitive: true },
+              ],
+            },
+          ]),
+        ),
+      },
+      effect: Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        for (const instanceId of ["claude_work", "claude_own"]) {
+          const input = {
+            provider: "claudeAgent" as const,
+            instanceId,
+            cwd,
+            homePath: "/client-forged",
+            environment: { ANTHROPIC_API_KEY: "client-forged" },
+          };
+          yield* discovery.listModels(input);
+          yield* discovery.listCommands(input);
+          yield* discovery.listSkills(input);
+          yield* discovery.listPlugins(input);
+        }
+      }),
+    });
+    expect(captured).toHaveLength(8);
+    for (const [index, options] of captured.entries()) {
+      const account = Math.floor(index / 4);
+      expect(options.homePath).toBe(canonicalizeCodexHomeIdentityPath(privateHomes[account]!));
+      expect(options.environment?.ANTHROPIC_API_KEY).toBe(`fixture-${account}`);
+      expect(readClaudeStateBinding(options)?.record.source.path).toBe(
+        canonicalizeCodexHomeIdentityPath(source),
+      );
+      expect(claudeStateBindingReference(options)).toMatch(/^[a-f0-9]{64}$/);
+      expect(
+        readFileSync(
+          path.join(options.environment!.CLAUDE_CONFIG_DIR!, ".credentials.json"),
+          "utf8",
+        ),
+      ).toBe(JSON.stringify({ fixture: account }));
+    }
+  });
+
+  it("refuses opted-in Claude discovery without explicit private HOME", async () => {
+    const source = path.join(root, "shared-projects");
+    await mkdir(source, { recursive: true });
+    const listModels = vi.fn(() => Effect.succeed({ models: [], source: "stub", cached: false }));
+    await expect(
+      runDiscovery({
+        stateBindingSecrets: true,
+        adapter: { listModels },
+        settings: {
+          providers: {
+            claudeAgent: { shareStateAcrossAccounts: true, sharedProjectsPath: source },
+          },
+          providerInstances: { claude_work: { driver: "claudeAgent", config: {} } },
+        },
+        effect: Effect.gen(function* () {
+          const discovery = yield* ProviderDiscoveryService;
+          return yield* discovery.listModels({
+            provider: "claudeAgent",
+            instanceId: "claude_work",
+          });
+        }),
+      }),
+    ).rejects.toThrow(/HOME/);
+    expect(listModels).not.toHaveBeenCalled();
+  });
+
+  it("binds discovery to explicit shared history and each server-selected private account", async () => {
+    const source = path.join(root, "shared-history");
+    const privateHomes = [path.join(root, "private-work"), path.join(root, "private-own")];
+    for (const directory of [source, ...privateHomes]) await mkdir(directory, { recursive: true });
+    await writeFile(path.join(source, "config.toml"), 'model = "source-must-not-be-used"\n');
+    await writeFile(path.join(source, "auth.json"), '{"account":"source-must-not-be-used"}');
+    for (const [index, directory] of privateHomes.entries()) {
+      await writeFile(path.join(directory, "config.toml"), `model = "private-${index}"\n`);
+      await writeFile(
+        path.join(directory, "auth.json"),
+        JSON.stringify({ account: `synthetic-${index}` }),
+      );
+    }
+    const captured: CodexCredentialScopeInput[] = [];
+    await runDiscovery({
+      stateBindingSecrets: true,
+      adapter: {
+        listModels: (input) =>
+          Effect.sync(() => {
+            captured.push(input);
+            return { models: [], source: "stub", cached: false };
+          }),
+      },
+      settings: {
+        providers: { codex: { homePath: source, shareStateAcrossAccounts: true } },
+        providerInstances: {
+          codex_work: { driver: "codex", config: { homePath: privateHomes[0], accountId: "work" } },
+          codex_own: {
+            driver: "codex",
+            config: { shadowHomePath: privateHomes[1], accountId: "own" },
+          },
+        },
+      },
+      effect: Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        for (const instanceId of ["codex_work", "codex_own"]) {
+          yield* discovery.listModels({
+            provider: "codex",
+            instanceId,
+            homePath: "/client-forged",
+            accountId: "other",
+          });
+        }
+      }),
+    });
+    expect(captured).toHaveLength(2);
+    for (const [index, options] of captured.entries()) {
+      expect(options.homePath).toBe(canonicalizeCodexHomeIdentityPath(source));
+      expect(options.shadowHomePath).toBe(canonicalizeCodexHomeIdentityPath(privateHomes[index]!));
+      expect(readCodexCredentialFence(options)?.accountId).toBe(index === 0 ? "work" : "own");
+      expect(codexStateBindingReference(options)).toMatch(/^[a-f0-9]{64}$/);
+      const env = await buildCodexProcessEnv({ ...options, env: options.environment });
+      expect(readFileSync(path.join(env.CODEX_HOME!, "config.toml"), "utf8")).toContain(
+        `private-${index}`,
+      );
+      expect(readFileSync(path.join(env.CODEX_HOME!, "auth.json"), "utf8")).toContain(
+        `synthetic-${index}`,
+      );
+      expect(env.CODEX_SQLITE_HOME).toBe(canonicalizeCodexHomeIdentityPath(source));
+    }
+  });
+
+  it("refuses opted-in discovery without an explicit private home instead of importing ambient state", async () => {
+    const source = path.join(root, "shared-history");
+    await mkdir(source, { recursive: true });
+    const listModels = vi.fn(() => Effect.succeed({ models: [], source: "stub", cached: false }));
+    await expect(
+      runDiscovery({
+        stateBindingSecrets: true,
+        adapter: { listModels },
+        settings: {
+          providers: { codex: { homePath: source, shareStateAcrossAccounts: true } },
+          providerInstances: { codex_work: { driver: "codex", config: { accountId: "work" } } },
+        },
+        effect: Effect.gen(function* () {
+          const discovery = yield* ProviderDiscoveryService;
+          return yield* discovery.listModels({ provider: "codex", instanceId: "codex_work" });
+        }),
+      }),
+    ).rejects.toThrow();
+    expect(listModels).not.toHaveBeenCalled();
+    expect(existsSync(path.join(source, ".moss-runtime"))).toBe(false);
+  });
+
   it("clears stale Codex account fields when resolving the explicit default instance", async () => {
     let captured: Record<string, unknown> | undefined;
 
@@ -551,8 +761,10 @@ describe("ProviderDiscoveryService.listModels", () => {
       },
       effect: Effect.gen(function* () {
         const discovery = yield* ProviderDiscoveryService;
-        const first = yield* discovery.listModels({ provider: "omp", cwd });
-        const second = yield* discovery.listModels({ provider: "omp", cwd: homeDir });
+        // An installed omp: without one Moss answers empty instead of asking the CLI.
+        const binaryPath = process.execPath;
+        const first = yield* discovery.listModels({ provider: "omp", cwd, binaryPath });
+        const second = yield* discovery.listModels({ provider: "omp", cwd: homeDir, binaryPath });
         return { first, second };
       }),
     });
@@ -563,6 +775,33 @@ describe("ProviderDiscoveryService.listModels", () => {
     expect(existsSync(path.join(baseDir, "userdata", "provider-models", "catalogs.json"))).toBe(
       false,
     );
+  });
+
+  it("answers an empty OMP catalog without spawning when omp is not installed", async () => {
+    let calls = 0;
+    // A PATH with no `omp` on it, and no health answer yet.
+    const pathKeys = Object.keys(process.env).filter((key) => key.toUpperCase() === "PATH");
+    const savedPath = pathKeys.map((key) => [key, process.env[key]] as const);
+    for (const key of pathKeys) process.env[key] = homeDir;
+    try {
+      const result = await runDiscovery({
+        adapter: {
+          listModels: () =>
+            Effect.sync(() => {
+              calls += 1;
+              return { models: [], source: "omp-cli", cached: false };
+            }),
+        },
+        effect: Effect.gen(function* () {
+          const discovery = yield* ProviderDiscoveryService;
+          return yield* discovery.listModels({ provider: "omp", cwd });
+        }),
+      });
+      expect(result).toEqual({ models: [], source: "not-installed", cached: false });
+      expect(calls).toBe(0);
+    } finally {
+      for (const [key, value] of savedPath) process.env[key] = value;
+    }
   });
 
   it("honors an explicit refresh through the decoded discovery request", async () => {

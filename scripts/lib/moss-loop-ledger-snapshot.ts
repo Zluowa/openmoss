@@ -9,7 +9,7 @@ import type {
   MossLoopLedgerReviewSummary,
   MossLoopLedgerRoleSummary,
   MossLoopLedgerTaskSummary,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   parseJsonLines,
   summarizeMossLoop,

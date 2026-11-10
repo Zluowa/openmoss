@@ -6,7 +6,7 @@
 import "../../index.css";
 
 import type { MossLocaleCode } from "../../appSettings";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { installRuntimeDiagnostics } from "../../browserTestDiagnostics";
@@ -181,7 +181,8 @@ describe("TimelineSubagentActivityGroup browser parity", () => {
       );
       expect(getComputedStyle(newChip).transformOrigin).toBe("0px 14px");
       expect(getComputedStyle(newChip).height).toBe("28px");
-      expect(getComputedStyle(newChip).fontSize).toBe("14px");
+      // text-ui-lg: the comfortable heading role, 15px at base 14.
+      expect(getComputedStyle(newChip).fontSize).toBe("15px");
       expect(getComputedStyle(newChip).gap).toBe("6px");
       expect(getComputedStyle(newChip).paddingInlineStart).toBe("6px");
       expect(getComputedStyle(newChip).paddingInlineEnd).toBe("8px");

@@ -3,8 +3,9 @@
 import { constants } from "node:fs";
 import path from "node:path";
 
-import type { ServerSettings } from "@synara/contracts";
-import { codexAccountInstanceId } from "@synara/shared/providerInstances";
+import type { ServerSettings } from "@moss/contracts";
+import { codexAccountInstanceId } from "@moss/shared/providerInstances";
+import { readCodexCredentialFence, type CodexCredentialFence } from "../codexHomeIdentity.ts";
 
 import {
   resolveCodexPathIdentityIo,
@@ -186,6 +187,14 @@ function* readMarker(markerPath: string): CodexAuthIo<string> {
   }
 }
 
+/** Only the managed Windows account uses this server-owned home marker. */
+export function requiresManagedCodexHomeAuthority(
+  accountId: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+) {
+  return platform === "win32" && accountId === "moss";
+}
+
 /** Only call from server services with the real fixed stateDir/settings reader. */
 export async function readManagedCodexHomeAuthority(input: {
   readonly stateDir: string;
@@ -197,18 +206,25 @@ export async function readManagedCodexHomeAuthority(input: {
     readonly shadowHomePath?: string | undefined;
     readonly accountId?: string | undefined;
     readonly env?: NodeJS.ProcessEnv | undefined;
+    readonly runtimeGeneration?: string | undefined;
+    readonly credentialFence?: CodexCredentialFence | undefined;
   };
   readonly platform?: NodeJS.Platform;
 }): Promise<ManagedCodexHomeAuthority | undefined> {
-  if ((input.platform ?? process.platform) !== "win32" || input.input.accountId !== "moss") {
+  if (!requiresManagedCodexHomeAuthority(input.input.accountId, input.platform)) {
     return undefined;
   }
   const expectedHome = path.join(path.resolve(input.stateDir), "moss-codex-home");
+  const credentialFence = readCodexCredentialFence({
+    ...input.input,
+    environment: input.input.env,
+  });
+  const selectedPrivateHome = credentialFence?.privateHomeIdentity ?? input.input.homePath;
   if (
-    !input.input.homePath ||
-    input.input.shadowHomePath ||
+    !selectedPrivateHome ||
+    (input.input.shadowHomePath && !credentialFence) ||
     !(await runCodexAuthIoAsync(
-      codexDirectoriesReferenceSameUnredirectedLocationIo(input.input.homePath, expectedHome),
+      codexDirectoriesReferenceSameUnredirectedLocationIo(selectedPrivateHome, expectedHome),
     ))
   ) {
     throw new Error("The managed Codex launch does not use the server-owned home.");

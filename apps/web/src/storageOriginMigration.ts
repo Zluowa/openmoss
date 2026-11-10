@@ -1,7 +1,7 @@
 // FILE: storageOriginMigration.ts
 // Purpose: Imports Moss browser state before renderer stores hydrate after a desktop origin move.
 
-import type { MossStorageSnapshot } from "@synara/contracts";
+import type { MossStorageSnapshot } from "@moss/contracts";
 
 const MAX_SNAPSHOT_ENTRIES = 2_048;
 const MAX_SNAPSHOT_KEY_LENGTH = 512;

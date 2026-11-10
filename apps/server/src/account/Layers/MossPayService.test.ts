@@ -13,6 +13,7 @@ import { MossPayService } from "../Services/MossPayService";
 import { MossAccountServiceError } from "../mossAccountErrors";
 import { MossPayError } from "../mossPayGateway";
 import {
+  catalogPaymentMethods,
   MossPayServiceLive,
   normalizeMossPayQuota,
   normalizeMossPayCatalogPayload,
@@ -500,6 +501,83 @@ describe("paymentMethodsForRealm", () => {
     expect(paymentMethodsForRealm("supabase-google")).toEqual([
       { id: "stripe_checkout", displayName: "Stripe", kind: "hosted" },
     ]);
+  });
+});
+
+describe("what the authority says can be bought", () => {
+  it("follows the authority's rail, and implies it for a deployment that sends no list", () => {
+    expect(catalogPaymentMethods({ payment_methods: [] }, "supabase-google")).toEqual([]);
+    expect(
+      catalogPaymentMethods({ payment_methods: [{ id: "stripe_checkout" }] }, "supabase-google"),
+    ).toEqual(paymentMethodsForRealm("supabase-google"));
+    // A rail from another region is never offered.
+    expect(
+      catalogPaymentMethods({ payment_methods: [{ id: "wechat_pay" }] }, "supabase-google"),
+    ).toEqual([]);
+    expect(catalogPaymentMethods({}, "memfire-phone")).toEqual(
+      paymentMethodsForRealm("memfire-phone"),
+    );
+  });
+
+  it("carries the purchase answer and keeps closed media packages readable", () => {
+    const closed = normalizeMossPayCatalogPayload(
+      {
+        plans: [],
+        plans_purchasable: false,
+        media_topup_packages: [
+          {
+            code: "global-usd-5",
+            display_name: "Media USD 5",
+            currency: "USD",
+            amount_minor: 500,
+            rail: "stripe_checkout",
+            available: false,
+            credit_nano_cny: null,
+            fx_version: null,
+          },
+        ],
+        media_wallet: null,
+      },
+      [],
+      paymentMethodsForRealm("supabase-google")[0]?.id,
+    );
+    expect(closed.plansPurchasable).toBe(false);
+    expect(closed.paymentMethods).toEqual([]);
+    expect(closed.mediaTopupPackages?.[0]?.available).toBe(false);
+    // Older deployments send nothing, which is "unknown", not "closed".
+    expect(normalizeMossPayCatalogPayload({ plans: [] }, []).plansPurchasable).toBeUndefined();
+  });
+
+  it("never invents an allowance when the authority has no number for it", () => {
+    const row = {
+      code: "plus",
+      display_name: "Plus",
+      monthly_price_cny: 9900,
+      billing_model: "cost_budget_v1",
+    };
+    const [unset] = normalizeMossPayCatalogPayload(
+      {
+        plans: [
+          {
+            ...row,
+            monthly_service_cost_limit_nano_usd: null,
+            five_hour_service_cost_limit_nano_usd: null,
+            weekly_service_cost_limit_nano_usd: null,
+          },
+        ],
+      },
+      [],
+    ).plans;
+    expect(unset).toMatchObject({
+      monthlyCreditLimit: 0,
+      fiveHourCreditLimit: 0,
+      weeklyCreditLimit: 0,
+    });
+    const [priced] = normalizeMossPayCatalogPayload(
+      { plans: [{ ...row, monthly_service_cost_limit_nano_usd: 11_880_000_000 }] },
+      [],
+    ).plans;
+    expect(priced?.monthlyCreditLimit).toBe(1188);
   });
 });
 

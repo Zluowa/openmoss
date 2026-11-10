@@ -4,8 +4,8 @@
 //          interactions (form submits, button clicks) back into the composer.
 // Layer: Chat UI
 
-import { Component, Suspense, lazy, useEffect, useState, type ReactNode } from "react";
-import type { ThreadId } from "@synara/contracts";
+import { Component, Suspense, lazy, useContext, useEffect, useState, type ReactNode } from "react";
+import type { ThreadId } from "@moss/contracts";
 import { useQueryClient } from "@tanstack/react-query";
 
 import type { OpenUIDirective } from "~/lib/inlineVisualizationDirective";
@@ -15,6 +15,7 @@ import {
   resolveOpenUIActionDispatch,
   type OpenUIActionEventLike,
 } from "~/lib/openUIReflow";
+import { VisualFollowUpContext } from "~/lib/visualFollowUp";
 import { useTranslation } from "~/localization";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 
@@ -103,6 +104,9 @@ export function OpenUIFrame(props: {
   // placeholder path instead of evaluating the lazy chunk.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  // The surface's own follow-up handling, like an HTML page's (a shared conversation's guest
+  // composer); without one, the thread's composer draft.
+  const surfaceFollowUp = useContext(VisualFollowUpContext);
 
   const handleAction = (event: OpenUIActionEventLike) => {
     const dispatch = resolveOpenUIActionDispatch(event);
@@ -113,6 +117,10 @@ export function OpenUIFrame(props: {
     }
     if (props.onFollowUp) {
       props.onFollowUp(dispatch.message);
+      return;
+    }
+    if (surfaceFollowUp) {
+      surfaceFollowUp(dispatch.message);
       return;
     }
     if (props.threadId) {

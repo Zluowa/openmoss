@@ -1,16 +1,12 @@
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it, vi } from "vitest";
-import type { ProviderInstanceConfig } from "@synara/contracts";
+import { describe, expect, it } from "vitest";
+import type { ProviderInstanceConfig } from "@moss/contracts";
 import {
+  buildMossManagedPiConfig,
   buildMossManagedPiProviderInstance,
   isVerifiedMossManagedPiProviderInstance,
   matchesMossManagedPiProviderInstance,
   readMossManagedPiConfig,
 } from "./mossManagedPiEnvironment";
-import { createPiModelRuntime, clearPiManagedRuntimeCredentials } from "./Layers/PiAdapter";
 
 const gatewayBaseUrl = "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
 const globalGateway = "https://global.example.test/functions/v1/moss-model-gateway/v1";
@@ -106,41 +102,44 @@ describe("managed Pi instance", () => {
     expect(matchesMossManagedPiProviderInstance(stored, instance)).toBe(true);
     expect(matchesMossManagedPiProviderInstance(fixture("rotated-token"), instance)).toBe(false);
   });
+});
 
-  it("keeps simultaneous SDK credentials isolated and never persists a token", async () => {
-    const agentDir = mkdtempSync(path.join(tmpdir(), "moss-pi-runtime-"));
-    vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", gatewayBaseUrl);
-    const previous = process.env.MOSS_ACCESS_TOKEN;
-    try {
-      const first = await createPiModelRuntime(
-        agentDir,
-        { ModelRuntime },
-        undefined,
-        environment(fixture("token-one")),
-      );
-      const second = await createPiModelRuntime(
-        agentDir,
-        { ModelRuntime },
-        undefined,
-        environment(fixture("token-two")),
-      );
-      expect(await first.getAuth("moss")).toMatchObject({ auth: { apiKey: "token-one" } });
-      expect(await second.getAuth("moss")).toMatchObject({ auth: { apiKey: "token-two" } });
-      expect(
-        first.getAvailableSnapshot().filter((model) => model.provider === "moss"),
-      ).toHaveLength(7);
-      await clearPiManagedRuntimeCredentials(first);
-      expect(first.hasConfiguredAuth("moss")).toBe(false);
-      expect(await second.getAuth("moss")).toMatchObject({ auth: { apiKey: "token-two" } });
-      await clearPiManagedRuntimeCredentials(second);
-      expect(process.env.MOSS_ACCESS_TOKEN).toBe(previous);
-      expect(existsSync(path.join(agentDir, "models.json"))).toBe(false);
-      if (existsSync(path.join(agentDir, "auth.json"))) {
-        expect(readFileSync(path.join(agentDir, "auth.json"), "utf8")).not.toContain("token-");
-      }
-    } finally {
-      vi.unstubAllEnvs();
-      rmSync(agentDir, { recursive: true, force: true });
-    }
+describe("Moss models in Pi see images when the Moss catalog says they can", () => {
+  it("takes image input from the catalog", () => {
+    const catalog = buildMossManagedPiConfig(gatewayBaseUrl, "cn");
+    const inputOf = (id: string) => catalog.provider.models.find((model) => model.id === id)?.input;
+    expect(inputOf("glm-5.3-flash")).toEqual(["text", "image"]);
+    expect(inputOf("deepseek-v4-flash")).toEqual(["text"]);
+  });
+
+  it("still reads a catalog stored before image input came from the catalog", () => {
+    const current = buildMossManagedPiConfig(gatewayBaseUrl, "cn");
+    const stored = {
+      ...current,
+      provider: {
+        ...current.provider,
+        models: current.provider.models.map((model) => ({ ...model, input: ["text"] })),
+      },
+    };
+    const read = readMossManagedPiConfig(
+      { MOSS_PI_CONFIG_CONTENT: JSON.stringify(stored), MOSS_ACCESS_TOKEN: "fake-token" },
+      env,
+    );
+    expect(read?.provider.models.find((model) => model.id === "glm-5.3-flash")?.input).toEqual([
+      "text",
+      "image",
+    ]);
+    expect(() =>
+      readMossManagedPiConfig(
+        {
+          MOSS_PI_CONFIG_CONTENT: JSON.stringify({
+            ...stored,
+            provider: { ...stored.provider, models: stored.provider.models.slice(1) },
+          }),
+          MOSS_ACCESS_TOKEN: "fake-token",
+        },
+        env,
+      ),
+    ).toThrow(/does not match/);
   });
 });

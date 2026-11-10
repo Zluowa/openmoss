@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 
 import { describe, expect, it } from "vitest";
-import { supportsPosixPermissions } from "@synara/shared/filesystemPlatform";
+import { supportsPosixPermissions } from "@moss/shared/filesystemPlatform";
 
 import {
   MossMarketplaceAggregation,

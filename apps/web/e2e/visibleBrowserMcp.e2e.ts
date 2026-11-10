@@ -12,7 +12,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { BROWSER_TOOL_NAMES, type ThreadBrowserState, type ThreadId } from "@synara/contracts";
+import { BROWSER_TOOL_NAMES, type ThreadBrowserState, type ThreadId } from "@moss/contracts";
 import type { WebContents } from "electron";
 import { _electron as electron, expect, test, type ElectronApplication } from "playwright/test";
 import type { DesktopBrowserManager } from "../../desktop/src/browserManager";

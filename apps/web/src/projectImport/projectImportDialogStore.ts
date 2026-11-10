@@ -1,4 +1,4 @@
-import type { ProjectImportProvider } from "@synara/contracts";
+import type { ProjectImportProvider } from "@moss/contracts";
 import { create } from "zustand";
 
 export const useProjectImportDialogStore = create<{

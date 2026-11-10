@@ -2,7 +2,7 @@
 // Purpose: Last-30-day chat window helpers for workspace import.
 // Layer: Server import helper
 
-import { WORKSPACE_IMPORT_CHAT_WINDOW_MS } from "@synara/contracts";
+import { WORKSPACE_IMPORT_CHAT_WINDOW_MS } from "@moss/contracts";
 
 export function workspaceImportWindowStart(now: Date): Date {
   return new Date(now.getTime() - WORKSPACE_IMPORT_CHAT_WINDOW_MS);

@@ -80,11 +80,73 @@ function looksLikeUrlInput(value: string): boolean {
   );
 }
 
+const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Za-z]:[\\/]/;
+const UNC_PATH_PATTERN = /^[\\/]{2}[^\\/]+[\\/]/;
+
+/**
+ * `file:///…` for an absolute local path (`C:\site\index.html`, `\\host\share\a.html`
+ * or `/home/me/a.html`), each segment percent-encoded. Null for anything else.
+ */
+export function localFileUrlFromPath(filePath: string): string | null {
+  const trimmed = filePath.trim();
+  let prefix: string;
+  let rest: string;
+  if (WINDOWS_DRIVE_PATH_PATTERN.test(trimmed)) {
+    prefix = `file:///${trimmed.slice(0, 2).toUpperCase()}`;
+    rest = trimmed.slice(2);
+  } else if (UNC_PATH_PATTERN.test(trimmed)) {
+    const withoutLead = trimmed.slice(2).replaceAll("\\", "/");
+    const slash = withoutLead.indexOf("/");
+    prefix = `file://${withoutLead.slice(0, slash)}`;
+    rest = withoutLead.slice(slash);
+  } else if (trimmed.startsWith("/")) {
+    prefix = "file://";
+    rest = trimmed;
+  } else {
+    return null;
+  }
+  const segments = rest
+    .replaceAll("\\", "/")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment));
+  return `${prefix}${segments.join("/")}`;
+}
+
+/** The absolute local path a `file:` URL names, in the platform's own form; else null. */
+export function localFilePathFromUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "file:") return null;
+  let pathname: string;
+  try {
+    pathname = decodeURIComponent(parsed.pathname);
+  } catch {
+    return null;
+  }
+  if (parsed.hostname) return `\\\\${parsed.hostname}${pathname.replaceAll("/", "\\")}`;
+  if (/^\/[A-Za-z]:\//.test(pathname)) return pathname.slice(1).replaceAll("/", "\\");
+  return pathname;
+}
+
 // Normalizes typed browser text into a navigable URL or search target.
 export function normalizeBrowserUrlInput(input: string | undefined): string {
   const trimmed = input?.trim() ?? "";
   if (trimmed.length === 0) {
     return BROWSER_BLANK_URL;
+  }
+
+  // A path typed or pasted into the address bar opens that file, as in a browser.
+  const typedFileUrl =
+    WINDOWS_DRIVE_PATH_PATTERN.test(trimmed) || UNC_PATH_PATTERN.test(trimmed)
+      ? localFileUrlFromPath(trimmed)
+      : null;
+  if (typedFileUrl) {
+    return typedFileUrl;
   }
 
   try {

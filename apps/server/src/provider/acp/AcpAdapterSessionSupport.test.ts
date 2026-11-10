@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 
 import { assert, it } from "@effect/vitest";
-import { ThreadId, TurnId, type ProviderSession } from "@synara/contracts";
+import { ThreadId, TurnId, type ProviderSession } from "@moss/contracts";
 import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect } from "vitest";
 

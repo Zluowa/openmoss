@@ -5,7 +5,7 @@
 
 import { useState, type ReactNode } from "react";
 
-import type { CodexWebMcpCall } from "@synara/contracts";
+import type { CodexWebMcpCall } from "@moss/contracts";
 import { SiteFavicon } from "../SiteFavicon";
 import { GlobeIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";

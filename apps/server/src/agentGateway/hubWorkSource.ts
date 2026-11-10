@@ -3,7 +3,7 @@ import {
   TurnId,
   type HubWorkSourceMessage,
   type OrchestrationMessage,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";

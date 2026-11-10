@@ -1,14 +1,15 @@
 // FILE: OpenThreadTabStrip.tsx
 // Purpose: Browser-style tabs for the open threads, shown in the chat header in place of
 //          the thread title. Owns what is specific to threads: which tabs exist, the close
-//          queue, the optimistic selection, renaming the active thread, and the tab's
-//          context menu (the sidebar's thread menu plus the tab's own close actions).
+//          queue, the optimistic selection, renaming the active thread, the tab's context
+//          menu (the sidebar's thread menu plus the tab's own close actions), and pulling a
+//          tab down onto the chat to split it.
 // Layer: Chat header UI
 // Depends on: open-thread tab hooks/store, the shared SurfaceContentTabs, and the sidebar's
 //             thread context menu.
 
-import type { ProjectId, ResolvedKeybindingsConfig, ThreadId } from "@synara/contracts";
-import { useEffect, useState, type RefObject } from "react";
+import type { ProjectId, ResolvedKeybindingsConfig, ThreadId } from "@moss/contracts";
+import { useEffect, useId, useState, type ReactNode, type RefObject } from "react";
 
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
@@ -32,10 +33,18 @@ import {
   type OpenThreadTab,
   type OpenThreadTabCloseScope,
   replaceLastTabWithFreshChat,
+  resolveDraggedOpenThreadTab,
   resolveOpenThreadTabsInCloseScope,
 } from "~/openThreadTabs.logic";
 import { useOpenThreadTabsStore } from "~/openThreadTabsStore";
 
+import {
+  cancelThreadTabDrag,
+  clearThreadTabDrag,
+  dropThreadTabDrag,
+  moveThreadTabDrag,
+} from "../chat-drop-overlay/chatPaneDropTargets";
+import { ThreadTabDragOverlay } from "../chat-drop-overlay/ThreadTabDragOverlay";
 import { ProviderIcon } from "../ProviderIcon";
 import { getNextVisibleSidebarThreadId } from "../Sidebar.logic";
 import { ThreadRunningSpinner } from "../ThreadRunningSpinner";
@@ -51,6 +60,22 @@ const CLOSE_TABS_MENU_ROWS: readonly { scope: OpenThreadTabCloseScope; label: st
   { scope: "right", label: "Close Tabs to the Right" },
   { scope: "others", label: "Close Other Tabs" },
 ];
+
+function OpenThreadTabIcon(props: { tab: OpenThreadTab }) {
+  const { tab } = props;
+  // A running thread spins in place of its glyph, like its sidebar row.
+  if (tab.isRunning) {
+    return (
+      <span role="img" aria-label="Working" className="inline-flex">
+        <ThreadRunningSpinner className="size-4" />
+      </span>
+    );
+  }
+  if (tab.isTerminal) {
+    return <TerminalIcon className="size-4 text-[var(--color-text-accent)]" />;
+  }
+  return <ProviderIcon provider={tab.provider} className="size-4" />;
+}
 
 export function OpenThreadTabStrip(props: {
   activeThreadId: ThreadId;
@@ -73,6 +98,7 @@ export function OpenThreadTabStrip(props: {
   const { handleNewThread, projects } = useHandleNewThread();
   const readRouteThreadId = useReadRouteThreadId();
   const [enqueueClose] = useState(createOpenThreadTabCloseQueue);
+  const dragOwnerId = useId();
   // The clicked tab paints as active at once, like a selected sidebar row; the
   // thread itself (a whole chat to render) follows once that frame is on screen.
   const {
@@ -220,58 +246,76 @@ export function OpenThreadTabStrip(props: {
     });
   };
 
+  // Pulled below the strip, a tab splits the chat it heads, exactly as a dropped sidebar
+  // thread does; the chat's drop-zone overlay previews the side and performs the split.
+  const dragTabOut = (threadId: ThreadId, point: { x: number; y: number }) => {
+    const payload = resolveDraggedOpenThreadTab({
+      tabs,
+      draggedThreadId: threadId,
+      activeThreadId,
+    });
+    const tab = tabs.find((candidate) => candidate.threadId === threadId);
+    if (!payload || !tab) return;
+    const icon: ReactNode = <OpenThreadTabIcon tab={tab} />;
+    moveThreadTabDrag({ ownerId: dragOwnerId, payload, ghost: { title: tab.title, icon }, point });
+  };
+
   return (
-    <SurfaceContentTabs
-      ariaLabel="Open threads"
-      activeKey={shownThreadId}
-      selectionAria="current"
-      onMove={moveThreadTab}
-      tabs={tabs.map((tab) => {
-        const active = tab.threadId === shownThreadId;
-        return {
-          key: tab.threadId,
-          title: tab.title,
-          icon:
-            // A running thread spins in place of its glyph, like its sidebar row.
-            tab.isRunning ? (
-              <span role="img" aria-label="Working" className="inline-flex">
-                <ThreadRunningSpinner className="size-4" />
-              </span>
-            ) : tab.isTerminal ? (
-              <TerminalIcon className="size-4 text-[var(--color-text-accent)]" />
-            ) : (
-              <ProviderIcon provider={tab.provider} className="size-4" />
-            ),
-          onSelect: () => {
-            if (!active) selectTab(tab.threadId);
+    <>
+      <SurfaceContentTabs
+        ariaLabel="Open threads"
+        activeKey={shownThreadId}
+        selectionAria="current"
+        onMove={moveThreadTab}
+        dragOut={{
+          canDragOut: (threadId) =>
+            resolveDraggedOpenThreadTab({ tabs, draggedThreadId: threadId, activeThreadId }) !==
+            null,
+          onMove: dragTabOut,
+          onReturn: clearThreadTabDrag,
+          onDrop: () => {
+            dropThreadTabDrag();
           },
-          onClose: () => closeTab(tab.threadId, tab.projectId),
-          onTitleDoubleClick:
-            tab.threadId === activeThreadId ? props.onRenameActiveThread : undefined,
-          onContextMenu: (position) => openTabContextMenu(tab, position),
-        };
-      })}
-      trailing={
-        props.onNewThread ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="chrome"
-                  size="icon-xs"
-                  aria-label="New thread in this workspace"
-                  className={DOCK_HEADER_ICON_BUTTON_CLASS}
-                  onClick={() => props.onNewThread?.()}
-                />
-              }
-            >
-              <PlusSignIcon className="size-4" />
-            </TooltipTrigger>
-            <TooltipPopup side="bottom">New thread in this workspace</TooltipPopup>
-          </Tooltip>
-        ) : null
-      }
-    />
+          onCancel: cancelThreadTabDrag,
+        }}
+        tabs={tabs.map((tab) => {
+          const active = tab.threadId === shownThreadId;
+          return {
+            key: tab.threadId,
+            title: tab.title,
+            icon: <OpenThreadTabIcon tab={tab} />,
+            onSelect: () => {
+              if (!active) selectTab(tab.threadId);
+            },
+            onClose: () => closeTab(tab.threadId, tab.projectId),
+            onTitleDoubleClick:
+              tab.threadId === activeThreadId ? props.onRenameActiveThread : undefined,
+            onContextMenu: (position) => openTabContextMenu(tab, position),
+          };
+        })}
+        trailing={
+          props.onNewThread ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="chrome"
+                    size="icon-xs"
+                    aria-label="New thread in this workspace"
+                    className={DOCK_HEADER_ICON_BUTTON_CLASS}
+                    onClick={() => props.onNewThread?.()}
+                  />
+                }
+              >
+                <PlusSignIcon className="size-4" />
+              </TooltipTrigger>
+              <TooltipPopup side="bottom">New thread in this workspace</TooltipPopup>
+            </Tooltip>
+          ) : null
+        }
+      />
+      <ThreadTabDragOverlay ownerId={dragOwnerId} />
+    </>
   );
 }

@@ -8,7 +8,7 @@ import {
   MOSS_BUNDLED_CODEX_PATH_ENV_KEY,
   MOSS_BUNDLED_CODEX_VERSION,
   resolveCodexRuntimeTarget,
-} from "@synara/shared/codexRuntime";
+} from "@moss/shared/codexRuntime";
 
 import {
   resolveBundledCodexBinary,

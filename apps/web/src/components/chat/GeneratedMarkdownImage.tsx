@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 
 import { DownloadIcon, Loader2Icon, Maximize2 } from "~/lib/icons";
+import { useTranslation } from "~/localization";
 import { buildLocalImageUrl, localImageAbsolutePath } from "~/lib/localImageUrls";
 import {
   isLocalPreviewGrantUsable,
@@ -45,6 +46,7 @@ export function GeneratedMarkdownImage(props: GeneratedMarkdownImageProps) {
 
 function GeneratedMarkdownImageContent(props: GeneratedMarkdownImageProps) {
   const { src, alt, cwd, onImageExpand } = props;
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const mounted = useRef(true);
   useEffect(() => {
@@ -109,7 +111,7 @@ function GeneratedMarkdownImageContent(props: GeneratedMarkdownImageProps) {
     const grant = await queryClient.fetchQuery({ ...grantOptions, retry: retryGrant });
     return buildLocalImageUrl({ src, cwd, download, grant: grant.grant });
   };
-  const accessibleName = alt?.trim() || "Generated image";
+  const accessibleName = alt?.trim() || t("chat.localImage.fallbackName");
   const downloadImage = useLocalImageDownloadClick({
     downloadUrl,
     downloadName,
@@ -160,7 +162,7 @@ function GeneratedMarkdownImageContent(props: GeneratedMarkdownImageProps) {
         downloadUrl={downloadUrl}
         downloadName={downloadName}
         className="local-image-error--prose"
-        downloadAriaLabel="Download generated image"
+        downloadAriaLabel={t("chat.localImage.downloadGeneratedLabel")}
         onDownloadClick={downloadImage}
       />
     );
@@ -179,7 +181,7 @@ function GeneratedMarkdownImageContent(props: GeneratedMarkdownImageProps) {
         type="button"
         className="chat-generated-image__frame"
         onClick={expandImage}
-        aria-label="Expand generated image"
+        aria-label={t("chat.localImage.expandLabel")}
       >
         {status === "loading" || resolvingGrant ? (
           <span className="chat-generated-image__skeleton" aria-hidden="true">
@@ -190,7 +192,7 @@ function GeneratedMarkdownImageContent(props: GeneratedMarkdownImageProps) {
         <span className="chat-generated-image__overlay" aria-hidden="true">
           <span className="chat-generated-image__overlay-pill chat-generated-image__overlay-pill--expand">
             <Maximize2 className="size-4" />
-            <span>Expand</span>
+            <span>{t("chat.localImage.expand")}</span>
           </span>
         </span>
       </button>
@@ -200,11 +202,11 @@ function GeneratedMarkdownImageContent(props: GeneratedMarkdownImageProps) {
         onClick={downloadImage}
         onMouseDown={stopPropagation}
         className="chat-generated-image__overlay-pill chat-generated-image__overlay-pill--download"
-        aria-label="Download generated image"
-        title="Download"
+        aria-label={t("chat.localImage.downloadGeneratedLabel")}
+        title={t("chat.localImage.download")}
       >
         <DownloadIcon className="size-4" aria-hidden="true" />
-        <span>Download</span>
+        <span>{t("chat.localImage.download")}</span>
       </a>
     </span>
   );

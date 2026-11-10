@@ -63,6 +63,7 @@ const call = { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "lis
 function makeRuntime(
   initial: string | null = null,
   saveHook?: (document: string) => Promise<void>,
+  regionAvailable?: (region: "cn" | "global") => Promise<boolean>,
 ) {
   let saved = initial;
   let failSaves = false;
@@ -84,6 +85,7 @@ function makeRuntime(
     logWarning: (message) => {
       warnings.push(message);
     },
+    ...(regionAvailable ? { regionAvailable } : {}),
     now: () => now,
   });
   return {
@@ -879,5 +881,294 @@ describe("McpConnectorRuntime persistence", () => {
     expect(
       (JSON.parse(encodeConnectorsDocument(document)) as { connectors: unknown[] }).connectors,
     ).toHaveLength(3);
+  });
+});
+
+describe("McpConnectorRuntime with API keys", () => {
+  const openProbe = { kind: "open" } as const;
+
+  it("asks for a key before probing a preset that takes one", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    await expect(harness.runtime.connect({ presetId: "amap" })).rejects.toMatchObject({
+      code: "mcp-connector-api-key-required",
+    });
+    expect(mocks.probe).not.toHaveBeenCalled();
+    expect(harness.saved()).toBeNull();
+  });
+
+  it("probes with the key in the query, stores it, and keeps it out of the contract", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue(openProbe);
+
+    const result = await harness.runtime.connect({ presetId: "amap", apiKey: "amap-secret" });
+
+    expect(mocks.probe).toHaveBeenCalledWith(
+      "https://mcp.amap.com/mcp?key=amap-secret",
+      "高德地图",
+      "1.0.4",
+      undefined,
+    );
+    expect(result.authorizationUrl).toBeNull();
+    expect(result.connector).toMatchObject({
+      presetId: "amap",
+      url: "https://mcp.amap.com/mcp",
+      serverName: "amap_connector",
+      authKind: "api-key",
+      status: "connected",
+    });
+    expect(JSON.stringify(result.connector)).not.toContain("amap-secret");
+    expect(JSON.parse(harness.saved()!).connectors[0].apiKey).toEqual({
+      kind: "query",
+      param: "key",
+      value: "amap-secret",
+    });
+  });
+
+  it("sends a bearer preset's token as a header on every call", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue(openProbe);
+    const { connector } = await harness.runtime.connect({
+      presetId: "mcdonalds_cn",
+      apiKey: "mcd-token",
+    });
+    expect(mocks.probe).toHaveBeenCalledWith(
+      "https://mcp.mcd.cn/",
+      "麦当劳中国",
+      "1.0.4",
+      "mcd-token",
+    );
+
+    mocks.forward.mockResolvedValue(ok({ tools: [] }));
+    await harness.runtime.forward(connector!.connectorId, { method: "POST", body: call });
+    expect(mocks.forward).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://mcp.mcd.cn/", accessToken: "mcd-token" }),
+      "麦当劳中国",
+    );
+  });
+
+  it("adds a query key to each forwarded request next to the preset's own query", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue(openProbe);
+    const { connector } = await harness.runtime.connect({
+      presetId: "tencent_maps",
+      apiKey: "qq-key",
+    });
+    mocks.forward.mockResolvedValue(ok({ tools: [] }));
+    await harness.runtime.forward(connector!.connectorId, { method: "POST", body: call });
+    const [request] = mocks.forward.mock.calls[0]!;
+    expect(request.url).toBe("https://mcp.map.qq.com/mcp?format=0&key=qq-key");
+    expect(request.accessToken).toBeUndefined();
+  });
+
+  it("explains a key the server rejects and saves nothing", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue({
+      kind: "unavailable",
+      message: "高德地图 did not return a valid MCP initialize response.",
+    });
+    await expect(
+      harness.runtime.connect({ presetId: "amap", apiKey: "wrong" }),
+    ).rejects.toMatchObject({
+      message:
+        "高德地图 did not accept this key. Check that it is correct and enabled for its MCP service.",
+      code: "mcp-connector-api-key-required",
+    });
+    expect(harness.saved()).toBeNull();
+  });
+
+  it("reports an unreachable server as such, not as a bad key", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue({
+      kind: "unavailable",
+      message: "Moss could not reach 百度地图.",
+      unreachable: true,
+    });
+    await expect(harness.runtime.connect({ presetId: "baidu_maps", apiKey: "ak" })).rejects.toThrow(
+      "Moss could not reach 百度地图.",
+    );
+  });
+
+  it("splits a key pasted in a custom URL and matches it to its preset", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue(openProbe);
+    const { connector } = await harness.runtime.connect({
+      url: "https://mcp.amap.com/mcp?key=pasted",
+    });
+    expect(connector).toMatchObject({ presetId: "amap", url: "https://mcp.amap.com/mcp" });
+    expect(JSON.parse(harness.saved()!).connectors[0].apiKey.value).toBe("pasted");
+  });
+
+  it("keeps a key pasted in an unknown server's URL under its own parameter", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue(openProbe);
+    const { connector } = await harness.runtime.connect({
+      url: "https://mcp.example.cn/mcp?ak=abc&region=bj",
+    });
+    expect(connector).toMatchObject({
+      presetId: null,
+      url: "https://mcp.example.cn/mcp?region=bj",
+      authKind: "api-key",
+    });
+    expect(mocks.probe).toHaveBeenCalledWith(
+      "https://mcp.example.cn/mcp?region=bj&ak=abc",
+      "example.cn",
+      "1.0.4",
+      undefined,
+    );
+  });
+
+  it("sends a typed key for a custom server as a bearer token", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue(openProbe);
+    await harness.runtime.connect({ url: "https://mcp.example.cn/mcp", apiKey: "tok" });
+    expect(mocks.probe).toHaveBeenCalledWith(
+      "https://mcp.example.cn/mcp",
+      "example.cn",
+      "1.0.4",
+      "tok",
+    );
+    expect(JSON.parse(harness.saved()!).connectors[0].apiKey).toEqual({
+      kind: "bearer",
+      value: "tok",
+    });
+  });
+
+  it("reuses the saved key on reconnect and replaces it when a new one is typed", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue(openProbe);
+    const first = await harness.runtime.connect({ presetId: "didi", apiKey: "k1" });
+    const again = await harness.runtime.connect({ presetId: "didi" });
+    expect(again.connector!.connectorId).toBe(first.connector!.connectorId);
+    expect(mocks.probe).toHaveBeenLastCalledWith(
+      "https://mcp.didichuxing.com/mcp-servers?key=k1",
+      "滴滴出行",
+      "1.0.4",
+      undefined,
+    );
+    await harness.runtime.connect({ presetId: "didi", apiKey: "k2" });
+    expect(JSON.parse(harness.saved()!).connectors[0].apiKey.value).toBe("k2");
+    expect(harness.runtime.list()).toHaveLength(1);
+  });
+
+  it("marks the connector for reconnection when the server rejects the saved key", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue(openProbe);
+    const { connector } = await harness.runtime.connect({
+      presetId: "mcdonalds_cn",
+      apiKey: "expired",
+    });
+    mocks.forward.mockResolvedValue(unauthorized);
+
+    const result = await harness.runtime.forward(connector!.connectorId, {
+      method: "POST",
+      body: call,
+    });
+
+    expect(result.status).toBe(200);
+    expect(JSON.stringify(result.body)).toContain("needs to be reconnected");
+    expect(harness.runtime.list()[0]!.status).toBe("needs-auth");
+    expect(harness.published.at(-1)).toEqual([]);
+    // A reconnect without a new key must not reuse the rejected one.
+    await expect(harness.runtime.connect({ presetId: "mcdonalds_cn" })).rejects.toMatchObject({
+      code: "mcp-connector-api-key-required",
+    });
+    await expect(
+      harness.runtime.connect({ presetId: "mcdonalds_cn", apiKey: "fresh" }),
+    ).resolves.toMatchObject({ connector: { status: "connected" } });
+  });
+
+  it("reads documents saved before API keys existed", () => {
+    const document = decodeConnectorsDocument(
+      JSON.stringify({
+        version: 1,
+        connectors: [
+          {
+            connectorId: "c1",
+            presetId: "huggingface",
+            name: "Hugging Face",
+            url: "https://huggingface.co/mcp",
+            serverName: "huggingface_connector",
+            authKind: "none",
+            status: "connected",
+            createdAt: "2026-10-14T10:00:00.000Z",
+            updatedAt: "2026-10-14T10:00:00.000Z",
+            oauth: null,
+          },
+          {
+            connectorId: "c2",
+            presetId: "amap",
+            name: "高德地图",
+            url: "https://mcp.amap.com/mcp",
+            serverName: "amap_connector",
+            authKind: "api-key",
+            status: "connected",
+            createdAt: "2026-10-14T10:00:00.000Z",
+            updatedAt: "2026-10-14T10:00:00.000Z",
+            oauth: null,
+            // An API-key connector without its key cannot be used.
+            apiKey: null,
+          },
+        ],
+      }),
+    );
+    expect(document.connectors.map((connector) => connector.connectorId)).toEqual(["c1"]);
+    expect(document.unreadable).toHaveLength(1);
+  });
+});
+
+describe("McpConnectorRuntime region gate", () => {
+  it("refuses mainland China presets without a phone sign-in, before probing", async () => {
+    const harness = makeRuntime(null, undefined, async () => false);
+    await harness.runtime.init();
+    await expect(harness.runtime.connect({ presetId: "amap", apiKey: "k" })).rejects.toThrow(
+      "高德地图 is available only while signed in to Moss with a mainland China phone number.",
+    );
+    // A pasted vendor URL maps to the same preset and the same rule.
+    await expect(
+      harness.runtime.connect({ url: "https://mcp.amap.com/mcp?key=k" }),
+    ).rejects.toThrow("mainland China phone number");
+    expect(mocks.probe).not.toHaveBeenCalled();
+  });
+
+  it("leaves global presets and custom servers alone", async () => {
+    const region = vi.fn(async () => false);
+    const harness = makeRuntime(null, undefined, region);
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue({ kind: "open" });
+    await harness.runtime.connect({ presetId: "huggingface" });
+    await harness.runtime.connect({ url: "https://mcp.example.cn/mcp", apiKey: "tok" });
+    expect(region).not.toHaveBeenCalled();
+  });
+
+  it("stops forwarding to a mainland China connector after the phone sign-out", async () => {
+    let signedIn = true;
+    const harness = makeRuntime(null, undefined, async () => signedIn);
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue({ kind: "open" });
+    const { connector } = await harness.runtime.connect({ presetId: "didi", apiKey: "k" });
+    mocks.forward.mockResolvedValue(ok({ tools: [] }));
+
+    signedIn = false;
+    const refused = await harness.runtime.forward(connector!.connectorId, {
+      method: "POST",
+      body: call,
+    });
+    expect(JSON.stringify(refused.body)).toContain("mainland China phone number");
+    expect(mocks.forward).not.toHaveBeenCalled();
+
+    signedIn = true;
+    await harness.runtime.forward(connector!.connectorId, { method: "POST", body: call });
+    expect(mocks.forward).toHaveBeenCalledTimes(1);
   });
 });

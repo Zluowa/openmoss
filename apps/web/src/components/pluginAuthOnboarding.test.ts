@@ -1,7 +1,7 @@
 // FILE: pluginAuthOnboarding.test.ts
 // Purpose: Locks the post-install connector state machine.
 
-import type { ProviderAppInfo, ProviderPluginInstallAppSummary } from "@synara/contracts";
+import type { ProviderAppInfo, ProviderPluginInstallAppSummary } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

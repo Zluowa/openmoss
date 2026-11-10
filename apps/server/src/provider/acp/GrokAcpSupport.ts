@@ -3,7 +3,7 @@
  *
  * @module GrokAcpSupport
  */
-import { type GrokModelOptions, type RuntimeMode } from "@synara/contracts";
+import { type GrokModelOptions, type RuntimeMode } from "@moss/contracts";
 import { Effect, Layer, Scope, ServiceMap } from "effect";
 import * as AcpErrors from "./AcpErrors.ts";
 import type * as Acp from "@agentclientprotocol/sdk";
@@ -14,6 +14,7 @@ import {
   MOSS_MANAGED_GROK_CONFIG_ENV_KEY,
   MOSS_MANAGED_GROK_CREDENTIAL_ENV_KEY,
   MOSS_MANAGED_GROK_PROVIDER_INSTANCE_ID,
+  prepareMossManagedGrokHome,
   readMossManagedGrokConfig,
 } from "../mossManagedGrokEnvironment.ts";
 import { buildProviderProcessEnv } from "../providerProcessEnv.ts";
@@ -174,6 +175,13 @@ export function buildGrokAcpSpawnInput(
     command: grokSettings?.binaryPath || "grok",
     args,
     cwd,
+    ...(resolveGrokManagedConfig(grokSettings)
+      ? {
+          // Campaign overlays can replace arbitrary model endpoint/auth fields.
+          env: { GROK_CAMPAIGNS: "0" },
+          inheritedMossKeys: [MOSS_MANAGED_GROK_CREDENTIAL_ENV_KEY],
+        }
+      : {}),
     providerEnvironment: {
       driver: "grok",
       ...(grokSettings?.instanceId !== undefined ? { instanceId: grokSettings.instanceId } : {}),
@@ -223,8 +231,21 @@ export const resolveGrokAcpAuthMethodIdForEnv =
         catch: (cause) => new AcpErrors.AcpSpawnError({ command: "grok", cause }),
       });
       const hasApiKey = hasGrokApiKeyEnv(effectiveEnv);
-      if (hasApiKey && authMethodIds.has(GROK_API_KEY_AUTH_METHOD_ID)) {
+      const managed =
+        instanceId === MOSS_MANAGED_GROK_PROVIDER_INSTANCE_ID &&
+        environment?.[MOSS_MANAGED_GROK_CONFIG_ENV_KEY] !== undefined;
+      // Grok advertises xai.api_key for per-model env_key credentials too, so a
+      // managed session authenticates through its generated config.toml.
+      if ((hasApiKey || managed) && authMethodIds.has(GROK_API_KEY_AUTH_METHOD_ID)) {
         return GROK_API_KEY_AUTH_METHOD_ID;
+      }
+      // A managed session must never fall back to a personal Grok login.
+      if (managed) {
+        return yield* new AcpErrors.AcpRequestError({
+          code: -32602,
+          errorMessage: "Managed Grok did not advertise custom-model API-key authentication.",
+          data: { authMethods: [...authMethodIds], reason: "compatibility_mismatch" },
+        });
       }
       if (authMethodIds.has(GROK_CACHED_TOKEN_AUTH_METHOD_ID)) {
         return GROK_CACHED_TOKEN_AUTH_METHOD_ID;
@@ -272,6 +293,17 @@ export const makeGrokAcpRuntime = (
   input: GrokAcpRuntimeInput,
 ): Effect.Effect<AcpSessionRuntimeShape, AcpErrors.AcpError, Scope.Scope> =>
   Effect.gen(function* () {
+    yield* Effect.tryPromise({
+      try: async () => {
+        const managed = resolveGrokManagedConfig(input.grokSettings);
+        if (managed) await prepareMossManagedGrokHome(managed);
+      },
+      catch: () =>
+        new AcpErrors.AcpRequestError({
+          code: -32602,
+          errorMessage: "Could not prepare the isolated managed Grok configuration.",
+        }),
+    });
     const acpContext = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...input,

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { PassThrough } from "node:stream";
 
-import { supportsPosixPermissions } from "@synara/shared/filesystemPlatform";
+import { supportsPosixPermissions } from "@moss/shared/filesystemPlatform";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProcessRunResult } from "../processRunner.ts";

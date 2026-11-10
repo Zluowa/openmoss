@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { ProviderInstanceId, ProjectId, ThreadId } from "@synara/contracts";
+import { ProviderInstanceId, ProjectId, ThreadId } from "@moss/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useComposerDraftStore } from "~/composerDraftStore";

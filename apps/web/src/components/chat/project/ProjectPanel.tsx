@@ -4,10 +4,10 @@ import {
   type ProjectId,
   type ProjectTask,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { SidePanelOverlay } from "~/components/chat/SidePanelOverlay";
-import { PROJECT_CONTEXT_PREVIEW_DOCUMENTS } from "@synara/shared/projectAgent";
-import { resolveGroupCoordinatorStatus } from "@synara/shared/groupThreadState";
+import { PROJECT_CONTEXT_PREVIEW_DOCUMENTS } from "@moss/shared/projectAgent";
+import { resolveGroupCoordinatorStatus } from "@moss/shared/groupThreadState";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
@@ -327,10 +327,12 @@ export function ProjectPanel({
     }
   };
 
+  const personal = agent.overview?.config?.agentKind === "mossbot";
+
   const content = (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between gap-2 px-3 pb-0.5 pt-1">
-        <EnvironmentPanelTitle>Hubs</EnvironmentPanelTitle>
+        <EnvironmentPanelTitle>{personal ? "Mossbot overview" : "Hubs"}</EnvironmentPanelTitle>
         <div className="flex items-center gap-0.5">
           {configured ? (
             <>
@@ -350,15 +352,20 @@ export function ProjectPanel({
               ) : null}
               <IconButton
                 type="button"
-                label="Hub settings"
-                tooltip="Hub settings"
+                label={personal ? "Assistant settings" : "Hub settings"}
+                tooltip={personal ? "Assistant settings" : "Hub settings"}
                 onClick={() => setAgentDialogOpen(true)}
               >
                 <SettingsIcon className="size-4" />
               </IconButton>
             </>
           ) : null}
-          <IconButton type="button" label="Close hub panel" tooltip="Close" onClick={onClose}>
+          <IconButton
+            type="button"
+            label={personal ? "Close assistant overview" : "Close hub panel"}
+            tooltip="Close"
+            onClick={onClose}
+          >
             <XIcon className="size-4" />
           </IconButton>
         </div>
@@ -386,7 +393,7 @@ export function ProjectPanel({
                   <BotIcon className={ENVIRONMENT_ROW_ICON_CLASS_NAME} aria-hidden />
                 )
               }
-              label="Coordinator"
+              label={personal ? "Assistant" : "Coordinator"}
               aria-label={`Open ${coordinatorDisplayName}`}
               title={coordinatorDisplayName}
               onClick={openCoordinatorThread}
@@ -454,7 +461,7 @@ export function ProjectPanel({
           <>
             {agent.overview?.blockers.map((blocker) => (
               <p key={blocker.taskId} className="px-2 text-ui-sm text-destructive">
-                Blocked: {blocker.title} — {blocker.reason}
+                {`Blocked: ${blocker.title} — ${blocker.reason}`}
               </p>
             ))}
 

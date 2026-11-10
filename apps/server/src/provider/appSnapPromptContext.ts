@@ -1,4 +1,4 @@
-import type { ChatAttachment } from "@synara/contracts";
+import type { ChatAttachment } from "@moss/contracts";
 
 import { filterProviderPromptImageAttachments } from "./promptAttachments.ts";
 

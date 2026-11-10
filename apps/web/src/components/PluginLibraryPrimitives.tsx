@@ -78,7 +78,7 @@ const DEFAULT_HEADER_LABELS: PluginLibraryHeaderLabels = {
   refresh: "Refresh",
   create: "Create",
   createPlugin: "Create plugin",
-  importPluginsAndSkills: "Import plugins and skills",
+  importPluginsAndSkills: "Import plugins, skills, and MCP",
   uploadPluginArchive: "Upload plugin archive",
   addCustomMcpServer: "Add custom MCP server",
   addMcpServer: "Add MCP server",
@@ -567,88 +567,10 @@ export function PluginLibraryPageHeader({
   );
 }
 
-export interface PluginLibraryPillTab<TId extends string> {
-  readonly id: TId;
-  readonly label: string;
-}
-
-/**
- * Codex's directory/scope tabs (Public · Personal, Personal · System): 36px
- * pills where only the selected one carries a tint. Arrow keys, Home and End
- * move the selection like any tablist.
- */
-export function PluginLibraryPillTabs<TId extends string>({
-  ariaLabel,
-  tabs,
-  selected,
-  onSelect,
-  testId,
-}: {
-  readonly ariaLabel: string;
-  readonly tabs: ReadonlyArray<PluginLibraryPillTab<TId>>;
-  readonly selected: TId;
-  readonly onSelect: (id: TId) => void;
-  readonly testId?: string;
-}) {
-  const refs = useRef(new Map<TId, HTMLButtonElement>());
-  const handleKeyDown = (index: number, event: KeyboardEvent<HTMLButtonElement>) => {
-    const last = tabs.length - 1;
-    const nextIndex =
-      event.key === "ArrowRight"
-        ? index === last
-          ? 0
-          : index + 1
-        : event.key === "ArrowLeft"
-          ? index === 0
-            ? last
-            : index - 1
-          : event.key === "Home"
-            ? 0
-            : event.key === "End"
-              ? last
-              : null;
-    const next = nextIndex === null ? undefined : tabs[nextIndex];
-    if (!next) return;
-    event.preventDefault();
-    refs.current.get(next.id)?.focus();
-    onSelect(next.id);
-  };
-  return (
-    <div
-      role="tablist"
-      aria-label={ariaLabel}
-      className="flex min-w-0 items-center gap-1 overflow-x-auto"
-      data-testid={testId}
-    >
-      {tabs.map((tab, index) => {
-        const active = tab.id === selected;
-        return (
-          <button
-            key={tab.id}
-            ref={(button) => {
-              if (button) refs.current.set(tab.id, button);
-              else refs.current.delete(tab.id);
-            }}
-            type="button"
-            role="tab"
-            aria-selected={active}
-            tabIndex={active ? 0 : -1}
-            onClick={() => onSelect(tab.id)}
-            onKeyDown={(event) => handleKeyDown(index, event)}
-            className={cn(
-              "inline-flex h-9 shrink-0 items-center rounded-full px-4 text-ui-lg leading-5 outline-none transition-colors plugin-library-motion focus-visible:ring-2 focus-visible:ring-ring",
-              active
-                ? "bg-foreground/[0.06] text-foreground"
-                : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
-            )}
-          >
-            {tab.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+export {
+  PillTabs as PluginLibraryPillTabs,
+  type PillTab as PluginLibraryPillTab,
+} from "./ui/pill-tabs";
 
 /**
  * Codex section heading. A category heading is a link ("Popular ›") that opens

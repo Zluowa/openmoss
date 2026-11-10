@@ -1,8 +1,4 @@
-import type {
-  ProjectScript,
-  ProjectScriptIcon,
-  ResolvedKeybindingsConfig,
-} from "@synara/contracts";
+import type { ProjectScript, ProjectScriptIcon, ResolvedKeybindingsConfig } from "@moss/contracts";
 import {
   BugIcon,
   ChevronDownIcon,
@@ -45,6 +41,15 @@ import {
   ChatHeaderSplitGroup,
 } from "./chat/chatHeaderControls";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
+import {
+  ENVIRONMENT_ROW_CLASS_NAME,
+  ENVIRONMENT_ROW_ICON_CLASS_NAME,
+  EnvironmentRow,
+  EnvironmentRowBody,
+  EnvironmentRowChevron,
+} from "./chat/environment/EnvironmentRow";
+import { useTranslation } from "~/localization";
+import { cn } from "~/lib/utils";
 import {
   Dialog,
   DialogDescription,
@@ -99,6 +104,12 @@ interface ProjectScriptsControlProps {
   keybindings: ResolvedKeybindingsConfig;
   preferredScriptId?: string | null;
   showInlineControls?: boolean;
+  /**
+   * `toolbar` (default) is the chat-header split button; `panel` renders the upstream
+   * thread-details rows in the Environment card: "Run <action> ▾" once an action
+   * exists, "Add project script" before that.
+   */
+  displayMode?: "toolbar" | "panel";
   onRunScript: (script: ProjectScript) => void;
   onAddScript: (input: NewProjectScriptInput) => Promise<void> | void;
   onUpdateScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void> | void;
@@ -110,6 +121,7 @@ export default function ProjectScriptsControl({
   keybindings,
   preferredScriptId: preferredScriptIdProp,
   showInlineControls: showInlineControlsProp,
+  displayMode: displayModeProp,
   onRunScript,
   onAddScript,
   onUpdateScript,
@@ -117,6 +129,8 @@ export default function ProjectScriptsControl({
 }: ProjectScriptsControlProps) {
   const preferredScriptId = preferredScriptIdProp ?? null;
   const showInlineControls = showInlineControlsProp ?? true;
+  const isPanel = (displayModeProp ?? "toolbar") === "panel";
+  const { format, t } = useTranslation();
   const addScriptFormId = React.useId();
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -228,9 +242,106 @@ export default function ProjectScriptsControl({
     void onDeleteScript(editingScriptId);
   }, [editingScriptId, onDeleteScript]);
 
+  const scriptsMenuPopup = (align: "start" | "end") => (
+    <ComposerPickerMenuPopup align={align} className="min-w-64" sideOffset={8}>
+      {scripts.map((script) => {
+        const shortcutLabel = shortcutLabelForCommand(
+          keybindings,
+          commandForProjectScript(script.id),
+        );
+        return (
+          <MenuItem
+            key={script.id}
+            className={actionMenuItemClassName}
+            onClick={() => onRunScript(script)}
+          >
+            <ScriptIcon icon={script.icon} className="size-4 text-muted-foreground" />
+            <span className="min-w-0 truncate">
+              {script.runOnWorktreeCreate ? `${script.name} (setup)` : script.name}
+            </span>
+            <span className="flex min-w-0 items-center justify-end">
+              {shortcutLabel && (
+                <MenuShortcut className="ms-0 transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0">
+                  {shortcutLabel}
+                </MenuShortcut>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="size-6 rounded-lg opacity-50 transition-opacity sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-visible:pointer-events-auto sm:group-focus-visible:opacity-100"
+                aria-label={`Edit ${script.name}`}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  openEditDialog(script);
+                }}
+              >
+                <SettingsIcon className="size-4" />
+              </Button>
+            </span>
+          </MenuItem>
+        );
+      })}
+      <MenuItem className={actionMenuItemClassName} onClick={openAddDialog}>
+        <PlusIcon className="size-4 text-muted-foreground" />
+        <span className="col-span-2 min-w-0 truncate">Add action</span>
+      </MenuItem>
+    </ComposerPickerMenuPopup>
+  );
+
+  const panelControls = !showInlineControls ? null : primaryScript ? (
+    // Split row, as in the upstream card: run the preferred action, or pick another.
+    <div className="group/details-split flex w-full min-w-0 items-center rounded-row">
+      <button
+        type="button"
+        className={cn(ENVIRONMENT_ROW_CLASS_NAME, "min-w-0 flex-1")}
+        aria-label={format("chat.environment.runScript", { name: primaryScript.name })}
+        onClick={() => onRunScript(primaryScript)}
+      >
+        <EnvironmentRowBody
+          icon={
+            <ScriptIcon icon={primaryScript.icon} className={ENVIRONMENT_ROW_ICON_CLASS_NAME} />
+          }
+          label={format("chat.environment.runScript", { name: primaryScript.name })}
+        />
+      </button>
+      <span
+        aria-hidden
+        className="h-4 w-px shrink-0 bg-transparent group-hover/details-split:bg-border"
+      />
+      <Menu highlightItemOnHover={false}>
+        <MenuTrigger
+          render={
+            <button
+              type="button"
+              aria-label={t("chat.environment.scriptActions")}
+              className={cn(ENVIRONMENT_ROW_CLASS_NAME, "w-8 shrink-0 justify-center px-0")}
+            />
+          }
+        >
+          <EnvironmentRowChevron />
+        </MenuTrigger>
+        {scriptsMenuPopup("start")}
+      </Menu>
+    </div>
+  ) : (
+    <EnvironmentRow
+      icon={<PlusIcon aria-hidden className={ENVIRONMENT_ROW_ICON_CLASS_NAME} />}
+      label={t("chat.environment.addProjectScript")}
+      onClick={openAddDialog}
+    />
+  );
+
   return (
     <>
-      {showInlineControls && primaryScript ? (
+      {isPanel ? (
+        panelControls
+      ) : showInlineControls && primaryScript ? (
         // Icon-only, flat header controls: the action's name lives in the tooltip.
         <ChatHeaderSplitGroup label="Project actions">
           <ChatHeaderIconButton
@@ -256,58 +367,10 @@ export default function ProjectScriptsControl({
             >
               <ChevronDownIcon className="size-3" />
             </MenuTrigger>
-            <ComposerPickerMenuPopup align="end" className="min-w-64" sideOffset={8}>
-              {scripts.map((script) => {
-                const shortcutLabel = shortcutLabelForCommand(
-                  keybindings,
-                  commandForProjectScript(script.id),
-                );
-                return (
-                  <MenuItem
-                    key={script.id}
-                    className={actionMenuItemClassName}
-                    onClick={() => onRunScript(script)}
-                  >
-                    <ScriptIcon icon={script.icon} className="size-4 text-muted-foreground" />
-                    <span className="min-w-0 truncate">
-                      {script.runOnWorktreeCreate ? `${script.name} (setup)` : script.name}
-                    </span>
-                    <span className="flex min-w-0 items-center justify-end">
-                      {shortcutLabel && (
-                        <MenuShortcut className="ms-0 transition-opacity group-hover:opacity-0 group-focus-visible:opacity-0">
-                          {shortcutLabel}
-                        </MenuShortcut>
-                      )}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-xs"
-                        className="size-6 rounded-lg opacity-50 transition-opacity sm:pointer-events-none sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:opacity-100 sm:group-focus-visible:pointer-events-auto sm:group-focus-visible:opacity-100"
-                        aria-label={`Edit ${script.name}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          openEditDialog(script);
-                        }}
-                      >
-                        <SettingsIcon className="size-4" />
-                      </Button>
-                    </span>
-                  </MenuItem>
-                );
-              })}
-              <MenuItem className={actionMenuItemClassName} onClick={openAddDialog}>
-                <PlusIcon className="size-4 text-muted-foreground" />
-                <span className="col-span-2 min-w-0 truncate">Add action</span>
-              </MenuItem>
-            </ComposerPickerMenuPopup>
+            {scriptsMenuPopup("end")}
           </Menu>
         </ChatHeaderSplitGroup>
-      ) : showInlineControls ? (
+      ) : !isPanel && showInlineControls ? (
         <ChatHeaderIconButton
           tone="surface"
           label="Add action"

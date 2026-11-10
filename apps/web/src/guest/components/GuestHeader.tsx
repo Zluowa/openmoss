@@ -4,7 +4,7 @@
 // Why: Built from the chat header's own tokens so it lines up with the owner's chat chrome; the
 //      owner-only controls (git, panels, handoff) are simply absent.
 
-import type { GuestThreadModel } from "@synara/contracts";
+import type { GuestThreadModel } from "@moss/contracts";
 
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { MossLogoMark } from "~/components/MossLogoMark";

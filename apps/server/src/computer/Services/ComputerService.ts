@@ -1,6 +1,6 @@
 import { ServiceMap } from "effect";
 
-import type { ComputerAvailability } from "@synara/contracts";
+import type { ComputerAvailability } from "@moss/contracts";
 import type { ComputerManager } from "../ComputerManager.ts";
 
 export interface ComputerServiceShape {

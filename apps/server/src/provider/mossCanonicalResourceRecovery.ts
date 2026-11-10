@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat } from "node:fs/promises";
 import * as nodePath from "node:path";
 
-import { MossCanonicalResourceMutationReceipt as MossCanonicalResourceMutationReceiptSchema } from "@synara/contracts";
+import { MossCanonicalResourceMutationReceipt as MossCanonicalResourceMutationReceiptSchema } from "@moss/contracts";
 import type {
   MossCanonicalResourceMutationReceipt,
   MossCanonicalRootDescriptor,
@@ -11,7 +11,7 @@ import type {
   MossOwnershipStore,
   MossPrivateManifest,
   MossPrivateManifestReceipt,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
 import {

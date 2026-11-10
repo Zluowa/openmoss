@@ -3,7 +3,7 @@
 // Layer: Chat status presentation
 // Exports: ProviderHealthBanner
 
-import type { ServerProviderStatus } from "@synara/contracts";
+import type { ServerProviderStatus } from "@moss/contracts";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { IconButton } from "../ui/icon-button";
@@ -15,12 +15,14 @@ import { CircleAlertIcon, TriangleAlertIcon, XIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { ChatColumnBannerFrame } from "./ChatColumnBannerFrame";
 import { useTranslation } from "~/localization";
+import { translateZhCnPresentationText } from "~/localization/zhCN";
 import {
   isMossDefaultManagedProviderInstanceId,
   isMossManagedProviderStatus,
   isFreshMossManagedStartupStatus,
   isProviderDurablyUnavailable,
   isProviderUsable,
+  providerStatusActionMessage,
   providerStatusDisplayLabel,
   resolveProviderAvailabilityPresentationKind,
 } from "../../lib/providerAvailability";
@@ -40,7 +42,7 @@ export const ProviderHealthBanner = function ProviderHealthBanner({
   status: ServerProviderStatus | null;
   managedInstanceConfigured?: boolean;
 }) {
-  const { format, t } = useTranslation();
+  const { format, locale, t } = useTranslation();
   if (!status || (status.status === "ready" && isProviderUsable(status))) {
     return null;
   }
@@ -71,10 +73,13 @@ export const ProviderHealthBanner = function ProviderHealthBanner({
       case "unauthenticated":
         return format("provider.send.blocked.unauthenticated", { provider: providerLabel });
       case "unavailable":
-      case "status-timeout":
+      case "status-timeout": {
+        const action = providerStatusActionMessage(status);
+        if (action) return locale === "zh-CN" ? translateZhCnPresentationText(action) : action;
         return isMossManaged
           ? t("provider.health.moss.errorDescription")
           : format("provider.health.unavailable", { provider: providerLabel });
+      }
       case "transient":
       case "status-loading":
         return isMossManaged

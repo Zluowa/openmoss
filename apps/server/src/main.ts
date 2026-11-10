@@ -20,18 +20,18 @@ import {
   Stream,
 } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
-import type { ServerSettings } from "@synara/contracts";
-import { NetService } from "@synara/shared/Net";
+import type { ServerSettings } from "@moss/contracts";
+import { NetService } from "@moss/shared/Net";
 import {
   MIGRATION_DIVERGENCE_CONSENT_ENV,
   MIGRATION_RUNTIME_SOURCE_DIGEST_ENV,
-} from "@synara/shared/migrationRecovery";
+} from "@moss/shared/migrationRecovery";
 import {
   optionalBooleanEnvironmentConfig,
   optionalBooleanFlag,
   resolveBooleanConfig,
   type BooleanFlagInput,
-} from "@synara/shared/cli";
+} from "@moss/shared/cli";
 import {
   DEFAULT_PORT,
   deriveServerPaths,
@@ -44,16 +44,20 @@ import {
   type RuntimeMode,
   type ServerConfigShape,
 } from "./config";
-import { MOSS_BETA_BUNDLE_ID, MOSS_DESKTOP_BUNDLE_ID_ENV } from "@synara/shared/desktopIdentity";
+import { MOSS_BETA_BUNDLE_ID, MOSS_DESKTOP_BUNDLE_ID_ENV } from "@moss/shared/desktopIdentity";
 import { runBetaImportIfRequested } from "./betaImport";
 import { startBetaUsageSnapshotJob } from "./betaUsageSnapshot";
 import { LATEST_MIGRATION_ID } from "./persistence/Migrations";
 import { fixPath, resolveBaseDir } from "./os-jank";
+import { ensureAgentCliPath } from "./provider/agentCliPathFloor.ts";
+import { refreshNodeShim } from "./provider/agentInstallRuntime.ts";
+import { managedAgentBinDirectory, managedAgentInstallPrefix } from "./provider/providerInstall.ts";
 import { Open } from "./open";
 import { ServerAuth } from "./auth/Services/ServerAuth";
 import * as SqlitePersistence from "./persistence/Layers/Sqlite";
 import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
 import { makeServerApplicationLayers } from "./serverLayers";
+import type { AccountRecoveryAuthorityProvision } from "./pages/realtime/cloud/control/accountRecoveryAuthorityRuntime";
 import { startServerMemoryDiagnostics } from "./memoryDiagnostics";
 import {
   claudeCredentialKeepaliveTargets,
@@ -67,7 +71,8 @@ import { ServerLoggerLive } from "./serverLogger";
 import { ServerSettingsService } from "./serverSettings";
 import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAccess";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
-import { startThreadRetentionJob } from "./threadRetention";
+import { startRetentionArchiveRestore } from "./legacyThreadRetention";
+import { startManagedWorktreeMaintenanceJob } from "./managedWorktreeMaintenance";
 import {
   discoverServerRuntime,
   pairExternalMcpClient,
@@ -85,6 +90,8 @@ import {
 export interface MossServerLayerOptions {
   /** Used only by isolated developer harnesses; the normal CLI leaves this empty. */
   readonly additionalRuntimeServicesLayer?: Layer.Layer<any, never, never>;
+  /** Explicit hosted authority deployment inputs; omitted for desktop/client servers. */
+  readonly accountRecoveryAuthorityProvision?: AccountRecoveryAuthorityProvision;
 }
 
 export class StartupError extends Data.TaggedError("StartupError")<{
@@ -433,6 +440,13 @@ const makeServerProgram = (input: CliInput, options: MossServerLayerOptions = {}
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
+    // Agents the person installed in the usual folders, then the ones Moss installed with
+    // one click, both after the person's own PATH so theirs win.
+    yield* Effect.promise(async () => {
+      await ensureAgentCliPath(config.baseDir, { force: true });
+      // Agents Moss installed without the person's own Node start through this shim.
+      await refreshNodeShim(managedAgentBinDirectory(managedAgentInstallPrefix(config.baseDir)));
+    });
     yield* Effect.sync(() => startServerMemoryDiagnostics({ mode: config.mode }));
 
     if (!config.devUrl && !config.staticDir) {
@@ -467,9 +481,10 @@ const makeServerProgram = (input: CliInput, options: MossServerLayerOptions = {}
 
     const orchestrationEngine = yield* OrchestrationEngineService;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
-    // Start the retention loop after the server is live so startup can serve
-    // existing history first, then hide inactive threads from the app in the background.
-    yield* startThreadRetentionJob(orchestrationEngine, projectionSnapshotQuery);
+    // Once the server is live: give back conversations the removed age-based archiving
+    // hid, and keep the daily cleanup of worktrees the person archived or deleted.
+    yield* startRetentionArchiveRestore(orchestrationEngine);
+    yield* startManagedWorktreeMaintenanceJob(projectionSnapshotQuery);
     // Beta only: anonymous 24h usage snapshot for diagnostics. Same gate as the
     // stable→beta import; failures are logged inside and never break startup.
     if (process.env[MOSS_DESKTOP_BUNDLE_ID_ENV] === MOSS_BETA_BUNDLE_ID) {

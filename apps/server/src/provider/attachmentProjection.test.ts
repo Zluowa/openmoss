@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { ChatAttachment } from "@synara/contracts";
+import type { ChatAttachment } from "@moss/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { buildFileAttachmentsPromptBlock } from "./attachmentProjection.ts";

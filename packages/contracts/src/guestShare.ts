@@ -34,6 +34,12 @@ export const GUEST_PENDING_ATTACHMENT_BYTES_LIMIT = 20 * 1024 * 1024;
 /** Opening snapshot window, as in T3: recent user turns, capped by message count. */
 export const GUEST_SNAPSHOT_USER_TURN_LIMIT = 20;
 export const GUEST_SNAPSHOT_MESSAGE_LIMIT = 600;
+/** Largest agent page (`html_render`) the `render` route serves; pages inline their images. */
+export const GUEST_RENDER_MAX_BYTES = 8 * 1024 * 1024;
+/** Largest picture the `media` route serves. */
+export const GUEST_MEDIA_MAX_BYTES = 10 * 1024 * 1024;
+/** A file the guest's viewer pane opens or saves (`file` route); the relay allows 26 MB. */
+export const GUEST_FILE_MAX_BYTES = 20 * 1024 * 1024;
 
 // ── Identifiers ─────────────────────────────────────────────────────
 
@@ -177,9 +183,67 @@ export const GUEST_ROUTES = {
   messages: "messages",
   /** GET `?id=<attachment id>`: a file of the shared thread or of the guest's own messages. */
   attachment: "attachment",
+  /** POST JSON `PageGuestViewRequest`: a shared page or a site (资料空间 sharing). */
+  page: "page",
+  /** POST JSON `PageGuestCommentsRequest`: list or add guest comments on a shared page. */
+  pageComments: "page-comments",
+  /** POST JSON `PageGuestAccessRequest`: ask the owner for access, then poll the decision. */
+  pageAccess: "page-access",
+  /** POST JSON `PageGuestMediaRequest`: an image referenced by the authorized page revision. */
+  pageMedia: "page-media",
+  pageEditOpen: "page-edit-open",
+  pageEditUpdate: "page-edit-update",
+  pageEditEvents: "page-edit-events",
+  pageEditClose: "page-edit-close",
+  /** Main-origin JSON only, explicit owner+relay readonly preview availability. */
+  pageAppPreviewOpen: "page-app-preview-open",
+  /** Parent-origin only: recheck an active published app lease. */
+  pageAppPreviewBroker: "page-app-preview-broker",
+  /** Internal forwarding name; public requests only use the independent content hostname. */
+  pageAppPreviewDocument: "page-app-preview-document",
+  /**
+   * GET `?id=<attachment id>`: a page the agent published with `html_render` in the shared
+   * window, as a sandboxed document for a frame (scripts in an opaque origin, nothing else).
+   */
+  render: "render",
+  /**
+   * GET `?src=<image source as the transcript names it>`: a picture the shared window shows from
+   * the owner's disk (a Markdown image or a generated image). Only pictures the agent's output
+   * names, of the image types the page shows, under `GUEST_MEDIA_MAX_BYTES`.
+   */
+  media: "media",
+  /**
+   * GET, the bytes of something the shared window shows, for the guest's viewer pane (source,
+   * text preview, save): one of `?visual=<inline visual id>` (its stored source), `?render=<page
+   * attachment id>` (an `html_render` page's HTML), `?visualization=<marker src>` (a visualization
+   * marker's file), `?src=<file link>` (a file the agent linked in a reply, inside the thread's
+   * folder), `?diff=<turn id>` (the changes a turn made, as "review changes" shows them), or
+   * `?map=1` (the map a published page draws, as JSON: the owner's lane with Moss's own public
+   * map keys only, never the owner's personal key).
+   * Pictures and videos load inline; anything else downloads. Under `GUEST_FILE_MAX_BYTES`.
+   * `render` takes the same `visual`, `visualization` and `file` keys for a frame (an inline
+   * visual also takes `appearance=light|dark`).
+   */
+  file: "file",
 } as const;
 export type GuestRoute = (typeof GUEST_ROUTES)[keyof typeof GUEST_ROUTES];
 export const GUEST_ROUTE_NAMES: ReadonlyArray<GuestRoute> = Object.values(GUEST_ROUTES);
+export const PAGE_GUEST_EDIT_ROUTES: ReadonlyArray<GuestRoute> = [
+  GUEST_ROUTES.pageEditOpen,
+  GUEST_ROUTES.pageEditUpdate,
+  GUEST_ROUTES.pageEditEvents,
+  GUEST_ROUTES.pageEditClose,
+];
+/**
+ * Routes added after the first release. The owner's Moss lists the ones it serves in `hello`, so
+ * a page served by a newer relay can tell an older owner apart and show a placeholder instead.
+ */
+export const GUEST_OPTIONAL_ROUTES = [
+  GUEST_ROUTES.render,
+  GUEST_ROUTES.media,
+  GUEST_ROUTES.file,
+] as const;
+export type GuestOptionalRoute = (typeof GUEST_OPTIONAL_ROUTES)[number];
 
 export const guestApiPrefix = (shareId: string) => `/v1/shares/${shareId}/guest`;
 export const guestApiPath = (shareId: string, route: GuestRoute) =>
@@ -314,7 +378,12 @@ export type GuestShareEndReason = typeof GuestShareEndReason.Type;
  * event types they do not know.
  */
 export const GuestStreamEvent = Schema.Union([
-  Schema.Struct({ type: Schema.Literal("hello"), protocolVersion: NonNegativeInt }),
+  Schema.Struct({
+    type: Schema.Literal("hello"),
+    protocolVersion: NonNegativeInt,
+    /** The `GUEST_OPTIONAL_ROUTES` this owner serves; absent from owners that predate them. */
+    routes: Schema.optional(Schema.Array(Schema.String)),
+  }),
   Schema.Struct({ type: Schema.Literal("view"), view: GuestShareView }),
   Schema.Struct({ type: Schema.Literal("thread"), item: OrchestrationThreadStreamItem }),
   Schema.Struct({ type: Schema.Literal("ended"), reason: GuestShareEndReason }),

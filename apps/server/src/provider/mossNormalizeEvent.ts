@@ -8,7 +8,7 @@ import {
   type MossNormalizedSessionEventType,
   type ProviderRuntimeEvent,
   type RuntimeSessionId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 function isUntrackedDynamicToolCallRequest(
   requestType: string | undefined,

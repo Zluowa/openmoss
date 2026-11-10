@@ -1,4 +1,4 @@
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import type { WebContents } from "electron";
 import { describe, expect, it, vi } from "vitest";
 
@@ -23,6 +23,8 @@ const createRuntime = (
     readonly fullPagePng?: Buffer;
     readonly contentWidth?: number;
     readonly contentHeight?: number;
+    readonly viewVisible?: boolean;
+    readonly compositedFails?: boolean;
   } = {},
 ) => {
   const viewportPng = options.viewportPng ?? png(1_024, 768);
@@ -32,7 +34,11 @@ const createRuntime = (
     getSize: () => ({ width: 1_024, height: 768 }),
     resize: vi.fn(),
   }));
-  const sendCommand = vi.fn(async (method: string) => {
+  const sendCommand = vi.fn(async (method: string, params?: { clip?: unknown }) => {
+    if (method === "Page.captureScreenshot" && !params?.clip) {
+      if (options.compositedFails) throw new Error("No frame");
+      return { data: viewportPng.toString("base64") };
+    }
     if (method === "Page.getLayoutMetrics") {
       return {
         cssContentSize: {
@@ -60,8 +66,19 @@ const createRuntime = (
       threadId: THREAD_ID,
       tabId: TAB_ID,
       webContents,
+      ...(options.viewVisible === undefined
+        ? {}
+        : {
+            view: {
+              getBounds: () => ({ x: 0, y: 0, width: 1_024, height: 768 }),
+              setBounds: vi.fn(),
+              getVisible: () => options.viewVisible!,
+              setVisible: vi.fn(),
+            },
+          }),
     } satisfies BrowserAutomationVisibleRuntime,
     sendCommand,
+    capturePage,
   };
 };
 
@@ -79,6 +96,35 @@ describe("browser screenshot capture", () => {
       },
       image: { mimeType: "image/png", width: 1_024, height: 768 },
     });
+  });
+
+  it("captures an on-screen page from its composited frame, not capturePage", async () => {
+    // capturePage returns a magnified crop at 150% after a page navigated while hidden.
+    const { runtime, sendCommand, capturePage } = createRuntime();
+
+    await captureBrowserScreenshot(runtime, { fullPage: false });
+
+    expect(sendCommand).toHaveBeenCalledWith("Page.captureScreenshot", { format: "png" });
+    expect(capturePage).not.toHaveBeenCalled();
+  });
+
+  it("keeps capturePage for a parked view, which never composites a CDP frame", async () => {
+    const { runtime, sendCommand, capturePage } = createRuntime({ viewVisible: false });
+
+    await expect(captureBrowserScreenshot(runtime, { fullPage: false })).resolves.toMatchObject({
+      image: { width: 1_024, height: 768 },
+    });
+    expect(capturePage).toHaveBeenCalledWith(undefined, { stayHidden: true, stayAwake: true });
+    expect(sendCommand).not.toHaveBeenCalledWith("Page.captureScreenshot", expect.anything());
+  });
+
+  it("falls back to capturePage when the composited capture fails", async () => {
+    const { runtime, capturePage } = createRuntime({ viewVisible: true, compositedFails: true });
+
+    await expect(captureBrowserScreenshot(runtime, { fullPage: false })).resolves.toMatchObject({
+      image: { width: 1_024, height: 768 },
+    });
+    expect(capturePage).toHaveBeenCalled();
   });
 
   it("caps full-page CSS dimensions and reports clipping", async () => {

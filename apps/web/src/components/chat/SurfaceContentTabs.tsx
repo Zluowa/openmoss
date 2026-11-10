@@ -3,11 +3,19 @@
 //          and the right dock's pane strip. Tabs are comfortable while few are open, shrink
 //          together as more open, and scroll behind an edge fade once they reach their
 //          minimum width. Tabs scrolled out of view are listed in an overflow menu. Dragging
-//          a tab reorders it; holding it near an edge scrolls the hidden tabs in.
+//          a tab reorders it; holding it near an edge scrolls the hidden tabs in; pulling it
+//          out above or below the strip hands it to the caller (the chat splits with it).
 // Layer: Chat surface UI primitive
 // Depends on: the shared SurfaceTabStrip + SurfaceTabChip and dnd-kit's sortable preset.
 
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from "@dnd-kit/core";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  type Modifier,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
 import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from "@dnd-kit/modifiers";
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -16,6 +24,7 @@ import {
   type CSSProperties,
   type PointerEvent,
   type ReactNode,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -32,7 +41,7 @@ import {
   SurfaceTabStrip,
 } from "./chatHeaderControls";
 import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
-import { findHiddenSurfaceTabIndexes } from "./surfaceContentTabs.logic";
+import { findHiddenSurfaceTabIndexes, isSurfaceTabDraggedOut } from "./surfaceContentTabs.logic";
 
 // Tab width in `em` of the chip's own UI font, so it scales with the font size chosen in
 // Settings: every tab starts at a comfortable basis and shrinks evenly with the rest down
@@ -66,6 +75,29 @@ export interface SurfaceContentTab<Key extends string> {
   onTitleDoubleClick?: (() => void) | undefined;
   /** Opens the tab's context menu at the pointer. Omitted, the tab has none. */
   onContextMenu?: ((position: { x: number; y: number }) => void) | undefined;
+}
+
+/**
+ * Lets a tab leave its strip. A drag that travels past the strip's top or bottom stops
+ * reordering and reports the pointer instead, until it comes back or is released.
+ */
+export interface SurfaceContentTabDragOut<Key extends string> {
+  /** Whether this tab may leave the strip at all. */
+  canDragOut: (key: Key) => boolean;
+  /** The pointer is outside the strip; called on every move while it stays out. */
+  onMove: (key: Key, point: { x: number; y: number }) => void;
+  /** The pointer came back over the strip: the drag is a reorder again. */
+  onReturn: (key: Key) => void;
+  /** Released outside the strip. The tab keeps its place in the strip's order. */
+  onDrop: (key: Key) => void;
+  /** Escape, or a lost pointer, while outside. */
+  onCancel: (key: Key) => void;
+}
+
+interface SurfaceTabDragOutSession<Key extends string> {
+  key: Key;
+  outside: boolean;
+  stop: () => void;
 }
 
 function SortableSurfaceTabChip({
@@ -131,6 +163,8 @@ export function SurfaceContentTabs<Key extends string>(props: {
   selectionAria?: ComponentProps<typeof SurfaceTabChip>["selectionAria"];
   /** Drops the dragged tab onto another tab's slot. Omitted, the tabs are not draggable. */
   onMove?: ((key: Key, overKey: Key) => void) | undefined;
+  /** Lets a dragged tab leave the strip (needs `onMove`). Omitted, drags stay reorders. */
+  dragOut?: SurfaceContentTabDragOut<Key> | undefined;
   /**
    * Control inside the strip, after the last tab (a browser's `+`): it scrolls with the
    * tabs and is neither a drop target nor a tab. Omitted, the strip ends at the last tab.
@@ -148,6 +182,58 @@ export function SurfaceContentTabs<Key extends string>(props: {
   // Indexes of tabs scrolled (even partly) out of the strip, listed in the overflow menu.
   const [hiddenTabIndexes, setHiddenTabIndexes] = useState<readonly number[]>([]);
   const tabCount = tabs.length;
+  // The tab whose drag is outside the strip right now: it dims in its slot while its
+  // stand-in follows the pointer.
+  const [draggedOutKey, setDraggedOutKey] = useState<Key | null>(null);
+  const dragOutSessionRef = useRef<SurfaceTabDragOutSession<Key> | null>(null);
+  // The window listener outlives renders, so it reads the caller's latest handlers here.
+  const dragOutRef = useRef(props.dragOut);
+  useLayoutEffect(() => {
+    dragOutRef.current = props.dragOut;
+  });
+  const endDragOutSession = () => {
+    const session = dragOutSessionRef.current;
+    dragOutSessionRef.current = null;
+    session?.stop();
+    setDraggedOutKey(null);
+    return session;
+  };
+  useEffect(
+    () => () => {
+      const session = dragOutSessionRef.current;
+      dragOutSessionRef.current = null;
+      session?.stop();
+      if (session?.outside) dragOutRef.current?.onCancel(session.key);
+    },
+    [],
+  );
+  // While a tab is out of the strip it holds its own slot, so the strip shows the order a
+  // release out there keeps, instead of a reorder that would not happen.
+  const holdDraggedOutTab: Modifier = ({ transform }) =>
+    dragOutSessionRef.current?.outside ? { ...transform, x: 0, y: 0 } : transform;
+  const beginDragOutSession = (key: Key) => {
+    const nav = navRef.current;
+    if (!nav || !dragOutRef.current?.canDragOut(key)) return;
+    const session: SurfaceTabDragOutSession<Key> = { key, outside: false, stop: () => {} };
+    const track = (event: globalThis.PointerEvent) => {
+      const dragOut = dragOutRef.current;
+      if (!dragOut || dragOutSessionRef.current !== session) return;
+      if (isSurfaceTabDraggedOut(nav.getBoundingClientRect(), event.clientY)) {
+        if (!session.outside) {
+          session.outside = true;
+          setDraggedOutKey(key);
+        }
+        dragOut.onMove(key, { x: event.clientX, y: event.clientY });
+      } else if (session.outside) {
+        session.outside = false;
+        setDraggedOutKey(null);
+        dragOut.onReturn(key);
+      }
+    };
+    window.addEventListener("pointermove", track, { capture: true, passive: true });
+    session.stop = () => window.removeEventListener("pointermove", track, { capture: true });
+    dragOutSessionRef.current = session;
+  };
   useLayoutEffect(() => {
     const strip = navRef.current?.querySelector<HTMLElement>(".surface-content-tabs");
     if (!strip) return;
@@ -213,6 +299,7 @@ export function SurfaceContentTabs<Key extends string>(props: {
               ? CONTENT_TAB_SIZE_CLASS_NAME
               : CONTENT_TAB_FROZEN_SIZE_CLASS_NAME,
             active && CONTENT_TAB_ACTIVE_CLASS_NAME,
+            tab.key === draggedOutKey && "opacity-40",
           ),
           title: tab.title,
           label: tab.title,
@@ -256,11 +343,25 @@ export function SurfaceContentTabs<Key extends string>(props: {
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
-          modifiers={[restrictToHorizontalAxis, restrictToFirstScrollableAncestor]}
+          modifiers={[
+            restrictToHorizontalAxis,
+            restrictToFirstScrollableAncestor,
+            holdDraggedOutTab,
+          ]}
+          onDragStart={({ active }) => beginDragOutSession(active.id as Key)}
           onDragEnd={({ active, over }) => {
+            const session = endDragOutSession();
+            if (session?.outside) {
+              dragOutRef.current?.onDrop(session.key);
+              return;
+            }
             if (over && active.id !== over.id) {
               onMove(active.id as Key, over.id as Key);
             }
+          }}
+          onDragCancel={() => {
+            const session = endDragOutSession();
+            if (session?.outside) dragOutRef.current?.onCancel(session.key);
           }}
         >
           <SortableContext

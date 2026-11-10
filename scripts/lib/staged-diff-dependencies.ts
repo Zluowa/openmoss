@@ -6,7 +6,7 @@ import * as FS from "node:fs";
 import { createRequire } from "node:module";
 import * as Path from "node:path";
 
-export const STAGED_DIFF_CONSUMERS = ["@earendil-works/pi-coding-agent", "@pierre/diffs"] as const;
+export const STAGED_DIFF_CONSUMERS = ["@pierre/diffs"] as const;
 
 export interface StagedDiffResolution {
   readonly consumer: (typeof STAGED_DIFF_CONSUMERS)[number];

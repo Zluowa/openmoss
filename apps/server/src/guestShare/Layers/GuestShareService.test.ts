@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   CommandId,
   EventId,
+  GUEST_OPTIONAL_ROUTES,
   GUEST_PENDING_MESSAGE_LIMIT,
   GUEST_ROUTES,
   GUEST_SESSION_COOKIE,
@@ -20,19 +21,22 @@ import {
   type OrchestrationThread,
   type OrchestrationThreadShell,
   type ThreadGuestShare,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Fiber, Layer, ManagedRuntime, Option, PubSub, Stream } from "effect";
 import type { ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import WebSocket from "ws";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { htmlRenderActivityPayload } from "@moss/shared/htmlRenderActivity";
 
 import { MossAccountServiceError } from "../../account/mossAccountErrors.ts";
 import { MossCloudAccountServiceError } from "../../account/mossCloudAccountErrors.ts";
 import { MossCloudAccountService } from "../../account/Services/MossCloudAccountService.ts";
 import { MossPhoneAccountService } from "../../account/Services/MossPhoneAccountService.ts";
 import { ServerSecretStore } from "../../auth/Services/ServerSecretStore.ts";
+import { createAttachmentId } from "../../attachmentStore.ts";
+import { writeInlineVisual } from "../../inlineVisualStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
   OrchestrationEngineService,
@@ -107,6 +111,8 @@ interface Harness {
   readonly repository: GuestShareRepositoryShape;
   readonly attachmentsDir: string;
   threads: Map<string, OrchestrationThread>;
+  /** The thread's folder, for pictures named by a relative path. */
+  workspaceRoot: string | null;
   dispatchFailure: Error | null;
   accountSignedIn: boolean;
   readonly dispose: () => Promise<void>;
@@ -117,6 +123,7 @@ async function makeHarness(): Promise<Harness> {
   const commands: Array<OrchestrationCommand> = [];
   const state = {
     threads: new Map<string, OrchestrationThread>([[THREAD_ID, makeThread()]]),
+    workspaceRoot: null as string | null,
     dispatchFailure: null as Error | null,
     accountSignedIn: true,
   };
@@ -152,6 +159,21 @@ async function makeHarness(): Promise<Harness> {
       }),
     getThreadDetailWithoutActivitiesById: (threadId) =>
       Effect.sync(() => Option.fromNullishOr(state.threads.get(threadId))),
+    getThreadCheckpointContext: (threadId) =>
+      Effect.sync(() =>
+        state.workspaceRoot === null || !state.threads.has(threadId)
+          ? Option.none()
+          : Option.some({
+              threadId: ThreadId.makeUnsafe(threadId),
+              projectId: ProjectId.makeUnsafe("project-1"),
+              projectKind: "project" as const,
+              workspaceRoot: state.workspaceRoot,
+              envMode: "local" as const,
+              worktreePath: null,
+              workingDirectory: null,
+              checkpoints: [],
+            }),
+      ),
   });
   const secrets = new Map<string, Uint8Array>();
   const secretStore = Layer.succeed(ServerSecretStore, {
@@ -241,6 +263,12 @@ async function makeHarness(): Promise<Harness> {
     },
     set threads(value) {
       state.threads = value;
+    },
+    get workspaceRoot() {
+      return state.workspaceRoot;
+    },
+    set workspaceRoot(value) {
+      state.workspaceRoot = value;
     },
     get dispatchFailure() {
       return state.dispatchFailure;
@@ -741,6 +769,218 @@ describe("GuestShareService", () => {
     });
   });
 
+  describe("pages and pictures", () => {
+    const pageActivity = (attachmentId: string) => ({
+      id: EventId.makeUnsafe(`html-render:${attachmentId}`),
+      kind: "html-render.published",
+      tone: "info" as const,
+      summary: "Dog",
+      payload: htmlRenderActivityPayload({ attachmentId, title: "Dog", height: 430 }),
+      turnId: TURN_ID,
+      createdAt: NOW,
+    });
+
+    it("serves a page the agent published as a sandboxed document, and only that", async () => {
+      const { session } = await joinShare(harness);
+      const attachmentId = createAttachmentId(THREAD_ID)!;
+      const page = "<!doctype html><svg viewBox='0 0 10 10'><circle r='4'/></svg>";
+      fs.writeFileSync(path.join(harness.attachmentsDir, `${attachmentId}.html`), page);
+      harness.threads.set(
+        THREAD_ID,
+        makeThread({ activities: [pageActivity(attachmentId)] as never }),
+      );
+      const served = await harness.run(
+        harness.service.handleGuestRequest(
+          guestRequest({ route: GUEST_ROUTES.render, query: `id=${attachmentId}`, session }),
+        ),
+      );
+      expect(served.status).toBe(200);
+      expect(served.headers["content-type"]).toBe("text/html; charset=utf-8");
+      expect(served.headers["content-security-policy"]).toBe(
+        "sandbox allow-scripts allow-forms allow-popups allow-downloads",
+      );
+      expect(await readBody(served)).toBe(page);
+
+      // A page the window does not show, and no session at all.
+      const other = createAttachmentId(THREAD_ID)!;
+      fs.writeFileSync(path.join(harness.attachmentsDir, `${other}.html`), page);
+      for (const request of [
+        guestRequest({ route: GUEST_ROUTES.render, query: `id=${other}`, session }),
+        guestRequest({ route: GUEST_ROUTES.render, query: `id=${attachmentId}` }),
+      ]) {
+        const refused = await harness.run(harness.service.handleGuestRequest(request));
+        expect(refused.status).toBe(403);
+      }
+      const missing = await harness.run(
+        harness.service.handleGuestRequest(guestRequest({ route: GUEST_ROUTES.render, session })),
+      );
+      expect(missing.status).toBe(400);
+    });
+
+    it("serves pictures the agent showed from the thread's folder, never other files", async () => {
+      const { session } = await joinShare(harness);
+      const workspace = fs.mkdtempSync(path.join(harness.attachmentsDir, "workspace-"));
+      fs.mkdirSync(path.join(workspace, ".git"));
+      fs.writeFileSync(path.join(workspace, "dog.png"), PNG);
+      fs.writeFileSync(path.join(workspace, "secret.png"), PNG);
+      harness.workspaceRoot = workspace;
+      harness.threads.set(
+        THREAD_ID,
+        makeThread({
+          messages: [
+            ...makeThread().messages,
+            {
+              id: MessageId.makeUnsafe("assistant-1"),
+              role: "assistant",
+              text: "![dog](./dog.png) and [the page](./page.html)",
+              turnId: TURN_ID,
+              streaming: false,
+              source: "native",
+              createdAt: NOW,
+              updatedAt: NOW,
+            },
+          ] as never,
+        }),
+      );
+      const served = await harness.run(
+        harness.service.handleGuestRequest(
+          guestRequest({
+            route: GUEST_ROUTES.media,
+            query: `src=${encodeURIComponent("./dog.png")}`,
+            session,
+          }),
+        ),
+      );
+      expect(served.status).toBe(200);
+      expect(served.headers["content-type"]).toBe("image/png");
+      expect(await readBytes(served)).toEqual(Buffer.from(PNG));
+      // A picture in the same folder that the transcript never shows.
+      const unshown = await harness.run(
+        harness.service.handleGuestRequest(
+          guestRequest({
+            route: GUEST_ROUTES.media,
+            query: `src=${encodeURIComponent("./secret.png")}`,
+            session,
+          }),
+        ),
+      );
+      expect(unshown.status).toBe(403);
+      expect(await readJson(unshown)).toMatchObject({ reason: "unavailable" });
+    });
+
+    it("runs an HTML visual the window shows, and serves sources and linked files as bytes", async () => {
+      const { session } = await joinShare(harness);
+      const visualId = `vis_${"a".repeat(32)}`;
+      const html = "<h3>Visual</h3><script>document.title='ok'</script>";
+      await writeInlineVisual({
+        attachmentsDir: harness.attachmentsDir,
+        threadId: THREAD_ID,
+        visualId,
+        html,
+      });
+      const workspace = fs.mkdtempSync(path.join(harness.attachmentsDir, "workspace-"));
+      fs.writeFileSync(path.join(workspace, "notes.md"), "# Notes\n");
+      fs.writeFileSync(path.join(workspace, "page.html"), "<p>page</p>");
+      fs.writeFileSync(path.join(workspace, ".env"), "SECRET=1\n");
+      harness.workspaceRoot = workspace;
+      harness.threads.set(
+        THREAD_ID,
+        makeThread({
+          activities: [
+            {
+              id: EventId.makeUnsafe("visual-1"),
+              kind: "moss-visual.shown",
+              tone: "info" as const,
+              summary: "Visual",
+              payload: {
+                visualId,
+                format: "html",
+                title: "Visual",
+                height: 200,
+                byteLength: html.length,
+                sha256: "b".repeat(64),
+              },
+              turnId: TURN_ID,
+              createdAt: NOW,
+            },
+          ] as never,
+          messages: [
+            ...makeThread().messages,
+            {
+              id: MessageId.makeUnsafe("assistant-1"),
+              role: "assistant",
+              text: "See [notes](notes.md), [the page](page.html) and [env](.env).",
+              turnId: TURN_ID,
+              streaming: false,
+              source: "native",
+              createdAt: NOW,
+              updatedAt: NOW,
+            },
+          ] as never,
+        }),
+      );
+      const request = (route: (typeof GUEST_ROUTES)[keyof typeof GUEST_ROUTES], query: string) =>
+        harness.run(harness.service.handleGuestRequest(guestRequest({ route, query, session })));
+
+      const frame = await request(GUEST_ROUTES.render, `visual=${visualId}&appearance=light`);
+      expect(frame.status).toBe(200);
+      expect(frame.headers["content-type"]).toBe("text/html; charset=utf-8");
+      const document = await readBody(frame);
+      // The policy that blocks every fetch comes before the visual's own bytes.
+      expect(document.indexOf("connect-src 'none'")).toBeLessThan(document.indexOf("<h3>Visual"));
+      expect(document).toContain("color-scheme:light");
+
+      const source = await request(GUEST_ROUTES.file, `visual=${visualId}`);
+      expect(source.status).toBe(200);
+      expect(source.headers["content-type"]).toBe("application/octet-stream");
+      expect(await readBody(source)).toBe(html);
+
+      const notes = await request(GUEST_ROUTES.file, `src=${encodeURIComponent("notes.md")}`);
+      expect(notes.status).toBe(200);
+      expect(notes.headers["content-disposition"]).toContain("notes.md");
+      expect(await readBody(notes)).toBe("# Notes\n");
+
+      const linkedPage = await request(
+        GUEST_ROUTES.render,
+        `file=${encodeURIComponent("page.html")}`,
+      );
+      expect(linkedPage.status).toBe(200);
+      const pageBody = await readBody(linkedPage);
+      expect(pageBody).toContain("connect-src 'none'");
+      expect(pageBody.endsWith("<p>page</p>")).toBe(true);
+
+      // A secret the reply names, a visual the window does not show, nothing named at all.
+      for (const [route, query] of [
+        [GUEST_ROUTES.file, `src=${encodeURIComponent(".env")}`],
+        [GUEST_ROUTES.render, `visual=vis_${"c".repeat(32)}`],
+        [GUEST_ROUTES.file, `src=${encodeURIComponent("other.md")}`],
+      ] as const) {
+        expect((await request(route, query)).status).toBe(403);
+      }
+      expect((await request(GUEST_ROUTES.file, "")).status).toBe(400);
+
+      // A page's map: Moss's public keys for the owner's lane, never the owner's own key.
+      const previous = {
+        own: process.env.MOSS_GOOGLE_MAPS_API_KEY,
+        shipped: process.env.MOSS_PUBLIC_MAPS_GOOGLE_API_KEY,
+      };
+      process.env.MOSS_GOOGLE_MAPS_API_KEY = "owner-own-key";
+      process.env.MOSS_PUBLIC_MAPS_GOOGLE_API_KEY = "moss-public-key";
+      try {
+        const map = await request(GUEST_ROUTES.file, "map=1");
+        expect(map.status).toBe(200);
+        const body = await readBody(map);
+        expect(body).not.toContain("owner-own-key");
+        expect(JSON.parse(body)).toMatchObject({ provider: "google" });
+      } finally {
+        if (previous.own === undefined) delete process.env.MOSS_GOOGLE_MAPS_API_KEY;
+        else process.env.MOSS_GOOGLE_MAPS_API_KEY = previous.own;
+        if (previous.shipped === undefined) delete process.env.MOSS_PUBLIC_MAPS_GOOGLE_API_KEY;
+        else process.env.MOSS_PUBLIC_MAPS_GOOGLE_API_KEY = previous.shipped;
+      }
+    });
+  });
+
   describe("owner decisions", () => {
     it("sends a message to the agent exactly once, with attribution and attachments", async () => {
       const { session } = await joinShare(harness);
@@ -903,6 +1143,7 @@ describe("GuestShareService", () => {
       expect(await reader.next()).toEqual({
         type: "hello",
         protocolVersion: GUEST_SHARE_PROTOCOL_VERSION,
+        routes: [...GUEST_OPTIONAL_ROUTES],
       });
       expect(await reader.next()).toMatchObject({
         type: "view",

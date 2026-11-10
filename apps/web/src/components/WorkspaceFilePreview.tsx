@@ -5,8 +5,8 @@
 // Layer: Web chat presentation component
 // Exports: WorkspaceFilePreview, isMarkdownPreviewablePath
 
-import type { ProjectFileChangeEvent, ProjectReadFileResult } from "@synara/contracts";
-import { PROJECT_PREVIEW_READ_FILE_MAX_BYTES } from "@synara/contracts";
+import type { ProjectFileChangeEvent, ProjectReadFileResult } from "@moss/contracts";
+import { PROJECT_PREVIEW_READ_FILE_MAX_BYTES } from "@moss/contracts";
 import type { FileContents as PierreFileContents } from "@pierre/diffs";
 import {
   Editor as PierreEditor,
@@ -21,13 +21,13 @@ import {
   isSupportedLocalPdfPath,
   isSupportedLocalVideoPath,
   lowerCaseExtensionOf,
-} from "@synara/shared/localPreviewFiles";
+} from "@moss/shared/localPreviewFiles";
 import {
   isLocalAbsolutePath,
   isWorkspaceRelativePathSafe,
   joinWorkspaceRelativePath,
-} from "@synara/shared/path";
-import { isScratchWorkspacePath } from "@synara/shared/threadWorkspace";
+} from "@moss/shared/path";
+import { isScratchWorkspacePath } from "@moss/shared/threadWorkspace";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Component,
@@ -98,7 +98,8 @@ import { useFileLineCommenting } from "./chat/useFileLineCommenting";
 import { WorkspaceFilePreviewHeader } from "./chat/WorkspaceFilePreviewHeader";
 import { TranscriptSelectionAction } from "./chat/TranscriptSelectionAction";
 import { useCodeSelectionAction } from "./chat/useCodeSelectionAction";
-import { CodexCodePreview } from "./CodexCodePreview";
+import { LocalHtmlPreviewFrame } from "./LocalHtmlPreviewFrame";
+import { localHtmlPreviewUrl } from "~/lib/localHtmlPreviewUrl";
 import { DelimitedSpreadsheetPreview } from "./DelimitedSpreadsheetPreview";
 import { DocxPreviewPanel } from "./DocxPreviewPanel";
 import { LocalImagePreview } from "./LocalImagePreview";
@@ -110,6 +111,7 @@ import { UnsupportedFilePreview } from "./UnsupportedFilePreview";
 import { XlsxReader } from "./XlsxReader";
 import { PdfFilePreview } from "./PdfFilePreview";
 import { Skeleton } from "./ui/skeleton";
+import { useWorkspaceFileOpener } from "~/lib/workspaceFileOpener";
 
 const MARKDOWN_PREVIEW_EXTENSIONS = new Set([".markdown", ".md", ".mdx"]);
 
@@ -620,8 +622,51 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
   const previewEntry = props.previewEntry ?? "local";
   const fileIsAudio = filePath !== null && isSupportedLocalAudioPath(filePath);
   const fileIsVideo = filePath !== null && isSupportedLocalVideoPath(filePath);
-  const fileIsHtml =
-    filePath !== null && isSupportedLocalHtmlPath(filePath) && previewEntry === "library-cloud";
+  const fileIsHtml = filePath !== null && isSupportedLocalHtmlPath(filePath);
+  const htmlAbsolutePath =
+    fileIsHtml && filePath
+      ? fileIsLocalAbsolute
+        ? filePath
+        : workspaceRoot && fileIsWorkspaceRelative
+          ? joinWorkspaceRelativePath(workspaceRoot, filePath)
+          : null
+      : null;
+  // HTML opens rendered from every entry point, the way the desktop artifact panel
+  // and the upstream file panel show a page; the source is one toggle away. The page
+  // only ever runs in LocalHtmlPreviewFrame's opaque, offline sandbox, so rendering
+  // first gives it no more reach than rendering on request did. The reader's choice
+  // is kept per file for the surface's lifetime.
+  //
+  // Where the surface has a browser panel (the desktop chat dock) the rendered page lives
+  // there instead: this viewer shows a page's source and offers "Open in browser".
+  const fileOpener = useWorkspaceFileOpener();
+  const openPageInBrowser =
+    fileIsHtml && filePath !== null && fileOpener?.openPage
+      ? () => {
+          fileOpener.openPage?.(filePath);
+        }
+      : undefined;
+  const htmlPreviewDefault = openPageInBrowser === undefined;
+  const [htmlViewOverrides, setHtmlViewOverrides] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map(),
+  );
+  const htmlPreviewKey = `${workspaceRoot ?? ""}\0${filePath ?? ""}`;
+  const htmlPreviewEnabled = htmlViewOverrides.get(htmlPreviewKey) ?? htmlPreviewDefault;
+  const handleHtmlPreviewChange = (rendered: boolean) => {
+    setHtmlViewOverrides((current) => new Map(current).set(htmlPreviewKey, rendered));
+  };
+  const htmlGrantQuery = useQuery(
+    projectLocalPreviewGrantQueryOptions({
+      path: htmlAbsolutePath,
+      enabled: fileIsHtml && htmlAbsolutePath !== null && htmlPreviewEnabled,
+      refreshWhileHidden: true,
+    }),
+  );
+  const htmlGrant = isLocalPreviewGrantUsable(htmlGrantQuery.data)
+    ? htmlGrantQuery.data?.grant
+    : undefined;
+  const htmlFrameUrl =
+    htmlAbsolutePath && htmlGrant ? localHtmlPreviewUrl(htmlAbsolutePath, htmlGrant) : null;
   const fileIsArchive = filePath !== null && isSupportedLocalArchivePath(filePath);
   const previewKind =
     filePath === null ? ("unsupported" as const) : resolveCodexPreviewKind(filePath, previewEntry);
@@ -1267,19 +1312,20 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
     );
   }
 
-  if (fileIsHtml) {
+  if (fileIsHtml && htmlPreviewEnabled) {
     return (
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-background-surface)]">
         <WorkspaceFilePreviewHeader
           workspaceRoot={props.workspaceRoot}
           filePath={filePath}
           isMarkdown={false}
-          markdownPreviewEnabled={false}
-          onMarkdownPreviewChange={() => undefined}
+          isHtml
+          onOpenInBrowser={openPageInBrowser}
+          markdownPreviewEnabled={htmlPreviewEnabled}
+          onMarkdownPreviewChange={handleHtmlPreviewChange}
           contentsForCopy={fileQuery.data?.contents ?? null}
           onReload={handleFileReload}
           reloading={fileQuery.isFetching}
-          readOnlyReason="HTML previews are read-only."
         />
         <div className="min-h-0 flex-1">
           {fileQuery.isLoading ? (
@@ -1296,12 +1342,19 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
             <pre className="m-auto max-h-full w-[min(64rem,calc(100vw-4rem))] overflow-auto p-6 text-start font-mono text-ui-lg whitespace-pre-wrap">
               {fileQuery.data.contents}
             </pre>
-          ) : (
-            <CodexCodePreview
-              html={fileQuery.data.contents}
-              fileName={basenameOfPath(filePath)}
-              {...(isLocalAbsolutePath(filePath) ? { filePath } : {})}
+          ) : htmlFrameUrl ? (
+            <LocalHtmlPreviewFrame
+              key={`${htmlPreviewKey}\0${fileQuery.dataUpdatedAt}`}
+              src={htmlFrameUrl}
+              title={basenameOfPath(filePath)}
+              className="h-full w-full"
             />
+          ) : htmlGrantQuery.isError || htmlAbsolutePath === null ? (
+            <PanelStateMessage density="compact" fill="flex">
+              <p>Unable to render preview. You can still view the source.</p>
+            </PanelStateMessage>
+          ) : (
+            <FilePreviewLoadingState />
           )}
         </div>
       </div>
@@ -1377,8 +1430,10 @@ export function WorkspaceFilePreview(props: WorkspaceFilePreviewProps) {
         workspaceRoot={props.workspaceRoot}
         filePath={filePath}
         isMarkdown={fileIsMarkdown}
-        markdownPreviewEnabled={showMarkdownPreview}
-        onMarkdownPreviewChange={handleMarkdownPreviewChange}
+        isHtml={fileIsHtml}
+        onOpenInBrowser={openPageInBrowser}
+        markdownPreviewEnabled={fileIsHtml ? htmlPreviewEnabled : showMarkdownPreview}
+        onMarkdownPreviewChange={fileIsHtml ? handleHtmlPreviewChange : handleMarkdownPreviewChange}
         onReferenceInChat={onReferenceInChat}
         onAskWhyInChat={onAskWhyInChat}
         contentsForCopy={fileIsImage || fileQuery.data === undefined ? null : displayedFileContents}

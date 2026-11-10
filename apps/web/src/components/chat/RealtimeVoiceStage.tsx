@@ -2,10 +2,13 @@
 // Purpose: Present the Codex-shaped transparent Realtime Voice orb stage above the composer.
 // Layer: Chat composer presentation
 
-import type { RealtimeVoiceQuotaSnapshot, RealtimeVoiceState } from "@synara/contracts";
+import type { RealtimeVoiceQuotaSnapshot, RealtimeVoiceState } from "@moss/contracts";
 import { type ReactNode, type PointerEvent as ReactPointerEvent, useEffect, useRef } from "react";
 
+import { type TranslationKey, useTranslation } from "../../localization";
 import type { RealtimeVoiceOutputSignal } from "../../lib/realtimeVoiceWebRtc";
+import { cn } from "../../lib/utils";
+import { Button } from "../ui/button";
 import {
   RealtimeVoiceHandoffTarget,
   type RealtimeVoiceDetachMotion,
@@ -268,13 +271,91 @@ function RealtimeVoiceDraggableOrb(props: {
   );
 }
 
-function statusLabel(state: RealtimeVoiceState): string {
-  if (state.phase === "reserving" || state.phase === "presenting") return "Preparing voice chat";
-  if (state.phase === "starting") return "Connecting voice chat";
-  if (state.phase === "stopping") return "Ending voice chat";
-  if (state.activity === "speaking") return "Speaking";
-  if (state.activity === "thinking") return "Thinking";
-  return "Listening";
+export type RealtimeVoiceStatusTone =
+  | "connecting"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "muted";
+
+/** The one status line both the visible row and the screen-reader announcement use. */
+export function realtimeVoiceStatus(state: RealtimeVoiceState): {
+  readonly key: TranslationKey;
+  readonly tone: RealtimeVoiceStatusTone;
+} {
+  if (state.phase === "reserving" || state.phase === "presenting") {
+    return { key: "realtimeVoice.stage.status.preparing", tone: "connecting" };
+  }
+  if (state.phase === "starting") {
+    return { key: "realtimeVoice.stage.status.connecting", tone: "connecting" };
+  }
+  if (state.phase === "stopping") {
+    return { key: "realtimeVoice.stage.status.ending", tone: "connecting" };
+  }
+  if (state.activity === "speaking") {
+    return { key: "realtimeVoice.stage.status.speaking", tone: "speaking" };
+  }
+  if (state.activity === "thinking") {
+    return { key: "realtimeVoice.stage.status.thinking", tone: "thinking" };
+  }
+  if (state.inputMuted) return { key: "realtimeVoice.stage.status.muted", tone: "muted" };
+  return { key: "realtimeVoice.stage.status.listening", tone: "listening" };
+}
+
+/** Non-empty lines of the live transcript, oldest first. */
+export function realtimeVoiceTranscriptLines(transcript: string): readonly string[] {
+  return transcript
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function RealtimeVoiceStatusRow(props: {
+  readonly state: RealtimeVoiceState;
+  readonly onStop?: (() => void) | undefined;
+}) {
+  const { t } = useTranslation();
+  const status = realtimeVoiceStatus(props.state);
+  const canStop = props.state.phase !== "stopping" && props.state.phase !== "inactive";
+  return (
+    <div
+      className="flex h-6 shrink-0 items-center justify-center gap-2"
+      data-moss-realtime-voice-status-row="true"
+      data-tone={status.tone}
+    >
+      {/* The stage's sr-only live region announces this line; the visible row stays quiet. */}
+      <span
+        aria-hidden="true"
+        className="flex items-center gap-1.5 text-ui-sm text-muted-foreground"
+        data-moss-realtime-voice-status="true"
+      >
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            status.tone === "listening" &&
+              "bg-[var(--color-text-accent)] motion-safe:animate-pulse",
+            status.tone === "speaking" && "bg-[var(--color-text-accent)]",
+            status.tone === "thinking" && "bg-muted-foreground motion-safe:animate-pulse",
+            (status.tone === "connecting" || status.tone === "muted") && "bg-muted-foreground/50",
+          )}
+        />
+        {t(status.key)}
+      </span>
+      {props.onStop ? (
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          className="text-ui-sm sm:text-ui-sm"
+          disabled={!canStop}
+          onClick={props.onStop}
+          data-moss-realtime-voice-stage-end="true"
+        >
+          {t("realtimeVoice.stage.end")}
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 function quotaLabel(quota: RealtimeVoiceQuotaSnapshot | null): string | null {
@@ -302,6 +383,13 @@ export function RealtimeVoiceStage(props: {
   readonly canDetachToGlobalOverlay?: boolean;
   readonly onDetachToGlobalOverlay?: (motion: RealtimeVoiceDetachMotion) => void;
   readonly onConnectionHandoffComplete?: () => void;
+  /** Shows a labelled 「结束语音」 control beside the status line. */
+  readonly onStop?: () => void;
+  /**
+   * Shows the newest live transcript line above the orb. The empty-thread view renders the whole
+   * live transcript itself, so ChatView turns this on only once the thread has messages.
+   */
+  readonly showCaption?: boolean;
   readonly usesFadeTransition?: boolean;
   readonly reduceMotion?: boolean;
   /** Pins the clean-room shader clock for deterministic visual regression captures. */
@@ -320,9 +408,11 @@ export function RealtimeVoiceStage(props: {
     return () => window.cancelAnimationFrame(frame);
   }, [isConnecting, props.onConnectionHandoffComplete]);
 
-  const label = statusLabel(props.state);
+  const { t } = useTranslation();
+  const label = t(realtimeVoiceStatus(props.state).key);
   const remaining = quotaLabel(props.quota);
-  const latestTranscript = props.transcript.trim().split("\n").at(-1);
+  const latestTranscript = realtimeVoiceTranscriptLines(props.transcript).at(-1);
+  const caption = props.showCaption ? latestTranscript : undefined;
   const orb = (
     <RealtimeVoiceHandoffTarget
       className="relative shrink-0"
@@ -354,12 +444,21 @@ export function RealtimeVoiceStage(props: {
 
   return (
     <section
-      className="relative mb-2 flex w-full items-end justify-center overflow-visible"
-      style={{ height: 208, paddingRight: 48, paddingBottom: 12, paddingLeft: 48 }}
+      className="relative mb-2 flex w-full flex-col items-center justify-end gap-1.5 overflow-visible"
+      style={{ height: 208, paddingRight: 48, paddingBottom: 8, paddingLeft: 48 }}
       aria-label="Realtime Voice"
       data-moss-realtime-voice-stage="true"
       data-phase={props.state.phase}
     >
+      {caption ? (
+        <p
+          aria-hidden="true"
+          className="line-clamp-2 w-full max-w-[560px] shrink-0 text-center text-ui text-muted-foreground"
+          data-moss-realtime-voice-caption="true"
+        >
+          {caption}
+        </p>
+      ) : null}
       {props.canDetachToGlobalOverlay && props.onDetachToGlobalOverlay ? (
         <RealtimeVoiceDraggableOrb
           onDetach={props.onDetachToGlobalOverlay}
@@ -370,6 +469,7 @@ export function RealtimeVoiceStage(props: {
       ) : (
         orb
       )}
+      <RealtimeVoiceStatusRow state={props.state} onStop={props.onStop} />
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {label}
         {latestTranscript ? `. ${latestTranscript}` : remaining ? `. ${remaining}` : ""}

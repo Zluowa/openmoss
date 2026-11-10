@@ -1,4 +1,4 @@
-import { WsRpcError, type GitRunStackedActionInput } from "@synara/contracts";
+import { WsRpcError, type GitRunStackedActionInput } from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Deferred, Duration, Effect, Exit, Fiber, Layer, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";

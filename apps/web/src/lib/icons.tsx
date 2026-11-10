@@ -108,6 +108,12 @@ export const CheckIcon: LucideIcon = centralIconWrapper("checkmark-1");
 export const ChevronDownIcon: LucideIcon = centralIconWrapper("chevron-down-medium");
 export const ChevronLeftIcon: LucideIcon = centralIconWrapper("chevron-left-medium");
 export const ChevronRightIcon: LucideIcon = centralIconWrapper("chevron-right-medium");
+/** Solid disclosure caret for transcript rows (Claude-style "verb subject ▸"). */
+export const ImageIcon: LucideIcon = centralIconWrapper("images-1");
+export const CaretRightFillIcon: LucideIcon = centralIconWrapper(
+  "chevron-triangle-right-medium",
+  "fill",
+);
 export const ChevronUpIcon: LucideIcon = centralIconWrapper("chevron-top-medium");
 export const ChevronsUpDownIcon: LucideIcon = centralIconWrapper("chevron-grabber-vertical");
 export const CircleAlertIcon: LucideIcon = centralIconWrapper("exclamation-circle");
@@ -140,6 +146,7 @@ export const BELL_ICON_NAME = "notes";
 export const BellIcon: LucideIcon = centralIconWrapper(BELL_ICON_NAME);
 export const EllipsisIcon: LucideIcon = centralIconWrapper("dot-grid-1x3-horizontal");
 export const EyeIcon: LucideIcon = centralIconWrapper("eye-open");
+export const EyeSlashIcon: LucideIcon = centralIconWrapper("eye-slash");
 // Markdown Source/Preview toggle glyphs (raw source = code brackets, rendered preview =
 // open eye).
 export const CodeIcon: LucideIcon = centralIconWrapper("code");
@@ -224,6 +231,9 @@ export const HistoryIcon: LucideIcon = centralIconWrapper("history");
 /** Hand a to-do to an agent. */
 export const DelegateIcon: LucideIcon = centralIconWrapper("sparkles-two");
 export const CalendarIcon: LucideIcon = centralIconWrapper("calendar-1");
+/** Page quick actions: insert or generate an image, create a visualization. */
+export const PageImageIcon: LucideIcon = centralIconWrapper("images-1");
+export const PageVisualizeIcon: LucideIcon = centralIconWrapper("layout-grid-2");
 export const InfoIcon: LucideIcon = centralIconWrapper("circle-info");
 export const KanbanIcon: LucideIcon = centralIconWrapper("columns-3-wide");
 /** Take-control affordance for the computer dock pane. */
@@ -285,6 +295,17 @@ export const TemporaryThreadIcon: LucideIcon = ({ className, ...props }) => (
 );
 // Central has no soft-wrap glyph; drawn on the same grid in public/moss-icons.
 export const TextWrapIcon: LucideIcon = centralIconWrapper("text-wrap", "moss");
+// Page markup tools in the browser's annotation bar. Central's circle is a spiral and it
+// has no plain line or diagonal arrow, so those three are drawn in public/moss-icons.
+export const SketchPenIcon: LucideIcon = centralIconWrapper("pencil-line");
+export const SketchRectangleIcon: LucideIcon = centralIconWrapper("square-placeholder");
+export const SketchEllipseIcon: LucideIcon = centralIconWrapper("shape-ellipse", "moss");
+export const SketchArrowIcon: LucideIcon = centralIconWrapper("shape-arrow", "moss");
+export const SketchLineIcon: LucideIcon = centralIconWrapper("shape-line", "moss");
+export const SketchTextIcon: LucideIcon = centralIconWrapper("text-1");
+export const SketchSelectIcon: LucideIcon = centralIconWrapper("cursor-1");
+export const SketchStepIcon: LucideIcon = centralIconWrapper("number-1-circle");
+export const PageCommentIcon: LucideIcon = centralIconWrapper("bubble-2");
 export const Trash2: LucideIcon = TrashCanIcon;
 export const TriangleAlertIcon: LucideIcon = centralIconWrapper("exclamation-triangle");
 export const Undo2Icon: LucideIcon = centralIconWrapper("arrow-undo-up");
@@ -384,6 +405,19 @@ export const ListBulletsIcon: LucideIcon = ListTodoIcon;
 export const ExpandArrowsIcon: LucideIcon = centralIconWrapper("expand");
 /** Window-grid glyph for the multi-tab strip's hide-tabs control. */
 export const LayoutWindowIcon: LucideIcon = centralIconWrapper("layout-window");
+// 资料空间 item kinds and create menu.
+export const SlidesIcon: LucideIcon = centralIconWrapper("slides-wide");
+export const TableIcon: LucideIcon = centralIconWrapper("table");
+export const ImagesIcon: LucideIcon = centralIconWrapper("images-1");
+export const WindowAppIcon: LucideIcon = centralIconWrapper("window-app");
+export const LayoutGridIcon: LucideIcon = centralIconWrapper("layout-grid-1");
+export const TemplateIcon: LucideIcon = centralIconWrapper("layout-grid-2");
+export const CloudUploadIcon: LucideIcon = centralIconWrapper("cloud-upload");
+export const PageAddIcon: LucideIcon = centralIconWrapper("page-add");
+export const FileZipIcon: LucideIcon = centralIconWrapper("file-zip");
+export const FileChartIcon: LucideIcon = centralIconWrapper("file-chart");
+export const FilePdfIcon: LucideIcon = centralIconWrapper("file-pdf");
+export const TrashPermanentlyIcon: LucideIcon = centralIconWrapper("trash-permanently");
 /** Muted generic network glyph for transient reconnect status rows. */
 export const WifiIcon: LucideIcon = centralIconWrapper("wifi-full");
 export const LockIcon: LucideIcon = centralIconWrapper("lock");
@@ -405,3 +439,15 @@ export const BoxIcon: LucideIcon = centralIconWrapper("box-2");
 export const VolumeIcon: LucideIcon = centralIconWrapper("volume-full");
 export const MicrophoneOffIcon: LucideIcon = centralIconWrapper("microphone-off");
 export const VolumeOffIcon: LucideIcon = centralIconWrapper("volume-off");
+
+// 资料空间 typed items (幻灯片 / 电子表格 / 白板 / 仪表盘 / 模板) and the deck editor's tools.
+// Named apart from space-ui's kind glyphs so both branches merge without duplicate exports.
+export const SlideDeckIcon: LucideIcon = centralIconWrapper("slides-wide");
+export const SlideAddIcon: LucideIcon = centralIconWrapper("slides-wide-add");
+export const SpreadsheetIcon: LucideIcon = centralIconWrapper("table");
+export const WhiteboardIcon: LucideIcon = centralIconWrapper("whiteboard");
+export const DashboardLayoutIcon: LucideIcon = centralIconWrapper("layout-dashboard");
+export const TemplateGridIcon: LucideIcon = centralIconWrapper("layout-grid-1");
+export const ShapesIcon: LucideIcon = centralIconWrapper("shapes-plus-x-square-circle");
+export const TextBoxIcon: LucideIcon = centralIconWrapper("text-1");
+export const PictureIcon: LucideIcon = centralIconWrapper("images-1");

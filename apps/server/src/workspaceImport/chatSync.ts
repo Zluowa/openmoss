@@ -3,7 +3,7 @@
 //          never duplicates Moss threads.
 // Layer: Server import helper
 
-import type { WorkspaceImportChatResult } from "@synara/contracts";
+import type { WorkspaceImportChatResult } from "@moss/contracts";
 import type { CollectedImportChat } from "./chats";
 import {
   type WorkspaceImportLedger,

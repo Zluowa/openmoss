@@ -1,5 +1,5 @@
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import type { ThreadId, TurnId } from "@synara/contracts";
+import type { ThreadId, TurnId } from "@moss/contracts";
 import type { RightDockHtmlDocument } from "~/rightDockStore.logic";
 import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 

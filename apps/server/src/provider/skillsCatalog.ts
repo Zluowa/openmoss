@@ -11,12 +11,8 @@
 import * as fs from "node:fs/promises";
 import * as nodePath from "node:path";
 
-import type { ProviderKind, ProviderSkillDescriptor } from "@synara/contracts";
-import {
-  parseSkillFrontmatter,
-  readBooleanField,
-  readStringField,
-} from "@synara/shared/frontmatter";
+import type { ProviderKind, ProviderSkillDescriptor } from "@moss/contracts";
+import { parseSkillFrontmatter, readBooleanField, readStringField } from "@moss/shared/frontmatter";
 import { discoverClaudePluginSkillRoots } from "./claudePluginSkills.ts";
 import { MOSS_PLUGIN_CREATOR_SKILL } from "../account/mossPluginCreatorSkill.ts";
 import { MOSS_SKILL_CREATOR_SKILL } from "./mossSkillCreatorSkill.ts";
@@ -24,7 +20,7 @@ import { readRegularFileNoFollow } from "../workspaceImport/safeFile.ts";
 
 const MAX_SKILL_MARKDOWN_BYTES = 1024 * 1024;
 
-export { parseSkillFrontmatter } from "@synara/shared/frontmatter";
+export { parseSkillFrontmatter } from "@moss/shared/frontmatter";
 
 export interface SkillRoot {
   readonly path: string;
@@ -357,6 +353,11 @@ const skillsCatalogInflight = new Map<
   { readonly promise: Promise<ReadonlyArray<ProviderSkillDescriptor>>; readonly forced: boolean }
 >();
 const ensuredMossSkillsDirs = new Set<string>();
+
+/** Drops cached catalogs so skills Moss just wrote or removed show up on the next read. */
+export function invalidateSkillsCatalogCache(): void {
+  skillsCatalogCache.clear();
+}
 
 export function clearSkillsCatalogCacheForTests(): void {
   skillsCatalogCache.clear();

@@ -1,4 +1,4 @@
-import type { ServerSettings } from "@synara/contracts";
+import type { ServerSettings } from "@moss/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { serverQueryKeys } from "~/lib/serverReactQuery";

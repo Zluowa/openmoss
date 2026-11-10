@@ -1,8 +1,8 @@
-import { ApprovalRequestId, EventId, ThreadId } from "@synara/contracts";
+import { ApprovalRequestId, EventId, ThreadId } from "@moss/contracts";
 import {
   buildStalePendingRequestFailureDetail,
   pendingRequestInstanceKey,
-} from "@synara/shared/threadSummary";
+} from "@moss/shared/threadSummary";
 import { afterEach, expect, it } from "vitest";
 import {
   expiredUserInputDrafts,

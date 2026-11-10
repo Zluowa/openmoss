@@ -84,6 +84,12 @@ export function isLocalHtmlPreviewUrl(value: string): boolean {
   return parsePreviewUrl(value) !== null;
 }
 
+/** `moss-local-preview://<grant>/`: the folder a local page may load from, for its CSP. */
+export function localHtmlPreviewProtocolScope(value: string): string | null {
+  const url = parsePreviewUrl(value);
+  return url && url.hostname ? `${LOCAL_HTML_PREVIEW_SCHEME}://${url.hostname}/` : null;
+}
+
 export function isSameLocalHtmlPreviewGrant(sourceUrl: string, targetUrl: string): boolean {
   const source = parsePreviewUrl(sourceUrl);
   const target = parsePreviewUrl(targetUrl);

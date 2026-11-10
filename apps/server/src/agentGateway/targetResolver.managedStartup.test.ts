@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { DEFAULT_SERVER_SETTINGS, type ServerProviderStatus } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ServerProviderStatus } from "@moss/contracts";
 import { Effect } from "effect";
 import { vi } from "vitest";
 

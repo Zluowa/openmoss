@@ -1,4 +1,4 @@
-import type { OrchestrationThreadActivity, ProviderRuntimeEvent } from "@synara/contracts";
+import type { OrchestrationThreadActivity, ProviderRuntimeEvent } from "@moss/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -7,7 +7,7 @@ import {
   RuntimeItemId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -1448,53 +1448,25 @@ describe("provider runtime activity projection", () => {
     ).toEqual(["claude-fable-5"]);
   });
 
-  it("projects unmapped passthrough events instead of dropping them", () => {
-    const oversizedDiagnostic = "x".repeat(64_000);
-    const [activity] = projectProviderRuntimeActivities(
-      runtimeEvent({
-        type: "event.unmapped",
-        eventId: "unmapped-native-event",
-        turnId: TURN_ID,
-        payload: {
-          nativeType: "item/agentMessage/completed",
-          detail: "Finished the refactor",
-          data: {
-            secretKey: "must-not-reach-the-activity-snapshot",
-            note: "api_key=another-secret",
-            output: oversizedDiagnostic,
-          },
-        },
-      }),
-    );
-    expect(activity).toMatchObject({
-      tone: "info",
-      kind: "provider.event.unmapped",
-      // Raw native type/label is the row title.
-      summary: "item/agentMessage/completed",
-      turnId: TURN_ID,
-      payload: {
-        nativeEventType: "item/agentMessage/completed",
-        detail: "Finished the refactor",
-        data: expect.objectContaining({ __mossTruncated: true }),
-      },
-    });
-    const serializedPayload = JSON.stringify(activity?.payload);
-    expect(serializedPayload.length).toBeLessThan(17_000);
-    expect(serializedPayload).not.toContain("must-not-reach-the-activity-snapshot");
-    expect(serializedPayload).not.toContain("another-secret");
-    // The activity must survive the schema of the command that carries it.
-    expect(() => decodeActivityAppendCommand(activity!)).not.toThrow();
-
-    // A passthrough event without a native type is the one case still dropped.
-    expect(
-      projectProviderRuntimeActivities(
-        runtimeEvent({
-          type: "event.unmapped",
-          eventId: "unmapped-without-type",
-          payload: { detail: "no type" },
-        }),
-      ),
-    ).toEqual([]);
+  it("keeps notifications no adapter maps out of the thread's activities", () => {
+    // A fresh Codex thread's first turn: session, MCP startup, settings and goal plumbing.
+    for (const [nativeType, data] of [
+      ["session/threadOpenResolved", undefined],
+      ["mcpServer/startupStatus/updated", { name: "codex_apps", status: "starting" }],
+      ["thread/settings/updated", { threadSettings: { disabledPluginIds: [] } }],
+      ["thread/goal/cleared", { threadId: "provider-thread" }],
+    ] as const) {
+      expect(
+        projectProviderRuntimeActivities(
+          runtimeEvent({
+            type: "event.unmapped",
+            eventId: `unmapped-${nativeType}`,
+            turnId: TURN_ID,
+            payload: { nativeType, ...(data ? { data } : {}) },
+          }),
+        ),
+      ).toEqual([]);
+    }
   });
 
   it("keeps routine hook lifecycle internal and surfaces only consequential completions", () => {

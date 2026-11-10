@@ -9,7 +9,8 @@ import {
   type ModelSlug,
   type PendingClaudeCacheReview,
   type RuntimeMode,
-} from "@synara/contracts";
+  type ServerProviderStatus,
+} from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { QueuedComposerChatTurn } from "../composerDraftStore";
@@ -1073,6 +1074,24 @@ describe("voice helpers", () => {
     ).toBe(false);
   });
 
+  it("hands off a send that moves the thread to another account of its provider", () => {
+    expect(
+      turnNeedsProviderHandoff({
+        thread: codexThreadWithTurn,
+        modelSelection: { provider: "codex", instanceId: "codex_moss", model: "deepseek-v4-flash" },
+      }),
+    ).toBe(true);
+    expect(
+      turnNeedsProviderHandoff({
+        thread: {
+          ...codexThreadWithTurn,
+          modelSelection: { provider: "codex", instanceId: "codex_moss", model: "glm-5.3" },
+        },
+        modelSelection: { provider: "codex", instanceId: "codex_moss", model: "deepseek-v4-flash" },
+      }),
+    ).toBe(false);
+  });
+
   it("orders a message sent after a handoff behind the handoff row", () => {
     const handoffAt = "2999-01-01T00:00:00.000Z";
     expect(
@@ -1786,31 +1805,56 @@ describe("deriveComposerSendState", () => {
 });
 
 describe("shouldRenderProviderHealthBanner", () => {
-  it("does not show chat provider health while a terminal thread is active", () => {
+  const notInstalled = {
+    provider: "claudeAgent",
+    instanceId: "claudeAgent",
+    driver: "claudeAgent",
+    status: "error",
+    available: false,
+    authStatus: "unknown",
+    checkedAt: "2026-11-04T00:00:00.000Z",
+    message: "Claude Agent CLI (`claude`) is not installed or not on PATH.",
+  } as ServerProviderStatus;
+  const inUse = {
+    threadEntryPoint: "chat" as const,
+    terminalWorkspaceTerminalTabActive: false,
+    conversationIsLive: true,
+    selectionMatchesConversation: true,
+    status: notInstalled,
+  };
+
+  it("shows a real failure of the agent the conversation is using", () => {
+    expect(shouldRenderProviderHealthBanner(inUse)).toBe(true);
+  });
+
+  it("stays quiet on the home composer, on reopened history and after a picker change", () => {
+    expect(shouldRenderProviderHealthBanner({ ...inUse, conversationIsLive: false })).toBe(false);
     expect(
-      shouldRenderProviderHealthBanner({
-        threadEntryPoint: "terminal",
-        terminalWorkspaceTerminalTabActive: false,
-      }),
+      shouldRenderProviderHealthBanner({ ...inUse, selectionMatchesConversation: false }),
     ).toBe(false);
   });
 
-  it("does not show chat provider health while the terminal workspace tab is active", () => {
-    expect(
-      shouldRenderProviderHealthBanner({
-        threadEntryPoint: "chat",
-        terminalWorkspaceTerminalTabActive: true,
-      }),
-    ).toBe(false);
+  it("never shows warnings or checks still in progress", () => {
+    const partial = {
+      ...notInstalled,
+      provider: "pi",
+      instanceId: "pi",
+      driver: "pi",
+      status: "warning",
+      available: true,
+      message: "Pi SDK is bundled, but the Pi CLI (`pi`) is not on PATH.",
+    } as ServerProviderStatus;
+    expect(shouldRenderProviderHealthBanner({ ...inUse, status: partial })).toBe(false);
+    expect(shouldRenderProviderHealthBanner({ ...inUse, status: null })).toBe(false);
   });
 
-  it("shows chat provider health only on the chat surface", () => {
+  it("does not show chat provider health on terminal surfaces", () => {
+    expect(shouldRenderProviderHealthBanner({ ...inUse, threadEntryPoint: "terminal" })).toBe(
+      false,
+    );
     expect(
-      shouldRenderProviderHealthBanner({
-        threadEntryPoint: "chat",
-        terminalWorkspaceTerminalTabActive: false,
-      }),
-    ).toBe(true);
+      shouldRenderProviderHealthBanner({ ...inUse, terminalWorkspaceTerminalTabActive: true }),
+    ).toBe(false);
   });
 });
 

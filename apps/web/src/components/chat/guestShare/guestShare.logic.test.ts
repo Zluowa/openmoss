@@ -3,7 +3,7 @@ import {
   type GuestShareId,
   type ThreadGuestShare,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { translateMoss } from "~/localization";

@@ -1,4 +1,4 @@
-import type { ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ThreadId } from "@moss/contracts";
 import { ServiceMap } from "effect";
 
 export type AgentGatewayCapability =
@@ -26,6 +26,8 @@ export const AGENT_GATEWAY_HISTORY_CAPABILITIES = [
 export type AgentGatewayHistoryCapability = (typeof AGENT_GATEWAY_HISTORY_CAPABILITIES)[number];
 
 export interface AgentGatewaySessionIdentity {
+  /** Undefined for projection-backed adapters; null until this native lease starts its parent turn. */
+  readonly nativeTurnId?: string | null;
   readonly sessionKey: string;
   readonly threadId: ThreadId;
   readonly provider: ProviderKind;
@@ -60,6 +62,7 @@ export interface AgentGatewaySessionRegistryShape {
   ) => AgentGatewayIssuedSession;
   readonly verify: (token: string) => AgentGatewaySessionIdentity | null;
   readonly bindWriteAuthority: (token: string, turnId: string) => AgentGatewayWriteAuthority | null;
+  readonly observeNativeTurn: (token: string, turnId: string | null) => void;
   readonly verifyWriteAuthority: (authority: AgentGatewayWriteAuthority) => boolean;
   /**
    * Permanently retire this credential's authority for one terminal turn.

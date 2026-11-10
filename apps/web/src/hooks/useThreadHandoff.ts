@@ -9,7 +9,7 @@ import {
   type ModelSelection,
   type ProviderInstanceId,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useProviderStatusesForLocalConfig } from "./useProviderStatusesForLocalConfig";
 import { useRefreshProviderStatusesNow } from "./useProviderStatusRefresh";
@@ -146,9 +146,15 @@ export function useThreadHandoff() {
     explicitModelSelection?: ModelSelection,
   ): Promise<void> => {
     if (
-      !canContinueThreadHandoff({ sourceProvider: thread.modelSelection.provider, targetProvider })
+      !canContinueThreadHandoff({
+        sourceProvider: thread.modelSelection.provider,
+        sourceProviderInstanceId:
+          thread.session?.providerInstanceId ?? thread.modelSelection.instanceId,
+        targetProvider,
+        targetProviderInstanceId,
+      })
     ) {
-      throw new Error("Hand off to a new thread to switch between accounts of the same provider.");
+      throw new Error("This thread already runs on that account.");
     }
     const prepared = await prepareThreadHandoff(thread, targetProvider, targetProviderInstanceId);
     const modelSelection = explicitModelSelection ?? prepared.modelSelection;

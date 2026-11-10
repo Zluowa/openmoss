@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { ProjectId, ThreadId, TurnId, type OrchestrationThreadShell } from "@synara/contracts";
+import { ProjectId, ThreadId, TurnId, type OrchestrationThreadShell } from "@moss/contracts";
 import { Deferred, Effect, Fiber, Option } from "effect";
 
 import type { ProjectionSnapshotQueryShape } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -19,7 +19,7 @@ import {
   type AgentGatewaySessionLease,
   type AgentGatewaySessionLeaseOptions,
 } from "./sessionLease.ts";
-import type { ToolEntry } from "./toolRuntime.ts";
+import { gatewayToolErrorResult, type ToolEntry } from "./toolRuntime.ts";
 
 const NOW = "2026-07-22T03:00:00.000Z";
 
@@ -109,6 +109,8 @@ export interface McpTransportTestDenial {
 }
 
 function makeTransport(input: {
+  readonly nativeTurnTracking?: boolean;
+  readonly beforeProjectionRead?: () => void;
   readonly tools: ReadonlyArray<ToolEntry>;
   readonly threads: ReadonlyArray<OrchestrationThreadShell>;
   readonly leaseCapabilities?: AgentGatewayCapabilityInput;
@@ -117,6 +119,7 @@ function makeTransport(input: {
   /** Computer family names threaded to the transport (absent from tools). */
   readonly computerToolNames?: ReadonlyArray<string>;
   readonly onCapabilityDenied?: (denial: McpTransportTestDenial) => Effect.Effect<void>;
+  readonly noteNativeMcpStartup?: (token: string) => void;
 }) {
   const threads = new Map(input.threads.map((thread) => [String(thread.id), thread]));
   let nextSession = 0;
@@ -134,9 +137,11 @@ function makeTransport(input: {
   });
   const inFlightRequests = makeAgentGatewayInFlightRequestRegistry();
   const credentials = {
+    ...(input.nativeTurnTracking ? { observeNativeTurn: sessionRegistry.observeNativeTurn } : {}),
     verifySession: sessionRegistry.verify,
     bindWriteAuthority: sessionRegistry.bindWriteAuthority,
     verifyWriteAuthority: sessionRegistry.verifyWriteAuthority,
+    noteNativeMcpStartup: input.noteNativeMcpStartup ?? (() => undefined),
     registerInFlightRequest: inFlightRequests.register,
     cancelInFlightRequests: inFlightRequests.cancel,
     cancelSessionTurnRequests: (token: string, turnId: string) => {
@@ -193,8 +198,10 @@ function makeTransport(input: {
     startRuntime(threadId, `token-ghost-${index + 1}`);
   });
   const snapshotQuery = {
-    getThreadShellById: (threadId: ThreadId) =>
-      Effect.succeed(Option.fromNullishOr(threads.get(String(threadId)))),
+    getThreadShellById: (threadId: ThreadId) => {
+      input.beforeProjectionRead?.();
+      return Effect.succeed(Option.fromNullishOr(threads.get(String(threadId))));
+    },
   } as unknown as ProjectionSnapshotQueryShape;
 
   const transport = makeAgentGatewayMcpTransport({
@@ -218,6 +225,9 @@ function makeTransport(input: {
     resolveToken: (token: string) => tokenAliases.get(token) ?? token,
     cancelTurn: (sessionKey: string, turnId: string) =>
       inFlightRequests.cancelTurn(sessionKeyAliases.get(sessionKey) ?? sessionKey, turnId),
+    noteNativeTurn: (thread: string, turn: string) =>
+      leases.get(thread)?.noteParentTurnStarted?.(turn),
+    retireNativeTurn: (thread: string, turn: string) => leases.get(thread)?.retireTurn(turn),
     setThreadTurnState: (
       threadId: string,
       state: "running" | "completed" | "error" | "interrupted",
@@ -264,6 +274,96 @@ const post = (transport: ReturnType<typeof makeTransport>, token: string, body: 
   transport({ authorizationHeader: `Bearer ${transport.resolveToken(token)}`, body });
 
 describe("makeAgentGatewayMcpTransport cancellation", () => {
+  it.effect(
+    "admits a confirmed native parent turn before projection and refuses late, conflicting or retired turns",
+    () =>
+      Effect.gen(function* () {
+        const thread = makeThread("first-native");
+        const id = String(thread.id);
+        let calls = 0;
+        let onRead: (() => void) | undefined;
+        const tool: ToolEntry = {
+          definition: { name: "moss_write", description: "test", inputSchema: { type: "object" } },
+          requiredCapability: "thread:write",
+          requiresActiveTurn: true,
+          handler: (_args, context) =>
+            Effect.gen(function* () {
+              yield* context.assertCallerTurnActive();
+              assert.equal(context.callerTurnId, "native-A");
+              calls++;
+              return { content: [{ type: "text" as const, text: "ok" }] };
+            }).pipe(Effect.catch((error) => Effect.succeed(gatewayToolErrorResult(error)))),
+        };
+        const transport = makeTransport({
+          threads: [{ ...thread, latestTurn: null }],
+          tools: [tool],
+          nativeTurnTracking: true,
+          beforeProjectionRead: () => onRead?.(),
+        });
+        const request = {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "moss_write", arguments: {} },
+        };
+        onRead = () => {
+          onRead = undefined;
+          transport.noteNativeTurn(id, "native-A");
+        };
+        yield* post(transport, "token-1", request);
+        assert.equal(calls, 0); // The first request arrived before native-A.
+        yield* post(transport, "token-1", request);
+        assert.equal(calls, 1); // The next request arrived during the native turn.
+        yield* Effect.promise(
+          () => transport.retireNativeTurn(id, "native-A") ?? Promise.resolve(),
+        );
+        transport.noteNativeTurn(id, "native-B");
+        yield* post(transport, "token-1", request);
+        assert.equal(calls, 1);
+
+        const conflicting = makeTransport({
+          threads: [thread],
+          tools: [tool],
+          nativeTurnTracking: true,
+        });
+        conflicting.noteNativeTurn(id, "native-A");
+        yield* post(conflicting, "token-1", request);
+        assert.equal(calls, 1);
+
+        const stale = makeTransport({
+          threads: [{ ...thread, latestTurn: null }],
+          tools: [tool],
+          nativeTurnTracking: true,
+        });
+        stale.noteNativeTurn(id, "native-A");
+        stale.noteNativeTurn(id, "native-B");
+        yield* post(stale, "token-1", request);
+        assert.equal(calls, 1);
+
+        const differentSessionTurn = makeTransport({
+          threads: [
+            {
+              ...thread,
+              latestTurn: null,
+              session: {
+                threadId: thread.id,
+                status: "running",
+                providerName: "codex",
+                runtimeMode: "full-access",
+                activeTurnId: TurnId.makeUnsafe("other"),
+                lastError: null,
+                updatedAt: NOW,
+              },
+            },
+          ],
+          tools: [tool],
+          nativeTurnTracking: true,
+        });
+        differentSessionTurn.noteNativeTurn(id, "native-A");
+        yield* post(differentSessionTurn, "token-1", request);
+        assert.equal(calls, 1);
+      }),
+  );
   it.effect(
     "rejects turn A's credential after production completion and restart admit turn B",
     () =>
@@ -631,6 +731,21 @@ describe("makeAgentGatewayMcpTransport tools/list", () => {
   ];
   const listBody = { jsonrpc: "2.0", id: "list", method: "tools/list" };
 
+  it.effect("releases the native startup gate once an authenticated tools/list is served", () =>
+    Effect.gen(function* () {
+      const noted: Array<string> = [];
+      const transport = makeTransport({
+        threads: [makeThread("thread-native-startup")],
+        tools: catalog,
+        noteNativeMcpStartup: (token) => noted.push(token),
+      });
+      yield* post(transport, "token-1", { jsonrpc: "2.0", id: "ping", method: "ping" });
+      assert.deepEqual(noted, []);
+      yield* post(transport, "token-1", listBody);
+      assert.equal(noted.length, 1);
+    }),
+  );
+
   it.effect("omits tools the caller's session was never granted", () =>
     Effect.gen(function* () {
       // A session without computer:control can never call these tools; listing
@@ -708,6 +823,33 @@ describe("makeAgentGatewayMcpTransport tools/list", () => {
           ?.text,
         "ok",
       );
+    }),
+  );
+
+  it.effect("reads an account-dependent tool's availability on every listing", () =>
+    Effect.gen(function* () {
+      // place_photos is withheld while a mainland China phone account is signed in.
+      let offered = false;
+      const transport = makeTransport({
+        threads: [makeThread("thread-photos")],
+        tools: [
+          ...catalog,
+          {
+            definition: { name: "place_photos", description: "Photos", inputSchema: {} },
+            requiredCapability: "thread:read",
+            available: () => Effect.sync(() => offered),
+            handler: ok,
+          },
+        ],
+      });
+      const names = (response: { body?: unknown }) =>
+        listedTools(response.body).map((tool) => tool.name);
+      assert.deepEqual(names(yield* post(transport, "token-1", listBody)), ["moss_read_thread"]);
+      offered = true;
+      assert.deepEqual(names(yield* post(transport, "token-1", listBody)), [
+        "moss_read_thread",
+        "place_photos",
+      ]);
     }),
   );
 });

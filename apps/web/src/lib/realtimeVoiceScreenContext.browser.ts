@@ -1,4 +1,4 @@
-import type { DesktopAppSnapCapture } from "@synara/contracts";
+import type { DesktopAppSnapCapture } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { encodeRealtimeVoiceScreenContext } from "./realtimeVoiceScreenContext";

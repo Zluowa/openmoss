@@ -10,7 +10,7 @@ import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 import {
   COMPUTER_HISTORY_MENTION_REFERENCE,
   COMPUTER_HISTORY_MENTION_TOKEN,
-} from "@synara/shared/computerHistoryMention";
+} from "@moss/shared/computerHistoryMention";
 
 describe("matchComposerLinkToken", () => {
   it("matches a URL only once a delimiter follows it while typing", () => {
@@ -343,5 +343,24 @@ describe("splitPromptIntoDisplaySegments", () => {
       { type: "text", text: "Use " },
       { type: "mention", path: "linear", kind: "plugin", tokenLength: "@linear".length },
     ]);
+  });
+});
+
+describe("leading @devs", () => {
+  it("keeps the report command as plain text instead of a file chip", () => {
+    expect(splitPromptIntoComposerSegments("@devs the model list is broken")).toEqual([
+      { type: "text", text: "@devs the model list is broken" },
+    ]);
+    expect(
+      splitPromptIntoComposerSegments("  @devs ").some((segment) => segment.type === "mention"),
+    ).toBe(false);
+  });
+
+  it("still treats @devs later in a message as a file mention", () => {
+    expect(
+      splitPromptIntoComposerSegments("look at @devs please").some(
+        (segment) => segment.type === "mention",
+      ),
+    ).toBe(true);
   });
 });

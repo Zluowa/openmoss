@@ -3,7 +3,7 @@ import {
   SidebarSectionId,
   ThreadId,
   type OrchestrationSidebarOrderItem,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 

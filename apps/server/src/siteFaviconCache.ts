@@ -7,7 +7,7 @@
 //          Effect.promise). Follows the Map + TTL + max-size eviction pattern
 //          used by providerUsageSnapshot.ts / workspaceEntries.ts.
 
-import { outboundHttp } from "@synara/shared/outboundHttp";
+import { outboundHttp } from "@moss/shared/outboundHttp";
 
 const FAVICON_CACHE_MAX = 500;
 const FAVICON_SUCCESS_TTL_MS = 24 * 60 * 60 * 1000; // 24 h
@@ -51,9 +51,8 @@ export function tryParseHost(input: string): string | null {
 }
 
 /**
- * Whether a host is safe to fetch directly (SSRF guard for the last-resort
- * `https://{host}/favicon.ico` source). The Google/DuckDuckGo sources target
- * fixed third-party hosts and never reach this check.
+ * Whether a host may be resolved publicly. The outbound client also validates
+ * DNS results and redirects; known private hostnames must not reach icon aggregators.
  */
 function isPublicHttpHost(host: string): boolean {
   if (host.length === 0) return false;
@@ -108,25 +107,26 @@ async function fetchImage(
 async function fetchFaviconForHost(
   host: string,
 ): Promise<{ bytes: Uint8Array; contentType: string } | null> {
-  // 1) Google S2 — best coverage, returns a clean PNG (a generic globe for unknown sites).
+  if (!isPublicHttpHost(host)) return null;
+
+  // The site's own icon works without waiting for aggregators that may be
+  // unreachable on the person's network. Keep the same bounded public-address policy.
+  const direct = await fetchImage(`https://${host}/favicon.ico`, DIRECT_FETCH_TIMEOUT_MS);
+  if (direct) return direct;
+
+  // Aggregators remain fallbacks for sites that do not expose /favicon.ico.
   const google = await fetchImage(
     `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=64`,
     REMOTE_FETCH_TIMEOUT_MS,
   );
   if (google) return google;
 
-  // 2) DuckDuckGo — no API key, good coverage.
+  // DuckDuckGo is the final fallback.
   const duckDuckGo = await fetchImage(
     `https://icons.duckduckgo.com/ip3/${encodeURIComponent(host)}.ico`,
     REMOTE_FETCH_TIMEOUT_MS,
   );
   if (duckDuckGo) return duckDuckGo;
-
-  // 3) Direct /favicon.ico — last resort, only for publicly routable hosts.
-  if (isPublicHttpHost(host)) {
-    const direct = await fetchImage(`https://${host}/favicon.ico`, DIRECT_FETCH_TIMEOUT_MS);
-    if (direct) return direct;
-  }
 
   return null;
 }

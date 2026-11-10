@@ -4,7 +4,7 @@ import type {
   ComputerSpaceInventory,
   ComputerSpaceReservation,
   ComputerWindow,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { ComputerTargetError } from "./uiTreeTargeting.ts";
 

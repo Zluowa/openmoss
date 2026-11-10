@@ -5,7 +5,7 @@
 // Layer: UI shared component/helper
 // Exports: ConnectorIcon, createConnectorIconElement
 
-import { defaultMcpConnectorName, MCP_CONNECTOR_PRESETS } from "@synara/shared/mcpConnectors";
+import { defaultMcpConnectorName, MCP_CONNECTOR_PRESETS } from "@moss/shared/mcpConnectors";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
@@ -35,9 +35,12 @@ export function hasConnectorBrand(name: string): boolean {
 function connectorSiteHost(name: string, url?: string | null): string | null {
   // Catalog connectors without a vendor mark (WorkOS) use their server's site,
   // even where only the name is known (chips, tool rows).
-  url ??= MCP_CONNECTOR_PRESETS.find(
-    (preset) => normalizeBrandKey(preset.name) === normalizeBrandKey(name),
-  )?.url;
+  const preset = MCP_CONNECTOR_PRESETS.find((entry) =>
+    url ? entry.url === url : normalizeBrandKey(entry.name) === normalizeBrandKey(name),
+  );
+  // Some vendors' MCP hosts serve a placeholder favicon (McDonald's China).
+  if (preset && "iconHost" in preset) return preset.iconHost;
+  url ??= preset?.url;
   if (url) {
     try {
       return defaultMcpConnectorName(url);

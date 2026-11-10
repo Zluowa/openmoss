@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { EventId, ThreadId, TurnId } from "@synara/contracts";
+import { EventId, ThreadId, TurnId } from "@moss/contracts";
 import { Effect, Layer } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 

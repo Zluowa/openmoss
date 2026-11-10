@@ -3,7 +3,7 @@
 // Layer: Web composer domain
 // Depends on: composer draft image intake, toast notifications, and optional bridge acknowledgement.
 
-import type { DesktopAppSnapCapture, ThreadId } from "@synara/contracts";
+import type { DesktopAppSnapCapture, ThreadId } from "@moss/contracts";
 
 import { insertAppSnapCaptureIntoDraft } from "~/appSnapIntake";
 import { toastManager } from "~/components/ui/toast";

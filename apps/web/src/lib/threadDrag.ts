@@ -3,7 +3,7 @@
 // Layer: Web UI helpers
 // Exports: THREAD_DRAG_MIME, ThreadDragPayload, beginThreadDrag, endThreadDrag, getActiveThreadDragId, isThreadDragTransfer, readThreadDragPayload, THREAD_MENTION_DROPZONE_ATTRIBUTE, isWithinThreadMentionDropzone
 
-import { type ThreadId } from "@synara/contracts";
+import { type ThreadId } from "@moss/contracts";
 
 // Custom MIME so external file drops on the composer (which listen for `Files`) cannot trigger us.
 export const THREAD_DRAG_MIME = "application/x-moss-thread";
@@ -13,6 +13,11 @@ export const THREAD_MENTION_DROPZONE_ATTRIBUTE = "data-thread-mention-dropzone";
 
 export interface ThreadDragPayload {
   threadId: ThreadId;
+  /**
+   * Set when the dragged thread is a tab pulled off the chat it is showing: the thread that
+   * takes its place in that pane, so the pane can split without going empty.
+   */
+  replacementThreadId?: ThreadId | undefined;
 }
 
 // Browsers hide drag data until `drop`, so hover feedback that depends on which

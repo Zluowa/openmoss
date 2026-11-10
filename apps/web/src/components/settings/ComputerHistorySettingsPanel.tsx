@@ -4,11 +4,11 @@ import type {
   ComputerHistorySettings,
   ComputerHistoryState,
   ComputerHistoryTimelineEntry,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   COMPUTER_HISTORY_MENTION_REFERENCE,
   COMPUTER_HISTORY_MENTION_TOKEN,
-} from "@synara/shared/computerHistoryMention";
+} from "@moss/shared/computerHistoryMention";
 import {
   useCallback,
   useEffect,
@@ -953,6 +953,8 @@ export function ComputerHistorySettingsPanel() {
 
   const supported = state?.supported === true;
   const enabled = state?.enabled === true;
+  const windowsMetadataOnly =
+    state?.captureCapability?.detail.startsWith("Windows records") === true;
   const timelineGroups = useMemo(() => timelineDayGroups(entries), [entries]);
   const permissionApplications = useMemo(() => {
     const byId = new Map<string, ComputerHistoryApp>();
@@ -2150,6 +2152,11 @@ export function ComputerHistorySettingsPanel() {
   if (!supported || !enabled) {
     return (
       <>
+        {windowsMetadataOnly ? (
+          <p className="mb-4 text-ui text-muted-foreground" role="status">
+            {t("settings.history.windowsMetadata")}
+          </p>
+        ) : null}
         {!supported ? (
           <p className="mb-4 text-ui-lg text-muted-foreground" role="status">
             {state.message ?? t("settings.history.unavailable")}
@@ -2218,6 +2225,11 @@ export function ComputerHistorySettingsPanel() {
 
   return (
     <div className="flex flex-col gap-8" data-testid="computer-history-settings">
+      {windowsMetadataOnly ? (
+        <p className="text-ui text-muted-foreground" role="status">
+          {t("settings.history.windowsMetadata")}
+        </p>
+      ) : null}
       <div
         className="computer-history-settings-card flex flex-col overflow-hidden rounded-2xl border border-[var(--color-border)]"
         style={{

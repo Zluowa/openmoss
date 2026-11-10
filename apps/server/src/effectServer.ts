@@ -1,9 +1,11 @@
+import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/OrchestrationEventDeliveries";
 import { ProjectionPendingInteractionRepositoryLive } from "./persistence/Layers/ProjectionPendingInteractions";
 import http from "node:http";
 
-import type { ServerSettingsError } from "@synara/contracts";
+import type { ProviderRuntimeEvent, ServerSettingsError } from "@moss/contracts";
 import {
   Deferred,
+  Duration,
   Effect,
   Exit,
   FileSystem,
@@ -14,6 +16,7 @@ import {
   Schema,
   Scope,
   ServiceMap,
+  Stream,
 } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -33,7 +36,14 @@ import { MossCloudAccountService } from "./account/Services/MossCloudAccountServ
 import { MossEnterpriseKeyAccount } from "./account/Services/MossEnterpriseKeyAccount";
 import { retireMossByokSettings } from "./account/retiredMossByokCleanup";
 import type { MossCloudAccountServiceShape } from "./account/Services/MossCloudAccountService";
-import { startMossCloudAccountSessionMaintenance } from "./account/Layers/MossCloudAccountService";
+import {
+  maintainMossCloudAccountSession,
+  startMossCloudAccountSessionMaintenance,
+} from "./account/Layers/MossCloudAccountService";
+import {
+  maintainMossPhoneAccountSession,
+  startMossPhoneAccountSessionMaintenance,
+} from "./account/Layers/MossPhoneAccountService";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -81,6 +91,7 @@ import { externalMcpRouteLayer } from "./externalMcp/httpRoute";
 import { ExternalMcpGateway } from "./externalMcp/Services/ExternalMcpGateway";
 import { ExternalMcpService } from "./externalMcp/Services/ExternalMcpService";
 import { mcpConnectorsRouteLayer } from "./mcpConnectors/httpRoute";
+import { pageAppsRouteLayer } from "./pages/apps/httpRoute";
 import { McpConnectors } from "./mcpConnectors/Services/McpConnectors";
 
 export interface ServerShape {
@@ -175,13 +186,34 @@ const accountStartupDegraded = (
   code: "phone_restore_timeout" | "phone_restore_failed",
 ): MossAccountStartupRestorationState => ({ state: "degraded", code, recoveryRequired: true });
 
+/**
+ * A token refresh leaves a running turn on its old bearer, and the rotation waits
+ * for that turn. Retry when a turn ends, or the next message keeps the old bearer
+ * until the next maintenance tick, which may be past its expiry. The short wait
+ * lets a queued follow-up start first: it then counts as the running turn.
+ */
+export const retryDeferredMossRotationAfterTurns = (input: {
+  readonly events: Stream.Stream<ProviderRuntimeEvent>;
+  readonly retry: Effect.Effect<void>;
+  readonly settle?: Duration.Input;
+}) =>
+  Stream.runForEach(input.events, (event) =>
+    event.type === "turn.completed" || event.type === "turn.aborted"
+      ? input.retry.pipe(
+          Effect.delay(input.settle ?? Duration.seconds(3)),
+          Effect.forkScoped,
+          Effect.asVoid,
+        )
+      : Effect.void,
+  ).pipe(Effect.forkScoped, Effect.asVoid);
+
 export function restoreMossAccountsOnStartup(
   input: {
     readonly mossCloudAccount: Pick<MossCloudAccountServiceShape, "restore"> &
       Partial<Pick<MossCloudAccountServiceShape, "getState">>;
     readonly mossPhoneAccount: Pick<MossPhoneAccountServiceShape, "getSession" | "getAccessToken"> &
       Partial<Pick<MossPhoneAccountServiceShape, "restoreSession">> &
-      Partial<Pick<MossPhoneAccountServiceShape, "activateRealm">>;
+      Partial<Pick<MossPhoneAccountServiceShape, "activateRealm" | "activateRealmOnStartup">>;
   },
   timeoutMs = MOSS_PHONE_ACCOUNT_STARTUP_RESTORE_TIMEOUT_MS,
   options: {
@@ -275,8 +307,8 @@ export function restoreMossAccountsOnStartup(
       if (!validated) {
         return;
       }
-      yield* input.mossPhoneAccount
-        .activateRealm({ realm: "cn" })
+      const activateRealm = input.mossPhoneAccount.activateRealm;
+      yield* (input.mossPhoneAccount.activateRealmOnStartup?.() ?? activateRealm({ realm: "cn" }))
         // The account lifecycle semaphore is shared with logout and explicit
         // realm selection. Bound this maintenance fiber so a stalled catalog
         // cannot hold those user actions indefinitely.
@@ -586,6 +618,7 @@ export const createEffectServer = Effect.fn(function* (
     agentGatewayRouteLayer,
     externalMcpRouteLayer,
     mcpConnectorsRouteLayer,
+    pageAppsRouteLayer,
   );
   const httpApp = yield* HttpRouter.toHttpEffect(routesLayer);
   yield* httpServer
@@ -659,13 +692,31 @@ export const createEffectServer = Effect.fn(function* (
     startMossCloudAccountSessionMaintenance(mossCloudAccount),
     subscriptionsScope,
   );
+  yield* Scope.provide(
+    startMossPhoneAccountSessionMaintenance(mossPhoneAccount),
+    subscriptionsScope,
+  );
+  yield* Scope.provide(
+    retryDeferredMossRotationAfterTurns({
+      events: providerService.streamEvents,
+      retry: maintainMossPhoneAccountSession(mossPhoneAccount).pipe(
+        Effect.andThen(maintainMossCloudAccountSession(mossCloudAccount)),
+      ),
+    }),
+    subscriptionsScope,
+  );
   yield* startServerRuntimePipeline({
     orchestrationReactor,
     // Heal turns orphaned by the previous process exit (their in-memory runtimes
     // died, so they can never complete on their own) before clients can observe
     // the stale "Working" state.
     reconcileRestartStuckTurns: reconcileRestartStuckTurns.pipe(
-      Effect.provide(ProjectionPendingInteractionRepositoryLive),
+      Effect.provide(
+        Layer.mergeAll(
+          ProjectionPendingInteractionRepositoryLive,
+          OrchestrationEventDeliveryRepositoryLive,
+        ),
+      ),
     ),
     reactors: [
       automationScheduler,

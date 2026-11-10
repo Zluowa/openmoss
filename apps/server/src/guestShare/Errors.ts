@@ -3,7 +3,7 @@ import {
   GUEST_SHARE_OWNER_ERROR_MESSAGES,
   type GuestAccessErrorReason,
   type GuestShareOwnerErrorCode,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Data } from "effect";
 
 /** An owner call failed; `code` is what the client localizes by. */

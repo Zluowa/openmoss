@@ -1,4 +1,4 @@
-import { ThreadId, TurnId, type OrchestrationThreadActivity } from "@synara/contracts";
+import { ThreadId, TurnId, type OrchestrationThreadActivity } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

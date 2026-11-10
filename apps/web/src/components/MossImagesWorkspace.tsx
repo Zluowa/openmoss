@@ -7,6 +7,7 @@ import { useTheme } from "~/hooks/useTheme";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
 import {
   describeMossImagesError,
+  describeMossImagesReadError,
   loadMossImagesCatalog,
   loadMossImagesHome,
   loadMossImagesWorkspaceBinding,
@@ -49,7 +50,7 @@ import { Dialog, DialogDescription, DialogPopup, DialogTitle } from "./ui/dialog
 import { Menu, MenuItem, MenuPopupBase, MenuTrigger } from "./ui/menu";
 import { MossImagesComposer } from "./images/MossImagesComposer";
 import { MossImagesDiscovery } from "./images/MossImagesDiscovery";
-import type { ModelSelection } from "@synara/contracts";
+import type { ModelSelection } from "@moss/contracts";
 import type { Project } from "~/types";
 import type { RightDockImagePreviewView } from "~/rightDockStore.logic";
 import type { MossCanvasImageFocus } from "~/lib/mossCanvasBridge";
@@ -399,7 +400,7 @@ export function MossImagesWorkspace({
           if (isAccountInvalidation(error)) {
             clearAccountState();
             setCatalogError(describeMossImagesError(error));
-          } else setHistoryError(describeMossImagesError(error));
+          } else setHistoryError(describeMossImagesReadError(error));
         }
       } finally {
         if (current()) setHistoryLoading(false);
@@ -463,7 +464,7 @@ export function MossImagesWorkspace({
       });
     } catch (error) {
       if (!controller.signal.aborted && mountedRef.current) {
-        setCatalogError(describeMossImagesError(error));
+        setCatalogError(describeMossImagesReadError(error));
         if (isAccountInvalidation(error)) clearAccountState();
       }
     } finally {
@@ -872,7 +873,7 @@ export function MossImagesWorkspace({
         } else
           updateTab(tabId, (tab) => ({
             ...tab,
-            conversationError: describeMossImagesError(error),
+            conversationError: describeMossImagesReadError(error),
           }));
       }
     } finally {

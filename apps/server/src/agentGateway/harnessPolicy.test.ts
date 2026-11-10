@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { ProviderKind, RETIRED_PROVIDER_KINDS, SUPPORTED_PROVIDER_KINDS } from "@synara/contracts";
+import { ProviderKind, RETIRED_PROVIDER_KINDS, SUPPORTED_PROVIDER_KINDS } from "@moss/contracts";
 import { Schema } from "effect";
 import { AUTOMATION_AUTHORING_GUIDANCE } from "./automationAuthoringGuidance.ts";
 
@@ -185,8 +185,8 @@ describe("Moss harness policy", () => {
 
   it("keeps the gateway policy below its prompt budget", () => {
     // Includes the T3-compatible visual-reply workflow, including html_preview
-    // and the openui_reference catalog pointer.
-    assert.isAtMost(renderMossHarnessPolicy({ gatewayControlAvailable: true }).length, 6_400);
+    // and the openui_reference catalog pointer, and the Canvas/media line.
+    assert.isAtMost(renderMossHarnessPolicy({ gatewayControlAvailable: true }).length, 6_700);
   });
 
   it("withholds device guidance from sessions with no gateway control", () => {

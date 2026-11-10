@@ -1,4 +1,4 @@
-import { ProjectId, type ThreadId } from "@synara/contracts";
+import { ProjectId, type ThreadId } from "@moss/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useComposerDraftStore } from "../composerDraftStore";

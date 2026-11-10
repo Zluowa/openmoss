@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   beginMossGoogleOAuth,
+  mossGoogleOAuthStartErrorMessage,
   requireSupabaseGoogleAuthorizationUrl,
 } from "./mossGoogleOAuth.logic";
 
@@ -108,5 +109,12 @@ describe("Moss Google OAuth browser boundary", () => {
       }),
     ).rejects.toThrow("Google sign-in could not be opened.");
     expect(onFlowOpened).toHaveBeenCalledOnce();
+  });
+
+  it("tells someone without an overseas network what to check", () => {
+    expect(mossGoogleOAuthStartErrorMessage({ code: "network_error" })).toContain("海外的网络");
+    expect(mossGoogleOAuthStartErrorMessage(new Error("opaque"))).toBe(
+      "无法安全打开 Google 登录，请稍后重试。",
+    );
   });
 });

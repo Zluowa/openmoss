@@ -20,7 +20,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { syncDirectoryEntrySync } from "@synara/shared/filesystemPlatform";
+import { syncDirectoryEntrySync } from "@moss/shared/filesystemPlatform";
 
 import type {
   ProviderCatalogActivity,
@@ -35,7 +35,7 @@ import type {
   ProviderCatalogSourceStatus,
   ProviderCatalogSourceTier,
   ProviderCatalogWithdrawal,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   createMossMarketplaceSources,

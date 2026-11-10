@@ -2,7 +2,7 @@
 // Purpose: Codex-parity ordering, recency, retention, and floating-window geometry for Quick Chat.
 // Layer: Pure web UI logic (no React or browser-global reads)
 
-import type { ProjectId, ThreadId } from "@synara/contracts";
+import type { ProjectId, ThreadId } from "@moss/contracts";
 
 import { hasLiveLatestTurn } from "../session-logic";
 import type { SidebarThreadSummary } from "../types";

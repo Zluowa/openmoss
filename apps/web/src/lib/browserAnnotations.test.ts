@@ -1,4 +1,4 @@
-import { MessageId } from "@synara/contracts";
+import { MessageId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -331,17 +331,22 @@ describe("browserAnnotations", () => {
     ]);
   });
 
-  it("falls back from comment to accessible name, tag, then selector for labels", () => {
+  it("falls back from comment to accessible name, visible text, tag, then selector for labels", () => {
     expect(formatBrowserAnnotationLabel(makeAnnotation({ comment: "Align this" }))).toBe(
       "Align this",
     );
     expect(formatBrowserAnnotationLabel(makeAnnotation({ comment: "" }))).toBe("Save");
     expect(
       formatBrowserAnnotationLabel(makeAnnotation({ comment: "", name: "", tagName: "button" })),
+    ).toBe("Save changes");
+    expect(
+      formatBrowserAnnotationLabel(
+        makeAnnotation({ comment: "", name: "", text: null, tagName: "button" }),
+      ),
     ).toBe("button");
     expect(
       formatBrowserAnnotationLabel(
-        makeAnnotation({ comment: "", name: "", tagName: "", selector: "#save" }),
+        makeAnnotation({ comment: "", name: "", text: null, tagName: "", selector: "#save" }),
       ),
     ).toBe("#save");
   });

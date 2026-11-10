@@ -1,16 +1,17 @@
 // FILE: MossAppConnectDialog.tsx
-// Purpose: Moss's own sign-in step for an app plugin. Rather than a backend's
-//          hosted connect page, Moss explains the connection beside its own
-//          mark and then, by how the app signs in: opens the app's consent page
+// Purpose: Moss's sign-in step for an app plugin explains the connection,
+//          then opens the hosted consent page provided by the regional gateway
 //          and waits for the connection, asks for the user's own key or login
 //          in a Moss form, or says the app needs an OAuth app set up first.
 // Layer: Web dialog
 // Exports: MossAppConnectDialog, MossAppConnectTarget
 
-import type { MossAppSignIn } from "@synara/contracts";
+import type { MossAppSignIn } from "@moss/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
+import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
+import { mossAppsErrorMessage } from "~/lib/mossAppsCopy";
 import { activeMossAppConnection } from "~/lib/mossAppsPlugins";
 import {
   MOSS_APP_CONNECTIONS_QUERY_KEY,
@@ -38,10 +39,6 @@ type ConnectStage = "intro" | "waiting" | "failed";
 
 /** A sign-in left open longer than this is treated as abandoned. */
 const SIGN_IN_TIMEOUT_MS = 5 * 60_000;
-
-function errorText(cause: unknown): string | null {
-  return cause instanceof Error && cause.message.trim() ? cause.message : null;
-}
 
 function LogoTile({ children }: { readonly children: React.ReactNode }) {
   return (
@@ -75,7 +72,9 @@ export function MossAppConnectDialog({
   readonly onOpenChange: (open: boolean) => void;
   readonly onConnected?: ((slug: string) => void) | undefined;
 }) {
-  const { format, t } = useTranslation();
+  const { format, t, locale } = useTranslation();
+  const account = useMossImagesAccountBoundary();
+  const previousAccount = useRef(account.key);
   const queryClient = useQueryClient();
   const [stage, setStage] = useState<ConnectStage>("intro");
   const [signInUrl, setSignInUrl] = useState<string | null>(null);
@@ -83,6 +82,9 @@ export function MossAppConnectDialog({
   const [values, setValues] = useState<Readonly<Record<string, string>>>({});
   const startedAt = useRef(0);
   const slug = target?.slug ?? null;
+  const lease = useRef({ accountKey: account.key, slug, epoch: 0 });
+  if (lease.current.accountKey !== account.key || lease.current.slug !== slug)
+    lease.current = { accountKey: account.key, slug, epoch: lease.current.epoch + 1 };
   const usesCredentials = target?.signIn === "credentials";
   const needsSetup = target?.signIn === "setup";
 
@@ -93,15 +95,30 @@ export function MossAppConnectDialog({
     setValues({});
   }, [slug]);
 
+  useEffect(() => {
+    if (previousAccount.current === account.key) return;
+    previousAccount.current = account.key;
+    setValues({});
+    setSignInUrl(null);
+    setFailure(null);
+    setStage("intro");
+    if (target) onOpenChange(false);
+  }, [account.key, target, onOpenChange]);
+
   const form = useQuery(
     mossAppConnectFieldsQueryOptions({ toolkitSlug: slug, enabled: usesCredentials }),
   );
   const waiting = target !== null && stage === "waiting";
   const connections = useQuery(
-    mossAppConnectionsQueryOptions({ enabled: waiting, polling: waiting }),
+    mossAppConnectionsQueryOptions({
+      enabled: waiting && !account.transitioning,
+      polling: waiting,
+      accountKey: account.key,
+    }),
   );
   const connected =
     target !== null &&
+    !account.transitioning &&
     connections.data !== undefined &&
     activeMossAppConnection(connections.data.connections, target.slug) !== null;
 
@@ -138,14 +155,23 @@ export function MossAppConnectDialog({
   const start = useMutation({
     mutationFn: (input: {
       readonly appSlug: string;
+      readonly accountKey: string;
+      readonly epoch: number;
       readonly credentials?: Readonly<Record<string, string>>;
     }) =>
       ensureNativeApi().server.connectMossApp({
         toolkitSlug: input.appSlug,
         ...(input.credentials ? { credentials: { ...input.credentials } } : {}),
       }),
-    onSuccess: (result) => {
-      if (!target) return;
+    onSuccess: (result, input) => {
+      if (
+        !target ||
+        input.appSlug !== target.slug ||
+        input.epoch !== lease.current.epoch ||
+        input.accountKey !== account.key ||
+        !account.isCurrent()
+      )
+        return;
       if (!result.signInUrl || result.connection.status === "active") {
         finish(target.name, target.slug);
         return;
@@ -155,23 +181,32 @@ export function MossAppConnectDialog({
       setStage("waiting");
       openSignIn(result.signInUrl);
     },
-    onError: (cause) => {
+    onError: (cause, input) => {
+      if (
+        input.epoch !== lease.current.epoch ||
+        input.accountKey !== account.key ||
+        !account.isCurrent()
+      )
+        return;
       setStage("failed");
-      setFailure(errorText(cause));
+      setFailure(mossAppsErrorMessage(cause, locale));
     },
   });
 
   if (!target) return null;
   const fields = form.data?.fields ?? [];
   const missingRequired = fields.some((field) => field.required && !values[field.name]?.trim());
-  const canContinue = usesCredentials
-    ? form.isSuccess && fields.length > 0 && !missingRequired
-    : !needsSetup;
+  const canContinue =
+    !account.transitioning &&
+    (usesCredentials ? form.isSuccess && fields.length > 0 && !missingRequired : !needsSetup);
   const submit = () => {
     if (!canContinue || start.isPending) return;
-    start.mutate(
-      usesCredentials ? { appSlug: target.slug, credentials: values } : { appSlug: target.slug },
-    );
+    start.mutate({
+      appSlug: target.slug,
+      accountKey: account.key,
+      epoch: lease.current.epoch,
+      ...(usesCredentials ? { credentials: values } : {}),
+    });
   };
 
   const title =
@@ -253,7 +288,7 @@ export function MossAppConnectDialog({
                   </span>
                 ) : form.isError ? (
                   <p className="text-ui text-destructive" role="alert">
-                    {errorText(form.error) ?? format("apps.toast.failed", { name: target.name })}
+                    {mossAppsErrorMessage(form.error, locale)}
                   </p>
                 ) : (
                   fields.map((field) => (

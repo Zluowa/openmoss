@@ -1,4 +1,4 @@
-import { ProjectId, type GitHubInboxSort, type OrchestrationProject } from "@synara/contracts";
+import { ProjectId, type GitHubInboxSort, type OrchestrationProject } from "@moss/contracts";
 import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -1092,6 +1092,30 @@ describe("GitHubInboxService pins", () => {
     expect(result.errors.some((error) => error.message.includes("recovery was limited"))).toBe(
       true,
     );
+  });
+
+  it("drops authenticated snapshots when the host GitHub identity changes within the freshness window", async () => {
+    const project = makeProject("auth-change", "App");
+    let viewer = "owner-a";
+    const fake = makeGitHub({ inbox: () => fakeInboxGraphQlJson({ viewer }) });
+    const [first, second] = await runInbox(
+      {
+        projects: [project],
+        repositories: new Map([[project.id, ["acme/app"]]]),
+        github: fake.github,
+      },
+      (service) =>
+        Effect.gen(function* () {
+          const a = yield* service.list({ state: "open" });
+          viewer = "owner-b";
+          yield* service.clearAccount;
+          return [a, yield* service.list({ state: "open" })] as const;
+        }),
+    );
+    expect(first.viewer).toBe("owner-a");
+    expect(second.viewer).toBe("owner-b");
+    expect(second.repositoryState).toBe("configured");
+    expect(fake.inboxCalls).toHaveLength(2);
   });
 
   it("cleans pins for removed repositories but keeps them when inventory is uncertain", async () => {

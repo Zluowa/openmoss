@@ -7,6 +7,8 @@
 //   product names, the bootstrap's element/fragment/link/notification identifiers, and keys
 //   matched with Moss's own alias table. See THIRD_PARTY_NOTICES.md.
 
+import { blankHtmlNonMarkup } from "./htmlMarkup";
+
 import {
   MOSS_DARK_THEME_COLORS,
   MOSS_LIGHT_THEME_COLORS,
@@ -14,6 +16,11 @@ import {
   type ThemeColors,
 } from "./themePalettes";
 import { EVENT_CODE_KEY_ALIASES } from "./keybindingRules";
+import { htmlUsesTripAnimator, TRIP_ANIMATOR_SOURCE } from "./tripAnimator";
+import { HTML_RENDER_COMMENT_BRIDGE_SCRIPT } from "./htmlRenderComments";
+
+export * from "./htmlRenderComments";
+export { blankHtmlNonMarkup } from "./htmlMarkup";
 
 /**
  * Agent-authored HTML pages ("HTML renders") are self-contained documents an
@@ -30,6 +37,24 @@ export const HTML_RENDER_MAX_HEIGHT = 2000;
 // page that grows with its frame, since vh units are rejected at publish.
 export const HTML_RENDER_MAX_FIT_HEIGHT = 20_000;
 export const HTML_RENDER_MAX_TITLE_LENGTH = 200;
+export const HTML_RENDER_MAX_SURFACE_LENGTH = 64;
+/** The characters a surface may hold, as a JSON Schema `pattern`. */
+export const HTML_RENDER_SURFACE_PATTERN = "^[a-z0-9-]+$";
+
+const SURFACE_PATTERN = new RegExp(HTML_RENDER_SURFACE_PATTERN);
+
+/**
+ * A surface is the stable name an agent gives one visual it keeps current in a
+ * thread: 1-64 lowercase letters, digits and hyphens.
+ */
+export function isHtmlRenderSurface(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= HTML_RENDER_MAX_SURFACE_LENGTH &&
+    SURFACE_PATTERN.test(value)
+  );
+}
 
 /** What the `html_render` tool result carries so clients can show the page. */
 export interface HtmlRenderReference {
@@ -42,6 +67,11 @@ export interface HtmlRenderReference {
    * width. Absent when the preview browser was not installed yet.
    */
   readonly heights?: ReadonlyArray<readonly [width: number, height: number]>;
+  /**
+   * The visual this page is a version of. A thread shows a surface's newest page
+   * where the surface first appeared. Absent for a standalone page.
+   */
+  readonly surface?: string;
 }
 
 /** Frame widths the server measures a page at, from phones to the wide chat setting. */
@@ -77,7 +107,7 @@ function readMeasuredHeights(value: unknown) {
 
 export function readHtmlRenderReference(value: unknown): HtmlRenderReference | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const { attachmentId, title, height, heights } = value as Record<string, unknown>;
+  const { attachmentId, title, height, heights, surface } = value as Record<string, unknown>;
   if (
     typeof attachmentId !== "string" ||
     attachmentId.length === 0 ||
@@ -94,15 +124,18 @@ export function readHtmlRenderReference(value: unknown): HtmlRenderReference | u
     title: title.trim().slice(0, HTML_RENDER_MAX_TITLE_LENGTH) || "HTML",
     height: clampHtmlRenderHeight(height),
     ...(measured === undefined ? {} : { heights: measured }),
+    // A malformed surface leaves the page standalone rather than dropping it.
+    ...(isHtmlRenderSurface(surface) ? { surface } : {}),
   };
 }
 
-/** Whether two references show the same page at the same sizes. */
+/** Whether two references show the same page at the same sizes, on the same surface. */
 export function htmlRenderReferencesEqual(left: HtmlRenderReference, right: HtmlRenderReference) {
   return (
     left.attachmentId === right.attachmentId &&
     left.title === right.title &&
     left.height === right.height &&
+    left.surface === right.surface &&
     (left.heights ?? []).length === (right.heights ?? []).length &&
     (left.heights ?? []).every(
       ([width, height], index) =>
@@ -289,6 +322,7 @@ export const HTML_RENDER_LAYOUT_GUIDE = [
 // MCP apps: https://github.com/modelcontextprotocol/ext-apps
 const HOST_CONTEXT_CHANGED_METHOD = "ui/notifications/host-context-changed";
 const OPEN_LINK_METHOD = "ui/open-link";
+const MESSAGE_METHOD = "ui/message";
 const SIZE_CHANGED_METHOD = "ui/notifications/size-changed";
 // Moss's own notifications. A focused frame captures the keyboard, so a page
 // forwards the app shortcuts its client allows; and a click on a page image
@@ -330,6 +364,72 @@ export function readHtmlRenderLinkRequest(data: unknown):
   return typeof url === "string" && /^https?:\/\//i.test(url)
     ? { id, url, metaKey: metaKey === true, ctrlKey: ctrlKey === true }
     : undefined;
+}
+
+/** The longest follow-up a page may hand the reader's composer. */
+export const HTML_RENDER_MAX_FOLLOW_UP_LENGTH = 4000;
+
+function followUpText(content: unknown): string {
+  const blocks = Array.isArray(content) ? content : [content];
+  return blocks
+    .flatMap((block) =>
+      typeof block === "object" &&
+      block !== null &&
+      (block as { type?: unknown }).type === "text" &&
+      typeof (block as { text?: unknown }).text === "string"
+        ? [(block as { text: string }).text]
+        : [],
+    )
+    .join("\n")
+    .trim();
+}
+
+/**
+ * A render's MCP Apps `ui/message` request: a follow-up the reader asked the
+ * page to send, such as the values they picked. Clients put it in the
+ * thread's composer for the reader to send, never straight into a turn.
+ */
+export function readHtmlRenderFollowUpRequest(
+  data: unknown,
+): { readonly id: string | number; readonly text: string } | undefined {
+  if (typeof data !== "object" || data === null) return undefined;
+  const { jsonrpc, id, method, params } = data as Record<string, unknown>;
+  if (jsonrpc !== "2.0" || method !== MESSAGE_METHOD) return undefined;
+  if (typeof id !== "string" && typeof id !== "number") return undefined;
+  if (typeof params !== "object" || params === null) return undefined;
+  const { role, content } = params as Record<string, unknown>;
+  if (role !== undefined && role !== "user") return undefined;
+  const text = followUpText(content);
+  if (text.length === 0) return undefined;
+  return {
+    id,
+    text:
+      text.length > HTML_RENDER_MAX_FOLLOW_UP_LENGTH
+        ? `${text.slice(0, HTML_RENDER_MAX_FOLLOW_UP_LENGTH - 1)}…`
+        : text,
+  };
+}
+
+/** The request a map page sends its client for the map to draw (see htmlRenderMaps.ts). */
+export const HTML_RENDER_MAP_CONFIG_METHOD = "moss/mapConfig";
+
+/**
+ * A map page's request for its map configuration. The client answers only for
+ * html_render pages, with the provider and key for the reader's account; the
+ * stored page never holds a key.
+ */
+export function readHtmlRenderMapConfigRequest(
+  data: unknown,
+): { readonly id: string | number } | undefined {
+  if (typeof data !== "object" || data === null) return undefined;
+  const { jsonrpc, id, method } = data as Record<string, unknown>;
+  if (jsonrpc !== "2.0" || method !== HTML_RENDER_MAP_CONFIG_METHOD) return undefined;
+  return typeof id === "string" || typeof id === "number" ? { id } : undefined;
+}
+
+/** The JSON-RPC answer a client sends back with a value. */
+export function htmlRenderResultValue(id: string | number, result: unknown) {
+  return { jsonrpc: "2.0", id, result } as const;
 }
 
 /**
@@ -410,6 +510,12 @@ export function htmlRenderResult(id: string | number) {
   return { jsonrpc: "2.0", id, result: {} } as const;
 }
 
+/** The JSON-RPC error a client sends back for a render's request it declines to serve now. */
+export function htmlRenderError(id: string | number, message: string) {
+  // -32000: an implementation-defined server error; the method itself exists.
+  return { jsonrpc: "2.0", id, error: { code: -32000, message } } as const;
+}
+
 const THEME_FRAGMENT_KEY = "moss-theme";
 
 /** URL fragment that hands a render its theme before first paint. */
@@ -454,10 +560,13 @@ function rootRule(theme: HtmlRenderTheme): string {
 // so its client can fit the frame to the page. It asks its client to show a
 // clicked image the page did not handle, and forwards a key press that matches
 // a shortcut its client allows once the page's own handlers leave it alone;
-// text fields keep their keys. Keys match as the app matches them.
-const BOOTSTRAP_SCRIPT = `(function(){var s=document.getElementById("moss-theme"),n=0;if(!s)return;var b=${JSON.stringify(BASE_CSS)};function a(t){if(!t||typeof t!=="object"||!t.variables||typeof t.variables!=="object")return;var c=":root{color-scheme:"+(t.appearance==="light"?"light":"dark")+";";for(var k in t.variables){if(/^--[a-z0-9-]+$/.test(k))c+=k+":"+String(t.variables[k]).replace(/[;{}<>]/g,"")+";";}s.textContent=c+"}"+b;}try{var m=/[#&]${THEME_FRAGMENT_KEY}=([^&]*)/.exec(location.hash);if(m){a(JSON.parse(decodeURIComponent(m[1])));history.replaceState(history.state,"",location.pathname+location.search);}}catch(e){}window.addEventListener("message",function(e){var d=e.data,p=d&&d.params;if(d&&d.jsonrpc==="2.0"&&d.method===${JSON.stringify(HOST_CONTEXT_CHANGED_METHOD)}&&p&&p.styles)a({appearance:p.theme,variables:p.styles.variables});});document.addEventListener("click",function(e){var l=e.isTrusted?e.composedPath().find(function(t){return t&&t.matches&&t.matches("a[href]");}):null,u;if(!l)return;try{u=new URL(l.getAttribute("href"),document.baseURI);}catch(x){return;}if(!/^https?:$/.test(u.protocol)||u.href.split("#")[0]===location.href.split("#")[0])return;if(window.parent!==window){e.preventDefault();window.parent.postMessage({jsonrpc:"2.0",id:"moss-link-"+(++n),method:${JSON.stringify(OPEN_LINK_METHOD)},params:{url:u.href,metaKey:e.metaKey,ctrlKey:e.ctrlKey}},"*");}else{l.setAttribute("target","_blank");l.setAttribute("rel","noopener");}},true);if(window.parent!==window){var h,o,z=function(){var r=document.documentElement,v=Math.ceil(r.scrollHeight>r.clientHeight?r.scrollHeight:r.getBoundingClientRect().height);if(v===h)return;h=v;window.parent.postMessage({jsonrpc:"2.0",method:${JSON.stringify(SIZE_CHANGED_METHOD)},params:{height:v}},"*");};if(window.ResizeObserver){o=new ResizeObserver(z);o.observe(document.documentElement);}document.addEventListener("DOMContentLoaded",function(){if(o&&document.body)o.observe(document.body);z();});window.addEventListener("load",z);window.addEventListener("click",function(e){var t=e.composedPath()[0],u;if(!e.isTrusted||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||!t||t.tagName!=="IMG"||t.closest("a[href],button"))return;u=t.currentSrc||t.src;if(u)setTimeout(function(){if(!e.defaultPrevented)window.parent.postMessage({jsonrpc:"2.0",method:${JSON.stringify(OPEN_IMAGE_METHOD)},params:{src:u,name:t.alt||t.title||""}},"*");});});var K=[],B=[],C=${JSON.stringify(EVENT_CODE_KEY_ALIASES)};window.addEventListener("message",function(e){var d=e.data,p=d&&d.params;if(e.source===window.parent&&d&&d.jsonrpc==="2.0"&&d.method===${JSON.stringify(SHORTCUTS_METHOD)}&&p&&Array.isArray(p.shortcuts)&&Array.isArray(p.blocked)){K=p.shortcuts;B=p.blocked;}});window.addEventListener("keydown",function(e){var t=e.composedPath()[0],c=e.code||"",l=String(e.key||"").toLowerCase(),x,f,m=function(s){return s&&s.metaKey===e.metaKey&&s.ctrlKey===e.ctrlKey&&s.shiftKey===e.shiftKey&&s.altKey===e.altKey&&x.indexOf(s.key)>-1;};l=l==="esc"?"escape":l==="{"?"[":l==="}"?"]":l;x=/^[a-z0-9]$/.test(l)?[l]:[l].concat(C.hasOwnProperty(c)?C[c]:[]);if(!e.isTrusted||e.isComposing||e.getModifierState("AltGraph")&&!/^[a-z0-9]$/i.test(e.key)||t&&(t.isContentEditable||/^(?:INPUT|TEXTAREA|SELECT)$/.test(t.tagName))||!K.some(m)||B.some(m))return;f=function(v){window.removeEventListener("keydown",f);if(v!==e||e.defaultPrevented)return;e.preventDefault();window.parent.postMessage({jsonrpc:"2.0",method:${JSON.stringify(KEY_DOWN_METHOD)},params:{key:e.key,code:e.code,metaKey:e.metaKey,ctrlKey:e.ctrlKey,shiftKey:e.shiftKey,altKey:e.altKey,repeat:e.repeat}},"*");};window.addEventListener("keydown",f);setTimeout(function(){window.removeEventListener("keydown",f);});},true);}})();`;
+// text fields keep their keys. Keys match as the app matches them. A framed
+// page also gets `window.mossFollowUp(text)`, which hands a follow-up (the
+// values the reader picked) to the client's composer as an MCP Apps
+// `ui/message`; the client accepts it only right after the reader's input.
+const BOOTSTRAP_SCRIPT = `(function(){var s=document.getElementById("moss-theme"),n=0;if(!s)return;var b=${JSON.stringify(BASE_CSS)};function a(t){if(!t||typeof t!=="object"||!t.variables||typeof t.variables!=="object")return;var c=":root{color-scheme:"+(t.appearance==="light"?"light":"dark")+";";for(var k in t.variables){if(/^--[a-z0-9-]+$/.test(k))c+=k+":"+String(t.variables[k]).replace(/[;{}<>]/g,"")+";";}s.textContent=c+"}"+b;}try{var m=/[#&]${THEME_FRAGMENT_KEY}=([^&]*)/.exec(location.hash);if(m){a(JSON.parse(decodeURIComponent(m[1])));history.replaceState(history.state,"",location.pathname+location.search);}}catch(e){}window.addEventListener("message",function(e){var d=e.data,p=d&&d.params;if(d&&d.jsonrpc==="2.0"&&d.method===${JSON.stringify(HOST_CONTEXT_CHANGED_METHOD)}&&p&&p.styles)a({appearance:p.theme,variables:p.styles.variables});});document.addEventListener("click",function(e){var l=e.isTrusted?e.composedPath().find(function(t){return t&&t.matches&&t.matches("a[href]");}):null,u;if(!l)return;try{u=new URL(l.getAttribute("href"),document.baseURI);}catch(x){return;}if(!/^https?:$/.test(u.protocol)||u.href.split("#")[0]===location.href.split("#")[0])return;if(window.parent!==window){e.preventDefault();window.parent.postMessage({jsonrpc:"2.0",id:"moss-link-"+(++n),method:${JSON.stringify(OPEN_LINK_METHOD)},params:{url:u.href,metaKey:e.metaKey,ctrlKey:e.ctrlKey}},"*");}else{l.setAttribute("target","_blank");l.setAttribute("rel","noopener");}},true);if(window.parent!==window)window.mossFollowUp=function(t){t=String(t==null?"":t).trim();if(!t)return false;window.parent.postMessage({jsonrpc:"2.0",id:"moss-message-"+(++n),method:${JSON.stringify(MESSAGE_METHOD)},params:{role:"user",content:[{type:"text",text:t}]}},"*");return true;};if(window.parent!==window){var h,o,z=function(){var r=document.documentElement,v=Math.ceil(r.scrollHeight>r.clientHeight?r.scrollHeight:r.getBoundingClientRect().height);if(v===h)return;h=v;window.parent.postMessage({jsonrpc:"2.0",method:${JSON.stringify(SIZE_CHANGED_METHOD)},params:{height:v}},"*");};if(window.ResizeObserver){o=new ResizeObserver(z);o.observe(document.documentElement);}document.addEventListener("DOMContentLoaded",function(){if(o&&document.body)o.observe(document.body);z();});window.addEventListener("load",z);window.addEventListener("click",function(e){var t=e.composedPath()[0],u;if(!e.isTrusted||e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||!t||t.tagName!=="IMG"||t.closest("a[href],button"))return;u=t.currentSrc||t.src;if(u)setTimeout(function(){if(!e.defaultPrevented)window.parent.postMessage({jsonrpc:"2.0",method:${JSON.stringify(OPEN_IMAGE_METHOD)},params:{src:u,name:t.alt||t.title||""}},"*");});});var K=[],B=[],C=${JSON.stringify(EVENT_CODE_KEY_ALIASES)};window.addEventListener("message",function(e){var d=e.data,p=d&&d.params;if(e.source===window.parent&&d&&d.jsonrpc==="2.0"&&d.method===${JSON.stringify(SHORTCUTS_METHOD)}&&p&&Array.isArray(p.shortcuts)&&Array.isArray(p.blocked)){K=p.shortcuts;B=p.blocked;}});window.addEventListener("keydown",function(e){var t=e.composedPath()[0],c=e.code||"",l=String(e.key||"").toLowerCase(),x,f,m=function(s){return s&&s.metaKey===e.metaKey&&s.ctrlKey===e.ctrlKey&&s.shiftKey===e.shiftKey&&s.altKey===e.altKey&&x.indexOf(s.key)>-1;};l=l==="esc"?"escape":l==="{"?"[":l==="}"?"]":l;x=/^[a-z0-9]$/.test(l)?[l]:[l].concat(C.hasOwnProperty(c)?C[c]:[]);if(!e.isTrusted||e.isComposing||e.getModifierState("AltGraph")&&!/^[a-z0-9]$/i.test(e.key)||t&&(t.isContentEditable||/^(?:INPUT|TEXTAREA|SELECT)$/.test(t.tagName))||!K.some(m)||B.some(m))return;f=function(v){window.removeEventListener("keydown",f);if(v!==e||e.defaultPrevented)return;e.preventDefault();window.parent.postMessage({jsonrpc:"2.0",method:${JSON.stringify(KEY_DOWN_METHOD)},params:{key:e.key,code:e.code,metaKey:e.metaKey,ctrlKey:e.ctrlKey,shiftKey:e.shiftKey,altKey:e.altKey,repeat:e.repeat}},"*");};window.addEventListener("keydown",f);setTimeout(function(){window.removeEventListener("keydown",f);});},true);}})();`;
 
-function bootstrapMarkup(markup: string): string {
+function bootstrapMarkup(markup: string, withTripAnimator: boolean, libraries: string): string {
   const dark = htmlRenderTheme(MOSS_DARK_THEME_COLORS, "dark");
   const light = htmlRenderTheme(MOSS_LIGHT_THEME_COLORS, "light");
   // Without a client-provided theme (a direct download, the headless preview
@@ -470,44 +579,34 @@ function bootstrapMarkup(markup: string): string {
       : '<meta name="viewport" content="width=device-width, initial-scale=1">',
     `<style id="moss-theme">${defaultCss}</style>`,
     `<script>${BOOTSTRAP_SCRIPT}</script>`,
+    // Comments on the page (htmlRenderComments.ts): idle until its client turns them on.
+    `<script>${HTML_RENDER_COMMENT_BRIDGE_SCRIPT}</script>`,
+    // Itinerary pages share one pin-drop controller; other pages never carry it.
+    withTripAnimator ? `<script>${TRIP_ANIMATOR_SOURCE}</script>` : "",
+    libraries,
   ].join("");
 }
 
-// Comments, raw text, and template contents are blanked to the same length,
-// so offsets still line up and inert tags cannot receive the bootstrap.
-const blankNonMarkup = (html: string) => {
-  const scan = html.replace(
-    /<!--[\s\S]*?(?:-->|$)|<(script|style|textarea|title|xmp|iframe|noembed|noframes|noscript)\b[\s\S]*?(?:<\/\1\s*>|$)|<plaintext\b[\s\S]*$/gi,
-    (match) => " ".repeat(match.length),
-  );
-  const parts: string[] = [];
-  let depth = 0;
-  let start = 0;
-  let at = 0;
-  for (const match of scan.matchAll(/<(\/?)template(?:\s[^>]*)?\/?>/gi)) {
-    if (!match[1]) {
-      if (depth++ === 0) start = match.index;
-    } else if (depth > 0 && --depth === 0) {
-      const end = match.index + match[0].length;
-      parts.push(scan.slice(at, start), " ".repeat(end - start));
-      at = end;
-    }
-  }
-  if (depth > 0) {
-    parts.push(scan.slice(at, start), " ".repeat(scan.length - start));
-    at = scan.length;
-  }
-  parts.push(scan.slice(at));
-  return parts.join("");
-};
+export interface HtmlRenderBootstrapOptions {
+  /**
+   * Extra head markup for this page, placed before the page's own styles and
+   * scripts, such as the map libraries (htmlRenderMap.ts). The server passes it,
+   * so clients never carry those libraries in their own bundle.
+   */
+  readonly libraries?: (html: string) => string;
+}
 
 /**
  * Inserts the theme bootstrap at the start of the document head, so a page's
  * own styles and scripts come after it.
  */
-export function injectHtmlRenderBootstrap(html: string): string {
-  const scan = blankNonMarkup(html);
-  const markup = bootstrapMarkup(scan);
+export function injectHtmlRenderBootstrap(
+  html: string,
+  options: HtmlRenderBootstrapOptions = {},
+): string {
+  const scan = blankHtmlNonMarkup(html);
+  // The page's scripts are blanked in `scan`, so the calls are looked for in the page itself.
+  const markup = bootstrapMarkup(scan, htmlUsesTripAnimator(html), options.libraries?.(html) ?? "");
   const headOpen = /<head(?:\s[^>]*)?>/i.exec(scan);
   if (headOpen) {
     const at = headOpen.index + headOpen[0].length;

@@ -11,7 +11,7 @@
 import {
   WS_REQUEST_CAPACITY_EXCEEDED_CODES,
   WS_REQUEST_CAPACITY_RETRY_AFTER_MS,
-} from "@synara/shared/wsRequestClass";
+} from "@moss/shared/wsRequestClass";
 
 const RPC_CAPACITY_EXCEEDED_CODES = new Set<string>(WS_REQUEST_CAPACITY_EXCEEDED_CODES);
 
@@ -106,4 +106,34 @@ export function expensiveReadErrorRefetchInterval(query: {
   const failures = Math.max(1, query.state.errorUpdateCount ?? 1);
   const exponent = Math.min(failures - 1, 16);
   return Math.min(base * 2 ** exponent, MAX_EXPENSIVE_READ_ERROR_REFETCH_INTERVAL_MS);
+}
+
+/**
+ * Runs a one-off expensive read, waiting out capacity rejections for up to
+ * `maxWaitMs` with backoff instead of failing while other heavy reads (for
+ * example provider discovery right after start-up) hold the shared budget.
+ */
+export async function runWithRpcCapacityWait<T>(
+  run: () => Promise<T>,
+  options: { readonly maxWaitMs: number; readonly isCancelled?: () => boolean },
+): Promise<T> {
+  const startedAt = Date.now();
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      if (
+        !isRetryableRpcCapacityExceededError(error) ||
+        options.isCancelled?.() === true ||
+        Date.now() - startedAt >= options.maxWaitMs
+      ) {
+        throw error;
+      }
+      const delay = Math.min(
+        getRpcCapacityRetryAfterMs(error) * 2 ** Math.min(attempt, 5),
+        MAX_EXPENSIVE_READ_ERROR_REFETCH_INTERVAL_MS / 2,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }

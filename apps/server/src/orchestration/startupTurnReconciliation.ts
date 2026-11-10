@@ -43,14 +43,19 @@ import type {
   OrchestrationSession,
   RuntimeMode,
   ThreadId,
-} from "@synara/contracts";
-import { CommandId, EventId } from "@synara/contracts";
+} from "@moss/contracts";
+import { CommandId, EventId } from "@moss/contracts";
+import { formatProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 import {
   derivePendingThreadRequestIds,
   type PendingThreadRequestKind,
-} from "@synara/shared/threadSummary";
+} from "@moss/shared/threadSummary";
 import { Array as Arr, Effect, Option } from "effect";
 import type { ProjectionPendingInteraction } from "../persistence/Services/ProjectionPendingInteractions.ts";
+import {
+  OrchestrationEventDeliveryRepository,
+  PROVIDER_COMMAND_REACTOR_CONSUMER,
+} from "../persistence/Services/OrchestrationEventDeliveries.ts";
 import { ProjectionPendingInteractionRepository } from "../persistence/Services/ProjectionPendingInteractions.ts";
 import {
   CHECKPOINT_REVERT_FAILED_ACTIVITY_KIND,
@@ -305,6 +310,8 @@ function buildStalePendingRequestCommand(input: {
 export function planRestartTurnReconciliation(input: {
   readonly threads: ReadonlyArray<ReconcilableThread>;
   readonly pendingInteractions?: ReadonlyArray<ReconcilablePendingInteraction>;
+  /** Session error per thread still quarantined by a delivery nothing could confirm. */
+  readonly deliveryBlockDetails?: ReadonlyMap<string, string>;
   readonly now: string;
 }): ReadonlyArray<RestartReconciliationCommand> {
   const pendingInteractions = input.pendingInteractions ?? [];
@@ -367,8 +374,10 @@ export function planRestartTurnReconciliation(input: {
         // thread never had a materialized session row.
         runtimeMode: thread.session?.runtimeMode ?? thread.runtimeMode,
         activeTurnId: null,
-        // "interrupted" is a clean stop, not an error: no lastError banner.
-        lastError: null,
+        // "interrupted" is a clean stop, not an error: no lastError banner. The exception
+        // is a thread still quarantined: its message may never have reached the provider,
+        // and only this banner says so and offers the way out.
+        lastError: input.deliveryBlockDetails?.get(thread.id) ?? null,
         updatedAt: input.now,
       },
       createdAt: input.now,
@@ -400,7 +409,10 @@ export function planRestartTurnReconciliation(input: {
 export const reconcileRestartStuckTurns: Effect.Effect<
   void,
   never,
-  OrchestrationEngineService | ProjectionSnapshotQuery | ProjectionPendingInteractionRepository
+  | OrchestrationEngineService
+  | ProjectionSnapshotQuery
+  | ProjectionPendingInteractionRepository
+  | OrchestrationEventDeliveryRepository
 > = Effect.gen(function* () {
   const engine = yield* OrchestrationEngineService;
   const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -448,9 +460,41 @@ export const reconcileRestartStuckTurns: Effect.Effect<
     { concurrency: 4 },
   );
 
+  const deliveries = yield* OrchestrationEventDeliveryRepository;
+  const deliveryBlockDetails = new Map<string, string>();
+  yield* Effect.forEach(
+    reconcilableThreads,
+    (thread) =>
+      deliveries
+        .firstBlockingDeliveryForThread({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          threadId: thread.id,
+        })
+        .pipe(
+          Effect.map((blocker) => {
+            if (Option.isSome(blocker)) {
+              deliveryBlockDetails.set(
+                thread.id,
+                formatProviderDeliveryBlockDetail(
+                  blocker.value.lastError ?? "an earlier provider command failed",
+                ),
+              );
+            }
+          }),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to read delivery blocker during restart reconciliation", {
+              threadId: thread.id,
+              cause,
+            }),
+          ),
+        ),
+    { concurrency: 4, discard: true },
+  );
+
   const commands = planRestartTurnReconciliation({
     threads: reconcilableThreads,
     pendingInteractions: unsettled,
+    deliveryBlockDetails,
     now,
   });
   if (commands.length === 0) {

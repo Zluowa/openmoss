@@ -13,7 +13,7 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { outboundHttp } from "@synara/shared/outboundHttp";
+import { outboundHttp } from "@moss/shared/outboundHttp";
 
 export const MOSS_OAUTH_CLIENT_NAME = "Moss";
 export const MOSS_OAUTH_CLIENT_URI = "https://trymoss.com";

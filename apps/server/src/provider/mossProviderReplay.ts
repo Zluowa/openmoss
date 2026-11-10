@@ -13,9 +13,9 @@ import {
   type MossNormalizedSessionEventType,
   type ProviderKind,
   type ProviderRuntimeEvent,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
-import { MOSS_RELATIVE_PATHS } from "@synara/shared/mossSourceLayout";
+import { MOSS_RELATIVE_PATHS } from "@moss/shared/mossSourceLayout";
 
 import { normalizeProviderRuntimeEvents } from "./mossNormalizeEvent.ts";
 

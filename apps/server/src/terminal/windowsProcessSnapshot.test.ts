@@ -8,6 +8,7 @@ import {
   createPowerShellProcessSnapshotWorker,
   createWindowsProcessSnapshotObserver,
   createWindowsTeardownProcessSnapshotObserver,
+  getWindowsProcessSnapshotFailure,
   parseWindowsProcessSnapshotLine,
   WINDOWS_PROCESS_TREE_CAPTURE_TIMEOUT_MS,
   type ProcessChildrenSnapshotWorker,
@@ -245,6 +246,64 @@ describe("Windows process snapshots", () => {
       expect(await observer.capture()).toBeNull();
     },
   );
+  it("preserves only fixed readiness phase diagnostics after its owner disposes it", async () => {
+    vi.useFakeTimers();
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+      kill: vi.fn(),
+    });
+    const observer = createWindowsTeardownProcessSnapshotObserver({
+      createWorker: () =>
+        createPowerShellProcessSnapshotWorker({
+          prepareCim: true,
+          spawnProcess: () => child as unknown as ChildProcessWithoutNullStreams,
+        }),
+      startImmediately: true,
+    });
+    const preparation = observer.prepareWithin!(10_000).catch((error: unknown) => error);
+    child.stdout.write("@phase:module-loading\n");
+    child.stderr.write("private-command-secret");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const error = await preparation;
+    observer.dispose();
+    expect(String(error)).toBe("Error: Windows process snapshot failed (deadline).");
+    expect(getWindowsProcessSnapshotFailure(error)).toEqual({
+      kind: "deadline",
+      elapsedMs: 10_000,
+      phase: "module-loading",
+      phaseElapsedMs: 10_000,
+    });
+    expect(JSON.stringify(getWindowsProcessSnapshotFailure(error))).not.toContain(
+      "private-command-secret",
+    );
+    expect(getWindowsProcessSnapshotFailure(new Error("private-command-secret"))).toBeNull();
+    expect(
+      getWindowsProcessSnapshotFailure({ failure: { phase: "private-command-secret" } }),
+    ).toBeNull();
+    expect(child.kill).toHaveBeenCalledOnce();
+
+    // A caller may use this exact failure as another owner's abort reason.
+    // Cancellation must preserve its identity and original phase observation.
+    const controller = new AbortController();
+    const nextObserver = createWindowsTeardownProcessSnapshotObserver({
+      createWorker: () => ({
+        capture: async () => new Map(),
+        ready: () => new Promise<void>(() => {}),
+        isReady: () => false,
+        phase: () => ({ phase: "provider-initializing", phaseElapsedMs: 0 }),
+        dispose: vi.fn(),
+      }),
+    });
+    const aborted = nextObserver.prepareWithin!(10_000, controller.signal).catch(
+      (reason: unknown) => reason,
+    );
+    controller.abort(error);
+    expect(await aborted).toBe(error);
+    expect(getWindowsProcessSnapshotFailure(error)?.phase).toBe("module-loading");
+    nextObserver.dispose();
+  });
   it("records preparation phases before capture without accepting initialization as a snapshot", async () => {
     vi.useFakeTimers();
     const child = Object.assign(new EventEmitter(), {

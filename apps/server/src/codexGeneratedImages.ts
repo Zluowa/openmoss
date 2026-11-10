@@ -13,12 +13,12 @@ import {
   type ProviderInstanceId,
   type ServerSettings,
   type ThreadId,
-} from "@synara/contracts";
-import { isSupportedLocalImagePath as isSupportedLocalImagePathShared } from "@synara/shared/localPreviewFiles";
+} from "@moss/contracts";
+import { isSupportedLocalImagePath as isSupportedLocalImagePathShared } from "@moss/shared/localPreviewFiles";
 import {
   deriveProviderInstances,
   providerStartOptionsFromInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 
 import {
   type CodexHomePathsInput,

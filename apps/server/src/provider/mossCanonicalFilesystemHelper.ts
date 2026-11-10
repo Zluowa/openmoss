@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
-import { spawnProcess, type RuntimeSpawnOptions } from "@synara/shared/processRuntime";
+import { spawnProcess, type RuntimeSpawnOptions } from "@moss/shared/processRuntime";
 import { Buffer } from "node:buffer";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";

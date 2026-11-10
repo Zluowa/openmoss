@@ -1,9 +1,6 @@
-import type { OrchestrationCommand, ThreadId } from "@synara/contracts";
-import { HTML_RENDER_TOOL_NAME, type HtmlRenderReference } from "@synara/shared/htmlRender";
-import {
-  HTML_RENDER_ACTIVITY_KIND,
-  htmlRenderFromActivity,
-} from "@synara/shared/htmlRenderActivity";
+import type { OrchestrationCommand, ThreadId } from "@moss/contracts";
+import { HTML_RENDER_TOOL_NAME, type HtmlRenderReference } from "@moss/shared/htmlRender";
+import { HTML_RENDER_ACTIVITY_KIND, htmlRenderFromActivity } from "@moss/shared/htmlRenderActivity";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -49,9 +46,12 @@ function makeContext(): ToolContext {
 function makeHarness(
   publish: HtmlRenderShape["publish"],
   preview: HtmlRenderShape["preview"] = () => Effect.succeed(PREVIEW),
+  hasSurface: (threadId: ThreadId, surface: string) => Effect.Effect<boolean, unknown> = () =>
+    Effect.succeed(false),
 ) {
   const published: Array<Parameters<HtmlRenderShape["publish"]>[0]> = [];
   const dispatched: Array<OrchestrationCommand> = [];
+  const surfaceLookups: Array<{ threadId: ThreadId; surface: string }> = [];
   const tools = makeAgentGatewayHtmlRenderTools({
     htmlRender: {
       prepare: () => Effect.die("unused"),
@@ -68,11 +68,21 @@ function makeHarness(
       }) as unknown as OrchestrationEngineShape["dispatch"],
     },
     resolveWorkspaceRoot: () => Effect.succeed("/repo"),
+    hasSurface: (threadId, surface) => {
+      surfaceLookups.push({ threadId, surface });
+      return hasSurface(threadId, surface);
+    },
   });
   const tool = tools.find((candidate) => candidate.definition.name === HTML_RENDER_TOOL_NAME);
   const previewTool = tools.find((candidate) => candidate.definition.name === "html_preview");
   if (!tool || !previewTool) throw new Error("HTML tools missing");
-  return { tool, previewTool, published, dispatched };
+  return { tool, previewTool, published, dispatched, surfaceLookups };
+}
+
+function recordedPage(dispatched: ReadonlyArray<OrchestrationCommand>) {
+  const command = dispatched[0];
+  if (command?.type !== "thread.activity.append") throw new Error("expected an activity");
+  return htmlRenderFromActivity(command.activity);
 }
 
 describe("html_render agent tool", () => {
@@ -154,7 +164,9 @@ describe("html_render agent tool", () => {
   });
 
   it("publishes the page in the caller's workspace and records it as a thread activity", async () => {
-    const { tool, published, dispatched } = makeHarness(() => Effect.succeed(REFERENCE));
+    const { tool, published, dispatched, surfaceLookups } = makeHarness(() =>
+      Effect.succeed(REFERENCE),
+    );
 
     const result = await Effect.runPromise(
       tool.handler({ html: "<p>Q3</p>", title: "Revenue", height: 480 }, makeContext()),
@@ -185,10 +197,88 @@ describe("html_render agent tool", () => {
       turnId: "turn-caller",
     });
     expect(htmlRenderFromActivity(command.activity)).toEqual(REFERENCE);
+    // A standalone page never looks up surfaces.
+    expect(surfaceLookups).toEqual([]);
+  });
+
+  it("explains surface in the schema and one short description sentence", () => {
+    const { tool } = makeHarness(() => Effect.succeed(REFERENCE));
+
+    expect(tool.definition.inputSchema).toMatchObject({
+      properties: { surface: { type: "string", maxLength: 64, pattern: "^[a-z0-9-]+$" } },
+      required: ["html", "title", "height"],
+    });
+    expect(tool.definition.description).toContain(
+      "Reuse a surface name to update one visual in place across turns",
+    );
+  });
+
+  it("creates a surface on its first page and records the surface on the activity", async () => {
+    const { tool, dispatched, surfaceLookups } = makeHarness(() => Effect.succeed(REFERENCE));
+
+    const result = await Effect.runPromise(
+      tool.handler(
+        { html: "<p>3 failing</p>", title: "Tests", height: 300, surface: "test-results" },
+        makeContext(),
+      ),
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(surfaceLookups).toEqual([{ threadId: "thread-caller", surface: "test-results" }]);
+    expect(result.structuredContent).toEqual({
+      htmlRender: { ...REFERENCE, surface: "test-results" },
+      message: expect.stringMatching(
+        /^Created surface "test-results", shown to the reader above your reply\. Don't mention/,
+      ),
+    });
+    expect(recordedPage(dispatched)).toEqual({ ...REFERENCE, surface: "test-results" });
+  });
+
+  it("tells the agent it updated a surface the thread already shows", async () => {
+    const { tool, dispatched } = makeHarness(
+      () => Effect.succeed(REFERENCE),
+      undefined,
+      () => Effect.succeed(true),
+    );
+
+    const result = await Effect.runPromise(
+      tool.handler(
+        { html: "<p>all passing</p>", title: "Tests", height: 300, surface: "test-results" },
+        makeContext(),
+      ),
+    );
+
+    expect(result.structuredContent).toMatchObject({
+      message: expect.stringMatching(/^Updated surface "test-results" in place/),
+    });
+    expect(recordedPage(dispatched)?.surface).toBe("test-results");
+  });
+
+  it("still publishes when the surface lookup fails, and says it created the surface", async () => {
+    const { tool, dispatched } = makeHarness(
+      () => Effect.succeed(REFERENCE),
+      undefined,
+      () => Effect.fail(new Error("database is locked")),
+    );
+
+    const result = await Effect.runPromise(
+      tool.handler(
+        { html: "<p/>", title: "Build", height: 200, surface: "build-status" },
+        makeContext(),
+      ),
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent).toMatchObject({
+      message: expect.stringMatching(/^Created surface "build-status"/),
+    });
+    expect(dispatched).toHaveLength(1);
   });
 
   it("rejects malformed arguments without publishing anything", async () => {
-    const { tool, published, dispatched } = makeHarness(() => Effect.succeed(REFERENCE));
+    const { tool, published, dispatched, surfaceLookups } = makeHarness(() =>
+      Effect.succeed(REFERENCE),
+    );
 
     for (const args of [
       { title: "Revenue", height: 480 },
@@ -196,12 +286,20 @@ describe("html_render agent tool", () => {
       { html: "x".repeat(512_001), title: "Revenue", height: 480 },
       { html: "<p/>", title: "", height: 480 },
       { html: "<p/>", title: "Revenue", height: 480.5 },
+      { html: "<p/>", title: "Revenue", height: 480, surface: "" },
+      { html: "<p/>", title: "Revenue", height: 480, surface: "Build-Status" },
+      { html: "<p/>", title: "Revenue", height: 480, surface: "build status" },
+      { html: "<p/>", title: "Revenue", height: 480, surface: "build_status" },
+      { html: "<p/>", title: "Revenue", height: 480, surface: "x".repeat(65) },
+      { html: "<p/>", title: "Revenue", height: 480, surface: 7 },
+      { html: "<p/>", title: "Revenue", height: 480, surface: null },
     ]) {
       const result = await Effect.runPromise(tool.handler(args, makeContext()));
       expect(result.isError).toBe(true);
     }
     expect(published).toEqual([]);
     expect(dispatched).toEqual([]);
+    expect(surfaceLookups).toEqual([]);
   });
 
   it("returns the server's page error to the agent and records nothing", async () => {

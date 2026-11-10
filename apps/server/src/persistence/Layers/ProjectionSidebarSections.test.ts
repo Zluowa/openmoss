@@ -1,4 +1,4 @@
-import { SidebarSectionId, SidebarSectionItemKey } from "@synara/contracts";
+import { SidebarSectionId, SidebarSectionItemKey } from "@moss/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 

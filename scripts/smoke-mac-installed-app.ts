@@ -1668,6 +1668,16 @@ export function writeDiagnostic(
     error: error ? redactDiagnostic(error instanceof Error ? error.message : String(error)) : null,
     mainWindowEvidence,
     capturedChildLogLineCount: state.childLogs.length,
+    ...(status === "failed" && {
+      startupSignals: {
+        devToolsListeningAnnounced: state.childLogs.some((line) =>
+          line.includes("DevTools listening on "),
+        ),
+        fatalBootstrapReported: state.childLogs.some((line) =>
+          line.includes("fatal startup error (bootstrap)"),
+        ),
+      },
+    }),
   };
   writeFileSync(options.reportPath, `${JSON.stringify(payload, null, 2)}\n`, {
     mode: 0o600,

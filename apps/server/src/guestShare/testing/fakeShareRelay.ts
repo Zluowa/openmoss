@@ -16,7 +16,7 @@ import {
   ShareRelayHostFrame,
   ShareRelayRegisterRequest,
   type ShareRelayRelayFrame,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 import { WebSocketServer, type WebSocket } from "ws";
 
@@ -202,6 +202,10 @@ export class FakeShareRelay {
   readonly deleteCalls: Array<{ readonly shareId: string; readonly hostKeyValid: boolean }> = [];
   /** When set, `POST /v1/shares` answers with this status instead of registering. */
   registerStatus: number | null = null;
+  /** Optional, explicit preview capability in the actual registration receipt. */
+  appPreviewContentOrigin: string | null = null;
+  appBrokerEnabled = false;
+  editProjection = false;
   readonly hosts = new Map<string, FakeRelayHost>();
   readonly #hostWaiters = new Map<string, Array<(host: FakeRelayHost) => void>>();
   readonly #server: http.Server;
@@ -310,6 +314,16 @@ export class FakeShareRelay {
         shareId: body.value.shareId,
         expiresAt: body.value.expiresAt,
         pageUrl: `${this.origin}/s/${body.value.shareId}`,
+        ...(this.appPreviewContentOrigin === null
+          ? {}
+          : {
+              appPreview: {
+                protocolVersion: 1,
+                contentOrigin: this.appPreviewContentOrigin,
+                ...(this.appBrokerEnabled ? { brokerProtocol: 1 } : {}),
+              },
+            }),
+        ...(this.editProjection ? { editProjection: { v: 1 } } : {}),
       });
     }
     const deleteMatch = /^\/v1\/shares\/([A-Za-z0-9_-]{22})$/.exec(url);

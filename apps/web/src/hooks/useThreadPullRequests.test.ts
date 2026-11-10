@@ -1,5 +1,5 @@
-import type { GitStatusResult, OrchestrationThreadPullRequest } from "@synara/contracts";
-import { ProjectId, ThreadId } from "@synara/contracts";
+import type { GitStatusResult, OrchestrationThreadPullRequest } from "@moss/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";

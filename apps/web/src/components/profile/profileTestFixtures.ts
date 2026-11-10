@@ -1,5 +1,5 @@
 // Shared profile regression fixtures.
-import type { ProfileStats, ProfileTokenStats } from "@synara/contracts";
+import type { ProfileStats, ProfileTokenStats } from "@moss/contracts";
 
 export const promptHeatmapCell = {
   day: "2026-07-01",

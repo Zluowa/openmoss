@@ -1,6 +1,6 @@
-import type { ModelSelection } from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
-import { workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+import type { ModelSelection } from "@moss/contracts";
+import { getDefaultModel } from "@moss/shared/model";
+import { workspaceRootsEqual } from "@moss/shared/threadWorkspace";
 
 import type { Project } from "../types";
 import { buildChatWorkspaceFolderPath } from "./chatWorkspaceFolders";

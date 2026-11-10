@@ -2,7 +2,7 @@
 // Purpose: Pure labels and ordering helpers for authoritative custom-section controls.
 // Layer: Sidebar UI logic
 
-import type { SidebarSectionId } from "@synara/contracts";
+import type { SidebarSectionId } from "@moss/contracts";
 
 import { translateZhCnPresentationText } from "../localization/zhCN";
 import type { MossLocaleCode } from "../uiLocale";

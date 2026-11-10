@@ -3,7 +3,7 @@ import {
   ComputerWindowId,
   type ComputerStatusResult,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   analyzeFocusSamples,
   type FocusProbeRunResult,

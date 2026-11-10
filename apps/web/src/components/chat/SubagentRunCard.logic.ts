@@ -7,8 +7,8 @@
 // Exports: foldSubagentRunWorkEntries, deriveSubagentRunCard,
 // findLatestRunningSubagentRun, and the card model types
 
-import { ThreadId, type TurnId } from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
+import { ThreadId, type TurnId } from "@moss/contracts";
+import { pluralize } from "@moss/shared/text";
 
 import {
   deriveWorkLogEntries,

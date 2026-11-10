@@ -25,6 +25,8 @@ export interface RenameDialogProps {
   allowEmpty?: boolean | undefined;
   placeholder?: string | undefined;
   saveLabel?: string | undefined;
+  cancelLabel?: string | undefined;
+  savingLabel?: string | undefined;
   /** Snooze reuses this dialog with a native date-time field. */
   inputType?: "text" | "datetime-local" | undefined;
   /** Extra gate on Save beyond the empty check, e.g. a date in the future. */
@@ -46,6 +48,8 @@ export function RenameDialog({
   allowEmpty: allowEmptyProp,
   placeholder,
   saveLabel: saveLabelProp,
+  cancelLabel = "Cancel",
+  savingLabel = "Saving...",
   inputType,
   isValueValid,
   onOpenChange,
@@ -69,6 +73,8 @@ export function RenameDialog({
           allowEmpty={allowEmpty}
           placeholder={placeholder}
           saveLabel={saveLabel}
+          cancelLabel={cancelLabel}
+          savingLabel={savingLabel}
           inputType={inputType ?? "text"}
           isValueValid={isValueValid}
           onOpenChange={onOpenChange}
@@ -85,6 +91,8 @@ function RenameDialogForm({
   allowEmpty,
   placeholder,
   saveLabel,
+  cancelLabel,
+  savingLabel,
   inputType,
   isValueValid,
   onOpenChange,
@@ -95,6 +103,8 @@ function RenameDialogForm({
   allowEmpty: boolean;
   placeholder: string | undefined;
   saveLabel: string;
+  cancelLabel: string;
+  savingLabel: string;
   inputType: "text" | "datetime-local";
   isValueValid: ((value: string) => boolean) | undefined;
   onOpenChange: (open: boolean) => void;
@@ -158,10 +168,10 @@ function RenameDialogForm({
       </DialogPanel>
       <DialogFooter>
         <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={isSaving}>
-          Cancel
+          {cancelLabel}
         </Button>
         <Button size="sm" onClick={() => void handleSubmit()} disabled={!canSave}>
-          {isSaving ? "Saving..." : saveLabel}
+          {isSaving ? savingLabel : saveLabel}
         </Button>
       </DialogFooter>
     </>

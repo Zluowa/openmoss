@@ -1,6 +1,6 @@
-import { ThreadId, type OrchestrationEvent } from "@synara/contracts";
-import { makeDrainableWorker, startDrainableWorkerProducers } from "@synara/shared/DrainableWorker";
-import { terminalScopeIdsForThread } from "@synara/shared/terminalThreads";
+import { ThreadId, type OrchestrationEvent } from "@moss/contracts";
+import { makeDrainableWorker, startDrainableWorkerProducers } from "@moss/shared/DrainableWorker";
+import { terminalScopeIdsForThread } from "@moss/shared/terminalThreads";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { ServerConfig } from "../../config";
@@ -10,7 +10,7 @@ import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees";
 import { ProfileStatsArchive } from "../../profileStatsArchive";
 import { ProviderService } from "../../provider/Services/ProviderService";
 import { TerminalManager, type TerminalManagerShape } from "../../terminal/Services/Manager";
-import { THREAD_RETENTION_COMMAND_ID_PREFIX } from "../../threadRetention";
+import { THREAD_RETENTION_COMMAND_ID_PREFIX } from "../../legacyThreadRetention";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery";
 import {

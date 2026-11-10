@@ -2,7 +2,7 @@
 // Purpose: Verifies Moss runtime localization and provider-quarantine recovery.
 // Layer: Web chat component tests
 
-import { formatProviderDeliveryBlockDetail } from "@synara/shared/providerDeliveryBlock";
+import { formatProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup as renderMarkup, renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";

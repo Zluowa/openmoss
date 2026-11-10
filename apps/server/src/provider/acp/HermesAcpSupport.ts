@@ -19,6 +19,13 @@ import {
   MOSS_MANAGED_HERMES_CONFIG_ENV_KEY,
   MOSS_MANAGED_HERMES_CREDENTIAL_ENV_KEY,
 } from "../mossManagedHermesEnvironment";
+import {
+  MOSS_HERMES_PROBE_HOME_ENV,
+  needsManagedHermesProbePlugin,
+  mossHermesProbeIssue,
+  readMossHermesProbeStatus,
+  type MossHermesProbeStatus,
+} from "../mossManagedHermesProbePlugin";
 
 export interface HermesAcpRuntimeSettings {
   readonly binaryPath?: string | undefined;
@@ -36,8 +43,10 @@ export interface HermesAcpRuntimeInput extends Omit<
 export function buildHermesAcpSpawnInput(
   settings: HermesAcpRuntimeSettings,
   cwd: string,
+  platform: NodeJS.Platform = process.platform,
 ): AcpSpawnInput {
   const noProxy = mossManagedChildNoProxy();
+  const needsProbe = settings.managed && needsManagedHermesProbePlugin(platform);
   const environment = {
     ...(settings.managed
       ? {
@@ -49,6 +58,7 @@ export function buildHermesAcpSpawnInput(
           HERMES_MANAGED_DIR: settings.homePath
             ? managedHermesConfigDirectory(settings.homePath)
             : undefined,
+          ...(needsProbe ? { [MOSS_HERMES_PROBE_HOME_ENV]: settings.homePath } : {}),
           NO_PROXY: noProxy,
           no_proxy: noProxy,
         }
@@ -59,7 +69,15 @@ export function buildHermesAcpSpawnInput(
     command: settings.binaryPath || "hermes",
     args: ["acp"],
     cwd,
-    ...(settings.managed ? { inheritedMossKeys: [MOSS_MANAGED_HERMES_CREDENTIAL_ENV_KEY] } : {}),
+    ...(settings.managed
+      ? {
+          inheritedMossKeys: [
+            MOSS_MANAGED_HERMES_CREDENTIAL_ENV_KEY,
+            MOSS_MANAGED_HERMES_CONFIG_ENV_KEY,
+            ...(needsProbe ? [MOSS_HERMES_PROBE_HOME_ENV] : []),
+          ],
+        }
+      : {}),
     env: buildProviderChildEnvironment({
       provider: "hermes",
       ...(settings.managed ? { baseEnv: mossManagedChildBaseEnvironment() } : {}),
@@ -114,6 +132,8 @@ export const makeHermesAcpRuntime = (
     let promptEchoRemaining: string[] = [];
     let terminalFailure: string | undefined;
     let stderrRevision = 0;
+    const expectsProbePlugin = input.hermesSettings.managed && needsManagedHermesProbePlugin();
+    let probeStatus: MossHermesProbeStatus | undefined;
     const context = yield* Layer.build(
       AcpSessionRuntime.layer({
         ...input,
@@ -125,6 +145,12 @@ export const makeHermesAcpRuntime = (
         suppressSessionTranscriptUpdates: () =>
           refreshingModelTools || input.suppressSessionTranscriptUpdates?.() === true,
         onChildStderrLine: (line) => {
+          if (expectsProbePlugin && !promptActive) {
+            const observed = readMossHermesProbeStatus(line);
+            // Keep a reported failure even if a later line claims success.
+            if (observed && (!probeStatus || !mossHermesProbeIssue(probeStatus)))
+              probeStatus = observed;
+          }
           if (promptActive) {
             stderrRevision++;
             if (promptEchoRemaining.length > 0) {
@@ -217,15 +243,37 @@ export const makeHermesAcpRuntime = (
           ),
         ),
       start: () =>
-        runtime
-          .start()
-          .pipe(
-            Effect.tap((started) =>
-              input.resumeSessionId
-                ? validateHermesRecoveredSession(started.sessionSetupResult, input.resumeSessionId)
-                : Effect.void,
-            ),
+        runtime.start().pipe(
+          Effect.tap(() =>
+            Effect.gen(function* () {
+              if (!expectsProbePlugin) return;
+              // stdout/stderr are independent readers; only drain an already-written marker.
+              if (!probeStatus) yield* Effect.sleep(25);
+              const issue = mossHermesProbeIssue(probeStatus);
+              yield* (
+                input.requestLogger?.({
+                  method: "moss/hermes-probe-compatibility",
+                  payload: {},
+                  status: issue ? "failed" : "succeeded",
+                  result: { status: probeStatus ?? "not-loaded" },
+                }) ?? Effect.void
+              );
+              if (issue)
+                return yield* new AcpErrors.AcpRequestError({ code: -32000, errorMessage: issue });
+            }),
           ),
+          Effect.mapError((error) => {
+            const issue = expectsProbePlugin && probeStatus && mossHermesProbeIssue(probeStatus);
+            return issue
+              ? new AcpErrors.AcpRequestError({ code: -32000, errorMessage: issue })
+              : error;
+          }),
+          Effect.tap((started) =>
+            input.resumeSessionId
+              ? validateHermesRecoveredSession(started.sessionSetupResult, input.resumeSessionId)
+              : Effect.void,
+          ),
+        ),
       request: (method: string, payload: unknown) =>
         Effect.gen(function* () {
           const result = yield* runtime.request(method, payload);

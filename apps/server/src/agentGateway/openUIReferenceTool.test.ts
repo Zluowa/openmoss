@@ -81,6 +81,25 @@ describe("generated OpenUI chat reference", () => {
     for (const component of ["Card", "Table", "BarChart", "Form", "FollowUpBlock"]) {
       expect(OPENUI_CHAT_REFERENCE).toContain(`${component}(`);
     }
+    // The dashboard kit: its root, rows, cards and filters, and the row filter its
+    // multi-select filters use.
+    for (const component of [
+      "Dashboard",
+      "Section",
+      "CardRow",
+      "SmallCard",
+      "MediumCard",
+      "LargeCard",
+      "MetricIndicator",
+      "FilterBar",
+      "FilterSelect",
+      "FilterMultiSelect",
+      "List",
+      "@WhereIn",
+    ]) {
+      expect(OPENUI_CHAT_REFERENCE).toContain(`\n${component}(`);
+    }
+    expect(OPENUI_CHAT_REFERENCE_EXAMPLES).toContain("root = Dashboard(");
     // Sanity bounds: the core catalog is tens of thousands of chars — a
     // truncated regeneration must fail here, not at the model.
     expect(OPENUI_CHAT_REFERENCE.length).toBeGreaterThan(25_000);

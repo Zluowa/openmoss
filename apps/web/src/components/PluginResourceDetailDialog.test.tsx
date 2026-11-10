@@ -2,7 +2,7 @@
 // Purpose: Locks the plugin-detail hierarchy and loading boundary.
 // Layer: Web component rendering test
 
-import type { ProviderPluginDescriptor, ProviderPluginDetail } from "@synara/contracts";
+import type { ProviderPluginDescriptor, ProviderPluginDetail } from "@moss/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 

@@ -10,7 +10,7 @@
 //      synchronously on first paint (the sidebar header renders the name before any query
 //      settles), and no server-side decision reads it. Windows stay in sync through `storage`.
 
-import { SPACE_NAME_MAX_LENGTH } from "@synara/contracts";
+import { SPACE_NAME_MAX_LENGTH } from "@moss/contracts";
 import { create } from "zustand";
 
 import {

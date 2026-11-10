@@ -1,8 +1,8 @@
 // FILE: runEnvelope.ts
 // Purpose: Builds the single canonical synthetic message sent to automation runs.
 
-import type { AutomationDefinition, AutomationRun } from "@synara/contracts";
-import { automationContinuesThread, automationOwnsItsThread } from "@synara/shared/automationMode";
+import type { AutomationDefinition, AutomationRun } from "@moss/contracts";
+import { automationContinuesThread, automationOwnsItsThread } from "@moss/shared/automationMode";
 
 export const AUTOMATION_MEMORY_INJECTION_MAX_BYTES = 8 * 1_024;
 export const AUTOMATION_MEMORY_TRUNCATION_MARKER = "[... older automation memory truncated ...]\n";

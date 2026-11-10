@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   isRunningChatForQuit,
   listRunningChatsFromDesktopStore,
+  listRunningWorkForQuit,
+  runningChatsQuitCopy,
   stopRunningChatsForQuit,
 } from "./runningChatsQuitConfirmation";
 
@@ -160,5 +162,57 @@ describe("running chats quit confirmation", () => {
       }),
     ).resolves.toEqual({ resumeRecorded: false });
     expect(prepared).toBe(false);
+  });
+
+  it("lists running terminal commands, dev servers, imports and an update download", () => {
+    const idle = {
+      terminalStateByThreadId: {},
+      threadTitleById: () => null,
+      devServers: [],
+      projectNameById: () => null,
+      imports: [],
+      updateDownloading: false,
+    };
+    expect(listRunningWorkForQuit(idle)).toEqual([]);
+    expect(
+      listRunningWorkForQuit({
+        ...idle,
+        terminalStateByThreadId: {
+          t1: { runningTerminalIds: ["default", "default"] },
+          t2: { runningTerminalIds: [] },
+        },
+        threadTitleById: (id) => (id === "t1" ? "Fix the tray" : null),
+        devServers: [
+          { projectId: "p1", command: "bun run dev", status: "running" },
+          { projectId: "p2", command: "vite", status: "stopped" },
+        ],
+        projectNameById: (id) => (id === "p1" ? "Moss" : null),
+        imports: [{ id: "panel", label: "" }],
+        updateDownloading: true,
+      }),
+    ).toEqual([
+      { id: "terminal:t1:default", kind: "terminal", detail: "Fix the tray" },
+      { id: "devServer:p1", kind: "devServer", detail: "Moss · bun run dev" },
+      { id: "import:panel", kind: "import", detail: "" },
+      { id: "updateDownload", kind: "updateDownload", detail: "" },
+    ]);
+  });
+
+  it("names chats in the title only when chats are all that is running", () => {
+    expect(runningChatsQuitCopy([{ id: "a", title: "A" }]).title).toBe("A chat is still running");
+    expect(
+      runningChatsQuitCopy([
+        { id: "a", title: "A" },
+        { id: "b", title: "B" },
+      ]).title,
+    ).toBe("Chats are still running");
+    expect(
+      runningChatsQuitCopy([{ id: "a", title: "A" }], "Moss", [
+        { id: "updateDownload", kind: "updateDownload", detail: "" },
+      ]).title,
+    ).toBe("Work is still running");
+    expect(runningChatsQuitCopy([], "Moss").description).toBe(
+      "Work in progress will stop when Moss is closed.",
+    );
   });
 });

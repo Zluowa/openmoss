@@ -7,8 +7,8 @@ import type {
   PullRequestCommentInput,
   PullRequestSetPinnedInput,
   PullRequestState,
-} from "@synara/contracts";
-import { normalizeGitHubPullRequestUrl } from "@synara/shared/githubRepository";
+} from "@moss/contracts";
+import { normalizeGitHubPullRequestUrl } from "@moss/shared/githubRepository";
 import { mutationOptions, type QueryClient } from "@tanstack/react-query";
 
 import { ensureNativeApi } from "~/nativeApi";

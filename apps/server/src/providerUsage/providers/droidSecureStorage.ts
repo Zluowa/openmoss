@@ -1,3 +1,7 @@
+import {
+  assertSafeMacosSecurityCommand,
+  exactGenericPasswordReadArgs,
+} from "@moss/shared/macosKeychainPolicy";
 // Read only the Factory encryption key through OS utilities, never a module from Factory's home.
 import { execFile } from "node:child_process";
 import nodePath from "node:path";
@@ -56,14 +60,13 @@ export function readDroidSecureKey(
   const env: NodeJS.ProcessEnv = { HOME: ctx.homeDir, PATH: "/usr/bin:/bin" };
   if (ctx.platform === "darwin") {
     executable = "/usr/bin/security";
-    args = [
-      "find-generic-password",
-      "-s",
-      "Factory CLI",
-      "-a",
-      source === "login-keychain" ? "auth-encryption-key-security-cli" : "auth-encryption-key",
-      "-w",
-    ];
+    args = exactGenericPasswordReadArgs({
+      service: "Factory CLI",
+      account:
+        source === "login-keychain" ? "auth-encryption-key-security-cli" : "auth-encryption-key",
+      revealSecret: true,
+    });
+    assertSafeMacosSecurityCommand(args);
   } else if (ctx.platform === "linux" && source === "keyring") {
     executable = "/usr/bin/secret-tool";
     args = ["lookup", "service", "Factory CLI", "account", "auth-encryption-key"];

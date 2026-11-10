@@ -3,7 +3,7 @@ import {
   TurnId,
   MOSS_GENERATED_IMAGE_ARTIFACT_KIND,
   type OrchestrationThreadActivity,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -742,47 +742,74 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.label).toBe("Pi extension");
   });
 
-  it("does not expose unmapped diagnostic data as a transcript preview", () => {
-    const [entry] = deriveWorkLogEntries(
-      [
+  it("shows none of a fresh Codex thread's plumbing, before or after its first turn", () => {
+    // What a brand-new profile's first Codex turn saved: Codex's own log records, unmapped
+    // session/settings/MCP-startup notifications and Moss catching its turn state up.
+    const turnId = TurnId.makeUnsafe("first-turn");
+    const plumbing: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "skills-install-log",
+        kind: "runtime.warning",
+        summary: "Runtime warning",
+        payload: {
+          message:
+            "2026-11-03T10:12:07.871469Z ERROR codex_skills_extension::host_service: failed to install system skills: io error while remove existing system skills dir: (os error 5)",
+        },
+      }),
+      ...(
+        [
+          ["thread-open", "session/threadOpenResolved", undefined],
+          [
+            "mcp-startup",
+            "mcpServer/startupStatus/updated",
+            { name: "codex_apps", status: "starting" },
+          ],
+          ["settings", "thread/settings/updated", { threadSettings: { disabledPluginIds: [] } }],
+          ["goal", "thread/goal/cleared", { threadId: "provider-thread" }],
+        ] as const
+      ).map(([id, nativeEventType, data]) =>
         makeActivity({
-          id: "unmapped-provider-event",
+          id,
           kind: "provider.event.unmapped",
-          summary: "item/future/completed",
-          payload: {
-            nativeEventType: "item/future/completed",
-            detail: "Safe provider summary",
-            data: { arbitrary: "must-not-render" },
-          },
+          summary: nativeEventType,
+          payload: { nativeEventType, ...(data ? { data, detail: "starting" } : {}) },
         }),
-      ],
-      undefined,
-    );
+      ),
+      makeActivity({
+        id: "realigned",
+        kind: "provider.runtime.reconciled",
+        summary: "Moss realigned the active provider turn",
+        payload: {
+          provider: "codex",
+          action: "align-running-turn",
+          projectedTurnId: null,
+          runtimeTurnId: turnId,
+        },
+      }),
+      makeActivity({
+        id: "stale-settled",
+        kind: "provider.runtime.reconciled",
+        summary: "Moss recovered a stale running state",
+        turnId,
+        payload: { provider: "codex", action: "settle-interrupted", projectedTurnId: turnId },
+      }),
+    ];
+    const work = makeActivity({
+      id: "command",
+      kind: "tool.completed",
+      tone: "tool",
+      summary: "Ran command",
+      turnId,
+      payload: { itemType: "command_execution", title: "Ran command", detail: "ls" },
+    });
 
-    expect(entry?.detail).toBe("Safe provider summary");
-    expect(entry?.preview).toBeUndefined();
-  });
-
-  it("does not derive unmapped details from generic raw tool output", () => {
-    const [entry] = deriveWorkLogEntries(
-      [
-        makeActivity({
-          id: "unmapped-provider-output",
-          kind: "provider.event.unmapped",
-          summary: "item/future/completed",
-          payload: {
-            nativeEventType: "item/future/completed",
-            data: {
-              rawOutput: { stdout: "must-not-render", error: "must-not-render-error" },
-            },
-          },
-        }),
-      ],
-      undefined,
-    );
-
-    expect(entry?.detail).toBeUndefined();
-    expect(entry?.preview).toBeUndefined();
+    // Sent, before the turn exists; while it runs; once its reply is visible.
+    expect(deriveWorkLogEntries(plumbing, undefined)).toEqual([]);
+    for (const options of [{}, { visibleTurnIds: new Set([turnId]) }]) {
+      expect(
+        deriveWorkLogEntries([...plumbing, work], turnId, options).map((entry) => entry.id),
+      ).toEqual(["command"]);
+    }
   });
 
   it("omits task start and completion lifecycle entries", () => {
@@ -2201,195 +2228,6 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.detail)).toEqual([
       "Provider request failed; retrying.",
       "Provider request failed; retrying.",
-    ]);
-  });
-
-  it("hides repeated non-adjacent recovery rows for the same provider turn", () => {
-    const recoveryPayload = {
-      provider: "codex",
-      action: "settle-terminal-projection",
-      projectedTurnId: "turn-stale",
-      runtimeTurnId: null,
-    };
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "recovery-first",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Moss recovered a stale running state",
-        turnId: "turn-stale",
-        payload: recoveryPayload,
-      }),
-      makeActivity({
-        id: "unrelated-progress",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "task.progress",
-        summary: "Continuing work",
-      }),
-      makeActivity({
-        id: "recovery-repeat",
-        createdAt: "2026-02-23T00:00:03.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Moss recovered a stale running state",
-        turnId: "turn-stale",
-        payload: recoveryPayload,
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-
-    expect(entries.map((entry) => entry.id)).toEqual(["recovery-first", "unrelated-progress"]);
-  });
-
-  it("folds stale-turn settlement refinements without hiding distinct recoveries", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "settle-turn-a",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Recovered turn A",
-        payload: {
-          provider: "codex",
-          action: "settle-interrupted",
-          projectedTurnId: "turn-a",
-          runtimeTurnId: null,
-        },
-      }),
-      makeActivity({
-        id: "settle-turn-b",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Recovered turn B",
-        payload: {
-          provider: "codex",
-          action: "settle-interrupted",
-          projectedTurnId: "turn-b",
-          runtimeTurnId: null,
-        },
-      }),
-      makeActivity({
-        id: "terminal-turn-b",
-        createdAt: "2026-02-23T00:00:02.250Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Terminal turn B",
-        payload: {
-          provider: "codex",
-          action: "settle-terminal-projection",
-          projectedTurnId: "turn-b",
-          runtimeTurnId: null,
-        },
-      }),
-      makeActivity({
-        id: "error-turn-b",
-        createdAt: "2026-02-23T00:00:02.500Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Errored turn B",
-        payload: {
-          provider: "codex",
-          action: "settle-error",
-          projectedTurnId: "turn-b",
-          runtimeTurnId: null,
-        },
-      }),
-      makeActivity({
-        id: "align-turn-b",
-        createdAt: "2026-02-23T00:00:03.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Realigned turn B",
-        payload: {
-          provider: "codex",
-          action: "align-running-turn",
-          projectedTurnId: "turn-b",
-          runtimeTurnId: "turn-live-1",
-        },
-      }),
-      makeActivity({
-        id: "align-turn-b-new-runtime",
-        createdAt: "2026-02-23T00:00:04.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Realigned turn B again",
-        payload: {
-          provider: "codex",
-          action: "align-running-turn",
-          projectedTurnId: "turn-b",
-          runtimeTurnId: "turn-live-2",
-        },
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-
-    expect(entries.map((entry) => entry.id)).toEqual([
-      "settle-turn-a",
-      "settle-turn-b",
-      "align-turn-b",
-      "align-turn-b-new-runtime",
-    ]);
-  });
-
-  it("does not collapse recovery rows whose identity payload is incomplete", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "malformed-recovery-1",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Recovered an unknown turn",
-        payload: {
-          provider: "codex",
-          action: "settle-interrupted",
-        },
-      }),
-      makeActivity({
-        id: "malformed-recovery-2",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Recovered an unknown turn",
-        payload: {
-          provider: "codex",
-          action: "settle-interrupted",
-        },
-      }),
-    ];
-
-    const entries = deriveWorkLogEntries(activities, undefined);
-
-    expect(entries.map((entry) => entry.id)).toEqual([
-      "malformed-recovery-1",
-      "malformed-recovery-2",
-    ]);
-  });
-
-  it("keeps reconciliation rows with delimiter-shaped but distinct turn ids", () => {
-    const activities: OrchestrationThreadActivity[] = [
-      makeActivity({
-        id: "recovery-delimited-projected",
-        createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Realigned a delimited projected turn",
-        payload: {
-          provider: "codex",
-          action: "align-running-turn",
-          projectedTurnId: "turn:a",
-          runtimeTurnId: "turn-b",
-        },
-      }),
-      makeActivity({
-        id: "recovery-delimited-runtime",
-        createdAt: "2026-02-23T00:00:02.000Z",
-        kind: "provider.runtime.reconciled",
-        summary: "Realigned a delimited runtime turn",
-        payload: {
-          provider: "codex",
-          action: "align-running-turn",
-          projectedTurnId: "turn",
-          runtimeTurnId: "a:turn-b",
-        },
-      }),
-    ];
-
-    expect(deriveWorkLogEntries(activities, undefined).map((entry) => entry.id)).toEqual([
-      "recovery-delimited-projected",
-      "recovery-delimited-runtime",
     ]);
   });
 

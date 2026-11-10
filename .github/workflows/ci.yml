@@ -51,16 +51,16 @@ jobs:
       matrix:
         include:
           - lane: web-desktop
-            filters: --filter=@synara/web --filter=@synara/desktop
+            filters: --filter=@moss/web --filter=@moss/desktop
             test_args: ""
           - lane: server-1
-            filters: --filter=@synara/cli
+            filters: --filter=@moss/cli
             test_args: -- --shard=1/2
           - lane: server-2
-            filters: --filter=@synara/cli
+            filters: --filter=@moss/cli
             test_args: -- --shard=2/2
           - lane: shared
-            filters: --filter=!@synara/web --filter=!@synara/desktop --filter=!@synara/cli
+            filters: --filter=!@moss/web --filter=!@moss/desktop --filter=!@moss/cli
             test_args: ""
     steps:
       - name: Checkout
@@ -145,8 +145,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+      - name: Record hosted component browser initial disk space
+        if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        run: df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
+      - name: Observe hosted component browser workspace disk space
+        if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        env:
+          MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
+          MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
+        run: node scripts/ci-browser-disk.ts observe after-workspace-setup
       - name: Restore Playwright browsers for pull requests
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
@@ -166,24 +176,55 @@ jobs:
         run: |
           cd apps/web
           ./node_modules/.bin/playwright install chromium
+      - name: Prepare hosted component browser phase caches
+        if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        env:
+          MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
+          MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
+        run: node scripts/ci-browser-disk.ts initialize
       - name: Browser test (stable)
         timeout-minutes: 20
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           MOSS_BROWSER_CASE_PARTITION: ${{ matrix.case_partition }}
+          MOSS_BROWSER_VITE_CACHE_DIR: ${{ env.MOSS_BROWSER_STABLE_CACHE_DIR }}
         run: bun run --cwd apps/web test:browser:ci --project=${{ matrix.project }} ${{ matrix.file_shard }}
+      - name: Release completed stable browser phase cache
+        if: ${{ success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        env:
+          MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
+          MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
+        run: node scripts/ci-browser-disk.ts release-stable
       - name: Browser test (compiled transcript render scope)
         timeout-minutes: 5
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          MOSS_BROWSER_VITE_CACHE_DIR: ${{ env.MOSS_BROWSER_COMPILER_CACHE_DIR }}
         run: bun run --cwd apps/web test:browser:compiler
+      - name: Release completed compiler browser phase cache
+        if: ${{ success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        env:
+          MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
+          MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
+        run: node scripts/ci-browser-disk.ts release-compiler
       - name: Browser test (Linux geometry quarantine)
-        if: ${{ matrix.project == 'components' }}
+        if: ${{ matrix.project == 'components' && matrix.lane == '1/2' }}
         continue-on-error: true
         timeout-minutes: 10
         env:
           NODE_OPTIONS: --max-old-space-size=6144
-        run: bun run --cwd apps/web test:browser:geometry ${{ matrix.file_shard }}
+          MOSS_BROWSER_VITE_CACHE_DIR: ${{ env.MOSS_BROWSER_GEOMETRY_CACHE_DIR }}
+        run: bun run --cwd apps/web test:browser:geometry
+      - name: Observe hosted component browser final disk space
+        if: ${{ always() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        env:
+          MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
+          MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
+        run: node scripts/ci-browser-disk.ts observe after-browser-attempt
   windows_process:
     name: Windows Process Regression
     runs-on: windows-2022

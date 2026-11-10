@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { findHiddenSurfaceTabIndexes } from "./surfaceContentTabs.logic";
+import {
+  findHiddenSurfaceTabIndexes,
+  isSurfaceTabDraggedOut,
+  SURFACE_TAB_DRAG_OUT_DISTANCE_PX,
+} from "./surfaceContentTabs.logic";
 
 describe("findHiddenSurfaceTabIndexes", () => {
   const strip = { left: 100, right: 500 };
@@ -24,5 +28,26 @@ describe("findHiddenSurfaceTabIndexes", () => {
         { left: 300, right: 500.6 },
       ]),
     ).toEqual([]);
+  });
+});
+
+describe("isSurfaceTabDraggedOut", () => {
+  const strip = { top: 40, bottom: 76 };
+
+  it("keeps a drag that wobbles near the strip a reorder", () => {
+    expect(isSurfaceTabDraggedOut(strip, 60)).toBe(false);
+    expect(isSurfaceTabDraggedOut(strip, strip.bottom + SURFACE_TAB_DRAG_OUT_DISTANCE_PX)).toBe(
+      false,
+    );
+    expect(isSurfaceTabDraggedOut(strip, strip.top - SURFACE_TAB_DRAG_OUT_DISTANCE_PX)).toBe(false);
+  });
+
+  it("lets a tab out once it travels past the strip's top or bottom", () => {
+    expect(isSurfaceTabDraggedOut(strip, strip.bottom + SURFACE_TAB_DRAG_OUT_DISTANCE_PX + 1)).toBe(
+      true,
+    );
+    expect(isSurfaceTabDraggedOut(strip, strip.top - SURFACE_TAB_DRAG_OUT_DISTANCE_PX - 1)).toBe(
+      true,
+    );
   });
 });

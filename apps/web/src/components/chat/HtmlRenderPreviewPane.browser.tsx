@@ -1,7 +1,7 @@
 // The dock's zoom works like a browser's: the page lays out wider when zoomed out and
-// still fills the pane.
+// still fills the pane. A page in the dock hands its follow-up to its own thread's composer.
 import "../../index.css";
-import { injectHtmlRenderBootstrap } from "@synara/shared/htmlRender";
+import { injectHtmlRenderBootstrap } from "@moss/shared/htmlRender";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
@@ -12,14 +12,66 @@ const PAGE_URL = URL.createObjectURL(
     type: "text/html",
   }),
 );
+const FOLLOW_UP_URL = URL.createObjectURL(
+  new Blob(
+    [
+      injectHtmlRenderBootstrap(
+        `<button type="button" style="display:block;height:40px" onclick="window.mossFollowUp('Compare the two plans')">Compare</button>`,
+      ),
+    ],
+    { type: "text/html" },
+  ),
+);
 
 vi.mock("~/lib/htmlRenderFrameUrl", () => ({
-  resolveHtmlRenderFrameUrl: async () => PAGE_URL,
+  resolveHtmlRenderFrameUrl: async (attachmentId: string) =>
+    attachmentId === "attachment-follow-up" ? FOLLOW_UP_URL : PAGE_URL,
 }));
 
+import { useComposerDraftStore } from "~/composerDraftStore";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 
 import { HtmlRenderPreviewPane } from "./HtmlRenderPreviewPane";
+
+it("puts a follow-up from a page in the side panel in that page's thread composer", async () => {
+  const client = new QueryClient();
+  client.setQueryData(serverConfigQueryOptions().queryKey, { keybindings: [] } as never);
+  const screen = await render(
+    <QueryClientProvider client={client}>
+      <div style={{ position: "fixed", top: 0, left: 0, width: 360, height: 480, display: "flex" }}>
+        <HtmlRenderPreviewPane
+          threadId="thread-panel"
+          document={{
+            kind: "html-render",
+            attachmentId: "attachment-follow-up",
+            title: "Plans",
+          }}
+        />
+      </div>
+    </QueryClientProvider>,
+  );
+  try {
+    const iframe = await vi.waitFor(() => {
+      const frame = document.querySelector("iframe");
+      expect(frame).not.toBeNull();
+      return frame!;
+    });
+    // A visual reply in the dock may go fullscreen like the one in the thread.
+    expect(iframe.getAttribute("allow")).toBe("fullscreen");
+    await page
+      .frameLocator(page.elementLocator(iframe))
+      .getByRole("button", { name: "Compare" })
+      .click();
+    await vi.waitFor(() =>
+      expect(
+        useComposerDraftStore.getState().draftsByThreadId["thread-panel" as never]?.prompt,
+      ).toBe("Compare the two plans"),
+    );
+  } finally {
+    await screen.unmount();
+    client.clear();
+  }
+});
 
 const stage = () => document.querySelector<HTMLElement>("[data-html-render-zoom]")!;
 const frameBox = () => document.querySelector("iframe")!.getBoundingClientRect();

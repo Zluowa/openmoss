@@ -8,7 +8,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as nodePath from "node:path";
 
-import { DEFAULT_SERVER_SETTINGS, WORKSPACE_IMPORT_CHAT_WINDOW_MS } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS, WORKSPACE_IMPORT_CHAT_WINDOW_MS } from "@moss/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { mossSkillsDir } from "../provider/skillsCatalog";

@@ -10,7 +10,7 @@ import {
   MOSS_CANARY_DESKTOP_ORIGIN,
   MOSS_CUA_DESKTOP_ORIGIN,
   MOSS_DESKTOP_ORIGIN,
-} from "@synara/shared/desktopIdentity";
+} from "@moss/shared/desktopIdentity";
 
 import type { ServerConfigShape } from "./config";
 import { isLoopbackHost, isWildcardHost } from "./startupAccess";
@@ -124,7 +124,9 @@ export function shouldRejectAuthMutationOrigin(input: {
 
 /** Remote-reachable sockets always require a real authenticated session. */
 export function requiresWebSocketAuthentication(
-  config: Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">,
+  config: Omit<Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">, "publicUrl"> & {
+    readonly publicUrl: string | URL | undefined;
+  },
 ): boolean {
   return Boolean(config.authToken) || Boolean(config.publicUrl) || !isLoopbackHost(config.host);
 }

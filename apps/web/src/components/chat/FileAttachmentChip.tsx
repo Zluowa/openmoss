@@ -1,9 +1,10 @@
+import { useTranslation } from "~/localization";
 // FILE: FileAttachmentChip.tsx
 // Purpose: Renders generic file attachments as compact pills or composer cards.
 // Layer: Chat attachment presentation
 // Depends on: shared byte formatting, chat attachment types, and compact chip styles.
 
-import { formatBytes } from "@synara/shared/formatBytes";
+import { formatBytes } from "@moss/shared/formatBytes";
 
 import { basenameOfPath } from "~/file-icons";
 import { FileIcon } from "~/lib/icons";
@@ -112,6 +113,7 @@ function FileAttachmentPillTrigger({
   className?: string | undefined;
   nonPersisted: boolean;
 }) {
+  const { format } = useTranslation();
   return (
     <span
       className={cn(
@@ -131,7 +133,7 @@ function FileAttachmentPillTrigger({
         <AttachmentRemoveButton
           size="sm"
           placement="center-right"
-          label={`Remove ${file.name}`}
+          label={format("attachments.remove", { name: file.name })}
           onRemove={() => onRemove(file.id)}
         />
       ) : null}
@@ -146,6 +148,7 @@ export function FileAttachmentChip({
   nonPersisted: nonPersistedProp,
   variant: variantProp,
 }: FileAttachmentChipProps) {
+  const { format } = useTranslation();
   const nonPersisted = nonPersistedProp ?? false;
   const variant = variantProp ?? "pill";
   const detail = fileAttachmentDetail(file);
@@ -173,7 +176,7 @@ export function FileAttachmentChip({
           </>
         }
         onRemove={onRemove ? () => onRemove(file.id) : undefined}
-        removeLabel={`Remove ${file.name}`}
+        removeLabel={format("attachments.remove", { name: file.name })}
       />
     ) : (
       <FileAttachmentPillTrigger

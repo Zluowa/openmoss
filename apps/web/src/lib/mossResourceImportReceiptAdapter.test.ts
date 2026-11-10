@@ -1,4 +1,4 @@
-import type { MossResourceImportApplyResult } from "@synara/contracts";
+import type { MossResourceImportApplyResult } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

@@ -1,4 +1,4 @@
-import type { PendingClaudeCacheReview } from "@synara/contracts";
+import type { PendingClaudeCacheReview } from "@moss/contracts";
 import { useEffect, useRef, useState } from "react";
 import { DiagnosticReportAction } from "../DiagnosticReportAction";
 import { diagnosticIssueReason, reportHandledIssue } from "~/lib/rendererErrorDiagnostics";

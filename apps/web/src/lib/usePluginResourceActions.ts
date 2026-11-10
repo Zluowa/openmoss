@@ -16,7 +16,7 @@ import type {
   ProviderPluginInstallAppSummary,
   ProviderPluginDescriptor,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useCallback, useMemo, useRef } from "react";
 
 import {
@@ -45,6 +45,7 @@ import {
   buildTryInChatSeed,
   createSingleFlight,
   resolveCreatorTaskWorkspace,
+  type TryInChatSeedOptions,
 } from "./tryInChatTarget";
 
 /** Whether "Uninstall" (delete canonical) is available for this resource. */
@@ -194,7 +195,11 @@ export function usePluginResourceActions(input: {
   // Matches Codex "Try in chat": open a fresh thread and prefill the composer
   // with the resource's prompt (skills are additionally attached by reference).
   const tryInChat = useCallback(
-    (resource: ResourceDetail, promptOverride?: string): Promise<boolean> =>
+    (
+      resource: ResourceDetail,
+      promptOverride?: string,
+      options?: TryInChatSeedOptions,
+    ): Promise<boolean> =>
       runExclusive(async () => {
         const projectId = await ensureProjectId({
           activeProjectId: input.activeProjectId,
@@ -211,7 +216,7 @@ export function usePluginResourceActions(input: {
         // Mirror the composer picker: set the reference(s) AND the chip token in
         // the prompt. The reference alone is dropped on send unless its token is
         // present in the text (filterPromptSkillReferences / mention filter).
-        const seed = buildTryInChatSeed(resource, input.provider, promptOverride);
+        const seed = buildTryInChatSeed(resource, input.provider, promptOverride, options);
         const store = useComposerDraftStore.getState();
         if (seed.skills.length > 0) store.setSkills(threadId, seed.skills);
         if (seed.mentions.length > 0) store.setMentions(threadId, seed.mentions);

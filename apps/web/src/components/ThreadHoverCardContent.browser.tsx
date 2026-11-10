@@ -4,7 +4,7 @@
 
 import "../index.css";
 
-import { ThreadId, type ProviderModelDescriptor } from "@synara/contracts";
+import { ThreadId, type ProviderModelDescriptor } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

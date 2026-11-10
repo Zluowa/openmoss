@@ -22,8 +22,8 @@ import {
   type InlineVisualActivityPayload,
   type InlineVisualBlock,
   type InlineVisualFormat,
-} from "@synara/contracts";
-import { compileInlineVisualFormula } from "@synara/shared/inlineVisualFormula";
+} from "@moss/contracts";
+import { compileInlineVisualFormula } from "@moss/shared/inlineVisualFormula";
 import { Effect, Schema, Semaphore } from "effect";
 
 import { writeInlineVisual } from "../inlineVisualStore.ts";

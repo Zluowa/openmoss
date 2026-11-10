@@ -4,7 +4,7 @@
 
 import "../../index.css";
 
-import type { PullRequestDetail } from "@synara/contracts";
+import type { PullRequestDetail } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { page } from "vitest/browser";

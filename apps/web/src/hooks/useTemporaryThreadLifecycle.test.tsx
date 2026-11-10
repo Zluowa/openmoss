@@ -1,4 +1,4 @@
-import { SidebarSectionId, ThreadId } from "@synara/contracts";
+import { SidebarSectionId, ThreadId } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const reactHarness = vi.hoisted(() => {

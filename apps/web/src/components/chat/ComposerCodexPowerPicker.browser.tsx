@@ -1,13 +1,13 @@
 import "../../index.css";
 
-import { type ProviderModelDescriptor } from "@synara/contracts";
+import { type ProviderModelDescriptor } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { commands, page, userEvent } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-import { DEFAULT_SERVER_SETTINGS_VIEW } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS_VIEW } from "@moss/contracts";
 import { MossLocalizationProvider } from "../../localization";
 import { serverQueryKeys } from "../../lib/serverReactQuery";
 import { APP_SETTINGS_STORAGE_KEY } from "../../uiLocale";

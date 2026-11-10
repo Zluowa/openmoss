@@ -44,12 +44,14 @@ import {
   type DesktopDiagnosticReportStatus,
   LEGACY_PROVIDER_MIGRATIONS,
   ProviderKind,
-} from "@synara/contracts";
-import { redactDiagnosticText } from "@synara/shared/diagnosticsRedaction";
+} from "@moss/contracts";
+import { redactDiagnosticText } from "@moss/shared/diagnosticsRedaction";
 import { Schema } from "effect";
 
-/** Override point for self-hosted / dev ingestion; production default ships in the binary. */
-export const BETA_DIAGNOSTICS_ENDPOINT = "https://moss-beta-diagnostics.kartik-9f9.workers.dev";
+/**
+ * Moss runs no diagnostics service of its own, so there is no default: without
+ * this override, Beta sends nothing and uses the same error reports as stable.
+ */
 export const BETA_DIAGNOSTICS_ENDPOINT_ENV = "MOSS_BETA_DIAGNOSTICS_URL";
 
 const FLUSH_INTERVAL_MS = 5 * 60 * 1000;
@@ -362,9 +364,9 @@ function errorFingerprint(message: string, stack: string | undefined, homeDir: s
     .slice(0, 16);
 }
 
-export function resolveBetaDiagnosticsEndpoint(env: NodeJS.ProcessEnv): string {
+export function resolveBetaDiagnosticsEndpoint(env: NodeJS.ProcessEnv): string | null {
   const override = env[BETA_DIAGNOSTICS_ENDPOINT_ENV]?.trim();
-  if (!override) return BETA_DIAGNOSTICS_ENDPOINT;
+  if (!override) return null;
   // Loopback http targets are allowed so the worker can be developed locally;
   // remote overrides must be TLS. Parsed as a URL so lookalike prefixes like
   // http://localhost.evil.com cannot pass.
@@ -378,9 +380,9 @@ export function resolveBetaDiagnosticsEndpoint(env: NodeJS.ProcessEnv): string {
       return override;
     }
   } catch {
-    // Unparseable override: fall through to the baked default.
+    // Unparseable override: treated the same as no override.
   }
-  return BETA_DIAGNOSTICS_ENDPOINT;
+  return null;
 }
 
 export class BetaDiagnostics {
@@ -390,7 +392,7 @@ export class BetaDiagnostics {
   private readonly usageSnapshotPath: string;
   private readonly usageLastDayPath: string;
   private readonly installPendingPath: string;
-  private readonly endpoint: string;
+  private readonly endpoint: string | null;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private usageTimers: ReturnType<typeof setTimeout>[] = [];
   private flushing = false;
@@ -884,7 +886,7 @@ export class BetaDiagnostics {
 
   private async flushQueue(timeoutMs: number): Promise<void> {
     try {
-      if (!existsSync(this.queuePath)) return;
+      if (this.endpoint === null || !existsSync(this.queuePath)) return;
       const raw = readFileSync(this.queuePath, "utf8");
       const lines = raw.split("\n").filter((line) => line.length > 0);
       if (lines.length === 0) return;

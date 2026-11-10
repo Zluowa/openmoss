@@ -1,4 +1,4 @@
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   clampCollapsedComposerCursor,

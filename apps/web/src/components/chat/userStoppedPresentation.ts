@@ -4,7 +4,7 @@ import type {
   OrchestrationLatestTurn,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { ChatMessage } from "../../types";
 

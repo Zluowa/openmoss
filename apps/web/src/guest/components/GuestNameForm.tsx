@@ -2,7 +2,7 @@
 // Purpose: The one-time join step: a name, then the invite is spent.
 // Layer: Guest page UI
 
-import { GUEST_NAME_MAX_LENGTH } from "@synara/contracts";
+import { GUEST_NAME_MAX_LENGTH } from "@moss/contracts";
 import { useState, type FormEvent } from "react";
 
 import { MossLogoMark } from "~/components/MossLogoMark";

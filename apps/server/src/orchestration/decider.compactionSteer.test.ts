@@ -10,7 +10,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationThreadActivity,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 

@@ -11,15 +11,24 @@ import {
   PagesListInput,
   PagesMutateInput,
   PagesMutateResult,
+  PagesOutputStateInput,
+  PagesOutputsInput,
   PagesReadInput,
   PagesScopeInput,
   PagesVersionsInput,
+  SPACE_TRASH_RETENTION_DAYS,
   type SpaceId,
+  SpaceOutput,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
-import { parsePageRichContent } from "@synara/shared/pageRichContent";
+import { parsePageRichContent } from "@moss/shared/pageRichContent";
+
+import { persistPageVersion } from "../pageVersionPersistence";
+import { readContributors } from "../pageVersionContributors";
+import { pageAccessEpoch } from "../pageAccessEpoch";
+import { changingSpaceMembership } from "../spaceSyncMembership";
 
 import { stableGatewayDigest } from "../../agentGateway/creationUtils";
 import {
@@ -36,7 +45,10 @@ type DocumentRow = {
   space_id: string | null;
   parent_page_id: string | null;
   root_page_id: string;
+  kind: string;
   title: string;
+  icon: string | null;
+  cover: string | null;
   revision: number;
   pinned: number;
   trashed_at: string | null;
@@ -52,6 +64,7 @@ type SpaceRow = {
   scope_key: string;
   root_page_id: string;
   title: string;
+  icon: string | null;
   revision: number;
   trashed_at: string | null;
   created_at: string;
@@ -64,6 +77,8 @@ type VersionRow = {
   operation: string;
   author: string;
   author_thread_id: string | null;
+  author_guest_ref: string | null;
+  contributors_json: string | null;
   created_at: string;
 };
 const scopeKey = (scope: Scope) => (scope === null ? "local-default" : `project-space:${scope}`);
@@ -95,7 +110,10 @@ const pageFromRow = (row: DocumentRow) =>
     spaceId: row.space_id,
     parentPageId: row.parent_page_id,
     rootPageId: row.root_page_id,
+    ...(row.kind === "page" ? {} : { kind: row.kind }),
     title: row.title,
+    ...(row.icon == null ? {} : { icon: row.icon }),
+    ...(row.cover == null ? {} : { cover: row.cover }),
     revision: row.revision,
     pinned: row.pinned !== 0,
     trashedAt: row.trashed_at,
@@ -111,21 +129,73 @@ const spaceFromRow = (row: SpaceRow) =>
     scopeSpaceId: scopeFromKey(row.scope_key),
     rootPageId: row.root_page_id,
     title: row.title,
+    icon: row.icon,
     revision: row.revision,
     trashedAt: row.trashed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
 const versionFromRow = (row: VersionRow) =>
-  Schema.decodeUnknownSync(PageVersion)({
-    page: JSON.parse(row.page_json),
-    content: row.content,
-    operation: row.operation,
-    ...(row.rich_content == null ? {} : { richContent: row.rich_content }),
-    author: row.author,
-    authorThreadId: row.author_thread_id,
-    createdAt: row.created_at,
+  Effect.try({
+    try: () =>
+      Schema.decodeUnknownSync(PageVersion)({
+        page: JSON.parse(row.page_json),
+        content: row.content,
+        operation: row.operation,
+        ...(row.rich_content == null ? {} : { richContent: row.rich_content }),
+        author: row.author,
+        authorThreadId: row.author_thread_id,
+        ...(row.author_guest_ref == null ? {} : { authorGuestRef: row.author_guest_ref }),
+        ...(row.contributors_json == null
+          ? {}
+          : { contributors: readContributors(row.contributors_json) }),
+        createdAt: row.created_at,
+      }),
+    catch: (cause) =>
+      new PagesServiceError({ code: "storage", message: "Invalid stored Page version", cause }),
   });
+
+const OUTPUT_TURN_LIMIT = 2_000;
+const OUTPUT_ID_SEPARATOR = "|";
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"]);
+const FILE_EXTENSIONS = new Set([
+  "html",
+  "htm",
+  "pdf",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+  "csv",
+  "tsv",
+  "zip",
+]);
+/** Which chat outputs the Space picks up: documents people open, not source code. */
+export const spaceOutputKind = (path: string): "image" | "file" | null => {
+  const extension = /\.([A-Za-z0-9]+)$/.exec(path)?.[1]?.toLowerCase();
+  if (!extension) return null;
+  if (IMAGE_EXTENSIONS.has(extension)) return "image";
+  return FILE_EXTENSIONS.has(extension) ? "file" : null;
+};
+export const spaceOutputId = (threadId: string, path: string) =>
+  `${threadId}${OUTPUT_ID_SEPARATOR}${path}`;
+const parseCheckpointFiles = (json: string): { path: string; kind: string }[] => {
+  try {
+    const value: unknown = JSON.parse(json);
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (entry): entry is { path: string; kind: string } =>
+        typeof entry === "object" &&
+        entry !== null &&
+        typeof (entry as { path?: unknown }).path === "string" &&
+        typeof (entry as { kind?: unknown }).kind === "string",
+    );
+  } catch {
+    return [];
+  }
+};
 
 /** Reuses the profile's SQLite connection. Document bodies are immutable version rows. */
 export const makePagesServiceShape = (
@@ -133,6 +203,7 @@ export const makePagesServiceShape = (
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    const projectionEpoch = pageAccessEpoch(sql);
     const now = options.now ?? (() => new Date().toISOString());
     const newId = options.id ?? randomUUID;
     const richDocument = (input: string) =>
@@ -199,10 +270,10 @@ export const makePagesServiceShape = (
       });
     const version = (id: PageId, revision: number) =>
       Effect.gen(function* () {
-        const rows =
-          yield* sql<VersionRow>`SELECT * FROM pages_versions WHERE page_id = ${id} AND revision = ${revision}`;
+        const rows = yield* sql<VersionRow>`SELECT v.*, c.contributors_json FROM pages_versions v
+            LEFT JOIN pages_version_contributors c USING(page_id,revision) WHERE v.page_id = ${id} AND v.revision = ${revision}`;
         if (!rows[0]) return yield* Effect.fail(failure("not-found", "Page version not found"));
-        return versionFromRow(rows[0]);
+        return yield* versionFromRow(rows[0]);
       });
     const active = (page: Page) =>
       page.trashedAt === null
@@ -264,32 +335,16 @@ export const makePagesServiceShape = (
       trashBatch: string | null = null,
       richContent: string | null = null,
     ) =>
-      Effect.gen(function* () {
-        const key = scopeKey(page.scopeSpaceId);
-        if (previousRevision === null) {
-          yield* sql`INSERT INTO pages_documents (page_id, scope_key, space_id, parent_page_id, root_page_id, title,
-            revision, pinned, trashed_at, trash_batch, source_thread_id, asset_ids_json, automation_ids_json, created_at, updated_at)
-            VALUES (${page.id}, ${key}, ${page.spaceId}, ${page.parentPageId}, ${page.rootPageId}, ${page.title},
-            ${page.revision}, ${page.pinned ? 1 : 0}, ${page.trashedAt}, ${trashBatch}, ${page.sourceThreadId},
-            ${JSON.stringify(page.assetIds)}, ${JSON.stringify(page.automationIds)}, ${page.createdAt}, ${page.updatedAt})`;
-        } else {
-          const changed =
-            yield* sql`UPDATE pages_documents SET space_id = ${page.spaceId}, parent_page_id = ${page.parentPageId},
-            root_page_id = ${page.rootPageId}, title = ${page.title}, revision = ${page.revision}, pinned = ${page.pinned ? 1 : 0},
-            trashed_at = ${page.trashedAt}, trash_batch = ${trashBatch}, source_thread_id = ${page.sourceThreadId},
-            asset_ids_json = ${JSON.stringify(page.assetIds)}, automation_ids_json = ${JSON.stringify(page.automationIds)}, updated_at = ${page.updatedAt}
-            WHERE page_id = ${page.id} AND scope_key = ${key} AND revision = ${previousRevision} RETURNING page_id`;
-          if (changed.length !== 1)
-            return yield* Effect.fail(failure("conflict", "Page changed during this edit"));
-        }
-        yield* sql`INSERT INTO pages_versions (page_id, revision, page_json, content, rich_content, operation, author, author_thread_id, created_at)
-          VALUES (${page.id}, ${page.revision}, ${JSON.stringify(page)}, ${content}, ${richContent}, ${operation}, ${principal.kind},
-            ${principal.kind === "agent" ? principal.threadId : null}, ${page.updatedAt})`;
-        if (page.spaceId !== null) {
-          yield* sql`UPDATE pages_spaces SET title = ${page.title}, revision = ${page.revision}, trashed_at = ${page.trashedAt}, updated_at = ${page.updatedAt}
-            WHERE space_id = ${page.spaceId} AND root_page_id = ${page.id} AND scope_key = ${key}`;
-        }
-      });
+      persistPageVersion(
+        sql,
+        page,
+        content,
+        operation,
+        principal,
+        previousRevision,
+        trashBatch,
+        richContent,
+      );
     const subtree = (page: Page) =>
       Effect.gen(function* () {
         const rows =
@@ -340,6 +395,39 @@ export const makePagesServiceShape = (
         return parent;
       });
 
+    /** Deletes pages for good: their versions, comments and a space they are the root of. */
+    const purgePages = (ids: readonly PageId[], scope: Scope) =>
+      Effect.gen(function* () {
+        const key = scopeKey(scope);
+        for (const id of ids) {
+          yield* sql`DELETE FROM pages_comments WHERE page_id = ${id}`;
+          yield* sql`DELETE FROM pages_versions WHERE page_id = ${id}`;
+          yield* sql`DELETE FROM pages_spaces WHERE root_page_id = ${id} AND scope_key = ${key}`;
+          yield* sql`DELETE FROM pages_documents WHERE page_id = ${id} AND scope_key = ${key}`;
+        }
+      });
+    const trashCutoff = () =>
+      new Date(Date.parse(now()) - SPACE_TRASH_RETENTION_DAYS * 86_400_000).toISOString();
+    /**
+     * Trash keeps items for SPACE_TRASH_RETENTION_DAYS. A local profile has no background job,
+     * so the sweep runs when the scope is listed; it is one indexed read when nothing expired.
+     */
+    const sweepExpiredTrash = (scope: Scope) =>
+      Effect.gen(function* () {
+        const cutoff = trashCutoff();
+        const key = scopeKey(scope);
+        const expired = yield* sql<{ page_id: PageId }>`SELECT page_id FROM pages_documents
+          WHERE scope_key = ${key} AND trashed_at IS NOT NULL AND trashed_at < ${cutoff}`;
+        if (expired.length > 0)
+          yield* sql.withTransaction(
+            purgePages(
+              expired.map((row) => row.page_id),
+              scope,
+            ),
+          );
+        yield* sql`UPDATE pages_output_states SET purged_at = ${now()}
+          WHERE scope_key = ${key} AND purged_at IS NULL AND trashed_at IS NOT NULL AND trashed_at < ${cutoff}`;
+      });
     const spaces: PagesServiceShape["spaces"] = (raw, principal) =>
       protect(
         Effect.gen(function* () {
@@ -355,6 +443,7 @@ export const makePagesServiceShape = (
         Effect.gen(function* () {
           const input = yield* decode(PagesListInput, raw);
           yield* authorize(input.scopeSpaceId, principal);
+          yield* sweepExpiredTrash(input.scopeSpaceId);
           const rows = input.includeTrashed
             ? yield* sql<DocumentRow>`SELECT * FROM pages_documents WHERE scope_key = ${scopeKey(input.scopeSpaceId)} ORDER BY pinned DESC, updated_at DESC, page_id`
             : yield* sql<DocumentRow>`SELECT * FROM pages_documents WHERE scope_key = ${scopeKey(input.scopeSpaceId)} AND trashed_at IS NULL ORDER BY pinned DESC, updated_at DESC, page_id`;
@@ -381,10 +470,15 @@ export const makePagesServiceShape = (
           const input = yield* decode(PagesVersionsInput, raw);
           yield* authorize(input.scopeSpaceId, principal);
           yield* document(input.pageId, input.scopeSpaceId);
-          const rows =
-            yield* sql<VersionRow>`SELECT * FROM pages_versions WHERE page_id = ${input.pageId}
-        AND revision < ${input.beforeRevision ?? Number.MAX_SAFE_INTEGER} ORDER BY revision DESC LIMIT ${input.limit ?? 30}`;
-          return { versions: rows.map(versionFromRow) };
+          const rows = input.summaryOnly
+            ? yield* sql<VersionRow>`SELECT v.page_json, '' AS content, NULL AS rich_content, v.operation, v.author,
+                v.author_thread_id, v.author_guest_ref, v.created_at, c.contributors_json FROM pages_versions v
+                LEFT JOIN pages_version_contributors c USING(page_id,revision) WHERE v.page_id = ${input.pageId}
+                AND v.revision < ${input.beforeRevision ?? Number.MAX_SAFE_INTEGER} ORDER BY v.revision DESC LIMIT ${input.limit ?? 30}`
+            : yield* sql<VersionRow>`SELECT v.*, c.contributors_json FROM pages_versions v
+                LEFT JOIN pages_version_contributors c USING(page_id,revision) WHERE v.page_id = ${input.pageId}
+                AND v.revision < ${input.beforeRevision ?? Number.MAX_SAFE_INTEGER} ORDER BY v.revision DESC LIMIT ${input.limit ?? 30}`;
+          return { versions: yield* Effect.forEach(rows, versionFromRow) };
         }),
       );
     const comments: PagesServiceShape["comments"] = (raw, principal) =>
@@ -421,7 +515,8 @@ export const makePagesServiceShape = (
       protect(
         Effect.gen(function* () {
           const input = yield* decode(PagesMutateInput, raw);
-          return yield* sql.withTransaction(
+          let previousSpace: PageSpaceId | null = null;
+          const write = sql.withTransaction(
             Effect.gen(function* () {
               yield* authorize(input.scopeSpaceId, principal);
               const key = scopeKey(input.scopeSpaceId);
@@ -461,6 +556,9 @@ export const makePagesServiceShape = (
                   spaceId: createdSpaceId,
                   parentPageId: parent?.id ?? null,
                   rootPageId: parent?.rootPageId ?? id,
+                  ...(input.op === "create" && input.kind !== undefined && input.kind !== "page"
+                    ? { kind: input.kind }
+                    : {}),
                   title: input.title,
                   revision: 1,
                   pinned: false,
@@ -507,6 +605,8 @@ export const makePagesServiceShape = (
                     failure("conflict", "Page changed; reload before saving", original.revision),
                   );
                 const previous = yield* version(original.id, original.revision);
+                if (["move", "trash", "trash-space", "purge"].includes(input.op))
+                  previousSpace = original.spaceId;
                 const ownedSpace = yield* rootSpace(original);
                 let next = { ...original, revision: original.revision + 1, updatedAt: timestamp };
                 let content = previous.content;
@@ -547,6 +647,27 @@ export const makePagesServiceShape = (
                       affected.push(restored.id);
                       if (restored.id === original.id) next = restored;
                     }
+                } else if (input.op === "purge") {
+                  if (original.trashedAt === null)
+                    return yield* Effect.fail(
+                      failure("invalid", "Only trashed pages can be purged"),
+                    );
+                  // Everything below a trashed page is in trash too, whichever batch put it there.
+                  const tree = yield* subtree(original);
+                  yield* purgePages(
+                    tree.map((item) => item.page.id),
+                    input.scopeSpaceId,
+                  );
+                  for (const item of tree) affected.push(item.page.id);
+                } else if (input.op === "space-icon") {
+                  if (!ownedSpace)
+                    return yield* Effect.fail(
+                      failure("invalid", "Only a document-space root page carries its icon"),
+                    );
+                  yield* sql`UPDATE pages_spaces SET icon = ${input.icon}, updated_at = ${timestamp}
+                    WHERE space_id = ${ownedSpace.id} AND scope_key = ${key}`;
+                  next = original;
+                  affected.push(original.id);
                 } else {
                   yield* active(original);
                   if (input.op === "trash" || input.op === "trash-space") {
@@ -663,7 +784,13 @@ export const makePagesServiceShape = (
                         principal,
                       );
                     } else if (input.op === "pin") next = { ...next, pinned: input.pinned };
-                    else if (input.op === "restore-version") {
+                    else if (input.op === "page-appearance") {
+                      next = {
+                        ...next,
+                        ...(input.icon === undefined ? {} : { icon: input.icon }),
+                        ...(input.cover === undefined ? {} : { cover: input.cover }),
+                      };
+                    } else if (input.op === "restore-version") {
                       const old = yield* version(original.id, input.revision);
                       // Restore the document, not old tree placement or automation links.
                       next = { ...next, title: old.page.title };
@@ -699,7 +826,7 @@ export const makePagesServiceShape = (
                   content,
                   ...(richContent === undefined ? {} : { richContent }),
                   affectedPageIds: affected,
-                  ...(ownedSpace && next.spaceId !== null
+                  ...(ownedSpace && next.spaceId !== null && input.op !== "purge"
                     ? { space: yield* space(next.spaceId, input.scopeSpaceId) }
                     : {}),
                   ...(comment ? { comment } : {}),
@@ -710,9 +837,123 @@ export const makePagesServiceShape = (
               return result;
             }),
           );
+          // Body/structure changes can alter a published baseline or inherited access.
+          // Keep both ends outside the actual SQLite transaction, including rollback.
+          const changesAccess = !["comment", "pin", "space-icon", "page-appearance"].includes(
+            input.op,
+          );
+          const result = yield* changesAccess ? projectionEpoch.around(write) : write;
+          // An invalid action, rolled-back transaction or idempotent replay must
+          // not disconnect a room. Announce only an actual committed departure.
+          if (
+            previousSpace !== null &&
+            (input.op !== "move" || result.page.spaceId !== previousSpace)
+          )
+            changingSpaceMembership(sql, input.scopeSpaceId, previousSpace);
+          return result;
         }),
       );
-    return { spaces, list, read, versions, comments, mutate } satisfies PagesServiceShape;
+    const outputs: PagesServiceShape["outputs"] = (raw, principal) =>
+      protect(
+        Effect.gen(function* () {
+          const input = yield* decode(PagesOutputsInput, raw);
+          yield* authorize(input.scopeSpaceId, principal);
+          const key = scopeKey(input.scopeSpaceId);
+          const turns = yield* sql<{
+            thread_id: ThreadId;
+            thread_title: string;
+            root: string;
+            files_json: string;
+            at: string;
+          }>`SELECT t.thread_id, t.title AS thread_title,
+              COALESCE(NULLIF(t.worktree_path, ''), p.workspace_root) AS root,
+              tu.checkpoint_files_json AS files_json,
+              COALESCE(tu.completed_at, tu.requested_at) AS at
+            FROM projection_turns tu
+            JOIN projection_threads t ON t.thread_id = tu.thread_id
+            JOIN projection_projects p ON p.project_id = t.project_id
+            WHERE t.deleted_at IS NULL AND p.deleted_at IS NULL
+              AND p.space_id IS ${input.scopeSpaceId}
+              AND tu.checkpoint_files_json <> '[]'
+            ORDER BY at DESC LIMIT ${OUTPUT_TURN_LIMIT}`;
+          const states = new Map(
+            (yield* sql<{
+              output_key: string;
+              trashed_at: string | null;
+              purged_at: string | null;
+            }>`SELECT output_key, trashed_at, purged_at FROM pages_output_states WHERE scope_key = ${key}`).map(
+              (row) => [row.output_key, row] as const,
+            ),
+          );
+          const seen = new Set<string>();
+          const result: SpaceOutput[] = [];
+          for (const turn of turns) {
+            for (const file of parseCheckpointFiles(turn.files_json)) {
+              const kind = spaceOutputKind(file.path);
+              if (kind === null || file.kind === "deleted") continue;
+              const id = spaceOutputId(turn.thread_id, file.path);
+              if (seen.has(id)) continue;
+              seen.add(id);
+              const state = states.get(id);
+              if (state?.purged_at) continue;
+              const trashedAt = state?.trashed_at ?? null;
+              if (trashedAt !== null && !input.includeTrashed) continue;
+              result.push(
+                Schema.decodeUnknownSync(SpaceOutput)({
+                  id,
+                  kind,
+                  title: file.path.split(/[\\/]/).pop() || file.path,
+                  path: file.path,
+                  workspaceRoot: turn.root,
+                  threadId: turn.thread_id,
+                  threadTitle: turn.thread_title,
+                  updatedAt: turn.at,
+                  trashedAt,
+                }),
+              );
+            }
+          }
+          return { outputs: result };
+        }),
+      );
+    const outputState: PagesServiceShape["outputState"] = (raw, principal) =>
+      protect(
+        Effect.gen(function* () {
+          const input = yield* decode(PagesOutputStateInput, raw);
+          yield* authorize(input.scopeSpaceId, principal);
+          const separator = input.outputId.indexOf(OUTPUT_ID_SEPARATOR);
+          if (separator <= 0) return yield* Effect.fail(failure("invalid", "Unknown Space output"));
+          const threadId = input.outputId.slice(0, separator) as ThreadId;
+          if ((yield* threadScope(threadId)) !== input.scopeSpaceId)
+            return yield* Effect.fail(failure("forbidden", "Output belongs to another space"));
+          const key = scopeKey(input.scopeSpaceId);
+          const timestamp = now();
+          const existing = yield* sql<{
+            trashed_at: string | null;
+          }>`SELECT trashed_at FROM pages_output_states WHERE scope_key = ${key} AND output_key = ${input.outputId}`;
+          const trashedAt =
+            input.action === "restore"
+              ? null
+              : input.action === "purge"
+                ? (existing[0]?.trashed_at ?? timestamp)
+                : timestamp;
+          const purgedAt = input.action === "purge" ? timestamp : null;
+          yield* sql`INSERT INTO pages_output_states (scope_key, output_key, trashed_at, purged_at, updated_at)
+            VALUES (${key}, ${input.outputId}, ${trashedAt}, ${purgedAt}, ${timestamp})
+            ON CONFLICT (scope_key, output_key) DO UPDATE SET trashed_at = excluded.trashed_at,
+              purged_at = excluded.purged_at, updated_at = excluded.updated_at`;
+        }),
+      );
+    return {
+      spaces,
+      list,
+      read,
+      versions,
+      comments,
+      mutate,
+      outputs,
+      outputState,
+    } satisfies PagesServiceShape;
   });
 
 export const PagesServiceLive = Layer.effect(PagesService, makePagesServiceShape());

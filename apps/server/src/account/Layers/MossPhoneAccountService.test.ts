@@ -163,6 +163,16 @@ const seedLegacyPhoneSession = (
   );
 };
 
+const makeRejectionManagedProvider = () => {
+  const provision = vi.fn<MossManagedProviderShape["provision"]>(() => Effect.void);
+  return {
+    provision,
+    needsDisable: () => Effect.succeed(false),
+    getProvisioningState: () => Effect.succeed("ready" as const),
+    disable: () => Effect.void,
+  } satisfies MossManagedProviderShape;
+};
+
 const makeGate = () => {
   let open!: () => void;
   const promise = new Promise<void>((resolve) => {
@@ -2345,5 +2355,168 @@ describe("MossPhoneAccountService", () => {
     expect(vi.mocked(dependencies.disable).mock.invocationCallOrder.at(-1) ?? 0).toBeLessThan(
       vi.mocked(dependencies.provision).mock.invocationCallOrder.at(-1) ?? 0,
     );
+  });
+
+  it("refreshes a rejected bearer before deciding the session is over", async () => {
+    const now = 1_800_000_000_000;
+    const secrets = makeSecretStore();
+    const refresh = vi.fn(async () =>
+      phoneSession({
+        accessToken: "access-after-rejection",
+        refreshToken: "refresh-after-rejection",
+        expiresAt: now + 3_600_000,
+      }),
+    );
+    const getUser = vi.fn(async () => {
+      throw new SupabaseMossAuthError({
+        operation: "get_user",
+        code: "bad_jwt",
+        status: 403,
+        retryable: false,
+        message: "rejected",
+      });
+    });
+    const managed = makeRejectionManagedProvider();
+
+    const state = await Effect.gen(function* () {
+      const service = yield* makeMossPhoneAccountService({
+        auth: availableAuth(
+          makeClient({
+            sendPhoneOtp: async () => ({ accepted: true }),
+            verifyPhoneOtp: async () =>
+              phoneSession({ accessToken: "access-rejected", expiresAt: now + 3_000_000 }),
+            refresh,
+            getUser,
+          }),
+        ),
+        now: () => now,
+        fetchGatewayModels: () =>
+          Effect.succeed({ status: "ready" as const, models: ["deepseek-v4-pro"] }),
+      });
+      const challenge = yield* service.startPhoneLogin({ phoneNumber: "13800138000" });
+      yield* service.verifyPhoneLogin({
+        challengeId: challenge.challengeId,
+        phoneNumber: challenge.phoneNumber,
+        code: "123456",
+      });
+      return {
+        session: yield* service.getSession(),
+        token: yield* service.getAccessToken().pipe(Effect.result),
+      };
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.succeed(ServerSecretStore, secrets.service),
+          Layer.succeed(MossManagedProvider, managed),
+        ),
+      ),
+      Effect.runPromise,
+    );
+
+    expect(refresh).toHaveBeenCalled();
+    expect(state.session.authenticated).toBe(true);
+  });
+
+  it("still ends the session when the refresh token is rejected too", async () => {
+    const now = 1_800_000_000_000;
+    const secrets = makeSecretStore();
+    const managed = makeRejectionManagedProvider();
+    const rejected = (operation: "get_user" | "refresh") => async () => {
+      throw new SupabaseMossAuthError({
+        operation,
+        code: operation === "get_user" ? "bad_jwt" : "refresh_token_not_found",
+        status: operation === "get_user" ? 403 : 400,
+        retryable: false,
+        message: "rejected",
+      });
+    };
+
+    const state = await Effect.gen(function* () {
+      const service = yield* makeMossPhoneAccountService({
+        auth: availableAuth(
+          makeClient({
+            sendPhoneOtp: async () => ({ accepted: true }),
+            verifyPhoneOtp: async () =>
+              phoneSession({ accessToken: "access-rejected", expiresAt: now + 3_000_000 }),
+            refresh: rejected("refresh"),
+            getUser: rejected("get_user"),
+          }),
+        ),
+        now: () => now,
+        fetchGatewayModels: () =>
+          Effect.succeed({ status: "ready" as const, models: ["deepseek-v4-pro"] }),
+      });
+      const challenge = yield* service.startPhoneLogin({ phoneNumber: "13800138000" });
+      yield* service.verifyPhoneLogin({
+        challengeId: challenge.challengeId,
+        phoneNumber: challenge.phoneNumber,
+        code: "123456",
+      });
+      return yield* service.getSession();
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.succeed(ServerSecretStore, secrets.service),
+          Layer.succeed(MossManagedProvider, managed),
+        ),
+      ),
+      Effect.runPromise,
+    );
+
+    expect(state.authenticated).toBe(false);
+  });
+
+  it("leaves the surface with the enterprise key that owns it across a restart", async () => {
+    const now = 1_800_000_000_000;
+    const secrets = makeSecretStore();
+    const managed = makeRejectionManagedProvider();
+
+    const result = await Effect.gen(function* () {
+      const service = yield* makeMossPhoneAccountService({
+        auth: availableAuth(
+          makeClient({
+            sendPhoneOtp: async () => ({ accepted: true }),
+            verifyPhoneOtp: async () => phoneSession({ expiresAt: now + 3_000_000 }),
+            getUser: async () => phoneSession().user,
+          }),
+        ),
+        now: () => now,
+        fetchGatewayModels: () =>
+          Effect.succeed({ status: "ready" as const, models: ["deepseek-v4-pro"] }),
+      });
+      const challenge = yield* service.startPhoneLogin({ phoneNumber: "13800138000" });
+      yield* service.verifyPhoneLogin({
+        challengeId: challenge.challengeId,
+        phoneNumber: challenge.phoneNumber,
+        code: "123456",
+      });
+      // The person then signs in with their enterprise key: the latest explicit choice.
+      const coordinator = makeMossManagedProviderCoordinator(secrets.service, managed);
+      yield* coordinator.provision({
+        authority: "moss-enterprise-key",
+        accessToken: "moss_sk_test_only",
+        gatewayBaseUrl: "https://moss.example.cn/functions/v1/moss-model-gateway",
+        selectionPolicy: "select",
+      });
+      managed.provision.mockClear();
+      const onStartup = yield* service.activateRealmOnStartup();
+      return {
+        onStartup,
+        owner: yield* coordinator.getLocalActiveAuthority(),
+        provisioned: managed.provision.mock.calls.length,
+      };
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.succeed(ServerSecretStore, secrets.service),
+          Layer.succeed(MossManagedProvider, managed),
+        ),
+      ),
+      Effect.runPromise,
+    );
+
+    expect(result.owner).toBe("moss-enterprise-key");
+    expect(result.provisioned).toBe(0);
+    expect(result.onStartup.activeRealm).toBeNull();
   });
 });

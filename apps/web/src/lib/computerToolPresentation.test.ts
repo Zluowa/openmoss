@@ -3,7 +3,7 @@
 //          asked is "click what", and the answer must not be the raw wire call.
 // Layer: Web UI logic tests
 
-import type { ComputerWindow } from "@synara/contracts";
+import type { ComputerWindow } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

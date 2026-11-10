@@ -28,9 +28,9 @@
 import { realpath } from "node:fs/promises";
 import { Effect } from "effect";
 
-import type { ComputerBrowserToolName } from "@synara/contracts";
-import { COMPUTER_BROWSER_DRIVER_NAMES } from "@synara/contracts";
-import { EXPLICIT_BROWSER_ENVIRONMENT_GUIDANCE } from "@synara/shared/browserAutomationCatalogue";
+import type { ComputerBrowserToolName } from "@moss/contracts";
+import { COMPUTER_BROWSER_DRIVER_NAMES } from "@moss/contracts";
+import { EXPLICIT_BROWSER_ENVIRONMENT_GUIDANCE } from "@moss/shared/browserAutomationCatalogue";
 
 import {
   ComputerBackendError,

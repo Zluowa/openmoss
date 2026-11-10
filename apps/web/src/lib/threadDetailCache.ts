@@ -1,5 +1,5 @@
 // Private, expendable transcript cache. Each record owns detail and its fence.
-import { OrchestrationThreadDetailSnapshot, type ThreadId } from "@synara/contracts";
+import { OrchestrationThreadDetailSnapshot, type ThreadId } from "@moss/contracts";
 import { Schema } from "effect";
 import { awaitIdbRequest, openIndexedDbDatabase, waitForIdbTransaction } from "./indexedDb";
 

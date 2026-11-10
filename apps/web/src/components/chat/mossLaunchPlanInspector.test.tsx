@@ -3,7 +3,7 @@ import {
   ThreadId,
   type MossLaunchPlan,
   type ProviderGetLaunchPlanResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 

@@ -8,7 +8,7 @@
       "outputs": ["dist-electron/**"],
     },
     "dev": {
-      "dependsOn": ["@synara/cli#build"],
+      "dependsOn": ["@moss/cli#build"],
       "passThroughEnv": [
         "MOSS_MODEL_GATEWAY_API_KEY",
         "HTTP_PROXY",
@@ -23,12 +23,12 @@
       "persistent": true,
     },
     "start": {
-      "dependsOn": ["build", "@synara/web#build", "@synara/cli#build"],
+      "dependsOn": ["build", "@moss/web#build", "@moss/cli#build"],
       "cache": false,
       "persistent": true,
     },
     "smoke-test": {
-      "dependsOn": ["build", "@synara/web#build", "@synara/cli#build"],
+      "dependsOn": ["build", "@moss/web#build", "@moss/cli#build"],
       "cache": false,
       "outputs": [],
     },

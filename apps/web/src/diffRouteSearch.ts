@@ -2,7 +2,7 @@
 // Purpose: Normalizes URL search state for chat side panels and diff-file deep links.
 // Layer: Route state utility
 
-import { MessageId, TurnId } from "@synara/contracts";
+import { MessageId, TurnId } from "@moss/contracts";
 
 import {
   normalizeMossShellRouteToggle,

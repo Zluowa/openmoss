@@ -20,15 +20,15 @@ import {
   type BrowserUploadInput,
   type ThreadBrowserState,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { app } from "electron";
 import { join } from "node:path";
 import {
   BROWSER_TOOL_DEFINITIONS_BY_NAME,
   stableJsonStringify,
-} from "@synara/shared/browserAutomationCatalogue";
+} from "@moss/shared/browserAutomationCatalogue";
 import { Schema } from "effect";
-import { browserInputErrorCode } from "@synara/shared/browserAutomationErrors";
+import { browserInputErrorCode } from "@moss/shared/browserAutomationErrors";
 
 import type {
   BrowserAutomationWindowOpenEvent,

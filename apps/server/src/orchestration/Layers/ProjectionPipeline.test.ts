@@ -10,11 +10,11 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   HTML_RENDER_ACTIVITY_KIND,
   htmlRenderActivityPayload,
-} from "@synara/shared/htmlRenderActivity";
+} from "@moss/shared/htmlRenderActivity";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
@@ -3682,6 +3682,97 @@ it.layer(
       const attachmentPath = path.join(attachmentsDir, "thread-rollback-att-1.png");
       assert.isFalse(yield* exists(attachmentPath));
       yield* sql`DROP TRIGGER IF EXISTS fail_thread_messages_projection_state_update`;
+    }),
+  );
+
+  it.effect("records which thread sent an agent message and drops it on a human resend", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const appendAndProject = makeAppendAndProject(eventStore, projectionPipeline);
+      const projectId = ProjectId.makeUnsafe("project-peer-sender");
+      const threadId = ThreadId.makeUnsafe("thread-peer-target");
+      const senderThreadId = ThreadId.makeUnsafe("thread-peer-sender");
+      const messageId = MessageId.makeUnsafe("agent:peer:message");
+      const createdAt = "2026-11-04T10:00:00.000Z";
+      const base = (id: string) => ({
+        eventId: EventId.makeUnsafe(`evt-peer-${id}`),
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe(`cmd-peer-${id}`),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe(`cmd-peer-${id}`),
+        metadata: {},
+      });
+
+      yield* appendAndProject({
+        ...base("project"),
+        type: "project.created",
+        aggregateKind: "project",
+        aggregateId: projectId,
+        payload: {
+          projectId,
+          title: "Peer Project",
+          workspaceRoot: "/tmp/project-peer",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      yield* appendAndProject({
+        ...base("thread"),
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        payload: {
+          threadId,
+          projectId,
+          title: "Peer Target",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      const sendUserMessage = (
+        id: string,
+        dispatch: { dispatchOrigin: "agent" | "user"; dispatchSourceThreadId: ThreadId | null },
+      ) =>
+        appendAndProject({
+          ...base(id),
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          payload: {
+            threadId,
+            messageId,
+            role: "user",
+            text: "Please rebase onto main.",
+            ...dispatch,
+            turnId: null,
+            streaming: false,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        });
+
+      yield* sendUserMessage("agent-send", {
+        dispatchOrigin: "agent",
+        dispatchSourceThreadId: senderThreadId,
+      });
+      const sent = yield* readProjectedMessage(threadId, messageId);
+      assert.equal(sent.dispatchOrigin, "agent");
+      assert.equal(sent.dispatchSourceThreadId, senderThreadId);
+
+      yield* sendUserMessage("human-resend", {
+        dispatchOrigin: "user",
+        dispatchSourceThreadId: null,
+      });
+      const resent = yield* readProjectedMessage(threadId, messageId);
+      assert.equal(resent.dispatchOrigin, "user");
+      assert.isUndefined(resent.dispatchSourceThreadId);
     }),
   );
 

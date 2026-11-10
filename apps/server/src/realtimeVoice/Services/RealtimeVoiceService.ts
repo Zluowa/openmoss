@@ -13,7 +13,7 @@ import type {
   RealtimeVoiceStartResult,
   RealtimeVoiceState,
   RealtimeVoiceStopInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { Effect, Stream } from "effect";
 import { ServiceMap } from "effect";
 

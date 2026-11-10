@@ -39,6 +39,14 @@ const DESKTOP_EXECUTABLE_INJECTION_ENV_KEYS = new Set([
 
 const DESKTOP_BUILD_NODE_OPTIONS = "--max-old-space-size=8192";
 const DESKTOP_BUILD_TURBO_CONCURRENCY = "1";
+const NODE_ENV_PROXY_KEYS = [
+  "HTTPS_PROXY",
+  "HTTP_PROXY",
+  "ALL_PROXY",
+  "https_proxy",
+  "http_proxy",
+  "all_proxy",
+] as const;
 
 function signingKeysForPlatform(
   platform: DesktopReleasePlatform,
@@ -80,7 +88,21 @@ function copyEnvironmentWithoutExecutableInjectionKeys(env: NodeJS.ProcessEnv): 
 }
 
 export function createNonSigningSubprocessEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return copyEnvironmentWithoutSigningKeys(env);
+  const result = copyEnvironmentWithoutSigningKeys(env);
+  // Node's native fetch only consumes the inherited proxy variables when the
+  // process opts in. Build-time helpers such as CUA provisioning run as child
+  // Node processes, so carry that opt-in across the subprocess boundary while
+  // preserving an explicit operator override.
+  if (
+    !result.NODE_USE_ENV_PROXY?.trim() &&
+    NODE_ENV_PROXY_KEYS.some((key) => result[key]?.trim())
+  ) {
+    result.NODE_USE_ENV_PROXY = "1";
+    // @electron/get uses its own opt-in for the Electron artifact download;
+    // keep it on the same configured route as Node's native fetch.
+    result.ELECTRON_GET_USE_PROXY = "1";
+  }
+  return result;
 }
 
 export function createDesktopBuildSubprocessEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

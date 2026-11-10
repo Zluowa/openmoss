@@ -8,24 +8,28 @@ import {
   SidebarSectionItemKey,
   type OrchestrationEvent,
   type SidebarSectionId,
-} from "@synara/contracts";
-import { resolveHumanMessageAt } from "@synara/shared/threadSummary";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
-import { clearRemovedAsyncUserInputResponses } from "@synara/shared/asyncUserInput";
-import { isGroupContainerKind } from "@synara/shared/projectContainers";
+} from "@moss/contracts";
+import { resolveHumanMessageAt } from "@moss/shared/threadSummary";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
+import { clearRemovedAsyncUserInputResponses } from "@moss/shared/asyncUserInput";
+import { isGroupContainerKind } from "@moss/shared/projectContainers";
 import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
   setPinnedMessageLabel,
-} from "@synara/shared/pinnedMessages";
-import { createStalePendingInteractionMatcher } from "@synara/shared/pendingInteractions";
-import { resolveModelSelectionInstanceId } from "@synara/shared/providerInstances";
+} from "@moss/shared/pinnedMessages";
+import { createStalePendingInteractionMatcher } from "@moss/shared/pendingInteractions";
+import { resolveModelSelectionInstanceId } from "@moss/shared/providerInstances";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
+import { Cause, Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
+import {
+  PersistenceDecodeError,
+  toPersistenceSqlError,
+  type ProjectionRepositoryError,
+} from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import {
@@ -71,7 +75,7 @@ import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/Projectio
 import { ProjectionThreadRepositoryLive } from "../../persistence/Layers/ProjectionThreads.ts";
 import { ManagedAttachmentRepositoryLive } from "../../persistence/Layers/ManagedAttachments.ts";
 import { ServerConfig } from "../../config.ts";
-import { deriveTurnStopActivity } from "@synara/shared/turnStopActivity";
+import { deriveTurnStopActivity } from "@moss/shared/turnStopActivity";
 import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
@@ -1138,6 +1142,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               : {}),
             ...(event.payload.dispatchOrigin !== undefined
               ? { dispatchOrigin: event.payload.dispatchOrigin }
+              : {}),
+            ...(event.payload.dispatchSourceThreadId != null
+              ? { dispatchSourceThreadId: event.payload.dispatchSourceThreadId }
               : {}),
             ...(event.payload.startsNewTurn !== undefined
               ? { startsNewTurn: event.payload.startsNewTurn }
@@ -2579,9 +2586,82 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   // stays one transaction per event, atomic with the journal append.
   const BOOTSTRAP_REPLAY_BATCH_SIZE = 500;
 
+  const logSkippedReplayRecord = (projector: ProjectorName, sequence: number, cause: unknown) =>
+    Effect.logWarning("projection replay skipped a record it could not read or apply").pipe(
+      Effect.annotateLogs({
+        projector,
+        sequence,
+        cause: Cause.isCause(cause) ? Cause.pretty(cause) : String(cause),
+      }),
+    );
+
+  /**
+   * Whether a replay failure belongs to one stored record (it does not decode,
+   * or projecting it throws) rather than to the database, which must still
+   * stop the replay.
+   */
+  const isSkippableReplayFailure = (cause: Cause.Cause<unknown>) => {
+    if (Cause.hasInterruptsOnly(cause)) return false;
+    const failure = Cause.findErrorOption(cause);
+    return Option.isNone(failure) || Schema.is(PersistenceDecodeError)(failure.value);
+  };
+
+  const applyReplayBatchEvents = (
+    projector: ProjectorDefinition,
+    events: ReadonlyArray<OrchestrationEvent>,
+    attachmentSideEffects: AttachmentSideEffects,
+    isolateEachEvent: boolean,
+  ) =>
+    Effect.gen(function* () {
+      for (const event of events) {
+        if (!(projector.shouldApply?.(event) ?? true)) continue;
+        if (!isolateEachEvent) {
+          yield* projector.apply(event, attachmentSideEffects);
+          continue;
+        }
+        // Each record gets its own savepoint, so one that cannot be applied is
+        // rolled back and skipped alone.
+        const eventSideEffects: AttachmentSideEffects = {
+          deletedThreadIds: new Set<string>(),
+          prunedThreadRelativePaths: new Map<string, Set<string>>(),
+        };
+        const applied = yield* Effect.exit(
+          sql.withTransaction(projector.apply(event, eventSideEffects)),
+        );
+        if (applied._tag === "Failure") {
+          if (!isSkippableReplayFailure(applied.cause))
+            return yield* Effect.failCause(applied.cause);
+          yield* logSkippedReplayRecord(projector.name, event.sequence, applied.cause);
+          continue;
+        }
+        for (const threadId of eventSideEffects.deletedThreadIds) {
+          attachmentSideEffects.deletedThreadIds.add(threadId);
+        }
+        for (const [threadId, relativePaths] of eventSideEffects.prunedThreadRelativePaths) {
+          attachmentSideEffects.prunedThreadRelativePaths.set(threadId, relativePaths);
+        }
+      }
+    });
+
+  // A batch that fails because of one record is applied again record by
+  // record, skipping only the records that cannot be applied, so one bad record
+  // cannot keep the server from starting.
   const applyBootstrapReplayBatch = (
     projector: ProjectorDefinition,
     events: ReadonlyArray<OrchestrationEvent>,
+  ) =>
+    applyBootstrapReplayBatchOnce(projector, events, false).pipe(
+      Effect.catchCause((cause) =>
+        isSkippableReplayFailure(cause)
+          ? applyBootstrapReplayBatchOnce(projector, events, true)
+          : Effect.failCause(cause),
+      ),
+    );
+
+  const applyBootstrapReplayBatchOnce = (
+    projector: ProjectorDefinition,
+    events: ReadonlyArray<OrchestrationEvent>,
+    isolateEachEvent: boolean,
   ) =>
     Effect.gen(function* () {
       const lastEvent = events[events.length - 1];
@@ -2594,11 +2674,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
       };
       yield* sql.withTransaction(
         Effect.gen(function* () {
-          for (const event of events) {
-            if (projector.shouldApply?.(event) ?? true) {
-              yield* projector.apply(event, attachmentSideEffects);
-            }
-          }
+          yield* applyReplayBatchEvents(projector, events, attachmentSideEffects, isolateEachEvent);
           // The tail event advances the cursor whether or not it matched the
           // predicate, subsuming the old skipped-event cursor preservation.
           yield* projectionStateRepository.upsert({
@@ -2653,6 +2729,8 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
                 {
                   ...projector.replayFilter,
                   includeBoundaryEvent: true,
+                  onUndecodableEvent: ({ sequence, error }) =>
+                    logSkippedReplayRecord(projector.name, sequence, error),
                 },
               )
               .pipe(Stream.grouped(BOOTSTRAP_REPLAY_BATCH_SIZE)),

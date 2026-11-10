@@ -25,15 +25,15 @@
 // Opt in:   MOSS_CLAUDE_KEEPALIVE=1
 // Tune:     MOSS_CLAUDE_KEEPALIVE_MINUTES=<n>   (default 30)
 
-import { execProcessFile } from "@synara/shared/processRuntime";
+import { execProcessFile } from "@moss/shared/processRuntime";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 
-import type { ServerSettings } from "@synara/contracts";
+import type { ServerSettings } from "@moss/contracts";
 import {
   deriveProviderInstances,
   providerStartOptionsFromInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 
 import { acquireClaudeAuthStatusLock } from "./claudeAuthStatusLock";
 import { buildClaudeInstanceProcessEnv } from "./claudeEnvironment";

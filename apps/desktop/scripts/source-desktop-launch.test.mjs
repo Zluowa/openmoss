@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   MOSS_DESKTOP_SMOKE_USER_DATA_ENV,
   MOSS_SOURCE_DESKTOP_BUILD_MARKER,
-} from "@synara/shared/desktopIdentity";
+} from "@moss/shared/desktopIdentity";
 import { spawnSourceDesktop } from "./source-desktop-launch.mjs";
 
 function captureSourceDesktopSpawn(environment, overrides = {}) {

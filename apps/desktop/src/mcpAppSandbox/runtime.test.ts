@@ -32,7 +32,7 @@ import {
   MCP_APP_SANDBOX_PORT_NAMES,
   MCP_APP_SANDBOX_SCHEME,
   type McpAppSandboxDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { McpAppSandboxRuntime } from "./runtime";
 import { mcpAppSandboxContentUrl } from "./policy";
 

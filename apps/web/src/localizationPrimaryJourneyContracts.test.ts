@@ -312,12 +312,14 @@ describe("HEL-20 primary zh-CN localization contract", () => {
       formatMossTranslation("en", "provider.send.blocked.unauthenticated", {
         provider: "Claude Work",
       }),
-    ).toBe("Claude Work is not authenticated. Open provider settings to sign in.");
+    ).toBe(
+      "Claude Work is not signed in. Sign in under Settings → Model accounts, or choose another model.",
+    );
     expect(
       formatMossTranslation("zh-CN", "provider.send.blocked.unauthenticated", {
         provider: "Claude Work",
       }),
-    ).toBe("Claude Work 尚未登录。请打开服务商设置并登录。");
+    ).toBe("Claude Work 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。");
     expect(
       formatMossTranslation("zh-CN", "provider.send.blocked.unavailable", {
         provider: "Gemini",

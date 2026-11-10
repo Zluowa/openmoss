@@ -8,11 +8,18 @@ import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
 export const McpConnectorId = TrimmedNonEmptyString;
 export type McpConnectorId = typeof McpConnectorId.Type;
 
-/** "oauth" servers carry Moss-held tokens; "none" servers answer anonymously. */
-export const McpConnectorAuthKind = Schema.Literals(["oauth", "none"]);
+/**
+ * "oauth" servers carry Moss-held tokens; "api-key" servers carry a key or
+ * token the user pasted (sent in the URL query or as a bearer header);
+ * "none" servers answer anonymously.
+ */
+export const McpConnectorAuthKind = Schema.Literals(["oauth", "api-key", "none"]);
 export type McpConnectorAuthKind = typeof McpConnectorAuthKind.Type;
 
-/** "needs-auth": the refresh token stopped working; reconnecting signs in again. */
+/**
+ * "needs-auth": the refresh token or API key stopped working; reconnecting
+ * signs in again.
+ */
 export const McpConnectorStatus = Schema.Literals(["connected", "needs-auth"]);
 export type McpConnectorStatus = typeof McpConnectorStatus.Type;
 
@@ -21,6 +28,7 @@ export const McpConnector = Schema.Struct({
   /** Catalog key, or null for a custom URL. */
   presetId: Schema.NullOr(TrimmedNonEmptyString),
   name: TrimmedNonEmptyString,
+  /** Upstream address without any API key, so it is safe to show. */
   url: TrimmedNonEmptyString,
   /** MCP server name provider sessions see, e.g. `supabase_connector`. */
   serverName: TrimmedNonEmptyString,
@@ -36,7 +44,9 @@ export type McpConnector = typeof McpConnector.Type;
 /**
  * Exactly one of `presetId` or `url`; `name` only labels a custom URL.
  * `clientId`/`clientSecret` are the user's own OAuth app, for servers that do
- * not register clients themselves (Slack, Google).
+ * not register clients themselves (Slack, Google). `apiKey` is the key or
+ * token for servers that take one instead of OAuth (Amap, McDonald's China);
+ * a reconnect without it keeps the saved key.
  */
 export const McpConnectorConnectInput = Schema.Struct({
   presetId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(64))),
@@ -44,11 +54,15 @@ export const McpConnectorConnectInput = Schema.Struct({
   name: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(60))),
   clientId: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
   clientSecret: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
+  apiKey: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(512))),
 }).annotate({ parseOptions: { onExcessProperty: "error" } });
 export type McpConnectorConnectInput = typeof McpConnectorConnectInput.Type;
 
 /** Connect failed because the server needs the user's own OAuth app. */
 export const MCP_CONNECTOR_CLIENT_REQUIRED_ERROR_CODE = "mcp-connector-client-required";
+
+/** Connect failed because the server needs an API key and none was given or saved. */
+export const MCP_CONNECTOR_API_KEY_REQUIRED_ERROR_CODE = "mcp-connector-api-key-required";
 
 /** Where an OAuth app must send the user back, for its redirect URL setting. */
 export const McpConnectorSetup = Schema.Struct({
@@ -76,3 +90,30 @@ export const McpConnectorDisconnectResult = Schema.Struct({
   disconnected: Schema.Boolean,
 });
 export type McpConnectorDisconnectResult = typeof McpConnectorDisconnectResult.Type;
+
+/**
+ * Moss service plugins (one per mainland China service: its connector plus a
+ * Moss-written skill). `installed` lists every installed plugin id: those
+ * whose connector is connected, and the skill-only ones the user installed.
+ * `skills` lists the skill files Moss keeps on disk for them right now, so a
+ * chat can attach a plugin's skill to any CLI by its real path.
+ */
+export const MossServicePluginSkillFile = Schema.Struct({
+  pluginId: TrimmedNonEmptyString,
+  name: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+});
+export type MossServicePluginSkillFile = typeof MossServicePluginSkillFile.Type;
+
+export const MossServicePluginsState = Schema.Struct({
+  installed: Schema.Array(TrimmedNonEmptyString),
+  skills: Schema.Array(MossServicePluginSkillFile),
+});
+export type MossServicePluginsState = typeof MossServicePluginsState.Type;
+
+/** Installs or removes a skill-only service plugin; plugins with an MCP install by connecting. */
+export const MossServicePluginSetInstalledInput = Schema.Struct({
+  pluginId: TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+  installed: Schema.Boolean,
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+export type MossServicePluginSetInstalledInput = typeof MossServicePluginSetInstalledInput.Type;

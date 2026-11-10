@@ -3,7 +3,7 @@
 //   and settings, including the explicit state of a selection whose account is gone.
 // Layer: Web presentation helper
 
-import type { ProviderInstanceId, ProviderKind } from "@synara/contracts";
+import type { ProviderInstanceId, ProviderKind } from "@moss/contracts";
 
 export const MISSING_PROVIDER_INSTANCE_LABEL = "Missing account";
 
@@ -33,6 +33,23 @@ export const PROVIDER_ACCENT_COLOR_SWATCHES = [
 export function normalizeProviderAccentColor(value: string | null | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed && ACCENT_COLOR_PATTERN.test(trimmed) ? trimmed.toLowerCase() : undefined;
+}
+
+/**
+ * One row per account in a list of agents: the agent's own name for the person's default
+ * account, "Claude · Moss" for the account Moss provides (never the instance's internal
+ * name, e.g. "Moss Claude"), and "Codex · Work" for any other account.
+ */
+export function agentAccountRowLabel(input: {
+  readonly providerLabel: string;
+  readonly provider: ProviderKind;
+  readonly instanceId: ProviderInstanceId;
+  readonly accountLabel: string;
+  readonly mossManaged: boolean;
+}): string {
+  if (input.mossManaged) return `${input.providerLabel} · Moss`;
+  if (input.instanceId === input.provider) return input.providerLabel;
+  return providerAccountQualifiedLabel(input.providerLabel, input.accountLabel);
 }
 
 // "Codex · Work" unless the account name already carries the provider name.

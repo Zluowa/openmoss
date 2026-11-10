@@ -1,11 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { ProjectId, ThreadId, TodoId, type Todo } from "@synara/contracts";
+import { ProjectId, ThreadId, TodoId, type Todo } from "@moss/contracts";
 
 import type { SidebarThreadSummary, ThreadSession } from "../../types";
 import { resolveThreadStatusPill } from "../Sidebar.logic";
 import { toLocalDueDate, type TaskRowModel, type TaskStatusKind } from "../tasks/tasks.logic";
-import type { StatsGetRecapResult } from "@synara/contracts";
+import type { StatsGetRecapResult } from "@moss/contracts";
 
 import {
   collectNeedsYouItems,

@@ -7,7 +7,7 @@ import {
   ThreadId,
   TurnId,
   type PullRequestAutoFixState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   Clock,

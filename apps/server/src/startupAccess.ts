@@ -9,6 +9,18 @@ export const isLoopbackHost = (host: string | undefined): boolean => {
   return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
 };
 
+/** Main-process transports can keep the private startup credential out of URLs. */
+export const isLoopbackStartupBearer = (input: {
+  readonly host: string | undefined;
+  readonly publicUrl: string | URL | undefined;
+  readonly authToken: string | undefined;
+  readonly authorization: string | undefined;
+}): boolean =>
+  isLoopbackHost(input.host) &&
+  !input.publicUrl &&
+  Boolean(input.authToken) &&
+  input.authorization === `Bearer ${input.authToken}`;
+
 export const formatHostForUrl = (host: string): string =>
   host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
 

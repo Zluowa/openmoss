@@ -1,11 +1,11 @@
 import path from "node:path";
 import { chmod, readdir, realpath } from "node:fs/promises";
-import type { ProviderInstanceConfig } from "@synara/contracts";
+import type { ProviderInstanceConfig } from "@moss/contracts";
 import {
   getMossManagedModelDefinition,
   mossLaneEngineLineup,
   type MossAccessLane,
-} from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossRealmCatalog";
 import {
   buildMossManagedRelayProviderInstance,
   ensureMossManagedHome,
@@ -20,6 +20,11 @@ import {
   writeMossManagedFile,
 } from "./mossManagedRelayInstance";
 import { normalizeMossManagedOpenCodeGatewayBaseUrl } from "./mossManagedOpenCodeEnvironment";
+import { needsManagedHermesProbePlugin } from "./mossManagedHermesProbePlugin";
+import {
+  prepareMossHermesProbePlugin,
+  readMossHermesPluginConfiguration,
+} from "./mossManagedHermesProbeCompatibility";
 
 export const MOSS_MANAGED_HERMES_PROVIDER_INSTANCE_ID = "hermes_moss";
 export const MOSS_MANAGED_HERMES_CONFIG_ENV_KEY = "MOSS_HERMES_CONFIG_CONTENT";
@@ -41,6 +46,7 @@ export function managedHermesHomeAncestors(
 export async function prepareMossManagedHermesHome(
   homePath: string,
   config: ReturnType<typeof buildMossManagedHermesConfig>,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<void> {
   const managedDirectory = managedHermesConfigDirectory(homePath);
   await ensureMossManagedHome(managedDirectory, MANAGED_HERMES_HOME_LABEL);
@@ -49,10 +55,13 @@ export async function prepareMossManagedHermesHome(
   await chmod(homePath, 0o700);
   if ((await readdir(managedDirectory)).length)
     throw new Error("Managed Hermes machine configuration directory must be empty.");
+  const needsProbe = needsManagedHermesProbePlugin(platform);
+  const plugins = needsProbe ? await readMossHermesPluginConfiguration(homePath) : undefined;
+  if (needsProbe) await prepareMossHermesProbePlugin(homePath);
   await writeMossManagedFile({
     directory: homePath,
     fileName: "config.yaml",
-    content: JSON.stringify(config.configuration),
+    content: JSON.stringify({ ...config.configuration, ...(plugins ? { plugins } : {}) }),
     label: "Managed Hermes configuration",
   });
 }

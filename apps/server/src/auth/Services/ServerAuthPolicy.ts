@@ -1,4 +1,4 @@
-import type { ServerAuthDescriptor } from "@synara/contracts";
+import type { ServerAuthDescriptor } from "@moss/contracts";
 import { Effect, ServiceMap } from "effect";
 
 export interface ServerAuthPolicyShape {

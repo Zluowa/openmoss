@@ -251,6 +251,11 @@ describe("windowsProcess", () => {
         'approval_policy="never"',
         "--config",
         'model_reasoning_effort="high"',
+        "with spaces",
+        "中文参数",
+        "",
+        ...Array.from({ length: 6 }, (_, count) => `prefix${"\\".repeat(count)}"quoted`),
+        ...Array.from({ length: 6 }, (_, count) => `trailing space ${"\\".repeat(count)}`),
       ];
 
       try {

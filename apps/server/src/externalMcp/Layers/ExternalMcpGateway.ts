@@ -11,9 +11,9 @@ import {
   type ExternalMcpCapability,
   type ProviderKind,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
-import { deriveProviderInstances, isProviderKind } from "@synara/shared/providerInstances";
+import { deriveProviderInstances, isProviderKind } from "@moss/shared/providerInstances";
 
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { ServerConfig } from "../../config.ts";

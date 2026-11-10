@@ -20,8 +20,8 @@ import {
   type ServerProviderStatus,
   type ServerSettings,
   isSupportedProviderKind,
-} from "@synara/contracts";
-import { MEMORY_AUTO_DOCUMENT_PATH, memoryThreadDocumentPath } from "@synara/shared/projectAgent";
+} from "@moss/contracts";
+import { MEMORY_AUTO_DOCUMENT_PATH, memoryThreadDocumentPath } from "@moss/shared/projectAgent";
 import { Cause, Deferred, Effect, Fiber, Layer, Option, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -40,7 +40,7 @@ import { HubWorkRepository } from "../../persistence/Services/HubWorkRepository.
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { ProjectAgentRepository } from "../../persistence/Services/ProjectAgentRepository.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
-import { coordinatorWelcomeMessageId } from "../groupCoordinatorHost.ts";
+import { coordinatorWelcomeMessageId, coordinatorWelcomeText } from "../groupCoordinatorHost.ts";
 import {
   PROJECT_BOT_HEARTBEAT_PROMPT,
   PROJECT_BOT_PLAYBOOK,
@@ -52,7 +52,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
-import type { ProviderSession } from "@synara/contracts";
+import type { ProviderSession } from "@moss/contracts";
 import { ProjectAgentService } from "../Services/ProjectAgentService.ts";
 import { ProjectAgentServiceLive } from "./ProjectAgentService.ts";
 
@@ -489,6 +489,90 @@ const leftoverConfig = {
   disabledAt: null,
 };
 
+it.effect("configures a personal assistant, retains its identity and injects its persona", () => {
+  const harness = makeTestLayer();
+  return Effect.gen(function* () {
+    const service = yield* ProjectAgentService;
+    const first = yield* service.configure(
+      {
+        requestId: "mossbot-create",
+        projectId: groupId,
+        agentKind: "mossbot",
+        coordinatorName: "Nova",
+        coordinatorModelSelection: modelSelection,
+        importedInstructions: "Help me research primary sources.",
+        userLocale: "en",
+      },
+      { kind: "user" },
+    );
+    assert.equal(first.config?.agentKind, "mossbot");
+    const id = first.config!.coordinatorThreadId;
+    const packet = yield* service.formatContextPacketForTurn(id);
+    assert.equal(packet.includes("Mossbot"), true);
+    assert.equal(packet.includes("Help me research primary sources."), true);
+    assert.equal(packet.includes("You do not write application code yourself."), false);
+    const greetings = harness.dispatched.filter(
+      (command) => command.type === "thread.messages.import",
+    );
+    assert.equal(greetings.length, 1);
+    if (greetings[0]?.type === "thread.messages.import")
+      assert.equal(greetings[0].messages[0]?.text.includes("Hi, I'm Nova"), true);
+    harness.threadDetails[id] = {
+      messages: [{ id: coordinatorWelcomeMessageId(id), role: "assistant", text: "Hi, I'm Nova." }],
+    };
+    const edited = yield* service.configure(
+      {
+        requestId: "mossbot-edit",
+        projectId: groupId,
+        coordinatorModelSelection: modelSelection,
+        expectedRevision: first.config!.revision,
+      },
+      { kind: "user" },
+    );
+    assert.equal(edited.config?.agentKind, "mossbot");
+    assert.equal(edited.config?.coordinatorThreadId, id);
+    assert.equal(
+      harness.dispatched.filter((command) => command.type === "thread.messages.import").length,
+      1,
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("keeps an existing hub a hub when a later request asks for a personal assistant", () => {
+  const harness = makeTestLayer();
+  return Effect.gen(function* () {
+    const service = yield* ProjectAgentService;
+    const hub = yield* service.configure(
+      {
+        requestId: "hub-create",
+        projectId: groupId,
+        coordinatorName: "Atlas",
+        coordinatorModelSelection: modelSelection,
+        userLocale: "en",
+      },
+      { kind: "user" },
+    );
+    assert.equal(hub.config?.agentKind, undefined);
+    const again = yield* service.configure(
+      {
+        requestId: "hub-as-mossbot",
+        projectId: groupId,
+        agentKind: "mossbot",
+        coordinatorModelSelection: modelSelection,
+        expectedRevision: hub.config!.revision,
+      },
+      { kind: "user" },
+    );
+    assert.equal(again.config?.agentKind, undefined);
+    assert.equal(again.config?.coordinatorThreadId, hub.config!.coordinatorThreadId);
+    const summaries = yield* service.listSummaries({}, { kind: "user" });
+    assert.notEqual(
+      summaries.summaries.find((summary) => summary.projectId === groupId)?.agentKind,
+      "mossbot",
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
+
 it.effect("configures a hub and imports exactly one greeting", () => {
   const harness = makeTestLayer();
   return Effect.gen(function* () {
@@ -526,6 +610,74 @@ it.effect("configures a hub and imports exactly one greeting", () => {
         );
       }
     }
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("writes a new hub's greeting in the language it was set up in", () => {
+  const harness = makeTestLayer();
+  return Effect.gen(function* () {
+    const service = yield* ProjectAgentService;
+    yield* service.configure(
+      {
+        requestId: "req-group-zh",
+        projectId: groupId,
+        coordinatorModelSelection: modelSelection,
+        userDisplayName: "Dilip",
+        userLocale: "zh-CN",
+      },
+      { kind: "user" },
+    );
+    const imported = harness.dispatched.find(
+      (command) => command.type === "thread.messages.import",
+    );
+    assert.equal(imported?.type, "thread.messages.import");
+    if (imported?.type === "thread.messages.import") {
+      assert.equal(imported.messages[0]?.text.startsWith("你好，Dilip！"), true);
+    }
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("leaves a stored greeting alone when the hub is saved again in another language", () => {
+  const harness = makeTestLayer();
+  return Effect.gen(function* () {
+    const service = yield* ProjectAgentService;
+    const overview = yield* service.configure(
+      {
+        requestId: "req-group-en",
+        projectId: groupId,
+        coordinatorModelSelection: modelSelection,
+        userDisplayName: "Dilip",
+        userLocale: "en",
+      },
+      { kind: "user" },
+    );
+    const coordinatorThreadId = overview.config!.coordinatorThreadId!;
+    harness.threadDetails[coordinatorThreadId] = {
+      messages: [
+        {
+          id: coordinatorWelcomeMessageId(coordinatorThreadId),
+          role: "assistant",
+          text: coordinatorWelcomeText("Dilip"),
+        },
+      ],
+    };
+    harness.dispatched.length = 0;
+
+    yield* service.configure(
+      {
+        requestId: "req-group-zh-later",
+        projectId: groupId,
+        coordinatorModelSelection: modelSelection,
+        userDisplayName: "Dilip",
+        userLocale: "zh-CN",
+        expectedRevision: overview.config!.revision,
+      },
+      { kind: "user" },
+    );
+    assert.equal(
+      harness.dispatched.filter((command) => command.type === "thread.messages.import").length,
+      0,
+    );
   }).pipe(Effect.provide(harness.layer));
 });
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { MossPayOrder } from "@synara/contracts";
+import type { MossPayOrder } from "@moss/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { MossPayOrderDialog } from "./MossPayOrderDialog";

@@ -9,7 +9,7 @@
 // Layer: GitHub inbox presentation
 // Exports: GitHubInbox
 
-import type { GitHubInboxItem, GitHubInboxListError, ProjectId, ThreadId } from "@synara/contracts";
+import type { GitHubInboxItem, GitHubInboxListError, ProjectId, ThreadId } from "@moss/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -375,6 +375,8 @@ export function GitHubInbox({
   const unavailableErrorCount = scopedErrors.filter(
     (error) => error.reason !== "rate-limited",
   ).length;
+  const inventoryIncomplete = scopedErrors.length > 0 || listData?.repositoryState === "incomplete";
+  const noRemote = listData?.repositoryState === "none";
   const noun = githubInboxItemNoun(filters.kind);
 
   // ── Filters: a change persists and drops that filter's one-visit URL override ──
@@ -568,18 +570,26 @@ export function GitHubInbox({
                     <EmptyTitle>
                       {repositoryProjects.length === 0
                         ? "No projects yet"
-                        : reviewRequestsOnlyOpen
-                          ? "Review requests only apply to open pull requests"
-                          : `No ${noun} found`}
+                        : inventoryIncomplete && listData?.repositoryBatches.length === 0
+                          ? "Repositories could not be checked"
+                          : noRemote
+                            ? "No GitHub remote configured"
+                            : reviewRequestsOnlyOpen
+                              ? "Review requests only apply to open pull requests"
+                              : `No ${noun} found`}
                     </EmptyTitle>
                     <EmptyDescription>
                       {repositoryProjects.length === 0
                         ? "Code review lists pull requests and issues from the GitHub repositories of your projects."
-                        : reviewRequestsOnlyOpen
-                          ? "Select Open to see pull requests awaiting your review."
-                          : activeFilterCount > 0
-                            ? "Try another filter, or clear them."
-                            : "Nothing here in the repositories of your projects."}
+                        : inventoryIncomplete && listData?.repositoryBatches.length === 0
+                          ? "Retry to check the repositories that did not respond."
+                          : noRemote
+                            ? "Add a project with a GitHub.com remote, or configure a remote in an existing project."
+                            : reviewRequestsOnlyOpen
+                              ? "Select Open to see pull requests awaiting your review."
+                              : activeFilterCount > 0
+                                ? "Try another filter, or clear them."
+                                : "Nothing here in the repositories of your projects."}
                     </EmptyDescription>
                   </EmptyHeader>
                   {activeFilterCount > 0 ? (
@@ -607,14 +617,15 @@ export function GitHubInbox({
               )}
               {truncatedRepositoryCount > 0 ? (
                 <p className={cn(PR_FINE_TEXT_CLASS_NAME, "text-muted-foreground")}>
-                  {filters.state === "merged"
-                    ? "Showing merged pull requests from the 50"
-                    : "Showing the 50"}{" "}
-                  {settings.githubInboxSort === "created" ? "newest" : "most recently updated"}{" "}
-                  {filters.state === "merged" ? "closed pull requests" : noun} per repository.{" "}
-                  {truncatedRepositoryCount}{" "}
-                  {truncatedRepositoryCount === 1 ? "repository has" : "repositories have"} more on
-                  GitHub.
+                  {`${
+                    filters.state === "merged"
+                      ? "Showing merged pull requests from the 50"
+                      : "Showing the 50"
+                  } ${settings.githubInboxSort === "created" ? "newest" : "most recently updated"} ${
+                    filters.state === "merged" ? "closed pull requests" : noun
+                  } per repository. ${truncatedRepositoryCount} ${
+                    truncatedRepositoryCount === 1 ? "repository has" : "repositories have"
+                  } more on GitHub.`}
                 </p>
               ) : null}
               {rateLimitedError ? (
@@ -624,9 +635,9 @@ export function GitHubInbox({
               ) : null}
               {unavailableErrorCount > 0 ? (
                 <PullRequestWarningNote shape="callout">
-                  {unavailableErrorCount} project{" "}
-                  {unavailableErrorCount === 1 ? "repository was" : "repositories were"}{" "}
-                  unavailable. Healthy repositories are still shown.
+                  {`${unavailableErrorCount} project ${
+                    unavailableErrorCount === 1 ? "repository was" : "repositories were"
+                  } unavailable. Healthy repositories are still shown.`}
                 </PullRequestWarningNote>
               ) : null}
               {backgroundError ? (

@@ -21,7 +21,7 @@ import {
   IsoDateTime,
   NonNegativeInt,
   TrimmedNonEmptyString,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 
@@ -49,6 +49,7 @@ export const ProjectionThreadMessage = Schema.Struct({
   mentions: Schema.optional(Schema.Array(ProviderMentionReference)),
   dispatchMode: Schema.optional(TurnDispatchMode),
   dispatchOrigin: Schema.optional(MessageDispatchOrigin),
+  dispatchSourceThreadId: Schema.optional(ThreadId),
   startsNewTurn: Schema.optional(Schema.Boolean),
   isStreaming: Schema.Boolean,
   source: OrchestrationMessageSource,

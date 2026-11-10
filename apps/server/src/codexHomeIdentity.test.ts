@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   canonicalizeCodexHomeIdentityPath,
   uniqueCodexLifecycleHomeIdentityPaths,
+  uniqueCodexCredentialHomeIdentityPaths,
+  issueCodexCredentialFence,
+  readCodexCredentialFence,
 } from "./codexHomeIdentity.ts";
 
 let root: string;
@@ -32,6 +35,106 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
+});
+
+describe("server-issued Codex credential scope", () => {
+  function binding(accountId = "moss") {
+    const homePath = path.join(root, "shared");
+    const shadowHomePath = path.join(root, accountId);
+    mkdirSync(homePath, { recursive: true });
+    mkdirSync(shadowHomePath, { recursive: true });
+    return {
+      homePath,
+      shadowHomePath,
+      accountId,
+      runtimeGeneration: `${accountId}-generation-1`,
+      environment: { MOSS_HOME: path.join(root, "runtime") },
+    };
+  }
+
+  it("keeps shared source locks while separating verified credential revocation", () => {
+    const moss = binding();
+    const own = binding("own");
+    const credentialFence = issueCodexCredentialFence({ ...moss, assertBindingCurrent: () => {} });
+    const verified = { ...moss, credentialFence };
+    expect(uniqueCodexLifecycleHomeIdentityPaths(verified)).toEqual(
+      uniqueCodexLifecycleHomeIdentityPaths(moss),
+    );
+    expect(uniqueCodexLifecycleHomeIdentityPaths(verified)).toContain(
+      credentialFence.sourceHomeIdentity,
+    );
+    expect(uniqueCodexCredentialHomeIdentityPaths(verified)).not.toContain(
+      credentialFence.sourceHomeIdentity,
+    );
+    expect(uniqueCodexCredentialHomeIdentityPaths(verified)).toContain(
+      credentialFence.privateHomeIdentity,
+    );
+    expect(uniqueCodexCredentialHomeIdentityPaths(own)).toEqual(
+      uniqueCodexLifecycleHomeIdentityPaths(own),
+    );
+  });
+
+  it("rejects copied capabilities, different accounts/generations, and failed revalidation", () => {
+    const input = binding();
+    let current = true;
+    const credentialFence = issueCodexCredentialFence({
+      ...input,
+      assertBindingCurrent: () => {
+        if (!current) throw new Error("binding revoked");
+      },
+    });
+    expect(() =>
+      readCodexCredentialFence({ ...input, credentialFence: { ...credentialFence } }),
+    ).toThrow(/not issued/);
+    expect(() => readCodexCredentialFence({ ...input, credentialFence, accountId: "own" })).toThrow(
+      /does not match/,
+    );
+    expect(() =>
+      readCodexCredentialFence({ ...input, credentialFence, runtimeGeneration: "generation-2" }),
+    ).toThrow(/does not match/);
+    current = false;
+    expect(() => readCodexCredentialFence({ ...input, credentialFence })).toThrow(
+      "binding revoked",
+    );
+  });
+
+  it("recognizes real source/private aliases without permitting an ambient or nested binding", () => {
+    const input = binding();
+    const sourceAlias = path.join(root, "source-alias");
+    const privateAlias = path.join(root, "private-alias");
+    symlinkSync(input.homePath, sourceAlias, process.platform === "win32" ? "junction" : "dir");
+    symlinkSync(
+      input.shadowHomePath,
+      privateAlias,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const credentialFence = issueCodexCredentialFence({ ...input, assertBindingCurrent: () => {} });
+    expect(
+      readCodexCredentialFence({
+        ...input,
+        homePath: sourceAlias,
+        shadowHomePath: privateAlias,
+        credentialFence,
+      }),
+    ).toBe(credentialFence);
+    expect(() =>
+      issueCodexCredentialFence({ ...input, homePath: undefined, assertBindingCurrent: () => {} }),
+    ).toThrow(/explicit/);
+    expect(() =>
+      issueCodexCredentialFence({
+        ...input,
+        shadowHomePath: sourceAlias,
+        assertBindingCurrent: () => {},
+      }),
+    ).toThrow(/separate directories/);
+    expect(() =>
+      issueCodexCredentialFence({
+        ...input,
+        shadowHomePath: path.join(input.homePath, "private"),
+        assertBindingCurrent: () => {},
+      }),
+    ).toThrow(/separate directories/);
+  });
 });
 
 describe("Codex home filesystem identity", () => {

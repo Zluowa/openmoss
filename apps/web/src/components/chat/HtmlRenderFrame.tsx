@@ -10,7 +10,7 @@ import {
   HTML_RENDER_COLUMN_WIDTH,
   htmlRenderFrameHeight,
   type HtmlRenderReference,
-} from "@synara/shared/htmlRender";
+} from "@moss/shared/htmlRender";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { resolveHtmlRenderFrameUrl } from "~/lib/htmlRenderFrameUrl";
@@ -52,27 +52,25 @@ export function HtmlRenderFrame(props: {
   }, []);
   // Client fonts can wrap a page taller than expected; a frame left short
   // would scroll inside the thread and take the reader's scroll.
-  const [contentHeight, setContentHeight] = useState<number>();
-  const height = htmlRenderFrameHeight(props.htmlRender, width, contentHeight);
-  // Signing a desktop frame URL is async; the page keeps its first URL for its lifetime.
-  const [src, setSrc] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [reported, setReported] = useState<{ attachmentId: string; height: number }>();
+  const height = htmlRenderFrameHeight(props.htmlRender, width, reported?.height);
+  // Signing a desktop frame URL is async; a null URL means the page cannot load. A
+  // surface's newer page loads into this frame: the older page and its height hold the
+  // box until the newer page's URL resolves and that page reports its own height.
+  const [frame, setFrame] = useState<{ attachmentId: string; src: string | null }>();
+  const failed = frame?.attachmentId === attachmentId && frame.src === null;
+  const shownSrc = frame?.src ?? null;
+  const shownAttachmentId = frame?.attachmentId ?? attachmentId;
   // Chromium does not always refresh a wrapper's CSS :hover while an iframe
   // owns the pointer. Retain the same hover/focus visual contract explicitly
   // at the wrapper boundary, without changing the page sandbox.
   const [isPointerOverFrame, setIsPointerOverFrame] = useState(false);
   useEffect(() => {
     let current = true;
-    void resolveHtmlRenderFrameUrl(attachmentId).then(
-      (url) => {
-        if (!current) return;
-        if (url === null) setFailed(true);
-        else setSrc(url);
-      },
-      () => {
-        if (current) setFailed(true);
-      },
-    );
+    const settle = (src: string | null) => {
+      if (current) setFrame({ attachmentId, src });
+    };
+    void resolveHtmlRenderFrameUrl(attachmentId).then(settle, () => settle(null));
     return () => {
       current = false;
     };
@@ -84,7 +82,7 @@ export function HtmlRenderFrame(props: {
       style={{ height }}
       data-html-render-id={attachmentId}
       data-html-render-state={
-        failed ? "unavailable" : contentHeight === undefined ? "loading" : "ready"
+        failed ? "unavailable" : reported?.attachmentId === attachmentId ? "ready" : "loading"
       }
       onPointerEnter={() => setIsPointerOverFrame(true)}
       onPointerLeave={() => setIsPointerOverFrame(false)}
@@ -104,13 +102,18 @@ export function HtmlRenderFrame(props: {
         <p className="flex size-full items-center justify-center text-muted-foreground text-ui-xs">
           {format("chat.htmlRender.unavailable", { title })}
         </p>
-      ) : src !== null ? (
+      ) : shownSrc !== null ? (
         <>
           <HtmlRenderDocument
-            src={src}
+            // A document keeps its first URL, so a newer page gets a new document.
+            key={shownSrc}
+            src={shownSrc}
             title={title}
             className="block size-full"
-            onContentHeight={setContentHeight}
+            htmlRender
+            onContentHeight={(contentHeight) =>
+              setReported({ attachmentId: shownAttachmentId, height: contentHeight })
+            }
             {...(props.onImageExpand ? { onImageExpand: props.onImageExpand } : {})}
           />
           {props.onOpen ? (

@@ -8,7 +8,7 @@ import {
   ThreadId,
   TurnId,
   type ProviderRuntimeEvent,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   normalizeProviderRuntimeEvent,

@@ -36,7 +36,9 @@ describe("voice prewarm production wiring", () => {
       wsSource.indexOf("[WS_METHODS.serverTranscribeVoice]"),
       wsSource.indexOf("[WS_METHODS.serverGenerateThreadRecap]"),
     );
-    expect(transcriptionBlock).toContain("resolveAdmittedVoiceTranscriptionProviderRoute(");
+    // Both transports share one routing composition (Moss account first, then the personal
+    // provider, then the localized sign-in guidance).
+    expect(transcriptionBlock).toContain("transcribeVoiceRequest({");
     expect(transcriptionBlock).toContain(
       "awaitAccountStartup: runtimeStartup.enqueueRead(Effect.void)",
     );
@@ -44,9 +46,20 @@ describe("voice prewarm production wiring", () => {
     expect(transcriptionBlock).toContain("mossPhoneAccountService.getAuthorityCredential()");
     expect(transcriptionBlock).toContain("getCloudAuthorityCredential:");
     expect(transcriptionBlock).toContain("mossCloudAccountService.getAuthorityCredential()");
-    expect(transcriptionBlock).toContain("providerInstanceId: route.providerInstanceId");
-    expect(transcriptionBlock).toContain("route.serverResolvedVoiceRouteAuthority");
-    expect(transcriptionBlock).toContain("serverResolvedVoiceRouteAuthority:");
+    expect(transcriptionBlock).toContain("enterpriseKey: mossEnterpriseKeyAccount");
+    expect(transcriptionBlock).toContain("getEnabledProviderAdapter(");
+    const httpSource = readFileSync(new URL("./http.ts", import.meta.url), "utf8");
+    const uploadStart = httpSource.indexOf(
+      "if (url.pathname === VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH)",
+    );
+    const uploadBlock = httpSource.slice(
+      uploadStart,
+      httpSource.indexOf('return HttpServerResponse.text("Not Found"', uploadStart),
+    );
+    expect(uploadBlock).toContain("transcribeVoiceRequest({");
+    expect(uploadBlock).toContain("code: failure.code");
+    expect(uploadBlock).not.toContain("adapter.transcribeVoice(");
+    expect(prewarmBlock).toContain("resolveMossVoiceAccountState({");
     const adapterPrewarmBlock = adapterSource.slice(
       adapterSource.indexOf("const prewarmVoice:"),
       adapterSource.indexOf(

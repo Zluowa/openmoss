@@ -158,12 +158,15 @@ export function SettingsSelectPopup({
  * {@link SettingsSection}); the row never draws its own border.
  */
 export function SettingsListRow({
+  id,
   title,
   description,
   actions,
   align: alignProp,
   onContextMenu,
 }: {
+  /** Deep-link anchor (`?target=…`). */
+  id?: string;
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
@@ -173,7 +176,8 @@ export function SettingsListRow({
   const align = alignProp ?? "center";
   return (
     <div
-      className={SETTINGS_CARD_ROW_CLASS_NAME}
+      id={id}
+      className={cn(SETTINGS_CARD_ROW_CLASS_NAME, id && "scroll-mt-24")}
       data-slot="settings-row"
       onContextMenu={onContextMenu}
     >

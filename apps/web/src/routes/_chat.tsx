@@ -1,5 +1,5 @@
-import { ThreadId, type ResolvedKeybindingsConfig } from "@synara/contracts";
-import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@synara/shared/desktopChrome";
+import { ThreadId, type ResolvedKeybindingsConfig } from "@moss/contracts";
+import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@moss/shared/desktopChrome";
 import { useQuery } from "@tanstack/react-query";
 import {
   Outlet,
@@ -70,10 +70,12 @@ import {
   type MossImagesCanvasRequest,
 } from "../components/MossImagesDestination";
 import { ensureNativeApi } from "../nativeApi";
-import { MossDataSpaceDestination } from "../components/MossDataSpaceDestination";
+import {
+  MossDataSpaceDestination,
+  SPACE_PAGE_HASH_PREFIX,
+} from "../components/MossDataSpaceDestination";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useThreadSelectionStore } from "../threadSelectionStore";
-import { onServerMaintenanceUpdated } from "../wsNativeApi";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
@@ -85,6 +87,7 @@ import {
   SidebarInstanceProvider,
   SidebarProvider,
   SidebarRail,
+  SidebarTrigger,
   useSidebar,
 } from "~/components/ui/sidebar";
 import type { SidebarResizableOptions } from "~/components/ui/sidebar";
@@ -104,105 +107,6 @@ const THREAD_SIDEBAR_RESIZABLE: SidebarResizableOptions = {
     wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
   storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
 };
-const MAINTENANCE_EVENT_STALE_MS = 5 * 60 * 1000;
-
-type MaintenanceToastId = ReturnType<typeof toastManager.add>;
-
-function ThreadRetentionMaintenanceToast() {
-  const toastIdRef = useRef<MaintenanceToastId | null>(null);
-
-  useEffect(() => {
-    return onServerMaintenanceUpdated((event) => {
-      if (event.type !== "maintenance" || event.payload.task !== "thread-retention") {
-        return;
-      }
-
-      // `deletedCount` is the legacy wire name; retention now archives.
-      const { state, deletedCount: archivedCount, totalCount, error } = event.payload;
-      const eventMs = Date.parse(event.payload.at);
-      const isStaleEvent = Number.isFinite(eventMs)
-        ? Date.now() - eventMs > MAINTENANCE_EVENT_STALE_MS
-        : false;
-      if (isStaleEvent && toastIdRef.current === null) {
-        return;
-      }
-
-      if (state === "started") {
-        toastIdRef.current = toastManager.add({
-          type: "loading",
-          title: "Archiving old chats...",
-          description: "Preparing background maintenance.",
-          timeout: 0,
-          data: { allowCrossThreadVisibility: true },
-        });
-        return;
-      }
-
-      if (state === "progress") {
-        const toastId =
-          toastIdRef.current ??
-          toastManager.add({
-            type: "loading",
-            title: "Archiving old chats...",
-            timeout: 0,
-            data: { allowCrossThreadVisibility: true },
-          });
-        toastIdRef.current = toastId;
-        toastManager.update(toastId, {
-          type: "loading",
-          title: "Archiving old chats...",
-          description:
-            totalCount && totalCount > 0
-              ? `${archivedCount ?? 0} of ${totalCount} chats archived.`
-              : `${archivedCount ?? 0} chats archived.`,
-          timeout: 0,
-          data: { allowCrossThreadVisibility: true },
-        });
-        return;
-      }
-
-      if (state === "failed") {
-        const toastId = toastIdRef.current;
-        toastIdRef.current = null;
-        if (toastId) {
-          toastManager.update(toastId, {
-            type: "warning",
-            title: "Chat maintenance paused",
-            description: error ?? "Old chats will be retried later.",
-            timeout: 6000,
-            data: { allowCrossThreadVisibility: true },
-          });
-          return;
-        }
-        toastManager.add({
-          type: "warning",
-          title: "Chat maintenance paused",
-          description: error ?? "Old chats will be retried later.",
-          timeout: 6000,
-          data: { allowCrossThreadVisibility: true },
-        });
-        return;
-      }
-
-      const toastId = toastIdRef.current;
-      toastIdRef.current = null;
-      if (!toastId) return;
-      toastManager.update(toastId, {
-        type: "success",
-        title: "Old chats archived",
-        description:
-          archivedCount && archivedCount > 0
-            ? `${archivedCount} old chats moved to Settings → Archived, where you can restore them.`
-            : "No old chats needed archiving.",
-        timeout: 3500,
-        data: { allowCrossThreadVisibility: true },
-      });
-    });
-  }, []);
-
-  return null;
-}
-
 function resolveBrowserNavigationShortcut(
   event: KeyboardEvent,
   platform: string,
@@ -707,8 +611,21 @@ function ChatRouteLayout() {
     return registerMossCanvasHost((detail) => {
       if (detail.surface === "canvas") {
         const id = detail.threadId ?? activeCanvasThread.current;
-        if (!id || id !== activeCanvasThread.current) return false;
-        void openThreadCanvas(id, sanitizeMossCanvasImageFocus(detail.image));
+        // Canvas is always a conversation's own Canvas in its side panel. A
+        // request without a conversation, or for another one, is handled here
+        // too: it must never fall through to the retired standalone window.
+        if (!id) return true;
+        const image = sanitizeMossCanvasImageFocus(detail.image);
+        if (id !== activeCanvasThread.current) {
+          useRightDockStore.getState().openPane(ThreadId.makeUnsafe(id), {
+            kind: "canvas",
+            ...(image ? { canvasImage: image } : {}),
+          });
+          clearDestinationSurface();
+          void navigate({ to: "/$threadId", params: { threadId: id }, search: {} });
+          return true;
+        }
+        void openThreadCanvas(id, image);
         return true;
       }
       if (detail.surface === "images" || detail.surface === "library") {
@@ -733,7 +650,19 @@ function ChatRouteLayout() {
       }
       return false;
     });
-  }, [destinationSurface, openThreadCanvas]);
+  }, [destinationSurface, openThreadCanvas, clearDestinationSurface, navigate]);
+  // A 资料空间 page opened "in a new window" arrives as `#space-page=<id>`: land on the
+  // destination, which opens that page and clears the hash.
+  useEffect(() => {
+    const show = () => {
+      if (!window.location.hash.startsWith(SPACE_PAGE_HASH_PREFIX)) return;
+      useRailShellStore.getState().selectRouteItem("library");
+      setDestinationSurface("library");
+    };
+    show();
+    window.addEventListener("hashchange", show);
+    return () => window.removeEventListener("hashchange", show);
+  }, []);
   useEffect(
     () =>
       ensureNativeApi().orchestration.onDomainEvent((event) => {
@@ -846,6 +775,9 @@ function ChatRouteLayout() {
       className="relative flex h-svh min-h-0 min-w-0 flex-1"
     >
       <div aria-hidden className="app-rail-header-divider" />
+      {isMobile && railHidesPanel ? (
+        <SidebarTrigger className="absolute top-2 left-2 z-30" />
+      ) : null}
       {isEditorView || isDestinationSurface ? null : (
         <SidebarInstanceProvider side="left" resizable={THREAD_SIDEBAR_RESIZABLE}>
           <SidebarRail placement="content-seam" />
@@ -899,7 +831,6 @@ function ChatRouteLayout() {
       data-sidebar-layout="rail"
       data-moss-destination-shell={isDestinationSurface ? "true" : undefined}
     >
-      <ThreadRetentionMaintenanceToast />
       {isDestinationSurface && <DesktopApplicationMenuBar />}
       <ChatRouteGlobalShortcuts />
       <AppRailSlotProvider value={railSlot}>

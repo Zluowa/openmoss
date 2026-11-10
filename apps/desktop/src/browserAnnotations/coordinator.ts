@@ -12,11 +12,11 @@ import type {
   BrowserAnnotationSource,
   BrowserAnnotationTheme,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   browserAnnotationDocumentIdentityUrl,
   sanitizeBrowserAnnotationUrl,
-} from "@synara/shared/browserAnnotations";
+} from "@moss/shared/browserAnnotations";
 
 import { BROWSER_ANNOTATION_GUEST_COMMAND_CHANNEL } from "../ipcChannels";
 import {
@@ -76,10 +76,18 @@ function runtimeKey(threadId: ThreadId, tabId: string): string {
   return `${threadId}:${tabId}`;
 }
 
+const LOCAL_PAGE_PROTOCOLS = new Set(["file:", "moss-local-preview:"]);
+
+// Web pages and pages opened from a local file (served from Moss's local-page scheme) can
+// both be annotated.
 function canonicalWebUrl(value: string): string | null {
   try {
     const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : null;
+    return parsed.protocol === "http:" ||
+      parsed.protocol === "https:" ||
+      LOCAL_PAGE_PROTOCOLS.has(parsed.protocol)
+      ? parsed.href
+      : null;
   } catch {
     return null;
   }
@@ -331,6 +339,7 @@ export class BrowserAnnotationCoordinator {
       document: session.document,
       source: message.annotation.source,
       annotation: message.annotation,
+      ...(message.elementBox ? { elementBox: message.elementBox } : {}),
     });
   }
 
@@ -499,10 +508,26 @@ export class BrowserAnnotationCoordinator {
     documentState: ReadyDocument,
     projection: MarkerProjection,
   ): BrowserAnnotationSyncMarkersInput["markers"] {
-    return projection.markers.filter((marker) => {
-      if (marker.source.url !== documentState.source.url) return false;
-      return documentState.compatibleDocumentKeys.has(marker.documentKey);
-    });
+    // The panel names a local page by its file's address, while the page itself lives at
+    // Moss's local-page scheme; for those the document key alone (one-way, per live page)
+    // ties a marker to the page, and the guest gets the address it knows.
+    const localPage = (() => {
+      try {
+        return LOCAL_PAGE_PROTOCOLS.has(new URL(documentState.source.url).protocol);
+      } catch {
+        return false;
+      }
+    })();
+    return projection.markers
+      .filter((marker) => {
+        if (!localPage && marker.source.url !== documentState.source.url) return false;
+        return documentState.compatibleDocumentKeys.has(marker.documentKey);
+      })
+      .map((marker) =>
+        localPage && marker.source.url !== documentState.source.url
+          ? { ...marker, source: { ...marker.source, url: documentState.source.url } }
+          : marker,
+      );
   }
 
   private toPublicSession(session: ActiveSession): BrowserAnnotationSession {

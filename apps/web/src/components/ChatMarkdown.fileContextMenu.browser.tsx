@@ -2,7 +2,7 @@
 // Purpose: Verifies assistant file links replace the browser menu with Moss's file actions.
 // Layer: Web chat browser tests
 
-import type { NativeApi } from "@synara/contracts";
+import type { NativeApi } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "vitest-browser-react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -186,7 +186,7 @@ describe("ChatMarkdown file context menu", () => {
 
     await vi.waitFor(() => {
       screen.getByRole("link", { name: "readme.md" }).element();
-      expect(document.querySelectorAll('a[title="src/index.ts"]')).toHaveLength(2);
+      expect(document.querySelectorAll('a[data-mention-path="src/index.ts"]')).toHaveLength(2);
     });
     expect(resolveWorkspaceFileReferences).toHaveBeenCalledOnce();
     const request = resolveWorkspaceFileReferences.mock.calls[0]?.[0];

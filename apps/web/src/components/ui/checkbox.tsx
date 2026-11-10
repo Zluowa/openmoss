@@ -6,14 +6,14 @@ import { cn } from "~/lib/utils";
 
 // Box + fill skins, shared with the menu's checkbox rows (`MenuCheckboxItem variant="checkbox"`).
 export const CHECKBOX_BOX_CLASS_NAME =
-  "relative inline-flex size-4 shrink-0 items-center justify-center rounded-inline border border-[color:var(--color-border-light)] bg-background outline-none ring-ring focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-background aria-invalid:border-destructive/36 focus-visible:aria-invalid:border-destructive/64 focus-visible:aria-invalid:ring-destructive/48 data-disabled:opacity-64 sm:size-4 dark:not-data-checked:bg-input/32 dark:aria-invalid:ring-destructive/24";
+  "relative inline-flex size-ui-icon shrink-0 items-center justify-center rounded-[calc(0.3125rem*var(--app-ui-scale,1))] border border-[color:var(--color-border-light)] bg-background outline-none ring-ring focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-background aria-invalid:border-destructive/36 focus-visible:aria-invalid:border-destructive/64 focus-visible:aria-invalid:ring-destructive/48 data-disabled:opacity-64 dark:not-data-checked:bg-input/32 dark:aria-invalid:ring-destructive/24";
 export const CHECKBOX_INDICATOR_CLASS_NAME =
-  "-inset-px absolute flex items-center justify-center rounded-inline text-primary-foreground data-unchecked:hidden data-checked:bg-primary data-indeterminate:text-foreground";
+  "-inset-px absolute flex items-center justify-center rounded-[inherit] text-primary-foreground data-unchecked:hidden data-checked:bg-primary data-indeterminate:text-foreground";
 
 export function CheckboxCheckGlyph({ className }: { className?: string }) {
   return (
     <svg
-      className={cn("size-4 sm:size-3", className)}
+      className={cn("size-ui-icon-sm", className)}
       fill="none"
       height="24"
       stroke="currentColor"
@@ -43,7 +43,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
           <span {...props}>
             {state.indeterminate ? (
               <svg
-                className="size-4 sm:size-3"
+                className="size-ui-icon-sm"
                 fill="none"
                 height="24"
                 stroke="currentColor"

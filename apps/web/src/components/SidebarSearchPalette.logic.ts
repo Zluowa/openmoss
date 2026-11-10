@@ -4,7 +4,7 @@
 // Server message hits cover threads whose messages this client has not loaded.
 import type { ComponentType } from "react";
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 import { basenameOfPath } from "../file-icons";
 import type { ProjectAppearance } from "../lib/projectAppearance";
 import type { ThemeMode, ThemeVariant } from "../theme/theme.logic";
@@ -259,21 +259,29 @@ function scoreMessage(
   };
 }
 
-function scoreAction(action: SidebarSearchAction, query: string): number | null {
+function scoreAction(
+  action: SidebarSearchAction,
+  query: string,
+  translateText?: (value: string) => string,
+): number | null {
   if (!query) return 0;
 
-  const label = normalizeText(action.label);
-  const description = normalizeText(action.description);
+  const labels = [normalizeText(action.label)];
+  const descriptions = [normalizeText(action.description)];
+  if (translateText) {
+    labels.push(normalizeText(translateText(action.label)));
+    descriptions.push(normalizeText(translateText(action.description)));
+  }
   const keywords = (action.keywords ?? []).map(normalizeText);
 
-  if (label === query) return 140;
-  if (label.startsWith(query)) return 120;
+  if (labels.some((label) => label === query)) return 140;
+  if (labels.some((label) => label.startsWith(query))) return 120;
   if (keywords.some((keyword) => keyword === query)) return 110;
-  if (label.includes(query)) return 100;
+  if (labels.some((label) => label.includes(query))) return 100;
   if (keywords.some((keyword) => keyword.includes(query))) return 90;
-  if (description.includes(query)) return 70;
+  if (descriptions.some((description) => description.includes(query))) return 70;
   const tokens = tokenizeQuery(query);
-  const fields = [label, description, ...keywords];
+  const fields = [...labels, ...descriptions, ...keywords];
   if (tokens.length > 1 && tokens.every((token) => fields.some((field) => field.includes(token)))) {
     return 60;
   }
@@ -323,6 +331,8 @@ function scoreProject(project: SidebarSearchProject, query: string): number | nu
 export function matchSidebarSearchActions(
   actions: readonly SidebarSearchAction[],
   query: string,
+  /** Index visible copy alongside the source English and explicit keywords. */
+  translateText?: (value: string) => string,
 ): SidebarSearchAction[] {
   const normalizedQuery = normalizeText(query);
 
@@ -331,7 +341,7 @@ export function matchSidebarSearchActions(
     .map((action, index) => ({
       action,
       index,
-      score: scoreAction(action, normalizedQuery),
+      score: scoreAction(action, normalizedQuery, translateText),
     }))
     .filter((candidate) => candidate.score !== null)
     .toSorted((left, right) => {

@@ -1,4 +1,4 @@
-import type { ModelSelection, ProjectId } from "@synara/contracts";
+import type { ModelSelection, ProjectId } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock only the I/O boundary of ensureProjectId so the orchestration (bootstrap +

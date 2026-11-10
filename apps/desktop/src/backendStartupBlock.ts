@@ -5,17 +5,22 @@ import { StringDecoder } from "node:string_decoder";
 
 import {
   MIGRATION_DIVERGENCE_CONSENT_REQUIRED_PREFIX,
+  MIGRATION_LINEAGE_UNSUPPORTED_MESSAGE,
+  MIGRATION_REPAIR_FAILED_PREFIX,
   MIGRATION_SCHEMA_TOO_NEW_BLOCK_PREFIX,
   parseMigrationDivergenceConsentChallenge,
+  parseMigrationRepairFailure,
   parseMigrationSchemaTooNewStartupBlock,
   type MigrationDivergenceConsentChallenge,
+  type MigrationRepairFailure,
   type MigrationSchemaTooNewStartupBlock,
-} from "@synara/shared/migrationRecovery";
+} from "@moss/shared/migrationRecovery";
 
 const MAX_GENERIC_STARTUP_OUTPUT_CHARS = 16_384;
 const MAX_STRUCTURED_STARTUP_BLOCK_CHARS = 1_048_576;
 const STRUCTURED_STARTUP_BLOCK_PREFIXES = [
   MIGRATION_DIVERGENCE_CONSENT_REQUIRED_PREFIX,
+  MIGRATION_REPAIR_FAILED_PREFIX,
   MIGRATION_SCHEMA_TOO_NEW_BLOCK_PREFIX,
 ] as const;
 
@@ -30,6 +35,13 @@ export type BackendStartupBlock =
   | {
       readonly kind: "migration-divergence-consent-required";
       readonly challenge: MigrationDivergenceConsentChallenge;
+    }
+  | {
+      readonly kind: "migration-repair-failed";
+      readonly failure: MigrationRepairFailure;
+    }
+  | {
+      readonly kind: "migration-lineage-unsupported";
     }
   | {
       readonly kind: "migration-runtime-identity-mismatch";
@@ -94,6 +106,11 @@ export class BackendStartupBlockDetector {
       return;
     }
 
+    if (this.output.includes(MIGRATION_LINEAGE_UNSUPPORTED_MESSAGE)) {
+      this.block = { kind: "migration-lineage-unsupported" };
+      return;
+    }
+
     const lockErrorIndex = this.output.indexOf("DatabaseLifecycleLockedError:");
     if (lockErrorIndex === -1) return;
     const lockErrorOutput = this.output.slice(lockErrorIndex);
@@ -115,6 +132,10 @@ export class BackendStartupBlockDetector {
         kind: "migration-divergence-consent-required",
         challenge: divergenceChallenge,
       };
+    }
+    const repairFailure = parseMigrationRepairFailure(this.output);
+    if (repairFailure) {
+      return { kind: "migration-repair-failed", failure: repairFailure };
     }
     const schemaTooNewBlock = parseMigrationSchemaTooNewStartupBlock(this.output);
     if (schemaTooNewBlock) {

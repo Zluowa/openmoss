@@ -1,6 +1,6 @@
 import { useStore } from "../../store";
 import { initialState } from "../../storeState";
-import { ApprovalRequestId, ThreadId, TurnId } from "@synara/contracts";
+import { ApprovalRequestId, ThreadId, TurnId } from "@moss/contracts";
 import { afterEach, expect, it, vi } from "vitest";
 import { renderHook } from "vitest-browser-react";
 

@@ -1,3 +1,4 @@
+import { MOSSBOT_AVATARS } from "~/components/mossbot/MossbotAvatar";
 // FILE: coordinatorAppearance.ts
 // Purpose: Fixed icon and color sets for the group coordinator identity, plus the
 //          resolver that maps stored config keys to a renderable icon + classes.
@@ -111,7 +112,7 @@ export function resolveCoordinatorAppearance(input: {
   readonly coordinatorIcon?: string | null | undefined;
   readonly coordinatorColor?: string | null | undefined;
 }): CoordinatorAppearance {
-  const iconOption = COORDINATOR_ICON_OPTIONS.find(
+  const iconOption = [...COORDINATOR_ICON_OPTIONS, ...MOSSBOT_AVATARS].find(
     (option) => option.key === input.coordinatorIcon,
   );
   const colorOption = COORDINATOR_COLOR_OPTIONS.find(

@@ -1,4 +1,4 @@
-import type { GitStatusResult } from "@synara/contracts";
+import type { GitStatusResult } from "@moss/contracts";
 import { assert, describe, it } from "vitest";
 import {
   buildGitActionProgressStages,

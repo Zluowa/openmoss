@@ -2,9 +2,13 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cuaRequest, type CuaReply } from "@synara/shared/cuaDriverProtocol";
+import { cuaRequest, type CuaReply } from "@moss/shared/cuaDriverProtocol";
 
-import type { CuaDriverHost } from "./cuaDriverHost";
+import {
+  CUA_DRIVER_MISSING_PACKAGED_MESSAGE,
+  CUA_DRIVER_MISSING_SOURCE_MESSAGE,
+  type CuaDriverHost,
+} from "./cuaDriverHost";
 import { createLinuxCuaDriverHost } from "./linuxCuaDriverHost";
 
 const capability = "linux-host-test-authority-0000000000000000";
@@ -89,7 +93,11 @@ describe("Linux desktop host startup", () => {
     async (isPackaged) => {
       const f = await fixture(isPackaged);
       const result = await cuaRequest<CuaReply>(f.endpoint, { method: "probe", capability });
-      expect(result).toMatchObject({ ok: false, error: expect.stringContaining("provisioning") });
+      // Only a source checkout can run the provisioning script.
+      expect(result).toMatchObject({
+        ok: false,
+        error: isPackaged ? CUA_DRIVER_MISSING_PACKAGED_MESSAGE : CUA_DRIVER_MISSING_SOURCE_MESSAGE,
+      });
       // A missing optional Computer artifact must not reject desktop/server
       // startup or prevent the app from displaying its unavailable state.
       await expect(
@@ -97,6 +105,14 @@ describe("Linux desktop host startup", () => {
       ).resolves.toMatchObject({ ok: false });
     },
   );
+
+  it("keeps developer instructions out of everything an installed app can say", async () => {
+    expect(CUA_DRIVER_MISSING_PACKAGED_MESSAGE).not.toMatch(/provision|rust|checkout|Cua/iu);
+    const f = await fixture(true);
+    const setup = await cuaRequest<CuaReply>(f.endpoint, { method: "setup", capability });
+    expect(setup).toMatchObject({ ok: false, error: expect.stringContaining("reinstall Moss") });
+    expect(setup.error).not.toMatch(/provision|\.mjs/u);
+  });
 
   it("keeps newly created Moss helper PIDs protected without starting a driver", async () => {
     const f = await fixture();

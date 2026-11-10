@@ -11,8 +11,8 @@ import {
   ThreadId,
   TurnId,
   type ThreadEnvironmentMode,
-} from "@synara/contracts";
-import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
+} from "@moss/contracts";
+import { resolveThreadWorkspaceCwd } from "@moss/shared/threadEnvironment";
 import { Cause, Effect, Layer, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { redactCreationPlanForPurgedCaller } from "./agentGateway/operationPlan.ts";
@@ -27,7 +27,7 @@ import {
 import { aggregateProfileSkillUsageRows, turnModelSelectionCte } from "./profileStats";
 import { PROVIDER_COMMAND_REACTOR_CONSUMER } from "./persistence/Services/OrchestrationEventDeliveries";
 import { isProviderIntentEventType } from "./orchestration/providerIntentClassification";
-import { THREAD_RETENTION_COMMAND_ID_PREFIX } from "./threadRetention";
+import { THREAD_RETENTION_COMMAND_ID_PREFIX } from "./legacyThreadRetention";
 import { claudeTokenActivityCtes } from "./claudeTokenStats";
 
 interface PurgeThreadRow {

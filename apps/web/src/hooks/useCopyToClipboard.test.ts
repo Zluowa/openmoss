@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { copyTextToClipboard } from "./useCopyToClipboard";
+import { copyTextToClipboard, copyThreadIdToClipboard } from "./useCopyToClipboard";
 
 const originalWindow = globalThis.window;
 const originalDocument = globalThis.document;
@@ -73,6 +73,34 @@ afterEach(() => {
 });
 
 describe("copyTextToClipboard", () => {
+  it("uses the native bridge for the selected ID without browser clipboard permission", async () => {
+    const writeThreadId = vi.fn(async () => {});
+    const browserWrite = vi.fn();
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { desktopBridge: { clipboard: { writeThreadId } } },
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { clipboard: { writeText: browserWrite } },
+    });
+    await copyThreadIdToClipboard("selected-not-active");
+    expect(writeThreadId.mock.calls).toEqual([["selected-not-active"]]);
+    expect(browserWrite).not.toHaveBeenCalled();
+    writeThreadId.mockRejectedValueOnce(new Error("Native clipboard blocked"));
+    await expect(copyThreadIdToClipboard("selected-not-active")).rejects.toThrow(
+      "Native clipboard blocked",
+    );
+    expect(browserWrite).not.toHaveBeenCalled();
+  });
+  it("uses the existing restricted-web fallback for a thread ID", async () => {
+    const { documentMock, textarea } = installMockDocument(true);
+    Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
+    Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
+    await copyThreadIdToClipboard("web-thread");
+    expect(textarea.value).toBe("web-thread");
+    expect(documentMock.execCommand).toHaveBeenCalledWith("copy");
+  });
   it("falls back to execCommand when navigator.clipboard.writeText rejects", async () => {
     const { documentMock } = installMockDocument(true);
 

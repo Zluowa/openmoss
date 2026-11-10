@@ -7,7 +7,7 @@ import {
   ProjectTaskId,
   ProjectDocumentRevisionId,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Exit, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -105,6 +105,46 @@ layer("ProjectAgentRepository", (it) => {
         assert.equal(loaded.value.libraryRemoteUrl, "https://example.com/library.git");
         assert.equal(loaded.value.libraryPushOnChange, true);
       }
+    }),
+  );
+
+  it.effect("persists personal assistant identity through updates and summary reloads", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectAgentRepository;
+      const id = ProjectId.makeUnsafe("mossbot-persistence");
+      const threadId = ThreadId.makeUnsafe("mossbot-thread");
+      const config = {
+        agentKind: "mossbot" as const,
+        projectId: id,
+        coordinatorThreadId: threadId,
+        coordinatorName: "Nova",
+        coordinatorModelSelection: {
+          provider: "hermes" as const,
+          instanceId: "hermes-personal",
+          model: "chosen-model",
+        },
+        limits,
+        captureEnabled: true,
+        enabled: true,
+        automationId: null,
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+        disabledAt: null,
+      };
+      yield* repository.saveConfig(config, null);
+      yield* repository.saveConfig({ ...config, revision: 2, pausedAt: now }, 1);
+      const saved = yield* repository.getConfig(id);
+      const resumed = yield* repository.getConfigByCoordinatorThread(threadId);
+      assert.isTrue(Option.isSome(saved));
+      if (Option.isSome(saved)) {
+        assert.equal(saved.value.agentKind, "mossbot");
+        assert.deepEqual(saved.value.coordinatorModelSelection, config.coordinatorModelSelection);
+        assert.equal(saved.value.pausedAt, now);
+      }
+      assert.isTrue(Option.isSome(resumed));
+      const summaries = yield* repository.listSummaries();
+      assert.equal(summaries.find((entry) => entry.projectId === id)?.agentKind, "mossbot");
     }),
   );
 

@@ -1,13 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
-import type { CodexReferenceOracleReport } from "@synara/contracts";
+import type { CodexReferenceOracleReport } from "@moss/contracts";
 import {
   MOSS_CODEX_REFERENCE_REPORT_ENV,
   parseCodexReferenceOracleReportJson,
   summarizeCodexReferenceOracleReport,
   type CodexReferenceOracleSummary,
-} from "@synara/shared/codexReferenceOracle";
+} from "@moss/shared/codexReferenceOracle";
 
 export const DEFAULT_CODEX_REFERENCE_ORACLE_RELATIVE_PATH = ".moss/codex-reference/oracle.json";
 

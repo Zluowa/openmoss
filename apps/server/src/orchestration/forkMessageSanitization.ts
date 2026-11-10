@@ -2,7 +2,7 @@
 // Purpose: Removes source-session-only prompt metadata before server-side fork import.
 // Layer: Orchestration command helpers
 
-import type { MessageId } from "@synara/contracts";
+import type { MessageId } from "@moss/contracts";
 
 const EMBEDDED_ASSISTANT_SELECTIONS_PATTERN =
   /\n*<assistant_selection>\n[\s\S]*?\n<\/assistant_selection>(?=\n*(<terminal_context>\n[\s\S]*?\n<\/terminal_context>\s*)?(<file_comments>\n[\s\S]*?\n<\/file_comments>\s*)?(<pasted_text>\n[\s\S]*?\n<\/pasted_text>\s*)?$)/;

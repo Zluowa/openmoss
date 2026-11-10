@@ -18,7 +18,7 @@
 import { access, lstat, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { SUPPORTED_PROVIDER_KINDS, type MossCanonicalConfig } from "@synara/contracts";
+import { SUPPORTED_PROVIDER_KINDS, type MossCanonicalConfig } from "@moss/contracts";
 
 import { getDefaultModel } from "./model";
 import { MOSS_SESSION_START_EVENT } from "./mossHooks";

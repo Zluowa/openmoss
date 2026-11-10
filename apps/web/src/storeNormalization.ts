@@ -14,16 +14,16 @@ import {
   type ProviderKind,
   ThreadId,
   type TurnId,
-} from "@synara/contracts";
-import { resolveThreadBranchRegressionGuard } from "@synara/shared/git";
-import { mergeAsyncUserInput } from "@synara/shared/asyncUserInput";
-import { normalizeModelSlug } from "@synara/shared/model";
-import { createStalePendingInteractionMatcher } from "@synara/shared/pendingInteractions";
+} from "@moss/contracts";
+import { resolveThreadBranchRegressionGuard } from "@moss/shared/git";
+import { mergeAsyncUserInput } from "@moss/shared/asyncUserInput";
+import { normalizeModelSlug } from "@moss/shared/model";
+import { createStalePendingInteractionMatcher } from "@moss/shared/pendingInteractions";
 import {
   deriveThreadSummaryMetadata,
   isStalePendingRequestFailureDetail,
   pendingRequestInstanceKey,
-} from "@synara/shared/threadSummary";
+} from "@moss/shared/threadSummary";
 
 import { resolveAttachmentPreviewUrl } from "./lib/wsHttpUrl";
 import { textSegmentsCoverText } from "./messageTextSegments";
@@ -200,6 +200,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.subagentNickname ?? null) === (right.subagentNickname ?? null) &&
     (left.subagentRole ?? null) === (right.subagentRole ?? null) &&
     (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null) &&
+    (left.forkSourceMessageId ?? null) === (right.forkSourceMessageId ?? null) &&
     (left.sidechatSourceThreadId ?? null) === (right.sidechatSourceThreadId ?? null) &&
     // The context never changes after creation; its URL identifies the item.
     (left.sidechatContext?.url ?? null) === (right.sidechatContext?.url ?? null) &&
@@ -607,6 +608,7 @@ export function normalizeChatMessage(
     previous.realtimeHandoffId === realtimeHandoffId &&
     previous.dispatchMode === incoming.dispatchMode &&
     previous.dispatchOrigin === incoming.dispatchOrigin &&
+    previous.dispatchSourceThreadId === incoming.dispatchSourceThreadId &&
     previous.startsNewTurn === incoming.startsNewTurn &&
     previous.turnId === incoming.turnId &&
     previous.createdAt === incoming.createdAt &&
@@ -633,6 +635,9 @@ export function normalizeChatMessage(
       : {}),
     ...(incoming.dispatchMode ? { dispatchMode: incoming.dispatchMode } : {}),
     ...(incoming.dispatchOrigin ? { dispatchOrigin: incoming.dispatchOrigin } : {}),
+    ...(incoming.dispatchSourceThreadId
+      ? { dispatchSourceThreadId: incoming.dispatchSourceThreadId }
+      : {}),
     ...(incoming.startsNewTurn !== undefined ? { startsNewTurn: incoming.startsNewTurn } : {}),
     turnId: incoming.turnId,
     createdAt: incoming.createdAt,
@@ -698,6 +703,9 @@ function readModelMessageFromChatMessage(
     ...(message.asyncUserInput ? { asyncUserInput: message.asyncUserInput } : {}),
     ...(message.dispatchMode ? { dispatchMode: message.dispatchMode } : {}),
     ...(message.dispatchOrigin ? { dispatchOrigin: message.dispatchOrigin } : {}),
+    ...(message.dispatchSourceThreadId
+      ? { dispatchSourceThreadId: message.dispatchSourceThreadId }
+      : {}),
     ...(message.startsNewTurn !== undefined ? { startsNewTurn: message.startsNewTurn } : {}),
     turnId: message.turnId ?? null,
     streaming: message.streaming,
@@ -1950,6 +1958,7 @@ export function normalizeThreadFromReadModel(
     previous.hasPendingUserInput === resolvedHasPendingUserInput &&
     previous.hasActionableProposedPlan === resolvedHasActionableProposedPlan &&
     (previous.forkSourceThreadId ?? null) === (incoming.forkSourceThreadId ?? null) &&
+    (previous.forkSourceMessageId ?? null) === (incoming.forkSourceMessageId ?? null) &&
     (previous.sidechatSourceThreadId ?? null) === (incoming.sidechatSourceThreadId ?? null) &&
     // The context never changes after creation; its URL identifies the item.
     (previous.sidechatContext?.url ?? null) === (incoming.sidechatContext?.url ?? null) &&
@@ -2012,6 +2021,7 @@ export function normalizeThreadFromReadModel(
     associatedWorktreeRef: nextAssociatedWorktreeRef,
     createBranchFlowCompleted: resolvedCreateBranchFlowCompleted,
     forkSourceThreadId: incoming.forkSourceThreadId ?? null,
+    forkSourceMessageId: incoming.forkSourceMessageId ?? null,
     sidechatSourceThreadId: incoming.sidechatSourceThreadId ?? null,
     sidechatContext: incoming.sidechatContext ?? null,
     sidechatLastActivityAt: incoming.sidechatLastActivityAt ?? null,
@@ -2159,6 +2169,7 @@ export function normalizeThreadShellSnapshot(
     subagentNickname: incoming.subagentNickname ?? null,
     subagentRole: incoming.subagentRole ?? null,
     forkSourceThreadId: incoming.forkSourceThreadId ?? null,
+    forkSourceMessageId: incoming.forkSourceMessageId ?? null,
     sidechatSourceThreadId: incoming.sidechatSourceThreadId ?? null,
     sidechatContext: incoming.sidechatContext ?? null,
     sidechatLastActivityAt: incoming.sidechatLastActivityAt ?? null,

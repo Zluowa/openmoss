@@ -29,32 +29,53 @@
   --font-weight-semibold: 535;
   --font-weight-bold: 570;
   /* Font sizes that follow the size chosen in Settings (useAppTypography). The
-     fallbacks mirror getAppTypographyScale at DEFAULT_CHAT_FONT_SIZE_PX (13px)
+     fallbacks mirror getAppTypographyScale at DEFAULT_CHAT_FONT_SIZE_PX (14px)
      so isolated browser tests without the app shell resolve the same values. */
-  --text-ui: var(--app-font-size-ui, 13px);
-  --text-ui--line-height: calc(19 / 13);
-  --text-ui-lg: var(--app-font-size-ui-lg, 14px);
-  --text-ui-lg--line-height: calc(20 / 14);
+  --text-ui: var(--app-font-size-ui, 14px);
+  --text-ui--line-height: calc(20 / 14);
+  --text-ui-lg: var(--app-font-size-ui-lg, 15px);
+  --text-ui-lg--line-height: calc(20 / 15);
   /* A page's lede and headline figures: one step above ui-lg, still scaled by Settings. */
-  --text-ui-xl: calc(var(--app-font-size-ui-lg, 14px) * 1.3);
-  --text-ui-sm: var(--app-font-size-ui-sm, 12px);
-  --text-ui-sm--line-height: calc(17 / 12);
-  --text-ui-xs: var(--app-font-size-ui-xs, 11px);
-  --text-ui-xs--line-height: calc(17 / 11);
-  --text-ui-2xs: var(--app-font-size-ui-2xs, 10px);
-  --text-ui-2xs--line-height: calc(14 / 10);
-  --text-ui-meta: var(--app-font-size-ui-meta, 11px);
-  --text-ui-meta--line-height: calc(17 / 11);
-  --text-ui-timestamp: var(--app-font-size-ui-timestamp, 10px);
-  --text-ui-timestamp--line-height: calc(14 / 10);
-  --text-chat: var(--app-font-size-chat, 14px);
-  --text-chat--line-height: calc(20 / 14);
-  --text-chat-code: var(--app-font-size-chat-code, 12px);
-  --text-chat-code--line-height: calc(17 / 12);
-  --text-chat-meta: var(--app-font-size-chat-meta, 11px);
-  --text-chat-meta--line-height: calc(17 / 11);
-  --text-chat-tiny: var(--app-font-size-chat-tiny, 10px);
-  --text-chat-tiny--line-height: calc(14 / 10);
+  --text-ui-xl: calc(var(--app-font-size-ui-lg, 15px) * 1.3);
+  --text-ui-sm: var(--app-font-size-ui-sm, 13px);
+  --text-ui-sm--line-height: calc(17 / 13);
+  --text-ui-xs: var(--app-font-size-ui-xs, 12px);
+  --text-ui-xs--line-height: calc(17 / 12);
+  --text-ui-2xs: var(--app-font-size-ui-2xs, 11px);
+  --text-ui-2xs--line-height: calc(17 / 11);
+  --text-ui-meta: var(--app-font-size-ui-meta, 12px);
+  --text-ui-meta--line-height: calc(17 / 12);
+  --text-ui-timestamp: var(--app-font-size-ui-timestamp, 11px);
+  --text-ui-timestamp--line-height: calc(17 / 11);
+  --text-title: var(--app-font-size-title, 22px);
+  --text-title--line-height: calc(28 / 22);
+  --text-chat: var(--app-font-size-chat, 16px);
+  --text-chat--line-height: calc(24 / 16);
+  --text-chat-code: var(--app-font-size-chat-code, 13px);
+  --text-chat-code--line-height: calc(19 / 13);
+  --text-chat-meta: var(--app-font-size-chat-meta, 12px);
+  --text-chat-meta--line-height: calc(17 / 12);
+  --text-chat-tiny: var(--app-font-size-chat-tiny, 11px);
+  --text-chat-tiny--line-height: calc(17 / 11);
+  /* Comfortable role geometry. The same Settings size that drives the text
+     enlarges controls and icons; smaller text retains a useful hit-area floor. */
+  --spacing-control-xs: calc(1.5rem * var(--app-ui-scale, 1));
+  --spacing-control-sm: calc(1.75rem * var(--app-ui-scale, 1));
+  --spacing-control: calc(2rem * var(--app-ui-scale, 1));
+  --spacing-control-lg: calc(2.5rem * var(--app-ui-scale, 1));
+  --spacing-ui-icon: calc(1.25rem * var(--app-ui-scale, 1));
+  --spacing-ui-icon-sm: calc(1rem * var(--app-ui-scale, 1));
+  --spacing-ui-icon-lg: calc(1.5rem * var(--app-ui-scale, 1));
+  --spacing-ui-pad-xs: calc(0.375rem * var(--app-ui-scale, 1));
+  --spacing-ui-pad-sm: calc(0.5rem * var(--app-ui-scale, 1));
+  --spacing-ui-pad-md: calc(0.75rem * var(--app-ui-scale, 1));
+  --spacing-ui-pad-lg: calc(1rem * var(--app-ui-scale, 1));
+  --spacing-ui-pad-xl: calc(1.5rem * var(--app-ui-scale, 1));
+  --spacing-ui-gap-xs: calc(0.5rem * var(--app-ui-scale, 1));
+  --spacing-ui-gap-sm: calc(0.75rem * var(--app-ui-scale, 1));
+  --spacing-ui-gap-md: calc(1rem * var(--app-ui-scale, 1));
+  --spacing-ui-gap-lg: calc(1.75rem * var(--app-ui-scale, 1));
+  --spacing-ui-gap-xl: calc(2.5rem * var(--app-ui-scale, 1));
   --font-display: var(--font-display-family);
   --font-mono: var(--font-mono-family);
   --color-warning-foreground: var(--warning-foreground);
@@ -137,16 +158,16 @@
   /* List rows: sidebar rows, tree rows, compact chips. */
   --radius-row: var(--radius-sm);
   /* Controls: buttons, inputs, selects, tabs, icon buttons, menu options. */
-  --radius-control: var(--radius-sm);
+  --radius-control: calc(0.5rem * var(--app-ui-scale, 1));
   /* Content cards: code blocks, diffs, media, banners, settings groups. */
   --radius-card: var(--radius-lg);
   /* Floating overlays: menus, pickers, popovers, toasts, the window's inset sheet. */
   --radius-popover: var(--radius-lg);
   /* Large standalone panels: side cards, docked panels, task cards, drop zones. */
-  --radius-panel: var(--radius-lg);
+  --radius-panel: calc(0.75rem * var(--app-ui-scale, 1));
   /* The composer, user message bubbles, dialogs and sheets. */
-  --radius-composer: 0.875rem;
-  --radius-dialog: var(--radius-xl);
+  --radius-composer: calc(0.875rem * var(--app-ui-scale, 1));
+  --radius-dialog: calc(0.75rem * var(--app-ui-scale, 1));
   --radius-bubble: var(--radius-lg);
   /* ─── Elevation ──────────────────────────────────────────────────────────
      Claude's two-layer soft shadows in warm ink: a tight contact shadow plus a wide, faint
@@ -197,8 +218,8 @@
   * {
     @apply border-border outline-ring/30;
   }
-  /* Central draws inside a wider margin than Claude's icons, so the same 16px box read smaller.
-     This enlarges the painted glyph only: boxes, alignment and hit areas stay on the 12/16 scale. */
+  /* Central draws inside a wider margin than Claude's icons, so the same box read smaller.
+     This enlarges the painted glyph only: boxes, alignment and hit areas use the shared icon roles. */
   [data-slot="central-icon"] {
     scale: 1.14;
   }
@@ -457,6 +478,36 @@
 @media (prefers-reduced-motion: reduce) {
   .chat-pane-enter {
     animation: none;
+  }
+}
+
+/* Page annotation and page comments (docs/design/annotate-and-comment/SPEC.md): the
+   annotation bar rises 8px on the snap curve, a comment card drops 6px into place, and a
+   pin the reader jumps to rings once. Users who reduce motion get none of them (the
+   utilities that use these are motion-safe). */
+@keyframes moss-sketch-bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes moss-comment-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes moss-comment-pulse {
+  from {
+    outline-color: var(--primary);
+    outline-offset: 0;
+  }
+
+  to {
+    outline-color: transparent;
+    outline-offset: 6px;
   }
 }
 
@@ -1285,9 +1336,27 @@ label:has(> select#reasoning-effort) select {
   border: none;
   background: transparent;
   padding: 0;
-  line-height: calc(17 / 12);
-  font-size: var(--app-font-size-chat-code);
+  line-height: calc(19 / 13);
+  font-size: var(--app-font-size-chat-code, 13px);
   font-family: inherit;
+}
+
+/* Mermaid diagrams (pele) read their colors through these, so a theme change
+   recolors them without re-rendering. */
+.pele {
+  --pele-bg: var(--background);
+  --pele-fg: var(--foreground);
+  --pele-muted: var(--muted-foreground);
+  --pele-line: var(--muted-foreground);
+  --pele-surface: var(--secondary);
+  --pele-surface-alt: var(--accent);
+  --pele-border: color-mix(in srgb, var(--foreground) 28%, transparent);
+  --pele-accent: var(--primary);
+  --pele-critical: var(--destructive);
+}
+
+.chat-markdown .chat-markdown-mermaid {
+  padding: 0.75rem;
 }
 
 .chat-markdown .chat-markdown-codeblock {
@@ -1295,6 +1364,38 @@ label:has(> select#reasoning-effort) select {
   overflow: hidden;
   border-radius: var(--radius-card);
   background: var(--app-chat-code-surface);
+}
+
+/* The desktop chat's code block in a transcript: a 1px outline, no fill or title bar,
+   as wide as its content, and its buttons pinned to the top-right corner. */
+.chat-markdown .chat-markdown-codeblock[data-transcript-fence] {
+  position: relative;
+  width: fit-content;
+  min-width: min(14rem, 100%);
+  max-width: 100%;
+  border-radius: 0.5rem;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.chat-markdown .chat-markdown-codeblock[data-transcript-fence] .chat-markdown-codeblock__header {
+  position: absolute;
+  top: 0;
+  right: 0.4375rem;
+  z-index: 1;
+  padding: 0.25rem 0 0;
+}
+
+.chat-markdown
+  .chat-markdown-codeblock[data-transcript-fence]:not([data-multiline])
+  .chat-markdown-codeblock__header {
+  top: 50%;
+  padding: 0;
+  transform: translateY(-50%);
+}
+
+.chat-markdown .chat-markdown-codeblock[data-transcript-fence] .chat-markdown-codeblock__body pre {
+  padding-right: 3rem;
 }
 
 .chat-markdown .chat-markdown-codeblock__header {
@@ -1417,7 +1518,7 @@ label:has(> select#reasoning-effort) select {
   background: transparent !important;
   padding: var(--editor-file-padding, 1rem);
   font-family: var(--font-chat-code-family);
-  font-size: var(--app-font-size-chat-code, 12px);
+  font-size: var(--app-font-size-chat-code, 13px);
   line-height: var(--editor-file-line-height, 1.65);
   tab-size: 2;
 }
@@ -1454,8 +1555,11 @@ label:has(> select#reasoning-effort) select {
   padding: 1rem 1rem 1rem 0.75rem;
   color: color-mix(in srgb, var(--foreground) 88%, transparent);
   font-family: var(--font-chat-code-family);
-  font-size: var(--app-font-size-chat-code, 12px);
-  line-height: 1.65;
+  font-size: var(--app-font-size-chat-code, 13px);
+  /* A whole-pixel line box. 1.65 x 13px = 21.45px is not a layout unit, so the
+     gutter's block rows and the textarea's lines drifted apart by 1/64px a row
+     and the numbers trailed the code by ~16px at the end of a 1000-line file. */
+  line-height: round(nearest, calc(1.65 * var(--app-font-size-chat-code, 13px)), 1px);
   tab-size: 2;
   white-space: pre;
 }
@@ -1483,8 +1587,8 @@ label:has(> select#reasoning-effort) select {
   padding: 1rem 0.5rem 1rem 1rem;
   text-align: right;
   font-family: var(--font-chat-code-family);
-  font-size: var(--app-font-size-chat-code, 12px);
-  line-height: 1.65;
+  font-size: var(--app-font-size-chat-code, 13px);
+  line-height: round(nearest, calc(1.65 * var(--app-font-size-chat-code, 13px)), 1px);
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--foreground) 30%, transparent);
   pointer-events: none;
@@ -1508,7 +1612,7 @@ label:has(> select#reasoning-effort) select {
   background: transparent;
   color: color-mix(in srgb, var(--foreground) 88%, transparent);
   font-family: var(--font-chat-code-family);
-  font-size: var(--app-font-size-chat-code, 12px);
+  font-size: var(--app-font-size-chat-code, 13px);
   line-height: 1.65;
 }
 
@@ -1570,7 +1674,7 @@ label:has(> select#reasoning-effort) select {
   z-index: 1;
   pointer-events: none;
   font-family: var(--font-chat-code-family);
-  font-size: var(--app-font-size-chat-code, 12px);
+  font-size: var(--app-font-size-chat-code, 13px);
 }
 
 .editor-file-viewer__change-gutter[data-subtle="true"] {
@@ -1691,7 +1795,7 @@ label:has(> select#reasoning-effort) select {
   /* Override the global `textarea { font-family: mono }` reset — this field is
      UI chrome, not code, so it must use the normal UI font. */
   font-family: var(--font-ui-family);
-  font-size: var(--app-font-size-ui-lg, 13px);
+  font-size: var(--app-font-size-ui-lg, 15px);
   line-height: 1.5;
   color: var(--color-text-foreground);
   outline: none;
@@ -1934,13 +2038,13 @@ label:has(> select#reasoning-effort) select {
 }
 
 .local-image-error__title {
-  font-size: var(--app-font-size-ui, 13px);
+  font-size: var(--app-font-size-ui, 14px);
   font-weight: 500;
   color: var(--foreground);
 }
 
 .local-image-error__subtitle {
-  font-size: var(--app-font-size-ui-sm, 12px);
+  font-size: var(--app-font-size-ui-sm, 13px);
   color: var(--muted-foreground);
 }
 
@@ -1949,7 +2053,7 @@ label:has(> select#reasoning-effort) select {
   gap: 0.35rem;
   flex: 0 0 auto;
   padding: 0.32rem 0.55rem;
-  font-size: var(--app-font-size-ui-sm, 12px);
+  font-size: var(--app-font-size-ui-sm, 13px);
   font-weight: 500;
 }
 
@@ -2060,13 +2164,13 @@ label:has(> select#reasoning-effort) select {
   padding: 16px;
   text-align: center;
   color: var(--destructive);
-  font-size: var(--app-font-size-ui, 13px);
+  font-size: var(--app-font-size-ui, 14px);
 }
 
 .pdf-viewer-page__error-detail {
   max-width: 90%;
   color: var(--muted-foreground);
-  font-size: var(--app-font-size-ui-sm, 12px);
+  font-size: var(--app-font-size-ui-sm, 13px);
   word-break: break-word;
 }
 
@@ -3459,14 +3563,14 @@ diffs-container {
   line-height: 1.35;
 }
 .pull-request-prose h1 {
-  font-size: calc(var(--app-font-size-ui-lg, 13px) * 1.3);
+  font-size: calc(var(--app-font-size-ui-lg, 15px) * 1.3);
 }
 .pull-request-prose h2 {
-  font-size: calc(var(--app-font-size-ui-lg, 13px) * 1.16);
+  font-size: calc(var(--app-font-size-ui-lg, 15px) * 1.16);
 }
 .pull-request-prose h3,
 .pull-request-prose h4 {
-  font-size: var(--app-font-size-ui-lg, 13px);
+  font-size: var(--app-font-size-ui-lg, 15px);
 }
 
 .chat-composer-surface-banner,
@@ -3792,11 +3896,11 @@ diffs-container {
 /* Density tokens per size modifier (--normal / --small). Width is opt-in below. */
 .composer-picker-menu--normal {
   --picker-menu-body-p: 0.25rem;
-  --picker-option-min-h: 1.5rem;
-  --picker-option-px: 0.5rem;
-  --picker-option-py: 0.0625rem;
-  --picker-option-gap: 0.375rem;
-  --picker-option-icon-size: 1rem;
+  --picker-option-min-h: calc(2rem * var(--app-ui-scale, 1));
+  --picker-option-px: calc(0.5rem * var(--app-ui-scale, 1));
+  --picker-option-py: calc(0.25rem * var(--app-ui-scale, 1));
+  --picker-option-gap: calc(0.5rem * var(--app-ui-scale, 1));
+  --picker-option-icon-size: calc(1.25rem * var(--app-ui-scale, 1));
   --picker-section-py: 0.375rem;
   --picker-separator-my: 0.25rem;
   --picker-separator-mx: 0.5rem;
@@ -3807,11 +3911,11 @@ diffs-container {
 
 .composer-picker-menu--small {
   --picker-menu-body-p: 0.1875rem;
-  --picker-option-min-h: 1.5rem;
-  --picker-option-px: 0.5rem;
-  --picker-option-py: 0.0625rem;
+  --picker-option-min-h: calc(1.75rem * var(--app-ui-scale, 1));
+  --picker-option-px: calc(0.5rem * var(--app-ui-scale, 1));
+  --picker-option-py: calc(0.25rem * var(--app-ui-scale, 1));
   --picker-option-gap: 0.4375rem;
-  --picker-option-icon-size: 0.75rem;
+  --picker-option-icon-size: calc(1rem * var(--app-ui-scale, 1));
   --picker-section-py: 0.3125rem;
   --picker-separator-my: 0.1875rem;
   --picker-separator-mx: 0.4375rem;
@@ -3822,15 +3926,15 @@ diffs-container {
 
 /* Fixed width — only the composer model/effort/provider pickers opt in. */
 .composer-picker-menu-fixed.composer-picker-menu--normal {
-  width: 14.5rem;
-  min-width: 14.5rem;
-  max-width: min(14.5rem, 92vw);
+  width: min(calc(14.5rem * var(--app-ui-scale, 1)), 92vw);
+  min-width: min(calc(14.5rem * var(--app-ui-scale, 1)), 92vw);
+  max-width: 92vw;
 }
 
 .composer-picker-menu-fixed.composer-picker-menu--small {
-  width: 11.25rem;
-  min-width: 11.25rem;
-  max-width: min(11.25rem, 92vw);
+  width: min(calc(11.25rem * var(--app-ui-scale, 1)), 92vw);
+  min-width: min(calc(11.25rem * var(--app-ui-scale, 1)), 92vw);
+  max-width: 92vw;
 }
 
 /* Size-aware option rows inside composer picker shells. */
@@ -4442,7 +4546,7 @@ diffs-container {
   --vscode-editor-font-family: var(--font-chat-code-family);
   --codex-chat-code-font-size: var(--app-font-size-chat-code, 13px);
   --thread-content-max-width: var(--app-chat-max-width, 48rem);
-  --codex-chat-font-size: var(--app-font-size-chat, 14px);
+  --codex-chat-font-size: var(--app-font-size-chat, 16px);
   --vscode-descriptionForeground: var(--color-text-foreground-tertiary, var(--muted-foreground));
   --vscode-textCodeBlock-background: var(--color-background-button-secondary, var(--secondary));
   --color-background-secondary-soft-alpha: var(--vscode-textCodeBlock-background);
@@ -4786,9 +4890,21 @@ html.moss-opaque-surface #root {
   }
 }
 
-.chat-markdown[data-codex-streaming] :is(.codex-stream-segment, hr, li, tr, blockquote) {
+.chat-markdown[data-codex-streaming] :is(hr, li, tr, blockquote) {
   opacity: 0;
   animation: codex-stream-text-enter 150ms cubic-bezier(0.37, 0.55, 0.86, 0.88) forwards;
+}
+
+/* Streamed words, as the desktop chat paces them: 200ms linear, each held hidden
+   through its queued delay (set inline by the fade scheduler). */
+.chat-markdown[data-codex-streaming] .codex-stream-segment {
+  animation: codex-stream-word-enter 200ms linear backwards;
+}
+
+@keyframes codex-stream-word-enter {
+  from {
+    opacity: 0;
+  }
 }
 
 .chat-markdown[data-codex-streaming] img {
@@ -5251,7 +5367,7 @@ html.moss-opaque-surface #root {
 .composer-codex-power__fast-detail {
   margin-inline-start: auto;
   color: var(--color-text-foreground-secondary);
-  font-size: var(--app-font-size-ui-2xs, 9px);
+  font-size: var(--app-font-size-ui-2xs, 11px);
   white-space: nowrap;
 }
 
@@ -6319,4 +6435,9 @@ body[data-moss-theme-skin-drag="patternOpacity"] .moss-theme-skin-slider-handle 
     transition: none;
     animation: none;
   }
+}
+
+/* Selection Reply (desktop chat): the quoted words stay painted while the reply box has focus. */
+::highlight(moss-reply-selection) {
+  background-color: color-mix(in srgb, var(--color-text-accent) 22%, transparent);
 }

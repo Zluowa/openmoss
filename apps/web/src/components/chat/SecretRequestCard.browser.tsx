@@ -6,7 +6,7 @@ import {
   type NativeApi,
   type SecretRequestActivityPayload,
   type SecretRequestAnswerInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-react";
 

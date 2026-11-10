@@ -2,7 +2,7 @@
 // Purpose: Keep the trusted MCP App preload protocol dependency-free.
 // Layer: Desktop preload helper
 
-import type { McpAppSandboxHostPortEnvelope } from "@synara/contracts";
+import type { McpAppSandboxHostPortEnvelope } from "@moss/contracts";
 
 export const MCP_APP_SANDBOX_MAIN_TO_TRUSTED_CHANNEL =
   "moss_desktop:mcp-app-sandbox-host-message" as const;

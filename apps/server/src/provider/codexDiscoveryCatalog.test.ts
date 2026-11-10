@@ -9,6 +9,8 @@ import {
   parseCodexPluginListResponse,
   parseCodexPluginReadResponse,
   parseCodexSkillsListResponse,
+  readCodexConfiguredServiceTier,
+  withConfiguredCodexServiceTier,
   withoutShadowedMossSkills,
 } from "./codexDiscoveryCatalog.ts";
 
@@ -180,8 +182,75 @@ describe("Codex discovery catalog", () => {
         ],
         defaultReasoningEffort: "low",
         supportsFastMode: true,
+        serviceTiers: [{ value: "fast", label: "Fast" }],
       },
     ]);
+  });
+
+  it("reads each model's own speed tiers from serviceTiers before the legacy ids", () => {
+    // Shapes from Codex 0.166 model/list: GPT-6 Luna offers Fast only, a newer Sol
+    // also Ultrafast, and a model may offer no extra speed at all.
+    const models = parseCodexModelListResponse({
+      data: [
+        {
+          id: "gpt-6-luna",
+          displayName: "GPT-6 Luna",
+          additionalSpeedTiers: ["fast"],
+          serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed" }],
+          defaultServiceTier: "priority",
+        },
+        {
+          id: "gpt-6.1-sol",
+          displayName: "GPT-6.1 Sol",
+          additionalSpeedTiers: ["fast", "ultrafast"],
+          serviceTiers: [
+            { id: "priority", name: "Fast", description: "2x speed, increased usage" },
+            { id: "ultrafast", name: "Ultrafast" },
+          ],
+        },
+        { id: "gpt-6-nova", displayName: "GPT-6 Nova", serviceTiers: [] },
+        { id: "gpt-legacy", displayName: "GPT Legacy" },
+      ],
+    });
+    expect(
+      models.map(({ slug, supportsFastMode, serviceTiers }) => ({
+        slug,
+        supportsFastMode,
+        serviceTiers,
+      })),
+    ).toEqual([
+      {
+        slug: "gpt-6-luna",
+        supportsFastMode: true,
+        serviceTiers: [{ value: "priority", label: "Fast", description: "1.5x speed" }],
+      },
+      {
+        slug: "gpt-6.1-sol",
+        supportsFastMode: true,
+        serviceTiers: [
+          { value: "priority", label: "Fast", description: "2x speed, increased usage" },
+          { value: "ultrafast", label: "Ultrafast" },
+        ],
+      },
+      // Standard speed only: no Fast toggle.
+      { slug: "gpt-6-nova", supportsFastMode: undefined, serviceTiers: [] },
+      // The entry says nothing about speed.
+      { slug: "gpt-legacy", supportsFastMode: undefined, serviceTiers: undefined },
+    ]);
+  });
+
+  it("carries the configured Codex speed tier onto every discovered model", () => {
+    expect(readCodexConfiguredServiceTier({ config: { service_tier: " ultrafast " } })).toBe(
+      "ultrafast",
+    );
+    expect(readCodexConfiguredServiceTier({ config: { service_tier: null } })).toBeUndefined();
+    expect(readCodexConfiguredServiceTier({})).toBeUndefined();
+    expect(
+      withConfiguredCodexServiceTier([{ slug: "gpt-6-luna", name: "GPT-6 Luna" }], "ultrafast"),
+    ).toEqual([{ slug: "gpt-6-luna", name: "GPT-6 Luna", configuredServiceTier: "ultrafast" }]);
+    expect(
+      withConfiguredCodexServiceTier([{ slug: "gpt-6-luna", name: "GPT-6 Luna" }], undefined),
+    ).toEqual([{ slug: "gpt-6-luna", name: "GPT-6 Luna" }]);
   });
 
   it("normalizes bucketed skills/list responses for the requested cwd", () => {

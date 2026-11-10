@@ -13,7 +13,7 @@ import {
   ThreadId,
   TurnId,
   type PendingClaudeCacheReview,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { applyOrchestrationEvents, applyOrchestrationEventsHotPath } from "./storeEventReducer";

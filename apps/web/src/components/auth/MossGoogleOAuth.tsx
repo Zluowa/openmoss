@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { ensureNativeApi } from "~/nativeApi";
 
-import { beginMossGoogleOAuth } from "./mossGoogleOAuth.logic";
+import { beginMossGoogleOAuth, mossGoogleOAuthStartErrorMessage } from "./mossGoogleOAuth.logic";
 import {
   type MossGoogleOAuthPurpose,
   recordMossGoogleOAuthPurpose,
@@ -30,8 +30,8 @@ export function MossGoogleOAuthButton({
         onFlowOpened: ({ flowId, expiresAt }) =>
           recordMossGoogleOAuthPurpose({ flowId, purpose, expiresAt }),
       });
-    } catch {
-      setError("无法安全打开 Google 登录，请稍后重试。");
+    } catch (cause) {
+      setError(mossGoogleOAuthStartErrorMessage(cause));
     }
   };
 

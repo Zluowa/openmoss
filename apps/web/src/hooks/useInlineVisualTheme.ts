@@ -3,7 +3,7 @@
 // Layer: Web hook (consumed by InlineVisualFrame)
 // Exports: useInlineVisualTheme
 
-import { INLINE_VISUAL_SERIES_COLORS, type InlineVisualTheme } from "@synara/shared/inlineVisual";
+import { INLINE_VISUAL_SERIES_COLORS, type InlineVisualTheme } from "@moss/shared/inlineVisual";
 import { useLayoutEffect, useState } from "react";
 
 import { useAppSettings } from "../appSettings";

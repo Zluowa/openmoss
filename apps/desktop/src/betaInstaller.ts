@@ -23,8 +23,8 @@ import { get as httpsGet, type RequestOptions } from "node:https";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-import { BETA_RELEASE_TAG_PATTERN, MOSS_BETA_RELEASES_API_URL } from "@synara/shared/betaChannel";
-import { MOSS_BETA_BUNDLE_ID } from "@synara/shared/desktopIdentity";
+import { BETA_RELEASE_TAG_PATTERN, MOSS_BETA_RELEASES_API_URL } from "@moss/shared/betaChannel";
+import { MOSS_BETA_BUNDLE_ID } from "@moss/shared/desktopIdentity";
 
 export const BETA_MAC_MANIFEST_NAME = "beta-mac.yml";
 export const BETA_MAC_APP_NAME = "Moss Beta.app";

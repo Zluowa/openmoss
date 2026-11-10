@@ -8,7 +8,7 @@
 //          from the Environment panel preference.
 // Layer: Chat UI hook
 
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@moss/contracts";
 import { useCallback, useState } from "react";
 
 import { useGroupPanelClosedStore } from "~/groupPanelClosedStore";
@@ -23,6 +23,7 @@ export function useAuxiliarySurface(input: {
   readonly projectId: ProjectId | null;
   readonly projectPanelEnabled: boolean;
   readonly environmentPanelVisible: boolean;
+  readonly startWithConversation?: boolean;
 }): {
   readonly auxiliarySurface: ChatAuxiliarySurface | null;
   readonly chooseAuxiliarySurface: (surface: ChatAuxiliarySurface | null) => void;
@@ -36,6 +37,7 @@ export function useAuxiliarySurface(input: {
     projectId: input.projectId,
     projectPanelEnabled: input.projectPanelEnabled,
     environmentPanelVisible: input.environmentPanelVisible,
+    startWithConversation: input.startWithConversation === true,
     groupPanelClosed: input.projectId !== null && closedProjectIds.includes(input.projectId),
   });
   const chooseAuxiliarySurface = useCallback(

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PAGE_RICH_CONTENT_LIMITS } from "@synara/shared/pageRichContent";
+import { PAGE_RICH_CONTENT_LIMITS } from "@moss/shared/pageRichContent";
 import { PageRichEditorChannel, type PageRichEditorDocument } from "./pageRichEditorChannel";
 
 const nonce = "editor-session-owned-by-parent";
@@ -628,5 +628,99 @@ describe("parent-owned Plate editor channel", () => {
     });
     expect(h.onUnavailable).not.toHaveBeenCalledWith(true);
     expect(h.onChange).not.toHaveBeenCalled();
+  });
+  it("exposes a connection timeout only before a document has loaded", async () => {
+    const h = harness();
+    h.channel.load(document);
+    h.channel.connectionTimedOut();
+    expect(h.onUnavailable).toHaveBeenLastCalledWith(true);
+    await expect(h.channel.flush()).resolves.toBe(false);
+    h.activate();
+    h.onUnavailable.mockClear();
+    h.channel.connectionTimedOut();
+    expect(h.onUnavailable).not.toHaveBeenCalledWith(true);
+  });
+});
+
+describe("live page room relay", () => {
+  const collab = {
+    pageId: "page-a",
+    generation: "gen-1",
+    mode: "edit" as const,
+    user: { id: "w1", name: "Mac", color: "#2e8ab8" },
+  };
+  function live(realtime = true) {
+    const send = vi.fn<(message: Packet) => void>();
+    const events = {
+      frame: vi.fn(),
+      presence: vi.fn(),
+      reset: vi.fn(),
+      retry: vi.fn(),
+      copy: vi.fn(),
+    };
+    const channel = new PageRichEditorChannel(
+      nonce,
+      send,
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      vi.fn(),
+      events,
+    );
+    channels.push(channel);
+    let seq = 0;
+    const child = (event: string, fields: Packet = {}) =>
+      channel.receive({
+        type: "moss-page-editor",
+        version: 1,
+        sessionNonce: nonce,
+        seq: ++seq,
+        event,
+        ...fields,
+      });
+    channel.load({ ...document, collab });
+    child("ready", { capabilities: realtime ? [...capabilities, "realtime"] : capabilities });
+    const load = send.mock.calls
+      .map(([value]) => value)
+      .filter((value) => value.action === "load")
+      .at(-1)!;
+    const fields = { documentKey: load.documentKey, documentSeq: load.seq };
+    child("loaded", { ...fields, replyTo: load.seq });
+    return { channel, send, events, child, fields, load };
+  }
+
+  it("sends the room config with the document and relays frames both ways", () => {
+    const { channel, send, events, child, fields, load } = live();
+    expect(load.collab).toEqual(collab);
+    expect(channel.supportsRealtime).toBe(true);
+    channel.collabStatus("online");
+    channel.collabFrame('{"type":"saved"}');
+    expect(send.mock.calls.slice(-2).map(([value]) => value.action)).toEqual([
+      "collab-status",
+      "collab-frame",
+    ]);
+    const bytes = new Uint8Array([0, 1, 2]);
+    expect(child("collab-frame", { ...fields, data: bytes })).toBe(true);
+    expect(new Uint8Array(events.frame.mock.calls[0]![0] as ArrayBuffer)).toEqual(bytes);
+    expect(child("collab-presence", { ...fields, peers: [], link: "online", pending: false })).toBe(
+      true,
+    );
+    expect(events.presence).toHaveBeenCalledTimes(1);
+    expect(child("collab-copy", { ...fields, richContent: rich("mine") })).toBe(true);
+    expect(events.copy).toHaveBeenCalledWith(rich("mine"));
+  });
+
+  it("drops room traffic for another document or from an editor without the capability", () => {
+    const current = live();
+    expect(
+      current.child("collab-frame", {
+        documentKey: "other",
+        documentSeq: current.fields.documentSeq,
+        data: "x",
+      }),
+    ).toBe(false);
+    const old = live(false);
+    old.channel.collabFrame("x");
+    expect(old.send.mock.calls.some(([value]) => value.action === "collab-frame")).toBe(false);
   });
 });

@@ -71,13 +71,15 @@ export const GLASS_RAISED_SURFACE_CLASS_NAME = "app-glass-raised";
  */
 export const FLOATING_OVERLAY_SURFACE_CLASS_NAME = "app-popup-surface";
 
+/** Larger modal headings shared by connection setup and device details. */
+export const LARGE_DIALOG_TITLE_CLASS_NAME = "text-title font-semibold";
+
 /**
  * The one page title every rail destination opens on (Inbox, Library, Images, Tasks, Skills,
- * Settings): Claude's page header — 20px on a 25px line, semibold.
- * A fixed size, like dialog titles; secondary copy under it uses the `text-ui` scale.
+ * Settings): the large title role, 22px on a 28px line at the comfortable baseline.
+ * Like the UI and small dialog titles, it follows the size chosen in Settings.
  */
-export const PAGE_TITLE_CLASS_NAME =
-  "text-[1.25rem] leading-[1.5625rem] font-semibold text-foreground";
+export const PAGE_TITLE_CLASS_NAME = "text-title font-semibold text-foreground";
 
 /**
  * Tab material shared by every tab strip (the shell's top tabs, the browser pane's tabs and

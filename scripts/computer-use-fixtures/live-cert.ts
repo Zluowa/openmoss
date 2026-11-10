@@ -58,7 +58,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import { cuaRequest, type CuaReply } from "@synara/shared/cuaDriverProtocol";
+import { cuaRequest, type CuaReply } from "@moss/shared/cuaDriverProtocol";
 import { CuaDriverHost } from "../../apps/desktop/src/cuaDriverHost";
 import { ComputerShield } from "../../apps/desktop/src/computerShield";
 import { EscapeKillSwitchMonitor } from "../../apps/desktop/src/escapeKillSwitchMonitor";

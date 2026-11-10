@@ -11,14 +11,14 @@ import type {
   ProviderKind,
   ProviderStartOptions,
   ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   providerStartOptionsFromInstance,
   type ResolvedProviderInstance,
   resolveProviderInstance,
-} from "@synara/shared/providerInstances";
-import { OpenRouterVoiceTranscriptionError } from "@synara/shared/openRouterVoiceTranscription";
-import { resolveSafeVoiceTranscriptionFailure } from "@synara/shared/voiceTranscriptionFailure";
+} from "@moss/shared/providerInstances";
+import { OpenRouterVoiceTranscriptionError } from "@moss/shared/openRouterVoiceTranscription";
+import { resolveSafeVoiceTranscriptionFailure } from "@moss/shared/voiceTranscriptionFailure";
 import { Effect } from "effect";
 
 import type { MossPhoneAccountServiceShape } from "./account/Services/MossPhoneAccountService";
@@ -220,7 +220,7 @@ function accountStartupNotReady(): VoiceAccountAdmissionError {
 function accountAuthenticationRequired(): VoiceAccountAdmissionError {
   return new VoiceAccountAdmissionError({
     code: "VOICE_ACCOUNT_AUTHENTICATION_REQUIRED",
-    message: "Sign in to your Moss account to use voice transcription.",
+    message: "Sign in to your Moss account to use voice.",
     retryable: false,
     status: 401,
   });
@@ -547,6 +547,75 @@ function resolveAccountVoiceAuthorityCredential(
     ),
   );
 }
+
+/** What the signed-in Moss account can do for voice right now. Never fails. */
+export type MossVoiceAccountState =
+  | {
+      readonly status: "signed-in";
+      readonly gateway: { readonly gatewayBaseUrl: string; readonly token: string };
+    }
+  | { readonly status: "signed-out" }
+  | { readonly status: "unavailable"; readonly error: VoiceAccountAdmissionError };
+
+/**
+ * Resolves the live Moss account (enterprise key, then phone, then Google) for voice notes,
+ * independent of which provider instance the composer selected. The bearer stays server-side:
+ * it is only handed to the Moss gateway transport after the gateway passes the trust policy.
+ */
+export function resolveMossVoiceAccountState(
+  dependencies: Pick<
+    VoiceAccountAdmissionDependencies,
+    | "awaitAccountStartup"
+    | "getPhoneAuthorityCredential"
+    | "getCloudAuthorityCredential"
+    | "enterpriseKey"
+    | "environment"
+  >,
+): Effect.Effect<MossVoiceAccountState> {
+  return Effect.gen(function* () {
+    const startup = yield* dependencies.awaitAccountStartup.pipe(Effect.result);
+    if (startup._tag === "Failure") {
+      return { status: "unavailable", error: accountStartupNotReady() } as const;
+    }
+    const credentialResult = yield* resolveManagedVoiceAuthorityCredential(
+      dependencies as VoiceAccountAdmissionDependencies,
+    ).pipe(Effect.result);
+    if (credentialResult._tag === "Failure") {
+      const failure = credentialResult.failure;
+      if (
+        (failure instanceof MossAccountServiceError ||
+          failure instanceof MossCloudAccountServiceError) &&
+        failure.code === "authentication_required"
+      ) {
+        return { status: "signed-out" } as const;
+      }
+      return { status: "unavailable", error: accountRecoveryRequired() } as const;
+    }
+    const credential = credentialResult.success;
+    const gatewayBaseUrl = credential.gatewayBaseUrl.trim();
+    const token = credential.accessToken.trim();
+    if (
+      !token ||
+      /[\r\n]/u.test(credential.accessToken) ||
+      !gatewayBaseUrl ||
+      /[\r\n]/u.test(credential.gatewayBaseUrl) ||
+      !isTrustedMossManagedGatewayUrlForAuthority(
+        gatewayBaseUrl,
+        credential.realm,
+        dependencies.environment ?? process.env,
+      )
+    ) {
+      return { status: "unavailable", error: accountRecoveryRequired() } as const;
+    }
+    return { status: "signed-in", gateway: { gatewayBaseUrl, token } } as const;
+  }).pipe(
+    Effect.catchDefect(() =>
+      Effect.succeed({ status: "unavailable", error: accountRecoveryRequired() } as const),
+    ),
+  );
+}
+
+export { accountAuthenticationRequired as voiceAccountAuthenticationRequired };
 
 function resolveRouteSafely(
   settings: ServerSettings,

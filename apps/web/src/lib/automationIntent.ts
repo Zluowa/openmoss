@@ -9,10 +9,10 @@ import type {
   AutomationMode,
   AutomationSchedule,
   ServerGenerateAutomationIntentResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
-import { completionPolicyFromStopWhen } from "@synara/shared/automationCompletionPolicy";
-import { automationRequiresTargetThread } from "@synara/shared/automationMode";
+import { completionPolicyFromStopWhen } from "@moss/shared/automationCompletionPolicy";
+import { automationRequiresTargetThread } from "@moss/shared/automationMode";
 
 export interface ChatAutomationIntent {
   readonly name: string;

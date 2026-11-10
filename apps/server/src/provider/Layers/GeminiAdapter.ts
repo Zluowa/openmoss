@@ -32,8 +32,8 @@ import {
   ThreadId,
   type ThreadTokenUsageSnapshot,
   TurnId,
-} from "@synara/contracts";
-import { deriveMossAcpMcpServers } from "@synara/shared/mossAcpMcpServers";
+} from "@moss/contracts";
+import { deriveMossAcpMcpServers } from "@moss/shared/mossAcpMcpServers";
 import { deriveMossPluginMcpServers, type MossPluginApprovalStore } from "../mossPluginRuntime.ts";
 import {
   geminiModelOptionsFromEffortValue,
@@ -43,14 +43,15 @@ import {
   getModelSelectionStringOptionValue,
   hasEffortLevel,
   resolveGeminiApiModelId,
-} from "@synara/shared/model";
-import { spawnProcess } from "@synara/shared/processRuntime";
+} from "@moss/shared/model";
+import { spawnProcess } from "@moss/shared/processRuntime";
 import {
   completeObservedChildProcessExit,
   disposeOwnedChildProcess,
   spawnChildWithPreparedTree,
   type teardownProviderProcessTree,
 } from "../../platform/supervisedProcessTeardown.ts";
+import { spawnGuardedProviderChild } from "../../platform/windowsProviderProcessGuard.ts";
 import { Cause, Effect, Exit, FileSystem, Layer, Option, Queue, Stream } from "effect";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -862,11 +863,13 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* (
             : {}),
           beforeSpawn: () => signal.throwIfAborted(),
           spawn: () =>
-            spawnProcess(binaryPath, ["--acp"], {
-              cwd,
-              env: env ?? process.env,
-              stdio: ["pipe", "pipe", "pipe"],
-            }),
+            spawnGuardedProviderChild(() =>
+              spawnProcess(binaryPath, ["--acp"], {
+                cwd,
+                env: env ?? process.env,
+                stdio: ["pipe", "pipe", "pipe"],
+              }),
+            ),
           bind,
         }),
       catch: (cause) =>
@@ -2830,6 +2833,7 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* (
         (result) =>
           ({
             models: result.models,
+            ...(result.defaultModel ? { defaultModel: result.defaultModel } : {}),
             source: "gemini.acp",
             cached: false,
           }) satisfies ProviderListModelsResult,

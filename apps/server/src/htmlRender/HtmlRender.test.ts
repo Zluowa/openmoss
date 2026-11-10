@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { Effect, FileSystem, Layer, Path } from "effect";
 
 import { resolveAttachmentRelativePath } from "../attachmentPaths.ts";
@@ -372,6 +372,51 @@ describe("HtmlRender", () => {
       const html = yield* fileSystem.readFileString(stored ?? "");
       expect(html).toContain('<style id="moss-theme">');
       expect(html).toContain("<p>Quarterly revenue</p>");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
+  it.effect("stores a map page that the library and share relay serve without any map key", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const config = yield* ServerConfig;
+      const htmlRender = yield* HtmlRender;
+      const keys = {
+        MOSS_GOOGLE_MAPS_API_KEY: "own-google-key",
+        MOSS_AMAP_JS_KEY: "own-amap-key",
+        MOSS_AMAP_SECURITY_CODE: "own-amap-code",
+        MOSS_PUBLIC_MAPS_GOOGLE_API_KEY: "moss-google-key",
+        MOSS_PUBLIC_MAPS_AMAP_KEY: "moss-amap-key",
+        MOSS_PUBLIC_MAPS_AMAP_SECURITY_CODE: "moss-amap-code",
+      };
+      const before = { ...process.env };
+      Object.assign(process.env, keys);
+      const reference = yield* htmlRender
+        .publish({
+          threadId: ThreadId.makeUnsafe("thread-html-map"),
+          cwd: null,
+          html: "<div id=m></div><script>window.mossMaps.create(m, { points: [{ lat: 31.2, lng: 121.5 }] })</script>",
+          title: "Map",
+          height: 320,
+        })
+        .pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              for (const name of Object.keys(keys)) {
+                if (before[name] === undefined) delete process.env[name];
+                else process.env[name] = before[name];
+              }
+            }),
+          ),
+        );
+      // The stored attachment is the one file every reader gets: the thread, a download,
+      // the library and a guest through the share relay.
+      const stored = resolveAttachmentRelativePath({
+        attachmentsDir: config.attachmentsDir,
+        relativePath: `${reference.attachmentId}.html`,
+      });
+      const html = yield* fileSystem.readFileString(stored ?? "");
+      expect(html).toContain("window.mossMaps={");
+      for (const value of Object.values(keys)) expect(html).not.toContain(value);
     }).pipe(Effect.provide(layerTest)),
   );
 });

@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import { projectCodexSnapshotHistory, codexReplayChildThreadIds } from "./codexReplay";
 import { CodexRolloutHistory } from "../workspaceImport/codexRollout";

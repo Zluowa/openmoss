@@ -48,8 +48,6 @@ const upstreamAsset = {
 const architectures = arch === "universal" ? ["arm64", "x64"] : [arch];
 const artifact = option("--artifact-dir") ?? process.env.MOSS_CUA_ARTIFACT_DIR;
 const signIdentity = option("--sign-identity") ?? process.env.MOSS_CUA_SIGN_IDENTITY;
-/** Stable signing identifier so macOS TCC remembers the driver across rebuilds. */
-const CUA_DRIVER_SIGN_IDENTIFIER = "com.moss.desktop.cua.driver";
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const patchPath = fileURLToPath(
   new URL("../patches/cua-driver/0001-moss-native.patch", import.meta.url),
@@ -96,7 +94,7 @@ if (!(option("--artifact-dir") ?? process.env.MOSS_CUA_ARTIFACT_DIR) && platform
   }
   if (!found.startsWith(`rustc ${release.rustVersion} `)) {
     console.error(
-      `Cua Driver needs the pinned Rust ${release.rustVersion} toolchain; found ${found}. Install it with: rustup toolchain install ${release.rustVersion} && rustup default ${release.rustVersion}`,
+      `Cua Driver needs the pinned Rust ${release.rustVersion} toolchain; found ${found}. Install it with: rustup toolchain install ${release.rustVersion} && rustup default ${release.rustVersion}, or set MOSS_CUA_ARTIFACT_DIR to a verified driver directory.`,
     );
     process.exit(1);
   }
@@ -349,16 +347,17 @@ try {
     await chmod(join(destination, "cua-driver"), 0o755);
     // Re-stamp the signature. Default is a plain adhoc signature (the linker's
     // embedded `linker-signed` flag signature is killed at exec on recent
-    // macOS). When a signing identity is supplied, use it with a stable
-    // identifier so macOS TCC remembers this driver across rebuilds instead of
-    // prompting as a brand-new unknown app every time.
-    const signArgs = ["--force"];
-    if (signIdentity) {
-      signArgs.push("--identifier", CUA_DRIVER_SIGN_IDENTIFIER, "--sign", signIdentity);
-    } else {
-      signArgs.push("--sign", "-");
-    }
-    run("codesign", [...signArgs, join(destination, "cua-driver")]);
+    // macOS). Either way, use the stable identifier so macOS TCC remembers this
+    // driver across rebuilds instead of prompting as a brand-new unknown app
+    // every time. Packaging signs its own copy again and restates it there.
+    run("codesign", [
+      "--force",
+      "--identifier",
+      release.signingIdentifier,
+      "--sign",
+      signIdentity || "-",
+      join(destination, "cua-driver"),
+    ]);
     // Signing rewrites the executable bytes, so record the digest of the
     // final staged file. The reuse path verifies binarySha256 against exactly
     // these bytes; recording the pre-sign digest forced every consumer to

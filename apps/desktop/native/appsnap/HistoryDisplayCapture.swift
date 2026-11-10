@@ -1022,7 +1022,7 @@ func runHistoryDisplayCaptureSupervisorSelfTest() -> Bool {
     }
 
     func newPIDFile(_ label: String) -> URL {
-        URL(fileURLWithPath: "/private/tmp/hel39-history-\(label)-\(UUID().uuidString)")
+        FileManager.default.temporaryDirectory.appendingPathComponent("moss-history-\(label)-\(UUID().uuidString)")
     }
 
     let supervisor = HistoryDisplayCaptureSupervisor(

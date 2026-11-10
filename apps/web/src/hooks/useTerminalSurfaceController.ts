@@ -1,9 +1,9 @@
 // Shared lifecycle and metadata for a single terminal panel.
 
-import { type ThreadId } from "@synara/contracts";
+import { type ThreadId } from "@moss/contracts";
 
 import type { MossLocaleCode } from "~/appSettings";
-import { type TerminalCliKind } from "@synara/shared/terminalThreads";
+import { type TerminalCliKind } from "@moss/shared/terminalThreads";
 import { useState } from "react";
 
 import {

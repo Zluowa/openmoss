@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { nativeTheme, type BrowserWindow, type WebContents } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,7 +39,7 @@ vi.mock("electron", async () => ({
   WebContentsView: class {},
 }));
 
-import { DesktopBrowserManager } from "./browserManager";
+import { DesktopBrowserManager, resolveBrowserRuntimeNavigation } from "./browserManager";
 
 interface WindowOpenDetails {
   url: string;
@@ -665,5 +665,78 @@ describe("DesktopBrowserManager repeated workflow characterization", () => {
       });
       expect(manager.getAutomationHumanControlEpoch(THREAD_ID)).toBe(initialEpoch);
     }
+  });
+});
+
+describe("pages opened from local files", () => {
+  const localPage = "moss-local-preview://grant-a/index.html";
+
+  it("stay inside their folder and reach only sites the person allowed", () => {
+    expect(
+      resolveBrowserRuntimeNavigation("moss-local-preview://grant-a/about.html", localPage, []),
+    ).toBe("allow");
+    expect(
+      resolveBrowserRuntimeNavigation("moss-local-preview://grant-b/x.html", localPage, []),
+    ).toBe("blockedLocalPage");
+    expect(resolveBrowserRuntimeNavigation("https://example.com/a?b", localPage, [])).toBe(
+      "blockedLocalPage",
+    );
+    expect(
+      resolveBrowserRuntimeNavigation("https://example.com/a?b", localPage, [
+        "https://example.com",
+      ]),
+    ).toBe("allow");
+    expect(resolveBrowserRuntimeNavigation("file:///etc/passwd", localPage, [])).toBe(
+      "blockedLocalPage",
+    );
+    expect(resolveBrowserRuntimeNavigation("about:blank", localPage, [])).toBe("allow");
+  });
+
+  it("leave web pages free to browse but never let them into a local folder", () => {
+    expect(
+      resolveBrowserRuntimeNavigation("https://other.test/", "https://example.test/", []),
+    ).toBe("allow");
+    expect(resolveBrowserRuntimeNavigation(localPage, "https://example.test/", [])).toBe("block");
+  });
+
+  it("report a blocked leave so the panel can offer the site", () => {
+    const blocked = vi.fn();
+    const manager = new DesktopBrowserManager({
+      localPageAllowedSites: () => [],
+      onLocalPageNavigationBlocked: blocked,
+    });
+    const initial = manager.open({ threadId: THREAD_ID });
+    const tabId = initial.activeTabId!;
+    const contents = new FakeWebContents(91);
+    asCharacterizationAccess(manager).configureRuntimeWebContents({
+      key: `${THREAD_ID}:${tabId}`,
+      threadId: THREAD_ID,
+      tabId,
+      webContents: contents as unknown as WebContents,
+      view: null,
+      ownsWebContents: false,
+      listenerDisposers: [],
+    });
+    contents.currentUrl = localPage;
+    const navigation = {
+      url: "https://tracker.example/collect?data=1",
+      isMainFrame: true,
+      preventDefault: vi.fn(),
+    };
+    contents.emit("will-navigate", navigation);
+    expect(navigation.preventDefault).toHaveBeenCalledOnce();
+    expect(blocked).toHaveBeenCalledWith({
+      threadId: THREAD_ID,
+      tabId,
+      url: "https://tracker.example/collect?data=1",
+    });
+    expect(
+      contents.windowOpenHandler?.({
+        url: "https://tracker.example/",
+        frameName: "",
+        features: "",
+        disposition: "new-window",
+      }).action,
+    ).toBe("deny");
   });
 });

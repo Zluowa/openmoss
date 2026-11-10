@@ -6,6 +6,7 @@ import { snapshotProviderTurns } from "../snapshotProviderTurns.ts";
  */
 import * as nodePath from "node:path";
 
+import { readAcpCurrentModel } from "../acp/AcpConfigOptions.ts";
 import {
   ApprovalRequestId,
   EventId,
@@ -20,7 +21,7 @@ import {
   type RuntimeMode,
   type ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   DateTime,
   Deferred,
@@ -116,7 +117,7 @@ import {
   mossManagedHermesModels,
   prepareMossManagedHermesHome,
 } from "../mossManagedHermesEnvironment";
-import { getMossManagedModelDefinition } from "@synara/shared/mossRealmCatalog";
+import { getMossManagedModelDefinition } from "@moss/shared/mossRealmCatalog";
 import { HermesAdapter, type HermesAdapterShape } from "../Services/HermesAdapter.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import type { MossPluginApprovalStore } from "../mossPluginRuntime.ts";
@@ -851,15 +852,21 @@ export function makeHermesAdapter(
           }).pipe(
             // Not mapAcpToAdapterError: startup must surface the agent's own
             // failure text (Keychain -32603 data, "Authentication required…",
-            // startup timeout step) instead of a generic wrapper message.
-            Effect.mapError(
-              (error) =>
-                new ProviderAdapterRequestError({
+            // startup timeout step) instead of a generic wrapper message. No prompt
+            // has been submitted, so once the scope's finalizer proves the process
+            // stopped this is a rejection the user can retry, not an uncertain
+            // delivery that blocks the thread. A cleanup defect still propagates.
+            Effect.catch((error) =>
+              Effect.gen(function* () {
+                yield* Scope.close(sessionScope, Exit.void);
+                return yield* new ProviderAdapterProcessError({
                   provider: PROVIDER,
-                  method: "session/start",
+                  threadId: input.threadId,
+                  reason: "startup-failed",
                   detail: `Hermes session startup failed: ${hermesAcpFailureDetail(error)}`,
                   cause: error,
-                }),
+                });
+              }),
             ),
           );
 
@@ -1568,7 +1575,15 @@ export function makeHermesAdapter(
         });
         const started = yield* runtime.start();
         const models = parseHermesAcpModels(started.sessionSetupResult);
-        return { models, source: "hermes.acp", cached: false } satisfies ProviderListModelsResult;
+        const defaultModel = readAcpCurrentModel(started.sessionSetupResult);
+        return {
+          models,
+          ...(defaultModel && models.some((model) => model.slug === defaultModel)
+            ? { defaultModel }
+            : {}),
+          source: "hermes.acp",
+          cached: false,
+        } satisfies ProviderListModelsResult;
       }).pipe(
         Effect.scoped,
         Effect.mapError((cause) =>

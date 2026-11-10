@@ -6,20 +6,27 @@
 import * as NodePath from "node:path";
 import { homedir } from "node:os";
 
-import { defaultInstanceIdForDriver } from "@synara/contracts";
+import { defaultInstanceIdForDriver } from "@moss/contracts";
 
 import * as FS from "node:fs";
 import { createRequire } from "node:module";
 
-import { type ProviderInstanceConfig } from "@synara/contracts";
-import { MOSS_ACCESS_LANES, mossLaneEngineLineup } from "@synara/shared/mossRealmCatalog";
+import { type ProviderInstanceConfig } from "@moss/contracts";
+import { MOSS_ACCESS_LANES, mossLaneEngineLineup } from "@moss/shared/mossRealmCatalog";
+import {
+  resolveLocalAgentExecutable,
+  type LocalAgentExecutableResolution,
+} from "@moss/shared/localAgentExecutable";
 import {
   MANAGED_GATEWAY_CLAUDE_DEFAULT_MODEL,
   MANAGED_GATEWAY_CLAUDE_ENABLED_MODELS,
-} from "@synara/shared/mossManagedModelCatalog";
+} from "@moss/shared/mossManagedModelCatalog";
 
 import { expandProviderAccountHomePath } from "../providerAccountHomePath.ts";
-import { buildProviderChildEnvironment } from "../providerChildEnvironment.ts";
+import {
+  buildProviderChildEnvironment,
+  explicitMossEnvironmentKeys,
+} from "../providerChildEnvironment.ts";
 import {
   CLAUDE_DIRECT_CREDENTIAL_ENV_KEYS,
   CLAUDE_MODEL_ROUTING_ENV_KEYS,
@@ -201,7 +208,7 @@ export function buildClaudeInstanceProcessEnv(
       delete env.CLAUDE_CONFIG_DIR;
     }
   }
-  return buildUpstreamClaudeProcessEnv({
+  const processEnv = buildUpstreamClaudeProcessEnv({
     env,
     ...(effectiveHomePath
       ? { homeDir: effectiveHomePath }
@@ -210,25 +217,83 @@ export function buildClaudeInstanceProcessEnv(
         : {}),
     preserveDirectCredentialKeys: new Set(Object.keys(selectedEnvironment ?? {})),
   });
+  if (
+    isVerifiedMossManagedClaudeEnvironment(
+      providerInstanceId,
+      selectedEnvironment,
+      selectedEnvironment?.ANTHROPIC_AUTH_TOKEN?.trim(),
+      options?.baseEnvironment,
+    )
+  ) {
+    Object.assign(processEnv, MOSS_MANAGED_CLAUDE_SINGLE_REQUEST_ENVIRONMENT);
+  }
+  return processEnv;
 }
 
 // ── Moss managed Claude (claude_moss) ─────────────────────────────────────
 // Server-owned managed channel constants and launch verification. Ported from
 // Moss's pre-merge claudeEnvironment; the upstream account-instance helpers
-// above stay untouched.
+// above stay untouched apart from adding the single-request settings to a
+// verified claude_moss launch, which every Claude session starts through.
 
 export const MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID = "claude_moss";
 export const MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY = "MOSS_BUNDLED_CLAUDE_PATH";
 export const MOSS_MANAGED_CLAUDE_GATEWAY_API_KEY_ENV_KEY = "MOSS_MODEL_GATEWAY_CLAUDE_API_KEY";
 const MOSS_MANAGED_GATEWAY_API_KEY_ENV_KEY = "MOSS_MODEL_GATEWAY_API_KEY";
 export const MOSS_MANAGED_CLAUDE_MAX_RETRIES_ENV_KEY = "CLAUDE_CODE_MAX_RETRIES";
+export const MOSS_MANAGED_CLAUDE_DISABLE_NONSTREAMING_FALLBACK_ENV_KEY =
+  "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK";
 export const MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY = CLAUDE_TOOL_SEARCH_ENV_KEY;
 export const MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_VALUE = "true";
 
-const explicitMossEnvironmentKeys = (
-  environment: Readonly<Record<string, string | undefined>> | undefined,
-): ReadonlyArray<string> =>
-  environment ? Object.keys(environment).filter((key) => key.startsWith("MOSS_")) : [];
+/**
+ * One Moss send must be exactly one paid Gateway POST. Claude Code otherwise retries failures
+ * itself, and after a stream error before any output it resends once without streaming even
+ * when it has no retries left. The Gateway deliberately never replays an ambiguous paid request.
+ */
+const MOSS_MANAGED_CLAUDE_SINGLE_REQUEST_ENVIRONMENT: Readonly<Record<string, string>> = {
+  [MOSS_MANAGED_CLAUDE_MAX_RETRIES_ENV_KEY]: "0",
+  [MOSS_MANAGED_CLAUDE_DISABLE_NONSTREAMING_FALLBACK_ENV_KEY]: "1",
+};
+
+/**
+ * Whether a launch is the server-provisioned claude_moss environment pointed at a trusted Moss
+ * gateway, as opposed to a personal Claude setup (even one stored under the same instance id).
+ */
+function isVerifiedMossManagedClaudeEnvironment(
+  providerInstanceId: string | undefined,
+  selectedEnvironment: Readonly<Record<string, string | undefined>> | undefined,
+  managedToken: string | undefined,
+  env: Readonly<Record<string, string | undefined>> | undefined,
+): boolean {
+  if (providerInstanceId !== MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID) return false;
+  // CC Switch and older Moss builds may leave model-routing hints in the
+  // persisted managed instance. They are deliberately scrubbed below and
+  // must not make an otherwise valid Moss relay fail closed before the
+  // scrub. The single-request settings are the server's own. Unknown keys
+  // still invalidate the managed boundary.
+  const selectedKeys = Object.keys(selectedEnvironment ?? {})
+    .filter(
+      (key) =>
+        key !== "ANTHROPIC_API_KEY" &&
+        !Object.hasOwn(MOSS_MANAGED_CLAUDE_SINGLE_REQUEST_ENVIRONMENT, key) &&
+        !CLAUDE_MODEL_ROUTING_ENV_KEYS.includes(
+          key as (typeof CLAUDE_MODEL_ROUTING_ENV_KEYS)[number],
+        ) &&
+        !key.startsWith("ANTHROPIC_DEFAULT_"),
+    )
+    .toSorted();
+  return (
+    selectedKeys.length === 3 &&
+    selectedKeys[0] === "ANTHROPIC_AUTH_TOKEN" &&
+    selectedKeys[1] === "ANTHROPIC_BASE_URL" &&
+    selectedKeys[2] === MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY &&
+    Boolean(managedToken) &&
+    selectedEnvironment?.[MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY] ===
+      MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_VALUE &&
+    isTrustedMossManagedClaudeRelay(selectedEnvironment?.ANTHROPIC_BASE_URL, env)
+  );
+}
 
 function claudeSdkNativePackageSubpaths(input: {
   readonly platform: NodeJS.Platform;
@@ -275,6 +340,29 @@ export function resolveClaudeAgentSdkExecutable(input?: {
   return undefined;
 }
 
+/**
+ * A person's own Claude instance: their configured path, else their own `claude` on PATH,
+ * else the Claude Code a packaged Moss ships (see resolveLocalAgentExecutable).
+ */
+export function resolveLocalClaudeCodeExecutable(input?: {
+  readonly binaryPath?: string | null | undefined;
+  readonly env?: Readonly<Record<string, string | undefined>> | undefined;
+  readonly platform?: NodeJS.Platform | undefined;
+  /** Test seam for the PATH lookup. */
+  readonly isOnPath?: ((command: string) => boolean) | undefined;
+}): LocalAgentExecutableResolution {
+  const env = (input?.env ?? process.env) as NodeJS.ProcessEnv;
+  const resolution = resolveLocalAgentExecutable({
+    command: "claude",
+    configuredBinaryPath: input?.binaryPath,
+    bundledBinaryPath: env[MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY],
+    env,
+    ...(input?.platform ? { platform: input.platform } : {}),
+    ...(input?.isOnPath ? { isOnPath: input.isOnPath } : {}),
+  });
+  return { binaryPath: resolution.binaryPath, source: resolution.source };
+}
+
 export function resolveClaudeCodeExecutablePath(input?: {
   readonly binaryPath?: string | null | undefined;
   readonly providerInstanceId?: string | null | undefined;
@@ -284,21 +372,23 @@ export function resolveClaudeCodeExecutablePath(input?: {
   /** Test seam; undefined resolves the installed SDK package, null forces absence. */
   readonly sdkExecutablePath?: string | null | undefined;
 }): string | undefined {
-  const explicitPath = input?.binaryPath?.trim();
-  const providerInstanceId = input?.providerInstanceId?.trim();
-  if (providerInstanceId !== MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID) {
-    return explicitPath || "claude";
-  }
+  return resolveClaudeCodeRuntime(input).binaryPath;
+}
 
-  // The managed Claude surface is tied to the packaged runtime receipt. A
-  // caller or stale settings record must never replace it with an arbitrary
-  // executable path.
-  const packagedPath = (input?.env ?? process.env)[MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY]?.trim();
-  if (packagedPath) return packagedPath;
-  if (input?.sdkExecutablePath !== undefined) {
-    return input.sdkExecutablePath?.trim() || undefined;
-  }
-  return resolveClaudeAgentSdkExecutable({ platform: input?.platform, arch: input?.arch });
+/** All accounts share the server-selected program; private config still selects identity. */
+export function resolveClaudeCodeRuntime(
+  input?: Parameters<typeof resolveClaudeCodeExecutablePath>[0],
+): LocalAgentExecutableResolution {
+  const env = (input?.env ?? process.env) as NodeJS.ProcessEnv;
+  const bundledPath =
+    env[MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY]?.trim() ||
+    (input?.sdkExecutablePath !== undefined
+      ? input.sdkExecutablePath?.trim()
+      : resolveClaudeAgentSdkExecutable({ platform: input?.platform, arch: input?.arch }));
+  return resolveLocalClaudeCodeExecutable({
+    ...input,
+    env: { ...env, [MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY]: bundledPath },
+  });
 }
 
 function normalizeManagedClaudeRelayBaseUrl(value: string | undefined): string | undefined {
@@ -545,32 +635,14 @@ export function buildClaudeProcessEnv(input?: {
   }
 
   if (providerInstanceId === MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID) {
-    // CC Switch and older Moss builds may leave model-routing hints in the
-    // persisted managed instance. They are deliberately scrubbed below and
-    // must not make an otherwise valid Moss relay fail closed before the
-    // scrub. Unknown keys still invalidate the managed boundary.
-    const selectedKeys = Object.keys(selectedEnvironment ?? {})
-      .filter(
-        (key) =>
-          key !== "ANTHROPIC_API_KEY" &&
-          key !== MOSS_MANAGED_CLAUDE_MAX_RETRIES_ENV_KEY &&
-          !CLAUDE_MODEL_ROUTING_ENV_KEYS.includes(
-            key as (typeof CLAUDE_MODEL_ROUTING_ENV_KEYS)[number],
-          ) &&
-          !key.startsWith("ANTHROPIC_DEFAULT_"),
-      )
-      .toSorted();
     const managedToken =
       selectedEnvironment?.ANTHROPIC_AUTH_TOKEN?.trim() || inheritedManagedGatewayKey;
-    const verifiedManagedEnvironment =
-      selectedKeys.length === 3 &&
-      selectedKeys[0] === "ANTHROPIC_AUTH_TOKEN" &&
-      selectedKeys[1] === "ANTHROPIC_BASE_URL" &&
-      selectedKeys[2] === MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY &&
-      Boolean(managedToken) &&
-      selectedEnvironment?.[MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY] ===
-        MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_VALUE &&
-      isTrustedMossManagedClaudeRelay(selectedEnvironment?.ANTHROPIC_BASE_URL, input?.env);
+    const verifiedManagedEnvironment = isVerifiedMossManagedClaudeEnvironment(
+      providerInstanceId,
+      selectedEnvironment,
+      managedToken,
+      input?.env,
+    );
     // Only the exact server-selected Moss Edge environment survives. Ambient,
     // stale, direct-relay, attacker, or partial credentials remain fail-closed.
     // The Agent SDK receives the selected model from ClaudeAdapter. Claude Code
@@ -601,10 +673,7 @@ export function buildClaudeProcessEnv(input?: {
       // explicitly empty API key prevents an inherited account key from
       // winning that precedence check while retaining the managed token.
       env.ANTHROPIC_API_KEY = "";
-      // One UI send must map to one paid Gateway POST. Claude Code otherwise
-      // retries transport failures internally while the Gateway deliberately
-      // refuses to replay an ambiguous paid operation.
-      env[MOSS_MANAGED_CLAUDE_MAX_RETRIES_ENV_KEY] = "0";
+      Object.assign(env, MOSS_MANAGED_CLAUDE_SINGLE_REQUEST_ENVIRONMENT);
     }
   }
 

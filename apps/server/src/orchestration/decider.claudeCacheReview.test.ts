@@ -9,7 +9,7 @@ import {
   type OrchestrationReadModel,
   type OrchestrationSession,
   type PendingClaudeCacheReview,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 

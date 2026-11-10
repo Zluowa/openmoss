@@ -12,7 +12,7 @@ import {
   WsRpcError,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 import type { ExitEncoded } from "effect/unstable/rpc/RpcMessage";
 

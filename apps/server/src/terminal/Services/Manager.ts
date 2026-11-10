@@ -17,8 +17,8 @@ import {
   TerminalSessionSnapshot,
   TerminalSessionStatus,
   TerminalWriteInput,
-} from "@synara/contracts";
-import type { TerminalActivityState, TerminalCliKind } from "@synara/shared/terminalThreads";
+} from "@moss/contracts";
+import type { TerminalActivityState, TerminalCliKind } from "@moss/shared/terminalThreads";
 import { PtyProcess } from "./PTY";
 import { Effect, Schema, ServiceMap } from "effect";
 import type { TerminalModeReplayTracker } from "../terminalModeReplay";
@@ -126,6 +126,16 @@ export interface TerminalManagerShape {
   readonly open: (
     input: TerminalOpenInput,
   ) => Effect.Effect<TerminalSessionSnapshot, TerminalError>;
+
+  /**
+   * Retained output of a running session, read without attaching to it (never starts,
+   * resizes or re-modes a session). Null when there is no such session. Optional so test
+   * doubles that never read history need not provide it.
+   */
+  readonly readHistory?: (input: {
+    readonly threadId: string;
+    readonly terminalId: string;
+  }) => Effect.Effect<string | null>;
 
   /**
    * Write input bytes to a terminal session.

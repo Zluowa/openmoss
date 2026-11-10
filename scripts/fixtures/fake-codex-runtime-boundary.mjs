@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 const [command] = process.argv.slice(2);
 
 if (command === "--version") {
-  process.stdout.write("codex-cli 0.163.0\n");
+  process.stdout.write("codex-cli 0.166.0\n");
   process.exit(0);
 }
 

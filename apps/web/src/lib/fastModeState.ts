@@ -1,4 +1,4 @@
-import type { OrchestrationThreadActivity } from "@synara/contracts";
+import type { OrchestrationThreadActivity } from "@moss/contracts";
 
 /** Why a requested fast mode is not the speed the thread is getting. */
 export interface FastModeNotice {

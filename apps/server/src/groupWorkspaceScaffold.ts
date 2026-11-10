@@ -11,8 +11,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
-import { slugifyGroupTitle } from "@synara/shared/groupSlug";
-import { isWorkspaceRootWithin, workspaceRootsEqual } from "@synara/shared/threadWorkspace";
+import { slugifyGroupTitle } from "@moss/shared/groupSlug";
+import { isWorkspaceRootWithin, workspaceRootsEqual } from "@moss/shared/threadWorkspace";
 import { Effect, FileSystem, Path } from "effect";
 
 export { slugifyGroupTitle };

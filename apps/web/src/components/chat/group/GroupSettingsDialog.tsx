@@ -4,7 +4,7 @@
 // Layer: Group settings dialog
 // Exports: GroupSettingsDialog
 
-import type { ModelSelection, ProjectAgentOverview, ProjectId } from "@synara/contracts";
+import type { ModelSelection, ProjectAgentOverview, ProjectId } from "@moss/contracts";
 import { useEffect, useRef, useState, type ComponentType } from "react";
 
 import { createCentralIconComponent } from "~/lib/central-icons";
@@ -33,10 +33,11 @@ import { useProjectInstructionsAutosave } from "~/components/chat/environment/En
 import { useProjectInstructionsSource } from "~/components/chat/project/useProjectInstructionsSource";
 import { useProjectAgent } from "~/components/chat/project/useProjectAgent";
 import { useProjectAgentSummariesStore } from "~/components/chat/project/useProjectAgentSummaries";
-import { toDisplayName } from "~/components/profile/profileFormatting";
+import { homeFolderGreetingName } from "~/components/profile/profileFormatting";
 import { useProfileName } from "~/components/profile/useProfileName";
 import { isDefaultGroupCoordinatorName } from "~/lib/groupCoordinatorName";
 import { cn, newCommandId } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import { readNativeApi } from "~/nativeApi";
 import {
   SETTINGS_SIDEBAR_ICON_CLASS_NAME,
@@ -96,14 +97,8 @@ export function GroupSettingsDialog(props: {
   const agent = useProjectAgent({ projectId: props.projectId, enabled: props.open });
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const renameProjectLocally = useStore((store) => store.renameProjectLocally);
-  const { name: userDisplayName } = useProfileName(
-    toDisplayName(
-      (homeDir ?? "")
-        .replace(/[\\/]+$/, "")
-        .split(/[\\/]/)
-        .pop() ?? "there",
-    ),
-  );
+  const { name: userDisplayName } = useProfileName(homeFolderGreetingName(homeDir));
+  const { locale: userLocale } = useTranslation();
   const instructionsSource = useProjectInstructionsSource(props.open ? props.projectId : null);
   const instructionsAutosave = useProjectInstructionsAutosave({
     projectId: props.open ? props.projectId : null,
@@ -226,6 +221,7 @@ export function GroupSettingsDialog(props: {
           : undefined,
       importedInstructions,
       userDisplayName,
+      userLocale,
       projectRemoteName: useStore
         .getState()
         .projects.find((project) => project.id === props.projectId)?.remoteName,
@@ -334,6 +330,7 @@ export function GroupSettingsDialog(props: {
     props.onOpenChange(false);
   };
 
+  const personal = config?.agentKind === "mossbot";
   const title = props.mode === "onboarding" ? "Set up your hub" : props.projectName;
 
   return (
@@ -357,7 +354,9 @@ export function GroupSettingsDialog(props: {
             <DialogDescription>
               {props.mode === "onboarding"
                 ? "Choose how the coordinator works with this hub."
-                : "Coordinator settings for this hub."}
+                : personal
+                  ? "Your assistant’s personality, memory, models, and access."
+                  : "Coordinator settings for this hub."}
             </DialogDescription>
           </DialogHeader>
           <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
@@ -415,6 +414,7 @@ export function GroupSettingsDialog(props: {
               ) : section === "general" ? (
                 <>
                   <GroupGeneralSection
+                    personal={personal}
                     draft={draft}
                     defaultModelSelection={props.defaultModelSelection}
                     projectCwd={props.workspacePath}
@@ -484,8 +484,7 @@ export function GroupSettingsDialog(props: {
           <AlertDialogHeader>
             <AlertDialogTitle>Discard this hub?</AlertDialogTitle>
             <AlertDialogDescription>
-              "{props.projectName}" has no threads, files, or linked repositories yet. Deleting it
-              removes the hub entirely — or keep it and finish setup later.
+              {`"${props.projectName}" has no threads, files, or linked repositories yet. Deleting it removes the hub entirely — or keep it and finish setup later.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           {discardError ? (

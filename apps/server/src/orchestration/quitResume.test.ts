@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { ProjectId, ThreadId, TurnId, type OrchestrationCommand } from "@synara/contracts";
+import { ProjectId, ThreadId, TurnId, type OrchestrationCommand } from "@moss/contracts";
 import { Duration, Effect, FileSystem, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 

@@ -2,8 +2,8 @@
 //          palette without duplicating the dock file-opening rules.
 // Layer: Web UI logic (pure helpers; no React)
 
-import type { ProjectEntry } from "@synara/contracts";
-import { isLocalAbsolutePath } from "@synara/shared/path";
+import type { ProjectEntry } from "@moss/contracts";
+import { isLocalAbsolutePath } from "@moss/shared/path";
 
 import { expandProjectHomePath } from "~/lib/projectPaths";
 import {

@@ -8,8 +8,10 @@ import "../index.css";
 
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render } from "vitest-browser-react";
+import { render as renderInPage } from "vitest-browser-react";
+import type { ReactElement, ReactNode } from "react";
 
+import { MossLocaleScope } from "~/localization";
 import { MOSS_LIBRARY_ITEMS_STORAGE_KEY, useMossLibraryItemsStore } from "~/mossLibraryItemsStore";
 
 import { MossLibrarySurface } from "./MossLibrarySurface";
@@ -21,6 +23,27 @@ import {
 } from "./MossLibrarySurface.logic";
 
 const NOW = 1_800_000_000_000;
+
+// Most cases assert the Chinese copy, so they render in zh-CN; the English
+// cases call renderInPage directly.
+function ChineseLocale({ children }: { children: ReactNode }) {
+  return <MossLocaleScope locale="zh-CN">{children}</MossLocaleScope>;
+}
+const render = (ui: ReactElement) => renderInPage(ui, { wrapper: ChineseLocale });
+
+const CJK = /[\u3400-\u9fff\uff00-\uffef\u3000-\u303f]/u;
+
+/** Visible text plus the labels people hear or see on hover, without item titles. */
+function chromeText(): string {
+  const parts = [document.body.innerText];
+  for (const element of document.body.querySelectorAll("[aria-label], [placeholder], [title]")) {
+    for (const name of ["aria-label", "placeholder", "title"]) {
+      const value = element.getAttribute(name);
+      if (value) parts.push(value);
+    }
+  }
+  return parts.join("\n");
+}
 
 function doc(id: string, title: string, updatedAt: number): MossLibraryItem {
   return ingestMossLibraryItemFromCliFile({
@@ -52,6 +75,90 @@ describe("MossLibrarySurface Codex interactions", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     document.body.innerHTML = "";
+  });
+
+  it("bounds a large catalog and still searches beyond its first rendered page", async () => {
+    const items = Array.from({ length: 4030 }, (_, i) =>
+      doc(`large-${i}`, `file-${i}.md`, NOW - i),
+    );
+    await page.viewport(1440, 1000);
+    await renderInPage(
+      <div style={{ height: "100vh", display: "flex" }}>
+        <MossLibrarySurface onClose={() => undefined} initialItems={items} now={NOW} />
+      </div>,
+    );
+    await page.getByRole("button", { name: "All", exact: true }).click();
+    await expect.element(page.getByText("file-0.md", { exact: true })).toBeInTheDocument();
+    expect(document.querySelectorAll("[data-moss-library-item]").length).toBeLessThanOrEqual(60);
+    await page.screenshot({ path: "__screenshots__/qa-library-pagination.png" });
+    await page.getByRole("button", { name: "Show more (60 / 4030)", exact: true }).click();
+    expect(document.querySelectorAll("[data-moss-library-item]").length).toBeLessThanOrEqual(120);
+    await page.getByRole("searchbox", { name: "Search library" }).fill("file-4029.md");
+    await expect.element(page.getByText("file-4029.md", { exact: true })).toBeInTheDocument();
+    await page.screenshot({ path: "__screenshots__/qa-library-search.png" });
+  });
+
+  it("shows no Chinese to an English reader", async () => {
+    const { items } = fixture();
+    const favorite = { ...items[1]!, favorite: true };
+    await page.viewport(1440, 1000);
+    await renderInPage(
+      <div style={{ height: "100vh", display: "flex" }}>
+        <MossLibrarySurface
+          onClose={() => undefined}
+          initialItems={[items[0]!, favorite, ...items.slice(2)]}
+          now={NOW}
+        />
+      </div>,
+    );
+    await expect.element(page.getByRole("heading", { name: "Library" })).toBeVisible();
+    await expect.element(page.getByText("alpha.md")).toBeInTheDocument();
+    expect(chromeText()).not.toMatch(CJK);
+
+    // Selection bar.
+    await page.getByText("alpha.md").click();
+    await vi.waitFor(() =>
+      expect(document.querySelector("[data-moss-library-selection-count-label]")?.textContent).toBe(
+        "1 selected",
+      ),
+    );
+    expect(chromeText()).not.toMatch(CJK);
+    document
+      .querySelector<HTMLButtonElement>('[data-moss-library-selection-action="dismiss"]')
+      ?.click();
+    await vi.waitFor(() =>
+      expect(document.querySelector("[data-moss-library-selection-bar]")).toBeNull(),
+    );
+
+    // Card menu.
+    rightClick(document.querySelector('[data-moss-library-item="doc-alpha"]')!);
+    await expect.element(page.getByText("Start a chat about this")).toBeVisible();
+    expect(chromeText()).not.toMatch(CJK);
+
+    // Every section and the New menu.
+    for (const section of ["Recommended", "Favorites", "Folders", "Images", "All"]) {
+      await page.getByRole("button", { name: section, exact: true }).click();
+      expect(chromeText(), section).not.toMatch(CJK);
+    }
+    await page.getByRole("button", { name: "New", exact: true }).click();
+    await expect.element(page.getByText("New folder", { exact: true })).toBeVisible();
+    expect(chromeText()).not.toMatch(CJK);
+  });
+
+  it("labels the show-more button in the reader's language", async () => {
+    const items = Array.from({ length: 61 }, (_, i) => doc(`zh-${i}`, `zh-${i}.md`, NOW - i));
+    await render(
+      <MossLocaleScope locale="zh-CN">
+        <div style={{ height: "100vh", display: "flex" }}>
+          <MossLibrarySurface onClose={() => undefined} initialItems={items} now={NOW} />
+        </div>
+      </MossLocaleScope>,
+    );
+    await page.getByRole("button", { name: "全部", exact: true }).click();
+    await expect
+      .element(page.getByRole("button", { name: "显示更多（60 / 61）", exact: true }))
+      .toBeVisible();
+    expect(page.getByRole("button", { name: /Show more/ }).elements()).toHaveLength(0);
   });
 
   it("multi-selects cards and drives the bottom selection bar", async () => {

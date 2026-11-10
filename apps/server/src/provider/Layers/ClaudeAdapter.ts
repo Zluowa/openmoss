@@ -1,6 +1,7 @@
 import { providerProcessPriorityEnabled } from "../../providerProcessPriority";
 import { claudeTurnResultUsage, type ClaudeResultUsageBaseline } from "../claudeResultUsage.ts";
 import { restoreClaudeImportedCopyDates } from "../claudeImportedCopyDates.ts";
+import { matchClaudeConfiguredModel, readClaudeSettingsModel } from "../claudeConfiguredModel.ts";
 /**
  * ClaudeAdapterLive - Scoped live implementation for the Claude Agent provider adapter.
  *
@@ -9,7 +10,8 @@ import { restoreClaudeImportedCopyDates } from "../claudeImportedCopyDates.ts";
  *
  * @module ClaudeAdapterLive
  */
-import { execProcessFile, spawnProcess } from "@synara/shared/processRuntime";
+import { execProcessFile } from "@moss/shared/processRuntime";
+import nodePath from "node:path";
 import type {
   AgentInfo,
   CanUseTool,
@@ -68,7 +70,7 @@ import {
   type ProviderListAgentsResult,
   type ProviderListModelsResult,
   getAgentMentionAliases,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   applyClaudePromptEffortPrefix,
   getClaudeContextWindowSuffix,
@@ -81,13 +83,13 @@ import {
   resolveApiModelId,
   stripClaudeContextWindowSuffix,
   trimOrNull,
-} from "@synara/shared/model";
-import { buildClaudeSubagentPrompt } from "@synara/shared/agentMentions";
-import { assessClaudeCache } from "@synara/shared/claudeCache";
-import { isCompactionCommandText } from "@synara/shared/contextCompaction";
-import { approvalSessionGrantWidensSessionPolicy } from "@synara/shared/approvalSessionGrant";
-import { approvalRequestKindFromRequestType } from "@synara/shared/threadSummary";
-import { nonEmptyTrimmed } from "@synara/shared/text";
+} from "@moss/shared/model";
+import { buildClaudeSubagentPrompt } from "@moss/shared/agentMentions";
+import { assessClaudeCache } from "@moss/shared/claudeCache";
+import { isCompactionCommandText } from "@moss/shared/contextCompaction";
+import { approvalSessionGrantWidensSessionPolicy } from "@moss/shared/approvalSessionGrant";
+import { approvalRequestKindFromRequestType } from "@moss/shared/threadSummary";
+import { nonEmptyTrimmed } from "@moss/shared/text";
 import {
   claudeCacheContextTokens,
   claudeCacheFromRequest,
@@ -135,8 +137,15 @@ import { settleConcurrentTeardowns } from "../settleConcurrentTeardowns.ts";
 import { stripDiagnosticImages } from "../stripDiagnosticImages.ts";
 import { ServerConfig } from "../../config.ts";
 import { buildFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
-import { loadClaudeAgentSdk } from "../claudeAgentSdk.ts";
+import {
+  loadClaudeAgentSdk,
+  spawnOwnedClaudeCodeProcess,
+  forkClaudeSessionInEnvironment,
+  readClaudeSessionMessagesInEnvironment,
+  type ClaudeOwnedProcess,
+} from "../claudeAgentSdk.ts";
 import { withClaudeArtifactOptIn } from "../claudeProcessEnv.ts";
+import { readClaudeStateBinding, type ClaudeStateBindingOptions } from "../claudeStateBinding.ts";
 import { ClaudeRequestUsage } from "../claudeRequestUsage.ts";
 import {
   CLAUDE_CONTEXT_WINDOW_MAX_TOKENS,
@@ -204,8 +213,12 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 import {
   teardownChildProcessTree,
   teardownProviderProcessTree,
-  type ProcessExitHandle,
 } from "../supervisedProcessTeardown.ts";
+import {
+  agentProgramsForServer,
+  agentProgramSourceHome,
+  type AgentProgramOwnership,
+} from "../agentProgramOwnership.ts";
 
 export { claudeHomeEnvironment } from "../claudeEnvironment.ts";
 
@@ -415,6 +428,8 @@ interface ClaudeSessionContext {
   readonly lifecycleGeneration?: string;
   readonly promptQueue: Queue.Queue<PromptQueueItem>;
   readonly query: ClaudeQueryRuntime;
+  readonly sessionStoreEnvironment: NodeJS.ProcessEnv;
+  readonly assertStateBindingCurrent?: () => void;
   // Spawn-fixed: the Artifact opt-in is an environment variable of this process.
   readonly artifactsEnabled: boolean;
   // Tool names from Claude's `init` message, once the first turn has produced it.
@@ -669,51 +684,45 @@ function cancellableClaudeMessageStream(
   return messageIterator;
 }
 
-export type ClaudeOwnedProcess = ClaudeSpawnedProcess & ProcessExitHandle;
+export type { ClaudeOwnedProcess } from "../claudeAgentSdk.ts";
 
 interface ClaudeProcessOwner {
   process?: ClaudeOwnedProcess;
-}
-
-function spawnOwnedClaudeCodeProcess(
-  options: ClaudeSpawnOptions,
-  lowerPriority: boolean,
-): ClaudeOwnedProcess {
-  return spawnProcess(options.command, options.args, {
-    lowerPriority,
-    requireExecutable: true,
-    ...(options.cwd ? { cwd: options.cwd } : {}),
-    env: options.env,
-    signal: options.signal,
-    stdio: ["pipe", "pipe", "inherit"],
-  }) as unknown as ClaudeOwnedProcess;
 }
 
 async function readInstalledClaudeCliVersion(input: {
   readonly binaryPath: string;
   readonly cwd?: string;
   readonly env: NodeJS.ProcessEnv;
+  readonly runtimePrograms: AgentProgramOwnership;
 }): Promise<string | null> {
   return new Promise((resolve, reject) => {
-    execProcessFile(
-      input.binaryPath,
-      ["--version"],
-      {
-        requireExecutable: true,
-        ...(input.cwd ? { cwd: input.cwd } : {}),
-        env: input.env,
-        timeout: 10_000,
-        maxBuffer: 64 * 1024,
-        encoding: "utf8",
-      },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(parseGenericCliVersion(`${stdout}\n${stderr}`));
-      },
-    );
+    input.runtimePrograms.spawn({
+      binaryPath: input.binaryPath,
+      ...(input.cwd ? { cwd: input.cwd } : {}),
+      env: input.env,
+      sourceHomePath: agentProgramSourceHome("claudeAgent", input.env, input.cwd ?? process.cwd()),
+      spawn: () =>
+        execProcessFile(
+          input.binaryPath,
+          ["--version"],
+          {
+            requireExecutable: true,
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+            env: input.env,
+            timeout: 10_000,
+            maxBuffer: 64 * 1024,
+            encoding: "utf8",
+          },
+          (error, stdout, stderr) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve(parseGenericCliVersion(`${stdout}\n${stderr}`));
+          },
+        ),
+    });
   });
 }
 
@@ -1486,7 +1495,7 @@ function toolLifecycleEventData(
 
 // Receiver identity for the shared subagent-thread machinery: ingestion spawns a
 // child thread per receiverThreadId on collab_agent_tool_call items and titles it
-// from these hints (see extractSubagentIdentityHints in @synara/shared/subagents).
+// from these hints (see extractSubagentIdentityHints in @moss/shared/subagents).
 function subagentReceiverData(
   tool: Pick<ToolInFlight, "itemId" | "input">,
 ): Record<string, unknown> {
@@ -2415,17 +2424,31 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     };
     const forkNativeSession = async (
       sessionId: string,
-      forkOptions?: { readonly dir?: string; readonly upToMessageId?: string },
+      forkOptions: { readonly dir?: string; readonly upToMessageId?: string },
+      environment: NodeJS.ProcessEnv,
+      binaryPath: string,
+      assertStateBindingCurrent?: () => void,
     ): Promise<{ sessionId: string }> => {
+      assertStateBindingCurrent?.();
       const override = options?.forkNativeSession;
       if (override) {
         return override(sessionId, forkOptions);
       }
-      const { forkSession } = await loadClaudeAgentSdk();
-      return forkSession(sessionId, forkOptions);
+      return forkClaudeSessionInEnvironment({
+        sessionId,
+        ...(assertStateBindingCurrent ? { assertStateBindingCurrent } : {}),
+        dir: forkOptions.dir,
+        ...(forkOptions.upToMessageId ? { upToMessageId: forkOptions.upToMessageId } : {}),
+        environment,
+        runtimeProgram: { programs: runtimePrograms, binaryPath },
+      });
     };
     const teardownProcessTree = options?.teardownProcessTree ?? teardownProviderProcessTree;
-    const readClaudeCliVersion = options?.readClaudeCliVersion ?? readInstalledClaudeCliVersion;
+    const runtimePrograms = agentProgramsForServer(serverConfig, "claudeAgent");
+    const readClaudeCliVersion =
+      options?.readClaudeCliVersion ??
+      ((input: Omit<Parameters<typeof readInstalledClaudeCliVersion>[0], "runtimePrograms">) =>
+        readInstalledClaudeCliVersion({ ...input, runtimePrograms }));
 
     const sessions = new Map<ThreadId, ClaudeSessionContext>();
     const failedStartupProcessOwners = new Map<ThreadId, ClaudeProcessOwner>();
@@ -2545,11 +2568,27 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       );
 
     const bindClaudeProcessOwner =
-      (owner: ClaudeProcessOwner, lowerPriority: boolean) =>
+      (
+        owner: ClaudeProcessOwner,
+        lowerPriority: boolean,
+        runtime: {
+          readonly binaryPath: string;
+          readonly env: NodeJS.ProcessEnv;
+          readonly assertStateBindingCurrent?: () => void;
+        },
+      ) =>
       (spawnOptions: ClaudeSpawnOptions): ClaudeSpawnedProcess => {
-        const process = options?.spawnClaudeCodeProcess
-          ? options.spawnClaudeCodeProcess(spawnOptions)
-          : spawnOwnedClaudeCodeProcess(spawnOptions, lowerPriority);
+        runtime.assertStateBindingCurrent?.();
+        const process = runtimePrograms.spawn({
+          binaryPath: runtime.binaryPath,
+          ...(spawnOptions.cwd ? { cwd: spawnOptions.cwd } : {}),
+          env: runtime.env,
+          sourceHomePath: agentProgramSourceHome("claudeAgent", runtime.env, serverConfig.homeDir),
+          spawn: () =>
+            options?.spawnClaudeCodeProcess
+              ? options.spawnClaudeCodeProcess(spawnOptions)
+              : spawnOwnedClaudeCodeProcess(spawnOptions, lowerPriority),
+        });
         owner.process = process;
         return process;
       };
@@ -3932,6 +3971,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             : undefined,
         context: {
           session: context.session,
+          sessionStoreEnvironment: context.sessionStoreEnvironment,
           commandDiscoveryKey: context.commandDiscoveryKey,
           accountDiscoveryKey: context.accountDiscoveryKey,
           ...(context.lifecycleGeneration === undefined
@@ -4790,6 +4830,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
         const turnId = asCanonicalTurnId(context.turnState.turnId);
         yield* Effect.gen(function* () {
+          if (context.assertStateBindingCurrent) {
+            yield* Effect.try({ try: context.assertStateBindingCurrent, catch: (cause) => cause });
+          }
           const events = yield* readClaudeMonitorEvents(fileSystem, cursor, {
             sessionId,
             configDir: context.claudeConfigDir,
@@ -6522,10 +6565,28 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         : Effect.succeed(undefined);
 
     // Keep version/binary validation ahead of retirement for permission Auto.
+    const validateStateBinding = (
+      options: ClaudeStateBindingOptions | undefined,
+      operation: string,
+    ) =>
+      Effect.try({
+        try: () => readClaudeStateBinding(options),
+        catch: (cause) =>
+          new ProviderAdapterValidationError({
+            provider: PROVIDER,
+            operation,
+            issue: toMessage(cause, "Claude 历史绑定无法验证，请重新打开对话。"),
+            cause,
+          }),
+      });
     const resolveClaudeStartPreflight = (
       input: Parameters<ClaudeAdapterShape["startSession"]>[0],
     ) =>
       Effect.gen(function* () {
+        const stateBindingReference = (yield* validateStateBinding(
+          input.providerOptions?.claudeAgent,
+          "startSession",
+        ))?.reference;
         const providerInstanceId =
           input.providerInstanceId ??
           (input.modelSelection?.provider === "claudeAgent"
@@ -6542,7 +6603,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           providerInstanceId,
         );
         if (input.runtimeMode !== "auto")
-          return { binaryPath, claudeSdkEnv, snapshotSupported: false };
+          return { binaryPath, claudeSdkEnv, snapshotSupported: false, stateBindingReference };
         const installedVersion = yield* Effect.tryPromise({
           try: () =>
             readClaudeCliVersion({
@@ -6570,6 +6631,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         return {
           binaryPath,
           claudeSdkEnv,
+          stateBindingReference,
           snapshotSupported:
             installedVersion !== null && compareSemverVersions(installedVersion, "2.1.267") >= 0,
         };
@@ -7147,8 +7209,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           ...(ultracode ? { ultracode: true } : {}),
         };
         const claudeSubagents = buildClaudeSdkSubagents();
+        const currentStateBinding = yield* validateStateBinding(providerOptions, "startSession");
         const { binaryPath, claudeSdkEnv, snapshotSupported } =
-          preflight ?? (yield* resolveClaudeStartPreflight(input));
+          preflight && preflight.stateBindingReference === currentStateBinding?.reference
+            ? preflight
+            : yield* resolveClaudeStartPreflight(input);
         const failedStartupProcessOwner = failedStartupProcessOwners.get(threadId);
         if (failedStartupProcessOwner) {
           // A prior createQuery failure may have happened after spawning. Do
@@ -7163,6 +7228,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           yield* stopSessionInternal(existing, { emitExitEvent: false });
         }
         const processOwner: ClaudeProcessOwner = {};
+        const assertStateBindingCurrent = () => {
+          readClaudeStateBinding(providerOptions);
+        };
 
         const gatewaySessionLease = acquireAgentGatewaySessionLease(
           agentGatewayCredentials,
@@ -7217,6 +7285,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           spawnClaudeCodeProcess: bindClaudeProcessOwner(
             processOwner,
             yield* providerProcessPriorityEnabled,
+            { binaryPath, env: claudeSdkEnv, assertStateBindingCurrent },
           ),
           ...(input.cwd || input.additionalDirectories?.length
             ? {
@@ -7234,11 +7303,13 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         };
 
         const queryRuntime = yield* Effect.tryPromise({
-          try: () =>
-            createQuery({
+          try: () => {
+            assertStateBindingCurrent();
+            return createQuery({
               prompt,
               options: queryOptions,
-            }),
+            });
+          },
           catch: (cause) =>
             new ProviderAdapterProcessError({
               provider: PROVIDER,
@@ -7361,6 +7432,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               : {}),
             promptQueue,
             query: queryRuntime,
+            ...(currentStateBinding ? { assertStateBindingCurrent } : {}),
             commandDiscoveryKey,
             accountDiscoveryKey,
             messageStream,
@@ -7433,9 +7505,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             workflowRuntimePollers: new Map(),
             workflowAgentLabels: new Map(),
             workflowRuntimeStates: new Map(),
-            ...(claudeSdkEnv.CLAUDE_CONFIG_DIR
-              ? { claudeConfigDir: claudeSdkEnv.CLAUDE_CONFIG_DIR }
-              : {}),
+            sessionStoreEnvironment: claudeSdkEnv,
+            claudeConfigDir: agentProgramSourceHome(
+              "claudeAgent",
+              claudeSdkEnv,
+              serverConfig.homeDir,
+            ),
             monitorEventCursor: makeClaudeMonitorEventCursor(),
           };
           installationContext = context;
@@ -8369,19 +8444,30 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           });
         }
         const claudeOptions = input.providerOptions?.claudeAgent;
-        const requiresScopedSessionStore =
-          (input.modelSelection?.instanceId !== undefined &&
-            input.modelSelection.instanceId !== "claudeAgent") ||
-          claudeOptions?.homePath !== undefined ||
-          claudeOptions?.environment !== undefined;
-        if (!liveSource && requiresScopedSessionStore) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "forkThread",
-            issue:
-              "A stopped account-scoped Claude session cannot be forked safely through the default SDK store; Moss will rebuild the fork from its retained transcript.",
-          });
-        }
+        const selectedBinding = yield* validateStateBinding(claudeOptions, "forkThread");
+        const assertStateBindingCurrent = () => {
+          readClaudeStateBinding(claudeOptions);
+        };
+        const providerInstanceId =
+          input.modelSelection?.instanceId ?? liveSource?.session.providerInstanceId;
+        const sourceEnvironment =
+          (!selectedBinding ? liveSource?.sessionStoreEnvironment : undefined) ??
+          (yield* resolveClaudeSdkEnv(
+            claudeOptions?.homePath,
+            claudeOptions?.environment,
+            providerInstanceId,
+          ));
+        const configDir = agentProgramSourceHome(
+          "claudeAgent",
+          sourceEnvironment,
+          serverConfig.homeDir,
+        );
+        const sessionStoreEnvironment = { ...sourceEnvironment, CLAUDE_CONFIG_DIR: configDir };
+        const binaryPath = yield* resolveClaudeBinaryPath(
+          claudeOptions?.binaryPath,
+          providerInstanceId,
+          "forkThread",
+        );
         const sourceState = readClaudeResumeState(input.sourceResumeCursor);
         const sourceSessionId = liveSource?.resumeSessionId ?? sourceState?.resume;
         if (!sourceSessionId) {
@@ -8417,10 +8503,18 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         if (input.requireCompletedSource) {
           const messages = yield* Effect.tryPromise({
             try: async () => {
-              const readMessages =
-                options?.readNativeSessionMessages ??
-                (await loadClaudeAgentSdk()).getSessionMessages;
-              return readMessages(sourceSessionId, sourceCwd ? { dir: sourceCwd } : {});
+              assertStateBindingCurrent();
+              return options?.readNativeSessionMessages
+                ? options.readNativeSessionMessages(
+                    sourceSessionId,
+                    sourceCwd ? { dir: sourceCwd } : {},
+                  )
+                : readClaudeSessionMessagesInEnvironment({
+                    sessionId: sourceSessionId,
+                    dir: sourceCwd,
+                    environment: sessionStoreEnvironment,
+                    assertStateBindingCurrent,
+                  });
             },
             catch: (cause) =>
               new ProviderAdapterRequestError({
@@ -8485,10 +8579,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
         const forked = yield* Effect.tryPromise({
           try: () =>
-            forkNativeSession(sourceSessionId, {
-              ...(sourceCwd ? { dir: sourceCwd } : {}),
-              ...(upToMessageId ? { upToMessageId } : {}),
-            }),
+            forkNativeSession(
+              sourceSessionId,
+              {
+                ...(sourceCwd ? { dir: sourceCwd } : {}),
+                ...(upToMessageId ? { upToMessageId } : {}),
+              },
+              sessionStoreEnvironment,
+              binaryPath,
+              assertStateBindingCurrent,
+            ),
           catch: (cause) =>
             new ProviderAdapterRequestError({
               provider: PROVIDER,
@@ -8504,6 +8604,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 sourceSessionId,
                 copiedSessionId: forked.sessionId,
                 sourceMessages: importedSourceMessages!,
+                configDir,
               }),
             catch: (cause) =>
               new ProviderAdapterRequestError({
@@ -8631,6 +8732,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       env: NodeJS.ProcessEnv,
       binaryPath: string,
       discover: (queryRuntime: ClaudeQueryRuntime) => Promise<T>,
+      assertStateBindingCurrent?: () => void,
     ): Promise<T> {
       // Never spawn another discovery process until every previously unproven
       // process tree has been reaped successfully.
@@ -8643,6 +8745,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       let tempQuery: ClaudeQueryRuntime | undefined;
 
       try {
+        assertStateBindingCurrent?.();
         // Query construction itself may invoke the spawn callback before
         // throwing, so it belongs inside the same ownership boundary.
         tempQuery = await createQuery({
@@ -8654,7 +8757,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             permissionMode: "plan" as PermissionMode,
             persistSession: false,
             env,
-            spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner, false),
+            spawnClaudeCodeProcess: bindClaudeProcessOwner(processOwner, false, {
+              binaryPath,
+              env,
+              ...(assertStateBindingCurrent ? { assertStateBindingCurrent } : {}),
+            }),
           },
         });
         const queryRuntime = tempQuery;
@@ -8683,16 +8790,22 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       env: NodeJS.ProcessEnv,
       binaryPath: string,
       artifactsEnabled: boolean,
+      assertStateBindingCurrent?: () => void,
     ): Promise<ProviderListCommandsResult> =>
-      discoverViaTemporaryProcess(cwd, env, binaryPath, (queryRuntime) =>
-        queryRuntime
-          .supportedCommands()
-          .then((commands) =>
-            mapSupportedCommands(
-              commands,
-              resolveClaudeArtifactsState({ artifactsEnabled, commands }),
+      discoverViaTemporaryProcess(
+        cwd,
+        env,
+        binaryPath,
+        (queryRuntime) =>
+          queryRuntime
+            .supportedCommands()
+            .then((commands) =>
+              mapSupportedCommands(
+                commands,
+                resolveClaudeArtifactsState({ artifactsEnabled, commands }),
+              ),
             ),
-          ),
+        assertStateBindingCurrent,
       );
 
     const discoverModelsViaTemporaryProcess = (
@@ -8700,17 +8813,25 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       env: NodeJS.ProcessEnv,
       binaryPath: string,
       discoveryKey: string,
+      assertStateBindingCurrent?: () => void,
     ): Promise<ProviderListModelsResult> =>
-      discoverViaTemporaryProcess(cwd, env, binaryPath, async (queryRuntime) => {
-        const models = await queryRuntime.supportedModels();
-        discoveredModelsByKey.set(discoveryKey, models);
-        return { models: models.map(mapClaudeModelInfo), source: "sdk", cached: false };
-      });
+      discoverViaTemporaryProcess(
+        cwd,
+        env,
+        binaryPath,
+        async (queryRuntime) => {
+          const models = await queryRuntime.supportedModels();
+          discoveredModelsByKey.set(discoveryKey, models);
+          return { models: models.map(mapClaudeModelInfo), source: "sdk", cached: false };
+        },
+        assertStateBindingCurrent,
+      );
 
     const listCommands: NonNullable<ClaudeAdapterShape["listCommands"]> = (
       input: ProviderListCommandsInput,
     ) =>
       Effect.gen(function* () {
+        yield* validateStateBinding(input, "listCommands");
         const enableArtifacts = input.enableArtifacts === true;
         const discoveryKey = claudeDiscoveryKey(input);
         // 1. Try an active session first (cheapest path).
@@ -8791,6 +8912,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
                 withClaudeArtifactOptIn(claudeSdkEnv, enableArtifacts),
                 binaryPath,
                 enableArtifacts,
+                () => {
+                  readClaudeStateBinding(input);
+                },
               ),
             );
           discoveryPromise = started;
@@ -8876,6 +9000,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const listModels: NonNullable<ClaudeAdapterShape["listModels"]> = (input) =>
       Effect.gen(function* () {
+        yield* validateStateBinding(input, "listModels");
         // ProviderDiscoveryService owns caching and single-flight. The SDK's
         // supportedModels() returns initialization metadata, so an existing
         // session cannot discover models added by a CLI update.
@@ -8890,13 +9015,23 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           input.instanceId,
         );
         return yield* Effect.tryPromise({
-          try: () =>
-            discoverModelsViaTemporaryProcess(
-              input.cwd ?? serverConfig.cwd,
-              claudeSdkEnv,
-              binaryPath,
-              claudeDiscoveryKey({ ...input, includeCwd: false }),
-            ),
+          try: async () => {
+            const [result, configuredModel] = await Promise.all([
+              discoverModelsViaTemporaryProcess(
+                input.cwd ?? serverConfig.cwd,
+                claudeSdkEnv,
+                binaryPath,
+                claudeDiscoveryKey({ ...input, includeCwd: false }),
+                () => {
+                  readClaudeStateBinding(input);
+                },
+              ),
+              readClaudeSettingsModel(claudeSdkEnv),
+            ]);
+            // The person's own default (settings.json `model`) leads a new composer.
+            const defaultModel = matchClaudeConfiguredModel(result.models, configuredModel);
+            return defaultModel ? { ...result, defaultModel } : result;
+          },
           catch: (cause) =>
             new ProviderAdapterProcessError({
               provider: PROVIDER,

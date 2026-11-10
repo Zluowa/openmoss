@@ -32,6 +32,8 @@ const ownedWindowsDecisions = new Map<string, readonly string[]>([
   ["apps/server/src/platform/effectProcessRuntime.ts", ["windowsHide", "windowsVerbatimArguments"]],
   // Bounded tree cleanup resolves System32/taskkill.exe and uses the hidden shared launcher.
   ["apps/server/src/platform/processTreeController.ts", ["windowsSystemTreeCommand"]],
+  // The provider guard owns its deliberate cmd.exe hop; other shell/WSL policy stays shared.
+  ["apps/server/src/platform/windowsProviderProcessGuard.ts", ["windowsGuardShell"]],
 ]);
 
 /**
@@ -194,8 +196,13 @@ for (const file of files) {
   }
   forbid(
     "wslTranslation",
-    /\b(?:parseWindowsWslUncPath|resolveWindowsWslExe|resolveWindowsComSpec)\b/,
+    /\b(?:parseWindowsWslUncPath|resolveWindowsWslExe)\b/,
     "WSL and Windows shell translation belong to the shared platform boundary",
+  );
+  forbid(
+    "windowsGuardShell",
+    /\bresolveWindowsComSpec\b/,
+    "Windows command shell selection belongs to the shared platform boundary",
   );
 
   if (ownsNodeSpawnPolicy(file) && !owns.has("windowsHide") && /\bwindowsHide\b/.test(source)) {

@@ -10,7 +10,7 @@
 // Exports: InlineMentionChip
 
 import { type MouseEvent, type ReactNode } from "react";
-import type { ProviderMentionReference } from "@synara/contracts";
+import type { ProviderMentionReference } from "@moss/contracts";
 import { basenameOfPath, pathLooksLikeKnownFile } from "~/file-icons";
 import { openWorkspaceFileReference, useWorkspaceFileOpener } from "~/lib/workspaceFileOpener";
 import {
@@ -20,7 +20,12 @@ import {
 import { InlineChipContent } from "../InlineChip";
 import { MentionChipIcon, type MentionChipKind } from "./MentionChipIcon";
 import { resolveMentionChipKind } from "~/lib/composerMentions";
-import { COMPUTER_HISTORY_MENTION_NAME } from "@synara/shared/computerHistoryMention";
+import { COMPUTER_HISTORY_MENTION_NAME } from "@moss/shared/computerHistoryMention";
+import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
+import {
+  FILE_CHIP_HOVER_CARD_POPUP_CLASS_NAME,
+  FILE_CHIP_HOVER_CARD_SIDE_OFFSET_PX,
+} from "./FileChipHoverCard";
 
 interface InlineMentionChipProps {
   path: string;
@@ -35,6 +40,13 @@ interface InlineMentionChipProps {
   onContextMenu?: (event: MouseEvent<HTMLAnchorElement>) => void;
   /** Warm-up hook fired on hover/focus so activating the chip feels instant. */
   onHoverPrefetch?: (() => void) | undefined;
+  /**
+   * Body of the card an openable chip shows on hover (kind, time, name). It replaces
+   * the native path tooltip, so the two never show at once.
+   */
+  hoverCard?: ReactNode;
+  /** The native tooltip; defaults to the path. */
+  title?: string;
 }
 
 export function InlineMentionChip(props: InlineMentionChipProps) {
@@ -90,18 +102,39 @@ export function InlineMentionChip(props: InlineMentionChipProps) {
       (contextOpenable && opener?.prefetchFile
         ? () => opener.prefetchFile?.(props.path)
         : undefined);
+    const anchorProps = {
+      className: COMPOSER_INLINE_MENTION_CHIP_INTERACTIVE_CLASS_NAME,
+      "data-translation-skip": "true",
+      // The resolved path stays reachable without hovering: as an attribute for
+      // tooling and tests, and as the accessible description for screen readers.
+      "data-mention-path": props.path,
+      "aria-description": props.path,
+      ...(href !== undefined ? { href } : {}),
+      ...(handleActivate ? { onClick: handleActivate } : {}),
+      ...(props.onContextMenu ? { onContextMenu: props.onContextMenu } : {}),
+      ...(handleHoverPrefetch
+        ? { onPointerEnter: handleHoverPrefetch, onFocus: handleHoverPrefetch }
+        : {}),
+    };
+    if (props.hoverCard !== undefined) {
+      // The desktop chat's link preview: opens below the chip after the usual hover
+      // delay and stays open while the pointer moves onto it.
+      return (
+        <PreviewCard>
+          <PreviewCardTrigger {...anchorProps}>{inner}</PreviewCardTrigger>
+          <PreviewCardPopup
+            side="bottom"
+            align="start"
+            sideOffset={FILE_CHIP_HOVER_CARD_SIDE_OFFSET_PX}
+            className={FILE_CHIP_HOVER_CARD_POPUP_CLASS_NAME}
+          >
+            {props.hoverCard}
+          </PreviewCardPopup>
+        </PreviewCard>
+      );
+    }
     return (
-      <a
-        className={COMPOSER_INLINE_MENTION_CHIP_INTERACTIVE_CLASS_NAME}
-        title={props.path}
-        data-translation-skip="true"
-        {...(href !== undefined ? { href } : {})}
-        {...(handleActivate ? { onClick: handleActivate } : {})}
-        {...(props.onContextMenu ? { onContextMenu: props.onContextMenu } : {})}
-        {...(handleHoverPrefetch
-          ? { onPointerEnter: handleHoverPrefetch, onFocus: handleHoverPrefetch }
-          : {})}
-      >
+      <a {...anchorProps} title={props.title ?? props.path}>
         {inner}
       </a>
     );
@@ -110,7 +143,7 @@ export function InlineMentionChip(props: InlineMentionChipProps) {
   return (
     <span
       className={COMPOSER_INLINE_MENTION_CHIP_CLASS_NAME}
-      title={props.path}
+      title={props.title ?? props.path}
       data-translation-skip="true"
     >
       {inner}

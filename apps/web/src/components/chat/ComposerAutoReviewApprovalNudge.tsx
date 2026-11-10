@@ -1,5 +1,5 @@
 // Approval-flow host: share the existing access-mode persistence with the composer.
-import type { RuntimeMode } from "@synara/contracts";
+import type { RuntimeMode } from "@moss/contracts";
 import { AutoReviewApprovalNudge } from "./AutoReviewApprovalNudge";
 import {
   isAutoReviewNudgeEligible,

@@ -6,21 +6,21 @@ import { delimiter as pathDelimiter, join as pathJoin } from "node:path";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { NetService } from "@synara/shared/Net";
+import { NetService } from "@moss/shared/Net";
 import {
   getBooleanFlagValue,
   optionalBooleanEnvironmentConfig,
   optionalBooleanFlag,
   type BooleanFlagInput,
-} from "@synara/shared/cli";
-import { mossDesktopIdentity, resolveMossDesktopFlavor } from "@synara/shared/desktopIdentity";
+} from "@moss/shared/cli";
+import { mossDesktopIdentity, resolveMossDesktopFlavor } from "@moss/shared/desktopIdentity";
 import {
   applyMossProductionPublicConfigEnv,
   MOSS_PRODUCTION_PUBLIC_CONFIG_FILE,
   parseMossProductionPublicConfig,
   type MossProductionPublicConfig,
-} from "@synara/shared/mossProductionPublicConfig";
-import { applyShellEnvironmentHydrationMarker } from "@synara/shared/shell";
+} from "@moss/shared/mossProductionPublicConfig";
+import { applyShellEnvironmentHydrationMarker } from "@moss/shared/shell";
 import { Config, Data, Effect, Hash, Layer, Logger, Option, Path, Schema } from "effect";
 import * as ConfigProvider from "effect/ConfigProvider";
 import { Argument, Command, Flag } from "effect/unstable/cli";
@@ -39,14 +39,14 @@ const MODE_ARGS = {
     "run",
     "dev",
     "--ui=tui",
-    "--filter=@synara/contracts",
-    "--filter=@synara/web",
-    "--filter=@synara/cli",
+    "--filter=@moss/contracts",
+    "--filter=@moss/web",
+    "--filter=@moss/cli",
     "--parallel",
   ],
-  "dev:server": ["run", "dev", "--filter=@synara/cli"],
-  "dev:web": ["run", "dev", "--filter=@synara/web"],
-  "dev:desktop": ["run", "dev", "--filter=@synara/desktop", "--filter=@synara/web", "--parallel"],
+  "dev:server": ["run", "dev", "--filter=@moss/cli"],
+  "dev:web": ["run", "dev", "--filter=@moss/web"],
+  "dev:desktop": ["run", "dev", "--filter=@moss/desktop", "--filter=@moss/web", "--parallel"],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 type DevMode = keyof typeof MODE_ARGS;

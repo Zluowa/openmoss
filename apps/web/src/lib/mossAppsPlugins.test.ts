@@ -1,4 +1,4 @@
-import type { MossAppConnection, MossAppToolkit } from "@synara/contracts";
+import type { MossAppConnection, MossAppToolkit } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

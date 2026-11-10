@@ -4,10 +4,10 @@ import {
   ModelSelection,
   SUPPORTED_PROVIDER_KINDS,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
-import { getDefaultModel } from "@synara/shared/model";
+import { getDefaultModel } from "@moss/shared/model";
 
 import { AGENT_GATEWAY_TARGET_OPTIONS_DESCRIPTION } from "./targetResolver.ts";
 

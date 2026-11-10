@@ -3,6 +3,7 @@ import { webcrypto } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   importMossCanvasLocalImages,
+  isMossCanvasSignedOut,
   loadMossCanvasBinding,
   type MossCanvasBinding,
   type MossCanvasImageImportCache,
@@ -198,8 +199,15 @@ describe("conversation Canvas local image imports", () => {
       "/api/moss/media/canvas/account?canvasThread=thread-a",
       { method: "GET", signal: controller.signal },
     );
+    mocks.json.mockResolvedValue({ authenticated: false, user: null });
+    await expect(loadMossCanvasBinding("thread-a")).rejects.toThrow("登录 Moss 账号后即可使用画布");
+    expect(await isMossCanvasSignedOut("thread-a")).toBe(true);
+    mocks.json.mockResolvedValue(response);
+    expect(await isMossCanvasSignedOut("thread-a")).toBe(false);
+    // Anything other than a definite "signed out" is left to the editor's own check.
+    mocks.json.mockRejectedValue(new TypeError("Failed to fetch"));
+    expect(await isMossCanvasSignedOut("thread-a")).toBe(false);
     for (const patch of [
-      { authenticated: false },
       { user: { id: "" } },
       { user: { id: "a".repeat(257) } },
       { realm: "" },

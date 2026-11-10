@@ -7,7 +7,7 @@
 // Exports: ChatLinkActionsContext, parseGitHubItemUrl, resolveGitHubItemLinkOpener,
 //          resolveGitHubItemClickOpener, showLinkContextMenu
 
-import { isValidGitHubRepositoryNameWithOwner } from "@synara/shared/githubRepository";
+import { isValidGitHubRepositoryNameWithOwner } from "@moss/shared/githubRepository";
 import { createContext } from "react";
 
 import type { GitHubLinkOpenTarget } from "~/appSettings";
@@ -23,6 +23,8 @@ export interface ChatLinkActions {
   readonly openGitHubItem?: ((url: string) => void) | undefined;
   /** The user's setting for a plain click on a pull request or issue link. */
   readonly githubLinkOpenTarget?: GitHubLinkOpenTarget | undefined;
+  /** "Open links in built-in browser": a plain click on any web link opens it in the panel. */
+  readonly openLinksInBrowserPanel?: boolean | undefined;
 }
 
 export interface GitHubItemUrl {
@@ -69,6 +71,20 @@ export function resolveGitHubItemClickOpener(
   if (target === "external") return undefined;
   if (target === "browser") return actions.openInBrowserPanel;
   return actions.openGitHubItem;
+}
+
+/**
+ * Where a plain click on a chat link goes: a pull request or issue follows its own
+ * setting, any other web link the built-in browser when "Open links in built-in browser"
+ * is on. Undefined keeps the default external open.
+ */
+export function resolveChatLinkClickOpener(
+  url: string,
+  actions: ChatLinkActions | null,
+): ((url: string) => void) | undefined {
+  if (parseGitHubItemUrl(url)) return resolveGitHubItemClickOpener(url, actions);
+  if (!actions?.openLinksInBrowserPanel || !/^https?:\/\//i.test(url.trim())) return undefined;
+  return actions.openInBrowserPanel;
 }
 
 // Falls back to a DOM menu outside the desktop app.

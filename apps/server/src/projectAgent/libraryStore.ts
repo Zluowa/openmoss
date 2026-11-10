@@ -12,8 +12,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
-import type { LibraryEntry, ProjectId } from "@synara/contracts";
-import { normalizeProjectDocumentPath } from "@synara/shared/projectAgent";
+import type { LibraryEntry, ProjectId } from "@moss/contracts";
+import { normalizeProjectDocumentPath } from "@moss/shared/projectAgent";
 import { Effect } from "effect";
 
 import type { GitCoreShape } from "../git/Services/GitCore.ts";

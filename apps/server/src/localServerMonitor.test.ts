@@ -11,7 +11,12 @@ import {
   extractLocalServerPageTitle,
   isIgnoredLocalServerProcess,
   detectDevServerKindFromText,
+  hasProcessAncestor,
+  inferWindowsProjectDirectory,
+  parseNetstatListenOutput,
   parseProcessInfo,
+  parseWindowsProcessTable,
+  windowsProcessLineageScript,
   parseLsofCwdOutput,
   parseLsofTcpListenOutput,
   type LocalServerProcessInfo,
@@ -491,5 +496,119 @@ describe("localServerMonitor", () => {
 
     expect(servers).toHaveLength(1);
     expect(servers[0]?.cwd).toBe("/Users/dev/monorepo");
+  });
+});
+
+describe("Windows local server detection", () => {
+  const netstat = [
+    "",
+    "Active Connections",
+    "",
+    "  Proto  Local Address          Foreign Address        State           PID",
+    "  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1200",
+    "  TCP    127.0.0.1:5941         0.0.0.0:0              LISTENING       4410",
+    "  TCP    127.0.0.1:5941         127.0.0.1:63278        ESTABLISHED     4410",
+    "  TCP    [::]:5173              [::]:0                 侦听            5200",
+    "  TCP    [::1]:8000             [::]:0                 LISTENING       6300",
+  ].join("\r\n");
+
+  it("reads listening sockets from netstat whatever language the State column is in", () => {
+    const listeners = parseNetstatListenOutput(netstat);
+    expect(listeners.map(({ pid, host, port, family }) => ({ pid, host, port, family }))).toEqual([
+      { pid: 1200, host: "0.0.0.0", port: 135, family: "tcp4" },
+      { pid: 4410, host: "127.0.0.1", port: 5941, family: "tcp4" },
+      { pid: 5200, host: "::", port: 5173, family: "tcp6" },
+      { pid: 6300, host: "::1", port: 8000, family: "tcp6" },
+    ]);
+  });
+
+  it("parses the process lookup rows, keeping separators inside command lines", () => {
+    const separator = "\u001f";
+    const rows = parseWindowsProcessTable(
+      [
+        [
+          "4410",
+          "4400",
+          "1762200000000",
+          "node.exe",
+          "node D:\\app\\node_modules\\vite\\bin\\vite.js",
+        ],
+        ["4400", "1", "0", "cmd.exe", `cmd /c "a${separator}b"`],
+        ["oops"],
+      ]
+        .map((fields) => fields.join(separator))
+        .join("\r\n"),
+    );
+    expect(rows.get(4410)).toMatchObject({
+      ppid: 4400,
+      name: "node.exe",
+      startedAtMs: 1_762_200_000_000,
+      rawCommandLine: "node D:\\app\\node_modules\\vite\\bin\\vite.js",
+    });
+    expect(rows.get(4400)?.startedAtMs).toBeUndefined();
+    expect(rows.get(4400)?.rawCommandLine).toBe(`cmd /c "a${separator}b"`);
+    expect(rows.size).toBe(2);
+  });
+
+  it("infers the project folder a Windows dev server was started for", () => {
+    expect(
+      inferWindowsProjectDirectory([
+        '"C:\\Program Files\\nodejs\\node.exe" "D:\\work\\shop\\node_modules\\vite\\bin\\vite.js" --port 5173',
+      ]),
+    ).toBe("D:\\work\\shop");
+    expect(
+      inferWindowsProjectDirectory(["python.exe", "python D:\\work\\api\\server.py --reload"]),
+    ).toBe("D:\\work\\api");
+    expect(
+      inferWindowsProjectDirectory([
+        "node C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\serve\\build\\main.js",
+      ]),
+    ).toBeNull();
+    expect(inferWindowsProjectDirectory(["python -m http.server 8000"])).toBeNull();
+  });
+
+  it("classifies a Windows listener from its process table row and folder", () => {
+    const listeners = parseNetstatListenOutput(netstat).filter((listener) => listener.pid === 4410);
+    const processInfo = new Map<number, LocalServerProcessInfo>([
+      [
+        4410,
+        {
+          ppid: 4400,
+          name: "node.exe",
+          commandLine: "node D:\\work\\shop\\node_modules\\vite\\bin\\vite.js",
+        },
+      ],
+    ]);
+    const [server] = buildLocalServerProcesses(listeners, processInfo);
+    expect(server).toMatchObject({
+      pid: 4410,
+      command: "node.exe",
+      displayName: "Vite",
+      cwd: "D:\\work\\shop",
+      ports: [5941],
+    });
+    expect(server?.launchedByMoss).toBeUndefined();
+  });
+
+  it("marks a server Moss started and stops at a reused parent pid", () => {
+    const moss = process.pid;
+    const processInfo = new Map<number, LocalServerProcessInfo>([
+      [10, { ppid: 11, commandLine: "node vite", startedAtMs: 5_000 }],
+      [11, { ppid: 12, commandLine: "cmd /c npm run dev", startedAtMs: 4_000 }],
+      [12, { ppid: moss, commandLine: "bash", startedAtMs: 3_000 }],
+      [20, { ppid: 21, commandLine: "node vite", startedAtMs: 5_000 }],
+      // A pid reused after the real parent exited: it started after its "child".
+      [21, { ppid: moss, commandLine: "notepad", startedAtMs: 9_000 }],
+    ]);
+    expect(hasProcessAncestor(10, moss, processInfo)).toBe(true);
+    expect(hasProcessAncestor(20, moss, processInfo)).toBe(false);
+    expect(hasProcessAncestor(10, 99_999, processInfo)).toBe(false);
+  });
+
+  it("builds one PowerShell run over the listener pids only", () => {
+    const script = windowsProcessLineageScript([4410, 5200, -1]);
+    expect(script).toContain("$ids = @(4410,5200)");
+    expect(script).toContain("Win32_Process");
+    expect(script).not.toContain("-1");
   });
 });

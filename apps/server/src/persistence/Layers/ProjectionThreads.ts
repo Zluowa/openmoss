@@ -20,7 +20,7 @@ import {
   ThreadHandoff,
   ThreadGoalAchievements,
   ThreadSidechatContext,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const SqliteBoolean = Schema.Number.pipe(
   Schema.decodeTo(Schema.Boolean, {

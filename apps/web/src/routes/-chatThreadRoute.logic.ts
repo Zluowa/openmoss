@@ -9,8 +9,8 @@ import type {
   ThreadId,
   ThreadSidechatContext,
   TurnId,
-} from "@synara/contracts";
-import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
+} from "@moss/contracts";
+import { resolveThreadWorkspaceCwd } from "@moss/shared/threadEnvironment";
 
 import type { ChatRightPanel, DiffRouteSearch } from "../diffRouteSearch";
 import { resolveSplitViewThreadIds, type SplitView } from "../splitViewStore";

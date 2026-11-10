@@ -1,0 +1,41 @@
+/* OpenMaus styles.css, Apache-2.0; scoped to the port. */
+.mossbot-simple .mention-editor-mirror {
+  /* Match the native textarea's direction independently for each paragraph. */
+  unicode-bidi: plaintext;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  color: var(--foreground);
+}
+.mossbot-simple .mention-editor textarea {
+  position: relative;
+  color: transparent;
+  caret-color: var(--foreground);
+}
+.mossbot-simple .mention-editor textarea::selection {
+  color: var(--foreground);
+  background: var(--accent);
+}
+/* Safari zooms smaller form text on focus. In a standalone phone window that
+   can leave the header under the status bar after the keyboard closes. Keep
+   the native editor at a readable touch size. */
+@media (pointer: coarse) {
+  .mossbot-simple .mention-editor textarea {
+    font-size: 16px;
+  }
+}
+@media (forced-colors: active) {
+  .mossbot-simple .mention-editor-mirror {
+    display: none;
+  }
+  .mossbot-simple .mention-editor textarea {
+    color: CanvasText;
+    caret-color: CanvasText;
+  }
+}
+
+.mossbot-simple .mention-highlight {
+  color: var(--foreground);
+  background: var(--accent);
+  border-radius: 4px;
+  font-weight: 600;
+}

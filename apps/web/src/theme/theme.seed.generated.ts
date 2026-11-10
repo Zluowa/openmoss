@@ -3,10 +3,10 @@
 // Layer: Web appearance generated catalog
 // Exports: THEME_SEED_CATALOG for code-theme seed lookup.
 
-import type { ChromeTheme, ThemeVariant } from "./theme.logic";
+import type { ChromeThemeSeed, ThemeVariant } from "./theme.logic";
 
 // Moss uses Codex's complete palette and material, changing only the accent.
-const CODEX_THEME_SEEDS: Record<ThemeVariant, ChromeTheme> = {
+const CODEX_THEME_SEEDS: Record<ThemeVariant, ChromeThemeSeed> = {
   dark: {
     accent: "#0169cc",
     contrast: 0,
@@ -41,7 +41,7 @@ const CODEX_THEME_SEEDS: Record<ThemeVariant, ChromeTheme> = {
   },
 };
 
-export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, ChromeTheme>>> = {
+export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, ChromeThemeSeed>>> = {
   absolutely: {
     dark: {
       accent: "#cc7d5e",
@@ -501,20 +501,20 @@ export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, Chr
   },
   one: {
     dark: {
-      accent: "#4d78cc",
+      accent: "#7da7ef",
       contrast: 0,
       fonts: {
         code: null,
         ui: null,
       },
-      ink: "#abb2bf",
-      opaqueWindows: false,
+      ink: "#ededed",
+      opaqueWindows: true,
       semanticColors: {
         diffAdded: "#8cc265",
         diffRemoved: "#e05561",
         skill: "#c162de",
       },
-      surface: "#282c34",
+      surface: "#3b3b3d",
     },
     light: {
       accent: "#526fff",
@@ -653,6 +653,46 @@ export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, Chr
         skill: "#7055f6",
       },
       surface: "#2d2935",
+    },
+  },
+  // Soft: the stock dark palette with the edges taken off. Blacks lifted a touch, softer
+  // whites, a sidebar that separates from the canvas, and the stock blue kept. Adapted from
+  // the community "T3 Soft" palette by octanethegenio
+  // (https://github.com/SunkenInTime/t3-themes/blob/main/themes/t3-soft.json).
+  soft: {
+    dark: {
+      accent: "#346bf1",
+      contrast: 0,
+      fonts: {
+        code: null,
+        ui: null,
+      },
+      ink: "#f5f5f5",
+      opaqueWindows: true,
+      semanticColors: {
+        diffAdded: "#40c977",
+        diffRemoved: "#fb414a",
+        skill: "#ad7bf9",
+      },
+      sidebar: "#1c1c1c",
+      surface: "#141414",
+    },
+    light: {
+      accent: "#1b4ed8",
+      contrast: 0,
+      fonts: {
+        code: null,
+        ui: null,
+      },
+      ink: "#27272a",
+      opaqueWindows: true,
+      semanticColors: {
+        diffAdded: "#00a240",
+        diffRemoved: "#fb2c36",
+        skill: "#924ff7",
+      },
+      sidebar: "#efefef",
+      surface: "#f6f6f6",
     },
   },
   solarized: {

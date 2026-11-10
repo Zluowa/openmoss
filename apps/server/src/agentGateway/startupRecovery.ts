@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 
-import { CommandId, SidebarOrderRevision, ThreadId } from "@synara/contracts";
+import { CommandId, SidebarOrderRevision, ThreadId } from "@moss/contracts";
 import { Effect, Option } from "effect";
 
 import type { GitCoreShape } from "../git/Services/GitCore.ts";

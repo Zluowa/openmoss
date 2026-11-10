@@ -3,7 +3,7 @@
 // Exports: eligibility, stable ordering, settle helpers, the view-model builder, and the
 //          Priority ranking behind the section, the bell's dot, and "next needing attention".
 
-import type { ProjectId, ThreadId } from "@synara/contracts";
+import type { ProjectId, ThreadId } from "@moss/contracts";
 import type { SidebarThreadSummary } from "../types";
 import {
   hasUnseenCompletion,

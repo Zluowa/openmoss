@@ -668,7 +668,7 @@ export type DeviceEvent = typeof DeviceEvent.Type;
 /**
  * Encoded video frames ride the existing WebSocket as binary messages prefixed
  * with this header, so a frame can be routed to the right pane without parsing
- * the bitstream. Runtime encode/decode lives in `@synara/shared/deviceFrame`;
+ * the bitstream. Runtime encode/decode lives in `@moss/shared/deviceFrame`;
  * this module stays schema-only.
  *
  * Little-endian layout:

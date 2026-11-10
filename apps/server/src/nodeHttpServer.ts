@@ -2,7 +2,7 @@ import http from "node:http";
 import type { ListenOptions, Socket } from "node:net";
 import type { Duplex } from "node:stream";
 
-import { WS_FEATURE_PATH } from "@synara/contracts";
+import { WS_FEATURE_PATH } from "@moss/contracts";
 import * as NodeHttpIncomingMessage from "@effect/platform-node/NodeHttpIncomingMessage";
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as Fiber from "effect/Fiber";

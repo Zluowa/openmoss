@@ -1,5 +1,5 @@
-import { ProjectId, ThreadId } from "@synara/contracts";
-import type { ModelSelection, ProjectAgentConfig } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
+import type { ModelSelection, ProjectAgentConfig } from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -291,6 +291,22 @@ describe("resolveSaveAttemptRequestId", () => {
 
 describe("buildGroupConfigureInput", () => {
   const projectId = ProjectId.makeUnsafe("project-1");
+
+  it("sends the user's locale and name, and leaves out a name it doesn't have", () => {
+    const build = (userDisplayName: string) =>
+      buildGroupConfigureInput({
+        projectId,
+        requestId: "req",
+        mode: "onboarding",
+        draft: makeDraft(),
+        baseline: makeBaseline(),
+        userDisplayName,
+        userLocale: "zh-CN",
+      });
+
+    expect(build("Dilip")).toMatchObject({ userDisplayName: "Dilip", userLocale: "zh-CN" });
+    expect(build("")).not.toHaveProperty("userDisplayName");
+  });
 
   it("keeps coordinatorModelSelection required and merges workerRouting from the baseline snapshot", () => {
     const input = buildGroupConfigureInput({

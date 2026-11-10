@@ -17,8 +17,8 @@ describe("translateZhCnWhatsNewText", () => {
     const fields = releaseFields();
 
     expect(WHATS_NEW_ENTRIES).toHaveLength(73);
-    expect(WHATS_NEW_ENTRIES.reduce((total, entry) => total + entry.features.length, 0)).toBe(513);
-    expect(fields).toHaveLength(1402);
+    expect(WHATS_NEW_ENTRIES.reduce((total, entry) => total + entry.features.length, 0)).toBe(512);
+    expect(fields).toHaveLength(1400);
 
     for (const field of fields) {
       const translated = translateZhCnWhatsNewText(field);

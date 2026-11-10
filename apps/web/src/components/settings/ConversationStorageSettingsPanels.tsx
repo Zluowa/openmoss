@@ -3,9 +3,9 @@
 // Layer: Settings UI components
 // Exports: WorktreesSettingsPanel, ArchivedSettingsPanel
 
-import type { ThreadId } from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
-import { collectSubagentDescendants } from "@synara/shared/threadHierarchy";
+import type { ThreadId } from "@moss/contracts";
+import { pluralize } from "@moss/shared/text";
+import { collectSubagentDescendants } from "@moss/shared/threadHierarchy";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
@@ -256,7 +256,7 @@ export function WorktreesSettingsPanel({ active }: { readonly active: boolean })
 }
 
 export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) {
-  const { locale } = useTranslation();
+  const { locale, t, format } = useTranslation();
   const removeDeletedThreadFromClientState = useStore(
     (store) => store.removeDeletedThreadFromClientState,
   );
@@ -293,24 +293,27 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
     return groups.filter((group) => group.threads.length > 0);
   }, [projects, threadShells]);
 
-  const unarchiveThread = useCallback(async (threadId: ThreadId) => {
-    const api = readNativeApi();
-    if (!api) return;
-    try {
-      await unarchiveThreadFromClient(api.orchestration, threadId);
-      toastManager.add({
-        type: "success",
-        title: "Thread restored",
-        description: "The thread has been moved back to the sidebar.",
-      });
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: "Could not restore thread",
-        description: error instanceof Error ? error.message : "Unable to restore the thread.",
-      });
-    }
-  }, []);
+  const unarchiveThread = useCallback(
+    async (threadId: ThreadId) => {
+      const api = readNativeApi();
+      if (!api) return;
+      try {
+        await unarchiveThreadFromClient(api.orchestration, threadId);
+        toastManager.add({
+          type: "success",
+          title: t("settings.archived.restored"),
+          description: t("settings.archived.restoredDescription"),
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: t("settings.archived.restoreFailed"),
+          description: error instanceof Error ? error.message : "Unable to restore the thread.",
+        });
+      }
+    },
+    [t],
+  );
 
   // Subagent threads are hidden from this list and unreachable without their
   // parent, so deleting the parent removes the whole subtree. Children go
@@ -434,7 +437,10 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-2">
         <span className="text-ui-sm text-muted-foreground">
-          {archivedThreadCount} archived {pluralize(archivedThreadCount, "thread")}
+          {format("settings.archived.count", {
+            count: archivedThreadCount,
+            unit: pluralize(archivedThreadCount, "thread"),
+          })}
         </span>
         <Button
           size="xs"

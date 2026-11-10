@@ -2,7 +2,7 @@
 // Purpose: Stages runtime resources without bundling installer-only artwork.
 // Layer: Release/build helper
 
-import type { MossPackagedDesktopFlavor } from "@synara/shared/desktopIdentity";
+import type { MossPackagedDesktopFlavor } from "@moss/shared/desktopIdentity";
 import { Effect, FileSystem, Path } from "effect";
 
 import { BETA_ASSET_PATHS, BRAND_ASSET_PATHS } from "./brand-assets.ts";

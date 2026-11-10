@@ -23,7 +23,7 @@ import {
   type RuntimeMode,
   type ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   DateTime,
   Deferred,
@@ -112,6 +112,7 @@ import {
   applyCursorAcpModelSelection,
   buildCursorCliModelListCommand,
   fetchCursorAcpModelDescriptors,
+  readCursorAcpDefaultModel,
   makeCursorAcpRuntime,
   parseCursorCliModelList,
   resolveCursorAcpBaseModelId,
@@ -1854,7 +1855,8 @@ export function makeCursorAdapter(
             detail: "Cursor ACP model discovery returned no models.",
           });
         }
-        return models;
+        const defaultModel = readCursorAcpDefaultModel(started.sessionSetupResult, models);
+        return { models, ...(defaultModel ? { defaultModel } : {}) };
       }).pipe(
         Effect.scoped,
         Effect.timeoutOption(CURSOR_MODEL_DISCOVERY_TIMEOUT_MS),
@@ -1874,8 +1876,8 @@ export function makeCursorAdapter(
       );
 
       const discovery = runCursorAcpModelDiscovery.pipe(
-        Effect.map((models) => ({
-          models,
+        Effect.map((catalog) => ({
+          ...catalog,
           source: "cursor.acp",
           cached: false,
         })),

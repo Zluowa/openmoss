@@ -43,6 +43,35 @@ export function lowerProcessPriority(
   }
 }
 
+/**
+ * Lets a Windows process that is shutting down finish its exit promptly.
+ *
+ * Windows runs a process's final teardown (closing its handles, freeing its memory) on
+ * whichever of its threads exits last. Electron's Node mode, which the packaged backend
+ * runs on, keeps one thread at background priority (4), and Chromium child processes run
+ * at idle priority. While the CPUs are busy (a fresh install being scanned, first-run
+ * agent probes) such a thread waits seconds to minutes for a turn, so the process stays
+ * "terminating" long after its code finished and cannot even be force-stopped. Raising
+ * the class to high puts every thread above ordinary work for the few milliseconds the
+ * teardown takes. Only for processes that are exiting; never fails the caller.
+ *
+ * `pid` 0 means this process.
+ */
+export function raiseProcessPriorityForExit(
+  pid: number | undefined,
+  input: { readonly platform?: NodeJS.Platform } = {},
+): boolean {
+  if ((input.platform ?? process.platform) !== "win32") return false;
+  if (pid === undefined || !Number.isInteger(pid) || pid < 0) return false;
+  try {
+    os.setPriority(pid, os.constants.priority.PRIORITY_HIGH);
+    return true;
+  } catch {
+    // Already gone, or not ours to change: the exit goes on at its own pace.
+    return false;
+  }
+}
+
 export interface ProcessLaunchInput {
   readonly platform?: NodeJS.Platform;
   readonly cwd?: string;
@@ -257,4 +286,9 @@ export function prepareProcess(
     resolvedCommand,
     executionBackend: "native",
   };
+}
+
+/** node-pty accepts a prequoted Windows command line or a native argument vector. */
+export function processArgumentsForPty(plan: ProcessLaunchPlan): string | string[] {
+  return plan.windowsVerbatimArguments ? plan.args.join(" ") : [...plan.args];
 }

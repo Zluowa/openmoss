@@ -3,7 +3,7 @@
 //          panel column shows (Home or Spaces), and the Spaces drill-in project.
 // Layer: Web UI store (sessionStorage, modeled on spacesUiStore)
 
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@moss/contracts";
 import { create } from "zustand";
 
 import {
@@ -83,6 +83,7 @@ interface RailShellState extends PersistedRailShellState {
   reconcile: (input: {
     pathname: string;
     onStudioSurface: boolean;
+    onMossbotSurface?: boolean;
     projectIds: ReadonlySet<ProjectId> | null;
   }) => void;
 }
@@ -111,11 +112,15 @@ export const useRailShellStore = create<RailShellState>((set, get) => ({
     set({ spacesProjectId: null });
     persist(get());
   },
-  reconcile: ({ pathname, onStudioSurface, projectIds }) => {
+  reconcile: ({ pathname, onStudioSurface, onMossbotSurface = false, projectIds }) => {
     const current = get();
     // A clicked panel item stays active on a route item's route (Spaces while on Pull
     // requests); only a navigation re-syncs it.
-    const routeKey = onStudioSurface ? `studio:${pathname}` : pathname;
+    const routeKey = onMossbotSurface
+      ? `mossbot:${pathname}`
+      : onStudioSurface
+        ? `studio:${pathname}`
+        : pathname;
     const activeItem =
       routeKey === current.reconciledRouteKey
         ? current.activeItem
@@ -123,6 +128,7 @@ export const useRailShellStore = create<RailShellState>((set, get) => ({
             current: current.activeItem,
             pathname,
             onStudioSurface,
+            onMossbotSurface,
             panelView: current.panelView,
           });
     const spacesProjectId =

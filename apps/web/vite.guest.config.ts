@@ -26,7 +26,7 @@ const ICON_DIRECTORIES = [...CENTRAL_ICON_DIRECTORIES, "moss-icons"] as const;
 // serve. Point them at the same mark as a data URL, which the page's CSP allows.
 const APP_MARK_REFERENCE = '"/moss-logo-coral.png"';
 
-/** Dev: `/s/<id>` serves guest.html. Build: `index.html` plus the icons the bundle uses. */
+/** Dev: `/s/<id>` and `/p/<id>` serve guest.html. Build: `index.html` plus the icons the bundle uses. */
 function guestPagePlugin(): Plugin {
   let outDir = "dist-guest";
   let markDataUrl = "";
@@ -47,7 +47,7 @@ function guestPagePlugin(): Plugin {
       const publicDir = path.join(webRoot, "public");
       server.middlewares.use((request, response, next) => {
         const url = request.url ?? "";
-        if (url.startsWith("/s/")) {
+        if (url.startsWith("/s/") || url.startsWith("/p/")) {
           const query = url.indexOf("?");
           request.url = `/guest.html${query === -1 ? "" : url.slice(query)}`;
           next();

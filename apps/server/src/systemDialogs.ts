@@ -3,13 +3,15 @@
 //          The folder picker runs a single fixed script per platform — macOS
 //          osascript "choose folder", Windows PowerShell FolderBrowserDialog,
 //          Linux zenity — with no user input ever interpolated into the command
-//          line, so there is no injection surface. Cancellation, unsupported
-//          platforms, and missing binaries all resolve to null so the web UI
-//          can fall back to a typed path.
+//          line, so there is no injection surface. A cancelled picker resolves
+//          to a null path; an unsupported platform, a missing binary, or a
+//          helper that fails also sets `unavailable` so the web UI can offer a
+//          typed path instead.
 // Layer: Server system integration
 // Exports: pickFolderNativeDialog, detectFolderPickerSupport, SystemCommandExecutor
 
-import { execFile } from "node:child_process";
+import type { DialogsPickFolderResult } from "@moss/contracts";
+import { execProcessFile } from "@moss/shared/processRuntime";
 
 import { Effect } from "effect";
 
@@ -22,21 +24,45 @@ export interface SystemCommandResult {
 export type SystemCommandExecutor = (
   command: string,
   args: ReadonlyArray<string>,
+  signal?: AbortSignal,
 ) => Promise<SystemCommandResult>;
 
-const execFileExecutor: SystemCommandExecutor = (command, args) =>
-  new Promise((resolve, reject) => {
-    execFile(command, [...args], { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
-      const exitCode = (error as { code?: unknown } | null)?.code;
-      // A numeric code means the process ran and exited non-zero (e.g. the user
-      // cancelled the dialog); anything else is a spawn failure (ENOENT…).
-      if (error && typeof exitCode !== "number") {
-        reject(error);
-        return;
-      }
-      resolve({ code: typeof exitCode === "number" ? exitCode : 0, stdout, stderr });
+/**
+ * How long the Linux `zenity --version` availability probe may take before
+ * zenity counts as missing. The interactive picker itself has no deadline: a
+ * person may keep it open as long as they like, and it closes only when they
+ * answer or the request is cancelled (the caller's AbortSignal).
+ */
+export const FOLDER_PICKER_PROBE_TIMEOUT_MS = 15_000;
+
+const execFileExecutor =
+  (deadline: { readonly timeoutMs?: number }): SystemCommandExecutor =>
+  (command, args, signal) =>
+    new Promise((resolve, reject) => {
+      execProcessFile(
+        command,
+        [...args],
+        {
+          encoding: "utf8",
+          maxBuffer: 1024 * 1024,
+          ...(deadline.timeoutMs !== undefined ? { timeout: deadline.timeoutMs } : {}),
+          ...(signal ? { signal } : {}),
+        },
+        (error, stdout, stderr) => {
+          const exitCode = (error as { code?: unknown } | null)?.code;
+          // A numeric code means the process ran and exited non-zero (e.g. the user
+          // cancelled the dialog); anything else is a spawn failure (ENOENT…).
+          if (error && typeof exitCode !== "number") {
+            reject(error);
+            return;
+          }
+          resolve({ code: typeof exitCode === "number" ? exitCode : 0, stdout, stderr });
+        },
+      );
     });
-  });
+
+const runFolderPicker = execFileExecutor({});
+const runFolderPickerProbe = execFileExecutor({ timeoutMs: FOLDER_PICKER_PROBE_TIMEOUT_MS });
 
 interface FolderPickerCommand {
   readonly command: string;
@@ -53,10 +79,12 @@ const MACOS_FOLDER_PICKER: FolderPickerCommand = {
 const WINDOWS_FOLDER_PICKER: FolderPickerCommand = {
   command: "powershell",
   args: [
+    "-STA",
     "-NoProfile",
     "-NonInteractive",
     "-Command",
-    "Add-Type -AssemblyName System.Windows.Forms; " +
+    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); " +
+      "Add-Type -AssemblyName System.Windows.Forms; " +
       "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; " +
       "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) " +
       "{ [Console]::Out.Write($dialog.SelectedPath) }",
@@ -90,24 +118,48 @@ function normalizePickedPath(stdout: string): string | null {
   return withoutTrailing.length > 0 ? withoutTrailing : trimmed;
 }
 
+/**
+ * Whether a non-zero exit is the person dismissing the picker rather than the
+ * helper failing. osascript reports a cancel as AppleScript error -128 and
+ * zenity exits 1; the Windows script exits 0 with no output on cancel, so any
+ * non-zero exit there is a failure.
+ */
+function isFolderPickerCancelExit(platform: NodeJS.Platform, result: SystemCommandResult) {
+  switch (platform) {
+    case "darwin":
+      return result.code === 1 && (result.stderr.trim() === "" || result.stderr.includes("-128"));
+    case "linux":
+      return result.code === 1;
+    default:
+      return false;
+  }
+}
+
+const FOLDER_PICKER_UNAVAILABLE: DialogsPickFolderResult = { path: null, unavailable: true };
+
 export function pickFolderNativeDialog(options?: {
   readonly platform?: NodeJS.Platform;
   readonly executor?: SystemCommandExecutor;
-}): Effect.Effect<{ readonly path: string | null }> {
+}): Effect.Effect<DialogsPickFolderResult> {
   const platform = options?.platform ?? process.platform;
-  const executor = options?.executor ?? execFileExecutor;
-  return Effect.promise(async () => {
+  return Effect.promise(async (signal) => {
+    const executor =
+      options?.executor ?? ((command, args) => runFolderPicker(command, args, signal));
     const picker = resolveFolderPickerCommand(platform);
-    if (!picker) return { path: null };
+    if (!picker) return FOLDER_PICKER_UNAVAILABLE;
     try {
       const result = await executor(picker.command, picker.args);
-      // Any non-zero exit (cancel on macOS/zenity, dialog dismissed elsewhere)
-      // degrades to null rather than an RPC error.
-      if (result.code !== 0) return { path: null };
+      if (result.code !== 0) {
+        return isFolderPickerCancelExit(platform, result)
+          ? { path: null }
+          : FOLDER_PICKER_UNAVAILABLE;
+      }
+      // Exit 0 with no output is a dismissed picker on Windows.
       return { path: normalizePickedPath(result.stdout) };
     } catch {
-      // Picker binary missing (e.g. no zenity on a headless Linux box).
-      return { path: null };
+      // Picker binary missing (e.g. no zenity on a headless Linux box) or the
+      // helper could not start.
+      return FOLDER_PICKER_UNAVAILABLE;
     }
   });
 }
@@ -123,7 +175,7 @@ export function detectFolderPickerSupport(options?: {
   readonly executor?: SystemCommandExecutor;
 }): Effect.Effect<boolean> {
   const platform = options?.platform ?? process.platform;
-  const executor = options?.executor ?? execFileExecutor;
+  const executor = options?.executor ?? runFolderPickerProbe;
   return Effect.promise(async () => {
     switch (platform) {
       case "darwin":

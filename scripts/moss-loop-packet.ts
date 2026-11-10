@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { MossLoopLedgerDashboardSnapshot } from "@synara/contracts";
+import type { MossLoopLedgerDashboardSnapshot } from "@moss/contracts";
 
 import {
   mossIterationPacketExitCode,

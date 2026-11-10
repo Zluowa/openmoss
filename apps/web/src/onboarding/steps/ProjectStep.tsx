@@ -1,14 +1,18 @@
 // FILE: ProjectStep.tsx
-// Purpose: First-project step of the welcome tour: drop a folder (anywhere in the window),
-//          browse (desktop) or type a path, create the project through the shared
-//          create-or-recover flow, and list what was added. Several folders can be added
-//          before continuing.
+// Purpose: First-project step of the welcome tour. It opens on importing conversations from
+//          every agent already on this computer; when none are found it switches to adding a
+//          folder: drop one (anywhere in the window), browse (desktop) or type a path, create
+//          the project through the shared create-or-recover flow, and list what was added.
+//          Several folders can be added before continuing.
 // Layer: Web UI component
 
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@moss/contracts";
 import { useEffect, useState, type FormEvent } from "react";
 
-import { ProjectImportPanel } from "~/projectImport/ProjectImportPanel";
+import {
+  ProjectImportPanel,
+  type ProjectImportPrimaryAction,
+} from "~/projectImport/ProjectImportPanel";
 import { useAppSettings } from "~/appSettings";
 import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
@@ -35,12 +39,17 @@ export function ProjectStep(props: {
   onResult: (result: OnboardingProjectResult) => void;
   /** Project creation is not abortable; the dialog blocks navigation while it runs. */
   onBusyChange: (busy: boolean) => void;
+  /** The import's primary action, shown in the dialog footer so it is always in view. */
+  onImportActionChange?: (action: ProjectImportPrimaryAction | null) => void;
 }) {
   const { settings } = useAppSettings();
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
   const syncServerShellSnapshot = useStore((store) => store.syncServerShellSnapshot);
   const [path, setPath] = useState("");
-  const [showImport, setShowImport] = useState(false);
+  // Start on import so everything already on this computer is offered first.
+  const [showImport, setShowImport] = useState(true);
+  const [nothingFound, setNothingFound] = useState(false);
+  const [firstScanDone, setFirstScanDone] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [picking, setPicking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -113,33 +122,35 @@ export function ProjectStep(props: {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex gap-2" role="group" aria-label="Add projects from">
-        <Button
-          size="sm"
-          variant={showImport ? "ghost" : "secondary"}
-          disabled={busy}
-          onClick={() => setShowImport(false)}
-        >
-          Existing folder
-        </Button>
-        <Button
-          size="sm"
-          variant={showImport ? "secondary" : "ghost"}
-          disabled={busy}
-          onClick={() => setShowImport(true)}
-        >
-          Import from Codex or Claude
-        </Button>
-      </div>
       {showImport ? (
         <ProjectImportPanel
           onBusyChange={setImportBusy}
+          // A new user isn't asked to find moved folders: those conversations import as history.
+          relinkMissingFolders={false}
+          {...(props.onImportActionChange
+            ? { onPrimaryActionChange: props.onImportActionChange }
+            : {})}
+          onScanComplete={(found) => {
+            // Only the automatic first look moves on; a later manual scan stays put.
+            if (firstScanDone) return;
+            setFirstScanDone(true);
+            if (!found) {
+              setNothingFound(true);
+              setShowImport(false);
+            }
+          }}
           onResult={(result, workspaceRoot, created) =>
             props.onResult({ projectId: result.projectId, workspaceRoot, created })
           }
         />
       ) : (
         <>
+          {nothingFound ? (
+            <p className="text-ui-sm text-muted-foreground">
+              No conversations from other agents were found on this computer. Add a project folder
+              to start.
+            </p>
+          ) : null}
           {isElectron ? (
             <button
               type="button"
@@ -201,7 +212,19 @@ export function ProjectStep(props: {
           ) : null}
         </>
       )}
-      {props.results.length > 0 ? (
+      <button
+        type="button"
+        disabled={busy}
+        className="w-fit text-ui-sm text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline disabled:opacity-60 motion-reduce:transition-none"
+        onClick={() => {
+          props.onImportActionChange?.(null);
+          setShowImport((current) => !current);
+        }}
+      >
+        {showImport ? "Add a folder instead" : "Import conversations from your agents"}
+      </button>
+      {/* The import panel reports its own progress; this list confirms added folders. */}
+      {!showImport && props.results.length > 0 ? (
         <ul className="flex flex-col gap-1.5" aria-label="Added projects">
           {props.results.map((result) => (
             <li

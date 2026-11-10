@@ -4,13 +4,13 @@ import {
   invokePinnedDnsLookup,
   OutboundHttpError,
   resolveOutboundProxyUrl,
-} from "@synara/shared/outboundHttp";
+} from "@moss/shared/outboundHttp";
 import {
   assertJsonWithinLimits,
   assertOutboundUrlAllowed,
   isPublicIpAddress,
   OutboundPolicyError,
-} from "@synara/shared/outboundHttpPolicy";
+} from "@moss/shared/outboundHttpPolicy";
 import { describe, expect, it } from "vitest";
 
 describe("outbound HTTP policy", () => {

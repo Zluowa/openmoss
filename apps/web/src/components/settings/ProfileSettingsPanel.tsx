@@ -7,7 +7,7 @@
 
 import { type ReactNode, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { type ProfileStats, type ProfileTokenStats, type ProviderKind } from "@synara/contracts";
+import { type ProfileStats, type ProfileTokenStats, type ProviderKind } from "@moss/contracts";
 import {
   serverProfileStatsQueryOptions,
   serverProfileTokenStatsQueryOptions,
@@ -291,7 +291,7 @@ export function ProfileContent({
       <section className="flex flex-col gap-3">
         <h3 className="text-ui-lg font-medium">Model usage</h3>
         <p className="text-ui leading-snug text-muted-foreground">
-          Share of {formatProfileUsageBasis(modelUsage.metric)}.
+          {`Share of ${formatProfileUsageBasis(modelUsage.metric)}.`}
         </p>
         {modelUsage.entries.length > 0 ? (
           <ul className="grid grid-cols-1 gap-x-12 gap-y-3 sm:grid-cols-2">

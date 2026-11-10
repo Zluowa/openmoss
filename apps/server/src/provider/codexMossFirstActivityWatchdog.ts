@@ -2,14 +2,17 @@
 // Purpose: Pure fail-fast policy for Moss CN / MemFire first-activity deadlines.
 // CN DeepSeek with full MCP+skills+high effort often needs ~90s before its
 // first progress event; the former 45s deadline was too tight for retest-191h.
+// The gateway gives a model 120s to its first real event and ends the stream
+// itself after that, so this deadline stays above it: it's only for a stream
+// that nothing is ending.
 // Layer: Provider policy helper
 // Exports: evaluateCodexMossFirstActivityTick, CODEX_MOSS_FIRST_ACTIVITY_TIMEOUT_DEFAULT_MS, resolveCodexMossFirstActivityTimeoutMs
 
-import type { ProviderRuntimeEvent } from "@synara/contracts";
+import type { ProviderRuntimeEvent } from "@moss/contracts";
 
 import { resolveAcpTurnIdleTimeoutMs } from "./acp/AcpTurnIdleWatchdog.ts";
 
-export const CODEX_MOSS_FIRST_ACTIVITY_TIMEOUT_DEFAULT_MS = 90_000;
+export const CODEX_MOSS_FIRST_ACTIVITY_TIMEOUT_DEFAULT_MS = 150_000;
 
 /**
  * Live Moss first-activity deadline used by CodexAdapter. Defaults to

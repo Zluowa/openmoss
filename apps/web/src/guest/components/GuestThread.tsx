@@ -5,9 +5,11 @@
 // Why: The thread comes out of the app store the way the owner's ChatView reads it, and goes
 //      through the same derive functions, so a guest sees exactly the owner's timeline. Every
 //      affordance that would reach the owner's machine (revert, edit, diffs, pins, forks,
-//      approvals) is left out by passing no handler.
+//      approvals) is left out by passing no handler; file references show as plain chips
+//      (SharedViewerContext), and a follow-up a page or card asks for lands in the guest's own
+//      composer.
 
-import { PROVIDER_DISPLAY_NAMES, type MessageId } from "@synara/contracts";
+import { PROVIDER_DISPLAY_NAMES, type MessageId, type TurnId } from "@moss/contracts";
 import type { LegendListRef } from "@legendapp/list/react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
@@ -35,7 +37,13 @@ import { useChatWorkLog } from "~/components/chat/useChatWorkLog";
 import { useExpandedImagePreview } from "~/components/chat/useExpandedImagePreview";
 import { useTheme } from "~/hooks/useTheme";
 import { useTurnDiffSummaries } from "~/hooks/useTurnDiffSummaries";
+import {
+  SharedFileOpenerContext,
+  SharedViewerContext,
+  type SharedFileReference,
+} from "~/lib/sharedViewer";
 import { cn } from "~/lib/utils";
+import { VisualFollowUpContext } from "~/lib/visualFollowUp";
 import { useTranslation } from "~/localization";
 import {
   deriveActiveWorkStartedAt,
@@ -46,19 +54,31 @@ import {
 } from "~/session-logic";
 import { useStore } from "~/store";
 import { getThreadFromState } from "~/threadDerivation";
+import type { RightDockHtmlDocument } from "~/rightDockStore.logic";
 import type { Thread } from "~/types";
 
 import type { GuestConnectionStatus } from "../connection";
 import { GUEST_END_REASON_KEY, describeGuestFailure } from "../guestCopy";
 import { unplacedGuestMessages, type GuestStreamState } from "../guestStream.logic";
-import { useGuestStream, useSeenPendingIds, useVisualViewportHeight } from "../hooks";
-import type { GuestShareView } from "../protocol";
+import {
+  useClearedReceipts,
+  useGuestStream,
+  useSeenPendingIds,
+  useVisualViewportHeight,
+} from "../hooks";
+import { GUEST_ROUTES, type GuestShareView } from "../protocol";
+import { ownerServesNow } from "../resources";
 import type { GuestTransport } from "../transport";
-import { GuestComposer, type GuestComposerNotice } from "./GuestComposer";
+import {
+  GuestComposer,
+  type GuestComposerFollowUp,
+  type GuestComposerNotice,
+} from "./GuestComposer";
 import { GuestConnectionBanner } from "./GuestConnectionBanner";
 import { GuestHeader } from "./GuestHeader";
 import { GuestNotice, WhatIsMossLink } from "./GuestNotice";
 import { GuestOwnMessages } from "./GuestOwnMessages";
+import { GuestViewerPane, type GuestViewerDocument } from "./GuestViewerPane";
 
 const NO_REVERTS = new Map<MessageId, number>();
 const ignore = () => {};
@@ -239,9 +259,13 @@ function GuestTranscript({
 
   // The guest's own messages above the composer, with receipts for the ones this tab saw wait.
   const seenPendingIds = useSeenPendingIds(shareId, view);
+  const [clearedReceipts, clearReceipt] = useClearedReceipts(shareId);
   const ownMessages = useMemo(
-    () => unplacedGuestMessages(view.messages, thread.messages, view.guestName, seenPendingIds),
-    [seenPendingIds, thread.messages, view.guestName, view.messages],
+    () =>
+      unplacedGuestMessages(view.messages, thread.messages, view.guestName, seenPendingIds).filter(
+        (message) => message.status === "pending" || !clearedReceipts.has(message.id),
+      ),
+    [clearedReceipts, seenPendingIds, thread.messages, view.guestName, view.messages],
   );
   const pendingCount = view.messages.filter((message) => message.status === "pending").length;
 
@@ -249,146 +273,204 @@ function GuestTranscript({
   const over = status.kind === "ended" || status.kind === "lost" || stream.ended !== null;
   const onScrollToBottom = scroll.onScrollToBottom;
   const onSubmitted = useCallback(() => onScrollToBottom(), [onScrollToBottom]);
+  // A page or card in the transcript asked to send something: it goes into the guest's draft.
+  const [followUp, setFollowUp] = useState<GuestComposerFollowUp | null>(null);
+  const sendFollowUp = useCallback(
+    (text: string) => setFollowUp((current) => ({ text, nonce: (current?.nonce ?? 0) + 1 })),
+    [],
+  );
+
+  // Pages, visualizations and linked files open in a viewer pane, as in the owner's dock. With
+  // an owner whose Moss predates the `file` route nothing offers to open them.
+  const ownerServesFiles = ownerServesNow(GUEST_ROUTES.file);
+  const [viewing, setViewing] = useState<GuestViewerDocument | null>(null);
+  const openHtmlDocument = useCallback(
+    (document: RightDockHtmlDocument) => setViewing({ kind: "html", document }),
+    [],
+  );
+  const openSharedFile = useCallback(
+    (file: SharedFileReference) => setViewing({ kind: "file", file }),
+    [],
+  );
+  const openTurnDiff = useCallback(
+    (turnId: TurnId, filePath?: string) =>
+      setViewing({ kind: "diff", turnId, ...(filePath === undefined ? {} : { filePath }) }),
+    [],
+  );
+  const closeViewer = useCallback(() => setViewing(null), []);
 
   const frameStyle: CSSProperties | undefined =
     frameHeightPx === null ? undefined : { height: frameHeightPx };
 
   return (
-    <div
-      className={cn(
-        "flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden text-foreground",
-        CHAT_BACKGROUND_CLASS_NAME,
-      )}
-      style={frameStyle}
-      data-guest-thread={shareId}
-    >
-      <GuestHeader title={thread.title} model={view.model} expiresAt={view.expiresAt} />
-      <GuestConnectionBanner status={status} onRetry={onRetry} />
-      {stream.truncated ? (
-        <p className="shrink-0 pt-2 text-center text-ui-xs text-muted-foreground">
-          {t("guest.timeline.truncated")}
-        </p>
-      ) : null}
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
-          <ChatTranscriptPane
-            activeThreadId={thread.id}
-            activeTurnId={activeTurnId}
-            hasMessages={timelineEntries.length > 0}
-            isWorking={isWorking}
-            workingLabel={resolveWorkingLabel({
-              isSendBusy: false,
-              turnTakenOver: false,
-              isConnecting,
-              ...(providerName ? { providerName: PROVIDER_DISPLAY_NAMES[providerName] } : {}),
-            })}
-            worktreeSetup={null}
-            activeTurnInProgress={isWorking || !latestTurnSettled}
-            collapseFinishedTurns={settings.collapseFinishedTurns}
-            activeTurnStartedAt={activeWorkStartedAt}
-            listRef={legendListRef}
-            timelineEntries={timelineEntries}
-            messageChangeSignal={timelineMessages}
-            turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-            turnTimingByTurnId={turnTimingByTurnId}
-            threadError={thread.error}
-            onOpenTurnDiff={ignore}
-            onOpenThread={ignore}
-            revertTurnCountByUserMessageId={NO_REVERTS}
-            onRevertUserMessage={ignore}
-            isRevertingCheckpoint={false}
-            onExpandTimelineImage={setExpandedImage}
-            followLiveOutput={!scroll.isUserScrollDetached}
-            animateTailAnchorSlide={!hasStreamingAssistantText}
-            onIsAtEndChange={scroll.onIsAtEndChange}
-            onNavigate={scroll.onTranscriptNavigate}
-            markdownCwd={undefined}
-            resolvedTheme={resolvedTheme}
-            chatFontSizePx={settings.chatFontSizePx}
-            timestampFormat={settings.timestampFormat}
-            workspaceRoot={undefined}
-            emptyStateProjectName={undefined}
-            terminalWorkspaceTerminalTabActive={false}
-            onMessagesScroll={scroll.onMessagesScrollBase}
-            onMessagesClickCapture={scroll.onMessagesClickCaptureBase}
-            onMessagesMouseUp={ignore}
-            onMessagesWheel={scroll.onMessagesWheelBase}
-            onEmbeddedScrollIntent={scroll.onEmbeddedScrollIntent}
-            onMessagesPointerDown={scroll.onMessagesPointerDownBase}
-            onMessagesPointerUp={scroll.onMessagesPointerUpBase}
-            onMessagesPointerCancel={scroll.onMessagesPointerCancelBase}
-            onMessagesTouchStart={scroll.onMessagesTouchStartBase}
-            onMessagesTouchMove={scroll.onMessagesTouchMoveBase}
-            onMessagesTouchEnd={scroll.onMessagesTouchEndBase}
-            scrollButtonVisible={scroll.showScrollToBottom}
-            onScrollToBottom={scroll.onScrollToBottom}
-            contentInsetBottomPx={composerTranscriptInsetPx}
-            contentInsetBottomClearancePx={overlayBottomClearancePx}
-          />
-        </div>
-        {/* Trailing block below the transcript: the composer floats `bottom-full` over it, as
-            in ChatView, so rows scroll behind the frosted surface. */}
-        <div className="relative z-10 w-full shrink-0">
+    <SharedViewerContext.Provider value={true}>
+      <SharedFileOpenerContext.Provider value={ownerServesFiles ? openSharedFile : null}>
+        <VisualFollowUpContext.Provider value={over ? null : sendFollowUp}>
           <div
-            ref={overlayRef}
             className={cn(
-              "pointer-events-none absolute inset-x-0 bottom-full w-full overflow-visible",
-              CHAT_COLUMN_GUTTER_CLASS_NAME,
+              "flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden text-foreground",
+              CHAT_BACKGROUND_CLASS_NAME,
             )}
+            style={frameStyle}
+            data-guest-thread={shareId}
           >
-            <div className="pointer-events-auto">
-              {over ? (
-                <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
-                  <GuestOwnMessages messages={ownMessages} onImageExpand={setExpandedImage} />
+            <GuestHeader title={thread.title} model={view.model} expiresAt={view.expiresAt} />
+            <GuestConnectionBanner status={status} onRetry={onRetry} />
+            {stream.truncated ? (
+              <p className="shrink-0 pt-2 text-center text-ui-xs text-muted-foreground">
+                {t("guest.timeline.truncated")}
+              </p>
+            ) : null}
+            <div className="flex min-h-0 flex-1">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <ChatTranscriptPane
+                    {...(ownerServesFiles ? { onOpenHtmlDocument: openHtmlDocument } : {})}
+                    activeThreadId={thread.id}
+                    activeTurnId={activeTurnId}
+                    hasMessages={timelineEntries.length > 0}
+                    isWorking={isWorking}
+                    workingLabel={resolveWorkingLabel({
+                      isSendBusy: false,
+                      turnTakenOver: false,
+                      isConnecting,
+                      ...(providerName
+                        ? { providerName: PROVIDER_DISPLAY_NAMES[providerName] }
+                        : {}),
+                    })}
+                    worktreeSetup={null}
+                    activeTurnInProgress={isWorking || !latestTurnSettled}
+                    collapseFinishedTurns={settings.collapseFinishedTurns}
+                    activeTurnStartedAt={activeWorkStartedAt}
+                    listRef={legendListRef}
+                    timelineEntries={timelineEntries}
+                    messageChangeSignal={timelineMessages}
+                    turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                    turnTimingByTurnId={turnTimingByTurnId}
+                    threadError={thread.error}
+                    onOpenTurnDiff={ownerServesFiles ? openTurnDiff : ignore}
+                    onOpenThread={ignore}
+                    revertTurnCountByUserMessageId={NO_REVERTS}
+                    onRevertUserMessage={ignore}
+                    isRevertingCheckpoint={false}
+                    onExpandTimelineImage={setExpandedImage}
+                    followLiveOutput={!scroll.isUserScrollDetached}
+                    animateTailAnchorSlide={!hasStreamingAssistantText}
+                    onIsAtEndChange={scroll.onIsAtEndChange}
+                    onNavigate={scroll.onTranscriptNavigate}
+                    markdownCwd={undefined}
+                    resolvedTheme={resolvedTheme}
+                    chatFontSizePx={settings.chatFontSizePx}
+                    timestampFormat={settings.timestampFormat}
+                    workspaceRoot={undefined}
+                    emptyStateProjectName={undefined}
+                    terminalWorkspaceTerminalTabActive={false}
+                    onMessagesScroll={scroll.onMessagesScrollBase}
+                    onMessagesClickCapture={scroll.onMessagesClickCaptureBase}
+                    onMessagesMouseUp={ignore}
+                    onMessagesWheel={scroll.onMessagesWheelBase}
+                    onEmbeddedScrollIntent={scroll.onEmbeddedScrollIntent}
+                    onMessagesPointerDown={scroll.onMessagesPointerDownBase}
+                    onMessagesPointerUp={scroll.onMessagesPointerUpBase}
+                    onMessagesPointerCancel={scroll.onMessagesPointerCancelBase}
+                    onMessagesTouchStart={scroll.onMessagesTouchStartBase}
+                    onMessagesTouchMove={scroll.onMessagesTouchMoveBase}
+                    onMessagesTouchEnd={scroll.onMessagesTouchEndBase}
+                    scrollButtonVisible={scroll.showScrollToBottom}
+                    onScrollToBottom={scroll.onScrollToBottom}
+                    contentInsetBottomPx={composerTranscriptInsetPx}
+                    contentInsetBottomClearancePx={overlayBottomClearancePx}
+                  />
                 </div>
-              ) : (
-                <GuestComposer
+                {/* Trailing block below the transcript: the composer floats `bottom-full` over it, as
+            in ChatView, so rows scroll behind the frosted surface. */}
+                <div className="relative z-10 w-full shrink-0">
+                  <div
+                    ref={overlayRef}
+                    className={cn(
+                      "pointer-events-none absolute inset-x-0 bottom-full w-full overflow-visible",
+                      CHAT_COLUMN_GUTTER_CLASS_NAME,
+                    )}
+                  >
+                    <div className="pointer-events-auto">
+                      {over ? (
+                        <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
+                          <GuestOwnMessages
+                            messages={ownMessages}
+                            onImageExpand={setExpandedImage}
+                            onClear={clearReceipt}
+                          />
+                        </div>
+                      ) : (
+                        <GuestComposer
+                          transport={transport}
+                          model={view.model}
+                          pendingCount={pendingCount}
+                          panels={
+                            <GuestOwnMessages
+                              messages={ownMessages}
+                              onImageExpand={setExpandedImage}
+                              onClear={clearReceipt}
+                            />
+                          }
+                          onExpandImage={setExpandedImage}
+                          onSubmitted={onSubmitted}
+                          onNotice={setNotice}
+                          followUp={followUp}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    className={cn(
+                      CHAT_COLUMN_GUTTER_CLASS_NAME,
+                      "pb-[env(safe-area-inset-bottom,0px)]",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        COMPOSER_COLUMN_FRAME_CLASS_NAME,
+                        "flex min-h-8 items-center justify-center gap-x-2 px-1 pt-1.5 pb-1 text-center text-ui-xs",
+                      )}
+                    >
+                      {over ? (
+                        <span className="text-muted-foreground">{t("guest.ended.readOnly")}</span>
+                      ) : notice?.tone === "error" ? (
+                        <span role="alert" className="text-destructive">
+                          {notice.text}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="min-w-0 truncate text-muted-foreground">
+                            {notice?.text}
+                          </span>
+                          <span aria-hidden className="text-muted-foreground/60">
+                            ·
+                          </span>
+                          <WhatIsMossLink className="shrink-0" />
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {viewing !== null ? (
+                <GuestViewerPane
+                  threadId={thread.id}
                   transport={transport}
-                  model={view.model}
-                  pendingCount={pendingCount}
-                  panels={
-                    <GuestOwnMessages messages={ownMessages} onImageExpand={setExpandedImage} />
-                  }
-                  onExpandImage={setExpandedImage}
-                  onSubmitted={onSubmitted}
-                  onNotice={setNotice}
+                  viewing={viewing}
+                  onClose={closeViewer}
                 />
-              )}
+              ) : null}
             </div>
+            <ExpandedImageOverlay
+              expandedImage={expandedImage}
+              onClose={closeExpandedImage}
+              onNavigate={navigateExpandedImage}
+            />
           </div>
-          <div
-            className={cn(CHAT_COLUMN_GUTTER_CLASS_NAME, "pb-[env(safe-area-inset-bottom,0px)]")}
-          >
-            <div
-              className={cn(
-                COMPOSER_COLUMN_FRAME_CLASS_NAME,
-                "flex min-h-8 items-center justify-center gap-x-2 px-1 pt-1.5 pb-1 text-center text-ui-xs",
-              )}
-            >
-              {over ? (
-                <span className="text-muted-foreground">{t("guest.ended.readOnly")}</span>
-              ) : notice?.tone === "error" ? (
-                <span role="alert" className="text-destructive">
-                  {notice.text}
-                </span>
-              ) : (
-                <>
-                  <span className="min-w-0 truncate text-muted-foreground">{notice?.text}</span>
-                  <span aria-hidden className="text-muted-foreground/60">
-                    ·
-                  </span>
-                  <WhatIsMossLink className="shrink-0" />
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-      <ExpandedImageOverlay
-        expandedImage={expandedImage}
-        onClose={closeExpandedImage}
-        onNavigate={navigateExpandedImage}
-      />
-    </div>
+        </VisualFollowUpContext.Provider>
+      </SharedFileOpenerContext.Provider>
+    </SharedViewerContext.Provider>
   );
 }

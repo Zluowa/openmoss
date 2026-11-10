@@ -4,7 +4,7 @@ import type {
   ProviderStartOptions,
   ThreadHandoffImportedMessage,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Data, Effect } from "effect";
 import { readClaudeImportMessageDates } from "../provider/claudeProjectImport";
 import type { ProviderAdapterRegistryShape } from "../provider/Services/ProviderAdapterRegistry";
@@ -12,15 +12,59 @@ import { readClaudeSessionMessagePageInEnvironment } from "./importThreadRoute";
 import { mapClaudeSessionMessages, mapCodexSnapshotMessages } from "./importedThreadMessages";
 
 export class ProjectImportError extends Data.TaggedError("ProjectImportError")<{
+  /** Plain words a person can read; raw system errors stay in `detail` and the server log. */
   readonly message: string;
+  /** True only when trying again can succeed, such as a busy disk or database. */
+  readonly retryable?: boolean;
+  readonly detail?: string;
 }> {}
 
+const BUSY_CODES = new Set([
+  "EBUSY",
+  "EAGAIN",
+  "EMFILE",
+  "ENFILE",
+  "ETIMEDOUT",
+  "SQLITE_BUSY",
+  "SQLITE_LOCKED",
+]);
+
+/**
+ * A failure in plain words. File-system and database errors carry codes and raw paths
+ * (`EISDIR: illegal operation on a directory, stat 'E:'`) that mean nothing to a person;
+ * Moss's own errors are already written for people and pass through.
+ */
+export function toProjectImportError(cause: unknown): ProjectImportError {
+  if (cause instanceof ProjectImportError) return cause;
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const code = (cause as { code?: unknown } | null)?.code;
+  if (typeof code === "string" && BUSY_CODES.has(code)) {
+    return new ProjectImportError({
+      message: "The disk was busy. Moss can try again.",
+      retryable: true,
+      detail: message,
+    });
+  }
+  if (typeof code === "string" && /^(?:E[A-Z]+|SQLITE_\w+|ERR_SQLITE_ERROR)$/u.test(code)) {
+    return new ProjectImportError({
+      message: "Moss couldn't read this conversation's files.",
+      retryable: false,
+      detail: message,
+    });
+  }
+  return new ProjectImportError({ message });
+}
+
 export const projectImportPromise = <A>(run: () => Promise<A>) =>
-  Effect.tryPromise({
-    try: run,
-    catch: (cause) =>
-      new ProjectImportError({ message: cause instanceof Error ? cause.message : String(cause) }),
-  });
+  Effect.tryPromise({ try: run, catch: toProjectImportError }).pipe(
+    Effect.tapError((error) =>
+      error.detail
+        ? Effect.logWarning("project import could not use a file or folder").pipe(
+            Effect.annotateLogs({ detail: error.detail }),
+          )
+        : Effect.void,
+    ),
+  );
 
 export function nativeImportId(provider: ProjectImportProvider, cursor: unknown): string | null {
   if (!cursor || typeof cursor !== "object") return null;

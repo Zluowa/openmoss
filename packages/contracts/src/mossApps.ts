@@ -16,8 +16,11 @@ const ToolkitSlug = TrimmedNonEmptyString.check(
 /** Why Moss Apps can or cannot be used on this server. */
 export const MossAppsAvailability = Schema.Literals([
   "ready",
-  /** No app-integration key is configured for this server. */
+  /** The regional Apps service is not configured. */
   "unconfigured",
+  "authentication-required",
+  "login-account-required",
+  "unavailable",
 ]);
 export type MossAppsAvailability = typeof MossAppsAvailability.Type;
 

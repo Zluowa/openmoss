@@ -13,6 +13,10 @@ export function migrationBackupProvenancePath(dbPath: string): string {
   return `${dbPath}.migration-backup.json`;
 }
 
+export function migrationRepairFailurePath(dbPath: string): string {
+  return `${dbPath}.migration-repair-failed.json`;
+}
+
 /**
  * How many times startup may re-run an interrupted migration before it stops
  * trying and demands the explicit operator restore.
@@ -70,6 +74,21 @@ export const MIGRATION_RUNTIME_SOURCE_RELATIVE_PATH = "apps/server/src/persisten
 export const MIGRATION_DIVERGENCE_CONSENT_REQUIRED_PREFIX =
   "MOSS_MIGRATION_DIVERGENCE_CONSENT_REQUIRED=";
 export const MIGRATION_SCHEMA_TOO_NEW_BLOCK_PREFIX = "MOSS_MIGRATION_SCHEMA_TOO_NEW=";
+export const MIGRATION_REPAIR_FAILED_PREFIX = "MOSS_MIGRATION_REPAIR_FAILED=";
+// The server's refusal starts with this text; the desktop recognizes it to stop crash retries.
+export const MIGRATION_LINEAGE_UNSUPPORTED_MESSAGE =
+  "Migration tracker does not match any known lineage";
+
+export interface MigrationRepairFailure {
+  readonly version: 1;
+  readonly databasePath: string;
+  readonly backupPath: string;
+  readonly sourceVersion: string;
+  readonly targetVersion: number;
+  readonly lineageFingerprint: string;
+  readonly reason: string;
+  readonly failedAt: string;
+}
 
 export interface MigrationDivergenceConsentChallenge {
   readonly version: 1;
@@ -181,6 +200,38 @@ export function parseMigrationDivergenceConsentChallenge(
     (value): value is MigrationDivergenceConsentChallenge =>
       isMigrationDivergenceConsentChallenge(value) &&
       value.consentToken === createMigrationDivergenceConsentToken(value),
+  );
+}
+
+export function serializeMigrationRepairFailure(failure: MigrationRepairFailure): string {
+  return `${MIGRATION_REPAIR_FAILED_PREFIX}${JSON.stringify(failure)}`;
+}
+
+export function parseMigrationRepairFailure(output: string): MigrationRepairFailure | null {
+  return parsePrefixedJsonLine(output, MIGRATION_REPAIR_FAILED_PREFIX, isMigrationRepairFailure);
+}
+
+export function parseMigrationRepairFailureRecord(text: string): MigrationRepairFailure | null {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isMigrationRepairFailure(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isMigrationRepairFailure(value: unknown): value is MigrationRepairFailure {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.version === 1 &&
+    typeof record.databasePath === "string" &&
+    typeof record.backupPath === "string" &&
+    typeof record.sourceVersion === "string" &&
+    typeof record.targetVersion === "number" &&
+    typeof record.lineageFingerprint === "string" &&
+    typeof record.reason === "string" &&
+    typeof record.failedAt === "string"
   );
 }
 

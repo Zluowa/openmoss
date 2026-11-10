@@ -12,7 +12,7 @@
 // assembled here: verb, where, and which window, resolved from the window list
 // the pane already receives rather than left as an opaque id.
 
-import type { ComputerWindow } from "@synara/contracts";
+import type { ComputerWindow } from "@moss/contracts";
 
 /** The gateway's Computer tools, and the verb each one performs. */
 export const COMPUTER_TOOL_TITLES = {

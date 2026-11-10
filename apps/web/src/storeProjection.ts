@@ -14,8 +14,8 @@ import {
   type OrchestrationSpaceShell,
   type ThreadId,
   type TurnId,
-} from "@synara/contracts";
-import { deriveThreadSummaryMetadata } from "@synara/shared/threadSummary";
+} from "@moss/contracts";
+import { deriveThreadSummaryMetadata } from "@moss/shared/threadSummary";
 import { normalizeSidebarThreadOrder, requestSidebarOrderRehydrate } from "./sidebarThreadOrder";
 import { normalizeSidebarSections, sidebarSectionsEqual } from "./sidebarSections";
 
@@ -113,6 +113,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     subagentNickname: thread.subagentNickname ?? null,
     subagentRole: thread.subagentRole ?? null,
     forkSourceThreadId: thread.forkSourceThreadId ?? null,
+    forkSourceMessageId: thread.forkSourceMessageId ?? null,
     sidechatSourceThreadId: thread.sidechatSourceThreadId ?? null,
     sidechatContext: thread.sidechatContext ?? null,
     sidechatLastActivityAt: thread.sidechatLastActivityAt ?? null,
@@ -381,6 +382,7 @@ function sidebarThreadSummariesEqual(
     left.hasLiveTailWork === right.hasLiveTailWork &&
     left.pendingBackgroundWorkCount === right.pendingBackgroundWorkCount &&
     (left.forkSourceThreadId ?? null) === (right.forkSourceThreadId ?? null) &&
+    (left.forkSourceMessageId ?? null) === (right.forkSourceMessageId ?? null) &&
     (left.sidechatSourceThreadId ?? null) === (right.sidechatSourceThreadId ?? null) &&
     // The context never changes after creation; its URL identifies the item.
     (left.sidechatContext?.url ?? null) === (right.sidechatContext?.url ?? null) &&
@@ -433,6 +435,7 @@ function buildSidebarThreadSummary(
     hasLiveTailWork: metadata.hasLiveTailWork,
     pendingBackgroundWorkCount: metadata.pendingBackgroundWorkCount,
     forkSourceThreadId: thread.forkSourceThreadId ?? null,
+    forkSourceMessageId: thread.forkSourceMessageId ?? null,
     sidechatSourceThreadId: thread.sidechatSourceThreadId ?? null,
     sidechatContext: thread.sidechatContext ?? null,
     sidechatLastActivityAt: thread.sidechatLastActivityAt ?? null,

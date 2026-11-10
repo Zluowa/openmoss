@@ -1,4 +1,4 @@
-import type { NativeApi, ThreadId } from "@synara/contracts";
+import type { NativeApi, ThreadId } from "@moss/contracts";
 
 import {
   looksLikeComputerPermissionsBlocked,

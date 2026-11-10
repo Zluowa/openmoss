@@ -3,7 +3,7 @@
 // the card derives rows, counts, states, durations, nested rows, and labels.
 // Layer: Web chat transcript tests
 
-import { ThreadId, TurnId, type MessageId } from "@synara/contracts";
+import { ThreadId, TurnId, type MessageId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { WorkLogEntry, WorkLogSubagent } from "../../session-logic";

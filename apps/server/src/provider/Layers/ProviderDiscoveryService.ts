@@ -36,11 +36,12 @@ import {
   type ProviderSkillDescriptor,
   PROVIDER_PLUGIN_LISTING_LOAD_ERROR_SUFFIX,
   isSupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   providerStartOptionsFromInstance,
+  withServerSelectedAgentProgram,
   resolveProviderInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import { Effect, Exit, Layer, Option, Queue, Schema, SchemaIssue, Semaphore } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -88,6 +89,9 @@ import {
   filterDisabledSkills,
   mergeSkillsIntoCatalog,
 } from "../skillsCatalog.ts";
+import { resolveOmpCliBinaryPath } from "../acp/OmpAcpSupport.ts";
+import { makeCodexStateBindingSelection } from "../codexStateBinding.ts";
+import { makeClaudeStateBindingSelection } from "../claudeStateBinding.ts";
 
 const decodeInputOrValidationError = <S extends Schema.Top>(input: {
   readonly operation: string;
@@ -241,6 +245,15 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
     const registry = yield* ProviderAdapterRegistry;
     const serverConfig = yield* ServerConfig;
     const serverSettings = yield* ServerSettingsService;
+    const selectCodexState = yield* makeCodexStateBindingSelection({
+      stateDir: serverConfig.stateDir,
+      runtimeHomePath: serverConfig.baseDir,
+      readSettings: () => Effect.runSync(serverSettings.getSettings),
+    });
+    const selectClaudeState = yield* makeClaudeStateBindingSelection({
+      stateDir: serverConfig.stateDir,
+      readSettings: () => Effect.runSync(serverSettings.getSettings),
+    });
     const providerHealth = yield* ProviderHealth;
     // One catalog cache for every provider: adapters that spawn a CLI/ACP process
     // per listModels call share stale-while-revalidate, single-flight, and
@@ -373,6 +386,9 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
       replaceProviderOptions: boolean,
     ): T => {
       const base = { ...parsed } as Record<string, unknown>;
+      if (parsed.provider === "codex" || parsed.provider === "claudeAgent") {
+        delete base.binaryPath;
+      }
       if (replaceProviderOptions) {
         const optionKeys = isSupportedProviderKind(parsed.provider)
           ? (PROVIDER_DISCOVERY_OPTION_KEYS[parsed.provider] ?? [])
@@ -436,13 +452,31 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
           readonly instanceId: string;
           readonly instanceEnabled: boolean;
         };
-        return instance.enabled
-          ? applyProviderStartOptions(
-              resolved,
-              providerStartOptionsFromInstance(instance),
-              parsed.instanceId !== undefined,
-            )
-          : resolved;
+        if (!instance.enabled) return resolved;
+        const providerOptions = yield* Effect.tryPromise({
+          try: async () =>
+            selectClaudeState(
+              instance.instanceId,
+              await selectCodexState(
+                instance.instanceId,
+                withServerSelectedAgentProgram(
+                  instance,
+                  providerStartOptionsFromInstance(instance),
+                ),
+              ),
+            ),
+          catch: (cause) =>
+            new ProviderValidationError({
+              operation: "ProviderDiscoveryService.resolveDiscoveryInput",
+              issue: cause instanceof Error ? cause.message : "历史与账户目录无法验证。",
+              cause,
+            }),
+        });
+        return applyProviderStartOptions(
+          resolved,
+          providerOptions,
+          parsed.instanceId !== undefined,
+        );
       });
 
     const getComposerCapabilities: ProviderDiscoveryServiceShape["getComposerCapabilities"] = (
@@ -1120,6 +1154,22 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
         // them across restarts. `omp models` is a cheap subprocess — bypass the
         // shared cache so every picker read reflects the live catalog.
         if (resolved.provider === "omp") {
+          // Without the CLI there is nothing to ask: answer empty instead of spawning a
+          // missing `omp` (and logging a failure) on every picker read.
+          const status = (yield* providerHealth.getStatuses).find(
+            (entry) =>
+              (entry.driver ?? entry.provider) === "omp" &&
+              (entry.instanceId ?? entry.provider) === resolved.instanceId,
+          );
+          // Before the first health check answers, the bare command not resolving says
+          // the same thing.
+          const missing =
+            status?.readiness?.state === "notInstalled" ||
+            (status?.readiness?.state !== "ready" &&
+              resolveOmpCliBinaryPath(resolved.binaryPath) === "omp");
+          if (missing) {
+            return { models: [], source: "not-installed", cached: false };
+          }
           return yield* discover;
         }
         const cacheKey = providerModelDiscoveryCacheKey(resolved);

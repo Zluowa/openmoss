@@ -1,4 +1,4 @@
-import type { DesktopDiagnosticIssue } from "@synara/contracts";
+import type { DesktopDiagnosticIssue } from "@moss/contracts";
 
 /** Classify locally; the original exception never crosses the issue bridge. */
 export function diagnosticIssueReason(error: unknown): DesktopDiagnosticIssue["reason"] {

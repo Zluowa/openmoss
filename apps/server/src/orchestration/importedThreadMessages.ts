@@ -1,10 +1,10 @@
 // FILE: importedThreadMessages.ts
 // Purpose: Normalizes provider-native transcript snapshots into Moss import messages.
 // Layer: Orchestration import mapping
-// Exports: Codex, Claude, OpenCode, and Factory Droid transcript mappers.
+// Exports: Codex, Claude, OpenCode, Factory Droid, OMP, and local-history transcript mappers.
 
 import type { SessionMessage as ClaudeSessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import { MessageId, type ThreadHandoffImportedMessage, type ThreadId } from "@synara/contracts";
+import { MessageId, type ThreadHandoffImportedMessage, type ThreadId } from "@moss/contracts";
 
 function readTranscriptTextParts(value: unknown): ReadonlyArray<string> {
   if (!Array.isArray(value)) return [];
@@ -341,5 +341,53 @@ export function mapOmpSnapshotMessages(input: {
         },
       ];
     }),
+  );
+}
+
+const localHistoryMessageId = (threadId: ThreadId, index: number, sourceId: string) =>
+  `import:${String(threadId)}:local:${index}:${sourceId}`;
+
+// Copied-as-text messages: local-history imports (above) and workspace imports, whose ids
+// `workspace/wsHandlers.ts` mints as `workspace-import:<thread>:<index>`.
+const COPIED_TRANSCRIPT_MESSAGE_ID = /^(?:import:[^:]+:local:|workspace-import:)/u;
+
+/**
+ * Whether a thread holds conversation Moss copied as text from another agent's history. That
+ * agent never saw those messages in this thread, so a session it starts fresh for the thread
+ * must receive them as context.
+ */
+export function hasCopiedTranscriptMessages(thread: {
+  readonly messages: ReadonlyArray<{ readonly id: string }>;
+}): boolean {
+  return thread.messages.some((message) => COPIED_TRANSCRIPT_MESSAGE_ID.test(message.id));
+}
+
+/** Messages read from an agent's local files (see provider/localHistory), in source order. */
+export function mapLocalHistoryMessages(input: {
+  readonly importedAt: string;
+  readonly threadId: ThreadId;
+  readonly messages: ReadonlyArray<{
+    readonly id: string;
+    readonly role: "user" | "assistant";
+    readonly text: string;
+    readonly createdAt?: string | undefined;
+  }>;
+}): ReadonlyArray<ThreadHandoffImportedMessage> {
+  return finalizeImportedMessages(
+    input.messages.flatMap((message, index) => {
+      const text = message.text.trim();
+      if (!text) return [];
+      const timestamp = readTimestamp(message.createdAt);
+      return [
+        {
+          messageId: MessageId.makeUnsafe(localHistoryMessageId(input.threadId, index, message.id)),
+          role: message.role,
+          text,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      ];
+    }),
+    input.importedAt,
   );
 }

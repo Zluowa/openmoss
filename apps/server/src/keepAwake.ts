@@ -8,15 +8,15 @@
  * Process control (spawn, SIGTERM, bounded restart backoff) is isolated behind
  * an injectable runtime so the fold is unit-testable without a real child.
  */
-import { resolveExecutable } from "@synara/shared/executable";
-import { spawnProcess } from "@synara/shared/processRuntime";
+import { resolveExecutable } from "@moss/shared/executable";
+import { spawnProcess } from "@moss/shared/processRuntime";
 import {
   type KeepAwakeMode,
   type OrchestrationEvent,
   type OrchestrationReadModel,
   type ServerKeepAwakeState,
   ThreadSessionSetPayload,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   Deferred,
   Duration,

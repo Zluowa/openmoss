@@ -15,8 +15,8 @@ import {
   type RuntimeMode,
   type ThreadGoalStartBehavior,
   type ThreadId,
-} from "@synara/contracts";
-import { deriveAssociatedWorktreeMetadata } from "@synara/shared/threadWorkspace";
+} from "@moss/contracts";
+import { deriveAssociatedWorktreeMetadata } from "@moss/shared/threadWorkspace";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { newCommandId, newMessageId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -65,7 +65,7 @@ import {
   sendSidechatPrompt,
   type SidechatCreationFlight,
 } from "../lib/sidechatCreation";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
 
 type ComposerSnapshot = {
   value: string;

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { assert, it } from "@effect/vitest";
-import { AutomationId, ProjectId, type AutomationCreateInput } from "@synara/contracts";
+import { AutomationId, ProjectId, type AutomationCreateInput } from "@moss/contracts";
 import { Deferred, Effect, Exit, Fiber, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 

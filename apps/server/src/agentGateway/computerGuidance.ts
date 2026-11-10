@@ -1,4 +1,4 @@
-import { EXPLICIT_BROWSER_ENVIRONMENT_GUIDANCE } from "@synara/shared/browserAutomationCatalogue";
+import { EXPLICIT_BROWSER_ENVIRONMENT_GUIDANCE } from "@moss/shared/browserAutomationCatalogue";
 
 /** Shared provider-host Computer guidance. Never included in MCP initialize:
  * clients may expand server instructions per tool, and Pi uses native tools.

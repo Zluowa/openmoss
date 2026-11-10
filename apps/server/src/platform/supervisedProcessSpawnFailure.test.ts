@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { spawnProcess } from "@synara/shared/processRuntime";
+import { spawnProcess } from "@moss/shared/processRuntime";
 import { describe, expect, it, vi } from "vitest";
 
 import { teardownChildProcessTree } from "./supervisedProcessTeardown";

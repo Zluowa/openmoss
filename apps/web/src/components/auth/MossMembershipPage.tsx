@@ -2,8 +2,8 @@
 // Purpose: Full-page Moss membership catalog aligned with the quiet Codex/Kimi plan picker.
 // The server remains authoritative for purchasable SKUs and the account-specific payment rail.
 
-import type { MossPayPlan } from "@synara/contracts";
-import { isMossPayOrderSettled } from "@synara/contracts";
+import type { MossPayPlan } from "@moss/contracts";
+import { isMossPayOrderSettled } from "@moss/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -19,6 +19,7 @@ import {
   isCurrentMossPlan,
   mossMembershipAgentUsageMultiplier,
   mossMembershipPlanName,
+  mossPlansPurchasable,
   visibleMossMembershipPlans,
 } from "~/components/auth/MossMembershipPage.logic";
 import { Button } from "~/components/ui/button";
@@ -131,6 +132,7 @@ function PersonalPlanCard({
   current,
   paymentMethod,
   pending,
+  purchasable,
   onSelect,
 }: {
   readonly plan: MossPayPlan;
@@ -138,6 +140,7 @@ function PersonalPlanCard({
   readonly current: boolean;
   readonly paymentMethod: string | null;
   readonly pending: boolean;
+  readonly purchasable: boolean;
   readonly onSelect: () => void;
 }) {
   const { format, locale, t } = useTranslation();
@@ -184,21 +187,23 @@ function PersonalPlanCard({
       <button
         className={cn(
           "mt-5 flex h-11 w-full items-center justify-center rounded-full border px-4 text-ui-lg font-medium transition-colors",
-          current
+          current || !purchasable
             ? "cursor-default border-transparent bg-muted text-muted-foreground"
             : "border-border bg-background hover:bg-muted/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
         )}
         data-testid={`moss-membership-subscribe-${plan.code}`}
-        disabled={current || pending}
+        disabled={current || pending || !purchasable}
         onClick={onSelect}
         type="button"
       >
         {current ? t("mossPay.membership.currentButton") : t("mossPay.catalog.subscribe")}
       </button>
       <p className="mt-2 min-h-4 text-center text-ui-xs text-muted-foreground">
-        {paymentMethod
-          ? format("mossPay.membership.paymentVia", { method: paymentMethod })
-          : t("mossPay.catalog.paymentMethodUnavailable")}
+        {!purchasable
+          ? t("mossPay.membership.notPurchasableShort")
+          : paymentMethod
+            ? format("mossPay.membership.paymentVia", { method: paymentMethod })
+            : t("mossPay.catalog.paymentMethodUnavailable")}
       </p>
       <div className="mt-6 border-t border-border/55 pt-5">
         <p className="mb-4 text-ui font-medium">{t("mossPay.membership.included")}</p>
@@ -277,13 +282,16 @@ export function MossMembershipPage({
         cloudAccountQuery.isFetching));
   const quotaLoading = accountIdentity !== null && quotaQuery.isPending && !quota;
   const membershipLoading = catalogLoading || accountLoading || quotaLoading;
+  const plansPurchasable = mossPlansPurchasable(catalog);
   const rail =
     catalog?.paymentMethods[0] ??
-    (phoneAccountQuery.data?.authenticated
-      ? ({ id: "wechat_pay", displayName: "提市微信支付", kind: "qr" } as const)
-      : cloudAccountQuery.data?.authenticated
-        ? ({ id: "stripe_checkout", displayName: "Stripe", kind: "hosted" } as const)
-        : null);
+    (!plansPurchasable
+      ? null
+      : phoneAccountQuery.data?.authenticated
+        ? ({ id: "wechat_pay", displayName: "提市微信支付", kind: "qr" } as const)
+        : cloudAccountQuery.data?.authenticated
+          ? ({ id: "stripe_checkout", displayName: "Stripe", kind: "hosted" } as const)
+          : null);
   const plans = useMemo(() => visibleMossMembershipPlans(catalog?.plans ?? []), [catalog?.plans]);
   const basicMonthlyPriceCny =
     plans.find((plan) => plan.code === "basic")?.monthlyPriceCny ?? 4_900;
@@ -396,7 +404,9 @@ export function MossMembershipPage({
               className="mt-3 text-center text-ui-sm text-muted-foreground"
               data-testid="moss-payment-method"
             >
-              {rail?.displayName ?? t("mossPay.catalog.paymentMethodUnavailable")}
+              {!plansPurchasable
+                ? t("mossPay.catalog.plansNotPurchasable")
+                : (rail?.displayName ?? t("mossPay.catalog.paymentMethodUnavailable"))}
             </p>
           )}
 
@@ -431,6 +441,7 @@ export function MossMembershipPage({
                       paymentMethod={rail?.displayName ?? null}
                       pending={createOrder.isPending}
                       plan={plan}
+                      purchasable={plansPurchasable}
                     />
                   ))}
                 </div>

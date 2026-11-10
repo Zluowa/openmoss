@@ -27,7 +27,7 @@ import {
   BrowserUploadInput,
   BrowserUploadOutput,
   type BrowserToolName,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
 import { BROWSER_TOOL_TITLES } from "./browserAutomationPresentation";

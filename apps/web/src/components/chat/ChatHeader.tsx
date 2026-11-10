@@ -11,8 +11,8 @@ import {
   type ProviderKind,
   type ResolvedKeybindingsConfig,
   type ThreadId,
-} from "@synara/contracts";
-import { isGenericChatThreadTitle } from "@synara/shared/chatThreads";
+} from "@moss/contracts";
+import { isGenericChatThreadTitle } from "@moss/shared/chatThreads";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { ThreadPrimarySurface } from "../../types";
 import GitActionsControl from "../GitActionsControl";
@@ -92,6 +92,8 @@ interface ChatHeaderProps {
   // Open-thread tabs rendered in place of the thread title (the rail shell's single chat).
   // They stay visible on the empty-draft landing so switching threads never loses the row.
   threadTabs?: React.ReactNode;
+  /** Personal chats put touch actions in their identity menu. Desktop keeps the full toolbar. */
+  compactAssistantHeader?: boolean;
   hideSidebarControls?: boolean;
   hideHandoffControls?: boolean;
   // Empty-draft landings hide all thread-scoped chrome (title, Hand off, project
@@ -432,6 +434,7 @@ export function ChatHeader({
   threadBreadcrumbs,
   className,
   threadTabs,
+  compactAssistantHeader = false,
   hideSidebarControls: hideSidebarControlsProp,
   hideHandoffControls: hideHandoffControlsProp,
   minimalChrome: minimalChromeProp,
@@ -533,6 +536,10 @@ export function ChatHeader({
   const togglesRightDock = onToggleRightDock !== undefined;
   const rightPanelToggleLabel = t("rightDock.toggleRightSidebar");
   const diffPanelToggleLabel = t("chat.header.toggleDiffPanel");
+  // While the dock is open its own header carries this toggle at the window's
+  // top-right (the upstream arrangement), so the chat header drops its copy instead
+  // of showing a second one in the middle of the window.
+  const rightPanelToggleInDock = togglesRightDock && rightDockOpen;
   const rightPanelToggleControl = showDiffToggle ? (
     <Tooltip>
       <TooltipTrigger
@@ -614,7 +621,14 @@ export function ChatHeader({
       </React.Fragment>
     ));
   return (
-    <div ref={headerRef} className={cn("flex min-w-0 flex-1 items-center gap-2", className)}>
+    <div
+      ref={headerRef}
+      className={cn(
+        "flex min-w-0 flex-1 items-center gap-2",
+        compactAssistantHeader && "mossbot-native-header",
+        className,
+      )}
+    >
       <div
         className={cn(
           // Keep the whole leading/header surface draggable when the chat pane
@@ -630,7 +644,7 @@ export function ChatHeader({
         {hideSidebarControls ? null : (
           // The extra end padding keeps the wider gap the collapsed header had (gap-4).
           <SidebarHeaderNavigationControls
-            className="md:pe-1"
+            className={cn("md:pe-1", compactAssistantHeader && "hidden md:flex")}
             collapsedGapClassName="-me-2 sm:-me-3"
           />
         )}
@@ -734,7 +748,12 @@ export function ChatHeader({
           </div>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
+      <div
+        className={cn(
+          "flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]",
+          compactAssistantHeader && "max-md:hidden",
+        )}
+      >
         {!minimalChrome ? (
           <GuestShareHeaderButton threadId={activeThreadId} compact={compact} />
         ) : null}
@@ -808,7 +827,10 @@ export function ChatHeader({
           />
         ) : null}
 
+        {/* With the Environment card available, project scripts live there (the upstream
+            thread-details card), not in the header. */}
         {!minimalChrome &&
+        !environment &&
         !isSidechat &&
         activeProjectName &&
         activeProjectScripts &&
@@ -851,7 +873,7 @@ export function ChatHeader({
                 tooltip="Library"
               />
             ) : null}
-            {rightPanelToggleControl}
+            {rightPanelToggleInDock ? null : rightPanelToggleControl}
           </>
         ) : (
           <>
@@ -873,7 +895,7 @@ export function ChatHeader({
                 onRegisterCommitAndPushTrigger={onRegisterCommitAndPushTrigger}
               />
             ) : null}
-            {rightPanelToggleControl}
+            {rightPanelToggleInDock ? null : rightPanelToggleControl}
           </>
         )}
         {isSplitPane && onCloseThreadPane ? (

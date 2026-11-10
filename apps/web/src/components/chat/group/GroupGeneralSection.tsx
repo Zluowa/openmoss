@@ -1,4 +1,5 @@
-import { DEFAULT_PROJECT_AGENT_LIMITS, type ModelSelection } from "@synara/contracts";
+import { MossbotAvatarPicker } from "~/components/mossbot/MossbotAvatar";
+import { DEFAULT_PROJECT_AGENT_LIMITS, type ModelSelection } from "@moss/contracts";
 
 import { Input } from "~/components/ui/input";
 import {
@@ -35,6 +36,7 @@ function appearanceOptionClassName(selected: boolean): string {
 // The group's icon is the coordinator glyph and colour that the sidebar row and
 // the chat header show, so it is picked once, here, next to the name.
 export function GroupGeneralSection(props: {
+  readonly personal?: boolean;
   readonly draft: GroupSettingsDraft;
   readonly defaultModelSelection: ModelSelection | null;
   readonly projectCwd: string;
@@ -46,7 +48,7 @@ export function GroupGeneralSection(props: {
       ?.iconClassName ?? "";
   return (
     <div className="space-y-6">
-      <SettingsSectionShell title="Hub">
+      <SettingsSectionShell title={props.personal ? "Assistant profile" : "Hub"}>
         <SettingsCard>
           <div className="space-y-1.5 px-4 py-3">
             <p className={cn(dialogFieldLabelClassName)}>Name</p>
@@ -54,8 +56,8 @@ export function GroupGeneralSection(props: {
               value={draft.name}
               maxLength={GROUP_NAME_MAX_CHARS}
               onChange={(event) => onChange({ name: event.target.value })}
-              placeholder="Hub name"
-              aria-label="Hub name"
+              placeholder={props.personal ? "Assistant name" : "Hub name"}
+              aria-label={props.personal ? "Assistant name" : "Hub name"}
             />
           </div>
           <div className="space-y-1.5 px-4 py-3">
@@ -63,7 +65,9 @@ export function GroupGeneralSection(props: {
               <p className={cn(dialogFieldLabelClassName)}>Icon</p>
               <button
                 type="button"
-                aria-label="Use the default hub icon"
+                aria-label={
+                  props.personal ? "Use the default assistant avatar" : "Use the default hub icon"
+                }
                 className={cn(
                   "cursor-pointer rounded-sm text-ui-sm text-muted-foreground transition-colors hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -73,28 +77,37 @@ export function GroupGeneralSection(props: {
                 Use default
               </button>
             </div>
-            <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Hub icon">
-              {COORDINATOR_ICON_OPTIONS.map(({ key, label, Icon }) => {
-                const selected = draft.coordinatorIcon === key;
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    title={label}
-                    aria-label={`Hub icon ${label}`}
-                    aria-pressed={selected}
-                    className={appearanceOptionClassName(selected)}
-                    onClick={() => onChange({ coordinatorIcon: selected ? "" : key })}
-                  >
-                    <Icon className={cn("size-4", selectedColorClassName)} />
-                  </button>
-                );
-              })}
-            </div>
+            {props.personal ? (
+              <MossbotAvatarPicker
+                value={draft.coordinatorIcon || "mossbot-pebble"}
+                color={draft.coordinatorColor}
+                onChange={(coordinatorIcon) => onChange({ coordinatorIcon })}
+              />
+            ) : (
+              <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Hub icon">
+                {COORDINATOR_ICON_OPTIONS.map(({ key, label, Icon }) => {
+                  const selected = draft.coordinatorIcon === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      data-appearance-option="hub-icon"
+                      title={label}
+                      aria-label={`Hub icon ${label}`}
+                      aria-pressed={selected}
+                      className={appearanceOptionClassName(selected)}
+                      onClick={() => onChange({ coordinatorIcon: selected ? "" : key })}
+                    >
+                      <Icon className={cn("size-4", selectedColorClassName)} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div
               className="flex flex-wrap items-center gap-1 pt-1"
               role="group"
-              aria-label="Hub icon color"
+              aria-label={props.personal ? "Assistant color" : "Hub icon color"}
             >
               {COORDINATOR_COLOR_OPTIONS.map((option) => {
                 const selected = draft.coordinatorColor === option.key;
@@ -102,8 +115,9 @@ export function GroupGeneralSection(props: {
                   <button
                     key={option.key}
                     type="button"
+                    data-appearance-option="color"
                     title={option.label}
-                    aria-label={`Hub icon color ${option.label}`}
+                    aria-label={`${props.personal ? "Assistant color" : "Hub icon color"} ${option.label}`}
                     aria-pressed={selected}
                     className={appearanceOptionClassName(selected)}
                     onClick={() => onChange({ coordinatorColor: selected ? "" : option.key })}
@@ -122,9 +136,17 @@ export function GroupGeneralSection(props: {
             <CharacterCountTextarea
               value={draft.goal}
               maxChars={GROUP_GOAL_MAX_CHARS}
-              helper="The outcome you want the coordinator to work toward."
-              placeholder="What should this hub accomplish?"
-              aria-label="Hub goal"
+              helper={
+                props.personal
+                  ? "The outcome you want this assistant to work toward."
+                  : "The outcome you want the coordinator to work toward."
+              }
+              placeholder={
+                props.personal
+                  ? "What should this assistant help you with?"
+                  : "What should this hub accomplish?"
+              }
+              aria-label={props.personal ? "Assistant goal" : "Hub goal"}
               onChange={(event) => onChange({ goal: event.target.value })}
             />
           </div>
@@ -165,7 +187,7 @@ export function GroupGeneralSection(props: {
       <SettingsSectionShell title="Models">
         <SettingsCard>
           <GroupModelRow
-            title="Coordinator model"
+            title={props.personal ? "Assistant CLI & model" : "Coordinator model"}
             description="Model for managing and creating threads."
             selection={draft.coordinatorModelSelection}
             defaultSelection={props.defaultModelSelection}
@@ -173,7 +195,7 @@ export function GroupGeneralSection(props: {
             onChange={(next) => onChange({ coordinatorModelSelection: next })}
           />
           <GroupEffortRow
-            title="Coordinator effort"
+            title={props.personal ? "Assistant effort" : "Coordinator effort"}
             description="Effort for managing and creating threads."
             selection={draft.coordinatorModelSelection}
             projectCwd={props.projectCwd}

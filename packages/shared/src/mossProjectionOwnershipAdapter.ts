@@ -8,7 +8,7 @@ import type {
   MossOwnershipLock,
   MossOwnershipStore,
   MossPrivateStagePayload,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   mossProjectionContentHash,

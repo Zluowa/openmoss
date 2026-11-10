@@ -4,17 +4,21 @@ import {
   type ModelSelection,
   type ProviderKind,
   type ProviderStartOptions,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   mergeProviderStartOptions,
   providerStartOptionsFromInstance,
+  withServerSelectedAgentProgram,
   resolveModelSelectionInstanceId,
   resolveProviderInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 import { Effect, Layer, Option } from "effect";
 
 import { parseOpenCodeModelSlug } from "../../provider/opencodeRuntime.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { ServerConfig } from "../../config.ts";
+import { makeCodexStateBindingSelection } from "../../provider/codexStateBinding.ts";
+import { makeClaudeStateBindingSelection } from "../../provider/claudeStateBinding.ts";
 import { TextGenerationError } from "../Errors.ts";
 import * as TextGen from "../Services/TextGeneration.ts";
 import * as Selection from "../textGenerationSelection.ts";
@@ -40,6 +44,17 @@ const makeProviderTextGeneration = Effect.gen(function* () {
   const droidTextGeneration = yield* TextGen.DroidTextGeneration;
   const openCodeTextGeneration = yield* TextGen.OpenCodeTextGeneration;
   const serverSettings = yield* ServerSettingsService;
+  const serverConfig = Option.getOrUndefined(yield* Effect.serviceOption(ServerConfig));
+  const selectCodexState = yield* makeCodexStateBindingSelection({
+    ...(serverConfig
+      ? { stateDir: serverConfig.stateDir, runtimeHomePath: serverConfig.baseDir }
+      : {}),
+    readSettings: () => Effect.runSync(serverSettings.getSettings),
+  });
+  const selectClaudeState = yield* makeClaudeStateBindingSelection({
+    ...(serverConfig ? { stateDir: serverConfig.stateDir } : {}),
+    readSettings: () => Effect.runSync(serverSettings.getSettings),
+  });
   const gitCore = yield* GitCore;
   const gitHubCli = yield* GitHubCli;
 
@@ -187,10 +202,28 @@ const makeProviderTextGeneration = Effect.gen(function* () {
             instanceId: instance.instanceId,
           } as ModelSelection)
         : undefined;
-      const providerOptions = mergeProviderStartOptions(
-        input.providerOptions,
-        providerStartOptionsFromInstance(instance),
-      );
+      const providerOptions = yield* Effect.tryPromise({
+        try: async () =>
+          selectClaudeState(
+            instance.instanceId,
+            await selectCodexState(
+              instance.instanceId,
+              withServerSelectedAgentProgram(
+                instance,
+                mergeProviderStartOptions(
+                  input.providerOptions,
+                  providerStartOptionsFromInstance(instance),
+                ),
+              ),
+            ),
+          ),
+        catch: (cause) =>
+          new TextGenerationError({
+            operation,
+            detail: cause instanceof Error ? cause.message : "历史与账户目录无法验证，请检查设置。",
+            cause,
+          }),
+      });
       const writingPreferences =
         operation === "generateCommitMessage" || operation === "generatePrContent"
           ? {

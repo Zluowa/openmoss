@@ -5,7 +5,7 @@
 // Runtime descriptors remain exhaustive for persisted sessions and backward compatibility.
 // The product offers every supported driver; optional CLIs still require opt-in.
 
-import type { ProviderKind, SupportedProviderKind } from "@synara/contracts";
+import type { ProviderKind, SupportedProviderKind } from "@moss/contracts";
 
 export const MOSS_RETIRED_PROVIDER_KINDS = [
   "droid",
@@ -15,12 +15,12 @@ export const MOSS_RETIRED_PROVIDER_KINDS = [
 export const MOSS_DEFAULT_PROVIDER_KINDS = [
   "codex",
   "claudeAgent",
-  "opencode",
-  "grok",
 ] as const satisfies readonly SupportedProviderKind[];
 
 // Users can enable these providers and sign in with their own CLI account.
 export const MOSS_OPTIONAL_PROVIDER_KINDS = [
+  "opencode",
+  "grok",
   "cursor",
   "gemini",
   "antigravity",

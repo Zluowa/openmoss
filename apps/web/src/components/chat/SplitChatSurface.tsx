@@ -1,5 +1,5 @@
-import { type ModelSelection, type ProjectId, type ThreadId, type TurnId } from "@synara/contracts";
-import { inferLegacyProviderKindFromModelSelection } from "@synara/shared/providerInstances";
+import { type ModelSelection, type ProjectId, type ThreadId, type TurnId } from "@moss/contracts";
+import { inferLegacyProviderKindFromModelSelection } from "@moss/shared/providerInstances";
 import { useNavigate } from "@tanstack/react-router";
 import {
   type CSSProperties,
@@ -63,7 +63,7 @@ import {
 } from "../../splitViewStore";
 import { useStore } from "../../store";
 import { resolveTerminalMissingSplitThreadIds } from "../../routes/-chatThreadRoute.logic";
-import { createThreadShellsSelector } from "../../storeSelectors";
+import { createProjectSelector, createThreadShellsSelector } from "../../storeSelectors";
 import {
   resolveSplitPaneCloseDecision,
   resolveThreadPickerTitle,
@@ -88,7 +88,7 @@ import {
 } from "./composerPickerStyles";
 import { routeSplitBrowserPanelOpenRequest } from "./browserPanelOpenRequest";
 import { cn } from "~/lib/utils";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
 
 const SPLIT_PANE_PANEL_DEFAULT_WIDTH_PX = 22 * 16;
 const BROWSER_SPLIT_PANE_PANEL_DEFAULT_WIDTH_PX = 30 * 16;
@@ -116,6 +116,9 @@ function SplitPaneEmbeddedPanel(props: {
   ) => void;
 }) {
   const dockState = useRightDockStore(selectRightDockState(props.threadId));
+  // The browser lists the project's servers on a new tab; it needs the project's folder.
+  const projectCwd =
+    useStore(useMemo(() => createProjectSelector(props.projectId), [props.projectId]))?.cwd ?? null;
   const terminalPane = dockState.open
     ? dockState.panes.find((pane) => pane.id === dockState.activePaneId && pane.kind === "terminal")
     : undefined;
@@ -252,6 +255,8 @@ function SplitPaneEmbeddedPanel(props: {
           <LazyBrowserPanel
             mode="sidebar"
             threadId={props.threadId}
+            projectId={props.projectId}
+            workspaceRoot={projectCwd}
             onClosePanel={props.onClosePanel}
           />
         </Suspense>

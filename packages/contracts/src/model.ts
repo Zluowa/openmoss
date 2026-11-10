@@ -544,7 +544,7 @@ const EMPTY_MODEL_CAPABILITIES: ModelCapabilities = {
 export const DEFAULT_DROID_GIT_TEXT_GENERATION_MODEL = "deepseek-v4-flash-0731" as const;
 
 // Moss-managed vendor models (DeepSeek, GLM, Kimi, MiniMax, Qwen). The ladder
-// mirrors `MOSS_MANAGED_MODEL_DEFINITIONS` in @synara/shared/mossRealmCatalog,
+// mirrors `MOSS_MANAGED_MODEL_DEFINITIONS` in @moss/shared/mossRealmCatalog,
 // which the gateway enforces; a shared test keeps the two in step.
 const MOSS_EFFORT_LABELS: Readonly<Record<string, string>> = {
   none: "Off",

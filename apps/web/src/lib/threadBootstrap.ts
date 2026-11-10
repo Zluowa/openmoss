@@ -14,8 +14,8 @@ import {
   type RuntimeMode,
   type ThreadEnvironmentMode,
   type ThreadId,
-} from "@synara/contracts";
-import { resolveThreadEnvironmentMode } from "@synara/shared/threadEnvironment";
+} from "@moss/contracts";
+import { resolveThreadEnvironmentMode } from "@moss/shared/threadEnvironment";
 import {
   type ComposerThreadDraftState,
   type DraftThreadEnvMode,
@@ -121,6 +121,8 @@ interface ResolveTerminalThreadCreationStateInput {
   resolveProviderForInstanceId?: (
     instanceId: ProviderInstanceId,
   ) => ProviderKind | null | undefined;
+  /** The instance an agent uses when nothing picked one (Moss while signed in). */
+  defaultInstanceIdForProvider?: (provider: ProviderKind) => ProviderInstanceId | undefined;
 }
 
 export interface TerminalThreadCreationState {
@@ -328,6 +330,9 @@ export function resolveTerminalThreadCreationState(
       ...(input.fresh !== undefined ? { fresh: input.fresh } : {}),
       ...(input.resolveProviderForInstanceId
         ? { resolveProviderForInstanceId: input.resolveProviderForInstanceId }
+        : {}),
+      ...(input.defaultInstanceIdForProvider
+        ? { defaultInstanceIdForProvider: input.defaultInstanceIdForProvider }
         : {}),
     }),
     runtimeMode:

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 
 import {
   closePaneInState,
   createDefaultRightDockState,
   findMissingSidechatPaneIds,
+  htmlRenderDockDocument,
+  htmlRenderSurfacePaneUpdates,
   isRightDockPaneKind,
   movePaneInState,
   openPaneInState,
@@ -58,6 +60,64 @@ describe("original Canvas pane", () => {
       ],
     });
     expect(invalid.panes[0]?.canvasImage).toBeUndefined();
+  });
+});
+
+describe("deck pane", () => {
+  it("opens one deck pane per conversation and switches it to the requested deck", () => {
+    const first = openPaneInState(createDefaultRightDockState(), {
+      paneId: "deck-pane",
+      kind: "deck",
+      deck: { pageId: "page-1", scopeSpaceId: null, title: "季度回顾" },
+    });
+    expect(first.open).toBe(true);
+    expect(first.panes[0]?.deck).toEqual({
+      pageId: "page-1",
+      scopeSpaceId: null,
+      title: "季度回顾",
+    });
+    const second = openPaneInState(first, {
+      paneId: "another",
+      kind: "deck",
+      deck: { pageId: "page-2", scopeSpaceId: "space-1", title: "年终汇报" },
+    });
+    expect(second.panes).toHaveLength(1);
+    expect(second.activePaneId).toBe("deck-pane");
+    expect(second.panes[0]?.deck).toEqual({
+      pageId: "page-2",
+      scopeSpaceId: "space-1",
+      title: "年终汇报",
+    });
+    // A deck pane needs a deck.
+    expect(
+      openPaneInState(createDefaultRightDockState(), { paneId: "empty", kind: "deck" }).panes,
+    ).toEqual([]);
+  });
+
+  it("restores a persisted deck pane and drops one without a valid deck", () => {
+    const restored = sanitizeRightDockThreadState({
+      open: true,
+      activePaneId: "deck-pane",
+      panes: [
+        {
+          id: "deck-pane",
+          kind: "deck",
+          deck: { pageId: "page-1", scopeSpaceId: null, title: "  季度回顾 " },
+        },
+      ],
+    });
+    expect(restored.panes.map((pane) => [pane.id, pane.deck])).toEqual([
+      ["deck-pane", { pageId: "page-1", scopeSpaceId: null, title: "季度回顾" }],
+    ]);
+    for (const deck of [
+      { pageId: "../etc", title: "x" },
+      { pageId: "page-1", scopeSpaceId: 42, title: "x" },
+      undefined,
+    ]) {
+      expect(
+        sanitizeRightDockThreadState({ panes: [{ id: "broken", kind: "deck", deck }] }).panes,
+      ).toEqual([]);
+    }
   });
 });
 
@@ -474,6 +534,78 @@ describe("visual reply panes", () => {
       attachmentId: "attachment-a",
       title: "Revenue chart",
     });
+  });
+
+  it("keeps one tab per surface, which shows the version the reader opened", () => {
+    const first = openPaneInState(createDefaultRightDockState(), {
+      paneId: "build",
+      kind: "htmlRender",
+      htmlDocument: htmlRenderDockDocument({
+        attachmentId: "build-1",
+        title: "Build",
+        height: 300,
+        surface: "build-status",
+      }),
+    });
+    const reopened = openPaneInState(first, {
+      paneId: "ignored",
+      kind: "htmlRender",
+      htmlDocument: htmlRenderDockDocument({
+        attachmentId: "build-2",
+        title: "Build (green)",
+        height: 300,
+        surface: "build-status",
+      }),
+    });
+
+    expect(reopened.panes).toHaveLength(1);
+    expect(reopened.activePaneId).toBe("build");
+    expect(reopened.panes[0]?.htmlDocument).toEqual({
+      kind: "html-render",
+      attachmentId: "build-2",
+      title: "Build (green)",
+      surface: "build-status",
+    });
+    expect(
+      sanitizeRightDockThreadState(JSON.parse(JSON.stringify(reopened))).panes[0]?.htmlDocument,
+    ).toEqual(reopened.panes[0]?.htmlDocument);
+  });
+
+  it("moves a pane showing an older page of a surface to its newest page", () => {
+    const state = [
+      { paneId: "build", attachmentId: "build-1", surface: "build-status" },
+      { paneId: "chart", attachmentId: "chart-1", surface: undefined },
+      { paneId: "tests", attachmentId: "tests-2", surface: "test-results" },
+    ].reduce(
+      (current, { paneId, attachmentId, surface }) =>
+        openPaneInState(current, {
+          paneId,
+          kind: "htmlRender",
+          htmlDocument: htmlRenderDockDocument({
+            attachmentId,
+            title: attachmentId,
+            height: 300,
+            ...(surface === undefined ? {} : { surface }),
+          }),
+        }),
+      createDefaultRightDockState(),
+    );
+    const latest = new Map([
+      ["build-status", { attachmentId: "build-3", title: "Build", height: 300 }],
+      ["test-results", { attachmentId: "tests-2", title: "tests-2", height: 300 }],
+    ]);
+
+    expect(htmlRenderSurfacePaneUpdates(state.panes, latest)).toEqual([
+      {
+        paneId: "build",
+        htmlDocument: {
+          kind: "html-render",
+          attachmentId: "build-3",
+          title: "Build",
+          surface: "build-status",
+        },
+      },
+    ]);
   });
 });
 

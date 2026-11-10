@@ -1,4 +1,4 @@
-import type { DesktopSafariAccessInfo } from "@synara/contracts";
+import type { DesktopSafariAccessInfo } from "@moss/contracts";
 import { Schema } from "effect";
 import { SettingsIcon } from "~/lib/icons";
 import { useEffect, useRef, useState, type ReactNode } from "react";

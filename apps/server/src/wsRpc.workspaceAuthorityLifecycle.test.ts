@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { OrchestrationEvent } from "@synara/contracts";
+import type { OrchestrationEvent } from "@moss/contracts";
 import { Effect, Exit, Scope } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 

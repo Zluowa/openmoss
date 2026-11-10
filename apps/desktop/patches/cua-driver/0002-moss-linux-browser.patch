@@ -719,13 +719,13 @@ index f499100..3949ad0 100644
 -    #[cfg(target_os = "macos")]
 +    #[cfg(any(target_os = "macos", target_os = "linux"))]
      {
-         metadata["synara_native_revision"] = serde_json::json!(40);
+         metadata["moss_native_revision"] = serde_json::json!(40);
      }
 +    #[cfg(target_os = "linux")]
 +    {
 +        // Browser admission/drain only. This is not a claim of target-scoped
 +        // desktop synthetic input, which the Linux host still refuses.
-+        metadata["synara_browser_input_control"] = serde_json::json!(1);
++        metadata["moss_browser_input_control"] = serde_json::json!(1);
 +    }
      DaemonResponse::ok(metadata)
  }

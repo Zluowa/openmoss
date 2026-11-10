@@ -22,6 +22,21 @@ const upstreamFingerprintThrough = (highWaterMark: number) => ({
 });
 
 describe("migration lineage classifier", () => {
+  it("recognizes the exact published Mossbot 161 prefix only with its assistant column", () => {
+    const legacy = [
+      ...trackerThrough(MOSS_RELEASED_DESCRIPTOR, 160),
+      { migration_id: 161, name: "Mossbot" },
+    ];
+    expect(
+      classifyMigrationLineage(legacy, { effects: ["column:project_agent_configs:agent_kind"] }),
+    ).toEqual({ kind: "mossbot-161-prefix", highWaterMark: 161, firstDivergedId: 161 });
+    expect(classifyMigrationLineage(legacy, { effects: [] }).kind).toBe("unknown-or-mixed");
+    expect(
+      classifyMigrationLineage([...legacy, { migration_id: 162, name: "PageGuestAuthors" }], {
+        effects: ["column:project_agent_configs:agent_kind"],
+      }).kind,
+    ).toBe("unknown-or-mixed");
+  });
   it("classifies an empty tracker as fresh or untracked", () => {
     expect(classifyMigrationLineage([], { effects: [] })).toMatchObject({
       kind: "fresh-or-untracked",

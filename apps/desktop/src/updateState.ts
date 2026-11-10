@@ -1,5 +1,5 @@
-import type { DesktopUpdateState } from "@synara/contracts";
-import type { MossDesktopFlavor } from "@synara/shared/desktopIdentity";
+import type { DesktopUpdateState } from "@moss/contracts";
+import type { MossDesktopFlavor } from "@moss/shared/desktopIdentity";
 
 export type DownloadProgressSample = {
   readonly percent?: number | null;

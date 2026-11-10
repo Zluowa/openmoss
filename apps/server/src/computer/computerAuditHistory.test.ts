@@ -2,7 +2,7 @@ import { appendFile, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { ComputerGetAuditHistoryResult } from "@synara/contracts";
+import { ComputerGetAuditHistoryResult } from "@moss/contracts";
 import { Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 

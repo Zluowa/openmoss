@@ -17,30 +17,38 @@ import type {
   ServerProviderLoginState,
   ServerProviderStatus,
   ServerProviderStatusState,
+  ServerProviderInstallState,
   ServerProviderUpdateState,
-} from "@synara/contracts";
+  ProviderInstallationErrorCode,
+} from "@moss/contracts";
 import {
+  PROVIDER_INSTALLATION_ERROR_CODES,
   ProviderKind,
+  ServerProviderInstallError,
   ServerProviderLoginError,
   ServerProviderUpdateError,
-} from "@synara/contracts";
-import { parseCodexConfigModelProvider } from "@synara/shared/codexConfig";
-import { envPathKeyFor } from "@synara/shared/executable";
-import { isPathName, mergePathEntries } from "@synara/shared/shell";
+} from "@moss/contracts";
+import { parseCodexConfigModelProvider } from "@moss/shared/codexConfig";
+import { envPathKeyFor, resolveExecutable } from "@moss/shared/executable";
+import { resetLocalAgentPathLookupCache } from "@moss/shared/localAgentExecutable";
+import { PROVIDER_CLI_COMMAND_BY_KIND } from "@moss/shared/providerCliProfiles";
+import { isPathName, mergePathEntries } from "@moss/shared/shell";
 import {
   deriveProviderInstances,
   deriveUnsupportedProviderInstances,
   providerStartOptionsFromInstance,
+  providerRuntimeBinaryPath,
+  providerRuntimeConfigurationIssue,
   type ResolvedProviderInstance,
   type UnsupportedProviderInstance,
-} from "@synara/shared/providerInstances";
-import { decodeJsonResult } from "@synara/shared/schemaJson";
+} from "@moss/shared/providerInstances";
+import { decodeJsonResult } from "@moss/shared/schemaJson";
 import {
   formatBundledCodexExecutableVersionMismatch,
   MOSS_BUNDLED_CODEX_VERSION,
-  resolveCodexExecutable,
-} from "@synara/shared/codexRuntime";
-import { expandHomePath } from "@synara/shared/mossHome";
+} from "@moss/shared/codexRuntime";
+import { resolveCodexExecutable } from "@moss/shared/codexExecutable";
+import { expandHomePath } from "@moss/shared/mossHome";
 import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   Array,
@@ -62,6 +70,7 @@ import {
 } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { makeEffectProcessCommand } from "../../platform/effectProcessRuntime.ts";
+import { decodeProviderCommandOutput, readWindowsAnsiEncoding } from "../providerCommandOutput.ts";
 
 import {
   CODEX_CLI_UNPARSEABLE_VERSION_MESSAGE,
@@ -74,14 +83,36 @@ import {
 import {
   buildClaudeInstanceProcessEnv,
   resolveClaudeCodeExecutablePath,
+  resolveClaudeCodeRuntime,
 } from "../claudeEnvironment";
 import { ServerConfig } from "../../config";
 import {
+  agentProgramsForServer,
+  agentProgramSourceHome,
+  agentProgramRestartMessage,
+  makeAgentProgramOwnership,
+  type AgentProgramOwnership,
+} from "../agentProgramOwnership.ts";
+import {
   buildProviderChildEnvironment,
+  explicitMossEnvironmentKeys,
   type ProviderChildKind,
 } from "../../providerChildEnvironment.ts";
 import { buildOpenCodeServerProcessEnv } from "../providerBinaryResolution.ts";
 import { ServerSettingsService } from "../../serverSettings";
+import {
+  codexStateBindingAccountFromSettings,
+  makeCodexStateBindingSelection,
+} from "../codexStateBinding.ts";
+import {
+  claudeStateBindingAccountFromSettings,
+  makeClaudeStateBindingSelection,
+  readClaudeStateBinding,
+} from "../claudeStateBinding.ts";
+import {
+  readCodexCredentialFence,
+  type CodexCredentialScopeInput,
+} from "../../codexHomeIdentity.ts";
 import { isWindowsShellCommandMissingResult } from "../../shell-command-detection";
 import {
   buildCursorAgentCommand,
@@ -109,8 +140,12 @@ import {
   parseClaudeAuthStatusFromOutput,
 } from "../claudeAuthStatus";
 import { acquireClaudeAuthStatusLock } from "../claudeAuthStatusLock";
-import { loadClaudeAgentSdk } from "../claudeAgentSdk.ts";
-import { buildClaudeProcessEnv, readClaudeCliCredentialsSummary } from "../claudeProcessEnv";
+import { loadClaudeAgentSdk, spawnOwnedClaudeCodeProcess } from "../claudeAgentSdk.ts";
+import {
+  buildClaudeProcessEnv,
+  readClaudeCliCredentialsSummary,
+  resolveClaudeCredentialsPaths,
+} from "../claudeProcessEnv";
 import {
   buildClaudeLoginEnvironment,
   buildCodexLoginEnvironment,
@@ -154,12 +189,34 @@ import {
   makeProviderMaintenanceCapabilities,
   normalizeCommandPath,
   parseGenericCliVersion,
+  providerUpdateFailureReason,
+  prepareProviderMaintenanceUpdate,
+  PROVIDER_UPDATE_SETTINGS_CHANGED_MESSAGE,
+  PROVIDER_UPDATE_VERSION_UNCONFIRMED_MESSAGE,
+  providerUpdatePreparationFailure,
   resolveProviderMaintenanceCapabilitiesEffect,
   withOpenCodeMaintenanceVersion,
   type PackageManagedProviderMaintenanceDefinition,
 } from "../providerMaintenance";
 import { isClaudeAutoModeCliVersionSupported } from "../claudeCliVersion.ts";
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText";
+import { PROVIDER_NOT_INSTALLED_READINESS, withProviderReadiness } from "../providerReadiness.ts";
+import { ensureMossNpm, resolveMossNodeRuntime, writeNodeShim } from "../agentInstallRuntime.ts";
+import {
+  agentInstallRegistries,
+  appendManagedAgentBinDirectoryToPath,
+  managedAgentBinDirectory,
+  managedAgentInstallPrefix,
+  providerInstallStrategy,
+  runOneClickAgentInstall,
+  type AgentInstallCommandResult,
+} from "../providerInstall.ts";
+import {
+  appendAgentCliDirectoriesToPath,
+  ensureAgentCliPath,
+  npmGlobalBinDirectory,
+  parseNpmPrefixOutput,
+} from "../agentCliPathFloor.ts";
 import { buildCodexProcessEnv, prepareCodexAuthTracking } from "../../codexProcessEnv.ts";
 import {
   readManagedCodexHomeAuthority,
@@ -167,6 +224,15 @@ import {
 } from "../../account/mossManagedHomeAuthority.ts";
 import { readGrokCachedLogin } from "../../providerUsage/providers/grok";
 import { buildProviderProcessEnv, type ProviderProcessEnvDriver } from "../providerProcessEnv.ts";
+import {
+  assertProviderInstallationRemovalAllowed,
+  inspectProviderInstallation,
+  ProviderInstallationError,
+  removeManagedProviderInstallation,
+} from "../managedProviderInstallation.ts";
+
+/** Set to "1" in tests and rehearsals: one-click agent updates are refused. */
+export const PROVIDER_UPDATES_DISABLED_ENV = "MOSS_DISABLE_PROVIDER_UPDATES";
 
 export { parseClaudeAuthStatusFromOutput } from "../claudeAuthStatus";
 export type { CommandResult } from "../providerCliOutput";
@@ -175,6 +241,8 @@ const DEFAULT_TIMEOUT_MS = 4_000;
 const CLAUDE_HEALTH_TIMEOUT_MS = 20_000;
 const OPENCODE_HEALTH_TIMEOUT_MS = 20_000;
 const PI_HEALTH_TIMEOUT_MS = 20_000;
+/** The oldest Pi CLI whose RPC protocol Moss speaks (prompt dispositions, settled runs). */
+export const MINIMUM_PI_CLI_VERSION = "1.5.0";
 const CODEX_AUTH_STATUS_ARGS = ["-c", "mcp_servers={}", "login", "status"] as const;
 const CODEX_PROVIDER = "codex" as const;
 const CLAUDE_AGENT_PROVIDER = "claudeAgent" as const;
@@ -210,6 +278,39 @@ const PROVIDERS = [
   ZCODE_ACP_AGENT_SPEC.kind,
 ] as const satisfies ReadonlyArray<ProviderKind>;
 
+/** Whether this Codex or Claude instance runs the copy packaged Moss ships. */
+export function runsMossBundledAgentRuntime(
+  provider: ProviderKind,
+  configuredBinaryPath: string | undefined,
+  instanceId: string,
+  codexAccountId?: string,
+): boolean {
+  if (provider === CODEX_PROVIDER) {
+    try {
+      return (
+        resolveCodexExecutable({
+          configuredBinaryPath,
+          accountId: codexAccountId,
+          env: process.env,
+        }).source === "bundled"
+      );
+    } catch {
+      // A damaged bundle has nothing npm should touch either.
+      return true;
+    }
+  }
+  if (provider === CLAUDE_AGENT_PROVIDER) {
+    return (
+      resolveClaudeCodeRuntime({
+        binaryPath: configuredBinaryPath,
+        providerInstanceId: instanceId,
+        env: process.env,
+      }).source === "bundled"
+    );
+  }
+  return false;
+}
+
 export function resolveCodexProviderLoginExecutable(input: {
   readonly configuredBinaryPath?: string | null | undefined;
   readonly env?: NodeJS.ProcessEnv | undefined;
@@ -226,11 +327,6 @@ const providerChildKind = (provider: ProviderKind): ProviderChildKind => {
   }
   return provider === CLAUDE_AGENT_PROVIDER ? "claude" : provider;
 };
-
-const explicitMossEnvironmentKeys = (
-  environment?: Readonly<Record<string, string | undefined>>,
-): ReadonlyArray<string> =>
-  environment ? Object.keys(environment).filter((key) => key.startsWith("MOSS_")) : [];
 
 const providerCommandEnv = (
   provider: ProviderKind,
@@ -459,17 +555,16 @@ export const PACKAGE_MANAGED_PROVIDER_UPDATES: Partial<
     homebrew: null,
     nativeUpdate: null,
   },
+  // Moss drives this CLI, so it updates like any npm agent: `npm install --global --prefix
+  // <the folder that owns it>`. Never `pi update`, Pi's self-updater, which reinstalls into
+  // whatever global prefix npm resolves.
   pi: {
     provider: PI_PROVIDER,
     binaryName: "pi",
     npmPackageName: "@earendil-works/pi-coding-agent",
     homebrew: null,
-    nativeUpdate: {
-      executable: "pi",
-      args: () => ["update"],
-      lockKey: "pi-native",
-      strategy: "always",
-    },
+    latestVersionSource: { kind: "npm", name: "@earendil-works/pi-coding-agent" },
+    nativeUpdate: null,
   },
   omp: {
     provider: OMP_PROVIDER,
@@ -684,6 +779,7 @@ interface ClaudeSubscriptionProbeInput {
   readonly environment?: Readonly<Record<string, string>> | undefined;
   readonly homeDir?: string | undefined;
   readonly isolationRootDir?: string;
+  readonly assertStateBindingCurrent?: () => void;
 }
 
 function waitForAbortSignal(signal: AbortSignal): Promise<void> {
@@ -726,7 +822,10 @@ function claudeSubscriptionProbeKey(input: ClaudeSubscriptionProbeInput): string
   });
 }
 
-const probeClaudeSubscription = (input: ClaudeSubscriptionProbeInput) => {
+const probeClaudeSubscription = (
+  input: ClaudeSubscriptionProbeInput,
+  programs: AgentProgramOwnership,
+) => {
   const abort = new AbortController();
   const env = makeClaudeProbeEnv(
     input.homePath,
@@ -743,6 +842,7 @@ const probeClaudeSubscription = (input: ClaudeSubscriptionProbeInput) => {
     });
     if (!executable) return undefined;
     const { query: claudeQuery } = await loadClaudeAgentSdk();
+    input.assertStateBindingCurrent?.();
     const q = claudeQuery({
       // oxlint-disable-next-line require-yield
       prompt: (async function* (): AsyncGenerator<SDKUserMessage> {
@@ -752,6 +852,20 @@ const probeClaudeSubscription = (input: ClaudeSubscriptionProbeInput) => {
         persistSession: false,
         abortController: abort,
         pathToClaudeCodeExecutable: executable,
+        spawnClaudeCodeProcess: (options) => {
+          input.assertStateBindingCurrent?.();
+          return programs.spawn({
+            binaryPath: executable,
+            ...(options.cwd ? { cwd: options.cwd } : {}),
+            env,
+            sourceHomePath: agentProgramSourceHome(
+              "claudeAgent",
+              env,
+              input.homeDir ?? OS.homedir(),
+            ),
+            spawn: () => spawnOwnedClaudeCodeProcess(options),
+          });
+        },
         settingSources: ["user", "project", "local"],
         allowedTools: [],
         env,
@@ -898,39 +1012,81 @@ const OPENAI_AUTH_PROVIDERS = new Set(["openai"]);
 
 // ── Effect-native command execution ─────────────────────────────────
 
-const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
+const collectStreamAsString = <E>(
+  stream: Stream.Stream<Uint8Array, E>,
+  fallbackEncoding?: string,
+): Effect.Effect<string, E> =>
   Stream.runFold(
     stream,
-    () => "",
-    (acc, chunk) => acc + new TextDecoder().decode(chunk),
-  );
+    () => [] as Uint8Array[],
+    (chunks, chunk) => {
+      chunks.push(chunk);
+      return chunks;
+    },
+  ).pipe(Effect.map((chunks) => decodeProviderCommandOutput(chunks, fallbackEncoding)));
 
 const runProviderCommand = (
   executable: string,
   args: ReadonlyArray<string>,
-  options: { readonly env: NodeJS.ProcessEnv; readonly cwd?: string | undefined },
+  options: {
+    readonly env: NodeJS.ProcessEnv;
+    readonly cwd?: string | undefined;
+    readonly assertStateBindingCurrent?: () => void;
+  },
+  provider?: "codex" | "claudeAgent",
 ) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const command = makeEffectProcessCommand(executable, args, {
-      ...options,
-      // Health probes are non-interactive. Leaving stdin as a pipe can keep CLIs
-      // such as Antigravity waiting even after a read-only subcommand has finished.
-      stdin: "ignore",
-    });
+    const config = Option.getOrUndefined(yield* Effect.serviceOption(ServerConfig));
+    const programs = provider
+      ? config
+        ? agentProgramsForServer(config, provider)
+        : makeAgentProgramOwnership(provider)
+      : undefined;
+    const run = (spawned: () => void) =>
+      Effect.gen(function* () {
+        yield* Effect.try({
+          try: () => options.assertStateBindingCurrent?.(),
+          catch: (cause) => cause,
+        });
+        const command = makeEffectProcessCommand(executable, args, {
+          env: options.env,
+          ...(options.cwd ? { cwd: options.cwd } : {}),
+          // Health probes are non-interactive. Leaving stdin as a pipe can keep CLIs
+          // such as Antigravity waiting even after a read-only subcommand has finished.
+          stdin: "ignore",
+        });
 
-    const child = yield* spawner.spawn(command);
+        const child = yield* spawner.spawn(command);
+        spawned();
+        const fallbackEncoding = yield* Effect.promise(readWindowsAnsiEncoding);
 
-    const [stdout, stderr, exitCode] = yield* Effect.all(
-      [
-        collectStreamAsString(child.stdout),
-        collectStreamAsString(child.stderr),
-        child.exitCode.pipe(Effect.map(Number)),
-      ],
-      { concurrency: "unbounded" },
-    );
+        const [stdout, stderr, exitCode] = yield* Effect.all(
+          [
+            collectStreamAsString(child.stdout, fallbackEncoding),
+            collectStreamAsString(child.stderr, fallbackEncoding),
+            child.exitCode.pipe(Effect.map(Number)),
+          ],
+          { concurrency: "unbounded" },
+        );
 
-    return { stdout, stderr, code: exitCode } satisfies CommandResult;
+        return { stdout, stderr, code: exitCode } satisfies CommandResult;
+      }).pipe(Effect.scoped);
+    return yield* programs && provider
+      ? programs.withOperation(
+          {
+            binaryPath: executable,
+            env: options.env,
+            ...(options.cwd ? { cwd: options.cwd } : {}),
+            sourceHomePath: agentProgramSourceHome(
+              provider,
+              options.env,
+              config?.homeDir ?? OS.homedir(),
+            ),
+          },
+          run,
+        )
+      : run(() => {});
   }).pipe(Effect.scoped);
 
 const runCodexCommand = (
@@ -939,7 +1095,7 @@ const runCodexCommand = (
   env: NodeJS.ProcessEnv = providerCommandEnv(CODEX_PROVIDER),
 ) =>
   // Account health must not merge project config from the desktop's working directory.
-  runProviderCommand(executable, args, { env, cwd: env.CODEX_HOME }).pipe(
+  runProviderCommand(executable, args, { env, cwd: env.CODEX_HOME }, "codex").pipe(
     Effect.flatMap((result) =>
       isWindowsShellCommandMissingResult({ code: result.code, stderr: result.stderr })
         ? Effect.fail(new Error(`spawn ${executable} ENOENT`))
@@ -951,8 +1107,14 @@ const runClaudeCommand = (
   args: ReadonlyArray<string>,
   executable = "claude",
   env: NodeJS.ProcessEnv = buildClaudeProcessEnv(),
+  assertStateBindingCurrent?: () => void,
 ) =>
-  runProviderCommand(executable, args, { env }).pipe(
+  runProviderCommand(
+    executable,
+    args,
+    { env, ...(assertStateBindingCurrent ? { assertStateBindingCurrent } : {}) },
+    "claudeAgent",
+  ).pipe(
     Effect.flatMap((result) =>
       isWindowsShellCommandMissingResult({ code: result.code, stderr: result.stderr })
         ? Effect.fail(new Error(`spawn ${executable} ENOENT`))
@@ -1232,12 +1394,19 @@ async function makeCodexProbeEnv(
   accountId?: string,
   environment?: Readonly<Record<string, string>>,
   readManagedHomeAuthority?: () => Promise<ManagedCodexHomeAuthority | undefined>,
+  credentialScope?: CodexCredentialScopeInput,
 ): Promise<NodeJS.ProcessEnv> {
   const normalizedHomePath = nonEmptyTrimmed(homePath);
   const normalizedShadowHomePath = nonEmptyTrimmed(shadowHomePath);
   const normalizedAccountId = nonEmptyTrimmed(accountId);
   const managedHomeAuthority = await readManagedHomeAuthority?.();
   return buildCodexProcessEnv({
+    ...(credentialScope?.credentialFence
+      ? { credentialFence: credentialScope.credentialFence }
+      : {}),
+    ...(credentialScope?.runtimeGeneration
+      ? { runtimeGeneration: credentialScope.runtimeGeneration }
+      : {}),
     ...(managedHomeAuthority ? { managedHomeAuthority } : {}),
     ...(environment ? { env: { ...process.env, ...environment } } : {}),
     ...(normalizedHomePath ? { homePath: normalizedHomePath } : {}),
@@ -1298,6 +1467,7 @@ export const makeCheckCodexProviderStatus = (
   accountId?: string,
   environment?: Readonly<Record<string, string>>,
   readManagedHomeAuthority?: () => Promise<ManagedCodexHomeAuthority | undefined>,
+  credentialScope?: CodexCredentialScopeInput,
 ): Effect.Effect<
   ServerProviderStatus,
   never,
@@ -1307,7 +1477,11 @@ export const makeCheckCodexProviderStatus = (
     // Desktop runtime hints belong to the server, never to a provider's environment override.
     let resolution: ReturnType<typeof resolveCodexExecutable>;
     try {
-      resolution = resolveCodexExecutable({ configuredBinaryPath: binaryPath, env: process.env });
+      resolution = resolveCodexExecutable({
+        configuredBinaryPath: binaryPath,
+        accountId,
+        env: process.env,
+      });
     } catch (cause) {
       return Effect.succeed<ServerProviderStatus>({
         provider: CODEX_PROVIDER,
@@ -1334,6 +1508,7 @@ export const makeCheckCodexProviderStatus = (
             accountId,
             environment,
             readManagedHomeAuthority,
+            credentialScope,
           ),
         catch: (cause) => cause,
       }).pipe(Effect.result);
@@ -1368,6 +1543,9 @@ export const makeCheckCodexProviderStatus = (
           available: false,
           authStatus: "unknown" as const,
           checkedAt,
+          ...(versionProbe.outcome === "missing"
+            ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+            : {}),
           message:
             versionProbe.outcome === "missing"
               ? "Codex CLI (`codex`) is not installed or not on PATH."
@@ -1563,6 +1741,7 @@ export const makeCheckClaudeProviderStatus = (
     readonly providerInstanceId?: ProviderInstanceId;
     readonly isolationRootDir?: string;
     readonly fallbackHomeDir?: string;
+    readonly assertStateBindingCurrent?: () => void;
   },
   environment?: Readonly<Record<string, string>>,
 ): Effect.Effect<ServerProviderStatus, never, ChildProcessSpawner.ChildProcessSpawner> => {
@@ -1597,7 +1776,7 @@ export const makeCheckClaudeProviderStatus = (
 
       // Probe 1: `claude --version` — is the CLI reachable?
       const versionProbe = yield* probeProviderCliVersion(
-        runClaudeCommand(["--version"], executable, claudeEnv),
+        runClaudeCommand(["--version"], executable, claudeEnv, options?.assertStateBindingCurrent),
         CLAUDE_HEALTH_TIMEOUT_MS,
       );
 
@@ -1611,6 +1790,9 @@ export const makeCheckClaudeProviderStatus = (
           available: false,
           authStatus: "unknown" as const,
           checkedAt,
+          ...(versionProbe.outcome === "missing"
+            ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+            : {}),
           message:
             versionProbe.outcome === "missing"
               ? "Claude Agent CLI (`claude`) is not installed or not on PATH."
@@ -1659,9 +1841,12 @@ export const makeCheckClaudeProviderStatus = (
       const runAuthStatusProbe = Effect.acquireUseRelease(
         Effect.promise(() => acquireClaudeAuthStatusLock()),
         () =>
-          runClaudeCommand(["auth", "status"], executable, claudeEnv).pipe(
-            Effect.timeoutOption(CLAUDE_HEALTH_TIMEOUT_MS),
-          ),
+          runClaudeCommand(
+            ["auth", "status"],
+            executable,
+            claudeEnv,
+            options?.assertStateBindingCurrent,
+          ).pipe(Effect.timeoutOption(CLAUDE_HEALTH_TIMEOUT_MS)),
         (release) => Effect.sync(release),
       ).pipe(Effect.result);
 
@@ -1822,9 +2007,12 @@ export const makeCheckGrokProviderStatus = (
         available: false,
         authStatus: "unknown" as const,
         checkedAt,
+        ...(versionProbe.outcome === "missing"
+          ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+          : {}),
         message:
           versionProbe.outcome === "missing"
-            ? "Grok CLI (`grok`) is not installed or not on PATH."
+            ? "Grok CLI (`grok`) is not installed or not on PATH. Grok has no npm package for every platform, so use the installer at docs.x.ai/build/overview."
             : `Failed to execute Grok CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
       } satisfies ServerProviderStatus;
     }
@@ -1921,6 +2109,9 @@ export const makeCheckDroidProviderStatus = (
         available: false,
         authStatus: "unknown" as const,
         checkedAt,
+        ...(versionProbe.outcome === "missing"
+          ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+          : {}),
         message:
           versionProbe.outcome === "missing"
             ? "Droid CLI (`droid`) is not installed or not on PATH."
@@ -2066,9 +2257,12 @@ export const makeCheckOpenCodeProviderStatus = (
         available: false,
         authStatus: "unknown" as const,
         checkedAt,
+        ...(versionProbe.outcome === "missing"
+          ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+          : {}),
         message:
           versionProbe.outcome === "missing"
-            ? "OpenCode CLI (`opencode`) is not installed or not on PATH."
+            ? "OpenCode CLI (`opencode`) is not installed or not on PATH. Install it with `npm install -g opencode-ai`."
             : `Failed to execute OpenCode CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
       } satisfies ServerProviderStatus;
     }
@@ -2148,6 +2342,7 @@ export const checkHermesProviderStatus = (
         status: "error",
         available: false,
         authStatus: "unknown",
+        ...(probe.outcome === "missing" ? { readiness: PROVIDER_NOT_INSTALLED_READINESS } : {}),
         message: "Hermes ACP is not available. Install Hermes with its ACP dependencies.",
       } satisfies ServerProviderStatus;
     let managed = false;
@@ -2180,11 +2375,10 @@ export const checkAcpAgentProviderStatus = (
   Effect.gen(function* () {
     const checkedAt = new Date().toISOString();
     const executable = binaryPath || spec.command;
+    const probeEnv = providerCommandEnv(spec.kind, environment);
     // Node CLIs (and the Bun re-exec of zcode-acp-server) take a moment to boot.
     const probe = yield* probeProviderCliVersion(
-      runProviderCommand(executable, spec.versionProbeArgs, {
-        env: providerCommandEnv(spec.kind, environment),
-      }),
+      runProviderCommand(executable, spec.versionProbeArgs, { env: probeEnv }),
       15_000,
     );
     const base = {
@@ -2200,6 +2394,7 @@ export const checkAcpAgentProviderStatus = (
       case "missing":
         return {
           ...base,
+          readiness: PROVIDER_NOT_INSTALLED_READINESS,
           message: `${spec.displayName} CLI (\`${spec.command}\`) is not installed or not on PATH. ${spec.install.hint}`,
         } satisfies ServerProviderStatus;
       case "failure":
@@ -2222,6 +2417,11 @@ export const checkAcpAgentProviderStatus = (
         } satisfies ServerProviderStatus;
       }
       case "success": {
+        const version = parseGenericCliVersion(`${probe.result.stdout}\n${probe.result.stderr}`);
+        const hostProblem = spec.hostRequirement?.(probeEnv);
+        if (hostProblem) {
+          return { ...base, version, message: hostProblem } satisfies ServerProviderStatus;
+        }
         let managed = false;
         try {
           managed =
@@ -2238,7 +2438,7 @@ export const checkAcpAgentProviderStatus = (
           status: "ready",
           available: true,
           authStatus: managed ? "authenticated" : "unknown",
-          version: parseGenericCliVersion(`${probe.result.stdout}\n${probe.result.stderr}`),
+          version,
           message: managed
             ? "Using the Moss managed gateway."
             : `${spec.displayName} CLI is installed. ${spec.signIn.hint}`,
@@ -2270,22 +2470,25 @@ export const checkPiProviderStatus = (
       PI_HEALTH_TIMEOUT_MS,
     );
 
-    // Pi itself is SDK-backed in Moss. Keep this CLI probe advisory so health
-    // refreshes do not import the SDK and initialize its native clipboard module.
+    // Moss drives the person's own Pi CLI (`pi --mode rpc`), so a missing CLI means Pi
+    // cannot run: offer the one-click install, like every other agent CLI.
     if (versionProbe.outcome === "missing" || versionProbe.outcome === "failure") {
       const error = versionProbe.cause;
       return {
         provider: PI_PROVIDER,
         instanceId: PI_PROVIDER,
         driver: PI_PROVIDER,
-        status: "warning" as const,
-        available: true,
+        status: "error" as const,
+        available: false,
         authStatus: "unknown" as const,
         checkedAt,
+        ...(versionProbe.outcome === "missing"
+          ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+          : {}),
         message:
           versionProbe.outcome === "missing"
-            ? "Pi SDK is bundled, but the Pi CLI (`pi`) is not on PATH, so Moss could not verify the installed CLI version."
-            : `Pi SDK is bundled, but the CLI health check failed: ${error instanceof Error ? error.message : String(error)}.`,
+            ? "Pi CLI (`pi`) is not on PATH. Install it to use the Pi provider."
+            : `Pi CLI health check failed: ${error instanceof Error ? error.message : String(error)}.`,
       } satisfies ServerProviderStatus;
     }
 
@@ -2294,34 +2497,46 @@ export const checkPiProviderStatus = (
         provider: PI_PROVIDER,
         instanceId: PI_PROVIDER,
         driver: PI_PROVIDER,
-        status: "warning" as const,
-        available: true,
+        status: "error" as const,
+        available: false,
         authStatus: "unknown" as const,
         checkedAt,
-        message:
-          "Pi SDK is bundled, but the CLI health check timed out before Moss could verify the installed version.",
+        message: "Pi CLI health check timed out before Moss could verify the installed version.",
       } satisfies ServerProviderStatus;
     }
 
     if (versionProbe.outcome === "nonzero") {
-      const version = versionProbe.result;
-      const detail = detailFromResult(version);
+      const detail = detailFromResult(versionProbe.result);
       return {
         provider: PI_PROVIDER,
         instanceId: PI_PROVIDER,
         driver: PI_PROVIDER,
-        status: "warning" as const,
-        available: true,
+        status: "error" as const,
+        available: false,
         authStatus: "unknown" as const,
         checkedAt,
-        message: detail
-          ? `Pi SDK is bundled, but the CLI health check failed. ${detail}`
-          : "Pi SDK is bundled, but the CLI health check failed.",
+        message: detail ? `Pi CLI health check failed. ${detail}` : "Pi CLI health check failed.",
       } satisfies ServerProviderStatus;
     }
 
     const version = versionProbe.result;
     const parsedVersion = parseGenericCliVersion(`${version.stdout}\n${version.stderr}`);
+    if (
+      parsedVersion !== null &&
+      compareSemverVersions(parsedVersion, MINIMUM_PI_CLI_VERSION) < 0
+    ) {
+      return {
+        provider: PI_PROVIDER,
+        instanceId: PI_PROVIDER,
+        driver: PI_PROVIDER,
+        status: "error" as const,
+        available: false,
+        authStatus: "unknown" as const,
+        version: parsedVersion,
+        checkedAt,
+        message: `Pi CLI ${parsedVersion} is too old for Moss. Upgrade to ${MINIMUM_PI_CLI_VERSION} or newer.`,
+      } satisfies ServerProviderStatus;
+    }
     const configuredAgentDir = nonEmptyTrimmed(agentDir);
     return {
       provider: PI_PROVIDER,
@@ -2372,6 +2587,9 @@ export const checkOmpProviderStatus = (
         available: false,
         authStatus: "unknown" as const,
         checkedAt,
+        ...(versionProbe.outcome === "missing"
+          ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+          : {}),
         message:
           versionProbe.outcome === "missing"
             ? "OMP CLI (`omp`) is not on PATH. Install it to use the OMP provider."
@@ -2451,6 +2669,7 @@ export const makeCheckGeminiProviderStatus = (
         available: false,
         authStatus: "unknown" as const,
         checkedAt,
+        ...(isCommandMissingCause(error) ? { readiness: PROVIDER_NOT_INSTALLED_READINESS } : {}),
         message: isCommandMissingCause(error)
           ? "Gemini CLI (`gemini`) is not installed or not on PATH."
           : `Failed to execute Gemini CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
@@ -2558,6 +2777,9 @@ export const checkAntigravityProviderStatus = (
         available: false,
         authStatus: "unknown",
         checkedAt,
+        ...(versionProbe.outcome === "missing"
+          ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+          : {}),
         message:
           versionProbe.outcome === "missing"
             ? "Antigravity CLI (`agy`) is not installed or is not on PATH."
@@ -2674,6 +2896,9 @@ export const makeCheckCursorProviderStatus = (
         available: false,
         authStatus: "unknown" as const,
         checkedAt,
+        ...(versionProbe.outcome === "missing"
+          ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+          : {}),
         message:
           versionProbe.outcome === "missing"
             ? "Cursor Agent CLI (`cursor-agent`) is not installed or not on PATH."
@@ -2907,6 +3132,9 @@ export const makeCheckDevinProviderStatus = (
         available: false,
         authStatus: "unknown" as const,
         checkedAt,
+        ...(versionProbe.outcome === "missing"
+          ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
+          : {}),
         message:
           versionProbe.outcome === "missing"
             ? "Devin CLI (`devin`) is not installed or not on PATH."
@@ -3272,6 +3500,7 @@ export function projectProviderStatusesForSettings(
       );
       const disabledStatusWithAdvisory = {
         ...disabledStatus,
+        ...(defaultStatus?.version ? { version: defaultStatus.version } : {}),
         versionAdvisory: makeSuppressedProviderVersionAdvisory(
           disabledStatus,
           defaultStatus?.version,
@@ -3302,6 +3531,9 @@ export function projectProviderStatusesForSettings(
         const updateState = status?.updateState ?? defaultStatus?.updateState;
         const disabledStatusWithAdvisory = {
           ...disabledStatus,
+          ...((status?.version ?? defaultStatus?.version)
+            ? { version: status?.version ?? defaultStatus?.version }
+            : {}),
           versionAdvisory: makeSuppressedProviderVersionAdvisory(
             disabledStatus,
             status?.version ?? defaultStatus?.version,
@@ -3336,12 +3568,32 @@ export function projectProviderStatusesForSettings(
     projected.push(makeUnsupportedProviderInstanceStatus(instance, checkedAt));
   }
 
-  return orderProviderStatuses(projected);
+  const managedInstanceIds = new Set<string>();
+  for (const providerInstances of instancesByProvider.values()) {
+    for (const instance of providerInstances) {
+      if (instance.config.managed === true) managedInstanceIds.add(instance.instanceId);
+    }
+  }
+  return orderProviderStatuses(
+    projected.map((status) =>
+      withProviderReadiness(status, {
+        managed: managedInstanceIds.has(providerStatusInstanceKey(status)),
+      }),
+    ),
+  );
 }
 
 // ── Layer ───────────────────────────────────────────────────────────
 
-export function makeProviderHealthLive(options?: { readonly providerUpdateTimeoutMs?: number }) {
+export function makeProviderHealthLive(options?: {
+  readonly providerUpdateTimeoutMs?: number;
+  /**
+   * Keep the server PATH holding the usual agent install folders: recheck them before each
+   * provider check and ask npm once for its configured global folder. Only the server's own
+   * instance does this; it changes `process.env.PATH`.
+   */
+  readonly maintainAgentCliPath?: boolean;
+}) {
   const providerUpdateTimeoutMs = options?.providerUpdateTimeoutMs ?? PROVIDER_UPDATE_TIMEOUT_MS;
   return Layer.effect(
     ProviderHealth,
@@ -3351,6 +3603,15 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const serverConfig = yield* ServerConfig;
       const serverSettings = yield* ServerSettingsService;
+      const selectCodexState = yield* makeCodexStateBindingSelection({
+        stateDir: serverConfig.stateDir,
+        runtimeHomePath: serverConfig.baseDir,
+        readSettings: () => Effect.runSync(serverSettings.getSettings),
+      });
+      const selectClaudeState = yield* makeClaudeStateBindingSelection({
+        stateDir: serverConfig.stateDir,
+        readSettings: () => Effect.runSync(serverSettings.getSettings),
+      });
       const changesPubSub = yield* Effect.acquireRelease(
         PubSub.unbounded<ReadonlyArray<ServerProviderStatus>>(),
         PubSub.shutdown,
@@ -3412,8 +3673,13 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
       const loginStatesRef = yield* Ref.make<ReadonlyMap<string, ServerProviderLoginState>>(
         new Map(),
       );
+      const installStatesRef = yield* Ref.make<ReadonlyMap<string, ServerProviderInstallState>>(
+        new Map(),
+      );
       const refreshFiberRef = yield* Ref.make<Fiber.Fiber<ProviderStatuses, never> | null>(null);
-      const loginManager = makeProviderLoginManager();
+      const loginManager = makeProviderLoginManager({
+        runtimePrograms: (provider) => agentProgramsForServer(serverConfig, provider),
+      });
       yield* Effect.addFinalizer(() => Effect.sync(() => loginManager.cancelAll()));
       const refreshNeedsFollowUpRef = yield* Ref.make(false);
       const commandCoordinator = yield* makeProviderMaintenanceCommandCoordinator({
@@ -3421,6 +3687,14 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
           new ServerProviderUpdateError({
             provider: provider as ProviderKind,
             reason: "An update is already running for this provider.",
+          }),
+      });
+      // Install target keys are `install:<driver>:<instance>`.
+      const installCoordinator = yield* makeProviderMaintenanceCommandCoordinator({
+        makeAlreadyRunningError: (targetKey) =>
+          new ServerProviderInstallError({
+            provider: targetKey.split(":")[1] as ProviderKind,
+            reason: "already-running",
           }),
       });
 
@@ -3435,7 +3709,10 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
           if (cached && cached.expiresAt > now) {
             return cached.subscriptionType;
           }
-          const probe = yield* probeClaudeSubscription(input);
+          const probe = yield* probeClaudeSubscription(
+            input,
+            agentProgramsForServer(serverConfig, "claudeAgent"),
+          );
           const subscriptionType = probe?.subscriptionType;
           yield* Ref.update(claudeSubscriptionCacheRef, (cache) => {
             const next = new Map(cache);
@@ -3519,11 +3796,19 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
           if (target.provider === "opencode" && readInstanceConfigString(instance, "serverUrl")) {
             return makeManualProviderMaintenanceCapabilities(target.provider);
           }
-          const configuredBinaryPath = readInstanceConfigString(instance, "binaryPath");
+          const configuredBinaryPath =
+            target.provider === "codex" || target.provider === "claudeAgent"
+              ? providerRuntimeBinaryPath(instance)
+              : readInstanceConfigString(instance, "binaryPath");
           const binaryPath =
-            target.provider === "opencode" && configuredBinaryPath
-              ? expandHomePath(configuredBinaryPath)
-              : configuredBinaryPath;
+            target.provider === "codex"
+              ? resolveCodexExecutable({ configuredBinaryPath, env: process.env }).binaryPath
+              : target.provider === "claudeAgent"
+                ? resolveClaudeCodeRuntime({ binaryPath: configuredBinaryPath, env: process.env })
+                    .binaryPath
+                : target.provider === "opencode" && configuredBinaryPath
+                  ? expandHomePath(configuredBinaryPath)
+                  : configuredBinaryPath;
           if (target.provider === "cursor") {
             const command = buildCursorAgentCommand(binaryPath, ["update"]);
             return makeProviderMaintenanceCapabilities({
@@ -3533,6 +3818,17 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
               updateArgs: command.args,
               updateLockKey: "cursor-agent",
             });
+          }
+          // The Codex and Claude Code that ship inside Moss update with Moss, never through npm.
+          if (
+            runsMossBundledAgentRuntime(
+              target.provider,
+              binaryPath,
+              instance.instanceId,
+              providerStartOptionsFromInstance(instance)?.codex?.accountId,
+            )
+          ) {
+            return makeManualProviderMaintenanceCapabilities(target.provider);
           }
           const definition = PACKAGE_MANAGED_PROVIDER_UPDATES[target.provider];
           if (!definition) {
@@ -3581,17 +3877,21 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
       ) {
         const updateStates = yield* Ref.get(updateStatesRef);
         const loginStates = yield* Ref.get(loginStatesRef);
+        const installStates = yield* Ref.get(installStatesRef);
         const updateState = updateStates.get(providerStatusIdentityKey(status));
         const loginState = loginStates.get(providerStatusIdentityKey(status));
+        const installState = installStates.get(providerStatusIdentityKey(status));
         const {
           updateState: _updateState,
           loginState: _loginState,
+          installState: _installState,
           ...statusWithoutVolatileState
         } = status;
         return {
           ...statusWithoutVolatileState,
           ...(updateState ? { updateState } : {}),
           ...(loginState ? { loginState } : {}),
+          ...(installState ? { installState } : {}),
         };
       });
 
@@ -3671,6 +3971,18 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         return yield* publishProjectedStatuses();
       });
 
+      const setProviderInstallState = Effect.fn("setProviderInstallState")(function* (
+        target: {
+          readonly provider: ProviderKind;
+          readonly instanceId?: ProviderInstanceId | undefined;
+        },
+        state: ServerProviderInstallState,
+      ) {
+        const key = providerTargetIdentityKey(target);
+        yield* Ref.update(installStatesRef, (previous) => new Map(previous).set(key, state));
+        return yield* publishProjectedStatuses();
+      });
+
       const enrichStatuses = Effect.fn("enrichProviderStatuses")(function* (
         statuses: ReadonlyArray<ServerProviderStatus>,
       ) {
@@ -3724,13 +4036,38 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         });
       });
 
+      // These checks are shared with the user's own login, so their ready text is about signing
+      // in to the CLI. A managed instance already carries its gateway credential; Hermes and the
+      // ACP agents verify that themselves and say so.
+      const withManagedReadyCopy = (
+        status: ServerProviderStatus,
+        instance: ResolvedProviderInstance,
+      ): ServerProviderStatus =>
+        instance.config.managed === true &&
+        status.status === "ready" &&
+        (instance.driver === "codex" ||
+          instance.driver === "grok" ||
+          instance.driver === "opencode" ||
+          instance.driver === "pi")
+          ? {
+              ...status,
+              authStatus: "authenticated",
+              message: "Using the Moss managed gateway.",
+            }
+          : status;
+
       const checkProviderInstanceWhenEnabled = <R>(
         instance: ResolvedProviderInstance,
         check: Effect.Effect<ServerProviderStatus, never, R>,
       ): Effect.Effect<Option.Option<ServerProviderStatus>, never, R> =>
         instance.enabled
           ? check.pipe(
-              Effect.map((status) => Option.some(stampProviderStatusForInstance(status, instance))),
+              Effect.provideService(ServerConfig, serverConfig),
+              Effect.map((status) =>
+                Option.some(
+                  stampProviderStatusForInstance(withManagedReadyCopy(status, instance), instance),
+                ),
+              ),
             )
           : Effect.succeed(Option.none());
 
@@ -3741,53 +4078,133 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         never,
         ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
       > => {
+        const runtimeIssue = providerRuntimeConfigurationIssue(instance);
+        if (runtimeIssue) {
+          return Effect.succeed(
+            instance.enabled
+              ? Option.some(
+                  stampProviderStatusForInstance(
+                    {
+                      provider: instance.driver,
+                      driver: instance.driver,
+                      instanceId: instance.instanceId,
+                      status: "error",
+                      available: false,
+                      authStatus: "unknown",
+                      checkedAt: new Date().toISOString(),
+                      message: runtimeIssue,
+                    },
+                    instance,
+                  ),
+                )
+              : Option.none(),
+          );
+        }
         const binaryPath = readInstanceConfigString(instance, "binaryPath");
         switch (instance.driver) {
           case "codex": {
             // Launches derive their Codex homes and seeded account discriminator
             // from these start options, so probe the same isolated account.
-            const codexOptions = providerStartOptionsFromInstance(instance)?.codex;
             return checkProviderInstanceWhenEnabled(
               instance,
-              makeCheckCodexProviderStatus(
-                codexOptions?.binaryPath,
-                codexOptions?.homePath,
-                codexOptions?.shadowHomePath,
-                codexOptions?.accountId,
-                instance.environment,
-                () =>
-                  readManagedCodexHomeAuthority({
-                    stateDir: serverConfig.stateDir,
-                    readSettings: () => Effect.runPromise(serverSettings.getSettings),
-                    readSettingsSync: () => Effect.runSync(serverSettings.getSettings),
-                    input: { ...codexOptions, env: { ...process.env, ...instance.environment } },
+              Effect.tryPromise({
+                try: () =>
+                  selectCodexState(instance.instanceId, providerStartOptionsFromInstance(instance)),
+                catch: (cause) => cause,
+              }).pipe(
+                Effect.flatMap((selected) => {
+                  const codexOptions = selected?.codex;
+                  return makeCheckCodexProviderStatus(
+                    codexOptions?.binaryPath,
+                    codexOptions?.homePath,
+                    codexOptions?.shadowHomePath,
+                    codexOptions?.accountId,
+                    codexOptions?.environment,
+                    () =>
+                      readManagedCodexHomeAuthority({
+                        stateDir: serverConfig.stateDir,
+                        readSettings: () => Effect.runPromise(serverSettings.getSettings),
+                        readSettingsSync: () => Effect.runSync(serverSettings.getSettings),
+                        input: {
+                          ...codexOptions,
+                          env: { ...process.env, ...codexOptions?.environment },
+                        },
+                      }),
+                    codexOptions,
+                  );
+                }),
+                Effect.catch((cause) =>
+                  Effect.succeed<ServerProviderStatus>({
+                    provider: CODEX_PROVIDER,
+                    driver: instance.driver,
+                    instanceId: instance.instanceId,
+                    status: "error",
+                    available: false,
+                    authStatus: "unknown",
+                    checkedAt: new Date().toISOString(),
+                    message:
+                      cause instanceof Error
+                        ? cause.message
+                        : "Codex 历史与账户目录无法验证，请检查设置。",
                   }),
+                ),
               ),
             );
           }
           case "claudeAgent": {
-            const claudeOptions = providerStartOptionsFromInstance(instance)?.claudeAgent;
-            const homePath = claudeOptions?.homePath;
-            const claudeEnvironment = claudeOptions?.environment;
             return checkProviderInstanceWhenEnabled(
               instance,
-              makeCheckClaudeProviderStatus(
-                resolveClaudeSubscription({
-                  instanceId: instance.instanceId,
-                  binaryPath: claudeOptions?.binaryPath,
-                  homePath,
-                  environment: claudeEnvironment,
-                  homeDir: serverConfig.homeDir,
-                  isolationRootDir: serverConfig.stateDir,
+              Effect.tryPromise({
+                try: () =>
+                  selectClaudeState(
+                    instance.instanceId,
+                    providerStartOptionsFromInstance(instance),
+                  ),
+                catch: (cause) => cause,
+              }).pipe(
+                Effect.flatMap((selected) => {
+                  const claudeOptions = selected?.claudeAgent;
+                  const homePath = claudeOptions?.homePath;
+                  const claudeEnvironment = claudeOptions?.environment;
+                  const assertStateBindingCurrent = () => {
+                    readClaudeStateBinding(claudeOptions);
+                  };
+                  return makeCheckClaudeProviderStatus(
+                    resolveClaudeSubscription({
+                      instanceId: instance.instanceId,
+                      binaryPath: claudeOptions?.binaryPath,
+                      homePath,
+                      environment: claudeEnvironment,
+                      homeDir: serverConfig.homeDir,
+                      isolationRootDir: serverConfig.stateDir,
+                      assertStateBindingCurrent,
+                    }),
+                    claudeOptions?.binaryPath,
+                    homePath,
+                    {
+                      providerInstanceId: instance.instanceId,
+                      isolationRootDir: serverConfig.stateDir,
+                      fallbackHomeDir: serverConfig.homeDir,
+                      assertStateBindingCurrent,
+                    },
+                    claudeEnvironment,
+                  );
                 }),
-                claudeOptions?.binaryPath,
-                homePath,
-                {
-                  providerInstanceId: instance.instanceId,
-                  isolationRootDir: serverConfig.stateDir,
-                  fallbackHomeDir: serverConfig.homeDir,
-                },
-                claudeEnvironment,
+                Effect.catch((cause) =>
+                  Effect.succeed<ServerProviderStatus>({
+                    provider: CLAUDE_AGENT_PROVIDER,
+                    driver: instance.driver,
+                    instanceId: instance.instanceId,
+                    status: "error",
+                    available: false,
+                    authStatus: "unknown",
+                    checkedAt: new Date().toISOString(),
+                    message:
+                      cause instanceof Error
+                        ? cause.message
+                        : "Claude 历史与账户目录无法验证，请检查设置。",
+                  }),
+                ),
               ),
             );
           }
@@ -3928,6 +4345,12 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
 
       const loadProviderStatuses = serverSettings.ready
         .pipe(
+          // An agent installed in one of the usual folders since the last check joins PATH.
+          Effect.tap(() =>
+            options?.maintainAgentCliPath === true
+              ? Effect.promise(() => ensureAgentCliPath(serverConfig.baseDir))
+              : Effect.void,
+          ),
           Effect.flatMap(() => serverSettings.getSettings),
           Effect.flatMap((settings) =>
             runProviderHealthProbes(
@@ -4093,9 +4516,52 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         Effect.forkIn(refreshScope),
       );
 
-      const refresh: Effect.Effect<ProviderStatuses> = ensureRefreshFiber().pipe(
-        Effect.flatMap(Fiber.join),
-      );
+      const refresh: Effect.Effect<ProviderStatuses> = Effect.gen(function* () {
+        if (options?.maintainAgentCliPath === true) {
+          // A person's Re-detect must see a CLI installed moments ago, including
+          // one placed in a directory already on PATH with a cached lookup miss.
+          yield* Effect.promise(() => ensureAgentCliPath(serverConfig.baseDir, { force: true }));
+          if (yield* Ref.get(refreshFiberRef)) {
+            // A probe already past discovery may still contain the old answer.
+            yield* Ref.set(refreshNeedsFollowUpRef, true);
+          }
+        }
+        return yield* ensureRefreshFiber().pipe(Effect.flatMap(Fiber.join));
+      });
+
+      // npm's own answer for its global folder catches a prefix set anywhere the PATH floor
+      // cannot read (a global npmrc, a Node installer's built-in config). Asked once, in the
+      // background; a new folder holding an agent CLI joins PATH and gets checked.
+      yield* Effect.gen(function* () {
+        if (options?.maintainAgentCliPath !== true) return;
+        const npm = resolveExecutable("npm", { env: process.env });
+        if (!npm) return;
+        const output = yield* Effect.gen(function* () {
+          const child = yield* spawner.spawn(
+            makeEffectProcessCommand(npm, ["config", "get", "prefix"], {
+              env: { ...process.env, npm_config_update_notifier: "false" },
+              stdin: "ignore",
+            }),
+          );
+          const [stdout, , exitCode] = yield* Effect.all(
+            [
+              collectUint8StreamText({ stream: child.stdout, maxBytes: 4_096 }),
+              collectUint8StreamText({ stream: child.stderr, maxBytes: 4_096 }),
+              child.exitCode.pipe(Effect.map(Number)),
+            ],
+            { concurrency: "unbounded" },
+          );
+          return exitCode === 0 ? stdout.text : "";
+        }).pipe(Effect.scoped, Effect.timeoutOption(Duration.seconds(15)));
+        const prefix = Option.isSome(output) ? parseNpmPrefixOutput(output.value) : undefined;
+        if (!prefix) return;
+        const added = yield* Effect.promise(() =>
+          appendAgentCliDirectoriesToPath([npmGlobalBinDirectory(prefix)], {
+            keepLast: [managedAgentBinDirectory(managedAgentInstallPrefix(serverConfig.baseDir))],
+          }),
+        );
+        if (added.length > 0) yield* refresh;
+      }).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(refreshScope));
 
       const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
 
@@ -4132,6 +4598,9 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         readonly args: ReadonlyArray<string>;
         readonly pathPrepend?: string;
         readonly packageChannel?: ProviderPackageChannel;
+        readonly onSpawn?: () => void;
+        readonly onComplete?: () => void;
+        readonly assertSettingsCurrent?: () => void;
       }) {
         const baseEnv = yield* Effect.try({
           try: () =>
@@ -4145,14 +4614,22 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
           input.pathPrepend ? prependPathEntry(baseEnv, input.pathPrepend) : baseEnv,
           input.packageChannel,
         );
-        const child = yield* spawner.spawn(
-          makeEffectProcessCommand(input.command, input.args, {
-            env: updateEnv,
-            // Update commands are non-interactive. An open stdin pipe lets CLIs such as
-            // `opencode upgrade` block on a confirmation prompt until the update timeout.
-            stdin: "ignore",
-          }),
-        );
+        const command = makeEffectProcessCommand(input.command, input.args, {
+          env: updateEnv,
+          // Update commands are non-interactive. An open stdin pipe lets CLIs such as
+          // `opencode upgrade` block on a confirmation prompt until the update timeout.
+          stdin: "ignore",
+        });
+        const child = yield* Effect.suspend(() => {
+          try {
+            // No asynchronous work between the final settings guard and spawn.
+            input.assertSettingsCurrent?.();
+          } catch (cause) {
+            return Effect.fail(cause instanceof Error ? cause : new Error(String(cause)));
+          }
+          return spawner.spawn(command);
+        });
+        input.onSpawn?.();
         yield* Effect.addFinalizer(() => child.kill().pipe(Effect.ignore));
         const [stdout, stderr, exitCode] = yield* Effect.all(
           [
@@ -4168,6 +4645,7 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
           ],
           { concurrency: "unbounded" },
         );
+        input.onComplete?.();
         return {
           stdout: stdout.text,
           stderr: stderr.text,
@@ -4240,7 +4718,7 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         }
 
         const startOptions = providerStartOptionsFromInstance(instance);
-        const configuredExecutable = readInstanceConfigString(instance, "binaryPath");
+        const configuredExecutable = providerRuntimeBinaryPath(instance);
 
         if (input.provider === CODEX_PROVIDER) {
           const executable = yield* Effect.try({
@@ -4251,7 +4729,29 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
               }),
             catch: (cause) => makeLoginError(input, cause),
           });
-          const options = startOptions?.codex;
+          // Sign-in may create the explicitly selected private directory. It
+          // must never infer an account home from the shared history source.
+          if (settings.providers.codex.shareStateAcrossAccounts) {
+            const privateHome = codexStateBindingAccountFromSettings(
+              settings,
+              instanceId,
+            )?.privateHomePath;
+            if (!privateHome || !nodePath.isAbsolute(privateHome)) {
+              return yield* makeLoginError(input, "请选择此 Codex 账户的独立私有目录后再登录。");
+            }
+            yield* fileSystem
+              .makeDirectory(privateHome, { recursive: true })
+              .pipe(Effect.mapError((cause) => makeLoginError(input, cause)));
+          }
+          const selected = yield* Effect.tryPromise({
+            try: () => selectCodexState(instanceId, startOptions),
+            catch: (cause) => makeLoginError(input, cause),
+          });
+          const options = selected?.codex;
+          const credentialFence = yield* Effect.try({
+            try: () => readCodexCredentialFence(options),
+            catch: (cause) => makeLoginError(input, cause),
+          });
           const environment = {
             ...process.env,
             ...(options?.environment ?? instance.environment),
@@ -4259,10 +4759,8 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
           const authTracking = yield* Effect.try({
             try: () =>
               prepareCodexAuthTracking({
+                ...options,
                 env: environment,
-                ...(options?.homePath ? { homePath: options.homePath } : {}),
-                ...(options?.shadowHomePath ? { shadowHomePath: options.shadowHomePath } : {}),
-                ...(options?.accountId ? { accountId: options.accountId } : {}),
               }),
             catch: (cause) => makeLoginError(input, cause),
           });
@@ -4281,22 +4779,47 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
               environment,
               authoritativeAuthHomePath,
             }),
+            credentialPaths: [authTracking.authoritativeAuthFilePath],
+            ...(credentialFence
+              ? { programSourceHomePath: credentialFence.sourceHomeIdentity }
+              : {}),
           };
         }
 
-        const options = startOptions?.claudeAgent;
+        if (settings.providers.claudeAgent.shareStateAcrossAccounts) {
+          const account = yield* Effect.try({
+            try: () => claudeStateBindingAccountFromSettings(settings, instanceId),
+            catch: (cause) => makeLoginError(input, cause),
+          });
+          if (!account)
+            return yield* makeLoginError(input, "请选择此 Claude 账户的独立私有目录后再登录。");
+          for (const directory of [
+            account.homePath,
+            account.configPath,
+            account.environment?.CLAUDE_SECURESTORAGE_CONFIG_DIR,
+          ]) {
+            if (directory)
+              yield* fileSystem
+                .makeDirectory(directory, { recursive: true })
+                .pipe(Effect.mapError((cause) => makeLoginError(input, cause)));
+          }
+        }
+        const selected = yield* Effect.tryPromise({
+          try: () => selectClaudeState(instanceId, startOptions),
+          catch: (cause) => makeLoginError(input, cause),
+        });
+        const options = selected?.claudeAgent;
         const isolatedEnvironment = yield* Effect.try({
           try: () =>
-            buildClaudeInstanceProcessEnv(
-              options?.homePath,
-              options?.environment ?? instance.environment,
-              {
-                baseEnvironment: process.env,
-                homeDir: serverConfig.homeDir,
-                providerInstanceId: instance.instanceId,
-                isolationRootDir: serverConfig.stateDir,
-              },
-            ),
+            // The same account home the health check and chats use. Falling back to the
+            // instance's (empty) environment would count as a custom environment and send
+            // the person's own Claude sign-in into an isolated home nothing else reads.
+            buildClaudeInstanceProcessEnv(options?.homePath, options?.environment, {
+              baseEnvironment: process.env,
+              homeDir: serverConfig.homeDir,
+              providerInstanceId: instance.instanceId,
+              isolationRootDir: serverConfig.stateDir,
+            }),
           catch: (cause) => makeLoginError(input, cause),
         });
         const environment = buildClaudeLoginEnvironment(isolatedEnvironment);
@@ -4317,9 +4840,20 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         return {
           provider: CLAUDE_AGENT_PROVIDER,
           instanceId: input.instanceId,
-          executable: configuredExecutable ?? "claude",
+          // Sign in with the same CLI the chat runs: own install, else the one Moss ships.
+          executable:
+            resolveClaudeCodeExecutablePath({
+              binaryPath: configuredExecutable,
+              providerInstanceId: instanceId,
+              env: process.env,
+            }) ?? "claude",
           cwd: serverConfig.cwd,
           env: environment,
+          // macOS keeps Claude's sign-in in the Keychain; there the CLI's exit decides.
+          credentialPaths: resolveClaudeCredentialsPaths({ env: environment }),
+          assertStateBindingCurrent: () => {
+            readClaudeStateBinding(options);
+          },
         };
       });
 
@@ -4517,6 +5051,16 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
                 : "Provider is disabled in Moss settings."
               : "Provider instance is not configured.",
           });
+        // Test and rehearsal runs set this so a click on 更新 can never reach an install outside
+        // their isolated profile: the update writes to the npm prefix that owns the detected CLI,
+        // which is the person's real global folder whenever it is still on PATH.
+        if (process.env[PROVIDER_UPDATES_DISABLED_ENV] === "1") {
+          return yield* new ServerProviderUpdateError({
+            provider,
+            ...(instanceId ? { instanceId } : {}),
+            reason: `Agent updates are turned off in this environment (${PROVIDER_UPDATES_DISABLED_ENV}=1).`,
+          });
+        }
         const initialInstance = yield* resolveEnabledInstance;
         if (!initialInstance || !initialInstance.enabled) {
           return yield* unavailableError(initialInstance);
@@ -4534,7 +5078,10 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         }
 
         const run = Effect.gen(function* () {
-          const currentInstance = yield* resolveEnabledInstance;
+          const currentSnapshot = yield* serverSettings.getSnapshot.pipe(
+            Effect.mapError(toUpdateError),
+          );
+          const currentInstance = resolveProviderInstanceTarget(currentSnapshot.settings, target);
           if (!currentInstance || !currentInstance.enabled) {
             const finishedAt = yield* nowIso;
             yield* setProviderUpdateState(
@@ -4550,6 +5097,50 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
             return yield* unavailableError(currentInstance);
           }
           const startedAt = yield* nowIso;
+          // Resolve the installed floor from this exact account/instance inside
+          // the maintenance queue. A different account's cached version cannot
+          // authorize a package update, and a queued binary override may change.
+          const checked = yield* checkProviderInstanceStatus(currentInstance).pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+          );
+          const currentVersion = Option.isSome(checked) ? (checked.value.version ?? null) : null;
+          const effectiveCapabilities = yield* getProviderMaintenanceCapabilities({
+            ...target,
+            installedVersion: currentVersion,
+          }).pipe(
+            Effect.flatMap((currentCapabilities) =>
+              prepareProviderMaintenanceUpdate(currentCapabilities, currentVersion),
+            ),
+            Effect.mapError(toUpdateError),
+          );
+          const verifiedUpdate = effectiveCapabilities.update;
+          const currentRevision = (yield* serverSettings.getSnapshot.pipe(
+            Effect.mapError(toUpdateError),
+          )).revision;
+          const preparationFailure = providerUpdatePreparationFailure({
+            settingsChanged: currentRevision !== currentSnapshot.revision,
+            expectedLockKey: update.lockKey,
+            verifiedUpdate,
+          });
+          if (preparationFailure || !verifiedUpdate) {
+            const reason = preparationFailure ?? PROVIDER_UPDATE_VERSION_UNCONFIRMED_MESSAGE;
+            yield* setProviderUpdateState(
+              target,
+              makeUpdateState({
+                status: "failed",
+                startedAt,
+                finishedAt: new Date().toISOString(),
+                message: reason,
+              }),
+            );
+            return yield* new ServerProviderUpdateError({
+              provider,
+              ...(instanceId ? { instanceId } : {}),
+              reason,
+            });
+          }
           yield* setProviderUpdateState(
             target,
             makeUpdateState({
@@ -4570,22 +5161,80 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
               yield* Effect.sleep(Duration.millis(PROVIDER_UPDATE_ENABLEMENT_POLL_MS));
             }
           });
-          const commandOutcome = yield* Effect.raceFirst(
-            runUpdateCommand({
-              instance: currentInstance,
-              command: update.executable,
-              args: update.args,
-              ...(update.pathPrepend ? { pathPrepend: update.pathPrepend } : {}),
-              ...(capabilities.packageChannel
-                ? { packageChannel: capabilities.packageChannel }
-                : {}),
-            }).pipe(
-              Effect.scoped,
-              Effect.timeoutOption(Duration.millis(providerUpdateTimeoutMs)),
-              Effect.result,
-              Effect.map((result) => ({ _tag: "completed" as const, result })),
+          // The package coordinator serializes updates; this same epoch record
+          // also excludes every chat/probe/login using the program, across accounts.
+          const runtimePrograms =
+            provider === "codex" || provider === "claudeAgent"
+              ? agentProgramsForServer(serverConfig, provider)
+              : undefined;
+          let updateSpawned = false;
+          let updateCompleted = false;
+          const commandOutcome = yield* Effect.acquireUseRelease(
+            Effect.try({
+              try: () => {
+                if (!runtimePrograms) return undefined;
+                const configuredBinaryPath = providerRuntimeBinaryPath(currentInstance);
+                const binaryPath =
+                  provider === "codex"
+                    ? resolveCodexExecutable({ configuredBinaryPath, env: process.env }).binaryPath
+                    : resolveClaudeCodeRuntime({
+                        binaryPath: configuredBinaryPath,
+                        env: process.env,
+                      }).binaryPath;
+                return runtimePrograms.beginMaintenance(binaryPath);
+              },
+              catch: toUpdateError,
+            }),
+            () =>
+              Effect.raceFirst(
+                runUpdateCommand({
+                  instance: currentInstance,
+                  command: verifiedUpdate.executable,
+                  args: verifiedUpdate.args,
+                  onSpawn: () => {
+                    updateSpawned = true;
+                  },
+                  onComplete: () => {
+                    updateCompleted = true;
+                  },
+                  assertSettingsCurrent: () => {
+                    if (
+                      Effect.runSync(serverSettings.getSnapshot).revision !==
+                      currentSnapshot.revision
+                    ) {
+                      throw new Error(PROVIDER_UPDATE_SETTINGS_CHANGED_MESSAGE);
+                    }
+                  },
+                  ...(verifiedUpdate.pathPrepend
+                    ? { pathPrepend: verifiedUpdate.pathPrepend }
+                    : {}),
+                  ...(effectiveCapabilities.packageChannel
+                    ? { packageChannel: effectiveCapabilities.packageChannel }
+                    : {}),
+                }).pipe(
+                  Effect.scoped,
+                  Effect.timeoutOption(Duration.millis(providerUpdateTimeoutMs)),
+                  Effect.result,
+                  Effect.map((result) => ({ _tag: "completed" as const, result })),
+                ),
+                waitForProviderDisablement.pipe(Effect.as({ _tag: "disabled" as const })),
+              ),
+            (maintenance) =>
+              Effect.sync(() =>
+                maintenance?.finish(updateSpawned, !updateSpawned || updateCompleted),
+              ),
+          ).pipe(
+            Effect.tapError((error) =>
+              setProviderUpdateState(
+                target,
+                makeUpdateState({
+                  status: "failed",
+                  startedAt,
+                  finishedAt: new Date().toISOString(),
+                  message: error.reason,
+                }),
+              ).pipe(Effect.asVoid),
             ),
-            waitForProviderDisablement.pipe(Effect.as({ _tag: "disabled" as const })),
           );
           const finishedAt = yield* nowIso;
           if (commandOutcome._tag === "disabled") {
@@ -4621,12 +5270,15 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
             : null;
           const failed = Option.isNone(result) || result.value.exitCode !== 0;
           if (failed) {
+            const reason = Option.isSome(result) ? providerUpdateFailureReason(result.value) : null;
             const message = Option.isNone(result)
               ? `Update timed out after ${formatProviderUpdateTimeout(providerUpdateTimeoutMs)}. The provider process was stopped.`
-              : `Update command exited with code ${result.value.exitCode}.`;
+              : reason
+                ? `Update command exited with code ${result.value.exitCode}: ${reason}`
+                : `Update command exited with code ${result.value.exitCode}.`;
             const lacksMirror =
-              capabilities.packageChannel === "cn-mirror" &&
-              !MIRRORED_UPDATE_LOCK_KEYS.has(update.lockKey);
+              effectiveCapabilities.packageChannel === "cn-mirror" &&
+              !MIRRORED_UPDATE_LOCK_KEYS.has(verifiedUpdate.lockKey);
             const providers = yield* setProviderUpdateState(
               target,
               makeUpdateState({
@@ -4641,13 +5293,33 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
           }
 
           const providers = yield* refreshNow.pipe(Effect.mapError(toUpdateError));
+          if (provider === "codex" || provider === "claudeAgent") {
+            const finalProviders = yield* setProviderUpdateState(
+              target,
+              makeUpdateState({
+                status: "succeeded",
+                startedAt,
+                finishedAt,
+                message: agentProgramRestartMessage(provider),
+                output: output ? output.slice(0, UPDATE_OUTPUT_MAX_BYTES) : null,
+              }),
+            );
+            return { providers: finalProviders };
+          }
           const refreshed = providers.find(
             (status) =>
               (status.driver ?? status.provider) === provider &&
               providerStatusInstanceKey(status) === providerStatusKey(target),
           );
           const refreshedAdvisory = refreshed?.versionAdvisory;
-          const stillOutdated = refreshedAdvisory?.status === "behind_latest";
+          const targetVersionUnknown = Boolean(verifiedUpdate.targetVersion && !refreshed?.version);
+          const targetVersionNotReached = Boolean(
+            verifiedUpdate.targetVersion &&
+            refreshed?.version &&
+            compareSemverVersions(refreshed.version, verifiedUpdate.targetVersion) < 0,
+          );
+          const stillOutdated =
+            refreshedAdvisory?.status === "behind_latest" || targetVersionNotReached;
           const stillOutdatedVersions =
             refreshedAdvisory?.currentVersion && refreshedAdvisory.latestVersion
               ? ` (installed ${refreshedAdvisory.currentVersion}, latest ${refreshedAdvisory.latestVersion})`
@@ -4655,12 +5327,14 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
           const finalProviders = yield* setProviderUpdateState(
             target,
             makeUpdateState({
-              status: stillOutdated ? "unchanged" : "succeeded",
+              status: targetVersionUnknown ? "failed" : stillOutdated ? "unchanged" : "succeeded",
               startedAt,
               finishedAt,
-              message: stillOutdated
-                ? `Update command completed, but Moss still detects an outdated provider version${stillOutdatedVersions}.`
-                : "Provider updated.",
+              message: targetVersionUnknown
+                ? "Update command completed, but Moss could not verify the requested provider version."
+                : stillOutdated
+                  ? `Update command completed, but Moss still detects an outdated provider version${stillOutdatedVersions}.`
+                  : "Provider updated.",
               output: output ? output.slice(0, UPDATE_OUTPUT_MAX_BYTES) : null,
             }),
           );
@@ -4683,6 +5357,320 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         });
       });
 
+      const runInstallCommand = (input: {
+        readonly command: string;
+        readonly args: ReadonlyArray<string>;
+        readonly env: NodeJS.ProcessEnv;
+      }) =>
+        Effect.gen(function* () {
+          const child = yield* spawner.spawn(
+            makeEffectProcessCommand(input.command, input.args, {
+              env: input.env,
+              stdin: "ignore",
+            }),
+          );
+          yield* Effect.addFinalizer(() => child.kill().pipe(Effect.ignore));
+          const [stdout, stderr, exitCode] = yield* Effect.all(
+            [
+              collectUint8StreamText({ stream: child.stdout, maxBytes: UPDATE_OUTPUT_MAX_BYTES }),
+              collectUint8StreamText({ stream: child.stderr, maxBytes: UPDATE_OUTPUT_MAX_BYTES }),
+              child.exitCode.pipe(Effect.map(Number)),
+            ],
+            { concurrency: "unbounded" },
+          );
+          return {
+            stdout: stdout.text,
+            stderr: stderr.text,
+            exitCode,
+          } satisfies AgentInstallCommandResult;
+        }).pipe(Effect.scoped, Effect.timeoutOption(Duration.millis(providerUpdateTimeoutMs)));
+
+      const resolveFallbackNpmCommand = (channel: ProviderPackageChannel | undefined) =>
+        Effect.gen(function* () {
+          if (resolveExecutable("npm", { env: process.env })) return undefined;
+          const runtime = resolveMossNodeRuntime();
+          if (!runtime) return undefined;
+          const npmCli = yield* Effect.tryPromise(() =>
+            ensureMossNpm({
+              mossHomeDir: serverConfig.baseDir,
+              registries: agentInstallRegistries(channel).map((entry) => entry.registry),
+            }),
+          ).pipe(
+            Effect.tapError((cause) =>
+              Effect.logWarning("Could not fetch npm for Moss's own runtime", {
+                detail: cause instanceof Error ? cause.message : String(cause),
+              }),
+            ),
+            Effect.orElseSucceed(() => null),
+          );
+          if (!npmCli) return undefined;
+          yield* Effect.promise(() =>
+            writeNodeShim({
+              binDirectory: managedAgentBinDirectory(
+                managedAgentInstallPrefix(serverConfig.baseDir),
+              ),
+              runtime,
+            }),
+          );
+          return { command: runtime.command, prefixArgs: [npmCli], env: runtime.env };
+        });
+
+      const installProvider: ProviderHealthShape["installProvider"] = Effect.fn(
+        "ProviderHealth.installProvider",
+      )(function* (input) {
+        const provider = input.provider;
+        const instanceId = input.instanceId;
+        const target = { provider, ...(instanceId ? { instanceId } : {}) };
+        const toInstallError = (reason: unknown) =>
+          new ServerProviderInstallError({
+            provider,
+            ...(instanceId ? { instanceId } : {}),
+            reason: reason instanceof Error ? reason.message : String(reason),
+          });
+        const installStrategy = providerInstallStrategy(provider);
+        if (!installStrategy) {
+          return yield* toInstallError("not-installable");
+        }
+        // Test and rehearsal runs never install agents either: the same switch as updates.
+        if (process.env[PROVIDER_UPDATES_DISABLED_ENV] === "1") {
+          return yield* toInstallError(
+            `Agent installs are turned off in this environment (${PROVIDER_UPDATES_DISABLED_ENV}=1).`,
+          );
+        }
+        const settings = yield* serverSettings.getSettings.pipe(Effect.mapError(toInstallError));
+        const instance = resolveProviderInstanceTarget(settings, target);
+        if (instance && !instance.enabled) {
+          return yield* toInstallError("disabled");
+        }
+        const makeInstallState = (
+          state: Partial<ServerProviderInstallState> & Pick<ServerProviderInstallState, "status">,
+        ): ServerProviderInstallState => ({
+          phase: null,
+          source: null,
+          startedAt: null,
+          finishedAt: null,
+          version: null,
+          reason: null,
+          ...state,
+        });
+
+        const run = Effect.gen(function* () {
+          const startedAt = yield* nowIso;
+          yield* setProviderInstallState(
+            target,
+            makeInstallState({ status: "running", phase: "installing", startedAt }),
+          );
+          const channel = resolveProviderPackageChannel({
+            providerInstances: settings.providerInstances,
+          });
+          // No npm of the person's own: run npm on Moss's own runtime instead of sending
+          // them to a web page. npm is fetched once, from the same registry as the agent.
+          const npmCommand =
+            installStrategy === "npm" ? yield* resolveFallbackNpmCommand(channel) : undefined;
+          const outcome = yield* runOneClickAgentInstall({
+            provider,
+            mossHomeDir: serverConfig.baseDir,
+            channel,
+            env: { ...process.env },
+            ...(npmCommand ? { npmCommand } : {}),
+            run: runInstallCommand,
+            onCleanupUnproven: Effect.gen(function* () {
+              yield* installCoordinator.blockCommandLock(
+                "moss-agent-install",
+                toInstallError(
+                  "A previous agent install could not confirm process cleanup. Restart Moss before retrying.",
+                ),
+              );
+              yield* setProviderInstallState(
+                target,
+                makeInstallState({
+                  status: "failed",
+                  startedAt,
+                  finishedAt: yield* nowIso,
+                  reason: "cleanup-unproven",
+                }),
+              );
+            }),
+            onProgress: (progress) =>
+              setProviderInstallState(
+                target,
+                makeInstallState({
+                  status: "running",
+                  phase: progress.phase,
+                  source: progress.source,
+                  startedAt,
+                }),
+              ).pipe(Effect.asVoid),
+          });
+          const finishedAt = yield* nowIso;
+          if (!outcome.ok) {
+            yield* Effect.logWarning("Agent install failed", {
+              provider,
+              reason: outcome.reason,
+              detail: outcome.detail,
+            });
+            const providers = yield* setProviderInstallState(
+              target,
+              makeInstallState({ status: "failed", startedAt, finishedAt, reason: outcome.reason }),
+            );
+            return { providers };
+          }
+          // Agents Moss installed live in one folder at the end of PATH, after the person's own.
+          appendManagedAgentBinDirectoryToPath(serverConfig.baseDir);
+          yield* refreshNow.pipe(Effect.mapError(toInstallError));
+          const providers = yield* setProviderInstallState(
+            target,
+            makeInstallState({
+              status: "succeeded",
+              source: outcome.source,
+              startedAt,
+              finishedAt,
+              version: outcome.version,
+            }),
+          );
+          return { providers };
+        });
+
+        return yield* installCoordinator.withCommandLock({
+          targetKey: `install:${provider}:${providerStatusKey(target)}`,
+          // One agent install at a time into the shared Moss-managed prefix.
+          lockKey: "moss-agent-install",
+          onQueued: setProviderInstallState(target, makeInstallState({ status: "queued" })).pipe(
+            Effect.asVoid,
+          ),
+          run,
+        });
+      });
+
+      const manageProviderInstallation: NonNullable<
+        ProviderHealthShape["manageProviderInstallation"]
+      > = (input) => {
+        const toError = (reason: unknown, code?: ProviderInstallationErrorCode) =>
+          new ServerProviderInstallError({
+            provider: input.provider,
+            reason: reason instanceof Error ? reason.message : String(reason),
+            ...(reason instanceof ProviderInstallationError
+              ? { code: reason.code }
+              : code
+                ? { code }
+                : {}),
+          });
+        const run = Effect.gen(function* () {
+          const settings = yield* serverSettings.getSettings.pipe(
+            Effect.mapError((cause) => toError(cause)),
+          );
+          const instance = resolveProviderInstanceTarget(settings, { provider: input.provider });
+          const configured = yield* Effect.try({
+            try: () => (instance ? providerRuntimeBinaryPath(instance) : undefined),
+            catch: toError,
+          });
+          const command =
+            input.provider === "codex"
+              ? resolveCodexExecutable({ configuredBinaryPath: configured, env: process.env })
+                  .binaryPath
+              : input.provider === "claudeAgent"
+                ? resolveClaudeCodeRuntime({ binaryPath: configured, env: process.env }).binaryPath
+                : configured || PROVIDER_CLI_COMMAND_BY_KIND[input.provider];
+          const bundled = runsMossBundledAgentRuntime(input.provider, command, input.provider);
+          const binaryPath =
+            bundled && (yield* fileSystem.exists(command).pipe(Effect.orElseSucceed(() => false)))
+              ? command
+              : resolveExecutable(command, { env: process.env });
+          const target = {
+            provider: input.provider,
+            mossHomeDir: serverConfig.baseDir,
+            binaryPath,
+            bundled,
+          };
+          if (input.action === "uninstall") {
+            if (process.env[PROVIDER_UPDATES_DISABLED_ENV] === "1")
+              return yield* toError(
+                `Agent changes are disabled in this environment (${PROVIDER_UPDATES_DISABLED_ENV}=1).`,
+                PROVIDER_INSTALLATION_ERROR_CODES.changesDisabled,
+              );
+            yield* Effect.try({
+              try: () =>
+                assertProviderInstallationRemovalAllowed(input.provider, {
+                  instances: deriveProviderInstances(settings),
+                }),
+              catch: toError,
+            });
+            const current = yield* Ref.get(statusesRef);
+            if (
+              current.some(
+                (entry) =>
+                  (entry.driver ?? entry.provider) === input.provider &&
+                  (entry.updateState?.status === "running" ||
+                    entry.updateState?.status === "queued" ||
+                    entry.installState?.status === "running" ||
+                    entry.installState?.status === "queued"),
+              )
+            )
+              return yield* toError(
+                "This agent is still being installed or updated.",
+                PROVIDER_INSTALLATION_ERROR_CODES.busy,
+              );
+            const selectedProgramMoved = yield* Effect.acquireUseRelease(
+              Effect.try({
+                try: () =>
+                  (input.provider === "codex" || input.provider === "claudeAgent") && binaryPath
+                    ? agentProgramsForServer(serverConfig, input.provider).beginMaintenance(
+                        binaryPath,
+                      )
+                    : undefined,
+                catch: toError,
+              }),
+              () =>
+                Effect.tryPromise({
+                  try: () => removeManagedProviderInstallation(target),
+                  catch: toError,
+                }),
+              (maintenance, exit) =>
+                Effect.sync(() =>
+                  maintenance?.finish(Exit.isSuccess(exit) && exit.value, Exit.isSuccess(exit)),
+                ),
+            );
+            resetLocalAgentPathLookupCache();
+            if (selectedProgramMoved) {
+              const cleared = deriveProviderInstances(settings)
+                .filter((entry) => entry.driver === input.provider)
+                .map((entry) => ({
+                  ...makeDisabledProviderStatus(input.provider),
+                  instanceId: entry.instanceId,
+                  ...(entry.displayName ? { displayName: entry.displayName } : {}),
+                }));
+              yield* Ref.update(statusesRef, (current) =>
+                orderProviderStatuses([
+                  ...current.filter((entry) => (entry.driver ?? entry.provider) !== input.provider),
+                  ...cleared,
+                ]),
+              );
+              yield* persistStatuses(cleared);
+            }
+            yield* refreshNow.pipe(Effect.mapError(toError));
+          }
+          const result = yield* Effect.tryPromise({
+            try: () =>
+              inspectProviderInstallation({
+                ...target,
+                binaryPath:
+                  input.action === "uninstall"
+                    ? resolveExecutable(command, { env: process.env })
+                    : binaryPath,
+              }),
+            catch: toError,
+          });
+          return { ...result, removed: input.action === "uninstall" };
+        });
+        return input.action === "inspect"
+          ? run
+          : installCoordinator.withCommandLock({
+              targetKey: `remove:${input.provider}`,
+              lockKey: "moss-agent-install",
+              run,
+            });
+      };
+
       return {
         // Mirror upstream's behavior here: reads consume the latest stable
         // snapshot, while refreshes happen explicitly or from provider streams.
@@ -4691,6 +5679,8 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
         startLogin,
         cancelLogin,
         updateProvider,
+        installProvider,
+        manageProviderInstallation,
         get streamChanges() {
           return Stream.fromPubSub(changesPubSub);
         },
@@ -4700,3 +5690,6 @@ export function makeProviderHealthLive(options?: { readonly providerUpdateTimeou
 }
 
 export const ProviderHealthLive = makeProviderHealthLive();
+
+/** The server's own provider health: also finds agents in npm's configured global folder. */
+export const ServerProviderHealthLive = makeProviderHealthLive({ maintainAgentCliPath: true });

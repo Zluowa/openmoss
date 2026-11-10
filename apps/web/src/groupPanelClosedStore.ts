@@ -5,7 +5,7 @@
 //          the Environment panel preference on purpose (W1 regression class):
 //          closing Groups must never flip the env default.
 // Layer: Web state
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@moss/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 

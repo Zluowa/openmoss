@@ -1,5 +1,5 @@
 // Shared ordering for transcript projection and pending-interaction replay.
-import type { OrchestrationThreadActivity } from "@synara/contracts";
+import type { OrchestrationThreadActivity } from "@moss/contracts";
 
 const CONTEXT_COMPACTION_PROGRESS_LABEL = "Compacting context";
 

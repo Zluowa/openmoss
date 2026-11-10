@@ -1,4 +1,4 @@
-import type { DeviceScreenshotResult } from "@synara/contracts";
+import type { DeviceScreenshotResult } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { deviceScreenshotAttachmentName, promptLooksLikeDeviceTask } from "./devicePromptContext";

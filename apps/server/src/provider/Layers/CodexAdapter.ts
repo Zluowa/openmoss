@@ -55,14 +55,15 @@ import {
   ProviderItemId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Cause, Effect, Layer, Option, Queue, Schema, ServiceMap, Stream } from "effect";
-import { isCodexDiagnosticWarningMessage } from "@synara/shared/codexDiagnostics";
-import { isMossAppsServer, mossAppsToolTitle } from "@synara/shared/mossAppsPresentation";
-import { decodeSubagentActivity, normalizeSubagentToolData } from "@synara/shared/subagentTool";
-import { NEXT_MESSAGE_PREDICTION_CODEX_REASONING_EFFORT } from "@synara/shared/nextMessagePrediction";
+import { isCodexDiagnosticWarningMessage } from "@moss/shared/codexDiagnostics";
+import { isMossAppsServer, mossAppsToolTitle } from "@moss/shared/mossAppsPresentation";
+import { decodeSubagentActivity, normalizeSubagentToolData } from "@moss/shared/subagentTool";
+import { NEXT_MESSAGE_PREDICTION_CODEX_REASONING_EFFORT } from "@moss/shared/nextMessagePrediction";
 import { assertServerResolvedVoiceRouteAuthority } from "../../voiceTranscriptionGateway.ts";
-import { sanitizeUserFacingErrorMessage } from "@synara/shared/errorMessages";
+import { sanitizeUserFacingErrorMessage } from "@moss/shared/errorMessages";
+import { mossPluginCatalogRoot } from "../../pluginCatalog/mossPluginCatalogStore.ts";
 
 import {
   ProviderAdapterProcessError,
@@ -117,6 +118,11 @@ import {
   isNonFatalCodexErrorMessage,
 } from "../../codexErrorClassification.ts";
 import { ServerConfig } from "../../config.ts";
+import {
+  readCodexCredentialFence,
+  type CodexCredentialScopeInput,
+} from "../../codexHomeIdentity.ts";
+import { agentProgramsForServer } from "../agentProgramOwnership.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { readManagedCodexHomeAuthority } from "../../account/mossManagedHomeAuthority.ts";
 import { resolveCodexServiceTier } from "../../codexServiceTier.ts";
@@ -338,14 +344,17 @@ function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function codexDiscoveryOptions(input: {
-  readonly binaryPath?: string | undefined;
-  readonly homePath?: string | undefined;
-  readonly shadowHomePath?: string | undefined;
-  readonly accountId?: string | undefined;
-  readonly runtimeGeneration?: string | undefined;
-  readonly environment?: Readonly<Record<string, string>> | undefined;
-}) {
+function codexDiscoveryOptions(
+  input: {
+    readonly binaryPath?: string | undefined;
+    readonly homePath?: string | undefined;
+    readonly shadowHomePath?: string | undefined;
+    readonly accountId?: string | undefined;
+    readonly runtimeGeneration?: string | undefined;
+    readonly environment?: Readonly<Record<string, string>> | undefined;
+  } & CodexCredentialScopeInput,
+) {
+  const credentialFence = readCodexCredentialFence(input);
   return {
     ...(input.binaryPath ? { binaryPath: input.binaryPath } : {}),
     ...(input.homePath ? { homePath: input.homePath } : {}),
@@ -353,6 +362,7 @@ function codexDiscoveryOptions(input: {
     ...(input.accountId ? { accountId: input.accountId } : {}),
     ...(input.runtimeGeneration ? { runtimeGeneration: input.runtimeGeneration } : {}),
     ...(input.environment ? { environment: input.environment } : {}),
+    ...(credentialFence ? { credentialFence } : {}),
   };
 }
 
@@ -3089,6 +3099,14 @@ function mapToRuntimeEvents(
     ];
   }
 
+  if (event.kind === "session" && event.method === "session/turn-aborted") {
+    // Manager-authored after exit proof, never claim a native wire result.
+    const { raw: _raw, ...base } = runtimeEventBase(event, canonicalThreadId);
+    return [
+      { ...base, type: "turn.aborted", payload: { reason: event.message ?? "Turn aborted" } },
+    ];
+  }
+
   if (event.method === "session/exited" || event.method === "session/closed") {
     return [
       {
@@ -3812,8 +3830,10 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         return (
           options?.makeManager?.(services) ??
           new CodexAppServerManager(services, {
+            runtimePrograms: agentProgramsForServer(serverConfig, "codex"),
             mossSkillsDir: mossSkillsDir(serverConfig.baseDir),
             managedCodexHomePath: path.join(serverConfig.stateDir, "moss-codex-home"),
+            mossPluginCatalogRoot: mossPluginCatalogRoot(serverConfig.stateDir),
             readManagedHomeAuthority: (codexOptions) =>
               serverSettings
                 ? readManagedCodexHomeAuthority({
@@ -4295,6 +4315,33 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             provider: PROVIDER,
             method: "account/runtime/stop",
             detail: toMessage(cause, "Failed to stop Codex account runtimes."),
+            cause,
+          }),
+      });
+
+    const listAccountRuntimeScopes: NonNullable<CodexAdapterShape["listAccountRuntimeScopes"]> = (
+      input,
+    ) =>
+      Effect.try({
+        try: () => manager.listAccountRuntimeScopes(input),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "account/runtime/scopes",
+            detail: "无法读取 Codex 原账户进程范围，请重启 Moss 后重试。",
+            cause,
+          }),
+      });
+    const stopRegisteredAccountScopeAndWait: NonNullable<
+      CodexAdapterShape["stopRegisteredAccountScopeAndWait"]
+    > = (scope) =>
+      Effect.tryPromise({
+        try: () => manager.stopRegisteredAccountScopeAndWait(scope),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "account/runtime/stop",
+            detail: "无法确认 Codex 原账户进程已停止，请重试或重启 Moss。",
             cause,
           }),
       });
@@ -4913,6 +4960,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         supportsRuntimeModelList: true,
         supportsTurnSteering: true,
         supportsLiveTurnDiffPatch: true,
+        supportsForkThroughTurn: true,
       },
       startSession,
       didResumeSession: (input, session) => {
@@ -4937,6 +4985,8 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       respondToUserInput,
       stopSession,
       stopAccountContextsAndWait,
+      listAccountRuntimeScopes,
+      stopRegisteredAccountScopeAndWait,
       renewAgentGatewayCredential: (threadId) =>
         Effect.tryPromise({
           try: () => manager.renewAgentGatewayCredential(threadId),

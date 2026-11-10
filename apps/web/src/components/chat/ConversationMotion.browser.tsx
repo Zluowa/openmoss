@@ -54,10 +54,15 @@ describe("conversation motion", () => {
     try {
       const first = document.querySelector<HTMLElement>('[data-stream-text-start="0"]');
       if (!first) throw new Error("Streaming prose segment missing");
-      expect(getComputedStyle(first).animationDuration).toBe("0.15s");
-      expect(getComputedStyle(first).animationTimingFunction).toBe(
-        "cubic-bezier(0.37, 0.55, 0.86, 0.88)",
+      expect(getComputedStyle(first).animationDuration).toBe("0.2s");
+      expect(getComputedStyle(first).animationTimingFunction).toBe("linear");
+      expect(getComputedStyle(first).animationFillMode).toBe("backwards");
+      // Words that arrive together are queued, not shown at once.
+      const delays = [...document.querySelectorAll<HTMLElement>(".codex-stream-segment")].map(
+        (segment) => Number.parseFloat(getComputedStyle(segment).animationDelay),
       );
+      expect(delays.length).toBeGreaterThan(1);
+      expect(delays.at(-1)!).toBeGreaterThan(delays[0]!);
       await expect.poll(() => getComputedStyle(first).opacity).toBe("1");
       expect(document.querySelector("pre .codex-stream-segment")).toBeNull();
       expect(document.querySelector(".chat-markdown--user .codex-stream-segment")).toBeNull();

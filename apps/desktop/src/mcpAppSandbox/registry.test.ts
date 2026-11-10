@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MCP_APP_SANDBOX_PENDING_TTL_MS } from "@synara/contracts";
+import { MCP_APP_SANDBOX_PENDING_TTL_MS } from "@moss/contracts";
 
 import { McpAppSandboxRegistry } from "./registry";
 

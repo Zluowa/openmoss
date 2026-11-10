@@ -1,4 +1,4 @@
-import type { MossResourceImportResource } from "@synara/contracts";
+import type { MossResourceImportResource } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { groupDetectedResources } from "./MossDetectedResourcesSection";

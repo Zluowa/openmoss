@@ -4,7 +4,7 @@ import {
   WS_PROTOCOL_MIN_REVISION,
   WsCompatibilityError,
   type WsCompatibilityAction,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { APP_DISPLAY_NAME } from "../branding";

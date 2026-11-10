@@ -19,9 +19,9 @@ import type {
   MossDeleteResourceResult,
   MossUpdateResourcePayload,
   MossUpdateResourceResult,
-} from "@synara/contracts";
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
-import { isSafeEntryName } from "@synara/shared/mossResourceRegistry";
+} from "@moss/contracts";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
+import { isSafeEntryName } from "@moss/shared/mossResourceRegistry";
 import { discoverMossPluginRuntime } from "./mossPluginRuntime.ts";
 import { notifyMossPluginApprovalChanged } from "./mossPluginApprovalService.ts";
 

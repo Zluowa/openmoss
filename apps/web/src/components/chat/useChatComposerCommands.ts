@@ -1,9 +1,10 @@
+import { MOSS_DEVS_REPORTS_ENABLED, parseDevsInvocation } from "@moss/shared/devsReport";
 import {
   ThreadId,
   type ModelSlug,
   type ProviderKind,
   type ProviderSkillReference,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useCallback } from "react";
 import { formatComposerMentionToken, skillMentionPrefix } from "~/lib/composerMentions";
@@ -208,6 +209,11 @@ export function useChatComposerCommands({
       }
       if (item.type === "local-root") {
         handleNavigateLocalFolder(localFolderBrowseRootPath ?? "/");
+        return;
+      }
+      if (item.type === "devs-report") {
+        // Plain text, not a mention chip: the send path reads a leading `@devs`.
+        applyComposerTriggerReplacement({ snapshot, trigger, base: `${item.label} ` });
         return;
       }
       if (item.type === "slash-command") {
@@ -465,7 +471,8 @@ export function useChatComposerCommands({
       key === "Enter" &&
       !event.shiftKey &&
       !menuIsActive &&
-      extractChatAutomationInvocation(snapshot.value) !== null
+      (extractChatAutomationInvocation(snapshot.value) !== null ||
+        (MOSS_DEVS_REPORTS_ENABLED && parseDevsInvocation(snapshot.value) !== null))
     ) {
       void onSend(
         undefined,

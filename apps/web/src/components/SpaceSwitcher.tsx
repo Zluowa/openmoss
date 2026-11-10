@@ -10,7 +10,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { restrictToHorizontalAxis } from "@dnd-kit/modifiers";
-import { SPACE_NAME_MAX_LENGTH, type ProjectId, type SpaceId } from "@synara/contracts";
+import { SPACE_NAME_MAX_LENGTH, type ProjectId, type SpaceId } from "@moss/contracts";
 import {
   useCallback,
   useEffect,

@@ -5,7 +5,7 @@
 
 import { type ReactNode, useState } from "react";
 
-import type { McpProjectionAnnotations, McpToolResultContentBlock } from "@synara/contracts";
+import type { McpProjectionAnnotations, McpToolResultContentBlock } from "@moss/contracts";
 import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
 import { Button } from "../ui/button";
 import { CircleAlertIcon, CodeIcon } from "~/lib/icons";
@@ -22,7 +22,7 @@ import {
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { AutomaticApprovalReviewDetails } from "./AutomaticApprovalReviewDetails";
-import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
+import { resolveAttachmentPreviewUrl } from "~/lib/wsHttpUrl";
 import { McpCodePane } from "./McpCodePane";
 
 const MCP_CODE_CLASS_NAME =
@@ -137,7 +137,8 @@ function LocalArtifactContentBlock({
   onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }) {
   const [failed, setFailed] = useState(false);
-  const src = resolveWsHttpUrl(`/attachments/${encodeURIComponent(block.attachmentId)}`);
+  // The thread's attachment route; a shared conversation's guest page loads it through the share.
+  const src = resolveAttachmentPreviewUrl(block.attachmentId);
   if (failed) {
     return (
       <div

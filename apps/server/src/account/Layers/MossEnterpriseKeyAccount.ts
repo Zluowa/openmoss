@@ -6,11 +6,11 @@
 // the managed provider environment; the renderer sees its display prefix.
 import { createHash } from "node:crypto";
 
-import type { MossEnterpriseKeyState } from "@synara/contracts";
+import type { MossEnterpriseKeyState } from "@moss/contracts";
 import {
   isMossEnterpriseApiKey,
   mossEnterpriseApiKeyDisplayPrefix,
-} from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossRealmCatalog";
 import { Effect, Layer, Semaphore } from "effect";
 
 import { ServerSecretStore } from "../../auth/Services/ServerSecretStore";
@@ -331,9 +331,16 @@ export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
             gatewayBaseUrl: url,
           })
           .pipe(Effect.mapError(persistenceFailed));
+        // Nothing to provision, but a key revoked since the last launch must show
+        // as such. A 401 or 403 can come from the edge too, so this never deletes
+        // what may be the only copy of the key; the person decides from the notice.
+        if (reconcile === "current") {
+          yield* verify(stored.apiKey, url);
+          return;
+        }
         // A phone or Google sign-in that owns the surface keeps it until the
         // user explicitly switches back to the enterprise key.
-        if (reconcile === "current" || reconcile === "owned-by-other") return;
+        if (reconcile === "owned-by-other" || reconcile === "same-authority-busy") return;
         if (reconcile === "collision") {
           return yield* persistenceFailed(new Error("managed provider collision"));
         }

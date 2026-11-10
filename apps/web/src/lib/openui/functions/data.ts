@@ -11,6 +11,7 @@ import {
   MAX_ITEMS,
   numbers,
   read,
+  same,
   toNum,
   type Agg,
 } from "./shared";
@@ -119,6 +120,23 @@ export const Between = defineFunction({
       if (v == null) return false;
       return (min == null || compare(v, min) >= 0) && (max == null || compare(v, max) <= 0);
     }),
+});
+
+export const WhereIn = defineFunction({
+  name: "WhereIn",
+  description:
+    "Rows whose field matches values (any of them when values is a list); missing or empty values keep every row, like a filter with nothing picked",
+  params: z.object({
+    rows: list(),
+    field: z.string(),
+    values: z.union([list(), z.string(), z.number(), z.boolean()]).optional(),
+  }),
+  returns: list(),
+  fn: ({ rows, field, values }) => {
+    const wanted = values == null ? [] : Array.isArray(values) ? values : [values];
+    if (!wanted.length) return rows;
+    return rows.filter((row) => wanted.some((value) => same(read(row, field), value)));
+  },
 });
 
 function periodStart(day: number, unit: "day" | "week" | "month"): number {
@@ -288,6 +306,7 @@ export const dataFunctions = [
   Pivot,
   Top,
   Between,
+  WhereIn,
   Bucket,
   Cumulative,
   MovingAvg,

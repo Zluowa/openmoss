@@ -12,7 +12,7 @@ import {
   type ProviderInstanceId,
   type ProviderSession,
   type ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ServerSecretStore } from "../../auth/Services/ServerSecretStore.ts";

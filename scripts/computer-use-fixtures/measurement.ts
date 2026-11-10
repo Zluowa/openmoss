@@ -1,7 +1,7 @@
 /** Bounded, read-only measurement through Moss's existing diagnostic tools.
  * No live SQLite access and no transcript or tool-argument payloads in reports.
  */
-import { isToolLifecycleItemType } from "@synara/contracts";
+import { isToolLifecycleItemType } from "@moss/contracts";
 
 export type DiagnosticToolCaller = (
   name: "moss_read_thread_events" | "moss_read_thread_runtime_events",

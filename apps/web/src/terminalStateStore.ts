@@ -6,8 +6,8 @@
  */
 
 import { randomTerminalId } from "./components/terminal/terminalIds";
-import { type TerminalActivityState, type TerminalCliKind } from "@synara/shared/terminalThreads";
-import type { ThreadId } from "@synara/contracts";
+import { type TerminalActivityState, type TerminalCliKind } from "@moss/shared/terminalThreads";
+import type { ThreadId } from "@moss/contracts";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createDeferredPersistStorage, flushStorageBeforePageHide } from "./lib/storage";

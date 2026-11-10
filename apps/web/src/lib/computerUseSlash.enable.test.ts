@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ThreadId, type NativeApi } from "@synara/contracts";
+import { ThreadId, type NativeApi } from "@moss/contracts";
 
 import { runComputerUseSlashCommand, type ComputerUseSlashToast } from "./computerUseSlashCommand";
 

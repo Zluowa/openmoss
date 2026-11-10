@@ -6,7 +6,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationCommand,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, ManagedRuntime, Stream } from "effect";
 import { expect, it } from "vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -20,7 +20,7 @@ import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQu
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ServerConfig } from "../../config.ts";
 import { createEmptyReadModel, projectEvent } from "../projector.ts";
-import { THREAD_DETAIL_EVENT_TYPES } from "@synara/shared/threadDetailEvents";
+import { THREAD_DETAIL_EVENT_TYPES } from "@moss/shared/threadDetailEvents";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
 type FixtureCommand<T = OrchestrationCommand> = T extends OrchestrationCommand

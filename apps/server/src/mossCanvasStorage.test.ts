@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { outboundHttp } from "@synara/shared/outboundHttp";
-import { cacheMossCanvasRemoteAsset } from "./mossCanvasStorage";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { outboundHttp } from "@moss/shared/outboundHttp";
+import { cacheMossCanvasRemoteAsset, mossCanvasStorageFor } from "./mossCanvasStorage";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -14,6 +17,49 @@ function storage() {
 }
 
 describe("Canvas imports of existing Moss outputs", () => {
+  it.runIf(process.platform === "win32")(
+    "opens the Canvas SQLite store inside a long Windows chat path",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "moss-long-chat-"));
+      const bundle = join(root, "bundle");
+      const module = join(bundle, "apps/codex-canvas/server");
+      const cwd = join(
+        root,
+        "long-profile".repeat(5),
+        "Documents/Moss/2026-11-06",
+        "long-thread".repeat(4),
+      );
+      try {
+        await mkdir(module, { recursive: true });
+        await mkdir(cwd, { recursive: true });
+        await writeFile(
+          join(module, "hosted-storage.mjs"),
+          `
+        import { DatabaseSync } from "node:sqlite";
+        import { join } from "node:path";
+        export function createMossCanvasHostedStorage({ stateDirectory }) {
+          const db = new DatabaseSync(join(stateDirectory, "canvas.sqlite"));
+          db.exec("create table canvas (id integer)");
+          return { close: () => db.close() };
+        }`,
+        );
+        vi.stubEnv("MOSS_CANVAS_BUNDLE_DIR", bundle);
+        const store = await mossCanvasStorageFor(
+          root,
+          {
+            account: { id: "owner", realm: "memfire-phone" },
+            realm: "memfire-phone",
+            gatewayBaseUrl: "https://models.example/v1",
+          },
+          { cwd, threadId: "original-thread", title: "Canvas" },
+        );
+        store.close();
+      } finally {
+        vi.unstubAllEnvs();
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
   it("copies account-owned output bytes without another HTTP or supplier request", async () => {
     const store = storage();
     const read = vi.fn(async () => ({

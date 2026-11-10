@@ -5,19 +5,19 @@ import path from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { AuthSessionId } from "@synara/contracts";
+import { AuthSessionId } from "@moss/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
   LIBRARY_UPLOAD_ROUTE_PATH,
   VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH,
-} from "@synara/shared/binaryTransfer";
+} from "@moss/shared/binaryTransfer";
 import { DateTime, Effect, Exit, Layer, Option, Scope } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { describe, expect, it, vi } from "vitest";
 
 import { AuthError, ServerAuth, type ServerAuthShape } from "./auth/Services/ServerAuth";
-import { ProjectId } from "@synara/contracts";
+import { ProjectId } from "@moss/contracts";
 import {
   SessionCredentialService,
   type SessionCredentialServiceShape,
@@ -387,12 +387,12 @@ describe("authEffectRouteLayer", () => {
 
 describe("binaryUploadEffectRouteLayer", () => {
   it.each([
-    { origin: "moss-beta://app", authorized: true, status: 500 },
+    { origin: "moss-beta://app", authorized: true, status: 401 },
     { origin: "moss-beta://app", authorized: false, status: 401 },
     { origin: "synara-beta://app", authorized: true, status: 403 },
     { origin: "https://untrusted.example.test", authorized: true, status: 403 },
   ])(
-    "preserves trusted CORS on failed uploads: $origin / $status",
+    "preserves trusted CORS on failed uploads: $origin / authorized=$authorized / $status",
     async ({ origin, authorized, status }) => {
       const transcribeVoice = vi.fn(() => Effect.fail(new Error("Transcription unavailable.")));
       await withAuthEffectServer(
@@ -427,8 +427,14 @@ describe("binaryUploadEffectRouteLayer", () => {
           expect(response.headers.get("access-control-allow-credentials")).toBe(
             status === 403 ? null : "true",
           );
-          if (status === 500) {
-            await expect(response.json()).resolves.toEqual({ error: "Transcription unavailable." });
+          if (status === 401 && authorized) {
+            // The personal provider failed and no Moss account is signed in: the person gets
+            // the stable sign-in code, never the provider's own wording.
+            await expect(response.json()).resolves.toEqual({
+              error: "Sign in to your Moss account to use voice.",
+              code: "VOICE_ACCOUNT_AUTHENTICATION_REQUIRED",
+              retryable: false,
+            });
             expect(transcribeVoice).toHaveBeenCalledOnce();
           } else {
             expect(transcribeVoice).not.toHaveBeenCalled();
@@ -504,7 +510,7 @@ describe("binaryUploadEffectRouteLayer", () => {
     );
   });
 
-  it("rejects voice uploads before transcription when the provider is disabled", async () => {
+  it("asks for a Moss sign-in instead of transcribing when the provider is disabled", async () => {
     const transcribeVoice = vi.fn(() => Effect.succeed({ text: "unexpected" }));
     await withAuthEffectServer(
       { host: "127.0.0.1", publicUrl: undefined } as ServerConfigShape,
@@ -526,9 +532,13 @@ describe("binaryUploadEffectRouteLayer", () => {
           },
         );
 
-        expect(response.status).toBe(409);
+        // A disabled provider has no personal route, so without a Moss account the
+        // person is asked to sign in to Moss.
+        expect(response.status).toBe(401);
         await expect(response.json()).resolves.toEqual({
-          error: "Voice transcription provider instance 'codex' is unavailable.",
+          error: "Sign in to your Moss account to use voice.",
+          code: "VOICE_ACCOUNT_AUTHENTICATION_REQUIRED",
+          retryable: false,
         });
         expect(transcribeVoice).not.toHaveBeenCalled();
       },

@@ -3,7 +3,7 @@
 // Layer: Web chat component tests
 // Depends on: renderToStaticMarkup and a mocked LegendList.
 
-import { CheckpointRef, MessageId, ThreadId, TurnId } from "@synara/contracts";
+import { CheckpointRef, MessageId, ThreadId, TurnId } from "@moss/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MossLocalizationProvider, MossLocaleScope } from "../../localization";
@@ -610,7 +610,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain('aria-label="Copy message"');
     expect(markup).toContain('aria-label="Edit message"');
-    expect(markup).toContain('aria-label="Revert to this message"');
+    expect(markup).toContain('aria-label="Rewind to here"');
     expect(markup).toContain("size-[1.125em]");
   });
 
@@ -653,9 +653,9 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain('aria-label="Edit message"');
-    expect(markup).not.toContain('aria-label="Revert to this message"');
+    expect(markup).not.toContain('aria-label="Rewind to here"');
     expect(markup).not.toContain('title="Edit message"');
-    expect(markup).not.toContain('title="Revert to this message"');
+    expect(markup).not.toContain('title="Rewind to here"');
   });
 
   it("keeps edit available while an assistant turn is running", async () => {
@@ -695,7 +695,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('aria-label="Edit message"');
     expect(editButtonMarkup).not.toContain('disabled=""');
     expect(markup).not.toContain('title="Edit message"');
-    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Revert to this message"/);
+    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Rewind to here"/);
   });
 
   it("renders a 'Sent by agent' chip above agent-dispatched user messages", async () => {
@@ -1423,7 +1423,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain(">Loading<");
+    expect(markup).toContain(">Sending…<");
   });
 
   it("attaches trailing tool rows to the last assistant reply after completion", async () => {
@@ -1801,11 +1801,15 @@ describe("MessagesTimeline", () => {
     };
     const markup = renderToStaticMarkup(<MessagesTimeline {...actionProps} />);
     const copyLabel = 'aria-label="Copy message"';
-    const pinLabel = 'aria-label="Pin message"';
+    const pinLabel = 'aria-label="Pin as chapter"';
     const forkLabel = 'aria-label="Fork this thread into local or a new worktree"';
-    expect(markup.match(new RegExp(copyLabel, "g")) ?? []).toHaveLength(5);
-    expect(markup.match(new RegExp(pinLabel, "g")) ?? []).toHaveLength(2);
-    expect(markup.match(new RegExp(forkLabel, "g")) ?? []).toHaveLength(2);
+    // Hover bars (the earlier reply, the streaming one) wait for first hover (desktop chat):
+    // it holds a same-height spacer with a screen-reader "Show message actions" button.
+    expect(markup.match(/data-message-actions-placeholder=""/g) ?? []).toHaveLength(2);
+    expect(markup).toContain(">Show message actions</button>");
+    expect(markup.match(new RegExp(copyLabel, "g")) ?? []).toHaveLength(4);
+    expect(markup.match(new RegExp(pinLabel, "g")) ?? []).toHaveLength(1);
+    expect(markup.match(new RegExp(forkLabel, "g")) ?? []).toHaveLength(1);
     const actionRowStarts = [...markup.matchAll(/data-message-action-row="true"/g)].map(
       (match) => match.index ?? -1,
     );
@@ -1816,13 +1820,14 @@ describe("MessagesTimeline", () => {
     const actionableRows = actionRowMarkup.filter(
       (rowMarkup) => rowMarkup.includes(pinLabel) || rowMarkup.includes(forkLabel),
     );
-    expect(actionableRows).toHaveLength(2);
+    expect(actionableRows).toHaveLength(1);
     for (const rowMarkup of actionableRows) {
       expect(rowMarkup.indexOf(copyLabel)).toBeGreaterThanOrEqual(0);
       expect(rowMarkup.indexOf(pinLabel)).toBeGreaterThanOrEqual(0);
       expect(rowMarkup.indexOf(forkLabel)).toBeGreaterThanOrEqual(0);
-      expect(rowMarkup.indexOf(copyLabel)).toBeLessThan(rowMarkup.indexOf(pinLabel));
-      expect(rowMarkup.indexOf(pinLabel)).toBeLessThan(rowMarkup.indexOf(forkLabel));
+      // Desktop chat order: Copy, Fork, Pin, Read aloud, time.
+      expect(rowMarkup.indexOf(copyLabel)).toBeLessThan(rowMarkup.indexOf(forkLabel));
+      expect(rowMarkup.indexOf(forkLabel)).toBeLessThan(rowMarkup.indexOf(pinLabel));
     }
     const streamingRowStart = markup.indexOf(`data-message-id="${streamingAssistantId}"`);
     expect(streamingRowStart).toBeGreaterThanOrEqual(0);
@@ -1831,11 +1836,7 @@ describe("MessagesTimeline", () => {
     expect(streamingRow).not.toContain(pinLabel);
     expect(streamingRow).not.toContain(forkLabel);
     expect(markup).toContain("mt-1.5 flex h-5 items-center justify-start gap-0.5");
-    expect(
-      actionableRows.filter((rowMarkup) =>
-        rowMarkup.includes('data-message-action-row-visibility="hover"'),
-      ),
-    ).toHaveLength(1);
+    // The mounted bar is the latest reply's, which stays visible at rest.
     expect(
       actionableRows.filter((rowMarkup) =>
         rowMarkup.includes('data-message-action-row-visibility="always"'),
@@ -1846,7 +1847,7 @@ describe("MessagesTimeline", () => {
       <MessagesTimeline {...actionProps} canPinMessage={() => false} />,
     );
     expect(forkWithoutPinMarkup.match(new RegExp(pinLabel, "g")) ?? []).toHaveLength(0);
-    expect(forkWithoutPinMarkup.match(new RegExp(forkLabel, "g")) ?? []).toHaveLength(2);
+    expect(forkWithoutPinMarkup.match(new RegExp(forkLabel, "g")) ?? []).toHaveLength(1);
   });
 
   it("renders a steering chip above steered user messages", async () => {
@@ -2731,7 +2732,7 @@ describe("MessagesTimeline", () => {
     // behind the summary row even while the turn is still live. The summary
     // sentence follows the current native summary copy in an explicit Chinese
     // scope; the group retains all six calls behind its disclosure.
-    expect(markup).toContain("调用了工具");
+    expect(markup).toContain("使用了 6 个工具");
     expect(markup).toContain('data-tool-group-phase="collapsed"');
     expect(markup).toContain('aria-hidden="true" inert=""');
     // Upstream mount-on-open: a closed group leaves its rows out of the DOM
@@ -2822,7 +2823,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-tool-group-disclosure="true"');
     expect(markup).toContain('data-tool-group-live="true"');
     expect(markup).toContain("Running the focused tests");
-    expect(markup).toContain(">Thinking<");
+    expect(markup).toContain(">Thinking…<");
     expect(markup).not.toContain('data-reasoning-row="true"');
     expect(markup).not.toContain("Reasoning trace Inspecting");
   });
@@ -4182,7 +4183,7 @@ describe("MessagesTimeline", () => {
     );
   });
 
-  it("renders an automation-dispatched coordinator prompt as a normal user row", async () => {
+  it("collapses an automation run envelope instead of rendering an internal prompt bubble", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -4207,12 +4208,11 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    // Check-in turns are suppressed upstream in deriveWorkLogEntries; the
-    // timeline no longer has a compact check-in row, so the prompt renders as
-    // a normal user bubble.
     expect(markup).not.toContain("Coordinator check-in");
-    expect(markup).toContain("--app-user-message-background");
-    expect(markup).toContain("Sent via Automation");
+    expect(markup).not.toContain("--app-user-message-background");
+    expect(markup).toContain("Automation instructions");
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain("Coordinator events");
   });
 
   it("keeps automation-origin user messages as bubbles outside coordinator conversations", async () => {

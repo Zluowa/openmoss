@@ -30,7 +30,7 @@ import {
   TurnId,
   type OrchestrationThreadActivity,
   type ThreadHistoryImportEntry,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, ManagedRuntime, Option } from "effect";
 
 import { ServerConfig } from "../src/config.ts";

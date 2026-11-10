@@ -399,9 +399,7 @@ export function findPublicRuntimeBrandViolations(
         consumedAttributions.add(trimmed);
         continue;
       }
-      // The actual Moss repository retains this historical coordinate. The
-      // `@synara/` workspace package scope is the sanctioned post-merge
-      // scope, not the retired product name.
+      // The actual Moss repository retains this historical coordinate.
       const identityText = (
         file.path.startsWith("apps/marketing/") || file.path === "README.md"
           ? line
@@ -409,7 +407,6 @@ export function findPublicRuntimeBrandViolations(
               .replaceAll("https://api.github.com/repos/Zluowa/moss-synara", "")
           : line
       )
-        .replaceAll("@synara/", "")
         // "moss-synara" is the factual wire identity of the Moss <-> Moss Canvas
         // bridge; the companion app (moss-canvas) already implements against it.
         .replaceAll('"moss-synara"', "");

@@ -2,7 +2,7 @@
 // Purpose: Shows localized recovery guidance for terminal WebSocket compatibility failures.
 // Layer: Web UI
 
-import { type WsCompatibilityAction, type WsCompatibilityError } from "@synara/contracts";
+import { type WsCompatibilityAction, type WsCompatibilityError } from "@moss/contracts";
 
 import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { Button, dialogActionButtonClassName } from "./ui/button";

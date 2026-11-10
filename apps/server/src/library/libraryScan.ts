@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-import type { LibraryItemKind, LibrarySource, LibrarySourceCli } from "@synara/contracts";
+import type { LibraryItemKind, LibrarySource, LibrarySourceCli } from "@moss/contracts";
 
 export interface LibraryScanRootSpec {
   readonly id: string;

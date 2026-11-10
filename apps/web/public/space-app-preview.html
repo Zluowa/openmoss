@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- Readonly AppItem host. Keep the meta policy identical to pageAppMetaContentSecurityPolicy. -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com; style-src 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://fonts.googleapis.com; font-src 'self' data: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' data: blob:; worker-src blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>只读应用预览</title>
+    <script>
+      (function () {
+        var protocol = "moss-readonly-app-item-v1";
+        var params = new URLSearchParams(location.hash.slice(1));
+        var nonce = params.get("nonce");
+        var parentOrigin = params.get("parentOrigin");
+        if (
+          params.get("protocol") !== protocol ||
+          !nonce ||
+          !/^[a-zA-Z0-9-]{16,128}$/.test(nonce) ||
+          !parentOrigin ||
+          parent === window
+        )
+          return;
+        var host = parent;
+        var post = host.postMessage.bind(host);
+        var targetOrigin = parentOrigin === "null" ? "*" : parentOrigin;
+        function send(kind) {
+          post({ protocol: protocol, nonce: nonce, kind: kind }, targetOrigin);
+        }
+        function receive(event) {
+          if (event.source !== host || event.origin !== parentOrigin) return;
+          var data = event.data;
+          if (
+            !data ||
+            data.protocol !== protocol ||
+            data.nonce !== nonce ||
+            data.kind !== "document" ||
+            typeof data.html !== "string" ||
+            data.html.length > 2100000
+          )
+            return;
+          window.removeEventListener("message", receive);
+          document.open();
+          document.write(data.html);
+          document.close();
+          send("loaded");
+        }
+        window.addEventListener("message", receive);
+        send("ready");
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

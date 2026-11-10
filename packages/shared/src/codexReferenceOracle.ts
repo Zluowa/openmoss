@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import {
   CodexReferenceOracleReport as CodexReferenceOracleReportSchema,
   type CodexReferenceOracleReport,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export const MOSS_CODEX_REFERENCE_REPORT_ENV = "MOSS_CODEX_REFERENCE_REPORT";
 

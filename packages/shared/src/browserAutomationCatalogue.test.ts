@@ -1,4 +1,4 @@
-import { BROWSER_TOOL_NAMES, BrowserRunInput, utf8ByteLength } from "@synara/contracts";
+import { BROWSER_TOOL_NAMES, BrowserRunInput, utf8ByteLength } from "@moss/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 

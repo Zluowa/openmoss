@@ -11,8 +11,8 @@ import {
   type InlineVisualBlock,
   type InlineVisualLeafBlock,
   type ThreadId,
-} from "@synara/contracts";
-import { INLINE_VISUAL_SERIES_COLORS } from "@synara/shared/inlineVisual";
+} from "@moss/contracts";
+import { INLINE_VISUAL_SERIES_COLORS } from "@moss/shared/inlineVisual";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useRef, type CSSProperties, type ReactNode } from "react";
 

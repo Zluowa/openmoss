@@ -1,4 +1,4 @@
-import type { AutomationDefinition } from "@synara/contracts";
+import type { AutomationDefinition } from "@moss/contracts";
 import { useEffect, useRef, useState } from "react";
 
 type AutomationCompletion = {

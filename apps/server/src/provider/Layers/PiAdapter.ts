@@ -1,27 +1,18 @@
-import { providerProcessPriorityEnabled } from "../../providerProcessPriority";
-import { refreshPiOpenCodeCatalog } from "../piOpenCodeCatalog";
-import {
-  MOSS_MANAGED_PI_CREDENTIAL_ENV_KEY,
-  readMossManagedPiConfig,
-} from "../mossManagedPiEnvironment";
+/**
+ * PiAdapter - drives the person's own Pi CLI (`pi --mode rpc`), one child process per thread.
+ *
+ * Moss no longer embeds the Pi SDK. Pi runs as the person installed it (or as Moss installed it
+ * with one click) and Moss speaks Pi's documented RPC protocol. A small Moss extension
+ * (`pi -e <file>`) registers the Moss account models and the Moss gateway tools; gateway calls
+ * come back to Moss over the RPC extension UI channel, so Moss keeps its per-turn leases.
+ *
+ * @module PiAdapter
+ */
 import crypto from "node:crypto";
+import os from "node:os";
+import { rm } from "node:fs/promises";
 import path from "node:path";
-import type { ChildProcess } from "node:child_process";
 
-import type {
-  BashOperations,
-  ModelRegistry,
-  ModelRuntime,
-  SessionManager,
-  AgentSession as PiAgentSession,
-  AgentSessionEvent,
-  CreateAgentSessionRuntimeFactory,
-  ExtensionUIContext,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import type { AgentToolResult, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Api, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
-import { resetApiProviders } from "@earendil-works/pi-ai/compat";
 import {
   ApprovalRequestId,
   type ChatAttachment,
@@ -41,13 +32,7 @@ import {
   type ThreadTokenUsageSnapshot,
   TurnId,
   type UserInputQuestion,
-} from "@synara/contracts";
-import {
-  execShellCommandSync,
-  spawnProcess as spawnPlatformProcess,
-  type RuntimeSpawnOptions,
-} from "@synara/shared/processRuntime";
-import { stripTerminalControlSequences } from "@synara/shared/text";
+} from "@moss/contracts";
 import { Effect, FileSystem, Layer, Option, Queue, Stream } from "effect";
 
 import {
@@ -73,34 +58,69 @@ import {
   type AgentGatewaySessionLease,
   withAgentGatewayTurnCancellation,
 } from "../../agentGateway/sessionLease.ts";
-import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
 import { ServerConfig } from "../../config.ts";
-import { lazyModule } from "../../lazyModule.ts";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
+import { providerProcessPriorityEnabled } from "../../providerProcessPriority.ts";
+import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
+import { makeBoundedCallbackIngress } from "../boundedCallbackIngress.ts";
 import {
   ProviderAdapterRequestError,
   ProviderAdapterSessionClosedError,
   ProviderAdapterSessionNotFoundError,
   ProviderAdapterValidationError,
 } from "../Errors.ts";
-import { PiAdapter, type PiAdapterShape } from "../Services/PiAdapter.ts";
-import {
-  PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
-  resolveProviderSessionInstanceId,
-  type ProviderThreadSnapshot,
-} from "../Services/ProviderAdapter.ts";
-import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
-import { makeBoundedCallbackIngress } from "../boundedCallbackIngress.ts";
 import { makeKeyedLock } from "../keyedLock.ts";
-import { settleConcurrentTeardowns } from "../settleConcurrentTeardowns.ts";
-import { classifyPiTurnFailure } from "../piTurnFailure.ts";
-import { fetchOpenRouterModels, OPENROUTER_BASE_URL } from "../OpenRouterDiscovery.ts";
-import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import {
-  buildProviderProcessEnv,
-  MODEL_PROVIDER_API_KEY_ENV_MAPPINGS,
-  providerIsolatedHomePath,
-} from "../providerProcessEnv.ts";
+  MOSS_MANAGED_PI_CONFIG_ENV_KEY,
+  MOSS_MANAGED_PI_CREDENTIAL_ENV_KEY,
+  readMossManagedPiConfig,
+} from "../mossManagedPiEnvironment.ts";
+import {
+  ensureMossPiExtensionFile,
+  isMossPiBridgeTitle,
+  MOSS_PI_BRIDGE_ENV_KEY,
+  MOSS_PI_GATEWAY_SYNC_COMMAND,
+  MOSS_PI_GATEWAY_TOOLS_FILE_ENV_KEY,
+  MOSS_PI_INTERNAL_COMMANDS,
+  MOSS_PI_RELOAD_COMMAND,
+  type MossPiBridgeResponse,
+  type MossPiGatewayToolDescriptor,
+  parseMossPiBridgeRequest,
+  writeMossPiGatewayToolsFile,
+} from "../pi/mossPiExtension.ts";
+import {
+  classifyPiRuntimeError,
+  findPiModel,
+  isPiReloadCommand,
+  isRecord,
+  makePiStoragePaths,
+  mapPiMessageHistory,
+  normalizePiThinkingLevel,
+  normalizePiTokenUsage,
+  parsePiModelReference,
+  piModelSlug,
+  type PiRpcModel,
+  type PiRpcSessionState,
+  type PiRpcSessionStats,
+  piToolItemType,
+  piToolLifecycleData,
+  piToolTitle,
+  textFromToolResult,
+  toPiProviderModelDescriptor,
+  trimPiDisplayText,
+  trimToUndefined,
+} from "../pi/piProtocolMapping.ts";
+import {
+  type PiRpcClient,
+  type PiRpcExit,
+  type PiRpcRecord,
+  type PiRpcSpawn,
+  startPiRpcClient,
+} from "../pi/PiRpcClient.ts";
+import { readPiSettingsDefaultModel } from "../piCliModels.ts";
+import { classifyPiTurnFailure, piMissingModelSignInIssue } from "../piTurnFailure.ts";
+import { resolveProviderAttachmentPath } from "../providerAttachmentPaths.ts";
+import { buildProviderProcessEnv } from "../providerProcessEnv.ts";
 import {
   compactProviderRuntimeEventForIngress,
   isTerminalProviderRuntimeEvent,
@@ -108,14 +128,39 @@ import {
   PROVIDER_RUNTIME_CALLBACK_TERMINAL_RESERVE,
   type SizedProviderRuntimeEvent,
 } from "../providerRuntimeEventIngress.ts";
-import { clampUsagePercent, nonNegativeFiniteNumber, positiveFiniteNumber } from "../tokenUsage.ts";
-import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+import { PiAdapter, type PiAdapterShape } from "../Services/PiAdapter.ts";
 import {
-  teardownChildProcessTree,
-  teardownProviderProcessTree,
-} from "../supervisedProcessTeardown.ts";
+  PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
+  resolveProviderSessionInstanceId,
+  type ProviderThreadSnapshot,
+} from "../Services/ProviderAdapter.ts";
+import { settleConcurrentTeardowns } from "../settleConcurrentTeardowns.ts";
+import type { teardownProviderProcessTree } from "../supervisedProcessTeardown.ts";
+import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+
+export {
+  getPiSupportedThinkingOptions,
+  makePiStoragePaths,
+  toPiProviderModelDescriptor,
+} from "../pi/piProtocolMapping.ts";
 
 const PROVIDER = "pi" as const;
+
+/** The config folder a Pi with this environment reads: `PI_CODING_AGENT_DIR` or `~/.pi/agent`. */
+function piAgentDirOf(env: NodeJS.ProcessEnv): string {
+  const configured = env.PI_CODING_AGENT_DIR?.trim();
+  if (configured) return configured;
+  const home = env.USERPROFILE?.trim() || env.HOME?.trim() || os.homedir();
+  return path.join(home, ".pi", "agent");
+}
+const DEFAULT_PI_BINARY = "pi";
+/** First command after spawn: Pi loads extensions, skills and MCP config before it answers. */
+const PI_STARTUP_TIMEOUT_MS = 90_000;
+/** Pi answers `prompt` once preflight passes; preflight can wait for MCP servers or compact. */
+const PI_PROMPT_ACCEPT_TIMEOUT_MS = 10 * 60_000;
+const PI_ABORT_TIMEOUT_MS = 60_000;
+const PI_COMPACT_TIMEOUT_MS = 15 * 60_000;
+const PI_BOOKKEEPING_TIMEOUT_MS = 15_000;
 
 export function buildPiTurnPrompt(
   state: MossHarnessPolicyDeliveryState,
@@ -130,386 +175,103 @@ export function buildPiTurnPrompt(
 
 export const resolvePiStartInstanceId = resolveProviderSessionInstanceId;
 
-const DEFAULT_PI_THINKING_LEVEL: ThinkingLevel = "medium";
-const PI_THINKING_OPTIONS: ReadonlyArray<{
-  readonly value: ThinkingLevel;
-  readonly label: string;
-  readonly description: string;
-  readonly isDefault?: true;
-}> = [
-  { value: "off", label: "Off", description: "No extra reasoning" },
-  { value: "minimal", label: "Minimal", description: "Light reasoning" },
-  { value: "low", label: "Low", description: "Faster reasoning" },
-  { value: "medium", label: "Medium", description: "Balanced reasoning", isDefault: true },
-  { value: "high", label: "High", description: "Deeper reasoning" },
-  { value: "xhigh", label: "Extra High", description: "Extra-high reasoning" },
-  { value: "max", label: "Max", description: "Maximum reasoning" },
-];
-const PI_DEFAULT_SUPPORTED_THINKING_LEVELS = new Set<ThinkingLevel>([
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-]);
-const PI_ANTHROPIC_ENSURED_MODEL_IDS = [
-  "claude-fable-5-1",
-  "claude-fable-5",
-  "claude-opus-4-8",
-] as const;
-type PiAnthropicEnsuredModelId = (typeof PI_ANTHROPIC_ENSURED_MODEL_IDS)[number];
+/**
+ * Enabled sessions retain direct routes to the hidden Computer specialists. Use this same
+ * projection when comparing a rotated catalog with installed tools; sessions without an
+ * advertised Computer tool get no family stubs.
+ */
+export function piInstalledGatewayToolNames(freshNames: Iterable<string>): Set<string> {
+  const installed = new Set(freshNames);
+  if (MOSS_COMPUTER_TOOL_NAMES.some((name) => installed.has(name))) {
+    for (const name of MOSS_COMPUTER_TOOL_NAMES) installed.add(name);
+  }
+  return installed;
+}
 
 /**
- * Metadata used when an OAuth/extension Anthropic catalog replaced Pi's built-ins
- * and omitted Fable 5.1 / Fable 5 / Opus 4.8. Values mirror `@earendil-works/pi-ai`
- * Anthropic models; Fable 5.1 follows Anthropic's published pricing until pi-ai ships it.
+ * Project the canonical MCP catalog into the descriptors the Moss Pi extension registers.
+ * Schemas and execution both stay with the gateway; Pi only adapts the provider boundary.
  */
-const PI_ANTHROPIC_ENSURED_MODEL_TEMPLATES: Record<
-  PiAnthropicEnsuredModelId,
-  {
-    readonly id: PiAnthropicEnsuredModelId;
-    readonly name: string;
-    readonly reasoning: true;
-    readonly thinkingLevelMap: NonNullable<Model<Api>["thinkingLevelMap"]>;
-    readonly compat: NonNullable<Model<Api>["compat"]>;
-    readonly input: Array<"text" | "image">;
-    readonly cost: Model<Api>["cost"];
-    readonly contextWindow: number;
-    readonly maxTokens: number;
-  }
-> = {
-  "claude-fable-5-1": {
-    id: "claude-fable-5-1",
-    name: "Claude Fable 5.1",
-    reasoning: true,
-    thinkingLevelMap: { off: null, xhigh: "xhigh", max: "max" },
-    compat: { forceAdaptiveThinking: true },
-    input: ["text", "image"],
-    cost: { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
-    contextWindow: 1_000_000,
-    maxTokens: 128_000,
-  },
-  "claude-fable-5": {
-    id: "claude-fable-5",
-    name: "Claude Fable 5",
-    reasoning: true,
-    thinkingLevelMap: { off: null, xhigh: "xhigh", max: "max" },
-    compat: { forceAdaptiveThinking: true },
-    input: ["text", "image"],
-    cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
-    contextWindow: 1_000_000,
-    maxTokens: 128_000,
-  },
-  "claude-opus-4-8": {
-    id: "claude-opus-4-8",
-    name: "Claude Opus 4.8",
-    reasoning: true,
-    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
-    compat: { forceAdaptiveThinking: true, supportsTemperature: false },
-    input: ["text", "image"],
-    cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-    contextWindow: 1_000_000,
-    maxTokens: 128_000,
-  },
-};
-
-type PiModelRegistry = Pick<ModelRegistry, "find" | "getAll" | "getAvailable">;
-type PiCodingAgentModule = typeof import("@earendil-works/pi-coding-agent");
-type PiAgentRuntime = Awaited<ReturnType<PiCodingAgentModule["createAgentSessionRuntime"]>>;
-type PiShellConfig = ReturnType<PiCodingAgentModule["getShellConfig"]>;
-
-interface PiActiveProcess {
-  readonly child: ChildProcess;
-  teardown: Promise<void> | undefined;
-  teardownRequested: boolean;
-  teardownProven: boolean;
-}
-
-export interface PiBashProcessSupervisor {
-  readonly operations: BashOperations;
-  readonly setShellPath: (shellPath: string | undefined) => void;
-  readonly teardownAll: () => Promise<void>;
-}
-
-export interface PiBashProcessSupervisorOptions {
-  readonly lowerPriority?: boolean;
-  readonly getShellConfig: (shellPath?: string) => PiShellConfig;
-  readonly environment?: Readonly<Record<string, string>>;
-  readonly instanceId?: string;
-  readonly homeDir?: string;
-  readonly isolationRootDir?: string;
-  readonly spawnProcess?: (
-    command: string,
-    args: ReadonlyArray<string>,
-    options: RuntimeSpawnOptions,
-  ) => ChildProcess;
-  readonly teardownProcessTree?: typeof teardownProviderProcessTree;
-}
-
-export function makePiBashProcessSupervisor(
-  options: PiBashProcessSupervisorOptions,
-): PiBashProcessSupervisor {
-  const spawnProcess =
-    options.spawnProcess ??
-    ((command: string, args: ReadonlyArray<string>, spawnOptions: RuntimeSpawnOptions) =>
-      spawnPlatformProcess(command, args, {
-        ...spawnOptions,
-        requireExecutable: true,
-        ownProcessGroup: true,
-      }));
-  const teardownProcessTree = options.teardownProcessTree ?? teardownProviderProcessTree;
-  const activeProcesses = new Set<PiActiveProcess>();
-  let configuredShellPath: string | undefined;
-
-  const startTeardown = (active: PiActiveProcess): Promise<void> => {
-    active.teardownRequested = true;
-    active.teardown ??= teardownChildProcessTree(active.child, teardownProcessTree).then(
-      () => {
-        active.teardownProven = true;
-      },
-      (cause) => {
-        active.teardown = undefined;
-        throw cause;
-      },
-    );
-    return active.teardown;
-  };
-
-  const operations: BashOperations = {
-    exec: async (command, cwd, execution) => {
-      if (execution.signal?.aborted) {
-        throw new Error("aborted");
-      }
-      const timeoutMs = execution.timeout === undefined ? undefined : execution.timeout * 1_000;
-      if (
-        execution.timeout !== undefined &&
-        (!Number.isFinite(execution.timeout) || execution.timeout <= 0)
-      ) {
-        throw new Error("Invalid timeout: must be a finite number of seconds");
-      }
-      if (timeoutMs !== undefined && timeoutMs > 2_147_483_647) {
-        throw new Error(`Invalid timeout: maximum is ${String(2_147_483_647 / 1_000)} seconds`);
-      }
-      const shell = options.getShellConfig(configuredShellPath);
-      const commandFromStdin = shell.commandTransport === "stdin";
-      const child = spawnProcess(
-        shell.shell,
-        commandFromStdin ? shell.args : [...shell.args, command],
-        {
-          cwd,
-          lowerPriority: options.lowerPriority ?? true,
-          env: buildProviderChildEnvironment({
-            provider: "pi",
-            baseEnv: buildProviderProcessEnv({
-              driver: PROVIDER,
-              env: execution.env ?? process.env,
-              ...(options.environment !== undefined ? { environment: options.environment } : {}),
-              ...(options.instanceId !== undefined ? { instanceId: options.instanceId } : {}),
-              ...(options.homeDir !== undefined ? { homeDir: options.homeDir } : {}),
-              ...(options.isolationRootDir !== undefined
-                ? { isolationRootDir: options.isolationRootDir }
-                : {}),
-            }),
-          }),
-          stdio: [commandFromStdin ? "pipe" : "ignore", "pipe", "pipe"],
-        },
-      );
-      const active: PiActiveProcess = {
-        child,
-        teardown: undefined,
-        teardownRequested: false,
-        teardownProven: false,
-      };
-      activeProcesses.add(active);
-
-      if (commandFromStdin) {
-        child.stdin?.on("error", () => undefined);
-        child.stdin?.end(command);
-      }
-      child.stdout?.on("data", (chunk: Buffer | string) =>
-        execution.onData(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
-      );
-      child.stderr?.on("data", (chunk: Buffer | string) =>
-        execution.onData(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
-      );
-
-      let timedOut = false;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const requestTeardown = () => {
-        void startTeardown(active).catch(() => undefined);
-      };
-      if (timeoutMs !== undefined) {
-        timeout = setTimeout(() => {
-          timedOut = true;
-          requestTeardown();
-        }, timeoutMs);
-      }
-      execution.signal?.addEventListener("abort", requestTeardown, { once: true });
-
-      try {
-        const exitCode = await new Promise<number | null>((resolve, reject) => {
-          child.once("error", reject);
-          child.once("exit", (code) => resolve(code));
-        });
-        if (active.teardown) {
-          await active.teardown;
-        }
-        if (execution.signal?.aborted) {
-          throw new Error("aborted");
-        }
-        if (timedOut) {
-          throw new Error(`timeout:${String(execution.timeout)}`);
-        }
-        return { exitCode };
-      } finally {
-        if (timeout !== undefined) clearTimeout(timeout);
-        execution.signal?.removeEventListener("abort", requestTeardown);
-        if (!active.teardownRequested || active.teardownProven) {
-          activeProcesses.delete(active);
-        }
-      }
-    },
-  };
-
-  return {
-    operations,
-    setShellPath: (shellPath) => {
-      configuredShellPath = shellPath;
-    },
-    teardownAll: async () => {
-      const results = await Promise.allSettled(
-        Array.from(activeProcesses, (active) => startTeardown(active)),
-      );
-      const failures = results.flatMap((result) =>
-        result.status === "rejected" ? [result.reason] : [],
-      );
-      if (failures.length > 0) {
-        throw new AggregateError(failures, "Failed to prove all Pi subprocess trees exited.");
-      }
-      for (const active of Array.from(activeProcesses)) {
-        if (active.teardownProven) activeProcesses.delete(active);
-      }
-    },
-  };
-}
-
-// Loads the Pi SDK only when the Pi provider is actually used. The SDK brings in
-// a native clipboard module, so importing it during Moss startup can bloat the
-// desktop backend before any Pi session exists.
-const loadPiCodingAgentModule: () => Promise<PiCodingAgentModule> = lazyModule(
-  () => import("@earendil-works/pi-coding-agent"),
-);
-
-interface PiSessionContext {
-  harnessPolicyDelivered?: boolean;
+export async function buildPiAgentGatewayToolDescriptors(input: {
+  readonly connection: AgentGatewayMcpConnection;
   readonly enableComputerControl?: boolean;
-  /**
-   * Whether the CURRENT gateway rotation exposes Moss control. Recomputed on
-   * every credential rotation, never inherited blindly from session start.
-   */
-  gatewayControlAvailable: boolean;
-  /**
-   * Pi rotates its gateway credential when a turn completes, long after the
-   * start input is gone. Keep the shared capability projection so the re-lease
-   * derives from the same facts as the original lease. Refreshed from the
-   * session fact on every dispatched turn; rotation consumes this stashed
-   * value, not the start snapshot and not a fresh derivation.
-   */
-  gatewayCapabilityInput: AgentGatewayCapabilityInput;
-  gatewaySessionLease?: AgentGatewaySessionLease;
-  gatewayConnection?: AgentGatewayMcpConnection;
-  /**
-   * Installed Moss gateway tool definitions. Rotation rebuilds these in
-   * place (the Pi SDK exposes no post-construction registration API), so the
-   * array elements are the exact objects handed to the SDK at session start.
-   */
-  gatewayTools: ToolDefinition[];
-  /** Wraps rebuilt gateway tools exactly like session start does. */
-  readonly gatewayDefineTool: (tool: ToolDefinition) => ToolDefinition;
-  readonly lifecycleGeneration?: string;
-  runtime: PiAgentRuntime;
-  readonly processSupervisor: PiBashProcessSupervisor;
-  modelRegistry: PiModelRegistry;
-  session: ProviderSession;
-  turns: PiStoredTurn[];
-  activeTurnId: TurnId | undefined;
-  // The turn whose prompt() has been dispatched but has not committed a run
-  // yet — the SDK's isStreaming flag only flips deep inside prompt()'s async
-  // preflight, so a concurrent send must treat this as still-live rather than
-  // settled.
-  promptCommitting: TurnId | undefined;
-  promptCommit: Promise<void> | undefined;
-  // Set when an interrupt lands while the turn's prompt() is still in async
-  // preflight — nothing exists for abort() to reach yet. Fired on the next
-  // agent_start once the run commits; cleared when the turn completes.
-  pendingAbortTurnId: TurnId | undefined;
-  activeTurnErrorMessage?: string;
-  activeAssistantItemId: RuntimeItemId | undefined;
-  activeReasoningItemId: RuntimeItemId | undefined;
-  activeToolItems: Map<string, PiTrackedToolCall>;
-  pendingUserInputs: Map<ApprovalRequestId, PiPendingUserInput>;
-  stopped: boolean;
-  lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
-  unsubscribe: (() => void) | undefined;
-  readonly extensionsEnabled: boolean;
-}
-
-export function resolvePiExtensionMode(input: {
-  readonly isolatedAccount: boolean;
-  readonly hasExtensionEnabledDefault: boolean;
-  readonly hasIsolatedMode: boolean;
-}): { readonly noExtensions: boolean } {
-  if (input.isolatedAccount && input.hasExtensionEnabledDefault) {
-    throw new Error(
-      "Stop extension-enabled default Pi sessions before starting an isolated Pi account.",
-    );
+  readonly fetch?: AgentGatewayMcpFetch;
+}): Promise<ReadonlyArray<MossPiGatewayToolDescriptor>> {
+  const tools = await listAgentGatewayMcpTools({
+    connection: input.connection,
+    ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
+  });
+  if (tools.length === 0) throw new Error("Moss MCP returned an empty tool catalog.");
+  const catalog = new Map(tools.map((tool) => [tool.name, tool]));
+  if (input.enableComputerControl === true) {
+    // Always advertised by the shared Computer catalog. A help-only catalog must not
+    // masquerade as observation and action support.
+    const missing = [
+      "computer_get_state",
+      "computer_click",
+      "computer_press_key",
+      "computer_run",
+    ].filter((name) => !catalog.has(name));
+    if (missing.length > 0) {
+      throw new Error(
+        `Moss MCP catalog is missing required Computer tools: ${missing.join(", ")}.`,
+      );
+    }
   }
-  return { noExtensions: input.isolatedAccount || input.hasIsolatedMode };
+  return [...piInstalledGatewayToolNames(catalog.keys())].map((name) => {
+    const tool = catalog.get(name);
+    return {
+      name,
+      description:
+        tool?.description ??
+        (name.startsWith("computer_browser_")
+          ? 'Read computer_help({topic:"browser"}) before calling. Gateway permissions apply.'
+          : `Read computer_help({tool:"${name}"}) for arguments. Gateway permissions apply.`),
+      inputSchema: tool?.inputSchema ?? { type: "object", properties: {} },
+    };
+  });
 }
 
-export function makePiExtensionModeCoordinator(
-  getActiveModes: () => {
-    readonly hasExtensionEnabledDefault: boolean;
-    readonly hasIsolatedMode: boolean;
-  },
-) {
-  let pendingExtensionEnabledOperations = 0;
-  let pendingIsolatedModeOperations = 0;
+type PiBridgeContent =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "image"; readonly data: string; readonly mimeType: string };
+
+/** Gateway `tools/call` result → the answer the extension returns to Pi. */
+export function piGatewayBridgeResponse(result: unknown): MossPiBridgeResponse {
+  if (isRecord(result) && result.isError === true) {
+    const message = Array.isArray(result.content)
+      ? result.content
+          .flatMap((item) =>
+            isRecord(item) && item.type === "text" && typeof item.text === "string"
+              ? [item.text]
+              : [],
+          )
+          .join("\n")
+      : "";
+    return { ok: false, error: message || "Moss gateway tool failed." };
+  }
+  const content =
+    isRecord(result) && Array.isArray(result.content)
+      ? result.content.flatMap((item): PiBridgeContent[] => {
+          if (isRecord(item) && item.type === "text" && typeof item.text === "string") {
+            return [{ type: "text", text: item.text }];
+          }
+          if (
+            isRecord(item) &&
+            item.type === "image" &&
+            typeof item.data === "string" &&
+            typeof item.mimeType === "string"
+          ) {
+            return [{ type: "image", data: item.data, mimeType: item.mimeType }];
+          }
+          return [];
+        })
+      : [];
   return {
-    reserve(
-      isolatedAccount: boolean,
-      activeOverride?: {
-        readonly hasExtensionEnabledDefault: boolean;
-        readonly hasIsolatedMode: boolean;
-      },
-    ) {
-      const active = activeOverride ?? getActiveModes();
-      const hasExtensionEnabledDefault =
-        pendingExtensionEnabledOperations > 0 || active.hasExtensionEnabledDefault;
-      const hasIsolatedMode = pendingIsolatedModeOperations > 0 || active.hasIsolatedMode;
-      if (!isolatedAccount && hasExtensionEnabledDefault && hasIsolatedMode) {
-        throw new Error(
-          "Wait for the Pi account-mode transition to finish before starting default work.",
-        );
-      }
-      const mode = resolvePiExtensionMode({
-        isolatedAccount,
-        hasExtensionEnabledDefault,
-        hasIsolatedMode,
-      });
-      if (mode.noExtensions) pendingIsolatedModeOperations += 1;
-      else pendingExtensionEnabledOperations += 1;
-      let released = false;
-      return {
-        noExtensions: mode.noExtensions,
-        release: () => {
-          if (released) return;
-          released = true;
-          if (mode.noExtensions) pendingIsolatedModeOperations -= 1;
-          else pendingExtensionEnabledOperations -= 1;
-        },
-      };
-    },
+    ok: true,
+    content:
+      content.length > 0 ? content : [{ type: "text", text: JSON.stringify(result ?? null) }],
+    details: result,
   };
 }
 
@@ -538,1395 +300,9 @@ export function makePiRuntimeEventBase(
   };
 }
 
-interface PiStoredTurn {
-  readonly id: TurnId;
-  readonly items: unknown[];
-  readonly toolItemIndexes: Map<string, number>;
-  leafId?: string | null;
-}
-
-interface PiTrackedToolCall {
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly args: unknown;
-  readonly itemId: RuntimeItemId;
-  readonly itemType: "command_execution" | "file_change" | "dynamic_tool_call" | "web_search";
-}
-
-interface PiPendingUserInput {
-  readonly resolve: (answers: ProviderUserInputAnswers) => void;
-}
-
 export interface PiUserInputOptionMapping {
   readonly value: string;
   readonly option: UserInputQuestion["options"][number];
-}
-
-export interface PiAdapterLiveOptions {
-  readonly nativeEventLogPath?: string;
-  readonly nativeEventLogger?: EventNdjsonLogger;
-  readonly spawnProcess?: PiBashProcessSupervisorOptions["spawnProcess"];
-  readonly teardownProcessTree?: typeof teardownProviderProcessTree;
-  readonly agentGatewayFetch?: AgentGatewayMcpFetch;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function piGatewayToolResult(result: unknown): AgentToolResult<unknown> {
-  if (isRecord(result) && result.isError === true) {
-    const message = Array.isArray(result.content)
-      ? result.content
-          .flatMap((item) =>
-            isRecord(item) && item.type === "text" && typeof item.text === "string"
-              ? [item.text]
-              : [],
-          )
-          .join("\n")
-      : "";
-    throw new Error(message || "Moss gateway tool failed.");
-  }
-  const content =
-    isRecord(result) && Array.isArray(result.content)
-      ? result.content.flatMap((item): Array<TextContent | ImageContent> => {
-          if (isRecord(item) && item.type === "text" && typeof item.text === "string") {
-            return [{ type: "text", text: item.text }];
-          }
-          if (
-            isRecord(item) &&
-            item.type === "image" &&
-            typeof item.data === "string" &&
-            typeof item.mimeType === "string"
-          ) {
-            return [{ type: "image", data: item.data, mimeType: item.mimeType }];
-          }
-          return [];
-        })
-      : [];
-  return {
-    content:
-      content.length > 0
-        ? content
-        : [{ type: "text", text: JSON.stringify(result ?? null) } satisfies TextContent],
-    details: result,
-  };
-}
-
-/**
- * Enabled Pi sessions retain direct routes to the hidden Computer specialists.
- * Use this same projection when comparing a rotated catalog with installed
- * tools; sessions without an advertised Computer tool get no family stubs.
- */
-export function piInstalledGatewayToolNames(freshNames: Iterable<string>): Set<string> {
-  const installed = new Set(freshNames);
-  if (MOSS_COMPUTER_TOOL_NAMES.some((name) => installed.has(name))) {
-    for (const name of MOSS_COMPUTER_TOOL_NAMES) installed.add(name);
-  }
-  return installed;
-}
-
-/**
- * Project the canonical MCP catalog into Pi's native custom-tool API. Tool
- * schemas and execution both remain owned by the gateway; Pi only adapts the
- * provider boundary.
- */
-export async function buildPiAgentGatewayCustomTools(input: {
-  readonly connection: AgentGatewayMcpConnection;
-  readonly defineTool: (tool: ToolDefinition) => ToolDefinition;
-  readonly enableComputerControl?: boolean;
-  readonly fetch?: AgentGatewayMcpFetch;
-}): Promise<ReadonlyArray<ToolDefinition>> {
-  const tools = await listAgentGatewayMcpTools({
-    connection: input.connection,
-    ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
-  });
-  if (tools.length === 0) {
-    throw new Error("Moss MCP returned an empty tool catalog.");
-  }
-  const catalog = new Map(tools.map((tool) => [tool.name, tool]));
-  if (input.enableComputerControl === true) {
-    // These are always advertised by the shared Computer catalog. Check the
-    // negotiated definitions before compatibility forwarders fill hidden names;
-    // a help-only catalog must not masquerade as observation and action support.
-    const missing = [
-      "computer_get_state",
-      "computer_click",
-      "computer_press_key",
-      "computer_run",
-    ].filter((name) => !catalog.has(name));
-    if (missing.length > 0) {
-      throw new Error(
-        `Moss MCP catalog is missing required Computer tools: ${missing.join(", ")}.`,
-      );
-    }
-  }
-  return [...piInstalledGatewayToolNames(catalog.keys())].map((name) => {
-    const tool = catalog.get(name);
-    return input.defineTool({
-      name,
-      label: name,
-      description:
-        tool?.description ??
-        (name.startsWith("computer_browser_")
-          ? 'Read computer_help({topic:"browser"}) before calling. Gateway permissions apply.'
-          : `Read computer_help({tool:"${name}"}) for arguments. Gateway permissions apply.`),
-      parameters: (tool?.inputSchema ?? {
-        type: "object",
-        properties: {},
-      }) as ToolDefinition["parameters"],
-      execute: async (_toolCallId, params, signal) =>
-        piGatewayToolResult(
-          await callAgentGatewayMcpTool({
-            connection: input.connection,
-            name,
-            arguments: params as Record<string, unknown>,
-            ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
-            ...(signal === undefined ? {} : { signal }),
-          }),
-        ),
-    });
-  });
-}
-
-function toMessage(cause: unknown, fallback: string): string {
-  if (cause instanceof Error && cause.message.trim().length > 0) {
-    return cause.message;
-  }
-  return fallback;
-}
-
-function trimToUndefined(value: string | null | undefined): string | undefined {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function trimPiDisplayText(value: string | undefined): string | undefined {
-  return value === undefined ? undefined : trimToUndefined(stripTerminalControlSequences(value));
-}
-
-function isPiThinkingLevel(value: string | null | undefined): value is ThinkingLevel {
-  return (
-    value === "off" ||
-    value === "minimal" ||
-    value === "low" ||
-    value === "medium" ||
-    value === "high" ||
-    value === "xhigh" ||
-    value === "max"
-  );
-}
-
-function normalizePiThinkingLevel(value: string | null | undefined): ThinkingLevel | undefined {
-  return isPiThinkingLevel(value) ? value : undefined;
-}
-
-function getLocalSupportedThinkingLevels(
-  model: Pick<Model<Api>, "reasoning" | "thinkingLevelMap">,
-): Set<ThinkingLevel> {
-  if (!model.reasoning) {
-    return new Set();
-  }
-
-  const thinkingLevelMap = model.thinkingLevelMap;
-  if (thinkingLevelMap && Object.keys(thinkingLevelMap).length > 0) {
-    return new Set(
-      PI_THINKING_OPTIONS.filter((option) => {
-        const mapped = thinkingLevelMap[option.value as keyof typeof thinkingLevelMap];
-        if (mapped === null) {
-          return false;
-        }
-        return mapped !== undefined || PI_DEFAULT_SUPPORTED_THINKING_LEVELS.has(option.value);
-      }).map((option) => option.value),
-    );
-  }
-
-  return new Set(PI_DEFAULT_SUPPORTED_THINKING_LEVELS);
-}
-
-// Mirrors Pi SDK clamping so model discovery does not advertise levels that will be ignored.
-export function getPiSupportedThinkingOptions(
-  model: Pick<Model<Api>, "reasoning" | "thinkingLevelMap">,
-): ReadonlyArray<(typeof PI_THINKING_OPTIONS)[number]> {
-  if (!model.reasoning) {
-    return [];
-  }
-  const supportedLevels = getLocalSupportedThinkingLevels(model);
-  return PI_THINKING_OPTIONS.filter((option) => supportedLevels.has(option.value));
-}
-
-/**
- * When Anthropic is already authenticated, ensure Fable 5.1, Fable 5, and Opus 4.8
- * appear even if an older pi-anthropic-oauth extension replaced the built-in
- * Anthropic catalog.
- */
-export function ensurePiAnthropicCatalogModels(
-  available: ReadonlyArray<Model<Api>>,
-  all: ReadonlyArray<Model<Api>> = available,
-): Model<Api>[] {
-  const hasAnthropic = available.some((model) => model.provider === "anthropic");
-  if (!hasAnthropic) {
-    return [...available];
-  }
-
-  const result = [...available];
-  const peer = result.find((model) => model.provider === "anthropic");
-  if (!peer) {
-    return result;
-  }
-
-  for (const modelId of PI_ANTHROPIC_ENSURED_MODEL_IDS) {
-    if (result.some((model) => model.provider === "anthropic" && model.id === modelId)) {
-      continue;
-    }
-    const fromAll = all.find((model) => model.provider === "anthropic" && model.id === modelId);
-    if (fromAll) {
-      result.push(fromAll);
-      continue;
-    }
-    const template = PI_ANTHROPIC_ENSURED_MODEL_TEMPLATES[modelId];
-    result.push({
-      ...peer,
-      ...template,
-      id: template.id,
-      name: template.name,
-      provider: "anthropic",
-      api: peer.api,
-      baseUrl: peer.baseUrl,
-    });
-  }
-
-  return result;
-}
-
-export function getPiDiscoverableModels(
-  registry: Pick<ModelRegistry, "getAvailable" | "getAll">,
-): ReadonlyArray<Model<Api>> {
-  return ensurePiAnthropicCatalogModels(registry.getAvailable(), registry.getAll());
-}
-
-/**
- * Pi extensions own their provider catalogs, so normalize their display metadata
- * before it crosses Moss's trimmed-string RPC contract. A single malformed
- * extension model must not make the complete Pi catalog unavailable.
- */
-export function toPiProviderModelDescriptor(
-  model: Model<Api>,
-  getProviderDisplayName: (provider: string) => string,
-): ProviderListModelsResult["models"][number] | null {
-  const provider = trimToUndefined(model.provider);
-  const modelId = trimToUndefined(model.id);
-  if (!provider || !modelId || provider !== model.provider || modelId !== model.id) {
-    return null;
-  }
-
-  const slug = `${provider}/${modelId}`;
-  const supportedThinkingOptions = getPiSupportedThinkingOptions(model);
-  return {
-    slug,
-    name: trimToUndefined(model.name) ?? slug,
-    upstreamProviderId: provider,
-    upstreamProviderName: trimToUndefined(getProviderDisplayName(model.provider)) ?? provider,
-    ...(supportedThinkingOptions.length > 0
-      ? {
-          supportedReasoningEfforts: supportedThinkingOptions.map((option) => ({
-            value: option.value,
-            label: option.label,
-            description: option.description,
-          })),
-          ...(supportedThinkingOptions.some((option) => option.value === DEFAULT_PI_THINKING_LEVEL)
-            ? { defaultReasoningEffort: DEFAULT_PI_THINKING_LEVEL }
-            : {}),
-        }
-      : {}),
-  };
-}
-
-function isPiAnthropicEnsuredModelId(modelId: string): modelId is PiAnthropicEnsuredModelId {
-  return (PI_ANTHROPIC_ENSURED_MODEL_IDS as ReadonlyArray<string>).includes(modelId);
-}
-
-function parseModelReference(
-  modelId: string | null | undefined,
-): { readonly provider?: string; readonly id: string } | undefined {
-  const trimmed = trimToUndefined(modelId);
-  if (!trimmed) {
-    return undefined;
-  }
-  if (trimmed.includes("/")) {
-    const [provider, ...rest] = trimmed.split("/");
-    const id = rest.join("/");
-    if (provider && id) {
-      return { provider, id };
-    }
-  }
-  if (trimmed.includes(":")) {
-    const [provider, ...rest] = trimmed.split(":");
-    const id = rest.join(":");
-    if (provider && id) {
-      return { provider, id };
-    }
-  }
-  return { id: trimmed };
-}
-
-function createProviderModelFallback(
-  registry: PiModelRegistry,
-  parsed: { readonly provider: string; readonly id: string },
-): Model<Api> | undefined {
-  const providerDefault = registry.getAll().find((model) => model.provider === parsed.provider);
-  if (!providerDefault) {
-    return undefined;
-  }
-  // Zen mixes four protocols. A missing model must not inherit an arbitrary API.
-  if (
-    parsed.provider === "opencode" &&
-    /^https:\/\/opencode\.ai\/zen(?:\/|$)/u.test(providerDefault.baseUrl)
-  ) {
-    return undefined;
-  }
-  if (parsed.provider === "anthropic" && isPiAnthropicEnsuredModelId(parsed.id)) {
-    const template = PI_ANTHROPIC_ENSURED_MODEL_TEMPLATES[parsed.id];
-    return {
-      ...providerDefault,
-      ...template,
-      id: template.id,
-      name: template.name,
-      provider: "anthropic",
-      api: providerDefault.api,
-      baseUrl: providerDefault.baseUrl,
-    };
-  }
-  return {
-    id: parsed.id,
-    name: parsed.id,
-    api: providerDefault.api,
-    provider: parsed.provider,
-    baseUrl: providerDefault.baseUrl,
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128_000,
-    maxTokens: 16_384,
-    ...(providerDefault.compat ? { compat: providerDefault.compat } : {}),
-  };
-}
-
-export function findModelInRegistry(
-  registry: PiModelRegistry,
-  modelId: string | null | undefined,
-): Model<Api> | undefined {
-  const parsed = parseModelReference(modelId);
-  if (!parsed) {
-    return undefined;
-  }
-  if (parsed.provider) {
-    return (
-      registry.find(parsed.provider, parsed.id) ??
-      createProviderModelFallback(registry, { provider: parsed.provider, id: parsed.id })
-    );
-  }
-  return registry
-    .getAll()
-    .find((model) => model.id === parsed.id || `${model.provider}/${model.id}` === parsed.id);
-}
-
-function extractResumeSessionFile(resumeCursor: unknown): string | undefined {
-  if (typeof resumeCursor === "string" && resumeCursor.trim().length > 0) {
-    return resumeCursor;
-  }
-  if (!resumeCursor || typeof resumeCursor !== "object") {
-    return undefined;
-  }
-  const record = resumeCursor as Record<string, unknown>;
-  for (const key of ["sessionFile", "sessionFilePath", "nativeHandle", "path"]) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function getSessionFile(session: PiAgentSession): string | undefined {
-  return session.sessionFile ?? session.sessionManager.getSessionFile();
-}
-
-function makeSessionSnapshot(context: PiSessionContext): ProviderSession {
-  const resumeCursor = getSessionFile(context.runtime.session);
-  return {
-    provider: PROVIDER,
-    ...(context.session.providerInstanceId
-      ? { providerInstanceId: context.session.providerInstanceId }
-      : {}),
-    status: context.stopped ? "closed" : context.activeTurnId ? "running" : "ready",
-    runtimeMode: context.session.runtimeMode,
-    threadId: context.session.threadId,
-    createdAt: context.session.createdAt,
-    updatedAt: new Date().toISOString(),
-    ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
-    ...(context.session.model ? { model: context.session.model } : {}),
-    ...(resumeCursor ? { resumeCursor } : {}),
-    ...(context.activeTurnId ? { activeTurnId: context.activeTurnId } : {}),
-    ...(context.session.lastError ? { lastError: context.session.lastError } : {}),
-  };
-}
-
-function normalizeTokenUsage(
-  stats: ReturnType<PiAgentSession["getSessionStats"]>,
-  contextWindow?: number | null,
-): ThreadTokenUsageSnapshot | undefined {
-  const inputTokens = stats.tokens.input;
-  const cachedInputTokens = stats.tokens.cacheRead;
-  const outputTokens = stats.tokens.output;
-  const totalProcessedTokens = stats.tokens.total;
-  const contextUsage = stats.contextUsage;
-  const contextUsageWindowValue = positiveFiniteNumber(contextUsage?.contextWindow);
-  const contextUsageWindow =
-    contextUsageWindowValue !== undefined ? Math.floor(contextUsageWindowValue) : undefined;
-  const fallbackWindowValue = positiveFiniteNumber(contextWindow);
-  const fallbackWindow =
-    fallbackWindowValue !== undefined ? Math.floor(fallbackWindowValue) : undefined;
-  const maxTokens = contextUsageWindow ?? fallbackWindow;
-  const contextUsageTokenValue = nonNegativeFiniteNumber(contextUsage?.tokens);
-  const contextUsageTokens =
-    contextUsageTokenValue !== undefined ? Math.round(contextUsageTokenValue) : undefined;
-  const usedPercent = clampUsagePercent(contextUsage?.percent);
-  const usedTokensFromPercent =
-    contextUsageTokens === undefined && usedPercent !== undefined && maxTokens !== undefined
-      ? Math.round((usedPercent / 100) * maxTokens)
-      : undefined;
-  const usedTokens =
-    contextUsageTokens ??
-    usedTokensFromPercent ??
-    (contextUsage
-      ? 0
-      : maxTokens !== undefined
-        ? Math.min(totalProcessedTokens, maxTokens)
-        : totalProcessedTokens);
-  if (
-    usedTokens <= 0 &&
-    inputTokens <= 0 &&
-    cachedInputTokens <= 0 &&
-    outputTokens <= 0 &&
-    maxTokens === undefined &&
-    usedPercent === undefined
-  ) {
-    return undefined;
-  }
-  return {
-    usedTokens,
-    ...(usedPercent !== undefined ? { usedPercent } : {}),
-    ...(totalProcessedTokens > usedTokens ? { totalProcessedTokens } : {}),
-    inputTokens,
-    cachedInputTokens,
-    outputTokens,
-    ...(maxTokens !== undefined ? { maxTokens } : {}),
-    lastUsedTokens: usedTokens,
-    lastInputTokens: inputTokens,
-    lastCachedInputTokens: cachedInputTokens,
-    lastOutputTokens: outputTokens,
-  };
-}
-
-function isPiReloadCommand(text: string): boolean {
-  return /^\/reload(?:\s|$)/iu.test(text.trim());
-}
-
-function classifyPiRuntimeError(
-  message: string,
-): "provider_error" | "transport_error" | "permission_error" | "validation_error" | "unknown" {
-  const normalized = message.toLowerCase();
-  if (
-    normalized.includes("network") ||
-    normalized.includes("connection") ||
-    normalized.includes("timeout") ||
-    normalized.includes("econn") ||
-    normalized.includes("fetch failed")
-  ) {
-    return "transport_error";
-  }
-  if (
-    normalized.includes("api key") ||
-    normalized.includes("auth") ||
-    normalized.includes("unauthorized") ||
-    normalized.includes("forbidden") ||
-    normalized.includes("permission")
-  ) {
-    return "permission_error";
-  }
-  if (
-    normalized.includes("invalid") ||
-    normalized.includes("validation") ||
-    normalized.includes("not available")
-  ) {
-    return "validation_error";
-  }
-  if (
-    normalized.includes("rate limit") ||
-    normalized.includes("quota") ||
-    normalized.includes("usage limit") ||
-    normalized.includes("overloaded") ||
-    normalized.includes("provider")
-  ) {
-    return "provider_error";
-  }
-  return "unknown";
-}
-
-function runtimeErrorDetail(cause: unknown): unknown {
-  if (cause instanceof Error) {
-    return {
-      name: cause.name,
-      message: cause.message,
-      ...(cause.stack ? { stack: cause.stack } : {}),
-    };
-  }
-  return cause;
-}
-
-function textFromContent(content: string | (TextContent | ImageContent)[]): string {
-  if (typeof content === "string") {
-    return content;
-  }
-  return content
-    .filter((block): block is TextContent => block.type === "text")
-    .map((block) => block.text)
-    .join("\n\n");
-}
-
-function toolRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function firstStringValue(
-  record: Record<string, unknown> | undefined,
-  keys: readonly string[],
-): string | undefined {
-  if (!record) return undefined;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function textFromToolResult(result: unknown): string | undefined {
-  if (typeof result === "string") {
-    return result;
-  }
-  const record = toolRecord(result);
-  if (!record) {
-    return undefined;
-  }
-  const directText = firstStringValue(record, [
-    "output",
-    "stdout",
-    "stderr",
-    "text",
-    "summary",
-    "message",
-    "error",
-  ]);
-  if (directText) {
-    return directText;
-  }
-  const content = Array.isArray(record.content) ? record.content : [];
-  const parts = content.flatMap((block) => {
-    const blockRecord = toolRecord(block);
-    return blockRecord?.type === "text" && typeof blockRecord.text === "string"
-      ? [blockRecord.text]
-      : [];
-  });
-  return parts.length > 0 ? parts.join("\n") : undefined;
-}
-
-function toolExitCode(result: unknown): number | null | undefined {
-  const record = toolRecord(result);
-  if (!record) return undefined;
-  const exitCode = record.exitCode;
-  if (typeof exitCode === "number" && Number.isFinite(exitCode)) return exitCode;
-  const code = record.code;
-  if (typeof code === "number" && Number.isFinite(code)) return code;
-  return null;
-}
-
-function toolRawOutput(result: unknown): Record<string, unknown> | undefined {
-  if (result === undefined) return undefined;
-  const text = textFromToolResult(result);
-  const exitCode = toolExitCode(result);
-  if (typeof result === "string") {
-    return { stdout: result, content: result };
-  }
-  if (result === null) {
-    return {};
-  }
-  const record = toolRecord(result);
-  if (!record) {
-    return text ? { stdout: text, content: text } : undefined;
-  }
-  return {
-    ...record,
-    ...(text ? { stdout: text, content: text } : {}),
-    ...(exitCode !== undefined ? { exitCode } : {}),
-  };
-}
-
-function toolPath(args: unknown): string | undefined {
-  return firstStringValue(toolRecord(args), ["path", "filePath", "file", "relativePath"]);
-}
-
-function toolCommand(args: unknown): string | undefined {
-  return firstStringValue(toolRecord(args), ["command", "cmd"]);
-}
-
-function toolSearchQuery(toolName: string, args: unknown): string | undefined {
-  const record = toolRecord(args);
-  if (!record) return undefined;
-  if (toolName === "grep" || toolName === "find") {
-    return firstStringValue(record, ["pattern", "query"]);
-  }
-  return firstStringValue(record, ["query", "pattern"]);
-}
-
-function toolEditEntries(args: unknown): ReadonlyArray<Record<string, unknown>> | undefined {
-  const record = toolRecord(args);
-  if (!record) return undefined;
-  if (Array.isArray(record.edits)) {
-    return record.edits.flatMap((edit) => {
-      const editRecord = toolRecord(edit);
-      return editRecord ? [editRecord] : [];
-    });
-  }
-  const oldText = firstStringValue(record, ["oldText", "old_string", "oldString"]);
-  const newText = firstStringValue(record, ["newText", "new_string", "newString"]);
-  if (oldText !== undefined || newText !== undefined) {
-    return [
-      {
-        ...(oldText !== undefined ? { oldText } : {}),
-        ...(newText !== undefined ? { newText } : {}),
-      },
-    ];
-  }
-  return undefined;
-}
-
-function toolItemType(toolName: string): PiTrackedToolCall["itemType"] {
-  switch (toolName) {
-    case "bash":
-      return "command_execution";
-    case "edit":
-    case "write":
-      return "file_change";
-    case "grep":
-    case "find":
-      return "web_search";
-    default:
-      return "dynamic_tool_call";
-  }
-}
-
-function toolTitle(toolName: string, args: unknown): string {
-  const command = toolName === "bash" ? trimPiDisplayText(toolCommand(args)) : undefined;
-  if (command) return command;
-  const filePath = trimPiDisplayText(toolPath(args));
-  if (
-    filePath &&
-    (toolName === "read" || toolName === "edit" || toolName === "write" || toolName === "ls")
-  ) {
-    return `${toolName} ${filePath}`;
-  }
-  const query = trimPiDisplayText(toolSearchQuery(toolName, args));
-  if (query && (toolName === "find" || toolName === "grep")) {
-    return `${toolName} ${query}`;
-  }
-  return toolName.trim() || "Tool";
-}
-
-function toolLifecycleData(input: {
-  toolCallId: string;
-  toolName: string;
-  args: unknown;
-  result?: unknown;
-  partialResult?: unknown;
-  isError?: boolean;
-}): Record<string, unknown> {
-  const { toolCallId, toolName, args } = input;
-  const rawOutput = toolRawOutput(input.result ?? input.partialResult);
-  const path = toolPath(args);
-  const query = toolSearchQuery(toolName, args);
-  const command = toolCommand(args);
-  const edits = toolEditEntries(args);
-  const content = toolRecord(args)?.content;
-  const outputDetails = toolRecord(rawOutput?.details);
-  const unifiedDiff = firstStringValue(outputDetails, ["diff"]);
-  const base: Record<string, unknown> = {
-    toolCallId,
-    callId: toolCallId,
-    toolName,
-    name: toolName,
-    tool: toolName,
-    kind: toolName,
-    args,
-    input: args,
-    rawInput: args,
-    ...(rawOutput ? { rawOutput } : {}),
-    ...(input.partialResult !== undefined ? { partialResult: input.partialResult } : {}),
-    ...(input.result !== undefined ? { result: input.result } : {}),
-    ...(input.isError !== undefined ? { isError: input.isError } : {}),
-  };
-
-  switch (toolName) {
-    case "bash":
-      return {
-        ...base,
-        kind: "execute",
-        ...(command ? { command } : {}),
-        ...(rawOutput?.exitCode !== undefined ? { exitCode: rawOutput.exitCode } : {}),
-      };
-    case "read":
-      return {
-        ...base,
-        kind: "read",
-        ...(path
-          ? {
-              path,
-              filePath: path,
-              files: [{ path }],
-              commandActions: [{ type: "read", name: "read", path }],
-            }
-          : {}),
-      };
-    case "edit":
-      return {
-        ...base,
-        kind: "edit",
-        ...(path ? { path, filePath: path, files: [{ path }], changes: [{ path }] } : {}),
-        ...(edits ? { edits: edits.map((edit) => ({ ...edit, ...(path ? { path } : {}) })) } : {}),
-        ...(unifiedDiff ? { unifiedDiff } : {}),
-      };
-    case "write":
-      return {
-        ...base,
-        kind: "write",
-        ...(path ? { path, filePath: path, files: [{ path }], changes: [{ path }] } : {}),
-        ...(typeof content === "string" ? { content } : {}),
-      };
-    case "find":
-      return {
-        ...base,
-        kind: "search",
-        searchKind: "find",
-        ...(query ? { query } : {}),
-        ...(path ? { path } : {}),
-        ...(query || path
-          ? { commandActions: [{ type: "search", name: "find", query, path }] }
-          : {}),
-      };
-    case "grep":
-      return {
-        ...base,
-        kind: "search",
-        searchKind: "grep",
-        ...(query ? { query } : {}),
-        ...(path ? { path } : {}),
-        ...(query || path
-          ? { commandActions: [{ type: "search", name: "grep", query, path }] }
-          : {}),
-      };
-    case "ls":
-      return {
-        ...base,
-        kind: "listFiles",
-        ...(path
-          ? {
-              path,
-              query: path,
-              commandActions: [{ type: "listFiles", name: "ls", path }],
-            }
-          : {}),
-      };
-    default:
-      return base;
-  }
-}
-
-function mapMessageHistory(session: PiAgentSession): unknown[] {
-  const items: unknown[] = [];
-  const pendingTools = new Map<string, { toolName: string; args: unknown }>();
-  for (const message of session.messages) {
-    if (message.role === "user") {
-      const text = textFromContent(message.content);
-      if (text) items.push({ type: "user_message", text });
-      continue;
-    }
-    if (message.role === "assistant") {
-      for (const content of message.content) {
-        if (content.type === "text" && content.text) {
-          items.push({ type: "assistant_message", text: content.text });
-          continue;
-        }
-        if (content.type === "thinking" && content.thinking) {
-          items.push({ type: "reasoning", text: content.thinking });
-          continue;
-        }
-        if (content.type === "toolCall") {
-          pendingTools.set(content.id, { toolName: content.name, args: content.arguments });
-          items.push({
-            type: "tool_call",
-            status: "started",
-            callId: content.id,
-            toolName: content.name,
-            itemType: toolItemType(content.name),
-            title: toolTitle(content.name, content.arguments),
-            args: content.arguments,
-            data: toolLifecycleData({
-              toolCallId: content.id,
-              toolName: content.name,
-              args: content.arguments,
-            }),
-          });
-        }
-      }
-      continue;
-    }
-    if (message.role === "toolResult") {
-      const pending = pendingTools.get(message.toolCallId);
-      pendingTools.delete(message.toolCallId);
-      const toolName = pending?.toolName ?? message.toolName;
-      const args = pending?.args;
-      const result = { content: message.content };
-      items.push({
-        type: "tool_call",
-        status: message.isError ? "failed" : "completed",
-        callId: message.toolCallId,
-        toolName,
-        itemType: toolItemType(toolName),
-        title: toolTitle(toolName, args),
-        output: textFromContent(message.content),
-        isError: message.isError,
-        data: toolLifecycleData({
-          toolCallId: message.toolCallId,
-          toolName,
-          args,
-          result,
-          isError: message.isError,
-        }),
-      });
-    }
-  }
-  return items;
-}
-
-export function makePiStoragePaths(input: {
-  readonly agentDir?: string | undefined;
-  readonly environment?: Readonly<Record<string, string>> | undefined;
-  readonly instanceId?: string | undefined;
-  readonly stateDir: string;
-  readonly homeDir: string;
-  readonly sdkAgentDir: string;
-}): { readonly agentDir: string; readonly sessionDir?: string } {
-  const boundary =
-    input.environment !== undefined ||
-    (input.instanceId !== undefined && input.instanceId !== PROVIDER);
-  const selectedAbsolutePath = (value: string | undefined) => {
-    const selected = trimToUndefined(value);
-    return selected && path.isAbsolute(selected) ? selected : undefined;
-  };
-  const selectedEnvironmentValue = (name: string) =>
-    Object.entries(input.environment ?? {}).find(
-      ([candidate]) => candidate.toUpperCase() === name,
-    )?.[1];
-  const selectedHome = selectedAbsolutePath(
-    selectedEnvironmentValue("HOME") ?? selectedEnvironmentValue("USERPROFILE"),
-  );
-  const isolatedHome = providerIsolatedHomePath({
-    driver: PROVIDER,
-    instanceId: input.instanceId,
-    homeDir: input.homeDir,
-    isolationRootDir: input.stateDir,
-  });
-  const expansionHome = boundary ? (selectedHome ?? isolatedHome) : (selectedHome ?? input.homeDir);
-  const expandHome = (value: string) =>
-    value === "~" || value.startsWith("~/")
-      ? path.join(expansionHome, value.slice(value === "~" ? 1 : 2))
-      : value;
-  const rawConfiguredAgentDir = trimToUndefined(input.agentDir);
-  const configuredAgentDir = rawConfiguredAgentDir
-    ? rawConfiguredAgentDir === "~" || rawConfiguredAgentDir.startsWith("~/")
-      ? expandHome(rawConfiguredAgentDir)
-      : !boundary || path.isAbsolute(rawConfiguredAgentDir)
-        ? rawConfiguredAgentDir
-        : undefined
-    : undefined;
-  const selectedAgentDir = selectedAbsolutePath(selectedEnvironmentValue("PI_CODING_AGENT_DIR"));
-  if (!boundary && !configuredAgentDir && !selectedAgentDir) {
-    return { agentDir: input.sdkAgentDir };
-  }
-  const agentDir =
-    configuredAgentDir ??
-    selectedAgentDir ??
-    path.join(selectedHome ?? isolatedHome, ".pi", "agent");
-  const selectedSessionDir = selectedAbsolutePath(
-    selectedEnvironmentValue("PI_CODING_AGENT_SESSION_DIR"),
-  );
-  return {
-    agentDir,
-    sessionDir: expandHome(selectedSessionDir ?? path.join(agentDir, "sessions")),
-  };
-}
-
-function readPiRuntimeApiKeyOverrides(
-  environment: Readonly<NodeJS.ProcessEnv> | undefined,
-): ReadonlyArray<readonly [provider: string, envKey: string, value: string]> {
-  if (!environment) {
-    return [];
-  }
-  return MODEL_PROVIDER_API_KEY_ENV_MAPPINGS.flatMap(({ provider, envKeys }) => {
-    const envKey = envKeys.find((key) => trimToUndefined(environment[key]) !== undefined);
-    if (!envKey) {
-      return [];
-    }
-    const value = trimToUndefined(environment[envKey]);
-    return value ? [[provider, envKey, value] as const] : [];
-  });
-}
-
-export async function applyPiRuntimeApiKeysFromEnvironment(
-  runtime: Pick<ModelRuntime, "setRuntimeApiKey">,
-  environment: Readonly<NodeJS.ProcessEnv> | undefined,
-): Promise<void> {
-  for (const [provider, _envKey, value] of readPiRuntimeApiKeyOverrides(environment)) {
-    await runtime.setRuntimeApiKey(provider, value);
-  }
-}
-
-interface PiModelRuntimeInternals {
-  readonly models?: {
-    authContext?: {
-      env(name: string): Promise<string | undefined>;
-      fileExists(path: string): Promise<boolean>;
-    };
-    refresh(options?: Record<string, unknown>): Promise<{
-      aborted: boolean;
-      errors: Map<string, Error>;
-    }>;
-  };
-  readonly credentials?: {
-    readonly store?: {
-      read(providerId: string, options?: unknown): Promise<unknown>;
-    };
-  };
-  readonly config?: {
-    readonly providers?: Map<string, PiRuntimeProviderConfig>;
-  };
-  readonly rebuildProviders?: () => void;
-  readonly recomposeProvider?: (providerId: string) => void;
-  readonly updateModelSnapshot?: () => void;
-  readonly queueAvailabilityRefresh?: (signal?: AbortSignal) => Promise<void>;
-  readonly refreshProviderAvailability?: (providerId: string, signal: AbortSignal) => Promise<void>;
-}
-
-interface PiRuntimeProviderConfig {
-  readonly apiKey?: string;
-  readonly headers?: Readonly<Record<string, string>>;
-  readonly models?: ReadonlyArray<
-    Readonly<Record<string, unknown>> & {
-      readonly headers?: Readonly<Record<string, string>>;
-    }
-  >;
-  readonly modelOverrides?: Readonly<
-    Record<
-      string,
-      Readonly<Record<string, unknown>> & {
-        readonly headers?: Readonly<Record<string, string>>;
-      }
-    >
-  >;
-  readonly [key: string]: unknown;
-}
-
-const PI_CONFIG_COMMAND_INHERITED_ENV_KEYS = new Set([
-  "ALL_PROXY",
-  "APPDATA",
-  "COMSPEC",
-  "HOME",
-  "HTTP_PROXY",
-  "HTTPS_PROXY",
-  "LANG",
-  "LOCALAPPDATA",
-  "LOGNAME",
-  "NODE_EXTRA_CA_CERTS",
-  "NO_PROXY",
-  "PATH",
-  "PATHEXT",
-  "SHELL",
-  "SSL_CERT_DIR",
-  "SSL_CERT_FILE",
-  "SYSTEMROOT",
-  "TEMP",
-  "TMP",
-  "TMPDIR",
-  "USER",
-  "USERPROFILE",
-  "WINDIR",
-]);
-
-function piConfigCommandEnvironment(
-  selectedEnvironment: Readonly<NodeJS.ProcessEnv>,
-): NodeJS.ProcessEnv {
-  const inherited = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([name]) =>
-        PI_CONFIG_COMMAND_INHERITED_ENV_KEYS.has(name.toUpperCase()) ||
-        name.toUpperCase().startsWith("LC_") ||
-        name.toUpperCase().startsWith("XDG_"),
-    ),
-  );
-  return buildProviderProcessEnv({
-    driver: PROVIDER,
-    env: inherited,
-    environment: Object.fromEntries(
-      Object.entries(selectedEnvironment).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
-    ),
-  });
-}
-
-function makePiConfigValueResolver(selectedEnvironment: Readonly<NodeJS.ProcessEnv>) {
-  const commandEnvironment = piConfigCommandEnvironment(selectedEnvironment);
-  const commandCache = new Map<string, string | undefined>();
-  return (config: string): string | undefined => {
-    if (config.startsWith("!")) {
-      if (!commandCache.has(config)) {
-        try {
-          const value = execShellCommandSync(config.slice(1), {
-            encoding: "utf8",
-            env: commandEnvironment,
-            stdio: ["ignore", "pipe", "ignore"],
-            timeout: 10_000,
-          }).trim();
-          commandCache.set(
-            config,
-            value && value !== "undefined" && value !== "null" ? value : undefined,
-          );
-        } catch {
-          commandCache.set(config, undefined);
-        }
-      }
-      return commandCache.get(config);
-    }
-
-    let missing = false;
-    const resolved = config.replace(
-      /\$\$|\$!|\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/gu,
-      (match, bracedName: string | undefined, plainName: string | undefined) => {
-        if (match === "$$") return "$";
-        if (match === "$!") return "!";
-        const value = selectedEnvironment[bracedName ?? plainName ?? ""];
-        if (value === undefined) {
-          missing = true;
-          return "";
-        }
-        return value;
-      },
-    );
-    return missing ? undefined : resolved;
-  };
-}
-
-function resolvePiConfigHeaders(
-  headers: Readonly<Record<string, string>> | undefined,
-  resolveValue: (config: string) => string | undefined,
-): Record<string, string> | undefined {
-  if (!headers) return undefined;
-  const resolved = Object.entries(headers).flatMap(([name, config]) => {
-    const value = resolveValue(config);
-    return value === undefined ? [] : [[name, value] as const];
-  });
-  return resolved.length > 0 ? Object.fromEntries(resolved) : undefined;
-}
-
-function isolatePiRuntimeConfig(
-  runtime: ModelRuntime,
-  selectedEnvironment: Readonly<NodeJS.ProcessEnv>,
-): void {
-  const internals = runtime as unknown as PiModelRuntimeInternals;
-  const providers = internals.config?.providers;
-  if (!providers) {
-    throw new Error("Pi ModelRuntime config is unavailable for account isolation.");
-  }
-  const resolveValue = makePiConfigValueResolver(selectedEnvironment);
-  for (const [providerId, provider] of providers) {
-    const apiKey = provider.apiKey === undefined ? undefined : resolveValue(provider.apiKey);
-    const headers = resolvePiConfigHeaders(provider.headers, resolveValue);
-    const models = provider.models?.map((model) => {
-      const resolvedHeaders = resolvePiConfigHeaders(model.headers, resolveValue);
-      const { headers: _modelHeaders, ...modelBase } = model;
-      return {
-        ...modelBase,
-        ...(resolvedHeaders !== undefined ? { headers: resolvedHeaders } : {}),
-      };
-    });
-    const modelOverrides = provider.modelOverrides
-      ? Object.fromEntries(
-          Object.entries(provider.modelOverrides).map(([modelId, model]) => {
-            const resolvedHeaders = resolvePiConfigHeaders(model.headers, resolveValue);
-            const { headers: _modelHeaders, ...modelBase } = model;
-            return [
-              modelId,
-              {
-                ...modelBase,
-                ...(resolvedHeaders !== undefined ? { headers: resolvedHeaders } : {}),
-              },
-            ];
-          }),
-        )
-      : undefined;
-    const {
-      apiKey: _apiKey,
-      headers: _headers,
-      models: _models,
-      modelOverrides: _modelOverrides,
-      ...providerBase
-    } = provider;
-    providers.set(providerId, {
-      ...providerBase,
-      ...(apiKey !== undefined ? { apiKey } : {}),
-      ...(headers !== undefined ? { headers } : {}),
-      ...(models !== undefined ? { models } : {}),
-      ...(modelOverrides !== undefined ? { modelOverrides } : {}),
-    });
-  }
-  internals.rebuildProviders?.();
-
-  const store = internals.credentials?.store;
-  if (store) {
-    const read = store.read.bind(store);
-    store.read = async (providerId, options) => {
-      const credential = await read(providerId, options);
-      if (
-        typeof credential !== "object" ||
-        credential === null ||
-        !("type" in credential) ||
-        credential.type !== "api_key" ||
-        !("key" in credential) ||
-        typeof credential.key !== "string" ||
-        !credential.key.startsWith("!")
-      ) {
-        return credential;
-      }
-      const key = resolveValue(credential.key);
-      return key === undefined ? undefined : { ...credential, key };
-    };
-  }
-
-  const models = internals.models;
-  if (
-    !models ||
-    !internals.rebuildProviders ||
-    !internals.recomposeProvider ||
-    !internals.updateModelSnapshot ||
-    !internals.queueAvailabilityRefresh ||
-    !internals.refreshProviderAvailability
-  ) {
-    throw new Error("Pi ModelRuntime refresh internals are unavailable for account isolation.");
-  }
-  runtime.refresh = async (options = {}) => {
-    if (options.providers) {
-      for (const providerId of new Set(options.providers)) internals.recomposeProvider!(providerId);
-      internals.updateModelSnapshot!();
-    } else {
-      internals.rebuildProviders!();
-    }
-    const result = await models.refresh({
-      ...options,
-      allowNetwork: options.allowNetwork ?? false,
-    });
-    internals.updateModelSnapshot!();
-    if (options.providers) {
-      await Promise.all(
-        [...new Set(options.providers)].map((providerId) =>
-          internals.refreshProviderAvailability!(
-            providerId,
-            options.signal ?? new AbortController().signal,
-          ),
-        ),
-      );
-    } else {
-      await internals.queueAvailabilityRefresh!(options.signal);
-    }
-    return result;
-  };
-}
-
-function isolatePiModelRuntimeFromAmbientEnvironment(
-  runtime: ModelRuntime,
-  environment: Readonly<NodeJS.ProcessEnv>,
-): void {
-  const models = (runtime as unknown as PiModelRuntimeInternals).models;
-  const authContext = models?.authContext;
-  if (!models || !authContext) {
-    throw new Error("Pi ModelRuntime auth context is unavailable for account isolation.");
-  }
-  models.authContext = {
-    ...authContext,
-    env: async (name) => trimToUndefined(environment[name]),
-    // Vertex is the only built-in provider that probes a credential file.
-    // An isolated account must not discover ADC under the real user home.
-    fileExists: async () => false,
-  };
-  isolatePiRuntimeConfig(runtime, environment);
-
-  const getAuth = runtime.getAuth.bind(runtime);
-  runtime.getAuth = (async (
-    providerOrModel: string | Model<Api>,
-    overrides?: Parameters<ModelRuntime["getAuth"]>[1],
-  ) => {
-    const provider =
-      typeof providerOrModel === "string" ? providerOrModel : providerOrModel.provider;
-    if (provider === "amazon-bedrock") {
-      throw new Error(
-        "Amazon Bedrock is disabled for isolated Pi accounts because the SDK falls back to the ambient AWS credential chain.",
-      );
-    }
-    if (provider === "azure-openai-responses") {
-      throw new Error(
-        "Azure OpenAI is disabled for isolated Pi accounts because the SDK reads process-level Azure routing.",
-      );
-    }
-    const result = await getAuth(providerOrModel as Model<Api>, overrides);
-    if (
-      provider === "google-vertex" &&
-      result &&
-      (!trimToUndefined(result.auth.apiKey) || result.auth.apiKey === "gcp-vertex-credentials")
-    ) {
-      throw new Error(
-        "Vertex ADC is disabled for isolated Pi accounts; configure a real instance-scoped API key.",
-      );
-    }
-    return result;
-  }) as ModelRuntime["getAuth"];
-}
-
-const managedPiRuntimes = new WeakSet<ModelRuntime>();
-
-// Keep session runtimes isolated so project extension provider registrations
-// cannot leak between threads that share an agent directory.
-export async function createPiModelRuntime(
-  agentDir: string,
-  piSdk: Pick<PiCodingAgentModule, "ModelRuntime">,
-  signal?: AbortSignal,
-  environment?: Readonly<Record<string, string>>,
-  instanceId?: string,
-  paths?: { readonly stateDir: string; readonly homeDir: string },
-): Promise<ModelRuntime> {
-  const managedConfig = readMossManagedPiConfig(environment);
-  if (managedConfig) {
-    const managedRuntime = await piSdk.ModelRuntime.create({
-      authPath: path.join(agentDir, "auth.json"),
-      modelsPath: null,
-      allowModelNetwork: false,
-    });
-    managedRuntime.registerProvider("moss", managedConfig.provider);
-    await managedRuntime.setRuntimeApiKey(
-      "moss",
-      environment![MOSS_MANAGED_PI_CREDENTIAL_ENV_KEY]!,
-    );
-    managedPiRuntimes.add(managedRuntime);
-    return managedRuntime;
-  }
-  const hasAccountBoundary =
-    environment !== undefined || (instanceId !== undefined && instanceId !== PROVIDER);
-  const runtimeEnvironment = hasAccountBoundary
-    ? buildProviderProcessEnv({
-        driver: PROVIDER,
-        env: {},
-        environment: environment ?? {},
-        ...(instanceId !== undefined ? { instanceId } : {}),
-        ...(paths ? { isolationRootDir: paths.stateDir, homeDir: paths.homeDir } : {}),
-      })
-    : environment;
-  const runtime = await piSdk.ModelRuntime.create({
-    authPath: path.join(agentDir, "auth.json"),
-    modelsPath: path.join(agentDir, "models.json"),
-    ...(hasAccountBoundary ? { refreshOnCreate: false } : {}),
-  });
-  if (hasAccountBoundary) {
-    isolatePiModelRuntimeFromAmbientEnvironment(runtime, runtimeEnvironment ?? {});
-  }
-  await applyPiRuntimeApiKeysFromEnvironment(runtime, runtimeEnvironment);
-  if (hasAccountBoundary) {
-    await runtime.refresh({ allowNetwork: false });
-  }
-  await refreshPiOpenCodeCatalog(runtime, { signal, environment: runtimeEnvironment });
-  return runtime;
-}
-
-export async function clearPiManagedRuntimeCredentials(runtime: ModelRuntime): Promise<void> {
-  if (managedPiRuntimes.has(runtime)) {
-    await runtime.removeRuntimeApiKey("moss");
-    managedPiRuntimes.delete(runtime);
-  }
-}
-
-export async function refreshPiOpenRouterModels(
-  runtime: ModelRuntime,
-  options: {
-    readonly environment?: Readonly<NodeJS.ProcessEnv> | undefined;
-    readonly instanceId?: string | undefined;
-  } = {},
-): Promise<void> {
-  const environment =
-    options.environment ??
-    (options.instanceId !== undefined && options.instanceId !== PROVIDER ? {} : process.env);
-  // Explicit extension catalogs and custom endpoints own their model metadata.
-  if (
-    environment.PI_OFFLINE !== undefined ||
-    runtime.getRegisteredProviderIds().includes("openrouter") ||
-    !runtime.hasConfiguredAuth("openrouter") ||
-    runtime.getProvider("openrouter")?.baseUrl !== OPENROUTER_BASE_URL
-  )
-    return;
-  const live = await fetchOpenRouterModels();
-  if (live.length === 0) return;
-  const base = openrouterProvider();
-  const models = new Map(base.getModels().map((model) => [model.id, model]));
-  for (const model of live) models.set(model.id, model);
-  // Native providers remain below models.json, preserving user model overrides.
-  runtime.registerNativeProvider({
-    ...base,
-    getModels: () => [...models.values()],
-    // Reuse the SDK store so a later session keeps discovered capacities offline.
-    refreshModels: async ({ publish }) => {
-      await publish({
-        persist: { models: live, lastModified: Date.now(), checkedAt: Date.now() },
-      });
-    },
-  });
-  await runtime.refresh({ allowNetwork: false });
-}
-
-function modelRegistryFacade(
-  modelRuntime: ModelRuntime,
-  piSdk: Pick<PiCodingAgentModule, "ModelRegistry">,
-): ModelRegistry {
-  return new piSdk.ModelRegistry(modelRuntime);
-}
-
-function extensionDisplayName(extension: {
-  readonly path: string;
-  readonly sourceInfo?: { readonly source?: string };
-}): string {
-  const source = trimToUndefined(extension.sourceInfo?.source);
-  if (source) return source;
-  const extensionPath = trimToUndefined(extension.path);
-  return extensionPath ? path.basename(extensionPath).replace(/\.(?:ts|js)$/u, "") : "extension";
 }
 
 function makePiUserInputOption(label: string): UserInputQuestion["options"][number] {
@@ -1943,10 +319,7 @@ export function makePiUserInputOptions(
     const count = (labelCounts.get(baseLabel) ?? 0) + 1;
     labelCounts.set(baseLabel, count);
     const displayLabel = count === 1 ? baseLabel : `${baseLabel} (${count})`;
-    return {
-      value: label,
-      option: { label: displayLabel, description: baseLabel },
-    };
+    return { value: label, option: { label: displayLabel, description: baseLabel } };
   });
 }
 
@@ -1955,53 +328,154 @@ function firstPiUserInputAnswer(
   questionId: string,
 ): string | undefined {
   const answer = answers[questionId];
-  if (typeof answer === "string") {
-    return trimToUndefined(answer);
-  }
+  if (typeof answer === "string") return trimToUndefined(answer);
   if (Array.isArray(answer)) {
     return trimToUndefined(answer.find((entry) => typeof entry === "string"));
   }
   return undefined;
 }
 
-const PLAIN_PI_EXTENSION_THEME = {
-  fg(_color: string, text: string) {
-    return text;
-  },
-  bg(_color: string, text: string) {
-    return text;
-  },
-  bold(text: string) {
-    return text;
-  },
-  italic(text: string) {
-    return text;
-  },
-  underline(text: string) {
-    return text;
-  },
-  inverse(text: string) {
-    return text;
-  },
-  strikethrough(text: string) {
-    return text;
-  },
-  getFgAnsi() {
-    return "";
-  },
-  getBgAnsi() {
-    return "";
-  },
-  getColorMode() {
-    return "truecolor";
-  },
-  getThinkingBorderColor() {
-    return (text: string) => text;
-  },
-  getBashModeBorderColor() {
-    return (text: string) => text;
-  },
-} as unknown as ExtensionUIContext["theme"];
+function toMessage(cause: unknown, fallback: string): string {
+  if (cause instanceof Error && cause.message.trim().length > 0) return cause.message;
+  return fallback;
+}
+
+function runtimeErrorDetail(cause: unknown): unknown {
+  if (cause instanceof Error) {
+    return {
+      name: cause.name,
+      message: cause.message,
+      ...(cause.stack ? { stack: cause.stack } : {}),
+    };
+  }
+  return cause;
+}
+
+/** The assistant outcome of one run: an error message, `undefined` for success, `null` unknown. */
+export function piRunOutcome(messages: unknown): string | undefined | null {
+  if (!Array.isArray(messages)) return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message: unknown = messages[index];
+    if (!isRecord(message) || message.role !== "assistant") continue;
+    if (message.stopReason === "error") {
+      return (
+        trimToUndefined(
+          typeof message.errorMessage === "string" ? message.errorMessage : undefined,
+        ) ?? "Pi turn failed."
+      );
+    }
+    if (message.stopReason === "aborted") return "Request was aborted.";
+    return undefined;
+  }
+  return null;
+}
+
+interface PiImage {
+  readonly type: "image";
+  readonly data: string;
+  readonly mimeType: string;
+}
+
+interface PiStoredTurn {
+  readonly id: TurnId;
+  readonly items: unknown[];
+  readonly toolItemIndexes: Map<string, number>;
+  /** Entry id of this turn's first user message, the fork point for a rollback. */
+  firstUserEntryId?: string;
+}
+
+interface PiTrackedToolCall {
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly args: unknown;
+  readonly itemId: RuntimeItemId;
+  readonly itemType: ReturnType<typeof piToolItemType>;
+}
+
+interface PiPendingUserInput {
+  readonly resolve: (answers: ProviderUserInputAnswers) => void;
+}
+
+interface PiSessionContext extends MossHarnessPolicyDeliveryState {
+  harnessPolicyDelivered?: boolean;
+  readonly enableComputerControl?: boolean;
+  /** Whether the CURRENT gateway rotation exposes Moss control; recomputed on rotation. */
+  gatewayControlAvailable: boolean;
+  /** Capability facts stashed at dispatch time; credential rotation consumes these. */
+  gatewayCapabilityInput: AgentGatewayCapabilityInput;
+  gatewaySessionLease?: AgentGatewaySessionLease;
+  gatewayConnection?: AgentGatewayMcpConnection;
+  gatewayToolNames: Set<string>;
+  readonly gatewayToolsFile: string | undefined;
+  readonly bridgeNonce: string | undefined;
+  readonly lifecycleGeneration?: string;
+  readonly rpc: PiRpcClient;
+  readonly managed: boolean;
+  session: ProviderSession;
+  sessionFile: string | undefined;
+  sessionId: string | undefined;
+  model: PiRpcModel | undefined;
+  thinkingLevel: string | undefined;
+  turns: PiStoredTurn[];
+  activeTurnId: TurnId | undefined;
+  /** Prompts sent to Pi whose acceptance response has not arrived yet. */
+  promptsInFlight: number;
+  /** Between a "started" prompt response and the run's `agent_settled`. */
+  runActive: boolean;
+  /** An interrupt that landed before Pi committed the run; fired once it starts. */
+  pendingAbortTurnId: TurnId | undefined;
+  completingTurn: Promise<void> | undefined;
+  activeTurnErrorMessage?: string;
+  activeAssistantItemId: RuntimeItemId | undefined;
+  activeReasoningItemId: RuntimeItemId | undefined;
+  /** Role of the message being streamed: wire `message_update` records omit the message. */
+  streamingMessageRole: string | undefined;
+  activeToolItems: Map<string, PiTrackedToolCall>;
+  pendingUserInputs: Map<ApprovalRequestId, PiPendingUserInput>;
+  /** Last session entry Moss has seen; `get_entries` cursor. */
+  lastEntryId: string | undefined;
+  stopped: boolean;
+  lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
+  unsubscribe: (() => void) | undefined;
+}
+
+export interface PiAdapterLiveOptions {
+  readonly nativeEventLogPath?: string;
+  readonly nativeEventLogger?: EventNdjsonLogger;
+  /** Test seam: replaces the platform spawn of the Pi CLI. */
+  readonly spawnProcess?: PiRpcSpawn;
+  readonly teardownProcessTree?: typeof teardownProviderProcessTree;
+  readonly agentGatewayFetch?: AgentGatewayMcpFetch;
+}
+
+interface PiLaunchInput {
+  readonly binaryPath?: string | undefined;
+  readonly agentDir?: string | undefined;
+  readonly environment?: Readonly<Record<string, string>> | undefined;
+  readonly instanceId?: string | undefined;
+  readonly cwd: string;
+}
+
+interface PiRpcSlashCommand {
+  readonly name: string;
+  readonly description?: string;
+  readonly source: "extension" | "prompt" | "skill";
+  readonly sourceInfo?: {
+    readonly path?: string;
+    readonly source?: string;
+    readonly scope?: string;
+  };
+}
+
+function resumeSessionFile(resumeCursor: unknown): string | undefined {
+  if (typeof resumeCursor === "string") return trimToUndefined(resumeCursor);
+  if (!isRecord(resumeCursor)) return undefined;
+  for (const key of ["sessionFile", "sessionFilePath", "nativeHandle", "path"]) {
+    const value = resumeCursor[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return undefined;
+}
 
 const makePiAdapter = (options?: PiAdapterLiveOptions) =>
   Effect.gen(function* () {
@@ -2014,55 +488,10 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
     );
     const sessions = new Map<ThreadId, PiSessionContext>();
-    const piExtensionModeCoordinator = makePiExtensionModeCoordinator(() => ({
-      hasExtensionEnabledDefault: [...sessions.values()].some(
-        (context) => context.extensionsEnabled,
-      ),
-      hasIsolatedMode: [...sessions.values()].some((context) => !context.extensionsEnabled),
-    }));
-    const reservePiExtensionMode = (isolatedAccount: boolean, replacingThreadId?: ThreadId) =>
-      piExtensionModeCoordinator.reserve(
-        isolatedAccount,
-        replacingThreadId === undefined
-          ? undefined
-          : {
-              hasExtensionEnabledDefault: [...sessions.entries()].some(
-                ([threadId, context]) =>
-                  threadId !== replacingThreadId && context.extensionsEnabled,
-              ),
-              hasIsolatedMode: [...sessions.entries()].some(
-                ([threadId, context]) =>
-                  threadId !== replacingThreadId && !context.extensionsEnabled,
-              ),
-            },
-      );
-    const preparePiDiscoveryMode = (
-      environment: Readonly<Record<string, string>> | undefined,
-      instanceId: string | undefined,
-    ) => {
-      const isolatedAccount =
-        environment !== undefined || (instanceId !== undefined && instanceId !== PROVIDER);
-      const reservation = reservePiExtensionMode(isolatedAccount);
-      if (isolatedAccount) {
-        resetApiProviders();
-      }
-      return reservation;
-    };
-    const withPiDiscoveryReservation = async <A>(
-      environment: Readonly<Record<string, string>> | undefined,
-      instanceId: string | undefined,
-      run: (noExtensions: boolean) => Promise<A>,
-    ): Promise<A> => {
-      const reservation = preparePiDiscoveryMode(environment, instanceId);
-      try {
-        return await run(reservation.noExtensions);
-      } finally {
-        reservation.release();
-      }
-    };
-    // Serializes session lifecycle and turn dispatch per thread. Dispatch also
-    // waits for a prior prompt's preflight decision before choosing prompt(),
-    // steer(), or followUp().
+    /** Short-lived `pi --mode rpc --no-session` processes for model, skill and command lists. */
+    const discoveryProcesses = new Set<PiRpcClient>();
+    let adapterClosing = false;
+    // Serializes session lifecycle and turn dispatch per thread.
     const dispatchLock = makeKeyedLock<ThreadId>();
     const ownsNativeEventLogger = options?.nativeEventLogger === undefined;
     const nativeEventLogger =
@@ -2089,20 +518,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       },
     );
 
-    const loadPiSdk = (method: string) =>
-      Effect.tryPromise({
-        try: () => loadPiCodingAgentModule(),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method,
-            detail: toMessage(cause, "Failed to load Pi SDK."),
-            cause,
-          }),
-      });
-
     const makeEventBase = makePiRuntimeEventBase;
-
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) => {
       runtimeEventIngress.offer(compactProviderRuntimeEventForIngress(event));
     };
@@ -2125,7 +541,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           ...(input.cause !== undefined ? { detail: runtimeErrorDetail(input.cause) } : {}),
         },
         raw: {
-          source: "pi.sdk.event",
+          source: "pi.rpc.event",
           method: input.method,
           ...(input.messageType ? { messageType: input.messageType } : {}),
           payload: input.cause ?? { message: input.message },
@@ -2133,24 +549,22 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       } satisfies ProviderRuntimeEvent);
     };
 
-    const offerPiRetryWarning = (
+    const offerRuntimeWarning = (
       context: PiSessionContext,
       input: {
         readonly message: string;
         readonly method: string;
         readonly messageType?: string;
         readonly detail?: unknown;
+        readonly includeTurnId?: boolean;
       },
     ) => {
       offerRuntimeEvent({
-        ...makeEventBase(context),
+        ...makeEventBase(context, { includeTurnId: input.includeTurnId ?? true }),
         type: "runtime.warning",
-        payload: {
-          message: input.message,
-          detail: input.detail ?? { method: input.method },
-        },
+        payload: { message: input.message, detail: input.detail ?? { method: input.method } },
         raw: {
-          source: "pi.sdk.event",
+          source: "pi.rpc.event",
           method: input.method,
           ...(input.messageType ? { messageType: input.messageType } : {}),
           payload: input.detail ?? { message: input.message },
@@ -2158,49 +572,152 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       } satisfies ProviderRuntimeEvent);
     };
 
-    const resolvePiExtensionUserInput = (
-      context: PiSessionContext,
-      requestId: ApprovalRequestId,
-      answers: ProviderUserInputAnswers,
-    ) => {
-      const pending = context.pendingUserInputs.get(requestId);
-      if (!pending) return false;
-      pending.resolve(answers);
-      return true;
+    const extensionFile = () => ensureMossPiExtensionFile(serverConfig.stateDir);
+
+    /**
+     * The environment one Pi process runs with: the instance account boundary, Pi's config
+     * folder, the managed Moss catalog, and the per-session bridge values. Everything Moss
+     * adds under MOSS_ is read once by the Moss extension and removed from Pi's environment.
+     */
+    const buildPiEnvironment = (
+      input: PiLaunchInput,
+      extra: Readonly<Record<string, string>> = {},
+    ): {
+      readonly env: NodeJS.ProcessEnv;
+      readonly managed: boolean;
+      readonly sessionDir?: string;
+    } => {
+      const managedConfig = readMossManagedPiConfig(input.environment);
+      const storage = makePiStoragePaths({
+        agentDir: input.agentDir,
+        environment: input.environment,
+        instanceId: input.instanceId,
+        stateDir: serverConfig.stateDir,
+        homeDir: serverConfig.homeDir,
+      });
+      const baseEnv = buildProviderProcessEnv({
+        driver: PROVIDER,
+        env: process.env,
+        ...(input.environment !== undefined ? { environment: input.environment } : {}),
+        ...(input.instanceId !== undefined ? { instanceId: input.instanceId } : {}),
+        homeDir: serverConfig.homeDir,
+        isolationRootDir: serverConfig.stateDir,
+      });
+      const managedToken = managedConfig
+        ? input.environment?.[MOSS_MANAGED_PI_CREDENTIAL_ENV_KEY]?.trim()
+        : undefined;
+      const overrides: Record<string, string> = {
+        // Moss shows Pi updates itself; Pi's own check would only reach pi.dev.
+        PI_SKIP_VERSION_CHECK: "1",
+        ...(storage.agentDir ? { PI_CODING_AGENT_DIR: storage.agentDir } : {}),
+        ...(managedConfig && managedToken
+          ? {
+              PI_OFFLINE: "1",
+              [MOSS_MANAGED_PI_CONFIG_ENV_KEY]: JSON.stringify(managedConfig),
+              [MOSS_MANAGED_PI_CREDENTIAL_ENV_KEY]: managedToken,
+            }
+          : {}),
+        ...extra,
+      };
+      const env = buildProviderChildEnvironment({
+        provider: PROVIDER,
+        baseEnv,
+        overrides,
+        inheritedMossKeys: Object.keys(overrides).filter((key) => key.startsWith("MOSS_")),
+      });
+      return {
+        env,
+        managed: managedConfig !== undefined,
+        ...(storage.sessionDir ? { sessionDir: storage.sessionDir } : {}),
+      };
     };
 
-    const requestPiExtensionUserInput = (
+    const spawnPi = (input: {
+      readonly launch: PiLaunchInput;
+      readonly args: ReadonlyArray<string>;
+      readonly env: NodeJS.ProcessEnv;
+      readonly lowerPriority: boolean;
+    }) =>
+      startPiRpcClient({
+        binaryPath: trimToUndefined(input.launch.binaryPath) ?? DEFAULT_PI_BINARY,
+        args: input.args,
+        cwd: input.launch.cwd,
+        env: input.env,
+        lowerPriority: input.lowerPriority,
+        ...(options?.spawnProcess ? { spawnProcess: options.spawnProcess } : {}),
+        ...(options?.teardownProcessTree
+          ? { teardownProcessTree: options.teardownProcessTree }
+          : {}),
+      });
+
+    /** A short-lived `pi --mode rpc --no-session` for model, skill and command discovery. */
+    const withPiDiscoveryProcess = async <A>(
+      launch: PiLaunchInput,
+      run: (rpc: PiRpcClient, managed: boolean, env: NodeJS.ProcessEnv) => Promise<A>,
+    ): Promise<A> => {
+      const extension = await extensionFile();
+      const { env, managed } = buildPiEnvironment(launch);
+      if (adapterClosing) throw new Error("Moss is shutting down.");
+      const rpc = spawnPi({
+        launch,
+        args: ["--mode", "rpc", "--no-session", "-e", extension],
+        env,
+        lowerPriority: true,
+      });
+      // Tracked so a listing still running when Moss exits cannot keep the backend alive.
+      discoveryProcesses.add(rpc);
+      try {
+        await rpc.request({ type: "get_state" }, { timeoutMs: PI_STARTUP_TIMEOUT_MS });
+        return await run(rpc, managed, env);
+      } finally {
+        await rpc.close({ graceMs: 1_000 }).catch(() => undefined);
+        discoveryProcesses.delete(rpc);
+      }
+    };
+
+    const closeDiscoveryProcesses = Effect.promise(async () => {
+      adapterClosing = true;
+      await Promise.all(
+        Array.from(discoveryProcesses, (rpc) => rpc.close({ graceMs: 0 }).catch(() => undefined)),
+      );
+    });
+
+    const listAvailableModels = async (
+      rpc: PiRpcClient,
+      managed: boolean,
+    ): Promise<ReadonlyArray<PiRpcModel>> => {
+      const data = await rpc.request<{ models?: ReadonlyArray<unknown> }>({
+        type: "get_available_models",
+      });
+      const models = (Array.isArray(data?.models) ? data.models : []).filter(
+        (model): model is PiRpcModel =>
+          isRecord(model) && typeof model.id === "string" && typeof model.provider === "string",
+      );
+      // The Moss account lane offers only the Moss catalog.
+      return models.filter((model) => !managed || model.provider === "moss");
+    };
+
+    // ── User input (Pi extension dialogs) ─────────────────────────
+
+    const requestPiUserInput = (
       context: PiSessionContext,
       input: {
         readonly method: string;
         readonly question: UserInputQuestion;
-        readonly opts?: Parameters<ExtensionUIContext["select"]>[2];
+        readonly timeoutMs?: number;
         readonly rawPayload?: Record<string, unknown>;
       },
     ): Promise<ProviderUserInputAnswers> => {
-      if (context.stopped || input.opts?.signal?.aborted) {
-        return Promise.resolve({});
-      }
-
+      if (context.stopped) return Promise.resolve({});
       const requestId = ApprovalRequestId.makeUnsafe(crypto.randomUUID());
       const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
-
       return new Promise((resolve) => {
         let settled = false;
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        let abort: () => void = () => undefined;
-
-        const cleanup = () => {
-          if (timeoutId !== undefined) {
-            clearTimeout(timeoutId);
-            timeoutId = undefined;
-          }
-          input.opts?.signal?.removeEventListener("abort", abort);
-        };
         const finish = (answers: ProviderUserInputAnswers) => {
           if (settled) return;
           settled = true;
-          cleanup();
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
           context.pendingUserInputs.delete(requestId);
           offerRuntimeEvent({
             ...makeEventBase(context),
@@ -2208,28 +725,25 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             requestId: runtimeRequestId,
             payload: { answers },
             raw: {
-              source: "pi.sdk.event",
+              source: "pi.rpc.event",
               method: `${input.method}/answered`,
               payload: { requestId, answers },
             },
           } satisfies ProviderRuntimeEvent);
           resolve(answers);
         };
-        abort = () => finish({});
-
         context.pendingUserInputs.set(requestId, { resolve: finish });
-        if (typeof input.opts?.timeout === "number" && input.opts.timeout > 0) {
-          timeoutId = setTimeout(abort, input.opts.timeout);
+        // Pi resolves a timed dialog itself; close Moss's question at the same moment.
+        if (typeof input.timeoutMs === "number" && input.timeoutMs > 0) {
+          timeoutId = setTimeout(() => finish({}), input.timeoutMs);
         }
-        input.opts?.signal?.addEventListener("abort", abort, { once: true });
-
         offerRuntimeEvent({
           ...makeEventBase(context),
           type: "user-input.requested",
           requestId: runtimeRequestId,
           payload: { questions: [input.question] },
           raw: {
-            source: "pi.sdk.event",
+            source: "pi.rpc.event",
             method: input.method,
             payload: input.rawPayload ?? { requestId, question: input.question },
           },
@@ -2237,298 +751,145 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       });
     };
 
-    // Bridges the common Pi extension UI primitives onto Moss's existing
-    // pending user-input flow; terminal/TUI-only APIs remain no-op by design.
-    const makePiExtensionUIContext = (context: PiSessionContext): ExtensionUIContext => {
-      const unsupportedWarnings = new Set<string>();
-      const warnUnsupported = (method: string) => {
-        if (unsupportedWarnings.has(method)) return;
-        unsupportedWarnings.add(method);
-        offerRuntimeEvent({
-          ...makeEventBase(context, { includeTurnId: false }),
-          type: "runtime.warning",
-          payload: {
-            message: `Pi extension UI API '${method}' is not supported in Moss yet.`,
-            detail: { method },
-          },
-          raw: {
-            source: "pi.sdk.event",
-            method: "extension/ui-unsupported",
-            payload: { method },
-          },
-        } satisfies ProviderRuntimeEvent);
-      };
-      const uiContext: ExtensionUIContext = {
-        async select(title, options, opts) {
-          const questionId = "selection";
-          const optionMappings = makePiUserInputOptions(options);
-          const answers = await requestPiExtensionUserInput(context, {
+    const answerPiDialog = (
+      context: PiSessionContext,
+      id: string,
+      response: Record<string, unknown>,
+    ) => context.rpc.write({ type: "extension_ui_response", id, ...response });
+
+    const runGatewayBridgeCall = async (
+      context: PiSessionContext,
+      id: string,
+      title: unknown,
+      payload: unknown,
+    ) => {
+      const request = parseMossPiBridgeRequest(title, payload, context.bridgeNonce);
+      const connection = context.gatewayConnection;
+      let response: MossPiBridgeResponse;
+      if (!request) {
+        response = { ok: false, error: "Moss could not read this tool call." };
+      } else if (!connection || !context.gatewayToolNames.has(request.name)) {
+        response = { ok: false, error: "Moss tools are not available in this session." };
+      } else {
+        try {
+          response = piGatewayBridgeResponse(
+            await callAgentGatewayMcpTool({
+              connection,
+              name: request.name,
+              arguments: request.arguments,
+              ...(options?.agentGatewayFetch === undefined
+                ? {}
+                : { fetch: options.agentGatewayFetch }),
+            }),
+          );
+        } catch (cause) {
+          response = { ok: false, error: toMessage(cause, "Moss gateway tool failed.") };
+        }
+      }
+      answerPiDialog(context, id, { value: JSON.stringify(response) });
+    };
+
+    const handleExtensionUiRequest = (context: PiSessionContext, record: PiRpcRecord) => {
+      const id = typeof record.id === "string" ? record.id : undefined;
+      const method = typeof record.method === "string" ? record.method : "";
+      if (!id) return;
+      if (isMossPiBridgeTitle(record.title)) {
+        if (method === "input") {
+          void runGatewayBridgeCall(context, id, record.title, record.placeholder);
+        } else {
+          answerPiDialog(context, id, { cancelled: true });
+        }
+        return;
+      }
+      const title = typeof record.title === "string" ? record.title : undefined;
+      const timeoutMs = typeof record.timeout === "number" ? record.timeout : undefined;
+      switch (method) {
+        case "select": {
+          const labels = Array.isArray(record.options)
+            ? record.options.filter((option): option is string => typeof option === "string")
+            : [];
+          const mappings = makePiUserInputOptions(labels);
+          void requestPiUserInput(context, {
             method: "extension/ui/select",
-            opts,
+            ...(timeoutMs !== undefined ? { timeoutMs } : {}),
             question: {
-              id: questionId,
+              id: "selection",
               header: trimPiDisplayText(title) ?? "Pi plugin",
               question: trimPiDisplayText(title) ?? "Choose an option.",
-              options: optionMappings.map((mapping) => mapping.option),
+              options: mappings.map((mapping) => mapping.option),
             },
-            rawPayload: { title, options },
+            rawPayload: { title, options: labels },
+          }).then((answers) => {
+            const answer = firstPiUserInputAnswer(answers, "selection");
+            const value = mappings.find((mapping) => mapping.option.label === answer)?.value;
+            answerPiDialog(context, id, value === undefined ? { cancelled: true } : { value });
           });
-          const answer = firstPiUserInputAnswer(answers, questionId);
-          return optionMappings.find((mapping) => mapping.option.label === answer)?.value;
-        },
-        async confirm(title, message, opts) {
-          const questionId = "confirmation";
-          const answers = await requestPiExtensionUserInput(context, {
+          return;
+        }
+        case "confirm": {
+          const message = typeof record.message === "string" ? record.message : undefined;
+          void requestPiUserInput(context, {
             method: "extension/ui/confirm",
-            opts,
+            ...(timeoutMs !== undefined ? { timeoutMs } : {}),
             question: {
-              id: questionId,
+              id: "confirmation",
               header: trimPiDisplayText(title) ?? "Pi plugin",
               question:
                 trimPiDisplayText(message) ?? trimPiDisplayText(title) ?? "Confirm this action?",
               options: [makePiUserInputOption("Yes"), makePiUserInputOption("No")],
             },
             rawPayload: { title, message },
-          });
-          return firstPiUserInputAnswer(answers, questionId) === "Yes";
-        },
-        async input(title, placeholder, opts) {
-          const questionId = "input";
-          const answers = await requestPiExtensionUserInput(context, {
-            method: "extension/ui/input",
-            opts,
+          }).then((answers) =>
+            answerPiDialog(context, id, {
+              confirmed: firstPiUserInputAnswer(answers, "confirmation") === "Yes",
+            }),
+          );
+          return;
+        }
+        case "input":
+        case "editor": {
+          const hint =
+            typeof record.placeholder === "string"
+              ? record.placeholder
+              : typeof record.prefill === "string"
+                ? record.prefill
+                : undefined;
+          void requestPiUserInput(context, {
+            method: `extension/ui/${method}`,
+            ...(timeoutMs !== undefined ? { timeoutMs } : {}),
             question: {
-              id: questionId,
+              id: "input",
               header: trimPiDisplayText(title) ?? "Pi plugin",
-              question:
-                trimPiDisplayText(placeholder) ?? trimPiDisplayText(title) ?? "Type a response.",
+              question: trimPiDisplayText(hint) ?? trimPiDisplayText(title) ?? "Type a response.",
               options: [],
             },
-            rawPayload: { title, placeholder },
+            rawPayload: { title, placeholder: hint },
+          }).then((answers) => {
+            const value = firstPiUserInputAnswer(answers, "input");
+            answerPiDialog(context, id, value === undefined ? { cancelled: true } : { value });
           });
-          return firstPiUserInputAnswer(answers, questionId);
-        },
-        notify(message, type = "info") {
-          const normalized = trimPiDisplayText(message);
+          return;
+        }
+        case "notify": {
+          const normalized = trimPiDisplayText(
+            typeof record.message === "string" ? record.message : undefined,
+          );
           if (!normalized) return;
-          offerRuntimeEvent({
-            ...makeEventBase(context),
-            type: "runtime.warning",
-            payload: { message: normalized, detail: { type } },
-            raw: {
-              source: "pi.sdk.event",
-              method: "extension/ui/notify",
-              payload: { message: normalized, type },
-            },
-          } satisfies ProviderRuntimeEvent);
-        },
-        onTerminalInput() {
-          warnUnsupported("onTerminalInput");
-          return () => undefined;
-        },
-        // Pi extensions use status and working-message callbacks for terminal
-        // chrome. Moss has its own working header; neither belongs in the
-        // transcript as a fake tool call.
-        setStatus() {},
-        setWorkingMessage() {},
-        setWorkingVisible() {},
-        setWorkingIndicator() {},
-        setHiddenThinkingLabel() {},
-        setWidget() {
-          warnUnsupported("setWidget");
-        },
-        setFooter() {
-          warnUnsupported("setFooter");
-        },
-        setHeader() {
-          warnUnsupported("setHeader");
-        },
-        // The browser owns document/thread chrome; do not turn terminal title
-        // changes into transcript rows.
-        setTitle() {},
-        async custom() {
-          warnUnsupported("custom");
-          return undefined as never;
-        },
-        pasteToEditor() {
-          warnUnsupported("pasteToEditor");
-        },
-        setEditorText() {
-          warnUnsupported("setEditorText");
-        },
-        getEditorText() {
-          return "";
-        },
-        editor(title, prefill) {
-          return uiContext.input(title, prefill);
-        },
-        addAutocompleteProvider() {
-          warnUnsupported("addAutocompleteProvider");
-        },
-        setEditorComponent() {
-          warnUnsupported("setEditorComponent");
-        },
-        getEditorComponent() {
-          return undefined;
-        },
-        theme: PLAIN_PI_EXTENSION_THEME,
-        getAllThemes() {
-          return [];
-        },
-        getTheme() {
-          return undefined;
-        },
-        setTheme() {
-          return { success: false, error: "Moss does not expose Pi themes." };
-        },
-        getToolsExpanded() {
-          return false;
-        },
-        setToolsExpanded() {},
-      };
-      return uiContext;
+          offerRuntimeWarning(context, {
+            message: normalized,
+            method: "extension/ui/notify",
+            detail: { type: record.notifyType ?? "info" },
+          });
+          return;
+        }
+        // Terminal chrome (status, widgets, titles, editor text) has no place in Moss.
+        default:
+          return;
+      }
     };
 
-    /**
-     * Reinstall the Moss gateway tools against the rotated credential. The
-     * bearer swap in completePrompt already keeps existing closures authorized;
-     * this tail only rebuilds definitions when the per-rotation tools/list
-     * catalog actually differs from what is installed. A diff that is only
-     * logged and never installed would leave the model calling stale tools.
-     */
-    const reinstallPiGatewayTools = (context: PiSessionContext): void => {
-      const lease = context.gatewaySessionLease;
-      const connection = context.gatewayConnection;
-      if (!lease || !connection) return;
-      const threadId = context.session.threadId;
-      Effect.runFork(
-        Effect.promise(async () => {
-          if (context.stopped || sessions.get(threadId) !== context) return;
-          if (context.gatewaySessionLease !== lease || context.gatewayConnection !== connection) {
-            return;
-          }
-          const fetchOptions =
-            options?.agentGatewayFetch === undefined ? {} : { fetch: options.agentGatewayFetch };
-          let freshNames: string[];
-          try {
-            const catalog = await listAgentGatewayMcpTools({ connection, ...fetchOptions });
-            freshNames = catalog.map((tool) => tool.name);
-          } catch {
-            // Catalog unreadable: the installed definitions stay valid through
-            // the rotated bearer, so keep them and stay available.
-            return;
-          }
-          const installedNames = new Set(context.gatewayTools.map((tool) => tool.name));
-          // Include enabled-session specialist forwarders in both sides of
-          // this comparison. Off sessions still install no Computer schemas;
-          // activation changes restart/resume at the reactor's turn boundary.
-          const freshNameSet = piInstalledGatewayToolNames(freshNames);
-          const sameCatalog =
-            installedNames.size === freshNameSet.size &&
-            [...freshNameSet].every((name) => installedNames.has(name));
-          if (sameCatalog) return;
-          let rebuilt: ReadonlyArray<ToolDefinition>;
-          try {
-            rebuilt = await buildPiAgentGatewayCustomTools({
-              connection,
-              defineTool: context.gatewayDefineTool,
-              enableComputerControl: context.enableComputerControl === true,
-              ...fetchOptions,
-            });
-          } catch (cause) {
-            // Rotation must never silently drop computer:*: the installed
-            // definitions stay valid through the rotated bearer, so keep them
-            // and stay available. Session start releases the lease on a bad
-            // catalog because nothing is installed yet; here clearing would
-            // revoke working control mid-session.
-            offerRuntimeEvent({
-              ...makeEventBase(context, { includeTurnId: false }),
-              type: "runtime.warning",
-              payload: {
-                message:
-                  "Pi could not refresh the Moss gateway tool catalog after rotation; keeping the previous tools.",
-                detail: { method: "gateway/rotate", cause: toMessage(cause, "refresh failed") },
-              },
-              raw: {
-                source: "pi.sdk.event",
-                method: "gateway/rotate",
-                payload: { cause: cause ?? null },
-              },
-            } satisfies ProviderRuntimeEvent);
-            return;
-          }
-          if (context.stopped || sessions.get(threadId) !== context) return;
-          if (context.gatewaySessionLease !== lease || context.gatewayConnection !== connection) {
-            return;
-          }
-          const rebuiltByName = new Map(rebuilt.map((tool) => [tool.name, tool]));
-          const nextInstalled: ToolDefinition[] = [];
-          for (const installed of context.gatewayTools) {
-            const fresh = rebuiltByName.get(installed.name);
-            if (!fresh) continue;
-            // Mutate in place: the Pi SDK holds these same definition objects
-            // and exposes no post-construction registration API.
-            for (const key of Object.keys(installed)) {
-              delete (installed as unknown as Record<string, unknown>)[key];
-            }
-            Object.assign(installed, fresh);
-            nextInstalled.push(installed);
-            rebuiltByName.delete(installed.name);
-          }
-          // Added tools cannot join the SDK's already-built registry; the
-          // context still tracks them truthfully for future rotations, and a
-          // warning names them so a newly-appearing computer:* is never a
-          // silent gap until the session restarts.
-          const addedNames = [...rebuiltByName.keys()];
-          for (const added of rebuiltByName.values()) nextInstalled.push(added);
-          context.gatewayTools = nextInstalled;
-          context.gatewayControlAvailable = nextInstalled.length > 0;
-          const removed = [...installedNames].filter((name) => !freshNameSet.has(name));
-          const droppedComputer = removed.filter((name) => name.startsWith("computer"));
-          const addedComputer = addedNames.filter((name) => name.startsWith("computer"));
-          if (addedNames.length > 0 || droppedComputer.length > 0) {
-            offerRuntimeEvent({
-              ...makeEventBase(context, { includeTurnId: false }),
-              type: "runtime.warning",
-              payload: {
-                message:
-                  "Pi gateway tool catalog changed after rotation; added tools need a session restart before the model can call them.",
-                detail: {
-                  method: "gateway/rotate",
-                  ...(addedNames.length > 0 ? { added: addedNames } : {}),
-                  ...(removed.length > 0 ? { removed } : {}),
-                  ...(addedComputer.length > 0 ? { addedComputer } : {}),
-                  ...(droppedComputer.length > 0 ? { droppedComputer } : {}),
-                },
-              },
-              raw: {
-                source: "pi.sdk.event",
-                method: "gateway/rotate",
-                payload: { added: addedNames, removed },
-              },
-            } satisfies ProviderRuntimeEvent);
-          }
-          if (removed.length > 0) {
-            try {
-              context.runtime.session.setActiveToolsByName(
-                context.runtime.session
-                  .getActiveToolNames()
-                  .filter((name) => !removed.includes(name)),
-              );
-            } catch {
-              // Best effort: the definitions are already dropped from the context.
-            }
-          }
-        }).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("pi.agent_gateway.tool_reinstall_failed", { threadId, cause }),
-          ),
-        ),
-      );
-    };
+    // ── Turn lifecycle ────────────────────────────────────────────
 
-    // SDK messages end independently of the prompt's retries and tool loop.
-    // Keep prompt settlement as a fallback for failures without message_end.
     const completeMessageItems = (
       context: PiSessionContext,
       failed: boolean,
@@ -2564,323 +925,314 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       context.activeReasoningItemId = undefined;
     };
 
-    const completePrompt = (
+    const makeSessionSnapshot = (context: PiSessionContext): ProviderSession => {
+      const model = piModelSlug(context.model);
+      return {
+        provider: PROVIDER,
+        ...(context.session.providerInstanceId
+          ? { providerInstanceId: context.session.providerInstanceId }
+          : {}),
+        status: context.stopped ? "closed" : context.activeTurnId ? "running" : "ready",
+        runtimeMode: context.session.runtimeMode,
+        threadId: context.session.threadId,
+        createdAt: context.session.createdAt,
+        updatedAt: new Date().toISOString(),
+        ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
+        ...(model ? { model } : {}),
+        ...(context.sessionFile ? { resumeCursor: context.sessionFile } : {}),
+        ...(context.activeTurnId ? { activeTurnId: context.activeTurnId } : {}),
+        ...(context.session.lastError ? { lastError: context.session.lastError } : {}),
+      };
+    };
+
+    const turnStartedPayload = (context: PiSessionContext) => {
+      const model = piModelSlug(context.model);
+      return {
+        ...(model ? { model } : {}),
+        ...(context.thinkingLevel ? { effort: context.thinkingLevel } : {}),
+      };
+    };
+
+    const readSessionStats = async (context: PiSessionContext) =>
+      context.rpc
+        .request<PiRpcSessionStats>(
+          { type: "get_session_stats" },
+          { timeoutMs: PI_BOOKKEEPING_TIMEOUT_MS },
+        )
+        .catch(() => undefined);
+
+    /** Advances the entry cursor; returns the first user message entry since the last read. */
+    const readNewEntries = async (context: PiSessionContext) => {
+      const data = await context.rpc
+        .request<{ entries?: ReadonlyArray<unknown> }>(
+          { type: "get_entries", ...(context.lastEntryId ? { since: context.lastEntryId } : {}) },
+          { timeoutMs: PI_BOOKKEEPING_TIMEOUT_MS },
+        )
+        .catch(() => undefined);
+      const entries = (Array.isArray(data?.entries) ? data.entries : []).filter(isRecord);
+      const last = entries.at(-1);
+      if (last && typeof last.id === "string") context.lastEntryId = last.id;
+      const firstUser = entries.find(
+        (entry) =>
+          entry.type === "message" && isRecord(entry.message) && entry.message.role === "user",
+      );
+      return typeof firstUser?.id === "string" ? firstUser.id : undefined;
+    };
+
+    /**
+     * Reinstall the Moss gateway tools against the rotated credential when the per-rotation
+     * catalog differs. The extension re-reads the catalog file on its sync command: added
+     * tools register at once and removed ones are withdrawn.
+     */
+    const resyncPiGatewayTools = (context: PiSessionContext): void => {
+      const lease = context.gatewaySessionLease;
+      const connection = context.gatewayConnection;
+      const toolsFile = context.gatewayToolsFile;
+      if (!lease || !connection || !toolsFile) return;
+      const threadId = context.session.threadId;
+      const current = () =>
+        !context.stopped &&
+        sessions.get(threadId) === context &&
+        context.gatewaySessionLease === lease &&
+        context.gatewayConnection === connection;
+      Effect.runFork(
+        Effect.promise(async () => {
+          if (!current()) return;
+          const fetchOptions =
+            options?.agentGatewayFetch === undefined ? {} : { fetch: options.agentGatewayFetch };
+          let freshNames: Set<string>;
+          try {
+            const catalog = await listAgentGatewayMcpTools({ connection, ...fetchOptions });
+            freshNames = piInstalledGatewayToolNames(catalog.map((tool) => tool.name));
+          } catch {
+            // Catalog unreadable: the installed tools stay valid through the rotated bearer.
+            return;
+          }
+          const installed = context.gatewayToolNames;
+          if (
+            installed.size === freshNames.size &&
+            [...freshNames].every((name) => installed.has(name))
+          ) {
+            return;
+          }
+          let descriptors: ReadonlyArray<MossPiGatewayToolDescriptor>;
+          try {
+            descriptors = await buildPiAgentGatewayToolDescriptors({
+              connection,
+              enableComputerControl: context.enableComputerControl === true,
+              ...fetchOptions,
+            });
+          } catch (cause) {
+            // Rotation must never silently drop computer:*: keep the installed tools.
+            offerRuntimeWarning(context, {
+              message:
+                "Pi could not refresh the Moss gateway tool catalog after rotation; keeping the previous tools.",
+              method: "gateway/rotate",
+              includeTurnId: false,
+              detail: { method: "gateway/rotate", cause: toMessage(cause, "refresh failed") },
+            });
+            return;
+          }
+          if (!current()) return;
+          await writeMossPiGatewayToolsFile(toolsFile, descriptors);
+          // Applied only while Pi is idle; the next turn picks the file up otherwise.
+          if (context.activeTurnId !== undefined) return;
+          await context.rpc.request({
+            type: "prompt",
+            message: `/${MOSS_PI_GATEWAY_SYNC_COMMAND}`,
+          });
+          context.gatewayToolNames = new Set(descriptors.map((tool) => tool.name));
+          context.gatewayControlAvailable = context.gatewayToolNames.size > 0;
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("pi.agent_gateway.tool_resync_failed", { threadId, cause }),
+          ),
+        ),
+      );
+    };
+
+    const finishTurn = (
       context: PiSessionContext,
       turnId: TurnId,
       errorMessage: string | undefined,
       cause?: unknown,
-    ) => {
-      if (context.stopped || context.activeTurnId !== turnId) return;
-      if (context.pendingAbortTurnId === turnId) context.pendingAbortTurnId = undefined;
-      const raw = {
-        source: "pi.sdk.event" as const,
-        method: "prompt",
-        payload: cause ?? {},
-      };
-      const stats = context.runtime.session.getSessionStats();
-      const usage = normalizeTokenUsage(stats, context.runtime.session.model?.contextWindow);
-      context.lastKnownTokenUsage = usage;
-      const failure = errorMessage ? classifyPiTurnFailure(errorMessage) : undefined;
-      const leafId = context.runtime.session.sessionManager.getLeafId();
-      const turn = context.turns.find((candidate) => candidate.id === turnId);
-      if (turn) turn.leafId = leafId;
-      completeMessageItems(context, Boolean(errorMessage), raw);
-      if (usage) {
-        offerRuntimeEvent({
-          ...makeEventBase(context),
-          type: "thread.token-usage.updated",
-          payload: { usage },
-          raw,
-        } satisfies ProviderRuntimeEvent);
-      }
-      if (errorMessage && failure?.state === "failed") {
-        offerRuntimeError(context, {
-          message: errorMessage,
-          method: "prompt",
-          cause,
-        });
-      }
-      const completionBase = makeEventBase(context);
-      if (context.gatewaySessionLease && context.gatewayConnection) {
-        const outgoingLease = context.gatewaySessionLease;
-        const drainage = outgoingLease.retireTurn(turnId);
-        outgoingLease.release();
-        // The replacement derives from the facts stashed at dispatch time, not
-        // the start snapshot and not a fresh derivation.
-        const replacementLease = acquireAgentGatewaySessionLease(
-          agentGatewayCredentials,
-          context.session.threadId,
-          PROVIDER,
-          context.gatewayCapabilityInput,
-        );
-        if (replacementLease) {
-          context.gatewaySessionLease = replacementLease;
-          // Installed gateway tools close over this object, so mutating it in
-          // place keeps their bearer current without re-registration.
-          Object.assign(context.gatewayConnection, replacementLease.connection);
-          // Published before turn.completed below: guidance for the next turn
-          // reads the new rotation's availability, never the retired one. The
-          // reinstall tail corrects this once the fresh catalog is known.
-          context.gatewayControlAvailable = true;
-          reinstallPiGatewayTools(context);
-        } else {
-          delete context.gatewaySessionLease;
-          delete context.gatewayConnection;
-          context.gatewayControlAvailable = false;
-          const rotationTurnId = TurnId.makeUnsafe(crypto.randomUUID());
+    ): Promise<void> => {
+      if (context.stopped || context.activeTurnId !== turnId) return Promise.resolve();
+      if (context.completingTurn) return context.completingTurn;
+      const completion = (async () => {
+        if (context.pendingAbortTurnId === turnId) context.pendingAbortTurnId = undefined;
+        const raw = { source: "pi.rpc.event" as const, method: "prompt", payload: cause ?? {} };
+        const [stats, firstUserEntryId] = await Promise.all([
+          readSessionStats(context),
+          readNewEntries(context),
+        ]);
+        if (context.stopped || context.activeTurnId !== turnId) return;
+        const turn = context.turns.find((candidate) => candidate.id === turnId);
+        if (turn && firstUserEntryId && !turn.firstUserEntryId) {
+          turn.firstUserEntryId = firstUserEntryId;
+        }
+        const usage = stats
+          ? normalizePiTokenUsage(stats, context.model?.contextWindow)
+          : undefined;
+        if (usage) context.lastKnownTokenUsage = usage;
+        const failure = errorMessage ? classifyPiTurnFailure(errorMessage) : undefined;
+        completeMessageItems(context, Boolean(errorMessage), raw);
+        if (usage) {
           offerRuntimeEvent({
-            ...makeEventBase(context, { includeTurnId: false }),
-            turnId: rotationTurnId,
-            type: "runtime.error",
-            payload: {
-              message:
-                "Pi could not rotate the Moss gateway credential after the turn; Moss tools are unavailable until the session restarts.",
-              class: classifyPiRuntimeError("gateway credential rotation failed"),
-            },
-            raw: {
-              source: "pi.sdk.event",
-              method: "gateway/rotate",
-              payload: { turnId },
-            },
+            ...makeEventBase(context),
+            type: "thread.token-usage.updated",
+            payload: { usage },
+            raw,
           } satisfies ProviderRuntimeEvent);
         }
-        Effect.runFork(
-          Effect.promise(() => drainage).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("pi.agent_gateway.turn_retirement_failed", { turnId, cause }),
+        if (errorMessage && failure?.state === "failed") {
+          offerRuntimeError(context, { message: errorMessage, method: "prompt", cause });
+        }
+        const completionBase = makeEventBase(context);
+        if (context.gatewaySessionLease && context.gatewayConnection) {
+          const outgoingLease = context.gatewaySessionLease;
+          const drainage = outgoingLease.retireTurn(turnId);
+          outgoingLease.release();
+          // The replacement derives from the facts stashed at dispatch time, not the start
+          // snapshot and not a fresh derivation.
+          const replacementLease = acquireAgentGatewaySessionLease(
+            agentGatewayCredentials,
+            context.session.threadId,
+            PROVIDER,
+            context.gatewayCapabilityInput,
+          );
+          if (replacementLease) {
+            context.gatewaySessionLease = replacementLease;
+            // Bridge calls read this object, so the rotated bearer applies at once.
+            Object.assign(context.gatewayConnection, replacementLease.connection);
+            context.gatewayControlAvailable = true;
+          } else {
+            delete context.gatewaySessionLease;
+            delete context.gatewayConnection;
+            context.gatewayControlAvailable = false;
+            offerRuntimeEvent({
+              ...makeEventBase(context, { includeTurnId: false }),
+              turnId: TurnId.makeUnsafe(crypto.randomUUID()),
+              type: "runtime.error",
+              payload: {
+                message:
+                  "Pi could not rotate the Moss gateway credential after the turn; Moss tools are unavailable until the session restarts.",
+                class: classifyPiRuntimeError("gateway credential rotation failed"),
+              },
+              raw: { source: "pi.rpc.event", method: "gateway/rotate", payload: { turnId } },
+            } satisfies ProviderRuntimeEvent);
+          }
+          Effect.runFork(
+            Effect.promise(() => drainage).pipe(
+              Effect.catchCause((drainCause) =>
+                Effect.logWarning("pi.agent_gateway.turn_retirement_failed", {
+                  turnId,
+                  cause: drainCause,
+                }),
+              ),
             ),
-          ),
-        );
-      }
-      context.activeTurnId = undefined;
-      delete context.activeTurnErrorMessage;
-      context.activeAssistantItemId = undefined;
-      context.activeReasoningItemId = undefined;
-      context.activeToolItems.clear();
-      context.session = makeSessionSnapshot(context);
-      offerRuntimeEvent({
-        ...completionBase,
-        type: "turn.completed",
-        payload:
-          errorMessage && failure
-            ? {
-                state: failure.state,
-                stopReason: failure.stopReason,
-                errorMessage,
-                usage: stats,
-              }
-            : { state: "completed", stopReason: null, usage: stats },
-        raw,
-      } satisfies ProviderRuntimeEvent);
+          );
+        }
+        context.activeTurnId = undefined;
+        delete context.activeTurnErrorMessage;
+        context.activeAssistantItemId = undefined;
+        context.activeReasoningItemId = undefined;
+        context.activeToolItems.clear();
+        context.session = makeSessionSnapshot(context);
+        offerRuntimeEvent({
+          ...completionBase,
+          type: "turn.completed",
+          payload:
+            errorMessage && failure
+              ? {
+                  state: failure.state,
+                  stopReason: failure.stopReason,
+                  errorMessage,
+                  ...(stats ? { usage: stats } : {}),
+                }
+              : { state: "completed", stopReason: null, ...(stats ? { usage: stats } : {}) },
+          raw,
+        } satisfies ProviderRuntimeEvent);
+        if (context.gatewaySessionLease) resyncPiGatewayTools(context);
+      })().finally(() => {
+        if (context.completingTurn === completion) context.completingTurn = undefined;
+      });
+      context.completingTurn = completion;
+      return completion;
     };
 
-    const startPrompt = (
+    /** Settles the active turn once Pi has no run and no prompt awaiting its answer. */
+    const maybeFinishActiveTurn = (context: PiSessionContext) => {
+      const turnId = context.activeTurnId;
+      if (turnId === undefined || context.runActive || context.promptsInFlight > 0) return;
+      void finishTurn(context, turnId, context.activeTurnErrorMessage);
+    };
+
+    const missingSignInMessage = (context: PiSessionContext, message: string) =>
+      (context.model ? piMissingModelSignInIssue(message, context.model) : null) ?? message;
+
+    const abortPiRun = async (context: PiSessionContext) => {
+      // Otherwise Pi starts a queued continuation after the abort.
+      await context.rpc.request({ type: "clear_queue" }, { timeoutMs: PI_BOOKKEEPING_TIMEOUT_MS });
+      await context.rpc.request({ type: "abort" }, { timeoutMs: PI_ABORT_TIMEOUT_MS });
+    };
+
+    /**
+     * Sends one prompt. `behavior` queues it into a running run (Pi starts a run when idle).
+     * Pi answers once preflight passes and before that run's first event.
+     */
+    const sendPiPrompt = (
       context: PiSessionContext,
       turnId: TurnId,
       text: string,
-      images: ImageContent[],
+      images: ReadonlyArray<PiImage>,
+      behavior?: "steer" | "followUp",
     ) => {
-      delete context.activeTurnErrorMessage;
-      // Marks the prompt as dispatched-but-not-yet-streaming: the SDK's
-      // isStreaming flag only flips deep inside prompt()'s async preflight, so
-      // a concurrent sendTurn/steerTurn must not read the gap as "settled".
-      context.promptCommitting = turnId;
-      let resolveCommit!: () => void;
-      const committed = new Promise<void>((resolve) => {
-        resolveCommit = resolve;
-      });
-      context.promptCommit = committed;
-      let commitSettled = false;
-      const settled = () => {
-        if (commitSettled) return;
-        commitSettled = true;
-        if (context.promptCommitting === turnId) context.promptCommitting = undefined;
-        if (context.promptCommit === committed) context.promptCommit = undefined;
-        resolveCommit();
-      };
-      // A prompt owns all SDK retries, compaction and queued continuations.
-      // agent_end is per attempt; agent_settled also fires before a rejection.
-      void context.runtime.session
-        .prompt(text, {
-          ...(images.length > 0 ? { images } : {}),
-          // Release a waiting dispatch once prompt() either commits its own
-          // run or handles the input without a run. A rejected preflight is
-          // released by the promise rejection path below.
-          preflightResult: (success) => {
-            if (success) settled();
+      context.promptsInFlight += 1;
+      void context.rpc
+        .request<{ disposition?: string }>(
+          {
+            type: "prompt",
+            message: text,
+            ...(images.length > 0 ? { images } : {}),
+            ...(behavior ? { streamingBehavior: behavior } : {}),
           },
-        })
+          { timeoutMs: PI_PROMPT_ACCEPT_TIMEOUT_MS },
+        )
         .then(
-          () => {
-            settled();
-            completePrompt(context, turnId, context.activeTurnErrorMessage);
+          (data) => {
+            context.promptsInFlight -= 1;
+            if (data?.disposition === "started") {
+              context.runActive = true;
+              if (context.pendingAbortTurnId === turnId) {
+                void abortPiRun(context).catch((cause) =>
+                  offerRuntimeError(context, {
+                    message: toMessage(cause, "Failed to interrupt Pi turn."),
+                    method: "turn/interrupt",
+                    cause,
+                  }),
+                );
+              }
+            }
+            maybeFinishActiveTurn(context);
           },
           (cause) => {
-            settled();
-            completePrompt(context, turnId, toMessage(cause, "Pi turn failed."), cause);
-          },
-        );
-    };
-
-    const awaitPromptCommit = (context: PiSessionContext) => {
-      const pending = context.promptCommit;
-      return pending === undefined
-        ? Effect.void
-        : Effect.promise(() => pending).pipe(Effect.uninterruptible);
-    };
-
-    // A turn whose run fully settled but whose completion is still queued on
-    // the prompt() promise is stale — close it out so the next dispatch starts
-    // clean instead of joining a dead turn. A still-committing prompt
-    // (isStreaming has not flipped yet) is live, not stale.
-    const closeSettledActiveTurn = (context: PiSessionContext) => {
-      const turnId = context.activeTurnId;
-      if (
-        turnId === undefined ||
-        context.runtime.session.isStreaming ||
-        context.promptCommitting === turnId
-      ) {
-        return;
-      }
-      completePrompt(context, turnId, context.activeTurnErrorMessage);
-    };
-
-    const buildProviderText = (context: PiSessionContext, text: string) =>
-      buildPiTurnPrompt(context, {
-        text,
-        gatewayControlAvailable: context.gatewayControlAvailable,
-      });
-
-    const sendTurnBusyError = () =>
-      new ProviderAdapterValidationError({
-        provider: PROVIDER,
-        operation: "sendTurn",
-        issue: "A Pi turn is already active for this thread.",
-      });
-
-    const applyPiModelSelection = (context: PiSessionContext, selection: PiModelSelection) =>
-      Effect.gen(function* () {
-        const model = findModelInRegistry(context.modelRegistry, selection.model);
-        if (!model) {
-          return yield* new ProviderAdapterValidationError({
-            provider: PROVIDER,
-            operation: "model/set",
-            issue: `Pi model '${selection.model}' is not available. Use a discovered model or a provider-qualified custom model slug like 'openai/gpt-5.5'.`,
-          });
-        }
-        yield* Effect.tryPromise({
-          try: () => context.runtime.session.setModel(model),
-          catch: (cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "model/set",
-              detail: toMessage(cause, "Failed to set Pi model."),
-              cause,
-            }),
-        });
-        const thinkingLevel = normalizePiThinkingLevel(selection.options?.thinkingLevel);
-        if (thinkingLevel) {
-          context.runtime.session.setThinkingLevel(thinkingLevel);
-        }
-      });
-
-    // /reload only exists as a bare text command — attachments make it a prompt.
-    const isPiReloadPayload = (payload: { text: string; images: ImageContent[] }) =>
-      payload.images.length === 0 && isPiReloadCommand(payload.text);
-
-    const queuePiFollowUp = (
-      context: PiSessionContext,
-      payload: { text: string; images: ImageContent[] },
-    ) =>
-      Effect.tryPromise({
-        try: () =>
-          context.runtime.session.followUp(
-            buildProviderText(context, payload.text),
-            payload.images,
-          ),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "turn/followUp",
-            detail: toMessage(cause, "Failed to queue Pi follow-up."),
-            cause,
-          }),
-      });
-
-    const steerPiTurn = (context: PiSessionContext, text: string, images: ImageContent[]) =>
-      Effect.tryPromise({
-        try: () => context.runtime.session.steer(text, images),
-        catch: (cause) =>
-          new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "turn/steer",
-            detail: toMessage(cause, "Failed to steer Pi turn."),
-            cause,
-          }),
-      });
-
-    const runPiReload = (context: PiSessionContext, command: string) =>
-      Effect.gen(function* () {
-        offerRuntimeEvent({
-          ...makeEventBase(context),
-          type: "turn.started",
-          payload: {
-            ...(context.runtime.session.model
-              ? {
-                  model: `${context.runtime.session.model.provider}/${context.runtime.session.model.id}`,
-                }
-              : {}),
-            effort: context.runtime.session.thinkingLevel,
-          },
-          raw: { source: "pi.sdk.event", method: "reload", payload: { command } },
-        } satisfies ProviderRuntimeEvent);
-        yield* Effect.tryPromise({
-          try: () => context.runtime.session.reload(),
-          catch: (cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "session/reload",
-              detail: toMessage(cause, "Failed to reload Pi resources."),
-              cause,
-            }),
-        }).pipe(
-          Effect.catch((error) =>
-            Effect.gen(function* () {
-              const message = error.message;
-              offerRuntimeEvent({
-                ...makeEventBase(context),
-                type: "turn.completed",
-                payload: { state: "failed", stopReason: "error", errorMessage: message },
-                raw: { source: "pi.sdk.event", method: "reload", payload: error },
-              } satisfies ProviderRuntimeEvent);
-              offerRuntimeError(context, {
+            context.promptsInFlight -= 1;
+            const message = missingSignInMessage(context, toMessage(cause, "Pi turn failed."));
+            if (behavior && context.runActive) {
+              // A queued message Pi refused; the running turn continues.
+              offerRuntimeWarning(context, {
                 message,
-                method: "session/reload",
-                cause: error,
+                method: `turn/${behavior}`,
+                detail: { message },
               });
-              yield* cancelAgentGatewayTurn(context.gatewaySessionLease, context.activeTurnId);
-              context.activeTurnId = undefined;
-              context.session = makeSessionSnapshot(context);
-              return yield* Effect.fail(error);
-            }),
-          ),
+              return;
+            }
+            context.activeTurnErrorMessage ??= message;
+            maybeFinishActiveTurn(context);
+          },
         );
-        offerRuntimeEvent({
-          ...makeEventBase(context),
-          type: "turn.completed",
-          payload: { state: "completed", stopReason: "reload" },
-          raw: { source: "pi.sdk.event", method: "reload", payload: { command } },
-        } satisfies ProviderRuntimeEvent);
-        yield* cancelAgentGatewayTurn(context.gatewaySessionLease, context.activeTurnId);
-        context.activeTurnId = undefined;
-        context.session = makeSessionSnapshot(context);
-      });
-
-    const dispatchResult = (context: PiSessionContext, turnId: TurnId) => ({
-      threadId: context.session.threadId,
-      turnId,
-      resumeCursor: getSessionFile(context.runtime.session),
-    });
+    };
 
     const recordItem = (context: PiSessionContext, item: unknown, toolCallId?: string) => {
       const turn = context.activeTurnId
@@ -2900,92 +1252,15 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       turn.items.push(item);
     };
 
-    const requireSession = Effect.fn("PiAdapter.requireSession")(function* (threadId: ThreadId) {
-      const context = sessions.get(threadId);
-      if (!context) {
-        return yield* new ProviderAdapterSessionNotFoundError({ provider: PROVIDER, threadId });
-      }
-      if (context.stopped) {
-        return yield* new ProviderAdapterSessionClosedError({ provider: PROVIDER, threadId });
-      }
-      return context;
-    });
-
-    const abortSessionTurn = (context: PiSessionContext) => {
-      // Otherwise the SDK can start a queued continuation after aborting backoff.
-      context.runtime.session.clearQueue();
-      return context.runtime.session.abort();
-    };
-
-    // prompt()'s async preflight leaves no run for abort() to reach — an
-    // interrupt in that window would no-op and the turn would start anyway.
-    // Defer it: agent_start fires the abort once the run actually commits.
-    const interruptActiveTurn = (context: PiSessionContext) => {
-      const turnId = context.activeTurnId;
-      if (
-        turnId !== undefined &&
-        context.promptCommitting === turnId &&
-        !context.runtime.session.isStreaming
-      ) {
-        context.pendingAbortTurnId = turnId;
-        // There is no agent run to abort yet, but prompt preflight may be
-        // compacting. Abort that work now and keep the deferred run abort.
-        return abortSessionTurn(context);
-      }
-      return abortSessionTurn(context);
-    };
-
-    const disposeSessionContext = async (context: PiSessionContext) => {
-      try {
-        // Stop retry and queued continuation before waiting for gateway drainage.
-        context.runtime.session.clearQueue();
-        context.runtime.session.abortRetry();
-        await Effect.runPromise(
-          cancelAgentGatewayTurn(context.gatewaySessionLease, context.activeTurnId),
-        );
-        context.unsubscribe?.();
-        context.unsubscribe = undefined;
-        for (const pending of Array.from(context.pendingUserInputs.values())) {
-          pending.resolve({});
-        }
-        context.pendingUserInputs.clear();
-        context.stopped = true;
-        let runtimeFailure: unknown;
-        try {
-          try {
-            await context.runtime.dispose();
-          } finally {
-            await clearPiManagedRuntimeCredentials(context.runtime.services.modelRuntime);
-          }
-        } catch (cause) {
-          runtimeFailure = cause;
-        }
-        let processFailure: unknown;
-        try {
-          await context.processSupervisor.teardownAll();
-        } catch (cause) {
-          processFailure = cause;
-        }
-        if (runtimeFailure !== undefined && processFailure !== undefined) {
-          throw new AggregateError(
-            [runtimeFailure, processFailure],
-            "Failed to dispose the Pi runtime and prove its subprocess trees exited.",
-          );
-        }
-        if (processFailure !== undefined) throw processFailure;
-        if (runtimeFailure !== undefined) throw runtimeFailure;
-      } finally {
-        context.gatewaySessionLease?.release();
-        delete context.gatewaySessionLease;
-      }
-    };
-
-    const handleMessageUpdate = (
-      context: PiSessionContext,
-      event: Extract<AgentSessionEvent, { type: "message_update" }>,
-    ) => {
-      if (event.message.role !== "assistant") return;
-      const update = event.assistantMessageEvent;
+    const handleMessageUpdate = (context: PiSessionContext, record: PiRpcRecord) => {
+      if (context.streamingMessageRole !== "assistant") return;
+      const update = isRecord(record.assistantMessageEvent)
+        ? record.assistantMessageEvent
+        : undefined;
+      if (!update || typeof update.delta !== "string") return;
+      const delta = update.delta;
+      const contentIndex = typeof update.contentIndex === "number" ? update.contentIndex : 0;
+      const raw = { source: "pi.rpc.event" as const, messageType: record.type, payload: record };
       if (update.type === "text_delta") {
         if (!context.activeAssistantItemId) {
           context.activeAssistantItemId = RuntimeItemId.makeUnsafe(
@@ -2996,20 +1271,16 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             itemId: context.activeAssistantItemId,
             type: "item.started",
             payload: { itemType: "assistant_message", status: "inProgress", title: "Assistant" },
-            raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
+            raw,
           } satisfies ProviderRuntimeEvent);
         }
-        recordItem(context, { type: "assistant_message", delta: update.delta });
+        recordItem(context, { type: "assistant_message", delta });
         offerRuntimeEvent({
           ...makeEventBase(context),
           itemId: context.activeAssistantItemId,
           type: "content.delta",
-          payload: {
-            streamKind: "assistant_text",
-            delta: update.delta,
-            contentIndex: update.contentIndex,
-          },
-          raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
+          payload: { streamKind: "assistant_text", delta, contentIndex },
+          raw,
         } satisfies ProviderRuntimeEvent);
         return;
       }
@@ -3023,667 +1294,437 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             itemId: context.activeReasoningItemId,
             type: "item.started",
             payload: { itemType: "reasoning", status: "inProgress", title: "Reasoning" },
-            raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
+            raw,
           } satisfies ProviderRuntimeEvent);
         }
-        recordItem(context, { type: "reasoning", delta: update.delta });
+        recordItem(context, { type: "reasoning", delta });
         offerRuntimeEvent({
           ...makeEventBase(context),
           itemId: context.activeReasoningItemId,
           type: "content.delta",
-          payload: {
-            streamKind: "reasoning_text",
-            delta: update.delta,
-            contentIndex: update.contentIndex,
-          },
-          raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
+          payload: { streamKind: "reasoning_text", delta, contentIndex },
+          raw,
         } satisfies ProviderRuntimeEvent);
       }
     };
 
-    const handleSessionEvent = (context: PiSessionContext, event: AgentSessionEvent) => {
-      switch (event.type) {
+    const handleToolStart = (context: PiSessionContext, record: PiRpcRecord) => {
+      const toolCallId = typeof record.toolCallId === "string" ? record.toolCallId : undefined;
+      // Nested calls (codemode scripts) are reported by their calling tool.
+      if (!toolCallId || typeof record.parentToolCallId === "string") return;
+      const toolName = typeof record.toolName === "string" ? record.toolName : "tool";
+      const tracked: PiTrackedToolCall = {
+        toolCallId,
+        toolName,
+        args: record.args,
+        itemId: RuntimeItemId.makeUnsafe(`pi-tool-${toolCallId}`),
+        itemType: piToolItemType(toolName),
+      };
+      context.activeToolItems.set(toolCallId, tracked);
+      recordItem(
+        context,
+        { type: "tool_call", callId: toolCallId, status: "started", toolName, args: record.args },
+        toolCallId,
+      );
+      offerRuntimeEvent({
+        ...makeEventBase(context),
+        itemId: tracked.itemId,
+        providerRefs: { providerItemId: ProviderItemId.makeUnsafe(toolCallId) },
+        type: "item.started",
+        payload: {
+          itemType: tracked.itemType,
+          status: "inProgress",
+          title: piToolTitle(toolName, record.args),
+          data: piToolLifecycleData({ toolCallId, toolName, args: record.args }),
+        },
+        raw: { source: "pi.rpc.event", messageType: record.type, payload: record },
+      } satisfies ProviderRuntimeEvent);
+    };
+
+    const handleToolUpdate = (context: PiSessionContext, record: PiRpcRecord) => {
+      const toolCallId = typeof record.toolCallId === "string" ? record.toolCallId : undefined;
+      const tracked = toolCallId ? context.activeToolItems.get(toolCallId) : undefined;
+      if (!toolCallId || !tracked) return;
+      const detail = textFromToolResult(record.partialResult);
+      recordItem(
+        context,
+        {
+          type: "tool_call",
+          callId: toolCallId,
+          status: "updated",
+          toolName: tracked.toolName,
+          args: tracked.args,
+          output: detail,
+        },
+        toolCallId,
+      );
+      offerRuntimeEvent({
+        ...makeEventBase(context),
+        itemId: tracked.itemId,
+        providerRefs: { providerItemId: ProviderItemId.makeUnsafe(toolCallId) },
+        type: "item.updated",
+        payload: {
+          itemType: tracked.itemType,
+          status: "inProgress",
+          title: piToolTitle(tracked.toolName, tracked.args),
+          ...(detail ? { detail } : {}),
+          data: piToolLifecycleData({
+            toolCallId,
+            toolName: tracked.toolName,
+            args: tracked.args,
+            partialResult: record.partialResult,
+          }),
+        },
+        raw: { source: "pi.rpc.event", messageType: record.type, payload: record },
+      } satisfies ProviderRuntimeEvent);
+    };
+
+    const handleToolEnd = (context: PiSessionContext, record: PiRpcRecord) => {
+      const toolCallId = typeof record.toolCallId === "string" ? record.toolCallId : undefined;
+      if (!toolCallId || typeof record.parentToolCallId === "string") return;
+      const toolName = typeof record.toolName === "string" ? record.toolName : "tool";
+      const tracked = context.activeToolItems.get(toolCallId) ?? {
+        toolCallId,
+        toolName,
+        args: undefined,
+        itemId: RuntimeItemId.makeUnsafe(`pi-tool-${toolCallId}`),
+        itemType: piToolItemType(toolName),
+      };
+      context.activeToolItems.delete(toolCallId);
+      const isError = record.isError === true;
+      const detail = textFromToolResult(record.result);
+      recordItem(
+        context,
+        {
+          type: "tool_call",
+          callId: toolCallId,
+          status: isError ? "failed" : "completed",
+          toolName: tracked.toolName,
+          ...(tracked.args !== undefined ? { args: tracked.args } : {}),
+          output: detail,
+          result: record.result,
+        },
+        toolCallId,
+      );
+      offerRuntimeEvent({
+        ...makeEventBase(context),
+        itemId: tracked.itemId,
+        providerRefs: { providerItemId: ProviderItemId.makeUnsafe(toolCallId) },
+        type: "item.completed",
+        payload: {
+          itemType: tracked.itemType,
+          status: isError ? "failed" : "completed",
+          title: piToolTitle(tracked.toolName, tracked.args),
+          ...(detail ? { detail } : {}),
+          data: piToolLifecycleData({
+            toolCallId,
+            toolName: tracked.toolName,
+            args: tracked.args,
+            result: record.result,
+            isError,
+          }),
+        },
+        raw: { source: "pi.rpc.event", messageType: record.type, payload: record },
+      } satisfies ProviderRuntimeEvent);
+    };
+
+    const handleRecord = (context: PiSessionContext, record: PiRpcRecord) => {
+      if (context.stopped) return;
+      const raw = { source: "pi.rpc.event" as const, messageType: record.type, payload: record };
+      switch (record.type) {
+        case "extension_ui_request":
+          handleExtensionUiRequest(context, record);
+          return;
         case "agent_start":
-          if (
-            context.pendingAbortTurnId !== undefined &&
-            context.pendingAbortTurnId === context.activeTurnId
-          ) {
-            // The committing prompt just started its run — land the interrupt
-            // that was deferred because abort() had nothing to reach yet.
-            void abortSessionTurn(context).catch((cause) => {
-              offerRuntimeError(context, {
-                message: toMessage(cause, "Failed to interrupt Pi turn."),
-                method: "turn/interrupt",
-                cause,
-              });
-            });
-          }
           offerRuntimeEvent({
             ...makeEventBase(context),
             type: "thread.state.changed",
             payload: { state: "active" },
-            raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
+            raw,
           } satisfies ProviderRuntimeEvent);
           return;
         case "turn_start":
           offerRuntimeEvent({
             ...makeEventBase(context),
             type: "turn.started",
-            payload: {
-              ...(context.runtime.session.model
-                ? {
-                    model: `${context.runtime.session.model.provider}/${context.runtime.session.model.id}`,
-                  }
-                : {}),
-              effort: context.runtime.session.thinkingLevel,
-            },
-            raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
+            payload: turnStartedPayload(context),
+            raw,
           } satisfies ProviderRuntimeEvent);
           return;
-        case "message_end":
-          if (event.message.role === "assistant") {
+        case "message_start": {
+          const message = isRecord(record.message) ? record.message : undefined;
+          context.streamingMessageRole =
+            typeof message?.role === "string" ? message.role : undefined;
+          return;
+        }
+        case "message_update":
+          handleMessageUpdate(context, record);
+          return;
+        case "message_end": {
+          const message = isRecord(record.message) ? record.message : undefined;
+          context.streamingMessageRole = undefined;
+          if (message?.role === "assistant") {
             completeMessageItems(
               context,
-              event.message.stopReason === "error" || event.message.stopReason === "aborted",
-              { source: "pi.sdk.event", messageType: event.type, payload: event },
+              message.stopReason === "error" || message.stopReason === "aborted",
+              raw,
             );
           }
           return;
-        case "message_update":
-          handleMessageUpdate(context, event);
-          return;
-        case "tool_execution_start": {
-          const itemId = RuntimeItemId.makeUnsafe(`pi-tool-${event.toolCallId}`);
-          const tracked: PiTrackedToolCall = {
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            args: event.args,
-            itemId,
-            itemType: toolItemType(event.toolName),
-          };
-          context.activeToolItems.set(event.toolCallId, tracked);
-          const title = toolTitle(event.toolName, event.args);
-          recordItem(
-            context,
-            {
-              type: "tool_call",
-              callId: event.toolCallId,
-              status: "started",
-              toolName: event.toolName,
-              args: event.args,
-            },
-            event.toolCallId,
-          );
-          offerRuntimeEvent({
-            ...makeEventBase(context),
-            itemId,
-            providerRefs: { providerItemId: ProviderItemId.makeUnsafe(event.toolCallId) },
-            type: "item.started",
-            payload: {
-              itemType: tracked.itemType,
-              status: "inProgress",
-              title,
-              data: toolLifecycleData({
-                toolCallId: event.toolCallId,
-                toolName: event.toolName,
-                args: event.args,
-              }),
-            },
-            raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
-          } satisfies ProviderRuntimeEvent);
-          return;
         }
-        case "tool_execution_update": {
-          const tracked = context.activeToolItems.get(event.toolCallId);
-          if (!tracked) return;
-          const detail = textFromToolResult(event.partialResult);
-          recordItem(
-            context,
-            {
-              type: "tool_call",
-              callId: event.toolCallId,
-              status: "updated",
-              toolName: event.toolName,
-              args: tracked.args,
-              output: detail,
-            },
-            event.toolCallId,
-          );
-          offerRuntimeEvent({
-            ...makeEventBase(context),
-            itemId: tracked.itemId,
-            providerRefs: { providerItemId: ProviderItemId.makeUnsafe(event.toolCallId) },
-            type: "item.updated",
-            payload: {
-              itemType: tracked.itemType,
-              status: "inProgress",
-              title: toolTitle(event.toolName, tracked.args),
-              ...(detail ? { detail } : {}),
-              data: toolLifecycleData({
-                toolCallId: event.toolCallId,
-                toolName: event.toolName,
-                args: tracked.args,
-                partialResult: event.partialResult,
-              }),
-            },
-            raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
-          } satisfies ProviderRuntimeEvent);
+        case "thinking_level_changed":
+          if (typeof record.level === "string") context.thinkingLevel = record.level;
           return;
-        }
-        case "tool_execution_end": {
-          const tracked = context.activeToolItems.get(event.toolCallId) ?? {
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            args: undefined,
-            itemId: RuntimeItemId.makeUnsafe(`pi-tool-${event.toolCallId}`),
-            itemType: toolItemType(event.toolName),
-          };
-          context.activeToolItems.delete(event.toolCallId);
-          const detail = textFromToolResult(event.result);
-          recordItem(
-            context,
-            {
-              type: "tool_call",
-              callId: event.toolCallId,
-              status: event.isError ? "failed" : "completed",
-              toolName: event.toolName,
-              ...(tracked.args !== undefined ? { args: tracked.args } : {}),
-              output: detail,
-              result: event.result,
-            },
-            event.toolCallId,
-          );
-          offerRuntimeEvent({
-            ...makeEventBase(context),
-            itemId: tracked.itemId,
-            providerRefs: { providerItemId: ProviderItemId.makeUnsafe(event.toolCallId) },
-            type: "item.completed",
-            payload: {
-              itemType: tracked.itemType,
-              status: event.isError ? "failed" : "completed",
-              title: toolTitle(event.toolName, tracked.args),
-              ...(detail ? { detail } : {}),
-              data: toolLifecycleData({
-                toolCallId: event.toolCallId,
-                toolName: event.toolName,
-                args: tracked.args,
-                result: event.result,
-                isError: event.isError,
-              }),
-            },
-            raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
-          } satisfies ProviderRuntimeEvent);
+        case "tool_execution_start":
+          handleToolStart(context, record);
           return;
-        }
-        case "compaction_start": {
-          const itemId = RuntimeItemId.makeUnsafe(`pi-compaction-${crypto.randomUUID()}`);
+        case "tool_execution_update":
+          handleToolUpdate(context, record);
+          return;
+        case "tool_execution_end":
+          handleToolEnd(context, record);
+          return;
+        case "compaction_start":
           offerRuntimeEvent({
             ...makeEventBase(context),
-            itemId,
+            itemId: RuntimeItemId.makeUnsafe(`pi-compaction-${crypto.randomUUID()}`),
             type: "item.updated",
             payload: {
               itemType: "context_compaction",
               status: "inProgress",
               title: "Compacting context",
             },
-            raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
+            raw,
           } satisfies ProviderRuntimeEvent);
           return;
-        }
-        case "compaction_end": {
-          const itemId = RuntimeItemId.makeUnsafe(`pi-compaction-${crypto.randomUUID()}`);
+        case "compaction_end":
           offerRuntimeEvent({
             ...makeEventBase(context),
-            itemId,
+            itemId: RuntimeItemId.makeUnsafe(`pi-compaction-${crypto.randomUUID()}`),
             type: "item.completed",
             payload: {
               itemType: "context_compaction",
-              status: event.aborted ? "failed" : "completed",
+              status: record.aborted === true || !record.result ? "failed" : "completed",
               title: "Context compacted",
-              data: event,
+              data: record,
             },
-            raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
+            raw,
           } satisfies ProviderRuntimeEvent);
           return;
-        }
         case "agent_end": {
-          // Capture this run's outcome without settling its retries/continuations.
-          // A handled extension command may resolve without running the agent.
-          const errorMessage = context.runtime.session.agent.state.errorMessage;
-          if (errorMessage) context.activeTurnErrorMessage = errorMessage;
-          else delete context.activeTurnErrorMessage;
+          // This run's outcome; retries and queued continuations may still follow.
+          const outcome = piRunOutcome(record.messages);
+          if (outcome === undefined) delete context.activeTurnErrorMessage;
+          else if (outcome !== null) context.activeTurnErrorMessage = outcome;
           return;
         }
         case "auto_retry_start": {
-          const delaySecs = event.delayMs / 1000;
-          offerPiRetryWarning(context, {
-            message: `Pi retrying after provider error (attempt ${event.attempt}/${event.maxAttempts}, retrying in ${delaySecs.toFixed(delaySecs < 10 ? 1 : 0)}s): ${event.errorMessage}`,
+          const delayMs = typeof record.delayMs === "number" ? record.delayMs : 0;
+          const delaySecs = delayMs / 1000;
+          offerRuntimeWarning(context, {
+            message: `Pi retrying after provider error (attempt ${String(record.attempt)}/${String(record.maxAttempts)}, retrying in ${delaySecs.toFixed(delaySecs < 10 ? 1 : 0)}s): ${String(record.errorMessage ?? "")}`,
             method: "prompt/retry",
-            messageType: event.type,
-            detail: event,
+            messageType: record.type,
+            detail: record,
           });
           return;
         }
-        case "auto_retry_end": {
-          // Cancelling backoff resolves prompt() without another agent_end,
-          // while agent.state.errorMessage still contains the provider error.
-          if (!event.success && event.finalError === "Retry cancelled") {
-            context.activeTurnErrorMessage = event.finalError;
+        case "auto_retry_end":
+          if (record.success !== true && typeof record.finalError === "string") {
+            context.activeTurnErrorMessage = record.finalError;
           }
           return;
-        }
+        case "agent_settled":
+          context.runActive = false;
+          if (record.aborted === true && !context.activeTurnErrorMessage) {
+            context.activeTurnErrorMessage = "Request was aborted.";
+          }
+          maybeFinishActiveTurn(context);
+          return;
+        case "extension_error":
+          offerRuntimeWarning(context, {
+            message: `A Pi extension failed: ${String(record.error ?? "unknown error")}`,
+            method: "extension/error",
+            messageType: record.type,
+            detail: record,
+          });
+          return;
         default:
           return;
       }
     };
 
-    const createSdkRuntime = async (input: {
-      sdk: PiCodingAgentModule;
-      cwd: string;
-      agentDir: string;
-      environment?: Readonly<Record<string, string>>;
-      instanceId?: string;
-      sessionManager: SessionManager;
-      modelId?: string;
-      thinkingLevel?: ThinkingLevel;
-      processSupervisor: PiBashProcessSupervisor;
-      gatewayTools?: ReadonlyArray<ToolDefinition>;
-      signal?: AbortSignal;
-      noExtensions?: boolean;
-    }) => {
-      const modelRuntime = await createPiModelRuntime(
-        input.agentDir,
-        input.sdk,
-        input.signal,
-        input.environment,
-        input.instanceId,
-        { stateDir: serverConfig.stateDir, homeDir: serverConfig.homeDir },
+    const handleUnexpectedExit = (context: PiSessionContext, exit: PiRpcExit) => {
+      if (context.stopped) return;
+      const stderr = context.rpc.stderrTail().trim().slice(-2_000);
+      const message = exit.spawnError
+        ? `Pi could not start: ${exit.spawnError.message}`
+        : `Pi stopped unexpectedly${exit.code !== null ? ` (exit code ${exit.code})` : ""}.${stderr ? ` ${stderr}` : ""}`;
+      const turnId = context.activeTurnId;
+      context.stopped = true;
+      context.unsubscribe?.();
+      for (const pending of Array.from(context.pendingUserInputs.values())) pending.resolve({});
+      context.pendingUserInputs.clear();
+      const raw = { source: "pi.rpc.event" as const, method: "exit", payload: exit };
+      completeMessageItems(context, true, raw);
+      if (turnId) {
+        offerRuntimeEvent({
+          ...makeEventBase(context),
+          type: "turn.completed",
+          payload: { state: "failed", stopReason: "error", errorMessage: message },
+          raw,
+        } satisfies ProviderRuntimeEvent);
+      }
+      offerRuntimeError(context, { message, method: "process/exit", cause: exit });
+      context.activeTurnId = undefined;
+      void Effect.runPromise(cancelAgentGatewayTurn(context.gatewaySessionLease, turnId)).finally(
+        () => {
+          context.gatewaySessionLease?.release();
+          delete context.gatewaySessionLease;
+        },
       );
-      input.signal?.throwIfAborted();
-      const createRuntime: CreateAgentSessionRuntimeFactory = async ({
-        cwd,
-        agentDir,
-        sessionManager,
-        sessionStartEvent,
-      }) => {
-        const services = await input.sdk.createAgentSessionServices({
-          cwd,
-          agentDir,
-          modelRuntime,
-          ...(input.noExtensions ? { resourceLoaderOptions: { noExtensions: true } } : {}),
-        });
-        const registry = modelRegistryFacade(services.modelRuntime, input.sdk);
-        const requested = parseModelReference(input.modelId);
-        if (
-          requested?.provider === "openrouter" &&
-          !registry.find(requested.provider, requested.id)
-        ) {
-          await refreshPiOpenRouterModels(services.modelRuntime, {
-            environment: input.environment,
-            instanceId: input.instanceId,
-          });
-        }
-        const model = findModelInRegistry(registry, input.modelId);
-        if (input.modelId && !model) {
-          throw new Error(
-            `Pi model '${input.modelId}' is not available. Use a discovered model or a provider-qualified custom model slug like 'openai/gpt-5.5'.`,
-          );
-        }
-        const shellPath = services.settingsManager.getShellPath();
-        const commandPrefix = services.settingsManager.getShellCommandPrefix();
-        input.processSupervisor.setShellPath(shellPath);
-        return {
-          ...(await input.sdk.createAgentSessionFromServices({
-            services,
-            sessionManager,
-            ...(sessionStartEvent ? { sessionStartEvent } : {}),
-            ...(model ? { model } : {}),
-            thinkingLevel: input.thinkingLevel ?? DEFAULT_PI_THINKING_LEVEL,
-            customTools: [
-              input.sdk.defineTool(
-                input.sdk.createBashToolDefinition(cwd, {
-                  operations: input.processSupervisor.operations,
-                  ...(commandPrefix === undefined ? {} : { commandPrefix }),
-                  ...(shellPath === undefined ? {} : { shellPath }),
-                }),
-              ),
-              ...(input.gatewayTools ?? []),
-            ],
-          })),
-          services,
-          diagnostics: services.diagnostics,
-        };
-      };
-      const runtime = await input.sdk.createAgentSessionRuntime(createRuntime, {
-        cwd: input.sessionManager.getCwd(),
-        agentDir: input.agentDir,
-        sessionManager: input.sessionManager,
-      });
-      return {
-        runtime,
-        modelRegistry: modelRegistryFacade(runtime.services.modelRuntime, input.sdk),
-      };
+      if (sessions.get(context.session.threadId) === context) {
+        sessions.delete(context.session.threadId);
+      }
+      // Pi's own children must not outlive it.
+      void context.rpc.close({ graceMs: 0 }).catch(() => undefined);
+      offerRuntimeEvent({
+        ...makeEventBase(context, { includeTurnId: false }),
+        type: "session.exited",
+        payload: { reason: message, exitKind: "error", recoverable: true },
+      } satisfies ProviderRuntimeEvent);
     };
 
-    const startSessionUnlocked = (
-      input: Parameters<PiAdapterShape["startSession"]>[0],
-      noExtensions: boolean,
-      providerInstanceId: ProviderSession["providerInstanceId"],
+    const removeSessionFiles = async (toolsFile: string | undefined) => {
+      if (!toolsFile) return;
+      await rm(path.dirname(toolsFile), { recursive: true, force: true }).catch(() => undefined);
+    };
+
+    const disposeSessionContext = async (context: PiSessionContext) => {
+      try {
+        await Effect.runPromise(
+          cancelAgentGatewayTurn(context.gatewaySessionLease, context.activeTurnId),
+        );
+        context.unsubscribe?.();
+        context.unsubscribe = undefined;
+        for (const pending of Array.from(context.pendingUserInputs.values())) pending.resolve({});
+        context.pendingUserInputs.clear();
+        context.stopped = true;
+        // Closing stdin asks Pi to dispose its runtime; the tree teardown proves it is gone.
+        await context.rpc.close();
+      } finally {
+        context.gatewaySessionLease?.release();
+        delete context.gatewaySessionLease;
+        await removeSessionFiles(context.gatewayToolsFile);
+      }
+    };
+
+    const requireSession = Effect.fn("PiAdapter.requireSession")(function* (threadId: ThreadId) {
+      const context = sessions.get(threadId);
+      if (!context) {
+        return yield* new ProviderAdapterSessionNotFoundError({ provider: PROVIDER, threadId });
+      }
+      if (context.stopped) {
+        return yield* new ProviderAdapterSessionClosedError({ provider: PROVIDER, threadId });
+      }
+      return context;
+    });
+
+    const piRequest = <T>(
+      context: PiSessionContext,
+      method: string,
+      command: { readonly type: string } & Readonly<Record<string, unknown>>,
+      requestOptions?: { readonly timeoutMs?: number },
+    ) =>
+      Effect.tryPromise({
+        try: () => context.rpc.request<T>(command, requestOptions),
+        catch: (cause) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method,
+            detail: toMessage(cause, `Pi could not ${command.type}.`),
+            cause,
+          }),
+      });
+
+    const resolveModelForSelection = (context: PiSessionContext, modelId: string) =>
+      Effect.gen(function* () {
+        const parsed = parsePiModelReference(modelId);
+        if (!parsed) return undefined;
+        if (parsed.provider) return { provider: parsed.provider, id: parsed.id };
+        const models = yield* Effect.tryPromise({
+          try: () => listAvailableModels(context.rpc, context.managed),
+          catch: (cause) =>
+            new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "model/list",
+              detail: toMessage(cause, "Failed to list Pi models."),
+              cause,
+            }),
+        });
+        const found = findPiModel(models, modelId);
+        return found ? { provider: found.provider, id: found.id } : undefined;
+      });
+
+    const applyPiModelSelection = (
+      context: PiSessionContext,
+      selection: {
+        readonly model?: string | undefined;
+        readonly thinkingLevel?: string | undefined;
+      },
     ) =>
       Effect.gen(function* () {
-        const cwd = trimToUndefined(input.cwd) ?? serverConfig.cwd;
-        const piOptions = input.providerOptions?.pi;
-        const piEnvironment = piOptions?.environment;
-        const isolatedAccount =
-          piEnvironment !== undefined ||
-          (providerInstanceId !== undefined && providerInstanceId !== PROVIDER);
-        const sessionFile = extractResumeSessionFile(input.resumeCursor);
-        const modelId =
-          input.modelSelection?.provider === "pi" ? input.modelSelection.model : undefined;
-        const thinkingLevel =
-          input.modelSelection?.provider === "pi"
-            ? normalizePiThinkingLevel(input.modelSelection.options?.thinkingLevel)
-            : undefined;
-        const existingContext = sessions.get(input.threadId);
-        if (existingContext) {
-          yield* Effect.tryPromise({
-            try: () => disposeSessionContext(existingContext),
-            catch: (cause) =>
-              new ProviderAdapterRequestError({
-                provider: PROVIDER,
-                method: "session/restart",
-                detail: toMessage(cause, "Failed to dispose previous Pi session."),
-                cause,
-              }),
-          });
-          if (sessions.get(input.threadId) === existingContext) {
-            sessions.delete(input.threadId);
+        const requested = trimToUndefined(selection.model);
+        if (requested && requested !== piModelSlug(context.model)) {
+          const target = yield* resolveModelForSelection(context, requested);
+          if (!target) {
+            return yield* new ProviderAdapterValidationError({
+              provider: PROVIDER,
+              operation: "model/set",
+              issue: `Pi model '${requested}' is not available. Use a model Pi lists, or add it to Pi's models.json.`,
+            });
           }
-        }
-        if (isolatedAccount) {
-          resetApiProviders();
-        }
-        const piSdk = yield* loadPiSdk("session/start");
-        const processSupervisor = makePiBashProcessSupervisor({
-          lowerPriority: yield* providerProcessPriorityEnabled,
-          getShellConfig: () => piSdk.getShellConfig(),
-          ...(piEnvironment !== undefined ? { environment: piEnvironment } : {}),
-          ...(providerInstanceId !== undefined ? { instanceId: providerInstanceId } : {}),
-          homeDir: serverConfig.homeDir,
-          isolationRootDir: serverConfig.stateDir,
-          ...(options?.spawnProcess ? { spawnProcess: options.spawnProcess } : {}),
-          ...(options?.teardownProcessTree
-            ? { teardownProcessTree: options.teardownProcessTree }
-            : {}),
-        });
-        const storagePaths = makePiStoragePaths({
-          agentDir: piOptions?.agentDir,
-          environment: piEnvironment,
-          instanceId: providerInstanceId,
-          stateDir: serverConfig.stateDir,
-          homeDir: serverConfig.homeDir,
-          sdkAgentDir: piSdk.getAgentDir(),
-        });
-        const agentDir = storagePaths.agentDir;
-        const sessionManager = sessionFile
-          ? piSdk.SessionManager.open(sessionFile, undefined, cwd)
-          : piSdk.SessionManager.create(cwd, storagePaths.sessionDir);
-        const agentGatewaySessionLease = acquireAgentGatewaySessionLease(
-          agentGatewayCredentials,
-          input.threadId,
-          PROVIDER,
-          input,
-        );
-        const agentGatewayConnection = agentGatewaySessionLease?.connection;
-        if (input.enableComputerControl === true && !agentGatewayConnection) {
-          return yield* new ProviderAdapterRequestError({
-            provider: PROVIDER,
-            method: "session/start",
-            detail:
-              "Computer Use could not start because Pi did not receive a thread-scoped Moss gateway connection.",
-          });
-        }
-        const gatewayTools = agentGatewayConnection
-          ? yield* releaseAgentGatewaySessionLeaseOnInterrupt(
-              agentGatewaySessionLease,
-              Effect.tryPromise({
-                try: () =>
-                  buildPiAgentGatewayCustomTools({
-                    connection: agentGatewayConnection,
-                    defineTool: (tool) => piSdk.defineTool(tool),
-                    enableComputerControl: input.enableComputerControl === true,
-                    ...(options?.agentGatewayFetch === undefined
-                      ? {}
-                      : { fetch: options.agentGatewayFetch }),
-                  }),
-                catch: (cause) => cause,
+          const model = yield* Effect.tryPromise({
+            try: () =>
+              context.rpc.request<unknown>({
+                type: "set_model",
+                provider: target.provider,
+                modelId: target.id,
               }),
-            ).pipe(
-              Effect.catch((cause) =>
-                Effect.sync(() => agentGatewaySessionLease?.release()).pipe(
-                  Effect.andThen(
-                    input.enableComputerControl === true
-                      ? Effect.fail(
-                          new ProviderAdapterRequestError({
-                            provider: PROVIDER,
-                            method: "session/start",
-                            detail: `Computer Use could not start because Pi could not install Moss gateway tools: ${toMessage(cause, "Gateway setup failed.")}`,
-                            cause,
-                          }),
-                        )
-                      : Effect.logWarning(
-                          "Pi could not install thread-scoped Moss gateway tools",
-                          cause,
-                        ),
-                  ),
-                  Effect.as([] as ReadonlyArray<ToolDefinition>),
-                ),
-              ),
-            )
-          : [];
-        const gatewayControlAvailable = gatewayTools.length > 0;
-        if (!gatewayControlAvailable) {
-          agentGatewaySessionLease?.release();
-        }
-        const { runtime, modelRegistry } = yield* releaseAgentGatewaySessionLeaseOnInterrupt(
-          agentGatewaySessionLease,
-          Effect.tryPromise({
-            try: (signal) =>
-              createSdkRuntime({
-                signal,
-                sdk: piSdk,
-                cwd,
-                agentDir,
-                ...(piEnvironment !== undefined ? { environment: piEnvironment } : {}),
-                ...(providerInstanceId !== undefined ? { instanceId: providerInstanceId } : {}),
-                sessionManager,
-                ...(noExtensions ? { noExtensions: true } : {}),
-                ...(modelId ? { modelId } : {}),
-                ...(thinkingLevel ? { thinkingLevel } : {}),
-                processSupervisor,
-                ...(gatewayControlAvailable ? { gatewayTools } : {}),
-              }),
-            catch: (cause) =>
-              new ProviderAdapterRequestError({
-                provider: PROVIDER,
-                method: "session/start",
-                detail: toMessage(cause, "Failed to start Pi session."),
-                cause,
-              }),
-          }),
-        ).pipe(
-          Effect.tapError(() =>
-            Effect.sync(() => {
-              agentGatewaySessionLease?.release();
-            }),
-          ),
-        );
-        const now = new Date().toISOString();
-        const model = runtime.session.model
-          ? `${runtime.session.model.provider}/${runtime.session.model.id}`
-          : modelId;
-        const resumeCursor = getSessionFile(runtime.session);
-        const session: ProviderSession = {
-          provider: PROVIDER,
-          ...(providerInstanceId !== undefined ? { providerInstanceId } : {}),
-          status: "ready",
-          runtimeMode: input.runtimeMode,
-          cwd,
-          threadId: input.threadId,
-          createdAt: now,
-          updatedAt: now,
-          ...(model ? { model } : {}),
-          ...(resumeCursor ? { resumeCursor } : {}),
-        };
-        const context: PiSessionContext = {
-          enableComputerControl: input.enableComputerControl === true,
-          gatewayCapabilityInput: captureAgentGatewayCapabilityInput(input),
-          ...(input.lifecycleGeneration !== undefined
-            ? { lifecycleGeneration: input.lifecycleGeneration }
-            : {}),
-          runtime,
-          gatewayControlAvailable,
-          ...(gatewayControlAvailable && agentGatewaySessionLease
-            ? {
-                gatewaySessionLease: agentGatewaySessionLease,
-                gatewayConnection: agentGatewayConnection!,
-              }
-            : {}),
-          gatewayTools: [...gatewayTools],
-          gatewayDefineTool: (tool) => piSdk.defineTool(tool),
-          processSupervisor,
-          modelRegistry,
-          session,
-          turns: [],
-          activeTurnId: undefined,
-          promptCommitting: undefined,
-          promptCommit: undefined,
-          pendingAbortTurnId: undefined,
-          activeAssistantItemId: undefined,
-          activeReasoningItemId: undefined,
-          activeToolItems: new Map(),
-          pendingUserInputs: new Map(),
-          stopped: false,
-          lastKnownTokenUsage: undefined,
-          unsubscribe: undefined,
-          extensionsEnabled: !noExtensions,
-        };
-        context.unsubscribe = runtime.session.subscribe((event) =>
-          handleSessionEvent(context, event),
-        );
-        sessions.set(input.threadId, context);
-        yield* Effect.tryPromise({
-          try: () =>
-            runtime.session.bindExtensions({
-              uiContext: makePiExtensionUIContext(context),
-              abortHandler: () => {
-                void interruptActiveTurn(context).catch((cause) => {
-                  offerRuntimeError(context, {
-                    message: toMessage(cause, "Failed to interrupt Pi turn."),
-                    method: "turn/interrupt",
+            catch: (cause) => {
+              const message = toMessage(cause, "Failed to set Pi model.");
+              const missingSignIn = piMissingModelSignInIssue(message, { id: target.id });
+              // Pi refused before anything was sent: a validation error keeps the chat usable.
+              return missingSignIn || /model not found/iu.test(message)
+                ? new ProviderAdapterValidationError({
+                    provider: PROVIDER,
+                    operation: "model/set",
+                    issue: missingSignIn ?? `Pi model '${requested}' is not available: ${message}`,
+                    cause,
+                  })
+                : new ProviderAdapterRequestError({
+                    provider: PROVIDER,
+                    method: "model/set",
+                    detail: message,
                     cause,
                   });
-                });
-              },
-            }),
-          catch: (cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "extension/bind",
-              detail: toMessage(cause, "Failed to bind Pi extensions."),
-              cause,
-            }),
-        }).pipe(
-          Effect.catch((error) =>
-            Effect.gen(function* () {
-              yield* Effect.tryPromise({
-                try: () => disposeSessionContext(context),
-                catch: (cause) =>
-                  new ProviderAdapterRequestError({
-                    provider: PROVIDER,
-                    method: "session/start-cleanup",
-                    detail: toMessage(cause, "Failed to prove Pi startup cleanup completed."),
-                    cause,
-                  }),
-              });
-              if (sessions.get(input.threadId) === context) {
-                sessions.delete(input.threadId);
-              }
-              return yield* Effect.fail(error);
-            }),
-          ),
-        );
-        const loadedExtensions = runtime.session.resourceLoader.getExtensions().extensions;
-        if (loadedExtensions.length > 0) {
-          const extensionNames = loadedExtensions.map(extensionDisplayName);
-          offerRuntimeEvent({
-            ...makeEventBase(context, { includeTurnId: false }),
-            type: "runtime.warning",
-            payload: {
-              message:
-                "Pi extensions are loaded with Moss's limited UI bridge. select/confirm/input and notifications are supported; terminal status, widgets, and editor hooks are ignored.",
-              detail: {
-                extensionCount: loadedExtensions.length,
-                extensions: extensionNames,
-              },
             },
-            raw: {
-              source: "pi.sdk.event",
-              method: "extension/ui-limited-warning",
-              payload: { extensionCount: loadedExtensions.length, extensions: extensionNames },
-            },
-          } satisfies ProviderRuntimeEvent);
+          });
+          context.model =
+            isRecord(model) && typeof model.id === "string" && typeof model.provider === "string"
+              ? (model as unknown as PiRpcModel)
+              : { provider: target.provider, id: target.id };
         }
-        offerRuntimeEvent({
-          ...makeEventBase(context),
-          type: "session.started",
-          payload: { message: "Pi session started", resume: session.resumeCursor },
-        } satisfies ProviderRuntimeEvent);
-        offerRuntimeEvent({
-          ...makeEventBase(context),
-          type: "thread.started",
-          payload: { providerThreadId: runtime.session.sessionId },
-        } satisfies ProviderRuntimeEvent);
-        const initialUsage = normalizeTokenUsage(
-          runtime.session.getSessionStats(),
-          runtime.session.model?.contextWindow,
-        );
-        context.lastKnownTokenUsage = initialUsage;
-        if (initialUsage) {
-          offerRuntimeEvent({
-            ...makeEventBase(context),
-            type: "thread.token-usage.updated",
-            payload: { usage: initialUsage },
-          } satisfies ProviderRuntimeEvent);
+        const thinkingLevel = normalizePiThinkingLevel(selection.thinkingLevel);
+        if (thinkingLevel && thinkingLevel !== context.thinkingLevel) {
+          yield* piRequest(context, "thinking/set", {
+            type: "set_thinking_level",
+            level: thinkingLevel,
+          });
+          context.thinkingLevel = thinkingLevel;
         }
-        return session;
+        context.session = makeSessionSnapshot(context);
       });
-
-    const startSession: PiAdapterShape["startSession"] = (input) => {
-      const piEnvironment = input.providerOptions?.pi?.environment;
-      const providerInstanceId = resolvePiStartInstanceId(input);
-      const isolatedAccount =
-        piEnvironment !== undefined ||
-        (providerInstanceId !== undefined && providerInstanceId !== PROVIDER);
-      return Effect.acquireUseRelease(
-        Effect.try({
-          try: () => reservePiExtensionMode(isolatedAccount, input.threadId),
-          catch: (cause) =>
-            new ProviderAdapterRequestError({
-              provider: PROVIDER,
-              method: "session/start",
-              detail: cause instanceof Error ? cause.message : String(cause),
-              cause,
-            }),
-        }),
-        (reservation) =>
-          dispatchLock.withLock(
-            input.threadId,
-            startSessionUnlocked(input, reservation.noExtensions, providerInstanceId),
-          ),
-        (reservation) => Effect.sync(reservation.release),
-      );
-    };
 
     const buildPromptPayload = (input: {
       readonly input?: string | undefined;
@@ -3734,19 +1775,369 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         );
         return {
           text,
-          images: images.filter((image): image is ImageContent => image !== undefined),
+          images: images.filter((image): image is PiImage => image !== undefined),
         };
       });
+
+    const buildProviderText = (context: PiSessionContext, text: string) =>
+      buildPiTurnPrompt(context, {
+        text,
+        gatewayControlAvailable: context.gatewayControlAvailable,
+      });
+
+    const busyError = (operation: string) =>
+      new ProviderAdapterValidationError({
+        provider: PROVIDER,
+        operation,
+        issue: "A Pi turn is already active for this thread.",
+      });
+
+    const dispatchResult = (context: PiSessionContext, turnId: TurnId) => ({
+      threadId: context.session.threadId,
+      turnId,
+      ...(context.sessionFile ? { resumeCursor: context.sessionFile } : {}),
+    });
+
+    /** A turn whose run settled but whose bookkeeping is still running finishes first. */
+    const awaitTurnBookkeeping = (context: PiSessionContext) => {
+      const pending = context.completingTurn;
+      return pending === undefined
+        ? Effect.void
+        : Effect.promise(() => pending).pipe(Effect.uninterruptible);
+    };
+
+    const beginTurn = (context: PiSessionContext) => {
+      const turnId = TurnId.makeUnsafe(crypto.randomUUID());
+      context.activeTurnId = turnId;
+      delete context.activeTurnErrorMessage;
+      context.turns.push({ id: turnId, items: [], toolItemIndexes: new Map() });
+      context.session = makeSessionSnapshot(context);
+      return turnId;
+    };
+
+    const runPiReload = (context: PiSessionContext, turnId: TurnId, command: string) =>
+      Effect.gen(function* () {
+        offerRuntimeEvent({
+          ...makeEventBase(context),
+          type: "turn.started",
+          payload: turnStartedPayload(context),
+          raw: { source: "pi.rpc.event", method: "reload", payload: { command } },
+        } satisfies ProviderRuntimeEvent);
+        const failed = yield* piRequest(context, "session/reload", {
+          type: "prompt",
+          message: `/${MOSS_PI_RELOAD_COMMAND}`,
+        }).pipe(
+          Effect.as(undefined),
+          Effect.catch((error) => Effect.succeed(error)),
+        );
+        offerRuntimeEvent({
+          ...makeEventBase(context),
+          type: "turn.completed",
+          payload: failed
+            ? { state: "failed", stopReason: "error", errorMessage: failed.message }
+            : { state: "completed", stopReason: "reload" },
+          raw: { source: "pi.rpc.event", method: "reload", payload: failed ?? { command } },
+        } satisfies ProviderRuntimeEvent);
+        if (failed) {
+          offerRuntimeError(context, {
+            message: failed.message,
+            method: "session/reload",
+            cause: failed,
+          });
+        }
+        yield* cancelAgentGatewayTurn(context.gatewaySessionLease, turnId);
+        if (context.activeTurnId === turnId) context.activeTurnId = undefined;
+        context.session = makeSessionSnapshot(context);
+        if (failed) return yield* Effect.fail(failed);
+      });
+
+    // ── Session start ─────────────────────────────────────────────
+
+    const startSessionUnlocked = (
+      input: Parameters<PiAdapterShape["startSession"]>[0],
+      providerInstanceId: ProviderSession["providerInstanceId"],
+    ) =>
+      Effect.gen(function* () {
+        if (adapterClosing) {
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "session/start",
+            detail: "Moss is shutting down.",
+          });
+        }
+        const cwd = trimToUndefined(input.cwd) ?? serverConfig.cwd;
+        const piOptions = input.providerOptions?.pi;
+        const launch: PiLaunchInput = {
+          binaryPath: piOptions?.binaryPath,
+          agentDir: piOptions?.agentDir,
+          environment: piOptions?.environment,
+          instanceId: providerInstanceId,
+          cwd,
+        };
+        const requestedSessionFile = resumeSessionFile(input.resumeCursor);
+        // A session file that no longer exists starts a fresh Pi session.
+        const sessionFileExists = requestedSessionFile
+          ? yield* fileSystem
+              .exists(requestedSessionFile)
+              .pipe(Effect.catch(() => Effect.succeed(false)))
+          : false;
+        const sessionFile = sessionFileExists ? requestedSessionFile : undefined;
+        const modelSelection =
+          input.modelSelection?.provider === "pi" ? input.modelSelection : undefined;
+
+        const existingContext = sessions.get(input.threadId);
+        if (existingContext) {
+          yield* Effect.tryPromise({
+            try: () => disposeSessionContext(existingContext),
+            catch: (cause) =>
+              new ProviderAdapterRequestError({
+                provider: PROVIDER,
+                method: "session/restart",
+                detail: toMessage(cause, "Failed to stop the previous Pi session."),
+                cause,
+              }),
+          });
+          if (sessions.get(input.threadId) === existingContext) sessions.delete(input.threadId);
+        }
+
+        const startFailure = (detail: string, cause?: unknown) =>
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "session/start",
+            detail,
+            ...(cause !== undefined ? { cause } : {}),
+          });
+
+        const agentGatewaySessionLease = acquireAgentGatewaySessionLease(
+          agentGatewayCredentials,
+          input.threadId,
+          PROVIDER,
+          input,
+        );
+        const agentGatewayConnection = agentGatewaySessionLease?.connection;
+        if (input.enableComputerControl === true && !agentGatewayConnection) {
+          return yield* startFailure(
+            "Computer Use could not start because Pi did not receive a thread-scoped Moss gateway connection.",
+          );
+        }
+        const gatewayTools: ReadonlyArray<MossPiGatewayToolDescriptor> = agentGatewayConnection
+          ? yield* releaseAgentGatewaySessionLeaseOnInterrupt(
+              agentGatewaySessionLease,
+              Effect.tryPromise({
+                try: () =>
+                  buildPiAgentGatewayToolDescriptors({
+                    connection: agentGatewayConnection,
+                    enableComputerControl: input.enableComputerControl === true,
+                    ...(options?.agentGatewayFetch === undefined
+                      ? {}
+                      : { fetch: options.agentGatewayFetch }),
+                  }),
+                catch: (cause) => cause,
+              }),
+            ).pipe(
+              Effect.catch((cause) =>
+                Effect.sync(() => agentGatewaySessionLease?.release()).pipe(
+                  Effect.andThen(
+                    input.enableComputerControl === true
+                      ? Effect.fail(
+                          startFailure(
+                            `Computer Use could not start because Pi could not install Moss gateway tools: ${toMessage(cause, "Gateway setup failed.")}`,
+                            cause,
+                          ),
+                        )
+                      : Effect.logWarning(
+                          "Pi could not install thread-scoped Moss gateway tools",
+                          cause,
+                        ),
+                  ),
+                  Effect.as([] as ReadonlyArray<MossPiGatewayToolDescriptor>),
+                ),
+              ),
+            )
+          : [];
+        const gatewayControlAvailable = gatewayTools.length > 0;
+        if (!gatewayControlAvailable) agentGatewaySessionLease?.release();
+        const releaseLease = Effect.sync(() => agentGatewaySessionLease?.release());
+
+        const sessionKey = crypto.randomUUID();
+        const bridgeNonce = gatewayControlAvailable ? crypto.randomUUID() : undefined;
+        const gatewayToolsFile = gatewayControlAvailable
+          ? path.join(serverConfig.stateDir, "pi-sessions", sessionKey, "gateway-tools.json")
+          : undefined;
+        const lowerPriority = yield* providerProcessPriorityEnabled;
+
+        const prepared = yield* Effect.tryPromise({
+          try: async () => {
+            const extension = await extensionFile();
+            if (gatewayToolsFile) await writeMossPiGatewayToolsFile(gatewayToolsFile, gatewayTools);
+            const { env, managed, sessionDir } = buildPiEnvironment(launch, {
+              ...(bridgeNonce ? { [MOSS_PI_BRIDGE_ENV_KEY]: bridgeNonce } : {}),
+              ...(gatewayToolsFile
+                ? { [MOSS_PI_GATEWAY_TOOLS_FILE_ENV_KEY]: gatewayToolsFile }
+                : {}),
+            });
+            const sessionArgs = sessionFile
+              ? ["--session", sessionFile]
+              : sessionDir
+                ? ["--session-dir", sessionDir]
+                : [];
+            return { env, managed, args: ["--mode", "rpc", "-e", extension, ...sessionArgs] };
+          },
+          catch: (cause) =>
+            startFailure(toMessage(cause, "Failed to prepare the Pi session."), cause),
+        }).pipe(
+          Effect.tapError(() =>
+            releaseLease.pipe(
+              Effect.andThen(Effect.promise(() => removeSessionFiles(gatewayToolsFile))),
+            ),
+          ),
+        );
+
+        const rpc = spawnPi({ launch, args: prepared.args, env: prepared.env, lowerPriority });
+        const now = new Date().toISOString();
+        const context: PiSessionContext = {
+          enableComputerControl: input.enableComputerControl === true,
+          gatewayCapabilityInput: captureAgentGatewayCapabilityInput(input),
+          ...(input.lifecycleGeneration !== undefined
+            ? { lifecycleGeneration: input.lifecycleGeneration }
+            : {}),
+          gatewayControlAvailable,
+          ...(gatewayControlAvailable && agentGatewaySessionLease && agentGatewayConnection
+            ? {
+                gatewaySessionLease: agentGatewaySessionLease,
+                gatewayConnection: agentGatewayConnection,
+              }
+            : {}),
+          gatewayToolNames: new Set(gatewayTools.map((tool) => tool.name)),
+          gatewayToolsFile,
+          bridgeNonce,
+          rpc,
+          managed: prepared.managed,
+          session: {
+            provider: PROVIDER,
+            ...(providerInstanceId !== undefined ? { providerInstanceId } : {}),
+            status: "ready",
+            runtimeMode: input.runtimeMode,
+            cwd,
+            threadId: input.threadId,
+            createdAt: now,
+            updatedAt: now,
+          },
+          sessionFile,
+          sessionId: undefined,
+          model: undefined,
+          thinkingLevel: undefined,
+          turns: [],
+          activeTurnId: undefined,
+          promptsInFlight: 0,
+          runActive: false,
+          pendingAbortTurnId: undefined,
+          completingTurn: undefined,
+          activeAssistantItemId: undefined,
+          activeReasoningItemId: undefined,
+          streamingMessageRole: undefined,
+          activeToolItems: new Map(),
+          pendingUserInputs: new Map(),
+          lastEntryId: undefined,
+          stopped: false,
+          lastKnownTokenUsage: undefined,
+          unsubscribe: undefined,
+        };
+        context.unsubscribe = rpc.onRecord((record) => handleRecord(context, record));
+
+        const startup = Effect.gen(function* () {
+          const state = yield* Effect.tryPromise({
+            try: () =>
+              rpc.request<PiRpcSessionState>(
+                { type: "get_state" },
+                { timeoutMs: PI_STARTUP_TIMEOUT_MS },
+              ),
+            catch: (cause) =>
+              startFailure(
+                toMessage(cause, "Pi did not start. Check that Pi runs from a terminal."),
+                cause,
+              ),
+          });
+          context.sessionFile = trimToUndefined(state?.sessionFile) ?? context.sessionFile;
+          context.sessionId = trimToUndefined(state?.sessionId);
+          context.model =
+            state?.model && isRecord(state.model) && typeof state.model.id === "string"
+              ? state.model
+              : undefined;
+          context.thinkingLevel = trimToUndefined(state?.thinkingLevel);
+          // Resumed history is not a new turn's first user message.
+          yield* Effect.promise(() => readNewEntries(context));
+          if (modelSelection) {
+            yield* applyPiModelSelection(context, {
+              model: modelSelection.model,
+              thinkingLevel: modelSelection.options?.thinkingLevel,
+            });
+          } else if (context.managed && context.model?.provider !== "moss") {
+            const models = yield* Effect.tryPromise({
+              try: () => listAvailableModels(rpc, true),
+              catch: (cause) =>
+                startFailure(toMessage(cause, "Pi could not list Moss models."), cause),
+            });
+            const first = piModelSlug(models[0]);
+            if (first) yield* applyPiModelSelection(context, { model: first });
+          }
+        });
+        yield* startup.pipe(
+          Effect.tapError(() =>
+            Effect.promise(async () => {
+              context.stopped = true;
+              context.unsubscribe?.();
+              await rpc.close({ graceMs: 0 }).catch(() => undefined);
+              await removeSessionFiles(gatewayToolsFile);
+            }).pipe(Effect.andThen(releaseLease)),
+          ),
+        );
+
+        sessions.set(input.threadId, context);
+        void rpc.exited.then((exit) => handleUnexpectedExit(context, exit));
+        context.session = makeSessionSnapshot(context);
+        offerRuntimeEvent({
+          ...makeEventBase(context),
+          type: "session.started",
+          payload: {
+            message: "Pi session started",
+            ...(context.sessionFile ? { resume: context.sessionFile } : {}),
+          },
+        } satisfies ProviderRuntimeEvent);
+        offerRuntimeEvent({
+          ...makeEventBase(context),
+          type: "thread.started",
+          payload: { providerThreadId: context.sessionId ?? sessionKey },
+        } satisfies ProviderRuntimeEvent);
+        const stats = yield* Effect.promise(() => readSessionStats(context));
+        const initialUsage = stats
+          ? normalizePiTokenUsage(stats, context.model?.contextWindow)
+          : undefined;
+        context.lastKnownTokenUsage = initialUsage;
+        if (initialUsage) {
+          offerRuntimeEvent({
+            ...makeEventBase(context),
+            type: "thread.token-usage.updated",
+            payload: { usage: initialUsage },
+          } satisfies ProviderRuntimeEvent);
+        }
+        return context.session;
+      });
+
+    const startSession: PiAdapterShape["startSession"] = (input) =>
+      dispatchLock.withLock(
+        input.threadId,
+        startSessionUnlocked(input, resolvePiStartInstanceId(input)),
+      );
+
+    // ── Turns ─────────────────────────────────────────────────────
 
     const sendTurn: PiAdapterShape["sendTurn"] = (input) =>
       dispatchLock.withLock(
         input.threadId,
         Effect.gen(function* () {
           const context = yield* requireSession(input.threadId);
-          // Snapshot the session's computer-control fact for the turn being
-          // dispatched. Credential rotation at completion consumes this stashed
-          // value, not the start snapshot and not a fresh derivation. Turns
-          // carry no per-turn override; the session fact is the only source.
+          // Snapshot the session's computer-control fact for the turn being dispatched.
           context.gatewayCapabilityInput = captureAgentGatewayCapabilityInput({
             enableComputerControl: context.enableComputerControl === true,
           });
@@ -3754,11 +2145,15 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             context.pendingAbortTurnId !== undefined &&
             context.pendingAbortTurnId === context.activeTurnId
           ) {
-            return yield* sendTurnBusyError();
+            return yield* busyError("sendTurn");
           }
-          yield* awaitPromptCommit(context);
+          yield* awaitTurnBookkeeping(context);
           if (input.modelSelection?.provider === "pi") {
-            yield* applyPiModelSelection(context, input.modelSelection);
+            const selection: PiModelSelection = input.modelSelection;
+            yield* applyPiModelSelection(context, {
+              model: selection.model,
+              thinkingLevel: selection.options?.thinkingLevel,
+            });
           }
           const payload = yield* buildPromptPayload(input);
           if (context.stopped) {
@@ -3767,31 +2162,28 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               threadId: input.threadId,
             });
           }
-          closeSettledActiveTurn(context);
+          const isReload = payload.images.length === 0 && isPiReloadCommand(payload.text);
           const liveTurnId = context.activeTurnId;
           if (liveTurnId !== undefined) {
-            // A turn is active: route the send through the SDK's follow-up
-            // queue instead of prompt(), which would throw the raw "Agent is
-            // already processing" error mid-run.
-            if (context.pendingAbortTurnId === liveTurnId || isPiReloadPayload(payload)) {
-              return yield* sendTurnBusyError();
+            // A turn is active: queue the message into its run as a follow-up.
+            if (context.pendingAbortTurnId === liveTurnId || isReload) {
+              return yield* busyError("sendTurn");
             }
-            yield* queuePiFollowUp(context, payload);
+            sendPiPrompt(
+              context,
+              liveTurnId,
+              buildProviderText(context, payload.text),
+              payload.images,
+              "followUp",
+            );
             return dispatchResult(context, liveTurnId);
           }
-          if (context.runtime.session.isStreaming) {
-            // A run Moss did not dispatch is active (e.g. extension-triggered).
-            return yield* sendTurnBusyError();
-          }
-          const turnId = TurnId.makeUnsafe(crypto.randomUUID());
-          context.activeTurnId = turnId;
-          context.turns.push({ id: turnId, items: [], toolItemIndexes: new Map() });
-          context.session = makeSessionSnapshot(context);
-          if (isPiReloadPayload(payload)) {
-            yield* runPiReload(context, payload.text);
+          const turnId = beginTurn(context);
+          if (isReload) {
+            yield* runPiReload(context, turnId, payload.text);
             return dispatchResult(context, turnId);
           }
-          startPrompt(context, turnId, buildProviderText(context, payload.text), payload.images);
+          sendPiPrompt(context, turnId, buildProviderText(context, payload.text), payload.images);
           return dispatchResult(context, turnId);
         }),
       );
@@ -3801,8 +2193,6 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         input.threadId,
         Effect.gen(function* () {
           const context = yield* requireSession(input.threadId);
-          // Same dispatch-time snapshot as sendTurn, so a steered fresh turn
-          // rotates from current facts.
           context.gatewayCapabilityInput = captureAgentGatewayCapabilityInput({
             enableComputerControl: context.enableComputerControl === true,
           });
@@ -3810,13 +2200,9 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             context.pendingAbortTurnId !== undefined &&
             context.pendingAbortTurnId === context.activeTurnId
           ) {
-            return yield* new ProviderAdapterValidationError({
-              provider: PROVIDER,
-              operation: "steerTurn",
-              issue: "A Pi turn is already active for this thread.",
-            });
+            return yield* busyError("steerTurn");
           }
-          yield* awaitPromptCommit(context);
+          yield* awaitTurnBookkeeping(context);
           const payload = yield* buildPromptPayload(input);
           if (context.stopped) {
             return yield* new ProviderAdapterSessionClosedError({
@@ -3824,39 +2210,14 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               threadId: input.threadId,
             });
           }
-          closeSettledActiveTurn(context);
-          if (
-            context.pendingAbortTurnId !== undefined &&
-            context.pendingAbortTurnId === context.activeTurnId
-          ) {
-            return yield* new ProviderAdapterValidationError({
-              provider: PROVIDER,
-              operation: "steerTurn",
-              issue: "A Pi turn is already active for this thread.",
-            });
-          }
-          const joinedTurnId = context.activeTurnId;
-          if (joinedTurnId === undefined && context.runtime.session.isStreaming) {
-            return yield* new ProviderAdapterValidationError({
-              provider: PROVIDER,
-              operation: "steerTurn",
-              issue: "A Pi turn is already active for this thread.",
-            });
-          }
           const providerText = buildProviderText(context, payload.text);
-          const turnId = joinedTurnId ?? TurnId.makeUnsafe(crypto.randomUUID());
-          if (joinedTurnId === undefined) {
-            context.activeTurnId = turnId;
-            context.turns.push({ id: turnId, items: [], toolItemIndexes: new Map() });
+          const joinedTurnId = context.activeTurnId;
+          if (joinedTurnId !== undefined) {
+            sendPiPrompt(context, joinedTurnId, providerText, payload.images, "steer");
+            return dispatchResult(context, joinedTurnId);
           }
-          if (
-            joinedTurnId !== undefined &&
-            (context.runtime.session.isStreaming || context.promptCommitting === joinedTurnId)
-          ) {
-            yield* steerPiTurn(context, providerText, payload.images);
-          } else {
-            startPrompt(context, turnId, providerText, payload.images);
-          }
+          const turnId = beginTurn(context);
+          sendPiPrompt(context, turnId, providerText, payload.images);
           return dispatchResult(context, turnId);
         }),
       );
@@ -3873,11 +2234,16 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           return;
         }
         const activeTurnId = turnId ?? context.activeTurnId;
+        // Before Pi commits the run there is nothing for abort to reach: defer it to the
+        // prompt's acceptance, and abort now anyway in case preflight is compacting.
+        if (activeTurnId !== undefined && !context.runActive && context.promptsInFlight > 0) {
+          context.pendingAbortTurnId = activeTurnId;
+        }
         yield* withAgentGatewayTurnCancellation(
           context.gatewaySessionLease,
           activeTurnId,
           Effect.tryPromise({
-            try: () => interruptActiveTurn(context),
+            try: () => abortPiRun(context),
             catch: (cause) =>
               new ProviderAdapterRequestError({
                 provider: PROVIDER,
@@ -3889,15 +2255,6 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         );
       });
 
-    const respondUnsupported = (threadId: ThreadId, method: string) =>
-      Effect.fail(
-        new ProviderAdapterRequestError({
-          provider: PROVIDER,
-          method,
-          detail: `Pi does not expose Moss approval/user-input requests for thread ${threadId}.`,
-        }),
-      );
-
     const respondToUserInput: PiAdapterShape["respondToUserInput"] = (
       threadId,
       requestId,
@@ -3905,13 +2262,15 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     ) =>
       Effect.gen(function* () {
         const context = yield* requireSession(threadId);
-        if (!resolvePiExtensionUserInput(context, requestId, answers)) {
+        const pending = context.pendingUserInputs.get(requestId);
+        if (!pending) {
           return yield* new ProviderAdapterRequestError({
             provider: PROVIDER,
             method: "user-input/respond",
             detail: `Unknown pending Pi user-input request: ${requestId}`,
           });
         }
+        pending.resolve(answers);
       });
 
     const stopSession: PiAdapterShape["stopSession"] = (threadId) =>
@@ -3930,9 +2289,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
                 cause,
               }),
           });
-          if (sessions.get(threadId) === context) {
-            sessions.delete(threadId);
-          }
+          if (sessions.get(threadId) === context) sessions.delete(threadId);
           offerRuntimeEvent({
             ...makeEventBase(context),
             type: "thread.state.changed",
@@ -3952,62 +2309,83 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     const hasSession: PiAdapterShape["hasSession"] = (threadId) =>
       Effect.sync(() => sessions.has(threadId));
 
-    const snapshotThread = (context: PiSessionContext): ProviderThreadSnapshot => {
-      const historyItems = mapMessageHistory(context.runtime.session);
-      const activeTurn = context.activeTurnId
-        ? context.turns.find((turn) => turn.id === context.activeTurnId)
-        : undefined;
-      const turns = [
-        ...(historyItems.length > 0
-          ? [
-              {
-                id: TurnId.makeUnsafe(`pi-history-${context.runtime.session.sessionId}`),
-                items: historyItems,
-              },
-            ]
-          : []),
-        ...(activeTurn ? [{ id: activeTurn.id, items: [...activeTurn.items] }] : []),
-      ];
-      return {
-        threadId: context.session.threadId,
-        ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
-        turns:
-          turns.length > 0
-            ? turns
-            : context.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
-      };
-    };
+    const snapshotThread = (context: PiSessionContext) =>
+      Effect.gen(function* () {
+        const data = yield* piRequest<{ messages?: ReadonlyArray<unknown> }>(
+          context,
+          "thread/read",
+          { type: "get_messages" },
+        ).pipe(Effect.catch(() => Effect.succeed(undefined)));
+        const historyItems = mapPiMessageHistory(
+          Array.isArray(data?.messages) ? data.messages : [],
+        );
+        const activeTurn = context.activeTurnId
+          ? context.turns.find((turn) => turn.id === context.activeTurnId)
+          : undefined;
+        const turns = [
+          ...(historyItems.length > 0
+            ? [
+                {
+                  id: TurnId.makeUnsafe(
+                    `pi-history-${context.sessionId ?? context.session.threadId}`,
+                  ),
+                  items: historyItems,
+                },
+              ]
+            : []),
+          ...(activeTurn ? [{ id: activeTurn.id, items: [...activeTurn.items] }] : []),
+        ];
+        return {
+          threadId: context.session.threadId,
+          ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
+          turns:
+            turns.length > 0
+              ? turns
+              : context.turns.map((turn) => ({ id: turn.id, items: [...turn.items] })),
+        } satisfies ProviderThreadSnapshot;
+      });
 
     const readThread: PiAdapterShape["readThread"] = (threadId) =>
-      requireSession(threadId).pipe(Effect.map(snapshotThread));
+      requireSession(threadId).pipe(Effect.flatMap(snapshotThread));
 
     const rollbackThread: PiAdapterShape["rollbackThread"] = (threadId, numTurns) =>
-      Effect.gen(function* () {
-        const context = yield* requireSession(threadId);
-        const nextLength = Math.max(0, context.turns.length - Math.max(0, numTurns));
-        context.turns.splice(nextLength);
-        const leafId = context.turns.at(-1)?.leafId;
-        if (leafId) {
-          context.runtime.session.sessionManager.branch(leafId);
-        } else if (nextLength === 0) {
-          context.runtime.session.sessionManager.resetLeaf();
-        }
-        return snapshotThread(context);
-      });
+      dispatchLock.withLock(
+        threadId,
+        Effect.gen(function* () {
+          const context = yield* requireSession(threadId);
+          if (context.activeTurnId !== undefined) return yield* busyError("rollbackThread");
+          const nextLength = Math.max(0, context.turns.length - Math.max(0, numTurns));
+          if (nextLength < context.turns.length) {
+            const forkPoint = context.turns[nextLength]?.firstUserEntryId;
+            if (forkPoint) {
+              // A fork from the first removed turn's user message keeps everything before it.
+              yield* piRequest(context, "thread/rollback", { type: "fork", entryId: forkPoint });
+            } else if (nextLength === 0) {
+              yield* piRequest(context, "thread/rollback", { type: "new_session" });
+            }
+            const state = yield* piRequest<PiRpcSessionState>(context, "thread/rollback", {
+              type: "get_state",
+            });
+            context.sessionFile = trimToUndefined(state?.sessionFile) ?? context.sessionFile;
+            context.sessionId = trimToUndefined(state?.sessionId) ?? context.sessionId;
+            context.lastEntryId = undefined;
+            yield* Effect.promise(() => readNewEntries(context));
+          }
+          context.turns.splice(nextLength);
+          context.session = makeSessionSnapshot(context);
+          return yield* snapshotThread(context);
+        }),
+      );
 
     const compactThread: NonNullable<PiAdapterShape["compactThread"]> = (threadId) =>
       requireSession(threadId).pipe(
         Effect.flatMap((context) =>
-          Effect.tryPromise({
-            try: () => context.runtime.session.compact(),
-            catch: (cause) =>
-              new ProviderAdapterRequestError({
-                provider: PROVIDER,
-                method: "thread/compact",
-                detail: toMessage(cause, "Failed to compact Pi thread."),
-                cause,
-              }),
-          }),
+          piRequest(
+            context,
+            "thread/compact",
+            { type: "compact" },
+            { timeoutMs: PI_COMPACT_TIMEOUT_MS },
+          ),
         ),
         Effect.asVoid,
       );
@@ -4015,52 +2393,44 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     const stopAll: PiAdapterShape["stopAll"] = () =>
       settleConcurrentTeardowns(sessions.keys(), stopSession);
 
+    // ── Discovery ─────────────────────────────────────────────────
+
+    const discoveryLaunch = (input: {
+      readonly binaryPath?: string | undefined;
+      readonly agentDir?: string | undefined;
+      readonly environment?: Readonly<Record<string, string>> | undefined;
+      readonly instanceId?: string | undefined;
+      readonly cwd?: string | undefined;
+    }): PiLaunchInput => ({
+      binaryPath: input.binaryPath,
+      agentDir: input.agentDir,
+      environment: input.environment,
+      instanceId: input.instanceId,
+      cwd: trimToUndefined(input.cwd) ?? serverConfig.cwd,
+    });
+
     const listModels: NonNullable<PiAdapterShape["listModels"]> = (input) =>
       Effect.tryPromise({
-        try: (signal) =>
-          withPiDiscoveryReservation(input.environment, input.instanceId, async (noExtensions) => {
-            const piSdk = await loadPiCodingAgentModule();
-            const { agentDir } = makePiStoragePaths({
-              agentDir: input.agentDir,
-              environment: input.environment,
-              instanceId: input.instanceId,
-              stateDir: serverConfig.stateDir,
-              homeDir: serverConfig.homeDir,
-              sdkAgentDir: piSdk.getAgentDir(),
-            });
-            const cwd = trimToUndefined(input.cwd) ?? serverConfig.cwd;
-            const modelRuntime = await createPiModelRuntime(
-              agentDir,
-              piSdk,
-              signal,
-              input.environment,
-              input.instanceId,
-              { stateDir: serverConfig.stateDir, homeDir: serverConfig.homeDir },
-            );
-            const services = await piSdk.createAgentSessionServices({
-              cwd,
-              agentDir,
-              modelRuntime,
-              ...(noExtensions ? { resourceLoaderOptions: { noExtensions: true } } : {}),
-            });
-            await refreshPiOpenRouterModels(services.modelRuntime, {
-              environment: input.environment,
-              instanceId: input.instanceId,
-            });
-            const registry = modelRegistryFacade(services.modelRuntime, piSdk);
-            const extensionCount = services.resourceLoader.getExtensions().extensions.length;
-            const models = getPiDiscoverableModels(registry).flatMap((model) => {
-              const descriptor = toPiProviderModelDescriptor(
-                model,
-                registry.getProviderDisplayName.bind(registry),
-              );
+        try: () =>
+          withPiDiscoveryProcess(discoveryLaunch(input), async (rpc, managed, env) => {
+            const models = (await listAvailableModels(rpc, managed)).flatMap((model) => {
+              const descriptor = toPiProviderModelDescriptor(model);
               return descriptor ? [descriptor] : [];
             });
-
+            // Only a default the person chose in Pi's settings; the Moss lane has none.
+            const defaultModel = managed
+              ? undefined
+              : await readPiSettingsDefaultModel(piAgentDirOf(env));
+            // A models.json Pi could not read is the person's setup, not an empty catalog.
+            const loadError = models.length === 0 && rpc.stderrTail().trim().length > 0;
             return {
               models,
-              source: extensionCount > 0 ? "pi.sdk+extensions" : "pi.sdk",
+              ...(defaultModel && models.some((model) => model.slug === defaultModel)
+                ? { defaultModel }
+                : {}),
+              source: "pi.rpc",
               cached: false,
+              ...(loadError ? { error: "Pi could not read its model settings." } : {}),
             } satisfies ProviderListModelsResult;
           }),
         catch: (cause) =>
@@ -4072,69 +2442,59 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           }),
       });
 
+    /** `get_commands` on the thread's live Pi when it has one, else on a discovery process. */
+    const readPiCommands = async (input: {
+      readonly threadId?: string | undefined;
+      readonly forceReload?: boolean | undefined;
+      readonly launch: PiLaunchInput;
+    }): Promise<ReadonlyArray<PiRpcSlashCommand>> => {
+      const active = input.threadId ? sessions.get(ThreadId.makeUnsafe(input.threadId)) : undefined;
+      const read = async (rpc: PiRpcClient) => {
+        const data = await rpc.request<{ commands?: ReadonlyArray<unknown> }>({
+          type: "get_commands",
+        });
+        return (Array.isArray(data?.commands) ? data.commands : []).filter(
+          (command): command is PiRpcSlashCommand =>
+            isRecord(command) &&
+            typeof command.name === "string" &&
+            !MOSS_PI_INTERNAL_COMMANDS.has(command.name),
+        );
+      };
+      if (active && !active.stopped) {
+        if (input.forceReload && active.activeTurnId === undefined) {
+          await active.rpc.request({ type: "prompt", message: `/${MOSS_PI_RELOAD_COMMAND}` });
+        }
+        return read(active.rpc);
+      }
+      return withPiDiscoveryProcess(input.launch, (rpc) => read(rpc));
+    };
+
     const listSkills: NonNullable<PiAdapterShape["listSkills"]> = (input) =>
       Effect.tryPromise({
-        try: (signal) =>
-          withPiDiscoveryReservation(input.environment, input.instanceId, async (noExtensions) => {
-            const active = input.threadId
-              ? sessions.get(ThreadId.makeUnsafe(input.threadId))
-              : undefined;
-            const loader = active?.runtime.session.resourceLoader;
-            if (active && input.forceReload) {
-              await active.runtime.session.reload();
-            }
-            let services:
-              | Awaited<ReturnType<PiCodingAgentModule["createAgentSessionServices"]>>
-              | undefined;
-            if (!loader) {
-              const piSdk = await loadPiCodingAgentModule();
-              const { agentDir } = makePiStoragePaths({
-                agentDir: input.agentDir,
-                environment: input.environment,
-                instanceId: input.instanceId,
-                stateDir: serverConfig.stateDir,
-                homeDir: serverConfig.homeDir,
-                sdkAgentDir: piSdk.getAgentDir(),
-              });
-              const modelRuntime = await createPiModelRuntime(
-                agentDir,
-                piSdk,
-                signal,
-                input.environment,
-                input.instanceId,
-                { stateDir: serverConfig.stateDir, homeDir: serverConfig.homeDir },
-              );
-              services = await piSdk.createAgentSessionServices({
-                cwd: input.cwd,
-                agentDir,
-                modelRuntime,
-                ...(noExtensions ? { resourceLoaderOptions: { noExtensions: true } } : {}),
-              });
-            }
-            if (services && input.forceReload) {
-              await services.resourceLoader.reload();
-            }
-            const resourceLoader = loader ?? services?.resourceLoader;
-            if (!resourceLoader) {
-              throw new Error("Failed to create Pi resource loader.");
-            }
-            const result = resourceLoader.getSkills();
-            return {
-              skills: result.skills.map((skill) => {
-                const description = trimToUndefined(skill.description);
-                const scope = trimToUndefined(skill.sourceInfo.source);
+        try: async () => {
+          const commands = await readPiCommands({
+            threadId: input.threadId,
+            forceReload: input.forceReload,
+            launch: discoveryLaunch(input),
+          });
+          return {
+            skills: commands
+              .filter((command) => command.source === "skill")
+              .map((command) => {
+                const description = trimToUndefined(command.description);
+                const scope = trimToUndefined(command.sourceInfo?.source);
                 return {
-                  name: skill.name,
+                  name: command.name.replace(/^skill:/u, ""),
                   ...(description ? { description } : {}),
-                  path: skill.filePath,
-                  enabled: !skill.disableModelInvocation,
+                  path: trimToUndefined(command.sourceInfo?.path) ?? command.name,
+                  enabled: true,
                   ...(scope ? { scope } : {}),
                 };
               }),
-              source: "pi.sdk",
-              cached: false,
-            } satisfies ProviderListSkillsResult;
-          }),
+            source: "pi.rpc",
+            cached: false,
+          } satisfies ProviderListSkillsResult;
+        },
         catch: (cause) =>
           new ProviderAdapterRequestError({
             provider: PROVIDER,
@@ -4146,85 +2506,33 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
 
     const listCommands: NonNullable<PiAdapterShape["listCommands"]> = (input) =>
       Effect.tryPromise({
-        try: (signal) =>
-          withPiDiscoveryReservation(input.environment, input.instanceId, async (noExtensions) => {
-            const active = input.threadId
-              ? sessions.get(ThreadId.makeUnsafe(input.threadId))
-              : undefined;
-            const session = active?.runtime.session;
-            const reloadCommand = {
-              name: "reload",
-              description: "Reload Pi extensions, skills, prompts, themes, tools, and settings",
-            };
-            if (session) {
-              if (input.forceReload) {
-                await session.reload();
-              }
-              const extensionCommands = session.extensionRunner
-                .getRegisteredCommands()
-                .map((command) => ({
-                  name: command.invocationName,
-                  description: trimToUndefined(command.description) ?? "Extension command",
-                }));
-              const promptCommands = session.promptTemplates.map((template) => ({
-                name: template.name,
-                description: trimToUndefined(template.description) ?? "Prompt template",
-              }));
-              const skillCommands = session.resourceLoader.getSkills().skills.map((skill) => ({
-                name: `skill:${skill.name}`,
-                description: trimToUndefined(skill.description) ?? "Skill",
-              }));
-              return {
-                commands: [
-                  reloadCommand,
-                  ...extensionCommands,
-                  ...promptCommands,
-                  ...skillCommands,
-                ],
-                source: "pi.sdk",
-                cached: false,
-              } satisfies ProviderListCommandsResult;
-            }
-            const piSdk = await loadPiCodingAgentModule();
-            const { agentDir } = makePiStoragePaths({
-              agentDir: input.agentDir,
-              environment: input.environment,
-              instanceId: input.instanceId,
-              stateDir: serverConfig.stateDir,
-              homeDir: serverConfig.homeDir,
-              sdkAgentDir: piSdk.getAgentDir(),
-            });
-            const modelRuntime = await createPiModelRuntime(
-              agentDir,
-              piSdk,
-              signal,
-              input.environment,
-              input.instanceId,
-              { stateDir: serverConfig.stateDir, homeDir: serverConfig.homeDir },
-            );
-            const services = await piSdk.createAgentSessionServices({
-              cwd: input.cwd,
-              agentDir,
-              modelRuntime,
-              ...(noExtensions ? { resourceLoaderOptions: { noExtensions: true } } : {}),
-            });
-            if (input.forceReload) {
-              await services.resourceLoader.reload();
-            }
-            const promptCommands = services.resourceLoader.getPrompts().prompts.map((template) => ({
-              name: template.name,
-              description: trimToUndefined(template.description) ?? "Prompt template",
-            }));
-            const skillCommands = services.resourceLoader.getSkills().skills.map((skill) => ({
-              name: `skill:${skill.name}`,
-              description: trimToUndefined(skill.description) ?? "Skill",
-            }));
-            return {
-              commands: [reloadCommand, ...promptCommands, ...skillCommands],
-              source: "pi.sdk",
-              cached: false,
-            } satisfies ProviderListCommandsResult;
-          }),
+        try: async () => {
+          const commands = await readPiCommands({
+            threadId: input.threadId,
+            forceReload: input.forceReload,
+            launch: discoveryLaunch(input),
+          });
+          const fallback: Record<PiRpcSlashCommand["source"], string> = {
+            extension: "Extension command",
+            prompt: "Prompt template",
+            skill: "Skill",
+          };
+          return {
+            commands: [
+              {
+                name: "reload",
+                description: "Reload Pi extensions, skills, prompts, themes, tools, and settings",
+              },
+              ...commands.map((command) => ({
+                name: command.name,
+                description:
+                  trimToUndefined(command.description) ?? fallback[command.source] ?? "Command",
+              })),
+            ],
+            source: "pi.rpc",
+            cached: false,
+          } satisfies ProviderListCommandsResult;
+        },
         catch: (cause) =>
           new ProviderAdapterRequestError({
             provider: PROVIDER,
@@ -4248,7 +2556,8 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       } satisfies ProviderComposerCapabilities);
 
     yield* Effect.addFinalizer(() =>
-      stopAll().pipe(
+      closeDiscoveryProcesses.pipe(
+        Effect.andThen(stopAll()),
         Effect.orDie,
         Effect.andThen(runtimeEventIngress.stop),
         Effect.ensuring(
@@ -4276,7 +2585,14 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       sendTurn,
       steerTurn,
       interruptTurn,
-      respondToRequest: (threadId) => respondUnsupported(threadId, "request/respond"),
+      respondToRequest: (threadId) =>
+        Effect.fail(
+          new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "request/respond",
+            detail: `Pi does not expose Moss approval requests for thread ${threadId}.`,
+          }),
+        ),
       respondToUserInput,
       stopSession,
       listSessions,

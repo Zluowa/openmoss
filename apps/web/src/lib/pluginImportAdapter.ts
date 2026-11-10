@@ -3,7 +3,7 @@
 //          filesystem/resource APIs into a safe import + rollback workflow.
 // Layer: Web lib (pure parsing plus a native adapter)
 
-import type { MossResourceImportApplyResult, ProjectReadFileResult } from "@synara/contracts";
+import type { MossResourceImportApplyResult, ProjectReadFileResult } from "@moss/contracts";
 
 import { ensureNativeApi } from "~/nativeApi";
 import { requireDurableMossResourceImportReceipt } from "./mossResourceImportReceiptAdapter";

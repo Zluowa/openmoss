@@ -11,15 +11,14 @@ import {
   type ProviderKind,
   type ServerProviderStatus,
   type ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { isBetaFeatureOn, VISIBLE_PROVIDER_DESCRIPTORS } from "../../betaFeatures";
 import {
   normalizeProviderCliAlias,
   providerCliCommandName,
-} from "@synara/shared/providerCliProfiles";
-import { MOSS_CN_NPM_MIRROR_REGISTRY } from "@synara/shared/mossRealmCatalog";
-import { providerImportedDirectoryConfig } from "@synara/shared/providerInstances";
-import { pluralize } from "@synara/shared/text";
+} from "@moss/shared/providerCliProfiles";
+import { MOSS_CN_NPM_MIRROR_REGISTRY } from "@moss/shared/mossRealmCatalog";
+import { providerImportedDirectoryConfig } from "@moss/shared/providerInstances";
 import {
   closestCenter,
   DndContext,
@@ -59,6 +58,7 @@ import {
   type AppSettings,
   type AppSettingsBinding,
   type ManageableProviderInstance,
+  type NewChatModelSource,
   type ProviderInstanceOption,
   type ProviderInstancePatch,
 } from "~/appSettings";
@@ -93,17 +93,31 @@ import {
 } from "~/lib/serverReactQuery";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
-import { isProviderKind, sameProviderOrder } from "~/providerOrdering";
+import {
+  isProviderKind,
+  isLocalProviderInstalled,
+  prioritizeInstalledProviders,
+  sameProviderOrder,
+} from "~/providerOrdering";
 import {
   getVisibleProviderUpdateStatuses,
+  installedProgramStatus,
+  installedVersionLabel,
   isProviderLatestVersionKnowable,
   isProviderUpdateActive,
+  providerVersionCheckSummary,
   shouldOfferProviderUpdateAction,
   shouldPromptProviderUpdate,
   shouldShowProviderUpdateStatus,
   withProviderUpdateTimeout,
 } from "~/providerUpdates";
-import { providerStatusInstanceKey } from "~/lib/providerAvailability";
+import { agentSettingsAnchorId } from "~/lib/agentInstall";
+import { supportsAgentSignIn } from "~/lib/agentSignIn";
+import { providerStatusInstanceKey, resolveAgentReadiness } from "~/lib/providerAvailability";
+import {
+  PROVIDER_READINESS_LABEL_KEY,
+  providerReadinessDescriptionKey,
+} from "~/lib/providerReadinessCopy";
 import { SETTINGS_TARGETS } from "~/settingsNavigation";
 import {
   SETTINGS_INSET_LIST_CLASS_NAME,
@@ -127,11 +141,16 @@ import {
   type AddProviderAccountConfigField,
   type AddProviderAccountInput,
 } from "./AddProviderAccountDialog";
+import { AgentInstallButton } from "./AgentInstallButton";
+import { AgentSignInButton } from "./AgentSignInButton";
+import { ProviderInstallationDialog } from "./ProviderInstallationDialog";
 import { DebouncedSettingTextInput } from "./DebouncedSettingTextInput";
 import { ProviderAccentColorControl } from "./ProviderAccentColorControl";
 import { ProviderInstanceEnvironmentEditor } from "./ProviderInstanceEnvironmentEditor";
 import {
   SettingResetButton,
+  SettingsSegmentedControl,
+  type SettingsSegmentedOption,
   SettingsSelectControl,
   useSettingsRestoreSignal,
 } from "./SettingControls";
@@ -140,6 +159,7 @@ import { SettingsListRow, SettingsRow, SettingsSection } from "./SettingsPanelPr
 type ProviderInstallTextKey =
   | "claudeBinaryPath"
   | "claudeHomePath"
+  | "claudeSharedProjectsPath"
   | "codexBinaryPath"
   | "codexHomePath"
   | "cursorBinaryPath"
@@ -159,11 +179,16 @@ type ProviderInstallTextKey =
   | "zcodeBinaryPath";
 type ProviderInstallPasswordKey = "openCodeServerPassword";
 type ProviderInstallPasswordConfiguredKey = "openCodeServerPasswordConfigured";
-type ProviderInstallBooleanKey = "claudeEnableArtifacts" | "openCodeExperimentalWebSockets";
+type ProviderInstallBooleanKey =
+  | "claudeEnableArtifacts"
+  | "claudeShareStateAcrossAccounts"
+  | "codexShareStateAcrossAccounts"
+  | "openCodeExperimentalWebSockets";
 
 type ProviderInstallTextField = {
   readonly kind: "text";
   readonly settingsKey: ProviderInstallTextKey;
+  readonly folder?: true;
   readonly label: string;
   readonly placeholder: string;
   readonly description: ReactNode;
@@ -221,16 +246,26 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         placeholder: "Codex binary path",
         description: (
           <>
-            Leave blank to use <code>codex</code> from your PATH.
+            Moss uses the selected program, then the installed CLI, then its bundled copy. Program
+            changes take effect after restarting Moss.
           </>
         ),
       },
       {
         kind: "text",
         settingsKey: "codexHomePath",
+        folder: true,
         label: "CODEX_HOME path",
         placeholder: "CODEX_HOME",
-        description: "Optional custom Codex home and config directory.",
+        description:
+          "Codex home directory. When history sharing is enabled, this is the shared history source; each account needs a separate private config and sign-in directory.",
+      },
+      {
+        kind: "boolean",
+        settingsKey: "codexShareStateAcrossAccounts",
+        label: "Share Codex history across accounts",
+        description:
+          "New chats use the selected history source with private account credentials and configuration. Existing chats keep their original history source. No history is moved or merged.",
       },
     ],
   },
@@ -249,16 +284,34 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         placeholder: "Claude binary path",
         description: (
           <>
-            Leave blank to use <code>claude</code> from your PATH.
+            Moss uses the selected program, then the installed CLI, then its bundled copy. Program
+            changes take effect after restarting Moss.
           </>
         ),
       },
       {
         kind: "text",
         settingsKey: "claudeHomePath",
+        folder: true,
         label: "Claude HOME path",
         placeholder: "Claude HOME",
         description: "Optional HOME directory for this Claude account.",
+      },
+      {
+        kind: "text",
+        settingsKey: "claudeSharedProjectsPath",
+        label: "Shared Claude projects directory",
+        placeholder: "Absolute projects directory",
+        folder: true,
+        description:
+          "Choose the existing projects directory to share. Each account needs an explicit, separate private HOME and config directory.",
+      },
+      {
+        kind: "boolean",
+        settingsKey: "claudeShareStateAcrossAccounts",
+        label: "Share Claude history across accounts",
+        description:
+          "New chats use this projects directory. Existing chats keep their original source. A newly shared Moss account starts with fresh user settings, home plugins and caches; workspace configuration still applies.",
       },
       {
         kind: "boolean",
@@ -674,6 +727,11 @@ export function createProviderInstallResetPatch(defaults: AppSettings): Partial<
   };
 }
 
+const NEW_CHAT_MODEL_SOURCE_OPTIONS: ReadonlyArray<SettingsSegmentedOption<NewChatModelSource>> = [
+  { value: "moss", label: "Moss" },
+  { value: "own", label: "Local account" },
+];
+
 function setProviderListMembership(
   current: ReadonlyArray<ProviderKind>,
   provider: ProviderKind,
@@ -811,7 +869,16 @@ function ProviderInstallCommandCard({ install }: { install: ProviderInstallComma
   );
 }
 
+async function openProviderGuide(url: string, failureTitle: string) {
+  try {
+    await ensureNativeApi().shell.openExternal(url);
+  } catch {
+    toastManager.add({ type: "error", title: failureTitle });
+  }
+}
+
 function ProviderDocsLinks({ docs }: { docs: ProviderInstallSettings["docs"] }) {
+  const { t } = useTranslation();
   return (
     <div className={cn(SETTINGS_OUTLINED_SURFACE_CLASS_NAME, "px-3 py-2.5")}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -822,7 +889,9 @@ function ProviderDocsLinks({ docs }: { docs: ProviderInstallSettings["docs"] }) 
               key={`${doc.label}:${doc.href}`}
               variant="outline"
               size="sm"
-              render={<a href={doc.href} target="_blank" rel="noreferrer" />}
+              onClick={() =>
+                void openProviderGuide(doc.href, t("settings.providers.setupGuideFailed"))
+              }
             >
               <span>{doc.label}</span>
               <ExternalLinkIcon className="size-3" />
@@ -853,8 +922,7 @@ function providerUpdateStatusLabel(provider: ServerProviderStatus): string | nul
     const latestVersion = formatProviderVersion(advisory.latestVersion);
     return currentVersion ? `${currentVersion} -> ${latestVersion}` : `Latest ${latestVersion}`;
   }
-  const currentVersion = formatProviderVersion(provider.version);
-  return currentVersion ? `Current ${currentVersion}` : null;
+  return installedVersionLabel(provider, true);
 }
 
 function providerUpdateFailureMessage(provider: ServerProviderStatus | undefined): string | null {
@@ -900,6 +968,31 @@ function ProviderUpdateAction(props: {
   );
 }
 
+function AccountFolderButton({ onSelect }: { onSelect: (directory: string) => void }) {
+  const { t } = useTranslation();
+  const desktop = typeof window !== "undefined" && Boolean(window.desktopBridge);
+  return (
+    <Button
+      type="button"
+      size="xs"
+      variant="outline"
+      disabled={!desktop}
+      title={desktop ? undefined : "Directory selection is available in the Moss desktop app."}
+      onClick={async () => {
+        try {
+          const directory = await ensureNativeApi().dialogs.pickFolder();
+          if (directory) onSelect(directory);
+        } catch {
+          toastManager.add({ type: "error", title: t("folderPicker.openFailed") });
+        }
+      }}
+    >
+      <FolderOpenIcon className="size-4" />
+      Choose folder
+    </Button>
+  );
+}
+
 function ProviderInstallFieldControl(props: {
   field: ProviderInstallField;
   settings: AppSettings;
@@ -935,32 +1028,39 @@ function ProviderInstallFieldControl(props: {
     props.field.kind === "password" ? props.settings[props.field.configuredKey] : false;
   const isPassword = props.field.kind === "password";
   return (
-    <label htmlFor={id} className="block">
-      <span className="block text-ui leading-snug font-medium text-foreground">
+    <div className="block">
+      <label htmlFor={id} className="block text-ui leading-snug font-medium text-foreground">
         {props.field.label}
-      </span>
-      <DebouncedSettingTextInput
-        id={id}
-        size="sm"
-        variant="soft"
-        className="mt-1"
-        value={isPassword ? "" : props.settings[props.field.settingsKey]}
-        onCommit={(nextValue) =>
-          props.updateSettings({ [props.field.settingsKey]: nextValue } as Partial<AppSettings>)
-        }
-        placeholder={
-          isPassword && configured
-            ? "Configured — enter a replacement or leave blank"
-            : props.field.placeholder
-        }
-        type={isPassword ? "password" : undefined}
-        autoComplete={isPassword ? "new-password" : undefined}
-        spellCheck={false}
-      />
+      </label>
+      <div className="mt-1 flex items-center gap-2">
+        <DebouncedSettingTextInput
+          id={id}
+          size="sm"
+          variant="soft"
+          className="min-w-0 flex-1"
+          value={isPassword ? "" : props.settings[props.field.settingsKey]}
+          onCommit={(nextValue) =>
+            props.updateSettings({ [props.field.settingsKey]: nextValue } as Partial<AppSettings>)
+          }
+          placeholder={
+            isPassword && configured
+              ? "Configured — enter a replacement or leave blank"
+              : props.field.placeholder
+          }
+          type={isPassword ? "password" : undefined}
+          autoComplete={isPassword ? "new-password" : undefined}
+          spellCheck={false}
+        />
+        {props.field.kind === "text" && props.field.folder ? (
+          <AccountFolderButton
+            onSelect={(directory) => props.updateSettings({ [props.field.settingsKey]: directory })}
+          />
+        ) : null}
+      </div>
       <span className="mt-1 block text-ui leading-snug text-muted-foreground">
         {props.field.description}
       </span>
-    </label>
+    </div>
   );
 }
 
@@ -1017,9 +1117,11 @@ function providerInstanceConfigKey(field: ProviderInstallField): string | null {
       return "serverPassword";
     case "openCodeExperimentalWebSockets":
       return "experimentalWebSockets";
-    // Every Claude account's sessions read Artifacts from the Claude provider setting,
-    // never from an account's config, so the switch lives on the default account only.
+    // These settings are provider-wide; new account configs must not inherit them.
     case "claudeEnableArtifacts":
+    case "claudeShareStateAcrossAccounts":
+    case "claudeSharedProjectsPath":
+    case "codexShareStateAcrossAccounts":
       return null;
     case "piAgentDir":
     case "ompAgentDir":
@@ -1121,6 +1223,7 @@ function ProviderAccountsControl(props: {
   updateSettings: (patch: Partial<AppSettings>) => void;
   updateSettingsAndWait: (patch: Partial<AppSettings>) => Promise<void>;
 }) {
+  const { t } = useTranslation();
   const provider = props.config.provider;
   const providerLabel = PROVIDER_DISPLAY_NAMES[provider];
   const usageQuery = useQuery(
@@ -1232,7 +1335,13 @@ function ProviderAccountsControl(props: {
     return `${prefix}_${index}`;
   };
   const importInstance = async () => {
-    const selectedDirectory = await ensureNativeApi().dialogs.pickFolder();
+    let selectedDirectory: string | null;
+    try {
+      selectedDirectory = await ensureNativeApi().dialogs.pickFolder();
+    } catch {
+      toastManager.add({ type: "error", title: t("folderPicker.openFailed") });
+      return;
+    }
     if (!selectedDirectory) return;
     // Derived accounts share this namespace with explicit entries. Reusing a
     // derived id would mutate that account instead of creating a new one.
@@ -1367,6 +1476,38 @@ function ProviderAccountsControl(props: {
     );
   };
 
+  const renderCodexPrivateHome = (id: string, config: unknown, legacyAccount: string | null) => {
+    const inputId = `provider-instance-${id}-shadow-home`;
+    const save = (shadowHomePath: string) =>
+      updateInstance(id, { config: { shadowHomePath } }, legacyAccount);
+    return (
+      <div>
+        <label htmlFor={inputId} className="block text-ui-sm font-medium text-foreground">
+          {props.settings.codexShareStateAcrossAccounts
+            ? "Private config and sign-in directory"
+            : "Shadow auth home"}
+        </label>
+        <div className="mt-1 flex items-center gap-2">
+          <DebouncedSettingTextInput
+            id={inputId}
+            size="sm"
+            variant="soft"
+            className="min-w-0 flex-1"
+            value={readConfigString(config, "shadowHomePath")}
+            onCommit={save}
+            placeholder={
+              props.settings.codexShareStateAcrossAccounts
+                ? "Absolute private directory"
+                : "~/.codex_work"
+            }
+            spellCheck={false}
+          />
+          <AccountFolderButton onSelect={save} />
+        </div>
+      </div>
+    );
+  };
+
   const renderAccountRuntime = (entry: ManageableProviderInstance, cliCommand: string) => {
     const { instanceId, instance, legacyCodexAccountId } = entry;
     const cliAlias = readConfigString(instance.config, "cliAlias");
@@ -1396,23 +1537,9 @@ function ProviderAccountsControl(props: {
           {props.config.fields
             .filter((field) => !isAdvancedField(field))
             .map((field) => renderField(field, entry))}
-          {provider === "codex" ? (
-            <label className="block">
-              <span className="block text-ui-sm font-medium text-foreground">Shadow auth home</span>
-              <DebouncedSettingTextInput
-                id={`provider-instance-${instanceId}-shadow-home`}
-                size="sm"
-                variant="soft"
-                className="mt-1"
-                value={readConfigString(instance.config, "shadowHomePath")}
-                onCommit={(shadowHomePath) =>
-                  updateInstance(instanceId, { config: { shadowHomePath } }, legacyCodexAccountId)
-                }
-                placeholder="~/.codex_work"
-                spellCheck={false}
-              />
-            </label>
-          ) : null}
+          {provider === "codex"
+            ? renderCodexPrivateHome(instanceId, instance.config, legacyCodexAccountId)
+            : null}
           {provider === "claudeAgent" ? (
             <label className="block sm:col-span-2">
               <span className="block text-ui-sm font-medium text-foreground">
@@ -1432,13 +1559,17 @@ function ProviderAccountsControl(props: {
           ) : null}
           {isAccountProvider ? (
             <span className="block text-ui-sm text-muted-foreground sm:col-span-2">
-              {provider === "codex"
-                ? "Leave both paths blank and Moss keeps this account's sign-in in its " +
-                  "own folder. Set a shadow auth home to keep only the sign-in elsewhere " +
-                  "while sharing settings and history with the default account, or a " +
-                  "CODEX_HOME to keep everything separate."
-                : "Leave blank and Moss keeps this account's sign-in in its own folder. " +
-                  "Set a directory to use a Claude config folder you already signed in to."}
+              {provider === "codex" && props.settings.codexShareStateAcrossAccounts
+                ? "Use a separate private directory for this account. The shared history directory is selected on the default account."
+                : provider === "claudeAgent" && props.settings.claudeShareStateAcrossAccounts
+                  ? "Choose a private HOME for this account. The config directory defaults to .claude inside that HOME."
+                  : provider === "codex"
+                    ? "Leave both paths blank and Moss keeps this account's sign-in in its " +
+                      "own folder. Set a shadow auth home to keep only the sign-in elsewhere " +
+                      "while sharing settings and history with the default account, or a " +
+                      "CODEX_HOME to keep everything separate."
+                    : "Leave blank and Moss keeps this account's sign-in in its own folder. " +
+                      "Set a directory to use a Claude config folder you already signed in to."}
             </span>
           ) : null}
           {!isAccountProvider && provider !== "pi" && provider !== "omp" ? (
@@ -1677,6 +1808,9 @@ function ProviderAccountsControl(props: {
                   updateSettings={props.updateSettings}
                 />
               ))}
+              {provider === "codex" && props.settings.codexShareStateAcrossAccounts
+                ? renderCodexPrivateHome(instanceId, explicit?.config, null)
+                : null}
               {provider === "codex" && props.settings.codexAccounts.length > 0 ? (
                 <CodexDefaultAccountControl
                   settings={props.settings}
@@ -1714,8 +1848,10 @@ function ProviderAccountsControl(props: {
             {providerLabel} accounts
           </span>
           <span className="mt-1 block text-ui-sm text-muted-foreground">
-            Each account signs in on its own and gets its own tab in the model picker. A thread
-            stays on the account it started with.
+            {(provider === "codex" && props.settings.codexShareStateAcrossAccounts) ||
+            (provider === "claudeAgent" && props.settings.claudeShareStateAcrossAccounts)
+              ? "Each account signs in separately. Chats created with shared history keep their selected source when you switch accounts."
+              : "Each account signs in on its own and gets its own tab in the model picker. A thread stays on the account it started with."}
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -1912,12 +2048,9 @@ function ProviderToolRow(props: {
   const updateAdvisory = props.providerStatus?.versionAdvisory;
   const providerUpdateSuppressed =
     updateAdvisory?.status === "behind_latest" && !showProviderUpdateStatus;
-  const currentProviderVersion = formatProviderVersion(props.providerStatus?.version);
   const providerUpdateLabel = props.providerStatus
     ? !props.settings.enableProviderUpdateChecks
-      ? currentProviderVersion
-        ? `Current ${currentProviderVersion}`
-        : null
+      ? installedVersionLabel(props.providerStatus, false)
       : providerUpdateSuppressed
         ? null
         : providerUpdateStatusLabel(props.providerStatus)
@@ -2053,6 +2186,7 @@ export function ProvidersSettingsPanel({
   providerTarget = null,
   resetEpoch,
 }: ProvidersSettingsPanelProps) {
+  const { format, t } = useTranslation();
   const queryClient = useQueryClient();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const localProviderStatuses = useProviderStatusesForLocalConfig();
@@ -2073,6 +2207,14 @@ export function ProvidersSettingsPanel({
   const providerEnablementMutationInFlightRef = useRef(false);
   const [providerEnablementMutationPending, setProviderEnablementMutationPending] = useState(false);
   const [disabledProvidersOpen, setDisabledProvidersOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(Boolean(providerTarget));
+  const [installationProvider, setInstallationProvider] = useState<ProviderKind | null>(null);
+  const installedProviderRef = useRef(new Set<ProviderKind>());
+  for (const status of serverConfigQuery.data?.providers ?? []) {
+    const provider = status.driver ?? status.provider;
+    if (isProviderKind(provider) && isLocalProviderInstalled(status))
+      installedProviderRef.current.add(provider);
+  }
   const hiddenProviderSet = useMemo(
     () => new Set<ProviderKind>(settings.hiddenProviders),
     [settings.hiddenProviders],
@@ -2091,11 +2233,19 @@ export function ProvidersSettingsPanel({
   );
   const orderedProviderVisibilityOptions = useMemo(
     () =>
-      settings.providerOrder.flatMap((provider) => {
+      (sameProviderOrder(settings.providerOrder, defaults.providerOrder)
+        ? prioritizeInstalledProviders(settings.providerOrder, installedProviderRef.current)
+        : settings.providerOrder
+      ).flatMap((provider) => {
         const option = providerVisibilityOptionsByProvider.get(provider);
         return option ? [option] : [];
       }),
-    [providerVisibilityOptionsByProvider, settings.providerOrder],
+    [
+      providerVisibilityOptionsByProvider,
+      settings.providerOrder,
+      defaults.providerOrder,
+      serverConfigQuery.data?.providers,
+    ],
   );
   const providerVisibilitySensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -2164,7 +2314,16 @@ export function ProvidersSettingsPanel({
       settings.hiddenProviders,
     ],
   );
-  const outdatedProviderCount = outdatedProviderStatuses.length;
+  const versionCheckSummary = !settings.enableProviderUpdateChecks
+    ? "Automatic checks off"
+    : providerVersionCheckSummary({
+        providers: (serverConfigQuery.data?.providers ?? []).filter(
+          (s) => !disabledProviderSet.has((s.driver ?? s.provider) as ProviderKind),
+        ),
+        hiddenProviders: settings.hiddenProviders,
+        serverSettings: providerUpdateServerSettings,
+        outdatedCount: outdatedProviderStatuses.length,
+      });
   const installSettingsDirty = isProviderInstallSettingsDirty(settings, defaults);
 
   const updateProviderEnablement = useCallback(
@@ -2174,21 +2333,25 @@ export function ProvidersSettingsPanel({
       setProviderEnablementMutationPending(true);
       try {
         await updateSettingsAndWait({ disabledProviders });
+      } catch {
+        toastManager.add({ type: "error", title: t("settings.providers.activity.error") });
       } finally {
         providerEnablementMutationInFlightRef.current = false;
         setProviderEnablementMutationPending(false);
       }
     },
-    [updateSettingsAndWait],
+    [updateSettingsAndWait, t],
   );
 
   useSettingsRestoreSignal(resetEpoch, () => {
     setOpenInstallProviders(createClosedProviderInstallDisclosureState());
     setDisabledProvidersOpen(false);
+    setAdvancedOpen(false);
   });
 
   useEffect(() => {
     if (!active || !providerTarget) return;
+    setAdvancedOpen(true);
     if (disabledProviderSet.has(providerTarget)) {
       setDisabledProvidersOpen(true);
     } else {
@@ -2277,9 +2440,22 @@ export function ProvidersSettingsPanel({
   const renderProviderActivityRow = (option: (typeof PROVIDER_VISIBILITY_OPTIONS)[number]) => {
     const enabled = !disabledProviderSet.has(option.provider);
     const providerStatus = providerStatusByProvider.get(option.provider);
+    const readiness =
+      enabled && providerStatusesReconciled && providerStatus
+        ? resolveAgentReadiness(providerStatus)
+        : null;
+    // One plain line from the server's readiness, never the CLI's own diagnostic, and one
+    // action: 登录 runs the agent's sign-in in the browser, 安装 installs it in place.
+    const descriptionKey = readiness ? providerReadinessDescriptionKey(readiness) : null;
+    const canSignIn =
+      readiness?.state === "needsLogin" && supportsAgentSignIn(option.provider, providerStatus);
+    // Only what Moss cannot fix by itself keeps the agent's own help page.
+    const showGuide =
+      readiness?.state === "error" || (readiness?.state === "needsLogin" && !canSignIn);
     return (
       <SettingsListRow
         key={option.provider}
+        id={agentSettingsAnchorId(option.provider)}
         title={
           <span className="flex items-center gap-2">
             <ProviderIcon provider={option.provider} className="size-4 shrink-0" />
@@ -2287,35 +2463,70 @@ export function ProvidersSettingsPanel({
           </span>
         }
         description={
-          <>
-            <span className="block">
-              {providerSetupStatusLabel({
-                status: providerStatus,
-                reconciled: providerStatusesReconciled,
-                disabled: !enabled,
-              })}
-            </span>
-            {enabled &&
-            providerStatusesReconciled &&
-            providerStatus?.message &&
-            (providerStatus.status !== "ready" || providerStatus.authStatus !== "authenticated") ? (
-              <span className="mt-1 block">{providerStatus.message}</span>
-            ) : null}
-          </>
+          <span className="block" data-agent-readiness={readiness?.state ?? "unknown"}>
+            {readiness
+              ? descriptionKey
+                ? format(descriptionKey, { provider: option.title })
+                : t(PROVIDER_READINESS_LABEL_KEY[readiness.state])
+              : providerSetupStatusLabel({
+                  status: providerStatus,
+                  reconciled: providerStatusesReconciled,
+                  disabled: !enabled,
+                })}
+          </span>
         }
         actions={
           <>
-            <Button
-              variant="outline"
-              size="xs"
-              render={<a href={option.setupDocsHref} target="_blank" rel="noreferrer" />}
-              aria-label={`${option.title} setup guide`}
-            >
-              Setup guide
-              <ExternalLinkIcon className="size-3" />
-            </Button>
+            {installedProviderRef.current.has(option.provider) ? (
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={() => setInstallationProvider(option.provider)}
+                aria-label={format("settings.providers.installation.title", {
+                  provider: option.title,
+                })}
+              >
+                {t("settings.providers.installation.manage")}
+              </Button>
+            ) : null}
+            {readiness?.state === "notInstalled" ? (
+              <AgentInstallButton
+                provider={option.provider}
+                providerLabel={option.title}
+                readiness={readiness}
+                status={providerStatus}
+                fallbackUrl={option.setupDocsHref}
+              />
+            ) : null}
+            {canSignIn ? (
+              <AgentSignInButton
+                provider={option.provider}
+                providerLabel={option.title}
+                status={providerStatus}
+              />
+            ) : null}
+            {showGuide ? (
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() =>
+                  void openProviderGuide(
+                    option.setupDocsHref,
+                    t("settings.providers.setupGuideFailed"),
+                  )
+                }
+                aria-label={format("settings.providers.setupGuideAria", { provider: option.title })}
+              >
+                {t("settings.providers.setupGuide")}
+                <ExternalLinkIcon className="size-3" />
+              </Button>
+            ) : null}
             <Switch
               checked={enabled}
+              className={
+                providerEnablementMutationPending ? "data-disabled:cursor-progress" : undefined
+              }
+              aria-busy={providerEnablementMutationPending}
               disabled={!serverSettingsQuery.data || providerEnablementMutationPending}
               onCheckedChange={(checked) =>
                 void updateProviderEnablement(
@@ -2336,10 +2547,28 @@ export function ProvidersSettingsPanel({
 
   return (
     <div className="space-y-6">
+      {installationProvider ? (
+        <ProviderInstallationDialog
+          provider={installationProvider}
+          enabled={!disabledProviderSet.has(installationProvider)}
+          guideUrl={providerVisibilityOptionsByProvider.get(installationProvider)!.setupDocsHref}
+          onClose={() => setInstallationProvider(null)}
+          onDisable={() =>
+            updateProviderEnablement(
+              setProviderListMembership(settings.disabledProviders, installationProvider, true),
+            )
+          }
+          onChanged={async (result) => {
+            if (result.source === "missing")
+              installedProviderRef.current.delete(installationProvider);
+            await queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
+          }}
+        />
+      ) : null}
       <SettingsSection title="Provider activity">
         <SettingsRow
           title="Enabled providers"
-          description="Enable providers across Moss. Disabled providers are hidden from pickers and settings; their saved configuration and existing threads are kept, and running turns continue. Enabling does not install a CLI or sign it in."
+          description="Turn agents on or off across Moss. Agents you turn off are hidden from pickers; their settings and conversations are kept, and running turns continue."
           control={
             <Button
               variant="outline"
@@ -2405,234 +2634,262 @@ export function ProvidersSettingsPanel({
         </SettingsRow>
       </SettingsSection>
 
-      <SettingsSection title="Provider picker">
-        <SettingsRow
-          title="Available CLIs"
-          description="Show or hide installed providers in the picker and drag them into your preferred order. Hiding a provider here does not disable its server activity."
-          status={
-            serverConfigQuery.isPending || hasPendingProviderStatuses
-              ? "Checking installed CLIs"
-              : availableProviderCount === 0
-                ? "No CLIs detected"
-                : visibleAvailableProviderCount < availableProviderCount
-                  ? `${visibleAvailableProviderCount} of ${availableProviderCount} installed shown`
-                  : isProviderOrderDirty
-                    ? `${availableProviderCount} installed · custom order`
-                    : `${availableProviderCount} installed`
-          }
-          resetAction={
-            hiddenProviderCount > 0 || isProviderOrderDirty ? (
-              <SettingResetButton
-                label="provider picker"
-                onClick={() =>
-                  updateSettings({
-                    hiddenProviders: defaults.hiddenProviders,
-                    providerOrder: defaults.providerOrder,
-                  })
-                }
-              />
-            ) : null
-          }
-        >
-          <DndContext
-            sensors={providerVisibilitySensors}
-            collisionDetection={closestCenter}
-            modifiers={[restrictToVerticalAxis]}
-            onDragEnd={handleProviderOrderDragEnd}
-          >
-            <SortableContext
-              items={enabledProviderOptions.map((option) => option.provider)}
-              strategy={verticalListSortingStrategy}
-            >
-              <div className="mt-4 space-y-2">
-                {enabledProviderOptions.map((option) => (
-                  <SortableProviderVisibilityRow
-                    key={option.provider}
-                    option={option}
-                    providerStatus={providerStatusByProvider.get(option.provider)}
-                    statusReconciled={providerStatusesReconciled}
-                    isDisabled={disabledProviderSet.has(option.provider)}
-                    isHidden={hiddenProviderSet.has(option.provider)}
-                    onHiddenChange={(hidden) =>
-                      updateSettings({
-                        hiddenProviders: setProviderListMembership(
-                          settings.hiddenProviders,
-                          option.provider,
-                          hidden,
-                        ),
-                      })
-                    }
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger className="flex w-full items-center gap-2 py-2 text-left text-ui font-medium">
+          <DisclosureChevron open={advancedOpen} className="size-4 shrink-0" />
+          {t("settings.providers.advanced.section")}
+        </CollapsibleTrigger>
+        <CollapsiblePanel>
+          <div className="space-y-6 pt-4">
+            <SettingsSection title="Provider picker">
+              <SettingsRow
+                title="Default provider for new chats"
+                description="New chats, Canvas and other quick actions take an agent's models from this provider unless you pick another one in the model picker. Moss is used while you are signed in to Moss."
+                control={
+                  <SettingsSegmentedControl
+                    ariaLabel="Default provider for new chats"
+                    value={settings.newChatModelSource}
+                    onValueChange={(newChatModelSource) => updateSettings({ newChatModelSource })}
+                    options={NEW_CHAT_MODEL_SOURCE_OPTIONS}
                   />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        </SettingsRow>
-      </SettingsSection>
-
-      <SettingsSection title="Performance">
-        <SettingsRow
-          title="Keep Moss responsive"
-          description="Give agent processes and their commands a moderately lower CPU priority when the machine is busy."
-          status="Applies to newly launched agent processes. Restart existing sessions to apply consistently."
-          resetAction={
-            settings.lowerProviderProcessPriority !== defaults.lowerProviderProcessPriority ? (
-              <SettingResetButton
-                label="Keep Moss responsive"
-                onClick={() =>
-                  updateSettings({
-                    lowerProviderProcessPriority: defaults.lowerProviderProcessPriority,
-                  })
                 }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.lowerProviderProcessPriority}
-              onCheckedChange={(checked) =>
-                updateSettings({ lowerProviderProcessPriority: Boolean(checked) })
-              }
-              aria-label="Keep Moss responsive"
-            />
-          }
-        />
-      </SettingsSection>
-
-      <div id={SETTINGS_TARGETS.providerUpdates}>
-        <SettingsSection title="Updates">
-          <SettingsRow
-            title="Automatic CLI update checks"
-            description="Check Codex, Claude, and other provider CLIs for newer versions in the background."
-            resetAction={
-              settings.enableProviderUpdateChecks !== defaults.enableProviderUpdateChecks ? (
-                <SettingResetButton
-                  label="CLI update checks"
-                  onClick={() =>
-                    updateSettings({
-                      enableProviderUpdateChecks: defaults.enableProviderUpdateChecks,
-                    })
-                  }
-                />
-              ) : null
-            }
-            control={
-              <Switch
-                checked={settings.enableProviderUpdateChecks}
-                onCheckedChange={(checked) =>
-                  updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
-                }
-                aria-label="Automatic CLI update checks"
-              />
-            }
-          />
-
-          <SettingsRow
-            title="Provider updates"
-            description="Review installed provider tools that Moss can safely update."
-            status={
-              !settings.enableProviderUpdateChecks
-                ? "Automatic checks off"
-                : outdatedProviderCount > 0
-                  ? `${outdatedProviderCount} ${pluralize(outdatedProviderCount, "update")} available`
-                  : "No provider updates detected"
-            }
-          >
-            {settings.enableProviderUpdateChecks && outdatedProviderStatuses.length > 0 ? (
-              <div
-                className={cn(
-                  "mt-4",
-                  SETTINGS_INSET_LIST_CLASS_NAME,
-                  SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
-                )}
-              >
-                {outdatedProviderStatuses.map((providerStatus) => {
-                  const instanceId = providerStatusInstanceKey(providerStatus);
-                  const updateActive =
-                    isProviderUpdateActive(providerStatus) || updatingProviders.has(instanceId);
-                  const updateLabel = providerUpdateStatusLabel(providerStatus);
-                  return (
-                    <SettingsListRow
-                      key={instanceId}
-                      title={providerStatusDisplayName(providerStatus)}
-                      description={updateLabel || undefined}
-                      actions={
-                        providerStatus.versionAdvisory?.canUpdate ? (
-                          <ProviderUpdateAction
-                            providerStatus={providerStatus}
-                            active={updateActive}
-                            disabled={updateActive}
-                            onUpdate={(provider) => void runProviderUpdate(provider)}
-                          />
-                        ) : (
-                          <span className="text-ui-sm text-muted-foreground">Manual update</span>
-                        )
+                resetAction={
+                  settings.newChatModelSource !== defaults.newChatModelSource ? (
+                    <SettingResetButton
+                      label="default provider for new chats"
+                      onClick={() =>
+                        updateSettings({ newChatModelSource: defaults.newChatModelSource })
                       }
                     />
-                  );
-                })}
-              </div>
-            ) : null}
-          </SettingsRow>
-        </SettingsSection>
-      </div>
+                  ) : null
+                }
+              />
+              <SettingsRow
+                title="Available CLIs"
+                description="Show or hide installed providers in the picker and drag them into your preferred order. Hiding a provider here does not disable its server activity."
+                status={
+                  serverConfigQuery.isPending || hasPendingProviderStatuses
+                    ? "Checking installed CLIs"
+                    : availableProviderCount === 0
+                      ? "No CLIs detected"
+                      : visibleAvailableProviderCount < availableProviderCount
+                        ? `${visibleAvailableProviderCount} of ${availableProviderCount} installed shown`
+                        : isProviderOrderDirty
+                          ? `${availableProviderCount} installed · custom order`
+                          : `${availableProviderCount} installed`
+                }
+                resetAction={
+                  hiddenProviderCount > 0 || isProviderOrderDirty ? (
+                    <SettingResetButton
+                      label="provider picker"
+                      onClick={() =>
+                        updateSettings({
+                          hiddenProviders: defaults.hiddenProviders,
+                          providerOrder: defaults.providerOrder,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+              >
+                <DndContext
+                  sensors={providerVisibilitySensors}
+                  collisionDetection={closestCenter}
+                  modifiers={[restrictToVerticalAxis]}
+                  onDragEnd={handleProviderOrderDragEnd}
+                >
+                  <SortableContext
+                    items={enabledProviderOptions.map((option) => option.provider)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="mt-4 space-y-2">
+                      {enabledProviderOptions.map((option) => (
+                        <SortableProviderVisibilityRow
+                          key={option.provider}
+                          option={option}
+                          providerStatus={providerStatusByProvider.get(option.provider)}
+                          statusReconciled={providerStatusesReconciled}
+                          isDisabled={disabledProviderSet.has(option.provider)}
+                          isHidden={hiddenProviderSet.has(option.provider)}
+                          onHiddenChange={(hidden) =>
+                            updateSettings({
+                              hiddenProviders: setProviderListMembership(
+                                settings.hiddenProviders,
+                                option.provider,
+                                hidden,
+                              ),
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              </SettingsRow>
+            </SettingsSection>
 
-      <div id={SETTINGS_TARGETS.providerInstalls}>
-        <SettingsSection title="Provider tools">
-          <SettingsRow
-            title="Installed CLIs"
-            description="Review provider versions and update tools. Open a row only when you need binary overrides."
-            status={
-              !settings.enableProviderUpdateChecks
-                ? "Automatic checks off"
-                : outdatedProviderCount > 0
-                  ? `${outdatedProviderCount} ${pluralize(outdatedProviderCount, "update")} available`
-                  : "No provider updates detected"
-            }
-            resetAction={
-              installSettingsDirty ? (
-                <SettingResetButton
-                  label="provider tools"
-                  onClick={() => {
-                    updateSettings(createProviderInstallResetPatch(defaults));
-                    setOpenInstallProviders(createClosedProviderInstallDisclosureState());
-                  }}
-                />
-              ) : null
-            }
-          >
-            <div className="mt-4">
-              <div className={SETTINGS_INSET_LIST_CLASS_NAME}>
-                {VISIBLE_PROVIDER_INSTALL_SETTINGS.filter(
-                  (config) => !disabledProviderSet.has(config.provider),
-                ).map((config) => (
-                  <ProviderToolRow
-                    key={config.provider}
-                    config={config}
-                    open={openInstallProviders[config.provider]}
-                    settings={settings}
-                    defaults={defaults}
-                    hiddenProviderSet={hiddenProviderSet}
-                    serverSettings={providerUpdateServerSettings}
-                    providerStatus={providerStatusByProvider.get(config.provider)}
-                    providerStatusByInstance={providerStatusByInstance}
-                    updatingProviders={updatingProviders}
-                    onOpenChange={(open) =>
-                      setOpenInstallProviders((existing) => ({
-                        ...existing,
-                        [config.provider]: open,
-                      }))
+            <SettingsSection title="Performance">
+              <SettingsRow
+                title="Keep Moss responsive"
+                description="Give agent processes and their commands a moderately lower CPU priority when the machine is busy."
+                status="Applies to newly launched agent processes. Restart existing sessions to apply consistently."
+                resetAction={
+                  settings.lowerProviderProcessPriority !==
+                  defaults.lowerProviderProcessPriority ? (
+                    <SettingResetButton
+                      label="Keep Moss responsive"
+                      onClick={() =>
+                        updateSettings({
+                          lowerProviderProcessPriority: defaults.lowerProviderProcessPriority,
+                        })
+                      }
+                    />
+                  ) : null
+                }
+                control={
+                  <Switch
+                    checked={settings.lowerProviderProcessPriority}
+                    onCheckedChange={(checked) =>
+                      updateSettings({ lowerProviderProcessPriority: Boolean(checked) })
                     }
-                    onUpdate={(provider) => void runProviderUpdate(provider)}
-                    updateSettings={updateSettings}
-                    updateSettingsAndWait={updateSettingsAndWait}
+                    aria-label="Keep Moss responsive"
                   />
-                ))}
-              </div>
+                }
+              />
+            </SettingsSection>
+
+            <div id={SETTINGS_TARGETS.providerUpdates}>
+              <SettingsSection title="Updates">
+                <SettingsRow
+                  title="Automatic CLI update checks"
+                  description="Check Codex, Claude, and other provider CLIs for newer versions in the background."
+                  resetAction={
+                    settings.enableProviderUpdateChecks !== defaults.enableProviderUpdateChecks ? (
+                      <SettingResetButton
+                        label="CLI update checks"
+                        onClick={() =>
+                          updateSettings({
+                            enableProviderUpdateChecks: defaults.enableProviderUpdateChecks,
+                          })
+                        }
+                      />
+                    ) : null
+                  }
+                  control={
+                    <Switch
+                      checked={settings.enableProviderUpdateChecks}
+                      onCheckedChange={(checked) =>
+                        updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
+                      }
+                      aria-label="Automatic CLI update checks"
+                    />
+                  }
+                />
+
+                <SettingsRow
+                  title="Provider updates"
+                  description="Review installed provider tools that Moss can safely update."
+                  status={versionCheckSummary}
+                >
+                  {settings.enableProviderUpdateChecks && outdatedProviderStatuses.length > 0 ? (
+                    <div
+                      className={cn(
+                        "mt-4",
+                        SETTINGS_INSET_LIST_CLASS_NAME,
+                        SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
+                      )}
+                    >
+                      {outdatedProviderStatuses.map((providerStatus) => {
+                        const instanceId = providerStatusInstanceKey(providerStatus);
+                        const updateActive =
+                          isProviderUpdateActive(providerStatus) ||
+                          updatingProviders.has(instanceId);
+                        const updateLabel = providerUpdateStatusLabel(providerStatus);
+                        return (
+                          <SettingsListRow
+                            key={instanceId}
+                            title={providerStatusDisplayName(providerStatus)}
+                            description={updateLabel || undefined}
+                            actions={
+                              providerStatus.versionAdvisory?.canUpdate ? (
+                                <ProviderUpdateAction
+                                  providerStatus={providerStatus}
+                                  active={updateActive}
+                                  disabled={updateActive}
+                                  onUpdate={(provider) => void runProviderUpdate(provider)}
+                                />
+                              ) : (
+                                <span className="text-ui-sm text-muted-foreground">
+                                  Manual update
+                                </span>
+                              )
+                            }
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </SettingsRow>
+              </SettingsSection>
             </div>
-          </SettingsRow>
-        </SettingsSection>
-      </div>
+
+            <div id={SETTINGS_TARGETS.providerInstalls}>
+              <SettingsSection title="Provider tools">
+                <SettingsRow
+                  title="Installed CLIs"
+                  description="Review provider versions and update tools. Open a row only when you need binary overrides."
+                  status={versionCheckSummary}
+                  resetAction={
+                    installSettingsDirty ? (
+                      <SettingResetButton
+                        label="provider tools"
+                        onClick={() => {
+                          updateSettings(createProviderInstallResetPatch(defaults));
+                          setOpenInstallProviders(createClosedProviderInstallDisclosureState());
+                        }}
+                      />
+                    ) : null
+                  }
+                >
+                  <div className="mt-4">
+                    <div className={SETTINGS_INSET_LIST_CLASS_NAME}>
+                      {VISIBLE_PROVIDER_INSTALL_SETTINGS.filter(
+                        (config) => !disabledProviderSet.has(config.provider),
+                      ).map((config) => (
+                        <ProviderToolRow
+                          key={config.provider}
+                          config={config}
+                          open={openInstallProviders[config.provider]}
+                          settings={settings}
+                          defaults={defaults}
+                          hiddenProviderSet={hiddenProviderSet}
+                          serverSettings={providerUpdateServerSettings}
+                          providerStatus={installedProgramStatus(
+                            config.provider,
+                            providerStatusByProvider.get(config.provider),
+                            localProviderStatuses,
+                          )}
+                          providerStatusByInstance={providerStatusByInstance}
+                          updatingProviders={updatingProviders}
+                          onOpenChange={(open) =>
+                            setOpenInstallProviders((existing) => ({
+                              ...existing,
+                              [config.provider]: open,
+                            }))
+                          }
+                          onUpdate={(provider) => void runProviderUpdate(provider)}
+                          updateSettings={updateSettings}
+                          updateSettingsAndWait={updateSettingsAndWait}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </SettingsRow>
+              </SettingsSection>
+            </div>
+          </div>
+        </CollapsiblePanel>
+      </Collapsible>
     </div>
   );
 }

@@ -5,7 +5,7 @@
 // Layer: Tasks UI component
 // Exports: TaskCardProperties
 
-import type { ProjectId, Todo, TodoUpdateInput } from "@synara/contracts";
+import type { ProjectId, Todo, TodoUpdateInput } from "@moss/contracts";
 
 import { CalendarIcon, FolderIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";

@@ -39,9 +39,12 @@ describe("createProviderInstallResetPatch", () => {
         "claudeBinaryPath",
         "claudeEnableArtifacts",
         "claudeHomePath",
+        "claudeSharedProjectsPath",
+        "claudeShareStateAcrossAccounts",
         "codexAccounts",
         "codexBinaryPath",
         "codexHomePath",
+        "codexShareStateAcrossAccounts",
         "cursorApiEndpoint",
         "cursorBinaryPath",
         "devinBinaryPath",
@@ -67,6 +70,21 @@ describe("createProviderInstallResetPatch", () => {
 });
 
 describe("providerInstanceLaunchConfigFor", () => {
+  it("keeps shared history settings out of new accounts' private config", () => {
+    const settings = {
+      ...defaults,
+      codexShareStateAcrossAccounts: true,
+      codexHomePath: "/shared/codex",
+      claudeShareStateAcrossAccounts: true,
+      claudeSharedProjectsPath: "/shared/projects",
+      claudeHomePath: "/private/default",
+      claudeBinaryPath: "/programs/claude",
+    };
+    expect(providerInstanceLaunchConfigFor("codex", settings)).toEqual({});
+    expect(providerInstanceLaunchConfigFor("claudeAgent", settings)).toEqual({
+      binaryPath: "/programs/claude",
+    });
+  });
   it("maps Pi-family agent directories to agentDir, not binaryPath", () => {
     expect(
       providerInstanceLaunchConfigFor("omp", {

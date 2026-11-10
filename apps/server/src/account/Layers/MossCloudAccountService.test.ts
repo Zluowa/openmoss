@@ -2260,6 +2260,64 @@ describe("MossCloudAccountService", () => {
     }).pipe(Effect.provide(makeLayer(secrets.service, managed.service)), Effect.runPromise);
   });
 
+  it("keeps a running turn on the old bearer through a refresh, then rotates when it ends", async () => {
+    const now = 1_800_000_000_000;
+    const signin = vi.fn(async () =>
+      session({
+        accessToken: "access-before-turn",
+        refreshToken: "refresh-before-turn",
+        expiresAt: now + 3_600_000,
+      }),
+    );
+    const refresh = vi.fn(async () =>
+      session({
+        accessToken: "access-after-turn",
+        refreshToken: "refresh-after-turn",
+        expiresAt: now + 7_200_000,
+      }),
+    );
+    const secrets = makeSecretStore();
+    const managed = makeManagedProvider();
+    let turnRunning = true;
+
+    await Effect.gen(function* () {
+      const service = yield* makeMossCloudAccountService({
+        auth: availableAuth(makeClient({ signin, refresh })),
+        now: () => now,
+      });
+      yield* service.signIn({ email: "person@example.com", password: "password-123" });
+      managed.provision.mockClear();
+      managed.getProvisioningState.mockReturnValue(Effect.succeed("stale"));
+
+      const whileRunning = yield* service.refresh();
+
+      // The session itself rotated; only the running CLI stays on its bearer.
+      expect(whileRunning.authenticated).toBe(true);
+      expect(whileRunning.activeRealm).toBe("global");
+      expect(yield* service.getGatewayAccessToken()).toBe("access-after-turn");
+      expect(managed.provision).not.toHaveBeenCalled();
+
+      turnRunning = false;
+      yield* service.getState();
+
+      expect(managed.provision).toHaveBeenCalledTimes(1);
+      expect(managed.provision).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: "access-after-turn",
+          selectionPolicy: "preserve",
+        }),
+      );
+    }).pipe(
+      Effect.provide(
+        makeLayer(secrets.service, {
+          ...managed.service,
+          hasRunningTurnOnLiveBearer: () => Effect.sync(() => turnRunning),
+        }),
+      ),
+      Effect.runPromise,
+    );
+  });
+
   it("reconciles a failed refresh provision with the rotated token and preserve semantics", async () => {
     const now = 1_800_000_000_000;
     const signin = vi.fn(async () =>

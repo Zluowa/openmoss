@@ -10,7 +10,7 @@ import type {
   ProviderPluginDescriptor,
   ProviderPluginMarketplaceLoadError,
   ProviderSkillDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   useCallback,
   useEffect,

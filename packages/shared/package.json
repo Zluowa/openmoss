@@ -1,10 +1,34 @@
 {
-  "name": "@synara/shared",
+  "name": "@moss/shared",
   "version": "0.0.0-alpha.1",
   "private": true,
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./processTreeController": {
+      "types": "./src/processTreeController.ts",
+      "import": "./src/processTreeController.ts"
+    },
+    "./windowsProcessSnapshot": {
+      "types": "./src/windowsProcessSnapshot.ts",
+      "import": "./src/windowsProcessSnapshot.ts"
+    },
+    "./supervisedProcessTeardown": {
+      "types": "./src/supervisedProcessTeardown.ts",
+      "import": "./src/supervisedProcessTeardown.ts"
+    },
+    "./mcpJsonRpc": {
+      "types": "./src/mcpJsonRpc.ts",
+      "import": "./src/mcpJsonRpc.ts"
+    },
+    "./launchRunFailure": {
+      "types": "./src/launchRunFailure.ts",
+      "import": "./src/launchRunFailure.ts"
+    },
+    "./devsReport": {
+      "types": "./src/devsReport.ts",
+      "import": "./src/devsReport.ts"
+    },
     "./turnStopActivity": {
       "types": "./src/turnStopActivity.ts",
       "import": "./src/turnStopActivity.ts"
@@ -29,6 +53,10 @@
       "types": "./src/modelImageBudget.ts",
       "import": "./src/modelImageBudget.ts"
     },
+    "./modelImageInput": {
+      "types": "./src/modelImageInput.ts",
+      "import": "./src/modelImageInput.ts"
+    },
     "./claudeCache": {
       "types": "./src/claudeCache.ts",
       "import": "./src/claudeCache.ts"
@@ -44,6 +72,10 @@
     "./approvalSessionGrant": {
       "types": "./src/approvalSessionGrant.ts",
       "import": "./src/approvalSessionGrant.ts"
+    },
+    "./accountTokenVerifier": {
+      "types": "./src/accountTokenVerifier.ts",
+      "import": "./src/accountTokenVerifier.ts"
     },
     "./git": {
       "types": "./src/git.ts",
@@ -80,6 +112,10 @@
     "./codexDiagnostics": {
       "types": "./src/codexDiagnostics.ts",
       "import": "./src/codexDiagnostics.ts"
+    },
+    "./mossMediaPlugins": {
+      "types": "./src/mossMediaPlugins.ts",
+      "import": "./src/mossMediaPlugins.ts"
     },
     "./mossAppsPresentation": {
       "types": "./src/mossAppsPresentation.ts",
@@ -128,6 +164,14 @@
     "./platformEnvironment": {
       "types": "./src/platformEnvironment.ts",
       "import": "./src/platformEnvironment.ts"
+    },
+    "./platformEncoding": {
+      "types": "./src/platformEncoding.ts",
+      "import": "./src/platformEncoding.ts"
+    },
+    "./windowsRegistry": {
+      "types": "./src/windowsRegistry.ts",
+      "import": "./src/windowsRegistry.ts"
     },
     "./wslBridge": {
       "types": "./src/wslBridge.ts",
@@ -317,9 +361,25 @@
       "types": "./src/localPreviewFiles.ts",
       "import": "./src/localPreviewFiles.ts"
     },
+    "./htmlMarkup": {
+      "types": "./src/htmlMarkup.ts",
+      "import": "./src/htmlMarkup.ts"
+    },
+    "./pageAppContentPolicy": {
+      "types": "./src/pageAppContentPolicy.ts",
+      "import": "./src/pageAppContentPolicy.ts"
+    },
+    "./readonlyAppItem": {
+      "types": "./src/readonlyAppItem.ts",
+      "import": "./src/readonlyAppItem.ts"
+    },
     "./htmlRender": {
       "types": "./src/htmlRender.ts",
       "import": "./src/htmlRender.ts"
+    },
+    "./chatArtifactActivity": {
+      "types": "./src/chatArtifactActivity.ts",
+      "import": "./src/chatArtifactActivity.ts"
     },
     "./htmlRenderActivity": {
       "types": "./src/htmlRenderActivity.ts",
@@ -328,6 +388,10 @@
     "./htmlRenderFrameAccess": {
       "types": "./src/htmlRenderFrameAccess.ts",
       "import": "./src/htmlRenderFrameAccess.ts"
+    },
+    "./htmlRenderMaps": {
+      "types": "./src/htmlRenderMaps.ts",
+      "import": "./src/htmlRenderMaps.ts"
     },
     "./inlineVisualizationFrameAccess": {
       "types": "./src/inlineVisualizationFrameAccess.ts",
@@ -509,17 +573,37 @@
       "types": "./src/observability.ts",
       "import": "./src/observability.ts"
     },
+    "./sentryDsn": {
+      "types": "./src/sentryDsn.ts",
+      "import": "./src/sentryDsn.ts"
+    },
     "./codexRuntime": {
       "types": "./src/codexRuntime.ts",
       "import": "./src/codexRuntime.ts"
+    },
+    "./codexExecutable": {
+      "types": "./src/codexExecutable.ts",
+      "import": "./src/codexExecutable.ts"
+    },
+    "./localAgentExecutable": {
+      "types": "./src/localAgentExecutable.ts",
+      "import": "./src/localAgentExecutable.ts"
     },
     "./codexReferenceOracle": {
       "types": "./src/codexReferenceOracle.ts",
       "import": "./src/codexReferenceOracle.ts"
     },
+    "./mossDownloadChannel": {
+      "types": "./src/mossDownloadChannel.ts",
+      "import": "./src/mossDownloadChannel.ts"
+    },
     "./mossProductionPublicConfig": {
       "types": "./src/mossProductionPublicConfig.ts",
       "import": "./src/mossProductionPublicConfig.ts"
+    },
+    "./mossUpdateMirror": {
+      "types": "./src/mossUpdateMirror.ts",
+      "import": "./src/mossUpdateMirror.ts"
     },
     "./threadMarkers": {
       "types": "./src/threadMarkers.ts",
@@ -528,6 +612,10 @@
     "./computerHistoryMention": {
       "types": "./src/computerHistoryMention.ts",
       "import": "./src/computerHistoryMention.ts"
+    },
+    "./wrapUp": {
+      "types": "./src/wrapUp.ts",
+      "import": "./src/wrapUp.ts"
     },
     "./mcpAppResource": {
       "types": "./src/mcpAppResource.ts",
@@ -633,13 +721,97 @@
       "types": "./src/wsRequestClass.ts",
       "import": "./src/wsRequestClass.ts"
     },
+    "./pageAppCapabilityPlugin": {
+      "types": "./src/pageAppCapabilityPlugin.ts",
+      "import": "./src/pageAppCapabilityPlugin.ts"
+    },
+    "./pageAppFrameRuntime": {
+      "types": "./src/pageAppFrameRuntime.ts",
+      "import": "./src/pageAppFrameRuntime.ts"
+    },
+    "./pageAppDbRules": {
+      "types": "./src/pageAppDbRules.ts",
+      "import": "./src/pageAppDbRules.ts"
+    },
+    "./pageAppManifest": {
+      "types": "./src/pageAppManifest.ts",
+      "import": "./src/pageAppManifest.ts"
+    },
     "./pageRichContent": {
       "types": "./src/pageRichContent.ts",
       "import": "./src/pageRichContent.ts"
     },
+    "./pageAi": {
+      "types": "./src/pageAi.ts",
+      "import": "./src/pageAi.ts"
+    },
     "./mcpConnectors": {
       "types": "./src/mcpConnectors.ts",
       "import": "./src/mcpConnectors.ts"
+    },
+    "./mossServicePlugins": {
+      "types": "./src/mossServicePlugins.ts",
+      "import": "./src/mossServicePlugins.ts"
+    },
+    "./spaceItems/deckLayoutCheck": {
+      "types": "./src/spaceItems/deckLayoutCheck.ts",
+      "import": "./src/spaceItems/deckLayoutCheck.ts"
+    },
+    "./spaceItems/slidesDeck": {
+      "types": "./src/spaceItems/slidesDeck.ts",
+      "import": "./src/spaceItems/slidesDeck.ts"
+    },
+    "./spaceItems/sheetWorkbook": {
+      "types": "./src/spaceItems/sheetWorkbook.ts",
+      "import": "./src/spaceItems/sheetWorkbook.ts"
+    },
+    "./spaceItems/itemData": {
+      "types": "./src/spaceItems/itemData.ts",
+      "import": "./src/spaceItems/itemData.ts"
+    },
+    "./spaceItems/templates": {
+      "types": "./src/spaceItems/templates.ts",
+      "import": "./src/spaceItems/templates.ts"
+    },
+    "./spaceItems/appTemplateHtml": {
+      "types": "./src/spaceItems/appTemplateHtml.ts",
+      "import": "./src/spaceItems/appTemplateHtml.ts"
+    },
+    "./spaceItems/deckOps": {
+      "types": "./src/spaceItems/deckOps.ts",
+      "import": "./src/spaceItems/deckOps.ts"
+    },
+    "./spaceItems/deckLayouts": {
+      "types": "./src/spaceItems/deckLayouts.ts",
+      "import": "./src/spaceItems/deckLayouts.ts"
+    },
+    "./spaceItems/deckThemes": {
+      "types": "./src/spaceItems/deckThemes.ts",
+      "import": "./src/spaceItems/deckThemes.ts"
+    },
+    "./spaceItems/deckTemplates": {
+      "types": "./src/spaceItems/deckTemplates.ts",
+      "import": "./src/spaceItems/deckTemplates.ts"
+    },
+    "./spaceItems/deckPptx": {
+      "types": "./src/spaceItems/deckPptx.ts",
+      "import": "./src/spaceItems/deckPptx.ts"
+    },
+    "./spaceItems/deckGuide": {
+      "types": "./src/spaceItems/deckGuide.ts",
+      "import": "./src/spaceItems/deckGuide.ts"
+    },
+    "./mossPluginCatalog": {
+      "types": "./src/mossPluginCatalog.ts",
+      "import": "./src/mossPluginCatalog.ts"
+    },
+    "./mossPluginPackage": {
+      "types": "./src/mossPluginPackage.ts",
+      "import": "./src/mossPluginPackage.ts"
+    },
+    "./mossbotRoom": {
+      "types": "./src/mossbotRoom.ts",
+      "import": "./src/mossbotRoom.ts"
     }
   },
   "scripts": {
@@ -649,7 +821,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@synara/contracts": "workspace:*",
+    "@moss/contracts": "workspace:*",
+    "@office-kit/pptx": "0.12.0",
     "effect": "catalog:",
     "https-proxy-agent": "^7.0.6",
     "yaml": "^2.8.3"

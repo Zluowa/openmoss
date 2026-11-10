@@ -8,8 +8,8 @@
 // Layer: Chat transcript UI
 // Exports: SubagentRunCard, SubagentIdentityLine
 
-import { ThreadId } from "@synara/contracts";
-import { pluralize } from "@synara/shared/text";
+import { ThreadId } from "@moss/contracts";
+import { pluralize } from "@moss/shared/text";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useNowMs } from "~/hooks/useNowMs";

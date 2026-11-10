@@ -9,7 +9,7 @@ import {
   MOSS_BUNDLED_CODEX_VERSION,
   resolveCodexRuntimeTarget,
   type CodexRuntimeTarget,
-} from "@synara/shared/codexRuntime";
+} from "@moss/shared/codexRuntime";
 
 export const BUNDLED_CODEX_VERSION = MOSS_BUNDLED_CODEX_VERSION;
 export const BUNDLED_CODEX_PACKAGE_NAME = "@openai/codex";

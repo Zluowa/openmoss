@@ -1,4 +1,4 @@
-import type { RealtimeVoiceDescriptor, RealtimeVoiceId } from "@synara/contracts";
+import type { RealtimeVoiceDescriptor, RealtimeVoiceId } from "@moss/contracts";
 
 const VOICE_KEY = "moss.realtimeVoice.voice.v1";
 const INPUT_DEVICE_KEY = "moss.realtimeVoice.inputDevice.v1";

@@ -3,7 +3,7 @@
 // Layer: Kanban UI logic tests
 
 import { readFileSync } from "node:fs";
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { translateMoss, type TranslationKey } from "~/localization";

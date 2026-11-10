@@ -56,6 +56,47 @@ const runServerAuthTest = (effect: Effect.Effect<void, AuthError, ServerAuth>) =
   effect.pipe(Effect.provide(testLayer), Effect.scoped, Effect.runPromise);
 
 describe("ServerAuthLive", () => {
+  it("supports a startup owner without a fabricated session and revokes clients while preserving every owner", async () => {
+    await runServerAuthTest(
+      Effect.gen(function* () {
+        const auth = yield* ServerAuth;
+        const owner = () =>
+          Effect.gen(function* () {
+            const url = yield* auth.issueStartupPairingUrl("http://127.0.0.1:3773");
+            const credential = new URLSearchParams(new URL(url).hash.slice(1)).get("token")!;
+            const exchanged = yield* auth.exchangeBootstrapCredential(credential, requestMetadata);
+            return yield* auth.authenticateHttpRequest(makeCookieRequest(exchanged.sessionToken));
+          });
+        const first = yield* owner(),
+          second = yield* owner();
+        const pairing = yield* auth.issuePairingCredential();
+        const client = yield* auth.exchangeBootstrapCredentialForBearerSession(
+          pairing.credential,
+          requestMetadata,
+        );
+        expect((yield* auth.listClientSessions()).every((session) => !session.current)).toBe(true);
+        expect(
+          (yield* auth.listClientSessions(first.sessionId)).find((session) => session.current)
+            ?.sessionId,
+        ).toBe(first.sessionId);
+        const rejected = yield* auth
+          .revokeClientSession(undefined, second.sessionId)
+          .pipe(Effect.flip, Effect.orDie);
+        expect(rejected.status).toBe(403);
+        expect(yield* auth.revokeOtherClientSessions()).toBe(1);
+        const remaining = yield* auth.listClientSessions();
+        expect(remaining.map((session) => session.sessionId).sort()).toEqual(
+          [first.sessionId, second.sessionId].sort(),
+        );
+        expect(
+          (yield* auth.getSessionState({
+            headers: { authorization: `Bearer ${client.sessionToken}` },
+            cookies: {},
+          })).authenticated,
+        ).toBe(false);
+      }),
+    );
+  });
   it("maps invalid bootstrap credential failures to 401", () => {
     const error = toBootstrapExchangeAuthError(
       new BootstrapCredentialError({

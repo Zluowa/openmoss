@@ -8,7 +8,7 @@ import {
   SUPPORTED_PROVIDER_KINDS,
   type ModelSelection,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 

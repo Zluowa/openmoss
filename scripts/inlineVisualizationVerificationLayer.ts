@@ -4,7 +4,6 @@ import { Effect, Layer, Stream } from "effect";
 
 import { MossPhoneAccountService } from "../apps/server/src/account/Services/MossPhoneAccountService.ts";
 import { MossCloudAccountService } from "../apps/server/src/account/Services/MossCloudAccountService.ts";
-import { MossByokProvider } from "../apps/server/src/account/Services/MossByokProvider.ts";
 import { MossManagedProvider } from "../apps/server/src/account/Services/MossManagedProvider.ts";
 import { MossPayService } from "../apps/server/src/account/Services/MossPayService.ts";
 import { MossAccountServiceError } from "../apps/server/src/account/mossAccountErrors.ts";
@@ -58,12 +57,6 @@ export const inlineVisualizationVerificationAccountLayer = Layer.mergeAll(
     getAccessToken: cloudUnavailable,
     getAuthorityCredential: cloudUnavailable,
     getGatewayAccessToken: cloudUnavailable,
-  }),
-  Layer.succeed(MossByokProvider, {
-    getState: unavailableService(),
-    provision: unavailableService,
-    use: unavailableService,
-    remove: unavailableService,
   }),
   Layer.succeed(MossManagedProvider, {
     needsDisable: unavailableService,

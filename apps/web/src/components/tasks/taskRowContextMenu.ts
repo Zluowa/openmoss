@@ -4,7 +4,7 @@
 // Layer: Tasks UI logic
 // Exports: buildTaskRowContextMenu, TaskRowMenuAction
 
-import type { ContextMenuItem } from "@synara/contracts";
+import type { ContextMenuItem } from "@moss/contracts";
 
 import { THREAD_CONTEXT_MENU_ICONS } from "~/lib/contextMenuIcons";
 

@@ -1,4 +1,4 @@
-import { EventId, type OrchestrationThreadActivity } from "@synara/contracts";
+import { EventId, type OrchestrationThreadActivity } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { deriveFastModeNotice } from "./fastModeState";

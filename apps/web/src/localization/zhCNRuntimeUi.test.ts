@@ -10,6 +10,15 @@ import { translateZhCnRuntimeUiText } from "./zhCNRuntimeUi";
 describe("translateZhCnRuntimeUiText", () => {
   it.each([
     [
+      "Codex acknowledged Stop but did not report the turn's final status before its runtime was stopped.",
+      "Codex 已确认停止请求，但在会话关闭前未返回本轮的最终状态。",
+    ],
+    ["Could not save the unconfirmed Codex Stop result.", "无法保存尚未确认的 Codex 停止结果。"],
+    [
+      "Codex runtime stopped before this turn reported its final status.",
+      "Codex 会话已关闭，本轮未返回最终状态。",
+    ],
+    [
       "Start a fresh thread and clear the current conversation context",
       "开始新对话并清除当前对话上下文",
     ],
@@ -163,6 +172,19 @@ describe("translateZhCnRuntimeUiText", () => {
     ).toBe("更新等待 20 毫秒后超时，服务商进程已停止。");
     expect(translateZhCnRuntimeUiText("Update command exited with code 1.")).toBe(
       "更新命令已退出，退出码 1。",
+    );
+    // The updater's own reason stays verbatim.
+    expect(
+      translateZhCnRuntimeUiText(
+        "Update command exited with code 1: error: pi cannot self-update this installation.",
+      ),
+    ).toBe("更新命令出错退出（退出码 1）：error: pi cannot self-update this installation.");
+    expect(
+      translateZhCnRuntimeUiText(
+        "Update command exited with code 1: npm error code EACCES This install updates through the vendor's own servers, which have no domestic mirror. Reinstalling it with npm lets Moss update it through the mirror.",
+      ),
+    ).toBe(
+      "更新命令出错退出（退出码 1）：npm error code EACCES。这个智能体用的是官方安装程序，更新要连接海外服务器，没有国内镜像。改用 npm 重新安装后，Moss 就能通过镜像更新它。",
     );
     expect(
       translateZhCnRuntimeUiText(

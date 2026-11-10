@@ -4,8 +4,8 @@ import {
   type ProviderInstanceId,
   type ProviderKind,
   type ServerProviderStatus,
-} from "@synara/contracts";
-import { normalizeModelSlug } from "@synara/shared/model";
+} from "@moss/contracts";
+import { normalizeModelSlug } from "@moss/shared/model";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
@@ -49,6 +49,9 @@ interface ChatProviderModelsInput {
   // The picker may leave the thread's provider: picking another one hands the
   // thread off to it in place when the next message is sent.
   allowProviderHandoff?: boolean;
+  // A local draft's model selection is a placeholder (the built-in default), not a choice:
+  // the account's own configured default must still be able to lead it.
+  threadModelSelectionIsPlaceholder?: boolean;
 }
 
 export function useChatProviderModels({
@@ -59,6 +62,7 @@ export function useChatProviderModels({
   settings,
   resolvedThreadWorktreePath,
   allowProviderHandoff,
+  threadModelSelectionIsPlaceholder,
 }: ChatProviderModelsInput) {
   const queryClient = useQueryClient();
   const prompt = composerDraft.prompt;
@@ -149,6 +153,21 @@ export function useChatProviderModels({
   if (draftSelection?.provider === selectedProvider && draftSelection.instanceId) {
     candidateInstanceId = draftSelection.instanceId;
   }
+  // A thread that can hand off may move to another account of its own provider (an
+  // imported local-account chat continuing on Moss): the account picked in the composer
+  // wins over the session's, and the send hands the thread off to it.
+  const pickedSiblingInstanceId =
+    allowProviderHandoff === true &&
+    candidateInstanceId !== undefined &&
+    candidateInstanceId !== sessionInstanceId &&
+    providerInstances.some(
+      (instance) =>
+        instance.instanceId === candidateInstanceId &&
+        instance.provider === selectedProvider &&
+        instance.enabled,
+    )
+      ? candidateInstanceId
+      : undefined;
   if (
     !candidateInstanceId &&
     activeThread?.modelSelection.provider === selectedProvider &&
@@ -164,6 +183,7 @@ export function useChatProviderModels({
     candidateInstanceId = activeProject.defaultModelSelection.instanceId;
   }
   const selectedProviderInstanceId =
+    pickedSiblingInstanceId ??
     sessionInstanceId ??
     resolveSelectableProviderInstanceId(settings, selectedProvider, candidateInstanceId);
 
@@ -227,6 +247,8 @@ export function useChatProviderModels({
     loadingModelProviders,
     refreshModels,
     discoveryErrorsByProvider,
+    defaultModelByProviderInstance,
+    modelDiscoveryPendingByProviderInstance,
     runtimeModelsByProvider,
     runtimeModelsByProviderInstance,
     selectedRuntimeAgents: dynamicAgents,
@@ -255,12 +277,24 @@ export function useChatProviderModels({
       selectedProviderInstanceId,
     ],
   );
+  // The model the account's own config sets as default leads an untouched composer.
+  const configuredDefaultModel = defaultModelByProviderInstance[selectedProviderInstanceId];
+  const discoveredDefaultModelSelection = useMemo(
+    () =>
+      configuredDefaultModel
+        ? buildModelSelection(selectedProvider, configuredDefaultModel, null, {
+            instanceId: selectedProviderInstanceId,
+          })
+        : null,
+    [configuredDefaultModel, selectedProvider, selectedProviderInstanceId],
+  );
   const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
     threadId,
     selectedProvider,
     selectedProviderInstanceId,
-    threadModelSelection: activeThread?.modelSelection,
+    threadModelSelection: threadModelSelectionIsPlaceholder ? null : activeThread?.modelSelection,
     projectModelSelection: activeProject?.defaultModelSelection,
+    discoveredDefaultModelSelection,
     customModelsByProvider,
     availableModelOptionsByProvider: selectedInstanceModelOptionsByProvider,
   });
@@ -399,16 +433,13 @@ export function useChatProviderModels({
     () =>
       buildSearchableModelOptions({
         providerOptions: providerInstances
-          // Search mirrors the picker: disabled instances are not actionable,
-          // and a started thread is locked to its exact provider instance.
+          // Search mirrors the picker: disabled instances are not actionable, and a
+          // thread that cannot hand off is locked to its exact provider instance. One
+          // that can hand off may move to any provider or account.
           .filter(
             (instance) =>
               instance.enabled &&
-              (lockedProvider === null || instance.instanceId === selectedProviderInstanceId) &&
-              // A handoff can change the provider, not the bound provider's account.
-              (boundProvider === null ||
-                instance.provider !== boundProvider ||
-                instance.instanceId === boundProviderInstanceId),
+              (lockedProvider === null || instance.instanceId === selectedProviderInstanceId),
           )
           .map((instance) => ({
             value: instance.provider,
@@ -423,8 +454,6 @@ export function useChatProviderModels({
         lockedProvider,
       }),
     [
-      boundProvider,
-      boundProviderInstanceId,
       lockedProvider,
       modelOptionsByProvider,
       modelOptionsByProviderInstance,
@@ -451,6 +480,8 @@ export function useChatProviderModels({
     loadingModelProviders,
     refreshModels,
     discoveryErrorsByProvider,
+    defaultModelByProviderInstance,
+    modelDiscoveryPendingByProviderInstance,
     runtimeModelsByProvider,
     runtimeModelsByProviderInstance,
     dynamicAgents,

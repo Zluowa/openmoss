@@ -15,11 +15,11 @@ import type {
   PullRequestActor,
   PullRequestLabel,
   PullRequestSetPinnedInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   pullRequestListProjectContexts,
   pullRequestListRepositoryIdentity,
-} from "@synara/shared/githubRepository";
+} from "@moss/shared/githubRepository";
 
 import type { GitHubInboxInvolvementFilter } from "~/appSettings";
 

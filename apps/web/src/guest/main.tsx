@@ -14,7 +14,6 @@ import { useAppDensity } from "~/hooks/useAppDensity";
 import { useAppTypography } from "~/hooks/useAppTypography";
 import { useChatWidth } from "~/hooks/useChatWidth";
 import { useTheme } from "~/hooks/useTheme";
-import { setAttachmentPreviewUrlResolver } from "~/lib/wsHttpUrl";
 import { detachNativeApi } from "~/nativeApi";
 import { MossLocalizationProvider } from "~/localization";
 import { installZhCnUiLocalization } from "~/localization/zhCN";
@@ -22,13 +21,22 @@ import { StoreProvider } from "~/store";
 import type { MossLocaleCode } from "~/uiLocale";
 
 import { GuestApp } from "./components/GuestApp";
+import { PageGuestApp } from "./pages/PageGuestApp";
+import { createHttpPageGuestTransport } from "./pages/pageGuestTransport";
+import { isPageGuestPath, takePageGuestEntry } from "./pages/pageGuestUrl";
 import { resolveGuestLocale } from "./guestStream.logic";
+import { installGuestResourceResolvers } from "./resources";
 import { createHttpGuestTransport, type GuestTransport } from "./transport";
 import { takeGuestEntry, type GuestEntry } from "./url";
 
 // No Moss server stands behind this page; the relay serves only the guest routes.
 detachNativeApi();
 
+// 资料空间 links and sites (`/p/<id>`) share this bundle; their credential leaves the address
+// bar before anything renders, like a thread invite.
+const pageMode = isPageGuestPath(window.location.pathname);
+const pageEntry = pageMode ? takePageGuestEntry(window) : null;
+const pageTransport = pageEntry === null ? null : createHttpPageGuestTransport(pageEntry.shareId);
 // The invite leaves the address bar before anything renders.
 const entry = takeGuestEntry(window);
 const locale = resolveGuestLocale(
@@ -36,7 +44,7 @@ const locale = resolveGuestLocale(
 );
 
 async function chooseTransport(): Promise<GuestTransport | null> {
-  if (entry.shareId === null) return null;
+  if (pageMode || entry.shareId === null) return null;
   // Dev-only fixtures (`?mock=<scenario>`), left out of the production bundle.
   if (import.meta.env.DEV) {
     const scenario = new URLSearchParams(window.location.search).get("mock");
@@ -75,14 +83,19 @@ function GuestRoot({
   useChatWidth();
   return (
     <MossLocalizationProvider localeOverride={locale}>
-      <GuestApp entry={entry} transport={transport} />
+      {pageMode ? (
+        <PageGuestApp entry={pageEntry} transport={pageTransport} />
+      ) : (
+        <GuestApp entry={entry} transport={transport} />
+      )}
     </MossLocalizationProvider>
   );
 }
 
 void chooseTransport().then((transport) => {
-  // Before the first snapshot: the shared timeline resolves attachment images through this.
-  if (transport !== null) setAttachmentPreviewUrlResolver((id) => transport.attachmentUrl(id));
+  // Before the first snapshot: the shared timeline loads its files, pages and pictures through
+  // the share's routes.
+  if (transport !== null) installGuestResourceResolvers(transport);
   installZhCnUiLocalization();
   createRoot(document.getElementById("root")!).render(
     <StrictMode>

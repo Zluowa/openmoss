@@ -40,8 +40,11 @@ import {
   WsFeatureRpcGroup,
   WsLibraryRpcGroup,
   WsPagesRpcGroup,
+  WsPageTypesRpcGroup,
+  WsPageSharingRpcGroup,
   WsProjectAgentRpcGroup,
   type AutomationStreamEvent,
+  type DesktopBackendLinkDropReason,
   type TodoStreamEvent,
   type GitActionProgressEvent,
   type GitCreateDetachedWorktreeResult,
@@ -73,7 +76,7 @@ import {
   type WsPushMessage,
   TASKS_UNAVAILABLE_ERROR_CODE,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   Cause,
   Data,
@@ -104,14 +107,24 @@ import {
   makeWsRequestCapacityError,
   WS_REQUEST_CLASS_LIMITS,
   type WsRequestClass,
-} from "@synara/shared/wsRequestClass";
+} from "@moss/shared/wsRequestClass";
 import {
   buildThreadSubscribeInput,
   clearThreadDetailResumeCursor,
   resetThreadDetailResumeCursors,
 } from "./threadDetailResumeCursors";
 import { SIDEBAR_ORDER_REHYDRATE_EVENT } from "./sidebarThreadOrder";
-import { trackWsTurnSettlement, type WsTransportState } from "./wsTransportEvents";
+import {
+  readDesktopBackendWsUrl,
+  reportDesktopBackendLink,
+  resolveTransportLink,
+  transportReconnectMaxDelayMs,
+} from "./lib/transportLink";
+import {
+  trackWsTurnSettlement,
+  WS_MESSAGE_NOT_SENT_DETAIL,
+  type WsTransportState,
+} from "./wsTransportEvents";
 
 type PushListener<C extends WsPushChannel> = (message: WsPushMessage<C>) => void;
 
@@ -141,6 +154,7 @@ export class WsTransportRequestInterruptedError extends Data.TaggedError(
     | "WS_REQUEST_TIMEOUT"
     | "WS_REQUEST_ABORTED"
     | "WS_REQUEST_RECONNECTED"
+    | "WS_REQUEST_NOT_SENT"
     | "WS_TURN_SETTLEMENT_UNAVAILABLE";
   readonly method: string;
   readonly timeoutMs?: number;
@@ -282,7 +296,9 @@ const makeRpcClient = RpcClient.make(
     .merge(WsComputerRpcGroup)
     .merge(WsProjectAgentRpcGroup)
     .merge(WsLibraryRpcGroup)
-    .merge(WsPagesRpcGroup),
+    .merge(WsPagesRpcGroup)
+    .merge(WsPageTypesRpcGroup)
+    .merge(WsPageSharingRpcGroup),
 );
 const makeBootstrapRpcClient = RpcClient.make(WsBootstrapRpcGroup);
 const REQUEST_TIMEOUT_MS = 60_000;
@@ -296,9 +312,12 @@ const INITIAL_RECONNECT_RETRY_MS = 500;
 const MAX_RECONNECT_RETRY_MS = 5_000;
 
 /** Keeps outages gentle on the backend while still recovering promptly. */
-export function getReconnectRetryDelayMs(attempt: number): number {
+export function getReconnectRetryDelayMs(
+  attempt: number,
+  maxDelayMs: number = MAX_RECONNECT_RETRY_MS,
+): number {
   const exponent = Math.max(0, Math.min(Math.trunc(attempt), 16));
-  return Math.min(INITIAL_RECONNECT_RETRY_MS * 2 ** exponent, MAX_RECONNECT_RETRY_MS);
+  return Math.min(INITIAL_RECONNECT_RETRY_MS * 2 ** exponent, maxDelayMs);
 }
 
 function delayWithAbort(ms: number, signal: AbortSignal): Promise<void> {
@@ -335,13 +354,16 @@ function resolveRpcUrl(rawUrl: string, path: string): string {
 
 function rawSocketUrl(explicitUrl: string | null): string {
   if (explicitUrl) return explicitUrl;
-  const bridgeUrl = window.desktopBridge?.getWsUrl();
+  const remoteWorkspaceUrl = window.mossRemoteWorkspace?.getWsUrl();
+  if (remoteWorkspaceUrl) return remoteWorkspaceUrl;
+  const bridgeUrl = readDesktopBackendWsUrl();
   const envUrl = import.meta.env.VITE_WS_URL as string | undefined;
-  return bridgeUrl && bridgeUrl.length > 0
-    ? bridgeUrl
-    : envUrl && envUrl.length > 0
+  return (
+    bridgeUrl ??
+    (envUrl && envUrl.length > 0
       ? envUrl
-      : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:${window.location.port}`;
+      : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:${window.location.port}`)
+  );
 }
 
 export function makeSocketUrl(explicitUrl: string | null, path: string): string {
@@ -428,7 +450,10 @@ const SOCKET_SILENCE_TIMEOUT_MS = 180_000;
 const FEATURE_CONNECTION_PROBE_TIMEOUT_MS = 180_000;
 const MAX_STREAM_OVERFLOW_RETRIES = 8;
 
-function makeProtocolLayer(url: string, onFailure?: () => void) {
+function makeProtocolLayer(
+  url: string,
+  onFailure?: (reason: DesktopBackendLinkDropReason) => void,
+) {
   const socketLayer = Socket.layerWebSocket(url, { openTimeout: SOCKET_OPEN_TIMEOUT_MS }).pipe(
     Layer.provide(Socket.layerWebSocketConstructorGlobal),
   );
@@ -444,10 +469,13 @@ function makeProtocolLayer(url: string, onFailure?: () => void) {
         const write = yield* socket.writer;
         let currentError: RpcClientError.RpcClientError | undefined;
         let lastServerFrameAt: number | undefined;
-        const reportFailure = (error: RpcClientError.RpcClientError) => {
+        const reportFailure = (
+          error: RpcClientError.RpcClientError,
+          reason: DesktopBackendLinkDropReason,
+        ) => {
           if (currentError) return Effect.void;
           currentError = error;
-          onFailure?.();
+          onFailure?.(reason);
           return writeResponse({ _tag: "ClientProtocolError", error });
         };
 
@@ -474,6 +502,7 @@ function makeProtocolLayer(url: string, onFailure?: () => void) {
                       cause,
                     }),
                   }),
+                  "protocol-error",
                 );
               }
             },
@@ -489,6 +518,7 @@ function makeProtocolLayer(url: string, onFailure?: () => void) {
                 new RpcClientError.RpcClientError({
                   reason: new Socket.SocketCloseError({ code: 1000 }),
                 }),
+                "socket-closed",
               ),
             ),
             Effect.catchCause((cause) => {
@@ -503,6 +533,7 @@ function makeProtocolLayer(url: string, onFailure?: () => void) {
                         cause: error,
                       }),
                 }),
+                Schema.is(Socket.SocketError)(error) ? "socket-closed" : "protocol-error",
               );
             }),
             Effect.forkScoped,
@@ -519,6 +550,7 @@ function makeProtocolLayer(url: string, onFailure?: () => void) {
                   cause: new Error("No server frames received for 180000ms"),
                 }),
               }),
+              "silence-timeout",
             );
           }
           const encoded = parser.encode({ _tag: "Ping" });
@@ -901,6 +933,13 @@ export interface WsThreadStreamFailure {
   readonly error: Error;
 }
 
+function isTurnStartDispatch(method: string, params: unknown): boolean {
+  return (
+    method === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+    (params as { command?: { type?: unknown } } | undefined)?.command?.type === "thread.turn.start"
+  );
+}
+
 function omitNullUserInputAnswers(input: unknown): unknown {
   if (!input || typeof input !== "object") {
     return input;
@@ -923,14 +962,11 @@ function omitNullUserInputAnswers(input: unknown): unknown {
 }
 
 export function isServerLifecyclePushChannel(channel: string): boolean {
-  return channel === WS_CHANNELS.serverWelcome || channel === WS_CHANNELS.serverMaintenanceUpdated;
+  return channel === WS_CHANNELS.serverWelcome;
 }
 
 export function shouldKeepServerLifecycleStream(activeChannels: ReadonlySet<string>): boolean {
-  return (
-    activeChannels.has(WS_CHANNELS.serverWelcome) ||
-    activeChannels.has(WS_CHANNELS.serverMaintenanceUpdated)
-  );
+  return activeChannels.has(WS_CHANNELS.serverWelcome);
 }
 
 export class WsTransport {
@@ -966,6 +1002,7 @@ export class WsTransport {
   private clientPromise: Promise<RpcClientInstance>;
   private reconnectPromise: Promise<RpcClientInstance> | null = null;
   private reconnectFailures = 0;
+  private dropReason: DesktopBackendLinkDropReason | null = null;
   private readonly streamCleanups = new Map<string, () => void>();
   private readonly streamSettled = new Map<string, Promise<void>>();
   private readonly streamCapacityRetries = new Map<string, number>();
@@ -1057,6 +1094,7 @@ export class WsTransport {
       null;
     let queuedRequestClass: WsRequestClass | null = null;
     let sendAdmitted = false;
+    let clientAcquired = false;
     try {
       if (method === ORCHESTRATION_WS_METHODS.unsubscribeShell) {
         this.shellSubscribed = false;
@@ -1139,6 +1177,7 @@ export class WsTransport {
       try {
         sendAdmitted = true;
         let client = await awaitWithAbort(this.getClient(), abortScope.signal);
+        clientAcquired = true;
         if (
           method === ORCHESTRATION_WS_METHODS.settleTurnDispatch &&
           !this.compatibility?.capabilities.includes(WS_TURN_DISPATCH_SETTLEMENT_CAPABILITY)
@@ -1229,6 +1268,18 @@ export class WsTransport {
         // The deadline passed in the queue: nothing was sent, so this is a plain
         // capacity error, never an uncertain outcome.
         failure = makeWsRequestCapacityError(queuedRequestClass);
+      } else if (abortScope.didTimeout() && sendAdmitted && !clientAcquired) {
+        // The deadline passed waiting for a connection, so nothing reached the
+        // server: this is a known "not sent", never an uncertain outcome.
+        failure = new WsTransportRequestInterruptedError({
+          message: isTurnStartDispatch(method, params)
+            ? WS_MESSAGE_NOT_SENT_DETAIL
+            : `WebSocket RPC ${method} was not sent because Moss could not reach its backend.`,
+          code: "WS_REQUEST_NOT_SENT",
+          method,
+          cause: error,
+          retryable: true,
+        });
       } else if (abortScope.didTimeout()) {
         failure = new WsTransportRequestInterruptedError({
           message: `WebSocket RPC ${method} timed out after ${requestOptions.timeoutMs}ms. The server did not finish this request in time. ${method === ORCHESTRATION_WS_METHODS.dispatchCommand ? "Check the result before retrying; the command may have been applied." : "Try again when the server responds."}`,
@@ -1696,12 +1747,13 @@ export class WsTransport {
       }
 
       const featureRuntime = ManagedRuntime.make(
-        makeProtocolLayer(makeFeatureSocketUrl(this.explicitUrl, compatibility), () => {
+        makeProtocolLayer(makeFeatureSocketUrl(this.explicitUrl, compatibility), (reason) => {
           // Defer teardown out of the failing protocol fiber, and fence failures
           // from an old socket so they cannot replace a newer healthy session.
           queueMicrotask(() => {
             const recover = () => {
               if (this.disposed || this.sessionVersion !== sessionVersion) return;
+              this.dropReason = reason;
               if (this.state !== "open") this.setCompatibility(null);
               void this.reconnect().catch(() => undefined);
             };
@@ -1825,14 +1877,27 @@ export class WsTransport {
 
   private setState(state: WsTransportState): void {
     if (this.state === state) return;
+    const wasOpen = this.state === "open";
     this.state = state;
     if (state === "open") this.openedAtMs = Date.now();
+    this.reportBackendLink(state, wasOpen);
     for (const listener of this.stateListeners) {
       try {
         listener(state);
       } catch {
         // Listener errors must not break reconnect or RPC state transitions.
       }
+    }
+  }
+
+  /** Tells desktop main about each drop of its own backend link, for desktop-main.log. */
+  private reportBackendLink(state: WsTransportState, wasOpen: boolean): void {
+    if (resolveTransportLink(this.explicitUrl) !== "desktop-backend") return;
+    if (state === "open") {
+      this.dropReason = null;
+      reportDesktopBackendLink({ phase: "up" });
+    } else if (wasOpen && state !== "disposed") {
+      reportDesktopBackendLink({ phase: "down", reason: this.dropReason ?? "socket-closed" });
     }
   }
 
@@ -1921,6 +1986,7 @@ export class WsTransport {
       // RPC feature socket became a zombie. Reopening the stream on that same
       // client can complete immediately forever. A full reconnect restores all
       // registered subscriptions and lets the server replay the persisted tail.
+      this.dropReason = "stream-ended";
       void this.reconnect().catch((error) => {
         if (!this.disposed && !this.streamCleanups.has(key)) {
           console.warn("WebSocket RPC stream reconnect failed", error);
@@ -1961,7 +2027,10 @@ export class WsTransport {
     for (;;) {
       if (this.disposed) throw new Error("Transport disposed");
       this.setState("connecting");
-      const delayMs = getReconnectRetryDelayMs(this.reconnectFailures);
+      const delayMs = getReconnectRetryDelayMs(
+        this.reconnectFailures,
+        transportReconnectMaxDelayMs(resolveTransportLink(this.explicitUrl)),
+      );
       this.reconnectFailures += 1;
       await delayWithAbort(delayMs, this.lifetime.signal);
 
@@ -2208,10 +2277,9 @@ export class WsTransport {
       "server.lifecycle",
       client[WS_METHODS.subscribeServerLifecycle]({}),
       (event: ServerLifecycleStreamEvent) => {
+        // Older servers also send "maintenance" events; nothing uses them now.
         if (event.type === "welcome") {
           this.emit(WS_CHANNELS.serverWelcome, event.payload);
-        } else if (event.type === "maintenance") {
-          this.emit(WS_CHANNELS.serverMaintenanceUpdated, event);
         }
       },
       restartLifecycle,

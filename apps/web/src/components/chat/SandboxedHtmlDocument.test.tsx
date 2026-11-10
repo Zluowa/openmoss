@@ -31,6 +31,15 @@ describe("SandboxedHtmlDocument", () => {
     expect(markup).not.toContain("allow-same-origin");
   });
 
+  it("lets only a visual reply's page take the full screen", () => {
+    expect(renderToStaticMarkup(<SandboxedHtmlDocument src="/frame" title="Chart" />)).not.toMatch(
+      /\ballow="/u,
+    );
+    expect(
+      renderToStaticMarkup(<SandboxedHtmlDocument src="/frame" title="Chart" htmlRender />),
+    ).toContain('allow="fullscreen"');
+  });
+
   it("is the exact renderer used by legacy T3 html_render pages", () => {
     expect(HtmlRenderDocument).toBe(SandboxedHtmlDocument);
   });

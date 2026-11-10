@@ -5,7 +5,7 @@
 // Layer: Chat shell header
 // Exports: GuestShareHeaderButton
 
-import { pendingGuestMessageCount, type ThreadId } from "@synara/contracts";
+import { pendingGuestMessageCount, type ThreadId } from "@moss/contracts";
 
 import { openGuestShareDialog } from "~/guestShareDialogStore";
 import { selectThreadGuestShare, useGuestShareStore } from "~/guestShareStore";

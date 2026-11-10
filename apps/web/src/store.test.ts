@@ -8,7 +8,7 @@ import {
   TurnId,
   type OrchestrationReadModel,
   type OrchestrationShellSnapshot,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {

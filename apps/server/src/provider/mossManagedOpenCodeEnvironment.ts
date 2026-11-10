@@ -1,9 +1,9 @@
-import type { ProviderInstanceConfig } from "@synara/contracts";
+import type { ProviderInstanceConfig } from "@moss/contracts";
 import {
   MANAGED_GATEWAY_OPENCODE_DEFAULT_MODEL,
   MANAGED_GATEWAY_OPENCODE_ENABLED_MODELS,
-} from "@synara/shared/mossManagedModelCatalog";
-import { getMossManagedModelDefinition } from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossManagedModelCatalog";
+import { getMossManagedModelDefinition } from "@moss/shared/mossRealmCatalog";
 
 import { isTrustedMossManagedGatewayUrl } from "./mossManagedGatewayTrust.ts";
 
@@ -116,7 +116,13 @@ function isCompatibleManagedOpenCodeConfig(actual: string, expected: string): bo
       }
       currentDefinition.limit.output = targetDefinition.limit.output;
     }
-    return JSON.stringify(current) === expected;
+    // A prior build persisted no provider lock; reconciliation replaces it too.
+    const { provider, ...rest } = current;
+    const normalized =
+      current.enabled_providers === undefined
+        ? { ...rest, enabled_providers: target.enabled_providers, provider }
+        : current;
+    return JSON.stringify(normalized) === expected;
   } catch {
     return false;
   }
@@ -181,6 +187,9 @@ export function buildMossManagedOpenCodeConfig(input: {
   return JSON.stringify({
     $schema: "https://opencode.ai/config.json",
     model: models[0] ?? MOSS_MANAGED_OPENCODE_DEFAULT_MODEL,
+    // Keep the Moss gateway the only route: OpenCode otherwise lists and serves
+    // its own free cloud models, which no Moss lane can vouch for.
+    enabled_providers: ["moss"],
     provider: {
       moss: {
         npm: "@ai-sdk/openai-compatible",

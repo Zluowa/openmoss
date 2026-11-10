@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import {
   assertSafeMacosSecurityCommand,
   exactGenericPasswordReadArgs,
-} from "@synara/shared/macosKeychainPolicy";
+} from "@moss/shared/macosKeychainPolicy";
 
 import { fetchJson } from "./http";
 

@@ -226,6 +226,7 @@ describe("theme share strings", () => {
           diffRemoved: "#ff7e78",
           skill: "#c2a1ff",
         },
+        sidebar: null,
         surface: "#0f0f11",
       },
       variant: "dark",
@@ -272,6 +273,50 @@ describe("theme share strings", () => {
 });
 
 describe("code theme seeds", () => {
+  it("uses the requested neutral One dark surface and upgrades only untouched old colors", () => {
+    const seed = getCodeThemeSeed("one", "dark");
+    expect(seed.surface).toBe("#3b3b3d");
+    expect(seed.opaqueWindows).toBe(true);
+    const state = {
+      ...DEFAULT_THEME_STATE,
+      codeThemeIds: { dark: "one", light: "one" },
+      chromeThemes: {
+        ...DEFAULT_THEME_STATE.chromeThemes,
+        dark: {
+          ...seed,
+          surface: "#282c34",
+          ink: "#abb2bf",
+          accent: "#4d78cc",
+        },
+      },
+    };
+    expect(normalizeThemeState(state).chromeThemes.dark.surface).toBe("#3b3b3d");
+    const personalized = {
+      ...state,
+      chromeThemes: {
+        ...state.chromeThemes,
+        dark: {
+          ...state.chromeThemes.dark,
+          contrast: 33,
+          sidebar: "#303032",
+          fonts: { ui: "Arial", code: "Consolas" },
+          semanticColors: { diffAdded: "#12ab34", diffRemoved: "#ab1234", skill: "#5634ab" },
+        },
+      },
+    };
+    expect(normalizeThemeState(personalized).chromeThemes.dark).toEqual({
+      ...personalized.chromeThemes.dark,
+      accent: seed.accent,
+      ink: seed.ink,
+      surface: seed.surface,
+      opaqueWindows: true,
+    });
+    state.chromeThemes.dark.surface = "#444444";
+    expect(normalizeThemeState(state).chromeThemes.dark.surface).toBe("#444444");
+    expect(
+      setThemeCodeThemeId(DEFAULT_THEME_STATE, "dark", "one").chromeThemes.dark.opaqueWindows,
+    ).toBe(true);
+  });
   it("merges the selected theme seed into the current pack instead of hard-resetting", () => {
     const nextState = setThemeCodeThemeId(
       {
@@ -310,6 +355,7 @@ describe("code theme seeds", () => {
           diffRemoved: "#ff7e78",
           skill: "#c2a1ff",
         },
+        sidebar: null,
         surface: "#0f0f11",
       },
     });
@@ -374,6 +420,56 @@ describe("code theme seeds", () => {
       codeThemeId: "vercel",
       theme: getCodeThemeSeed("vercel", "dark"),
     });
+  });
+
+  it("carries Soft's sidebar tone in and clears it when leaving Soft", () => {
+    const soft = setThemeCodeThemeId(DEFAULT_THEME_STATE, "dark", "soft");
+    expect(resolveThemePack(soft, "dark").theme).toMatchObject({
+      accent: "#346bf1",
+      opaqueWindows: true,
+      sidebar: "#1c1c1c",
+      surface: "#141414",
+    });
+
+    const back = setThemeCodeThemeId(soft, "dark", "moss");
+    expect(resolveThemePack(back, "dark").theme.sidebar).toBeNull();
+  });
+
+  it("keeps the sidebar tone through share strings and stored state", () => {
+    const pack = { codeThemeId: "soft", theme: getCodeThemeSeed("soft", "light") };
+    expect(parseThemeShareString(createThemeShareString("light", pack)).theme.sidebar).toBe(
+      "#efefef",
+    );
+    const stored = setThemeCodeThemeId(DEFAULT_THEME_STATE, "light", "soft");
+    expect(parseStoredThemeState(JSON.stringify(stored))).toEqual(stored);
+  });
+});
+
+describe("sidebar tone", () => {
+  it("paints the sidebar with the background when a theme has no tone of its own", () => {
+    const { variables } = buildThemeCssVariables(
+      resolveThemePack(DEFAULT_THEME_STATE, "dark"),
+      "dark",
+    );
+    expect(variables["--sidebar"]).toBe(variables["--color-background-surface"]);
+    expect(variables["--app-sidebar-surface"]).toBe(variables["--color-background-surface"]);
+  });
+
+  it("lifts the sidebar off the content with Soft's tone on an opaque window", () => {
+    const state = setThemeCodeThemeId(DEFAULT_THEME_STATE, "dark", "soft");
+    const { material, variables } = buildThemeCssVariables(
+      resolveThemePack(state, "dark"),
+      "dark",
+      {
+        electron: true,
+        isMac: true,
+      },
+    );
+    expect(material).toBe("opaque");
+    expect(variables["--sidebar"]).toBe("#1c1c1c");
+    expect(variables["--app-sidebar-surface"]).toBe("#1c1c1c");
+    expect(variables["--app-sidebar-chip-surface"]).toBe("#1c1c1c");
+    expect(variables["--app-content-surface"]).toBe("#141414");
   });
 });
 

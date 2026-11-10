@@ -31,7 +31,7 @@ export class ByteAccumulator {
 
   /** A little-endian u32 read in place, without joining the pending chunks. */
   readUInt32LE(offset: number): number {
-    if (offset < 0 || offset + 4 > this.length) {
+    if (!Number.isSafeInteger(offset) || offset < 0 || offset + 4 > this.length) {
       throw new RangeError("Byte accumulator u32 read is out of range");
     }
     const first = this.chunks[0];
@@ -51,12 +51,12 @@ export class ByteAccumulator {
    * it stays valid after later appends.
    */
   take(byteLength: number): Buffer {
+    this.checkRange(byteLength);
     const first = this.chunks[0];
     if (first && first.byteLength >= byteLength) {
       this.skip(byteLength);
       return first.subarray(0, byteLength);
     }
-    this.checkRange(byteLength);
     const taken = Buffer.concat(this.chunks, byteLength);
     this.skip(byteLength);
     return taken;

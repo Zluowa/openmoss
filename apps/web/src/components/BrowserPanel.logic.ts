@@ -5,21 +5,25 @@
 // Depends on: shared browser URL rules, browser tab metadata, and thread-local browser history
 
 import {
+  type BrowserViewportPreset,
+  resolveBrowserViewportFrame,
+} from "./browser/browserPanelChrome.logic";
+import {
   BROWSER_BLANK_URL,
   BROWSER_SEARCH_URL_PREFIX,
   normalizeBrowserUrlInput,
   resolveFloatingBrowserGuestLayout,
-} from "@synara/shared/browserSession";
+} from "@moss/shared/browserSession";
 import type {
   BrowserAnnotationEvent,
   BrowserAnnotationMarker,
   BrowserAnnotationTheme,
   BrowserTabState,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { BrowserHistoryEntry } from "../browserStateStore";
 import type { BrowserAnnotationDraft } from "../lib/browserAnnotations";
-import { resolveDesktopDipRectFromCssRect } from "@synara/shared/desktopChrome";
+import { resolveDesktopDipRectFromCssRect } from "@moss/shared/desktopChrome";
 import { TAB_IDLE_SURFACE_CLASS_NAME, TAB_SELECTED_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 
 export function resolveBrowserRuntimePresentation(input: {
@@ -27,8 +31,21 @@ export function resolveBrowserRuntimePresentation(input: {
   floating: boolean;
   rect: { x: number; y: number; width: number; height: number };
   desktopZoom: number;
+  /** A device size from the "…" menu's Viewport; the page lays out at it, fitted in. */
+  viewport?: BrowserViewportPreset | null;
 }) {
   const { native, floating, rect, desktopZoom } = input;
+  const frame = floating ? null : resolveBrowserViewportFrame(rect, input.viewport ?? null);
+  if (frame) {
+    return {
+      surface: native ? ("native" as const) : ("renderer" as const),
+      bounds: resolveDesktopDipRectFromCssRect(
+        { x: rect.x + frame.x, y: rect.y + frame.y, width: frame.width, height: frame.height },
+        desktopZoom,
+      ),
+      pageZoomFactor: native ? frame.scale * desktopZoom : 1,
+    };
+  }
   const layout = floating ? resolveFloatingBrowserGuestLayout(rect) : null;
   const scale = native && layout ? layout.scale : 1;
   const bounds = resolveDesktopDipRectFromCssRect(
@@ -305,6 +322,7 @@ export function browserAnnotationDraftFromCommittedEvent(
     name: event.annotation.name,
     text: event.annotation.text,
     fingerprint: event.annotation.fingerprint,
+    ...(event.annotation.html ? { html: event.annotation.html } : {}),
     comment: event.annotation.comment,
     capturedAt: event.annotation.capturedAt,
   };
@@ -673,8 +691,34 @@ export function isBrowserPanelBoundsHiddenKey(key: string): boolean {
 
 export function applyBrowserWebviewPresentation(
   stage: HTMLElement,
-  input: { floating: boolean; slotWidth: number; slotHeight: number },
+  input: {
+    floating: boolean;
+    slotWidth: number;
+    slotHeight: number;
+    viewport?: BrowserViewportPreset | null;
+  },
 ): void {
+  // A device viewport: the guest lays out at the preset size, scaled to fit.
+  const frame = input.floating
+    ? null
+    : resolveBrowserViewportFrame(
+        { width: input.slotWidth, height: input.slotHeight },
+        input.viewport ?? null,
+      );
+  if (frame && input.viewport) {
+    stage.style.position = "absolute";
+    stage.style.inset = "";
+    stage.style.left = `${frame.x}px`;
+    stage.style.top = `${frame.y}px`;
+    stage.style.width = `${input.viewport.width}px`;
+    stage.style.height = `${input.viewport.height}px`;
+    stage.style.transform = frame.scale === 1 ? "" : `scale(${frame.scale})`;
+    stage.style.transformOrigin = "top left";
+    stage.style.borderRadius = "";
+    stage.style.clipPath = "";
+    stage.style.overflow = "hidden";
+    return;
+  }
   // Scale a CSS stage around a frozen 1280×800 guest. Transforming the
   // <webview> itself during drag/resize blacks the guest and can kill CDP.
   if (!input.floating) {

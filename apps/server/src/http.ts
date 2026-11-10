@@ -1,7 +1,12 @@
 import { readEventLoopStatus } from "./eventLoopMonitor";
 import { mossMediaJobsEffectRouteLayer } from "./mossMediaJobsRoute";
 import * as fs from "node:fs/promises";
+import { createHash } from "node:crypto";
 import nodePath from "node:path";
+import { THREAD_OUTPUT_ROUTE, threadOutputHref } from "@moss/shared/threadWorkspace";
+import { resolveThreadExecutionWorkspace } from "./threadExecutionWorkspace";
+import { readThreadOutput } from "./threadOutputFile";
+import { normalizeLocalReference } from "./guestShare/guestSharedResources";
 
 import Mime from "@effect/platform-node/Mime";
 import {
@@ -16,33 +21,30 @@ import {
   ProviderKind,
   SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
   LIBRARY_UPLOAD_ROUTE_PATH,
   VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH,
-} from "@synara/shared/binaryTransfer";
-import { EDITOR_ICON_ROUTE_PATH } from "@synara/shared/editorIcons";
+} from "@moss/shared/binaryTransfer";
+import { EDITOR_ICON_ROUTE_PATH } from "@moss/shared/editorIcons";
 import {
   HTML_RENDER_FRAME_EXPIRES_PARAM,
   HTML_RENDER_FRAME_SIGNATURE_PARAM,
   verifyHtmlRenderFrameAccess,
-} from "@synara/shared/htmlRenderFrameAccess";
+} from "@moss/shared/htmlRenderFrameAccess";
 import {
   INLINE_VISUALIZATION_FRAME_ACCESS_TTL_MS,
   INLINE_VISUALIZATION_FRAME_EXPIRES_PARAM,
   INLINE_VISUALIZATION_FRAME_SIGNATURE_PARAM,
   signInlineVisualizationFrameAccess,
   verifyInlineVisualizationFrameAccess,
-} from "@synara/shared/inlineVisualizationFrameAccess";
-import { threadExportBlockedReason } from "@synara/shared/threadExport";
-import {
-  providerStartOptionsFromInstance,
-  resolveProviderInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/inlineVisualizationFrameAccess";
+import { threadExportBlockedReason } from "@moss/shared/threadExport";
+import { INLINE_VISUALS_BETA_FEATURE } from "@moss/shared/betaFeatures";
+import { buildInlineVisualDocument } from "@moss/shared/inlineVisual";
 import { Cause, DateTime, Effect, FileSystem, Layer, Option, Path, Schema, Stream } from "effect";
-import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import {
@@ -55,13 +57,9 @@ import {
   INLINE_VISUALIZATION_FRAME_ROUTE_PATH,
   INLINE_VISUALIZATION_LIBRARIES_ROUTE_PREFIX,
   INLINE_VISUALIZATION_RESOLVE_ROUTE_PATH,
-  inlineVisualizationLibraryContentType,
   inlineVisualizationDocument,
-  validateInlineVisualizationFile,
-  validateWorkspaceInlineVisualizationFile,
   type ValidatedInlineVisualization,
 } from "./inlineVisualization";
-import { resolveCodexHomePath } from "./codexGeneratedImages";
 import { resolveAttachmentPathById } from "./attachmentStore.ts";
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
 import { AuthError, ServerAuth } from "./auth/Services/ServerAuth";
@@ -94,6 +92,12 @@ import {
 import { ProjectAgentRepository } from "./persistence/Services/ProjectAgentRepository";
 import { resolveCachedEditorIcon } from "./editorAppIcons";
 import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalPreviewFile } from "./localImageFiles.ts";
+import { libraryImageEffectRouteLayer } from "./library/libraryImageRoute.ts";
+import {
+  LOCAL_HTML_PREVIEW_PREFIX,
+  localHtmlPreviewHeaders,
+  resolveLocalHtmlPreviewAsset,
+} from "./localHtmlPreview";
 import type { ProjectFaviconResolverShape } from "./project/Services/ProjectFaviconResolver";
 import { resolveScratchWorkspacesRoot } from "./scratchWorkspaces.ts";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
@@ -101,10 +105,23 @@ import { OrchestrationEngineService } from "./orchestration/Services/Orchestrati
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegistry";
 import { getEnabledProviderAdapter } from "./provider/enabledProviderAdapter";
+import { transcribeVoiceRequest } from "./voiceTranscriptionRouting";
+import { ServerRuntimeStartup } from "./serverRuntimeStartup";
+import { MossPhoneAccountService } from "./account/Services/MossPhoneAccountService";
+import { MossCloudAccountService } from "./account/Services/MossCloudAccountService";
+import { MossEnterpriseKeyAccount } from "./account/Services/MossEnterpriseKeyAccount";
+import { MossAccountServiceError } from "./account/mossAccountErrors";
+import { MossCloudAccountServiceError } from "./account/mossCloudAccountErrors";
 import { threadArchiveChunks, threadArchiveFileName } from "./orchestration/exportThreadArchive";
 import type { ServerReadiness } from "./server/readiness";
 import { ServerSettingsService } from "./serverSettings";
-import { isLoopbackHost } from "./startupAccess";
+import { isServerBetaFeatureEnabled } from "./betaFeatureGate";
+import { readInlineVisual } from "./inlineVisualStore";
+import {
+  readInlineVisualizationLibrary,
+  readInlineVisualizationRequest,
+} from "./inlineVisualizationAccess";
+import { isLoopbackHost, isLoopbackStartupBearer } from "./startupAccess";
 import {
   attachmentPrincipalForSession,
   GUEST_SHARE_ATTACHMENT_OWNER_KIND,
@@ -123,6 +140,7 @@ import {
   type ServerShutdownController,
 } from "./serverShutdown";
 import { resolveFavicon, tryParseHost } from "./siteFaviconCache";
+import { recordMossCanvasLiveSelection } from "./mossCanvasLiveSelection";
 import {
   ifNoneMatchSatisfies,
   isSidecarRequestPath,
@@ -139,6 +157,8 @@ import {
   VOICE_UPLOAD_CAPACITY_ERROR_MESSAGE,
   voiceUploadAdmissionGate,
 } from "./voiceUploadAdmission";
+import { AccountRecoveryRuntime } from "./pages/realtime/cloud/control/accountRecoveryRuntime";
+import { accountRecoveryEffectRouteLayer } from "./pages/realtime/cloud/control/accountRecoveryHttp";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
 const SITE_FAVICON_CACHE_CONTROL_SUCCESS = "public, max-age=86400"; // 24 h
@@ -255,7 +275,12 @@ function localPreviewCorsHeaders(input: {
     !origin ||
     !isTrustedAppOrigin({ origin, requestOrigin: input.url.origin, config: input.config })
   ) {
-    return {};
+    // These responses are cacheable (`private, max-age=…`). An <img> loads
+    // them without an Origin header, so that copy carries no CORS grant.
+    // Without `Vary: Origin` the browser reuses it for the desktop app's
+    // later cross-origin fetch() of the same URL, which then fails as
+    // "Failed to fetch" (side-panel image context, Canvas image import).
+    return { Vary: "Origin" };
   }
   return {
     "Access-Control-Allow-Origin": origin,
@@ -272,15 +297,19 @@ export function makeEffectHttpRouteLayer(
 ) {
   return Layer.mergeAll(
     makeHealthEffectRouteLayer(readiness),
+    accountRecoveryEffectRouteLayer,
     makeDesktopShutdownEffectRouteLayer(shutdownController),
     makeDesktopComputerEmergencyStopRouteLayer(),
     authEffectRouteLayer,
     mossMediaJobsEffectRouteLayer,
     projectFaviconEffectRouteLayer,
     threadExportEffectRouteLayer,
+    threadOutputEffectRouteLayer,
     siteFaviconEffectRouteLayer,
     editorIconEffectRouteLayer,
     localImageEffectRouteLayer,
+    libraryImageEffectRouteLayer,
+    localHtmlPreviewEffectRouteLayer,
     inlineVisualizationEffectRouteLayer,
     binaryUploadEffectRouteLayer,
     attachmentsEffectRouteLayer,
@@ -289,100 +318,57 @@ export function makeEffectHttpRouteLayer(
   );
 }
 
-interface InlineVisualizationThreadBinding {
-  readonly providerName: string | null;
-  readonly providerInstanceId: string | null;
-  readonly providerThreadId: string | null;
-  readonly worktreePath: string | null;
-  readonly workingDirectory: string | null;
+/** Resolves the web app's request for an inline visual's frame (`/api/inline-visual`). */
+export const INLINE_VISUAL_RESOLVE_ROUTE_PATH = "/api/inline-visual";
+/** Serves an inline visual's HTML document to a browser frame. */
+export const INLINE_VISUAL_FRAME_ROUTE_PATH = "/api/inline-visual/frame";
+/**
+ * Opaque origin, scripts and form handlers only: no popups, modals, downloads or top
+ * navigation, as the desktop frame's `sandbox` attribute. The document's own policy blocks every
+ * fetch.
+ */
+const INLINE_VISUAL_DOCUMENT_SECURITY_HEADERS = {
+  "Content-Security-Policy": "sandbox allow-scripts allow-forms",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
+} as const;
+
+interface InlineVisualFrameRequest {
+  readonly threadId: string;
+  readonly visualId: string;
+  readonly appearance: "light" | "dark";
+  readonly html: string;
+  readonly sha256: string;
 }
 
-/**
- * The projection deliberately hides provider IDs from normal client snapshots,
- * but this route needs the native Codex id as an authorization boundary. Keep
- * the lookup here, parameterized and server-only, rather than trusting the
- * marker's date/thread path.
- */
-const readInlineVisualizationBinding = Effect.fn(function* (threadId: string) {
-  const sql = yield* SqlClient.SqlClient;
-  const rows = yield* sql<InlineVisualizationThreadBinding>`
-    SELECT
-      s.provider_name AS "providerName",
-      s.provider_instance_id AS "providerInstanceId",
-      s.provider_thread_id AS "providerThreadId",
-      t.worktree_path AS "worktreePath",
-      t.working_directory AS "workingDirectory"
-    FROM projection_thread_sessions s
-    LEFT JOIN projection_threads t ON t.thread_id = s.thread_id
-    WHERE s.thread_id = ${threadId}
-    LIMIT 1
-  `;
-  return rows[0] ?? null;
-});
+/** What the frame signature locks: this visual, in this appearance. */
+function inlineVisualSignedPath(visual: InlineVisualFrameRequest): string {
+  return `inline-visual:${visual.visualId}:${visual.appearance}`;
+}
 
-const readInlineVisualizationRequest = Effect.fn(function* (input: {
-  readonly threadId: string | null;
-  readonly requestedPath: string | null;
-}) {
-  const threadId = input.threadId?.trim() ?? "";
-  const requestedPath = input.requestedPath?.trim() ?? "";
-  if (!/^[A-Za-z0-9:_-]{1,256}$/u.test(threadId) || requestedPath.length === 0) {
-    return null;
-  }
-  const binding = yield* readInlineVisualizationBinding(threadId);
-  if (!binding) return null;
-
-  // Codex threads keep the native chain: the marker path must live under the
-  // instance's codexHome in the exact date/<native thread> shape.
-  if (
-    binding.providerName === "codex" &&
-    binding.providerThreadId &&
-    binding.providerThreadId.length <= 256
-  ) {
-    const serverSettings = yield* ServerSettingsService;
-    const settings = yield* serverSettings.getSettings;
-    const instance = resolveProviderInstance(settings, {
-      provider: "codex",
-      ...(binding.providerInstanceId
-        ? { instanceId: ProviderInstanceId.makeUnsafe(binding.providerInstanceId) }
-        : {}),
-    });
-    if (instance && instance.driver === "codex" && instance.enabled) {
-      const codexHome = resolveCodexHomePath(providerStartOptionsFromInstance(instance)?.codex);
-      const visualization = yield* Effect.promise(() =>
-        validateInlineVisualizationFile({
-          requestedPath,
-          codexHome,
-          codexThreadId: binding.providerThreadId!,
-        }),
-      );
-      if (typeof visualization !== "string") {
-        return { threadId, visualization } satisfies {
-          readonly threadId: string;
-          readonly visualization: ValidatedInlineVisualization;
-        };
-      }
+/** The stored HTML visual a frame request names, or null. */
+const readInlineVisualFrameRequest = (config: ServerConfigShape, url: URL) =>
+  Effect.promise(async (): Promise<InlineVisualFrameRequest | null> => {
+    if (!isServerBetaFeatureEnabled(INLINE_VISUALS_BETA_FEATURE)) return null;
+    const threadId = url.searchParams.get("threadId")?.trim() ?? "";
+    const visualId = url.searchParams.get("visualId")?.trim() ?? "";
+    if (!/^[A-Za-z0-9:_-]{1,256}$/u.test(threadId) || !/^vis_[0-9a-f]{32}$/u.test(visualId)) {
+      return null;
     }
-  }
-
-  // Moss is multi-provider: Kimi/Claude/Cursor/etc. threads (and Codex threads
-  // whose markers point at workspace artifacts) resolve `src` against the
-  // thread's own workspace instead of codexHome. Confinement stays identical:
-  // realpath inside the workspace, .html only, 2MB cap, CDN rewriting.
-  // Global chats have no project workspace — their runtime cwd is the server
-  // cwd, so relative markers anchor there.
-  const config = yield* ServerConfig;
-  const workspaceRoot = binding.worktreePath ?? binding.workingDirectory ?? config.cwd;
-  const visualization = yield* Effect.promise(() =>
-    validateWorkspaceInlineVisualizationFile({ requestedPath, workspaceRoot }),
-  );
-  return typeof visualization === "string"
-    ? null
-    : ({ threadId, visualization } satisfies {
-        readonly threadId: string;
-        readonly visualization: ValidatedInlineVisualization;
-      });
-});
+    const html = await readInlineVisual({
+      attachmentsDir: config.attachmentsDir,
+      threadId,
+      visualId,
+    }).catch(() => null);
+    if (html === null) return null;
+    return {
+      threadId,
+      visualId,
+      appearance: url.searchParams.get("appearance") === "light" ? "light" : "dark",
+      html,
+      sha256: createHash("sha256").update(html).digest("hex"),
+    };
+  });
 
 function inlineVisualizationFrameUrl(input: {
   readonly requestUrl: URL;
@@ -429,32 +415,21 @@ export const inlineVisualizationEffectRouteLayer = Layer.mergeAll(
       } catch {
         return HttpServerResponse.text("Not Found", { status: 404 });
       }
-      const contentType = inlineVisualizationLibraryContentType(assetName);
-      if (!contentType) return HttpServerResponse.text("Not Found", { status: 404 });
-
       const config = yield* ServerConfig;
       // Production assets live beside the built web app. Source checkout assets
       // are a development fallback so an iframe loaded from the real server
       // never follows the dev-server redirect (which CSP correctly rejects).
-      const roots = [
-        ...(config.staticDir ? [nodePath.join(config.staticDir, "inline-visualization-libs")] : []),
-        nodePath.resolve(import.meta.dir, "../../web/public/inline-visualization-libs"),
-      ];
-      for (const root of roots) {
-        const contents = yield* Effect.tryPromise(() =>
-          fs.readFile(nodePath.join(root, assetName)),
-        ).pipe(Effect.catch(() => Effect.succeed(null)));
-        if (contents) {
-          return HttpServerResponse.uint8Array(contents, {
-            contentType,
-            headers: {
-              "Cache-Control": "public, max-age=86400",
-              "X-Content-Type-Options": "nosniff",
-            },
-          });
-        }
-        // A packaged deployment does not retain source assets. Try the next
-        // known root before treating this shipped library as unavailable.
+      const library = yield* Effect.promise(() =>
+        readInlineVisualizationLibrary(assetName, config.staticDir),
+      );
+      if (library) {
+        return HttpServerResponse.uint8Array(library.contents, {
+          contentType: library.contentType,
+          headers: {
+            "Cache-Control": "public, max-age=86400",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
       }
       return HttpServerResponse.text("Not Found", { status: 404 });
     }),
@@ -538,6 +513,101 @@ export const inlineVisualizationEffectRouteLayer = Layer.mergeAll(
         headers: {
           "Cache-Control": "private, max-age=3600",
           ...INLINE_VISUALIZATION_DOCUMENT_SECURITY_HEADERS,
+        },
+      });
+    }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),
+  ),
+  // An inline visual's HTML document for a browser (the web app; desktop builds a `srcdoc`
+  // frame behind its native navigation guard). The web app's own `frame-src` refuses any
+  // navigation of the frame to another site before the request, and the document's policy
+  // blocks every fetch, so the visual stays offline as on desktop.
+  HttpRouter.add(
+    "GET",
+    INLINE_VISUAL_RESOLVE_ROUTE_PATH,
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const url = HttpServerRequest.toURL(request);
+      if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
+      const config = yield* ServerConfig;
+      if (!isLegacyTokenAuthorized({ config, url })) yield* requireAuthenticatedRequest;
+      const corsHeaders = localPreviewCorsHeaders({ config, request, url });
+      const visual = yield* readInlineVisualFrameRequest(config, url);
+      if (!visual) {
+        return HttpServerResponse.jsonUnsafe(
+          { error: "This visual is no longer available." },
+          { status: 404, headers: corsHeaders },
+        );
+      }
+      const frameUrl = new URL(INLINE_VISUAL_FRAME_ROUTE_PATH, url.origin);
+      frameUrl.searchParams.set("threadId", visual.threadId);
+      frameUrl.searchParams.set("visualId", visual.visualId);
+      frameUrl.searchParams.set("appearance", visual.appearance);
+      if (config.authToken) {
+        const expiresAtMs = Date.now() + INLINE_VISUALIZATION_FRAME_ACCESS_TTL_MS;
+        frameUrl.searchParams.set(INLINE_VISUALIZATION_FRAME_EXPIRES_PARAM, String(expiresAtMs));
+        frameUrl.searchParams.set(
+          INLINE_VISUALIZATION_FRAME_SIGNATURE_PARAM,
+          yield* Effect.promise(() =>
+            signInlineVisualizationFrameAccess({
+              token: config.authToken!,
+              threadId: visual.threadId,
+              path: inlineVisualSignedPath(visual),
+              sha256: visual.sha256,
+              expiresAtMs,
+            }),
+          ),
+        );
+      }
+      return HttpServerResponse.jsonUnsafe(
+        { url: frameUrl.toString() },
+        { status: 200, headers: corsHeaders },
+      );
+    }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),
+  ),
+  HttpRouter.add(
+    "GET",
+    INLINE_VISUAL_FRAME_ROUTE_PATH,
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const url = HttpServerRequest.toURL(request);
+      if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
+      const config = yield* ServerConfig;
+      if (url.searchParams.has("token")) {
+        return HttpServerResponse.text("Forbidden", { status: 403 });
+      }
+      const visual = yield* readInlineVisualFrameRequest(config, url);
+      if (!visual) {
+        return HttpServerResponse.text("This visual is no longer available.", { status: 404 });
+      }
+      const signature = url.searchParams.get(INLINE_VISUALIZATION_FRAME_SIGNATURE_PARAM);
+      if (signature !== null) {
+        const authToken = config.authToken;
+        if (!authToken) return HttpServerResponse.text("Forbidden", { status: 403 });
+        const valid = yield* Effect.promise(() =>
+          verifyInlineVisualizationFrameAccess({
+            token: authToken,
+            threadId: visual.threadId,
+            path: inlineVisualSignedPath(visual),
+            sha256: visual.sha256,
+            expires: url.searchParams.get(INLINE_VISUALIZATION_FRAME_EXPIRES_PARAM),
+            signature,
+            nowMs: Date.now(),
+          }),
+        );
+        if (!valid) return HttpServerResponse.text("Forbidden", { status: 403 });
+      } else if (!isLegacyTokenAuthorized({ config, url })) {
+        yield* requireAuthenticatedRequest;
+      }
+      const document = buildInlineVisualDocument(visual.html, {
+        appearance: visual.appearance,
+        variables: {},
+      });
+      return HttpServerResponse.text(document, {
+        status: 200,
+        contentType: "text/html; charset=utf-8",
+        headers: {
+          "Cache-Control": "private, no-store",
+          ...INLINE_VISUAL_DOCUMENT_SECURITY_HEADERS,
         },
       });
     }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),
@@ -629,6 +699,9 @@ export function makeHealthEffectRouteLayer(readiness: ServerReadiness) {
       const snapshot = yield* readiness.getSnapshot;
       const orchestrationEngine = yield* OrchestrationEngineService;
       const projection = yield* orchestrationEngine.getProjectionCatchUpStatus;
+      const accountRecovery = Option.getOrUndefined(
+        yield* Effect.serviceOption(AccountRecoveryRuntime),
+      );
       return HttpServerResponse.jsonUnsafe(
         {
           status: "ok",
@@ -637,6 +710,12 @@ export function makeHealthEffectRouteLayer(readiness: ServerReadiness) {
           accountStartupState: snapshot.accountStartupState,
           accountStartupCode: snapshot.accountStartupCode,
           accountRecoveryRequired: snapshot.accountRecoveryRequired,
+          accountRecovery: accountRecovery?.health ?? {
+            state: "disabled",
+            reason: "origin-not-configured",
+            role: "client",
+            origin: null,
+          },
           pushBusReady: snapshot.pushBusReady,
           keybindingsReady: snapshot.keybindingsReady,
           terminalSubscriptionsReady: snapshot.terminalSubscriptionsReady,
@@ -664,6 +743,8 @@ export function makeHealthEffectRouteLayer(readiness: ServerReadiness) {
 
 const requireAuthenticatedRequest = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
+  const config = yield* ServerConfig;
+  if (isLoopbackStartupBearer({ ...config, authorization: request.headers.authorization })) return;
   const serverAuth = yield* ServerAuth;
   yield* serverAuth.authenticateHttpRequest(makeEffectAuthRequest(request));
 });
@@ -1126,10 +1207,56 @@ const siteFaviconEffectRouteLayer = HttpRouter.add(
   }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),
 );
 
-// Builds a ZIP export of a single thread (thread.json + transcript.md) and streams
-// it back as a download. Loads only the requested thread detail so the export cost
-// scales with that thread rather than the whole projection; mirrors the auth shape
-// of the other binary GET routes (favicon/attachments).
+export const threadOutputEffectRouteLayer = HttpRouter.add(
+  "GET",
+  THREAD_OUTPUT_ROUTE,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
+    const config = yield* ServerConfig;
+    if (!isLegacyTokenAuthorized({ config, url })) yield* requireAuthenticatedRequest;
+    const cors = localPreviewCorsHeaders({ config, request, url });
+    const deny = () => HttpServerResponse.text("File unavailable", { status: 404, headers: cors });
+    const id = url.searchParams.get("threadId");
+    const file = url.searchParams.get("file");
+    const hash = url.searchParams.get("sha256") ?? undefined;
+    if (!id || !file || file.length > 4096 || (hash && !/^[a-f0-9]{64}$/u.test(hash)))
+      return deny();
+    const query = yield* ProjectionSnapshotQuery;
+    const thread = Option.getOrUndefined(
+      yield* query.getThreadDetailForExportById(ThreadId.makeUnsafe(id)),
+    );
+    if (!thread) return deny();
+    const href = threadOutputHref(id, file, hash);
+    // Native shell artifacts can also be linked from an answer by their ordinary file path.
+    const mentioned = thread.messages.some(
+      (message) =>
+        message.role === "assistant" &&
+        (message.text.includes(href) ||
+          (!hash && normalizeLocalReference(message.text).includes(normalizeLocalReference(file)))),
+    );
+    if (!mentioned) return deny();
+    const project = Option.getOrUndefined(yield* query.getProjectShellById(thread.projectId));
+    if (!project) return deny();
+    const cwd = yield* resolveThreadExecutionWorkspace({ thread, project, config, query });
+    if (!cwd) return deny();
+    const output = yield* Effect.promise(() => readThreadOutput(cwd, file, hash).catch(() => null));
+    if (!output) return deny();
+    return HttpServerResponse.uint8Array(output.bytes, {
+      contentType: "application/octet-stream",
+      headers: {
+        ...cors,
+        "Content-Disposition": attachmentContentDisposition(output.name),
+        "Access-Control-Expose-Headers": "Content-Disposition",
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),
+);
+
+// Builds and downloads a single thread's transcript ZIP without loading other threads.
 const threadExportEffectRouteLayer = HttpRouter.add(
   "GET",
   "/api/thread-export",
@@ -1258,6 +1385,24 @@ function safeManagedAttachmentContentType(value: unknown): string {
     ? normalized
     : "application/octet-stream";
 }
+
+export const localHtmlPreviewEffectRouteLayer = HttpRouter.add(
+  "GET",
+  `${LOCAL_HTML_PREVIEW_PREFIX}*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
+    const asset = yield* Effect.promise(() => resolveLocalHtmlPreviewAsset(url.pathname));
+    if (!asset) return HttpServerResponse.text("Not Found", { status: 404 });
+    return streamedFileResponse({
+      fileSystem: yield* FileSystem.FileSystem,
+      path: asset.path,
+      sizeBytes: asset.sizeBytes,
+      headers: localHtmlPreviewHeaders(url.origin, asset.token, asset.path),
+    });
+  }),
+);
 
 export const localImageEffectRouteLayer = HttpRouter.add(
   "GET",
@@ -1656,39 +1801,68 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
       const bytes = yield* readEffectBinary(request, SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES);
       const registry = yield* ProviderAdapterRegistry;
       const serverSettings = yield* ServerSettingsService;
-      const settings = yield* serverSettings.getSettings;
-      const instance = resolveProviderInstance(settings, {
-        provider,
-        ...(providerInstanceId ? { instanceId: providerInstanceId } : {}),
-      });
-      if (!instance || instance.driver !== provider || !instance.enabled) {
+      // Account services are optional here so embedded/test servers without Moss accounts
+      // still route personal providers; production always provides them.
+      const runtimeStartup = Option.getOrUndefined(
+        yield* Effect.serviceOption(ServerRuntimeStartup),
+      );
+      const phoneAccount = Option.getOrUndefined(
+        yield* Effect.serviceOption(MossPhoneAccountService),
+      );
+      const cloudAccount = Option.getOrUndefined(
+        yield* Effect.serviceOption(MossCloudAccountService),
+      );
+      const enterpriseKey = Option.getOrUndefined(
+        yield* Effect.serviceOption(MossEnterpriseKeyAccount),
+      );
+      const signedOut = () =>
+        Effect.fail(
+          new MossAccountServiceError({
+            code: "authentication_required",
+            message: "No Moss account service is available.",
+          }),
+        );
+      const result = yield* transcribeVoiceRequest({
+        request: {
+          provider,
+          ...(providerInstanceId ? { providerInstanceId } : {}),
+          cwd,
+          ...(threadId ? { threadId: ThreadId.makeUnsafe(threadId) } : {}),
+          mimeType,
+          sampleRateHz,
+          durationMs,
+          audioBase64: Buffer.from(bytes).toString("base64"),
+        },
+        account: {
+          awaitAccountStartup: runtimeStartup
+            ? runtimeStartup.enqueueRead(Effect.void)
+            : Effect.void,
+          getPhoneAuthorityCredential: phoneAccount
+            ? () => phoneAccount.getAuthorityCredential()
+            : signedOut,
+          getCloudAuthorityCredential: cloudAccount
+            ? () => cloudAccount.getAuthorityCredential()
+            : () =>
+                Effect.fail(
+                  new MossCloudAccountServiceError({
+                    code: "authentication_required",
+                    message: "No Moss account service is available.",
+                  }),
+                ),
+          ...(enterpriseKey ? { enterpriseKey } : {}),
+        },
+        getSettings: () => serverSettings.getSettings,
+        getAdapter: (adapterProvider) =>
+          getEnabledProviderAdapter(adapterProvider, serverSettings, registry),
+      }).pipe(Effect.result);
+      if (result._tag === "Failure") {
+        const failure = result.failure;
         return HttpServerResponse.jsonUnsafe(
-          {
-            error: `Voice transcription provider instance '${providerInstanceId ?? provider}' is unavailable.`,
-          },
-          { status: 409, headers: corsHeaders },
+          { error: failure.message, code: failure.code, retryable: failure.retryable },
+          { status: failure.status, headers: corsHeaders },
         );
       }
-      const adapter = yield* getEnabledProviderAdapter(instance.driver, serverSettings, registry);
-      if (!adapter.transcribeVoice) {
-        return HttpServerResponse.jsonUnsafe(
-          { error: `Voice transcription is unavailable for provider '${provider}'.` },
-          { status: 400, headers: corsHeaders },
-        );
-      }
-      const providerOptions = providerStartOptionsFromInstance(instance);
-      const result = yield* adapter.transcribeVoice({
-        provider: instance.driver,
-        providerInstanceId: instance.instanceId,
-        ...(providerOptions ? { providerOptions } : {}),
-        cwd,
-        ...(threadId ? { threadId: ThreadId.makeUnsafe(threadId) } : {}),
-        mimeType,
-        sampleRateHz,
-        durationMs,
-        audioBase64: Buffer.from(bytes).toString("base64"),
-      });
-      return HttpServerResponse.jsonUnsafe(result, { status: 200, headers: corsHeaders });
+      return HttpServerResponse.jsonUnsafe(result.success, { status: 200, headers: corsHeaders });
     }).pipe(Effect.ensuring(Effect.sync(releaseUpload)));
   }
 
@@ -1724,7 +1898,59 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
   ),
 );
 
+export const MOSS_CANVAS_SELECTION_ROUTE_PATH = "/api/moss/canvas/selection";
+
+/**
+ * The window reports what the person selected on a conversation's Canvas, so
+ * the agent can read it with moss_canvas_read. Memory only; an empty report
+ * clears it.
+ */
+const canvasSelectionEffectHandler = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const url = HttpServerRequest.toURL(request);
+  if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
+  const config = yield* ServerConfig;
+  const corsHeaders = trustedMutationCorsHeaders({ request, url, config });
+  if (corsHeaders === null)
+    return HttpServerResponse.jsonUnsafe(
+      { error: "Trusted request origin required." },
+      { status: 403 },
+    );
+  if (request.method === "OPTIONS")
+    return HttpServerResponse.empty({ status: 204, headers: corsHeaders });
+  if (request.method !== "POST")
+    return HttpServerResponse.text("Method Not Allowed", { status: 405, headers: corsHeaders });
+  if (!isLegacyTokenAuthorized({ config, url })) yield* requireAuthenticatedMutationRequest;
+  const threadId = url.searchParams.get("threadId") ?? "";
+  const body = yield* request.json.pipe(
+    Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(64 * 1024)),
+    Effect.catch(() => Effect.succeed(null)),
+  );
+  const accepted = recordMossCanvasLiveSelection(threadId, body);
+  return HttpServerResponse.jsonUnsafe(
+    { accepted },
+    { status: accepted ? 200 : 400, headers: corsHeaders },
+  );
+}).pipe(
+  Effect.catch((error) =>
+    Effect.succeed(
+      error instanceof AuthError
+        ? authErrorResponse(error)
+        : HttpServerResponse.jsonUnsafe(
+            { error: "Canvas selection was not accepted." },
+            {
+              status:
+                typeof (error as { readonly status?: unknown }).status === "number"
+                  ? (error as { readonly status: number }).status
+                  : 500,
+            },
+          ),
+    ),
+  ),
+);
+
 export const binaryUploadEffectRouteLayer = Layer.mergeAll(
+  HttpRouter.add("*", MOSS_CANVAS_SELECTION_ROUTE_PATH, canvasSelectionEffectHandler),
   HttpRouter.add("*", ATTACHMENT_UPLOAD_ROUTE_PATH, binaryUploadEffectHandler),
   HttpRouter.add("*", ATTACHMENT_CANCEL_ROUTE_PATH, binaryUploadEffectHandler),
   HttpRouter.add("*", VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH, binaryUploadEffectHandler),
@@ -1872,15 +2098,19 @@ const resolveCanvasStaticRoot = Effect.fn("resolveCanvasStaticRoot")(function* (
   const candidates = [
     ...(envDir ? [envDir] : []),
     path.resolve(import.meta.dirname, "canvas"),
+    path.resolve(import.meta.dirname, "../../desktop/canvas-bundle/apps/codex-canvas/dist"),
     ...(typeof process.resourcesPath === "string" && process.resourcesPath.length > 0
       ? [path.join(process.resourcesPath, "moss-canvas", "apps", "codex-canvas", "dist")]
       : []),
   ];
   for (const candidate of candidates) {
+    // Environment paths may use forward slashes on Windows or be relative.
+    // Keep the root in the same native absolute form as the served file paths.
+    const root = path.resolve(candidate);
     const hasIndex = yield* fileSystem
-      .exists(path.join(candidate, "index.html"))
+      .exists(path.join(root, "index.html"))
       .pipe(Effect.orElseSucceed(() => false));
-    if (hasIndex) return candidate;
+    if (hasIndex) return root;
   }
   return null;
 });

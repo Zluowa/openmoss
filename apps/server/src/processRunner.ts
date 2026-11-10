@@ -1,7 +1,8 @@
 import type { ChildProcess as ChildProcessHandle } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
-import { isCommandNotFoundExit } from "@synara/shared/platformProcess";
-import { spawnProcess } from "@synara/shared/processRuntime";
+import { createNativeOutputDecoder } from "@moss/shared/platformEncoding";
+import { isCommandNotFoundExit } from "@moss/shared/platformProcess";
+import { spawnProcess } from "@moss/shared/processRuntime";
 
 import { signalOwnedChildProcess } from "./platform/processTreeController.ts";
 
@@ -95,12 +96,18 @@ function killChild(child: ChildProcessHandle, signal: "SIGTERM" | "SIGKILL" = "S
   signalOwnedChildProcess(child, signal);
 }
 
+/** StringDecoder-shaped: stdout stays strict UTF-8, stderr may carry the system code page. */
+interface ChunkTextDecoder {
+  write(chunk: Buffer): string;
+  end(): string;
+}
+
 function appendChunkWithinLimit(
   target: string,
   currentBytes: number,
   chunk: Buffer,
   maxBytes: number,
-  decoder: StringDecoder,
+  decoder: ChunkTextDecoder,
 ): {
   next: string;
   nextBytes: number;
@@ -151,9 +158,13 @@ export async function runProcess(
     let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
     let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
     const stdoutDecoder = new StringDecoder("utf8");
-    const stderrDecoder = new StringDecoder("utf8");
+    // Windows tools (cmd.exe, reg.exe, a CLI's native helper) write their messages in the
+    // system code page; decode those lines with it so errors are readable, not mojibake.
+    const stderrDecoder: ChunkTextDecoder = createNativeOutputDecoder();
     const stdoutObserverDecoder = options.onStdoutChunk ? new StringDecoder("utf8") : null;
-    const stderrObserverDecoder = options.onStderrChunk ? new StringDecoder("utf8") : null;
+    const stderrObserverDecoder: ChunkTextDecoder | null = options.onStderrChunk
+      ? createNativeOutputDecoder()
+      : null;
 
     const scheduleForceKill = (): void => {
       if (forceKillTimer) clearTimeout(forceKillTimer);
@@ -249,7 +260,7 @@ export async function runProcess(
 
     const notifyOutputObserver = (
       observer: ((chunk: string) => void) | undefined,
-      decoder: StringDecoder | null,
+      decoder: ChunkTextDecoder | null,
       chunk: Buffer | string,
     ): void => {
       if (!observer || !decoder) return;
@@ -263,7 +274,7 @@ export async function runProcess(
 
     const flushOutputObserver = (
       observer: ((chunk: string) => void) | undefined,
-      decoder: StringDecoder | null,
+      decoder: ChunkTextDecoder | null,
     ): void => {
       if (!observer || !decoder) return;
       try {

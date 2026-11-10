@@ -6,15 +6,16 @@ import {
   SpaceId,
   ThreadId,
   type ImportProjectInput,
+  type ListProjectImportsResult,
   type OrchestrationCommand,
   type OrchestrationProject,
   type OrchestrationReadModel,
   type ProjectImportProvider,
   type ProviderForkThreadResult,
   type ThreadHandoffImportedMessage,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Schema } from "effect";
-import { resolveThreadWorkspaceCwd } from "@synara/shared/threadEnvironment";
+import { resolveThreadWorkspaceCwd } from "@moss/shared/threadEnvironment";
 import {
   access,
   mkdir,
@@ -44,6 +45,8 @@ import type {
   ReadProjectImportHistoryInput,
   ProjectImportHistoryPage,
 } from "./projectImportHistory";
+import { getDefaultModel } from "@moss/shared/model";
+
 import { makeProjectImportHandlers } from "./projectImportRoute";
 
 const CREATED_AT = "2026-09-01T10:00:00.000Z";
@@ -104,6 +107,7 @@ function harness(input: {
     codexHomePath?: string;
     claudeBinaryPath?: string;
   };
+  unreadable?: ListProjectImportsResult["unreadable"];
   /** Extra provider accounts and the native catalog each one exposes. */
   accounts?: ReadonlyArray<{
     instanceId: string;
@@ -160,6 +164,10 @@ function harness(input: {
         return origin;
       }),
     complete,
+    findByThread: (id: ThreadId) =>
+      Effect.sync(() => [...origins.values()].find((origin) => origin.threadId === id)),
+    hasRuntimeBinding: (id: ThreadId) =>
+      Effect.sync(() => bindings.some((binding) => binding.threadId === id)),
     listNativeBindings: () => Effect.sync(() => bindings),
   } as unknown as ProjectImportRepository;
   const importExternalThread = vi.fn(
@@ -194,6 +202,14 @@ function harness(input: {
           },
         ],
       }),
+  );
+  const readTranscript = vi.fn(async (source: { provider: string; externalId: string }) =>
+    Array.from({ length: 45 }, (_, index) => ({
+      id: `${source.externalId}:${index}`,
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      text: `Fixture line ${index}`,
+      ...(index === 0 ? { createdAt: CREATED_AT } : {}),
+    })),
   );
   const engine = {
     getReadModel: () => Effect.succeed({ projects, threads } as unknown as OrchestrationReadModel),
@@ -266,6 +282,8 @@ function harness(input: {
     discover: async (provider, source) =>
       accountCatalogs.get(source.instanceId) ?? catalogs.get(provider)!,
     readHistory,
+    readImportedTranscript: readTranscript,
+    countUnreadable: async () => input.unreadable ?? [],
   });
   const preview = () => Effect.runPromise(handlers.listProjectImports({ providers }));
   const request = async (
@@ -294,6 +312,8 @@ function harness(input: {
     importExternalThread,
     stopRuntimeSession,
     readHistory,
+    readTranscript,
+    historyStates,
     complete,
     catalogs,
   };
@@ -308,7 +328,131 @@ afterEach(async () => {
 });
 
 describe("project import routes", () => {
-  it("scans each account and copies a work-account conversation into that account", async () => {
+  it("registers a conversation instantly and reads its transcript the first time it is opened", async () => {
+    const { root } = await workspace();
+    const test = harness({ root, providers: ["grok"] });
+
+    const preview = await test.preview();
+    expect(preview.sources).toEqual([
+      { provider: "grok", providerInstanceId: "grok", error: null },
+    ]);
+    const input = await test.request("grok");
+    const result = await Effect.runPromise(test.importProject(input));
+
+    // Importing only registers: nothing is read and no agent starts.
+    expect(result.status).toBe("imported");
+    expect(test.readTranscript).not.toHaveBeenCalled();
+    expect(test.importExternalThread).not.toHaveBeenCalled();
+    expect(test.commands.filter((command) => command.type === "thread.messages.import")).toEqual(
+      [],
+    );
+    expect(test.commands.find((command) => command.type === "thread.create")).toMatchObject({
+      title: "grok conversation",
+      modelSelection: { provider: "grok", model: getDefaultModel("grok") },
+    });
+    expect(test.historyStates.get(`${result.threadId}:0`)).toMatchObject({
+      provider: "grok",
+      lazy: { transcript: "pending", continuation: "pending" },
+    });
+    expect([...test.origins.values()]).toEqual([
+      expect.objectContaining({
+        provider: "grok",
+        externalId: "grok-original",
+        status: "completed",
+      }),
+    ]);
+
+    const opened = await Effect.runPromise(
+      test.loadProjectImportHistory({ threadId: result.threadId! }),
+    );
+    expect(opened).toEqual({ nextCursor: null, messages: [] });
+    expect(test.readTranscript).toHaveBeenCalledTimes(1);
+    expect(test.readTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "grok", externalId: "grok-original" }),
+    );
+    const messages = test.importedMessages.get(result.threadId!)!;
+    expect(messages).toHaveLength(45);
+    expect(messages[0]).toMatchObject({
+      role: "user",
+      text: "Fixture line 0",
+      createdAt: CREATED_AT,
+    });
+    expect(new Set(messages.map((message) => message.createdAt)).size).toBe(45);
+    expect(test.historyStates.get(`${result.threadId}:0`)?.lazy?.transcript).toBe("loaded");
+
+    // Opening again never reads or copies twice.
+    await Effect.runPromise(test.loadProjectImportHistory({ threadId: result.threadId! }));
+    expect(test.readTranscript).toHaveBeenCalledTimes(1);
+    expect(test.importedMessages.get(result.threadId!)).toHaveLength(45);
+    await expect(Effect.runPromise(test.importProject(input))).resolves.toEqual({
+      projectId: result.projectId,
+      threadId: result.threadId,
+      status: "already-present",
+    });
+  });
+
+  it("registers hundreds of conversations without reading any of them", async () => {
+    const { root } = await workspace();
+    const test = harness({ root });
+    const catalog = test.catalogs.get("codex")!;
+    test.catalogs.set("codex", {
+      ...catalog,
+      sessions: Array.from({ length: 400 }, (_, index) => ({
+        ...catalog.sessions[0]!,
+        id: `codex-${index}`,
+      })),
+    });
+    const preview = await test.preview();
+    const project = preview.projects[0]!;
+
+    const started = performance.now();
+    for (const thread of project.threads) {
+      await Effect.runPromise(
+        test.importProject({ projectKey: project.key, threadKey: thread.key }),
+      );
+    }
+
+    expect(test.threads).toHaveLength(400);
+    expect(test.readTranscript).not.toHaveBeenCalled();
+    expect(test.importExternalThread).not.toHaveBeenCalled();
+    expect(performance.now() - started).toBeLessThan(10_000);
+  });
+
+  it("reports conversations it found but cannot copy, without offering them", async () => {
+    const { root } = await workspace();
+    const test = harness({
+      root,
+      providers: ["grok"],
+      unreadable: [{ provider: "antigravity", conversationCount: 3, reason: "encrypted" }],
+    });
+
+    const preview = await test.preview();
+
+    expect(preview.unreadable).toEqual([
+      { provider: "antigravity", conversationCount: 3, reason: "encrypted" },
+    ]);
+    expect(preview.projects.flatMap((project) => project.threads.map((t) => t.provider))).toEqual([
+      "grok",
+    ]);
+  });
+
+  it("continues a runtime-catalog agent's copy in the model the conversation used", async () => {
+    const { root } = await workspace();
+    const test = harness({ root, providers: ["pi"] });
+    const catalog = test.catalogs.get("pi")!;
+    test.catalogs.set("pi", {
+      ...catalog,
+      sessions: [{ ...catalog.sessions[0]!, model: "acme/fast-1" }],
+    });
+
+    await Effect.runPromise(test.importProject(await test.request("pi")));
+
+    expect(test.commands.find((command) => command.type === "thread.create")).toMatchObject({
+      modelSelection: { provider: "pi", model: "acme/fast-1" },
+    });
+  });
+
+  it("scans each account and registers a work-account conversation under that account", async () => {
     const { root } = await workspace();
     const workCatalog = {
       ...nativeCatalog(root, "codex"),
@@ -360,18 +504,14 @@ describe("project import routes", () => {
     );
 
     expect(result.status).toBe("imported");
-    const copy = test.importExternalThread.mock.calls[0]![0];
-    expect(copy.externalThreadId).toBe("codex-work-original");
-    expect(copy.modelSelection).toMatchObject({ provider: "codex", instanceId: "codex_work" });
-    expect(copy.providerOptions?.codex).toMatchObject({
-      homePath: "/accounts/codex-work",
-      accountId: "codex_work",
+    expect(test.importExternalThread).not.toHaveBeenCalled();
+    expect(test.commands.find((command) => command.type === "thread.create")).toMatchObject({
+      modelSelection: { provider: "codex", instanceId: "codex_work" },
     });
-    expect(test.readHistory.mock.calls[0]![0].providerInstanceId).toBe("codex_work");
-    const sessionSet = test.commands.find((command) => command.type === "thread.session.set");
-    expect(sessionSet?.type === "thread.session.set" && sessionSet.session.providerInstanceId).toBe(
-      "codex_work",
-    );
+    expect(test.historyStates.get(`${result.threadId}:0`)).toMatchObject({
+      providerInstanceId: "codex_work",
+      lazy: { transcript: "pending", continuation: "pending" },
+    });
   });
 
   it("lists a conversation shared by several accounts once, under the default account", async () => {
@@ -400,60 +540,6 @@ describe("project import routes", () => {
       "codex",
       "codex_work",
     ]);
-  });
-
-  it.each([
-    {
-      name: "empty Codex overrides",
-      provider: "codex" as const,
-      paths: { codexBinaryPath: "", codexHomePath: "" },
-      expected: { codex: {} },
-    },
-    {
-      name: "whitespace Codex overrides",
-      provider: "codex" as const,
-      paths: { codexBinaryPath: "  \t", codexHomePath: " \n " },
-      expected: { codex: {} },
-    },
-    {
-      name: "configured Codex executable with default home",
-      provider: "codex" as const,
-      paths: { codexBinaryPath: "codex" },
-      // Account options drop an override equal to the default command, like every launch.
-      expected: { codex: {} },
-    },
-    {
-      name: "trimmed Codex overrides",
-      provider: "codex" as const,
-      paths: { codexBinaryPath: " /custom/bin/codex ", codexHomePath: " /custom/codex-home " },
-      expected: { codex: { binaryPath: "/custom/bin/codex", homePath: "/custom/codex-home" } },
-    },
-    {
-      name: "empty Claude executable",
-      provider: "claudeAgent" as const,
-      paths: { claudeBinaryPath: "" },
-      expected: { claudeAgent: {} },
-    },
-    {
-      name: "whitespace Claude executable",
-      provider: "claudeAgent" as const,
-      paths: { claudeBinaryPath: " \t " },
-      expected: { claudeAgent: {} },
-    },
-    {
-      name: "trimmed Claude executable",
-      provider: "claudeAgent" as const,
-      paths: { claudeBinaryPath: " /custom/bin/claude " },
-      expected: { claudeAgent: { binaryPath: "/custom/bin/claude" } },
-    },
-  ])("passes $name through native copy and history", async ({ provider, paths, expected }) => {
-    const { root } = await workspace();
-    const test = harness({ root, providers: [provider], paths });
-    const result = await Effect.runPromise(test.importProject(await test.request(provider)));
-
-    expect(result.status).toBe("imported");
-    expect(test.importExternalThread.mock.calls[0]?.[0].providerOptions).toEqual(expected);
-    expect(test.readHistory.mock.calls[0]?.[0].providerOptions).toEqual(expected);
   });
 
   it("links a physical folder through its alias without copying or creating filesystem entries", async () => {
@@ -490,26 +576,21 @@ describe("project import routes", () => {
     expect(test.projects).toEqual([project]);
     expect(test.threads).toHaveLength(2);
     expect(test.commands.some((command) => command.type.startsWith("project."))).toBe(false);
-    expect(test.importExternalThread.mock.calls[0]?.[0].modelSelection).toEqual(
+    const created = test.commands.filter((command) => command.type === "thread.create");
+    expect(created[0]?.type === "thread.create" && created[0].modelSelection).toEqual(
       project.defaultModelSelection,
     );
-    expect(test.importExternalThread.mock.calls[1]?.[0].modelSelection.provider).toBe(
+    expect(created[1]?.type === "thread.create" && created[1].modelSelection.provider).toBe(
       "claudeAgent",
     );
     expect(test.commands.filter((command) => command.type === "thread.create")).toEqual([
       expect.objectContaining({ runtimeMode: "approval-required" }),
       expect.objectContaining({ runtimeMode: "approval-required" }),
     ]);
-    expect(test.importExternalThread.mock.calls.map(([input]) => input.runtimeMode)).toEqual([
-      "approval-required",
-      "approval-required",
-    ]);
-    expect(test.readHistory.mock.calls.map(([value]) => value.nativeId)).toEqual([
-      "codex-original-copy",
-      "claudeAgent-original-copy",
-    ]);
-    expect(test.readHistory.mock.calls[1]?.[0].sourceCwd).toBe(root);
-    expect(test.stopRuntimeSession).toHaveBeenCalledTimes(2);
+    // Nothing native happens until the person continues one of them.
+    expect(test.importExternalThread).not.toHaveBeenCalled();
+    expect(test.readHistory).not.toHaveBeenCalled();
+    expect(test.stopRuntimeSession).not.toHaveBeenCalled();
   });
 
   it("skips a completed source on repeated requests and marks it present in the next preview", async () => {
@@ -521,13 +602,13 @@ describe("project import routes", () => {
     const second = await Effect.runPromise(test.importProject(request));
 
     expect(second).toEqual({ ...first, status: "already-present" });
-    expect(test.importExternalThread).toHaveBeenCalledTimes(1);
+    expect(test.importExternalThread).not.toHaveBeenCalled();
     expect(test.threads).toHaveLength(1);
     expect((await test.preview()).projects[0]?.threads[0]?.alreadyImported).toBe(true);
   });
 
   it.each(["codex", "claudeAgent"] as const)(
-    "reimports a deleted %s conversation with fresh command identities and history",
+    "reimports a deleted %s conversation with fresh command identities",
     async (provider) => {
       const { root } = await workspace();
       const test = harness({ root, providers: [provider] });
@@ -547,9 +628,8 @@ describe("project import routes", () => {
       expect(second.threadId).not.toBe(first.threadId);
       expect(second.projectId).toBe(first.projectId);
       expect(test.threads.filter((thread) => thread.deletedAt === null)).toHaveLength(1);
-      expect(test.importedMessages.get(second.threadId!)).toHaveLength(1);
-      expect(test.importExternalThread).toHaveBeenCalledTimes(2);
-      for (const type of ["thread.create", "thread.messages.import", "thread.archive"]) {
+      expect(test.importExternalThread).not.toHaveBeenCalled();
+      for (const type of ["thread.create", "thread.archive"]) {
         const commands = test.commands.filter((command) => command.type === type);
         expect(commands).toHaveLength(2);
         expect(commands[0]?.commandId).not.toBe(commands[1]?.commandId);
@@ -565,36 +645,6 @@ describe("project import routes", () => {
     },
   );
 
-  it("restarts a deleted pending copy, then reuses its replacement when another retry is needed", async () => {
-    const { root } = await workspace();
-    const test = harness({ root });
-    const request = await test.request();
-    test.readHistory.mockReturnValueOnce(Effect.fail(new Error("history unavailable")));
-    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow(
-      "history unavailable",
-    );
-    const deletedThreadId = test.threads[0]!.id;
-    test.threads[0]!.deletedAt = UPDATED_AT;
-
-    test.complete.mockReturnValueOnce(Effect.fail(new Error("ledger unavailable")));
-    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow(
-      "ledger unavailable",
-    );
-    const replacement = [...test.origins.values()][0]!;
-    expect(replacement.threadId).not.toBe(deletedThreadId);
-    expect(replacement.status).toBe("pending");
-    const result = await Effect.runPromise(test.importProject(request));
-
-    expect(result.threadId).toBe(replacement.threadId);
-    expect(test.threads.filter((thread) => thread.deletedAt === null)).toHaveLength(1);
-    expect(test.importedMessages.get(result.threadId!)).toHaveLength(1);
-    expect(test.importExternalThread.mock.calls.map(([input]) => input.threadId)).toEqual([
-      deletedThreadId,
-      replacement.threadId,
-      replacement.threadId,
-    ]);
-  });
-
   it.each(["pending", "completed"] as const)(
     "recreates a removed project for a %s import",
     async (status) => {
@@ -602,7 +652,7 @@ describe("project import routes", () => {
       const test = harness({ root });
       const request = await test.request();
       if (status === "pending")
-        test.readHistory.mockReturnValueOnce(Effect.fail(new Error("history unavailable")));
+        test.complete.mockReturnValueOnce(Effect.fail(new Error("completion interrupted")));
       await Effect.runPromise(Effect.result(test.importProject(request)));
       const previous = [...test.origins.values()][0]!;
       test.projects[0] = { ...test.projects[0]!, deletedAt: UPDATED_AT };
@@ -614,7 +664,6 @@ describe("project import routes", () => {
       expect(result.projectId).not.toBe(previous.projectId);
       expect(result.threadId).not.toBe(previous.threadId);
       expect(test.projects.filter((project) => project.deletedAt === null)).toHaveLength(1);
-      expect(test.importedMessages.get(result.threadId!)).toHaveLength(1);
     },
   );
 
@@ -630,7 +679,6 @@ describe("project import routes", () => {
 
     expect(second.threadId).not.toBe(first.threadId);
     expect(test.threads).toHaveLength(1);
-    expect(test.importedMessages.get(second.threadId!)).toHaveLength(1);
   });
 
   it("retains a reservation interrupted before its thread was created", async () => {
@@ -654,7 +702,7 @@ describe("project import routes", () => {
 
     expect(result.threadId).toBe(threadId);
     expect(test.threads).toHaveLength(1);
-    expect(test.importedMessages.get(threadId)).toHaveLength(1);
+    expect(test.historyStates.get(`${threadId}:0`)?.lazy?.transcript).toBe("pending");
   });
 
   it("rechecks physical folder identity when an aliased destination appears after preview", async () => {
@@ -714,7 +762,6 @@ describe("project import routes", () => {
 
     expect(result.status).toBe("imported");
     expect(result.threadId).not.toBe(threadId);
-    expect(test.importedMessages.get(result.threadId!)).toHaveLength(1);
   });
 
   it("keeps a pending import attached to its original destination when retrying", async () => {
@@ -723,105 +770,20 @@ describe("project import routes", () => {
     await mkdir(replacement);
     const test = harness({ root });
     const request = await test.request();
-    test.readHistory.mockImplementationOnce(() => Effect.fail(new Error("read failed")));
-    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow("read failed");
+    test.complete.mockReturnValueOnce(Effect.fail(new Error("completion interrupted")));
+    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow(
+      "completion interrupted",
+    );
 
     await expect(
       Effect.runPromise(test.importProject({ ...request, workspaceRoot: replacement })),
     ).rejects.toThrow("keeps its original destination");
-    expect(test.importExternalThread).toHaveBeenCalledTimes(1);
     expect(test.projects[0]?.workspaceRoot).toBe(root);
     expect(test.threads).toHaveLength(1);
 
     await expect(Effect.runPromise(test.importProject(request))).resolves.toMatchObject({
       status: "imported",
     });
-  });
-
-  it("retains a failed history reservation, releases the runtime, and retries the same destination", async () => {
-    const { root } = await workspace();
-    const test = harness({ root, paths: { codexBinaryPath: " ", codexHomePath: " \t " } });
-    const request = await test.request();
-    test.readHistory.mockImplementationOnce(() => Effect.fail(new Error("history unavailable")));
-
-    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow(
-      "history unavailable",
-    );
-    const pending = [...test.origins.values()][0]!;
-    expect(pending.status).toBe("pending");
-    expect(test.stopRuntimeSession).toHaveBeenCalledWith({ threadId: pending.threadId });
-    expect(test.importedMessages.size).toBe(0);
-
-    const result = await Effect.runPromise(test.importProject(request));
-
-    expect(result.threadId).toBe(pending.threadId);
-    expect(test.projects).toHaveLength(1);
-    expect(test.threads).toHaveLength(1);
-    expect(test.commands.filter((command) => command.type === "thread.create")).toHaveLength(1);
-    expect(test.importExternalThread.mock.calls.map(([value]) => value.threadId)).toEqual([
-      pending.threadId,
-      pending.threadId,
-    ]);
-    expect(test.importedMessages.get(pending.threadId)).toHaveLength(1);
-    expect(test.origins.get(pending.sourceKey)?.status).toBe("completed");
-  });
-
-  it("reuses the persisted initial page without duplication after ledger completion fails", async () => {
-    const { root } = await workspace();
-    const test = harness({ root });
-    const request = await test.request();
-    test.complete.mockImplementationOnce(() => Effect.fail(new Error("ledger unavailable")));
-
-    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow(
-      "ledger unavailable",
-    );
-    const pending = [...test.origins.values()][0]!;
-    expect(test.importedMessages.get(pending.threadId)).toHaveLength(1);
-    await Effect.runPromise(test.importProject(request));
-
-    const messages = test.commands.filter((command) => command.type === "thread.messages.import");
-    expect(messages).toHaveLength(1);
-    expect(test.readHistory).toHaveBeenCalledTimes(1);
-    expect(test.importedMessages.get(pending.threadId)).toHaveLength(1);
-    expect(test.origins.get(pending.sourceKey)?.status).toBe("completed");
-  });
-
-  it("releases the native runtime when copying fails before history is read", async () => {
-    const { root } = await workspace();
-    const test = harness({ root });
-    const request = await test.request();
-    test.importExternalThread.mockImplementationOnce(() =>
-      Effect.fail(new Error("native fork failed")),
-    );
-
-    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow(
-      "native fork failed",
-    );
-
-    expect(test.stopRuntimeSession).toHaveBeenCalledTimes(1);
-    expect(test.readHistory).not.toHaveBeenCalled();
-    expect([...test.origins.values()][0]?.status).toBe("pending");
-    expect(test.complete).not.toHaveBeenCalled();
-  });
-
-  it("rejects a provider result that still points to the original native session", async () => {
-    const { root } = await workspace();
-    const test = harness({ root, providers: ["claudeAgent"] });
-    const request = await test.request();
-    test.importExternalThread.mockImplementationOnce((value) =>
-      Effect.succeed({
-        threadId: value.threadId,
-        resumeCursor: { resume: value.externalThreadId },
-      }),
-    );
-
-    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow(
-      "independent conversation copy",
-    );
-
-    expect(test.stopRuntimeSession).toHaveBeenCalledTimes(1);
-    expect(test.readHistory).not.toHaveBeenCalled();
-    expect([...test.origins.values()][0]?.status).toBe("pending");
   });
 
   it("preserves a missing source folder without creating it or inventing a runtime cwd", async () => {
@@ -835,10 +797,31 @@ describe("project import routes", () => {
 
     expect(result.status).toBe("imported");
     expect(test.projects[0]?.workspaceRoot).toBe(missingRoot);
-    expect(test.importExternalThread.mock.calls[0]?.[0]).toMatchObject({ sourceCwd: missingRoot });
-    expect(test.importExternalThread.mock.calls[0]?.[0]).not.toHaveProperty("cwd");
+    const state = test.historyStates.get(`${result.threadId}:0`);
+    expect(state).toMatchObject({ sourceCwd: missingRoot });
+    expect(state).not.toHaveProperty("cwd");
     await expect(access(missingRoot)).rejects.toThrow();
   });
+
+  it.runIf(process.platform === "win32")(
+    "imports a conversation whose folder is a drive root recorded as an extended-length path",
+    async () => {
+      // Codex records `\\?\E:\`; Node reads that as `E:` and stat used to fail with EISDIR.
+      const driveRoot = path.win32.parse(process.cwd()).root;
+      const test = harness({ root: `\\\\?\\${driveRoot}` });
+      const preview = await test.preview();
+      expect(preview.projects[0]).toMatchObject({
+        workspaceRoot: driveRoot,
+        directoryExists: true,
+      });
+
+      const result = await Effect.runPromise(test.importProject(await test.request()));
+
+      expect(result.status).toBe("imported");
+      expect(test.projects[0]?.workspaceRoot).toBe(driveRoot);
+      expect(test.historyStates.get(`${result.threadId}:0`)).toMatchObject({ cwd: driveRoot });
+    },
+  );
 
   it.each(["codex"] as const)(
     "preserves a %s monorepo conversation's existing worktree cwd after runtime restart",
@@ -869,7 +852,7 @@ describe("project import routes", () => {
         worktreePath: worktree,
         workingDirectory: sourceCwd,
       });
-      expect(test.importExternalThread.mock.calls[0]?.[0]).toMatchObject({
+      expect(test.historyStates.get(`${result.threadId}:0`)).toMatchObject({
         sourceCwd,
         cwd: sourceCwd,
       });
@@ -893,14 +876,14 @@ describe("project import routes", () => {
       sessions: [{ ...catalog.sessions[0]!, cwd: worktree }],
     });
 
-    await Effect.runPromise(
+    const result = await Effect.runPromise(
       test.importProject({ ...(await test.request()), workspaceRoot: replacement }),
     );
 
     const created = test.commands.find((command) => command.type === "thread.create")!;
     expect(created).toMatchObject({ envMode: "local", worktreePath: null });
     expect(created.workingDirectory).toBeUndefined();
-    expect(test.importExternalThread.mock.calls[0]?.[0]).toMatchObject({
+    expect(test.historyStates.get(`${result.threadId}:0`)).toMatchObject({
       sourceCwd: worktree,
       cwd: replacement,
     });
@@ -925,33 +908,14 @@ describe("project import routes", () => {
     expect(test.importExternalThread).not.toHaveBeenCalled();
   });
 
-  it("refuses a disabled provider before creating or importing anything", async () => {
+  it("registers a turned-off agent's conversation without starting it", async () => {
     const { root } = await workspace();
     const test = harness({ root, disabled: "codex" });
-    const request = await test.request();
 
-    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow(
-      "disabled in Settings",
-    );
+    const result = await Effect.runPromise(test.importProject(await test.request()));
 
-    expect(test.commands).toEqual([]);
-    expect(test.origins.size).toBe(0);
+    expect(result.status).toBe("imported");
+    expect(test.threads).toHaveLength(1);
     expect(test.importExternalThread).not.toHaveBeenCalled();
-  });
-
-  it("does not mark an import complete when native cleanup fails", async () => {
-    const { root } = await workspace();
-    const test = harness({ root });
-    const request = await test.request();
-    test.stopRuntimeSession.mockImplementationOnce(() =>
-      Effect.fail(new Error("cleanup unproven")),
-    );
-
-    await expect(Effect.runPromise(test.importProject(request))).rejects.toThrow(
-      "cleanup unproven",
-    );
-
-    expect([...test.origins.values()][0]?.status).toBe("pending");
-    expect(test.complete).not.toHaveBeenCalled();
   });
 });

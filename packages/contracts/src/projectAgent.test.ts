@@ -25,6 +25,23 @@ it.effect("defaults coordinator limits and capture", () =>
     });
     assert.deepStrictEqual(parsed.limits, { ...DEFAULT_PROJECT_AGENT_LIMITS });
     assert.strictEqual(parsed.captureEnabled, true);
+    assert.strictEqual(parsed.userLocale, undefined);
+  }),
+);
+
+it.effect("accepts the app's languages for the hub's first message", () =>
+  Effect.gen(function* () {
+    const input = {
+      requestId: "req-1",
+      projectId: "project-1",
+      coordinatorModelSelection: { provider: "codex", model: "gpt-5-codex" },
+    };
+    const parsed = yield* decode(ProjectAgentConfigureInput, { ...input, userLocale: "zh-CN" });
+    assert.strictEqual(parsed.userLocale, "zh-CN");
+    const unknown = yield* Effect.exit(
+      decode(ProjectAgentConfigureInput, { ...input, userLocale: "fr" }),
+    );
+    assert.strictEqual(unknown._tag, "Failure");
   }),
 );
 

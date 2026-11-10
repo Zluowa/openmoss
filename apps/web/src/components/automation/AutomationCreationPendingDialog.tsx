@@ -1,4 +1,4 @@
-import type { AutomationCreateInput } from "@synara/contracts";
+import type { AutomationCreateInput } from "@moss/contracts";
 import { Alert, AlertDescription, AlertTitle } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";

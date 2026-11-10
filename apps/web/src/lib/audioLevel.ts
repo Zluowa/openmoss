@@ -4,8 +4,8 @@
 // Layer: Web runtime helper (desktop bridge consumer)
 // Exports: getAudioLevelSubscriber, isAudioLevelAvailable
 
-import type { DesktopAudioLevelSource } from "@synara/contracts";
-import { AUDIO_TRAIL_BETA_FEATURE } from "@synara/shared/betaFeatures";
+import type { DesktopAudioLevelSource } from "@moss/contracts";
+import { AUDIO_TRAIL_BETA_FEATURE } from "@moss/shared/betaFeatures";
 import { isBetaFeatureOn } from "~/betaFeatures";
 import { isMacNavigatorPlatform } from "./utils";
 

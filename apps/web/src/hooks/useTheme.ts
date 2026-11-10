@@ -51,7 +51,7 @@ let listeners: Array<() => void> = [];
 // localStorage on every render of every theme consumer was measurable during
 // transcript streaming.
 let currentSnapshot: ThemeSnapshot | null = null;
-let lastDesktopTheme: ThemeMode | null = null;
+let lastDesktopTheme: string | null = null;
 let lastDesktopWindowMaterial: string | null = null;
 let desktopBlurUnavailable = false;
 
@@ -204,7 +204,12 @@ function applyThemeState(state: ThemeState, suppressTransitions = false) {
     root.style.setProperty(name, value);
   }
 
-  syncDesktopTheme(state.mode);
+  const startupBackgrounds = {
+    light: resolveThemePack(state, "light").theme.surface,
+    dark: resolveThemePack(state, "dark").theme.surface,
+  };
+  root.style.setProperty("--moss-boot-background", startupBackgrounds[variant]);
+  syncDesktopTheme(state.mode, startupBackgrounds);
   syncDesktopWindowMaterial(cssVariableBuild.material, translucency.blur);
 
   if (suppressTransitions) {
@@ -217,19 +222,20 @@ function applyThemeState(state: ThemeState, suppressTransitions = false) {
   }
 }
 
-function syncDesktopTheme(theme: ThemeMode) {
+function syncDesktopTheme(theme: ThemeMode, startupBackgrounds: { light: string; dark: string }) {
   if (typeof window === "undefined") {
     return;
   }
 
   const bridge = window.desktopBridge;
-  if (!bridge || typeof bridge.setTheme !== "function" || lastDesktopTheme === theme) {
+  const key = JSON.stringify([theme, startupBackgrounds]);
+  if (!bridge || typeof bridge.setTheme !== "function" || lastDesktopTheme === key) {
     return;
   }
 
-  lastDesktopTheme = theme;
-  void bridge.setTheme(theme).catch(() => {
-    if (lastDesktopTheme === theme) {
+  lastDesktopTheme = key;
+  void bridge.setTheme(theme, startupBackgrounds).catch(() => {
+    if (lastDesktopTheme === key) {
       lastDesktopTheme = null;
     }
   });

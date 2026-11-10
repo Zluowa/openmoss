@@ -5,6 +5,8 @@ import {
   createCachedSystemProxyReader,
   hasOutboundProxy,
   parseMacOsScutilProxy,
+  parseWindowsInternetSettingsProxy,
+  readWindowsSystemProxy,
   withOutboundProxyEnv,
 } from "./outboundProxy";
 
@@ -109,5 +111,87 @@ describe("createCachedSystemProxyReader", () => {
     clock = 1_000;
     read();
     expect(reads).toBe(2);
+  });
+});
+
+describe("Windows system proxy", () => {
+  const settings = (lines: string) =>
+    `\r\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\r\n${lines}\r\n`;
+
+  it("reads the single proxy a VPN client sets in system-proxy mode", () => {
+    const env = parseWindowsInternetSettingsProxy(
+      settings(
+        [
+          "    ProxyEnable    REG_DWORD    0x1",
+          "    ProxyServer    REG_SZ    127.0.0.1:7897",
+          "    ProxyOverride    REG_SZ    localhost;127.*;10.*;*.corp.example;<local>",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:7897");
+    expect(env.HTTP_PROXY).toBe("http://127.0.0.1:7897");
+    expect(env.https_proxy).toBe("http://127.0.0.1:7897");
+    expect(env.NO_PROXY).toBe("127.0.0.1,localhost,::1,*.corp.example");
+  });
+
+  it("reads per-protocol proxies and keeps an explicit scheme", () => {
+    const env = parseWindowsInternetSettingsProxy(
+      settings(
+        [
+          "    ProxyEnable    REG_DWORD    0x1",
+          "    ProxyServer    REG_SZ    http=127.0.0.1:8080;https=https://proxy.example:8443;socks=127.0.0.1:1080",
+        ].join("\r\n"),
+      ),
+    );
+
+    expect(env.HTTP_PROXY).toBe("http://127.0.0.1:8080");
+    expect(env.HTTPS_PROXY).toBe("https://proxy.example:8443");
+    expect(env.ALL_PROXY).toBe("socks5://127.0.0.1:1080");
+  });
+
+  it("ignores a proxy that is switched off, and a PAC script", () => {
+    expect(
+      parseWindowsInternetSettingsProxy(
+        settings(
+          [
+            "    ProxyEnable    REG_DWORD    0x0",
+            "    ProxyServer    REG_SZ    127.0.0.1:7897",
+          ].join("\r\n"),
+        ),
+      ),
+    ).toEqual({});
+    expect(
+      parseWindowsInternetSettingsProxy(
+        settings(
+          [
+            "    ProxyEnable    REG_DWORD    0x0",
+            "    AutoConfigURL    REG_SZ    http://127.0.0.1:7897/pac",
+          ].join("\r\n"),
+        ),
+      ),
+    ).toEqual({});
+  });
+
+  it("treats a failed registry read as no proxy", () => {
+    expect(
+      readWindowsSystemProxy(() => {
+        throw new Error("reg is unavailable");
+      }),
+    ).toEqual({});
+  });
+
+  it("applies on Windows only when no proxy is already configured", () => {
+    const readSystemProxy = () => ({ HTTPS_PROXY: "http://127.0.0.1:7897" });
+
+    expect(withOutboundProxyEnv({}, { platform: "win32", readSystemProxy }).HTTPS_PROXY).toBe(
+      "http://127.0.0.1:7897",
+    );
+    expect(
+      withOutboundProxyEnv(
+        { HTTPS_PROXY: "http://already-set:8080" },
+        { platform: "win32", readSystemProxy },
+      ).HTTPS_PROXY,
+    ).toBe("http://already-set:8080");
   });
 });

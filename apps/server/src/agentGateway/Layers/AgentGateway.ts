@@ -1,3 +1,5 @@
+import { MossbotRooms } from "../../mossbotRooms/service";
+import { makeMossbotRoomTools } from "../../mossbotRooms/tools";
 import { ProjectionThreadMessageRepository } from "../../persistence/Services/ProjectionThreadMessages.ts";
 /**
  * AgentGatewayLive - Moss app-control MCP tool surface.
@@ -39,9 +41,9 @@ import {
   type RuntimeMode,
   type ServerProviderStatus,
   type TurnDispatchMode,
-} from "@synara/contracts";
-import { runtimeModeEscalatesPrivilege } from "@synara/shared/runtimeMode";
-import { deriveProviderInstances, isProviderKind } from "@synara/shared/providerInstances";
+} from "@moss/contracts";
+import { runtimeModeEscalatesPrivilege } from "@moss/shared/runtimeMode";
+import { deriveProviderInstances, isProviderKind } from "@moss/shared/providerInstances";
 import { Effect, Layer, Option } from "effect";
 
 import { GitCore } from "../../git/Services/GitCore.ts";
@@ -107,17 +109,22 @@ import { makeAgentGatewayHtmlRenderTools } from "../htmlRenderTools.ts";
 import { makeAgentGatewayMediaTools } from "../mediaTools.ts";
 import { conversationImageActivityCommands } from "../mediaImageActivities.ts";
 import { resolveMossCanvasWorkspace } from "../../mossCanvasWorkspace.ts";
+import { readMossCanvasSummary } from "../../mossCanvasSummary.ts";
 import {
   installedMossMediaModels,
   mossMediaJobsServiceFor,
   resolveMossMediaCredential,
 } from "../../mossMediaAuthority.ts";
+import { accountLane } from "../../account/accountLane.ts";
 import { MossPhoneAccountService } from "../../account/Services/MossPhoneAccountService.ts";
 import { MossEnterpriseKeyAccount } from "../../account/Services/MossEnterpriseKeyAccount.ts";
 import { MossCloudAccountService } from "../../account/Services/MossCloudAccountService.ts";
 import { makeAgentGatewayInlineVisualTools } from "../inlineVisualTools.ts";
-import { INLINE_VISUALS_BETA_FEATURE } from "@synara/shared/betaFeatures";
+import { INLINE_VISUALS_BETA_FEATURE } from "@moss/shared/betaFeatures";
 import { makeAgentGatewayOpenUIReferenceTool } from "../openUIReferenceTool.ts";
+import { makeAgentGatewayPlacePhotoTool } from "../placePhotoTools.ts";
+import { makeAgentGatewayVisualGuideTool } from "../visualGuideTool.ts";
+import { makeAgentGatewayWrapUpTool } from "../wrapUpTool.ts";
 import { DeviceService } from "../../device/Services/DeviceService.ts";
 import { HtmlRender } from "../../htmlRender/HtmlRender.ts";
 import {
@@ -133,7 +140,14 @@ import { BrowserAutomationHost } from "../../browserAutomation/Services/BrowserA
 import { makeBrowserAutomationHost } from "../../browserAutomation/Layers/BrowserAutomationHost.ts";
 import { makeProjectAgentTools } from "../projectAgentTools.ts";
 import { makePageTools } from "../pageTools";
+import { makePageTypeTools } from "../pageTypeTools";
+import { PageTypesService } from "../../pages/types/PageTypesService";
+import { makePageAppTools } from "../pageAppTools";
+import { PageAppsService } from "../../pages/apps/PageAppsService";
 import { PagesService } from "../../pages/Services/PagesService";
+import { PageDraftsService } from "../../pages/drafts/Services/PageDraftsService";
+import { makePageDraftTools } from "../pageDraftTools";
+import { makeSlidesTools } from "../slidesTools";
 import { isServerGroupsEnabled } from "../../projectAgent/groupsBetaGate.ts";
 import { isServerBetaFeatureEnabled } from "../../betaFeatureGate.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
@@ -150,6 +164,7 @@ import { SecretRequests } from "../../secretRequests/Services/SecretRequests.ts"
 import { TodoService } from "../../todo/Services/TodoService.ts";
 import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { resolveThreadExecutionWorkspace } from "../../threadExecutionWorkspace.ts";
 
 const providerInstanceAvailability = (
   instance: ReturnType<typeof deriveProviderInstances>[number],
@@ -203,11 +218,15 @@ function readThreadGoalArg(args: Record<string, unknown>): string {
 export const makeAgentGateway = Effect.gen(function* () {
   const credentials = yield* AgentGatewayCredentials;
   const snapshotQuery = yield* ProjectionSnapshotQuery;
+  const roomRuntime = Option.getOrNull(yield* Effect.serviceOption(MossbotRooms));
   const orchestrationEngine = yield* OrchestrationEngineService;
   const automationService = yield* AutomationService;
   const projectAgentService = yield* ProjectAgentService;
   const todoService = yield* TodoService;
   const pagesService = Option.getOrUndefined(yield* Effect.serviceOption(PagesService));
+  const pageTypesService = Option.getOrUndefined(yield* Effect.serviceOption(PageTypesService));
+  const pageDraftsService = Option.getOrUndefined(yield* Effect.serviceOption(PageDraftsService));
+  const pageAppsService = Option.getOrUndefined(yield* Effect.serviceOption(PageAppsService));
   // Optional like pages: a host without the secret store offers no moss_request_secret.
   const secretRequests = Option.getOrUndefined(yield* Effect.serviceOption(SecretRequests));
   const git = yield* GitCore;
@@ -247,6 +266,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     Effect.runPromise(
       resolveMossCanvasWorkspace(threadId).pipe(
         Effect.provideService(ProjectionSnapshotQuery, snapshotQuery),
+        Effect.provideService(ServerConfig, serverConfig),
       ),
     ),
   );
@@ -263,11 +283,23 @@ export const makeAgentGateway = Effect.gen(function* () {
       ? makeAgentGatewayMediaTools({
           service: mediaService,
           resolveWorkspaceRoot: (context) => resolveWorkspaceRoot(context),
+          focusCanvasJob: (jobId, threadId, credential, authorize) =>
+            Effect.gen(function* () {
+              const workspace = yield* resolveMossCanvasWorkspace(threadId).pipe(
+                Effect.provideService(ProjectionSnapshotQuery, snapshotQuery),
+                Effect.provideService(ServerConfig, serverConfig),
+              );
+              yield* Effect.tryPromise({
+                try: () => mediaService.importCanvasJob(jobId, credential, workspace, authorize),
+                catch: (cause) => cause,
+              });
+            }),
           openCanvas: (request, context) =>
             Effect.gen(function* () {
               yield* context.assertCallerTurnActive();
               yield* resolveMossCanvasWorkspace(request.threadId).pipe(
                 Effect.provideService(ProjectionSnapshotQuery, snapshotQuery),
+                Effect.provideService(ServerConfig, serverConfig),
               );
               yield* context.assertCallerTurnActive();
               const id = `agent:${randomUUID()}:canvas-open`;
@@ -297,6 +329,28 @@ export const makeAgentGateway = Effect.gen(function* () {
             Effect.provideService(MossEnterpriseKeyAccount, mediaEnterpriseKey),
             Effect.provideService(ProviderDiscoveryService, providerDiscovery),
           ),
+          resolveCanvasCredential: resolveMossMediaCredential.pipe(
+            Effect.provideService(MossPhoneAccountService, mediaPhoneAccount),
+            Effect.provideService(MossCloudAccountService, mediaCloudAccount),
+            Effect.provideService(MossEnterpriseKeyAccount, mediaEnterpriseKey),
+          ),
+          readCanvas: (request, credential, context) =>
+            Effect.gen(function* () {
+              const workspace = yield* resolveMossCanvasWorkspace(request.threadId).pipe(
+                Effect.provideService(ProjectionSnapshotQuery, snapshotQuery),
+                Effect.provideService(ServerConfig, serverConfig),
+              );
+              yield* context.assertCallerTurnActive();
+              return yield* Effect.tryPromise({
+                try: () =>
+                  readMossCanvasSummary({
+                    stateDirectory: serverConfig.stateDir,
+                    identity: credential,
+                    workspace,
+                  }),
+                catch: (error) => error,
+              });
+            }),
         })
       : [];
   const loadProviderInstances: Effect.Effect<AgentGatewayProviderInstances, unknown, never> =
@@ -804,7 +858,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     definition: {
       name: "moss_send_message",
       description:
-        'Send a Moss follow-up message to an existing thread. mode "queue" (default) waits for the current turn. "steer" uses native steering when available; otherwise it queues the follow-up first and interrupts the running turn. With no live turn, it starts normally. Use "queue" for ordinary follow-ups.',
+        'Send a Moss follow-up message to an existing thread; it shows there as "Received message from" your thread. mode "queue" (default) waits for the current turn. "steer" uses native steering when available; otherwise it queues the follow-up first and interrupts the running turn. With no live turn, it starts normally. Use "queue" for ordinary follow-ups.',
       inputSchema: {
         type: "object",
         properties: {
@@ -922,6 +976,8 @@ export const makeAgentGateway = Effect.gen(function* () {
           },
           dispatchMode,
           dispatchOrigin: "agent",
+          // Names the sending thread so the target transcript can say who wrote it.
+          dispatchSourceThreadId: caller.id,
           runtimeMode: target.runtimeMode,
           interactionMode: target.interactionMode,
           // A durable worker admission pins replay time. Source timestamps describe
@@ -1284,10 +1340,12 @@ export const makeAgentGateway = Effect.gen(function* () {
         .pipe(Effect.map(Option.getOrNull));
       if (!project) return null;
       return (
-        resolveThreadWorkspaceCwd({
+        (yield* resolveThreadExecutionWorkspace({
           thread,
-          projects: [project],
-        }) ?? null
+          project,
+          config: serverConfig,
+          query: snapshotQuery,
+        })) ?? null
       );
     }).pipe(Effect.orElseSucceed(() => null));
   const browserTools = makeAgentGatewayBrowserTools(browserAutomationHost, {
@@ -1783,7 +1841,45 @@ export const makeAgentGateway = Effect.gen(function* () {
     : [];
 
   const tools: ReadonlyArray<ToolEntry> = [
-    ...(pagesService ? makePageTools({ pages: pagesService }) : []),
+    ...(roomRuntime ? makeMossbotRoomTools(roomRuntime) : []),
+    ...(pagesService ? makePageTools({ pages: pagesService, drafts: pageDraftsService }) : []),
+    ...(pageDraftsService ? makePageDraftTools({ drafts: pageDraftsService }) : []),
+    ...(pageAppsService ? makePageAppTools({ apps: pageAppsService }) : []),
+    ...(pageTypesService
+      ? makePageTypeTools({
+          types: pageTypesService,
+          ...(pageAppsService ? { apps: pageAppsService } : {}),
+        })
+      : []),
+    ...(pageTypesService
+      ? makeSlidesTools({
+          types: pageTypesService,
+          ...(pageDraftsService ? { drafts: pageDraftsService } : {}),
+          resolveWorkspaceRoot,
+          // The chat draws each deck and exported file as a card from these activities.
+          recordActivity: (context, activity) => {
+            const id = `agent:${randomUUID()}:slides`;
+            const createdAt = isoNow();
+            return orchestrationEngine
+              .dispatch({
+                type: "thread.activity.append",
+                commandId: CommandId.makeUnsafe(id),
+                threadId: ThreadId.makeUnsafe(context.callerThreadId),
+                createdAt,
+                activity: {
+                  id: EventId.makeUnsafe(id),
+                  tone: "info",
+                  kind: activity.kind,
+                  summary: activity.summary,
+                  payload: activity.payload,
+                  turnId: context.callerTurnId ? TurnId.makeUnsafe(context.callerTurnId) : null,
+                  createdAt,
+                },
+              })
+              .pipe(Effect.asVoid);
+          },
+        })
+      : []),
     ...readTools,
     ...diagnosticTools,
     createThreads,
@@ -1799,14 +1895,26 @@ export const makeAgentGateway = Effect.gen(function* () {
     ...kanbanTools,
     ...mediaTools,
     makeAgentGatewayOpenUIReferenceTool(),
+    makeAgentGatewayVisualGuideTool(),
+    makeAgentGatewayWrapUpTool(),
     ...inlineVisualTools,
     ...(htmlRender === undefined
       ? []
-      : makeAgentGatewayHtmlRenderTools({
-          htmlRender,
-          orchestrationEngine,
-          resolveWorkspaceRoot,
-        })),
+      : [
+          ...makeAgentGatewayHtmlRenderTools({
+            htmlRender,
+            orchestrationEngine,
+            resolveWorkspaceRoot,
+            hasSurface: snapshotQuery.hasHtmlRenderSurface,
+          }),
+          // Photos exist for html_render pages, so they ship only beside it. Wikimedia
+          // is blocked in mainland China, so a phone (CN) account is never offered them;
+          // the same local check gates the CN connectors.
+          makeAgentGatewayPlacePhotoTool({
+            available: () =>
+              accountLane(mediaPhoneAccount).pipe(Effect.map((lane) => lane === "global")),
+          }),
+        ]),
     // Same switch as the todo.* RPCs: a build without Tasks offers agents no to-do tools.
     ...(isServerBetaFeatureEnabled("tasks") ? todoTools : []),
     ...(secretRequests === undefined ? [] : makeAgentGatewaySecretRequestTools({ secretRequests })),

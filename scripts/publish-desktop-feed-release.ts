@@ -9,7 +9,7 @@ import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import { MOSS_DESKTOP_DEFAULT_UPDATE_REPOSITORY } from "@synara/shared/desktopIdentity";
+import { MOSS_DESKTOP_DEFAULT_UPDATE_REPOSITORY } from "@moss/shared/desktopIdentity";
 
 import {
   createCurlFeedClient,

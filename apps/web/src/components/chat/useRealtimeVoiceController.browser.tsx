@@ -5,7 +5,7 @@ import {
   WsRpcError,
   type RealtimeVoiceEvent,
   type RealtimeVoiceState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { useState } from "react";

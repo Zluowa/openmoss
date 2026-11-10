@@ -1,10 +1,10 @@
 import path from "node:path";
-import type { ProviderInstanceConfig } from "@synara/contracts";
+import type { ProviderInstanceConfig } from "@moss/contracts";
 import {
   getMossManagedModelDefinition,
   mossLaneEngineLineup,
   type MossAccessLane,
-} from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossRealmCatalog";
 import {
   buildMossManagedRelayProviderInstance,
   ensureMossManagedHome,

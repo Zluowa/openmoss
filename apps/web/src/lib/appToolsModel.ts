@@ -6,8 +6,8 @@ import type {
   ProviderAppInfo,
   ProviderAppTool,
   ProviderStartAppConnectionResult,
-} from "@synara/contracts";
-import { MOSS_CONNECTOR_OAUTH_SCHEME } from "@synara/shared/desktopIdentity";
+} from "@moss/contracts";
+import { MOSS_CONNECTOR_OAUTH_SCHEME } from "@moss/shared/desktopIdentity";
 
 export const APP_CONNECTOR_OAUTH_CALLBACK_URL = `${MOSS_CONNECTOR_OAUTH_SCHEME}://connector/oauth_callback`;
 

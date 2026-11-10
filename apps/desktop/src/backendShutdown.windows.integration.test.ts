@@ -3,6 +3,7 @@ import * as Crypto from "node:crypto";
 import * as Fs from "node:fs";
 import * as FsPromises from "node:fs/promises";
 import * as Http from "node:http";
+import { createRequire } from "node:module";
 import * as Net from "node:net";
 import * as OS from "node:os";
 import * as Path from "node:path";
@@ -17,6 +18,7 @@ import {
   type BackendShutdownProcess,
   type DesktopBackendShutdownRequestOutcome,
   type StartDesktopBackendShutdownRequest,
+  type WindowsBackendShutdownResult,
 } from "./backendShutdown";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
@@ -484,6 +486,22 @@ function makeIsolatedServerEnvironment(input: {
   };
 }
 
+const TEST_NODE_EXECUTABLE = process.versions.bun ? "node" : process.execPath;
+
+/**
+ * The Electron binary the desktop ships with. The packaged backend runs on it in Node mode,
+ * which (unlike plain Node) keeps a background-priority thread: the one that ends up doing
+ * Windows' teardown of the process.
+ */
+function resolveElectronExecutable(): string | null {
+  try {
+    const executable = createRequire(import.meta.url)("electron") as unknown;
+    return typeof executable === "string" && Fs.existsSync(executable) ? executable : null;
+  } catch {
+    return null;
+  }
+}
+
 async function launchRealServer(
   resources: TestResources,
   input: {
@@ -491,12 +509,13 @@ async function launchRealServer(
     readonly homeDir: string;
     readonly port: number;
     readonly shutdownToken: string;
+    /** Run on the desktop's Electron in Node mode, as the packaged app does. */
+    readonly electronExecutable?: string;
   },
 ): Promise<CapturedChild> {
-  const nodeExecutable = process.versions.bun ? "node" : process.execPath;
   return await spawnCapturedChild(
     resources,
-    nodeExecutable,
+    input.electronExecutable ?? TEST_NODE_EXECUTABLE,
     [
       input.entrypoint,
       "--mode",
@@ -512,9 +531,88 @@ async function launchRealServer(
     ],
     {
       cwd: REPOSITORY_ROOT,
-      env: makeIsolatedServerEnvironment(input),
+      env: {
+        ...makeIsolatedServerEnvironment(input),
+        ...(input.electronExecutable ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
+      },
     },
   );
+}
+
+/**
+ * Stands in for the work that keeps a machine busy on Moss's first launch (the new install
+ * being scanned, first-run agent probes): ordinary-priority busy loops sharing two CPUs with
+ * the backend, which is confined to the same two.
+ */
+async function contendForBackendCpus(
+  resources: TestResources,
+  backend: ChildProcess.ChildProcess,
+): Promise<void> {
+  const burners = await Promise.all(
+    Array.from({ length: 3 }, async () => {
+      const { child } = await spawnCapturedChild(
+        resources,
+        TEST_NODE_EXECUTABLE,
+        ["-e", "const end = Date.now() + 30_000; while (Date.now() < end) {}"],
+        {},
+      );
+      return child;
+    }),
+  );
+  const mask = OS.availableParallelism() >= 2 ? 3 : 1;
+  const pids = [backend, ...burners].map((child) => child.pid).join(",");
+  const { child: pin, output } = await spawnCapturedChild(
+    resources,
+    Path.join(
+      process.env.SystemRoot ?? "C:\\Windows",
+      "System32",
+      "WindowsPowerShell",
+      "v1.0",
+      "powershell.exe",
+    ),
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `foreach ($id in @(${pids})) { (Get-Process -Id $id).ProcessorAffinity = ${mask} }`,
+    ],
+    {},
+  );
+  const exit = await resources.waitForChildExit(pin, 30_000, "pin contended processes");
+  if (exit.code !== 0) {
+    throw new Error(`Could not pin the contended processes.\nstderr:\n${output.stderr}`);
+  }
+}
+
+async function waitForRealServerReadiness(
+  resources: TestResources,
+  captured: CapturedChild,
+  origin: string,
+): Promise<void> {
+  const { child, output } = captured;
+  await resources.waitFor(
+    async () => {
+      if (hasExited(child)) return true;
+      const health = await requestJson(resources, {
+        url: `${origin}/health`,
+        timeoutMs: 1_000,
+      });
+      return (
+        health.statusCode === 200 &&
+        typeof health.body === "object" &&
+        health.body !== null &&
+        "startupReady" in health.body &&
+        health.body.startupReady === true
+      );
+    },
+    90_000,
+    "real server readiness",
+  );
+  if (hasExited(child)) {
+    throw new Error(
+      `Real server exited before readiness (code=${child.exitCode}, signal=${child.signalCode}).\nstdout:\n${output.stdout}\nstderr:\n${output.stderr}`,
+    );
+  }
 }
 
 async function buildRealServerEntrypoint(resources: TestResources): Promise<string> {
@@ -660,6 +758,90 @@ describeWindows("Windows desktop backend shutdown integration", () => {
       await resources.dispose();
     }
   }, 90_000);
+
+  // First launch after an install: the machine is busy, and the packaged backend runs on
+  // Electron's Node mode. Its own shutdown takes well under a second, but Windows then tears
+  // the process down on its background-priority thread, which used to wait for the busy CPUs
+  // for 10-60 s: the desktop timed out, and its forced stop failed on an exiting process.
+  const electronExecutable = resolveElectronExecutable();
+  const itWithElectron = electronExecutable ? it : it.skip;
+
+  async function stopContendedElectronBackend(
+    raiseExitPriority?: (child: BackendShutdownProcess) => void,
+  ): Promise<{
+    readonly result: WindowsBackendShutdownResult;
+    readonly elapsedMs: number;
+    readonly forceCalls: number;
+  }> {
+    const resources = new TestResources();
+    try {
+      const homeDir = await resources.makeTempDir("moss-windows-contended-shutdown-");
+      const port = await reserveLoopbackPort(resources);
+      const shutdownToken = Crypto.randomBytes(32).toString("hex");
+      const origin = `http://127.0.0.1:${port}`;
+      const entrypoint = await buildRealServerEntrypoint(resources);
+      const captured = await launchRealServer(resources, {
+        entrypoint,
+        homeDir,
+        port,
+        shutdownToken,
+        electronExecutable: electronExecutable!,
+      });
+      await waitForRealServerReadiness(resources, captured, origin);
+      await contendForBackendCpus(resources, captured.child);
+
+      let forceCalls = 0;
+      const startedAt = Date.now();
+      const result = await resources.withTimeout(
+        stopWindowsBackendAndWait({
+          child: captured.child as BackendShutdownProcess,
+          backendHttpUrl: origin,
+          shutdownToken,
+          forceKillDelayMs: 8_000,
+          timeoutMs: 10_000,
+          forceTerminate: (ownedChild) => {
+            forceCalls += 1;
+            ownedChild.kill("SIGTERM");
+          },
+          ...(raiseExitPriority ? { raiseExitPriority } : {}),
+        }),
+        15_000,
+        "contended real-server shutdown",
+      );
+      const elapsedMs = Date.now() - startedAt;
+      if (captured.child.exitCode !== 0 && result.type === "exited" && !result.forced) {
+        throw new Error(
+          `Real server exited with code ${captured.child.exitCode}.\nstderr:\n${captured.output.stderr}`,
+        );
+      }
+      return { result, elapsedMs, forceCalls };
+    } finally {
+      await resources.dispose();
+    }
+  }
+
+  itWithElectron(
+    "lets a first-launch backend on Electron exit at once while the machine is busy",
+    async () => {
+      const { result, elapsedMs, forceCalls } = await stopContendedElectronBackend();
+      expect(result).toEqual({ type: "exited", forced: false });
+      expect(forceCalls).toBe(0);
+      expect(elapsedMs).toBeLessThan(3_000);
+    },
+    180_000,
+  );
+
+  itWithElectron(
+    "the backend finishes exiting on a busy machine without the desktop's help",
+    async () => {
+      // An older desktop, or a backend stopped some other way: the server raises itself as it exits.
+      const { result, elapsedMs, forceCalls } = await stopContendedElectronBackend(() => {});
+      expect(result).toEqual({ type: "exited", forced: false });
+      expect(forceCalls).toBe(0);
+      expect(elapsedMs).toBeLessThan(6_000);
+    },
+    180_000,
+  );
 
   it("cancels a hung shutdown transport and force-terminates its test-owned child once", async () => {
     const resources = new TestResources();

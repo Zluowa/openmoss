@@ -5,8 +5,8 @@ import {
   type GitActionProgressEvent,
   type GitRunStackedActionInput,
   WsRpcError,
-} from "@synara/contracts";
-import { stableJsonStringify } from "@synara/shared/browserAutomationCatalogue";
+} from "@moss/contracts";
+import { stableJsonStringify } from "@moss/shared/browserAutomationCatalogue";
 import { Cause, Effect, Exit, Option, Queue, Stream } from "effect";
 
 import { CurrentManagedAttachmentPrincipal } from "../managedAttachmentPrincipal";

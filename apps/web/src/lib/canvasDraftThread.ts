@@ -1,5 +1,5 @@
 // Promote the selected conversation before Canvas opens, without dispatching a turn.
-import type { NativeApi, ProjectId, ThreadId } from "@synara/contracts";
+import type { NativeApi, ProjectId, ThreadId } from "@moss/contracts";
 import type { TerminalThreadCreationState } from "./threadBootstrap";
 import { promoteThreadCreate } from "./threadCreatePromotion";
 import { newCommandId } from "./utils";

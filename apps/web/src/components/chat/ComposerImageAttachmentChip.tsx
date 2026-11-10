@@ -1,3 +1,4 @@
+import { useTranslation } from "~/localization";
 // FILE: ComposerImageAttachmentChip.tsx
 // Purpose: Renders image attachments, including source-aware AppSnap cards.
 // Layer: Chat composer presentation
@@ -29,6 +30,7 @@ export function ComposerImageAttachmentChip({
   onExpandImage,
   onRemoveImage,
 }: ComposerImageAttachmentChipProps) {
+  const { format } = useTranslation();
   // Normalize here so a legacy "appshot" provenance still renders as an AppSnap.
   const appSnapSource = normalizeComposerImageSource(image.source) ?? null;
   const previewImage = () => {
@@ -105,7 +107,7 @@ export function ComposerImageAttachmentChip({
 
         <AttachmentRemoveButton
           size="sm"
-          label={`Remove AppSnap from ${appName}`}
+          label={format("attachments.remove", { name: `AppSnap · ${appName}` })}
           className="opacity-70 transition-opacity duration-150 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
           onRemove={() => onRemoveImage(image.id)}
         />
@@ -146,7 +148,7 @@ export function ComposerImageAttachmentChip({
 
       <AttachmentRemoveButton
         size="md"
-        label={`Remove ${image.name}`}
+        label={format("attachments.remove", { name: image.name })}
         onRemove={() => onRemoveImage(image.id)}
       />
     </div>

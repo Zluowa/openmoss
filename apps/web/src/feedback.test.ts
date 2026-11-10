@@ -1,8 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { APP_VERSION } from "./branding";
 import {
+  acceptFeedbackImages,
   buildFeedbackSubmission,
+  FEEDBACK_IMAGE_LIMITS,
+  FEEDBACK_IMAGE_UNREADABLE_MESSAGE,
+  FEEDBACK_NETWORK_MESSAGE,
+  FEEDBACK_RATE_LIMITED_MESSAGE,
+  FEEDBACK_REJECTED_MESSAGE,
+  FEEDBACK_TOO_LARGE_MESSAGE,
+  FEEDBACK_UNAVAILABLE_MESSAGE,
+  feedbackImageType,
   formatFeedbackSummary,
+  prepareFeedbackAttachments,
+  submitFeedback,
   type FeedbackDiagnostics,
   type FeedbackThreadContext,
 } from "./feedback";
@@ -133,5 +144,135 @@ describe("buildFeedbackSubmission", () => {
     expect(submission.diagnostics).not.toHaveProperty("threadTitle");
     expect(submission.diagnostics).not.toHaveProperty("messages");
     expect(submission.diagnostics).not.toHaveProperty("logs");
+  });
+
+  it("carries an ID for retries and the prepared screenshots", () => {
+    const attachments = [
+      { name: "screen.png", mimeType: "image/webp" as const, dataBase64: "UklGRg==" },
+    ];
+    const submission = buildFeedbackSubmission({
+      category: null,
+      details: "x",
+      context: CONTEXT,
+      attachments,
+      viewport: { width: 1, height: 1 },
+      userAgent: "a",
+      platform: "b",
+      language: "c",
+    });
+    expect(submission.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(submission.attachments).toEqual(attachments);
+    expect(
+      buildFeedbackSubmission({
+        category: null,
+        details: "x",
+        context: CONTEXT,
+        attachments: [],
+        viewport: { width: 1, height: 1 },
+        userAgent: "a",
+        platform: "b",
+        language: "c",
+      }),
+    ).not.toHaveProperty("attachments");
+  });
+});
+
+const file = (name: string, type: string, size = 10) => ({ name, type, size });
+
+describe("feedback screenshots", () => {
+  it("takes PNG, JPEG and WebP, also when the source leaves the type empty", () => {
+    expect(feedbackImageType(file("a.png", "image/png"))).toBe("image/png");
+    expect(feedbackImageType(file("a.jpg", "image/jpeg"))).toBe("image/jpeg");
+    expect(feedbackImageType(file("a.webp", "image/webp"))).toBe("image/webp");
+    expect(feedbackImageType(file("Shot.JPEG", ""))).toBe("image/jpeg");
+    expect(feedbackImageType(file("a.gif", "image/gif"))).toBeNull();
+    expect(feedbackImageType(file("a.png", "application/pdf"))).toBeNull();
+    expect(feedbackImageType(file("notes.txt", ""))).toBeNull();
+  });
+
+  it("refuses other types, files over 5 MB and anything past five images", () => {
+    const { accepted, rejected } = acceptFeedbackImages(
+      [
+        file("1.png", "image/png"),
+        file("big.png", "image/png", FEEDBACK_IMAGE_LIMITS.maxBytes + 1),
+        file("edge.png", "image/png", FEEDBACK_IMAGE_LIMITS.maxBytes),
+        file("doc.pdf", "application/pdf"),
+        file("2.webp", "image/webp"),
+        file("3.jpg", "image/jpeg"),
+      ],
+      2,
+    );
+    expect(accepted.map((entry) => entry.name)).toEqual(["1.png", "edge.png", "2.webp"]);
+    expect(rejected).toEqual(["size", "type", "count"]);
+    expect(acceptFeedbackImages([file("a.png", "image/png")], 5)).toEqual({
+      accepted: [],
+      rejected: ["count"],
+    });
+  });
+
+  it("re-encodes each screenshot for sending and fails plainly when one cannot be read", async () => {
+    const images = [new File(["a"], "a.png", { type: "image/png" })];
+    expect(
+      await prepareFeedbackAttachments(images, async () => new Uint8Array([82, 73, 70, 70])),
+    ).toEqual([{ name: "a.png", mimeType: "image/webp", dataBase64: "UklGRg==" }]);
+    await expect(prepareFeedbackAttachments(images, async () => null)).rejects.toThrow(
+      FEEDBACK_IMAGE_UNREADABLE_MESSAGE,
+    );
+    await expect(
+      prepareFeedbackAttachments(images, async () => {
+        throw new Error("decode");
+      }),
+    ).rejects.toThrow(FEEDBACK_IMAGE_UNREADABLE_MESSAGE);
+  });
+});
+
+describe("submitFeedback", () => {
+  const submission = () =>
+    buildFeedbackSubmission({
+      category: "bug",
+      details: "x",
+      context: CONTEXT,
+      viewport: { width: 1, height: 1 },
+      userAgent: "a",
+      platform: "b",
+      language: "c",
+    });
+  beforeEach(() => {
+    vi.stubEnv("VITE_FEEDBACK_ENDPOINT", "https://moss-devs.example.test/feedback");
+    vi.stubGlobal("window", globalThis);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("posts the report as JSON to the configured endpoint", async () => {
+    const fetcher = vi.fn(async () => new Response(null, { status: 202 }));
+    const report = submission();
+    await submitFeedback(report, fetcher as unknown as typeof fetch);
+    expect(fetcher).toHaveBeenCalledWith(
+      "https://moss-devs.example.test/feedback",
+      expect.objectContaining({ method: "POST", body: JSON.stringify(report) }),
+    );
+  });
+
+  it.each([
+    [413, FEEDBACK_TOO_LARGE_MESSAGE],
+    [429, FEEDBACK_RATE_LIMITED_MESSAGE],
+    [400, FEEDBACK_REJECTED_MESSAGE],
+    [503, FEEDBACK_UNAVAILABLE_MESSAGE],
+  ])("turns a %i answer into a plain message, never the service's text", async (status, text) => {
+    const fetcher = async () =>
+      Response.json({ error: "Invalid feedback attachments" }, { status });
+    await expect(submitFeedback(submission(), fetcher as typeof fetch)).rejects.toThrow(text);
+  });
+
+  it("says so when the network fails", async () => {
+    const fetcher = async () => {
+      throw new TypeError("Failed to fetch");
+    };
+    await expect(submitFeedback(submission(), fetcher as typeof fetch)).rejects.toThrow(
+      FEEDBACK_NETWORK_MESSAGE,
+    );
   });
 });

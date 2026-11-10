@@ -11,11 +11,11 @@ import type {
   ThreadHistoryImportEntry,
   ThreadHandoffImportedMessage,
   ThreadMarker,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   ASYNC_USER_INPUT_ALREADY_ANSWERED,
   formatAsyncUserInputResponse,
-} from "@synara/shared/asyncUserInput";
+} from "@moss/shared/asyncUserInput";
 import {
   EventId,
   MessageId,
@@ -34,32 +34,32 @@ import {
   ThreadMarkerId,
   TurnId,
   isRetryableCodexTurnFailure,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   deriveAssociatedWorktreeMetadata,
   deriveAssociatedWorktreeMetadataPatch,
   workspaceRootsEqual,
-} from "@synara/shared/threadWorkspace";
+} from "@moss/shared/threadWorkspace";
 import {
   collectSubagentDescendants,
   resolveThreadPresentationOwners,
-} from "@synara/shared/threadHierarchy";
-import { doThreadMarkerRangesOverlap } from "@synara/shared/threadMarkers";
+} from "@moss/shared/threadHierarchy";
+import { doThreadMarkerRangesOverlap } from "@moss/shared/threadMarkers";
 import {
   isSafetyBufferingBoundToThread,
   latestSafetyBufferingActivity as readLatestSafetyBufferingActivity,
-} from "@synara/shared/safetyBuffering";
-import { inferLegacyProviderKindFromModelSelection } from "@synara/shared/providerInstances";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
-import { autoRuntimeModeSelectionIssue } from "@synara/shared/runtimeMode";
-import { isGroupContainerKind } from "@synara/shared/projectContainers";
-import { findProjectFolderProblem } from "@synara/shared/projectFolders";
-import { providerSupportsNativeTurnSteering } from "@synara/shared/providerMetadata";
-import { isManualCompactionTurnActive } from "@synara/shared/contextCompaction";
+} from "@moss/shared/safetyBuffering";
+import { inferLegacyProviderKindFromModelSelection } from "@moss/shared/providerInstances";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
+import { autoRuntimeModeSelectionIssue } from "@moss/shared/runtimeMode";
+import { isGroupContainerKind } from "@moss/shared/projectContainers";
+import { findProjectFolderProblem } from "@moss/shared/projectFolders";
+import { providerSupportsNativeTurnSteering } from "@moss/shared/providerMetadata";
+import { isManualCompactionTurnActive } from "@moss/shared/contextCompaction";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
-} from "@synara/shared/conversationEdit";
+} from "@moss/shared/conversationEdit";
 import { Effect } from "effect";
 
 import { computerActivationMetadata } from "../computer/computerActivation.ts";
@@ -182,22 +182,28 @@ function validateAutoRuntimeMode(
 }
 
 /**
- * A same-thread provider handoff restarts the session on another provider, so
- * it shares Hand off's preconditions: no running turn, pending approval, or
- * pending question the new session could not settle.
+ * A same-thread provider handoff restarts the session on another provider, or
+ * on another account (instance) of the same provider, such as an imported
+ * local-account chat continuing on Moss. Either way the source's native
+ * history is left behind and the transcript carries the context, so it shares
+ * Hand off's preconditions: no running turn, pending approval, or pending
+ * question the new session could not settle.
  */
 function validateProviderHandoff(
   command: Extract<OrchestrationCommand, { type: "thread.meta.update" }>,
   thread: OrchestrationThread,
 ) {
   const target = command.modelSelection;
-  // A live session cannot switch between instances of one provider in place
-  // (the turn path rejects that), so those handoffs keep using a new thread.
+  const sourceInstanceId =
+    thread.session?.providerInstanceId ??
+    thread.modelSelection.instanceId ??
+    thread.modelSelection.provider;
   const detail =
     target === undefined
       ? "A provider handoff needs a target model selection."
-      : target.provider === thread.modelSelection.provider
-        ? `Thread '${command.threadId}' already runs on '${target.provider}'; hand off to a new thread instead.`
+      : target.provider === thread.modelSelection.provider &&
+          (target.instanceId ?? target.provider) === sourceInstanceId
+        ? `Thread '${command.threadId}' already runs on '${sourceInstanceId}'.`
         : thread.session?.status === "starting" || thread.session?.status === "running"
           ? `Thread '${command.threadId}' still has a running turn.`
           : thread.hasPendingApprovals || thread.hasPendingUserInput
@@ -896,7 +902,7 @@ function requireSidebarOrderAdmission(input: {
   const current = sidebarOrderRevisionOrZero(input.readModel.sidebarOrderRevision);
   // Revision fencing is required for explicit sidebar-ordering commands. Thread
   // lifecycle commands (archive/unarchive/delete) also move the order, but
-  // server-internal issuers (retention sweeps, reactor cleanup, recovery) do
+  // server-internal issuers (reactor cleanup, recovery, restores) do
   // not track the revision, so they are admitted without one and simply bump it.
   const revisionRequired =
     input.command.type !== "sidebar-order.legacy.import" &&
@@ -1704,10 +1710,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
 
       // Imported messages keep their source-thread timestamps so the transcript still
-      // reads chronologically. They are not activity in this thread: the retention
-      // clock floors on the new thread's own createdAt/updatedAt (see
-      // `threadRetention.getThreadLastActivityMs`) so a handoff of an old
-      // conversation is never born past the retention cutoff.
+      // reads chronologically, while the new thread's own createdAt/updatedAt is now.
       const importedMessageEvents: ReadonlyArray<Omit<OrchestrationEvent, "sequence">> = (
         command.importedMessages ?? []
       ).map((message) => ({
@@ -1810,10 +1813,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
 
       // Imported messages keep their source-thread timestamps so the transcript still
-      // reads chronologically. They are not activity in this thread: the retention
-      // clock floors on the new thread's own createdAt/updatedAt (see
-      // `threadRetention.getThreadLastActivityMs`) so a fork of an old conversation
-      // is never born past the retention cutoff.
+      // reads chronologically, while the new thread's own createdAt/updatedAt is now.
       // New clients send only `throughMessageId`: materialize the bounded prefix
       // from the canonical server projection instead of trusting renderer payloads.
       const materializedImportedMessages: ReadonlyArray<ThreadHandoffImportedMessage> =
@@ -2941,6 +2941,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           // originally dispatched by an automation/agent must overwrite the
           // stale origin instead of inheriting it.
           dispatchOrigin: command.dispatchOrigin ?? "user",
+          // Explicit null for the same reason: a human resend drops the sender.
+          dispatchSourceThreadId: command.dispatchSourceThreadId ?? null,
           startsNewTurn: dispatchMode !== "steer" || !isThreadRunning || shouldQueue,
           turnId: null,
           streaming: false,

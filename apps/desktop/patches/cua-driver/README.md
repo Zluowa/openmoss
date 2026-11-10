@@ -1,4 +1,4 @@
-# Synara native Cua revision
+# Moss native Cua revision
 
 `0001-moss-native.patch` applies to the exact upstream commit in
 `packages/shared/src/cuaDriverRelease.json`. That manifest pins the patch checksum,
@@ -22,7 +22,7 @@ separate action lease covers native context restoration and verification.
 The private `cancel_input` daemon method accepts only the authenticated embedded
 parent and the exact child PID. A cleanup acknowledgement requires all registered
 inputs and action contexts to finish. Host EOF drains the same gate before
-aborting connection tasks. Synara refuses to kill or replace an active generation
+aborting connection tasks. Moss refuses to kill or replace an active generation
 when that acknowledgement is absent or invalid.
 
 Pixel clicks and text can select synthetic delivery before dispatch. Clicks use
@@ -42,7 +42,7 @@ mutation. A submitted selection/value write never falls through to another
 actuator, and exact foreground activation no longer requests all sibling windows.
 
 Revision 6 bounds post-action window observation for background delivery through
-`SYNARA_CUA_BACKGROUND_OBSERVATION_MS` — the same env-var mechanism foreground
+`MOSS_CUA_BACKGROUND_OBSERVATION_MS` — the same env-var mechanism foreground
 delivery already uses — and fetches each accessibility-tree element's attribute
 set in one `AXUIElementCopyMultipleAttributeValues` IPC call instead of the
 previous per-attribute round-trips. Per-attribute failures decode through the
@@ -88,7 +88,7 @@ submitted character reports observed partial delivery or an uncertain effect
 instead of claiming that nothing happened.
 
 Revision 12 rejects a second concurrent native semantic lease for the same
-exact PID and window. Synara already orders same-window requests in the server;
+exact PID and window. Moss already orders same-window requests in the server;
 the native check preserves that isolation for direct or separate clients while
 continuing to admit independent exact windows concurrently.
 
@@ -112,7 +112,7 @@ background is one SkyLight post with a public fallback, foreground is one
 public pid post), the cursor overlay exclusion from foreground verification
 (#3704), the embedded-host build fix (#3687), the desktop snapshot identity and
 payload ownership rework (#3616) and the macOS browser checkbox read (#3404).
-Synara's admission-gate wrapping, single-transport event posting, exact-target
+Moss's admission-gate wrapping, single-transport event posting, exact-target
 delivery modes and retained semantic-text delivery are preserved on top; the
 only judgment call is that `MousePostMode::Both` now means one SkyLight-first
 submission instead of the upstream duplicate SkyLight plus public post, and
@@ -129,7 +129,7 @@ no input admission and no mutation lease: teardown removes the run-loop
 source and the registered notifications on every path, a retired input
 generation ends the wait early, and `cancel_input` never waits on the
 observer because it registers no input operation for the gate to drain.
-Synara prefers this observed settle after a mutation whose window is known
+Moss prefers this observed settle after a mutation whose window is known
 and exposes it through `computer_wait` with `settle:true`; a driver or host
 that cannot answer it is remembered as unsupported and the fixed post-action
 wait remains the fallback.
@@ -138,11 +138,11 @@ Revision 19 extends `key_name_to_code` with the xdotool-style keypad and
 extended-function vocabulary: `kp_0`–`kp_9`, `kp_enter`, `kp_add`,
 `kp_subtract`, `kp_multiply`, `kp_divide`, `kp_decimal`, `kp_equals`,
 `kp_clear`, `f13`–`f20`, `menu`, and `help`, all verified against Apple's
-`HIToolbox/Events.h` codes. Synara still refuses `insert`/`ins` (macOS has
+`HIToolbox/Events.h` codes. Moss still refuses `insert`/`ins` (macOS has
 no Insert key) before dispatch; unmapped spellings keep the honest
 `unknown_key_name` refusal.
 
-The gate applies to the SDK tool path admitted by Synara's GUI host. It does not
+The gate applies to the SDK tool path admitted by Moss's GUI host. It does not
 instrument the separate interactive-worker API. An acknowledgement means native
 release events were submitted and action contexts drained; fixture-owned event
 counts are the independent evidence that a tested target consumed those releases.
@@ -158,12 +158,12 @@ Rust and the Apple build tools are build-time dependencies only.
 
 For reuse, `--artifact-dir /path/to/built-directory` verifies the manifest,
 pre-signing executable checksum and Mach-O architectures. Desktop packaging can
-use the same directory through `SYNARA_CUA_ARTIFACT_DIR`. Signing changes the
+use the same directory through `MOSS_CUA_ARTIFACT_DIR`. Signing changes the
 executable bytes; the recorded checksum describes the artifact before app signing.
 The stock upstream `--archive` path is intentionally rejected because that binary
 does not implement the native cancellation revision required by the host.
 
-When bumping the revision: the daemon stamps `synara_native_revision` from a
+When bumping the revision: the daemon stamps `moss_native_revision` from a
 literal in `crates/cua-driver/src/serve.rs`, not from the manifest — a patch
 that carries `nativeRevision: N` while the literal stays at `N-1` produces a
 binary whose metadata handshake fails and whose daemons the host retires
@@ -539,7 +539,7 @@ observability failures.
   The overlay already had `CanJoinAllSpaces`, `FullScreenAuxiliary` and
   `Stationary` collection behavior upstream. Secondary-display rendering remains
   unqualified: the single overlay covers `NSScreen.mainScreen.frame`.
-  Synara now keeps the cursor parked through model turns, hides it at turn end,
+  Moss now keeps the cursor parked through model turns, hides it at turn end,
   and uses a 60-second idle expiry as a backstop. A parked compact cursor does
   not request frame ticks; only a pending glide, pulse or fade does.
 
@@ -623,7 +623,7 @@ secure focused fields retain the separate protected-input refusal, and the
 host's protected-app and secure-input policies remain in force.
 
 `list_windows` can return optional `keyboard_focused` metadata from the app's
-observed `AXFocusedWindow`, independently of Synara's selected target. This is
+observed `AXFocusedWindow`, independently of Moss's selected target. This is
 opt-in through `include_keyboard_focus`; ordinary geometry revalidation performs
 no Accessibility focus reads or blocking-worker dispatch. Explicit observations
 coalesce reads per PID and bound them across each request. A missing or unmapped
@@ -691,10 +691,10 @@ proof only: live Notes behavior, fewer tool calls, hotkey/paste delivery, other
 apps, Intel/Windows/Linux runtime behavior, and signed release distribution are
 not qualified by these checks.
 
-## Synara SDK build target
+## Moss SDK build target
 
 The native patch builds `cua-driver-sdk` as an `rlib` only. The driver still uses
-the SDK internally; Synara does not ship or load its separate `cdylib` on macOS
+the SDK internally; Moss does not ship or load its separate `cdylib` on macOS
 or patched Linux. Removing that output avoids its code generation/link step
 without removing SDK functionality or changing native protocol revision 39.
 The patch checksum and trusted build-cache key cover this build-only change.

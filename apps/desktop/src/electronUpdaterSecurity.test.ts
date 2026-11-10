@@ -4,7 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { parseDistinguishedName } from "@synara/shared/windowsCertificate";
+import { parseDistinguishedName } from "@moss/shared/windowsCertificate";
 import {
   buildPowerShellExecArgs,
   buildPowerShellExecutablePath,

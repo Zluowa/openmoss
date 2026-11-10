@@ -3,9 +3,9 @@ import { cuaSpaceInventory } from "./cuaSpaceInventory.ts";
 import {
   parseCuaActionDiagnostics,
   type CuaActionDiagnostics,
-} from "@synara/shared/cuaActionDiagnostics";
+} from "@moss/shared/cuaActionDiagnostics";
 import { ComputerSpaceError } from "./ComputerSpaceBroker.ts";
-import { COMPUTER_WINDOW_LIST_MAX_LENGTH } from "@synara/contracts";
+import { COMPUTER_WINDOW_LIST_MAX_LENGTH } from "@moss/contracts";
 import type {
   ComputerAccessibilityTreeApp,
   ComputerAccessibilityTreeWindow,
@@ -28,11 +28,12 @@ import type {
   ComputerInputPause,
   ComputerPermission,
   ComputerLaunchAppResult,
-} from "@synara/contracts";
+  ComputerHostPlatform,
+} from "@moss/contracts";
 import {
   computerPermissionSetupMessage,
   listComputerPermissions,
-} from "@synara/shared/computerGrants";
+} from "@moss/shared/computerGrants";
 import {
   cuaRequest,
   CUA_HOST_SOCKET_ENV,
@@ -43,7 +44,7 @@ import {
   type CuaEffect,
   type CuaComputerTask,
   cuaComputerTaskKey,
-} from "@synara/shared/cuaDriverProtocol";
+} from "@moss/shared/cuaDriverProtocol";
 import {
   ComputerBackendError,
   DEFAULT_COMPUTER_ID,
@@ -85,6 +86,8 @@ import {
 } from "./computerElementIdentity.ts";
 
 export class CuaActionError extends ComputerBackendError {
+  /** The host's own words, without the replay note that only an agent needs. */
+  readonly reason: string;
   constructor(
     message: string,
     readonly effect: CuaEffect,
@@ -100,8 +103,17 @@ export class CuaActionError extends ComputerBackendError {
         ? { inputPause }
         : {}),
     });
+    this.reason = message;
   }
 }
+/** Status text is read by people and translated by exact match, so it carries no error name. */
+const availabilityFailureMessage = (error: unknown): string =>
+  (error instanceof CuaActionError
+    ? error.reason
+    : error instanceof Error
+      ? error.message
+      : String(error)
+  ).slice(0, 2048);
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 const text = (value: unknown, max = 1024): string =>
@@ -109,6 +121,9 @@ const text = (value: unknown, max = 1024): string =>
 const number = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value) ? value : NaN;
 function captureAccessAvailable(permission: Record<string, unknown>, platform: string): boolean {
+  // Windows has no screen-capture grant: its driver reports `uia`, `post_message` and integrity
+  // fields, never `screen_recording`. A real capture failure still marks capture unavailable.
+  if (platform === "win32" && typeof permission.screen_recording !== "boolean") return true;
   if (platform !== "linux" || typeof permission.screen_recording === "boolean")
     return permission.screen_recording === true;
   // These are display prerequisites, not proof that every compositor exposes
@@ -122,10 +137,14 @@ function missingComputerPermissions(
   platform: string,
 ): ComputerPermission[] {
   const missing: ComputerPermission[] = [];
+  // Each host names its UI-access prerequisite differently: AT-SPI on Linux, UI Automation
+  // (`uia`) on Windows, Accessibility on macOS.
   const accessibility =
     platform === "linux"
       ? (permission.atspi ?? permission.accessibility)
-      : permission.accessibility;
+      : platform === "win32"
+        ? (permission.uia ?? permission.accessibility)
+        : permission.accessibility;
   if (accessibility !== true) missing.push("accessibility");
   if (!captureAccessAvailable(permission, platform)) missing.push("screenRecording");
   // Only the macOS host with a physical input listener reports this grant.
@@ -306,6 +325,13 @@ export class CuaComputerBackend implements ComputerBackend {
   get agentDialect(): "macos" | "linux" {
     return (this.hostPlatform ?? process.platform) === "darwin" ? "macos" : "linux";
   }
+  /** The platform the driver host reports (or this process's, before the first reply). */
+  readonly reportedHostPlatform = (): ComputerHostPlatform | undefined => {
+    const platform = this.hostPlatform ?? process.platform;
+    return platform === "darwin" || platform === "win32" || platform === "linux"
+      ? platform
+      : undefined;
+  };
   private readonly endpoint: string | undefined;
   private readonly capability: string | undefined;
   private windows: readonly ComputerWindow[] = [];
@@ -690,7 +716,7 @@ export class CuaComputerBackend implements ComputerBackend {
     } catch (error) {
       return {
         kind: "backend-unavailable",
-        message: String(error).slice(0, 2048),
+        message: availabilityFailureMessage(error),
       };
     }
   }
@@ -745,6 +771,18 @@ export class CuaComputerBackend implements ComputerBackend {
     // Let a pre-setup status read settle before invalidating it. Its missing
     // grants must not win the refresh after the user requests permissions.
     await this.snapshot?.catch(() => undefined);
+    // The Windows host ships the upstream Cua Driver and reports its own
+    // UI Automation/display access through check_permissions. There is no
+    // Moss-owned privacy wizard to invoke, so provisioning is a refresh plus
+    // an honest status summary instead of a macOS setup call that can only
+    // fail with a platform error.
+    if (this.hostPlatform === "win32") {
+      await this.refresh(true);
+      if (this.currentAvailability.kind === "backend-unavailable")
+        return this.currentAvailability.message;
+      if (!this.permissions.length) return "Computer control is ready on Windows.";
+      return `Allow Moss ${listComputerPermissions(this.permissions)} access in Windows, then refresh.`;
+    }
     await this.host({ method: "setup" });
     this.snapshotAt = 0;
     // No unconditional capture-failure reset here: only an observed
@@ -847,7 +885,7 @@ export class CuaComputerBackend implements ComputerBackend {
       .catch((error) => {
         this.currentAvailability = {
           kind: "backend-unavailable",
-          message: String(error).slice(0, 2048),
+          message: availabilityFailureMessage(error),
         };
         this.setHealth({
           ...this.currentHealth,
@@ -856,7 +894,7 @@ export class CuaComputerBackend implements ComputerBackend {
           consecutiveFailures: this.currentHealth.consecutiveFailures + 1,
           lastFailure: {
             at: new Date().toISOString(),
-            message: String(error).slice(0, 2048),
+            message: availabilityFailureMessage(error),
           },
         });
         throw error;

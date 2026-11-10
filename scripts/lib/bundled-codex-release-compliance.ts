@@ -1,5 +1,5 @@
 // FILE: bundled-codex-release-compliance.ts
-// Purpose: Fails closed on bundled Codex SBOM, license evidence, obligations, and payload bytes.
+// Purpose: Fails closed on the bundled Codex license bundle, npm archive locks, and payload bytes.
 // Layer: Release/build helper
 
 import * as Crypto from "node:crypto";
@@ -21,22 +21,30 @@ import {
   verifyFinalBundledClaudeMacRuntime,
   type BundledClaudeFinalArtifactVerificationReceipt,
 } from "./bundled-claude-runtime.ts";
+import { BUNDLED_CODEX_PINS } from "./bundled-codex-pins.ts";
+import { isApprovedSelection } from "./runtime-bump/spdx.ts";
 
-export const BUNDLED_CODEX_COMPLIANCE_VERSION = "0.163.0";
+// Every value below comes from the generated pins: `bun run bump:codex <version>` rewrites them
+// together with third_party/openai-codex/<version>/. Never edit a pin by hand.
+export const BUNDLED_CODEX_COMPLIANCE_VERSION = BUNDLED_CODEX_PINS.version;
 const CODEX_VERSION = BUNDLED_CODEX_COMPLIANCE_VERSION;
 const SHA256 = /^[0-9a-f]{64}$/u;
 export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_ALGORITHM =
   "moss-bundled-codex-compliance-tree-v1";
-export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_ENTRY_COUNT = 704;
-export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_FILE_COUNT = 696;
-export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_DIRECTORY_COUNT = 8;
-export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_TOTAL_BYTES = 22_917_887;
-export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_SHA256 =
-  "54fdddeb41ead1f973cadc0b790f1a185063cc35737b08f91d7d4d45a1877dec";
-export const BUNDLED_CODEX_COMPLIANCE_COMPONENT_COUNT = 1_478;
-export const BUNDLED_CODEX_COMPLIANCE_LICENSE_TEXT_COUNT = 673;
-export const BUNDLED_CODEX_COMPLIANCE_PAYLOAD_FILE_COUNT = 273;
-export const BUNDLED_CODEX_COMPLIANCE_SOURCE_MATERIAL_COUNT = 2;
+export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_ENTRY_COUNT = BUNDLED_CODEX_PINS.tree.entryCount;
+export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_FILE_COUNT = BUNDLED_CODEX_PINS.tree.fileCount;
+export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_DIRECTORY_COUNT =
+  BUNDLED_CODEX_PINS.tree.directoryCount;
+export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_TOTAL_BYTES = BUNDLED_CODEX_PINS.tree.totalBytes;
+export const BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_SHA256 = BUNDLED_CODEX_PINS.tree.rootSha256;
+/** Rust crates plus the native components (ripgrep, PCRE2, bubblewrap, libcap, voice). */
+export const BUNDLED_CODEX_COMPLIANCE_COMPONENT_COUNT =
+  BUNDLED_CODEX_PINS.crateCount + BUNDLED_CODEX_PINS.nativeComponentCount;
+export const BUNDLED_CODEX_COMPLIANCE_LICENSE_TEXT_COUNT = BUNDLED_CODEX_PINS.licenseTextCount;
+export const BUNDLED_CODEX_COMPLIANCE_PAYLOAD_FILE_COUNT = BUNDLED_CODEX_PINS.payloadFileCount;
+export const BUNDLED_CODEX_COMPLIANCE_SOURCE_MATERIAL_COUNT = Object.keys(
+  BUNDLED_CODEX_PINS.sourceMaterials,
+).length;
 export const BUNDLED_CODEX_TRUSTED_UNSQUASHFS_PATH = "/usr/bin/unsquashfs";
 export const BUNDLED_CODEX_TRUSTED_UNSQUASHFS_RECEIPT_ID = "root-owned-system-unsquashfs-v1";
 
@@ -57,155 +65,40 @@ export const BUNDLED_CODEX_COMPLIANCE_EXTRA_RESOURCE = {
 } as const;
 export const BUNDLED_CODEX_COMPLIANCE_STAGE_ASAR_EXCLUSION = "!third-party-licenses{,/**}";
 
-const TOP_LEVEL_LICENSE_SHA256 = "d17f227e4df5da1600391338865ce0f3055211760a36688f816941d58232d8dc";
-const TOP_LEVEL_NOTICE_SHA256 = "9d71575ecfd9a843fc1677b0efb08053c6ba9fd686a0de1a6f5382fd3c220915";
-const PAYLOADS_SHA256 = "1a4ece010c159c9a314a8151c14ac962e3e451b18cc342f368c7662662158e5d";
-const EXPECTED_SOURCE_DOCUMENT = {
-  packageName: "@openai/codex",
-  packageVersion: BUNDLED_CODEX_COMPLIANCE_VERSION,
-  licenseExpression: "Apache-2.0",
-  repositoryUrl: "https://github.com/openai/codex",
-  sourceTag: "rust-v0.163.0",
-  sourceCommit: "83086188ae0614bd882818ff1aa23f3194962012",
-  sourceFiles: {
-    LICENSE: {
-      url: "https://github.com/openai/codex/blob/83086188ae0614bd882818ff1aa23f3194962012/LICENSE",
-      sha256: TOP_LEVEL_LICENSE_SHA256,
-    },
-    NOTICE: {
-      url: "https://github.com/openai/codex/blob/83086188ae0614bd882818ff1aa23f3194962012/NOTICE",
-      sha256: TOP_LEVEL_NOTICE_SHA256,
-    },
-  },
-  retrievalPolicy:
-    "Repository-owned release input; never copied from an installed Codex Desktop app.",
-} as const;
-
 export const BUNDLED_CODEX_COMPLIANCE_TOP_LEVEL_ENTRIES = [
-  "COMPONENTS.cdx.json",
   "LICENSE",
-  "LICENSE_EVIDENCE.json",
   "NOTICE",
-  "OBLIGATIONS.json",
   "PAYLOADS.json",
-  "REBUILD.md",
-  "SOURCE.json",
-  "SOURCE_MATERIALS.json",
+  "README.md",
+  "THIRD_PARTY.json",
   "licenses",
   "sources",
 ] as const;
 
-const REBUILD_SHA256 = "a7df5327a5fc0515d04865bc0cc31565b4bfe075948e6e33632a155a353a40ad";
-const APPROVED_RUST_LICENSE_IDS = new Set([
-  "0BSD",
-  "Apache-2.0",
-  "BSD-2-Clause",
-  "BSD-3-Clause",
-  "BSL-1.0",
-  "CC0-1.0",
-  "CDLA-Permissive-2.0",
-  "ISC",
-  "MIT",
-  "MIT-0",
-  "MPL-2.0",
-  "Unicode-3.0",
-  "Unicode-DFS-2016",
-  "Unlicense",
-  "WTFPL",
-  "Zlib",
-]);
-const APPROVED_RUST_LICENSE_EXCEPTIONS = new Set(["LLVM-exception"]);
-const EXPECTED_NAMED_LICENSE_PATHS = [
-  "licenses/bubblewrap/COPYING",
-  "licenses/libcap/License",
-  "licenses/pcre2/LICENCE.md",
-  "licenses/ripgrep/LICENSE-MIT",
-  "licenses/ripgrep/UNLICENSE",
-  "licenses/voice/LGPL-2.1.txt",
-  "licenses/voice/Opus.txt",
-  "licenses/voice/PCRE2.md",
-  "licenses/voice/libffi.txt",
-  "licenses/voice/proxy-libintl.txt",
-  "licenses/voice/sljit.txt",
-  "licenses/voice/zlib.txt",
+/** Native components THIRD_PARTY.json must always account for. */
+const REQUIRED_NATIVE_COMPONENTS = [
+  "PCRE2",
+  "bubblewrap",
+  "codex voice libraries",
+  "libcap",
+  "ripgrep",
 ] as const;
-// This metadata file preserves upstream license bytes in Git without making
-// it part of the audited license-text inventory.
-const LICENSE_DIRECTORY_METADATA_FILE = ".gitattributes";
+/** LGPL components whose corresponding source must ship in `sources/`. */
+const NATIVE_COMPONENTS_WITH_SOURCE = ["bubblewrap", "libcap"] as const;
 
-const EXPECTED_SOURCE_MATERIALS = {
-  "codex-rust-v0.163.0": {
-    path: "sources/codex-rust-v0.163.0-source.tar.gz",
-    size: 17_520_744,
-    sha256: "e57f1d4f914c71c3532a12d5c14f740909fca4e7e041fa1b3db71618c88e5567",
-    mediaType: "application/gzip",
-  },
-  "libcap-2.75": {
-    path: "sources/libcap-2.75.tar.xz",
-    size: 197_868,
-    sha256: "de4e7e064c9ba451d5234dd46e897d7c71c96a9ebf9a0c445bc04f4742d83632",
-    mediaType: "application/x-xz",
-  },
-} as const;
+const EXPECTED_SOURCE_MATERIALS: Readonly<
+  Record<
+    string,
+    {
+      readonly path: string;
+      readonly size: number;
+      readonly sha256: string;
+      readonly mediaType: string;
+    }
+  >
+> = BUNDLED_CODEX_PINS.sourceMaterials;
 
-const EXPECTED_ARCHIVES = {
-  launcher: {
-    npmVersion: CODEX_VERSION,
-    archive: `codex-${CODEX_VERSION}.tgz`,
-    size: 4_902,
-    sha256: "1a71db36560bb446d2c2e63ae675c4a3018c38ace38ca533f8d1b25d3e6555b4",
-    npmIntegrity:
-      "sha512-HNd7vR9oTK6M2ikxFnvNDCdYUgAsyo9VVnd5KnEd2ON0GYI++7MiX9XNPUkhtdgGKFPsWS+CEppQ1UU63uVhUw==",
-  },
-  "darwin-arm64": {
-    npmVersion: `${CODEX_VERSION}-darwin-arm64`,
-    archive: `codex-${CODEX_VERSION}-darwin-arm64.tgz`,
-    size: 137_871_195,
-    sha256: "1193ff4ce72387a5d6c34820b54a9dc57d007c67a958e8acb4715924facd3c31",
-    npmIntegrity:
-      "sha512-i7Dzk2a5aGmuGM9aNZgaUVTojZ/4bc5lRfosz++Y7X2BGhDkz+cySgbD+NYS1pOxfm0VEbLi9PZ3pAulI4kchw==",
-  },
-  "darwin-x64": {
-    npmVersion: `${CODEX_VERSION}-darwin-x64`,
-    archive: `codex-${CODEX_VERSION}-darwin-x64.tgz`,
-    size: 147_149_519,
-    sha256: "74267d7b7a18a5029fbefc85b003a2c56a7b3bbee1418162208dab5b6babf0da",
-    npmIntegrity:
-      "sha512-Ioj7h+B1ME9ZU1PH1ATfvFV5DiototEpFFaSSbg3kfDifB9djhl5fcJ++g5mpcL/+uVbcnReei+RiSXEx8o+kw==",
-  },
-  "linux-arm64": {
-    npmVersion: `${CODEX_VERSION}-linux-arm64`,
-    archive: `codex-${CODEX_VERSION}-linux-arm64.tgz`,
-    size: 154_715_729,
-    sha256: "dc6e7c4d6de71c23a0f60d05e2577ff7eef615b76f22630d58ad384b84763522",
-    npmIntegrity:
-      "sha512-IH2/R+4OarjGvsAf1ll3fdyLwrPgYLl3uzp6u9CyD9sj2Lw+ViDSe3QBZVHdcHJs0eIiZFg6Wprcuy4CRZaUGw==",
-  },
-  "linux-x64": {
-    npmVersion: `${CODEX_VERSION}-linux-x64`,
-    archive: `codex-${CODEX_VERSION}-linux-x64.tgz`,
-    size: 162_055_867,
-    sha256: "30efc97738b975940d78b59a9bea115fa34040b732807d54ec35ae6b7528de94",
-    npmIntegrity:
-      "sha512-uwRaOsrYogLQhcxAM/GoeWrw0QIWEMRo7c9gM8sKAviVkZQHlu9kRLJ5PkufbV+ABGjyZgIwiFdJ0LCJ0N6e8w==",
-  },
-  "win32-arm64": {
-    npmVersion: `${CODEX_VERSION}-win32-arm64`,
-    archive: `codex-${CODEX_VERSION}-win32-arm64.tgz`,
-    size: 156_994_368,
-    sha256: "3b9fee420b273ed693486c5d81bacea70c0952851ffae8c8ac0edaf3661992d6",
-    npmIntegrity:
-      "sha512-QnLn3gR2dExcdTThE/HAo5BrUq0/C8zDGQ0UZL3hNzfqt9ZklT6jGTyt8JhDyNZX4uSB4HhcJtbcOWucZGC0VQ==",
-  },
-  "win32-x64": {
-    npmVersion: `${CODEX_VERSION}-win32-x64`,
-    archive: `codex-${CODEX_VERSION}-win32-x64.tgz`,
-    size: 167_618_721,
-    sha256: "81377fd73b502a9e7208e32a4da2d468cdb3fc978e0b818c4707d846ad94eb1e",
-    npmIntegrity:
-      "sha512-QQGQ/q9dCJ5C5jqhgFrwycpWG3szIyFNThMiKl6hYtu6N/eM3Qd7StesgnCFAfzVED8IkE3N3oH71szzcludqw==",
-  },
-} as const;
+const EXPECTED_ARCHIVES = BUNDLED_CODEX_PINS.archives;
 
 const TARGET_TRIPLE_TO_ARCHIVE = {
   "aarch64-apple-darwin": "darwin-arm64",
@@ -281,14 +174,6 @@ export function resolveResealedBundledCodexPayloadPaths(input: {
 }
 
 type JsonRecord = Record<string, unknown>;
-
-interface BomLicenseBinding {
-  readonly component: string;
-  readonly declaredLicenseExpression: string;
-  readonly selectedLicenseExpression: string;
-  readonly sourceLocator: string;
-  readonly sourceIntegrity: string;
-}
 
 export interface PayloadFile {
   readonly path: string;
@@ -733,7 +618,6 @@ interface ComplianceBundleTreeEntry {
 
 function validatePortableCompliancePath(relativePath: string): void {
   const segments = relativePath.split("/");
-  const isLicenseGitAttributes = relativePath === "licenses/.gitattributes";
   if (
     !relativePath ||
     relativePath.includes("\0") ||
@@ -742,9 +626,7 @@ function validatePortableCompliancePath(relativePath: string): void {
     relativePath.includes("\\") ||
     segments.some(
       (segment) =>
-        segment === "." ||
-        segment === ".." ||
-        (!isLicenseGitAttributes && !/^[A-Za-z0-9][A-Za-z0-9._+@-]*$/u.test(segment)),
+        segment === "." || segment === ".." || !/^[A-Za-z0-9][A-Za-z0-9._+@-]*$/u.test(segment),
     )
   ) {
     throw new Error(
@@ -825,14 +707,17 @@ function listComplianceBundleTree(rootDirectory: string): ComplianceBundleTreeEn
   );
 }
 
-function validateComplianceBundleRoot(directory: string): {
+export interface BundledCodexComplianceTree {
   readonly algorithm: typeof BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_ALGORITHM;
   readonly entryCount: number;
   readonly fileCount: number;
   readonly directoryCount: number;
   readonly totalBytes: number;
   readonly rootSha256: string;
-} {
+}
+
+/** The deterministic whole-tree commitment (paths, modes, sizes and SHA-256 of every file). */
+export function computeBundledCodexComplianceTree(directory: string): BundledCodexComplianceTree {
   const entries = listComplianceBundleTree(directory);
   const hash = Crypto.createHash("sha256");
   hash.update(`${BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_ALGORITHM}\0`, "ascii");
@@ -858,26 +743,30 @@ function validateComplianceBundleRoot(directory: string): {
     hash.update("\0", "ascii");
   }
   hash.update(`END\0${entries.length}\0${fileCount}\0${directoryCount}\0`, "ascii");
-  const rootSha256 = hash.digest("hex");
-  if (
-    entries.length !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_ENTRY_COUNT ||
-    fileCount !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_FILE_COUNT ||
-    directoryCount !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_DIRECTORY_COUNT ||
-    totalBytes !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_TOTAL_BYTES ||
-    rootSha256 !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_SHA256
-  ) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: bundle root SHA-256 mismatch (algorithm=${BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_ALGORITHM}, entries=${entries.length}, files=${fileCount}, directories=${directoryCount}, bytes=${totalBytes}, sha256=${rootSha256}).`,
-    );
-  }
   return {
     algorithm: BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_ALGORITHM,
     entryCount: entries.length,
     fileCount,
     directoryCount,
     totalBytes,
-    rootSha256,
+    rootSha256: hash.digest("hex"),
   };
+}
+
+function validateComplianceBundleRoot(directory: string): BundledCodexComplianceTree {
+  const tree = computeBundledCodexComplianceTree(directory);
+  if (
+    tree.entryCount !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_ENTRY_COUNT ||
+    tree.fileCount !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_FILE_COUNT ||
+    tree.directoryCount !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_DIRECTORY_COUNT ||
+    tree.totalBytes !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_TOTAL_BYTES ||
+    tree.rootSha256 !== BUNDLED_CODEX_COMPLIANCE_BUNDLE_ROOT_SHA256
+  ) {
+    throw new Error(
+      `Bundled Codex compliance validation failed: bundle root SHA-256 mismatch (algorithm=${tree.algorithm}, entries=${tree.entryCount}, files=${tree.fileCount}, directories=${tree.directoryCount}, bytes=${tree.totalBytes}, sha256=${tree.rootSha256}).`,
+    );
+  }
+  return tree;
 }
 
 function readJson(filePath: string, label: string): JsonRecord {
@@ -904,22 +793,12 @@ export function assertBundledCodexComplianceVersion(expectedVersion: string): vo
   }
 }
 
-function validateTopLevelProvenance(directory: string): void {
-  const licensePath = Path.join(directory, "LICENSE");
-  const noticePath = Path.join(directory, "NOTICE");
-  const sourcePath = Path.join(directory, "SOURCE.json");
-  requirePlainFile(licensePath, "LICENSE");
-  requirePlainFile(noticePath, "NOTICE");
-  if (sha256File(licensePath) !== TOP_LEVEL_LICENSE_SHA256) {
-    throw new Error("Bundled Codex compliance validation failed: LICENSE SHA-256 mismatch.");
-  }
-  if (sha256File(noticePath) !== TOP_LEVEL_NOTICE_SHA256) {
-    throw new Error("Bundled Codex compliance validation failed: NOTICE SHA-256 mismatch.");
-  }
-  const source = readJson(sourcePath, "SOURCE.json");
-  if (!isDeepStrictEqual(source, EXPECTED_SOURCE_DOCUMENT)) {
+function requirePinnedFile(directory: string, relativePath: keyof typeof BUNDLED_CODEX_PINS.files) {
+  const filePath = Path.join(directory, relativePath);
+  requirePlainFile(filePath, relativePath);
+  if (sha256File(filePath) !== BUNDLED_CODEX_PINS.files[relativePath]) {
     throw new Error(
-      "Bundled Codex compliance validation failed: SOURCE.json does not exactly match the pinned source provenance.",
+      `Bundled Codex compliance validation failed: ${relativePath} SHA-256 mismatch.`,
     );
   }
 }
@@ -955,292 +834,178 @@ function objectEntry(value: unknown, label: string): JsonRecord {
   return value as JsonRecord;
 }
 
-function componentProperty(component: JsonRecord, propertyName: string, label: string): string {
-  const properties = arrayField(component, "properties", label);
-  const matching = properties
-    .map((value, index) => objectEntry(value, `${label}.properties[${index}]`))
-    .filter((property) => property.name === propertyName);
-  if (matching.length !== 1) {
+function resolveBundleFile(directory: string, relativePath: string, label: string): string {
+  const absolutePath = Path.resolve(directory, relativePath);
+  const relativeToDirectory = Path.relative(directory, absolutePath);
+  if (
+    !relativePath.startsWith("licenses/") ||
+    relativeToDirectory.startsWith("..") ||
+    Path.isAbsolute(relativeToDirectory)
+  ) {
     throw new Error(
-      `Bundled Codex compliance validation failed: ${label} must have exactly one ${propertyName} property.`,
+      `Bundled Codex compliance validation failed: ${label} names a path outside licenses/ (${relativePath}).`,
     );
   }
-  return stringField(matching[0]!, "value", `${label}.${propertyName}`);
+  requirePlainFile(absolutePath, relativePath);
+  return absolutePath;
 }
 
-function validateSelectedRustLicense(expression: string, bomRef: string): void {
-  if (expression.includes(" OR ") || expression.includes("/") || !expression) {
+/**
+ * THIRD_PARTY.json is generated from Codex's and ripgrep's Cargo.lock. Every crate must select an
+ * approved license and point at the license texts its own source ships; every file under
+ * `licenses/` must be referenced by a crate or native component.
+ */
+function validateThirdParty(directory: string): {
+  readonly componentCount: number;
+  readonly textCount: number;
+} {
+  // Not hash-pinned on its own: the tree root binds its bytes, and checking its content first
+  // keeps policy failures (an unapproved license, a missing text) readable.
+  const document = readJson(Path.join(directory, "THIRD_PARTY.json"), "THIRD_PARTY.json");
+  if (
+    document.schemaVersion !== 1 ||
+    document.codexVersion !== CODEX_VERSION ||
+    document.sourceCommit !== BUNDLED_CODEX_PINS.sourceCommit
+  ) {
     throw new Error(
-      `Bundled Codex compliance validation failed: ${bomRef} does not have one deterministic selected-license branch.`,
+      "Bundled Codex compliance validation failed: THIRD_PARTY identity/version mismatch.",
     );
   }
-  for (const atom of expression.split(" AND ")) {
-    const parts = atom.split(" WITH ");
+  const crates = arrayField(document, "crates", "THIRD_PARTY.json");
+  if (crates.length !== BUNDLED_CODEX_PINS.crateCount) {
+    throw new Error(
+      `Bundled Codex compliance validation failed: expected ${BUNDLED_CODEX_PINS.crateCount} crates, found ${crates.length}.`,
+    );
+  }
+  const referenced = new Set<string>();
+  const crateTexts = new Set<string>();
+  const seen = new Set<string>();
+  for (const [index, value] of crates.entries()) {
+    const crate = objectEntry(value, `crates[${index}]`);
+    const name = stringField(crate, "name", `crates[${index}]`);
+    const version = stringField(crate, "version", `crates[${index}]`);
+    const source = stringField(crate, "source", `crates[${index}]`);
+    const label = `${name}@${version}`;
+    const key = `${label} ${source}`;
+    if (seen.has(key)) {
+      throw new Error(`Bundled Codex compliance validation failed: duplicate crate ${key}.`);
+    }
+    seen.add(key);
+    stringField(crate, "declaredLicense", label);
+    const selected = stringField(crate, "selectedLicense", label);
+    if (!isApprovedSelection(selected)) {
+      throw new Error(
+        `Bundled Codex compliance validation failed: ${label} selected an unapproved or strong-copyleft license (${selected}).`,
+      );
+    }
+    const integrity = stringField(crate, "integrity", label);
+    const validIntegrity = source.startsWith("registry+")
+      ? /^sha256:[0-9a-f]{64}$/u.test(integrity)
+      : /^git:[0-9a-f]{40}$/u.test(integrity);
+    if (!validIntegrity) {
+      throw new Error(
+        `Bundled Codex compliance validation failed: ${label} source is not bound to a checksum or commit.`,
+      );
+    }
+    const files = arrayField(crate, "licenseFiles", label);
+    if (files.length === 0) {
+      throw new Error(`Bundled Codex compliance validation failed: ${label} has no license text.`);
+    }
     if (
-      parts.length > 2 ||
-      !APPROVED_RUST_LICENSE_IDS.has(parts[0] ?? "") ||
-      (parts[1] !== undefined && !APPROVED_RUST_LICENSE_EXCEPTIONS.has(parts[1]))
+      files.every((value) => {
+        const entry = objectEntry(value, `${label}.licenseFiles`);
+        return stringField(entry, "path", label).startsWith("spdx:");
+      })
     ) {
       throw new Error(
-        `Bundled Codex compliance validation failed: ${bomRef} selected an unapproved or strong-copyleft license (${expression}).`,
+        `Bundled Codex compliance validation failed: ${label} has only generic SPDX templates, without package notice evidence.`,
       );
     }
-  }
-}
-
-function validateSourceBinding(
-  sourceLocator: string,
-  sourceIntegrity: string,
-  bomRef: string,
-): void {
-  if (sourceLocator.startsWith("registry+")) {
-    if (!/^sha256:[0-9a-f]{64}$/u.test(sourceIntegrity)) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: ${bomRef} registry source is not bound to a Cargo checksum.`,
-      );
-    }
-    return;
-  }
-  const commit = /#([0-9a-f]{40})$/u.exec(sourceLocator)?.[1];
-  if (!commit || sourceIntegrity !== `git:${commit}`) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: ${bomRef} git source is not bound to its exact commit.`,
-    );
-  }
-}
-
-function validateBom(directory: string): {
-  componentCount: number;
-  bomRefs: Set<string>;
-  cargoBindings: Map<string, BomLicenseBinding>;
-} {
-  const bom = readJson(Path.join(directory, "COMPONENTS.cdx.json"), "COMPONENTS.cdx.json");
-  if (bom.bomFormat !== "CycloneDX" || bom.specVersion !== "1.6" || bom.version !== 1) {
-    throw new Error(
-      "Bundled Codex compliance validation failed: CycloneDX identity/version mismatch.",
-    );
-  }
-  const components = arrayField(bom, "components", "COMPONENTS.cdx.json");
-  if (components.length !== BUNDLED_CODEX_COMPLIANCE_COMPONENT_COUNT) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: expected exactly ${BUNDLED_CODEX_COMPLIANCE_COMPONENT_COUNT} components, found ${components.length}.`,
-    );
-  }
-  const bomRefs = new Set<string>();
-  const cargoBindings = new Map<string, BomLicenseBinding>();
-  for (const [index, value] of components.entries()) {
-    const component = objectEntry(value, `components[${index}]`);
-    const bomRef = stringField(component, "bom-ref", `components[${index}]`);
-    if (bomRefs.has(bomRef)) {
-      throw new Error(`Bundled Codex compliance validation failed: duplicate bom-ref ${bomRef}.`);
-    }
-    bomRefs.add(bomRef);
-    const licenses = arrayField(component, "licenses", `components[${index}]`);
-    if (licenses.length === 0) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: ${bomRef} has no declared license.`,
-      );
-    }
-    if (bomRef.startsWith("cargo-")) {
-      if (licenses.length !== 1) {
+    for (const [fileIndex, fileValue] of files.entries()) {
+      const file = objectEntry(fileValue, `${label}.licenseFiles[${fileIndex}]`);
+      const text = stringField(file, "text", `${label}.licenseFiles[${fileIndex}]`);
+      const sha256 = /^licenses\/rust\/([0-9a-f]{64})\.txt$/u.exec(text)?.[1];
+      if (!sha256) {
         throw new Error(
-          `Bundled Codex compliance validation failed: ${bomRef} Cargo license declaration must be singular.`,
+          `Bundled Codex compliance validation failed: invalid license text path for ${label}.`,
         );
       }
-      const declaredLicenseExpression = stringField(
-        objectEntry(licenses[0], `${bomRef}.licenses[0]`),
-        "expression",
-        `${bomRef}.licenses[0]`,
-      );
-      const selectedLicenseExpression = componentProperty(
-        component,
-        "moss:selected-license",
-        bomRef,
-      );
-      const sourceLocator = componentProperty(component, "moss:source", bomRef);
-      const sourceIntegrity = componentProperty(component, "moss:source-integrity", bomRef);
-      validateSelectedRustLicense(selectedLicenseExpression, bomRef);
-      validateSourceBinding(sourceLocator, sourceIntegrity, bomRef);
-      cargoBindings.set(bomRef, {
-        component: `${stringField(component, "name", bomRef)}@${stringField(component, "version", bomRef)}`,
-        declaredLicenseExpression,
-        selectedLicenseExpression,
-        sourceLocator,
-        sourceIntegrity,
-      });
+      if (!crateTexts.has(text)) {
+        if (sha256File(resolveBundleFile(directory, text, label)) !== sha256) {
+          throw new Error(
+            `Bundled Codex compliance validation failed: license text SHA-256 mismatch for ${text}.`,
+          );
+        }
+        crateTexts.add(text);
+      }
+      referenced.add(text);
     }
   }
-  for (const required of [
-    "native-codex-voice-host",
-    "native-pcre2-10.45",
-    "native-bubblewrap-0.11.2",
-    "native-libcap-2.75",
-  ]) {
-    if (!bomRefs.has(required)) {
+  if (crateTexts.size !== BUNDLED_CODEX_COMPLIANCE_LICENSE_TEXT_COUNT) {
+    throw new Error(
+      `Bundled Codex compliance validation failed: expected ${BUNDLED_CODEX_COMPLIANCE_LICENSE_TEXT_COUNT} license texts, found ${crateTexts.size}.`,
+    );
+  }
+
+  const natives = arrayField(document, "native", "THIRD_PARTY.json");
+  if (natives.length !== BUNDLED_CODEX_PINS.nativeComponentCount) {
+    throw new Error(
+      `Bundled Codex compliance validation failed: expected ${BUNDLED_CODEX_PINS.nativeComponentCount} native components, found ${natives.length}.`,
+    );
+  }
+  const nativeNames = new Set<string>();
+  for (const [index, value] of natives.entries()) {
+    const native = objectEntry(value, `native[${index}]`);
+    const name = stringField(native, "name", `native[${index}]`);
+    nativeNames.add(name);
+    const files = arrayField(native, "licenseFiles", name);
+    if (files.length === 0) {
+      throw new Error(`Bundled Codex compliance validation failed: ${name} has no license text.`);
+    }
+    for (const fileValue of files) {
+      if (typeof fileValue !== "string") {
+        throw new Error(
+          `Bundled Codex compliance validation failed: ${name} license path invalid.`,
+        );
+      }
+      resolveBundleFile(directory, fileValue, name);
+      referenced.add(fileValue);
+    }
+    if ((NATIVE_COMPONENTS_WITH_SOURCE as readonly string[]).includes(name)) {
+      const source = stringField(native, "source", name);
+      if (!Object.values(EXPECTED_SOURCE_MATERIALS).some((material) => material.path === source)) {
+        throw new Error(
+          `Bundled Codex compliance validation failed: ${name} corresponding source ${source} is not a pinned source material.`,
+        );
+      }
+    }
+  }
+  for (const required of REQUIRED_NATIVE_COMPONENTS) {
+    if (!nativeNames.has(required)) {
       throw new Error(
         `Bundled Codex compliance validation failed: missing native component ${required}.`,
       );
     }
   }
-  const expectedNativeSelections = new Map([
-    ["native-codex-voice-host", "mixed permissive and LGPL-2.1-or-later"],
-    ["native-pcre2-10.45", "BSD-3-Clause"],
-    ["native-bubblewrap-0.11.2", "LGPL-2.0-or-later"],
-    ["native-libcap-2.75", "BSD-3-Clause"],
-  ]);
-  for (const componentValue of components) {
-    const component = objectEntry(componentValue, "native component");
-    const bomRef = stringField(component, "bom-ref", "native component");
-    const expectedSelection = expectedNativeSelections.get(bomRef);
-    if (
-      expectedSelection &&
-      componentProperty(component, "moss:selected-license", bomRef) !== expectedSelection
-    ) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: selected native license mismatch for ${bomRef}.`,
-      );
-    }
-  }
-  if (cargoBindings.size !== 1_474) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: expected 1474 Cargo source/license bindings, found ${cargoBindings.size}.`,
-    );
-  }
-  return { componentCount: components.length, bomRefs, cargoBindings };
-}
 
-function validateLicenseEvidence(
-  directory: string,
-  bomRefs: ReadonlySet<string>,
-  cargoBindings: ReadonlyMap<string, BomLicenseBinding>,
-): { textCount: number } {
-  const evidence = readJson(Path.join(directory, "LICENSE_EVIDENCE.json"), "LICENSE_EVIDENCE.json");
-  if (evidence.schemaVersion !== 1 || evidence.codexVersion !== CODEX_VERSION) {
-    throw new Error(
-      "Bundled Codex compliance validation failed: LICENSE_EVIDENCE identity/version mismatch.",
-    );
-  }
-  const componentCount = numberField(evidence, "componentCount", "LICENSE_EVIDENCE.json");
-  const textCount = numberField(evidence, "textCount", "LICENSE_EVIDENCE.json");
-  const missing = arrayField(evidence, "missingEvidence", "LICENSE_EVIDENCE.json");
-  const mappings = arrayField(evidence, "componentEvidence", "LICENSE_EVIDENCE.json");
-  if (missing.length !== 0 || mappings.length !== componentCount || componentCount < 1_000) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: license evidence is incomplete (components=${componentCount}, mappings=${mappings.length}, missing=${missing.length}).`,
-    );
-  }
-  const seenTexts = new Set<string>();
-  const seenTextPaths = new Set<string>();
-  // Shared license texts occur in many component mappings. Aggregate their
-  // requirements, then read every distinct file once in this validation call.
-  // The final whole-tree commitment independently rereads all bundle bytes.
-  const expectedTexts = new Map<string, { relativePath: string; sha256: string }>();
-  const seenMappings = new Set<string>();
-  for (const [mappingIndex, mappingValue] of mappings.entries()) {
-    const mapping = objectEntry(mappingValue, `componentEvidence[${mappingIndex}]`);
-    const bomRef = stringField(mapping, "bomRef", `componentEvidence[${mappingIndex}]`);
-    const binding = cargoBindings.get(bomRef);
-    if (!bomRefs.has(bomRef) || !binding || seenMappings.has(bomRef)) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: unknown or duplicate evidence bom-ref ${bomRef}.`,
-      );
-    }
-    seenMappings.add(bomRef);
-    if (
-      stringField(mapping, "component", `componentEvidence[${mappingIndex}]`) !==
-        binding.component ||
-      stringField(mapping, "declaredLicenseExpression", `componentEvidence[${mappingIndex}]`) !==
-        binding.declaredLicenseExpression ||
-      stringField(mapping, "selectedLicenseExpression", `componentEvidence[${mappingIndex}]`) !==
-        binding.selectedLicenseExpression ||
-      stringField(mapping, "sourceLocator", `componentEvidence[${mappingIndex}]`) !==
-        binding.sourceLocator ||
-      stringField(mapping, "sourceIntegrity", `componentEvidence[${mappingIndex}]`) !==
-        binding.sourceIntegrity
-    ) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: selected-license/source binding mismatch for ${bomRef}.`,
-      );
-    }
-    validateSelectedRustLicense(binding.selectedLicenseExpression, bomRef);
-    validateSourceBinding(binding.sourceLocator, binding.sourceIntegrity, bomRef);
-    const files = arrayField(mapping, "files", `componentEvidence[${mappingIndex}]`);
-    if (files.length === 0) {
-      throw new Error(`Bundled Codex compliance validation failed: ${bomRef} has no license text.`);
-    }
-    for (const [fileIndex, fileValue] of files.entries()) {
-      const file = objectEntry(fileValue, `componentEvidence[${mappingIndex}].files[${fileIndex}]`);
-      const relativePath = stringField(file, "relativePath", "license evidence file");
-      const expectedHash = stringField(file, "sha256", "license evidence file");
-      if (!SHA256.test(expectedHash) || !relativePath.startsWith("licenses/rust/")) {
-        throw new Error(
-          `Bundled Codex compliance validation failed: invalid license evidence path/hash for ${bomRef}.`,
-        );
-      }
-      const absolutePath = Path.resolve(directory, relativePath);
-      const relativeToDirectory = Path.relative(directory, absolutePath);
-      if (relativeToDirectory.startsWith("..") || Path.isAbsolute(relativeToDirectory)) {
-        throw new Error(
-          `Bundled Codex compliance validation failed: license evidence escapes bundle for ${bomRef}.`,
-        );
-      }
-      const existingText = expectedTexts.get(absolutePath);
-      if (existingText !== undefined && existingText.sha256 !== expectedHash) {
-        throw new Error(
-          `Bundled Codex compliance validation failed: license evidence SHA-256 mismatch for ${relativePath}.`,
-        );
-      }
-      if (existingText === undefined) {
-        expectedTexts.set(absolutePath, { relativePath, sha256: expectedHash });
-      }
-      seenTexts.add(expectedHash);
-      seenTextPaths.add(relativePath);
-    }
-  }
-  for (const [absolutePath, expectedText] of expectedTexts) {
-    requirePlainFile(absolutePath, expectedText.relativePath);
-    if (sha256File(absolutePath) !== expectedText.sha256) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: license evidence SHA-256 mismatch for ${expectedText.relativePath}.`,
-      );
-    }
-  }
-  if (textCount !== BUNDLED_CODEX_COMPLIANCE_LICENSE_TEXT_COUNT) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: expected ${BUNDLED_CODEX_COMPLIANCE_LICENSE_TEXT_COUNT} license texts, found ${textCount}.`,
-    );
-  }
-  if (seenTexts.size !== textCount) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: license text count mismatch (${seenTexts.size} != ${textCount}).`,
-    );
-  }
-  if (seenMappings.size !== cargoBindings.size) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: Cargo evidence coverage mismatch (${seenMappings.size} != ${cargoBindings.size}).`,
-    );
-  }
   const actualLicensePaths = listPlainRelativeFiles(Path.join(directory, "licenses"), "licenses")
-    .filter((relativePath) => relativePath !== LICENSE_DIRECTORY_METADATA_FILE)
     .map((relativePath) => `licenses/${relativePath}`)
     .toSorted(compareUtf8Bytes);
-  const expectedLicensePaths = [...seenTextPaths, ...EXPECTED_NAMED_LICENSE_PATHS].toSorted(
-    compareUtf8Bytes,
-  );
+  const expectedLicensePaths = [...referenced].toSorted(compareUtf8Bytes);
   if (JSON.stringify(actualLicensePaths) !== JSON.stringify(expectedLicensePaths)) {
     throw new Error(
       `Bundled Codex compliance validation failed: license file inventory mismatch (${actualLicensePaths.length} != ${expectedLicensePaths.length}).`,
     );
   }
-  return { textCount };
+  return {
+    componentCount: crates.length + natives.length,
+    textCount: crateTexts.size,
+  };
 }
 
 function parsePayloads(directory: string): PayloadDocument {
   const payloadsPath = Path.join(directory, "PAYLOADS.json");
-  requirePlainFile(payloadsPath, "PAYLOADS.json");
-  if (sha256File(payloadsPath) !== PAYLOADS_SHA256) {
-    throw new Error("Bundled Codex compliance validation failed: PAYLOADS.json SHA-256 mismatch.");
-  }
+  requirePinnedFile(directory, "PAYLOADS.json");
   const payloads = readJson(payloadsPath, "PAYLOADS.json");
   if (
     payloads.schemaVersion !== 1 ||
@@ -1355,22 +1120,6 @@ function validatePayloadDocument(payloads: PayloadDocument): number {
 }
 
 function validateSourceMaterials(directory: string): number {
-  const document = readJson(Path.join(directory, "SOURCE_MATERIALS.json"), "SOURCE_MATERIALS.json");
-  if (
-    document.schemaVersion !== 1 ||
-    document.codexVersion !== CODEX_VERSION ||
-    document.legalStatus !==
-      "engineering-source-closure-present; legal review is outside this build gate"
-  ) {
-    throw new Error(
-      "Bundled Codex compliance validation failed: SOURCE_MATERIALS identity/legal status mismatch.",
-    );
-  }
-  const rebuildPath = Path.join(directory, "REBUILD.md");
-  requirePlainFile(rebuildPath, "REBUILD.md");
-  if (sha256File(rebuildPath) !== REBUILD_SHA256) {
-    throw new Error("Bundled Codex compliance validation failed: REBUILD.md SHA-256 mismatch.");
-  }
   const sourcesDirectory = Path.join(directory, "sources");
   let sourcesStat: FS.Stats;
   try {
@@ -1383,8 +1132,9 @@ function validateSourceMaterials(directory: string): number {
       "Bundled Codex compliance validation failed: sources must be a plain directory.",
     );
   }
-  const expectedSourceFiles = Object.values(EXPECTED_SOURCE_MATERIALS)
-    .map((material) => Path.basename(material.path))
+  const materials = Object.entries(EXPECTED_SOURCE_MATERIALS);
+  const expectedSourceFiles = materials
+    .map(([, material]) => Path.posix.basename(material.path))
     .toSorted(compareUtf8Bytes);
   const actualSourceFiles = FS.readdirSync(sourcesDirectory).toSorted(compareUtf8Bytes);
   if (JSON.stringify(actualSourceFiles) !== JSON.stringify(expectedSourceFiles)) {
@@ -1392,180 +1142,19 @@ function validateSourceMaterials(directory: string): number {
       `Bundled Codex compliance validation failed: source archive set mismatch (${actualSourceFiles.join(", ")}).`,
     );
   }
-
-  const materials = arrayField(document, "materials", "SOURCE_MATERIALS.json");
-  if (materials.length !== BUNDLED_CODEX_COMPLIANCE_SOURCE_MATERIAL_COUNT) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: expected ${BUNDLED_CODEX_COMPLIANCE_SOURCE_MATERIAL_COUNT} source materials, found ${materials.length}.`,
-    );
-  }
-  const seen = new Set<string>();
-  for (const [index, value] of materials.entries()) {
-    const material = objectEntry(value, `materials[${index}]`);
-    const id = stringField(material, "id", `materials[${index}]`);
-    if (seen.has(id) || !(id in EXPECTED_SOURCE_MATERIALS)) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: unexpected/duplicate source material ${id}.`,
-      );
-    }
-    seen.add(id);
-    const expected = EXPECTED_SOURCE_MATERIALS[id as keyof typeof EXPECTED_SOURCE_MATERIALS];
-    const relativePath = stringField(material, "path", `materials[${index}]`);
+  for (const [id, material] of materials) {
+    const absolutePath = Path.join(directory, ...material.path.split("/"));
+    requirePlainFile(absolutePath, material.path);
     if (
-      relativePath !== expected.path ||
-      numberField(material, "size", `materials[${index}]`) !== expected.size ||
-      stringField(material, "sha256", `materials[${index}]`) !== expected.sha256 ||
-      stringField(material, "mediaType", `materials[${index}]`) !== expected.mediaType
+      FS.statSync(absolutePath).size !== material.size ||
+      sha256File(absolutePath) !== material.sha256
     ) {
       throw new Error(
-        `Bundled Codex compliance validation failed: source material lock mismatch for ${id}.`,
-      );
-    }
-    if (id === "codex-rust-v0.163.0") {
-      if (
-        material.repository !== "https://github.com/openai/codex" ||
-        material.revision !== "83086188ae0614bd882818ff1aa23f3194962012" ||
-        JSON.stringify(material.relevantPaths) !==
-          JSON.stringify([
-            "codex-rs/vendor/bubblewrap",
-            "codex-rs/bwrap",
-            ".github/scripts/install-musl-build-tools.sh",
-            ".github/workflows/rust-release.yml",
-          ])
-      ) {
-        throw new Error(
-          "Bundled Codex compliance validation failed: Codex source provenance mismatch.",
-        );
-      }
-    } else if (
-      material.distributionUrl !==
-      "https://mirrors.edge.kernel.org/pub/linux/libs/security/linux-privs/libcap2/libcap-2.75.tar.xz"
-    ) {
-      throw new Error(
-        "Bundled Codex compliance validation failed: libcap source provenance mismatch.",
-      );
-    }
-    const absolutePath = Path.resolve(directory, relativePath);
-    const relativeToDirectory = Path.relative(directory, absolutePath);
-    if (relativeToDirectory.startsWith("..") || Path.isAbsolute(relativeToDirectory)) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: source material escapes bundle for ${id}.`,
-      );
-    }
-    requirePlainFile(absolutePath, relativePath);
-    if (
-      FS.statSync(absolutePath).size !== expected.size ||
-      sha256File(absolutePath) !== expected.sha256
-    ) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: source archive SHA-256/size mismatch for ${relativePath}.`,
+        `Bundled Codex compliance validation failed: source archive SHA-256/size mismatch for ${material.path} (${id}).`,
       );
     }
   }
   return materials.length;
-}
-
-function validateObligations(directory: string): {
-  releaseDecision: "approved" | "blocked";
-  blockers: string[];
-} {
-  const obligations = readJson(Path.join(directory, "OBLIGATIONS.json"), "OBLIGATIONS.json");
-  if (
-    obligations.schemaVersion !== 1 ||
-    obligations.codexVersion !== CODEX_VERSION ||
-    obligations.decisionScope !==
-      "automated engineering evidence and distribution-asset completeness; not legal advice"
-  ) {
-    throw new Error(
-      "Bundled Codex compliance validation failed: OBLIGATIONS identity/version mismatch.",
-    );
-  }
-  if (obligations.releaseDecision !== "approved") {
-    throw new Error(
-      "Bundled Codex compliance validation failed: audited engineering releaseDecision must be approved.",
-    );
-  }
-  const runtimePolicy = objectEntry(obligations.runtimePolicy, "OBLIGATIONS.json.runtimePolicy");
-  if (
-    runtimePolicy.linuxPublicArchitecture !== "x64" ||
-    runtimePolicy.linuxLibc !== "glibc" ||
-    runtimePolicy.minimumGlibcVersion !== "2.38" ||
-    runtimePolicy.maximumVoiceHostGlibcVersion !== "2.38" ||
-    runtimePolicy.packageCoordinate !== "x86_64-unknown-linux-musl" ||
-    JSON.stringify(runtimePolicy.requiredSharedLibraries) !==
-      JSON.stringify([...LINUX_PUBLIC_SHARED_LIBRARIES]) ||
-    JSON.stringify(runtimePolicy.requiredRuntimeProbes) !==
-      JSON.stringify([
-        "codex --version",
-        "codex debug models --bundled",
-        "readelf --version-info codex-voice-host",
-        "readelf --dynamic codex-voice-host",
-      ])
-  ) {
-    throw new Error("Bundled Codex compliance validation failed: Linux runtime policy mismatch.");
-  }
-  const blockerIds = arrayField(obligations, "blockers", "OBLIGATIONS.json")
-    .map((value, index) =>
-      stringField(objectEntry(value, `blockers[${index}]`), "id", `blockers[${index}]`),
-    )
-    .toSorted(compareUtf8Bytes);
-  if (blockerIds.length !== 0) {
-    throw new Error(
-      "Bundled Codex compliance validation failed: approved ledger must have no blockers.",
-    );
-  }
-  const licenseAssets = arrayField(obligations, "licenseAssets", "OBLIGATIONS.json");
-  if (licenseAssets.length !== EXPECTED_NAMED_LICENSE_PATHS.length) {
-    throw new Error(
-      `Bundled Codex compliance validation failed: expected ${EXPECTED_NAMED_LICENSE_PATHS.length} named license assets, found ${licenseAssets.length}.`,
-    );
-  }
-  for (const [index, assetValue] of licenseAssets.entries()) {
-    const asset = objectEntry(assetValue, `licenseAssets[${index}]`);
-    const relativePath = stringField(asset, "path", `licenseAssets[${index}]`);
-    const expectedHash = stringField(asset, "sha256", `licenseAssets[${index}]`);
-    const absolutePath = Path.resolve(directory, relativePath);
-    const relativeToDirectory = Path.relative(directory, absolutePath);
-    if (
-      !relativePath.startsWith("licenses/") ||
-      !SHA256.test(expectedHash) ||
-      relativeToDirectory.startsWith("..") ||
-      Path.isAbsolute(relativeToDirectory)
-    ) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: invalid named license asset ${relativePath}.`,
-      );
-    }
-    requirePlainFile(absolutePath, relativePath);
-    if (sha256File(absolutePath) !== expectedHash) {
-      throw new Error(
-        `Bundled Codex compliance validation failed: named license SHA-256 mismatch for ${relativePath}.`,
-      );
-    }
-  }
-  const fulfilledEvidenceIds = arrayField(obligations, "fulfilledEvidence", "OBLIGATIONS.json")
-    .map((value, index) =>
-      stringField(
-        objectEntry(value, `fulfilledEvidence[${index}]`),
-        "id",
-        `fulfilledEvidence[${index}]`,
-      ),
-    )
-    .toSorted(compareUtf8Bytes);
-  const expectedFulfilledEvidenceIds = [
-    "linux-bwrap-source-materials",
-    "linux-voice-host-glibc-runtime-policy",
-    "named-native-license-texts",
-    "runtime-component-inventory",
-    "rust-license-selection-policy",
-    "top-level-codex-apache",
-  ];
-  if (JSON.stringify(fulfilledEvidenceIds) !== JSON.stringify(expectedFulfilledEvidenceIds)) {
-    throw new Error(
-      "Bundled Codex compliance validation failed: fulfilled evidence ledger mismatch.",
-    );
-  }
-  return { releaseDecision: obligations.releaseDecision, blockers: blockerIds };
 }
 
 export function validateBundledCodexReleaseComplianceBundle(input: {
@@ -1593,12 +1182,12 @@ export function validateBundledCodexReleaseComplianceBundle(input: {
       `Bundled Codex compliance validation failed: top-level entries mismatch (${entries.join(", ")}).`,
     );
   }
-  validateTopLevelProvenance(input.directory);
-  const { componentCount, bomRefs, cargoBindings } = validateBom(input.directory);
-  const { textCount } = validateLicenseEvidence(input.directory, bomRefs, cargoBindings);
+  requirePinnedFile(input.directory, "LICENSE");
+  requirePinnedFile(input.directory, "NOTICE");
+  requirePinnedFile(input.directory, "README.md");
+  const { componentCount, textCount } = validateThirdParty(input.directory);
   const payloadFileCount = validatePayloadDocument(parsePayloads(input.directory));
   const sourceMaterialCount = validateSourceMaterials(input.directory);
-  const { releaseDecision, blockers } = validateObligations(input.directory);
   // Validate the deterministic whole-tree commitment last so targeted
   // semantic failures remain actionable while self-consistent tampering,
   // extra empty directories, permissions, and special entries still fail.
@@ -1615,8 +1204,9 @@ export function validateBundledCodexReleaseComplianceBundle(input: {
     licenseTextCount: textCount,
     payloadFileCount,
     sourceMaterialCount,
-    releaseDecision,
-    blockers,
+    // Kept for release receipts: a bundle that validates is approved and has no blockers.
+    releaseDecision: "approved",
+    blockers: [],
   };
 }
 

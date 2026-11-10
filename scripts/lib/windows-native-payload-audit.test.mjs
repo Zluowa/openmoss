@@ -322,8 +322,33 @@ describe("auditWindowsNativePayloads", () => {
     assert.equal(manifest.schemaVersion, 2);
     assert.equal(signingTargets.length, WINDOWS_UNPACKED_SIGNING_TARGET_PATHS.length);
     assert.equal(lateSigningTargets.length, WINDOWS_LATE_SIGNING_TARGET_PATHS.length);
-    // Codex 0.163 adds code-mode-host and the 26 voice DLLs to the reviewed preserved payload set.
-    assert.equal(preservedPayloads.length, 45);
+    // Eleven reviewed non-Codex payloads (app natives, node-pty, claude.exe) plus the five Windows
+    // Cua Driver files (driver, UIA helper, cursor theme, SDK, node runtime) from the pinned
+    // upstream release; the Codex files follow its win32-x64 payload and are bound one by one in
+    // the test below (bun run bump:codex). Pi is no longer bundled (Moss runs the person's own Pi
+    // CLI), so pi-tui's win32-x64 platform helper must not return.
+    assert.equal(
+      preservedPayloads.filter((entry) => !entry.path.startsWith("resources/codex-runtime/"))
+        .length,
+      16,
+    );
+    assert.deepStrictEqual(
+      preservedPayloads
+        .filter((entry) => entry.path.startsWith("resources/cua-driver/"))
+        .map((entry) => entry.path)
+        .sort(),
+      [
+        "resources/cua-driver/cua-cursor-theme.exe",
+        "resources/cua-driver/cua-driver-uia.exe",
+        "resources/cua-driver/cua-driver.exe",
+        "resources/cua-driver/cua_driver_node_runtime.node",
+        "resources/cua-driver/cua_driver_sdk.dll",
+      ],
+    );
+    assert.ok(
+      preservedPayloads.every((entry) => !entry.path.includes("node_modules/@earendil-works/")),
+      "Pi SDK payloads must not return to the desktop stage",
+    );
     assert.deepStrictEqual(
       signingTargets.map((entry) => entry.path).sort(),
       [...WINDOWS_UNPACKED_SIGNING_TARGET_PATHS].sort(),
@@ -362,13 +387,13 @@ describe("auditWindowsNativePayloads", () => {
     }
   });
 
-  it("binds every reviewed Windows Codex native file to the authoritative 0.163.0 payload receipt", () => {
+  it("binds every reviewed Windows Codex native file to the authoritative 0.166.0 payload receipt", () => {
     const manifest = JSON.parse(
       readFileSync(new URL("../windows-native-payload-manifest.json", import.meta.url), "utf8"),
     );
     const payloadReceipt = JSON.parse(
       readFileSync(
-        new URL("../../third_party/openai-codex/0.163.0/PAYLOADS.json", import.meta.url),
+        new URL("../../third_party/openai-codex/0.166.0/PAYLOADS.json", import.meta.url),
         "utf8",
       ),
     );

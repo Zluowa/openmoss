@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BrowserVaultSettings, BrowserVaultSnapshot } from "@synara/contracts";
+import type { BrowserVaultSettings, BrowserVaultSnapshot } from "@moss/contracts";
 import { CentralIcon } from "~/lib/central-icons";
 import { Key01Icon } from "~/lib/icons";
 import { readNativeApi } from "~/nativeApi";
@@ -13,6 +13,11 @@ import { BrowserCookieImport, type BrowserCookieDestination } from "./BrowserCoo
 
 const OPEN_EVENT = "moss:open-browser-vault";
 
+/** Opens the saved-logins dialog, offering cookie import for `destination` when given. */
+export function openBrowserVault(destination?: BrowserCookieDestination): void {
+  window.dispatchEvent(new CustomEvent(OPEN_EVENT, destination ? { detail: destination } : {}));
+}
+
 export function BrowserVaultButton({
   destination,
 }: {
@@ -25,11 +30,7 @@ export function BrowserVaultButton({
       size="icon-sm"
       label="Saved logins"
       title="Saved logins"
-      onClick={() =>
-        window.dispatchEvent(
-          new CustomEvent(OPEN_EVENT, destination ? { detail: destination } : {}),
-        )
-      }
+      onClick={() => openBrowserVault(destination)}
     >
       <Key01Icon className="size-4" />
     </IconButton>

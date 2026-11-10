@@ -18,13 +18,13 @@ import type {
   ProviderPluginMarketplaceDescriptor,
   ProviderPluginMarketplaceLoadError,
   ProviderSkillDescriptor,
-} from "@synara/contracts";
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+} from "@moss/contracts";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 import {
   isSafeEntryName,
   readMossPluginManifest,
   type MossPluginIR,
-} from "@synara/shared/mossResourceRegistry";
+} from "@moss/shared/mossResourceRegistry";
 import { collectSkillMarkdownPaths, readSkillDescriptor } from "./skillsCatalog.ts";
 
 export interface MossPluginCatalogResult {

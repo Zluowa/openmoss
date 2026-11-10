@@ -19,6 +19,9 @@ import {
   type AcpSessionRuntimeShape,
   type AcpSessionRuntimeOptions,
 } from "./AcpSessionRuntime";
+import { AcpRequestError } from "./AcpErrors";
+import { buildAcpSpawnProcessEnv } from "./AcpSessionRuntime";
+import { MOSS_HERMES_PROBE_HOME_ENV } from "../mossManagedHermesProbePlugin";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -171,7 +174,11 @@ describe("Hermes ACP integration", () => {
       "/workspace",
     );
     expect(spawn.args).toEqual(["acp"]);
-    expect(spawn.inheritedMossKeys).toEqual(["MOSS_ACCESS_TOKEN"]);
+    expect(spawn.inheritedMossKeys).toEqual([
+      "MOSS_ACCESS_TOKEN",
+      "MOSS_HERMES_CONFIG_CONTENT",
+      ...(process.platform === "win32" ? [MOSS_HERMES_PROBE_HOME_ENV] : []),
+    ]);
     expect(spawn.env).toMatchObject({
       HERMES_HOME: "/isolated/hermes",
       MOSS_ACCESS_TOKEN: "scoped-token",
@@ -185,6 +192,80 @@ describe("Hermes ACP integration", () => {
     expect(spawn.env?.NO_PROXY).toContain("127.0.0.1");
     expect(spawn.env?.HTTPS_PROXY).toBe("http://proxy.test:8080");
   });
+  it("carries private compatibility scope through the second ACP environment boundary only on Windows", () => {
+    for (const platform of ["win32", "linux", "darwin"] as const) {
+      const spawn = buildHermesAcpSpawnInput(
+        {
+          managed: true,
+          homePath: "/isolated/hermes",
+          environment: { MOSS_HERMES_CONFIG_CONTENT: "fake-catalog" },
+        },
+        "/workspace",
+        platform,
+      );
+      const env = buildAcpSpawnProcessEnv(
+        spawn,
+        { MOSS_PRIVATE_CONTROL: "not-for-child" },
+        platform,
+      );
+      expect(spawn.command).toBe("hermes");
+      expect(spawn.args).toEqual(["acp"]);
+      expect(env.MOSS_HERMES_CONFIG_CONTENT).toBe("fake-catalog");
+      expect(env.MOSS_PRIVATE_CONTROL).toBeUndefined();
+      expect(env[MOSS_HERMES_PROBE_HOME_ENV]).toBe(
+        platform === "win32" ? "/isolated/hermes" : undefined,
+      );
+      const external = buildHermesAcpSpawnInput(
+        { homePath: "/personal/hermes" },
+        "/workspace",
+        platform,
+      );
+      expect(external.env?.[MOSS_HERMES_PROBE_HOME_ENV]).toBeUndefined();
+    }
+  });
+  it.skipIf(process.platform !== "win32").each([
+    ["applied", false, undefined],
+    ["already-bounded", false, undefined],
+    ["unknown-implementation", false, "could not safely"],
+    ["helper-missing", false, "missing the required"],
+    ["wrong-home", false, "isolated Moss home"],
+    [undefined, false, "did not load"],
+    ["unknown-implementation", true, "could not safely"],
+  ] as const)(
+    "validates startup plugin status %s (native failure %s)",
+    async (status, nativeFailure, issue) => {
+      let options!: AcpSessionRuntimeOptions;
+      const inner = {
+        start: () =>
+          Effect.gen(function* () {
+            if (status) options.onChildStderrLine?.("MOSS_HERMES_PROBE_COMPAT_V1:" + status);
+            if (nativeFailure)
+              return yield* new AcpRequestError({
+                code: -32000,
+                errorMessage: "Native session timeout",
+              });
+            return { sessionId: "fixture", sessionSetupResult: {} };
+          }),
+      } as unknown as AcpSessionRuntimeShape;
+      vi.spyOn(AcpSessionRuntime, "layer").mockImplementation((value) => {
+        options = value;
+        return Layer.succeed(AcpSessionRuntime, inner);
+      });
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const runtime = yield* makeHermesAcpRuntime({
+            cwd: "/workspace",
+            clientInfo: { name: "test", version: "0" },
+            hermesSettings: { managed: true, homePath: "/private" },
+            childProcessSpawner: {},
+          } as HermesAcpRuntimeInput);
+          if (issue) expect((yield* runtime.start().pipe(Effect.flip)).message).toContain(issue);
+          else expect(yield* runtime.start()).toMatchObject({ sessionId: "fixture" });
+          expect(options.startupTimeouts?.sessionSetupMs).toBeUndefined();
+        }).pipe(Effect.scoped),
+      );
+    },
+  );
   it("changes the inference model through the native legacy endpoint", async () => {
     const calls: unknown[] = [];
     const runtime = {

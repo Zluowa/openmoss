@@ -7,10 +7,12 @@ import {
   type ProviderKind,
   type ServerProviderStatus,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+
+import { appHistory } from "../../appNavigation";
 
 import {
   COMPOSER_DRAFT_STORAGE_KEY,
@@ -186,28 +188,50 @@ function readStoredStars(): unknown {
   return JSON.parse(localStorage.getItem(STARRED_MODELS_STORAGE_KEY) ?? "[]");
 }
 
-// The source row names the provider serving the listed models and opens into every
-// source the user can switch to.
-function sourceTrigger() {
-  return page.getByRole("menuitem", { name: /^Provider: / });
+// The agent (which program runs the turn) has its own column on the left; beside it sit
+// the open agent's providers (where its models come from) above its models, all at once.
+function agentColumn() {
+  return page.getByRole("group", { name: "Agent" });
 }
 
-function sourceOption(name: string | RegExp) {
-  return page.getByRole("menuitemradio", { name, exact: typeof name === "string" });
+function providerRows() {
+  return page.getByRole("group", { name: "Provider" });
 }
 
-async function openSources() {
-  await sourceTrigger().click();
-  await expect.element(page.getByRole("menu", { name: "Provider" })).toBeVisible();
+function menuOption(name: string | RegExp) {
+  return page.getByRole("menuitem", { name, exact: typeof name === "string" });
 }
 
-async function selectSource(name: string) {
-  await openSources();
-  await sourceOption(name).click();
+function listRows(list: "Agent" | "Provider") {
+  return page.getByRole("group", { name: list }).getByRole("menuitem").elements();
 }
 
-async function expectActiveSource(name: string) {
-  await expect.element(sourceTrigger()).toHaveAccessibleName(`Provider: ${name}`);
+async function openAgents() {
+  await expect.element(agentColumn()).toBeVisible();
+}
+
+async function selectAgent(name: string) {
+  await agentColumn().getByRole("menuitem", { name, exact: true }).click();
+}
+
+async function openProviders() {
+  await expect.element(providerRows()).toBeVisible();
+}
+
+async function selectProvider(name: string) {
+  await providerRows().getByRole("menuitem", { name, exact: true }).click();
+}
+
+async function expectActiveAgent(name: string) {
+  await expect
+    .element(agentColumn().getByRole("menuitem", { name, exact: true }))
+    .toHaveAttribute("aria-current", "true");
+}
+
+async function expectActiveProvider(name: string) {
+  await expect
+    .element(providerRows().getByRole("menuitem", { name, exact: true }))
+    .toHaveAttribute("aria-current", "true");
 }
 
 describe("ComposerModelPicker", () => {
@@ -225,9 +249,9 @@ describe("ComposerModelPicker", () => {
     );
     try {
       await expect.element(page.getByRole("menuitem", { name: /Claude Sonnet/u })).toBeVisible();
-      await openSources();
-      expect(sourceOption(/^Codex/u).elements()).toHaveLength(0);
-      await sourceOption("Starred").click();
+      await openAgents();
+      expect(menuOption(/^Codex/u).elements()).toHaveLength(0);
+      await menuOption("Starred").click();
       expect(page.getByRole("menuitem", { name: /GPT-5\.5/u }).elements()).toHaveLength(0);
       expect(readStoredStars()).toHaveLength(1);
     } finally {
@@ -254,7 +278,7 @@ describe("ComposerModelPicker", () => {
       expect(page.getByRole("button", { name: "Refresh models" }).elements()).toHaveLength(0);
 
       onRefreshModels.mockRejectedValueOnce(new Error("offline"));
-      await selectSource("Claude");
+      await selectAgent("Claude");
       await expect.element(page.getByText("Couldn’t update models.")).toBeVisible();
       expect(onRefreshModels).toHaveBeenLastCalledWith("claudeAgent", "claudeAgent", "if-stale");
       let finishRetry!: () => void;
@@ -270,7 +294,7 @@ describe("ComposerModelPicker", () => {
       finishRetry();
       await expect.element(retryButton).not.toBeInTheDocument();
       expect(page.getByRole("status").elements()).toHaveLength(0);
-      await selectSource("Starred");
+      await selectAgent("Starred");
       expect(onRefreshModels).toHaveBeenCalledTimes(3);
     } finally {
       await screen.unmount();
@@ -313,9 +337,97 @@ describe("ComposerModelPicker", () => {
     const onProviderModelChange = vi.fn();
     const screen = await mountPicker({ onProviderModelChange });
     try {
-      await expectActiveSource("Codex");
+      await expectActiveAgent("Codex");
+      await expectActiveProvider("Local account");
       await page.getByRole("menuitem", { name: /GPT-5\.4/u }).click();
       expect(onProviderModelChange).toHaveBeenCalledWith("codex", GPT_5_4, { instanceId: "codex" });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("shows the agents in a column beside the models instead of in their place", async () => {
+    await page.viewport(900, 700);
+    useComposerDraftStore.getState().setModelSelection(THREAD_ID, {
+      provider: "codex",
+      model: GPT_5_5,
+    });
+    // Room on the left, the way the composer's model chip sits mid-window.
+    const screen = await render(
+      <div style={{ paddingLeft: 320, paddingTop: 560 }}>
+        <Harness />
+      </div>,
+    );
+    try {
+      const trigger = page.getByRole("button", { name: "Change model and reasoning" });
+      await trigger.click();
+      await expect.element(page.getByRole("menuitem", { name: /GPT-5\.5/u })).toBeVisible();
+      // Side by side: the agent column ends where the models start, both visible at once.
+      const agentsBox = agentColumn().element().getBoundingClientRect();
+      const modelsBox = page.getByRole("tabpanel").element().getBoundingClientRect();
+      expect(agentsBox.right).toBeLessThanOrEqual(modelsBox.left + 1);
+      expect(agentsBox.width).toBeGreaterThan(100);
+      // The models open where they always have: level with the trigger's left edge.
+      expect(
+        Math.abs(modelsBox.left - trigger.element().getBoundingClientRect().left),
+      ).toBeLessThan(12);
+      // Every agent row has one height.
+      const heights = new Set(listRows("Agent").map((row) => row.getBoundingClientRect().height));
+      expect(heights.size).toBe(1);
+
+      // Choosing an agent swaps the models; the agent column and the panel stay put.
+      const panel = page.getByRole("menu").element();
+      const panelBox = panel.getBoundingClientRect();
+      await selectAgent("Claude");
+      await expect.element(page.getByRole("menuitem", { name: /Claude Sonnet/u })).toBeVisible();
+      expect(page.getByRole("menuitem", { name: /GPT-5\.5/u }).elements()).toHaveLength(0);
+      await expectActiveAgent("Claude");
+      expect(agentColumn().element().getBoundingClientRect().left).toBeCloseTo(agentsBox.left, 0);
+      expect(panel.getBoundingClientRect().height).toBeCloseTo(panelBox.height, 0);
+      // Clicking an agent leaves the search field ready for typing.
+      await expect.element(page.getByRole("searchbox", { name: "Search models" })).toHaveFocus();
+    } finally {
+      await screen.unmount();
+      await page.viewport(414, 896);
+    }
+  });
+
+  it("moves between the agent column and the models with the arrow keys", async () => {
+    const screen = await mountPicker();
+    try {
+      const search = page.getByRole("searchbox", { name: "Search models" });
+      await expect.element(search).toHaveFocus();
+      // Left goes to the open agent; Down walks the column and opens each agent it reaches.
+      await userEvent.keyboard("{ArrowLeft}");
+      await expect
+        .element(agentColumn().getByRole("menuitem", { name: "Codex", exact: true }))
+        .toHaveFocus();
+      await userEvent.keyboard("{ArrowDown}");
+      await expect
+        .element(agentColumn().getByRole("menuitem", { name: "Claude", exact: true }))
+        .toHaveFocus();
+      await expectActiveAgent("Claude");
+      await expect.element(page.getByRole("menuitem", { name: /Claude Sonnet/u })).toBeVisible();
+      await userEvent.keyboard("{Home}");
+      await expect
+        .element(agentColumn().getByRole("menuitem", { name: "Starred", exact: true }))
+        .toHaveFocus();
+      await userEvent.keyboard("{ArrowDown}");
+      await expectActiveAgent("Codex");
+      // Right goes back to the models: the search field, then Down reaches the first model.
+      await userEvent.keyboard("{ArrowRight}");
+      await expect.element(search).toHaveFocus();
+      await userEvent.keyboard("{ArrowDown}");
+      await expect.element(page.getByRole("tabpanel").getByRole("menuitem").first()).toHaveFocus();
+      // Up from the models stays in their column, reaching the providers above them.
+      await userEvent.keyboard("{ArrowUp}");
+      await expect
+        .element(providerRows().getByRole("menuitem", { name: "Local account" }))
+        .toHaveFocus();
+      await userEvent.keyboard("{ArrowLeft}");
+      await expect
+        .element(agentColumn().getByRole("menuitem", { name: "Codex", exact: true }))
+        .toHaveFocus();
     } finally {
       await screen.unmount();
     }
@@ -324,10 +436,10 @@ describe("ComposerModelPicker", () => {
   it("switches provider tabs and filters rows with search", async () => {
     const screen = await mountPicker();
     try {
-      await selectSource("Claude");
+      await selectAgent("Claude");
       await expect.element(page.getByRole("menuitem", { name: /Claude Sonnet/u })).toBeVisible();
 
-      await selectSource("Codex");
+      await selectAgent("Codex");
       await page.getByRole("searchbox", { name: "Search models" }).fill("5.4");
       await expect.element(page.getByRole("menuitem", { name: /GPT-5\.4/u })).toBeVisible();
       await expect
@@ -364,8 +476,9 @@ describe("ComposerModelPicker", () => {
       },
     });
     try {
-      // Codex's model view carries a plain "Select model" heading.
-      await expect.element(page.getByText("Select model")).toBeVisible();
+      // The header names the agent and the provider whose models are listed.
+      await expectActiveAgent("Codex");
+      await expectActiveProvider("Local account");
       const defaultRow = page.getByRole("menuitem", { name: /Default/u });
       await expect.element(defaultRow).toBeVisible();
       await expect.element(defaultRow).toHaveTextContent("Recommended set of models");
@@ -452,7 +565,7 @@ describe("ComposerModelPicker", () => {
         { provider: "codex", model: GPT_5_5, effort: "high", fastMode: false, thinking: null },
       ]);
 
-      await selectSource("Starred");
+      await selectAgent("Starred");
       await expect.element(page.getByRole("menuitem", { name: /GPT-5\.5.*High/u })).toBeVisible();
     } finally {
       await screen.unmount();
@@ -465,7 +578,9 @@ describe("ComposerModelPicker", () => {
       { provider: "codex", model: GPT_5_4, effort: "low", fastMode: true, thinking: null },
     ]);
     try {
-      await expectActiveSource("Starred");
+      await expectActiveAgent("Starred");
+      // Starred presets carry their own provider, so no provider row is shown.
+      expect(providerRows().elements()).toHaveLength(0);
       await page.getByRole("menuitem", { name: /GPT-5\.4.*Low · Fast/u }).click();
       expect(onProviderModelChange).toHaveBeenCalledWith("codex", GPT_5_4, {
         modelOptions: { reasoningEffort: "low", fastMode: true },
@@ -482,7 +597,7 @@ describe("ComposerModelPicker", () => {
       { provider: "codex", model: GPT_5_4, effort: "low", fastMode: true, thinking: null },
     ]);
     try {
-      await selectSource("Codex");
+      await selectAgent("Codex");
       await expect
         .element(page.getByRole("button", { name: "Remove GPT-5.5 from starred" }))
         .toBeVisible();
@@ -580,6 +695,13 @@ describe("ComposerModelPicker", () => {
         provider: "codex",
         options: { reasoningEffort: "high" },
       });
+      // Left and Up belong to the slider too: they don't jump to the agent column.
+      await userEvent.keyboard("{ArrowLeft}");
+      await expect.element(slider).toHaveAttribute("aria-valuetext", "Medium");
+      await expect.element(slider).toHaveFocus();
+      await userEvent.keyboard("{ArrowUp}");
+      await expect.element(slider).toHaveAttribute("aria-valuetext", "High");
+      await expect.element(slider).toHaveFocus();
     } finally {
       await screen.unmount();
     }
@@ -625,7 +747,17 @@ describe("ComposerModelPicker", () => {
         { reasoningEffort: "high" },
       );
       try {
-        await expect.element(page.getByText("选择模型")).toBeVisible();
+        await expect
+          .element(
+            page.getByRole("group", { name: "智能体" }).getByRole("menuitem", { name: "Codex" }),
+          )
+          .toHaveAttribute("aria-current", "true");
+        await expect
+          .element(
+            page.getByRole("group", { name: "服务商" }).getByRole("menuitem", { name: "本机账号" }),
+          )
+          .toHaveAttribute("aria-current", "true");
+        await expect.element(page.getByRole("menuitem", { name: "管理服务商" })).toBeVisible();
         await expect
           .element(page.getByRole("menuitem", { name: /默认/u }))
           .toHaveTextContent("推荐模型集");
@@ -733,9 +865,9 @@ describe("ComposerModelPicker", () => {
       { provider: "claudeAgent", model: SONNET, effort: null, fastMode: null, thinking: null },
     ]);
     try {
-      await openSources();
-      expect(sourceOption("Claude").elements()).toHaveLength(0);
-      await sourceOption("Starred").click();
+      await openAgents();
+      expect(menuOption("Claude").elements()).toHaveLength(0);
+      await menuOption("Starred").click();
       expect(page.getByRole("menuitem", { name: /Claude Sonnet/u }).elements()).toHaveLength(0);
     } finally {
       await screen.unmount();
@@ -762,7 +894,7 @@ describe("ComposerModelPicker with several accounts", () => {
     modelOptionsByProviderInstance: WORK_ACCOUNT_MODELS,
   };
 
-  it("lists each enabled account as its own named source", async () => {
+  it("lists each enabled account of an agent as its own provider", async () => {
     const screen = await mountPicker({
       ...multiAccount,
       providerInstances: [
@@ -777,16 +909,21 @@ describe("ComposerModelPicker with several accounts", () => {
       ],
     });
     try {
-      await expectActiveSource("Codex");
-      await openSources();
-      await expect.element(sourceOption("Codex")).toHaveAttribute("aria-checked", "true");
-      // A local CLI sign-in says so beside its name.
-      expect(sourceOption("Codex · Work").element().textContent).toContain("Local");
+      await expectActiveAgent("Codex");
+      await expectActiveProvider("Local account");
+      await openProviders();
+      await expect.element(menuOption("Local account")).toHaveAttribute("aria-current", "true");
+      // A second account goes by its own name.
+      await expect.element(menuOption("Work")).toBeVisible();
       // A disabled account is managed in settings, not offered in the picker.
-      expect(sourceOption(/Old/u).elements()).toHaveLength(0);
-      await expect.element(sourceOption("Claude")).toBeVisible();
-      await sourceOption("Codex · Work").click();
-      await expectActiveSource("Codex · Work");
+      expect(menuOption(/Old/u).elements()).toHaveLength(0);
+      // Another agent is not a provider.
+      expect(
+        providerRows().getByRole("menuitem", { name: "Claude", exact: true }).elements(),
+      ).toHaveLength(0);
+      await menuOption("Work").click();
+      await expectActiveAgent("Codex");
+      await expectActiveProvider("Work");
     } finally {
       await screen.unmount();
     }
@@ -796,7 +933,7 @@ describe("ComposerModelPicker with several accounts", () => {
     const onProviderModelChange = vi.fn();
     const screen = await mountPicker({ ...multiAccount, onProviderModelChange });
     try {
-      await selectSource("Codex · Work");
+      await selectProvider("Work");
       await expect
         .element(page.getByRole("menuitem", { name: /GPT-5\.5/u }))
         .not.toBeInTheDocument();
@@ -831,8 +968,8 @@ describe("ComposerModelPicker with several accounts", () => {
       providerInstances: [{ ...CODEX_ACCOUNTS[0]!, accentColor: "#2563eb" }],
     });
     try {
-      await openSources();
-      const option = sourceOption("Codex").element();
+      await openProviders();
+      const option = menuOption("Local account").element();
       expect(option.textContent).not.toContain("Work");
       expect(option.querySelector<HTMLElement>("[data-accent]")?.dataset.accent).toBe("#2563eb");
     } finally {
@@ -843,18 +980,20 @@ describe("ComposerModelPicker with several accounts", () => {
   it("keeps a started thread on its account and explains the closed sibling", async () => {
     const screen = await mountPicker({ ...multiAccount, lockedProvider: "codex" });
     try {
-      await openSources();
-      const workSource = sourceOption("Codex · Work");
+      await openProviders();
+      const workSource = menuOption("Work");
       await expect.element(workSource).toHaveAttribute("aria-disabled", "true");
+      await expect.element(workSource).toHaveTextContent("Not in this chat");
       await expect
         .element(workSource)
         .toHaveAttribute(
           "title",
-          "Codex · Work is unavailable in this thread. Start a new thread to switch accounts.",
+          "This chat runs on another account. Start a new chat to use Work.",
         );
       await workSource.click({ force: true });
-      await expectActiveSource("Codex");
-      expect(sourceOption("Claude").elements()).toHaveLength(0);
+      await expectActiveProvider("Local account");
+      await openAgents();
+      expect(menuOption("Claude").elements()).toHaveLength(0);
     } finally {
       await screen.unmount();
     }
@@ -866,49 +1005,196 @@ describe("ComposerModelPicker with several accounts", () => {
       boundProviderInstance: { provider: "codex", instanceId: "codex" },
     });
     try {
-      await openSources();
-      // Another provider is pickable: choosing it hands the thread off.
-      await expect.element(sourceOption("Claude")).not.toHaveAttribute("aria-disabled", "true");
-      // A sibling account of the thread's own provider stays closed.
-      await expect.element(sourceOption("Codex · Work")).toHaveAttribute("aria-disabled", "true");
+      await openAgents();
+      // Another agent is pickable: choosing it hands the thread off.
+      await expect.element(menuOption("Claude")).not.toHaveAttribute("aria-disabled", "true");
+      await openProviders();
+      // A sibling account of the thread's own agent stays closed.
+      await expect.element(menuOption("Work")).toHaveAttribute("aria-disabled", "true");
     } finally {
       await screen.unmount();
     }
   });
 
-  it("lists Moss first, says how each source is reached, and links to model management", async () => {
+  const mossSignedIn: HarnessProps = {
+    providers: [
+      readyProvider("codex"),
+      { ...readyProvider("codex"), instanceId: "codex_moss", displayName: "Moss" },
+      readyProvider("claudeAgent"),
+      { ...readyProvider("claudeAgent"), instanceId: "claude_moss", displayName: "Moss" },
+    ],
+    providerInstances: [
+      CODEX_ACCOUNTS[0]!,
+      {
+        instanceId: "codex_moss",
+        provider: "codex",
+        label: "Moss",
+        enabled: true,
+        isDefault: false,
+      },
+      {
+        instanceId: "claudeAgent",
+        provider: "claudeAgent",
+        label: "Claude",
+        enabled: true,
+        isDefault: true,
+      },
+      {
+        instanceId: "claude_moss",
+        provider: "claudeAgent",
+        label: "Moss",
+        enabled: true,
+        isDefault: false,
+      },
+    ],
+  };
+
+  it("lists each agent once and Moss as one of its providers, first", async () => {
+    const screen = await mountPicker(mossSignedIn);
+    try {
+      await openAgents();
+      // One row each, and no word on an agent that can run.
+      expect(listRows("Agent").map((option) => option.textContent)).toEqual([
+        "Starred",
+        "Codex",
+        "Claude",
+      ]);
+
+      await openProviders();
+      expect(listRows("Provider").map((option) => option.getAttribute("aria-label"))).toEqual([
+        "Moss",
+        "Local account",
+      ]);
+      // Signed in, Moss runs: nothing asks to sign in.
+      expect(page.getByText("Sign in", { exact: true }).elements()).toHaveLength(0);
+      await menuOption("Moss").click();
+      await expectActiveProvider("Moss");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("opens another agent on Moss and commits its Moss models", async () => {
+    const onProviderModelChange = vi.fn();
+    const screen = await mountPicker({ ...mossSignedIn, onProviderModelChange });
+    try {
+      await selectAgent("Claude");
+      await expectActiveAgent("Claude");
+      await expectActiveProvider("Moss");
+      await page.getByRole("menuitem", { name: /Sonnet/u }).click();
+      expect(onProviderModelChange).toHaveBeenCalledWith("claudeAgent", SONNET, {
+        instanceId: "claude_moss",
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("lists agents that are not installed last, each offering Install, and says how to install one", async () => {
     const screen = await mountPicker({
       providers: [
         readyProvider("codex"),
-        { ...readyProvider("codex"), instanceId: "codex_moss", displayName: "Moss" },
         readyProvider("claudeAgent"),
-      ],
-      providerInstances: [
-        CODEX_ACCOUNTS[0]!,
         {
-          instanceId: "codex_moss",
-          provider: "codex",
-          label: "Moss",
-          enabled: true,
-          isDefault: false,
+          ...readyProvider("opencode"),
+          available: false,
+          status: "error",
+          message:
+            "OpenCode CLI (`opencode`) is not installed or not on PATH. Install it with `npm install -g opencode-ai`.",
         },
       ],
     });
     try {
-      await openSources();
-      const options = page.getByRole("menuitemradio").elements();
-      expect(options.map((option) => option.getAttribute("aria-label"))).toEqual([
-        null,
-        "Moss · Codex",
+      await openAgents();
+      // One short word on the row; the sentence behind it is the row's tooltip.
+      await expect.element(menuOption("OpenCode")).toHaveTextContent(/^OpenCodeInstall$/u);
+      await expect
+        .element(menuOption("OpenCode"))
+        .toHaveAttribute("title", "OpenCode isn't on this computer yet.");
+      expect(listRows("Agent").map((option) => option.getAttribute("aria-label"))).toEqual([
+        "Starred",
         "Codex",
         "Claude",
+        "OpenCode",
       ]);
-      expect(sourceOption("Moss · Codex").element().textContent).toContain("Personal");
-      expect(sourceOption("Codex").element().textContent).toContain("Local");
-      await expect.element(page.getByRole("menuitem", { name: "Manage models" })).toBeVisible();
+      await selectAgent("OpenCode");
+      await expect.element(page.getByText("OpenCode isn't on this computer yet.")).toBeVisible();
+      // One action, no shell command: Install opens Settings at OpenCode.
+      expect(page.getByText(/npm install/u).elements()).toHaveLength(0);
+      expect(page.getByText(/not on PATH/u).elements()).toHaveLength(0);
+      const pushSpy = vi.spyOn(appHistory, "push").mockImplementation(() => undefined);
+      await page.getByRole("button", { name: "Install" }).click();
+      expect(pushSpy).toHaveBeenCalledWith(
+        "/settings?section=providers&provider=opencode&target=provider-opencode",
+      );
+      pushSpy.mockRestore();
+    } finally {
+      await screen.unmount();
+    }
+  });
 
-      await sourceOption("Moss · Codex").click();
-      await expectActiveSource("Moss · Codex");
+  it("offers a signed-out person Moss above their own login for the agents Moss ships", async () => {
+    const screen = await mountPicker({
+      providers: [
+        { ...readyProvider("codex"), authStatus: "unauthenticated", status: "warning" },
+        readyProvider("claudeAgent"),
+      ],
+    });
+    try {
+      // The person's own Codex needs a login: one plain line and one Sign in.
+      await expect
+        .element(page.getByText("Sign in to your Codex account to use it."))
+        .toBeVisible();
+      const pushSpy = vi.spyOn(appHistory, "push").mockImplementation(() => undefined);
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      expect(pushSpy).toHaveBeenLastCalledWith(
+        "/settings?section=providers&provider=codex&target=provider-codex",
+      );
+      await page.getByRole("button", { name: "Change model and reasoning" }).click();
+
+      await openProviders();
+      expect(listRows("Provider").map((option) => option.getAttribute("aria-label"))).toEqual([
+        "Moss",
+        "Local account",
+      ]);
+      await expect.element(menuOption("Moss")).toHaveTextContent("MossSign in");
+      // The agent reads as its own login, which also needs signing in.
+      await expect.element(menuOption("Codex")).toHaveTextContent("CodexSign in");
+      await menuOption("Moss").click();
+      await expectActiveProvider("Moss");
+      await expect
+        .element(page.getByText("Sign in to Moss to use it. New accounts get ¥5 of free credit."))
+        .toBeVisible();
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      expect(pushSpy).toHaveBeenLastCalledWith("/login");
+      pushSpy.mockRestore();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("names a provider that cannot start in plain words, never its diagnostic", async () => {
+    const screen = await mountPicker({
+      providers: [
+        {
+          ...readyProvider("codex"),
+          available: false,
+          status: "error",
+          message: "Codex shared continuation v2 marker at C:\\profile\\.codex is malformed.",
+        },
+        readyProvider("claudeAgent"),
+      ],
+    });
+    try {
+      await expect
+        .element(
+          page.getByText("Codex is installed but couldn't start. Try again, or reinstall it."),
+        )
+        .toBeVisible();
+      await expect
+        .element(page.getByRole("button", { name: "Open provider settings" }))
+        .toBeVisible();
+      expect(page.getByText(/marker/u).elements()).toHaveLength(0);
     } finally {
       await screen.unmount();
     }
@@ -927,7 +1213,7 @@ describe("ComposerModelPicker with several accounts", () => {
       },
     ]);
     try {
-      await selectSource("Starred");
+      await selectAgent("Starred");
       await expect.element(page.getByRole("menuitem", { name: /GPT-5\.4/u })).toBeVisible();
       expect(page.getByRole("menuitem", { name: /GPT-5 Work/u }).elements()).toHaveLength(0);
     } finally {
@@ -949,11 +1235,14 @@ describe("ComposerModelPicker with several accounts", () => {
       ],
     });
     try {
-      await selectSource("Codex · Work");
+      await selectProvider("Work");
       await expect
-        .element(page.getByText("Open provider setup to sign in to this account."))
+        .element(page.getByText("Sign in to your Codex account to use it."))
         .toBeVisible();
-      await expect.element(page.getByRole("button", { name: "Open provider setup" })).toBeVisible();
+      await expect
+        .element(page.getByRole("button", { name: "Sign in", exact: true }))
+        .toBeVisible();
+      expect(page.getByText("Run codex login.").elements()).toHaveLength(0);
       // Its catalog is not offered while it cannot run.
       expect(page.getByRole("menuitem", { name: /GPT-5 Work/u }).elements()).toHaveLength(0);
     } finally {

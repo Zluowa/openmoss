@@ -1,12 +1,21 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readdir, realpath, rename, rm, rmdir } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { isDeepStrictEqual } from "node:util";
 import { parse, stringify, type TomlTable } from "smol-toml";
+
+import { MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME } from "@moss/shared/mossPluginCatalog";
 
 import { readRegularFileNoFollow } from "../workspaceImport/safeFile.ts";
 import { MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME } from "./mossBundledPluginMarketplace.ts";
 import { assertMossManagedPluginHome } from "./mossBundledPluginBootstrap.ts";
+
+/** Marketplaces the server writes into every generated config; never preserved from disk. */
+const SERVER_OWNED_MARKETPLACES: ReadonlySet<string> = new Set([
+  MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME,
+  MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME,
+]);
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -125,7 +134,7 @@ export async function readMossManagedPluginConfig(input: {
     throw new Error("The native marketplaces config must be a table.");
   }
   for (const [name, entry] of Object.entries(parsed.marketplaces ?? {})) {
-    if (name === MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME) continue;
+    if (SERVER_OWNED_MARKETPLACES.has(name)) continue;
     if (!validText(name)) throw new Error("The native marketplace name is invalid.");
     const marketplace = checkedTable(
       entry,
@@ -161,17 +170,21 @@ export async function readMossManagedPluginConfig(input: {
 const configSyncs = new Map<string, Promise<void>>();
 const pluginStorePreparations = new Map<string, Promise<void>>();
 
-async function withManagedPluginConfigLock(
+export async function withManagedPluginConfigLock<T>(
   home: string,
-  operation: () => Promise<void>,
-): Promise<void> {
+  operation: () => Promise<T>,
+): Promise<T> {
   const previous = configSyncs.get(home) ?? Promise.resolve();
-  const work = previous.catch(() => undefined).then(operation);
-  configSyncs.set(home, work);
+  const work = previous.then(operation);
+  const settled = work.then(
+    () => undefined,
+    () => undefined,
+  );
+  configSyncs.set(home, settled);
   try {
-    await work;
+    return await work;
   } finally {
-    if (configSyncs.get(home) === work) configSyncs.delete(home);
+    if (configSyncs.get(home) === settled) configSyncs.delete(home);
   }
 }
 
@@ -217,6 +230,8 @@ export async function writeMossManagedPluginConfig(input: {
           "plugins",
           ".moss-imagegen-bootstrap-v1",
           ".moss-plugin-creator-bootstrap-v1",
+          ".moss-videogen-bootstrap-v1",
+          ".moss-canvas-bootstrap-v1",
         ]) {
           const exists = await lstat(path.join(home, entry)).catch(
             (cause: NodeJS.ErrnoException) => {
@@ -480,18 +495,30 @@ export async function prepareMossManagedPluginStore(input: {
 }
 
 /** Persist native mutations from the verified launch overlay to the managed source. */
-export async function syncMossManagedPluginConfig(input: {
+interface ManagedPluginConfigSync {
   readonly managedHomePath: string;
   readonly runtimeHomePath: string;
   readonly expectedSourcePluginConfig?: string;
   readonly assertCurrent: () => void | Promise<void>;
-}): Promise<void> {
+}
+
+export async function syncMossManagedPluginConfig(input: ManagedPluginConfigSync): Promise<void> {
+  await mutateMossManagedPluginConfig(input, async () => {});
+}
+
+/** The native edit and its copy back to the managed home share the server writer's queue. */
+export async function mutateMossManagedPluginConfig<T>(
+  input: ManagedPluginConfigSync,
+  mutation: () => Promise<T>,
+): Promise<T> {
   await input.assertCurrent();
   const source = await assertMossManagedPluginHome(input.managedHomePath);
   const runtime = await realpath(input.runtimeHomePath);
-  if (source === runtime) return;
-  await withManagedPluginConfigLock(source, async () => {
+  return withManagedPluginConfigLock(source, async () => {
     await input.assertCurrent();
+    const result = await mutation();
+    await input.assertCurrent();
+    if (source === runtime) return result;
     const sections = parse(
       await readMossManagedPluginConfig({
         managedHomePath: runtime,
@@ -510,17 +537,21 @@ export async function syncMossManagedPluginConfig(input: {
         throw new Error("Managed plugin choices changed during legacy migration; retry.");
       }
     }
-    // The bundled marketplace and all routing/auth settings remain server-owned.
-    const bundled = record(sourceConfig.marketplaces)
-      ? sourceConfig.marketplaces[MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME]
-      : undefined;
+    // The server's own marketplaces and all routing/auth settings remain server-owned.
+    const serverOwned = Object.fromEntries(
+      record(sourceConfig.marketplaces)
+        ? Object.entries(sourceConfig.marketplaces).filter(([name]) =>
+            SERVER_OWNED_MARKETPLACES.has(name),
+          )
+        : [],
+    );
     delete sourceConfig.plugins;
     delete sourceConfig.marketplaces;
     if (sections.plugins !== undefined) sourceConfig.plugins = sections.plugins;
-    if (bundled !== undefined || sections.marketplaces !== undefined) {
+    if (Object.keys(serverOwned).length > 0 || sections.marketplaces !== undefined) {
       sourceConfig.marketplaces = {
         ...(record(sections.marketplaces) ? sections.marketplaces : {}),
-        ...(bundled !== undefined ? { [MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME]: bundled } : {}),
+        ...serverOwned,
       } as TomlTable;
     }
     const temporaryPath = `${sourcePath}.${process.pid}.${randomUUID()}.tmp`;
@@ -544,5 +575,68 @@ export async function syncMossManagedPluginConfig(input: {
     } finally {
       await rm(temporaryPath, { force: true });
     }
+    return result;
   });
+}
+
+/** Only the server's local default plugins can replay an install after a Windows config write fails. */
+export async function installMossBundledPlugin(input: {
+  readonly runtimeHomePath: string;
+  readonly pluginName: string;
+  readonly assertCurrent: () => void;
+  readonly install: () => Promise<void>;
+  readonly isInstalledAndEnabled: () => Promise<boolean>;
+}): Promise<void> {
+  // A native install may publish the files before its config rename succeeds.
+  // If the file cannot be read, keep inspecting it; replay only after a
+  // readable snapshot establishes that this particular default is incomplete.
+  const persisted = async (): Promise<boolean | undefined> => {
+    input.assertCurrent();
+    let text: string;
+    try {
+      text = await readMossManagedPluginConfig({
+        managedHomePath: input.runtimeHomePath,
+        configPath: path.join(input.runtimeHomePath, "config.toml"),
+      });
+    } catch (error) {
+      if (["EBUSY", "EACCES", "EPERM"].includes((error as NodeJS.ErrnoException).code ?? ""))
+        return undefined;
+      throw error;
+    }
+    const config = parse(text);
+    const key = `${input.pluginName}@${MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME}`;
+    const entry = record(config.plugins) ? config.plugins[key] : undefined;
+    return record(entry) && entry.enabled === true && (await input.isInstalledAndEnabled());
+  };
+  let writeError: Error | undefined;
+  for (const pause of [0, 75, 200, 500, 1_000]) {
+    if (pause) await delay(pause);
+    input.assertCurrent();
+    if (writeError) {
+      const state = await persisted();
+      if (state === true) return;
+      if (state === undefined) continue;
+    }
+    try {
+      await input.install();
+    } catch (error) {
+      if (
+        process.platform !== "win32" ||
+        !(error instanceof Error) ||
+        !/^plugin\/install failed: failed to persist installed plugin config: [^\n]*\(os error 5\)$/u.test(
+          error.message,
+        )
+      )
+        throw error;
+      writeError = error;
+      continue;
+    }
+    input.assertCurrent();
+    if (!(await input.isInstalledAndEnabled())) {
+      throw new Error(`The official Moss plugin ${input.pluginName} did not finish installing.`);
+    }
+    return;
+  }
+  if ((await persisted()) === true) return;
+  throw writeError;
 }

@@ -3,7 +3,7 @@
 // Layer: Provider utility tests.
 // Exports: Vitest coverage for apps/server/src/provider/claudeCredentialKeepalive.ts.
 import { describe, it, assert } from "@effect/vitest";
-import { DEFAULT_SERVER_SETTINGS } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS } from "@moss/contracts";
 
 import {
   CLAUDE_CREDENTIAL_KEEPALIVE_AUTH_STATUS_ARGS,

@@ -15,11 +15,13 @@ describe("appDensity", () => {
 
     expect(compact["--density-scale"]).toBe("0.85");
     expect(comfortable["--density-scale"]).toBe("1");
-    expect(compact["--app-density-row-height"]).toBe("1.7rem");
-    expect(comfortable["--app-density-row-height"]).toBe("2rem");
+    expect(compact["--app-density-row-height"]).toBe("calc(1.7rem * var(--app-ui-scale, 1))");
+    expect(comfortable["--app-density-row-height"]).toBe("calc(2rem * var(--app-ui-scale, 1))");
     expect(compact["--app-density-composer-editor-min-height"]).toBe(
-      "calc(var(--min-height-composer, 2.75rem) * 0.85)",
+      "calc(var(--min-height-composer, 2.75rem) * 0.85 * var(--app-ui-scale, 1))",
     );
-    expect(comfortable["--app-density-composer-footer-padding-end"]).toBe("0.5rem");
+    expect(comfortable["--app-density-composer-footer-padding-end"]).toBe(
+      "calc(0.5rem * var(--app-ui-scale, 1))",
+    );
   });
 });

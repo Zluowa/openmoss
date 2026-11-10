@@ -191,7 +191,7 @@ describe("createSupabaseMossAuth", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("normalizes a successful password signin and its absolute expiry", async () => {
+  it("normalizes a successful password signin and its expiry from the relative lifetime", async () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response(JSON.stringify(sessionPayload), {
@@ -208,7 +208,7 @@ describe("createSupabaseMossAuth", () => {
       refreshToken: "refresh-value",
       tokenType: "bearer",
       expiresInSeconds: 3_600,
-      expiresAt: 1_800_000_000_000,
+      expiresAt: 100 + 3_600_000,
       user: {
         id: "user-1",
         email: "person@example.com",
@@ -916,5 +916,44 @@ describe("createSupabaseGoogleAuth", () => {
       auth_code: "google-callback-code",
       code_verifier: verifier,
     });
+  });
+
+  it("measures a session from its relative lifetime so a wrong local clock cannot expire it", async () => {
+    const serverNow = 1_800_000_000_000;
+    // Two hours fast: the server's absolute expiry is already in this clock's past.
+    const localNow = serverNow + 2 * 3_600_000;
+    const auth = createMemFirePhoneAuth({
+      env: {
+        MOSS_MEMFIRE_PHONE_URL: "https://d9etnnog91hobt7masfg.baseapi.memfiredb.com",
+        MOSS_MEMFIRE_PHONE_PUBLISHABLE_KEY: "publishable-test-key",
+        MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL: "https://moss-cn-models.example.com/v1",
+        MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL: "https://moss-cn-realtime.example.com",
+      },
+      now: () => localNow,
+      fetchImpl: (async (input: string | URL | Request) =>
+        String(input).includes("moss_get_public_cloud_region")
+          ? new Response(JSON.stringify("cn"), { status: 200 })
+          : new Response(
+              JSON.stringify({
+                access_token: "access",
+                refresh_token: "refresh",
+                token_type: "bearer",
+                expires_in: 3600,
+                expires_at: Math.floor(serverNow / 1000) + 3600,
+                user: {
+                  id: "user-1",
+                  phone: "8613800138000",
+                  phone_confirmed_at: "2026-07-14T00:00:00.000Z",
+                  app_metadata: { provider: "phone", providers: ["phone"] },
+                },
+              }),
+              { status: 200 },
+            )) as typeof fetch,
+    });
+    if (!auth.available) throw new Error("expected available auth");
+
+    const session = await auth.client.verifyPhoneOtp("13800138000", "123456");
+
+    expect(session.expiresAt).toBe(localNow + 3_600_000);
   });
 });

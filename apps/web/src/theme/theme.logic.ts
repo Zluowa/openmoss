@@ -3,7 +3,7 @@
 // Layer: Web appearance domain logic
 // Exports: Theme types, normalization helpers, import/export utilities, and CSS variable builders.
 
-import { DESKTOP_WINDOW_BLUR_RADIUS_MAX, DESKTOP_WINDOW_BLUR_RADIUS_MIN } from "@synara/contracts";
+import { DESKTOP_WINDOW_BLUR_RADIUS_MAX, DESKTOP_WINDOW_BLUR_RADIUS_MIN } from "@moss/contracts";
 import { THEME_SEED_CATALOG } from "./theme.seed.generated";
 import {
   normalizeFontFamilyCssValue,
@@ -34,8 +34,16 @@ export interface ChromeTheme {
   ink: string;
   opaqueWindows: boolean;
   semanticColors: ThemeSemanticColors;
+  /**
+   * The sidebar's own tone, for themes that lift it off the background. `null` paints the
+   * sidebar with `surface`, as Codex does.
+   */
+  sidebar: string | null;
   surface: string;
 }
+
+/** A catalog seed: the chrome theme with the sidebar tone optional, since most seeds have none. */
+export type ChromeThemeSeed = Omit<ChromeTheme, "sidebar"> & { sidebar?: string };
 
 export interface ThemePack {
   codeThemeId: string;
@@ -141,7 +149,7 @@ export interface ResolvedThemeTokens {
 }
 
 type ChromeThemeSeedPatch = Partial<
-  Pick<ChromeTheme, "accent" | "contrast" | "ink" | "opaqueWindows" | "surface">
+  Pick<ChromeTheme, "accent" | "contrast" | "ink" | "opaqueWindows" | "sidebar" | "surface">
 > & {
   fonts?: Partial<ThemeFonts>;
   semanticColors?: Partial<ThemeSemanticColors>;
@@ -218,6 +226,11 @@ const CODE_THEME_SEED_PATCH_METADATA: Partial<
   sentry: {
     dark: { fonts: { code: true, ui: true } },
   },
+  // Soft's lifted sidebar only reads as a separate tone on an opaque window.
+  soft: {
+    dark: { contrast: true, opaqueWindows: true },
+    light: { contrast: true, opaqueWindows: true },
+  },
   vercel: {
     dark: { contrast: true, fonts: { code: true, ui: true }, opaqueWindows: true },
     light: { contrast: true, fonts: { code: true, ui: true }, opaqueWindows: true },
@@ -228,6 +241,7 @@ const CODE_THEME_SEED_PATCH_METADATA: Partial<
     dark: { contrast: true, fonts: { code: true, ui: true }, opaqueWindows: true },
     light: { contrast: true, fonts: { code: true, ui: true }, opaqueWindows: true },
   },
+  one: { dark: { opaqueWindows: true } },
 };
 
 // Mirror the packaged Codex catalog closely enough that share-string validation
@@ -256,6 +270,7 @@ export const CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
   { id: "raycast", label: "Raycast", variants: ["light", "dark"] },
   { id: "rose-pine", label: "Rose Pine", variants: ["light", "dark"] },
   { id: "sentry", label: "Sentry", variants: ["dark"] },
+  { id: "soft", label: "Soft", variants: ["light", "dark"] },
   { id: "solarized", label: "Solarized", variants: ["light", "dark"] },
   { id: "temple", label: "Temple", variants: ["dark"] },
   { id: "tokyo-night", label: "Tokyo Night", variants: ["dark"] },
@@ -275,6 +290,7 @@ export const DEFAULT_CHROME_THEME_BY_VARIANT: Record<ThemeVariant, ChromeTheme> 
       diffRemoved: "#fa423e",
       skill: "#ad7bf9",
     },
+    sidebar: null,
     surface: "#181818",
   },
   light: {
@@ -288,6 +304,7 @@ export const DEFAULT_CHROME_THEME_BY_VARIANT: Record<ThemeVariant, ChromeTheme> 
       diffRemoved: "#ba2623",
       skill: "#924ff7",
     },
+    sidebar: null,
     surface: "#ffffff",
   },
 };
@@ -414,6 +431,7 @@ export function normalizeChromeTheme(value: unknown, variant: ThemeVariant): Chr
         ? theme.opaqueWindows
         : fallback.opaqueWindows,
     semanticColors: normalizeSemanticColors(theme.semanticColors, fallback.semanticColors),
+    sidebar: normalizeHexColor(theme.sidebar) ?? null,
     surface: normalizeHexColor(theme.surface) ?? fallback.surface,
   };
 }
@@ -489,6 +507,22 @@ function upgradeRetiredMossSeed(
   codeThemeId: string,
   variant: ThemeVariant,
 ): ChromeTheme {
+  if (
+    codeThemeId === "one" &&
+    variant === "dark" &&
+    theme.surface === "#282c34" &&
+    theme.ink === "#abb2bf" &&
+    theme.accent === "#4d78cc"
+  ) {
+    const seed = getCodeThemeSeed("one", "dark");
+    return {
+      ...theme,
+      accent: seed.accent,
+      ink: seed.ink,
+      surface: seed.surface,
+      opaqueWindows: true,
+    };
+  }
   const retired = RETIRED_MOSS_SEED_COLORS[variant];
   if (
     codeThemeId !== "moss" ||
@@ -580,9 +614,12 @@ export function serializeThemeState(state: ThemeState): string {
 // ─── Share-string import / export ─────────────────────────────────────────
 
 export function createThemeShareString(variant: ThemeVariant, pack: ThemePack): string {
+  // A theme without its own sidebar tone leaves the key out, so the string stays a plain
+  // Codex share string.
+  const { sidebar, ...codexTheme } = pack.theme;
   return `${THEME_SHARE_PREFIX}${JSON.stringify({
     codeThemeId: pack.codeThemeId,
-    theme: pack.theme,
+    theme: sidebar === null ? codexTheme : pack.theme,
     variant,
   })}`;
 }
@@ -723,6 +760,8 @@ function getCodeThemeSeedPatch(codeThemeId: string, variant: ThemeVariant): Chro
     accent: normalizedSeed.accent,
     ink: normalizedSeed.ink,
     semanticColors: normalizedSeed.semanticColors,
+    // Always carried, so leaving a preset with its own sidebar tone clears it.
+    sidebar: normalizedSeed.sidebar,
     surface: normalizedSeed.surface,
   };
 
@@ -847,6 +886,7 @@ export function areThemePacksEqual(left: ThemePack, right: ThemePack): boolean {
     left.theme.semanticColors.diffAdded === right.theme.semanticColors.diffAdded &&
     left.theme.semanticColors.diffRemoved === right.theme.semanticColors.diffRemoved &&
     left.theme.semanticColors.skill === right.theme.semanticColors.skill &&
+    left.theme.sidebar === right.theme.sidebar &&
     left.theme.surface === right.theme.surface
   );
 }
@@ -891,17 +931,19 @@ export function buildThemeCssVariables(
   // mapped through --color-token-side-bar-background), not the darker "under" surface.
   // The under-surface is reserved for the window body behind the content (see
   // --app-shell-background / --background). Sourcing the sidebar from the primary
-  // surface keeps its pure color matching Codex in both light and dark.
-  const sidebarSurface = readCodexVariable("--color-background-surface");
-  const settingsSurface = readCodexVariable("--color-background-surface");
-  const contentSurface = readCodexVariable("--color-background-surface");
+  // surface keeps its pure color matching Codex in both light and dark. A theme with its
+  // own sidebar tone (Soft) lifts the sidebar off the content instead.
+  const surface = readCodexVariable("--color-background-surface");
+  const sidebarSurface = pack.theme.sidebar ?? surface;
+  const settingsSurface = surface;
+  const contentSurface = surface;
   // The glass fill at the chosen opacity. Dark themes deepen it toward black so it reads
   // as charcoal glass. Keep the defaults in sync with the `:root` / `.dark` fallbacks in
   // index.css.
   const glassSurface =
     variant === "dark"
-      ? `color-mix(in srgb, color-mix(in srgb, ${sidebarSurface} 80%, black) ${translucentOpacity}%, transparent)`
-      : `color-mix(in srgb, ${sidebarSurface} ${translucentOpacity}%, transparent)`;
+      ? `color-mix(in srgb, color-mix(in srgb, ${surface} 80%, black) ${translucentOpacity}%, transparent)`
+      : `color-mix(in srgb, ${surface} ${translucentOpacity}%, transparent)`;
   const composerSurface =
     variant === "dark"
       ? readCodexVariable("--color-background-control-opaque")
@@ -1016,7 +1058,7 @@ export function buildThemeCssVariables(
     "--ring": readCodexVariable("--color-border-focus"),
     "--secondary": readCodexVariable("--color-background-button-secondary"),
     "--secondary-foreground": readCodexVariable("--color-text-button-secondary"),
-    "--sidebar": readCodexVariable("--color-background-surface"),
+    "--sidebar": sidebarSurface,
     "--sidebar-accent": readCodexVariable("--color-background-button-secondary-hover"),
     "--sidebar-accent-active": readCodexVariable("--color-background-button-secondary-hover"),
     // Light selected rows are a 6.5% ink tint of the sheet, the weight of Claude's selected
@@ -1024,7 +1066,7 @@ export function buildThemeCssVariables(
     // Dark keeps the user-message surface.
     "--sidebar-selected":
       variant === "light"
-        ? mixHex(pack.theme.surface, pack.theme.ink, SIDEBAR_SELECTED_INK_ALPHA)
+        ? mixHex(sidebarSurface, pack.theme.ink, SIDEBAR_SELECTED_INK_ALPHA)
         : chatCodeSurface,
     "--sidebar-accent-foreground": readCodexVariable("--color-text-foreground"),
     "--sidebar-border": readCodexVariable("--color-border"),
@@ -1498,6 +1540,11 @@ function parseStrictChromeTheme(value: unknown): ChromeTheme {
     ink: parseRequiredHexColor(value.ink, "Theme ink"),
     opaqueWindows: parseRequiredBoolean(value.opaqueWindows, "Theme opaqueWindows"),
     semanticColors: parseStrictSemanticColors(value.semanticColors),
+    // Optional: Codex share strings carry no sidebar tone.
+    sidebar:
+      value.sidebar === undefined || value.sidebar === null
+        ? null
+        : parseRequiredHexColor(value.sidebar, "Theme sidebar"),
     surface: parseRequiredHexColor(value.surface, "Theme surface"),
   };
 }

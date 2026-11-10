@@ -1,4 +1,4 @@
-import { AutomationCreateInput } from "@synara/contracts";
+import { AutomationCreateInput } from "@moss/contracts";
 import { Schema } from "effect";
 
 function safeInput(input: AutomationCreateInput): AutomationCreateInput {

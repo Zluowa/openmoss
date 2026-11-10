@@ -13,7 +13,7 @@ import type {
   ProviderPluginMarketplaceDescriptor,
   ProviderPluginMarketplaceLoadError,
   ProviderReadPluginResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import { collectSkillsFromRoots } from "./skillsCatalog.ts";
 

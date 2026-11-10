@@ -27,6 +27,7 @@ import type {
 import {
   COMPUTER_HISTORY_APP_ICON_MAX_DATA_URL_LENGTH,
   makeComputerHistoryService as makeActualComputerHistoryService,
+  selectWindowsForegroundRow,
 } from "./service.ts";
 
 const nativeHelperScripts = vi.hoisted(() => new Set<string>());
@@ -106,6 +107,82 @@ const TEST_PNG_DATA_URL = `data:image/png;base64,${Buffer.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 ]).toString("base64")}`;
 
+it("Windows collector shares consent, encrypted timeline, app exclusion, pause, resume and clear", async () => {
+  const rootDir = await mkdtemp(join(tmpdir(), "moss-history-windows-service-"));
+  const key = createTestHistoryKey();
+  let sample: Parameters<typeof import("./windows.ts").startWindowsHistoryCollector>[0] | undefined;
+  const stop = vi.fn();
+  const start = vi.fn((next: NonNullable<typeof sample>) => {
+    sample = next;
+    return stop;
+  });
+  const windowsAdapter = { start, keyProvider: { getOrCreateKey: async () => key } };
+  // The collector is chosen by the target platform, not by the test host: pin
+  // Windows so Linux and macOS CI run the same Windows path, and keep any Cua
+  // socket from the developer's environment out of the decision.
+  const elsewhere = makeComputerHistoryService({
+    rootDir: await mkdtemp(join(tmpdir(), "moss-history-linux-service-")),
+    platform: "linux",
+    cuaEndpoint: "",
+    windowsAdapter,
+  });
+  expect((await elsewhere.getState()).supported).toBe(false);
+  expect(
+    (await elsewhere.setEnabled({ enabled: true, consentAt: new Date().toISOString() }))
+      .recorderState,
+  ).toBe("stopped");
+  expect(start).not.toHaveBeenCalled();
+  const service = makeComputerHistoryService({
+    rootDir,
+    platform: "win32",
+    cuaEndpoint: "",
+    windowsAdapter,
+  });
+  expect((await service.getState()).supported).toBe(true);
+  expect(start).not.toHaveBeenCalled();
+  await expect(service.setEnabled({ enabled: true })).rejects.toThrow(/consent/iu);
+  expect(
+    (await service.setEnabled({ enabled: true, consentAt: new Date().toISOString() }))
+      .recorderState,
+  ).toBe("running");
+  const event = {
+    capturedAtMs: Date.now(),
+    app: { bundleIdentifier: "windows.notepad", name: "Notepad" },
+    window: {},
+  };
+  sample?.(event);
+  await vi.waitFor(async () =>
+    expect((await service.listHistory()).entries.length).toBeGreaterThan(0),
+  );
+  const ciphertext = await readFile(join(rootDir, "events.moss-history"), "utf8");
+  expect(ciphertext.length).toBeGreaterThan(0);
+  expect(ciphertext).not.toContain("Notepad");
+  await service.pause();
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect((await service.getState()).recorderState).toBe("paused");
+  expect(await service.recordObservation({ ...event, capturedAtMs: Date.now() + 1 })).toBe(false);
+  const retiredCallback = sample;
+  expect((await service.resume()).recorderState).toBe("running");
+  expect(start).toHaveBeenCalledTimes(2);
+  const current = await service.getSettings();
+  await service.updateSettings({
+    settings: {
+      ...current,
+      observation: { ...current.observation, blocklist: ["windows.notepad"] },
+    },
+  });
+  expect(await service.recordObservation({ ...event, capturedAtMs: Date.now() + 2 })).toBe(false);
+  await service.clearHistory({ scope: "all" });
+  retiredCallback?.({ ...event, capturedAtMs: Date.now() + 10 });
+  sample?.(event);
+  expect((await service.listHistory()).entries).toEqual([]);
+  await service.shutdown();
+  expect(stop).toHaveBeenCalledTimes(2);
+  sample?.({ ...event, capturedAtMs: Date.now() + 20 });
+  expect((await service.listHistory()).entries).toEqual([]);
+  await service.setEnabled({ enabled: false });
+});
+
 const settings = {
   consentAt: null,
   observation: {
@@ -164,6 +241,227 @@ async function pollUntil<T>(
 }
 
 describe("ComputerHistoryService", () => {
+  it("records bounded foreground app metadata through the Windows Cua host", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "moss-history-windows-cua-"));
+    const key = createTestHistoryKey();
+    const requests: string[] = [];
+    const service = makeComputerHistoryService({
+      rootDir,
+      platform: "win32",
+      cuaEndpoint: "fixture",
+      cuaCapability: "test-capability",
+      permissions: {
+        inputMonitoring: "unknown",
+        accessibility: "unknown",
+        screenRecording: "unknown",
+      },
+      keyProvider: { getOrCreateKey: async () => key },
+      now: () => 100_000,
+      cuaRequest: (async (_endpoint: string, request: unknown) => {
+        requests.push(String((request as { name?: unknown }).name));
+        return {
+          ok: true,
+          result: {
+            structuredContent: {
+              windows: [
+                {
+                  pid: 42,
+                  window_id: 7,
+                  app_name: "Notepad",
+                  bundle_id: "notepad.exe",
+                  title: "Notes",
+                  focused: true,
+                },
+              ],
+            },
+          },
+        };
+      }) as never,
+    });
+    await service.setEnabled({ enabled: true, consentAt: "2026-08-19T00:00:00.000Z" });
+    await pollUntil(
+      () => service.listHistory(),
+      (value) => value.entries.length > 0,
+      {
+        timeoutMs: 12_000,
+        intervalMs: 50,
+      },
+    );
+    const history = await service.listHistory();
+    expect(history.entries[0]?.applications[0]?.displayName).toBe("Notepad");
+    expect(requests).toContain("list_windows");
+    await service.setEnabled({ enabled: false });
+  }, 20_000);
+
+  it("uses only the Cua feed on Windows when desktop also passes the macOS helper path", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "moss-history-windows-desktop-cua-"));
+    const key = createTestHistoryKey();
+    const service = makeComputerHistoryService({
+      rootDir,
+      platform: "win32",
+      // Desktop sets MOSS_APPSNAP_HELPER_PATH on every platform; on Windows the
+      // file does not exist and must never be started or asked for a key.
+      helperPath: join(rootDir, "missing-appsnap-helper"),
+      keychainNamespace: "moss-qa-desktop-history",
+      cuaEndpoint: "fixture",
+      keyProvider: { getOrCreateKey: async () => key },
+      now: () => 100_000,
+      cuaRequest: (async () => ({
+        ok: true,
+        result: {
+          structuredContent: {
+            windows: [{ app_name: "Notepad", bundle_id: "notepad.exe", focused: true }],
+          },
+        },
+      })) as never,
+    });
+    try {
+      await service.setEnabled({ enabled: true, consentAt: "2026-08-19T00:00:00.000Z" });
+      await pollUntil(
+        () => service.listHistory(),
+        (value) => value.entries.length > 0,
+        { timeoutMs: 12_000, intervalMs: 50 },
+      );
+      expect((await service.listHistory()).entries[0]?.applications[0]?.displayName).toBe(
+        "Notepad",
+      );
+      expect(await service.getState()).toMatchObject({ supported: true, enabled: true });
+      expect((await service.getState()).message ?? null).toBeNull();
+    } finally {
+      await service.setEnabled({ enabled: false });
+      await service.shutdown();
+    }
+  }, 20_000);
+
+  it("picks the Windows foreground window by z-order from the real driver shape", () => {
+    // cua-driver-rs 0.28.2 on Windows: no focus flag, no bundle id, windows ordered by z_index.
+    const rows = [
+      { app_name: "cua-driver.exe", z_index: 30, is_on_screen: true, minimized: false },
+      { app_name: "Moss.exe", z_index: 22, is_on_screen: true, minimized: false },
+      { app_name: "WINWORD.EXE", z_index: 25, is_on_screen: false, minimized: false },
+      { app_name: "Notepad.exe", z_index: 26, is_on_screen: true, minimized: true },
+      { app_name: "WindowsTerminal.exe", z_index: 21, is_on_screen: true, minimized: false },
+    ];
+    expect(selectWindowsForegroundRow(rows)?.app_name).toBe("Moss.exe");
+    expect(
+      selectWindowsForegroundRow([...rows, { app_name: "Code.exe", focused: true }])?.app_name,
+    ).toBe("Code.exe");
+    expect(selectWindowsForegroundRow([{ app_name: "Notepad.exe" }])).toBeUndefined();
+  });
+
+  it("records the front Windows app by executable name and never a browser", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "moss-history-windows-zorder-"));
+    const key = createTestHistoryKey();
+    let front = "Notepad.exe";
+    const service = makeComputerHistoryService({
+      rootDir,
+      platform: "win32",
+      cuaEndpoint: "fixture",
+      permissions: {
+        inputMonitoring: "unknown",
+        accessibility: "unknown",
+        screenRecording: "unknown",
+      },
+      keyProvider: { getOrCreateKey: async () => key },
+      now: () => 100_000,
+      cuaRequest: (async () => ({
+        ok: true,
+        result: {
+          structuredContent: {
+            windows: [
+              { pid: 1, window_id: 1, app_name: front, z_index: 9, is_on_screen: true },
+              { pid: 2, window_id: 2, app_name: "Explorer.EXE", z_index: 3, is_on_screen: true },
+            ],
+          },
+        },
+      })) as never,
+    });
+    await service.setEnabled({ enabled: true, consentAt: "2026-08-19T00:00:00.000Z" });
+    const history = await pollUntil(
+      () => service.listHistory(),
+      (value) => value.entries.length > 0,
+      { timeoutMs: 12_000, intervalMs: 50 },
+    );
+    expect(history.entries[0]?.applications[0]?.displayName).toBe("Notepad.exe");
+    await service.setEnabled({ enabled: false });
+
+    const browserRoot = await mkdtemp(join(tmpdir(), "moss-history-windows-browser-"));
+    let polls = 0;
+    front = "chrome.exe";
+    const browser = makeComputerHistoryService({
+      rootDir: browserRoot,
+      platform: "win32",
+      cuaEndpoint: "fixture",
+      permissions: {
+        inputMonitoring: "unknown",
+        accessibility: "unknown",
+        screenRecording: "unknown",
+      },
+      keyProvider: { getOrCreateKey: async () => key },
+      now: () => 100_000,
+      cuaRequest: (async () => {
+        polls += 1;
+        return {
+          ok: true,
+          result: {
+            structuredContent: {
+              windows: [{ pid: 1, window_id: 1, app_name: front, z_index: 9, is_on_screen: true }],
+            },
+          },
+        };
+      }) as never,
+    });
+    await browser.setEnabled({ enabled: true, consentAt: "2026-08-19T00:00:00.000Z" });
+    await pollUntil(
+      async () => polls,
+      (value) => value > 0,
+      { timeoutMs: 12_000, intervalMs: 50 },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect((await browser.listHistory()).entries).toHaveLength(0);
+    await browser.setEnabled({ enabled: false });
+  }, 30_000);
+
+  it("does not guess a foreground app when no Windows window is marked focused", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "moss-history-windows-unfocused-"));
+    const key = createTestHistoryKey();
+    let polls = 0;
+    const service = makeComputerHistoryService({
+      rootDir,
+      platform: "win32",
+      cuaEndpoint: "fixture",
+      permissions: {
+        inputMonitoring: "unknown",
+        accessibility: "unknown",
+        screenRecording: "unknown",
+      },
+      keyProvider: { getOrCreateKey: async () => key },
+      now: () => 100_000,
+      cuaRequest: (async () => {
+        polls += 1;
+        return {
+          ok: true,
+          result: {
+            structuredContent: {
+              windows: [{ pid: 42, window_id: 7, app_name: "Notepad", bundle_id: "notepad.exe" }],
+            },
+          },
+        };
+      }) as never,
+    });
+    await service.setEnabled({ enabled: true, consentAt: "2026-08-19T00:00:00.000Z" });
+    await pollUntil(
+      async () => polls,
+      (value) => value > 0,
+      { timeoutMs: 12_000, intervalMs: 50 },
+    );
+    // Give a (wrong) write from that poll time to land before asserting nothing was stored.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const history = await service.listHistory();
+    expect(history.entries).toHaveLength(0);
+    await service.setEnabled({ enabled: false });
+  }, 20_000);
+
   it("parses browser mode independently from localized titles and fails closed on unknown mode", () => {
     expect(
       parseChromeHistoryAdapterPayload({

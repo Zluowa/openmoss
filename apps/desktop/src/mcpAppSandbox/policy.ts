@@ -6,7 +6,7 @@ import {
   MCP_APP_SANDBOX_SCHEME,
   type McpAppResourceCsp,
   type McpAppSandboxDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export const MCP_APP_SANDBOX_WEB_PREFERENCES = {
   allowRunningInsecureContent: false,

@@ -12,11 +12,11 @@ import {
   type ClientOrchestrationCommand,
   ProjectId,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   HTML_RENDER_ACTIVITY_KIND,
   htmlRenderActivityPayload,
-} from "@synara/shared/htmlRenderActivity";
+} from "@moss/shared/htmlRenderActivity";
 import { Effect } from "effect";
 import type { FileSystem, Path } from "effect";
 import { describe, expect, it } from "vitest";

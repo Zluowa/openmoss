@@ -38,6 +38,10 @@ function harness(initialProbe: SessionProbe = { ok: true }): Harness {
       return () => closes.push(index);
     },
     attachmentUrl: (id) => id,
+    renderUrl: (id) => id,
+    mediaUrl: (src) => src,
+    documentUrl: () => "",
+    fileUrl: () => "",
   };
   return {
     transport,

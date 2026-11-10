@@ -17,7 +17,9 @@ import type {
   MossAppsListToolkitsResult,
   MossAppsStatus,
   MossAppToolkit,
-} from "@synara/contracts";
+  MossServicePluginSetInstalledInput,
+  MossServicePluginsState,
+} from "@moss/contracts";
 import { Data, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -52,6 +54,23 @@ export interface MossAppsShape {
   readonly disconnect: (connectionId: string) => Effect.Effect<boolean, McpConnectorError>;
   /** An app from the catalog Moss already holds, for pages that name it; never fetches. */
   readonly cachedToolkit: (toolkitSlug: string) => MossAppToolkit | null;
+  readonly completeAuthorization?: (query: {
+    state?: string;
+    connectionId?: string;
+    failed?: boolean;
+  }) => Effect.Effect<boolean>;
+}
+
+/** Moss service plugins: a regional connector and its skill, installed as one. */
+export interface MossServicePluginsShape {
+  /** Brings the skills on disk up to date (the account may have changed), then lists. */
+  readonly list: () => Effect.Effect<MossServicePluginsState, McpConnectorError>;
+  /** Installs or removes a skill-only plugin; plugins with an MCP install by connecting. */
+  readonly setInstalled: (
+    input: MossServicePluginSetInstalledInput,
+  ) => Effect.Effect<MossServicePluginsState, McpConnectorError>;
+  /** Re-syncs the skills after a sign-in, sign-out, or account switch. Never fails. */
+  readonly resync: () => Effect.Effect<void>;
 }
 
 export interface McpConnectorsShape {
@@ -60,6 +79,7 @@ export interface McpConnectorsShape {
   /** Whether the gateway connector routes serve anything (user connectors or Moss Apps). */
   readonly gatewayEnabled: boolean;
   readonly mossApps: MossAppsShape;
+  readonly servicePlugins: MossServicePluginsShape;
   readonly list: () => Effect.Effect<ReadonlyArray<McpConnector>, McpConnectorError>;
   readonly connect: (
     input: McpConnectorConnectInput,

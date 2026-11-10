@@ -4,9 +4,9 @@ import {
   ServerGenerateAutomationIntentResult,
   type AutomationMode,
   type ChatAttachment,
-} from "@synara/contracts";
-import { MAX_CHAT_THREAD_TITLE_WORDS } from "@synara/shared/chatThreads";
-import { NEXT_MESSAGE_PREDICTION_PROMPT_VERSION } from "@synara/shared/nextMessagePrediction";
+} from "@moss/contracts";
+import { MAX_CHAT_THREAD_TITLE_WORDS } from "@moss/shared/chatThreads";
+import { NEXT_MESSAGE_PREDICTION_PROMPT_VERSION } from "@moss/shared/nextMessagePrediction";
 
 import { TextGenerationError } from "./Errors.ts";
 import type { SourceControlWritingPreferences } from "./Services/TextGeneration.ts";

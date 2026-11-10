@@ -1,9 +1,6 @@
 import "../index.css";
 
-import {
-  DEFAULT_SERVER_SETTINGS_VIEW,
-  type ExecutionEnvironmentDescriptor,
-} from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS_VIEW, type ExecutionEnvironmentDescriptor } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import type { ComponentProps } from "react";
@@ -15,7 +12,9 @@ import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { APP_SETTINGS_STORAGE_KEY } from "~/uiLocale";
 
 const nativeApi = vi.hoisted(() => ({
-  pickFolder: vi.fn<() => Promise<string | null>>(() => Promise.resolve(null)),
+  pickFolder: vi.fn<
+    (options?: { signal?: AbortSignal; rejectWhenUnavailable?: boolean }) => Promise<string | null>
+  >(() => Promise.resolve(null)),
 }));
 
 vi.mock("../env", async (importOriginal) => ({
@@ -94,6 +93,61 @@ describe("CreateProjectDialog (browser, server-hosted folder picker)", () => {
     await page.getByRole("button", { name: "Add", exact: true }).click();
     await vi.waitFor(() => expect(nativeApi.pickFolder).toHaveBeenCalledOnce());
     await expect.element(page.getByText("moss-app", { exact: true })).toBeVisible();
+  });
+
+  it("lets users type a path while a picker is pending and ignores its late result", async () => {
+    let resolvePicker!: (path: string) => void;
+    let signal: AbortSignal | undefined;
+    nativeApi.pickFolder.mockImplementationOnce(
+      (options) =>
+        new Promise((resolve) => {
+          signal = options?.signal;
+          resolvePicker = resolve;
+        }),
+    );
+    const props = await renderDialog(environmentWithFolderPicker(true));
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Project folder path", exact: true }).click();
+    expect(signal?.aborted).toBe(true);
+    const input = page.getByRole("textbox", { name: "Project folder path" });
+    await input.fill("C:/work/manual-project");
+    resolvePicker("C:/work/late-picker");
+    await expect.element(input).toHaveValue("C:/work/manual-project");
+    await page.screenshot({ path: "__screenshots__/qa-picker-manual-fallback.png" });
+    await page.getByRole("button", { name: "Create project", exact: true }).click();
+    expect(props.onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ workspaceRoot: "C:/work/manual-project", createIfMissing: true }),
+      expect.anything(),
+    );
+  });
+
+  it("keeps the picker layout when the person cancels the picker", async () => {
+    nativeApi.pickFolder.mockResolvedValue(null);
+    await renderDialog(environmentWithFolderPicker(true));
+
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await vi.waitFor(() => expect(nativeApi.pickFolder).toHaveBeenCalledOnce());
+    expect(nativeApi.pickFolder).toHaveBeenCalledWith(
+      expect.objectContaining({ rejectWhenUnavailable: true }),
+    );
+
+    // Still the picker layout, ready to pick again, with nothing reported.
+    await expect.element(page.getByRole("button", { name: "Add", exact: true })).toBeEnabled();
+    await expect.element(page.getByLabelText("Folder location")).toBeVisible();
+    expect(page.getByRole("textbox", { name: "Project folder path" }).elements()).toHaveLength(0);
+    expect(page.getByRole("alert").elements()).toHaveLength(0);
+  });
+
+  it("switches to the typed path when the picker cannot open", async () => {
+    nativeApi.pickFolder.mockRejectedValue(new Error("Could not open the folder picker."));
+    await renderDialog(environmentWithFolderPicker(true));
+
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await expect.element(page.getByRole("textbox", { name: "Project folder path" })).toBeVisible();
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent("Unable to open the folder picker.");
+    expect(page.getByRole("button", { name: "Add", exact: true }).elements()).toHaveLength(0);
   });
 
   it("keeps the typed-path fallback when the server has no picker", async () => {

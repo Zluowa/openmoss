@@ -1,15 +1,26 @@
+import { readFileSync } from "node:fs";
+
 import { assert, describe, it } from "@effect/vitest";
 
 import {
   APPLE_RELEASE_SIGNING_ENV_KEYS,
+  RELEASE_SENTRY_DSN_ENV_KEYS,
   requiresMacUpdateManifest,
   validateDesktopReleaseBuildPolicy,
   validateWindowsSigningEnvironment,
   WINDOWS_SSL_COM_RELEASE_SIGNING_ENV_KEYS,
 } from "./desktop-release-build-policy.ts";
 
+const SENTRY_DSN = "https://public@example.ingest.us.sentry.io/1";
+const SENTRY_ENV: NodeJS.ProcessEnv = Object.fromEntries(
+  RELEASE_SENTRY_DSN_ENV_KEYS.map((key) => [key, SENTRY_DSN]),
+);
+
 function envWith(keys: ReadonlyArray<string>): NodeJS.ProcessEnv {
-  return Object.fromEntries(keys.map((key) => [key, `test-${key.toLowerCase()}`]));
+  return {
+    ...SENTRY_ENV,
+    ...Object.fromEntries(keys.map((key) => [key, `test-${key.toLowerCase()}`])),
+  };
 }
 
 describe("validateDesktopReleaseBuildPolicy", () => {
@@ -44,6 +55,52 @@ describe("validateDesktopReleaseBuildPolicy", () => {
         }),
       /production-config-mode strict/,
     );
+  });
+
+  it("requires a valid Sentry DSN for every public release, without printing it", () => {
+    const publishLinux = (env: NodeJS.ProcessEnv) =>
+      validateDesktopReleaseBuildPolicy({
+        env,
+        platform: "linux",
+        productionConfigMode: "strict",
+        releaseMode: "publish",
+        signed: false,
+      });
+
+    assert.throws(() => publishLinux({}), /VITE_SENTRY_DSN, MOSS_SENTRY_DSN/);
+    assert.throws(() => publishLinux({ MOSS_SENTRY_DSN: SENTRY_DSN }), /in: VITE_SENTRY_DSN\.$/);
+    assert.throws(() => publishLinux({ VITE_SENTRY_DSN: SENTRY_DSN }), /in: MOSS_SENTRY_DSN\.$/);
+
+    const invalid = "http://public@example.ingest.us.sentry.io/1";
+    let invalidMessage = "";
+    try {
+      publishLinux({ ...SENTRY_ENV, MOSS_SENTRY_DSN: invalid });
+    } catch (error) {
+      invalidMessage = error instanceof Error ? error.message : "";
+    }
+    assert.match(invalidMessage, /in: MOSS_SENTRY_DSN\.$/);
+    assert.notInclude(invalidMessage, invalid);
+    assert.doesNotThrow(() => publishLinux(SENTRY_ENV));
+  });
+
+  it("keeps the release DSN and source-map settings reachable through the Turbo build", () => {
+    const readRepoFile = (relativePath: string) =>
+      readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8");
+    const releaseWorkflow = readRepoFile(".github/workflows/release.yml");
+    for (const key of RELEASE_SENTRY_DSN_ENV_KEYS) {
+      assert.ok(releaseWorkflow.includes(`${key}: \${{ vars.MOSS_SENTRY_DSN }}`));
+    }
+
+    // Turbo's strict mode hides undeclared variables from build tasks, so a value
+    // that passes the policy above could otherwise never reach the bundler.
+    const turbo = JSON.parse(readRepoFile("turbo.json")) as {
+      readonly tasks: { readonly build: { readonly env: ReadonlyArray<string> } };
+    };
+    assert.ok(turbo.tasks.build.env.includes("MOSS_SENTRY_DSN"));
+    const webTurbo = readRepoFile("apps/web/turbo.jsonc");
+    for (const key of ["SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT", "SENTRY_RELEASE"]) {
+      assert.ok(webTurbo.includes(`"${key}"`));
+    }
   });
 
   it("requires Apple signing and notarization credentials for public macOS releases", () => {
@@ -85,6 +142,7 @@ describe("validateDesktopReleaseBuildPolicy", () => {
       () =>
         validateDesktopReleaseBuildPolicy({
           env: {
+            ...SENTRY_ENV,
             AZURE_TENANT_ID: "must-not-be-used",
             AZURE_CLIENT_ID: "must-not-be-used",
             AZURE_CLIENT_SECRET: "must-not-be-used",
@@ -156,7 +214,7 @@ describe("validateDesktopReleaseBuildPolicy", () => {
   it("allows unsigned Linux publication only after strict public config validation", () => {
     assert.doesNotThrow(() =>
       validateDesktopReleaseBuildPolicy({
-        env: {},
+        env: SENTRY_ENV,
         platform: "linux",
         productionConfigMode: "strict",
         releaseMode: "publish",

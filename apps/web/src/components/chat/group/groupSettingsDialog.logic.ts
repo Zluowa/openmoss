@@ -7,9 +7,10 @@ import {
   type ProjectAgentConfig,
   type ProjectAgentConfigureInput,
   type ProjectAgentOverview,
+  type ProjectAgentUserLocale,
   type ProjectId,
-} from "@synara/contracts";
-import { MEMORY_NOTES_DOCUMENT_PREFIX } from "@synara/shared/projectAgent";
+} from "@moss/contracts";
+import { MEMORY_NOTES_DOCUMENT_PREFIX } from "@moss/shared/projectAgent";
 
 import { isDefaultGroupCoordinatorName } from "../../../lib/groupCoordinatorName";
 
@@ -186,6 +187,7 @@ export function buildGroupConfigureInput(input: {
   readonly expectedRevision?: number | undefined;
   readonly importedInstructions?: string | undefined;
   readonly userDisplayName?: string | undefined;
+  readonly userLocale?: ProjectAgentUserLocale | undefined;
   /** The project's server-side title — the stored coordinator name derives from it. */
   readonly projectRemoteName?: string | undefined;
 }): ProjectAgentConfigureInput {
@@ -261,6 +263,7 @@ export function buildGroupConfigureInput(input: {
         : {}),
     autoMemoryEnabled: draft.autoMemoryEnabled,
     ...(input.userDisplayName?.trim() ? { userDisplayName: input.userDisplayName.trim() } : {}),
+    ...(input.userLocale ? { userLocale: input.userLocale } : {}),
     ...(libraryPath.length > 0
       ? { libraryPath }
       : baselineDraft.libraryPath.trim().length > 0
@@ -317,6 +320,7 @@ export async function saveGroupSettings(input: {
   readonly expectedRevision?: number | undefined;
   readonly importedInstructions?: string | undefined;
   readonly userDisplayName?: string | undefined;
+  readonly userLocale?: ProjectAgentUserLocale | undefined;
   readonly configure: (payload: ProjectAgentConfigureInput) => Promise<ProjectAgentOverview>;
   readonly renameProject?: ((title: string) => Promise<void> | void) | undefined;
   readonly projectRemoteName?: string | undefined;
@@ -340,6 +344,7 @@ export async function saveGroupSettings(input: {
         expectedRevision: input.expectedRevision,
         importedInstructions: input.importedInstructions,
         userDisplayName: input.userDisplayName,
+        userLocale: input.userLocale,
         projectRemoteName: input.projectRemoteName,
       }),
     );

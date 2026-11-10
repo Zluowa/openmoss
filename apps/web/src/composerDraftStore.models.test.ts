@@ -3,8 +3,8 @@ import {
   SUPPORTED_PROVIDER_KINDS,
   ThreadId,
   type ModelSelection,
-} from "@synara/contracts";
-import { getDefaultModel } from "@synara/shared/model";
+} from "@moss/contracts";
+import { getDefaultModel } from "@moss/shared/model";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   deriveEffectiveComposerModelState,
@@ -99,6 +99,9 @@ describe("supported CLI selections keep their exact draft identity", () => {
   });
 });
 
+const defaultInstanceIdForProvider = (provider: string) =>
+  provider === "codex" ? ("codex_moss" as const) : undefined;
+
 describe("resolvePreferredComposerModelSelection", () => {
   it("preserves a case-insensitive 1M Claude model variant during normalization", () => {
     expect(
@@ -111,6 +114,52 @@ describe("resolvePreferredComposerModelSelection", () => {
         options: { autoCompactWindow: "200k" },
       }),
     ).toEqual(modelSelection("claudeAgent", "claude-fable-5-1[1m]", { autoCompactWindow: "200k" }));
+  });
+
+  it("opens an agent nothing picked on the default provider, and keeps any named one", () => {
+    const empty = resolvePreferredComposerModelSelection({
+      draft: null,
+      threadModelSelection: null,
+      projectModelSelection: null,
+      defaultProvider: "codex",
+      defaultInstanceIdForProvider,
+    });
+    expect(empty.provider).toBe("codex");
+    expect(empty.instanceId).toBe("codex_moss");
+    // Pi has no static default model, so its fallback Codex chat takes the default too.
+    expect(
+      resolvePreferredComposerModelSelection({
+        draft: null,
+        threadModelSelection: null,
+        projectModelSelection: null,
+        defaultProvider: "pi",
+        defaultInstanceIdForProvider,
+      }).instanceId,
+    ).toBe("codex_moss");
+    // The person picked their own login: it stays.
+    expect(
+      resolvePreferredComposerModelSelection({
+        draft: {
+          modelSelectionByProvider: {
+            codex: modelSelection("codex", "gpt-5.4", undefined, "codex"),
+          },
+          activeProvider: "codex",
+        },
+        threadModelSelection: null,
+        projectModelSelection: null,
+        defaultInstanceIdForProvider,
+      }),
+    ).toEqual(modelSelection("codex", "gpt-5.4", undefined, "codex"));
+    // A saved thread selection keeps its historical meaning.
+    expect(
+      resolvePreferredComposerModelSelection({
+        draft: null,
+        threadModelSelection: modelSelection("codex", "gpt-5.4"),
+        projectModelSelection: null,
+        fresh: true,
+        defaultInstanceIdForProvider,
+      }),
+    ).toEqual(modelSelection("codex", "gpt-5.4"));
   });
 
   it("prefers the active draft provider selection over thread and project defaults", () => {

@@ -1,3 +1,4 @@
+import { useTranslation } from "~/localization";
 // FILE: InboxView.tsx
 // Purpose: The Inbox page (Stable and Beta): a task column (what needs the user, what is running,
 //          what finished, and today's to-dos) beside the day told as short written cards ("Your best model
@@ -6,12 +7,12 @@
 // Layer: Inbox route surface
 // Exports: InboxView (default)
 
-import type { ServerProviderUsageSnapshot, StatsGetRecapResult, ThreadId } from "@synara/contracts";
+import type { ServerProviderUsageSnapshot, StatsGetRecapResult, ThreadId } from "@moss/contracts";
 import {
   providerUsageDisplayName,
   selectVisibleProviderUsageSnapshots,
-} from "@synara/shared/providerUsage";
-import { pluralize } from "@synara/shared/text";
+} from "@moss/shared/providerUsage";
+import { pluralize } from "@moss/shared/text";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
@@ -432,6 +433,7 @@ function RecapDigest({
   tasks: InboxTaskCounts | undefined;
   projectById: ReadonlyMap<string, Project>;
 }) {
+  const { locale } = useTranslation();
   const slots = summarizeInboxSlots(recap, day, nowMs);
   // Yesterday up to the time today's numbers were taken, so a morning is never compared
   // with a whole day and a recap that is a few minutes old is not compared with a newer one.
@@ -439,7 +441,7 @@ function RecapDigest({
   const yesterdaySoFar = previousRecap
     ? sumRecapBefore(previousRecap, day.previousDay, previousDayCutoffMs(asOfMs))
     : null;
-  const input = { recap, previousRecap, yesterdaySoFar, slots, tasks };
+  const input = { recap, previousRecap, yesterdaySoFar, slots, tasks, locale };
   const sentences = buildInboxDigest(input);
   const tiles = buildInboxTiles({ ...input, quota });
   const bucketByStart = recapBucketsByStart(recap);

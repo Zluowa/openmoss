@@ -1,13 +1,19 @@
 {
   "version": 2,
+  "maps": {
+    "googleApiKey": "",
+    "amapKey": "",
+    "amapSecurityCode": ""
+  },
   "authRealms": {
     "memfire-phone": {
       "authority": "memfire-phone",
       "region": "cn",
       "authUrl": "https://d9etnnog91hobt7masfg.baseapi.memfiredb.com",
       "publishableKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImV4cCI6MzM2MTMzNjAzMSwiaWF0IjoxNzg0NTM2MDMxLCJpc3MiOiJzdXBhYmFzZSJ9.fAjLZ982QXSXUoLnxAtT1ocn-f0IXGeHxetrNogjyMM",
-      "modelGatewayUrl": "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1",
-      "realtimeRelayUrl": "https://moss-cn-realtime-edge.inkcomicai.com"
+      "modelGatewayUrl": "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1",
+      "realtimeRelayUrl": "https://moss-cn-realtime-edge.inkcomicai.com",
+      "payBaseUrl": "https://moss-pay.comiction.cn/functions/v1/moss-pay"
     },
     "supabase-google": {
       "authority": "supabase-google",
@@ -15,7 +21,7 @@
       "authUrl": "https://evgminmhjommukstgtrj.supabase.co",
       "publishableKey": "sb_publishable_bbNDEFqVQJl_6jDHzWNUHQ_nNgqoKpN",
       "authRedirectUrl": "moss://auth/callback",
-      "modelGatewayUrl": "https://evgminmhjommukstgtrj.supabase.co/functions/v1/moss-model-gateway",
+      "modelGatewayUrl": "https://evgminmhjommukstgtrj.supabase.co/functions/v1/moss-model-gateway/v1",
       "realtimeRelayUrl": "https://moss-global-realtime.inkcomicai.com"
     }
   }

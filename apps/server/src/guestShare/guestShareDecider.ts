@@ -22,8 +22,8 @@ import {
   type ThreadGuestMessage,
   type ThreadGuestShare,
   type ThreadId,
-} from "@synara/contracts";
-import { formatModelDisplayName } from "@synara/shared/model";
+} from "@moss/contracts";
+import { formatModelDisplayName } from "@moss/shared/model";
 
 import type { GuestShareRecord } from "../persistence/Services/GuestShareRepository.ts";
 

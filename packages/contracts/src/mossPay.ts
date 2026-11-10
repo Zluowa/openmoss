@@ -89,6 +89,8 @@ export const MossPayCatalog = Schema.Struct({
   pointPackages: Schema.Array(MossPayPointPackage),
   /** Exactly one rail, chosen by the verified account realm. The client never picks. */
   paymentMethods: Schema.Array(MossPayPaymentMethod),
+  /** False when this region's payment provider can't sell a plan yet. Absent when unknown. */
+  plansPurchasable: Schema.optional(Schema.Boolean),
   /** Independent media cost wallet; absent while a regional deployment rolls out. */
   mediaTopupPackages: Schema.optional(Schema.Array(MossPayMediaTopupPackage)),
   mediaWallet: Schema.optional(Schema.NullOr(MossPayMediaWallet)),

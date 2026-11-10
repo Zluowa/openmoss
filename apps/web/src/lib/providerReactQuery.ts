@@ -7,10 +7,11 @@ import {
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetTurnDiffInput,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import { Option, Schema } from "effect";
 import { ensureNativeApi } from "../nativeApi";
+import { inlineVisualHost } from "./inlineVisualHosting";
 import {
   expensiveReadErrorRefetchInterval,
   expensiveReadRetryDelay,
@@ -206,6 +207,9 @@ export function inlineVisualQueryOptions(input: { threadId: ThreadId; visualId: 
   return queryOptions({
     queryKey: ["inlineVisual", input.threadId, input.visualId] as const,
     queryFn: async () => {
+      // A shared conversation's guest page reads the source through the share instead.
+      const host = inlineVisualHost();
+      if (host !== null) return host.source(input.visualId);
       const api = ensureNativeApi();
       const result = await api.orchestration.getInlineVisual(input);
       return result.html;

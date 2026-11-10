@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 
-import type { ChatAttachment } from "@synara/contracts";
-import { htmlRenderFromActivity } from "@synara/shared/htmlRenderActivity";
+import type { ChatAttachment } from "@moss/contracts";
+import { htmlRenderFromActivity } from "@moss/shared/htmlRenderActivity";
 
 import {
   normalizeAttachmentRelativePath,

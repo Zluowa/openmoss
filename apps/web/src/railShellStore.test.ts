@@ -1,4 +1,4 @@
-import { ProjectId } from "@synara/contracts";
+import { ProjectId } from "@moss/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { useRailShellStore } from "./railShellStore";
@@ -61,5 +61,25 @@ describe("railShellStore", () => {
     expect(useRailShellStore.getState().activeItem).toBe("spaces");
     reconcile({ pathname: "/kanban", onStudioSurface: false, projectIds });
     expect(useRailShellStore.getState().activeItem).toBe("kanban");
+  });
+
+  it("reconciles a deep-linked assistant after summaries hydrate, and leaves it for ordinary chat", () => {
+    const { reconcile } = useRailShellStore.getState();
+    reconcile({ pathname: "/assistant", onStudioSurface: false, projectIds: null });
+    expect(useRailShellStore.getState().activeItem).toBe("home");
+    reconcile({
+      pathname: "/assistant",
+      onStudioSurface: false,
+      onMossbotSurface: true,
+      projectIds: new Set([PROJECT_A]),
+    });
+    expect(useRailShellStore.getState().activeItem).toBe("mossbot");
+    reconcile({
+      pathname: "/ordinary",
+      onStudioSurface: false,
+      onMossbotSurface: false,
+      projectIds: new Set([PROJECT_A]),
+    });
+    expect(useRailShellStore.getState().activeItem).toBe("home");
   });
 });

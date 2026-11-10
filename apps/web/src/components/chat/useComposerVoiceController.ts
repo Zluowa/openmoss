@@ -8,7 +8,7 @@ import {
   type ProviderKind,
   type ServerProviderStatus,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { Project } from "../../types";
@@ -27,6 +27,10 @@ import {
   isVoiceAuthExpiredMessage,
   sanitizeVoiceErrorMessage,
 } from "../ChatView.logic";
+import {
+  describeVoiceTranscriptionFailure,
+  resolveVoiceUiLocale,
+} from "./voiceTranscriptionErrorPresentation";
 
 export interface ComposerVoiceFailureCopy {
   transcriptionFailedTitle: string;
@@ -99,7 +103,7 @@ export function useComposerVoiceController(
     onTranscriptReady,
     refreshVoiceStatus,
     actionArmDelayMs: actionArmDelayMsProp,
-    locale = "en",
+    locale: localeOption,
     failureCopy: failureCopyOverrides,
     onGuardWarning,
   } = options;
@@ -121,6 +125,7 @@ export function useComposerVoiceController(
   const composerProviderInstanceRef = useRef<ProviderInstanceId>(selectedProviderInstanceId);
   const voiceProviderInstanceRef = useRef<ProviderInstanceId>(voiceProviderInstanceId);
   const voiceRecordingStartedAtRef = useRef<number | null>(null);
+  const locale = localeOption ?? "en";
   const chineseLocale = /^zh(?:-|$)/iu.test(locale);
   const localizedDefaultFailureCopy: ComposerVoiceFailureCopy = chineseLocale
     ? {
@@ -345,28 +350,55 @@ export function useComposerVoiceController(
           return false;
         }
 
-        const description =
-          error instanceof Error
-            ? sanitizeVoiceErrorMessage(error.message)
-            : failureCopy.fallbackDescription;
-        const authExpired = isVoiceAuthExpiredMessage(description);
+        // A server failure carries a stable code and is worded only from that code, in the
+        // UI language. Raw provider text ("Provider adapter request failed…") never reaches
+        // the toast.
+        const presentation = describeVoiceTranscriptionFailure(
+          error,
+          resolveVoiceUiLocale(localeOption),
+        );
+        const refreshAction = {
+          actionProps: {
+            children: failureCopy.refreshActionLabel,
+            onClick: () => {
+              void refreshVoiceStatus();
+            },
+          },
+        };
+        if (presentation.code !== null) {
+          const offersRefresh =
+            presentation.needsSignIn &&
+            presentation.code !== "VOICE_ACCOUNT_AUTHENTICATION_REQUIRED";
+          if (presentation.needsSignIn) {
+            void refreshVoiceStatus();
+          }
+          const toastId = toastManager.add({
+            type: "error",
+            title: failureCopy.transcriptionFailedTitle,
+            description: presentation.message ?? failureCopy.fallbackDescription,
+            ...(offersRefresh ? refreshAction : {}),
+          });
+          reportToastIssue(toastId, {
+            code: transcriptionStarted ? "voice.transcribe.failed" : "voice.record.failed",
+            reason: presentation.needsSignIn ? "auth" : diagnosticIssueReason(error),
+            durationMs: performance.now() - startedAt,
+          });
+          return false;
+        }
+
+        const rawDescription =
+          error instanceof Error ? sanitizeVoiceErrorMessage(error.message) : "";
+        const authExpired = isVoiceAuthExpiredMessage(rawDescription);
         if (authExpired) {
           void refreshVoiceStatus();
         }
         const toastId = toastManager.add({
           type: "error",
           title: authExpired ? failureCopy.authExpiredTitle : failureCopy.transcriptionFailedTitle,
-          description: authExpired ? failureCopy.authExpiredDescription : description,
-          ...(authExpired
-            ? {
-                actionProps: {
-                  children: failureCopy.refreshActionLabel,
-                  onClick: () => {
-                    void refreshVoiceStatus();
-                  },
-                },
-              }
-            : {}),
+          description: authExpired
+            ? failureCopy.authExpiredDescription
+            : failureCopy.fallbackDescription,
+          ...(authExpired ? refreshAction : {}),
         });
         reportToastIssue(toastId, {
           code: transcriptionStarted ? "voice.transcribe.failed" : "voice.record.failed",

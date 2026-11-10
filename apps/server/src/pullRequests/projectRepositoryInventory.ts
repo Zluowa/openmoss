@@ -1,4 +1,4 @@
-import type { GitHubInboxListError, OrchestrationProject, ProjectId } from "@synara/contracts";
+import type { GitHubInboxListError, OrchestrationProject, ProjectId } from "@moss/contracts";
 import { Effect } from "effect";
 
 import type {

@@ -6,7 +6,7 @@ import type {
   ProviderInstanceId,
   ProviderKind,
   ProviderModelDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   type AppSettings,

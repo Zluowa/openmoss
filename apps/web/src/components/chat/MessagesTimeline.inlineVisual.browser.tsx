@@ -1,7 +1,7 @@
 import "../../index.css";
 
 import type { LegendListRef } from "@legendapp/list/react";
-import { MessageId, type NativeApi, ThreadId, TurnId } from "@synara/contracts";
+import { MessageId, type NativeApi, ThreadId, TurnId } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useRef } from "react";
 import { userEvent } from "vitest/browser";

@@ -1,0 +1,158 @@
+// FILE: zhCNPreviewCopy.ts
+// Purpose: Simplified Chinese for file previews: documents, slides, spreadsheets, PDFs, notebooks,
+//          images, audio and video, plus the workspace file panel around them.
+// Layer: Pure localization data
+// File names, paths and slide titles pass through the patterns untouched.
+
+import { phraseTranslator } from "./zhCNPhraseTable";
+
+const PREVIEW_COPY: Readonly<Record<string, string>> = {
+  // Shared
+  "Close preview": "关闭预览",
+  "Preview response exceeds limit": "预览响应超过大小限制",
+  "Unable to render": "无法显示",
+  "Unable to render preview": "无法显示预览",
+  "Unable to preview": "无法预览",
+  "Download file": "下载文件",
+  "Couldn’t load this preview": "无法加载此预览",
+  "Preparing preview…": "正在准备预览…",
+  "This file is too large to preview in the side panel.": "此文件太大，无法在侧边面板中预览。",
+  Fit: "适应",
+  Zoom: "缩放",
+  "Zoom percentage": "缩放百分比",
+  Page: "页面",
+  Slide: "幻灯片",
+  Annotation: "标注",
+  Annotate: "标注",
+  Annotating: "正在标注",
+  "Ask for change": "提出修改",
+  "Add comment": "添加评论",
+
+  // Documents and Office files
+  "DOCX preview request failed": "DOCX 预览请求失败",
+  "Invalid document symbol": "文档符号无效",
+  "Loading DOCX preview": "正在加载 DOCX 预览",
+  "Could not add this comment. Try again.": "无法添加这条评论。请重试。",
+  "Requested change": "要修改的内容",
+  "Ask for a change…": "提出修改…",
+  "Office artifact conversion is not available in this build.": "这个版本不支持转换 Office 产物。",
+  "This file type can be downloaded.": "此文件类型可以下载。",
+  "This file type can be downloaded or attached to chat.": "此文件类型可以下载或附加到对话。",
+  "Attach to chat": "附加到对话",
+
+  // PDF
+  "PDF annotation": "PDF 标注",
+  "PDF annotation comment": "PDF 标注评论",
+  "Describe a change or ask a question": "描述要修改的内容，或提出问题",
+
+  // Presentations
+  "Presentation exceeds the 40 MiB preview limit.": "演示文稿超过 40 MiB 的预览上限。",
+  "Loading presentation…": "正在加载演示文稿…",
+  "Unable to render this slide": "无法显示这张幻灯片",
+  "Loading slide": "正在加载幻灯片",
+  "Annotate slide": "标注幻灯片",
+  "Download presentation": "下载演示文稿",
+  "Some elements could not be displayed.": "部分元素无法显示。",
+  "Download the presentation": "下载演示文稿",
+  "to view the original.": "以查看原始内容。",
+  "Presentation slides": "演示文稿幻灯片",
+  "Slide list": "幻灯片列表",
+  "Speaker notes": "演讲者备注",
+  "Ask for an edit…": "提出修改…",
+
+  // Spreadsheets
+  "Unable to render spreadsheet.": "无法显示电子表格。",
+  "Loading spreadsheet…": "正在加载电子表格…",
+  "Download spreadsheet": "下载电子表格",
+  "Unable to attach this range.": "无法附加这个区域。",
+  "Cell or range address": "单元格或区域地址",
+  "Enter a cell or range, such as A1 or B2:D8.": "请输入单元格或区域，例如 A1 或 B2:D8。",
+  "This worksheet is not available.": "这张工作表不可用。",
+  "This range is outside the preview's worksheet bounds.": "这个区域超出了预览工作表的范围。",
+  "Insert function": "插入函数",
+  "Formula bar": "公式栏",
+  "Attach selected range to chat": "把所选区域附加到对话",
+  "Ask about this": "询问这部分内容",
+  "Spreadsheet zoom": "电子表格缩放",
+  "Spreadsheet canvas": "电子表格画布",
+  "Unable to copy this range.": "无法复制这个区域。",
+  Empty: "空",
+  Worksheets: "工作表",
+
+  // Notebooks
+  "Raw output": "原始输出",
+  "Notebook HTML output": "笔记本 HTML 输出",
+  "Empty Markdown cell": "空的 Markdown 单元格",
+  "Empty raw cell": "空的原始单元格",
+  "Empty code cell": "空的代码单元格",
+  Cell: "单元格",
+  "Comment on selection": "评论所选内容",
+  "Notebook preview": "笔记本预览",
+  "Read only": "只读",
+  "Read-only": "只读",
+  "Run all": "全部运行",
+  "Running is not available in this preview": "此预览不支持运行",
+  "Kernels are not connected in this preview": "此预览未连接内核",
+  "Unable to preview this notebook.": "无法预览此笔记本。",
+  "This notebook does not contain any cells": "此笔记本不包含任何单元格",
+
+  // Images, audio and video
+  "Loading image": "正在加载图片",
+  "No image": "没有图片",
+  "Video unavailable": "视频不可用",
+  "Loading audio…": "正在加载音频…",
+  "Loading audio": "正在加载音频",
+  "Audio unavailable": "音频不可用",
+  Audio: "音频",
+
+  // Workspace file panel
+  "Only files inside the project can be edited.": "只能编辑项目内的文件。",
+  "HTML previews are read-only.": "HTML 预览是只读的。",
+  "Unable to render preview. You can still view the source.": "无法显示预览。你仍可查看源码。",
+  "Media previews are read-only.": "媒体预览是只读的。",
+  "Archive files are read-only.": "压缩文件是只读的。",
+  "Save failed": "保存失败",
+  Saved: "已保存",
+  "This file changed on disk. Your unsaved edits are preserved.":
+    "此文件在磁盘上已更改。你未保存的编辑仍然保留。",
+  "Refreshing file...": "正在刷新文件…",
+  "File refresh delayed.": "文件刷新延迟。",
+  "Could not refresh file.": "无法刷新文件。",
+  "Only part of this file's working-tree diff is available. Change markers may be incomplete.":
+    "只有此文件工作树差异的一部分可用。更改标记可能不完整。",
+  "Could not save the file.": "无法保存文件。",
+  "Could not reload the file.": "无法重新加载文件。",
+  "Could not load the editor.": "无法加载编辑器。",
+  "Loading editor...": "正在加载编辑器…",
+  "Could not save editor changes": "无法保存编辑器中的更改",
+  "Your draft is preserved. Resolve the save error in the editor before leaving.":
+    "你的草稿已保留。离开前请先在编辑器中解决保存错误。",
+};
+
+export const translateZhCnPreviewCopyText = phraseTranslator(PREVIEW_COPY, [
+  [/^DOCX preview request failed \((\d+)\)$/, "DOCX 预览请求失败（$1）"],
+  [/^Zoom (\d+)%$/, "缩放 $1%"],
+  [/^Download ((?!failed\b).+\.[A-Za-z0-9]{1,8})$/, "下载 $1"],
+  [/^Comment on page (\d+)$/, "评论第 $1 页"],
+  [/^Page (\d+)$/, "第 $1 页"],
+  [/^Go to page (\d+)$/, "前往第 $1 页"],
+  [/^Play (.+\.[A-Za-z0-9]+)$/, "播放 $1"],
+  [/^Pause (.+\.[A-Za-z0-9]+)$/, "暂停 $1"],
+  [/^Seek in (.+)$/, "在 $1 中跳转"],
+  [/^([A-Z0-9]{2,5}) audio$/, "$1 音频"],
+  [/^Unable to read presentation \((\d+)\)\.$/, "无法读取演示文稿（$1）。"],
+  [/^Unable to read spreadsheet \((\d+)\)\.$/, "无法读取电子表格（$1）。"],
+  [/^Slide (\d+) of (\d+): (.+)$/, "第 $1 张幻灯片（共 $2 张）：$3"],
+  [/^Slide (\d+): (.+)$/, "第 $1 张幻灯片：$2"],
+  [/^Slide (\d+)$/, "第 $1 张幻灯片"],
+  [/^Notebook output (\d+)$/, "笔记本输出 $1"],
+  [/^Code cell (\d+)$/, "代码单元格 $1"],
+  [/^Markdown cell (\d+)$/, "Markdown 单元格 $1"],
+  [/^Raw cell (\d+)$/, "原始单元格 $1"],
+  [/^Cell (\d+) of (\d+)$/, "第 $1 个单元格（共 $2 个）"],
+  [/^Cell (\d+)$/, "第 $1 个单元格"],
+  [/^Comment on cell (\d+)$/, "评论第 $1 个单元格"],
+  [/^· (\d+) cells?$/, "· $1 个单元格"],
+  [/^Edit (\S*[./\\]\S*)$/, "编辑 $1"],
+  [/^Comment on line (\d+)$/, "评论第 $1 行"],
+]);

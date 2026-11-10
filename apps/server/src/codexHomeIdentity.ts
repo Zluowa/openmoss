@@ -24,6 +24,97 @@ export interface CodexHomeIdentityPaths {
   readonly activeHomePath: string;
 }
 
+/** Server-only capability; never accepted from persisted or public options. */
+export interface CodexCredentialFence {
+  readonly sourceHomeIdentity: string;
+  readonly privateHomeIdentity: string;
+  readonly accountId: string;
+  readonly runtimeGeneration: string;
+}
+
+export interface CodexCredentialScopeInput extends CodexHomeIdentityInput {
+  readonly runtimeGeneration?: string | undefined;
+  readonly credentialFence?: CodexCredentialFence | undefined;
+}
+
+const issuedCredentialFences = new WeakMap<CodexCredentialFence, () => void>();
+
+/**
+ * Call only after the server has verified an explicit source/private binding,
+ * including private auth AND config. This does not establish that binding.
+ * No production caller issues this capability until that layout is supported.
+ */
+export function issueCodexCredentialFence(
+  input: CodexCredentialScopeInput & { readonly assertBindingCurrent: () => void },
+): CodexCredentialFence {
+  if (
+    !input.homePath ||
+    !path.isAbsolute(input.homePath) ||
+    !input.shadowHomePath ||
+    !path.isAbsolute(input.shadowHomePath) ||
+    !input.accountId?.trim() ||
+    !input.runtimeGeneration?.trim()
+  ) {
+    throw new Error(
+      "Codex credential isolation requires an explicit server binding and generation.",
+    );
+  }
+  input.assertBindingCurrent();
+  const identities = resolveCodexHomeIdentityPaths(input);
+  const privateHomeIdentity = identities.shadowHomePath!;
+  const relative = path.relative(identities.sourceHomePath, privateHomeIdentity);
+  const reverse = path.relative(privateHomeIdentity, identities.sourceHomePath);
+  const nested = (value: string) =>
+    value === "" ||
+    (!path.isAbsolute(value) && value !== ".." && !value.startsWith(`..${path.sep}`));
+  if (nested(relative) || nested(reverse)) {
+    throw new Error("Codex shared history and private credentials require separate directories.");
+  }
+  const fence: CodexCredentialFence = Object.freeze({
+    sourceHomeIdentity: identities.sourceHomePath,
+    privateHomeIdentity,
+    accountId: input.accountId.trim(),
+    runtimeGeneration: input.runtimeGeneration.trim(),
+  });
+  issuedCredentialFences.set(fence, input.assertBindingCurrent);
+  return fence;
+}
+
+export function readCodexCredentialFence(
+  input:
+    | (Omit<CodexCredentialScopeInput, "environment"> & {
+        readonly environment?: NodeJS.ProcessEnv | undefined;
+      })
+    | undefined,
+): CodexCredentialFence | undefined {
+  const fence = input?.credentialFence;
+  if (fence === undefined) return undefined;
+  const assertCurrent = issuedCredentialFences.get(fence);
+  if (!assertCurrent) throw new Error("The Codex credential fence was not issued by the server.");
+  assertCurrent();
+  const identities = resolveCodexHomeIdentityPaths(input);
+  if (
+    fence.sourceHomeIdentity !== identities.sourceHomePath ||
+    fence.privateHomeIdentity !== identities.shadowHomePath ||
+    fence.accountId !== input?.accountId?.trim() ||
+    fence.runtimeGeneration !== input?.runtimeGeneration?.trim()
+  ) {
+    throw new Error("The Codex credential fence does not match the selected account binding.");
+  }
+  return fence;
+}
+
+/** Revocation scope only. Lifecycle locks must still include the shared source. */
+export function uniqueCodexCredentialHomeIdentityPaths(
+  input: CodexCredentialScopeInput = {},
+): readonly string[] {
+  const fence = readCodexCredentialFence(input);
+  if (!fence) return uniqueCodexLifecycleHomeIdentityPaths(input);
+  return [fence.privateHomeIdentity, resolveCodexHomeIdentityPaths(input).activeHomePath].filter(
+    (identity, index, identities) => identities.indexOf(identity) === index,
+  );
+}
+
 function isMissingPathError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
@@ -257,7 +348,9 @@ export function canonicalizeCodexHomeIdentityPath(rawPath: string): string {
 }
 
 export function resolveCodexHomeIdentityPaths(
-  input: CodexHomeIdentityInput = {},
+  input: Omit<CodexHomeIdentityInput, "environment"> & {
+    readonly environment?: NodeJS.ProcessEnv | undefined;
+  } = {},
 ): CodexHomeIdentityPaths {
   const environment = { ...process.env, ...input.environment };
   const sourceHomePath = resolveBaseCodexHomePath(environment, input.homePath);

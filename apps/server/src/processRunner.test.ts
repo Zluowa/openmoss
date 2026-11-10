@@ -1,3 +1,4 @@
+import { readWindowsAnsiEncodingSync } from "@moss/shared/platformEncoding";
 import { describe, expect, it } from "vitest";
 
 import { runProcess } from "./processRunner";
@@ -45,6 +46,24 @@ describe("runProcess", () => {
     expect(result.stdout).toBe("€");
     expect(stdoutChunks.join("")).toBe("€");
   });
+
+  // cmd.exe and reg.exe write their errors in the system code page, not UTF-8.
+  it.runIf(readWindowsAnsiEncodingSync() === "gbk")(
+    "decodes a GBK stderr line from a Windows tool on Chinese Windows",
+    async () => {
+      const stderrChunks: string[] = [];
+      const result = await runProcess(
+        "node",
+        [
+          "-e",
+          "process.stderr.write(Buffer.from([0xcf,0xb5,0xcd,0xb3,0xd5,0xd2,0xb2,0xbb,0xb5,0xbd,0x0d,0x0a])); process.stderr.write('ok \\u2713\\n')",
+        ],
+        { onStderrChunk: (chunk) => stderrChunks.push(chunk) },
+      );
+      expect(result.stderr).toBe("系统找不到\r\nok ✓\n");
+      expect(stderrChunks.join("")).toBe("系统找不到\r\nok ✓\n");
+    },
+  );
 
   it("reports live stdout and stderr chunks while retaining the final output", async () => {
     const stdoutChunks: string[] = [];

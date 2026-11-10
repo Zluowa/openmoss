@@ -10,7 +10,7 @@ import {
   type DesktopAppSnapPermissionKind,
   type DesktopAppSnapSettingsPane,
   type DesktopAppSnapState,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useEffect, useRef, useState } from "react";
 
 import { createLatestAppSnapRequestGuard } from "~/appSnap.logic";
@@ -47,7 +47,7 @@ export const APP_SNAP_PERMISSION_PANES: readonly AppSnapPermissionPaneDescriptor
 /**
  * Computer also needs Input Monitoring for Escape and human takeover. This
  * grant does not enable AppSnap's shortcut. The matching kind list lives in
- * `@synara/shared/computerGrants`.
+ * `@moss/shared/computerGrants`.
  */
 export const COMPUTER_PERMISSION_PANES: readonly AppSnapPermissionPaneDescriptor[] = [
   {

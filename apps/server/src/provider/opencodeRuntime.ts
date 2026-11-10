@@ -13,7 +13,7 @@ import type {
   ProviderApprovalDecision,
   ProviderInteractionMode,
   RuntimeMode,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   type ConsoleState,
   createOpencodeClient,
@@ -48,9 +48,10 @@ import {
   spawnProviderProcess,
 } from "../platform/effectProcessRuntime.ts";
 
-import { NetService, type NetServiceShape } from "@synara/shared/Net";
-import { expandHomePath } from "@synara/shared/mossHome";
+import { NetService, type NetServiceShape } from "@moss/shared/Net";
+import { expandHomePath } from "@moss/shared/mossHome";
 import { buildOpenCodeServerProcessEnv as buildOpenCodeServerLaunchEnv } from "./providerBinaryResolution.ts";
+import { explicitMossEnvironmentKeys } from "../providerChildEnvironment.ts";
 import { buildProviderProcessEnv } from "./providerProcessEnv.ts";
 import { readOpenCodeAuthFileUtf8 } from "./openCodeAuthPaths.ts";
 import {
@@ -60,7 +61,13 @@ import {
 import { isWindowsShellCommandMissingResult } from "../shell-command-detection.ts";
 import { parseOpenCodeReasoningOptions } from "./openCodeReasoningOptions.ts";
 import { detectOpenCodeProtocol } from "./openCodeProtocol.ts";
-import { openCodeV2CredentialProviderIDs, withOpenCodeV2Client } from "./openCodeV2Client.ts";
+import {
+  openCodeV2CredentialProviderIDs,
+  readOpenCodeDefaultModel,
+  withOpenCodeV2Client,
+} from "./openCodeV2Client.ts";
+
+import { decodeProviderCommandOutput, readWindowsAnsiEncoding } from "./providerCommandOutput";
 
 const DEFAULT_OPENCODE_SERVER_TIMEOUT_MS = 20_000;
 const DEFAULT_HOSTNAME = "127.0.0.1";
@@ -195,6 +202,7 @@ export interface OpenCodeCommandResult {
 
 export interface OpenCodeInventory {
   readonly providerList: ProviderListResponse;
+  readonly defaultModel?: string;
   readonly agents: ReadonlyArray<Agent>;
   readonly consoleState: ConsoleState | null;
 }
@@ -888,6 +896,8 @@ export function buildOpenCodeServerProcessEnv(input: {
   });
   return buildOpenCodeServerLaunchEnv({
     baseEnv: accountIsolatedEnv,
+    // The managed gateway bearer reaches OpenCode only through `{env:MOSS_ACCESS_TOKEN}`.
+    inheritedMossKeys: explicitMossEnvironmentKeys(input.environment),
     ...(input.experimentalWebSockets !== undefined
       ? { experimentalWebSockets: input.experimentalWebSockets }
       : {}),
@@ -940,11 +950,11 @@ function ensureRuntimeError(
 }
 
 const collectStreamAsString = <E>(stream: Stream.Stream<Uint8Array, E>): Effect.Effect<string, E> =>
-  Stream.runFold(
-    stream,
-    () => "",
-    (acc, chunk) => acc + new TextDecoder().decode(chunk),
-  );
+  Effect.gen(function* () {
+    const encoding = yield* Effect.promise(() => readWindowsAnsiEncoding());
+    const chunks = yield* Stream.runCollect(stream);
+    return decodeProviderCommandOutput(Array.from(chunks), encoding);
+  });
 
 export interface OpenCodeRuntimeLiveOptions {
   readonly teardownProcessTree?: typeof teardownProviderProcessTree;
@@ -961,6 +971,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     );
     const pooledServerMutex = yield* Semaphore.make(1);
     const pooledServers = new Map<string, PooledOpenCodeServer>();
+    let pooledServersClosed = false;
 
     const runOpenCodeCommand: OpenCodeRuntimeShape["runOpenCodeCommand"] = (input) =>
       Effect.gen(function* () {
@@ -1129,9 +1140,13 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
           Effect.ignore,
           Effect.forkIn(runtimeScope),
         );
+        const stderrEncoding = yield* Effect.promise(() => readWindowsAnsiEncoding());
+        const stderrChunks: Uint8Array[] = [];
         const stderrFiber = yield* child.stderr.pipe(
-          Stream.decodeText(),
-          Stream.runForEach((chunk) => Ref.update(stderrRef, (stderr) => `${stderr}${chunk}`)),
+          Stream.runForEach((chunk) => {
+            stderrChunks.push(chunk);
+            return Ref.set(stderrRef, decodeProviderCommandOutput(stderrChunks, stderrEncoding));
+          }),
           Effect.ignore,
           Effect.forkIn(runtimeScope),
         );
@@ -1396,6 +1411,13 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     }) =>
       pooledServerMutex.withPermit(
         Effect.gen(function* () {
+          // Nothing closes a server started once the pool's finalizer has run.
+          if (pooledServersClosed) {
+            return yield* new OpenCodeRuntimeError({
+              operation: "connectToOpenCodeServer",
+              detail: "The OpenCode runtime is shutting down.",
+            });
+          }
           // Collapse ordinary aliases, but let the OS resolve parent traversal: resolving `..`
           // lexically can cross a symlink differently or hide a missing directory. Keep the same
           // spelling in both the pool key and spawn options, without adding filesystem work here.
@@ -1475,9 +1497,14 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
     yield* Effect.addFinalizer(() =>
       pooledServerMutex.withPermit(
         Effect.gen(function* () {
-          for (const pooledServer of Array.from(pooledServers.values())) {
-            yield* closePooledServer(pooledServer);
-          }
+          pooledServersClosed = true;
+          // Each close waits on its own tree proof, and a failed proof dies. Neither
+          // may delay or skip stopping the other servers.
+          yield* Effect.forEach(
+            Array.from(pooledServers.values()),
+            (pooledServer) => Effect.exit(closePooledServer(pooledServer)),
+            { concurrency: "unbounded", discard: true },
+          );
         }),
       ),
     );
@@ -1594,14 +1621,30 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
         Effect.catch(() => Effect.succeed(null)),
       );
 
+    const loadConfiguredModel = (client: OpencodeClient) =>
+      runOpenCodeSdk("model.default", (signal) => readOpenCodeDefaultModel(client, signal)).pipe(
+        Effect.timeoutOption("2 seconds"),
+        Effect.map(Option.getOrElse(() => undefined)),
+        Effect.catch(() => Effect.succeed(undefined)),
+      );
+
     const loadOpenCodeInventory: OpenCodeRuntimeShape["loadOpenCodeInventory"] = (client) =>
-      Effect.all([loadProviders(client), loadOptionalAgents(client), loadConsoleState(client)], {
-        concurrency: "unbounded",
-      }).pipe(
-        Effect.map(([providerList, agents, consoleState]) => ({
+      Effect.all(
+        [
+          loadProviders(client),
+          loadOptionalAgents(client),
+          loadConsoleState(client),
+          loadConfiguredModel(client),
+        ],
+        {
+          concurrency: "unbounded",
+        },
+      ).pipe(
+        Effect.map(([providerList, agents, consoleState, defaultModel]) => ({
           providerList,
           agents,
           consoleState,
+          ...(defaultModel ? { defaultModel } : {}),
         })),
       );
 

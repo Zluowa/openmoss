@@ -1570,7 +1570,8 @@ export function GeneratedImagePreviewPane(props: {
               disabled={isViewTransitioning}
               onChange={handleViewChange}
             />
-            {coachmarkVisible ? (
+            {/* The hosted Canvas has its own toolbars; the tip would cover them. */}
+            {coachmarkVisible && !(view === "playground" && props.canvasContent != null) ? (
               <div className="absolute top-0 left-[calc(100%+12px)] z-50 w-64">
                 <aside
                   role="status"

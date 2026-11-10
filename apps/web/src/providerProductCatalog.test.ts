@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SUPPORTED_PROVIDER_KINDS } from "@synara/contracts";
+import { SUPPORTED_PROVIDER_KINDS } from "@moss/contracts";
 
 import {
   MOSS_ACTIVE_PROVIDER_KINDS,
@@ -11,9 +11,13 @@ import {
 } from "./providerProductCatalog";
 
 describe("Moss provider product catalog", () => {
-  it("launches with four default CLIs and keeps native-login CLIs opt-in", () => {
-    expect(MOSS_DEFAULT_PROVIDER_KINDS).toEqual(["codex", "claudeAgent", "opencode", "grok"]);
+  // Since b4f33f4bb (first-run defaults) only the bundled agents start enabled; the server
+  // turns on any other CLI it actually finds on the computer (initialProviderSettings).
+  it("launches with the two bundled CLIs and keeps every other CLI opt-in", () => {
+    expect(MOSS_DEFAULT_PROVIDER_KINDS).toEqual(["codex", "claudeAgent"]);
     expect(MOSS_OPTIONAL_PROVIDER_KINDS).toEqual([
+      "opencode",
+      "grok",
       "cursor",
       "gemini",
       "antigravity",

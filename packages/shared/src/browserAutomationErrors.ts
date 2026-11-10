@@ -5,7 +5,7 @@ import {
   BrowserTimeoutMs,
   type BrowserAutomationErrorInput,
   type BrowserMcpToolErrorEnvelope,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
 // Classify known fields without exposing parser issues, code or credential values.

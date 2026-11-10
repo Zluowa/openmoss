@@ -2,8 +2,8 @@
 // Purpose: Render a provider usage summary panel that can show both classic
 // rate-limit rows and archive-derived local usage lines in the same popover.
 
-import type { ProviderKind, ServerCodexResetCredits } from "@synara/contracts";
-import { providerUsageLabel } from "@synara/shared/providerUsage";
+import type { ProviderKind, ServerCodexResetCredits } from "@moss/contracts";
+import { providerUsageLabel } from "@moss/shared/providerUsage";
 
 import { ExternalLinkIcon, TriangleAlertIcon } from "~/lib/icons";
 import type { OpenUsageUsageLine } from "~/lib/openUsageRateLimits";

@@ -1,4 +1,4 @@
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 import type { ProviderModelOption } from "../../providerModelOptions";
 import { KIMI_CHANNEL_MODEL, KIMI_CHANNEL_MODEL_LABEL } from "../../lib/ccSwitchChannels";
 

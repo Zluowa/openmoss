@@ -25,7 +25,7 @@ import {
   useRef,
 } from "react";
 
-import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@synara/shared/desktopChrome";
+import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@moss/shared/desktopChrome";
 
 import { CentralIcon } from "~/lib/central-icons";
 import { type LucideIcon } from "~/lib/icons";
@@ -45,7 +45,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
  * breathing room below them rather than hugging the very top of the window.
  *
  * The pixel height is owned by `CHAT_SURFACE_HEADER_HEIGHT_PX` in
- * `@synara/shared/desktopChrome` (the single source of truth the Electron main
+ * `@moss/shared/desktopChrome` (the single source of truth the Electron main
  * process also reads to center the native traffic lights). Tailwind only emits CSS
  * for class names it can scan literally, so the class stays a literal here — but its
  * TYPE is derived from the shared number, so the build fails if the two ever drift.
@@ -323,7 +323,7 @@ export function SurfaceTabChip({
   );
   const labelContent = (
     <>
-      {trailingClose ? glyph : null}
+      {trailingClose && icon !== null ? glyph : null}
       {leading}
       <span className={trailingClose ? "min-w-0 flex-1 truncate-fade truncate-fade-4" : "truncate"}>
         {label}

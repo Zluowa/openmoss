@@ -1,4 +1,4 @@
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@moss/contracts";
 
 export function isAllowedGroupCoordinatorCreateTarget(input: {
   readonly targetProjectId: ProjectId;

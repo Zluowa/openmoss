@@ -33,7 +33,7 @@ import {
   type CaptureCheckpointInput,
   type CheckpointStoreShape,
 } from "../Services/CheckpointStore.ts";
-import { CheckpointRef } from "@synara/contracts";
+import { CheckpointRef } from "@moss/contracts";
 import { CHECKPOINT_REFS_PREFIX } from "../Utils.ts";
 
 const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;

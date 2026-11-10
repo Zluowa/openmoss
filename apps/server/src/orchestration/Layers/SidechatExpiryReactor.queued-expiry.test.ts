@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { CommandId, ProjectId, ThreadId } from "@synara/contracts";
-import { SIDECHAT_INACTIVITY_EXPIRY_MS } from "@synara/shared/sidechatExpiry";
+import { CommandId, ProjectId, ThreadId } from "@moss/contracts";
+import { SIDECHAT_INACTIVITY_EXPIRY_MS } from "@moss/shared/sidechatExpiry";
 import { Deferred, Effect, Layer, ManagedRuntime, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { expect, it } from "vitest";

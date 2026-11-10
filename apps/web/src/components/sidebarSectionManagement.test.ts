@@ -1,4 +1,4 @@
-import { SidebarSectionId } from "@synara/contracts";
+import { SidebarSectionId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { reorderSidebarSectionIds, sidebarSectionManagementCopy } from "./sidebarSectionManagement";

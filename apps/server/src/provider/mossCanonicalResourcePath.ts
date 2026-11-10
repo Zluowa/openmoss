@@ -1,7 +1,7 @@
 import * as nodePath from "node:path";
 
-import type { MossCanonicalResourceMutationPrepareInput } from "@synara/contracts";
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+import type { MossCanonicalResourceMutationPrepareInput } from "@moss/contracts";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 
 import { MossResourceImportError } from "./mossResourceImport.ts";
 import { slugifyResourceName } from "./mossCreateResource.ts";

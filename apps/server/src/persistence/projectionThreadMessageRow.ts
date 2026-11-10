@@ -5,10 +5,11 @@ import {
   NonNegativeInt,
   ProviderMentionReference,
   ProviderSkillReference,
+  ThreadId,
   TrimmedNonEmptyString,
   TurnDispatchMode,
   type OrchestrationMessage,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema, Struct } from "effect";
 import { joinMessageTextChunks } from "./messageTextChunks.ts";
 
@@ -33,6 +34,10 @@ export const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFie
     mentions: Schema.NullOr(Schema.fromJsonString(Schema.Array(ProviderMentionReference))),
     dispatchMode: Schema.NullOr(TurnDispatchMode),
     dispatchOrigin: Schema.NullOr(MessageDispatchOrigin),
+    // Rows written before migration 161 (and test fixtures) omit the column.
+    dispatchSourceThreadId: Schema.optional(Schema.NullOr(ThreadId)).pipe(
+      Schema.withDecodingDefault(() => null),
+    ),
     startsNewTurn: Schema.NullOr(Schema.Number),
     sequence: Schema.NullOr(NonNegativeInt),
   }),
@@ -71,6 +76,7 @@ export function projectionThreadMessageFromRow(
     ...(row.mentions !== null ? { mentions: row.mentions } : {}),
     ...(row.dispatchMode ? { dispatchMode: row.dispatchMode } : {}),
     ...(row.dispatchOrigin ? { dispatchOrigin: row.dispatchOrigin } : {}),
+    ...(row.dispatchSourceThreadId ? { dispatchSourceThreadId: row.dispatchSourceThreadId } : {}),
     ...(row.startsNewTurn !== null ? { startsNewTurn: row.startsNewTurn === 1 } : {}),
   };
 }
@@ -90,6 +96,7 @@ export function orchestrationMessageFromProjectionRow(
     ...(row.mentions !== null ? { mentions: row.mentions } : {}),
     ...(row.dispatchMode ? { dispatchMode: row.dispatchMode } : {}),
     ...(row.dispatchOrigin ? { dispatchOrigin: row.dispatchOrigin } : {}),
+    ...(row.dispatchSourceThreadId ? { dispatchSourceThreadId: row.dispatchSourceThreadId } : {}),
     ...(row.startsNewTurn !== null ? { startsNewTurn: row.startsNewTurn === 1 } : {}),
     turnId: row.turnId,
     streaming: row.isStreaming === 1,

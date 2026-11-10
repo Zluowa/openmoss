@@ -6,11 +6,13 @@
 import * as Sentry from "@sentry/react";
 import type { RootOptions } from "react-dom/client";
 import {
+  createSentryReportingGate,
   resolveMossSentryRuntimeConfig,
   scrubSentryEvent,
   sanitizeSentryText,
+  SENTRY_TRACE_PROPAGATION_TARGETS,
   toSentrySafeError,
-} from "@synara/shared/observability";
+} from "@moss/shared/observability";
 import { APP_VERSION } from "./branding";
 import { isElectron } from "./env";
 
@@ -25,11 +27,20 @@ const sentryConfig = resolveMossSentryRuntimeConfig({
   },
   defaultEnvironment: import.meta.env.PROD ? "production" : "development",
   defaultRelease: `moss-web@${APP_VERSION}`,
-  defaultTracesSampleRate: import.meta.env.PROD ? 0.1 : 0,
 });
+
+// The desktop app can say what the user chose right away. In a browser that's only
+// known once server settings load, so anything captured sooner waits for them.
+const reportingGate = createSentryReportingGate(
+  typeof window === "undefined" ? undefined : window.desktopBridge?.getErrorReportsEnabled?.(),
+);
 
 let initialized = false;
 let fetchInstrumentationInstalled = false;
+
+export function setWebErrorReportsEnabled(enabled: boolean): void {
+  reportingGate.setEnabled(enabled);
+}
 
 function scrubBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb | null {
   if (breadcrumb.category === "ui.input") return null;
@@ -44,7 +55,7 @@ function scrubBreadcrumb(breadcrumb: Sentry.Breadcrumb): Sentry.Breadcrumb | nul
   };
 }
 
-function safeFetchTarget(input: RequestInfo | URL): { pathname: string; host: string } {
+function safeFetchTarget(input: RequestInfo | URL): { operation: string; host: string } {
   try {
     const raw =
       typeof input === "string"
@@ -55,9 +66,16 @@ function safeFetchTarget(input: RequestInfo | URL): { pathname: string; host: st
             ? input.url
             : String(input);
     const parsed = new URL(raw, window.location.href);
-    return { pathname: parsed.pathname || "/", host: parsed.host.toLowerCase() };
+    const host = parsed.host.toLowerCase();
+    // Remote hosts and paths can name a company server or a private repository, and
+    // deeper local paths can name a file, so only the local route's first part is kept.
+    const operation =
+      parsed.origin === window.location.origin
+        ? `/${parsed.pathname.split("/").find(Boolean) ?? ""}`
+        : "remote";
+    return { operation, host };
   } catch {
-    return { pathname: "/unknown", host: "" };
+    return { operation: "unknown", host: "" };
   }
 }
 
@@ -73,7 +91,7 @@ function installSentryFetchInstrumentation(): void {
   })();
   fetchInstrumentationInstalled = true;
   const wrappedFetch: typeof fetch = async (input, init) => {
-    const { pathname, host } = safeFetchTarget(input);
+    const { operation, host } = safeFetchTarget(input);
     const method = String(
       init?.method ??
         (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET"),
@@ -84,7 +102,7 @@ function installSentryFetchInstrumentation(): void {
       if (observe && (response.status === 429 || response.status >= 500)) {
         captureSentryException(new Error("Moss direct fetch failed"), {
           errorSource: "renderer-fetch",
-          operation: pathname.slice(0, 120),
+          operation: operation.slice(0, 120),
           method,
           status: response.status,
         });
@@ -97,7 +115,7 @@ function installSentryFetchInstrumentation(): void {
       ) {
         captureSentryException(new Error("Moss direct fetch failed"), {
           errorSource: "renderer-fetch",
-          operation: pathname.slice(0, 120),
+          operation: operation.slice(0, 120),
           method,
           status: "network",
         });
@@ -117,7 +135,8 @@ function initializeSentry(): boolean {
   initialized = true;
   if (!sentryConfig.dsn) return false;
 
-  const integrations: Sentry.BrowserOptions["integrations"] = [Sentry.browserTracingIntegration()];
+  const integrations: Sentry.BrowserOptions["integrations"] =
+    sentryConfig.tracesSampleRate > 0 ? [Sentry.browserTracingIntegration()] : [];
   if (sentryConfig.replaysOnErrorSampleRate > 0) {
     integrations.push(Sentry.replayIntegration());
   }
@@ -128,6 +147,8 @@ function initializeSentry(): boolean {
     release: sentryConfig.release,
     sendDefaultPii: false,
     tracesSampleRate: sentryConfig.tracesSampleRate,
+    tracePropagationTargets: SENTRY_TRACE_PROPAGATION_TARGETS,
+    transport: reportingGate.wrapTransport(Sentry.makeFetchTransport),
     replaysSessionSampleRate: 0,
     replaysOnErrorSampleRate: sentryConfig.replaysOnErrorSampleRate,
     integrations,
@@ -151,7 +172,7 @@ export function captureSentryException(
   error: unknown,
   tags?: Readonly<Record<string, string | number | boolean>>,
 ): string | null {
-  if (!initializeSentry()) return null;
+  if (reportingGate.isClosed() || !initializeSentry()) return null;
   try {
     return Sentry.withScope((scope) => {
       for (const [key, value] of Object.entries(tags ?? {})) {
@@ -210,19 +231,27 @@ export function reportHandledWebError(
  * renderer entrypoints use the same Sentry boundary.
  */
 export function getSentryReactRootOptions(): RootOptions {
-  if (!initialized) return {};
-  const makeRootErrorHandler = () => {
+  if (!initialized || !sentryConfig.dsn) return {};
+  // These options replace React's own error reporting, which the renderer's logs
+  // depend on. Do what React would have done too, so a crash is still logged
+  // while reports are off.
+  const reportGlobalError = (error: unknown) => {
+    if (typeof globalThis.reportError === "function") globalThis.reportError(error);
+    else console.error(error);
+  };
+  const makeRootErrorHandler = (reactDefault: (error: unknown) => void) => {
     const sentryHandler = Sentry.reactErrorHandler();
     return (error: unknown, errorInfo: { componentStack?: string | undefined }) => {
       // React DOM's RootOptions makes componentStack optional, while the
       // Sentry React ErrorInfo type uses null for a missing stack.
       sentryHandler(error, { componentStack: errorInfo.componentStack ?? null });
+      reactDefault(error);
     };
   };
   return {
-    onCaughtError: makeRootErrorHandler(),
-    onUncaughtError: makeRootErrorHandler(),
-    onRecoverableError: makeRootErrorHandler(),
+    onCaughtError: makeRootErrorHandler((error) => console.error(error)),
+    onUncaughtError: makeRootErrorHandler(reportGlobalError),
+    onRecoverableError: makeRootErrorHandler(reportGlobalError),
   };
 }
 

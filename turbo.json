@@ -71,11 +71,22 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["MOSS_SENTRY_DSN"],
       "outputs": ["dist/**", "dist-electron/**"]
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": [
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "MOSS_DISABLE_SHELL_ENVIRONMENT_SYNC",
+        "MOSS_DISABLE_SHORTCUT_ICON_SYNC",
+        "MOSS_GOOGLE_MAPS_API_KEY",
+        "MOSS_AMAP_JS_KEY",
+        "MOSS_AMAP_SECURITY_CODE",
+        "MOSS_PLUGIN_CATALOG_URL"
+      ]
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],

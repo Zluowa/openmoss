@@ -16,17 +16,20 @@ interface PtySmokeOptions {
   readonly terminal: PtyTerminal;
   readonly expectedOutput: string;
   readonly timeoutMs: number;
+  readonly inputHandshake?: { readonly readyOutput: string; readonly send: () => void };
 }
 
 export function waitForSuccessfulPtyExit({
   terminal,
   expectedOutput,
   timeoutMs,
+  inputHandshake,
 }: PtySmokeOptions): Promise<string> {
   return new Promise((resolve, reject) => {
     let output = "";
     let exitCode: number | null = null;
     let settled = false;
+    let inputSent = false;
     let dataSubscription: Disposable | null = null;
     let exitSubscription: Disposable | null = null;
 
@@ -54,7 +57,7 @@ export function waitForSuccessfulPtyExit({
         fail(`PTY process exited with code ${exitCode}.`);
         return;
       }
-      if (!output.includes(expectedOutput)) return;
+      if ((inputHandshake && !inputSent) || !output.includes(expectedOutput)) return;
       settle(() => resolve(output));
     };
 
@@ -65,14 +68,36 @@ export function waitForSuccessfulPtyExit({
         } catch {
           // The timeout remains the actionable failure when cleanup cannot kill the PTY.
         }
-        fail("Timed out waiting for node-pty output.");
+        fail(
+          inputHandshake && !inputSent
+            ? "Timed out waiting for the Windows PTY input-ready marker."
+            : "Timed out waiting for node-pty output.",
+        );
         return;
       }
-      fail(`Expected PTY output "${expectedOutput}" was not observed.`);
+      fail(
+        inputHandshake && !inputSent
+          ? "The PTY child exited without completing its input-ready handshake."
+          : `Expected PTY output "${expectedOutput}" was not observed.`,
+      );
     }, timeoutMs);
 
     dataSubscription = terminal.onData((chunk) => {
       output += chunk;
+      if (
+        inputHandshake &&
+        !inputSent &&
+        exitCode === null &&
+        output.includes(inputHandshake.readyOutput)
+      ) {
+        inputSent = true;
+        try {
+          inputHandshake.send();
+        } catch (error) {
+          fail(`Failed to write the Windows PTY probe: ${String(error)}`);
+          return;
+        }
+      }
       completeWhenReady();
     });
     exitSubscription = terminal.onExit((event) => {

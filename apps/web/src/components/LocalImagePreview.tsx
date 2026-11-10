@@ -13,6 +13,7 @@ import { downloadUrlAsBlob } from "~/lib/browserDownload";
 import { DownloadIcon, Loader2Icon, TriangleAlertIcon } from "~/lib/icons";
 import { buildLocalImageUrl, localImageFileName } from "~/lib/localImageUrls";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import { toastManager } from "./ui/toast";
 
 export type LocalImagePreviewStatus = "loading" | "ready" | "error";
@@ -148,15 +149,16 @@ export function LocalImageErrorCard(props: {
   downloadAriaLabel?: string;
   onDownloadClick?: ((event: MouseEvent<HTMLElement>) => void) | undefined;
 }) {
+  const { t } = useTranslation();
   return (
     <span className={cn("local-image-error", props.className)}>
       <span className="local-image-error__icon" aria-hidden="true">
         <TriangleAlertIcon className="size-4" />
       </span>
       <span className="local-image-error__body">
-        <span className="local-image-error__title">Couldn’t open this image</span>
+        <span className="local-image-error__title">{t("chat.localImage.unavailableTitle")}</span>
         <span className="local-image-error__subtitle">
-          The file may have moved or be unavailable.
+          {t("chat.localImage.unavailableDetail")}
         </span>
       </span>
       <a
@@ -164,10 +166,10 @@ export function LocalImageErrorCard(props: {
         download={props.downloadName}
         onClick={props.onDownloadClick}
         className="local-image-error__action"
-        aria-label={props.downloadAriaLabel ?? "Download image"}
+        aria-label={props.downloadAriaLabel ?? t("chat.localImage.downloadLabel")}
       >
         <DownloadIcon className="size-4" aria-hidden="true" />
-        <span>Download</span>
+        <span>{t("chat.localImage.download")}</span>
       </a>
     </span>
   );

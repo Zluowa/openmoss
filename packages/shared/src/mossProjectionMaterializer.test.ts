@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { Schema } from "effect";
 
-import { MossProjectionManifest } from "@synara/contracts";
+import { MossProjectionManifest } from "@moss/contracts";
 
 import {
   MOSS_ENGINE_NATIVE_TARGETS,

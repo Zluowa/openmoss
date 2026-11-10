@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ProviderInstanceId } from "@synara/contracts";
-import type { ResolvedProviderInstance } from "@synara/shared/providerInstances";
+import { ProviderInstanceId } from "@moss/contracts";
+import type { ResolvedProviderInstance } from "@moss/shared/providerInstances";
 import { managedCredentialRefreshAuthority } from "./managedCredentialFreshness";
 
 const cn = "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";

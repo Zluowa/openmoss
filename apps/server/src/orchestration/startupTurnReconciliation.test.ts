@@ -1,8 +1,9 @@
 import { Effect, Option } from "effect";
 import { OrchestrationEngineService } from "./Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
+import { OrchestrationEventDeliveryRepository } from "../persistence/Services/OrchestrationEventDeliveries.ts";
 import { ProjectionPendingInteractionRepository } from "../persistence/Services/ProjectionPendingInteractions.ts";
-import { ApprovalRequestId, EventId, MessageId, ThreadId, TurnId } from "@synara/contracts";
+import { ApprovalRequestId, EventId, MessageId, ThreadId, TurnId } from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -414,6 +415,40 @@ describe("planRestartTurnReconciliation", () => {
     });
   });
 
+  it("keeps a delivery block on the interrupted session so the paused chat says why", () => {
+    const detail = "Thread is blocked by an earlier provider failure: claim expired";
+    const commands = planRestartTurnReconciliation({
+      threads: [
+        makeThread("blocked", {
+          session: makeSession("blocked", {
+            status: "running",
+            activeTurnId: TurnId.makeUnsafe("blocked-turn"),
+          }),
+          latestTurn: { state: "running" },
+        }),
+        makeThread("clean", {
+          session: makeSession("clean", {
+            status: "running",
+            activeTurnId: TurnId.makeUnsafe("clean-turn"),
+          }),
+          latestTurn: { state: "running" },
+        }),
+      ],
+      deliveryBlockDetails: new Map([["blocked", detail]]),
+      now: NOW,
+    });
+    expect(commands).toEqual([
+      expect.objectContaining({
+        threadId: "blocked",
+        session: expect.objectContaining({ status: "interrupted", lastError: detail }),
+      }),
+      expect.objectContaining({
+        threadId: "clean",
+        session: expect.objectContaining({ status: "interrupted", lastError: null }),
+      }),
+    ]);
+  });
+
   it("finalizes assistant messages the orphaned turn left streaming", () => {
     const threads = [
       makeThread("stuck-streaming", {
@@ -726,6 +761,51 @@ describe("planRestartTurnReconciliation", () => {
   });
 });
 
+describe("reconcileRestartStuckTurns delivery blocks", () => {
+  it.each([
+    ["reads the blocker", Effect.succeed(Option.some({ lastError: "claim expired" }))],
+    ["survives a failed read", Effect.fail(new Error("database busy"))],
+  ])("%s while interrupting a stuck turn", async (name, blocker) => {
+    const thread = makeThread("stuck-sent", {
+      session: makeSession("stuck-sent", {
+        status: "running",
+        activeTurnId: TurnId.makeUnsafe("stuck-sent-turn"),
+      }),
+      latestTurn: { state: "running" },
+    });
+    const dispatch = vi.fn(() => Effect.void);
+    await Effect.runPromise(
+      reconcileRestartStuckTurns.pipe(
+        Effect.provideService(OrchestrationEngineService, {
+          getReadModel: () => Effect.succeed({ threads: [thread] }),
+          dispatch,
+        } as never),
+        Effect.provideService(ProjectionSnapshotQuery, {
+          getThreadDetailById: () => Effect.succeed(Option.some(thread)),
+        } as never),
+        Effect.provideService(ProjectionPendingInteractionRepository, {
+          listUnsettled: () => Effect.succeed([]),
+        } as never),
+        Effect.provideService(OrchestrationEventDeliveryRepository, {
+          firstBlockingDeliveryForThread: () => blocker,
+        } as never),
+      ),
+    );
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        type: "thread.session.set",
+        session: expect.objectContaining({
+          status: "interrupted",
+          lastError:
+            name === "reads the blocker"
+              ? "Thread is blocked by an earlier provider failure: claim expired"
+              : null,
+        }),
+      }),
+    );
+  });
+});
+
 describe("reconcileRestartStuckTurns selection", () => {
   it.each(["uncertain"] as const)(
     "finds %s callbacks on completed threads even with false summary flags",
@@ -761,6 +841,9 @@ describe("reconcileRestartStuckTurns selection", () => {
           Effect.provideService(ProjectionSnapshotQuery, { getThreadDetailById } as never),
           Effect.provideService(ProjectionPendingInteractionRepository, {
             listUnsettled: () => Effect.succeed([row]),
+          } as never),
+          Effect.provideService(OrchestrationEventDeliveryRepository, {
+            firstBlockingDeliveryForThread: () => Effect.succeed(Option.none()),
           } as never),
         ),
       );

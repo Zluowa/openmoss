@@ -3,7 +3,7 @@ import {
   isWorkspaceRelativePathSafe,
   localPathsEqual,
   workspaceRelativePathOf,
-} from "@synara/shared/path";
+} from "@moss/shared/path";
 
 import { resolvePathLinkTarget } from "./terminal-links";
 
@@ -36,6 +36,10 @@ function safeDecode(value: string): string {
   }
 }
 
+function normalizeUrlStyleWindowsPath(path: string): string {
+  return /^\/[A-Za-z]:[\\/]/.test(path) ? path.slice(1) : path;
+}
+
 function stripSearchAndHash(value: string): { path: string; hash: string } {
   const hashIndex = value.indexOf("#");
   const pathWithSearch = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
@@ -61,7 +65,7 @@ function parseFileUrlHref(
     if (rawPath.length === 0) return null;
 
     // Browser URL parser encodes "C:/foo" as "/C:/foo" for file URLs.
-    const normalizedPath = /^\/[A-Za-z]:[\\/]/.test(rawPath) ? rawPath.slice(1) : rawPath;
+    const normalizedPath = normalizeUrlStyleWindowsPath(rawPath);
 
     return {
       path: options?.decodePath === false ? normalizedPath : safeDecode(normalizedPath),
@@ -283,7 +287,11 @@ export function resolveMarkdownFileLinkTarget(
     ? parseFileUrlHref(rawHref)
     : null;
   const source = fileUrlTarget ?? stripSearchAndHash(rawHref);
-  const decodedPath = fileUrlTarget ? source.path.trim() : safeDecode(source.path.trim());
+  // Agents also emit URL-style /C:/ paths in ordinary Markdown links, without
+  // the file: scheme. Normalize both forms before preview/workspace routing.
+  const decodedPath = normalizeUrlStyleWindowsPath(
+    fileUrlTarget ? source.path.trim() : safeDecode(source.path.trim()),
+  );
   const decodedHash = safeDecode(source.hash.trim());
 
   if (decodedPath.length === 0) return null;
@@ -321,4 +329,20 @@ export function resolveMarkdownFileLinkTarget(
 
   if (!cwd) return null;
   return resolvePathLinkTarget(pathWithPosition, cwd);
+}
+
+/** A stand-in folder for a shared conversation, whose real folder the guest never learns. */
+const SHARED_VIEWER_ROOT = "/moss-shared-thread";
+
+/**
+ * The file a Markdown link names, for a guest reading a shared conversation. The guest has no
+ * folder to resolve against, so a relative link stays relative, as the reply wrote it: the share
+ * resolves it against the thread's own folder. Null for anything that is not a file link.
+ */
+export function resolveSharedViewerFileLinkTarget(href: string | undefined): string | null {
+  const resolved = resolveMarkdownFileLinkTarget(href, SHARED_VIEWER_ROOT);
+  if (resolved === null) return null;
+  return resolved.startsWith(`${SHARED_VIEWER_ROOT}/`)
+    ? resolved.slice(SHARED_VIEWER_ROOT.length + 1)
+    : resolved;
 }

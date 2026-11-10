@@ -7,7 +7,7 @@ import {
   COMPUTER_HISTORY_RETENTION_DAYS,
   type ComputerHistoryObservation,
   type ComputerHistorySemanticSummary,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const RECORD_VERSION = 2;
 const RECORD_ALGORITHM = "aes-256-gcm";

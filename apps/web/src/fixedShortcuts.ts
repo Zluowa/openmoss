@@ -5,7 +5,7 @@
 //   entry, so what the editor allows and what actually fires cannot drift apart.
 // Layer: Keyboard shortcuts
 
-import type { KeybindingShortcut, KeybindingWhenNode } from "@synara/contracts";
+import type { KeybindingShortcut, KeybindingWhenNode } from "@moss/contracts";
 
 import {
   evaluateWhenNode,

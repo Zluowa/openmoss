@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId } from "@synara/contracts";
+import { ProjectId, ThreadId } from "@moss/contracts";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { QUICK_CHAT_DEFAULT_SIZE, resolveQuickChatWindowPosition } from "./QuickChat.logic";

@@ -9,8 +9,8 @@ import type {
   ProviderMentionReference,
   ProviderPluginDescriptor,
   ProviderSkillDescriptor,
-} from "@synara/contracts";
-import { getAgentMentionAutocompleteAliases } from "@synara/contracts";
+} from "@moss/contracts";
+import { getAgentMentionAutocompleteAliases } from "@moss/contracts";
 import {
   buildCommandSearchFields,
   buildPluginSearchFields,
@@ -18,6 +18,7 @@ import {
   isInstalledProviderPlugin,
   normalizeProviderDiscoveryText,
   rankProviderDiscoveryItems,
+  type ProviderDiscoverySearchField,
 } from "~/lib/providerDiscovery";
 import {
   LOCAL_FOLDER_MENTION_NAME,
@@ -26,21 +27,40 @@ import {
 import { basenameOfPath } from "../file-icons";
 import type { ComposerTrigger } from "../composer-logic";
 import {
-  filterComposerSlashCommands,
+  composerSlashCommandSearchFields,
   getAvailableComposerSlashCommands,
+  getComposerSlashCommandDefinition,
   getProviderNativeSlashCommandSearchTerms,
   shouldHideProviderNativeCommandFromComposerMenu,
 } from "../composerSlashCommands";
-import { mcpConnectorMentionPath } from "@synara/shared/mcpConnectors";
-import { threadMentionPathForThreadId } from "@synara/shared/threadMentions";
+import { mcpConnectorMentionPath } from "@moss/shared/mcpConnectors";
+import { MOSS_DEVS_REPORTS_ENABLED } from "@moss/shared/devsReport";
+import { threadMentionPathForThreadId } from "@moss/shared/threadMentions";
 import { providerPluginSourceLabel } from "../lib/providerDiscovery";
-import { isGroupContainerKind } from "@synara/shared/projectContainers";
+import { isGroupContainerKind } from "@moss/shared/projectContainers";
 
 import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu";
+import { orderSlashCommandItemsByGroup } from "../components/chat/composerCommandGroups";
 import type { ProviderModelOption } from "../providerModelOptions";
 import { getClaudeArtifactCommandNotice } from "../lib/claudeArtifactCommands";
 import { compareProvidersByOrder } from "../providerOrdering";
 import type { ComposerThreadMentionSource, Project } from "../types";
+
+const DEVS_REPORT_MENTION = "devs";
+
+/** The `@devs` row: shown while the mention query is empty or still spells "devs". */
+export function devsReportMenuItems(query: string): ComposerCommandItem[] {
+  const normalized = normalizeProviderDiscoveryText(query).trim();
+  if (!MOSS_DEVS_REPORTS_ENABLED || !DEVS_REPORT_MENTION.startsWith(normalized)) return [];
+  return [
+    {
+      id: "devs-report",
+      type: "devs-report",
+      label: `@${DEVS_REPORT_MENTION}`,
+      description: "Report a problem to the Moss developers",
+    },
+  ];
+}
 
 type ComposerPluginSuggestion = {
   plugin: ProviderPluginDescriptor;
@@ -57,6 +77,11 @@ export type SearchableModelOption = {
   searchName: string;
   searchProvider: string;
   searchUpstreamProvider: string;
+};
+
+type SlashCommandCandidate = {
+  item: ComposerCommandItem;
+  fields: readonly ProviderDiscoverySearchField[];
 };
 
 const THREAD_MENTION_SUGGESTION_LIMIT = 20;
@@ -309,6 +334,8 @@ export function useComposerCommandMenuItems(input: {
   };
   /** Connected connectors this provider's sessions receive. */
   connectors?: readonly McpConnector[];
+  /** Chat composers offer `@devs` (a problem report); task composers do not. */
+  offerDevsReport?: boolean;
 }): ComposerCommandItem[] {
   const {
     composerTrigger,
@@ -329,6 +356,7 @@ export function useComposerCommandMenuItems(input: {
     dynamicAgents,
     threadMentionSources,
     connectors,
+    offerDevsReport,
   } = input;
 
   if (!composerTrigger) return [];
@@ -421,6 +449,7 @@ export function useComposerCommandMenuItems(input: {
     // Keep mention suggestions ordered by primary intent: connectors, plugins,
     // and chats first, then local context, then subagent delegation targets.
     return [
+      ...(offerDevsReport ? devsReportMenuItems(composerTrigger.query) : []),
       ...connectorItems,
       ...pluginItems,
       ...threadItems,
@@ -446,17 +475,21 @@ export function useComposerCommandMenuItems(input: {
       ? availableCommands.filter((command) => surfaceAppSlashCommands.has(command))
       : availableCommands;
     const visibleAppCommandSet = new Set(visibleAppCommands);
-    const builtInItems = filterComposerSlashCommands(composerTrigger.query, visibleAppCommands).map(
-      (definition) => ({
-        id: `slash:${definition.command}`,
-        type: "slash-command" as const,
-        command: definition.command,
-        label: definition.label,
-        description: definition.description,
-        source: definition.source,
-      }),
-    );
-    const providerCommandItems = providerNativeCommands
+    const appCommandCandidates: SlashCommandCandidate[] = visibleAppCommands.map((command) => {
+      const definition = getComposerSlashCommandDefinition(command);
+      return {
+        item: {
+          id: `slash:${definition.command}`,
+          type: "slash-command" as const,
+          command: definition.command,
+          label: definition.label,
+          description: definition.description,
+          source: definition.source,
+        },
+        fields: composerSlashCommandSearchFields(command),
+      };
+    });
+    const providerCommandCandidates: SlashCommandCandidate[] = providerNativeCommands
       .filter(
         (command) =>
           !shouldHideProviderNativeCommandFromComposerMenu(provider, command.name, {
@@ -464,44 +497,47 @@ export function useComposerCommandMenuItems(input: {
           }),
       )
       .map((command) => ({
-        command,
-        aliasFields: getProviderNativeSlashCommandSearchTerms(provider, command.name).map(
-          (term) => ({
-            value: term,
+        item: {
+          id: `provider-command:${provider}:${command.name}`,
+          type: "provider-native-command" as const,
+          provider,
+          command: command.name,
+          label: `/${command.name}`,
+          description: command.description ?? `Run ${provider} native command`,
+          notice: getClaudeArtifactCommandNotice({
+            provider,
+            command: command.name,
+            artifacts: providerArtifacts,
           }),
-        ),
+        },
+        fields: [
+          ...getProviderNativeSlashCommandSearchTerms(provider, command.name).map((term) => ({
+            value: term,
+          })),
+          ...buildCommandSearchFields(command),
+        ],
       }));
-    const rankedProviderCommandItems = rankProviderDiscoveryItems(
-      providerCommandItems,
-      query,
-      ({ command, aliasFields }) => [...aliasFields, ...buildCommandSearchFields(command)],
-    ).map(({ command }) => ({
-      id: `provider-command:${provider}:${command.name}`,
-      type: "provider-native-command" as const,
-      provider,
-      command: command.name,
-      label: `/${command.name}`,
-      description: command.description ?? `Run ${provider} native command`,
-      notice: getClaudeArtifactCommandNotice({
-        provider,
-        command: command.name,
-        artifacts: providerArtifacts,
-      }),
-    }));
     // `/` is the universal picker surface; provider dispatch can adapt the
     // visible slash token to backend-specific skill syntax when needed.
-    const skillItems: ComposerCommandItem[] = rankProviderDiscoveryItems(
-      providerSkills,
-      query,
-      buildSkillSearchFields,
-    ).map((skill) => ({
-      id: `skill:${skill.path}`,
-      type: "skill" as const,
-      skill,
-      label: skill.interface?.displayName ?? skill.name,
-      description: skill.interface?.shortDescription ?? skill.description ?? skill.path,
+    const skillCandidates: SlashCommandCandidate[] = providerSkills.map((skill) => ({
+      item: {
+        id: `skill:${skill.path}`,
+        type: "skill" as const,
+        skill,
+        label: skill.interface?.displayName ?? skill.name,
+        description: skill.interface?.shortDescription ?? skill.description ?? skill.path,
+      },
+      fields: buildSkillSearchFields(skill),
     }));
-    return [...builtInItems, ...rankedProviderCommandItems, ...skillItems];
+    // Every source is scored on one scale and ranked as one list, so the best match leads the
+    // menu whichever source it comes from. Sections then follow their best row.
+    return orderSlashCommandItemsByGroup(
+      rankProviderDiscoveryItems(
+        [...appCommandCandidates, ...providerCommandCandidates, ...skillCandidates],
+        query,
+        (candidate) => candidate.fields,
+      ).map((candidate) => candidate.item),
+    );
   }
 
   if (composerTrigger.kind === "skill") {

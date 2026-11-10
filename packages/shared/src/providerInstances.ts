@@ -12,11 +12,11 @@ import type {
   ProviderKind,
   ProviderStartOptions,
   ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   hasConfiguredLegacyProviderSettings,
   ProviderKind as ProviderKindSchema,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Schema } from "effect";
 
 export const BUILT_IN_PROVIDER_KINDS = [
@@ -46,6 +46,11 @@ export interface ResolvedProviderInstance {
   readonly config: Record<string, unknown>;
   readonly environment: Readonly<Record<string, string>>;
   readonly raw: ProviderInstanceConfig;
+  /** Derived from the provider's server settings, never from this account's environment. */
+  readonly sharedRuntime?: {
+    readonly binaryPath: string;
+    readonly conflict: boolean;
+  };
 }
 
 export interface UnsupportedProviderInstance {
@@ -509,11 +514,94 @@ function displayNameForInstance(
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function isMossOwnedRuntimeInstance(instanceId: string, raw: ProviderInstanceConfig): boolean {
+  const config = instanceConfigRecord(raw.config);
+  return (
+    (raw.driver === "codex" &&
+      ((instanceId === "codex_moss" && config.managed === true) ||
+        (instanceId === "codex_byok" && config.byok === true && config.mossByok === true))) ||
+    (raw.driver === "claudeAgent" && instanceId === "claude_moss" && config.managed === true)
+  );
+}
+
+/**
+ * Older settings allow per-account executable paths. Resolve that legacy input
+ * once per provider without rewriting it: accounts may select credentials, not
+ * different programs that could concurrently write the same native state.
+ */
+function sharedAgentRuntimePreference(
+  driver: "codex" | "claudeAgent",
+  map: ProviderInstanceConfigMap,
+): NonNullable<ResolvedProviderInstance["sharedRuntime"]> {
+  const candidates = new Set<string>();
+  for (const [instanceId, raw] of Object.entries(map)) {
+    if (
+      raw.driver !== driver ||
+      isUnresolvedAutomationInstanceId(instanceId) ||
+      isMossOwnedRuntimeInstance(instanceId, raw)
+    )
+      continue;
+    const config = instanceConfigRecord(raw.config);
+    if (instanceId !== driver && (raw.enabled === false || config.enabled === false)) continue;
+    const binaryPath = normalizeBinaryPathOverride(driver, config.binaryPath);
+    if (binaryPath) candidates.add(binaryPath);
+  }
+  return {
+    binaryPath: candidates.size === 1 ? [...candidates][0]! : "",
+    conflict: candidates.size > 1,
+  };
+}
+
+export function providerRuntimeConfigurationIssue(
+  instance: ResolvedProviderInstance,
+): string | undefined {
+  if (!instance.sharedRuntime?.conflict) return undefined;
+  return instance.driver === "codex"
+    ? "Choose one Codex program in Settings before starting this account."
+    : "Choose one Claude program in Settings before starting this account.";
+}
+
+/** Also used by health/maintenance so they target the program chat actually runs. */
+export function providerRuntimeBinaryPath(instance: ResolvedProviderInstance): string | undefined {
+  const issue = providerRuntimeConfigurationIssue(instance);
+  if (issue) throw new Error(issue);
+  if (instance.sharedRuntime) return instance.sharedRuntime.binaryPath || undefined;
+  // Keep synthetic/unresolved managed records fail-closed; only derivation from
+  // the complete server settings can attach the shared runtime preference.
+  if (isMossOwnedRuntimeInstance(String(instance.instanceId), instance.raw)) return undefined;
+  return normalizeBinaryPathOverride(instance.driver, instance.config.binaryPath) || undefined;
+}
+
+/** Apply after request/persisted-option merging at the server routing boundary. */
+export function withServerSelectedAgentProgram(
+  instance: ResolvedProviderInstance,
+  options: ProviderStartOptions | undefined,
+): ProviderStartOptions | undefined {
+  const driver = instance.driver;
+  if (driver !== "codex" && driver !== "claudeAgent") return options;
+  const selectedBinaryPath = providerRuntimeBinaryPath(instance);
+  if (!selectedBinaryPath && !options?.[driver]?.binaryPath) return options;
+  const { binaryPath: _previousProgram, ...accountOptions } = options?.[driver] ?? {};
+  return {
+    ...options,
+    [driver]: {
+      ...accountOptions,
+      // Absence selects the shared resolver's PATH/bundled precedence. Erase
+      // an old/client path while preserving empty-option and history semantics.
+      ...(selectedBinaryPath ? { binaryPath: selectedBinaryPath } : {}),
+    },
+  };
+}
+
 export function deriveProviderInstances(
   settings: ServerSettings,
   options: ProviderInstanceDerivationOptions = { includeUnconfiguredDefaults: true },
 ): ReadonlyArray<ResolvedProviderInstance> {
   const map = deriveProviderInstanceConfigMap(settings, options);
+  const sharedRuntimes = {
+    codex: sharedAgentRuntimePreference("codex", map),
+    claudeAgent: sharedAgentRuntimePreference("claudeAgent", map),
+  };
   const resolved: ResolvedProviderInstance[] = [];
   for (const [instanceId, raw] of Object.entries(map)) {
     if (isUnresolvedAutomationInstanceId(instanceId)) {
@@ -535,6 +623,9 @@ export function deriveProviderInstances(
       config,
       environment: materializeProviderInstanceEnvironment(raw),
       raw,
+      ...(raw.driver === "codex" || raw.driver === "claudeAgent"
+        ? { sharedRuntime: sharedRuntimes[raw.driver] }
+        : {}),
     });
   }
   return resolved;
@@ -614,22 +705,7 @@ export function providerStartOptionsFromInstance(
   instance: ResolvedProviderInstance,
 ): ProviderStartOptions | undefined {
   const config = instance.config;
-  // Moss-owned managed instances launch through the managed runtime, never a
-  // user-supplied binary override (see MossManagedProvider).
-  const isMossOwnedCodexInstance =
-    instance.driver === "codex" &&
-    ((String(instance.instanceId) === "codex_moss" && config.managed === true) ||
-      (String(instance.instanceId) === "codex_byok" &&
-        config.byok === true &&
-        config.mossByok === true));
-  const isMossOwnedClaudeInstance =
-    instance.driver === "claudeAgent" &&
-    String(instance.instanceId) === "claude_moss" &&
-    config.managed === true;
-  const binaryPath =
-    isMossOwnedCodexInstance || isMossOwnedClaudeInstance
-      ? undefined
-      : normalizeBinaryPathOverride(instance.driver, config.binaryPath);
+  const binaryPath = providerRuntimeBinaryPath(instance);
   const profileDir = trimString(config.profileDir);
   const profileEnvironment = providerProfileDirectoryEnvironment(instance.driver, profileDir);
   const environment = providerEnvironmentOption(

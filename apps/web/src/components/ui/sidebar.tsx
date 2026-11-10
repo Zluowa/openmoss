@@ -62,6 +62,8 @@ type SidebarResizableOptions = {
   maxWidth?: number;
   minWidth?: number;
   onResize?: (width: number) => void;
+  /** Double-clicking the resize handle: return the width to reset to (or null to keep). */
+  resetWidth?: (context: { sidebarRoot: HTMLElement; wrapper: HTMLElement }) => number | null;
   shouldAcceptWidth?: (context: {
     currentWidth: number;
     nextWidth: number;
@@ -77,6 +79,7 @@ type SidebarResolvedResizableOptions = {
   maxWidth: number;
   minWidth: number;
   onResize?: (width: number) => void;
+  resetWidth?: (context: { sidebarRoot: HTMLElement; wrapper: HTMLElement }) => number | null;
   shouldAcceptWidth?: (context: {
     currentWidth: number;
     nextWidth: number;
@@ -222,6 +225,7 @@ function resolveSidebarResizable(
     minWidth: options.minWidth ?? SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH,
     storageKey: options.storageKey ?? null,
     ...(options.onResize ? { onResize: options.onResize } : {}),
+    ...(options.resetWidth ? { resetWidth: options.resetWidth } : {}),
     ...(options.shouldAcceptWidth ? { shouldAcceptWidth: options.shouldAcceptWidth } : {}),
   };
 }
@@ -474,16 +478,24 @@ function SidebarRail({
   placement: placementProp,
   className,
   onClick,
+  onDoubleClick,
   onPointerCancel,
   onPointerDown,
   onPointerMove,
   onPointerUp,
   ...props
 }: React.ComponentProps<"button"> & {
-  /** `content-seam` sits on the chat column edge above the card; `sidebar-shell` stays on the sidebar container. */
-  placement?: "sidebar-shell" | "content-seam";
+  /**
+   * `content-seam` sits on the chat column edge above the card; `sidebar-shell` stays on the
+   * sidebar container; `dock-seam` is the side panel's divider beside the chat: a thin line
+   * that lights up on hover, a ↔ cursor across both sides of the seam, and a double-click
+   * that resets the width.
+   */
+  placement?: "sidebar-shell" | "content-seam" | "dock-seam";
 }) {
   const placement = placementProp ?? "sidebar-shell";
+  const isDockSeam = placement === "dock-seam";
+  const [resizing, setResizing] = React.useState(false);
   const { open, toggleSidebar } = useSidebar();
   const sidebarInstance = React.useContext(SidebarInstanceContext);
   const side = sidebarInstance?.side ?? "left";
@@ -526,6 +538,7 @@ function SidebarRail({
       }
       resolvedResizable?.onResize?.(resizeState.width);
       resizeStateRef.current = null;
+      setResizing(false);
       if (resizeState.rail.hasPointerCapture(pointerId)) {
         resizeState.rail.releasePointerCapture(pointerId);
       }
@@ -587,6 +600,7 @@ function SidebarRail({
       event.currentTarget.setPointerCapture(event.pointerId);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
+      setResizing(true);
     },
     [onPointerDown, open, resolvedResizable, sidebarInstance?.side],
   );
@@ -664,6 +678,23 @@ function SidebarRail({
     endResizeInteraction(event);
   };
 
+  // Double-click puts the width back (Claude resets a divider the same way).
+  const handleDoubleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    onDoubleClick?.(event);
+    if (event.defaultPrevented || !resolvedResizable?.resetWidth || !open) return;
+    const wrapper = event.currentTarget.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
+    const sidebarRoot = event.currentTarget.closest<HTMLElement>("[data-slot='sidebar']");
+    if (!wrapper || !sidebarRoot) return;
+    const target = resolvedResizable.resetWidth({ sidebarRoot, wrapper });
+    if (target === null) return;
+    const width = clampSidebarWidth(target, resolvedResizable);
+    wrapper.style.setProperty("--sidebar-width", `${width}px`);
+    if (resolvedResizable.storageKey) {
+      setLocalStorageItem(resolvedResizable.storageKey, width, Schema.Finite);
+    }
+    resolvedResizable.onResize?.(width);
+  };
+
   const handleClick = (event: React.MouseEvent<HTMLButtonElement>) => {
     onClick?.(event);
     if (event.defaultPrevented) return;
@@ -711,34 +742,49 @@ function SidebarRail({
     <button
       aria-label={railLabel}
       className={cn(
-        isContentSeam
+        isDockSeam
           ? [
-              /* Resize hit-area on the chat card seam. The visible divider is the card's
+              /* The side panel's divider, laid out as Claude's: the hit area is the seam plus
+                 a few pixels into the panel (whose page view leaves that strip free; the chat
+                 side is the chat's own scroll area), so the ↔ cursor shows right on the line.
+                 The line is drawn on the seam: a hairline that turns into a 2 px accent line
+                 on hover (after a short delay) and stays lit while dragging. */
+              "absolute inset-y-0 -left-px z-40 hidden w-[7px] sm:flex",
+              canResize ? "cursor-col-resize" : "cursor-pointer",
+              "before:pointer-events-none before:absolute before:inset-y-0 before:left-px before:w-px before:bg-[var(--color-border-light,var(--border))]",
+              "after:pointer-events-none after:absolute after:inset-y-0 after:left-0 after:w-[2px] after:bg-[var(--color-text-accent)] after:opacity-0 after:transition-opacity after:duration-200 after:ease-out",
+              "hover:after:opacity-100 hover:after:delay-100 data-[resizing=true]:after:opacity-100 data-[resizing=true]:after:delay-0",
+            ]
+          : isContentSeam
+            ? [
+                /* Resize hit-area on the chat card seam. The visible divider is the card's
                  border-inline edge (follows the rounded corner); hovering this rail
                  intensifies that border via :has() in index.css — no overlay line here.
                  This rail lives OUTSIDE <Sidebar>, so `in-data-[side]` cursor variants
                  never match (no [data-side] ancestor). Set the cursor directly:
                  `col-resize` (the ↔ handle) when resizing is available — matching the
                  body cursor used during the drag — else `pointer` for the toggle. */
-              "absolute inset-y-0 z-[25] hidden w-4 sm:flex",
-              canResize ? "cursor-col-resize" : "cursor-pointer",
-              side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2",
-            ]
-          : [
-              /* Legacy: rail anchored to the sidebar shell (right dock, etc.). */
-              "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] after:-translate-x-1/2 after:bg-transparent after:transition-colors hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
-              "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
-              "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
-              "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full",
-              "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
-              "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
-            ],
+                "absolute inset-y-0 z-[25] hidden w-4 sm:flex",
+                canResize ? "cursor-col-resize" : "cursor-pointer",
+                side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2",
+              ]
+            : [
+                /* Legacy: rail anchored to the sidebar shell (right dock, etc.). */
+                "-translate-x-1/2 group-data-[side=left]:-right-4 absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] after:-translate-x-1/2 after:bg-transparent after:transition-colors hover:after:bg-sidebar-border group-data-[side=right]:left-0 sm:flex [[data-collapsible=offcanvas][data-state=collapsed]_&]:pointer-events-none",
+                "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
+                "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
+                "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full",
+                "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
+                "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
+              ],
         className,
       )}
       data-sidebar="rail"
       data-placement={placement}
+      data-resizing={resizing ? "true" : undefined}
       data-slot="sidebar-rail"
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onPointerCancel={handlePointerCancel}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}

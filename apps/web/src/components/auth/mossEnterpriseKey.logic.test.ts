@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   mossEnterpriseKeyErrorMessage,
+  mossEnterpriseKeyStatusNotice,
   validateMossEnterpriseKeyInput,
 } from "./mossEnterpriseKey.logic";
 
@@ -26,5 +27,13 @@ describe("enterprise key input", () => {
     expect(mossEnterpriseKeyErrorMessage(new Error("Failed to sign in"))).toBe(
       "暂时无法使用企业 API Key 登录，请重试。",
     );
+  });
+
+  it("warns about a saved key the gateway no longer accepts, not about a network blip", () => {
+    expect(mossEnterpriseKeyStatusNotice("auth-denied")).toContain("吊销");
+    expect(mossEnterpriseKeyStatusNotice("no-entitlement")).toContain("额度");
+    expect(mossEnterpriseKeyStatusNotice("transport-degraded")).toBeNull();
+    expect(mossEnterpriseKeyStatusNotice("ready")).toBeNull();
+    expect(mossEnterpriseKeyStatusNotice(undefined)).toBeNull();
   });
 });

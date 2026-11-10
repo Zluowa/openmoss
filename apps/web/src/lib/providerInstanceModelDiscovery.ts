@@ -2,7 +2,7 @@
 // Purpose: Build and select instance-scoped provider model discovery queries.
 // Layer: Web provider discovery helpers
 
-import type { ProviderInstanceId, ProviderKind, ProviderStartOptions } from "@synara/contracts";
+import type { ProviderInstanceId, ProviderKind, ProviderStartOptions } from "@moss/contracts";
 
 import { getProviderStartOptions, type ProviderInstanceOption } from "../appSettings";
 import { providerModelsQueryOptions } from "./providerDiscoveryReactQuery";

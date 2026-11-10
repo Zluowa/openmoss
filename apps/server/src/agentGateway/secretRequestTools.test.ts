@@ -1,4 +1,4 @@
-import { SECRET_REQUEST_DEFAULT_WAIT_MS, ThreadId, TurnId } from "@synara/contracts";
+import { SECRET_REQUEST_DEFAULT_WAIT_MS, ThreadId, TurnId } from "@moss/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 

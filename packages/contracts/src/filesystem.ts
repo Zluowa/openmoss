@@ -22,8 +22,11 @@ export const FilesystemBrowseResult = Schema.Struct({
 export type FilesystemBrowseResult = typeof FilesystemBrowseResult.Type;
 
 // dialogs.pickFolder: the server raises an OS folder picker on the browser's
-// behalf. `path` is null when the user cancelled or the platform has no picker.
+// behalf. `path` is null when no folder was chosen. `unavailable` is true when
+// the host could not show a picker at all (no picker on this platform, helper
+// missing or failed), as opposed to the person cancelling it.
 export const DialogsPickFolderResult = Schema.Struct({
   path: Schema.NullOr(TrimmedNonEmptyString),
+  unavailable: Schema.optional(Schema.Boolean),
 });
 export type DialogsPickFolderResult = typeof DialogsPickFolderResult.Type;

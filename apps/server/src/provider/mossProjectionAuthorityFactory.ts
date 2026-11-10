@@ -8,8 +8,8 @@ import {
   makeMossCanonicalResourceAuthority,
   type MossCanonicalResourceAuthority,
 } from "./mossCanonicalResourceAuthority.ts";
-import { makeMossProjectionOwnershipAdapter } from "@synara/shared/mossProjectionOwnershipAdapter";
-import type { MossProjectionOwnershipStore } from "@synara/shared/mossProjectionMaterializer";
+import { makeMossProjectionOwnershipAdapter } from "@moss/shared/mossProjectionOwnershipAdapter";
+import type { MossProjectionOwnershipStore } from "@moss/shared/mossProjectionMaterializer";
 
 const RESOURCE_IMPORT_STATE_DIR_NAME = "resource-import";
 

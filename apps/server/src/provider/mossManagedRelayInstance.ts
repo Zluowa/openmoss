@@ -7,12 +7,12 @@
 import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import type { ProviderInstanceConfig, ProviderKind } from "@synara/contracts";
+import type { ProviderInstanceConfig, ProviderKind } from "@moss/contracts";
 import {
   isMossAccessLane,
   MOSS_ACCESS_LANE_SPECS,
   type MossAccessLane,
-} from "@synara/shared/mossRealmCatalog";
+} from "@moss/shared/mossRealmCatalog";
 import { isTrustedMossManagedGatewayUrlForAuthority } from "./mossManagedGatewayTrust";
 
 export const MOSS_MANAGED_RELAY_CREDENTIAL_ENV_KEY = "MOSS_ACCESS_TOKEN";

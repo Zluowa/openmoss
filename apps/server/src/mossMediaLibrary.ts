@@ -1,4 +1,4 @@
-import type { LibraryItem, LibraryListInput } from "@synara/contracts";
+import type { LibraryItem, LibraryListInput } from "@moss/contracts";
 import { Effect } from "effect";
 import { MossMediaHistory } from "./mossMediaHistory";
 import { mediaAccountScope, type MossMediaIdentity } from "./mossMediaJobsService";

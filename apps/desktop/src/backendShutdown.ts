@@ -1,12 +1,14 @@
 import * as Http from "node:http";
 import type { ChildProcess } from "node:child_process";
 
+import { raiseProcessPriorityForExit } from "@moss/shared/platformProcess";
+
 export const DESKTOP_BACKEND_SHUTDOWN_PATH = "/api/desktop/shutdown";
 
 export type BackendShutdownProcess = Pick<
   ChildProcess,
   "exitCode" | "signalCode" | "once" | "off" | "kill"
->;
+> & { readonly pid?: number | undefined };
 
 export type DesktopBackendShutdownRequestOutcome =
   | { readonly type: "response"; readonly statusCode: number }
@@ -398,6 +400,7 @@ function runWindowsBackendShutdown(input: {
   readonly timeoutMs: number;
   readonly startRequest: StartDesktopBackendShutdownRequest;
   readonly forceTerminate: (child: BackendShutdownProcess) => void;
+  readonly raiseExitPriority: (child: BackendShutdownProcess) => void;
 }): Promise<WindowsBackendShutdownResult> {
   if (hasExited(input.child)) {
     return Promise.resolve({ type: "already-exited", forced: false });
@@ -429,6 +432,15 @@ function runWindowsBackendShutdown(input: {
     };
 
     input.child.once("exit", onExit);
+
+    // Before the request: the backend's finalizers and then Windows' teardown of the
+    // process run ahead of the busy machine's ordinary work (see raiseProcessPriorityForExit).
+    // A forced stop needs it as much as a graceful one, and it never blocks shutdown.
+    try {
+      input.raiseExitPriority(input.child);
+    } catch {
+      // Priority is an optimization; the request and timers below still bound shutdown.
+    }
 
     // The listener is installed first so an exit racing request construction
     // cannot be missed. Synchronous transport failures still use the same timers.
@@ -506,6 +518,7 @@ export function stopWindowsBackendAndWait(input: {
   readonly timeoutMs: number;
   readonly startRequest?: StartDesktopBackendShutdownRequest;
   readonly forceTerminate?: (child: BackendShutdownProcess) => void;
+  readonly raiseExitPriority?: (child: BackendShutdownProcess) => void;
 }): Promise<WindowsBackendShutdownResult> {
   const existing = shutdownsByProcess.get(input.child);
   if (existing) return existing;
@@ -524,6 +537,8 @@ export function stopWindowsBackendAndWait(input: {
     ...input,
     startRequest: input.startRequest ?? startDesktopBackendShutdownRequest,
     forceTerminate: input.forceTerminate ?? ((child) => void child.kill("SIGTERM")),
+    raiseExitPriority:
+      input.raiseExitPriority ?? ((child) => void raiseProcessPriorityForExit(child.pid)),
   });
   shutdownsByProcess.set(input.child, operation);
   void operation.then((result) => {

@@ -13,7 +13,7 @@ import type {
   GuestStreamEvent,
   GuestSubmitFields,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 

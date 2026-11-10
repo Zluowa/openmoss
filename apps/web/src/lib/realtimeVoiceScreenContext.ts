@@ -5,7 +5,7 @@
 import type {
   DesktopAppSnapCapture,
   RealtimeVoiceResolveScreenContextInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const MAX_IMAGE_DIMENSION = 1_024;
 const MAX_JPEG_BYTES = 700_000;

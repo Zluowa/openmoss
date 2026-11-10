@@ -5,7 +5,7 @@ import {
   ThreadId,
   type ModelSelection,
   type OrchestrationReadModel,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -79,14 +79,39 @@ describe("decider same-thread provider handoff", () => {
     expect(single?.payload).not.toHaveProperty("branch");
   });
 
-  it("keeps same-provider account switches on the new-thread handoff", async () => {
+  it("hands a thread to another account of the same provider in place", async () => {
+    const target: ModelSelection = {
+      provider: "codex",
+      instanceId: "codex_moss",
+      model: "deepseek-v4-flash",
+    };
+    const event = await decideHandoff(target);
+    const single = Array.isArray(event) ? event[0] : event;
+    expect(single).toMatchObject({
+      type: "thread.meta-updated",
+      payload: { modelSelection: target, providerHandoff: { sourceModelSelection: SOURCE } },
+    });
+  });
+
+  it("refuses a handoff to the account the thread already runs on", async () => {
+    await expect(decideHandoff({ provider: "codex", model: "gpt-5.5" })).rejects.toThrow(
+      /already runs on 'codex'/,
+    );
     await expect(
-      decideHandoff({
-        provider: "codex",
-        instanceId: "codex-work",
-        model: "gpt-5.4",
-      }),
-    ).rejects.toThrow(/hand off to a new thread instead/);
+      decideHandoff(
+        { provider: "codex", instanceId: "codex_moss", model: "glm-5.3" },
+        makeReadModel({
+          threadId: THREAD_ID,
+          status: "ready",
+          providerName: "codex",
+          providerInstanceId: "codex_moss",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: NOW,
+        }),
+      ),
+    ).rejects.toThrow(/already runs on 'codex_moss'/);
   });
 
   it("rejects a handoff while the session is running", async () => {

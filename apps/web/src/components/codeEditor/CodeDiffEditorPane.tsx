@@ -1,6 +1,6 @@
 import { parseDiffFromFile } from "@pierre/diffs";
 import { FileDiff } from "@pierre/diffs/react";
-import { normalizeLineEndings } from "@synara/shared/text";
+import { normalizeLineEndings } from "@moss/shared/text";
 import { useMemo, useRef, useState, type RefObject } from "react";
 
 import { buildDiffPanelUnsafeCSS, resolveDiffThemeName } from "~/lib/diffRendering";

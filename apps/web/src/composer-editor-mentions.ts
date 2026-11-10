@@ -11,15 +11,16 @@ import {
   isPluginProviderMentionReference,
   providerMentionMatchesToken,
 } from "./lib/composerMentions";
-import { isComputerHistoryMention } from "@synara/shared/computerHistoryMention";
+import { MOSS_DEVS_REPORTS_ENABLED } from "@moss/shared/devsReport";
+import { isComputerHistoryMention } from "@moss/shared/computerHistoryMention";
 import {
   LINK_TOKEN_SOURCE,
   normalizeComposerLinkUrl,
   trimTrailingLinkPunctuation,
 } from "./lib/linkChips";
-import { resolveAgentAlias } from "@synara/contracts";
-import type { ProviderMentionReference } from "@synara/contracts";
-import { threadIdFromThreadMentionPath } from "@synara/shared/threadMentions";
+import { resolveAgentAlias } from "@moss/contracts";
+import type { ProviderMentionReference } from "@moss/contracts";
+import { threadIdFromThreadMentionPath } from "@moss/shared/threadMentions";
 
 export type ComposerPromptSegment =
   | {
@@ -87,6 +88,14 @@ const DISPLAY_LINK_TOKEN_REGEX = new RegExp(LINK_TOKEN_DISPLAY_PATTERN, "g");
 // `lastIndex`, so these can't pollute the global variants the split helpers feed to `matchAll`.
 const LINK_TOKEN_FIRST_REGEX = new RegExp(LINK_TOKEN_TYPING_PATTERN);
 const DISPLAY_LINK_TOKEN_FIRST_REGEX = new RegExp(LINK_TOKEN_DISPLAY_PATTERN);
+
+function isLeadingDevsReportMention(text: string, start: number, path: string): boolean {
+  return (
+    MOSS_DEVS_REPORTS_ENABLED &&
+    path.toLowerCase() === "devs" &&
+    text.slice(0, start).trim().length === 0
+  );
+}
 
 // Agent mention chip: @alias(
 // Keep plain @alias text editable while typing so the picker can stay open.
@@ -260,6 +269,8 @@ function collectInlineTokenMatches(
 
     // Skip if this overlaps with an agent mention or sits inside a URL
     if (isInsideAgentMention(start) || isReserved(start)) continue;
+    // A leading `@devs` is the problem-report command, not a file: keep it plain text.
+    if (isLeadingDevsReportMention(text, start, path)) continue;
 
     if (path.length > 0) {
       matches.push({ kind: "mention", value: path, start, end });

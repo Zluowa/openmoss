@@ -3,8 +3,8 @@
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import os from "node:os";
-import { MessageId } from "@synara/contracts";
-import { summarizeToolRawOutput } from "@synara/shared/toolOutputSummary";
+import { MessageId } from "@moss/contracts";
+import { summarizeToolRawOutput } from "@moss/shared/toolOutputSummary";
 import { expect, it } from "vitest";
 
 import { deriveWorkLogToolDetails } from "../src/lib/toolCallDetails";

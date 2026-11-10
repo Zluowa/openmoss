@@ -12,8 +12,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { supportsPosixPermissions } from "@synara/shared/filesystemPlatform";
+import { supportsPosixPermissions } from "@moss/shared/filesystemPlatform";
 
+import {
+  MOSS_IMAGE_MODEL_IDS,
+  MOSS_MEDIA_PLUGINS,
+  MOSS_VIDEO_MODEL_IDS,
+} from "@moss/shared/mossMediaPlugins";
 import {
   MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
   MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME,
@@ -79,41 +84,82 @@ describe("Moss bundled plugin marketplace", () => {
     expect(lstatSync(result.root).isDirectory()).toBe(true);
   });
 
-  it("ships executable media skills without supplier credentials and advertises the default", () => {
+  it("ships one general image and video skill plus one skill per vendor, with every model's cost", () => {
     const home = makeManagedHome();
     const result = materializeMossBundledPluginMarketplace(home);
     const marketplace = JSON.parse(readFileSync(result.manifestPath, "utf8"));
-    expect(marketplace.plugins).toHaveLength(14);
-    expect(
-      marketplace.plugins.find((plugin: { name: string }) => plugin.name === "moss-imagegen").policy
-        .installation,
-    ).toBe("INSTALLED_BY_DEFAULT");
-    const mediaRoot = path.join(result.root, "plugins", "moss-imagegen");
-    expect(
-      readFileSync(path.join(mediaRoot, "skills", "moss-imagegen", "SKILL.md"), "utf8"),
-    ).toContain("Never resubmit after a timeout");
-    const videoSkill = readFileSync(
-      path.join(result.root, "plugins", "moss-kling", "skills", "moss-kling", "SKILL.md"),
-      "utf8",
-    );
-    expect(videoSkill).toContain("description: Generate videos from text");
-    expect(videoSkill).not.toContain("Generate or edit videos");
-    expect(videoSkill).toContain("Check the catalog's reference capabilities first.");
-    expect(videoSkill).toContain(
-      "never drop supplied media or silently turn an edit into text-to-video",
-    );
-    expect(videoSkill).toContain(
-      "Missing configured input prices block admission before supplier submission.",
-    );
+    const names = marketplace.plugins.map((plugin: { name: string }) => plugin.name);
+    expect(names).toEqual([
+      ...MOSS_MEDIA_PLUGINS.map((plugin) => plugin.name),
+      MOSS_BUNDLED_WEB_BUILDER_PLUGIN_NAME,
+      "moss-plugin-creator",
+    ]);
+    expect(names).not.toContain("moss-nano-banana-2");
+    const installation = (name: string) =>
+      marketplace.plugins.find((plugin: { name: string }) => plugin.name === name).policy
+        .installation;
+    for (const name of ["moss-imagegen", "moss-videogen", MOSS_BUNDLED_CANVAS_PLUGIN_NAME])
+      expect(installation(name)).toBe("INSTALLED_BY_DEFAULT");
+    expect(installation("moss-seedream")).toBe("AVAILABLE");
+
+    const skillOf = (name: string) =>
+      readFileSync(path.join(result.root, "plugins", name, "skills", name, "SKILL.md"), "utf8");
+    const imageSkill = skillOf("moss-imagegen");
+    expect(imageSkill).toContain("name: moss-imagegen");
+    expect(imageSkill).toContain("even when no model is named");
+    // Every image model the Canvas offers, with its cost in Moss credits; GPT Image 2.5 first.
+    for (const model of MOSS_IMAGE_MODEL_IDS) expect(imageSkill).toContain(`\`${model}\``);
+    expect(imageSkill).toContain("GPT Image 2.5 Flare（默认）");
+    expect(imageSkill).toContain("1K/2K 约 95 积分/张");
+    expect(imageSkill).toContain("用对方说话的语言回复");
+    expect(imageSkill).toContain("不要重新提交");
+    expect(imageSkill).toContain("moss_canvas_open");
+
+    const videoSkill = skillOf("moss-videogen");
+    for (const model of MOSS_VIDEO_MODEL_IDS) expect(videoSkill).toContain(`\`${model}\``);
+    expect(videoSkill).toContain("即梦 Seedance 2.0 Fast（默认）");
+    expect(videoSkill).toContain("description: Create videos with Moss");
+    expect(videoSkill).toContain("不要把编辑悄悄变成纯文字生成");
+
+    const seedance = skillOf("moss-seedance");
+    expect(seedance).toContain("# 即梦视频");
+    expect(seedance).toContain("这个技能只用于即梦 Seedance 的模型");
+    expect(seedance).toContain("改用「生视频」技能");
+    expect(seedance).not.toContain("`kling-v3-omni`");
+    expect(skillOf("moss-nano-banana")).toContain("`gemini-flash-image`");
+    for (const plugin of MOSS_MEDIA_PLUGINS.filter((plugin) => plugin.kind !== "canvas")) {
+      const skill = skillOf(plugin.name);
+      expect(skill).not.toMatch(/api[_ -]?key\s*[:=]/iu);
+      expect(skill).toContain("参考价（Moss 积分）");
+    }
     if (supportsPosixPermissions()) {
       expect(
-        lstatSync(path.join(mediaRoot, "skills", "moss-imagegen", "SKILL.md")).mode & 0o077,
+        lstatSync(
+          path.join(result.root, "plugins", "moss-imagegen", "skills", "moss-imagegen", "SKILL.md"),
+        ).mode & 0o077,
       ).toBe(0);
     }
     expect(
-      marketplace.plugins.find((plugin: { name: string }) => plugin.name === "moss-plugin-creator")
-        .policy.installation,
-    ).toBe("INSTALLED_BY_DEFAULT");
+      JSON.parse(
+        readFileSync(
+          path.join(result.root, "plugins", "moss-imagegen", ".codex-plugin", "plugin.json"),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({
+      interface: {
+        displayName: "Image Generation",
+        shortDescription: "Create and edit images with every Moss image model",
+        defaultPrompt: ["Generate an image: "],
+      },
+    });
+    expect(installation("moss-plugin-creator")).toBe("INSTALLED_BY_DEFAULT");
+    const imageGuide = readFileSync(
+      path.join(result.root, "plugins", "moss-imagegen", "skills", "moss-imagegen", "SKILL.md"),
+      "utf8",
+    );
+    expect(imageGuide).toContain("拿到 jobId 后简短告知已提交，即可结束回复");
+    expect(imageGuide).not.toContain("每 15 秒");
     expect(
       readFileSync(
         path.join(
@@ -129,11 +175,12 @@ describe("Moss bundled plugin marketplace", () => {
     ).toContain("name: plugin-creator");
   });
 
-  it("leads with image generation and Canvas, and ships Canvas for every CLI format", () => {
+  it("leads with image, video and Canvas, installs Canvas by default, and ships it for every CLI format", () => {
     const result = materializeMossBundledPluginMarketplace(makeManagedHome());
     const marketplace = JSON.parse(readFileSync(result.manifestPath, "utf8"));
-    expect(marketplace.plugins.slice(0, 2).map((plugin: { name: string }) => plugin.name)).toEqual([
+    expect(marketplace.plugins.slice(0, 3).map((plugin: { name: string }) => plugin.name)).toEqual([
       "moss-imagegen",
+      "moss-videogen",
       MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
     ]);
     expect(
@@ -141,7 +188,7 @@ describe("Moss bundled plugin marketplace", () => {
         (plugin: { name: string }) => plugin.name === MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
       ),
     ).toMatchObject({
-      policy: { installation: "AVAILABLE", authentication: "ON_USE" },
+      policy: { installation: "INSTALLED_BY_DEFAULT", authentication: "ON_USE" },
       category: "Creativity",
     });
     const canvasRoot = path.join(result.root, "plugins", MOSS_BUNDLED_CANVAS_PLUGIN_NAME);
@@ -158,7 +205,9 @@ describe("Moss bundled plugin marketplace", () => {
       "utf8",
     );
     expect(skill).toContain("name: moss-canvas");
-    expect(skill).toContain("`moss_canvas_open` only when the user explicitly asks");
+    expect(skill).toContain("画布不是「资料空间」");
+    expect(skill).toContain("`moss_canvas_open`");
+    expect(skill).toContain("`moss_canvas_read`");
   });
 
   it("is byte-idempotent and refuses a symlinked Moss-owned root", () => {

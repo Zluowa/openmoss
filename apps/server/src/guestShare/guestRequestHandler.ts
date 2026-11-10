@@ -1,6 +1,6 @@
 /**
- * The guest HTTP API, served over the relay: `session`, `redeem`, `stream`, `messages`, and
- * `attachment` (`GUEST_ROUTES`). A request arrives as the relay forwarded it (method, route,
+ * The guest HTTP API, served over the relay: `session`, `redeem`, `stream`, `messages`,
+ * `attachment`, `render`, `media`, and `file` (`GUEST_ROUTES`). A request arrives as the relay forwarded it (method, route,
  * query, allowlisted headers, body) and the answer goes back the same way. The relay enforces
  * each route's response policy and adds the security headers; this handler owns the semantics:
  * the session is checked before a body is read, JSON bodies are small, multipart is parsed
@@ -22,7 +22,7 @@ import {
   type GuestShareId,
   type GuestStreamEvent,
   type GuestSubmitFields as GuestSubmitFieldsType,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Deferred, Effect, FileSystem, Path, Schema, Stream } from "effect";
 import type { Scope, ServiceMap } from "effect";
 import { Multipart } from "effect/unstable/http";
@@ -57,7 +57,61 @@ export interface GuestRequestOperations {
     { readonly path: string; readonly attachment: GuestMessageAttachment },
     GuestShareAccessError
   >;
+  /**
+   * A document the shared window shows, for a sandboxed frame: a page the agent published, an
+   * inline visual, a visualization marker's file, or an HTML file the agent linked.
+   */
+  readonly render: (
+    session: string,
+    target: GuestRenderTarget,
+  ) => Effect.Effect<GuestServedBytes, GuestShareAccessError>;
+  /** The bytes behind something the shared window shows, for the guest's viewer pane. */
+  readonly file: (
+    session: string,
+    target: GuestFileTarget,
+  ) => Effect.Effect<GuestServedFile, GuestShareAccessError>;
+  /** A picture from the owner's disk that the shared window shows. */
+  readonly media: (
+    session: string,
+    src: string,
+  ) => Effect.Effect<
+    { readonly path: string; readonly sizeBytes: number; readonly mimeType: string },
+    GuestShareAccessError
+  >;
 }
+
+/** What a frame (`render`) asks for. */
+export type GuestRenderTarget =
+  | { readonly kind: "page"; readonly attachmentId: string }
+  | {
+      readonly kind: "visual";
+      readonly visualId: string;
+      readonly appearance: "light" | "dark";
+    }
+  | { readonly kind: "visualization"; readonly src: string }
+  | { readonly kind: "file"; readonly src: string };
+
+/** What the viewer pane asks for (`file`). */
+export type GuestFileTarget =
+  | { readonly kind: "visual"; readonly visualId: string }
+  | { readonly kind: "page"; readonly attachmentId: string }
+  | { readonly kind: "visualization"; readonly src: string }
+  | { readonly kind: "file"; readonly src: string }
+  | { readonly kind: "diff"; readonly turnId: string }
+  /** The map configuration a published page's map asks for. */
+  | { readonly kind: "map" };
+
+/** Bytes a route answers with: a file on disk, or a document built in memory. */
+export type GuestServedBytes =
+  | { readonly kind: "path"; readonly path: string; readonly sizeBytes: number }
+  | { readonly kind: "text"; readonly text: string };
+
+export type GuestServedFile = GuestServedBytes & {
+  /** The file's own name, for a download. */
+  readonly name: string;
+  /** Pictures and web videos play inline; anything else is sent as bytes to save. */
+  readonly mimeType: string;
+};
 
 // Cloudflare closes idle streams after about 100 seconds.
 export const GUEST_STREAM_HEARTBEAT_INTERVAL = "20 seconds";
@@ -288,7 +342,64 @@ const GUEST_STREAM_HEADERS = {
 // sandbox CSP and nosniff on top.
 const FILE_HEADERS = { ...NO_STORE_HEADERS } as const;
 
+/**
+ * An agent page runs its scripts in an opaque origin, as in the owner's app: no cookies, no
+ * storage, no requests as the guest. The relay sends its own copy of this policy with the
+ * frame rules for its origin.
+ */
+export const GUEST_RENDER_CONTENT_SECURITY_POLICY =
+  "sandbox allow-scripts allow-forms allow-popups allow-downloads";
+// An SVG picture opened by itself draws, and never runs anything.
+const SVG_CONTENT_SECURITY_POLICY = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+// Sources are paths or file URLs as the transcript wrote them; anything longer is not one.
+const MEDIA_SOURCE_MAX_LENGTH = 4_096;
+
 const isReadLike = (method: GuestRelayRequest["method"]) => method === "GET" || method === "HEAD";
+
+const sourceParam = (params: URLSearchParams, name: string): string | null => {
+  const value = params.get(name);
+  return value && value.length <= MEDIA_SOURCE_MAX_LENGTH ? value : null;
+};
+
+/** The frame target a `render` query names; null when it names none or is malformed. */
+export function readGuestRenderTarget(query: string): GuestRenderTarget | null {
+  const params = new URLSearchParams(query);
+  const attachmentId = params.get("id");
+  if (attachmentId) return { kind: "page", attachmentId };
+  const visualId = params.get("visual");
+  if (visualId) {
+    return {
+      kind: "visual",
+      visualId,
+      appearance: params.get("appearance") === "light" ? "light" : "dark",
+    };
+  }
+  const visualization = sourceParam(params, "visualization");
+  if (visualization !== null) return { kind: "visualization", src: visualization };
+  const file = sourceParam(params, "file");
+  if (file !== null) return { kind: "file", src: file };
+  return null;
+}
+
+/** The viewer-pane target a `file` query names; null when it names none or is malformed. */
+export function readGuestFileTarget(query: string): GuestFileTarget | null {
+  const params = new URLSearchParams(query);
+  const visualId = params.get("visual");
+  if (visualId) return { kind: "visual", visualId };
+  const attachmentId = params.get("render");
+  if (attachmentId) return { kind: "page", attachmentId };
+  const visualization = sourceParam(params, "visualization");
+  if (visualization !== null) return { kind: "visualization", src: visualization };
+  const src = sourceParam(params, "src");
+  if (src !== null) return { kind: "file", src };
+  const turnId = params.get("diff");
+  if (turnId && turnId.length <= 256) return { kind: "diff", turnId };
+  if (params.get("map") === "1") return { kind: "map" };
+  return null;
+}
+
+const servedLength = (served: GuestServedBytes): number =>
+  served.kind === "path" ? served.sizeBytes : Buffer.byteLength(served.text, "utf8");
 
 /**
  * Answers one relayed guest request. Never fails: every outcome is a response, and an unexpected
@@ -361,6 +472,71 @@ export const handleGuestRequest = (
             "content-length": String(info.size),
           },
           body: toReadable(fileSystem.stream(path)),
+        };
+      }
+      case GUEST_ROUTES.render: {
+        if (!isReadLike(request.method)) return methodNotAllowed();
+        const target = readGuestRenderTarget(request.query);
+        if (target === null) return badRequest();
+        const page = yield* operations.render(session, target);
+        const fileSystem = yield* FileSystem.FileSystem;
+        return {
+          status: 200,
+          headers: {
+            ...FILE_HEADERS,
+            "content-type": "text/html; charset=utf-8",
+            "content-security-policy": GUEST_RENDER_CONTENT_SECURITY_POLICY,
+            "content-length": String(servedLength(page)),
+          },
+          body:
+            request.method === "HEAD"
+              ? null
+              : page.kind === "path"
+                ? toReadable(fileSystem.stream(page.path))
+                : bytesBody(page.text),
+        };
+      }
+      case GUEST_ROUTES.file: {
+        if (!isReadLike(request.method)) return methodNotAllowed();
+        const target = readGuestFileTarget(request.query);
+        if (target === null) return badRequest();
+        const served = yield* operations.file(session, target);
+        const fileSystem = yield* FileSystem.FileSystem;
+        // The relay plays pictures and web videos inline and turns everything else into a
+        // download; the name is only a suggestion for the guest's save dialog.
+        return {
+          status: 200,
+          headers: {
+            ...FILE_HEADERS,
+            "content-type": served.mimeType,
+            "content-disposition": downloadContentDisposition(served.name),
+            "content-length": String(servedLength(served)),
+          },
+          body:
+            request.method === "HEAD"
+              ? null
+              : served.kind === "path"
+                ? toReadable(fileSystem.stream(served.path))
+                : bytesBody(served.text),
+        };
+      }
+      case GUEST_ROUTES.media: {
+        if (!isReadLike(request.method)) return methodNotAllowed();
+        const src = new URLSearchParams(request.query).get("src");
+        if (!src || src.length > MEDIA_SOURCE_MAX_LENGTH) return badRequest();
+        const picture = yield* operations.media(session, src);
+        const fileSystem = yield* FileSystem.FileSystem;
+        return {
+          status: 200,
+          headers: {
+            ...FILE_HEADERS,
+            "content-type": picture.mimeType,
+            ...(picture.mimeType === "image/svg+xml"
+              ? { "content-security-policy": SVG_CONTENT_SECURITY_POLICY }
+              : {}),
+            "content-length": String(picture.sizeBytes),
+          },
+          body: request.method === "HEAD" ? null : toReadable(fileSystem.stream(picture.path)),
         };
       }
       default:

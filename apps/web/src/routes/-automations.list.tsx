@@ -1,3 +1,4 @@
+import { type TranslationKey } from "~/localization";
 // FILE: -automations.list.tsx
 // Purpose: The automation list pieces shared by the Automations page and the rail layout's
 //          Automations panel: the list row, its subtitle and unread rules, the countdown
@@ -9,7 +10,7 @@ import {
   type AutomationDefinition,
   type AutomationRun,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { getProviderStartOptions, useAppSettings } from "~/appSettings";
@@ -177,10 +178,19 @@ export function automationRowSubtitle(
   definition: AutomationDefinition,
   latestRun: AutomationRun | null,
   now: number,
+  t?: (key: TranslationKey) => string,
 ): string {
-  const segments = [formatCadenceLong(definition.schedule)];
+  const segments = [
+    definition.schedule.type === "manual" && t
+      ? t("automation.schedule.manual")
+      : formatCadenceLong(definition.schedule),
+  ];
   if (isLiveRun(latestRun)) {
-    segments.push(runStatusLabel(latestRun.status));
+    segments.push(
+      latestRun.status === "running" && t
+        ? t("automation.run.running")
+        : runStatusLabel(latestRun.status),
+    );
     return segments.join(" · ");
   }
   const attention = latestRun === null ? null : automationAttentionLabel(latestRun);

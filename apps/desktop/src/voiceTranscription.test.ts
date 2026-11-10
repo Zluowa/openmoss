@@ -1,6 +1,6 @@
-import { BundledCodexRuntimeUnavailableError } from "@synara/shared/codexRuntime";
-import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@synara/contracts";
-import { outboundHttp, type OutboundHttpResponse } from "@synara/shared/outboundHttp";
+import { BundledCodexRuntimeUnavailableError } from "@moss/shared/codexRuntime";
+import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@moss/contracts";
+import { outboundHttp, type OutboundHttpResponse } from "@moss/shared/outboundHttp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({

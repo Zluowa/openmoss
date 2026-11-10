@@ -121,6 +121,10 @@ export function openMossCanvas(options: MossCanvasOpenOptions = {}): void {
   if (embeddedCanvasHost && invokeEmbeddedCanvasHost(embeddedCanvasHost, detail)) {
     return;
   }
+  // A conversation's Canvas lives only in that conversation's side panel. The
+  // desktop's separate Canvas window ran a second editor with its own storage
+  // and agent and never loaded; it must not be opened as a fallback.
+  if (detail.surface === "canvas") return;
 
   const host = getCanvasHost();
   if (host && invokeCanvasHost(host, detail)) {

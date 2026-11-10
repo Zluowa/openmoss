@@ -1,22 +1,22 @@
 // FILE: groupsBetaGate.ts
-// Purpose: Keeps Groups out of Stable. On a build where the "groups" Beta-only
-//          feature is off, the project-agent service refuses every group API,
-//          stops its background work, and treats group threads as ordinary
-//          threads, so group state written by a Beta build stays inert.
+// Purpose: The server's switch for the hub runtime. Mossbot personal assistants (open in
+//          Stable since 1.0.5) run on that runtime, so it is on in every flavor; only the
+//          web's own hub entry points stay Beta-only (GROUPS_BETA_FEATURE). Beta keeps its
+//          own data folder, so a Stable server never sees hubs a Beta build created.
+//          The Stable wrapper below is kept for a build that turns the runtime off again.
 // Layer: Runtime gate (wraps ProjectAgentService; read by wsRpc and the gateway)
 // Exports: GROUPS_BETA_ONLY_MESSAGE, isServerGroupsEnabled, isGroupProjectCommand,
 //          gateProjectAgentServiceForStable
 
-import { GROUPS_BETA_FEATURE } from "@synara/shared/betaFeatures";
 import { Effect, Stream } from "effect";
 
-import { isServerBetaFeatureEnabled } from "../betaFeatureGate";
 import { ProjectAgentServiceError } from "./Errors";
 import type { ProjectAgentServiceShape } from "./Services/ProjectAgentService";
 
 export const GROUPS_BETA_ONLY_MESSAGE = "Hubs are available in Moss Beta.";
 
-export const isServerGroupsEnabled = (): boolean => isServerBetaFeatureEnabled(GROUPS_BETA_FEATURE);
+/** Always on: Mossbot needs the hub runtime in every flavor, Stable included. */
+export const isServerGroupsEnabled = (): boolean => true;
 
 /** A client command that would create or re-kind a project as a group. */
 export function isGroupProjectCommand(command: {

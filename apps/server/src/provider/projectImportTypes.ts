@@ -13,6 +13,8 @@ export interface NativeImportSession {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly archived: boolean;
+  /** Model the conversation used, for agents whose model catalogs exist only at runtime. */
+  readonly model?: string;
 }
 
 export interface NativeProjectImportCatalog {

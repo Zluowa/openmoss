@@ -218,6 +218,6 @@ The owner-boundary test uses a stub transport without loading a simulator:
 ```sh
 xcrun clang -fobjc-arc -fmodules -framework Foundation -framework CoreGraphics \
   Sources/HIDBridge.m Sources/DTUHIDTransport.m Tests/InputDeliveryTests.m \
-  -o /tmp/synara-device-input-tests
-/tmp/synara-device-input-tests
+  -o /tmp/moss-device-input-tests
+/tmp/moss-device-input-tests
 ```

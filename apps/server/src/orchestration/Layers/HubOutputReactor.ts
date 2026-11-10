@@ -25,9 +25,9 @@ import {
   ThreadId,
   type ProviderRuntimeEvent,
   type TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Cause, Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
-import { makeDrainableWorker, startDrainableWorkerProducers } from "@synara/shared/DrainableWorker";
+import { makeDrainableWorker, startDrainableWorkerProducers } from "@moss/shared/DrainableWorker";
 
 import {
   checkpointRefForThreadMessageStart,

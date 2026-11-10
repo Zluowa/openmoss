@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { DesktopUpdateState } from "@synara/contracts";
+import type { DesktopUpdateState } from "@moss/contracts";
 
 import {
   getArm64IntelBuildWarningDescription,

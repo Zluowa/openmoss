@@ -6,7 +6,7 @@
 // Layer: Web UI dialog
 // Exports: CreateProjectDialog, CreateProjectSubmitValue, CreateProjectSubmitOptions
 
-import { type SpaceId } from "@synara/contracts";
+import { type SpaceId } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
@@ -81,6 +81,9 @@ export function CreateProjectDialog(props: {
   onSubmit: (value: CreateProjectSubmitValue, options: CreateProjectSubmitOptions) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const remoteWorkspace = typeof window !== "undefined" && "mossRemoteWorkspace" in window;
+  // A paired computer opens in the same remote window as an SSH device; name it correctly.
+  const pairedWorkspace = remoteWorkspace && window.mossRemoteWorkspace?.getKind?.() === "paired";
   const [name, setName] = useState("");
   const [folderPath, setFolderPath] = useState("");
   /**
@@ -90,6 +93,9 @@ export function CreateProjectDialog(props: {
    */
   const [pickedPath, setPickedPath] = useState<string | null>(null);
   const [isPickingFolder, setIsPickingFolder] = useState(false);
+  const [manualPath, setManualPath] = useState(false);
+  const pickerRequest = useRef(0);
+  const pickerAbortRef = useRef<AbortController | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const openedRef = useRef(false);
@@ -105,7 +111,10 @@ export function CreateProjectDialog(props: {
     // Seed on the closed -> open transition only.
     if (props.open === openedRef.current) return;
     openedRef.current = props.open;
+    pickerAbortRef.current?.abort();
+    pickerRequest.current += 1;
     if (!props.open) return;
+    setManualPath(remoteWorkspace);
     setName("");
     setFolderPath("");
     setPickedPath(null);
@@ -117,7 +126,9 @@ export function CreateProjectDialog(props: {
     // name field has to happen after that lands or it is immediately undone.
     const frame = requestAnimationFrame(() => document.getElementById(nameInputId)?.focus());
     return () => cancelAnimationFrame(frame);
-  }, [nameInputId, props.open]);
+  }, [nameInputId, props.open, remoteWorkspace]);
+
+  useEffect(() => () => pickerAbortRef.current?.abort(), []);
 
   const trimmedName = name.trim();
   const trimmedPath = folderPath.trim();
@@ -145,23 +156,34 @@ export function CreateProjectDialog(props: {
       setFormError(t("projectSetup.createProject.appServerUnavailable"));
       return;
     }
+    const request = ++pickerRequest.current;
+    const pickerAbort = new AbortController();
+    pickerAbortRef.current = pickerAbort;
     setIsPickingFolder(true);
     // No try/finally: the React Compiler skips optimizing components that use it.
     try {
-      const picked = await api.dialogs.pickFolder();
+      const picked = await api.dialogs.pickFolder({
+        signal: pickerAbort.signal,
+        rejectWhenUnavailable: true,
+      });
+      if (request !== pickerRequest.current) return;
+      // Null is the person closing the picker: leave the layout as it was so
+      // they can pick again or type a path themselves.
       if (picked) applyPickedFolder(picked);
-    } catch (error) {
-      setFormError(
-        error instanceof Error ? error.message : t("projectSetup.createProject.openPickerError"),
-      );
+    } catch {
+      if (request !== pickerRequest.current) return;
+      // The picker could not open, so offer the typed path instead.
+      setManualPath(true);
+      setFormError(t("projectSetup.createProject.openPickerError"));
     }
+    pickerAbortRef.current = null;
     setIsPickingFolder(false);
   };
 
   // While the dialog is open it is the only interactive surface, so a folder dropped
   // anywhere in the window counts (see useWindowFolderDrop).
   const isDropTarget = useWindowFolderDrop({
-    enabled: props.open && isElectron,
+    enabled: props.open && isElectron && !remoteWorkspace,
     onFolder: applyPickedFolder,
     onError: setFormError,
   });
@@ -218,12 +240,17 @@ export function CreateProjectDialog(props: {
   // picker there and the descriptor fetch would go nowhere.
   const { data: serverEnvironment } = useQuery({
     ...serverEnvironmentQueryOptions(),
-    enabled: !isElectron,
+    enabled: !isElectron && !remoteWorkspace,
   });
-  const hasFolderPicker = isElectron || serverEnvironment?.capabilities.folderPicker === true;
+  const hasFolderPicker =
+    !remoteWorkspace && (isElectron || serverEnvironment?.capabilities.folderPicker === true);
 
   const handleOpenChange = (open: boolean) => {
-    if (!open) submitAbortRef.current?.abort();
+    if (!open) {
+      pickerRequest.current += 1;
+      pickerAbortRef.current?.abort();
+      submitAbortRef.current?.abort();
+    }
     props.onOpenChange(open);
   };
 
@@ -261,7 +288,11 @@ export function CreateProjectDialog(props: {
               id={sourceFolderLabelId}
               className={cn("block", dialogFieldLabelClassName, "text-ui text-foreground")}
             >
-              {t("projectSetup.createProject.sourceFolder")}
+              {t(
+                remoteWorkspace
+                  ? "projectSetup.createProject.remoteSourceFolder"
+                  : "projectSetup.createProject.sourceFolder",
+              )}
             </span>
             <div
               aria-labelledby={sourceFolderLabelId}
@@ -293,7 +324,7 @@ export function CreateProjectDialog(props: {
                     <XIcon className="size-4" aria-hidden="true" />
                   </button>
                 </div>
-              ) : hasFolderPicker ? (
+              ) : hasFolderPicker && !manualPath ? (
                 <div className="flex flex-col items-center gap-2.5 py-1">
                   <Select value="this-computer" onValueChange={() => {}}>
                     <SelectTrigger
@@ -340,6 +371,18 @@ export function CreateProjectDialog(props: {
                       ? t("projectSetup.createProject.openFolderPicker")
                       : t("projectSetup.createProject.add")}
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      pickerRequest.current += 1;
+                      pickerAbortRef.current?.abort();
+                      setIsPickingFolder(false);
+                      setManualPath(true);
+                    }}
+                  >
+                    {t("projectSetup.createProject.folderPath")}
+                  </Button>
                 </div>
               ) : (
                 // No picker exists at all (a browser talking to a server whose
@@ -351,7 +394,13 @@ export function CreateProjectDialog(props: {
                   <InputGroupInput
                     id={pathInputId}
                     value={folderPath}
-                    aria-label={t("projectSetup.createProject.folderPath")}
+                    aria-label={t(
+                      pairedWorkspace
+                        ? "projectSetup.createProject.pairedFolderPath"
+                        : remoteWorkspace
+                          ? "projectSetup.createProject.remoteFolderPath"
+                          : "projectSetup.createProject.folderPath",
+                    )}
                     aria-invalid={formError ? true : undefined}
                     placeholder={t("projectSetup.createProject.folderPathPlaceholder")}
                     spellCheck={false}
@@ -367,6 +416,15 @@ export function CreateProjectDialog(props: {
                 </InputGroup>
               )}
             </div>
+            {remoteWorkspace ? (
+              <p className="text-ui-sm text-muted-foreground">
+                {t(
+                  pairedWorkspace
+                    ? "projectSetup.createProject.pairedFolderHint"
+                    : "projectSetup.createProject.remoteFolderHint",
+                )}
+              </p>
+            ) : null}
           </div>
 
           {formError ? (

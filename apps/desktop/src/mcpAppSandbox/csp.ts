@@ -2,7 +2,7 @@
 // Purpose: Revalidate normalized MCP resource domains and build restrictive
 // response headers for the Moss-owned sandbox shell.
 
-import type { McpAppResourceCsp } from "@synara/contracts";
+import type { McpAppResourceCsp } from "@moss/contracts";
 
 const MAX_DOMAIN_ENTRIES = 32;
 const MAX_DOMAIN_CHARS = 2_000;

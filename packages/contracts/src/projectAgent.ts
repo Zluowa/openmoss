@@ -67,7 +67,11 @@ export const LibraryRemoteUrl = TrimmedNonEmptyString.check(
   Schema.isPattern(LIBRARY_REMOTE_URL_PATTERN),
 );
 
+export const ProjectAgentKind = Schema.Literals(["hub", "mossbot"]);
+export type ProjectAgentKind = typeof ProjectAgentKind.Type;
+
 export const ProjectAgentConfig = Schema.Struct({
+  agentKind: Schema.optional(ProjectAgentKind),
   projectId: ProjectId,
   coordinatorThreadId: ThreadId,
   coordinatorName: TrimmedNonEmptyString.check(Schema.isMaxLength(160)),
@@ -469,6 +473,7 @@ export const ProjectAgentGetOverviewInput = Schema.Struct({
 export type ProjectAgentGetOverviewInput = typeof ProjectAgentGetOverviewInput.Type;
 
 export const ProjectAgentSummary = Schema.Struct({
+  agentKind: Schema.optional(ProjectAgentKind),
   projectId: ProjectId,
   configured: Schema.Boolean,
   coordinatorName: Schema.NullOr(TrimmedNonEmptyString.check(Schema.isMaxLength(160))),
@@ -500,7 +505,11 @@ export const ProjectAgentListSummariesResult = Schema.Struct({
 });
 export type ProjectAgentListSummariesResult = typeof ProjectAgentListSummariesResult.Type;
 
+export const ProjectAgentUserLocale = Schema.Literals(["en", "zh-CN"]);
+export type ProjectAgentUserLocale = typeof ProjectAgentUserLocale.Type;
+
 export const ProjectAgentConfigureInput = Schema.Struct({
+  agentKind: Schema.optional(ProjectAgentKind),
   requestId: ProjectAgentRequestId,
   projectId: ProjectId,
   coordinatorName: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(160))),
@@ -525,6 +534,8 @@ export const ProjectAgentConfigureInput = Schema.Struct({
   ),
   autoMemoryEnabled: Schema.optional(Schema.Boolean),
   userDisplayName: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(120))),
+  /** The language of the hub's first message. Read only when that message is created. */
+  userLocale: Schema.optional(ProjectAgentUserLocale),
   libraryPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   libraryRemoteUrl: Schema.optional(Schema.NullOr(LibraryRemoteUrl)),
   libraryPushOnChange: Schema.optional(Schema.Boolean),

@@ -4,15 +4,18 @@ import {
   type GitBranch,
   type ProviderInteractionMode,
   type ProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { DEFAULT_PROVIDER_ORDER } from "./providerOrdering";
 import {
   BUILT_IN_COMPOSER_SLASH_COMMANDS,
   isBuiltInComposerSlashCommandName,
   normalizeComposerSlashCommandName,
   type BuiltInComposerSlashCommand,
-} from "@synara/shared/composerSlashCommands";
-import { rankProviderDiscoveryItems } from "./lib/providerDiscovery";
+} from "@moss/shared/composerSlashCommands";
+import {
+  rankProviderDiscoveryItems,
+  type ProviderDiscoverySearchField,
+} from "./lib/providerDiscovery";
 
 export { BUILT_IN_COMPOSER_SLASH_COMMANDS };
 
@@ -307,20 +310,34 @@ export function parseComposerSlashInvocationForCommands(
   };
 }
 
+export function getComposerSlashCommandDefinition(
+  command: ComposerSlashCommand,
+): ComposerSlashCommandDefinition {
+  return COMPOSER_SLASH_COMMAND_DEFINITIONS[command];
+}
+
+/**
+ * The fields `/` search scores a Moss command on. They use the same scale as provider commands
+ * and skills, so the composer can rank every source in one list.
+ */
+export function composerSlashCommandSearchFields(
+  command: ComposerSlashCommand,
+): ProviderDiscoverySearchField[] {
+  const definition = COMPOSER_SLASH_COMMAND_DEFINITIONS[command];
+  return [
+    { value: command },
+    { value: definition.label.slice(1) },
+    { value: definition.description, weight: 200 },
+  ];
+}
+
 export function filterComposerSlashCommands(
   query: string,
   commands: ReadonlyArray<ComposerSlashCommand> = BUILT_IN_COMPOSER_SLASH_COMMANDS,
 ): ComposerSlashCommandDefinition[] {
-  const matches = rankProviderDiscoveryItems(commands, query, (command) => {
-    const definition = COMPOSER_SLASH_COMMAND_DEFINITIONS[command];
-    return [
-      { value: command },
-      { value: definition.label.slice(1) },
-      { value: definition.description, weight: 200 },
-    ];
-  });
-
-  return matches.map((command) => COMPOSER_SLASH_COMMAND_DEFINITIONS[command]);
+  return rankProviderDiscoveryItems(commands, query, composerSlashCommandSearchFields).map(
+    getComposerSlashCommandDefinition,
+  );
 }
 
 function hasMeaningfulComposerText(prompt: string): boolean {

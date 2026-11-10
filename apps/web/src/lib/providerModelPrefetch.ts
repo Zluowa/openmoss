@@ -12,7 +12,7 @@ import type {
   ProviderStartOptions,
   ServerProviderStatus,
   ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import type { QueryClient } from "@tanstack/react-query";
 
 import {

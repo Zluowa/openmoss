@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 
-import { BROWSER_TOOL_CATALOGUE } from "@synara/shared/browserAutomationCatalogue";
-import { BrowserWebMcpCallInput } from "@synara/contracts";
+import { BROWSER_TOOL_CATALOGUE } from "@moss/shared/browserAutomationCatalogue";
+import { BrowserWebMcpCallInput } from "@moss/contracts";
 import { Schema } from "effect";
 
 import { FALLBACK_OBJECT_DESCRIPTION, sanitizeToolInputSchema } from "./sanitizeToolInputSchema.ts";

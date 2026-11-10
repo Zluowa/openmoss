@@ -11,14 +11,14 @@ import type {
   ServerListProviderUsageResult,
   ServerProviderUsageSnapshot,
   SupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 
-import { PROVIDER_USAGE_PROVIDERS } from "@synara/shared/providerUsage";
+import { PROVIDER_USAGE_PROVIDERS } from "@moss/shared/providerUsage";
 import {
   providerStartOptionsFromInstance,
   resolveProviderInstance,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 
 import { ServerConfig } from "../config";
 import { consumeCodexResetCredit } from "./codexResetCredits";

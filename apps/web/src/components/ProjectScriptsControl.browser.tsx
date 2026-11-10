@@ -4,7 +4,7 @@
 
 import "../index.css";
 
-import { type ProjectScript, type ResolvedKeybindingsConfig } from "@synara/contracts";
+import { type ProjectScript, type ResolvedKeybindingsConfig } from "@moss/contracts";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -16,6 +16,7 @@ const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 async function mountProjectScriptsControl(props?: {
   scripts?: ProjectScript[];
   preferredScriptId?: string | null;
+  displayMode?: "toolbar" | "panel";
 }) {
   const onRunScript = vi.fn();
   const onAddScript = vi.fn<(input: NewProjectScriptInput) => void>();
@@ -28,6 +29,7 @@ async function mountProjectScriptsControl(props?: {
       scripts={props?.scripts ?? []}
       keybindings={EMPTY_KEYBINDINGS}
       preferredScriptId={props?.preferredScriptId ?? null}
+      {...(props?.displayMode ? { displayMode: props.displayMode } : {})}
       onRunScript={onRunScript}
       onAddScript={onAddScript}
       onUpdateScript={onUpdateScript}
@@ -85,6 +87,30 @@ describe("ProjectScriptsControl", () => {
 
     await page.getByLabelText("Script actions").click();
     await expect.poll(() => document.body.textContent).toContain("Setup (setup)");
+    await expect.poll(() => document.body.textContent).toContain("Add action");
+  });
+
+  it("renders the summary card rows: add a script first, then run the preferred one", async () => {
+    {
+      await using _ = await mountProjectScriptsControl({ displayMode: "panel" });
+      await page.getByRole("button", { name: "Add project script", exact: true }).click();
+      await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull();
+    }
+    document.body.innerHTML = "";
+    const dev: ProjectScript = {
+      id: "dev",
+      name: "Dev",
+      command: "bun dev",
+      icon: "play",
+      runOnWorktreeCreate: false,
+    };
+    await using control = await mountProjectScriptsControl({
+      displayMode: "panel",
+      scripts: [dev],
+    });
+    await page.getByRole("button", { name: "Run Dev", exact: true }).click();
+    expect(control.onRunScript).toHaveBeenCalledWith(dev);
+    await page.getByRole("button", { name: "Script actions", exact: true }).click();
     await expect.poll(() => document.body.textContent).toContain("Add action");
   });
 });

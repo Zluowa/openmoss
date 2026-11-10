@@ -3,7 +3,7 @@
 
 import "../index.css";
 
-import type { ProviderAppInfo } from "@synara/contracts";
+import type { ProviderAppInfo } from "@moss/contracts";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -226,7 +226,8 @@ describe("PluginManagementPanel authoritative tabs", () => {
       const listBox = list.getBoundingClientRect();
       expect(contentBox.width).toBeCloseTo(768, 3);
       expect(headingBox.top).toBeCloseTo(20, 3);
-      expect(headingStyle.fontSize).toBe("20px");
+      // The comfortable title role (22px at base 14).
+      expect(headingStyle.fontSize).toBe("22px");
       expect(headingStyle.fontWeight).toBe("535");
       expect(firstTabBox.height).toBeCloseTo(28, 3);
       expect(searchBox.width).toBeCloseTo(180, 3);

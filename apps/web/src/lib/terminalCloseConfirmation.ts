@@ -3,7 +3,7 @@
 // Layer: UI logic helper
 // Depends on: Native dialog contract from the app shell.
 
-import type { NativeApi } from "@synara/contracts";
+import type { NativeApi } from "@moss/contracts";
 
 import type { MossLocaleCode } from "~/appSettings";
 

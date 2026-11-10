@@ -10,7 +10,7 @@ import {
   type MossCloudAccountId,
   type MossCloudAccountState,
   type MossCloudEmail,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,

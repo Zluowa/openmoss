@@ -1,4 +1,4 @@
-import type { ServerProviderStatus } from "@synara/contracts";
+import type { ServerProviderStatus } from "@moss/contracts";
 import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -192,7 +192,7 @@ describe("ChatComposerSendButton", () => {
       },
       provider: "claudeAgent" as const,
       reason: "Claude Work is not authenticated yet.",
-      expected: "Claude Work 尚未登录。请打开服务商设置并登录。",
+      expected: "Claude Work 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。",
     },
     {
       name: "managed runtime failure",
@@ -605,6 +605,6 @@ describe("runChatProviderSendPreflight", () => {
         status: unauthenticated,
         unavailableReason: "Claude Work is not authenticated yet.",
       }),
-    ).toBe("Claude Work 尚未登录。请打开服务商设置并登录。");
+    ).toBe("Claude Work 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。");
   });
 });

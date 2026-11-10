@@ -7,8 +7,8 @@ import { spawnSync } from "node:child_process";
 import * as Crypto from "node:crypto";
 import * as Path from "node:path";
 
-export const BUNDLED_CLAUDE_AGENT_SDK_VERSION = "0.3.285" as const;
-export const BUNDLED_CLAUDE_CODE_VERSION = "2.1.285" as const;
+export const BUNDLED_CLAUDE_AGENT_SDK_VERSION = "0.3.318" as const;
+export const BUNDLED_CLAUDE_CODE_VERSION = "2.1.318" as const;
 export const BUNDLED_CLAUDE_RUNTIME_DIR = "apps/desktop/claude-runtime";
 const BUNDLED_CLAUDE_VERSION_ARGS = ["--version"] as const;
 const MACOS_ARCH_COMMAND = "/usr/bin/arch";

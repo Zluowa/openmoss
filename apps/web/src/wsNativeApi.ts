@@ -7,14 +7,10 @@ import {
   type AuthBearerBootstrapResult,
   type AuthBootstrapInput,
   type AuthBootstrapResult,
-  type AuthClientSession,
   type AuthCreatePairingCredentialInput,
   type AuthLogoutResult,
-  type AuthPairingCredentialResult,
-  type AuthPairingLink,
   type AuthRevokeClientSessionInput,
   type AuthRevokePairingLinkInput,
-  type AuthSessionState,
   type AuthWebSocketTokenResult,
   type ExternalMcpCreateIntegrationInput,
   type ExternalMcpCreateIntegrationResult,
@@ -23,6 +19,9 @@ import {
   type ExternalMcpRevokeIntegrationInput,
   type McpConnectorConnectInput,
   type McpConnectorDisconnectInput,
+  type ProviderListPluginsResult,
+  type ProviderListSkillsResult,
+  type ProviderReadPluginResult,
   type ThreadId,
   type ThreadBrowserState,
   type GitActionProgressEvent,
@@ -34,7 +33,6 @@ import {
   type ProjectDevServerEvent,
   type ServerProviderStatusesUpdatedPayload,
   type ServerKeepAwakeUpdatedPayload,
-  type ServerLifecycleStreamEvent,
   type ServerSettingsUpdatedPayload,
   type MossNormalizedSessionEvent,
   type RealtimeVoiceEvent,
@@ -60,14 +58,30 @@ import {
   type ComputerEvent,
   type DialogsPickFolderResult,
   GUEST_SHARE_WS_METHODS,
+  PAGE_TYPES_WS_METHODS,
+  PAGE_SHARING_WS_METHODS,
+  type PageShareActivityInput,
+  type PageShareAppPublicationsInput,
+  type PageShareAppPublicationsResult,
+  type PageShareActivityResult,
+  type PageShareGetInput,
+  type PageShareMutateInput,
+  type PageShareReplyInput,
+  type PageShareState,
+  type PageSiteForPageInput,
+  type PageSiteForPageResult,
+  type PageSiteMutateInput,
+  type PageSiteMutateResult,
+  type PageSitesListInput,
+  type PageSitesListResult,
   type GuestShareCloseInput,
   type GuestShareCreateInput,
   type GuestShareCreateResult,
   type GuestShareOwnerEvent,
   type GuestShareResolveMessageInput,
-} from "@synara/contracts";
-import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@synara/shared/binaryTransfer";
-import { NEXT_MESSAGE_PREDICTION_TIMEOUT_MS } from "@synara/shared/nextMessagePrediction";
+} from "@moss/contracts";
+import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@moss/shared/binaryTransfer";
+import { NEXT_MESSAGE_PREDICTION_TIMEOUT_MS } from "@moss/shared/nextMessagePrediction";
 import { Schema } from "effect";
 
 import { showConfirmDialogFallback } from "./confirmDialogFallback";
@@ -79,6 +93,12 @@ import { isMacNavigatorPlatform } from "./lib/utils";
 import { WsTransport, type WsThreadStreamFailure, type WsShellStreamFailure } from "./wsTransport";
 import { emitWsCompatibilityIssue, emitWsTransportState } from "./wsTransportEvents";
 import { resolveWsHttpUrl } from "./lib/wsHttpUrl";
+import {
+  localizeMossMediaPluginDetail,
+  localizeMossMediaPluginsResult,
+  localizeMossMediaSkillsResult,
+} from "./lib/mossMediaPluginPresentation";
+import { documentMossLocale } from "./uiLocale";
 
 export type { WsThreadStreamFailure } from "./wsTransport";
 
@@ -86,6 +106,7 @@ const MOSS_ENTERPRISE_KEY_STATE_RPC_TIMEOUT_MS = 8_000;
 // Sign-in verifies the key against the mainland gateway and provisions every
 // managed engine before it resolves.
 const MOSS_ENTERPRISE_KEY_SIGN_IN_RPC_TIMEOUT_MS = 30_000;
+const PROJECT_IMPORT_SCAN_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * Owner side of "share with guest" (`guestShare.*` RPCs). The share lives on the server
@@ -100,8 +121,26 @@ export interface GuestShareOwnerApi {
   onEvent: (callback: (event: GuestShareOwnerEvent) => void) => () => void;
 }
 
+/**
+ * Owner side of 资料空间 sharing and 站点 (`pageSharing.*` RPCs). Like guest shares, links reach
+ * guests through the share relay, so these are WebSocket-only.
+ */
+export interface PageSharingOwnerApi {
+  appPublications: (
+    input: PageShareAppPublicationsInput,
+  ) => Promise<PageShareAppPublicationsResult>;
+  get: (input: PageShareGetInput) => Promise<PageShareState>;
+  mutate: (input: PageShareMutateInput) => Promise<PageShareState>;
+  activity: (input: PageShareActivityInput) => Promise<PageShareActivityResult>;
+  reply: (input: PageShareReplyInput) => Promise<PageShareActivityResult>;
+  sitesList: (input: PageSitesListInput) => Promise<PageSitesListResult>;
+  siteForPage: (input: PageSiteForPageInput) => Promise<PageSiteForPageResult>;
+  siteMutate: (input: PageSiteMutateInput) => Promise<PageSiteMutateResult>;
+}
+
 export interface WsNativeApi extends NativeApi {
   guestShare: GuestShareOwnerApi;
+  pageSharing: PageSharingOwnerApi;
 }
 
 let instance: { api: WsNativeApi; transport: WsTransport } | null = null;
@@ -174,7 +213,6 @@ const welcomeListeners = createListenerRegistry<WsWelcomePayload>();
 const serverConfigUpdatedListeners = createListenerRegistry<ServerConfigUpdatedPayload>();
 const serverProviderStatusesUpdatedListeners =
   createListenerRegistry<ServerProviderStatusesUpdatedPayload>();
-const serverMaintenanceUpdatedListeners = createListenerRegistry<ServerLifecycleStreamEvent>();
 const serverSettingsUpdatedListeners = createListenerRegistry<ServerSettingsUpdatedPayload>();
 const serverKeepAwakeUpdatedListeners = createListenerRegistry<ServerKeepAwakeUpdatedPayload>();
 const gitActionProgressListeners = createListenerRegistry<GitActionProgressEvent>();
@@ -217,7 +255,6 @@ function clearWsNativeApiListeners(): void {
   welcomeListeners.clear();
   serverConfigUpdatedListeners.clear();
   serverProviderStatusesUpdatedListeners.clear();
-  serverMaintenanceUpdatedListeners.clear();
   serverSettingsUpdatedListeners.clear();
   serverKeepAwakeUpdatedListeners.clear();
   gitActionProgressListeners.clear();
@@ -268,7 +305,7 @@ async function requestAuthJson<T>(
   } = {},
 ): Promise<T> {
   const hasBody = options.body !== undefined;
-  const response = await fetch(path, {
+  const response = await fetch(resolveWsHttpUrl(path, { includeLegacyToken: false }), {
     method: options.method ?? "GET",
     credentials: "same-origin",
     ...(hasBody
@@ -319,21 +356,40 @@ async function requestVoiceTranscriptionUpload(
   }
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok || !Schema.is(ServerVoiceTranscriptionResult)(payload)) {
+    const record =
+      payload !== null && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Readonly<Record<string, unknown>>)
+        : null;
     const message =
-      payload !== null &&
-      typeof payload === "object" &&
-      "error" in payload &&
-      typeof payload.error === "string"
-        ? payload.error
+      typeof record?.error === "string"
+        ? record.error
         : response.ok
           ? "The voice transcription service returned an invalid response. Please try again."
           : `Voice transcription failed with status ${response.status}.`;
-    throw new Error(message);
+    // The stable code is what the composer words its toast from (in the UI language).
+    throw new VoiceTranscriptionRequestError(
+      message,
+      typeof record?.code === "string"
+        ? record.code
+        : response.ok
+          ? "VOICE_TRANSCRIPTION_UNAVAILABLE"
+          : null,
+    );
   }
   return payload;
 }
 
 class VoiceUploadRouteUnavailableError extends Error {}
+
+class VoiceTranscriptionRequestError extends Error {
+  readonly code: string | undefined;
+
+  constructor(message: string, code: string | null) {
+    super(message);
+    this.name = "VoiceTranscriptionRequestError";
+    if (code) this.code = code;
+  }
+}
 
 function createFallbackTab(url = "about:blank") {
   return {
@@ -444,18 +500,6 @@ export function onServerProviderStatusesUpdated(
   });
 }
 
-export function onServerMaintenanceUpdated(
-  listener: (payload: ServerLifecycleStreamEvent) => void,
-): () => void {
-  const latestMaintenance =
-    instance?.transport.getLatestPush(WS_CHANNELS.serverMaintenanceUpdated)?.data ?? null;
-  return subscribeWithReplay({
-    registry: serverMaintenanceUpdatedListeners,
-    listener,
-    latest: latestMaintenance,
-  });
-}
-
 export function onServerSettingsUpdated(
   listener: (payload: ServerSettingsUpdatedPayload) => void,
 ): () => void {
@@ -501,6 +545,29 @@ export function onShellStreamFailure(
   return () => void unsubscribe();
 }
 
+/** Resolves null as soon as `signal` aborts; a later answer from `pending` is dropped. */
+function settleNullOnAbort<T>(
+  pending: Promise<T | null>,
+  signal: AbortSignal | undefined,
+): Promise<T | null> {
+  if (!signal) return pending;
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve(null);
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+    pending.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function createWsNativeApi(): WsNativeApi {
   if (instance) {
     if (instance.transport.getState() !== "disposed") {
@@ -528,9 +595,6 @@ export function createWsNativeApi(): WsNativeApi {
   });
   transport.subscribe(WS_CHANNELS.serverProviderStatusesUpdated, (message) => {
     serverProviderStatusesUpdatedListeners.emit(message.data);
-  });
-  transport.subscribe(WS_CHANNELS.serverMaintenanceUpdated, (message) => {
-    serverMaintenanceUpdatedListeners.emit(message.data);
   });
   transport.subscribe(WS_CHANNELS.serverSettingsUpdated, (message) => {
     serverSettingsUpdatedListeners.emit(message.data);
@@ -585,22 +649,33 @@ export function createWsNativeApi(): WsNativeApi {
   });
   const api: WsNativeApi = {
     dialogs: {
-      pickFolder: async () => {
+      pickFolder: async (options) => {
         if (window.desktopBridge) {
-          return window.desktopBridge.pickFolder();
+          // Electron's dialog API cannot close a native picker that is already
+          // open, so a cancelled request settles as "no folder" right away and
+          // the picker's later answer is dropped.
+          return settleNullOnAbort(window.desktopBridge.pickFolder(), options?.signal);
         }
         // Browser session: the server raises the OS folder picker on its host
-        // (dialogs.pickFolder). Older servers and pickerless platforms answer
-        // null, which callers already treat as "cancelled / type the path".
+        // (dialogs.pickFolder). A person may keep it open as long as they
+        // like, so the request has no deadline; only the caller's signal
+        // cancels it. A picker that could not open answers null unless the
+        // caller asked to hear about it.
+        let result: DialogsPickFolderResult;
         try {
-          const result = await transport.request<DialogsPickFolderResult>(
+          result = await transport.request<DialogsPickFolderResult>(
             WS_METHODS.dialogsPickFolder,
             {},
+            { timeoutMs: null, ...(options?.signal ? { signal: options.signal } : {}) },
           );
-          return result.path;
-        } catch {
-          return null;
+        } catch (error) {
+          if (!options?.rejectWhenUnavailable || options.signal?.aborted) return null;
+          throw error;
         }
+        if (result.unavailable === true && options?.rejectWhenUnavailable) {
+          throw new Error("Could not open the folder picker.");
+        }
+        return result.path;
       },
       saveFile: async (input) => {
         if (window.desktopBridge?.saveFile) {
@@ -656,6 +731,9 @@ export function createWsNativeApi(): WsNativeApi {
       runDevServer: (input) => transport.request(WS_METHODS.projectsRunDevServer, input),
       stopDevServer: (input) => transport.request(WS_METHODS.projectsStopDevServer, input),
       listDevServers: () => transport.request(WS_METHODS.projectsListDevServers),
+      readDevServerLog: (input) => transport.request(WS_METHODS.projectsReadDevServerLog, input),
+      readLaunchConfigurations: (input) =>
+        transport.request(WS_METHODS.projectsReadLaunchConfigurations, input),
       onDevServerEvent: projectDevServerEventListeners.subscribe,
       provisionFromGitHub: (input, options) =>
         transport.request(WS_METHODS.projectsProvisionFromGitHub, input, {
@@ -738,6 +816,7 @@ export function createWsNativeApi(): WsNativeApi {
       onWorktreeSetupProgress: gitWorktreeSetupProgressListeners.subscribe,
     },
     githubInbox: {
+      connection: (input) => transport.request(WS_METHODS.githubInboxConnection, input),
       list: (input) => transport.request(WS_METHODS.githubInboxList, input),
       issueDetail: (input) => transport.request(WS_METHODS.githubInboxIssueDetail, input),
       issueComment: (input) => transport.request(WS_METHODS.githubInboxIssueComment, input),
@@ -776,7 +855,7 @@ export function createWsNativeApi(): WsNativeApi {
       syncWorkspaceImport: (input) =>
         transport.request(WS_METHODS.serverWorkspaceImportSync, input),
       updateSettings: (input) => transport.request(WS_METHODS.serverUpdateSettings, input),
-      getAuthSession: () => requestAuthJson<AuthSessionState>("/api/auth/session"),
+      getAuthSession: () => transport.request(WS_METHODS.serverGetAuthSession),
       bootstrapAuth: (input: AuthBootstrapInput) =>
         requestAuthJson<AuthBootstrapResult>("/api/auth/bootstrap", {
           method: "POST",
@@ -790,27 +869,14 @@ export function createWsNativeApi(): WsNativeApi {
       issueAuthWebSocketToken: () =>
         requestAuthJson<AuthWebSocketTokenResult>("/api/auth/ws-token", { method: "POST" }),
       createAuthPairingToken: (input?: AuthCreatePairingCredentialInput) =>
-        requestAuthJson<AuthPairingCredentialResult>("/api/auth/pairing-token", {
-          method: "POST",
-          ...(input ? { body: input } : {}),
-        }),
-      listAuthPairingLinks: () =>
-        requestAuthJson<ReadonlyArray<AuthPairingLink>>("/api/auth/pairing-links"),
+        transport.request(WS_METHODS.serverCreateAuthPairingToken, input ?? {}),
+      listAuthPairingLinks: () => transport.request(WS_METHODS.serverListAuthPairingLinks),
       revokeAuthPairingLink: (input: AuthRevokePairingLinkInput) =>
-        requestAuthJson<{ revoked: boolean }>("/api/auth/pairing-links/revoke", {
-          method: "POST",
-          body: input,
-        }),
-      listAuthClients: () => requestAuthJson<ReadonlyArray<AuthClientSession>>("/api/auth/clients"),
+        transport.request(WS_METHODS.serverRevokeAuthPairingLink, input),
+      listAuthClients: () => transport.request(WS_METHODS.serverListAuthClients),
       revokeAuthClient: (input: AuthRevokeClientSessionInput) =>
-        requestAuthJson<{ revoked: boolean }>("/api/auth/clients/revoke", {
-          method: "POST",
-          body: input,
-        }),
-      revokeOtherAuthClients: () =>
-        requestAuthJson<{ revokedCount: number }>("/api/auth/clients/revoke-others", {
-          method: "POST",
-        }),
+        transport.request(WS_METHODS.serverRevokeAuthClient, input),
+      revokeOtherAuthClients: () => transport.request(WS_METHODS.serverRevokeOtherAuthClients),
       logoutAuthSession: async () => {
         const result = await requestAuthJson<AuthLogoutResult>("/api/auth/logout", {
           method: "POST",
@@ -832,6 +898,10 @@ export function createWsNativeApi(): WsNativeApi {
       disconnectMcpConnector: (input: McpConnectorDisconnectInput) =>
         transport.request(WS_METHODS.serverDisconnectMcpConnector, input),
       getMcpConnectorSetup: () => transport.request(WS_METHODS.serverGetMcpConnectorSetup),
+      listMossServicePlugins: () => transport.request(WS_METHODS.serverListMossServicePlugins),
+      setMossServicePluginInstalled: (input) =>
+        transport.request(WS_METHODS.serverSetMossServicePluginInstalled, input),
+      getHtmlRenderMapConfig: () => transport.request(WS_METHODS.serverGetHtmlRenderMapConfig),
       getMossAppsStatus: () => transport.request(WS_METHODS.mossAppsGetStatus),
       listMossAppToolkits: (input) => transport.request(WS_METHODS.mossAppsListToolkits, input),
       listMossAppConnections: () => transport.request(WS_METHODS.mossAppsListConnections),
@@ -851,6 +921,10 @@ export function createWsNativeApi(): WsNativeApi {
       // withProviderUpdateTimeout, which owns the client-side watchdog.
       updateProvider: (input) =>
         transport.request(WS_METHODS.serverUpdateProvider, input, { timeoutMs: null }),
+      installProvider: (input) =>
+        transport.request(WS_METHODS.serverInstallProvider, input, { timeoutMs: null }),
+      manageProviderInstallation: (input) =>
+        transport.request(WS_METHODS.serverManageProviderInstallation, input, { timeoutMs: null }),
       listWorktrees: () => transport.request(WS_METHODS.serverListWorktrees),
       listLocalServers: () => transport.request(WS_METHODS.serverListLocalServers),
       stopLocalServer: (input) => transport.request(WS_METHODS.serverStopLocalServer, input),
@@ -860,6 +934,9 @@ export function createWsNativeApi(): WsNativeApi {
       consumeCodexResetCredit: (input) =>
         transport.request(WS_METHODS.serverConsumeCodexResetCredit, input),
       getDiagnostics: () => transport.request(WS_METHODS.serverGetDiagnostics),
+      prepareDevsReport: (input) => transport.request(WS_METHODS.serverPrepareDevsReport, input),
+      submitDevsReport: (input) => transport.request(WS_METHODS.serverSubmitDevsReport, input),
+      listDevsReports: (input) => transport.request(WS_METHODS.serverListDevsReports, input),
       readThreadDiagnostics: (input) =>
         transport.request(WS_METHODS.serverReadThreadDiagnostics, input),
       generateThreadRecap: (input) =>
@@ -961,11 +1038,22 @@ export function createWsNativeApi(): WsNativeApi {
       compactThread: (input) =>
         transport.request(WS_METHODS.providerCompactThread, input, { timeoutMs: null }),
       listCommands: (input) => transport.request(WS_METHODS.providerListCommands, input),
-      listSkills: (input) => transport.request(WS_METHODS.providerListSkills, input),
+      // Moss's own media plugins and skills arrive with English manifest copy;
+      // show them in the UI language like the rest of Moss.
+      listSkills: (input) =>
+        transport
+          .request<ProviderListSkillsResult>(WS_METHODS.providerListSkills, input)
+          .then((result) => localizeMossMediaSkillsResult(result, documentMossLocale())),
       readSkill: (input) => transport.request(WS_METHODS.providerReadSkill, input),
       listSkillsCatalog: (input) => transport.request(WS_METHODS.providerListSkillsCatalog, input),
-      listPlugins: (input) => transport.request(WS_METHODS.providerListPlugins, input),
-      readPlugin: (input) => transport.request(WS_METHODS.providerReadPlugin, input),
+      listPlugins: (input) =>
+        transport
+          .request<ProviderListPluginsResult>(WS_METHODS.providerListPlugins, input)
+          .then((result) => localizeMossMediaPluginsResult(result, documentMossLocale())),
+      readPlugin: (input) =>
+        transport
+          .request<ProviderReadPluginResult>(WS_METHODS.providerReadPlugin, input)
+          .then((result) => localizeMossMediaPluginDetail(result, documentMossLocale())),
       addMarketplace: (input) => transport.request(WS_METHODS.providerAddMarketplace, input),
       removeMarketplace: (input) => transport.request(WS_METHODS.providerRemoveMarketplace, input),
       upgradeMarketplace: (input) =>
@@ -1026,9 +1114,14 @@ export function createWsNativeApi(): WsNativeApi {
         });
       },
       importThread: (input) => transport.request(ORCHESTRATION_WS_METHODS.importThread, input),
+      // Scanning every agent's history and copying one large conversation can each take
+      // well over the default minute; the import panel shows progress and offers Stop.
       listProjectImports: (input) =>
-        transport.request(ORCHESTRATION_WS_METHODS.listProjectImports, input),
-      importProject: (input) => transport.request(ORCHESTRATION_WS_METHODS.importProject, input),
+        transport.request(ORCHESTRATION_WS_METHODS.listProjectImports, input, {
+          timeoutMs: PROJECT_IMPORT_SCAN_TIMEOUT_MS,
+        }),
+      importProject: (input) =>
+        transport.request(ORCHESTRATION_WS_METHODS.importProject, input, { timeoutMs: null }),
       loadProjectImportHistory: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.loadProjectImportHistory, input),
       regenerateThreadTitle: (input) =>
@@ -1083,6 +1176,15 @@ export function createWsNativeApi(): WsNativeApi {
       },
       onShellEvent: orchestrationShellEventListeners.subscribe,
       onThreadEvent: orchestrationThreadEventListeners.subscribe,
+    },
+    mossbotRooms: {
+      update: (input) => transport.request(WS_METHODS.mossbotRoomUpdate, input),
+      cancel: (input) => transport.request(WS_METHODS.mossbotRoomCancel, input),
+      list: () => transport.request(WS_METHODS.mossbotRoomList, {}),
+      create: (input) => transport.request(WS_METHODS.mossbotRoomCreate, input),
+      get: (input) => transport.request(WS_METHODS.mossbotRoomGet, input),
+      send: (input) => transport.request(WS_METHODS.mossbotRoomSend, input),
+      delete: (input) => transport.request(WS_METHODS.mossbotRoomDelete, input),
     },
     projectAgent: {
       getOverview: (input) => transport.request(WS_METHODS.projectAgentGetOverview, input),
@@ -1168,11 +1270,28 @@ export function createWsNativeApi(): WsNativeApi {
     },
     pages: {
       spaces: (input) => transport.request(WS_METHODS.pagesSpaces, input),
+      spaceSync: (input) => transport.request(WS_METHODS.pageSpaceSync, input),
+      accountRecovery: (input) => transport.request(WS_METHODS.pageAccountRecovery, input),
       list: (input) => transport.request(WS_METHODS.pagesList, input),
       read: (input) => transport.request(WS_METHODS.pagesRead, input),
       versions: (input) => transport.request(WS_METHODS.pagesVersions, input),
       comments: (input) => transport.request(WS_METHODS.pagesComments, input),
       mutate: (input) => transport.request(WS_METHODS.pagesMutate, input),
+      realtimeToken: (input) => transport.request(WS_METHODS.pagesRealtimeToken, input),
+      drafts: (input) => transport.request(WS_METHODS.pagesDrafts, input),
+      draftsMutate: (input) => transport.request(WS_METHODS.pagesDraftsMutate, input),
+      outputs: (input) => transport.request(WS_METHODS.pagesOutputs, input),
+      outputState: (input) => transport.request(WS_METHODS.pagesOutputState, input),
+    },
+    pageTypes: {
+      read: (input) => transport.request(PAGE_TYPES_WS_METHODS.read, input),
+      create: (input) => transport.request(PAGE_TYPES_WS_METHODS.create, input),
+      save: (input) => transport.request(PAGE_TYPES_WS_METHODS.save, input),
+      templates: {
+        list: (input) => transport.request(PAGE_TYPES_WS_METHODS.templatesList, input),
+        save: (input) => transport.request(PAGE_TYPES_WS_METHODS.templatesSave, input),
+        delete: (input) => transport.request(PAGE_TYPES_WS_METHODS.templatesDelete, input),
+      },
     },
     library: {
       list: (input) => transport.request(WS_METHODS.libraryList, input ?? {}),
@@ -1216,6 +1335,25 @@ export function createWsNativeApi(): WsNativeApi {
       scrollToElement: (input) =>
         transport.request(DEVICE_WS_METHODS.scrollToElement, input, { timeoutMs: null }),
       onEvent: deviceEventListeners.subscribe,
+    },
+    computerHistory: {
+      getState: (input = {}) => transport.request(WS_METHODS.computerHistoryGetState, input),
+      getSettings: (input = {}) => transport.request(WS_METHODS.computerHistoryGetSettings, input),
+      updateSettings: (input) => transport.request(WS_METHODS.computerHistoryUpdateSettings, input),
+      listApplications: () => transport.request(WS_METHODS.computerHistoryListApplications, {}),
+      resolveApplications: (input) =>
+        transport.request(WS_METHODS.computerHistoryResolveApplications, input),
+      setEnabled: (input) => transport.request(WS_METHODS.computerHistorySetEnabled, input),
+      retryActivation: () => transport.request(WS_METHODS.computerHistoryRetryActivation, {}),
+      pause: () => transport.request(WS_METHODS.computerHistoryPause, {}),
+      resume: () => transport.request(WS_METHODS.computerHistoryResume, {}),
+      listHistory: (input = {}) => transport.request(WS_METHODS.computerHistoryListHistory, input),
+      listHistorySuggestions: (input = {}) =>
+        transport.request(WS_METHODS.computerHistoryListSuggestions, input),
+      listHistorySummaryIntervals: (input) =>
+        transport.request(WS_METHODS.computerHistoryListSummaryIntervals, input),
+      revealInFinder: (input) => transport.request(WS_METHODS.computerHistoryRevealInFinder, input),
+      clearHistory: (input) => transport.request(WS_METHODS.computerHistoryClearHistory, input),
     },
     computer: {
       getStatus: (input) => transport.request(COMPUTER_WS_METHODS.getStatus, input),
@@ -1432,6 +1570,11 @@ export function createWsNativeApi(): WsNativeApi {
         }
         return () => {};
       },
+      // Desktop only; read through on each access so a bridge that predates the
+      // panel methods simply leaves them absent.
+      get panel() {
+        return window.desktopBridge?.browser.panel;
+      },
     },
     guestShare: {
       // Creating a link registers the share with the relay over the network.
@@ -1441,6 +1584,21 @@ export function createWsNativeApi(): WsNativeApi {
       resolveMessage: (input) =>
         transport.request<void>(GUEST_SHARE_WS_METHODS.resolveMessage, input),
       onEvent: (callback) => transport.subscribeGuestShareEvents(callback),
+    },
+    pageSharing: {
+      appPublications: (input) => transport.request(PAGE_SHARING_WS_METHODS.appPublications, input),
+      // Reads may register the relay publisher first, which waits on the network.
+      get: (input) => transport.request(PAGE_SHARING_WS_METHODS.get, input, { timeoutMs: null }),
+      mutate: (input) =>
+        transport.request(PAGE_SHARING_WS_METHODS.mutate, input, { timeoutMs: null }),
+      activity: (input) => transport.request(PAGE_SHARING_WS_METHODS.activity, input),
+      reply: (input) => transport.request(PAGE_SHARING_WS_METHODS.reply, input),
+      sitesList: (input) =>
+        transport.request(PAGE_SHARING_WS_METHODS.sitesList, input, { timeoutMs: null }),
+      siteForPage: (input) =>
+        transport.request(PAGE_SHARING_WS_METHODS.siteForPage, input, { timeoutMs: null }),
+      siteMutate: (input) =>
+        transport.request(PAGE_SHARING_WS_METHODS.siteMutate, input, { timeoutMs: null }),
     },
   };
 

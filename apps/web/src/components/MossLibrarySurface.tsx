@@ -38,6 +38,8 @@ import {
   XIcon,
 } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
+import { describeLocalizedError } from "~/lib/localizedError";
 import { downloadMossLibraryItem, shareMossLibraryImage } from "~/lib/mossLibraryAssetActions";
 import { readMossCanvasSelectionFile, type MossCanvasBinding } from "~/lib/mossCanvasClient";
 import type { MossCanvasSelection } from "~/lib/mossCanvasSelection";
@@ -45,15 +47,14 @@ import { MossCanvasWebSurface } from "./MossCanvasWebSurface";
 import { Button } from "./ui/button";
 
 import {
-  MOSS_LIBRARY_DROP_PROMPT_ZH,
   MOSS_LIBRARY_NEW_ACTIONS,
   MOSS_LIBRARY_SECTIONS,
   MOSS_LIBRARY_SORT_OPTIONS,
-  MOSS_LIBRARY_TRASH_SUBTITLE_ZH,
   assignMossLibraryItemsToFolder,
   buildMossLibraryContextMenu,
   createMossLibraryFolder,
   filterMossLibraryItems,
+  formatMossLibraryItemSubtitle,
   formatMossLibraryRelativeTime,
   ingestMossLibraryItemFromCliFile,
   mossLibraryEmptyHeightsForSection,
@@ -61,7 +62,6 @@ import {
   mossLibraryItemsAllFavorite,
   mossLibraryRenameKeepsExtension,
   mossLibrarySectionMatchesQuery,
-  mossLibrarySelectionSummaryZh,
   normalizeMossLibraryQuery,
   partitionMossLibraryAllSection,
   removeMossLibraryItemsById,
@@ -69,7 +69,7 @@ import {
   resolveMossLibrarySection,
   resolveMossLibrarySort,
   setMossLibraryItemsFavorite,
-  sourceCliLabelZh,
+  mossLibrarySourceCliName,
   toggleMossLibrarySelectedId,
   type MossLibraryContextActionId,
   type MossLibraryItem,
@@ -143,20 +143,21 @@ function LibraryCardThumb({
 }
 
 function LibraryCardMeta({ item, now }: { readonly item: MossLibraryItem; readonly now: number }) {
+  const { format, locale } = useTranslation();
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <span
         data-moss-library-cli-badge={item.sourceCli}
         className="inline-flex items-center rounded-full bg-background/55 px-1.5 py-0.5 text-ui-2xs font-medium text-muted-foreground ring-1 ring-inset ring-border/40"
       >
-        {sourceCliLabelZh(item.sourceCli)}
+        {mossLibrarySourceCliName(item.sourceCli) ?? format("library.source.other", {})}
       </span>
       <span
         data-moss-library-relative-time
         className="text-ui-2xs text-muted-foreground/80"
-        title={new Date(item.updatedAt).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" })}
+        title={new Date(item.updatedAt).toLocaleString(locale)}
       >
-        {formatMossLibraryRelativeTime(item.updatedAt, now)}
+        {formatMossLibraryRelativeTime(item.updatedAt, now, format)}
       </span>
     </div>
   );
@@ -173,11 +174,12 @@ function LibraryCardCheck({
   /** List rows render the check inline instead of corner-anchored. */
   readonly inline?: boolean;
 }) {
+  const { format } = useTranslation();
   return (
     <span
       data-moss-library-item-checkbox
       data-state={selected ? "selected" : "unselected"}
-      aria-label={`选择 ${title}`}
+      aria-label={format("library.card.select", { title })}
       className={cn(
         "flex size-5 items-center justify-center rounded-full shadow-sm transition-opacity",
         inline ? "pointer-events-none shrink-0" : "pointer-events-none absolute bottom-2 right-2",
@@ -204,6 +206,7 @@ function LibraryCardTitle({
   onCommitRename,
   onCancelRename,
 }: LibraryCardTitleProps) {
+  const { t } = useTranslation();
   if (!editing) {
     return <p className="truncate text-ui-sm font-medium text-foreground">{item.title}</p>;
   }
@@ -213,7 +216,7 @@ function LibraryCardTitle({
       defaultValue={item.title}
       autoFocus
       data-moss-library-rename-input
-      aria-label="重命名"
+      aria-label={t("library.action.rename")}
       className="w-full rounded-md border border-border/70 bg-background px-1.5 py-0.5 text-ui-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
@@ -247,6 +250,7 @@ function LibrarySkeletonMasonry({
 }: {
   readonly tiles: readonly { key: string; height: number }[];
 }) {
+  const { t } = useTranslation();
   return (
     <div
       data-moss-library-skeleton
@@ -254,7 +258,7 @@ function LibrarySkeletonMasonry({
       data-moss-library-masonry
       className={LIBRARY_MASONRY_COLUMNS_CLASS}
       aria-busy="true"
-      aria-label="资料库加载中"
+      aria-label={t("library.loading")}
     >
       {tiles.map((tile) => (
         <div key={tile.key} className={LIBRARY_TILE_CLASS} style={{ height: tile.height }} />
@@ -265,16 +269,17 @@ function LibrarySkeletonMasonry({
 
 /** Codex list-mode first-load skeleton: 名称 / 最近活动时间 column rows. */
 function LibrarySkeletonList() {
+  const { t } = useTranslation();
   return (
     <div
       data-moss-library-skeleton
       data-moss-library-skeleton-view="list"
       aria-busy="true"
-      aria-label="资料库加载中"
+      aria-label={t("library.loading")}
     >
       <div className="flex items-center justify-between px-3 pb-2 text-ui-xs text-muted-foreground">
-        <span>名称</span>
-        <span>最近活动时间</span>
+        <span>{t("library.column.name")}</span>
+        <span>{t("library.column.lastActivity")}</span>
       </div>
       <div className="flex flex-col" data-moss-library-skeleton-rows>
         {Array.from({ length: 10 }, (_, index) => (
@@ -429,6 +434,10 @@ export function MossLibrarySurface({
   const section = resolveMossLibrarySection(sectionId);
   const sort = resolveMossLibrarySort(sortId);
   const normalizedQuery = normalizeMossLibraryQuery(query);
+  const { t, format } = useTranslation();
+  const collectionKey = `${sectionId}:${sortId}:${query}:${folderViewId ?? ""}`;
+  const [pageWindow, setPageWindow] = useState({ key: "", limit: 60 });
+  const renderLimit = pageWindow.key === collectionKey ? pageWindow.limit : 60;
   const now = nowProp ?? clock;
 
   const visibleItems = useMemo(
@@ -578,10 +587,10 @@ export function MossLibrarySurface({
     try {
       const ok = await work;
       if (!isCurrent()) return false;
-      announce(ok ? success : "操作尚未确认，请刷新资料库核对后再试。");
+      announce(ok ? success : t("library.notice.unconfirmed"));
       return ok;
     } catch {
-      announce("操作尚未确认，请刷新资料库核对后再试。");
+      announce(t("library.notice.unconfirmed"));
       return false;
     }
   };
@@ -631,6 +640,7 @@ export function MossLibrarySurface({
   const downloadItems = async (ids: readonly string[]) => {
     let downloaded = 0;
     let skipped = 0;
+    let lastError: unknown = null;
     for (const id of ids) {
       const item = items.find((entry) => entry.id === id);
       if (!item) continue;
@@ -639,17 +649,18 @@ export function MossLibrarySurface({
         await downloadMossLibraryItem(item, isCurrent);
         if (!isCurrent()) return;
         downloaded += 1;
-      } catch {
+      } catch (error) {
         if (!isCurrent()) return;
         skipped += 1;
+        lastError = error;
       }
     }
     if (downloaded > 0 && skipped === 0) {
-      announce(`已开始下载 ${downloaded} 项`);
+      announce(format("library.notice.downloadStarted", { count: downloaded }));
     } else if (downloaded > 0) {
-      announce(`已开始下载 ${downloaded} 项，${skipped} 项未能下载`);
+      announce(format("library.notice.downloadPartial", { count: downloaded, skipped }));
     } else {
-      announce("原文件未能下载，请刷新资料库后重试。");
+      announce(describeLocalizedError(lastError, format, "library.notice.downloadFailed"));
     }
   };
 
@@ -668,13 +679,13 @@ export function MossLibrarySurface({
         : [];
     });
     if (!onStartConversation || selected.length === 0) {
-      announce("此内容暂时无法附加到对话。");
+      announce(t("library.notice.attachFailed"));
       return;
     }
     try {
       await onStartConversation(selected);
-    } catch {
-      announce("对话暂时无法打开，原资料仍保留。");
+    } catch (error) {
+      announce(describeLocalizedError(error, format, "library.notice.chatOpenFailed"));
     }
   };
 
@@ -703,15 +714,15 @@ export function MossLibrarySurface({
     if (folderViewId && removed.has(folderViewId)) setFolderViewId(null);
     if (trashOpen) setTrashOpen(false);
     if (confirmedIds.length !== ids.length) {
-      announce(`已确认处理 ${confirmedIds.length} 项，其余操作尚未确认，请刷新资料库核对。`);
+      announce(format("library.notice.partiallyConfirmed", { count: confirmedIds.length }));
       return;
     }
     announce(
       isLocalMode
-        ? `已删除 ${ids.length} 项`
+        ? format("library.notice.deleted", { count: ids.length })
         : fileIds.length > 0
-          ? `已移至回收站，将在 30 天后永久删除`
-          : `已删除 ${ids.length} 项`,
+          ? t("library.notice.movedToTrash")
+          : format("library.notice.deleted", { count: ids.length }),
     );
   };
 
@@ -720,20 +731,21 @@ export function MossLibrarySurface({
       items.some((item) => item.id === id && item.kind !== "folder"),
     );
     if (ids.length === 0) {
-      announce("请选择文件进行收藏。");
+      announce(t("library.notice.selectToFavorite"));
       return;
     }
     const nextFavorite = !mossLibraryItemsAllFavorite(items, ids);
+    const favoriteNotice = format(
+      nextFavorite ? "library.notice.favorited" : "library.notice.unfavorited",
+      { count: ids.length },
+    );
     if (isLocalMode) {
       commitItems(setMossLibraryItemsFavorite(items, ids, nextFavorite));
     } else {
-      await confirmMutation(
-        favoriteStoreItems(ids, nextFavorite),
-        nextFavorite ? `已收藏 ${ids.length} 项` : `已取消收藏 ${ids.length} 项`,
-      );
+      await confirmMutation(favoriteStoreItems(ids, nextFavorite), favoriteNotice);
       return;
     }
-    announce(nextFavorite ? `已收藏 ${ids.length} 项` : `已取消收藏 ${ids.length} 项`);
+    announce(favoriteNotice);
   };
 
   const assignToFolder = async (selected: readonly string[], folderId: string | null) => {
@@ -741,14 +753,16 @@ export function MossLibrarySurface({
       items.some((item) => item.id === id && item.kind !== "folder"),
     );
     if (ids.length === 0) {
-      announce("请选择文件加入文件夹。");
+      announce(t("library.notice.selectToFile"));
       return;
     }
     if (isLocalMode) {
       commitItems(assignMossLibraryItemsToFolder(items, ids, folderId));
     }
     const folder = folderId ? items.find((item) => item.id === folderId) : null;
-    const message = folder ? `已添加到文件夹「${folder.title}」` : "已移出文件夹";
+    const message = folder
+      ? format("library.notice.addedToFolder", { folder: folder.title })
+      : t("library.notice.removedFromFolder");
     if (isLocalMode) announce(message);
     else await confirmMutation(moveStoreItems(ids, folderId), message);
   };
@@ -759,7 +773,7 @@ export function MossLibrarySurface({
     const title = rawTitle.trim();
     if (!title || title === item.title) return;
     if (item.kind !== "folder" && !mossLibraryRenameKeepsExtension(item.title, title)) {
-      announce("无法更改文件扩展名");
+      announce(t("library.notice.extensionLocked"));
       return;
     }
     if (isLocalMode) {
@@ -768,10 +782,10 @@ export function MossLibrarySurface({
     }
     if (item.kind === "folder") {
       // Server folders live in their own table.
-      void confirmMutation(renameFolderOnServer(item.id, title), "已重命名文件夹");
+      void confirmMutation(renameFolderOnServer(item.id, title), t("library.notice.folderRenamed"));
       return;
     }
-    void confirmMutation(renameStoreItem(item.id, title), "已重命名文件");
+    void confirmMutation(renameStoreItem(item.id, title), t("library.notice.fileRenamed"));
   };
 
   const runContextAction = (actionId: MossLibraryContextActionId) => {
@@ -793,9 +807,9 @@ export function MossLibrarySurface({
       case "share": {
         const selected = items.filter((item) => ids.includes(item.id));
         void shareMossLibraryImage(selected, isCurrent).then(
-          () => announce("图片已复制到剪贴板，可粘贴分享"),
+          () => announce(t("library.notice.imageCopied")),
           (error: unknown) =>
-            announce(error instanceof Error ? error.message : "图片分享失败，请重试。"),
+            announce(describeLocalizedError(error, format, "library.notice.shareFailed")),
         );
         setContextMenu(null);
         break;
@@ -840,29 +854,29 @@ export function MossLibrarySurface({
     }
     if (actionId === "folder") {
       if (isLocalMode) {
-        const folder = createMossLibraryFolder("未命名文件夹", now);
+        const folder = createMossLibraryFolder(t("library.folder.untitled"), now);
         commitItems([folder, ...items]);
         setEditingId(folder.id);
       } else {
         try {
-          const folder = await createFolderOnServer("未命名文件夹");
+          const folder = await createFolderOnServer(t("library.folder.untitled"));
           if (!isCurrent()) return;
           if (!folder) {
-            announce("文件夹尚未确认创建，请刷新资料库核对。");
+            announce(t("library.notice.folderUnconfirmed"));
             return;
           }
           setEditingId(folder.id);
         } catch {
-          announce("文件夹创建失败，请稍后重试。");
+          announce(t("library.notice.folderCreateFailed"));
           return;
         }
       }
       if (section.id !== "all" && section.id !== "folders") setSectionId("folders");
-      announce("已创建文件夹");
+      announce(t("library.notice.folderCreated"));
       return;
     }
     if (!threadId && !prepareThread) {
-      announce("请先打开一个会话，再从其画布选择图片。");
+      announce(t("library.notice.openChatForCanvas"));
       return;
     }
     setCanvasSelection(null);
@@ -876,7 +890,7 @@ export function MossLibrarySurface({
   ) => {
     const assertCurrent = () => {
       if (!isCurrent() || !operationCurrent())
-        throw new DOMException("资料库已切换。", "AbortError");
+        throw new DOMException("The library changed.", "AbortError");
     };
     assertCurrent();
     const MAX_IMPORT_BYTES = 64 * 1024 * 1024;
@@ -897,8 +911,8 @@ export function MossLibrarySurface({
     setSectionId("all");
     announce(
       totalSkipped > 0
-        ? `${total} 个文件已加入资料库，${totalSkipped} 个已跳过`
-        : `${total} 个文件已加入资料库`,
+        ? format("library.notice.importedWithSkipped", { count: total, skipped: totalSkipped })
+        : format("library.notice.imported", { count: total }),
     );
     return result;
   };
@@ -916,14 +930,14 @@ export function MossLibrarySurface({
     setCanvasSaving(true);
     try {
       if (!(await canvasFlush.current?.()) || !current()) {
-        throw new Error("画布或选择尚未确认，请稍后重试。");
+        throw new Error("The canvas or its selection is not confirmed yet.");
       }
       const files: File[] = [];
       for (const item of snapshot.selection.items) {
-        if (!current()) throw new Error("画布选择已变化，请重新确认。");
+        if (!current()) throw new Error("The canvas selection changed.");
         files.push(await readMossCanvasSelectionFile(item, snapshot.binding));
       }
-      if (!current()) throw new Error("画布选择已变化，请重新确认。");
+      if (!current()) throw new Error("The canvas selection changed.");
       const result = await importFilesToLibrary(files, current);
       if (current() && result.imported === files.length && result.skipped === 0) {
         setCanvasOpen(false);
@@ -932,8 +946,8 @@ export function MossLibrarySurface({
     } catch (error) {
       announce(
         error instanceof Error && error.name === "AbortError"
-          ? "画布或账号已变化，请刷新资料库核对。"
-          : "画布图片保存尚未确认，请返回资料库核对；当前选择仍保留。",
+          ? t("library.canvas.accountChanged")
+          : t("library.canvas.saveUnconfirmed"),
       );
     } finally {
       canvasSavingRef.current = false;
@@ -945,9 +959,7 @@ export function MossLibrarySurface({
     if (!files || files.length === 0) return;
     const list = [...files];
     if (!isLocalMode) {
-      void importFilesToLibrary(list).catch(() =>
-        announce("文件导入尚未确认，请刷新资料库核对后再试。"),
-      );
+      void importFilesToLibrary(list).catch(() => announce(t("library.notice.importUnconfirmed")));
       if (importInputRef.current) importInputRef.current.value = "";
       if (directoryInputRef.current) directoryInputRef.current.value = "";
       return;
@@ -965,7 +977,7 @@ export function MossLibrarySurface({
     const next = [...imported, ...items.filter((item) => !importedIds.has(item.id))];
     commitItems(next);
     setSectionId("all");
-    announce(`${imported.length} 个文件已加入资料库`);
+    announce(format("library.notice.imported", { count: imported.length }));
     if (importInputRef.current) importInputRef.current.value = "";
     if (directoryInputRef.current) directoryInputRef.current.value = "";
   };
@@ -1038,7 +1050,7 @@ export function MossLibrarySurface({
           <LibraryCardThumb item={item} thumbUrl={thumbnails[item.id]} />
           <button
             type="button"
-            aria-label={`${item.title} 更多操作`}
+            aria-label={format("library.card.moreActions", { title: item.title })}
             data-moss-library-item-menu={item.id}
             onClick={(event) => {
               event.stopPropagation();
@@ -1056,7 +1068,9 @@ export function MossLibrarySurface({
             {title}
             {!isImage ? (
               <>
-                <p className="truncate text-ui-xs text-muted-foreground">{item.subtitleZh}</p>
+                <p className="truncate text-ui-xs text-muted-foreground">
+                  {formatMossLibraryItemSubtitle(item, format)}
+                </p>
                 <LibraryCardMeta item={item} now={now} />
               </>
             ) : null}
@@ -1108,12 +1122,14 @@ export function MossLibrarySurface({
             onCommitRename={(title) => commitRename(item, title)}
             onCancelRename={() => setEditingId(null)}
           />
-          <p className="truncate text-ui-xs text-muted-foreground">{item.subtitleZh}</p>
+          <p className="truncate text-ui-xs text-muted-foreground">
+            {formatMossLibraryItemSubtitle(item, format)}
+          </p>
           <LibraryCardMeta item={item} now={now} />
         </div>
         <button
           type="button"
-          aria-label={`${item.title} 更多操作`}
+          aria-label={format("library.card.moreActions", { title: item.title })}
           data-moss-library-item-menu={item.id}
           onClick={(event) => {
             event.stopPropagation();
@@ -1129,25 +1145,40 @@ export function MossLibrarySurface({
     );
   };
 
-  const renderItemCollection = (collection: readonly MossLibraryItem[], label: string) =>
-    viewMode === "grid" ? (
-      <div
-        className={LIBRARY_MASONRY_COLUMNS_CLASS}
-        data-moss-library-masonry
-        data-moss-library-has-items="true"
-        aria-label={label}
-      >
-        {collection.map(renderGridCard)}
-      </div>
-    ) : (
-      <div
-        className="flex flex-col gap-2"
-        data-moss-library-list
-        data-moss-library-has-items="true"
-      >
-        {collection.map(renderListCard)}
-      </div>
-    );
+  const renderItemCollection = (collection: readonly MossLibraryItem[], label: string) => (
+    <div className="space-y-3">
+      {viewMode === "grid" ? (
+        <div
+          className={LIBRARY_MASONRY_COLUMNS_CLASS}
+          data-moss-library-masonry
+          data-moss-library-has-items="true"
+          aria-label={label}
+        >
+          {collection.slice(0, renderLimit).map(renderGridCard)}
+        </div>
+      ) : (
+        <div
+          className="flex flex-col gap-2"
+          data-moss-library-list
+          data-moss-library-has-items="true"
+        >
+          {collection.slice(0, renderLimit).map(renderListCard)}
+        </div>
+      )}
+      {collection.length > renderLimit ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setPageWindow({ key: collectionKey, limit: renderLimit + 60 })}
+        >
+          {format("library.showMore", {
+            shown: Math.min(renderLimit, collection.length),
+            total: collection.length,
+          })}
+        </Button>
+      ) : null}
+    </div>
+  );
 
   const contextMenuItem = contextMenu
     ? (items.find((item) => item.id === contextMenu.itemId) ?? null)
@@ -1163,9 +1194,13 @@ export function MossLibrarySurface({
 
   const renderFolderPicker = (ids: readonly string[], onDone: () => void): ReactNode => (
     <div data-moss-library-folder-picker>
-      <p className="px-3 py-1.5 text-ui-xs text-muted-foreground">添加到文件夹</p>
+      <p className="px-3 py-1.5 text-ui-xs text-muted-foreground">
+        {t("library.action.addToFolder")}
+      </p>
       {folders.length === 0 ? (
-        <p className="px-3 py-2 text-ui-xs text-muted-foreground">暂无文件夹，可先在「新建」创建</p>
+        <p className="px-3 py-2 text-ui-xs text-muted-foreground">
+          {t("library.folderMenu.empty")}
+        </p>
       ) : (
         folders.map((folder) => (
           <button
@@ -1196,7 +1231,7 @@ export function MossLibrarySurface({
           }}
         >
           <XIcon className="size-4" aria-hidden="true" />
-          移出文件夹
+          {t("library.action.removeFromFolder")}
         </button>
       ) : null}
     </div>
@@ -1232,17 +1267,19 @@ export function MossLibrarySurface({
           }}
         />
         <div className="flex shrink-0 items-center gap-3 border-t border-border px-4 py-3 text-ui-sm">
-          <span className="mr-auto text-muted-foreground">
-            在画布中选择图片，保存原图到资料库。
-          </span>
+          <span className="mr-auto text-muted-foreground">{t("library.canvas.hint")}</span>
           <Button
             disabled={canvasSaving || !canvasSelection?.selection.items.length}
             onClick={() => void saveCanvasSelection()}
             data-moss-library-canvas-save
           >
             {canvasSaving
-              ? "正在保存…"
-              : `保存所选图片${canvasSelection?.selection.items.length ? `（${canvasSelection.selection.items.length}）` : ""}`}
+              ? t("library.canvas.saving")
+              : canvasSelection?.selection.items.length
+                ? format("library.canvas.saveSelectedCount", {
+                    count: canvasSelection.selection.items.length,
+                  })
+                : t("library.canvas.saveSelected")}
           </Button>
         </div>
         {toast ? (
@@ -1255,7 +1292,7 @@ export function MossLibrarySurface({
 
   return (
     <section
-      aria-label="Moss 资料库"
+      aria-label={t("library.ariaLabel")}
       data-moss-library-host
       data-canvas-surface="library"
       data-moss-library-destination="full"
@@ -1278,12 +1315,12 @@ export function MossLibrarySurface({
       <div className="mx-auto flex min-h-0 w-full max-w-[1392px] flex-1 flex-col pt-8">
         <div className="shrink-0 space-y-6 px-6 pb-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <h1 className={PAGE_TITLE_CLASS_NAME}>资料库</h1>
+            <h1 className={PAGE_TITLE_CLASS_NAME}>{t("library.title")}</h1>
 
             <div className="flex flex-wrap items-center gap-2" data-moss-library-toolbar>
               <button
                 type="button"
-                aria-label="筛选资料库"
+                aria-label={t("library.filter")}
                 aria-pressed={filterOpen}
                 data-moss-library-filter
                 onClick={() => {
@@ -1301,10 +1338,14 @@ export function MossLibrarySurface({
                 <FilterIcon className="size-4" aria-hidden="true" />
               </button>
 
-              <div className="inline-flex items-center gap-1" role="group" aria-label="视图切换">
+              <div
+                className="inline-flex items-center gap-1"
+                role="group"
+                aria-label={t("library.view.switch")}
+              >
                 <button
                   type="button"
-                  aria-label="网格视图"
+                  aria-label={t("library.view.grid")}
                   aria-pressed={viewMode === "grid"}
                   data-moss-library-view-toggle="grid"
                   onClick={() => setViewMode("grid")}
@@ -1319,7 +1360,7 @@ export function MossLibrarySurface({
                 </button>
                 <button
                   type="button"
-                  aria-label="列表视图"
+                  aria-label={t("library.view.list")}
                   aria-pressed={viewMode === "list"}
                   data-moss-library-view-toggle="list"
                   onClick={() => setViewMode("list")}
@@ -1335,7 +1376,7 @@ export function MossLibrarySurface({
               </div>
 
               <label className="relative min-w-[200px] flex-1 lg:max-w-xs">
-                <span className="sr-only">搜索资料库</span>
+                <span className="sr-only">{t("library.search")}</span>
                 <SearchIcon
                   className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
                   aria-hidden="true"
@@ -1344,7 +1385,7 @@ export function MossLibrarySurface({
                   type="search"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索资料库"
+                  placeholder={t("library.search")}
                   data-moss-library-search
                   className="h-8 w-full rounded-full border border-border/70 bg-card/70 pl-9 pr-3 text-ui-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
                 />
@@ -1363,7 +1404,7 @@ export function MossLibrarySurface({
                   }}
                   className="inline-flex h-8 items-center gap-1.5 rounded-full bg-foreground px-3.5 text-ui-sm font-medium text-background"
                 >
-                  新建
+                  {t("library.new")}
                   <ChevronDownIcon className="size-3 opacity-70" aria-hidden="true" />
                 </button>
                 {newOpen ? (
@@ -1382,9 +1423,11 @@ export function MossLibrarySurface({
                         onClick={() => void runNewAction(action.id)}
                       >
                         <span className="text-ui-sm font-medium text-foreground">
-                          {action.labelZh}
+                          {t(action.labelKey)}
                         </span>
-                        <span className="text-ui-xs text-muted-foreground">{action.hintZh}</span>
+                        <span className="text-ui-xs text-muted-foreground">
+                          {t(action.hintKey)}
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -1394,7 +1437,7 @@ export function MossLibrarySurface({
               <div className="relative">
                 <button
                   type="button"
-                  aria-label="排序与设置"
+                  aria-label={t("library.sortAndSettings")}
                   aria-expanded={sortOpen}
                   data-moss-library-settings
                   onClick={() => {
@@ -1417,7 +1460,9 @@ export function MossLibrarySurface({
                     data-moss-library-sort-menu
                     className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-xl border border-border/70 bg-popover p-1 shadow-lg"
                   >
-                    <p className="px-3 py-1.5 text-ui-xs text-muted-foreground">排序</p>
+                    <p className="px-3 py-1.5 text-ui-xs text-muted-foreground">
+                      {t("library.sort")}
+                    </p>
                     {MOSS_LIBRARY_SORT_OPTIONS.map((option) => (
                       <button
                         key={option.id}
@@ -1434,14 +1479,16 @@ export function MossLibrarySurface({
                           setSortOpen(false);
                         }}
                       >
-                        <span>{option.labelZh}</span>
+                        <span>{t(option.labelKey)}</span>
                         {option.id === sortId ? (
                           <SortIcon className="size-4 opacity-70" aria-hidden="true" />
                         ) : null}
                       </button>
                     ))}
                     <div className="mx-1 my-1 h-px bg-border/60" aria-hidden="true" />
-                    <p className="px-3 py-1.5 text-ui-xs text-muted-foreground">管理</p>
+                    <p className="px-3 py-1.5 text-ui-xs text-muted-foreground">
+                      {t("library.manage")}
+                    </p>
                     <button
                       type="button"
                       role="menuitem"
@@ -1455,7 +1502,7 @@ export function MossLibrarySurface({
                       }}
                     >
                       <TrashCanIcon className="size-4 opacity-70" aria-hidden="true" />
-                      回收站
+                      {t("library.trash")}
                     </button>
                   </div>
                 ) : null}
@@ -1488,7 +1535,7 @@ export function MossLibrarySurface({
                       : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
                   )}
                 >
-                  {item.labelZh}
+                  {t(item.labelKey)}
                 </button>
               );
             })}
@@ -1500,11 +1547,13 @@ export function MossLibrarySurface({
               className="flex flex-wrap items-center gap-2 rounded-xl border border-border/60 bg-card/40 px-3 py-2 text-ui-xs text-muted-foreground"
             >
               <FilterIcon className="size-4 shrink-0" aria-hidden="true" />
-              <span>筛选 · 当前分区 {section.labelZh}</span>
+              <span>
+                {format("library.filter.currentSection", { section: t(section.labelKey) })}
+              </span>
               <span className="text-border">·</span>
-              <span>排序 {sort.labelZh}</span>
+              <span>{format("library.sort.current", { sort: t(sort.labelKey) })}</span>
               <span className="text-border">·</span>
-              <span>来源含 Codex / Claude / OpenCode / Grok 等 CLI 生成文件</span>
+              <span>{t("library.filter.sources")}</span>
             </div>
           ) : null}
         </div>
@@ -1516,7 +1565,7 @@ export function MossLibrarySurface({
           >
             {loadError}
             <button type="button" className="underline" onClick={() => void refreshStore()}>
-              刷新资料库
+              {t("library.refresh")}
             </button>
           </div>
         )}
@@ -1535,7 +1584,7 @@ export function MossLibrarySurface({
               <div className="mb-4 flex items-center gap-3">
                 <button
                   type="button"
-                  aria-label="返回资料库"
+                  aria-label={t("library.back")}
                   data-moss-library-trash-back
                   onClick={() => setTrashOpen(false)}
                   className="flex size-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
@@ -1543,9 +1592,9 @@ export function MossLibrarySurface({
                   <ArrowLeftIcon className="size-4" aria-hidden="true" />
                 </button>
                 <TrashCanIcon className="size-4 text-muted-foreground" aria-hidden="true" />
-                <h2 className="text-ui-lg font-medium">回收站</h2>
+                <h2 className="text-ui-lg font-medium">{t("library.trash")}</h2>
                 <span className="text-ui-xs text-muted-foreground">
-                  {trashedStoreItems.length} 项
+                  {format("library.itemCount", { count: trashedStoreItems.length })}
                 </span>
                 {trashedStoreItems.length > 0 ? (
                   <button
@@ -1555,16 +1604,16 @@ export function MossLibrarySurface({
                     onClick={() => {
                       void confirmMutation(
                         deleteStoreItemsPermanently(trashedStoreItems.map((item) => item.id)),
-                        "已清空回收站",
+                        t("library.notice.trashEmptied"),
                       );
                     }}
                   >
-                    清空回收站
+                    {t("library.trash.empty")}
                   </button>
                 ) : null}
               </div>
               <p className="mb-4 max-w-md text-ui-sm leading-5 text-muted-foreground">
-                {MOSS_LIBRARY_TRASH_SUBTITLE_ZH}
+                {t("library.trash.subtitle")}
               </p>
               {trashedStoreItems.length === 0 ? (
                 <div
@@ -1572,9 +1621,11 @@ export function MossLibrarySurface({
                   data-moss-library-trash-empty-state
                 >
                   <TrashCanIcon className="size-8 text-muted-foreground/60" aria-hidden="true" />
-                  <p className="text-ui-lg font-medium text-foreground">回收站为空</p>
+                  <p className="text-ui-lg font-medium text-foreground">
+                    {t("library.trash.isEmpty")}
+                  </p>
                   <p className="max-w-sm text-ui-sm leading-5 text-muted-foreground">
-                    删除的文件会先移到这里，30 天后才会永久删除。
+                    {t("library.trash.emptyHint")}
                   </p>
                 </div>
               ) : (
@@ -1604,7 +1655,7 @@ export function MossLibrarySurface({
                           {item.title}
                         </p>
                         <p className="truncate text-ui-xs text-muted-foreground">
-                          {item.subtitleZh}
+                          {formatMossLibraryItemSubtitle(item, format)}
                         </p>
                       </div>
                       <button
@@ -1614,11 +1665,11 @@ export function MossLibrarySurface({
                         onClick={() => {
                           void confirmMutation(
                             restoreStoreItems([item.id]),
-                            `已恢复「${item.title}」`,
+                            format("library.notice.restored", { title: item.title }),
                           );
                         }}
                       >
-                        恢复
+                        {t("library.trash.restore")}
                       </button>
                       <button
                         type="button"
@@ -1627,11 +1678,11 @@ export function MossLibrarySurface({
                         onClick={() => {
                           void confirmMutation(
                             deleteStoreItemsPermanently([item.id]),
-                            "已永久删除（此操作无法撤消）",
+                            t("library.notice.deletedForever"),
                           );
                         }}
                       >
-                        永久删除
+                        {t("library.trash.deleteForever")}
                       </button>
                     </article>
                   ))}
@@ -1643,7 +1694,7 @@ export function MossLibrarySurface({
               <div className="mb-4 flex items-center gap-3">
                 <button
                   type="button"
-                  aria-label="返回资料库"
+                  aria-label={t("library.back")}
                   data-moss-library-folder-back
                   onClick={() => setFolderViewId(null)}
                   className="flex size-8 items-center justify-center rounded-full border border-border/70 text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
@@ -1652,19 +1703,26 @@ export function MossLibrarySurface({
                 </button>
                 <FolderIcon className="size-4 text-muted-foreground" aria-hidden="true" />
                 <h2 className="text-ui-lg font-medium">{folderViewItem.title}</h2>
-                <span className="text-ui-xs text-muted-foreground">{folderChildren.length} 项</span>
+                <span className="text-ui-xs text-muted-foreground">
+                  {format("library.itemCount", { count: folderChildren.length })}
+                </span>
               </div>
               {folderChildren.length > 0 ? (
-                renderItemCollection(folderChildren, `${folderViewItem.title} 内容`)
+                renderItemCollection(
+                  folderChildren,
+                  format("library.folder.contents", { title: folderViewItem.title }),
+                )
               ) : (
                 <div
                   className="flex min-h-[240px] flex-col items-center justify-center gap-2 text-center"
                   data-moss-library-folder-empty
                 >
                   <FolderIcon className="size-8 text-muted-foreground/60" aria-hidden="true" />
-                  <p className="text-ui-lg font-medium text-foreground">文件夹为空</p>
+                  <p className="text-ui-lg font-medium text-foreground">
+                    {t("library.folder.isEmpty")}
+                  </p>
                   <p className="max-w-sm text-ui-sm leading-5 text-muted-foreground">
-                    右键任意卡片选择「添加到文件夹」即可归档到这里。
+                    {t("library.folder.emptyHint")}
                   </p>
                 </div>
               )}
@@ -1675,44 +1733,55 @@ export function MossLibrarySurface({
               data-moss-library-search-empty
             >
               <SearchIcon className="size-8 text-muted-foreground/70" aria-hidden="true" />
-              <p className="text-ui-lg font-medium">未找到「{query.trim()}」</p>
+              <p className="text-ui-lg font-medium">
+                {format("library.search.noResults", { query: query.trim() })}
+              </p>
               <p className="max-w-sm text-ui-sm leading-5 text-muted-foreground">
-                试试其他关键词，或切换到「全部」分区。多 CLI 生成文件导入后可在此检索。
+                {t("library.search.noResultsHint")}
               </p>
             </div>
           ) : allPartition ? (
             <div className="space-y-6" data-moss-library-grouped="all">
               {allPartition.folders.length > 0 ? (
-                <section data-moss-library-group="folders" aria-label="文件夹">
-                  <h2 className="mb-3 text-ui-sm font-medium text-foreground">文件夹</h2>
-                  {renderItemCollection(allPartition.folders, "文件夹")}
+                <section data-moss-library-group="folders" aria-label={t("library.group.folders")}>
+                  <h2 className="mb-3 text-ui-sm font-medium text-foreground">
+                    {t("library.group.folders")}
+                  </h2>
+                  {renderItemCollection(allPartition.folders, t("library.group.folders"))}
                 </section>
               ) : null}
-              <section data-moss-library-group="projects" aria-label="项目">
-                <h2 className="mb-3 text-ui-sm font-medium text-foreground">项目</h2>
+              <section data-moss-library-group="projects" aria-label={t("library.group.projects")}>
+                <h2 className="mb-3 text-ui-sm font-medium text-foreground">
+                  {t("library.group.projects")}
+                </h2>
                 {allPartition.projects.length > 0 ? (
-                  renderItemCollection(allPartition.projects, "全部项目")
+                  renderItemCollection(allPartition.projects, t("library.group.allProjects"))
                 ) : (
                   <p
                     className="text-ui-xs text-muted-foreground/80"
                     data-moss-library-empty-footnote
                   >
-                    {section.emptyHintZh}
+                    {t(section.emptyHintKey)}
                   </p>
                 )}
               </section>
             </div>
           ) : visibleItems.length > 0 ? (
-            renderItemCollection(visibleItems, `${section.labelZh} 资料`)
+            renderItemCollection(
+              visibleItems,
+              format("library.section.items", { section: t(section.labelKey) }),
+            )
           ) : showEmptyMasonry && !loadError ? (
             <div
               className="flex min-h-[280px] flex-col items-center justify-center gap-2 text-center"
               data-moss-library-list-empty
             >
               <FolderIcon className="size-8 text-muted-foreground/60" aria-hidden="true" />
-              <p className="text-ui-lg font-medium text-foreground">{section.labelZh} 暂无资料</p>
+              <p className="text-ui-lg font-medium text-foreground">
+                {format("library.section.empty", { section: t(section.labelKey) })}
+              </p>
               <p className="max-w-sm text-ui-sm leading-5 text-muted-foreground">
-                {section.emptyHintZh}
+                {t(section.emptyHintKey)}
               </p>
             </div>
           ) : null}
@@ -1725,7 +1794,7 @@ export function MossLibrarySurface({
                 className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border/70 px-3.5 text-ui-sm text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
                 onClick={() => directoryInputRef.current?.click()}
               >
-                从 ChatGPT 资料库导入…
+                {t("library.newAction.fromChatgpt")}
               </button>
             </div>
           ) : null}
@@ -1760,7 +1829,7 @@ export function MossLibrarySurface({
           data-moss-library-drop-prompt
           className="pointer-events-none absolute inset-3 z-40 flex items-center justify-center rounded-panel border-2 border-dashed border-foreground/40 bg-background/80"
         >
-          <p className="text-ui-lg font-medium text-foreground">{MOSS_LIBRARY_DROP_PROMPT_ZH}</p>
+          <p className="text-ui-lg font-medium text-foreground">{t("library.drop.prompt")}</p>
         </div>
       ) : null}
 
@@ -1804,7 +1873,7 @@ export function MossLibrarySurface({
                   ) : (
                     <TrashCanIcon className="size-4 opacity-70" aria-hidden="true" />
                   )}
-                  {entry.labelZh}
+                  {t(entry.labelKey)}
                 </button>
               ))}
         </div>
@@ -1819,7 +1888,7 @@ export function MossLibrarySurface({
             className="px-1.5 text-ui-sm text-muted-foreground"
             data-moss-library-selection-count-label
           >
-            {mossLibrarySelectionSummaryZh(selectedIds.length)}
+            {format("library.selection.count", { count: selectedIds.length })}
           </span>
           <span className="mx-1 h-4 w-px bg-border/70" aria-hidden="true" />
           <button
@@ -1829,7 +1898,7 @@ export function MossLibrarySurface({
             onClick={() => runSelectionAction("chat")}
           >
             <ChatBubblePlusIcon className="size-4" aria-hidden="true" />
-            开始聊天
+            {t("library.selection.chat")}
           </button>
           <button
             type="button"
@@ -1838,7 +1907,7 @@ export function MossLibrarySurface({
             onClick={() => runSelectionAction("download")}
           >
             <DownloadIcon className="size-4" aria-hidden="true" />
-            下载
+            {t("library.action.download")}
           </button>
           <button
             type="button"
@@ -1847,12 +1916,12 @@ export function MossLibrarySurface({
             onClick={() => runSelectionAction("delete")}
           >
             <TrashCanIcon className="size-4" aria-hidden="true" />
-            删除
+            {t("library.action.delete")}
           </button>
           <div className="relative">
             <button
               type="button"
-              aria-label="更多选择操作"
+              aria-label={t("library.selection.more")}
               aria-expanded={selectionMoreOpen}
               data-moss-library-selection-action="more"
               className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -1885,8 +1954,8 @@ export function MossLibrarySurface({
                     >
                       <StarIcon className="size-4 opacity-70" aria-hidden="true" />
                       {mossLibraryItemsAllFavorite(items, selectedIds)
-                        ? "从收藏夹移除"
-                        : "添加到收藏夹"}
+                        ? t("library.action.unfavorite")
+                        : t("library.action.favorite")}
                     </button>
                     <button
                       type="button"
@@ -1896,7 +1965,7 @@ export function MossLibrarySurface({
                       onClick={() => setSelectionMoreView("folders")}
                     >
                       <FolderIcon className="size-4 opacity-70" aria-hidden="true" />
-                      添加到文件夹
+                      {t("library.action.addToFolder")}
                     </button>
                   </>
                 )}
@@ -1905,7 +1974,7 @@ export function MossLibrarySurface({
           </div>
           <button
             type="button"
-            aria-label="取消选择"
+            aria-label={t("library.selection.clear")}
             data-moss-library-selection-action="dismiss"
             className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             onClick={() => {

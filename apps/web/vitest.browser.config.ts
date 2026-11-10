@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { playwright } from "@vitest/browser-playwright";
@@ -7,12 +7,21 @@ import { defineConfig, mergeConfig } from "vitest/config";
 
 import viteConfig, { reactCompilerPlugin } from "./vite.config";
 import { withoutVitePlugin } from "./vitePluginConfig";
+import { preparePageAppLibraries } from "../server/src/pages/apps/localLibraries";
 
 const srcPath = fileURLToPath(new URL("./src", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim();
+const browserCacheDir = process.env.MOSS_BROWSER_VITE_CACHE_DIR?.trim();
 const accessibilityOutput = process.env.MOSS_PLUGIN_A11Y_OUTPUT?.trim() ?? "";
 const accessibilityWriteEnabled = accessibilityOutput.length > 0;
+const appThumbnailProbes = new WeakMap<
+  object,
+  {
+    readonly requests: { resourceType: string; local: boolean; appFrame: boolean }[];
+    readonly stop: () => Promise<void>;
+  }
+>();
 
 function accessibilityOutputPath(): { absolutePath: string; repoRelativePath: string } {
   if (!accessibilityOutput || isAbsolute(accessibilityOutput)) {
@@ -40,6 +49,8 @@ export const browserViteConfig = {
 export default mergeConfig(
   browserViteConfig,
   defineConfig({
+    ...(browserCacheDir ? { cacheDir: browserCacheDir } : {}),
+    server: { watch: { ignored: ["**/.vitest-attachments/**", "**/__screenshots__/**"] } },
     // Prebundle direct hook dependencies so restored caches cannot reload tests mid-run.
     optimizeDeps: { include: ["react-dom/client", "zustand/vanilla/shallow"] },
     define: {
@@ -86,6 +97,112 @@ export default mergeConfig(
         instances: [{ browser: "chromium" }],
         headless: true,
         commands: {
+          async beginAppThumbnailRequestProbe(
+            context,
+            appTitle = "Coral tracker",
+            readonlyHost = false,
+          ) {
+            await appThumbnailProbes.get(context.page)?.stop();
+            const requests: { resourceType: string; local: boolean; appFrame: boolean }[] = [];
+            const intercept = async (route: import("playwright").Route) => {
+              const request = route.request();
+              const requestUrl = new URL(request.url());
+              const local = ["localhost", "127.0.0.1", "[::1]"].includes(requestUrl.hostname);
+              // Vitest can also use blob frames; identify the actual app fixture.
+              const frameElement = await request
+                .frame()
+                .frameElement()
+                .catch(() => null);
+              const appFrame = (await frameElement?.getAttribute("title")) === appTitle;
+              await frameElement?.dispose();
+              if (
+                readonlyHost &&
+                appFrame &&
+                local &&
+                request.resourceType() === "document" &&
+                requestUrl.pathname === "/space-app-preview.html"
+              ) {
+                await route.continue();
+                return;
+              }
+              if (appFrame || !local) {
+                requests.push({ resourceType: request.resourceType(), local, appFrame });
+                await route.abort();
+              } else await route.continue();
+            };
+            await context.page.route("**/*", intercept);
+            appThumbnailProbes.set(context.page, {
+              requests,
+              stop: () => context.page.unroute("**/*", intercept),
+            });
+          },
+          async endAppThumbnailRequestProbe(context) {
+            const probe = appThumbnailProbes.get(context.page);
+            if (!probe) return [];
+            await probe.stop();
+            appThumbnailProbes.delete(context.page);
+            return probe.requests;
+          },
+          async writeAppThumbnailEvidence(context, thumbnail: string) {
+            if (
+              thumbnail.length > 200_023 ||
+              !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/u.test(thumbnail)
+            )
+              throw new Error("Invalid thumbnail evidence");
+            const target = resolve(
+              repoRoot,
+              "apps/web/node_modules/.cache/page-app-thumbnail-rendered.jpg",
+            );
+            mkdirSync(dirname(target), { recursive: true });
+            writeFileSync(target, Buffer.from(thumbnail.slice(23), "base64"));
+            for (const frame of context.page.frames()) {
+              const element = await frame.frameElement().catch(() => null);
+              const matches = (await element?.getAttribute("title")) === "Coral tracker";
+              await element?.dispose();
+              if (!matches) continue;
+              const metrics = await frame.evaluate(() => ({
+                viewport: [innerWidth, innerHeight],
+                body: [
+                  document.body.clientWidth,
+                  document.body.clientHeight,
+                  document.body.scrollHeight,
+                ],
+                background: getComputedStyle(document.body).backgroundColor,
+                text: document.body.innerText.slice(0, 80),
+              }));
+              await frame.locator("body").screenshot({
+                path: resolve(
+                  repoRoot,
+                  "apps/web/node_modules/.cache/page-app-thumbnail-source.png",
+                ),
+              });
+              return metrics;
+            }
+            throw new Error("App fixture is not mounted");
+          },
+          async prepareAppLibraryFixture(_context, html: string) {
+            if (html.length > 2_000_000) throw new Error("App fixture is too large");
+            return preparePageAppLibraries(html, undefined, async (name) => ({
+              contents: readFileSync(
+                resolve(repoRoot, "apps/web/public/inline-visualization-libs", name),
+              ),
+              contentType: "text/javascript",
+            }));
+          },
+          async writeReadonlyAppItemEvidence(context) {
+            const frame = await context.frame();
+            const target = frame.locator("[data-app-item]");
+            const bounds = await target.boundingBox();
+            if (!bounds || bounds.width < 790 || bounds.height < 400)
+              throw new Error(`Readonly preview fixture is clipped: ${JSON.stringify(bounds)}`);
+            const output = resolve(
+              repoRoot,
+              "apps/web/node_modules/.cache/readonly-app-item-owner.png",
+            );
+            mkdirSync(dirname(output), { recursive: true });
+            await target.screenshot({ path: output });
+            return { width: bounds.width, height: bounds.height };
+          },
           async beginPointerPickup(context, sourceSelector: string, activationOffsetPx = 10) {
             const frame = await context.frame();
             const sourceBox = await frame.locator(sourceSelector).boundingBox();

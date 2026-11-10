@@ -1,0 +1,26 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "moss-devs-reports",
+  "account_id": "82b96276610c3f4bc23987575dedc10a",
+  "main": "cloudWorker.ts",
+  "compatibility_date": "2026-10-30",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "moss-devs.inkcomicai.com", "custom_domain": true }],
+  "durable_objects": { "bindings": [{ "name": "REPORTS", "class_name": "DevsQueueObject" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["DevsQueueObject"] }],
+  "ratelimits": [
+    {
+      "name": "REPORT_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 5, "period": 60 },
+    },
+  ],
+  // Daily caps on accepted reports, jobs handed to the worker, and reports per installation.
+  "vars": {
+    "MOSS_DEVS_DAILY_REPORT_LIMIT": "20",
+    "MOSS_DEVS_DAILY_JOB_LIMIT": "20",
+    "MOSS_DEVS_INSTALL_DAILY_LIMIT": "3",
+  },
+  "observability": { "enabled": false, "logs": { "enabled": false, "invocation_logs": false } },
+}

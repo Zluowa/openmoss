@@ -17,9 +17,10 @@ export const MOSS_APP_CONNECTIONS_QUERY_KEY = [...MOSS_APPS_QUERY_KEY, "connecti
 /** While a hosted sign-in is open, connections are polled at this interval. */
 export const MOSS_APP_SIGN_IN_POLL_MS = 2_500;
 
-export function mossAppsStatusQueryOptions() {
+export function mossAppsStatusQueryOptions(input: { accountKey?: string; enabled?: boolean } = {}) {
   return queryOptions({
-    queryKey: [...MOSS_APPS_QUERY_KEY, "status"] as const,
+    queryKey: [...MOSS_APPS_QUERY_KEY, "status", input.accountKey ?? "current"] as const,
+    enabled: input.enabled ?? true,
     queryFn: () => ensureNativeApi().server.getMossAppsStatus(),
     staleTime: 30_000,
     // Remote clients get a definitive loopback-only refusal; retrying repeats it.
@@ -58,9 +59,10 @@ export function mossAppConnectFieldsQueryOptions(input: {
 export function mossAppConnectionsQueryOptions(input: {
   readonly enabled: boolean;
   readonly polling: boolean;
+  readonly accountKey?: string;
 }) {
   return queryOptions({
-    queryKey: MOSS_APP_CONNECTIONS_QUERY_KEY,
+    queryKey: [...MOSS_APP_CONNECTIONS_QUERY_KEY, input.accountKey ?? "current"] as const,
     queryFn: () => ensureNativeApi().server.listMossAppConnections(),
     enabled: input.enabled,
     staleTime: 10_000,

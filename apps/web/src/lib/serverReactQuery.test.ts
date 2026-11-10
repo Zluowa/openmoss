@@ -2,7 +2,7 @@
 // Purpose: Locks down server React Query polling profiles and cache options.
 // Layer: Web data-fetching unit tests
 
-import { type ServerConfig, type ServerProviderStatus } from "@synara/contracts";
+import { type ServerConfig, type ServerProviderStatus } from "@moss/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 

@@ -5,7 +5,7 @@ import {
   type ProviderKind,
   type ProviderRuntimeEvent,
   type ProviderSession,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { expect } from "vitest";
 import { it, assert, vi } from "@effect/vitest";
 import { assertFailure } from "@effect/vitest/utils";

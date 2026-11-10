@@ -6,7 +6,7 @@ import {
   type MossNormalizedSessionEvent,
   type ProviderGetLaunchPlanResult,
   type ProviderSession,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 

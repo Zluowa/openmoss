@@ -1,7 +1,7 @@
 import { isThreadDetailAwaitingVerification } from "../../threadDetailAuthority";
-import { MessageId, ThreadId, type ProviderKind, type TurnId } from "@synara/contracts";
-import { resolveTailUserMessageEditTarget } from "@synara/shared/conversationEdit";
-import { deriveAssociatedWorktreeMetadata } from "@synara/shared/threadWorkspace";
+import { MessageId, ThreadId, type ProviderKind, type TurnId } from "@moss/contracts";
+import { resolveTailUserMessageEditTarget } from "@moss/shared/conversationEdit";
+import { deriveAssociatedWorktreeMetadata } from "@moss/shared/threadWorkspace";
 import { useNavigate } from "@tanstack/react-router";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useCallback } from "react";
@@ -554,6 +554,40 @@ export function useChatTurnFollowUps({
     turnDispatchSettings,
   ]);
 
+  // Sends a composed text as its own turn without touching the user's draft (the
+  // transcript's selection Reply, the wrap-up box's answers). It joins this chat's
+  // queue, whose drain sends it when the chat is free and keeps it for a retry if the
+  // send fails, so a reply is never lost.
+  const onSendPromptTurn = useCallback(
+    async (prompt: string): Promise<boolean> => {
+      const text = prompt.trim();
+      if (text.length === 0) return false;
+      useComposerDraftStore.getState().enqueueQueuedTurn(threadId, {
+        id: randomUUID(),
+        kind: "chat",
+        createdAt: new Date().toISOString(),
+        previewText: text,
+        prompt: text,
+        images: [],
+        files: [],
+        assistantSelections: [],
+        browserAnnotations: [],
+        terminalContexts: [],
+        fileComments: [],
+        pastedTexts: [],
+        pullRequestContexts: [],
+        skills: [],
+        mentions: [],
+        selectedProvider,
+        selectedModel,
+        selectedPromptEffort,
+        ...queuedChatTurnDispatchFields(turnDispatchSettings, undefined),
+      });
+      return true;
+    },
+    [threadId, selectedProvider, selectedModel, selectedPromptEffort, turnDispatchSettings],
+  );
+
   const onResumeWorkflowRun = useCallback(async () => {
     if (!workflowRunState?.scriptPath || !workflowRunState.runId) return;
     const lateSendHandlers = lateComposerSendHandlersRef.current;
@@ -761,5 +795,6 @@ export function useChatTurnFollowUps({
     onEditUserMessage,
     onResumeWorkflowRun,
     onImplementPlanInNewThread,
+    onSendPromptTurn,
   };
 }

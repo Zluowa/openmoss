@@ -3,8 +3,8 @@
 //          Owns step navigation and the per-run results the final summary reads.
 // Layer: Web UI overlay (mounted once from the root route)
 //
-// The popup is a fixed 800×540 frame for every step so the window never resizes as the
-// user moves through the tour; hero steps (welcome, done) center their content in it.
+// Steps share an 800×540 baseline frame that follows the UI scale and is capped
+// by the viewport; hero steps (welcome, done) center their scrollable content in it.
 
 import { VISIBLE_PROVIDER_DESCRIPTORS } from "../betaFeatures";
 import { useEffect, useState } from "react";
@@ -23,7 +23,7 @@ import {
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { useTheme } from "~/hooks/useTheme";
 import { CheckIcon } from "~/lib/icons";
-import { findProviderStatus } from "~/lib/providerAvailability";
+import { findProviderStatus, resolveAgentReadiness } from "~/lib/providerAvailability";
 import { cn } from "~/lib/utils";
 import { CODE_THEME_OPTIONS } from "~/theme/theme.logic";
 import { ONBOARDING_INSET_CLASS_NAME } from "./layout";
@@ -41,6 +41,7 @@ import { useOnboardingDialogStore } from "./onboardingDialogStore";
 import { OnboardingStepFooter } from "./OnboardingStepFooter";
 import { DoneStep } from "./steps/DoneStep";
 import { FeatureTourStep } from "./steps/FeatureTourStep";
+import type { ProjectImportPrimaryAction } from "~/projectImport/ProjectImportPanel";
 import { ProjectStep, type OnboardingProjectResult } from "./steps/ProjectStep";
 import { ProvidersStep } from "./steps/ProvidersStep";
 import { ThemeStep } from "./steps/ThemeStep";
@@ -59,9 +60,9 @@ const STEP_TITLES: Record<OnboardingStep, string> = {
 const STEP_DESCRIPTIONS: Record<Exclude<OnboardingStep, "done">, string> = {
   welcome: "A local-first workspace for coding agents. Setup takes about a minute.",
   tour: "",
-  providers: `Detected on this machine. Uncheck any you don't want ${APP_BASE_NAME} to use.`,
+  providers: `Agents on this computer are found automatically. Uncheck any you don't want ${APP_BASE_NAME} to use.`,
   theme: "Applies live behind this window. Change it anytime in Settings → Appearance.",
-  project: `A project is a folder ${APP_BASE_NAME} works in. Git repositories unlock branches, worktrees, diffs and pull requests.`,
+  project: "Bring in conversations from the agents on this computer.",
 };
 
 /** Welcome and Done are hero steps: centered header, no step counter, centered body. */
@@ -80,6 +81,8 @@ function OnboardingFlow(props: {
 }) {
   const [step, setStep] = useState<OnboardingStep>("welcome");
   const [projectResults, setProjectResults] = useState<ReadonlyArray<OnboardingProjectResult>>([]);
+  // The import's own primary action, so "Import N conversations" stays in the footer.
+  const [importAction, setImportAction] = useState<ProjectImportPrimaryAction | null>(null);
   const { settings } = useAppSettings();
   const statuses = useProviderStatusesForLocalConfig();
   const providerDetection = useProviderDetection();
@@ -95,15 +98,18 @@ function OnboardingFlow(props: {
   }, [markEngaged, step]);
 
   const providerSummary = summarizeProviderSetup(
-    VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor) => ({
-      provider: descriptor.kind,
-      state: classifyProviderSetup({
-        status: findProviderStatus(statuses, descriptor.kind),
-        disabled: settings.disabledProviders.includes(descriptor.kind),
-        detecting: providerDetection.detecting,
-        detectionFailed: providerDetection.failed,
-      }),
-    })),
+    VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor) => {
+      const status = findProviderStatus(statuses, descriptor.kind, descriptor.kind);
+      return {
+        provider: descriptor.kind,
+        state: classifyProviderSetup({
+          readiness: status ? resolveAgentReadiness(status) : null,
+          disabled: settings.disabledProviders.includes(descriptor.kind),
+          detecting: providerDetection.detecting,
+          detectionFailed: providerDetection.failed,
+        }),
+      };
+    }),
   );
   const themeLabel =
     CODE_THEME_OPTIONS.find((option) => option.id === activeTheme.codeThemeId)?.label ??
@@ -130,6 +136,14 @@ function OnboardingFlow(props: {
       case "theme":
         return { label: "Continue", onPrimary: goNext };
       case "project":
+        if (importAction) {
+          return {
+            label: importAction.label,
+            onPrimary: importAction.run,
+            disabled: importAction.disabled,
+            secondary: projectResults.length > 0 ? "Continue" : "Skip for now",
+          };
+        }
         return projectResults.length > 0
           ? { label: "Continue", onPrimary: goNext }
           : { label: "Skip for now", onPrimary: goNext };
@@ -142,7 +156,7 @@ function OnboardingFlow(props: {
     <div className="flex min-h-0 flex-1 flex-col outline-none" tabIndex={-1}>
       <DialogHeader
         className={cn(
-          "gap-1.5 pt-8 pb-0",
+          "shrink-0 gap-1.5 pt-8 pb-0",
           ONBOARDING_INSET_CLASS_NAME,
           hero && "items-center text-center",
         )}
@@ -161,7 +175,7 @@ function OnboardingFlow(props: {
             Step {stepIndex + 1} of {ONBOARDING_STEPS.length}
           </span>
         )}
-        <DialogTitle className="text-[22px] tracking-[-0.01em]">{STEP_TITLES[step]}</DialogTitle>
+        <DialogTitle className="text-title tracking-[-0.01em]">{STEP_TITLES[step]}</DialogTitle>
         {description ? (
           <DialogDescription className="max-w-[560px] text-ui-lg leading-normal">
             {description}
@@ -171,8 +185,9 @@ function OnboardingFlow(props: {
       <div
         className={cn(
           "flex min-h-0 flex-1 flex-col overflow-y-auto pt-6",
+          step === "providers" && "overflow-hidden pt-4",
           ONBOARDING_INSET_CLASS_NAME,
-          hero && "justify-center pb-6",
+          hero && "[justify-content:safe_center] pb-6",
         )}
       >
         {step === "welcome" ? <WelcomeStep /> : null}
@@ -183,6 +198,7 @@ function OnboardingFlow(props: {
           <ProjectStep
             results={projectResults}
             onBusyChange={props.onProjectBusyChange}
+            onImportActionChange={setImportAction}
             onResult={(result) =>
               setProjectResults((current) =>
                 current.some((entry) => entry.projectId === result.projectId)
@@ -200,8 +216,12 @@ function OnboardingFlow(props: {
         onSkip={props.onComplete}
         primaryLabel={primaryAction.label}
         onPrimary={primaryAction.onPrimary}
-        primaryBusy={step === "project" && props.projectBusy}
+        primaryDisabled={"disabled" in primaryAction ? primaryAction.disabled : false}
+        primaryBusy={step === "project" && props.projectBusy && !importAction}
         navigationLocked={props.projectBusy}
+        {...("secondary" in primaryAction && primaryAction.secondary
+          ? { secondaryLabel: primaryAction.secondary, onSecondary: goNext }
+          : {})}
       />
     </div>
   );
@@ -224,7 +244,10 @@ export function OnboardingDialog(props: {
   };
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogPopup showCloseButton className="h-[540px] max-h-full max-w-[800px]">
+      <DialogPopup
+        showCloseButton
+        className="h-[min(calc(540px*var(--app-ui-scale,1)),100%)] max-h-full max-w-[800px]"
+      >
         {/* Remount per open so a replay from Settings starts at the first step. */}
         {open ? (
           <OnboardingFlow

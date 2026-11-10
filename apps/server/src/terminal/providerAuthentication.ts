@@ -3,12 +3,12 @@
 // Layer: Provider/terminal runtime boundary
 
 import path from "node:path";
-import type { ProviderKind, ServerSettings, ServerSettingsPatch } from "@synara/contracts";
+import type { ProviderKind, ServerSettings, ServerSettingsPatch } from "@moss/contracts";
 import {
   PROVIDER_AUTHENTICATION,
   PROVIDER_CLI_COMMAND_BY_KIND,
-} from "@synara/shared/providerCliProfiles";
-import { deriveProviderInstances } from "@synara/shared/providerInstances";
+} from "@moss/shared/providerCliProfiles";
+import { deriveProviderInstances } from "@moss/shared/providerInstances";
 import {
   buildProviderChildEnvironment,
   providerCredentialKeysFor,

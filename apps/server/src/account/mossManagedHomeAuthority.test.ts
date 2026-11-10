@@ -10,7 +10,12 @@ import {
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ServerSettings } from "@moss/contracts";
+import { issueCodexCredentialFence } from "../codexHomeIdentity.ts";
+import {
+  prepareCodexAuthTracking,
+  readCodexPreparedAuthTrackingFingerprint,
+} from "../codexProcessEnv.ts";
 
 import {
   assertManagedCodexHomeAuthorityCurrentSync,
@@ -76,6 +81,48 @@ function fixture() {
 }
 
 describe("server-issued managed Codex home authority", () => {
+  it("checks the fixed private reservation for a verified shared-source binding", async () => {
+    const f = fixture();
+    const source = path.join(f.root, "shared-source");
+    mkdirSync(source);
+    writeFileSync(path.join(source, "config.toml"), 'model = "source-model"\n');
+    writeFileSync(path.join(f.homePath, "config.toml"), 'model = "private-model"\n');
+    const options = {
+      homePath: source,
+      shadowHomePath: f.homePath,
+      accountId: "moss",
+      runtimeGeneration: "moss-generation",
+      environment: { MOSS_HOME: path.join(f.root, "runtime") },
+    };
+    const credentialFence = issueCodexCredentialFence({
+      ...options,
+      assertBindingCurrent: () => {},
+    });
+    const input = { ...options, env: options.environment, credentialFence };
+    const authority = await f.issue({ input });
+    if (!authority) throw new Error("Expected an authority for the registered home");
+    expect(authority?.homePath).toBe(realpathSync.native(f.homePath));
+    const tracking = prepareCodexAuthTracking({
+      ...input,
+      managedHomeAuthority: authority,
+      platform: "win32",
+    });
+    expect(tracking.sourceConfigSnapshot).toContain("private-model");
+    await expect(f.issue({ input: { ...input, credentialFence: undefined } })).rejects.toThrow(
+      /server-owned/,
+    );
+    await expect(f.issue({ input: JSON.parse(JSON.stringify(input)) })).rejects.toThrow(/server/);
+    const current = f.settings();
+    f.replaceSettings({
+      ...current,
+      providerInstances: {
+        ...current.providerInstances,
+        codex_moss: { ...current.providerInstances.codex_moss!, enabled: false },
+      },
+    });
+    expect(() => readCodexPreparedAuthTrackingFingerprint(tracking)).toThrow(/reservation/);
+  });
+
   it("binds the reserved settings nonce and rechecks it before reuse", async () => {
     const f = fixture();
     const authority = await f.issue();

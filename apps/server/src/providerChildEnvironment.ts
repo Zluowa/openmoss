@@ -116,6 +116,12 @@ export function mossManagedChildNoProxy(env: NodeJS.ProcessEnv = process.env): s
   return [env.NO_PROXY, env.no_proxy, "localhost,127.0.0.1,::1"].filter(Boolean).join(",");
 }
 
+/** Moss keys an instance's own environment sets on purpose, such as its gateway credential. */
+export const explicitMossEnvironmentKeys = (
+  environment?: Readonly<Record<string, string | undefined>>,
+): ReadonlyArray<string> =>
+  environment ? Object.keys(environment).filter((key) => key.startsWith("MOSS_")) : [];
+
 const INHERITED_NATIVE_CAPABILITY_KEYS = new Set([
   "BUN_OPTIONS",
   "ELECTRON_RUN_AS_NODE",

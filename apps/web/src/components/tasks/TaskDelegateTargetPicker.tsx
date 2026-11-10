@@ -6,16 +6,25 @@
 
 import { ProjectMenuPicker } from "~/components/ProjectMenuPicker";
 import { Button } from "~/components/ui/button";
+import { toastManager } from "~/components/ui/toast";
 import { ChevronDownIcon, FolderIcon } from "~/lib/icons";
+import { useTranslation } from "~/localization";
 import { readNativeApi } from "../../nativeApi";
 import { folderLabel } from "./tasks.logic";
 import type { TaskDelegateTargetState } from "./useTaskDelegateTarget";
 
 export function TaskDelegateTargetPicker({ runIn }: { runIn: TaskDelegateTargetState }) {
+  const { t } = useTranslation();
   const { target, setTarget, projectOptions, targetProject } = runIn;
 
   const handleChooseFolder = async () => {
-    const path = await readNativeApi()?.dialogs.pickFolder();
+    let path: string | null | undefined;
+    try {
+      path = await readNativeApi()?.dialogs.pickFolder();
+    } catch {
+      toastManager.add({ type: "error", title: t("folderPicker.openFailed") });
+      return;
+    }
     if (path) {
       setTarget({ kind: "folder", path });
     }

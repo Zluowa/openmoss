@@ -1,4 +1,4 @@
-import { MOSS_ACCESS_LANES, type MossAccessLane } from "@synara/shared/mossRealmCatalog";
+import { MOSS_ACCESS_LANES, type MossAccessLane } from "@moss/shared/mossRealmCatalog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 

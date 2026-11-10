@@ -2,8 +2,8 @@
 // commerce hidden until a regional payment backend is explicitly available;
 // quota remains readable directly from the authenticated account authority.
 
-import type { MossPayOrder, MossPayQuota } from "@synara/contracts";
-import { isMossPayOrderSettled } from "@synara/contracts";
+import type { MossPayOrder, MossPayQuota } from "@moss/contracts";
+import { isMossPayOrderSettled } from "@moss/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
@@ -30,7 +30,7 @@ import {
   resolveMossPayQuotaAccountIdentity,
 } from "~/lib/mossPayQuotaIdentity";
 import type { MossLocaleCode } from "~/uiLocale";
-import { safeMossPayOrderErrorMessage } from "./MossMembershipPage.logic";
+import { mossPlansPurchasable, safeMossPayOrderErrorMessage } from "./MossMembershipPage.logic";
 
 export {
   isMossPayAccountTransitionPending,
@@ -267,13 +267,16 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
   const catalogLoading = showCatalog && catalogQuery.isPending && !catalog;
   const quotaLoading = selectedAccountIdentity !== null && quotaQuery.isPending && !quota;
 
+  const plansPurchasable = mossPlansPurchasable(catalog);
   const rail =
     catalog?.paymentMethods[0] ??
-    (phoneAccountQuery.data?.authenticated
-      ? ({ id: "wechat_pay", displayName: "提市微信支付", kind: "qr" } as const)
-      : accountQuery.data?.authenticated
-        ? ({ id: "stripe_checkout", displayName: "Stripe", kind: "hosted" } as const)
-        : null);
+    (!plansPurchasable
+      ? null
+      : phoneAccountQuery.data?.authenticated
+        ? ({ id: "wechat_pay", displayName: "提市微信支付", kind: "qr" } as const)
+        : accountQuery.data?.authenticated
+          ? ({ id: "stripe_checkout", displayName: "Stripe", kind: "hosted" } as const)
+          : null);
   const orderSettled = order
     ? isMossPayOrderSettled(order.status, order.refundReviewRequired)
     : false;
@@ -363,7 +366,8 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
               {t("mossPay.heading")}
             </h2>
             <p className="mt-1 text-ui-lg leading-relaxed text-muted-foreground">
-              {rail?.id === "stripe_checkout" || selectedAccountIdentity?.startsWith("cloud:")
+              {plansPurchasable &&
+              (rail?.id === "stripe_checkout" || selectedAccountIdentity?.startsWith("cloud:"))
                 ? t("mossPay.descriptionStripe")
                 : t("mossPay.description")}
             </p>
@@ -449,9 +453,11 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                   <Skeleton className="mt-2 h-3 w-48 max-w-full rounded-full" />
                 ) : (
                   <p className="mt-1 text-ui-sm leading-relaxed text-muted-foreground">
-                    {rail
-                      ? t("mossPay.catalog.serverPaymentMethod")
-                      : t("mossPay.catalog.paymentMethodUnavailable")}
+                    {!plansPurchasable
+                      ? t("mossPay.catalog.plansNotPurchasable")
+                      : rail
+                        ? t("mossPay.catalog.serverPaymentMethod")
+                        : t("mossPay.catalog.paymentMethodUnavailable")}
                   </p>
                 )}
                 {quota ? (
@@ -764,7 +770,9 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                   </p>
                 </div>
                 <p className="shrink-0 text-ui-sm text-muted-foreground">
-                  {rail?.displayName ?? t("mossPay.catalog.paymentMethodUnavailable")}
+                  {!plansPurchasable
+                    ? t("mossPay.membership.notPurchasableShort")
+                    : (rail?.displayName ?? t("mossPay.catalog.paymentMethodUnavailable"))}
                 </p>
               </div>
               <div className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -815,7 +823,7 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                       </div>
                       <Button
                         className="mt-5 w-full"
-                        disabled={createOrder.isPending || !rail}
+                        disabled={createOrder.isPending || !rail || !plansPurchasable}
                         onClick={() => startOrder("plan", plan.code)}
                         size="sm"
                         variant={quota?.planCode === plan.code ? "default" : "outline"}

@@ -12,7 +12,7 @@ import type {
   ProviderKind,
   ProviderRuntimeEvent,
   ProviderSession,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   ApprovalRequestId,
   CommandId,
@@ -25,7 +25,7 @@ import {
   RuntimeTaskId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   Effect,
   Deferred,

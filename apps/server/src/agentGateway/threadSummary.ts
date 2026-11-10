@@ -12,8 +12,8 @@ import type {
   OrchestrationMessage,
   OrchestrationThread,
   OrchestrationThreadShell,
-} from "@synara/contracts";
-import { splitsSurrogatePair, unicodeSafeEndOffset } from "@synara/shared/text";
+} from "@moss/contracts";
+import { splitsSurrogatePair, unicodeSafeEndOffset } from "@moss/shared/text";
 
 export type AgentThreadStatus =
   | "working"

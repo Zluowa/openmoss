@@ -8,13 +8,13 @@ import {
   type AutomationCreateInput,
   type ModelSelection,
   type ProviderStartOptions,
-} from "@synara/contracts";
-import { automationRequiresTargetThread } from "@synara/shared/automationMode";
+} from "@moss/contracts";
+import { automationRequiresTargetThread } from "@moss/shared/automationMode";
 import {
   GENERIC_CHAT_THREAD_TITLE,
   buildPromptThreadTitleFallback,
-} from "@synara/shared/chatThreads";
-import { deriveAssociatedWorktreeMetadata } from "@synara/shared/threadWorkspace";
+} from "@moss/shared/chatThreads";
+import { deriveAssociatedWorktreeMetadata } from "@moss/shared/threadWorkspace";
 import type { QueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { promoteThreadCreate } from "~/lib/threadCreatePromotion";

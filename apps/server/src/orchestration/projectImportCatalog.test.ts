@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { ProjectId, type ProjectImportProvider } from "@synara/contracts";
+import { ProjectId, type ProjectImportProvider } from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { NativeImportProject, NativeImportSession } from "../provider/projectImportTypes";
@@ -68,6 +68,85 @@ afterEach(async () => {
 });
 
 describe("buildProjectImportCatalog", () => {
+  it("never offers Moss's own working folders as projects", async () => {
+    const home = await fixtureDirectory();
+    const repository = path.join(home, "repository");
+    await fs.mkdir(repository);
+    const scratch = path.join(
+      home,
+      "AppData",
+      "Local",
+      "Moss",
+      "Cache",
+      ".moss-5e21291fa581541f",
+      "moss-codex-workspaces",
+      "thread-1",
+    );
+    const mossHome = path.join(home, "moss-data");
+
+    const projects = await buildProjectImportCatalog(
+      [
+        source("codex", home, [
+          session("in-scratch", scratch),
+          session("in-overlay", path.join(home, ".moss", "codex-home-overlay")),
+          session("in-moss-home", path.join(mossHome, "userdata")),
+          session("in-repository", repository),
+        ]),
+      ],
+      [],
+      { excludeRoot: (root) => root.startsWith(mossHome) || root.includes(".moss") },
+    );
+    expect(projects.map((project) => project.threads.map((thread) => thread.id))).toEqual([
+      ["in-repository"],
+    ]);
+
+    // The default rule needs no configuration for Moss's cache and `.moss` folders.
+    const byDefault = await buildProjectImportCatalog(
+      [source("codex", home, [session("in-scratch", scratch), session("ok", repository)])],
+      [],
+    );
+    expect(byDefault.flatMap((project) => project.threads.map((thread) => thread.id))).toEqual([
+      "ok",
+    ]);
+  });
+
+  it("marks projects in a temp folder so they are offered but not ticked", async () => {
+    const home = await fixtureDirectory();
+    const scratch = path.join(home, "scratch", "omb-acp-memory-1");
+    await fs.mkdir(scratch, { recursive: true });
+    const projects = await buildProjectImportCatalog(
+      [source("grok", home, [session("connection-check", scratch)])],
+      [],
+      { tempDirs: [path.join(home, "scratch")] },
+    );
+    expect(projects.map((project) => project.temporary)).toEqual([true]);
+  });
+
+  it("groups an agent's folder-less chats under the project it declares", async () => {
+    const home = await fixtureDirectory();
+    const chats = path.join(home, ".zcode", "workspace");
+    const projects = await buildProjectImportCatalog(
+      [
+        source(
+          "zcode",
+          home,
+          [
+            session("draft-a", path.join(chats, "draft-0f0f"), "zcode-chats"),
+            session("default-b", path.join(chats, "default"), "zcode-chats"),
+          ],
+          [{ id: "zcode-chats", title: "ZCode chats", roots: [chats] }],
+        ),
+      ],
+      [],
+    );
+    expect(projects).toHaveLength(1);
+    expect(projects[0]).toMatchObject({ title: "ZCode chats", workspaceRoot: chats });
+    expect(projects[0]!.threads.map((thread) => thread.id).toSorted()).toEqual([
+      "default-b",
+      "draft-a",
+    ]);
+  });
+
   it("merges two providers at one physical root and keeps their native identities distinct", async () => {
     const home = await fixtureDirectory();
     const root = path.join(home, "repo");

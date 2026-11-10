@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolve } from "node:path";
 
-import type { ComputerHistoryObservation } from "@synara/contracts";
+import type { ComputerHistoryObservation } from "@moss/contracts";
 
 import {
   COMPUTER_HISTORY_SIX_HOUR_MS,

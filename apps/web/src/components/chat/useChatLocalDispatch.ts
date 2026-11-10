@@ -1,4 +1,4 @@
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore, type SetStateAction } from "react";
 import { create } from "zustand";
 import { markPendingTurnDispatch } from "../../pendingTurnDispatch";

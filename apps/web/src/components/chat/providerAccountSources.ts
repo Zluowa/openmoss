@@ -3,7 +3,9 @@
 // Layer: Chat composer domain logic
 // Depends on: provider instance identifiers only.
 
-import type { ProviderInstanceId, ProviderKind } from "@synara/contracts";
+import type { ProviderInstanceId, ProviderKind } from "@moss/contracts";
+
+import { mossDefaultManagedInstanceIdForProvider } from "~/lib/providerAvailability";
 
 export const MOSS_MANAGED_SOURCE_INSTANCE_IDS = new Set<ProviderInstanceId>([
   "codex_moss",
@@ -83,6 +85,13 @@ export function resolveComposerModelSourceProviders(input: {
   return [selectedInstance?.provider ?? input.selectedProvider];
 }
 
+/** The Moss provider instance that serves an agent, when Moss can serve it at all. */
+export function mossSourceInstanceIdForAgent(
+  provider: ProviderKind,
+): ProviderInstanceId | undefined {
+  return mossDefaultManagedInstanceIdForProvider(provider);
+}
+
 export function mossManagedSourceInstanceIdForProvider(
   activeInstanceId: ProviderInstanceId,
   targetProvider: ProviderKind,
@@ -90,16 +99,7 @@ export function mossManagedSourceInstanceIdForProvider(
   if (!isMossManagedSourceInstanceId(activeInstanceId)) {
     return undefined;
   }
-  if (targetProvider === "codex") return "codex_moss";
-  if (targetProvider === "claudeAgent") return "claude_moss";
-  if (targetProvider === "pi") return "pi_moss";
-  if (targetProvider === "opencode") return "opencode_moss";
-  if (targetProvider === "grok") return "grok_moss";
-  if (targetProvider === "hermes") return "hermes_moss";
-  if (targetProvider === "kimi") return "kimi_moss";
-  if (targetProvider === "minimax") return "minimax_moss";
-  if (targetProvider === "zcode") return "zcode_moss";
-  return undefined;
+  return mossSourceInstanceIdForAgent(targetProvider);
 }
 
 /**

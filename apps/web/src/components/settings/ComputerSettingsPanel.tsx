@@ -13,12 +13,12 @@ import {
   COMPUTER_RELEASE_HOTKEY_BACKENDS,
   type ComputerCapabilities,
   type ComputerPermission,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   COMPUTER_PERMISSION_KINDS,
   computerPermissionSetupMessage,
   missingComputerAppSnapPermissions,
-} from "@synara/shared/computerGrants";
+} from "@moss/shared/computerGrants";
 import {
   computerPermissionSetupSupported,
   readLocalComputerPermissionBridge,
@@ -33,7 +33,7 @@ import {
   type AppSettingsBinding,
   type ComputerPreviewSize,
 } from "~/appSettings";
-import type { DesktopAppSnapSettingsPane, DesktopAppSnapState } from "@synara/contracts";
+import type { DesktopAppSnapSettingsPane, DesktopAppSnapState } from "@moss/contracts";
 import {
   computerReconnectsNote,
   computerStatusNeedsSetup,
@@ -55,7 +55,8 @@ import {
   COMPUTER_STATUS_VISIBLE_REFETCH_INTERVAL_MS,
   computerStatusQueryOptions,
 } from "~/lib/serverReactQuery";
-import { cn } from "~/lib/utils";
+import { resolveComputerHostPlatform } from "~/lib/computerHostPlatform";
+import { cn, getNavigatorPlatform } from "~/lib/utils";
 import { settingRowAnchorId } from "~/settingsNavigation";
 import { useAgentCursorDesktopSync } from "./agentCursorDesktopSync";
 import { SettingResetButton, SettingsSegmentedControl } from "./SettingControls";
@@ -298,16 +299,26 @@ export function ComputerSettingsPanel({
   // (KWin or Hyprland) registers with the compositor — no other backend binds
   // it, and a nested offscreen session never hears the human's keys, so only a
   // visible plugin-backed desktop may promise it.
+  //
+  // Cua drives both macOS and Windows. Which desktop this is comes from the host the server
+  // reports, not from the window showing this panel. Missing grants are a separate
+  // `permission-required` state; this sentence only describes what the host can do.
+  const hostPlatform = resolveComputerHostPlatform(status, getNavigatorPlatform());
   const capabilitiesDescription =
+    // This instance can only observe (no native input on its host): say so, whatever the OS.
     backend === "cua" && status?.capabilities.input === false
       ? "This backend can observe desktop windows, but native desktop input is unavailable. Isolated headless browser actions require a verified browser runtime and an available task-scoped Escape shortcut. Use Stop in the chat to interrupt the task."
-      : backend === COMPUTER_MAC_BACKEND || backend === "cua"
-        ? "The agent shares your Mac desktop and works in the background by default. It can bring a window forward when your task asks to watch. Background input may still affect focus. Use Stop in the chat to interrupt the task. Physical Escape interrupts the current action when Input Monitoring is granted; it does not disable future tasks."
-        : backend !== null &&
-            COMPUTER_RELEASE_HOTKEY_BACKENDS.includes(backend) &&
-            status?.capabilities.visibleDesktop === true
-          ? `The agent shares the computer described by this backend. Press ${COMPUTER_RELEASE_CONTROL_HOTKEY} at any time to stop it from acting on the desktop, and press it again to let it resume.`
-          : "The agent drives its own seat, so your cursor and focus stay untouched.";
+      : backend === "cua" && hostPlatform === "win32"
+        ? "On Windows, Moss works with your apps through UI Automation and screen capture. Allow any access Windows asks for, then refresh. Use Stop in the chat to interrupt the task."
+        : backend === COMPUTER_MAC_BACKEND || (backend === "cua" && hostPlatform === "darwin")
+          ? "The agent shares your Mac desktop and works in the background by default. It can bring a window forward when your task asks to watch. Background input may still affect focus. Use Stop in the chat to interrupt the task. Physical Escape interrupts the current action when Input Monitoring is granted; it does not disable future tasks."
+          : backend === "cua"
+            ? "The agent shares this computer's desktop. Use Stop in the chat to interrupt the task."
+            : backend !== null &&
+                COMPUTER_RELEASE_HOTKEY_BACKENDS.includes(backend) &&
+                status?.capabilities.visibleDesktop === true
+              ? `The agent shares the computer described by this backend. Press ${COMPUTER_RELEASE_CONTROL_HOTKEY} at any time to stop it from acting on the desktop, and press it again to let it resume.`
+              : "The agent drives its own seat, so your cursor and focus stay untouched.";
   /**
    * Screen capture is granted separately from input on every backend that has a
    * permission model at all, so a desktop can be fully driveable and still
@@ -323,7 +334,10 @@ export function ComputerSettingsPanel({
   const captureUnavailable = health?.captureAvailable === false;
   const captureBlocked = captureUnavailable && health?.status === "connected";
   const localPlatformUnsupported =
-    localPermissionBridge !== null && appSnapState !== null && appSnapState.platform !== "macos";
+    localPermissionBridge !== null &&
+    appSnapState !== null &&
+    appSnapState.platform !== "macos" &&
+    appSnapState.platform !== "windows";
   // Shared with the chat's setup card, which asks the same question of the same
   // status after pressing the same server-side Set up.
   const needsSetup =

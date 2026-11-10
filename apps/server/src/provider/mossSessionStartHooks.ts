@@ -17,13 +17,13 @@
  * `loadMossLaunchPlanCanonicalProjection` (`startInput.cwd ?? process.cwd()`),
  * so hooks and the launch plan always see the same `.moss` tree.
  */
-import type { ProviderKind, ProviderSessionStartInput, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ProviderSessionStartInput, ThreadId } from "@moss/contracts";
 import {
   MOSS_SESSION_START_EVENT,
   type MossHookRunResult,
   type MossHookRunSummary,
   type RunMossHooksOptions,
-} from "@synara/shared/mossHooks";
+} from "@moss/shared/mossHooks";
 
 export interface MossSessionStartHookInvocationParams {
   readonly provider: ProviderKind;

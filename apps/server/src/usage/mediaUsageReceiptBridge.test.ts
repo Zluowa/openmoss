@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProviderRuntimeEvent } from "@synara/contracts";
+import type { ProviderRuntimeEvent } from "@moss/contracts";
 
 import {
   MEDIA_USAGE_INSTRUMENTATION,

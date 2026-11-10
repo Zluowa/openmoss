@@ -22,7 +22,7 @@ import {
   ModelSelection,
   ProviderStartOptions,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -41,6 +41,7 @@ import {
 } from "../Services/ProjectAgentRepository.ts";
 
 const ConfigRow = Schema.Struct({
+  agentKind: Schema.optional(Schema.Literals(["hub", "mossbot"])),
   projectId: ProjectId,
   coordinatorThreadId: ThreadId,
   coordinatorName: ProjectAgentConfig.fields.coordinatorName,
@@ -136,6 +137,7 @@ const WorkerRow = Schema.Struct({
 });
 
 const SummaryRow = Schema.Struct({
+  agentKind: Schema.optional(Schema.Literals(["hub", "mossbot"])),
   projectId: ProjectId,
   coordinatorName: ProjectAgentConfig.fields.coordinatorName,
   coordinatorThreadId: ThreadId,
@@ -151,6 +153,7 @@ const SummaryRow = Schema.Struct({
 
 function toConfig(row: typeof ConfigRow.Type): ProjectAgentConfig {
   return {
+    ...(row.agentKind === "mossbot" ? { agentKind: row.agentKind } : {}),
     projectId: row.projectId,
     coordinatorThreadId: row.coordinatorThreadId,
     coordinatorName: row.coordinatorName,
@@ -208,6 +211,7 @@ const makeProjectAgentRepository = Effect.gen(function* () {
     execute: ({ projectId }) => sql`
       SELECT
         project_id AS "projectId",
+        agent_kind AS "agentKind",
         coordinator_thread_id AS "coordinatorThreadId",
         coordinator_name AS "coordinatorName",
         coordinator_model_selection_json AS "coordinatorModelSelection",
@@ -243,6 +247,7 @@ const makeProjectAgentRepository = Effect.gen(function* () {
     execute: ({ threadId }) => sql`
       SELECT
         project_id AS "projectId",
+        agent_kind AS "agentKind",
         coordinator_thread_id AS "coordinatorThreadId",
         coordinator_name AS "coordinatorName",
         coordinator_model_selection_json AS "coordinatorModelSelection",
@@ -276,7 +281,7 @@ const makeProjectAgentRepository = Effect.gen(function* () {
     Request: ConfigRow,
     execute: (row) => sql`
       INSERT INTO project_agent_configs (
-        project_id, coordinator_thread_id, coordinator_name,
+        project_id, agent_kind, coordinator_thread_id, coordinator_name,
         coordinator_model_selection_json, coordinator_provider_options_json,
         worker_routing_json, limits_json, capture_enabled, enabled, automation_id,
         revision, created_at, updated_at, disabled_at, goal, icon, auto_memory_enabled,
@@ -284,7 +289,7 @@ const makeProjectAgentRepository = Effect.gen(function* () {
         library_path, library_remote_url, library_push_on_change,
         paused_at, archived_at, paused_automation_ids
       ) VALUES (
-        ${row.projectId}, ${row.coordinatorThreadId}, ${row.coordinatorName},
+        ${row.projectId}, ${row.agentKind ?? "hub"}, ${row.coordinatorThreadId}, ${row.coordinatorName},
         ${row.coordinatorModelSelection}, ${row.coordinatorProviderOptions},
         ${row.workerRouting}, ${row.limits}, ${row.captureEnabled}, ${row.enabled},
         ${row.automationId}, ${row.revision}, ${row.createdAt}, ${row.updatedAt}, ${row.disabledAt},
@@ -301,6 +306,7 @@ const makeProjectAgentRepository = Effect.gen(function* () {
     Result: ChangedRow,
     execute: ({ row, expectedRevision }) => sql`
       UPDATE project_agent_configs SET
+        agent_kind = ${row.agentKind ?? "hub"},
         coordinator_thread_id = ${row.coordinatorThreadId},
         coordinator_name = ${row.coordinatorName},
         coordinator_model_selection_json = ${row.coordinatorModelSelection},
@@ -532,6 +538,7 @@ const makeProjectAgentRepository = Effect.gen(function* () {
     );
 
   const toConfigRow = (config: ProjectAgentConfig): typeof ConfigRow.Type => ({
+    agentKind: config.agentKind ?? "hub",
     projectId: config.projectId,
     coordinatorThreadId: config.coordinatorThreadId,
     coordinatorName: config.coordinatorName,
@@ -584,6 +591,7 @@ const makeProjectAgentRepository = Effect.gen(function* () {
         execute: () => sql`
           SELECT
             project_id AS "projectId",
+            agent_kind AS "agentKind",
             coordinator_thread_id AS "coordinatorThreadId",
             coordinator_name AS "coordinatorName",
             coordinator_model_selection_json AS "coordinatorModelSelection",
@@ -624,6 +632,7 @@ const makeProjectAgentRepository = Effect.gen(function* () {
           execute: () => sql`
             SELECT
               c.project_id AS "projectId",
+              c.agent_kind AS "agentKind",
               c.coordinator_name AS "coordinatorName",
               c.coordinator_thread_id AS "coordinatorThreadId",
               c.coordinator_icon AS "coordinatorIcon",
@@ -691,6 +700,7 @@ const makeProjectAgentRepository = Effect.gen(function* () {
         }
         return rows.map(
           (row): ProjectAgentConfigSummaryRow => ({
+            ...(row.agentKind === "mossbot" ? { agentKind: row.agentKind } : {}),
             projectId: row.projectId,
             coordinatorName: row.coordinatorName,
             coordinatorThreadId: row.coordinatorThreadId,

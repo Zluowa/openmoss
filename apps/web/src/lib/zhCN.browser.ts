@@ -19,6 +19,108 @@ describe("Simplified Chinese UI fallback", () => {
     document.body.replaceChildren();
   });
 
+  it("translates a textarea's placeholder and leaves what was typed alone", async () => {
+    document.documentElement.lang = "zh-CN";
+    document.documentElement.dataset.mossLocale = "zh-CN";
+    installZhCnUiLocalization();
+
+    const ui = document.createElement("section");
+    ui.innerHTML = `
+      <textarea id="note" placeholder="Add a note"></textarea>
+      <textarea id="typed" placeholder="Add a note">Start</textarea>
+      <div data-translation-skip="true"><textarea id="skipped" placeholder="Add a note"></textarea></div>
+    `;
+    document.body.append(ui);
+    await settleMutations();
+
+    expect(ui.querySelector("#note")?.getAttribute("placeholder")).toBe("添加备注");
+    expect(ui.querySelector<HTMLTextAreaElement>("#typed")?.value).toBe("Start");
+    expect(ui.querySelector("#typed")?.textContent).toBe("Start");
+    expect(ui.querySelector("#skipped")?.getAttribute("placeholder")).toBe("Add a note");
+
+    document.documentElement.lang = "en";
+    document.documentElement.dataset.mossLocale = "en";
+    await settleMutations();
+
+    expect(ui.querySelector("#note")?.getAttribute("placeholder")).toBe("Add a note");
+  });
+
+  it("names icons and colors only on a picker's own buttons", async () => {
+    document.documentElement.lang = "zh-CN";
+    document.documentElement.dataset.mossLocale = "zh-CN";
+    installZhCnUiLocalization();
+
+    const ui = document.createElement("section");
+    ui.innerHTML = `
+      <button id="project-icon" data-project-icon title="Music" aria-label="Music"></button>
+      <button id="project-color" data-project-color aria-label="Blue"></button>
+      <button id="hub-icon" data-appearance-option="hub-icon" title="Target" aria-label="Hub icon Target"></button>
+      <button id="hub-color" data-appearance-option="color" title="Rose" aria-label="Hub icon color Rose"></button>
+      <span id="folder" title="Music">Music</span>
+      <span id="file" data-translation-skip="true">Documents</span>
+      <span id="filter">Documents</span>
+    `;
+    document.body.append(ui);
+    await settleMutations();
+
+    const attribute = (id: string, name: string) => ui.querySelector(`#${id}`)?.getAttribute(name);
+    expect(attribute("project-icon", "title")).toBe("音乐");
+    expect(attribute("project-icon", "aria-label")).toBe("音乐");
+    expect(attribute("project-color", "aria-label")).toBe("蓝色");
+    expect(attribute("hub-icon", "title")).toBe("靶心");
+    expect(attribute("hub-icon", "aria-label")).toBe("Hub 图标：靶心");
+    expect(attribute("hub-color", "title")).toBe("玫瑰色");
+    expect(attribute("hub-color", "aria-label")).toBe("Hub 图标颜色：玫瑰色");
+    expect(attribute("folder", "title")).toBe("Music");
+    expect(ui.querySelector("#folder")?.textContent).toBe("Music");
+    expect(ui.querySelector("#file")?.textContent).toBe("Documents");
+    expect(ui.querySelector("#filter")?.textContent).toBe("文档");
+
+    document.documentElement.lang = "en";
+    document.documentElement.dataset.mossLocale = "en";
+    await settleMutations();
+
+    expect(attribute("project-icon", "title")).toBe("Music");
+    expect(attribute("hub-icon", "aria-label")).toBe("Hub icon Target");
+  });
+
+  it("localizes composed accessible names whole and restores English", async () => {
+    document.documentElement.lang = "zh-CN";
+    document.documentElement.dataset.mossLocale = "zh-CN";
+    installZhCnUiLocalization();
+
+    const ui = document.createElement("section");
+    ui.innerHTML = `
+      <button id="shortcut" aria-label="Set a shortcut for Toggle preview"></button>
+      <button id="section" aria-label="Show the Subagents section in the Environment panel"></button>
+      <button id="update" title="Run pi update">Jump to Void</button>
+      <img id="logo" alt="Moss logo" />
+      <p>Stop the unknown thing from happening.</p>
+    `;
+    document.body.append(ui);
+    await settleMutations();
+
+    expect(ui.querySelector("#shortcut")?.getAttribute("aria-label")).toBe(
+      "为“切换预览”设置快捷键",
+    );
+    expect(ui.querySelector("#section")?.getAttribute("aria-label")).toMatch(
+      /^在环境面板中显示“.+”分区$/,
+    );
+    expect(ui.querySelector("#update")?.getAttribute("title")).toBe("运行 pi update");
+    expect(ui.querySelector("#update")?.textContent).toBe("跳转到未归类");
+    expect(ui.querySelector("#logo")?.getAttribute("alt")).toBe("Moss 标志");
+    expect(ui.querySelector("p")?.textContent).toBe("Stop the unknown thing from happening.");
+
+    document.documentElement.lang = "en";
+    document.documentElement.dataset.mossLocale = "en";
+    await settleMutations();
+
+    expect(ui.querySelector("#shortcut")?.getAttribute("aria-label")).toBe(
+      "Set a shortcut for Toggle preview",
+    );
+    expect(ui.querySelector("#update")?.textContent).toBe("Jump to Void");
+  });
+
   it("localizes UI chrome, preserves runtime content, and restores English", async () => {
     document.documentElement.lang = "zh-CN";
     document.documentElement.dataset.mossLocale = "zh-CN";

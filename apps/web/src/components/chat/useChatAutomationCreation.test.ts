@@ -4,7 +4,7 @@ import {
   ThreadId,
   WsRpcError,
   type AutomationCreateInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

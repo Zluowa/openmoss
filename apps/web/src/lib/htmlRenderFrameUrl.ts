@@ -7,7 +7,7 @@ import {
   HTML_RENDER_FRAME_EXPIRES_PARAM,
   HTML_RENDER_FRAME_SIGNATURE_PARAM,
   signHtmlRenderFrameAccess,
-} from "@synara/shared/htmlRenderFrameAccess";
+} from "@moss/shared/htmlRenderFrameAccess";
 
 import { resolveWsHttpUrl } from "./wsHttpUrl";
 
@@ -24,6 +24,19 @@ function cacheKey(input: {
   readonly token: string;
 }) {
   return `${input.origin}\n${input.relativePath}\n${input.token}`;
+}
+
+let frameUrlResolver: ((attachmentId: string) => Promise<string | null>) | null = null;
+
+/**
+ * Lets a host that reaches pages through another route say where they load from. The guest page
+ * (served by the share relay) sets this once at startup, so a shared page loads through the
+ * share's `render` route instead of the owner's `/attachments/`. The app itself never calls this.
+ */
+export function setHtmlRenderFrameUrlResolver(
+  resolver: ((attachmentId: string) => Promise<string | null>) | null,
+): void {
+  frameUrlResolver = resolver;
 }
 
 /** Test-only cache reset so expiry cases remain independent. */
@@ -43,6 +56,7 @@ export async function resolveHtmlRenderFrameUrl(
   options: { readonly forceRefresh?: boolean } = {},
 ): Promise<string | null> {
   if (!ATTACHMENT_ID_PATTERN.test(attachmentId)) return null;
+  if (frameUrlResolver !== null) return frameUrlResolver(attachmentId);
   const relativePath = `${attachmentId}.html`;
   let url: URL;
   try {

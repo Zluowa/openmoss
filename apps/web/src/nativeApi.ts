@@ -2,16 +2,17 @@ import {
   WS_GITHUB_PROJECT_PROVISIONING_CAPABILITY,
   WS_PROJECT_FILE_WATCH_CAPABILITY,
   type NativeApi,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   createWsNativeApi,
   type GuestShareOwnerApi,
+  type PageSharingOwnerApi,
   onWsServerCapabilitiesChange,
   readWsServerCapabilities,
 } from "./wsNativeApi";
 
-export type { GuestShareOwnerApi } from "./wsNativeApi";
+export type { GuestShareOwnerApi, PageSharingOwnerApi } from "./wsNativeApi";
 
 let cachedDesktopApi: NativeApi | undefined;
 let nativeApiDetached = false;
@@ -35,6 +36,11 @@ export function isNativeApiDetached(): boolean {
  */
 export function ensureGuestShareApi(): GuestShareOwnerApi {
   return createWsNativeApi().guestShare;
+}
+
+/** Owner-side 资料空间 sharing and 站点 calls; WebSocket-only like guest shares. */
+export function ensurePageSharingApi(): PageSharingOwnerApi {
+  return createWsNativeApi().pageSharing;
 }
 
 export function readNativeApi(): NativeApi | undefined {

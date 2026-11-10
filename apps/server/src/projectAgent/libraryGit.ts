@@ -12,7 +12,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
-import { LIBRARY_REMOTE_URL_PATTERN, type LibraryCommit } from "@synara/contracts";
+import { LIBRARY_REMOTE_URL_PATTERN, type LibraryCommit } from "@moss/contracts";
 import { Effect, Semaphore } from "effect";
 
 import { GitCommandError } from "../git/Errors.ts";

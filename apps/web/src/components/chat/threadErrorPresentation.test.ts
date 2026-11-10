@@ -2,16 +2,57 @@
 // Purpose: Guards typed thread-error precedence and user-facing recovery surfaces.
 // Layer: Web chat presentation tests
 
-import { formatProviderDeliveryBlockDetail } from "@synara/shared/providerDeliveryBlock";
+import { formatProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 import { describe, expect, it } from "vitest";
 
+import { WS_MESSAGE_NOT_SENT_DETAIL } from "../../wsTransportEvents";
+
 import {
+  isExplainedProviderFailure,
   isQuotaOwnedThreadError,
   resolveQuotaOwnedThreadError,
   resolveThreadErrorPresentation,
 } from "./threadErrorPresentation";
 
 describe("resolveThreadErrorPresentation", () => {
+  it.each([
+    [WS_MESSAGE_NOT_SENT_DETAIL, "Moss 暂时连不上后端，这条消息没有发出，内容还在输入框里。"],
+    [
+      "The connection was interrupted before this message was accepted. Please send it again.",
+      "消息还没被接收，连接就中断了。请再发一次。",
+    ],
+  ])("says plainly that a send did not go through: %s", (raw, zhCn) => {
+    expect(resolveThreadErrorPresentation(raw, "en").title).toBe(raw);
+    expect(resolveThreadErrorPresentation(raw, "zh-CN").title).toBe(zhCn);
+  });
+
+  it("offers another model first when the model itself cannot take the request", () => {
+    const raw =
+      'unexpected status 400 Bad Request: {"error":{"message":"The model cannot represent these tool definitions or tool choices.","type":"invalid_request_error","code":"unsupported_tool_definition"}}';
+    expect(resolveThreadErrorPresentation(raw, "zh-CN")).toMatchObject({
+      title: "这个模型用不了这次对话需要的某个工具。换一个模型，再点「继续任务」就能接着做。",
+      changeModelFirst: true,
+    });
+    expect(
+      resolveThreadErrorPresentation("The model service timed out.", "zh-CN").changeModelFirst,
+    ).toBeUndefined();
+  });
+
+  it("says plainly when the local Pi account cannot run the thread's model", () => {
+    const raw =
+      "Error: Provider adapter request failed (pi) for model/set: This Pi account has no sign-in for DeepSeek Flash. Switch to Moss or another model to continue.";
+    for (const context of ["thread", "provider-start-failure"] as const) {
+      expect(resolveThreadErrorPresentation(raw, "zh-CN", context)).toMatchObject({
+        title: "本机的 Pi 还没登录能用「DeepSeek Flash」的账号。换成 Moss 或其他模型就能继续。",
+        changeModelFirst: true,
+      });
+    }
+    expect(resolveThreadErrorPresentation(raw, "en").title).toBe(
+      "This Pi account has no sign-in for DeepSeek Flash. Switch to Moss or another model to continue.",
+    );
+    expect(isExplainedProviderFailure(raw)).toBe(true);
+  });
+
   it("localizes the canonical provider fallback for zh-CN", () => {
     expect(
       resolveThreadErrorPresentation(
@@ -172,6 +213,153 @@ describe("resolveThreadErrorPresentation", () => {
     ).toMatchObject({
       title: "Moss is receiving too many requests right now. Try again shortly.",
     });
+  });
+
+  it("explains the gateway refusing an identical request, however the CLI words it", () => {
+    for (const raw of [
+      'Conflict: {"object":"moss.operation_status","operation_id":"a","status":"completed","retry_safe":false}',
+      "409 status code (no body)",
+      "Provider adapter request failed (hermes) for session/prompt: Hermes model request failed (HTTP 409).",
+      "Provider adapter request failed (minimax) for session/prompt: Internal error: MiniMax Code Runtime failed: BYOK provider custom_provider:moss upstream error: 409 status code (no body) (JSON-RPC -32603)",
+    ]) {
+      expect(resolveThreadErrorPresentation(raw, "zh-CN").title).toBe(
+        "刚刚已经发送过完全相同的请求，Moss 不会重复发送，以免重复计费。请改一下消息内容，或等大约 15 分钟后再试。",
+      );
+      expect(resolveThreadErrorPresentation(raw, "en").title).toContain("identical request");
+    }
+  });
+
+  it("says an identical request is still running on a gateway that refuses only then", () => {
+    for (const raw of [
+      'Conflict: {"object":"moss.operation_status","status":"in_progress","retry_safe":true,"error":{"message":"An identical request is still running. Retry when it finishes.","code":"operation_in_progress"}}',
+      "409 An identical request is still running. Retry when it finishes.",
+    ]) {
+      expect(resolveThreadErrorPresentation(raw, "zh-CN").title).toBe(
+        "相同的请求还在运行，等它结束后再试。",
+      );
+      expect(resolveThreadErrorPresentation(raw, "en").title).toBe(
+        "An identical request is still running. Retry when it finishes.",
+      );
+    }
+  });
+
+  it("says the connection dropped when a stream stalls and is cut off", () => {
+    for (const raw of [
+      "stream disconnected before completion: idle timeout waiting for SSE",
+      "stream disconnected before completion: Transport error: network error: error decoding response body",
+      "Provider adapter request failed (minimax) for session/prompt: Internal error: MiniMax Code Runtime failed: BYOK provider custom_provider:moss upstream error: terminated (JSON-RPC -32603)",
+    ]) {
+      expect(resolveThreadErrorPresentation(raw, "zh-CN").title).toBe(
+        "与模型服务的连接中断了，请重试。",
+      );
+      expect(resolveThreadErrorPresentation(raw, "en").title).toBe(
+        "The connection to the model service dropped. Try again.",
+      );
+      expect(isExplainedProviderFailure(raw)).toBe(true);
+    }
+  });
+
+  it("translates Claude's server error on the failure card", () => {
+    expect(
+      resolveThreadErrorPresentation("Claude returned a server error. Retry in a moment.", "zh-CN")
+        .title,
+    ).toBe("Claude 返回了服务器错误，请稍后重试。");
+  });
+
+  it("shows the gateway's reason in place of each CLI's raw wrapper", () => {
+    for (const raw of [
+      "unexpected status 502 Bad Gateway: The model service is temporarily unavailable., url: https://moss.example/functions/v1/moss-model-gateway/v1/responses",
+      '502: {"message":"The model service is temporarily unavailable.","type":"upstream_error","code":"upstream_unavailable"}',
+      "The model service is temporarily unavailable.",
+      "Provider adapter request failed (grok) for session/prompt: API error (status 502 Bad Gateway): upstream_error: The model service is temporarily unavailable.",
+    ]) {
+      expect(resolveThreadErrorPresentation(raw, "zh-CN").title).toBe(
+        "模型服务暂时不可用，请稍后重试。",
+      );
+      expect(resolveThreadErrorPresentation(raw, "en").title).toBe(
+        "The model service is temporarily unavailable.",
+      );
+    }
+    expect(
+      resolveThreadErrorPresentation(
+        "unexpected status 404 Not Found: This model is not available for this Moss sign-in method., url: https://moss.example/v1/responses",
+        "zh-CN",
+      ).title,
+    ).toBe("当前的 Moss 登录方式不能使用这个模型，请换一个模型。");
+  });
+
+  it("shows why an agent could not start, without its adapter text or stack", () => {
+    const raw =
+      "Error: Provider adapter process error (kimi) for thread t-1: Kimi Code session startup failed: Kimi Code needs Git Bash on Windows, and Moss could not find it. Install Git for Windows, or set KIMI_SHELL_PATH to a bash.exe, then retry. (Internal error Git Bash was not found on this Windows host.)\n    at <anonymous> (C:\\moss\\apps\\server\\AcpAgentAdapter.ts:755:21)";
+    expect(resolveThreadErrorPresentation(raw, "zh-CN", "provider-start-failure").title).toBe(
+      "在 Windows 上，Kimi Code 需要 Git Bash，但 Moss 没有找到。请安装 Git for Windows，或把 KIMI_SHELL_PATH 设为 bash.exe 的路径，然后重试。",
+    );
+    expect(resolveThreadErrorPresentation(raw, "en").title).toBe(
+      "Kimi Code needs Git Bash on Windows, and Moss could not find it. Install Git for Windows, or set KIMI_SHELL_PATH to a bash.exe, then retry.",
+    );
+  });
+
+  it.each([
+    [
+      "Moss could not safely apply compatibility for this Hermes version.",
+      "Moss 无法安全兼容这个 Hermes 版本。",
+    ],
+    [
+      "This Hermes installation is missing the required compatibility helper.",
+      "当前 Hermes 安装缺少所需的兼容组件。",
+    ],
+    [
+      "Hermes compatibility did not load from its isolated Moss home.",
+      "Hermes 兼容组件未从 Moss 隔离目录加载。",
+    ],
+    [
+      "Hermes compatibility did not load. Check whether its Moss plugin is disabled.",
+      "Hermes 兼容组件未加载，请检查 Moss 插件是否已停用。",
+    ],
+    [
+      "Moss Hermes compatibility is disabled in this isolated home's plugin settings.",
+      "Moss Hermes 兼容插件已在此隔离目录的插件设置中停用。",
+    ],
+    [
+      "Managed Hermes plugin configuration could not be read safely.",
+      "无法安全读取 Moss 托管的 Hermes 插件配置。",
+    ],
+    [
+      "Moss Hermes compatibility plugin conflicts with an existing plugin.",
+      "Moss Hermes 兼容插件与已有插件冲突，原文件已保留。",
+    ],
+  ])("retains the safe Hermes startup diagnosis %s in English and Chinese", (english, chinese) => {
+    const raw = `Error: Provider adapter process error (hermes) for thread private-id: Hermes session startup failed: ${english} (JSON-RPC -32000)\n    at <anonymous> (C:\\private\\server.js:1:2) secret=fake-sensitive-detail`;
+    for (const context of ["thread", "provider-start-failure"] as const) {
+      expect(resolveThreadErrorPresentation(raw, "en", context)).toMatchObject({
+        title: english,
+        copyText: english,
+      });
+      expect(resolveThreadErrorPresentation(raw, "zh-CN", context)).toMatchObject({
+        title: chinese,
+        copyText: chinese,
+      });
+    }
+  });
+
+  it("says what to do when a Moss Codex chat has no sign-in runtime, in every surface", () => {
+    // The strings the owner's failed turn persisted: the session error, the
+    // adapter-wrapped turn-start failure with its stack, and a revoked runtime.
+    for (const raw of [
+      "Reserved Codex account 'moss' requires a server-issued runtime generation.",
+      "Error: Provider adapter process error (codex) for thread 481d4fd9-d382-4db0-97a6-3987a7e646b0: Reserved Codex account 'moss' requires a server-issued runtime generation.\n    at catch (file:///C:/moss/apps/server/dist/index.mjs:168353:22)",
+      "Codex account runtime generation was revoked; recreate the account runtime before retrying.",
+    ]) {
+      for (const context of ["thread", "provider-start-failure"] as const) {
+        expect(resolveThreadErrorPresentation(raw, "zh-CN", context).title).toBe(
+          "Moss 模型服务还没为这个对话准备好。请重新登录 Moss，或换一个服务商后重试。",
+        );
+        expect(resolveThreadErrorPresentation(raw, "en", context).title).toBe(
+          "Moss's models aren't ready for this chat. Sign in to Moss again, or switch to another provider, then retry.",
+        );
+      }
+      expect(isExplainedProviderFailure(raw)).toBe(true);
+    }
   });
 
   it("tells the user to sign in again when Codex's ChatGPT sign-in has expired", () => {

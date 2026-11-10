@@ -8,7 +8,7 @@
  *
  * @module agentGateway/Services/AgentGatewayCredentials
  */
-import type { ProviderKind, ThreadId } from "@synara/contracts";
+import type { ProviderKind, ThreadId } from "@moss/contracts";
 import { ServiceMap } from "effect";
 import type {
   AgentGatewaySessionIdentity,
@@ -43,6 +43,8 @@ export interface AgentGatewayConnectorServer {
 export interface AgentGatewayConnectorRegistration {
   readonly name: string;
   readonly connectorId: string;
+  /** Non-secret local account identity. Never serialized into provider config. */
+  readonly authorityKey?: string;
 }
 
 export interface AgentGatewayStdioProxySpawn {
@@ -76,6 +78,8 @@ export interface AgentGatewayCredentialsShape {
   readonly exchangeStdioBootstrapToken: (bootstrapToken: string) => string | null;
   /** Pin one request/batch to the exact running turn observed at ingress. */
   readonly bindWriteAuthority: (token: string, turnId: string) => AgentGatewayWriteAuthority | null;
+  /** Only a trusted adapter can report its own lease's native parent-turn start. */
+  readonly observeNativeTurn?: (token: string, turnId: string | null) => void;
   /** Recheck that a previously bound authority still belongs to a live session. */
   readonly verifyWriteAuthority: (authority: AgentGatewayWriteAuthority) => boolean;
   /** Register one MCP request under its exact provider session and turn. */
@@ -133,6 +137,8 @@ export interface AgentGatewayCredentialsShape {
    * only call connectors it received at start (or at its latest renewal).
    */
   readonly canUseConnector?: (token: string, connectorId: string) => boolean;
+  /** The identity this bearer was granted, rechecked again before forwarding. */
+  readonly connectorAuthorityKey?: (token: string, connectorId: string) => string | undefined;
 }
 
 export class AgentGatewayCredentials extends ServiceMap.Service<

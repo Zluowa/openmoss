@@ -1,8 +1,8 @@
 // FILE: voiceTranscription.ts
 // Purpose: Validates normalized WAV payloads and routes them to a server-owned transcription adapter.
 // Layer: Server utility
-// Exports: transcribeVoiceWithChatGptSession
-// Depends on: injected OpenRouter credentials or ChatGPT session auth supplied by server callers.
+// Exports: transcribeVoiceWithChatGptSession, transcribeVoiceWithMossGateway
+// Depends on: injected Moss gateway/OpenRouter credentials or ChatGPT session auth supplied by server callers.
 
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
@@ -10,14 +10,15 @@ import { randomUUID } from "node:crypto";
 import type {
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
-} from "@synara/contracts";
-import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@synara/contracts";
+} from "@moss/contracts";
+import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@moss/contracts";
 import {
+  OpenRouterVoiceTranscriptionError,
   requestOpenRouterVoiceTranscription,
   requestMossGatewayVoiceTranscription,
-} from "@synara/shared/openRouterVoiceTranscription";
-import { requestChatGptVoiceTranscription } from "@synara/shared/chatGptVoiceTranscription";
-import { decodeOutboundJson, type OutboundHttpResponse } from "@synara/shared/outboundHttp";
+} from "@moss/shared/openRouterVoiceTranscription";
+import { requestChatGptVoiceTranscription } from "@moss/shared/chatGptVoiceTranscription";
+import { decodeOutboundJson, type OutboundHttpResponse } from "@moss/shared/outboundHttp";
 
 const MAX_DURATION_MS = 120_000;
 
@@ -34,6 +35,26 @@ export interface OpenRouterVoiceTranscriptionContext {
 export interface MossGatewayVoiceTranscriptionContext {
   readonly gatewayBaseUrl: string;
   readonly token: string;
+}
+
+/**
+ * Sends a validated clip to the signed-in Moss account's gateway. The caller resolves the
+ * gateway and bearer from live server-owned account state; nothing here reads settings.
+ */
+export async function transcribeVoiceWithMossGateway(input: {
+  readonly request: ServerVoiceTranscriptionInput;
+  readonly gateway: MossGatewayVoiceTranscriptionContext;
+  readonly signal?: AbortSignal;
+}): Promise<ServerVoiceTranscriptionResult> {
+  const audioBuffer = decodeVoiceAudio(input.request);
+  return requestMossGatewayVoiceTranscription({
+    audio: audioBuffer,
+    gatewayBaseUrl: input.gateway.gatewayBaseUrl,
+    mimeType: input.request.mimeType,
+    token: input.gateway.token,
+    operationId: input.request.operationId ?? randomUUID(),
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
 }
 
 // Validate the captured WAV clip and retry once if the ChatGPT session needs a refresh.
@@ -103,7 +124,7 @@ export async function transcribeVoiceWithChatGptSession(input: {
   }
 
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(readTranscriptionErrorMessage(response));
+    throw chatGptTranscriptionStatusError(response.status);
   }
 
   let payload: { text?: unknown; transcript?: unknown } | null = null;
@@ -124,23 +145,29 @@ export async function transcribeVoiceWithChatGptSession(input: {
 }
 
 // Keep the server-side contract strict so the private backend only sees normalized clips.
+// Every rejection carries a stable code so the UI can show plain localized guidance.
 function decodeVoiceAudio(input: ServerVoiceTranscriptionInput): Buffer {
   if (input.mimeType !== "audio/wav") {
-    throw new Error("Only WAV audio is supported for voice transcription.");
+    throw invalidVoiceAudio("Only WAV audio is supported for voice transcription.");
   }
   if (input.sampleRateHz !== 24_000) {
-    throw new Error("Voice transcription requires 24 kHz mono WAV audio.");
+    throw invalidVoiceAudio("Voice transcription requires 24 kHz mono WAV audio.");
   }
   if (input.durationMs <= 0) {
-    throw new Error("Voice messages must include a positive duration.");
+    throw invalidVoiceAudio("Voice messages must include a positive duration.");
   }
   if (input.durationMs > MAX_DURATION_MS) {
-    throw new Error("Voice messages are limited to 120 seconds.");
+    throw new OpenRouterVoiceTranscriptionError({
+      code: "VOICE_AUDIO_TOO_LONG",
+      message: "Voice messages are limited to 120 seconds.",
+      retryable: false,
+      status: 413,
+    });
   }
 
   const normalizedBase64 = normalizeBase64(input.audioBase64);
   if (!normalizedBase64 || !isLikelyBase64(normalizedBase64)) {
-    throw new Error("The recorded audio could not be decoded.");
+    throw invalidVoiceAudio("The recorded audio could not be decoded.");
   }
 
   const audioBuffer = Buffer.from(normalizedBase64, "base64");
@@ -148,16 +175,30 @@ function decodeVoiceAudio(input: ServerVoiceTranscriptionInput): Buffer {
   // the decoded length against what the base64 length implies catches a
   // truncated or mis-padded payload without re-encoding ~13 MB just to compare.
   if (!audioBuffer.length || audioBuffer.length !== expectedBase64DecodedLength(normalizedBase64)) {
-    throw new Error("The recorded audio could not be decoded.");
+    throw invalidVoiceAudio("The recorded audio could not be decoded.");
   }
   if (audioBuffer.length > SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES) {
-    throw new Error("Voice messages are limited to 10 MB.");
+    throw new OpenRouterVoiceTranscriptionError({
+      code: "MOSS_VOICE_AUDIO_TOO_LARGE",
+      message: "Voice messages are limited to 10 MB.",
+      retryable: false,
+      status: 413,
+    });
   }
   if (!isLikelyWavBuffer(audioBuffer)) {
-    throw new Error("The recorded audio is not a valid WAV file.");
+    throw invalidVoiceAudio("The recorded audio is not a valid WAV file.");
   }
 
   return audioBuffer;
+}
+
+function invalidVoiceAudio(message: string): OpenRouterVoiceTranscriptionError {
+  return new OpenRouterVoiceTranscriptionError({
+    code: "VOICE_AUDIO_INVALID",
+    message,
+    retryable: false,
+    status: 400,
+  });
 }
 
 async function requestTranscription(input: {
@@ -176,20 +217,45 @@ async function requestTranscription(input: {
   });
 }
 
-function readTranscriptionErrorMessage(response: OutboundHttpResponse): string {
-  if (response.status === 401 || response.status === 403) {
-    return "Your ChatGPT login has expired. Sign in again.";
+function chatGptTranscriptionStatusError(status: number): OpenRouterVoiceTranscriptionError {
+  if (status === 401 || status === 403) {
+    return new OpenRouterVoiceTranscriptionError({
+      code: "VOICE_CHATGPT_LOGIN_EXPIRED",
+      message: "Your ChatGPT login has expired. Sign in again.",
+      retryable: false,
+      status,
+    });
   }
-  if (response.status === 402) {
-    return "Voice transcription credits are unavailable.";
+  if (status === 402) {
+    return new OpenRouterVoiceTranscriptionError({
+      code: "VOICE_TRANSCRIPTION_UNAVAILABLE",
+      message: "Voice transcription credits are unavailable.",
+      retryable: false,
+      status,
+    });
   }
-  if (response.status === 413) {
-    return "The voice recording is too large to transcribe.";
+  if (status === 413) {
+    return new OpenRouterVoiceTranscriptionError({
+      code: "MOSS_VOICE_AUDIO_TOO_LARGE",
+      message: "The voice recording is too large to transcribe.",
+      retryable: false,
+      status,
+    });
   }
-  if (response.status === 429 || response.status >= 500) {
-    return "Voice transcription is temporarily unavailable. Try again shortly.";
+  if (status === 429 || status >= 500) {
+    return new OpenRouterVoiceTranscriptionError({
+      code: "VOICE_TRANSCRIPTION_UNAVAILABLE",
+      message: "Voice transcription is temporarily unavailable. Try again shortly.",
+      retryable: true,
+      status,
+    });
   }
-  return `Voice transcription was rejected with status ${response.status}.`;
+  return new OpenRouterVoiceTranscriptionError({
+    code: "VOICE_CHATGPT_REJECTED",
+    message: `Voice transcription was rejected with status ${status}.`,
+    retryable: false,
+    status: status >= 400 && status <= 599 ? status : 502,
+  });
 }
 
 function normalizeBase64(value: string): string | null {

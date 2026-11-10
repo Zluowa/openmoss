@@ -1,4 +1,4 @@
-import { type ProviderModelDescriptor, ThreadId } from "@synara/contracts";
+import { type ProviderModelDescriptor, ThreadId } from "@moss/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { getComposerProviderState } from "./composerProviderRegistry";
@@ -478,7 +478,9 @@ describe("getComposerProviderState", () => {
     });
   });
 
-  it.each([{ fastMode: true, expectedOptions: undefined }])(
+  // A Fast choice the model cannot honor is sent as standard speed, so a Fast tier an
+  // earlier turn left on the Codex thread does not carry over to this model.
+  it.each([{ fastMode: true, expectedOptions: { fastMode: false } }])(
     "normalizes unsupported Codex fastMode=$fastMode",
     ({ fastMode, expectedOptions }) => {
       const state = getComposerProviderState({
@@ -505,6 +507,54 @@ describe("getComposerProviderState", () => {
       });
     },
   );
+
+  describe("Codex speed tier from the user's Codex config", () => {
+    const luna = {
+      slug: "gpt-6-luna",
+      name: "GPT-6 Luna",
+      supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"].map((value) => ({
+        value,
+      })),
+      defaultReasoningEffort: "medium",
+      supportsFastMode: true,
+      serviceTiers: [{ value: "priority", label: "Fast", description: "1.5x speed" }],
+    };
+
+    it("sends standard speed when the configured tier is not one the model offers", () => {
+      // `service_tier = "ultrafast"` in the Codex config used to reach GPT-6 Luna, which
+      // Codex answered with a "runs at standard speed" warning on every turn.
+      const state = getComposerProviderState({
+        provider: "codex",
+        model: "gpt-6-luna",
+        runtimeModel: { ...luna, configuredServiceTier: "ultrafast" },
+        prompt: "",
+        modelOptions: { codex: { reasoningEffort: "high" } },
+      });
+      expect(state.modelOptionsForDispatch).toEqual({ reasoningEffort: "high", fastMode: false });
+    });
+
+    it("leaves a configured tier the model offers to Codex", () => {
+      const state = getComposerProviderState({
+        provider: "codex",
+        model: "gpt-6-luna",
+        runtimeModel: { ...luna, configuredServiceTier: "priority" },
+        prompt: "",
+        modelOptions: { codex: { reasoningEffort: "high" } },
+      });
+      expect(state.modelOptionsForDispatch).toEqual({ reasoningEffort: "high" });
+    });
+
+    it("keeps the person's own Fast choice", () => {
+      const state = getComposerProviderState({
+        provider: "codex",
+        model: "gpt-6-luna",
+        runtimeModel: { ...luna, configuredServiceTier: "ultrafast" },
+        prompt: "",
+        modelOptions: { codex: { fastMode: true } },
+      });
+      expect(state.modelOptionsForDispatch).toEqual({ fastMode: true });
+    });
+  });
 
   it("preserves explicit Codex Fast off for dispatch while keeping the selected effort label", () => {
     const state = getComposerProviderState({

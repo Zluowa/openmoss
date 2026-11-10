@@ -4,7 +4,7 @@
 /* oxlint-disable unicorn/prefer-add-event-listener -- Each owned media handle has one exclusive callback set that dispose clears atomically. */
 /* oxlint-disable unicorn/require-post-message-target-origin -- AudioWorklet MessagePort.postMessage has no targetOrigin parameter. */
 
-import type { RealtimeVoiceWebSocketPcm16Transport } from "@synara/contracts";
+import type { RealtimeVoiceWebSocketPcm16Transport } from "@moss/contracts";
 
 import {
   requestRealtimeVoiceInputCapture,

@@ -1,5 +1,5 @@
-import type { MossPayOrder } from "@synara/contracts";
-import { isMossPayOrderSettled } from "@synara/contracts";
+import type { MossPayOrder } from "@moss/contracts";
+import { isMossPayOrderSettled } from "@moss/contracts";
 import type { ReactNode } from "react";
 import { formatMossPayOrderAmount, QrCode } from "./MossPayPanel";
 import { safeMossPayOrderErrorMessage } from "./MossMembershipPage.logic";

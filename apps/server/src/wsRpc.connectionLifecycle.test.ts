@@ -19,7 +19,7 @@ import {
   type AuthSessionId,
   type ComputerEvent,
   type WsBootstrapNegotiateResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Deferred, Duration, Effect, Exit, Layer, Schema, Scope, Stream } from "effect";
 import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -949,9 +949,15 @@ describe("websocketRpcRouteLayer connection lifecycle", () => {
 
       expect(server.observedConnectionSessionKeys).toHaveLength(1);
       const sessionKey = server.observedConnectionSessionKeys[0]!;
+      // The verified session itself also travels with the connection, so owner-only
+      // handlers (incoming pairing management) act on exactly this session.
       expect(server.connectionSessions.lookup(sessionKey)).toEqual({
         role: "owner",
         attachmentPrincipal: { ownerKind: "session", ownerId: issued.sessionId },
+        authenticatedSession: expect.objectContaining({
+          sessionId: issued.sessionId,
+          role: "owner",
+        }),
       });
 
       socket.close();

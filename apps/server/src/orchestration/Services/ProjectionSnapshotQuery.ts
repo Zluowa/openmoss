@@ -25,7 +25,7 @@ import type {
   ThreadId,
   ThreadEnvironmentMode,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 
@@ -246,6 +246,11 @@ export interface ProjectionSnapshotQueryShape {
     projectId: ProjectId,
   ) => Effect.Effect<Option.Option<ThreadId>, ProjectionRepositoryError>;
 
+  /** The first thread created in this project, even after its move or deletion. */
+  readonly getOriginalThreadIdByProjectId: (
+    projectId: ProjectId,
+  ) => Effect.Effect<Option.Option<ThreadId>, ProjectionRepositoryError>;
+
   /**
    * Read the checkpoint context needed to resolve a single thread diff.
    */
@@ -276,6 +281,15 @@ export interface ProjectionSnapshotQueryShape {
     ReadonlyArray<ProjectionGeneratedImageActivityRecord>,
     ProjectionRepositoryError
   >;
+
+  /**
+   * Whether the thread already published an `html_render` page on this surface.
+   * Like the generated-image read, it ignores the bounded thread-detail window.
+   */
+  readonly hasHtmlRenderSurface: (
+    threadId: ThreadId,
+    surface: string,
+  ) => Effect.Effect<boolean, ProjectionRepositoryError>;
 
   /**
    * Read the narrow context needed to diff a whole thread through one checkpoint.

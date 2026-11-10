@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 
 import { deriveMossPluginProviderMcpServers, discoverMossPluginRuntime } from "./mossPluginRuntime";
 import {
@@ -12,7 +12,7 @@ import {
   MossPluginApprovalError,
   notifyMossPluginApprovalChanged,
 } from "./mossPluginApprovalService";
-import type { MossProjectionOwnershipStore } from "@synara/shared/mossProjectionMaterializer";
+import type { MossProjectionOwnershipStore } from "@moss/shared/mossProjectionMaterializer";
 
 const tempDirs: string[] = [];
 const repositoryRoot = resolve(import.meta.dirname, "../../../..");

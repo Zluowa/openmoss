@@ -3,7 +3,7 @@
 // Layer: Chat composer presentation + admission orchestration
 // Exports: ChatComposerSendButton, isChatComposerSubmitReady, runChatProviderSendPreflight
 
-import type { ProviderInstanceId, ProviderKind, ServerProviderStatus } from "@synara/contracts";
+import type { ProviderInstanceId, ProviderKind, ServerProviderStatus } from "@moss/contracts";
 
 import { ComposerSendArrowIcon, PlayIcon } from "~/lib/icons";
 import { translateMoss, useTranslation } from "~/localization";

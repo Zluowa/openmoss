@@ -4,26 +4,26 @@
 // Depends on: injected OpenRouter credentials or Codex auth discovery, bounded uploads, and contracts.
 
 import { randomUUID } from "node:crypto";
-import { spawnProcess } from "@synara/shared/processRuntime";
+import { spawnProcess } from "@moss/shared/processRuntime";
 
 import { app, ipcMain } from "electron";
 import type {
   ServerVoiceTranscriptionInput,
   ServerVoiceTranscriptionResult,
-} from "@synara/contracts";
-import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@synara/contracts";
+} from "@moss/contracts";
+import { SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES } from "@moss/contracts";
 import {
   CHATGPT_VOICE_TRANSCRIPTION_URL,
   requestChatGptVoiceTranscription,
-} from "@synara/shared/chatGptVoiceTranscription";
+} from "@moss/shared/chatGptVoiceTranscription";
 import {
   requestOpenRouterVoiceTranscription,
   requestMossGatewayVoiceTranscription,
-} from "@synara/shared/openRouterVoiceTranscription";
-import { resolveSafeVoiceTranscriptionFailure } from "@synara/shared/voiceTranscriptionFailure";
-import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@synara/shared/binaryTransfer";
-import { resolveCodexExecutable } from "@synara/shared/codexRuntime";
-import { decodeOutboundJson, type OutboundHttpResponse } from "@synara/shared/outboundHttp";
+} from "@moss/shared/openRouterVoiceTranscription";
+import { resolveSafeVoiceTranscriptionFailure } from "@moss/shared/voiceTranscriptionFailure";
+import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@moss/shared/binaryTransfer";
+import { resolveCodexExecutable } from "@moss/shared/codexExecutable";
+import { decodeOutboundJson, type OutboundHttpResponse } from "@moss/shared/outboundHttp";
 import { SERVER_TRANSCRIBE_VOICE_CHANNEL } from "./ipcChannels";
 import { registerSentryIpcHandler } from "./observability/sentry";
 

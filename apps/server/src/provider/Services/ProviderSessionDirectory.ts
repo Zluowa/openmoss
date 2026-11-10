@@ -4,7 +4,7 @@ import type {
   ProviderSessionRuntimeStatus,
   RuntimeMode,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Option, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

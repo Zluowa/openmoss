@@ -31,7 +31,7 @@ import {
   type ProviderKind,
   type ProviderWithDefaultModel,
   type SupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const MODEL_SLUG_SET_BY_PROVIDER: Record<ProviderKind, ReadonlySet<ModelSlug>> = {
   claudeAgent: new Set(MODEL_OPTIONS_BY_PROVIDER.claudeAgent.map((option) => option.slug)),
@@ -751,6 +751,78 @@ export function getProviderOptionCurrentValue(
     return descriptor.currentValue;
   }
   return descriptor.currentValue ?? descriptor.options.find((option) => option.isDefault)?.id;
+}
+
+// ── Codex speed tiers ─────────────────────────────────────────────────
+// Ported from T3 Code's Codex catalog mapping: a model's speed choices come from its
+// own catalog entry, and the tier in the user's Codex config is the default only on
+// models that offer it.
+
+/** `priority` is Codex's id for the Fast tier; `fast` is its older name. */
+const CODEX_FAST_SERVICE_TIER_IDS: ReadonlySet<string> = new Set(["priority", "fast"]);
+const CODEX_STANDARD_SERVICE_TIER_ID = "default";
+
+export function isCodexFastServiceTier(tier: string | null | undefined): boolean {
+  return CODEX_FAST_SERVICE_TIER_IDS.has(tier?.trim().toLowerCase() ?? "");
+}
+
+/** Whether a model's advertised tiers include `tier`, counting `fast` and `priority` as one. */
+export function codexServiceTiersInclude(
+  serviceTiers: ReadonlyArray<{ readonly value: string }>,
+  tier: string,
+): boolean {
+  const wanted = tier.trim().toLowerCase();
+  return serviceTiers.some((offered) => {
+    const value = offered.value.trim().toLowerCase();
+    return value === wanted || (isCodexFastServiceTier(value) && isCodexFastServiceTier(wanted));
+  });
+}
+
+export type CodexSpeedSelection = {
+  /** The next turn runs at Fast speed. */
+  readonly fastModeEnabled: boolean;
+  /** `fastMode` to send with the turn; undefined leaves Codex's configured tier in charge. */
+  readonly dispatchFastMode: boolean | undefined;
+};
+
+/**
+ * Resolves a Codex model's Fast toggle and the `fastMode` its turns carry.
+ *
+ * An explicit choice wins where the model can honor it. Otherwise the model's
+ * default applies, as in T3 Code: the tier from the user's Codex config when this
+ * model offers it, else standard speed. Standard is then sent explicitly, so a
+ * config tier the model lacks (an "ultrafast" config on GPT-6 Luna) or a Fast choice
+ * carried over from another model is not handed to Codex, which would drop it with a
+ * warning on every turn.
+ */
+export function resolveCodexSpeedSelection(input: {
+  readonly supportsFastMode: boolean;
+  readonly fastMode: boolean | null | undefined;
+  readonly runtimeModel?:
+    | Pick<ProviderModelDescriptor, "serviceTiers" | "configuredServiceTier">
+    | null
+    | undefined;
+}): CodexSpeedSelection {
+  if (input.fastMode === true && input.supportsFastMode) {
+    return { fastModeEnabled: true, dispatchFastMode: true };
+  }
+  if (input.fastMode === false) {
+    return { fastModeEnabled: false, dispatchFastMode: false };
+  }
+  // A Fast choice this model cannot honor falls back to the model's default.
+  const unusableFastChoice = input.fastMode === true;
+  const serviceTiers = input.runtimeModel?.serviceTiers;
+  const configured = trimOrNull(input.runtimeModel?.configuredServiceTier)?.toLowerCase();
+  if (serviceTiers && configured && configured !== CODEX_STANDARD_SERVICE_TIER_ID) {
+    if (codexServiceTiersInclude(serviceTiers, configured)) {
+      return {
+        fastModeEnabled: input.supportsFastMode && isCodexFastServiceTier(configured),
+        dispatchFastMode: undefined,
+      };
+    }
+    return { fastModeEnabled: false, dispatchFastMode: false };
+  }
+  return { fastModeEnabled: false, dispatchFastMode: unusableFastChoice ? false : undefined };
 }
 
 // ── Data-driven capability resolver ───────────────────────────────────

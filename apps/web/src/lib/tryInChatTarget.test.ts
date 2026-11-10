@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@moss/contracts";
 
 import type { ResourceDetail } from "~/components/PluginResourceDetailDialog";
 import {
@@ -172,6 +172,29 @@ describe("buildTryInChatSeed", () => {
     expect(seed.mentions).toEqual([{ name: "gh", path: "plugin://gh@openai" }]);
   });
 
+  it("gives a Moss media plugin's example prompt in the UI language", () => {
+    const imagegen = pluginResource("moss-imagegen", "moss-bundled", ["Generate an image: "]);
+    expect(buildTryInChatSeed(imagegen, "codex", undefined, { locale: "zh-CN" }).prompt).toBe(
+      "@moss-imagegen 生成一张图片：",
+    );
+    expect(buildTryInChatSeed(imagegen, "codex", undefined, { locale: "en" }).prompt).toBe(
+      "@moss-imagegen Generate an image: ",
+    );
+    // The 1.0.3 manifest's English request, which made the agent answer in English.
+    const legacy = pluginResource("moss-imagegen", "moss-bundled", [
+      "Use Moss Images to create or edit an image.",
+    ]);
+    expect(buildTryInChatSeed(legacy, "codex", undefined, { locale: "zh-CN" }).prompt).toBe(
+      "@moss-imagegen 用 Moss 生成或编辑一张图片：",
+    );
+    // Other plugins' prompts are left as their authors wrote them.
+    expect(
+      buildTryInChatSeed(pluginResource("gh", "openai", ["Do a thing"]), "codex", undefined, {
+        locale: "zh-CN",
+      }).prompt,
+    ).toBe("@gh Do a thing");
+  });
+
   it("uses the selected plugin starter prompt when one is provided", () => {
     const seed = buildTryInChatSeed(
       pluginResource("gh", "openai", ["Default prompt"]),
@@ -185,6 +208,35 @@ describe("buildTryInChatSeed", () => {
     expect(buildTryInChatSeed(pluginResource("my plugin", "mp"), "codex").prompt).toBe(
       '@"my plugin" ',
     );
+  });
+
+  it("attaches a service plugin's installed skill so every CLI can use it", () => {
+    const serviceSkill = { name: "amap-maps", path: "/home/me/.moss/skills/amap-maps/SKILL.md" };
+    const resource = pluginResource("amap", "moss-service-plugins");
+    for (const provider of ["claudeAgent", "codex", "cursor"] as const) {
+      const seed = buildTryInChatSeed(resource, provider, "Use 高德地图 to ", { serviceSkill });
+      // The chip token and its reference, as the composer picker sets them.
+      expect(seed.prompt).toBe("/amap-maps Use 高德地图 to ");
+      expect(seed.skills).toEqual([serviceSkill]);
+      expect(seed.mentions).toEqual([]);
+    }
+    expect(
+      buildTryInChatSeed(resource, "pi", undefined, { serviceSkill }).prompt.startsWith(
+        "/skill:amap-maps ",
+      ),
+    ).toBe(true);
+    // Without an installed skill on disk the prompt only names the service.
+    expect(buildTryInChatSeed(resource, "claudeAgent", "Use 高德地图 to ")).toEqual({
+      prompt: "Use 高德地图 to ",
+      skills: [],
+      mentions: [],
+    });
+    // A hosted Moss app has no skill to attach.
+    expect(
+      buildTryInChatSeed(pluginResource("gmail", "moss-apps"), "claudeAgent", "Use Gmail to ", {
+        serviceSkill,
+      }).skills,
+    ).toEqual([]);
   });
 
   it("seeds an MCP resource as a plain instruction with no chip references", () => {

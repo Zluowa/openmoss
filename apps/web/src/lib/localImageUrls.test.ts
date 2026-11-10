@@ -68,6 +68,16 @@ describe("local image URL helpers", () => {
     ).toBe("/api/local-image?path=%2FUsers%2Fme%2FDownloads%2Fshot.png&grant=grant-token");
   });
 
+  it("reads and downloads conversation images from the authenticated account asset route", () => {
+    const src = `/api/moss/media/assets/moss_fixture/1?accountScope=${"a".repeat(64)}`;
+    expect(buildLocalImageUrl({ src, cwd: undefined })).toBe(src);
+    expect(buildLocalImageUrl({ src, cwd: undefined, download: true })).toBe(`${src}&download=1`);
+    expect(localImageFileName(src)).toBe("image-2");
+    expect(buildLocalImageUrl({ src: src + "&other=1", cwd: undefined })).toMatch(
+      /^\/api\/local-image\?/u,
+    );
+  });
+
   it("cache-busts explicit preview reloads", () => {
     expect(
       buildLocalImageUrl({

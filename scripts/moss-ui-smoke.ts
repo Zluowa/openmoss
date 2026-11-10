@@ -37,7 +37,7 @@ export const MOSS_UI_SMOKE_COMMANDS = [
     command: "bun",
     args: [
       "--filter",
-      "@synara/web",
+      "@moss/web",
       "test:browser",
       "--",
       "MossControlPlanePanel.browser.tsx",
@@ -50,7 +50,7 @@ export const MOSS_UI_SMOKE_COMMANDS = [
     command: "bun",
     args: [
       "--filter",
-      "@synara/web",
+      "@moss/web",
       "test",
       "--",
       "mossNormalizedTimeline",
@@ -61,7 +61,7 @@ export const MOSS_UI_SMOKE_COMMANDS = [
     id: "moss-web-typecheck",
     description: "Run Web package typecheck for Moss UI smoke boundaries.",
     command: "bun",
-    args: ["--filter", "@synara/web", "typecheck"],
+    args: ["--filter", "@moss/web", "typecheck"],
   },
 ] as const satisfies ReadonlyArray<MossUiSmokeCommand>;
 

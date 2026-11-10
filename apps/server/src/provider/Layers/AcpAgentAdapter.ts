@@ -19,7 +19,7 @@ import {
   RuntimeRequestId,
   type ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   DateTime,
   Deferred,
@@ -108,6 +108,7 @@ import {
   applyAcpAgentSessionConfiguration,
   makeAcpAgentRuntime,
   parseAcpAgentModels,
+  readAcpAgentCurrentModel,
   prepareAcpAgentRuntimeSettings,
   resolveAcpAgentRuntimeSettings,
 } from "../acp/AcpAgentSupport.ts";
@@ -183,6 +184,7 @@ interface AcpAgentSessionContext {
   activeInteractionMode: ProviderInteractionMode | undefined;
   activeTurnId: TurnId | undefined;
   activeTurnFailedToolDetail: string | undefined;
+  activeTurnHadToolCall: boolean;
   activeTurnHadAssistantContent: boolean;
   readonly activeAssistantItemsWithContent: Set<string>;
   activePromptFiber: Fiber.Fiber<void, never> | undefined;
@@ -748,15 +750,21 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
           }).pipe(
             // Not mapAcpToAdapterError: startup must surface the agent's own
             // failure text ("Authentication required…", startup timeout step)
-            // behind the classified sign-in/install hint.
-            Effect.mapError(
-              (error) =>
-                new ProviderAdapterRequestError({
+            // behind the classified sign-in/install hint. No prompt has been
+            // submitted, so once the scope's finalizer proves the process stopped
+            // this is a rejection the user can retry, not an uncertain delivery
+            // that blocks the thread. A cleanup defect still propagates as uncertain.
+            Effect.catch((error) =>
+              Effect.gen(function* () {
+                yield* Scope.close(sessionScope, Exit.void);
+                return yield* new ProviderAdapterProcessError({
                   provider: PROVIDER,
-                  method: "session/start",
+                  threadId: input.threadId,
+                  reason: "startup-failed",
                   detail: `${spec.displayName} session startup failed: ${acpAgentFailureDetail(spec, error)}`,
                   cause: error,
-                }),
+                });
+              }),
             ),
           );
 
@@ -798,6 +806,7 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
             activeInteractionMode: undefined,
             activeTurnId: undefined,
             activeTurnFailedToolDetail: undefined,
+            activeTurnHadToolCall: false,
             activeTurnHadAssistantContent: false,
             activeAssistantItemsWithContent: new Set(),
             activePromptFiber: undefined,
@@ -852,6 +861,7 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
                     if (failedToolDetail !== undefined && ctx.activeTurnId !== undefined) {
                       ctx.activeTurnFailedToolDetail = failedToolDetail;
                     }
+                    if (ctx.activeTurnId !== undefined) ctx.activeTurnHadToolCall = true;
                     yield* offerRuntimeEvent(
                       input.lifecycleGeneration,
                       makeAcpToolCallEvent({
@@ -1073,6 +1083,7 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
 
         ctx.activeTurnId = turnId;
         ctx.activeTurnFailedToolDetail = undefined;
+        ctx.activeTurnHadToolCall = false;
         ctx.activeTurnHadAssistantContent = false;
         ctx.activeAssistantItemsWithContent.clear();
         ctx.activeInteractionMode = interactionMode;
@@ -1144,6 +1155,8 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
               Effect.gen(function* () {
                 yield* waitForQueuedTurnEventsDrained(ctx);
                 const failedToolDetail = ctx.activeTurnFailedToolDetail;
+                const endedWithNothing =
+                  !ctx.activeTurnHadAssistantContent && !ctx.activeTurnHadToolCall;
                 if (ctx.activeTurnId !== turnId) {
                   return;
                 }
@@ -1160,10 +1173,18 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
                   updatedAt: yield* nowIso,
                   model,
                 };
-                const completion = classifyAcpPromptTurnCompletion({
-                  stopReason: result.stopReason,
-                  ...(failedToolDetail !== undefined ? { failedToolDetail } : {}),
-                });
+                // Kimi Code answers a refused model request with a plain end_turn and
+                // nothing else, so a managed user would otherwise see no reply and no error.
+                const completion =
+                  ctx.managed && result.stopReason === "end_turn" && endedWithNothing
+                    ? {
+                        state: "failed" as const,
+                        errorMessage: `${spec.displayName} ended the turn without a reply. The Moss model service may have refused the request. Check your plan or try again.`,
+                      }
+                    : classifyAcpPromptTurnCompletion({
+                        stopReason: result.stopReason,
+                        ...(failedToolDetail !== undefined ? { failedToolDetail } : {}),
+                      });
                 if (completion.state === "failed") {
                   ctx.session = {
                     ...ctx.session,
@@ -1385,6 +1406,7 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
         return acpAgentModelListResult(
           spec,
           parseAcpAgentModels(spec, started.sessionSetupResult),
+          readAcpAgentCurrentModel(spec, started.sessionSetupResult),
         ) satisfies ProviderListModelsResult;
       }).pipe(
         Effect.scoped,

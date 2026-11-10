@@ -1,14 +1,15 @@
 // Drives a published page's bootstrap in a real sandboxed frame: the height it reports, and
 // the links, images and app shortcuts it hands to Moss after the reader clicks into it.
 import "../../index.css";
-import { injectHtmlRenderBootstrap } from "@synara/shared/htmlRender";
-import { compileKeybindingRule } from "@synara/shared/keybindingRules";
+import { injectHtmlRenderBootstrap } from "@moss/shared/htmlRender";
+import { compileKeybindingRule } from "@moss/shared/keybindingRules";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
+import { VisualFollowUpContext } from "~/lib/visualFollowUp";
 
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { SandboxedHtmlDocument } from "./SandboxedHtmlDocument";
@@ -27,6 +28,7 @@ afterEach(() => vi.unstubAllGlobals());
 async function renderPage(
   onImageExpand?: (preview: ExpandedImagePreview) => void,
   html: string = PAGE,
+  followUp?: (message: string) => void,
 ) {
   const src = URL.createObjectURL(
     new Blob([injectHtmlRenderBootstrap(html)], { type: "text/html" }),
@@ -42,13 +44,15 @@ async function renderPage(
     <QueryClientProvider client={client}>
       {/* Pinned, so frames from earlier tests never push this one below the fold. */}
       <div style={{ position: "fixed", top: 0, left: 0, width: 360, height: 600 }}>
-        <SandboxedHtmlDocument
-          src={src}
-          title="Probe"
-          className="block size-full"
-          onContentHeight={(height) => heights.push(height)}
-          {...(onImageExpand ? { onImageExpand } : {})}
-        />
+        <VisualFollowUpContext.Provider value={followUp ?? null}>
+          <SandboxedHtmlDocument
+            src={src}
+            title="Probe"
+            className="block size-full"
+            onContentHeight={(height) => heights.push(height)}
+            {...(onImageExpand ? { onImageExpand } : {})}
+          />
+        </VisualFollowUpContext.Provider>
       </div>
     </QueryClientProvider>,
   );
@@ -104,6 +108,31 @@ it("opens a clicked page link outside the thread", async () => {
       "noopener,noreferrer",
     ),
   );
+});
+
+// The page asks on load (no focus, no click) and again from a button the reader clicks.
+const FOLLOW_UP_PAGE = `<!doctype html><html><head><title>Picker</title></head><body>
+  <button id="pick" type="button" style="display:block;height:40px"
+    onclick="document.body.dataset.sent = String(window.mossFollowUp('Book the 9:00 table for 2'))">Book</button>
+  <script>window.addEventListener("load", function () { window.mossFollowUp("Sent on load"); });</script>
+</body></html>`;
+
+it("puts a clicked follow-up in the composer once, and never one sent on load", async () => {
+  const followUp = vi.fn();
+  await using view = await renderPage(undefined, FOLLOW_UP_PAGE, followUp);
+  // The load-time call reached Moss without focus or a click, so it was dropped.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(followUp).not.toHaveBeenCalled();
+
+  await view.frame.getByRole("button", { name: "Book" }).click();
+  await vi.waitFor(() => expect(followUp).toHaveBeenCalledWith("Book the 9:00 table for 2"));
+  // The frame gives up focus, so the next follow-up needs the reader's next click.
+  expect(document.activeElement).not.toBe(view.iframe);
+
+  // A second request within a second of the first is refused.
+  await view.frame.getByRole("button", { name: "Book" }).click();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(followUp).toHaveBeenCalledTimes(1);
 });
 
 it("hands allowed app shortcuts back to Moss and keeps the rest in the page", async () => {

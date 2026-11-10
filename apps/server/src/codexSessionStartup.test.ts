@@ -4,8 +4,8 @@ import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { ThreadId } from "@synara/contracts";
-import { spawnProcess } from "@synara/shared/processRuntime";
+import { ThreadId } from "@moss/contracts";
+import { spawnProcess } from "@moss/shared/processRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Exit, Layer } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,8 +23,8 @@ import { classifyProviderAttemptOutcome } from "./orchestration/Layers/ProviderC
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter.ts";
 import { CodexAdapter } from "./provider/Services/CodexAdapter.ts";
 
-vi.mock("@synara/shared/processRuntime", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@synara/shared/processRuntime")>()),
+vi.mock("@moss/shared/processRuntime", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@moss/shared/processRuntime")>()),
   spawnProcess: vi.fn(),
 }));
 

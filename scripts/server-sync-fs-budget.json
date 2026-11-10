@@ -297,6 +297,24 @@
       "statSync": 1
     }
   },
+  "apps/server/src/provider/agentStateBindingRecords.ts": {
+    "reason": "Synchronous launch/revocation fences verify signed 8 KiB receipts and directory/file identity before use. Only a two-link receipt requires checking its confined staging alias. Final no-clobber link and owned staging unlink must follow identity checks without yielding; creation, file writes, fsync and maintenance enumeration are asynchronous.",
+    "references": {
+      "linkSync": 1,
+      "lstatSync": 6,
+      "readdirSync": 1,
+      "unlinkSync": 1
+    }
+  },
+  "apps/server/src/provider/claudeStateBinding.ts": {
+    "reason": "The native Claude launch callback synchronously verifies the projects target and private credential revision. After asynchronous logout preflight, the final inode and disabled/idle ownership checks stay contiguous with each removal so a newly started process cannot lose its private files.",
+    "references": {
+      "lstatSync": 2,
+      "realpathSync": 1,
+      "rmdirSync": 1,
+      "unlinkSync": 1
+    }
+  },
   "apps/server/src/provider/mossMarketplaceAggregation.ts": {
     "reason": "Moss control-plane module predating the sync-fs gate (account/marketplace/bridge file management, not on the streaming hot path); frozen reference budget, no new sync operations.",
     "references": {
@@ -406,18 +424,6 @@
     "reason": "Shared process boundary executable and working-directory checks; one stat each inside the synchronous pre-spawn plan.",
     "references": {
       "statSync": 2
-    }
-  },
-  "packages/shared/src/staticSnapshot.ts": {
-    "reason": "Shared static snapshot validation/loading; existing references frozen pending profiling.",
-    "references": {
-      "existsSync": 3,
-      "mkdirSync": 2,
-      "readFileSync": 1,
-      "readdirSync": 2,
-      "renameSync": 1,
-      "rmSync": 3,
-      "writeFileSync": 1
     }
   }
 }

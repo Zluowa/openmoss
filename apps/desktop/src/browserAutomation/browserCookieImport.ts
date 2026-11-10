@@ -4,7 +4,7 @@ import {
   listCookieSourceProfiles,
   NetworkPolicy,
 } from "betterwright";
-import type { BrowserCookieImportInput, BrowserCookieImportResult } from "@synara/contracts";
+import type { BrowserCookieImportInput, BrowserCookieImportResult } from "@moss/contracts";
 import type { DesktopBrowserManager } from "../browserManager";
 import { mossHostTarget } from "./betterwrightHostTarget";
 

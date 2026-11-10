@@ -17,16 +17,26 @@ import type {
   ProviderInstanceId,
   ProviderKind,
   ProviderSkillDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   PROVIDER_PLUGIN_LISTING_LOAD_ERROR_SUFFIX,
   isSupportedProviderKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { MOSS_APPS_MARKETPLACE_NAME } from "./mossAppsPlugins";
+import { MOSS_SERVICE_PLUGINS_MARKETPLACE_NAME } from "./mossServicePlugins";
+import { MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME } from "@moss/shared/mossPluginCatalog";
+
+/** Marketplaces listed in the Moss Apps section: service plugins, then the hosted catalog. */
+const MOSS_APPS_SECTION_MARKETPLACES: ReadonlyArray<string> = [
+  MOSS_SERVICE_PLUGINS_MARKETPLACE_NAME,
+  MOSS_APPS_MARKETPLACE_NAME,
+];
+const isMossAppsSectionMarketplace = (name: string | undefined) =>
+  MOSS_APPS_SECTION_MARKETPLACES.includes(name ?? "");
 import {
   inferLegacyProviderKindFromModelSelection,
   resolveModelSelectionInstanceId,
-} from "@synara/shared/providerInstances";
+} from "@moss/shared/providerInstances";
 
 export type LibraryTab = "plugins" | "mcp" | "skills";
 
@@ -296,10 +306,18 @@ export function isBrowsablePluginDirectorySection(section: {
   );
 }
 
-/** Marketplaces Moss ships itself ("moss-bundled", …); Moss Apps has its own section. */
+/**
+ * Marketplaces Moss ships itself ("moss-bundled", …); Moss Apps has its own
+ * section, and the plugin catalog's open-source plugins sit in the directory's
+ * categories like any other catalog.
+ */
 export function isMossOfficialMarketplace(name: string | undefined): boolean {
   const normalized = (name ?? "").trim().toLowerCase();
-  return normalized.startsWith("moss-") && normalized !== MOSS_APPS_MARKETPLACE_NAME;
+  return (
+    normalized.startsWith("moss-") &&
+    !isMossAppsSectionMarketplace(normalized) &&
+    normalized !== MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME
+  );
 }
 
 /**
@@ -520,13 +538,13 @@ export function sectionCodexPluginDirectory<TEntry extends CodexPluginDirectoryE
   const official = input.entries.filter((entry) =>
     isMossOfficialMarketplace(entry.marketplaceName),
   );
-  const apps = input.entries.filter(
-    (entry) => entry.marketplaceName === MOSS_APPS_MARKETPLACE_NAME,
+  const apps = MOSS_APPS_SECTION_MARKETPLACES.flatMap((name) =>
+    input.entries.filter((entry) => entry.marketplaceName === name),
   );
   const catalog = input.entries.filter(
     (entry) =>
       !isMossOfficialMarketplace(entry.marketplaceName) &&
-      entry.marketplaceName !== MOSS_APPS_MARKETPLACE_NAME,
+      !isMossAppsSectionMarketplace(entry.marketplaceName),
   );
   const mossSections: CodexPluginDirectorySection<TEntry>[] = [
     ...(official.length > 0

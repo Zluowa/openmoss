@@ -121,6 +121,62 @@ const ServerProviderLoginState = Schema.Struct({
   message: Schema.NullOr(TrimmedNonEmptyString),
 });
 
+/**
+ * Whether a person can use this agent right now, decided by the server so every
+ * surface (picker, settings) shows the same answer.
+ *
+ * - `ready`: the binary (the person's own install, one Moss installed, or the one
+ *   Moss ships) runs and it has a usable sign-in, or needs none.
+ * - `needsLogin`: installed, but needs a sign-in first. `reason` is
+ *   `moss-sign-in` for Moss's own provider and `agent-sign-in` for a local CLI.
+ * - `notInstalled`: no binary. `install` says what the one 安装 button does:
+ *   `oneClick` runs `server.installProvider`; `externalPage` opens `installUrl`
+ *   (the agent's official install page) in the system browser.
+ * - `error`: installed but unusable; `reason` is one of `failed-to-run`,
+ *   `version-unsupported`, `moss-runtime-damaged`, `moss-unavailable`,
+ *   `home-unavailable`, `needs-git-bash`, `unsupported-driver`, `disabled`.
+ * - `checking`: the first probe has not finished.
+ *
+ * `reason` is a stable code for the web to translate. It is never shown raw and
+ * never holds a machine path, a command or a secret.
+ */
+export const ServerProviderReadinessState = Schema.Literals([
+  "ready",
+  "needsLogin",
+  "notInstalled",
+  "error",
+  "checking",
+]);
+export type ServerProviderReadinessState = typeof ServerProviderReadinessState.Type;
+
+export const ServerProviderInstallMode = Schema.Literals(["oneClick", "externalPage"]);
+export type ServerProviderInstallMode = typeof ServerProviderInstallMode.Type;
+
+export const ServerProviderReadiness = Schema.Struct({
+  state: ServerProviderReadinessState,
+  install: Schema.optional(ServerProviderInstallMode),
+  installUrl: Schema.optional(TrimmedNonEmptyString),
+  reason: Schema.optional(TrimmedNonEmptyString),
+});
+export type ServerProviderReadiness = typeof ServerProviderReadiness.Type;
+
+/**
+ * Progress of a one-click install, pushed with the provider statuses. `source`
+ * is where the package came from (`cn-mirror` = npmmirror, `official` = publisher).
+ * A failed install's `reason` is one of `npm-unavailable`, `download-failed`,
+ * `verify-failed`, `cleanup-unproven`, `timed-out`, `not-installable`, `disabled`.
+ */
+export const ServerProviderInstallState = Schema.Struct({
+  status: Schema.Literals(["queued", "running", "succeeded", "failed"]),
+  phase: Schema.NullOr(Schema.Literals(["installing", "verifying"])),
+  source: Schema.NullOr(Schema.Literals(["official", "cn-mirror"])),
+  startedAt: Schema.NullOr(IsoDateTime),
+  finishedAt: Schema.NullOr(IsoDateTime),
+  version: Schema.NullOr(TrimmedNonEmptyString),
+  reason: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ServerProviderInstallState = typeof ServerProviderInstallState.Type;
+
 const ServerProviderStatusWire = Schema.Struct({
   provider: ProviderDriverKind,
   instanceId: ProviderInstanceId,
@@ -129,6 +185,7 @@ const ServerProviderStatusWire = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
   status: ServerProviderStatusState,
   available: Schema.Boolean,
+  readiness: Schema.optional(ServerProviderReadiness),
   availability: Schema.optional(Schema.Literals(["available", "unavailable"])),
   unavailableReason: Schema.optional(TrimmedNonEmptyString),
   authStatus: ServerProviderAuthStatus,
@@ -168,6 +225,7 @@ const ServerProviderStatusWire = Schema.Struct({
     }),
   ),
   loginState: Schema.optionalKey(ServerProviderLoginState),
+  installState: Schema.optionalKey(ServerProviderInstallState),
 });
 
 const ServerProviderStatusSource = Schema.Struct({
@@ -178,6 +236,7 @@ const ServerProviderStatusSource = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
   status: ServerProviderStatusState,
   available: Schema.Boolean,
+  readiness: Schema.optional(ServerProviderReadiness),
   availability: Schema.optional(Schema.Literals(["available", "unavailable"])),
   unavailableReason: Schema.optional(TrimmedNonEmptyString),
   authStatus: ServerProviderAuthStatus,
@@ -213,6 +272,7 @@ const ServerProviderStatusSource = Schema.Struct({
     }),
   ),
   loginState: Schema.optionalKey(ServerProviderLoginState),
+  installState: Schema.optionalKey(ServerProviderInstallState),
 });
 
 export const ServerProviderStatus = ServerProviderStatusSource.pipe(
@@ -242,6 +302,8 @@ export type ServerProviderLoginState = NonNullable<ServerProviderStatus["loginSt
 const ServerProviderStatuses = Schema.Array(ServerProviderStatus);
 
 export const ServerConfig = Schema.Struct({
+  /** Explicitly configured secure address; a loopback listener is not shareable. */
+  shareableOrigin: Schema.optional(TrimmedNonEmptyString),
   cwd: TrimmedNonEmptyString,
   homeDir: Schema.optional(TrimmedNonEmptyString),
   chatWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),
@@ -433,7 +495,12 @@ export const ServerLocalServerProcess = Schema.Struct({
   pageTitle: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(200))),
   // Working directory of the listening process, when resolvable. Surfaced in the
   // UI and used to attribute manually-started dev servers to a project by folder.
+  // Windows can't read another process's working directory cheaply, so there it is
+  // the project folder named on the server's (or its parents') command line.
   cwd: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(4_096))),
+  // True when the Moss server is among the process's ancestors: an agent's shell or a
+  // Moss terminal started it.
+  launchedByMoss: Schema.optional(Schema.Boolean),
   args: Schema.String.check(Schema.isMaxLength(1_000)),
   ports: Schema.Array(PositiveInt),
   addresses: Schema.Array(ServerLocalServerAddress),
@@ -690,13 +757,14 @@ export const ServerLifecycleStreamEvent = Schema.Union([
       at: IsoDateTime,
     }),
   }),
+  // Only older servers send this: it reported the age-based archiving Moss no longer does.
+  // Kept so a newer client still reads their lifecycle stream; nothing acts on it.
   Schema.Struct({
     type: Schema.Literal("maintenance"),
     payload: Schema.Struct({
       task: Schema.Literal("thread-retention"),
       state: Schema.Literals(["started", "progress", "completed", "failed"]),
       at: IsoDateTime,
-      // Legacy wire name retained so older clients can read retention progress.
       deletedCount: Schema.optional(Schema.Number),
       totalCount: Schema.optional(Schema.Number),
       error: Schema.optional(Schema.String),
@@ -750,6 +818,60 @@ export class ServerProviderUpdateError extends Schema.TaggedErrorClass<ServerPro
 
 export const ServerProviderUpdateResult = ServerProviderStatusesUpdatedPayload;
 export type ServerProviderUpdateResult = typeof ServerProviderUpdateResult.Type;
+
+/** One-click install of an agent CLI into a Moss-managed folder; progress arrives as `installState`. */
+export const ServerProviderInstallInput = Schema.Struct({
+  provider: ProviderKind,
+  instanceId: Schema.optional(ProviderInstanceId),
+});
+export type ServerProviderInstallInput = typeof ServerProviderInstallInput.Type;
+
+export class ServerProviderInstallError extends Schema.TaggedErrorClass<ServerProviderInstallError>()(
+  "ServerProviderInstallError",
+  {
+    provider: ProviderKind,
+    instanceId: Schema.optional(ProviderInstanceId),
+    reason: TrimmedNonEmptyString,
+    /** A PROVIDER_INSTALLATION_ERROR_CODES value the settings UI explains in plain words. */
+    code: Schema.optional(Schema.String),
+  },
+) {
+  override get message(): string {
+    const target = this.instanceId ? `${this.provider}/${this.instanceId}` : this.provider;
+    return `Provider install failed for ${target}: ${this.reason}`;
+  }
+}
+
+export const ServerProviderInstallResult = ServerProviderStatusesUpdatedPayload;
+export type ServerProviderInstallResult = typeof ServerProviderInstallResult.Type;
+
+/** Why managing a Moss-installed agent copy was refused; clients localize by code. */
+export const PROVIDER_INSTALLATION_ERROR_CODES = {
+  agentEnabled: "PROVIDER_INSTALLATION_AGENT_ENABLED",
+  sessionsRunning: "PROVIDER_INSTALLATION_SESSIONS_RUNNING",
+  busy: "PROVIDER_INSTALLATION_BUSY",
+  inUse: "PROVIDER_INSTALLATION_IN_USE",
+  notFound: "PROVIDER_INSTALLATION_NOT_FOUND",
+  modified: "PROVIDER_INSTALLATION_MODIFIED",
+  changesDisabled: "PROVIDER_INSTALLATION_CHANGES_DISABLED",
+} as const;
+export type ProviderInstallationErrorCode =
+  (typeof PROVIDER_INSTALLATION_ERROR_CODES)[keyof typeof PROVIDER_INSTALLATION_ERROR_CODES];
+
+export const ServerProviderInstallationInput = Schema.Struct({
+  provider: ProviderKind,
+  action: Schema.Literals(["inspect", "uninstall"]),
+});
+export type ServerProviderInstallationInput = typeof ServerProviderInstallationInput.Type;
+export const ServerProviderInstallationResult = Schema.Struct({
+  provider: ProviderKind,
+  source: Schema.Literals(["bundled", "moss", "external", "missing"]),
+  path: Schema.NullOr(TrimmedNonEmptyString),
+  managedPath: Schema.NullOr(TrimmedNonEmptyString),
+  canUninstall: Schema.Boolean,
+  removed: Schema.Boolean,
+});
+export type ServerProviderInstallationResult = typeof ServerProviderInstallationResult.Type;
 
 export const ServerProviderLoginInput = Schema.Struct({
   provider: ProviderKind,

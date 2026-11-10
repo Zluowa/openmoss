@@ -4,7 +4,7 @@ import {
   ThreadId,
   TurnId,
   type ProviderRuntimeEvent,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Deferred, Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

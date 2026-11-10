@@ -2,7 +2,7 @@
 // Purpose: Guards translation-skip boundaries around user and runtime supplied values.
 // Layer: Web component rendering tests
 
-import type { ServerLocalServerProcess } from "@synara/contracts";
+import type { ServerLocalServerProcess } from "@moss/contracts";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -21,6 +21,8 @@ import { LocalServerIdentity } from "./LocalServerIdentity";
 import { FileCommentsSummaryChip } from "./chat/FileCommentsSummaryChip";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
 import { ToolCallDetailsContent } from "./chat/ToolCallDetailsDialog";
+import { GitHubLabelChips } from "./pullRequest/GitHubLabelChips";
+import { TaskRowTitle, type useTaskRename } from "./tasks/TaskRowTitle";
 
 const localServer = {
   id: "server-1",
@@ -45,6 +47,20 @@ describe("dynamic translation boundaries", () => {
 
     expect(markup).toContain('data-translation-skip="true">Settings line 1</p>');
     expect(markup).toContain('data-translation-skip="true">Read</p>');
+  });
+
+  it("protects task titles and GitHub labels, which can match a short table entry", () => {
+    const rename = { isEditing: false } as ReturnType<typeof useTaskRename>;
+    const markup = renderToStaticMarkup(
+      <>
+        <TaskRowTitle title="Notes" isDone={false} rename={rename} />
+        <GitHubLabelChips labels={[{ name: "Urgent", color: null }]} />
+      </>,
+    );
+
+    expect(markup).toContain('title="Double-click or press F2 to rename"');
+    expect(markup).toContain('<span data-translation-skip="true">Notes</span>');
+    expect(markup).toMatch(/title="Urgent"[^>]*data-translation-skip="true"/);
   });
 
   it("protects rendered errors, local-server identity, and tool-returned paths", () => {

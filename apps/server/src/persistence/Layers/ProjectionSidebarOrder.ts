@@ -10,7 +10,7 @@ import {
   type ProjectionSidebarOrderRepositoryShape,
   UpsertProjectionSidebarArchivePlacementInput,
 } from "../Services/ProjectionSidebarOrder.ts";
-import { OrchestrationSidebarOrderItem } from "@synara/contracts";
+import { OrchestrationSidebarOrderItem } from "@moss/contracts";
 
 const GetStateRequest = Schema.Struct({});
 

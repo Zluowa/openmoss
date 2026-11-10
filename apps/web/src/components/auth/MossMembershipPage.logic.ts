@@ -1,9 +1,16 @@
 // FILE: MossMembershipPage.logic.ts
 // Purpose: Pure membership-catalog presentation rules kept outside the React refresh boundary.
 
-import type { MossPayPlan } from "@synara/contracts";
+import type { MossPayCatalog, MossPayPlan } from "@moss/contracts";
 
 import type { MossLocaleCode } from "~/uiLocale";
+
+/** A catalog that says plans can't be sold wins over the rail implied by the signed-in account. */
+export function mossPlansPurchasable(
+  catalog: Pick<MossPayCatalog, "plansPurchasable"> | null | undefined,
+): boolean {
+  return catalog?.plansPurchasable !== false;
+}
 
 export function formatMossMembershipPriceNumber(cents: number, locale: MossLocaleCode): string {
   return new Intl.NumberFormat(locale, {

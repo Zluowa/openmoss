@@ -38,7 +38,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   const unstyled = unstyledProp ?? false;
   const nativeInput = nativeInputProp ?? false;
   const inputClassName = cn(
-    "font-system-ui h-full w-full min-w-0 rounded-[inherit] border-0 bg-transparent px-3 py-1 text-ui leading-normal outline-none placeholder:text-muted-foreground/72 [transition:background-color_5000000s_ease-in-out_0s] sm:text-ui",
+    "font-system-ui h-full w-full min-w-0 rounded-[inherit] border-0 bg-transparent px-ui-pad-md py-1 text-ui outline-none placeholder:text-muted-foreground/72 [transition:background-color_5000000s_ease-in-out_0s] sm:text-ui",
     size === "sm" && "px-2.5 py-1 text-ui-sm sm:text-ui-sm",
     size === "lg" && "px-3.5 py-1.5",
     shape === "capsule" && "px-4",
@@ -53,8 +53,9 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   const capsule = shape === "capsule";
   const controlClassName = cn(
     !unstyled &&
-      `${capsule ? "" : GLASS_RAISED_SURFACE_CLASS_NAME} relative inline-flex w-full min-h-8 items-center sm:min-h-7 rounded-control border border-border bg-background text-ui text-foreground has-aria-invalid:border-destructive/30 has-focus-visible:has-aria-invalid:border-destructive/50 has-focus-visible:border-foreground/30 has-autofill:bg-foreground/4 has-disabled:opacity-64 sm:text-ui dark:bg-input/32 dark:has-autofill:bg-foreground/8`,
-    size === "lg" && "min-h-9 sm:min-h-8",
+      `${capsule ? "" : GLASS_RAISED_SURFACE_CLASS_NAME} relative inline-flex w-full min-h-control items-center rounded-control border border-border bg-background text-ui text-foreground has-aria-invalid:border-destructive/30 has-focus-visible:has-aria-invalid:border-destructive/50 has-focus-visible:border-foreground/30 has-autofill:bg-foreground/4 has-disabled:opacity-64 sm:text-ui dark:bg-input/32 dark:has-autofill:bg-foreground/8`,
+    size === "sm" && "min-h-control-sm",
+    size === "lg" && "min-h-control-lg",
     variant === "soft" && SOFT_SURFACE_FILL_CLASS_NAME,
     className,
     // Last, so a caller's own radius or fill cannot reshape or tint it differently from the button

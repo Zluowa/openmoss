@@ -1,10 +1,10 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import type { LibraryItem, LibraryListResult } from "@synara/contracts";
+import type { LibraryItem, LibraryListResult } from "@moss/contracts";
 import { Effect, Layer } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { outboundHttp } from "@synara/shared/outboundHttp";
+import { outboundHttp } from "@moss/shared/outboundHttp";
 import {
   MossPhoneAccountService,
   type MossPhoneAccountServiceShape,
@@ -201,6 +201,7 @@ async function harness() {
   const register = vi.fn<LibraryServiceShape["register"]>(() => Effect.succeed({ items: [] }));
   const unsupported = () => Effect.die("Unexpected Library mutation");
   const library: LibraryServiceShape = {
+    readImage: unsupported,
     list,
     register,
     sync: unsupported,

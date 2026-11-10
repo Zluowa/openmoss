@@ -13,8 +13,8 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { app, BrowserWindow } from "electron";
-import type { ComputerUiNode, ComputerUiPoint } from "@synara/contracts";
-import { cuaRequest, type CuaReply } from "@synara/shared/cuaDriverProtocol";
+import type { ComputerUiNode, ComputerUiPoint } from "@moss/contracts";
+import { cuaRequest, type CuaReply } from "@moss/shared/cuaDriverProtocol";
 import { CuaDriverHost } from "../../apps/desktop/src/cuaDriverHost";
 import { CuaComputerBackend } from "../../apps/server/src/computer/CuaComputerBackend";
 

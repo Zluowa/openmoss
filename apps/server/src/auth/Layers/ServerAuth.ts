@@ -5,7 +5,7 @@ import type {
   AuthPairingCredentialResult,
   AuthSessionState,
   AuthWebSocketTokenResult,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { DateTime, Effect, Layer } from "effect";
 
 import { AuthControlPlane } from "../Services/AuthControlPlane";
@@ -307,6 +307,23 @@ export const makeServerAuth = Effect.gen(function* () {
           status: 403,
         });
       }
+      const target = (yield* authControlPlane.listSessions().pipe(
+        Effect.mapError(
+          (cause) =>
+            new AuthError({
+              message: "Failed to load paired clients.",
+              status: 500,
+              cause,
+            }),
+        ),
+      )).find((session) => session.sessionId === targetSessionId);
+      if (!target) return false;
+      if (target.role !== "client") {
+        return yield* new AuthError({
+          message: "Owner sessions cannot be revoked as paired clients.",
+          status: 403,
+        });
+      }
       return yield* authControlPlane.revokeSession(targetSessionId).pipe(
         Effect.mapError(
           (cause) =>
@@ -322,7 +339,17 @@ export const makeServerAuth = Effect.gen(function* () {
   const revokeOtherClientSessions: ServerAuthShape["revokeOtherClientSessions"] = (
     currentSessionId,
   ) =>
-    authControlPlane.revokeOtherSessionsExcept(currentSessionId).pipe(
+    authControlPlane.listSessions().pipe(
+      Effect.flatMap((active) =>
+        Effect.forEach(
+          active.filter(
+            (session) => session.role === "client" && session.sessionId !== currentSessionId,
+          ),
+          (session) => authControlPlane.revokeSession(session.sessionId),
+          { concurrency: 1 },
+        ),
+      ),
+      Effect.map((revoked) => revoked.filter(Boolean).length),
       Effect.mapError(
         (cause) =>
           new AuthError({

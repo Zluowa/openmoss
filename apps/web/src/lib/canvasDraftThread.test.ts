@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ProjectId, ThreadId, type NativeApi } from "@synara/contracts";
+import { ProjectId, ThreadId, type NativeApi } from "@moss/contracts";
 import { promoteCanvasDraftThread } from "./canvasDraftThread";
 import { promoteThreadCreate } from "./threadCreatePromotion";
 import { useStore } from "../store";

@@ -32,7 +32,7 @@ const WELCOME_POINTS = [
   { icon: "shield-check", text: "Moss stays separate and untouched." },
   {
     icon: "heart",
-    text: "Beta shares crash reports, app errors, and anonymous usage counts. Crash reports may include private information.",
+    text: "Error reports follow the same setting as Moss, and you can turn them off in Settings.",
   },
   { icon: "arrow-left-circle", text: "Switch back to Moss any time in Settings." },
 ] as const;

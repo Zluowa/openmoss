@@ -47,8 +47,8 @@ import { createInterface, type Interface } from "node:readline";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as pause } from "node:timers/promises";
-import type { ComputerRect, ComputerUiNode } from "@synara/contracts";
-import { cuaRequest, type CuaReply, type CuaToolResult } from "@synara/shared/cuaDriverProtocol";
+import type { ComputerRect, ComputerUiNode } from "@moss/contracts";
+import { cuaRequest, type CuaReply, type CuaToolResult } from "@moss/shared/cuaDriverProtocol";
 import release from "../../packages/shared/src/cuaDriverRelease.json" with { type: "json" };
 import { CuaDriverHost } from "../../apps/desktop/src/cuaDriverHost";
 import {

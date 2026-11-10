@@ -1,5 +1,10 @@
 import type { ComposerImageAttachment } from "../composerDraftStore";
-import type { ModelSelection, ProviderSkillDescriptor } from "@synara/contracts";
+import type { ModelSelection, ProviderSkillDescriptor } from "@moss/contracts";
+import {
+  MOSS_IMAGE_MODEL_IDS,
+  MOSS_IMAGEGEN_PLUGIN_NAME,
+  mossMediaPluginsForModel,
+} from "@moss/shared/mossMediaPlugins";
 
 export interface MossImagesConversationInput {
   readonly prompt: string;
@@ -10,15 +15,16 @@ export interface MossImagesConversationInput {
   readonly isCurrent: () => boolean;
 }
 
+// The vendor Skill for each image model; the general image Skill covers all of them.
 const IMAGE_SKILLS: Readonly<Record<string, string>> = {
-  "gpt-image-2-official": "moss-imagegen",
-  "gpt-image-2.5-flare": "moss-imagegen",
-  "gpt-image-2.5-sunburst": "moss-imagegen",
-  "nano-banana-pro": "moss-nano-banana",
-  "gemini-flash-image": "moss-nano-banana-2",
-  "grok-imagine-image-2.0": "moss-grok-image",
-  "wan2.7-image-pro": "moss-wan-image",
-  "seedream-5-0": "moss-seedream",
+  "gpt-image-2-official": "moss-gpt-image",
+  ...Object.fromEntries(
+    MOSS_IMAGE_MODEL_IDS.map((model) => [
+      model,
+      mossMediaPluginsForModel(model).find((name) => name !== MOSS_IMAGEGEN_PLUGIN_NAME) ??
+        MOSS_IMAGEGEN_PLUGIN_NAME,
+    ]),
+  ),
 };
 
 export function mossImagesSkillName(modelId: string): string {
@@ -32,14 +38,16 @@ export async function resolveMossImagesConversationSkill(
   listSkills: () => Promise<readonly ProviderSkillDescriptor[]>,
 ): Promise<ProviderSkillDescriptor | undefined> {
   if (modelId === undefined) return undefined;
-  const skillName = mossImagesSkillName(modelId);
   const skills = await listSkills();
-  const selected = skills.find(
-    (skill) =>
-      skill.enabled && (skill.name === skillName || skill.name === `${skillName}:${skillName}`),
-  );
-  if (!selected) throw new Error("所选 CLI 的生图 Skill 尚未连接，请在插件中启用后发送。");
-  return selected;
+  // The model's vendor Skill first, then the general image Skill installed by default.
+  for (const skillName of [mossImagesSkillName(modelId), MOSS_IMAGEGEN_PLUGIN_NAME]) {
+    const selected = skills.find(
+      (skill) =>
+        skill.enabled && (skill.name === skillName || skill.name === `${skillName}:${skillName}`),
+    );
+    if (selected) return selected;
+  }
+  throw new Error("所选 CLI 的生图 Skill 尚未连接，请在插件中启用后发送。");
 }
 
 /** The normal composer owns uploads, promotion and the single turn dispatch. */

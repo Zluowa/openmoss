@@ -1,7 +1,7 @@
 import { createElement, useEffect, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
-import type { McpAppSandboxDescriptor } from "@synara/contracts";
+import type { McpAppSandboxDescriptor } from "@moss/contracts";
 import type { WorkLogEntry } from "../../src/workLog";
 import type { WorkLogMcpToolResult } from "../../src/lib/toolCallDetails";
 import { TimelineWorkEntryRow } from "../../src/components/chat/TimelineWorkEntryRow";

@@ -2,7 +2,7 @@
 // Purpose: Locks cold/warm desktop plugin deep links against real TanStack history.
 // Layer: Browser integration test
 
-import type { DesktopBridge, DesktopPluginDeepLinkNavigation } from "@synara/contracts";
+import type { DesktopBridge, DesktopPluginDeepLinkNavigation } from "@moss/contracts";
 import {
   Outlet,
   RouterProvider,

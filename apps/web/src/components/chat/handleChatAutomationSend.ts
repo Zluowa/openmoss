@@ -1,4 +1,4 @@
-import { ThreadId, type ModelSelection, type ProviderStartOptions } from "@synara/contracts";
+import { ThreadId, type ModelSelection, type ProviderStartOptions } from "@moss/contracts";
 import { readNativeApi } from "~/nativeApi";
 import {
   automationClarificationPrompt,

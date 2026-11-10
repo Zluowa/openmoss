@@ -1,9 +1,10 @@
 import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
+  type ChatImageAttachment,
   type OrchestrationMessage,
   type OrchestrationThread,
-} from "@synara/contracts";
-import { unicodeSafeEndOffset } from "@synara/shared/text";
+} from "@moss/contracts";
+import { unicodeSafeEndOffset } from "@moss/shared/text";
 
 const RECENT_MESSAGE_COUNT = 6;
 const EARLIER_MESSAGE_CHAR_LIMIT = 320;
@@ -114,6 +115,54 @@ export function listPriorTranscriptMessages(
       message.text.trim().length > 0
     );
   });
+}
+
+/** The most earlier images a fresh session is shown again on its first turn. */
+export const PRIOR_IMAGE_CARRY_LIMIT = 4;
+
+export interface PriorImageAttachment {
+  readonly messageId: string;
+  readonly attachment: ChatImageAttachment;
+}
+
+/**
+ * The person's earlier images, newest last. A session that starts without the
+ * conversation's native history (a handoff to another provider, model or
+ * account, or a restart) only gets a text transcript; these are what it would
+ * otherwise never see.
+ */
+export function listPriorImageAttachments(
+  thread: Pick<OrchestrationThread, "messages">,
+  currentMessageId?: string,
+  limit = PRIOR_IMAGE_CARRY_LIMIT,
+): ReadonlyArray<PriorImageAttachment> {
+  const currentIndex =
+    currentMessageId === undefined
+      ? thread.messages.length
+      : thread.messages.findIndex((message) => message.id === currentMessageId);
+  const prior = currentIndex < 0 ? thread.messages : thread.messages.slice(0, currentIndex);
+  const images: PriorImageAttachment[] = [];
+  for (const message of prior) {
+    if (message.role !== "user") continue;
+    for (const attachment of message.attachments ?? []) {
+      if (attachment.type === "image") images.push({ messageId: message.id, attachment });
+    }
+  }
+  return limit > 0 ? images.slice(-limit) : [];
+}
+
+/** What the fresh session is told about those images, so it can say so plainly. */
+export function priorImagesContextNote(input: {
+  readonly total: number;
+  readonly attached: number;
+}): string | null {
+  if (input.total === 0) return null;
+  if (input.attached === 0) {
+    return `Earlier messages in this conversation included ${input.total} image(s). The current model cannot view images, so they are not included. If the user asks about them, say plainly that this model cannot see images and suggest switching to a model that can.`;
+  }
+  return input.attached === input.total
+    ? `The ${input.attached} image(s) the user shared earlier in this conversation are attached to this message again.`
+    : `The user shared ${input.total} images earlier in this conversation; the latest ${input.attached} are attached to this message again.`;
 }
 
 function buildImportedMessagesBootstrap(input: {

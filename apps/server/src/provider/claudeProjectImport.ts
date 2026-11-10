@@ -1,10 +1,11 @@
 import type { SDKSessionInfo } from "@anthropic-ai/claude-agent-sdk";
-import { createReadStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
 import { loadClaudeAgentSdk } from "./claudeAgentSdk.ts";
+import { readJsonlRecords } from "./localHistory/jsonlRecords.ts";
+import { titleFromText } from "./localHistory/shared.ts";
 import type { NativeProjectImportCatalog } from "./projectImportTypes.ts";
 
 const SESSION_FILE_NAME = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.jsonl$/i;
@@ -64,55 +65,11 @@ async function sessionFiles(configDir: string): Promise<Map<string, string>> {
   return files;
 }
 
-function parseTranscriptEntry(line: string): Record<string, unknown> | undefined {
-  if (Buffer.byteLength(line) > MAX_METADATA_LINE_BYTES) return undefined;
-  try {
-    const entry: unknown = JSON.parse(line);
-    return entry && typeof entry === "object" && !Array.isArray(entry)
-      ? (entry as Record<string, unknown>)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function* readTranscriptEntries(file: string, maxBytes?: number) {
-  const stream = createReadStream(file, {
-    encoding: "utf8",
-    highWaterMark: 64 * 1024,
-    ...(maxBytes ? { end: maxBytes - 1 } : {}),
+function readTranscriptEntries(file: string, maxBytes?: number) {
+  return readJsonlRecords(file, {
+    ...(maxBytes ? { maxBytes } : {}),
+    maxLineBytes: MAX_METADATA_LINE_BYTES,
   });
-  let pending = "";
-  let skippingLine = false;
-  try {
-    for await (const chunk of stream) {
-      pending += chunk;
-      let newline: number;
-      while ((newline = pending.indexOf("\n")) !== -1) {
-        const line = pending.slice(0, newline);
-        pending = pending.slice(newline + 1);
-        if (skippingLine) {
-          skippingLine = false;
-          continue;
-        }
-        const entry = parseTranscriptEntry(line);
-        if (entry) yield entry;
-      }
-      if (Buffer.byteLength(pending) > MAX_METADATA_LINE_BYTES) {
-        pending = "";
-        skippingLine = true;
-      }
-    }
-    if (!skippingLine) {
-      const entry = parseTranscriptEntry(pending);
-      if (entry) yield entry;
-    }
-  } catch (error) {
-    // A source can disappear while the user is choosing projects.
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  } finally {
-    stream.destroy();
-  }
 }
 
 async function readTranscriptMetadata(file: string): Promise<TranscriptMetadata> {
@@ -195,7 +152,11 @@ export async function discoverClaudeProjects(
         projects.set(cwd, { id: cwd, title: path.basename(cwd) || cwd, roots: [cwd] });
         sessions.push({
           id: info.sessionId,
-          title: info.customTitle?.trim() || info.summary.trim() || path.basename(cwd),
+          // Claude's own summary line (or a name the person gave it) before the prompt.
+          title:
+            titleFromText(info.customTitle) ??
+            titleFromText(info.summary) ??
+            (path.basename(cwd) || cwd),
           cwd,
           projectId: cwd,
           createdAt,

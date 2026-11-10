@@ -10,7 +10,7 @@ import {
   executableCandidates,
   executableNameCandidates,
   isExecutableFile,
-} from "@synara/shared/executable";
+} from "@moss/shared/executable";
 
 import { buildProviderChildEnvironment } from "../providerChildEnvironment.ts";
 
@@ -55,6 +55,15 @@ export function commandExistsOnPath(
     if (canExecute(candidate.path)) return true;
   }
   return false;
+}
+
+/** First of `paths` that exists, for a CLI's own files that are not executables on this host. */
+export function firstExistingPath(
+  paths: ReadonlyArray<string>,
+  options: ProviderBinaryResolutionOptions = {},
+): string | undefined {
+  const { pathExists } = resolveOptions(options);
+  return paths.find((path) => pathExists(path));
 }
 
 export function resolveWindowsLocalAppDataBinary(
@@ -132,8 +141,12 @@ function posixPackageManagerBinaryDirectories(env: NodeJS.ProcessEnv): ReadonlyA
   }
   const pnpmHome = env.PNPM_HOME?.trim();
   if (pnpmHome) directories.push(pnpmHome);
-  const npmPrefix = env.npm_config_prefix?.trim();
+  const npmPrefix = (env.npm_config_prefix ?? env.NPM_CONFIG_PREFIX)?.trim();
   if (npmPrefix) directories.push(posix.join(npmPrefix, "bin"));
+  const bunInstall = env.BUN_INSTALL?.trim();
+  if (bunInstall) directories.push(posix.join(bunInstall, "bin"));
+  const voltaHome = env.VOLTA_HOME?.trim();
+  if (voltaHome) directories.push(posix.join(voltaHome, "bin"));
   return directories;
 }
 
@@ -172,7 +185,33 @@ function windowsPackageManagerBinaryDirectories(env: NodeJS.ProcessEnv): Readonl
   } else {
     directories.push(win32.join("C:\\", "ProgramData", "chocolatey", "bin"));
   }
+  // A custom npm global prefix is its own bin folder on Windows.
+  const npmPrefix = (env.npm_config_prefix ?? env.NPM_CONFIG_PREFIX)?.trim();
+  if (npmPrefix) directories.push(npmPrefix);
+  const bunInstall = env.BUN_INSTALL?.trim();
+  if (bunInstall) directories.push(win32.join(bunInstall, "bin"));
+  const voltaHome = env.VOLTA_HOME?.trim();
+  if (voltaHome) directories.push(win32.join(voltaHome, "bin"));
+  if (localAppData) directories.push(win32.join(localAppData, "Volta", "bin"));
+  const scoop = env.SCOOP?.trim();
+  if (scoop) directories.push(win32.join(scoop, "shims"));
+  // nvm-windows keeps the active Node, and the CLIs installed with it, behind this link.
+  const nvmSymlink = env.NVM_SYMLINK?.trim();
+  if (nvmSymlink) directories.push(nvmSymlink);
   return directories;
+}
+
+/**
+ * Every package manager's global bin folder for this platform (npm, pnpm, bun, Volta,
+ * Scoop, Homebrew, version managers). Most will not exist; callers filter.
+ */
+export function packageManagerBinaryDirectories(
+  options: ProviderBinaryResolutionOptions = {},
+): ReadonlyArray<string> {
+  const resolved = resolveOptions(options);
+  return resolved.platform === "win32"
+    ? windowsPackageManagerBinaryDirectories(resolved.env)
+    : posixPackageManagerBinaryDirectories(resolved.env);
 }
 
 /**
@@ -208,10 +247,12 @@ export function openCodeBinarySearchDirectories(
 export function buildOpenCodeServerProcessEnv(input: {
   readonly experimentalWebSockets?: boolean;
   readonly baseEnv?: NodeJS.ProcessEnv;
+  readonly inheritedMossKeys?: ReadonlyArray<string>;
 }): NodeJS.ProcessEnv {
   const env = buildProviderChildEnvironment({
     provider: "opencode",
     baseEnv: input.baseEnv ?? process.env,
+    ...(input.inheritedMossKeys ? { inheritedMossKeys: input.inheritedMossKeys } : {}),
     overrides: input.experimentalWebSockets ? { OPENCODE_EXPERIMENTAL_WEBSOCKETS: "true" } : {},
   });
   // Keep PATH lean: only dirs that actually contain the CLI binary qualify as

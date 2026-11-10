@@ -1,4 +1,4 @@
-import { ThreadId } from "@synara/contracts";
+import { ThreadId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import { applyOrchestrationEvents, syncServerReadModel, syncServerShellSnapshot } from "./store";

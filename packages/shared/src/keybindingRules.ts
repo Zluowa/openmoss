@@ -12,7 +12,7 @@ import {
   type KeybindingShortcut,
   type KeybindingWhenNode,
   type ResolvedKeybindingRule,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 /**
  * Keys a physical key also matches as, for presses whose typed character is not a plain

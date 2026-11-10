@@ -4,7 +4,7 @@ import {
   CUA_ACTION_TOOLS,
   CUA_BROWSER_TOOLS,
   CUA_READ_TOOLS,
-} from "@synara/shared/cuaDriverProtocol";
+} from "@moss/shared/cuaDriverProtocol";
 
 import { linuxBrowserCallIsReadOnly, linuxCuaAdmissionRefusal } from "./linuxCuaAdmission";
 

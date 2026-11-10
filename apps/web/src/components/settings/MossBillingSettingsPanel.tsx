@@ -1,7 +1,7 @@
 // FILE: MossBillingSettingsPanel.tsx
 // Purpose: Codex-parity Settings -> Usage and billing for Moss-owned plans and credits.
 
-import type { MossPayCatalog, MossPayUsageLimit } from "@synara/contracts";
+import type { MossPayCatalog, MossPayUsageLimit } from "@moss/contracts";
 import { useIsMutating, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";

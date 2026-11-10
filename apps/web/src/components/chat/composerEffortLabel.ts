@@ -2,7 +2,7 @@
 // Purpose: Resolves the compact composer effort label without collapsing runtime-only values.
 // Layer: Chat composer presentation helper
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 
 type ComposerEffortLevel = {
   readonly value: string;

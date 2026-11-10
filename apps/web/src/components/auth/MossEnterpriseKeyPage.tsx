@@ -1,5 +1,5 @@
-import { ProviderInstanceId } from "@synara/contracts";
-import { mossLaneEngineDefaultModel } from "@synara/shared/mossRealmCatalog";
+import { ProviderInstanceId } from "@moss/contracts";
+import { mossLaneEngineDefaultModel } from "@moss/shared/mossRealmCatalog";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useRef, useState } from "react";
@@ -15,6 +15,7 @@ import { activateMossChatSelection } from "./activateMossChatSelection";
 import { mossAccessLaneSummary } from "./mossAccessLanes.logic";
 import {
   mossEnterpriseKeyErrorMessage,
+  mossEnterpriseKeyStatusNotice,
   validateMossEnterpriseKeyInput,
 } from "./mossEnterpriseKey.logic";
 import { MOSS_POST_AUTH_CHAT_SEARCH } from "./mossPostAuthLanding";
@@ -120,6 +121,7 @@ export function MossEnterpriseKeyAccountPage() {
   const stateQuery = useQuery(serverMossEnterpriseKeyStateQueryOptions());
   const signOut = useMutation(serverMossEnterpriseKeySignOutMutationOptions({ queryClient }));
   const state = stateQuery.data;
+  const statusNotice = mossEnterpriseKeyStatusNotice(state?.modelGatewayStatus);
 
   return (
     <main className="min-h-dvh w-full overflow-y-auto bg-background px-4 py-8 text-foreground sm:px-8 sm:py-10">
@@ -159,6 +161,11 @@ export function MossEnterpriseKeyAccountPage() {
                 {mossAccessLaneSummary("enterprise")}
               </p>
             </section>
+            {statusNotice ? (
+              <Alert role="alert" variant="error">
+                <AlertDescription>{statusNotice}</AlertDescription>
+              </Alert>
+            ) : null}
             <MossAccessLanesPanel />
             <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 border-t pt-5">
               <p className="text-ui-lg text-muted-foreground" role="status">
@@ -197,6 +204,7 @@ export function MossEnterpriseKeyPage() {
     await navigate({ to: "/", search: MOSS_POST_AUTH_CHAT_SEARCH, replace: true });
   };
   const state = stateQuery.data;
+  const statusNotice = mossEnterpriseKeyStatusNotice(state?.modelGatewayStatus);
 
   return (
     <MossAuthShell
@@ -228,6 +236,11 @@ export function MossEnterpriseKeyPage() {
                 本机已保存 <span className="font-mono text-foreground">{state.keyPrefix}…</span>
                 {state.active ? "，正在使用。" : "。"}
               </p>
+              {statusNotice ? (
+                <Alert role="alert" variant="error">
+                  <AlertDescription>{statusNotice}</AlertDescription>
+                </Alert>
+              ) : null}
               <div className="flex min-w-0 flex-wrap gap-2">
                 <Button
                   disabled={pending}

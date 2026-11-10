@@ -10,7 +10,7 @@ import type {
   ProviderInstanceId,
   ProviderKind,
   ServerProviderUsageSnapshot,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export interface CodexAppServerAccountUsage {
   readonly accountRef: string;

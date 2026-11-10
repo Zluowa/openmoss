@@ -10,7 +10,7 @@ import {
   SPACE_ICON_NAMES,
   type SpaceIconName,
   type SpaceId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { Space } from "~/types";
 

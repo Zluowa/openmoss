@@ -10,10 +10,11 @@ import {
   type ProviderInstanceId,
   type ProviderKind,
   type ServerProviderStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { MossLocaleCode } from "~/appSettings";
 import type { TranslationKey } from "~/localization";
+import { translateZhCnPresentationText } from "~/localization/zhCN";
 import { isProviderKind } from "~/providerOrdering";
 import { isProviderUpdateActive } from "~/providerUpdates";
 
@@ -68,6 +69,16 @@ export function providerStatusDisplayName(provider: ServerProviderStatus): strin
 
 function formatVersion(value: string): string {
   return value.startsWith("v") ? value : `v${value}`;
+}
+
+/** The server words update results in English; the pill composes them into its own copy. */
+function localizeServerText(value: string, locale: MossLocaleCode): string {
+  return locale === "zh-CN" ? translateZhCnPresentationText(value) : value;
+}
+
+function asSentence(value: string, locale: MossLocaleCode): string {
+  if (/[.!?。！？]$/u.test(value)) return value;
+  return `${value}${locale === "zh-CN" ? "。" : "."}`;
 }
 
 function formatProviderList(
@@ -224,6 +235,7 @@ export function getProviderUpdatePillView(
   if (failed[0]) {
     const first = failed[0];
     const attempted = first.versionAdvisory?.latestVersion;
+    const reason = failed.length === 1 ? first.updateState?.message?.trim() : undefined;
     candidates.push({
       finishedAt: latestFinishedAt(failed),
       view: {
@@ -238,11 +250,14 @@ export function getProviderUpdatePillView(
                   version: formatVersion(attempted),
                 })
               : format("providerUpdate.pill.failed", { name: providerStatusDisplayName(first) }),
-        description:
-          (failed.length === 1 ? first.updateState?.message : null) ??
-          format("providerUpdate.pill.failedDescription", {
-            names: formatProviderList(failed, locale),
-          }),
+        description: reason
+          ? format("providerUpdate.pill.failedReason", {
+              reason: asSentence(localizeServerText(reason, locale), locale),
+              name: providerStatusDisplayName(first),
+            })
+          : format("providerUpdate.pill.failedDescription", {
+              names: formatProviderList(failed, locale),
+            }),
         dismissible: true,
       },
     });

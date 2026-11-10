@@ -8,7 +8,7 @@ import {
   ThreadHandoffImportedMessage,
   ThreadId,
   type ProjectId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export const ProjectImportHistoryState = Schema.Struct({
   threadId: ThreadId,
@@ -27,6 +27,17 @@ export const ProjectImportHistoryState = Schema.Struct({
     Schema.Struct({
       messages: Schema.Array(ThreadHandoffImportedMessage),
       nextCursor: Schema.NullOr(Schema.String),
+    }),
+  ),
+  /**
+   * Conversations registered without copying anything up front. The transcript is read from
+   * the agent's session file when the conversation is first opened; a native copy is made
+   * only when the person first continues it, if the agent can make one.
+   */
+  lazy: Schema.optional(
+    Schema.Struct({
+      transcript: Schema.Literals(["pending", "loaded"]),
+      continuation: Schema.Literals(["pending", "native", "copied"]),
     }),
   ),
 });
@@ -112,6 +123,17 @@ export const makeProjectImportRepository = Effect.gen(function* () {
     sql<{ status: string }>`
     SELECT status FROM project_import_origins WHERE thread_id = ${threadId}
   `.pipe(Effect.map((rows) => rows[0]?.status === "completed"));
+  const findByThread = (threadId: ThreadId) =>
+    sql<ProjectImportOrigin>`
+    SELECT source_key AS "sourceKey", provider, source_home AS "sourceHome",
+      external_id AS "externalId", project_id AS "projectId", thread_id AS "threadId",
+      status, created_at AS "createdAt"
+    FROM project_import_origins WHERE thread_id = ${threadId}
+  `.pipe(Effect.map((rows) => rows[0]));
+  const hasRuntimeBinding = (threadId: ThreadId) =>
+    sql<{ found: number }>`
+    SELECT 1 AS found FROM provider_session_runtime WHERE thread_id = ${threadId} LIMIT 1
+  `.pipe(Effect.map((rows) => rows.length > 0));
   const listNativeBindings = () => sql<{
     readonly threadId: ThreadId;
     readonly projectId: ProjectId;
@@ -125,6 +147,8 @@ export const makeProjectImportRepository = Effect.gen(function* () {
   return {
     list,
     find,
+    findByThread,
+    hasRuntimeBinding,
     reserve,
     complete,
     listNativeBindings,

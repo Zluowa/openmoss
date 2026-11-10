@@ -1,6 +1,6 @@
-import type { ProviderKind, ProviderModelDescriptor } from "@synara/contracts";
-import { MOSS_SOURCE_MODEL_IDS } from "@synara/shared/mossManagedModelCatalog";
-import { getModelCapabilities, hasEffortLevel, trimOrNull } from "@synara/shared/model";
+import type { ProviderKind, ProviderModelDescriptor } from "@moss/contracts";
+import { MOSS_SOURCE_MODEL_IDS } from "@moss/shared/mossManagedModelCatalog";
+import { getModelCapabilities, hasEffortLevel, trimOrNull } from "@moss/shared/model";
 
 export type CodexReasoningEffortSupport = "supported" | "unsupported" | "unknown";
 

@@ -1,7 +1,7 @@
 // FILE: pendingSidebarPlacement.ts
 // Purpose: Persist a draft's exact custom-section placement until promotion.
 
-import type { SidebarSectionId, ThreadId } from "@synara/contracts";
+import type { SidebarSectionId, ThreadId } from "@moss/contracts";
 
 export interface PendingSidebarPlacement {
   readonly threadId: ThreadId;

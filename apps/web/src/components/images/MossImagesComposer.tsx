@@ -1,4 +1,4 @@
-import type { ModelSelection } from "@synara/contracts";
+import type { ModelSelection } from "@moss/contracts";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { resolveNewConversationDefaultModelSelection, useAppSettings } from "~/appSettings";
@@ -8,6 +8,8 @@ import { useScratchModelCatalog } from "~/hooks/useScratchModelCatalog";
 import { buildModelSelection } from "~/providerModelOptions";
 import { ComposerSendArrowIcon, PlusIcon } from "~/lib/icons";
 import { resolveProviderSendAdmission } from "~/lib/providerAvailability";
+import { localizeProviderSendBlockedReason } from "~/lib/providerUnavailablePresentation";
+import { useTranslation } from "~/localization";
 import type { Project } from "~/types";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "../ComposerPromptEditor";
 import { ScratchModelPickers } from "../chat/ScratchAgentControls";
@@ -37,6 +39,7 @@ export function MossImagesComposer(props: {
   readonly notice?: ReactNode;
 }) {
   const { settings } = useAppSettings();
+  const { locale } = useTranslation();
   const draft = useScratchComposerDraft({
     defaultProvider: "codex",
     initialModelSelection: resolveNewConversationDefaultModelSelection(settings, "codex"),
@@ -71,10 +74,16 @@ export function MossImagesComposer(props: {
     catalog.selectedProviderStatus,
     draft.selectedProviderInstanceId,
   );
+  // The admission reason is English product truth; show it the way chat's send button does,
+  // in the UI language and with what to do next (e.g. where to sign in).
   const unavailableReason = !draft.selectedModel
     ? "当前 CLI 尚未提供可用模型，请打开模型选择器刷新或选择其他连接。"
     : props.requireProviderAdmission !== false && admission.state === "blocked"
-      ? admission.unavailableReason
+      ? localizeProviderSendBlockedReason(locale, {
+          provider: selection.provider,
+          status: catalog.selectedProviderStatus,
+          unavailableReason: admission.unavailableReason ?? "",
+        })
       : null;
   useEffect(() => {
     props.onSelectionChange?.(selection, unavailableReason);

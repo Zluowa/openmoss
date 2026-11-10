@@ -3,8 +3,8 @@ import OS from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { MOSS_SESSION_START_EVENT, discoverMossHooks } from "@synara/shared/mossHooks";
-import { getMossSourceLayout } from "@synara/shared/mossSourceLayout";
+import { MOSS_SESSION_START_EVENT, discoverMossHooks } from "@moss/shared/mossHooks";
+import { getMossSourceLayout } from "@moss/shared/mossSourceLayout";
 
 import { parseMossHooksCliArgs, renderHookList, runMossHooksCli } from "./moss-hooks";
 

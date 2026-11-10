@@ -8,7 +8,7 @@
  *
  * @module HubOutputReactor
  */
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Scope } from "effect";
 

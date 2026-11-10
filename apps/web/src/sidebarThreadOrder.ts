@@ -1,10 +1,10 @@
-import { SidebarSectionId } from "@synara/contracts";
+import { SidebarSectionId } from "@moss/contracts";
 import type {
   OrchestrationSidebarOrderItem,
   SidebarOrderDestination,
   SidebarSectionItemKey,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 export type SidebarThreadOrderItem = OrchestrationSidebarOrderItem;
 

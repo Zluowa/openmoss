@@ -12,9 +12,9 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { EDITORS, type EditorId } from "@synara/contracts";
-import { EDITOR_ICON_ROUTE_PATH } from "@synara/shared/editorIcons";
-import { execProcessFile } from "@synara/shared/processRuntime";
+import { EDITORS, type EditorId } from "@moss/contracts";
+import { EDITOR_ICON_ROUTE_PATH } from "@moss/shared/editorIcons";
+import { execProcessFile } from "@moss/shared/processRuntime";
 
 import {
   getEditorMacApplications,
@@ -23,6 +23,7 @@ import {
   resolveWindowsStorePackageInstallLocation,
   type EditorDefinition,
 } from "./editorAppDiscovery";
+import { findInstalledWindowsEditor, refreshWindowsInstalledApps } from "./windowsEditorDiscovery";
 
 export { EDITOR_ICON_ROUTE_PATH };
 
@@ -553,6 +554,19 @@ async function resolveWindowsEditorIconSource(input: {
   if (input.platform !== "win32") return null;
   const storeSource = await resolveWindowsStoreEditorIconSource(input);
   if (storeSource) return storeSource;
+
+  // The installed program itself carries the app's icon; a PATH hit is often a `.cmd` shim
+  // whose associated icon is the generic batch-file one.
+  await refreshWindowsInstalledApps({ env: input.env, waitMs: 3_000 });
+  const installed = findInstalledWindowsEditor(input.editor.id, input.env, input.platform);
+  if (installed) {
+    return {
+      sourcePath: installed.exePath,
+      outputExtension: "png",
+      contentType: "image/png",
+      transform: "windows-associated-icon",
+    };
+  }
 
   const exePath = await resolveCommandPath({
     commands: input.editor.commands ?? null,

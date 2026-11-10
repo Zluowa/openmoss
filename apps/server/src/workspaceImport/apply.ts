@@ -11,11 +11,11 @@ import type {
   WorkspaceImportHistoryEntry,
   WorkspaceImportApplyResult,
   WorkspaceImportSourceKind,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   WORKSPACE_IMPORT_DEFAULT_CATEGORIES,
   normalizeWorkspaceImportSource,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as nodePath from "node:path";
 import { planChatSync, type ChatSyncPlanItem } from "./chatSync";
 import { collectImportChats, readSourceSettings, type CollectedImportChat } from "./chats";

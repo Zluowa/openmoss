@@ -9,8 +9,8 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_IMPORT_BYTES,
   type ContextMenuItem,
-} from "@synara/contracts";
-import { isLocalAbsolutePath, isUncPath } from "@synara/shared/path";
+} from "@moss/contracts";
+import { isLocalAbsolutePath, isUncPath } from "@moss/shared/path";
 import type { MouseEvent } from "react";
 
 import { safeGeneratedImagePreviewDownloadName } from "~/components/chat/generatedImagePreviewControls.logic";

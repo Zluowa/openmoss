@@ -1,4 +1,4 @@
-import type { OrchestrationProject, PullRequestDetail } from "@synara/contracts";
+import type { OrchestrationProject, PullRequestDetail } from "@moss/contracts";
 import { Effect, Layer, Scope } from "effect";
 
 import { GitHubCli, type GitHubCliShape } from "../../git/Services/GitHubCli";
@@ -95,7 +95,12 @@ export const makePullRequestService = (
       finalizeMutationCaches,
     });
 
-    return operations satisfies PullRequestServiceShape;
+    return {
+      ...operations,
+      clearAccount: Effect.all([detailCache.invalidateAll, mergeCapabilitiesCache.invalidateAll], {
+        discard: true,
+      }),
+    } satisfies PullRequestServiceShape;
   });
 
 export const PullRequestServiceLive = Layer.effect(

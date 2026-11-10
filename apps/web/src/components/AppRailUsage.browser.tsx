@@ -4,7 +4,7 @@ import {
   DEFAULT_SERVER_SETTINGS_VIEW,
   type ServerProviderUsageSnapshot,
   type ServerSettingsView,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page, userEvent } from "vitest/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -213,13 +213,14 @@ describe("AppRailUsage", () => {
     });
     await expect.element(personalSwitch).toBeChecked();
     await expect.element(workSwitch).toBeChecked();
+    // No account limit: a third account stays clickable with two rings already on.
     await expect
       .element(
         page.getByRole("switch", {
           name: "Show Codex usage at the bottom of the sidebar",
         }),
       )
-      .toBeDisabled();
+      .toBeEnabled();
 
     const personal = page.getByRole("button", { name: /^Claude · Default account usage:/ });
     const work = page.getByRole("button", { name: /^Claude · Work usage:/ });
@@ -263,6 +264,61 @@ describe("AppRailUsage", () => {
         }),
       )
       .toBeEnabled();
+  });
+
+  it("stacks more than two rings compactly and scrolls them inside a short rail", async () => {
+    const manySettings: ServerSettingsView = {
+      ...DEFAULT_SERVER_SETTINGS_VIEW,
+      providerInstances: {
+        claude_work: { driver: "claudeAgent", displayName: "Work" },
+        claude_lab: { driver: "claudeAgent", displayName: "Lab" },
+        claude_team: { driver: "claudeAgent", displayName: "Team" },
+        claude_ops: { driver: "claudeAgent", displayName: "Ops" },
+      },
+    };
+    const ids = ["codex", "claudeAgent", "claude_work", "claude_lab", "claude_team", "claude_ops"];
+    settings.railUsageInstanceIds = ids;
+    const snapshots: ServerProviderUsageSnapshot[] = ids.map((instanceId, index) => ({
+      provider: instanceId === "codex" ? "codex" : "claudeAgent",
+      instanceId,
+      updatedAt: "2026-10-02T12:00:00.000Z",
+      status: "ok",
+      source: "test",
+      limits: [
+        { window: "Weekly", usedPercent: 10 + index * 10 },
+        { window: "5h", usedPercent: 5 + index * 5 },
+      ],
+      usageLines: [],
+    }));
+    await renderAccounts(snapshots, manySettings);
+    const list = page.getByRole("button", { name: /usage:/ });
+    await expect.poll(() => list.elements().length).toBe(ids.length);
+    const container = document.querySelector<HTMLElement>("[data-rail-usage-list]");
+    expect(container).not.toBeNull();
+    for (const button of list.elements()) {
+      const bounds = button.getBoundingClientRect();
+      expect(bounds.height).toBeLessThanOrEqual(28);
+      expect(bounds.width).toBeLessThanOrEqual(28);
+    }
+    // Six compact rings are taller than the stack, so it scrolls instead of growing.
+    expect(container!.getBoundingClientRect().height).toBeLessThanOrEqual(128);
+    expect(container!.scrollHeight).toBeGreaterThan(container!.clientHeight);
+    const last = list.elements().at(-1)!;
+    last.scrollIntoView();
+    await expect.element(page.getByRole("button", { name: /^Claude · Ops usage:/ })).toBeVisible();
+  });
+
+  it("keeps full-size rings without a scroll stack for one or two accounts", async () => {
+    settings.railUsageInstanceIds = ["claudeAgent", "claude_work"];
+    await renderAccounts(claudeSnapshots, claudeSettings);
+    await expect.element(page.getByRole("button", { name: /^Claude · Work usage:/ })).toBeVisible();
+    expect(document.querySelector("[data-rail-usage-list]")).toBeNull();
+    expect(
+      page
+        .getByRole("button", { name: /^Claude · Work usage:/ })
+        .element()
+        .getBoundingClientRect().height,
+    ).toBe(32);
   });
 
   it("never borrows a sibling's usage when the selected account has no matching snapshot", async () => {
@@ -322,9 +378,10 @@ describe("AppRailUsage", () => {
       )
       .toBeChecked();
     await expect.element(page.getByRole("button", { name: /^Claude · Work usage:/ })).toBeVisible();
+    // Every saved choice shows again once its account is back: there is no two-account cap.
     await expect
       .element(page.getByRole("switch", { name: "Show Codex usage at the bottom of the sidebar" }))
-      .not.toBeChecked();
+      .toBeChecked();
     expect(settings.railUsageInstanceIds).toEqual(["claude_work", "claudeAgent", "codex"]);
   });
 

@@ -11,7 +11,7 @@ import type {
   ProviderPluginDescriptor,
   ProviderPluginDetail,
   ProviderSkillDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { lazy, Suspense, useEffect, useState, type ReactNode, type RefObject } from "react";
 
 import { Button } from "./ui/button";
@@ -27,6 +27,7 @@ import {
   resolvePluginPrimaryAction,
 } from "~/lib/pluginLibraryModel";
 import { resolvePluginArtworkUrl } from "~/lib/localImageUrls";
+import { localizePluginCategory } from "~/lib/pluginCategoryLabel";
 import { MCP_FALLBACK_ICON, resolveResourceIcon, SKILL_FALLBACK_ICON } from "~/lib/resourceIcon";
 import {
   ArrowRightIcon,
@@ -257,7 +258,7 @@ function MetaBody({ detail }: { detail: ResourceDetail }) {
     if (p.interface?.category)
       rows.push({
         label: t("plugins.detail.label.category"),
-        value: p.interface.category,
+        value: localizePluginCategory(p.interface.category, t),
       });
     if (version)
       rows.push({
@@ -469,7 +470,7 @@ function IncludesBody({
   return <p className="text-ui-lg text-muted-foreground">{t("plugins.detail.mcpHarness")}</p>;
 }
 
-type PluginPageSectionKind = "apps" | "skills" | "information";
+type PluginPageSectionKind = "apps" | "skills" | "mcps" | "information";
 
 function PluginPageSection({
   kind,
@@ -572,6 +573,31 @@ function PluginPagePromptShowcase({
             </span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/** One MCP server a plugin brings, by the name agents see it under. */
+function PluginPageMcpRow({ name }: { readonly name: string }) {
+  const { t } = useTranslation();
+  const McpRowIcon = MCP_FALLBACK_ICON;
+  return (
+    <div
+      className="flex min-h-[54px] w-full min-w-0 items-center gap-3 rounded-card px-2 py-[5px]"
+      data-testid="plugin-detail-mcp-row"
+    >
+      <span
+        aria-hidden="true"
+        className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-border bg-transparent"
+      >
+        <McpRowIcon className="size-5" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+        <span className="truncate text-ui-lg leading-[21px] text-foreground">{name}</span>
+        <span className="line-clamp-1 text-ui leading-[21.125px] text-muted-foreground">
+          {t("plugins.detail.mcpServer")}
+        </span>
       </div>
     </div>
   );
@@ -1358,6 +1384,17 @@ export function PluginResourceDetailPage({
                       skill={skill}
                       onOpen={() => setPreviewSkill(skill)}
                     />
+                  ))}
+                </PluginPageSection>
+              ) : null}
+              {pluginDetail && pluginDetail.mcpServers.length > 0 ? (
+                <PluginPageSection
+                  kind="mcps"
+                  title={t("plugins.manage.tab.mcps")}
+                  count={pluginDetail.mcpServers.length}
+                >
+                  {pluginDetail.mcpServers.map((server) => (
+                    <PluginPageMcpRow key={server} name={server} />
                   ))}
                 </PluginPageSection>
               ) : null}

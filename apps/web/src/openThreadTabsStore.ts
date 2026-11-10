@@ -5,7 +5,7 @@
 // Layer: UI state store
 // Exports: useOpenThreadTabsStore
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 

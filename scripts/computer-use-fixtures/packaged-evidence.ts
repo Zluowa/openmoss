@@ -3,7 +3,7 @@ import {
   type FocusProbeExpect,
   type FocusProbeRunResult,
 } from "../../apps/desktop/src/cuaFixtures/focusProbe.ts";
-import type { ComputerStatusResult, ComputerWindow } from "@synara/contracts";
+import type { ComputerStatusResult, ComputerWindow } from "@moss/contracts";
 
 /** A fresh host deliberately leaves its physical-input listener idle. The
  * passive probe must be available; real task/oracle checks prove execution. */

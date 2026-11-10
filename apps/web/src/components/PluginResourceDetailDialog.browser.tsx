@@ -5,7 +5,7 @@
 import "../index.css";
 import "./PluginLibrary.css";
 
-import type { ProviderPluginDescriptor, ProviderPluginDetail } from "@synara/contracts";
+import type { ProviderPluginDescriptor, ProviderPluginDetail } from "@moss/contracts";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -138,7 +138,8 @@ describe("PluginResourceDetailPage signed geometry", () => {
       const appRow = document.querySelector<HTMLElement>('[data-testid="plugin-detail-app-row"]')!;
 
       expect(breadcrumb.getBoundingClientRect().height).toBeCloseTo(46, 3);
-      expect(getComputedStyle(breadcrumb.querySelector("button")!).fontSize).toBe("14px");
+      // text-ui-lg: the comfortable heading role, 15px at base 14.
+      expect(getComputedStyle(breadcrumb.querySelector("button")!).fontSize).toBe("15px");
       expect(getComputedStyle(breadcrumb.querySelector("button")!).fontWeight).toBe("445");
       expect(content.getBoundingClientRect().width).toBeCloseTo(768, 3);
       expect(
@@ -155,7 +156,8 @@ describe("PluginResourceDetailPage signed geometry", () => {
       // a single prompt keeps the signed 122px minimum.
       expect(prompt.getBoundingClientRect().height).toBeGreaterThanOrEqual(122);
       expect(prompt.querySelectorAll("button").length).toBe(summary.interface.defaultPrompt.length);
-      expect(getComputedStyle(prompt).borderRadius).toBe("10px");
+      // rounded-panel: the comfortable panel radius.
+      expect(getComputedStyle(prompt).borderRadius).toBe("12px");
       expect(appsSection.getBoundingClientRect().left - content.getBoundingClientRect().left).toBe(
         16,
       );
@@ -165,11 +167,11 @@ describe("PluginResourceDetailPage signed geometry", () => {
       expect(getComputedStyle(appRow).borderRadius).toBe("10px");
       expect(appRow.getAttribute("role")).toBeNull();
       expect(appRow.getAttribute("tabindex")).toBeNull();
-      expect(getComputedStyle(description).fontSize).toBe("14px");
+      expect(getComputedStyle(description).fontSize).toBe("15px");
       expect(getComputedStyle(description).lineHeight).toBe("22.75px");
-      // Codex's solid "+ Install plugin" button: 32px tall, 14px medium (Moss 475) text.
+      // The solid "+ Install plugin" button: 32px tall, text-ui-lg (15px) medium (Moss 475) text.
       expect(action.getBoundingClientRect().height).toBeCloseTo(32, 3);
-      expect(getComputedStyle(action).fontSize).toBe("14px");
+      expect(getComputedStyle(action).fontSize).toBe("15px");
       expect(getComputedStyle(action).fontWeight).toBe("475");
     } finally {
       await screen.unmount();

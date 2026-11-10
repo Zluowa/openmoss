@@ -5,7 +5,7 @@ import {
   OrchestrationProposedPlanId,
   TurnId,
   type OrchestrationThreadActivity,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildTurnDiffSummaryByAssistantMessageId,
@@ -28,6 +28,7 @@ import {
   resolveWorkEntryChunkFold,
   resolveAssistantMessageCopyState,
   resolveAssistantMessageDisplayText,
+  resolveHtmlRenderRowIndex,
   resolveThreadFindJumpTarget,
   type CollapsedTurnItem,
   type MessagesTimelineRow,
@@ -2139,6 +2140,20 @@ describe("deriveMessagesTimelineRows", () => {
       });
     });
 
+    it("leaves failures the card already explains out of the header", () => {
+      expect(
+        summarizeTurnFailureReason({
+          message: 'Conflict: {"object":"moss.operation_status","status":"completed"}',
+        }),
+      ).toBeNull();
+      expect(
+        summarizeTurnFailureReason({
+          message:
+            "unexpected status 502 Bad Gateway: The model service is temporarily unavailable., url: https://moss.example/v1/responses",
+        }),
+      ).toBeNull();
+    });
+
     it("clips unknown provider reasons to one short line", () => {
       expect(summarizeTurnFailureReason({ errorCode: "server_overloaded" })).toBe(
         "model at capacity",
@@ -2419,6 +2434,63 @@ describe("deriveMessagesTimelineRows", () => {
     });
     expect(rows.some((row) => row.kind === "work")).toBe(false);
     expect(collapsedSignature(messageRow(rows, "a1")!)).toEqual(["work:w1", "work:w2"]);
+  });
+
+  it("keeps a turn's pages in publication order with a surface note, and finds their rows", () => {
+    const htmlRenderEntry = (
+      id: string,
+      createdAt: string,
+      turnId: string,
+      options: { surface?: string; liveId?: string } = {},
+    ): TimelineEntry => ({
+      id,
+      kind: "html-render",
+      createdAt,
+      turnId: TurnId.makeUnsafe(turnId),
+      htmlRender: {
+        attachmentId: id,
+        title: id,
+        height: 400,
+        ...(options.surface === undefined ? {} : { surface: options.surface }),
+      },
+      ...(options.liveId === undefined ? {} : { liveId: options.liveId }),
+    });
+    const rows = deriveMessagesTimelineRows({
+      ...baseInput,
+      timelineEntries: [
+        userEntry("u1", "2026-01-01T00:00:00Z"),
+        htmlRenderEntry("chart", "2026-01-01T00:00:01Z", "t1", { surface: "build-status" }),
+        assistantEntry("a1", "2026-01-01T00:00:02Z", {
+          turnId: "t1",
+          text: "first answer",
+          completedAt: "2026-01-01T00:00:03Z",
+        }),
+        userEntry("u2", "2026-01-01T00:00:04Z"),
+        workEntry("w1", "2026-01-01T00:00:05Z", "tool 1"),
+        htmlRenderEntry("update", "2026-01-01T00:00:06Z", "t2", {
+          surface: "build-status",
+          liveId: "chart",
+        }),
+        htmlRenderEntry("other", "2026-01-01T00:00:07Z", "t2"),
+        assistantEntry("a2", "2026-01-01T00:00:08Z", {
+          turnId: "t2",
+          text: "final",
+          completedAt: "2026-01-01T00:00:09Z",
+        }),
+      ],
+    });
+
+    expect(messageRow(rows, "a2")?.inlineHtmlRenders?.map((visual) => visual.id)).toEqual([
+      "update",
+      "other",
+    ]);
+    expect(messageRow(rows, "a2")?.inlineHtmlRenders?.[0]).toMatchObject({ liveId: "chart" });
+    expect(messageRow(rows, "a2")?.inlineHtmlRenders?.[1]).not.toHaveProperty("liveId");
+    const chartRow = rows.findIndex((row) => row.kind === "html-render" && row.id === "chart");
+    expect(chartRow).toBeGreaterThanOrEqual(0);
+    expect(resolveHtmlRenderRowIndex(rows, "chart")).toBe(chartRow);
+    expect(resolveHtmlRenderRowIndex(rows, "other")).toBe(rows.indexOf(messageRow(rows, "a2")!));
+    expect(resolveHtmlRenderRowIndex(rows, "missing")).toBeNull();
   });
 
   it("keeps an answered question visible while the rest of the turn collapses", () => {
@@ -2833,7 +2905,7 @@ describe("multi-file edit folding", () => {
   it("folds a lone patch that would list a column of edited-file rows", () => {
     const [settled] = planWorkEntryRenderChunks([patch], { tailIsLive: false });
 
-    expect(settled?.summary?.label).toBe("Edited files");
+    expect(settled?.summary?.label).toBe("Edited 3 files");
     expect(resolveWorkEntryChunkFold(settled!)?.entries).toEqual([patch]);
   });
 

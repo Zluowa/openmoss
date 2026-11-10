@@ -10,9 +10,9 @@ import {
   type AutomaticApprovalReviewUpdatePayload as AutomaticApprovalReviewUpdatePayloadData,
   type CodexMcpToolCallProjection as CodexMcpToolCallProjectionData,
   type ToolLifecycleItemType,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Option, Schema } from "effect";
-import { stripTrailingToolExitCode as stripTrailingExitCode } from "@synara/shared/toolOutputSummary";
+import { stripTrailingToolExitCode as stripTrailingExitCode } from "@moss/shared/toolOutputSummary";
 
 type WorkLogRequestKind = "command" | "file-read" | "file-change" | "permissions" | "tool";
 

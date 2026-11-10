@@ -9,7 +9,7 @@ import {
   type ProviderInstanceConfigMap,
   type ServerSettings,
   type ServerSettingsPatch,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect } from "effect";
 
 import type { ServerSettingsShape } from "../serverSettings";

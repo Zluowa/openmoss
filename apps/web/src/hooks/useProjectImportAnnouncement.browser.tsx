@@ -3,6 +3,7 @@ import { act, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "vitest-browser-react";
 
+import { useRunningImportsStore } from "../lib/runningImportsStore";
 import { useOnboardingDialogStore } from "../onboarding/onboardingDialogStore";
 import { useProjectImportDialogStore } from "../projectImport/projectImportDialogStore";
 import { useProjectImportAnnouncement } from "../projectImport/useProjectImportAnnouncement";
@@ -29,6 +30,7 @@ beforeEach(() => {
     startupGateSettled: false,
   });
   useProjectImportDialogStore.setState({ isOpen: false });
+  useRunningImportsStore.setState({ importsById: {} });
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -82,6 +84,24 @@ describe("project import announcement", () => {
     );
     await act(async () => {
       useOnboardingDialogStore.getState().close();
+    });
+    expect(hook.result.current.visible).toBe(false);
+    await hook.unmount();
+  });
+
+  it("does not announce once an import has run, wherever it was started", async () => {
+    useOnboardingDialogStore.setState({ startupGateSettled: true });
+    const { hook } = await renderAnnouncement();
+    await vi.waitFor(() => expect(hook.result.current.visible).toBe(true));
+    await act(async () => {
+      useRunningImportsStore.getState().setRunning("onboarding-import", "");
+    });
+    expect(hook.result.current.visible).toBe(false);
+    await vi.waitFor(() =>
+      expect(JSON.parse(localStorage.getItem(storageKey) ?? "[]")).toContain("/first/worktrees"),
+    );
+    await act(async () => {
+      useRunningImportsStore.getState().clear("onboarding-import");
     });
     expect(hook.result.current.visible).toBe(false);
     await hook.unmount();

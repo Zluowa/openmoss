@@ -13,9 +13,9 @@ import {
   type OrchestrationThreadShell,
   type ProviderSession,
   type ThreadId,
-} from "@synara/contracts";
-import { inferLegacyProviderKindFromModelSelection } from "@synara/shared/providerInstances";
-import { nonEmptyTrimmed } from "@synara/shared/text";
+} from "@moss/contracts";
+import { inferLegacyProviderKindFromModelSelection } from "@moss/shared/providerInstances";
+import { nonEmptyTrimmed } from "@moss/shared/text";
 
 import type { ProviderRuntimeEventPumpHealth } from "./Services/ProviderService.ts";
 import type { ProviderRuntimeBinding } from "./Services/ProviderSessionDirectory.ts";

@@ -5,12 +5,40 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  isMossInternalPath,
   isScratchWorkspacePath,
   isWorkspaceRootWithin,
   normalizeWorkspaceRootForComparison,
   SCRATCH_WORKSPACES_DIRNAME,
   workspaceRootsEqual,
 } from "./threadWorkspace";
+
+describe("isMossInternalPath", () => {
+  it("recognizes Moss's own data, cache, overlay and scratch folders", () => {
+    for (const internal of [
+      "C:\\Users\\me\\AppData\\Local\\Moss\\Cache\\.moss-5e21291fa581541f\\moss-codex-workspaces\\thread-1",
+      "C:\\Users\\me\\AppData\\Local\\Moss\\Cache",
+      "/Users/me/Library/Caches/moss/x",
+      "/home/me/.cache/moss/.moss-abc/moss-codex-workspaces/t",
+      "/home/me/.moss/userdata/provider-homes/grok",
+      "E:\\Codex\\.moss\\runtime\\cross-volume-overlays\\eef2",
+    ]) {
+      expect(isMossInternalPath(internal), internal).toBe(true);
+    }
+  });
+
+  it("leaves people's own folders alone", () => {
+    for (const own of [
+      "C:\\Users\\me\\code\\moss-app",
+      "/home/me/projects/mossy",
+      "/home/me/.mossrc-notes",
+      "D:\\ai",
+      "relative/.moss",
+    ]) {
+      expect(isMossInternalPath(own), own).toBe(false);
+    }
+  });
+});
 
 describe("isWorkspaceRootWithin", () => {
   it("treats an identical root as contained", () => {

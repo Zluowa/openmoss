@@ -1,3 +1,4 @@
+import { translateMoss } from "../localization";
 // FILE: SettingsSidebarNav.test.tsx
 // Purpose: Guards the settings sidebar search surface and its ranking index.
 // Layer: Component rendering tests
@@ -13,6 +14,15 @@ import {
 } from "../settingsSearchIndex";
 
 describe("rankSettingsSearchEntries", () => {
+  it("finds a localized font setting while retaining availability context", () => {
+    const matches = rankSettingsSearchEntries(
+      "字号",
+      12,
+      { computerBackendIsVisibleDesktop: false },
+      (key) => translateMoss("zh-CN", key),
+    );
+    expect(matches[0]?.id).toBe("appearance:base-font-size");
+  });
   it("returns nothing for an empty query", () => {
     expect(rankSettingsSearchEntries("", 12)).toHaveLength(0);
     expect(rankSettingsSearchEntries("   ", 12)).toHaveLength(0);

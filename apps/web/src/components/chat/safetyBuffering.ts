@@ -1,9 +1,5 @@
-import { latestSafetyBufferingActivity } from "@synara/shared/safetyBuffering";
-import type {
-  OrchestrationLatestTurn,
-  OrchestrationThreadActivity,
-  TurnId,
-} from "@synara/contracts";
+import { latestSafetyBufferingActivity } from "@moss/shared/safetyBuffering";
+import type { OrchestrationLatestTurn, OrchestrationThreadActivity, TurnId } from "@moss/contracts";
 
 export interface SafetyBufferingState {
   turnId: TurnId;

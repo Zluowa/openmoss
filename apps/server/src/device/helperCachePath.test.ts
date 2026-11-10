@@ -2,10 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import {
-  DEVICE_HELPER_CACHE_SEGMENTS,
-  deviceHelperCacheKey,
-} from "@synara/shared/deviceHelperCache";
+import { DEVICE_HELPER_CACHE_SEGMENTS, deviceHelperCacheKey } from "@moss/shared/deviceHelperCache";
 
 import type { ProcessRunResult } from "../processRunner.ts";
 import { DEVICE_HELPER_CACHE_ROOT, IosSimulatorBackend } from "./IosSimulatorBackend.ts";

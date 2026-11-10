@@ -4,7 +4,7 @@ import * as Path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createDirectoryAlias, createRejectedFileAlias } from "../fixtures/filesystem-links.ts";
-import { MOSS_BUNDLED_CODEX_VERSION } from "@synara/shared/codexRuntime";
+import { MOSS_BUNDLED_CODEX_VERSION } from "@moss/shared/codexRuntime";
 
 import {
   BUNDLED_CODEX_EXTRA_RESOURCE,
@@ -110,13 +110,13 @@ describe("bundled Codex release runtime", () => {
     expect(
       resolveBundledCodexStageOptionalDependencies({ platform: "mac", arch: "arm64" }),
     ).toEqual({
-      "@openai/codex-darwin-arm64": "npm:@openai/codex@0.163.0-darwin-arm64",
+      "@openai/codex-darwin-arm64": "npm:@openai/codex@0.166.0-darwin-arm64",
     });
     expect(
       resolveBundledCodexStageOptionalDependencies({ platform: "mac", arch: "universal" }),
     ).toEqual({
-      "@openai/codex-darwin-arm64": "npm:@openai/codex@0.163.0-darwin-arm64",
-      "@openai/codex-darwin-x64": "npm:@openai/codex@0.163.0-darwin-x64",
+      "@openai/codex-darwin-arm64": "npm:@openai/codex@0.166.0-darwin-arm64",
+      "@openai/codex-darwin-x64": "npm:@openai/codex@0.166.0-darwin-x64",
     });
   });
 

@@ -24,12 +24,13 @@ import type {
   MossCloudSignUpInput,
   MossCloudUpdatePasswordInput,
   MossPayCreateOrderInput,
-} from "@synara/contracts";
-import { isMossPayOrderSettled } from "@synara/contracts";
+} from "@moss/contracts";
+import { isMossPayOrderSettled } from "@moss/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 
 import { providerDiscoveryQueryKeys } from "~/lib/providerDiscoveryReactQuery";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
+import { MOSS_APPS_QUERY_KEY, MOSS_APP_CONNECTIONS_QUERY_KEY } from "~/lib/mossAppsReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
 
 export const mossServerQueryKeys = {
@@ -78,6 +79,8 @@ async function refreshMossManagedProviderCaches(queryClient: QueryClient): Promi
 }
 
 function clearMossManagedProviderAuthoritySnapshot(queryClient: QueryClient): void {
+  queryClient.removeQueries({ queryKey: MOSS_APP_CONNECTIONS_QUERY_KEY });
+  queryClient.removeQueries({ queryKey: [...MOSS_APPS_QUERY_KEY, "status"] });
   // Config and settings are account-authority snapshots. Invalidation preserves
   // their old data while refetching, which can briefly authorize a managed
   // instance from the previous account. Remove both synchronously at every auth

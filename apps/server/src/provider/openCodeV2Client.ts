@@ -61,6 +61,7 @@ const nativeClients = new WeakMap<
   {
     readonly isV2: () => boolean;
     readonly credentials: () => Promise<string[]>;
+    readonly defaultModel: (signal: AbortSignal) => Promise<string | undefined>;
     readonly outcome: (
       sessionID: string,
       signal: AbortSignal,
@@ -70,6 +71,22 @@ const nativeClients = new WeakMap<
 
 export function isOpenCodeV2Client(client: OpencodeClient): boolean {
   return nativeClients.get(client)?.isV2() === true;
+}
+
+async function legacyDefaultModel(
+  client: OpencodeClient,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const model = (await client.config.get(undefined, { signal })).data?.model;
+  return typeof model === "string" && model.trim() ? model.trim() : undefined;
+}
+
+export async function readOpenCodeDefaultModel(
+  client: OpencodeClient,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const state = nativeClients.get(client);
+  return state ? state.defaultModel(signal) : legacyDefaultModel(client, signal);
 }
 
 export async function openCodeV2CredentialProviderIDs(
@@ -120,6 +137,12 @@ export function withOpenCodeV2Client(
           .map((model) => model.providerID),
       ),
     ],
+    defaultModel: async (signal) => {
+      protocol ??= await detectOpenCodeProtocol({ ...input, signal });
+      if (protocol === "v1") return legacyDefaultModel(legacy, signal);
+      const model = (await native.model.default({ location }, { signal })).data;
+      return model ? `${model.providerID}/${model.id}` : undefined;
+    },
     outcome: async (sessionID, signal) => {
       const submitted = submissions.get(sessionID);
       if (submitted === undefined) return undefined;

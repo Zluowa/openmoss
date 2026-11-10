@@ -23,14 +23,14 @@ import {
   type GrokModelSelection,
   type ModelSelection,
   ProviderInstanceId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   getDefaultEffort,
   getModelCapabilities,
   humanizeModelSlug,
   normalizeGrokModelOptions,
-} from "@synara/shared/model";
-import { decodeOutboundJson, decodeOutboundText, outboundHttp } from "@synara/shared/outboundHttp";
+} from "@moss/shared/model";
+import { decodeOutboundJson, decodeOutboundText, outboundHttp } from "@moss/shared/outboundHttp";
 import {
   Cause,
   DateTime,
@@ -68,7 +68,7 @@ import {
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
 import { resolveGrokManagedConfig } from "../acp/GrokAcpSupport.ts";
-import { getMossManagedModelDefinition } from "@synara/shared/mossRealmCatalog";
+import { getMossManagedModelDefinition } from "@moss/shared/mossRealmCatalog";
 import { buildProviderProcessEnv } from "../providerProcessEnv.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { loadProviderPromptImageBlocks } from "../promptAttachments.ts";
@@ -520,10 +520,13 @@ function readXaiModelAliases(rawModel: Record<string, unknown>): string[] {
     .filter((alias) => alias.length > 0);
 }
 
-function parseGrokCliModelList(stdout: string): Array<{ slug: string; name: string }> {
+export function parseGrokCliModelList(stdout: string): {
+  models: Array<{ slug: string; name: string }>;
+  defaultModel?: string;
+} {
   const models: Array<{ slug: string; name: string; isDefault: boolean }> = [];
   let inAvailableModels = false;
-  let fallbackDefaultModel: string | undefined;
+  let fallbackDefaultModel = /^\s*Default model:\s*(\S+)/imu.exec(stdout)?.[1];
 
   for (const line of stdout.split(/\r?\n/u)) {
     const trimmed = line.trim();
@@ -569,9 +572,16 @@ function parseGrokCliModelList(stdout: string): Array<{ slug: string; name: stri
     });
   }
 
-  return models
+  const defaultModel = fallbackDefaultModel ?? models.find((model) => model.isDefault)?.slug;
+  const catalog = models
     .toSorted((left, right) => Number(right.isDefault) - Number(left.isDefault))
     .map(({ slug, name }) => ({ slug, name }));
+  return {
+    models: catalog,
+    ...(defaultModel && catalog.some((model) => model.slug === defaultModel)
+      ? { defaultModel }
+      : {}),
+  };
 }
 
 export function parseXaiLanguageModelDescriptors(
@@ -2674,7 +2684,7 @@ export function makeGrokAdapter(
       return Effect.gen(function* () {
         let cliError: unknown;
         let apiError: ProviderAdapterRequestError | undefined;
-        const cliModels = yield* Effect.gen(function* () {
+        const cliCatalog = yield* Effect.gen(function* () {
           const child = yield* childProcessSpawner.spawn(
             makeEffectProcessCommand(binaryPath, ["models"], {
               env: childEnv,
@@ -2702,10 +2712,11 @@ export function makeGrokAdapter(
           Effect.catch((error) =>
             Effect.sync(() => {
               cliError = error;
-              return [];
+              return { models: [], defaultModel: undefined };
             }),
           ),
         );
+        const cliModels = cliCatalog.models;
         const apiKey = getGrokApiKeyEnv(childEnv);
         const apiModels = apiKey
           ? yield* fetchXaiLanguageModels({ apiKey, baseUrl: xaiApiBaseUrl(childEnv) }).pipe(
@@ -2735,6 +2746,10 @@ export function makeGrokAdapter(
         }
         return {
           models,
+          ...(cliCatalog.defaultModel &&
+          models.some((model) => model.slug === cliCatalog.defaultModel)
+            ? { defaultModel: cliCatalog.defaultModel }
+            : {}),
           source: cliModels.length > 0 ? "grok-cli" : "grok-cli+xai-api",
           cached: false,
           degraded: cliModels.length === 0,

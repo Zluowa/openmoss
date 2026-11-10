@@ -6,8 +6,8 @@
 // Layer: Pull request presentation
 // Exports: PullRequestRow, githubInboxItemLabel
 
-import type { GitHubInboxItem, GitHubInboxSort } from "@synara/contracts";
-import { pullRequestListProjectContexts } from "@synara/shared/githubRepository";
+import type { GitHubInboxItem, GitHubInboxSort } from "@moss/contracts";
+import { pullRequestListProjectContexts } from "@moss/shared/githubRepository";
 import type { ReactNode } from "react";
 
 import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
@@ -87,6 +87,7 @@ export const PullRequestRow = function PullRequestRow({
             PR_BODY_TEXT_CLASS_NAME,
             "line-clamp-2 min-w-0 break-words font-medium leading-snug text-foreground",
           )}
+          data-translation-skip="true"
         >
           {entry.title}
         </span>

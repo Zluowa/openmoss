@@ -9,9 +9,9 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
   type StatsGetRecapResult,
-} from "@synara/contracts";
-import { formatModelDisplayName } from "@synara/shared/model";
-import { pluralize } from "@synara/shared/text";
+} from "@moss/contracts";
+import { formatModelDisplayName } from "@moss/shared/model";
+import { pluralize } from "@moss/shared/text";
 
 import type { ProviderUsageProgressTrackProps } from "~/lib/providerUsageDisplay";
 import { formatClockDuration } from "../../session-logic";
@@ -69,6 +69,7 @@ export interface InboxQuotaSummary {
 }
 
 export interface InboxRecapInput {
+  readonly locale?: string;
   readonly recap: StatsGetRecapResult;
   readonly previousRecap: StatsGetRecapResult | undefined;
   /** Yesterday's totals up to this same time of day. */
@@ -190,6 +191,71 @@ function taskParts(tasks: InboxTaskCounts): DigestPart[] | null {
  */
 export function buildInboxDigest(input: InboxRecapInput): DigestSentence[] {
   const { recap, previousRecap, yesterdaySoFar, slots, tasks } = input;
+  if (input.locale === "zh-CN") {
+    const totals = recap.totals;
+    const sentences: DigestSentence[] = [];
+    if (totals.prompts || totals.turns)
+      sentences.push({
+        id: "sent",
+        parts: [
+          text("今天已发送 "),
+          strong(`${formatNumber(totals.prompts)} 条消息`),
+          text("，进行了 "),
+          strong(`${formatNumber(totals.turns)} 轮运行`),
+          text("。"),
+        ],
+      });
+    const project = recap.projects[0];
+    const model = recap.models[0];
+    if (project || model)
+      sentences.push({
+        id: "work",
+        parts: [
+          ...(project
+            ? [
+                text("主要项目："),
+                strong(project.title, { icon: { kind: "project", projectId: project.projectId } }),
+              ]
+            : []),
+          ...(model
+            ? [
+                text(project ? "；主要模型：" : "主要模型："),
+                strong(modelName(model.model), { icon: modelIcon(model) }),
+              ]
+            : []),
+          text("。"),
+        ],
+      });
+    if (totals.agentWorkMs >= 1_000)
+      sentences.push({
+        id: "agents",
+        parts: [
+          text("智能体累计工作 "),
+          strong(formatClockDuration(totals.agentWorkMs)),
+          text(`，失败 ${formatNumber(totals.failedTurns)} 次。`),
+        ],
+      });
+    if (!sentences.length && previousRecap)
+      sentences.push({
+        id: "yesterday",
+        parts: [
+          text("今天尚无运行。昨天使用 "),
+          strong(`${formatCompact(recapTokens(previousRecap.totals))} tokens`),
+          text("。"),
+        ],
+      });
+    if (tasks && (tasks.open || tasks.done))
+      sentences.push({
+        id: "tasks",
+        parts: [
+          text(
+            `今日任务：已完成 ${tasks.done} 项，待办 ${tasks.open} 项，逾期 ${tasks.overdue} 项。`,
+          ),
+        ],
+      });
+    return sentences;
+  }
+
   const totals = recap.totals;
   const sentences: DigestSentence[] = [];
   const push = (id: DigestSentence["id"], parts: readonly DigestPart[]) => {
@@ -408,5 +474,33 @@ export function buildInboxTiles(
     });
   }
 
+  if (input.locale === "zh-CN") {
+    const leads: Record<InboxTileId, string> = {
+      model: "主要使用的模型",
+      project: "主要投入的项目",
+      tokens: "已用 tokens",
+      agents: "智能体累计工作时长",
+      yesterday: "昨天使用的 tokens",
+      quota: "剩余额度",
+    };
+    return tiles.map((tile) => ({
+      ...tile,
+      lead: leads[tile.id],
+      detail:
+        tile.id === "agents"
+          ? totals.failedTurns
+            ? `${totals.failedTurns} 次失败`
+            : "没有失败的运行"
+          : tile.id === "model"
+            ? `${bestModel?.turns ?? 0} 轮运行`
+            : tile.id === "project"
+              ? `${topProject?.prompts ?? 0} 条消息`
+              : tile.id === "tokens"
+                ? "包含缓存读取"
+                : tile.id === "yesterday"
+                  ? `${previousRecap?.totals.prompts ?? 0} 条消息`
+                  : `${tightest?.name ?? ""} · ${tightest?.resetText ?? "当前额度"}`,
+    }));
+  }
   return tiles;
 }

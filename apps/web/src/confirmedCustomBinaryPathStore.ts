@@ -5,7 +5,7 @@
 // Layer: Web UI state utilities
 // Exports: load/save helpers for the confirmed-path record.
 
-import { ProviderInstanceId } from "@synara/contracts";
+import { ProviderInstanceId } from "@moss/contracts";
 import { Schema } from "effect";
 import { isPlainObject } from "./persistedRecord";
 

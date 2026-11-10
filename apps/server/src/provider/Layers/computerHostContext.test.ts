@@ -35,6 +35,22 @@ describe("conditional Computer host context", () => {
       buildCodexCollaborationMode({ enableComputerControl: true })?.settings.developer_instructions,
     ).toContain(computerContext);
   });
+  it.each(["default", "plan"] as const)(
+    "keeps personal and Moss image defaults distinct in %s mode",
+    (interactionMode) => {
+      for (const enableComputerControl of [true, false]) {
+        const options = { interactionMode, enableComputerControl };
+        const personal = buildCodexCollaborationMode(options)?.settings.developer_instructions;
+        const managed = buildCodexCollaborationMode({ ...options, mossManagedAccount: true })
+          ?.settings.developer_instructions;
+        expect(personal).toContain("prefer Codex's native image generation");
+        expect(personal).toContain("explicitly requests Moss");
+        expect(personal).not.toContain("use moss_media_generate directly");
+        expect(managed).toContain("use moss_media_generate directly");
+        expect(managed).not.toContain("prefer Codex's native image generation");
+      }
+    },
+  );
   it("adds Claude Computer context only when both activation and gateway are present", () => {
     expect(buildEmbeddedClaudeSystemPromptAppend(true, false)).toBe(
       buildEmbeddedClaudeSystemPromptAppend(true),

@@ -7,12 +7,12 @@
 // Layer: Server provider helper
 // Exports: buildMossContextBootstrapText, MOSS_CONTEXT_BLOCK_PREFIX
 
-import type { ProviderKind } from "@synara/contracts";
+import type { ProviderKind } from "@moss/contracts";
 import {
   MOSS_CONTEXT_TRUNCATION_MARKER,
   MOSS_DEFAULT_MAX_CONTEXT_CHARS,
   buildMossRuntimeContext,
-} from "@synara/shared/mossRuntimeContext";
+} from "@moss/shared/mossRuntimeContext";
 
 export const MOSS_CONTEXT_BLOCK_PREFIX = '<moss_context fingerprint="sha256:';
 

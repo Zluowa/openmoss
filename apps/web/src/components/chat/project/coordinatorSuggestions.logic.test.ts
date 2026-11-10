@@ -37,6 +37,24 @@ describe("shouldShowCoordinatorSuggestions", () => {
 });
 
 describe("visibleCoordinatorSuggestionChips", () => {
+  it("offers personal assistant setup without requiring a coding goal", () => {
+    expect(
+      visibleCoordinatorSuggestionChips({
+        personal: true,
+        hasGoal: false,
+        instructionsConfigured: true,
+        linkedProjectCount: 0,
+      }),
+    ).toEqual(["Choose skills", "Edit preferences", "Connect projects"]);
+    expect(
+      visibleCoordinatorSuggestionChips({
+        personal: true,
+        hasGoal: false,
+        instructionsConfigured: true,
+        linkedProjectCount: 2,
+      }),
+    ).toEqual(["Choose skills", "Edit preferences"]);
+  });
   it("shows every chip while the hub's setup is unknown", () => {
     expect(
       visibleCoordinatorSuggestionChips({

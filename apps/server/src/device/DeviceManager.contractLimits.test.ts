@@ -11,7 +11,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
-import { DeviceAvailability, ThreadDeviceState } from "@synara/contracts";
+import { DeviceAvailability, ThreadDeviceState } from "@moss/contracts";
 import { Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 

@@ -1,7 +1,4 @@
-import {
-  GUEST_MESSAGE_MAX_ATTACHMENT_BYTES,
-  GUEST_MESSAGE_MAX_ATTACHMENTS,
-} from "@synara/contracts";
+import { GUEST_MESSAGE_MAX_ATTACHMENT_BYTES, GUEST_MESSAGE_MAX_ATTACHMENTS } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

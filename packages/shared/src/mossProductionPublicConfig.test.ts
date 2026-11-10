@@ -66,6 +66,51 @@ describe("mossProductionPublicConfig v2", () => {
     });
   });
 
+  it("carries optional map keys, empty or set, and never echoes a bad one", () => {
+    const withMaps = resolveMossProductionPublicConfig({
+      ...validEnv,
+      MOSS_PUBLIC_MAPS_GOOGLE_API_KEY: "AIzaTestKey_1",
+      MOSS_PUBLIC_MAPS_AMAP_KEY: "",
+    });
+    assert.deepStrictEqual(withMaps.maps, {
+      googleApiKey: "AIzaTestKey_1",
+      amapKey: "",
+      amapSecurityCode: "",
+    });
+    const parsed = parseMossProductionPublicConfig(serializeMossProductionPublicConfig(withMaps));
+    assert.deepStrictEqual(parsed.maps, withMaps.maps);
+    assert.equal(
+      toMossProductionPublicConfigEnv(parsed).MOSS_PUBLIC_MAPS_GOOGLE_API_KEY,
+      "AIzaTestKey_1",
+    );
+    // The shipped resource lists the section with empty keys until Moss has them.
+    const empty = parseMossProductionPublicConfig(
+      JSON.stringify({
+        ...expectedConfig,
+        maps: { googleApiKey: "", amapKey: "", amapSecurityCode: "" },
+      }),
+    );
+    assert.deepStrictEqual(empty.maps, { googleApiKey: "", amapKey: "", amapSecurityCode: "" });
+    assert.throws(
+      () =>
+        parseMossProductionPublicConfig(
+          JSON.stringify({ ...expectedConfig, maps: { mapboxToken: "x" } }),
+        ),
+      /unsupported setting mapboxToken/,
+    );
+    let message = "";
+    try {
+      resolveMossProductionPublicConfig({
+        ...validEnv,
+        MOSS_PUBLIC_MAPS_AMAP_KEY: "bad key<script>",
+      });
+    } catch (error) {
+      message = String(error);
+    }
+    assert.include(message, "MOSS_PUBLIC_MAPS_AMAP_KEY");
+    assert.notInclude(message, "bad key");
+  });
+
   it("fails strict production when the version or either realm is incomplete", () => {
     for (const key of MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS) {
       if (key === "MOSS_MEMFIRE_PHONE_PAY_BASE_URL") continue;

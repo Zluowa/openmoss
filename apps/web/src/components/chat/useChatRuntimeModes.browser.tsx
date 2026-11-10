@@ -1,8 +1,4 @@
-import {
-  ThreadId,
-  type ProviderModelDescriptor,
-  type ServerProviderStatus,
-} from "@synara/contracts";
+import { ThreadId, type ProviderModelDescriptor, type ServerProviderStatus } from "@moss/contracts";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render } from "vitest-browser-react";
 import { useComposerDraftStore } from "../../composerDraftStore";

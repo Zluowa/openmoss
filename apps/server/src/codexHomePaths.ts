@@ -18,10 +18,10 @@ export const MOSS_CODEX_HOME_ACCOUNT_OVERLAYS_DIR = "accounts";
 export const MOSS_CODEX_HOME_CROSS_VOLUME_OVERLAYS_DIR = "cross-volume-overlays";
 
 export interface CodexHomePathsInput {
-  readonly env?: NodeJS.ProcessEnv;
-  readonly homePath?: string;
-  readonly shadowHomePath?: string;
-  readonly accountId?: string;
+  readonly env?: NodeJS.ProcessEnv | undefined;
+  readonly homePath?: string | undefined;
+  readonly shadowHomePath?: string | undefined;
+  readonly accountId?: string | undefined;
   readonly accountSourceHomeIsDedicated?: boolean;
   readonly platform?: NodeJS.Platform;
 }

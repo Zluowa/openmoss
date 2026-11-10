@@ -17,7 +17,7 @@ import {
   type ProviderUserInputAnswers,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { afterAll, it, vi } from "@effect/vitest";
 
@@ -31,6 +31,7 @@ import {
 } from "../../codexAppServerManager.ts";
 import { CodexJsonlFramer, CodexJsonlWriter } from "../../codexAppServerTransport.ts";
 import { ServerConfig } from "../../config.ts";
+import { issueCodexCredentialFence, readCodexCredentialFence } from "../../codexHomeIdentity.ts";
 import { CodexSessionStartError } from "../../codexErrorClassification.ts";
 import { resolveCodexGeneratedImagesRoots } from "../../codexGeneratedImages.ts";
 import { projectProviderRuntimeActivities } from "../../orchestration/providerRuntimeActivityProjection.ts";
@@ -236,6 +237,55 @@ const validationLayer = it.layer(
 );
 
 validationLayer("CodexAdapterLive validation", (it) => {
+  it.effect(
+    "retains server credential capabilities across discovery RPCs and rejects serialized copies",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CodexAdapter;
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), "adapter-fence-"));
+        const homePath = path.join(root, "history");
+        const shadowHomePath = path.join(root, "private");
+        fs.mkdirSync(homePath);
+        fs.mkdirSync(shadowHomePath);
+        const options = {
+          homePath,
+          shadowHomePath,
+          accountId: "work",
+          runtimeGeneration: "synthetic-gen",
+        };
+        const credentialFence = issueCodexCredentialFence({
+          ...options,
+          assertBindingCurrent: () => {},
+        });
+        const spies = [
+          vi.spyOn(validationManager, "listSkills").mockRejectedValue(new Error("Probe stopped")),
+          vi.spyOn(validationManager, "listPlugins").mockRejectedValue(new Error("Probe stopped")),
+          vi.spyOn(validationManager, "readPlugin").mockRejectedValue(new Error("Probe stopped")),
+          vi.spyOn(validationManager, "listModels").mockRejectedValue(new Error("Probe stopped")),
+        ];
+        try {
+          const input = { provider: "codex" as const, cwd: root, ...options, credentialFence };
+          yield* Effect.exit(adapter.listSkills!(input));
+          yield* Effect.exit(adapter.listPlugins!(input));
+          yield* Effect.exit(
+            adapter.readPlugin!({ ...input, marketplacePath: root, pluginName: "fixture" }),
+          );
+          yield* Effect.exit(adapter.listModels!(input));
+          for (const spy of spies) {
+            const call = spy.mock.calls.at(-1)?.[0];
+            assert.ok(call && typeof call === "object" && "codexOptions" in call);
+            assert.equal(readCodexCredentialFence(call.codexOptions), credentialFence);
+            spy.mockClear();
+          }
+          yield* Effect.exit(adapter.listModels!(JSON.parse(JSON.stringify(input))));
+          assert.equal(spies[3]!.mock.calls.length, 0);
+        } finally {
+          for (const spy of spies) spy.mockRestore();
+          fs.rmSync(root, { recursive: true, force: true });
+        }
+      }),
+  );
+
   it.effect(
     "keeps the current runtime generation across all four discovery RPCs after rotation",
     () =>
@@ -1956,6 +2006,30 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         unifiedDiffBytes: Buffer.byteLength(unifiedDiff, "utf8"),
       });
       assert.equal(firstEvent.value.raw?.method, "turn/diff/updated");
+    }),
+  );
+
+  it.effect("maps proven Moss session-stop abortion without claiming a native wire event", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-moss-session-aborted"),
+        kind: "session",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-stopped"),
+        lifecycleGeneration: "stopped-generation",
+        createdAt: new Date().toISOString(),
+        method: "session/turn-aborted",
+        message: "Codex runtime stopped before this turn reported its final status.",
+        payload: { authoredBy: "moss", processExitConfirmed: true },
+      } satisfies ProviderEvent);
+      const firstEvent = Option.getOrThrow(yield* Fiber.join(firstEventFiber));
+      assert.equal(firstEvent.type, "turn.aborted");
+      assert.equal(firstEvent.turnId, "turn-stopped");
+      assert.equal(firstEvent.lifecycleGeneration, "stopped-generation");
+      assert.equal(firstEvent.raw, undefined);
     }),
   );
 

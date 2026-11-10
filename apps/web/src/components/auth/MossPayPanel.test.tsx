@@ -3,7 +3,7 @@ import type {
   MossAccountUserId,
   MossCloudAccountId,
   MossPayQuota,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   serverMossAccountSessionQueryOptions,
   serverMossCloudAccountStateQueryOptions,
@@ -80,6 +80,7 @@ function renderPanel(input: {
   readonly quotaError?: Error;
   readonly showCatalog?: boolean;
   readonly catalogPlanName?: string;
+  readonly plansClosed?: boolean;
 }): string {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const phoneAccountResolution =
@@ -165,7 +166,9 @@ function renderPanel(input: {
         ]
       : [],
     pointPackages: [],
-    paymentMethods: [{ id: "wechat_pay", displayName: "提市微信支付", kind: "qr" }],
+    ...(input.plansClosed
+      ? { paymentMethods: [], plansPurchasable: false }
+      : { paymentMethods: [{ id: "wechat_pay", displayName: "提市微信支付", kind: "qr" }] }),
   });
   if (input.snapshot) {
     const queryKey = mossPayQuotaIdentityKey(
@@ -416,6 +419,33 @@ describe("MossPayPanel quota presentation", () => {
 
     expect(markup).toContain("Plus");
     expect(markup).toContain("订阅档位");
+  });
+
+  it("explains that plans can't be bought and disables buying while the provider is closed", () => {
+    const open = renderPanel({
+      selectedAccountId: "account-a",
+      snapshot: quota(),
+      showCatalog: true,
+      catalogPlanName: "Plus",
+    });
+    const closed = renderPanel({
+      selectedAccountId: "account-a",
+      snapshot: quota(),
+      showCatalog: true,
+      catalogPlanName: "Plus",
+      plansClosed: true,
+    });
+
+    expect(open).not.toContain(translateMoss("zh-CN", "mossPay.catalog.plansNotPurchasable"));
+    // The plan stays visible, with its subscribe button disabled and the reason shown.
+    expect(closed).toContain("Plus");
+    expect(closed).toContain(translateMoss("zh-CN", "mossPay.catalog.plansNotPurchasable"));
+    expect(closed).toContain(translateMoss("zh-CN", "mossPay.membership.notPurchasableShort"));
+    expect(closed).not.toContain("Stripe");
+    expect(closed).toMatch(/<button[^>]*disabled=""[^>]*>[^<]*订阅/u);
+    expect(translateMoss("en", "mossPay.catalog.plansNotPurchasable")).toBe(
+      "Paid plans can't be purchased in your region yet. Your current plan keeps working.",
+    );
   });
 
   it("hides unfinished commerce by default while keeping quota visible", () => {

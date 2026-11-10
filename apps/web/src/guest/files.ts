@@ -8,7 +8,7 @@ import {
   GUEST_MESSAGE_MAX_ATTACHMENT_BYTES,
   GUEST_MESSAGE_MAX_ATTACHMENTS,
   type GuestAccessErrorReason,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 /** The image types the owner's agent accepts; the server checks magic bytes too. */
 export const SUPPORTED_IMAGE_MIME_TYPES: ReadonlySet<string> = new Set([

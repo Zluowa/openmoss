@@ -2,6 +2,8 @@
 // Purpose: Exact Simplified Chinese copy for the curated release-history data.
 // Boundary: Unknown/runtime text is returned unchanged; product and technical names stay verbatim.
 
+import { lookupPhrase } from "./zhCNPhraseTable";
+
 const WHATS_NEW_TEXT: Readonly<Record<string, string>> = {
   "Follow subagents without losing the conversation": "查看子智能体进展，同时留在当前对话",
   "Claude and Codex child agents now have their own conversations, with compact launch cards and a roster in Environment and the right dock.":
@@ -1751,9 +1753,6 @@ const WHATS_NEW_TEXT: Readonly<Record<string, string>> = {
   "Provider favorites are quicker to manage": "服务商收藏管理更快捷",
   "The provider model picker gained native favorite toggles and cleaner context-menu separators, making large Codex, Cursor, and OpenCode model lists easier to shape around the models you actually use.":
     "服务商模型选择器新增原生收藏开关和更清晰的上下文菜单分隔线，让庞大的 Codex、Cursor 和 OpenCode 模型列表更容易围绕常用模型进行整理。",
-  "Old inactive threads hide after seven days": "超过七天未活动的旧对话将自动隐藏",
-  "The retention job now hides stale inactive threads from the app in batches, publishes maintenance progress, and protects running work and approvals while keeping database history available for long-term stats.":
-    "保留任务现在会分批在应用中隐藏长期未活动的对话、发布维护进度，并保护正在运行的工作和待批准事项，同时继续保留数据库历史记录以供长期统计。",
   "Transport and server edges are steadier": "传输与服务器边缘流程更稳定",
   "WebSocket HTTP URL helpers, lifecycle events, provider runtime ingestion, and chat-route plumbing were tightened so generated artifacts and cleanup events move through the app more predictably.":
     "WebSocket HTTP URL 辅助函数、生命周期事件、服务商运行时数据接入和聊天路由已得到强化，让生成产物与清理事件在应用中的传递更加可预测。",
@@ -2232,14 +2231,14 @@ const CHROME_TEXT: Readonly<Record<string, string>> = {
 
 /** Translate only known release-history presentation text into Simplified Chinese. */
 export function translateZhCnWhatsNewText(value: string): string {
-  const exact = CHROME_TEXT[value] ?? WHATS_NEW_TEXT[value];
+  const exact = lookupPhrase(CHROME_TEXT, value) ?? lookupPhrase(WHATS_NEW_TEXT, value);
   if (exact) return exact;
 
   const date = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})$/.exec(value);
   if (date) {
     const month = date[1];
     const day = date[2];
-    if (month && day) return `${MONTHS[month]}${day}日`;
+    if (month && day) return `${lookupPhrase(MONTHS, month)}${day}日`;
   }
 
   const updates = /^(\d+) updates?$/.exec(value);

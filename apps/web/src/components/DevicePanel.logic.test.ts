@@ -1,4 +1,4 @@
-import type { DeviceDescriptor, DeviceUdid } from "@synara/contracts";
+import type { DeviceDescriptor, DeviceUdid } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

@@ -8,7 +8,7 @@ import {
   type DesktopAppSnapShortcut,
   type DesktopBridge,
   type ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef } from "react";
 

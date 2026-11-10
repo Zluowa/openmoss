@@ -6,6 +6,7 @@ import {
   BROWSER_ANNOTATION_MAX_COMMENT_LENGTH,
   BROWSER_ANNOTATION_MAX_DOCUMENT_KEY_LENGTH,
   BROWSER_ANNOTATION_MAX_FINGERPRINT_LENGTH,
+  BROWSER_ANNOTATION_MAX_HTML_LENGTH,
   BROWSER_ANNOTATION_MAX_ID_LENGTH,
   BROWSER_ANNOTATION_MAX_NAME_LENGTH,
   BROWSER_ANNOTATION_MAX_PAGE_TITLE_LENGTH,
@@ -16,11 +17,11 @@ import {
   BROWSER_ANNOTATION_MAX_URL_LENGTH,
   type BrowserAnnotation,
   type MessageId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   sanitizeBrowserAnnotationPageTitle,
   sanitizeBrowserAnnotationUrl,
-} from "@synara/shared/browserAnnotations";
+} from "@moss/shared/browserAnnotations";
 
 export const BROWSER_ANNOTATIONS_VERSION = 2 as const;
 export const BROWSER_ANNOTATION_MAX_COUNT = 32;
@@ -37,6 +38,7 @@ const FIELD_LIMITS = {
   text: BROWSER_ANNOTATION_MAX_TEXT_LENGTH,
   fingerprint: BROWSER_ANNOTATION_MAX_FINGERPRINT_LENGTH,
   comment: BROWSER_ANNOTATION_MAX_COMMENT_LENGTH,
+  html: BROWSER_ANNOTATION_MAX_HTML_LENGTH,
   capturedAt: 64,
   documentKey: BROWSER_ANNOTATION_MAX_DOCUMENT_KEY_LENGTH,
 } as const;
@@ -103,7 +105,7 @@ export function normalizeBrowserAnnotation(value: unknown): BrowserAnnotationDra
     typeof candidate.ordinal === "number" && Number.isFinite(candidate.ordinal)
       ? Math.floor(candidate.ordinal)
       : 1;
-  const nullableText = (field: "role" | "name" | "text" | "comment"): string | null => {
+  const nullableText = (field: "role" | "name" | "text" | "comment" | "html"): string | null => {
     if (candidate[field] === null || candidate[field] === undefined) {
       return null;
     }
@@ -125,6 +127,7 @@ export function normalizeBrowserAnnotation(value: unknown): BrowserAnnotationDra
     name: nullableText("name"),
     text: nullableText("text"),
     fingerprint,
+    ...(nullableText("html") ? { html: nullableText("html") } : {}),
     comment: nullableText("comment"),
     capturedAt,
     ...(documentKey.length > 0 && /^sha256:[0-9a-f]{64}$/u.test(documentKey)
@@ -167,11 +170,13 @@ export function nextBrowserAnnotationOrdinal(
 }
 
 export function formatBrowserAnnotationLabel(
-  annotation: Pick<BrowserAnnotationDraft, "comment" | "name" | "tagName" | "selector">,
+  annotation: Pick<BrowserAnnotationDraft, "comment" | "name" | "text" | "tagName" | "selector">,
 ): string {
+  // A picked element reads by what it says (a heading's text), as Claude's element chips do.
   return (
     annotation.comment?.trim() ||
     annotation.name?.trim() ||
+    annotation.text?.trim().split(/\r?\n/)[0]?.trim() ||
     annotation.tagName.trim() ||
     annotation.selector.trim() ||
     "Page element"

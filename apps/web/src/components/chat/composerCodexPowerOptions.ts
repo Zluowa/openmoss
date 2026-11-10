@@ -1,4 +1,4 @@
-import { type ModelSlug, type ProviderKind, type ProviderModelDescriptor } from "@synara/contracts";
+import { type ModelSlug, type ProviderKind, type ProviderModelDescriptor } from "@moss/contracts";
 
 /** The effort values that have a place on the compact Codex power surface. */
 export const COMPOSER_CODEX_POWER_EFFORTS = ["low", "medium", "high", "xhigh", "ultra"] as const;

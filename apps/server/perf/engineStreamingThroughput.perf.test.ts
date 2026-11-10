@@ -12,7 +12,7 @@ import {
   MessageId,
   ProjectId,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";

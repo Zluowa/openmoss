@@ -1,3 +1,4 @@
+import { DevsReportConfirmDialog } from "../components/chat/DevsReportConfirmDialog";
 import { hydrateCachedThreadDetail, startThreadDetailCachePersistence } from "../threadDetailCache";
 import { EditorDirtyRouteGuard } from "../components/EditorDirtyRouteGuard";
 import {
@@ -10,10 +11,10 @@ import {
   type ServerConfig,
   type ServerSettingsView,
   type WsCompatibilityError,
-} from "@synara/contracts";
-import { defaultTerminalTitleForCliKind } from "@synara/shared/terminalThreads";
+} from "@moss/contracts";
+import { defaultTerminalTitleForCliKind } from "@moss/shared/terminalThreads";
 import { BrowserVaultDialog } from "~/components/BrowserVault";
-import { isThreadDetailEventFor } from "@synara/shared/threadDetailEvents";
+import { isThreadDetailEventFor } from "@moss/shared/threadDetailEvents";
 import {
   Outlet,
   createRootRouteWithContext,
@@ -40,7 +41,9 @@ import { DesktopWindowControls } from "../components/DesktopWindowControls";
 import { RunningChatsQuitCoordinator } from "../components/RunningChatsQuitCoordinator";
 import { AppSnapCoordinator } from "../components/AppSnapCoordinator";
 import { AppSnapWelcomeDialog } from "../components/AppSnapWelcomeDialog";
+import { GitHubSignInIntroduction } from "../onboarding/GitHubSignInIntroduction";
 import { BetaWelcomeDialog } from "../components/BetaWelcomeDialog";
+import { ErrorReportsPreferenceSync } from "../components/ErrorReportsPreferenceSync";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import { ProjectImportAnnouncementDialog } from "../projectImport/ProjectImportAnnouncementDialog";
 import { useProjectImportDialogStore } from "../projectImport/projectImportDialogStore";
@@ -172,6 +175,7 @@ import { useComputerEventBridge } from "../hooks/useComputerEventBridge";
 import { useDeviceEventBridge } from "../hooks/useDeviceEventBridge";
 import { useGuestShareEventBridge } from "../hooks/useGuestShareEventBridge";
 import { GuestShareDialogHost } from "../components/chat/guestShare/GuestShareDialogHost";
+import { LaunchRunExitLogDialogHost } from "../components/browser/BrowserDevServerLogsDialog";
 import {
   PROVIDER_AUTH_REFRESH_MIN_INTERVAL_MS,
   useProviderAuthRefreshOnFocus,
@@ -213,7 +217,7 @@ import {
   shouldInvalidateProviderQueriesForEvent,
 } from "./-rootEventInvalidation";
 import { createDesktopProjectRecoveryAttemptGate } from "./-desktopProjectRecoveryAttempt";
-import { isSidechatThread } from "@synara/shared/sidechatThread";
+import { isSidechatThread } from "@moss/shared/sidechatThread";
 
 const SHELL_SNAPSHOT_BOOTSTRAP_FALLBACK_DELAY_MS = 1_500;
 const THREAD_DETAIL_CATCHUP_INTERVAL_MS = 1_500;
@@ -353,13 +357,17 @@ function RootRouteView() {
           <GlobalShortcutsDialog />
           <BrowserVaultDialog />
           <GlobalFeedbackDialog />
+          <DevsReportConfirmDialog />
           <GlobalWorkspaceImportDialog />
           <GuestShareDialogHost />
+          <LaunchRunExitLogDialogHost />
           <GlobalWhatsNewSurface />
+          <ErrorReportsPreferenceSync />
           <TaskCompletionNotifications />
           <QueuedComposerDrainCoordinator />
           {/* Beta welcome must resolve the first-run gate even while Safari is queued. */}
           <BetaWelcomeDialog />
+          <GitHubSignInIntroduction />
           <SafariAccessOnboarding startup>
             <AppSnapWelcomeDialog>
               <FeatureTourDialog />
@@ -2407,7 +2415,7 @@ function EventRouter() {
       } else if (event.type === "upserted") {
         store.upsertRun(event.server);
       } else {
-        store.removeRun(event.projectId);
+        store.removeRun(event.projectId, event.launchName, event.output);
       }
       invalidateLocalServers();
     });

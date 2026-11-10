@@ -16,10 +16,10 @@ import {
   ThreadId,
   ProjectId,
   type OrchestrationSidebarSectionShell,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { translateZhCnPresentationText } from "../localization/zhCN";
 import { buildThreadContextMenuItems, type ThreadContextMenuCopy } from "../lib/threadContextMenu";
-import type { ContextMenuItem } from "@synara/contracts";
+import type { ContextMenuItem } from "@moss/contracts";
 
 import { showContextMenuFallback } from "../contextMenuFallback";
 import { showConfirmDialogFallback } from "../confirmDialogFallback";

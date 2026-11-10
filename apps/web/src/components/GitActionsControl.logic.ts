@@ -4,8 +4,8 @@ import type {
   GitStackedAction,
   GitStatusResult,
   ThreadId,
-} from "@synara/contracts";
-import { isTransientThreadBranch, resolveUniqueMossBranchName } from "@synara/shared/git";
+} from "@moss/contracts";
+import { isTransientThreadBranch, resolveUniqueMossBranchName } from "@moss/shared/git";
 
 export type GitActionIconName = "commit" | "push" | "pr";
 
@@ -996,4 +996,4 @@ export function resolveLiveThreadBranchUpdate(input: {
 }
 
 // Re-export from shared for backwards compatibility in this module's exports
-export { resolveAutoFeatureBranchName } from "@synara/shared/git";
+export { resolveAutoFeatureBranchName } from "@moss/shared/git";

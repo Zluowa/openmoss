@@ -3,13 +3,13 @@
 // Layer: Web composer helper
 // Exports: mention token formatters plus regex helpers used by composer parsing and prompt sync.
 
-import type { ProviderMentionReference, ProviderSkillReference } from "@synara/contracts";
+import type { ProviderMentionReference, ProviderSkillReference } from "@moss/contracts";
 import {
   COMPUTER_HISTORY_MENTION_PATH,
   isComputerHistoryMention,
-} from "@synara/shared/computerHistoryMention";
-import { isMcpConnectorMentionPath } from "@synara/shared/mcpConnectors";
-import { isThreadMentionPath, threadIdFromThreadMentionPath } from "@synara/shared/threadMentions";
+} from "@moss/shared/computerHistoryMention";
+import { isMcpConnectorMentionPath } from "@moss/shared/mcpConnectors";
+import { isThreadMentionPath, threadIdFromThreadMentionPath } from "@moss/shared/threadMentions";
 
 export function skillMentionPrefix(provider: string): string {
   return provider === "pi" ? "/skill:" : "/";

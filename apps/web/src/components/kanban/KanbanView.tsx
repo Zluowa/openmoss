@@ -4,7 +4,7 @@
 // Layer: Kanban route surface
 // Exports: KanbanView (default)
 
-import type { ProjectId } from "@synara/contracts";
+import type { ProjectId } from "@moss/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -173,7 +173,7 @@ export default function KanbanView({ projectId }: { projectId: string | null }) 
               {projectBoard ? projectBoard.projectName : "Kanban"}
             </h2>
             <span className="shrink-0 text-ui leading-snug text-muted-foreground/70">
-              {projectBoard ? projectBoard.totalCount : board.totalCount} tasks
+              {`${projectBoard ? projectBoard.totalCount : board.totalCount} tasks`}
             </span>
             {projectBoard ? null : <TasksViewSwitch current="kanban" />}
             <FilterPillGroup

@@ -1,4 +1,4 @@
-import { PROVIDER_DISPLAY_NAMES, type ProviderKind } from "@synara/contracts";
+import { PROVIDER_DISPLAY_NAMES, type ProviderKind } from "@moss/contracts";
 import { useRef, useState } from "react";
 
 import { type AppSettings } from "~/appSettings";

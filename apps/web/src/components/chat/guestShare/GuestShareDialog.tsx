@@ -5,7 +5,7 @@
 // Exports: GuestShareDialog
 // Depends on: guestShareStore (share state), nativeApi guestShare calls
 
-import type { GuestShareOwnerErrorCode, ThreadGuestShare, ThreadId } from "@synara/contracts";
+import type { GuestShareOwnerErrorCode, ThreadGuestShare, ThreadId } from "@moss/contracts";
 import { useState } from "react";
 
 import { selectThreadGuestShare, useGuestShareStore } from "~/guestShareStore";

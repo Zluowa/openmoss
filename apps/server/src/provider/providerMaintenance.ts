@@ -2,11 +2,12 @@ import type {
   ProviderKind,
   ServerProviderStatus,
   ServerProviderVersionAdvisory,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import path from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 import { executableCandidates, hasPathSeparator } from "../executableLookup.ts";
 import {
@@ -32,7 +33,15 @@ const LATEST_VERSION_TIMEOUT_MS = 4_000;
 const LATEST_VERSION_MIRROR_TIMEOUT_MS = 10_000;
 const PROVIDER_UPDATE_ACTION_MESSAGE = "Install the update now or review provider settings.";
 
-type ProviderInstallSource = "npm" | "bun" | "pnpm" | "homebrew" | "native" | "unknown";
+type ProviderInstallSource =
+  | "npm"
+  | "bun"
+  | "pnpm"
+  | "homebrew"
+  | "native"
+  /** A project's own dependency, e.g. a repo's `node_modules/.bin` that `bun run` puts on PATH. */
+  | "project"
+  | "unknown";
 
 export interface ProviderLatestVersionSource {
   readonly kind: "npm" | "homebrew";
@@ -60,6 +69,8 @@ export interface ProviderMaintenanceCommandAction {
   readonly executable: string;
   readonly args: ReadonlyArray<string>;
   readonly lockKey: string;
+  /** Exact package release whose installation must be confirmed after the command. */
+  readonly targetVersion?: string;
   /** Put the selected provider binary's directory first so its package manager matches. */
   readonly pathPrepend?: string;
 }
@@ -99,9 +110,16 @@ export interface PackageManagedProviderMaintenanceDefinition {
   } | null;
 }
 
+interface ProviderLatestVersionResult {
+  readonly version: string | null;
+  readonly mirrorVersion: string | null;
+  /** A mirror can prove an available update, but cannot prove that no update exists. */
+  readonly authoritative: boolean;
+}
+
 const latestVersionCache = new Map<
   string,
-  { readonly expiresAt: number; readonly version: string | null }
+  ProviderLatestVersionResult & { readonly expiresAt: number }
 >();
 
 /** V2 ships under different packages; never suggest a V1 package for a V2 binary. */
@@ -118,6 +136,9 @@ export function withOpenCodeMaintenanceVersion(
   };
 }
 const SEMVER_NUMBER_SEGMENT = /^\d+$/;
+// Remote release metadata must be a complete SemVer, never a loosely parsed CLI banner.
+const REMOTE_RELEASE_VERSION =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
@@ -128,7 +149,9 @@ function normalizeSemverVersion(version: string): string {
 }
 
 function parseSemver(value: string): ParsedCliVersion | null {
-  const { main, prerelease } = splitPrerelease(normalizeSemverVersion(value));
+  // Build metadata identifies a distribution of the same release, not its precedence.
+  const normalized = normalizeSemverVersion(value).split("+")[0] ?? "";
+  const { main, prerelease } = splitPrerelease(normalized);
   const segments = main.split(".");
   if (segments.length !== 3) {
     return null;
@@ -200,6 +223,37 @@ export function deriveNpmGlobalPrefix(commandPath: string): string | null {
   return null;
 }
 
+const UPDATE_FAILURE_REASON_MAX_CHARS = 300;
+const UPDATE_FAILURE_LINE_REGEX = /\b(?:error|failed|cannot|denied|not permitted)\b|\bERR!/i;
+
+/**
+ * The line of a failed update's output that says why, so the failure reads as more than an
+ * exit code. Updaters print their reason on stderr, as the first line that reads as an error:
+ * npm's last line only points at its log file, and Pi's names where it is installed.
+ */
+export function providerUpdateFailureReason(output: {
+  readonly stderr: string;
+  readonly stdout: string;
+}): string | null {
+  for (const stream of [output.stderr, output.stdout]) {
+    const lines = stripVTControlCharacters(stream)
+      .split(/\r\n|\r|\n/)
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .filter((line) => line.length > 0);
+    const reason = lines.find((line) => UPDATE_FAILURE_LINE_REGEX.test(line)) ?? lines.at(-1);
+    if (reason) {
+      return reason.length <= UPDATE_FAILURE_REASON_MAX_CHARS
+        ? reason
+        : `${reason.slice(0, UPDATE_FAILURE_REASON_MAX_CHARS - 1)}…`;
+    }
+  }
+  return null;
+}
+
+function providerMaintenanceCommand(executable: string, args: ReadonlyArray<string>): string {
+  return [executable, ...args].map((part) => (/\s/.test(part) ? `"${part}"` : part)).join(" ");
+}
+
 export function makeProviderMaintenanceCapabilities(input: {
   readonly provider: ProviderKind;
   readonly packageName: string | null;
@@ -214,9 +268,7 @@ export function makeProviderMaintenanceCapabilities(input: {
     input.updateExecutable === null || input.updateLockKey === null
       ? null
       : {
-          command: [input.updateExecutable, ...input.updateArgs]
-            .map((part) => (/\s/.test(part) ? `"${part}"` : part))
-            .join(" "),
+          command: providerMaintenanceCommand(input.updateExecutable, input.updateArgs),
           executable: input.updateExecutable,
           args: input.updateArgs,
           lockKey: input.updateLockKey,
@@ -446,6 +498,9 @@ function detectInstallSource(
   if (isHomebrewCommandPath(commandPath)) {
     return "homebrew";
   }
+  if (normalizeCommandPath(commandPath).includes("/node_modules/")) {
+    return "project";
+  }
   return "unknown";
 }
 
@@ -470,6 +525,15 @@ function makeProviderMaintenanceForInstallSource(input: {
     npmGlobalPrefix,
     packageChannel,
   } = input;
+  // A global install or the CLI's own updater would not touch the project's copy, and an
+  // unpinned `npm install -g` would write to whatever global prefix npm resolves instead.
+  if (installSource === "project") {
+    return makeManualOnlyProviderMaintenanceCapabilities({
+      provider: definition.provider,
+      packageName: definition.npmPackageName,
+      packageChannel,
+    });
+  }
   // A CLI's own updater hides which registry it downloads from, so the mirror channel talks to
   // the package manager that owns the install instead.
   const mirrorsThroughPackageManager =
@@ -569,11 +633,7 @@ function isPnpmGlobalCommandPath(commandPath: string): boolean {
 
 function isNpmGlobalCommandPath(commandPath: string): boolean {
   const normalized = normalizeCommandPath(commandPath);
-  return (
-    normalized.includes("/node_modules/.bin/") ||
-    normalized.includes("/lib/node_modules/") ||
-    normalized.includes("/npm/node_modules/")
-  );
+  return normalized.includes("/lib/node_modules/") || normalized.includes("/npm/node_modules/");
 }
 
 function isHomebrewCommandPath(commandPath: string): boolean {
@@ -703,8 +763,9 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
     });
   }
 
-  // Existence, not executability: this is locating an installation to report on, so an
-  // extensionless Windows file still counts even though nothing could spawn it directly.
+  // Use the same candidate order as launch. An extensionless Windows shell shim can
+  // remain in an old prefix after its runnable shim is gone; selecting it here would
+  // update a different installation from the CLI Moss actually runs.
   //
   // `options.env` is used whole, with no per-key fallback to `process.env`. An earlier version
   // read `options.env.PATH ?? process.env.PATH`, which could report a provider as installed
@@ -713,7 +774,6 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
   for (const candidate of executableCandidates(binaryPath, {
     ...(options?.platform === undefined ? {} : { platform: options.platform }),
     ...(options?.env === undefined ? {} : { env: options.env }),
-    allowExtensionlessOnWindows: true,
   })) {
     const exists = yield* fileSystem.exists(candidate.path).pipe(Effect.orElseSucceed(() => false));
     if (!exists) {
@@ -745,15 +805,22 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
 function deriveVersionAdvisory(input: {
   readonly currentVersion: string | null;
   readonly latestVersion: string | null;
+  readonly latestVersionIsAuthoritative?: boolean;
 }): Pick<ServerProviderVersionAdvisory, "status" | "message"> {
   if (!input.currentVersion || !input.latestVersion) {
     return { status: "unknown", message: null };
   }
-  if (compareSemverVersions(input.currentVersion, input.latestVersion) < 0) {
+  const current = parseSemver(input.currentVersion);
+  const latest = parseSemver(input.latestVersion);
+  if (!current || !latest) return { status: "unknown", message: null };
+  if (compareParsedCliVersions(current, latest) < 0) {
     return {
       status: "behind_latest",
       message: PROVIDER_UPDATE_ACTION_MESSAGE,
     };
+  }
+  if (input.latestVersionIsAuthoritative === false) {
+    return { status: "unknown", message: null };
   }
   return { status: "current", message: null };
 }
@@ -762,6 +829,7 @@ export function createProviderVersionAdvisory(input: {
   readonly provider: ProviderKind;
   readonly currentVersion: string | null;
   readonly latestVersion?: string | null;
+  readonly latestVersionIsAuthoritative?: boolean;
   readonly checkedAt?: string | null;
   readonly maintenanceCapabilities?: ProviderMaintenanceCapabilities;
 }): ServerProviderVersionAdvisory {
@@ -772,6 +840,9 @@ export function createProviderVersionAdvisory(input: {
   const advisory = deriveVersionAdvisory({
     currentVersion: input.currentVersion,
     latestVersion,
+    ...(input.latestVersionIsAuthoritative === undefined
+      ? {}
+      : { latestVersionIsAuthoritative: input.latestVersionIsAuthoritative }),
   });
 
   return {
@@ -794,21 +865,28 @@ function latestVersionTimeoutMs(channel: ProviderPackageChannel | undefined): nu
   return channel === "cn-mirror" ? LATEST_VERSION_MIRROR_TIMEOUT_MS : LATEST_VERSION_TIMEOUT_MS;
 }
 
+function releaseVersionFromMetadata(value: unknown): string | null {
+  // JS `$` also matches before a trailing newline; require the entire payload value.
+  return typeof value === "string" && REMOTE_RELEASE_VERSION.exec(value)?.[0] === value
+    ? value
+    : null;
+}
+
 const fetchNpmLatestVersion = Effect.fn("fetchNpmLatestVersion")(function* (
   packageName: string,
   channel: ProviderPackageChannel | undefined,
 ) {
   const registry = channel === "cn-mirror" ? CN_NPM_MIRROR_REGISTRY : NPM_OFFICIAL_REGISTRY;
-  return yield* Effect.tryPromise(async () => {
+  return yield* Effect.tryPromise(async (signal) => {
     const response = await fetch(`${registry}/${encodeURIComponent(packageName)}/latest`, {
       headers: { accept: "application/json" },
-      signal: AbortSignal.timeout(latestVersionTimeoutMs(channel)),
+      signal: AbortSignal.any([signal, AbortSignal.timeout(latestVersionTimeoutMs(channel))]),
     });
     if (!response.ok) {
       return null;
     }
     const payload = (await response.json()) as { version?: unknown };
-    return nonEmptyString(payload.version);
+    return releaseVersionFromMetadata(payload.version);
   }).pipe(Effect.catch(() => Effect.succeed(null)));
 });
 
@@ -820,12 +898,12 @@ const fetchHomebrewLatestVersion = Effect.fn("fetchHomebrewLatestVersion")(funct
     return null;
   }
   const apiDomain = channel === "cn-mirror" ? CN_HOMEBREW_API_DOMAIN : HOMEBREW_OFFICIAL_API_DOMAIN;
-  return yield* Effect.tryPromise(async () => {
+  return yield* Effect.tryPromise(async (signal) => {
     const response = await fetch(
       `${apiDomain}/${source.homebrewKind}/${encodeURIComponent(source.name)}.json`,
       {
         headers: { accept: "application/json" },
-        signal: AbortSignal.timeout(latestVersionTimeoutMs(channel)),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(latestVersionTimeoutMs(channel))]),
       },
     );
     if (!response.ok) {
@@ -835,44 +913,156 @@ const fetchHomebrewLatestVersion = Effect.fn("fetchHomebrewLatestVersion")(funct
       version?: unknown;
       versions?: { stable?: unknown };
     };
-    return nonEmptyString(
+    return releaseVersionFromMetadata(
       source.homebrewKind === "cask" ? payload.version : payload.versions?.stable,
     );
   }).pipe(Effect.catch(() => Effect.succeed(null)));
 });
 
+const resolveLatestProviderVersionResult = Effect.fn("resolveLatestProviderVersionResult")(
+  function* (maintenanceCapabilities: ProviderMaintenanceCapabilities, forceRefresh = false) {
+    const source = maintenanceCapabilities.latestVersionSource;
+    if (!source) {
+      return {
+        version: null,
+        mirrorVersion: null,
+        authoritative: false,
+      } satisfies ProviderLatestVersionResult;
+    }
+
+    const channel = maintenanceCapabilities.packageChannel;
+    // The mirror can lag the official registry, and an account can change lanes mid-session.
+    const cacheKey = `${channel ?? "official"}:${
+      source.kind === "homebrew"
+        ? `homebrew:${source.homebrewKind ?? "unknown"}:${source.name}`
+        : `npm:${source.name}`
+    }`;
+    const cached = latestVersionCache.get(cacheKey);
+    const now = DateTime.toEpochMillis(yield* DateTime.now);
+    if (!forceRefresh && cached && cached.expiresAt > now) {
+      return cached;
+    }
+
+    const fetchVersion = (lookupChannel: ProviderPackageChannel | undefined) =>
+      source.kind === "homebrew"
+        ? fetchHomebrewLatestVersion(source, lookupChannel)
+        : fetchNpmLatestVersion(source.name, lookupChannel);
+    // Installation still uses the selected channel. Release truth comes from the
+    // official metadata: a lagging mirror must never make an old CLI look current.
+    // Start both bounded requests together so fallback costs at most the slower
+    // timeout, and interruption aborts both HTTP requests with the owning refresh.
+    const { officialVersion, mirrorVersion } =
+      channel === "cn-mirror"
+        ? yield* Effect.all(
+            { officialVersion: fetchVersion("official"), mirrorVersion: fetchVersion("cn-mirror") },
+            { concurrency: "unbounded" },
+          )
+        : { officialVersion: yield* fetchVersion(channel), mirrorVersion: null };
+    const result = {
+      version: officialVersion ?? mirrorVersion,
+      mirrorVersion,
+      authoritative: officialVersion !== null,
+    } satisfies ProviderLatestVersionResult;
+    latestVersionCache.set(cacheKey, {
+      expiresAt:
+        now +
+        (result.authoritative ? LATEST_VERSION_CACHE_TTL_MS : LATEST_VERSION_FAILURE_CACHE_TTL_MS),
+      ...result,
+    });
+    return result;
+  },
+);
+
 export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVersion")(function* (
   maintenanceCapabilities: ProviderMaintenanceCapabilities,
 ) {
-  const source = maintenanceCapabilities.latestVersionSource;
-  if (!source) {
-    return null;
-  }
-
-  const channel = maintenanceCapabilities.packageChannel;
-  // The mirror can lag the official registry, and an account can change lanes mid-session.
-  const cacheKey = `${channel ?? "official"}:${
-    source.kind === "homebrew"
-      ? `homebrew:${source.homebrewKind ?? "unknown"}:${source.name}`
-      : `npm:${source.name}`
-  }`;
-  const cached = latestVersionCache.get(cacheKey);
-  const now = DateTime.toEpochMillis(yield* DateTime.now);
-  if (cached && cached.expiresAt > now) {
-    return cached.version;
-  }
-
-  const version =
-    source.kind === "homebrew"
-      ? yield* fetchHomebrewLatestVersion(source, channel)
-      : yield* fetchNpmLatestVersion(source.name, channel);
-  latestVersionCache.set(cacheKey, {
-    expiresAt:
-      now + (version === null ? LATEST_VERSION_FAILURE_CACHE_TTL_MS : LATEST_VERSION_CACHE_TTL_MS),
-    version,
-  });
-  return version;
+  return (yield* resolveLatestProviderVersionResult(maintenanceCapabilities)).version;
 });
+
+const PACKAGE_UPDATE_LOCK_KEYS = new Set(["npm-global", "bun-global", "pnpm-global"]);
+
+function withVerifiedProviderUpdateTarget(
+  capabilities: ProviderMaintenanceCapabilities,
+  currentVersion: string | null,
+  latest: ProviderLatestVersionResult,
+): ProviderMaintenanceCapabilities {
+  const update = capabilities.update;
+  if (!update) return capabilities;
+  const current = currentVersion ? parseSemver(currentVersion) : null;
+  const target = latest.version ? parseSemver(latest.version) : null;
+  if (PACKAGE_UPDATE_LOCK_KEYS.has(update.lockKey)) {
+    // Never let the install registry's mutable @latest tag choose an older release
+    // than the one shown to the user, or update without a verified installed floor.
+    const packageArgument = capabilities.packageName ? `${capabilities.packageName}@latest` : null;
+    if (
+      !current ||
+      !target ||
+      !latest.version ||
+      compareParsedCliVersions(target, current) < 0 ||
+      !packageArgument ||
+      !update.args.includes(packageArgument)
+    ) {
+      return { ...capabilities, update: null };
+    }
+    const args = update.args.map((argument) =>
+      argument === packageArgument ? `${capabilities.packageName}@${latest.version}` : argument,
+    );
+    return {
+      ...capabilities,
+      update: {
+        ...update,
+        args,
+        targetVersion: latest.version,
+        command: providerMaintenanceCommand(update.executable, args),
+      },
+    };
+  }
+  // Native updaters and brew own their command syntax. Do not invent a version
+  // flag: with conflicting mirror metadata there is no safe one-click action.
+  if (
+    capabilities.packageChannel === "cn-mirror" &&
+    capabilities.latestVersionSource !== null &&
+    (!current ||
+      !target ||
+      !latest.mirrorVersion ||
+      compareParsedCliVersions(target, current) < 0 ||
+      compareSemverVersions(latest.version!, latest.mirrorVersion) !== 0)
+  ) {
+    return { ...capabilities, update: null };
+  }
+  return capabilities;
+}
+
+export const PROVIDER_UPDATE_SETTINGS_CHANGED_MESSAGE =
+  "Provider settings changed while the update was being prepared. Try again.";
+export const PROVIDER_UPDATE_INSTALLATION_CHANGED_MESSAGE =
+  "This provider's installation changed while the update was being prepared. Try again.";
+export const PROVIDER_UPDATE_VERSION_UNCONFIRMED_MESSAGE =
+  "Moss could not confirm which version to install. Check your network and try again.";
+
+/**
+ * Why a queued one-click update cannot start after its final recheck, or null.
+ * Each cause gets its own message: none of them means updates are unsupported.
+ */
+export function providerUpdatePreparationFailure(input: {
+  readonly settingsChanged: boolean;
+  readonly expectedLockKey: string;
+  readonly verifiedUpdate: { readonly lockKey: string } | null;
+}): string | null {
+  if (input.settingsChanged) return PROVIDER_UPDATE_SETTINGS_CHANGED_MESSAGE;
+  if (!input.verifiedUpdate) return PROVIDER_UPDATE_VERSION_UNCONFIRMED_MESSAGE;
+  if (input.verifiedUpdate.lockKey !== input.expectedLockKey)
+    return PROVIDER_UPDATE_INSTALLATION_CHANGED_MESSAGE;
+  return null;
+}
+
+/** The execution boundary rechecks metadata; UI enrichment uses the same target selection. */
+export const prepareProviderMaintenanceUpdate = Effect.fn("prepareProviderMaintenanceUpdate")(
+  function* (capabilities: ProviderMaintenanceCapabilities, currentVersion: string | null) {
+    const latest = yield* resolveLatestProviderVersionResult(capabilities, true);
+    return withVerifiedProviderUpdateTarget(capabilities, currentVersion, latest);
+  },
+);
 
 export const enrichProviderStatusWithVersionAdvisory = Effect.fn(
   "enrichProviderStatusWithVersionAdvisory",
@@ -881,26 +1071,37 @@ export const enrichProviderStatusWithVersionAdvisory = Effect.fn(
   maintenanceCapabilities: ProviderMaintenanceCapabilities,
 ) {
   if (!status.available || !status.version) {
+    const verifiedCapabilities = withVerifiedProviderUpdateTarget(
+      maintenanceCapabilities,
+      status.version ?? null,
+      { version: null, mirrorVersion: null, authoritative: false },
+    );
     return {
       ...status,
       versionAdvisory: createProviderVersionAdvisory({
         provider: maintenanceCapabilities.provider,
         currentVersion: status.version ?? null,
         checkedAt: status.checkedAt,
-        maintenanceCapabilities,
+        maintenanceCapabilities: verifiedCapabilities,
       }),
     };
   }
 
-  const latestVersion = yield* resolveLatestProviderVersion(maintenanceCapabilities);
+  const latestVersion = yield* resolveLatestProviderVersionResult(maintenanceCapabilities);
+  const verifiedCapabilities = withVerifiedProviderUpdateTarget(
+    maintenanceCapabilities,
+    status.version,
+    latestVersion,
+  );
   return {
     ...status,
     versionAdvisory: createProviderVersionAdvisory({
       provider: maintenanceCapabilities.provider,
       currentVersion: status.version,
-      latestVersion,
+      latestVersion: latestVersion.version,
+      latestVersionIsAuthoritative: latestVersion.authoritative,
       checkedAt: DateTime.formatIso(yield* DateTime.now),
-      maintenanceCapabilities,
+      maintenanceCapabilities: verifiedCapabilities,
     }),
   };
 });

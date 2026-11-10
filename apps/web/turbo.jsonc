@@ -2,6 +2,12 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
+    "build": {
+      // VITE_* reaches this task through Turbo's framework inference. The source-map
+      // upload settings do not, and only this package should see the upload token.
+      "env": ["SENTRY_ORG", "SENTRY_PROJECT", "SENTRY_RELEASE"],
+      "passThroughEnv": ["SENTRY_AUTH_TOKEN"],
+    },
     "dev": {
       "persistent": true,
     },

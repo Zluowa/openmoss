@@ -6,6 +6,8 @@
 /** The MCP server name agents see for Moss Apps. */
 export const MOSS_APPS_SERVER_NAME = "moss_apps";
 export const MOSS_APPS_DISPLAY_NAME = "Moss Apps";
+/** Existing local return route, shared with the regional Apps gateway. */
+export const MOSS_APPS_CALLBACK_PATH = "/oauth/moss-apps/callback";
 
 const MOSS_APPS_TOOL_ACTIONS: Readonly<Record<string, string>> = {
   COMPOSIO_SEARCH_TOOLS: "Find app actions",

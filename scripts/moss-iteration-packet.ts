@@ -751,9 +751,9 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
     isCodexDesktopLayoutGate ||
     (title.includes("release gate") && (!isReportIndexTask || isReportArtifactPersistenceTask));
   const commands = [
-    "bun --filter @synara/scripts test -- moss-iteration-packet moss-loop-status",
+    "bun --filter @moss/scripts test -- moss-iteration-packet moss-loop-status",
     `bun run moss:iteration-packet -- --created-at ${createdAt}`,
-    "bun --filter @synara/scripts typecheck",
+    "bun --filter @moss/scripts typecheck",
     "bun run moss:status",
     "bun run fmt:check",
     "bun run typecheck",
@@ -764,34 +764,34 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
   if (isPrdCoverage) {
     commands.unshift(`bun run moss:prd-coverage -- --created-at ${createdAt}`);
     commands[1] =
-      "bun --filter @synara/scripts test -- moss-prd-coverage moss-iteration-packet moss-loop-status";
+      "bun --filter @moss/scripts test -- moss-prd-coverage moss-iteration-packet moss-loop-status";
   }
 
   if (isGuiParity) {
     commands.unshift(
-      "bun --filter @synara/scripts test -- moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
     );
     commands.unshift(`bun run moss:final-shell-parity -- --created-at ${createdAt}`);
     commands.unshift(`bun run moss:gui-parity -- --created-at ${createdAt}`);
-    commands.unshift("bun --filter @synara/web typecheck");
+    commands.unshift("bun --filter @moss/web typecheck");
     commands.unshift(
-      'bun --filter @synara/web test:browser -- ChatView.browser.tsx -t "Moss visible"',
+      'bun --filter @moss/web test:browser -- ChatView.browser.tsx -t "Moss visible"',
     );
-    commands.unshift("bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx");
-    commands.unshift("bun --filter @synara/web test -- MossControlPlanePanel");
+    commands.unshift("bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx");
+    commands.unshift("bun --filter @moss/web test -- MossControlPlanePanel");
   }
 
   if (isCodexDesktopComparator) {
     commands.unshift(`bun run moss:codex-desktop-comparator -- --created-at ${createdAt}`);
     commands.unshift(
-      "bun --filter @synara/scripts test -- moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
     );
   }
 
   if (isCodexDesktopLayoutGate) {
     commands.unshift(`bun run moss:codex-desktop-layout-gate -- --created-at ${createdAt}`);
     commands[1] =
-      "bun --filter @synara/scripts test -- moss-codex-desktop-layout-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status";
+      "bun --filter @moss/scripts test -- moss-codex-desktop-layout-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status";
   }
 
   if (isMossShellProductization) {
@@ -805,11 +805,11 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
       `node scripts/moss-promoted-shell-served-smoke.ts --created-at ${createdAt} --report .moss/ledger/evidence/moss-promoted-shell-product-route-smoke-${artifactDate}.json --screenshot .moss/ledger/evidence/moss-promoted-shell-product-route-smoke-${artifactDate}.png`,
     );
     commands.unshift(
-      'bun --filter @synara/web test:browser -- ChatView.browser.tsx -t "Moss product shell"',
+      'bun --filter @moss/web test:browser -- ChatView.browser.tsx -t "Moss product shell"',
     );
-    commands.unshift("bun --filter @synara/web test -- diffRouteSearch mossShellProductization");
+    commands.unshift("bun --filter @moss/web test -- diffRouteSearch mossShellProductization");
     commands.unshift(
-      "bun --filter @synara/scripts test -- moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
     );
   }
 
@@ -825,13 +825,13 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
     );
     commands.unshift(`bun run moss:electron-product-shell-smoke-gate -- --created-at ${createdAt}`);
     commands.unshift(
-      'bun --filter @synara/web test:browser -- ChatView.browser.tsx -t "Moss product shell"',
+      'bun --filter @moss/web test:browser -- ChatView.browser.tsx -t "Moss product shell"',
     );
-    commands.unshift("bun --filter @synara/web test -- diffRouteSearch mossShellProductization");
+    commands.unshift("bun --filter @moss/web test -- diffRouteSearch mossShellProductization");
     commands.unshift("bun run test:desktop-smoke");
-    commands.unshift("bun --filter @synara/desktop typecheck");
+    commands.unshift("bun --filter @moss/desktop typecheck");
     commands.unshift(
-      "bun --filter @synara/scripts test -- moss-electron-product-shell-smoke-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-electron-product-shell-smoke-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status",
     );
   }
 
@@ -847,7 +847,7 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
       `bun run moss:release-gate-refresh-artifact -- --created-at ${createdAt}`,
       `bun run moss:release-gate-report-index -- --created-at ${createdAt}`,
       `bun run moss:release-gate -- --created-at ${createdAt}`,
-      "bun --filter @synara/scripts test -- moss-release-gate moss-release-gate-report-index moss-loop-packet-freshness-report-index moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-release-gate-report-index moss-loop-packet-freshness-report-index moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       ...commands,
     ];
   }
@@ -865,7 +865,7 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
       `bun run moss:release-gate-refresh-artifact -- --created-at ${createdAt}`,
       `bun run moss:release-gate-report-index -- --created-at ${createdAt}`,
       `bun run moss:release-gate -- --created-at ${createdAt}`,
-      "bun --filter @synara/scripts test -- moss-release-gate-report-index moss-release-gate moss-loop-packet-freshness-report-index moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate-report-index moss-release-gate moss-loop-packet-freshness-report-index moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       ...commands,
     ];
   }
@@ -874,7 +874,7 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
     const artifactDate = createdAt.slice(0, 10);
     return [
       `bun run moss:iteration-packet -- --created-at ${createdAt}`,
-      "bun --filter @synara/scripts test -- moss-release-gate-report-index moss-release-gate moss-loop-packet moss-loop-packet-freshness-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate-report-index moss-release-gate moss-loop-packet moss-loop-packet-freshness-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       `bun run moss:loop-packet-freshness-refresh-artifact -- --created-at ${createdAt}`,
       `bun run moss:loop-packet-freshness-report-index -- --created-at ${createdAt}`,
       `bun run moss:release-freshness-refresh-plan -- --report --output .moss/ledger/evidence/moss-release-freshness-refresh-plan-report-${artifactDate}-gate.json --created-at ${createdAt}`,
@@ -893,7 +893,7 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
     return [
       `bun run moss:loop-packet-refresh-plan-report-index -- --created-at ${createdAt}`,
       `bun run moss:release-gate -- --report --created-at ${createdAt}`,
-      "bun --filter @synara/scripts test -- moss-release-gate moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       `bun run moss:loop-packet-freshness-refresh-artifact -- --created-at ${createdAt}`,
       `bun run moss:loop-packet-freshness-report-index -- --created-at ${createdAt}`,
       `bun run moss:release-freshness-refresh-plan -- --report --output .moss/ledger/evidence/moss-release-freshness-refresh-plan-report-${artifactDate}-gate.json --created-at ${createdAt}`,
@@ -912,7 +912,7 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
     return [
       `bun run moss:release-freshness-refresh-plan-report-index -- --created-at ${createdAt}`,
       `bun run moss:release-gate -- --report --created-at ${createdAt}`,
-      "bun --filter @synara/scripts test -- moss-release-gate moss-release-freshness-refresh-plan-report-index moss-loop-packet-freshness-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-gate moss-release-freshness-refresh-plan-report-index moss-loop-packet-freshness-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       `bun run moss:loop-packet-freshness-refresh-artifact -- --created-at ${createdAt}`,
       `bun run moss:loop-packet-freshness-report-index -- --created-at ${createdAt}`,
       `bun run moss:release-freshness-refresh-plan -- --report --output .moss/ledger/evidence/moss-release-freshness-refresh-plan-report-${artifactDate}-gate.json --created-at ${createdAt}`,
@@ -937,7 +937,7 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
       `bun run moss:release-freshness-refresh-plan-report-index -- --created-at ${createdAt}`,
       `bun run moss:loop-packet -- --refresh-plan-report --output .moss/ledger/evidence/moss-loop-packet-refresh-plan-gate-report-${artifactDate}.json --created-at ${createdAt}`,
       `bun run moss:loop-packet-refresh-plan-report-index -- --created-at ${createdAt}`,
-      "bun --filter @synara/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
+      "bun --filter @moss/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-loop-packet-refresh-plan-report-index moss-iteration-packet moss-loop-status",
       `bun run moss:release-gate -- --created-at ${createdAt}`,
       ...commands,
     ];
@@ -953,17 +953,17 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
       `bun run moss:release-freshness-refresh-plan-report-index -- --created-at ${createdAt}`,
     );
     commands[2] =
-      "bun --filter @synara/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-iteration-packet moss-loop-status";
+      "bun --filter @moss/scripts test -- moss-release-freshness-refresh-plan moss-release-freshness-refresh-plan-report-index moss-iteration-packet moss-loop-status";
   }
   if (title.includes("review packet")) {
     commands.unshift(`bun run moss:review-packet -- --created-at ${createdAt}`);
     commands[1] =
-      "bun --filter @synara/scripts test -- moss-review-packet moss-iteration-packet moss-loop-status";
+      "bun --filter @moss/scripts test -- moss-review-packet moss-iteration-packet moss-loop-status";
   }
   if (title.includes("memory packet")) {
     commands.unshift(`bun run moss:memory-packet -- --created-at ${createdAt}`);
     commands[1] =
-      "bun --filter @synara/scripts test -- moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status";
+      "bun --filter @moss/scripts test -- moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status";
   }
   if (
     title.includes("loop packet") ||
@@ -988,14 +988,14 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
             : `bun run moss:loop-packet -- --created-at ${createdAt}`,
     );
     commands[1] = isLoopPacketFreshnessReportArtifactRefresh
-      ? "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-release-gate moss-iteration-packet moss-loop-status"
+      ? "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-release-gate moss-iteration-packet moss-loop-status"
       : isLoopPacketFreshnessReport
-        ? "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status"
+        ? "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status"
         : isLoopPacketRefreshPlanDashboardGateReport
-          ? "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-packet-refresh-plan-report-index moss-release-freshness-refresh-plan-report-index moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status"
+          ? "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-packet-refresh-plan-report-index moss-release-freshness-refresh-plan-report-index moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status"
           : isLoopPacketRefreshPlanDashboardGate
-            ? "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-ledger-snapshot moss-release-freshness-refresh-plan-report-index moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status"
-            : "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status";
+            ? "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-ledger-snapshot moss-release-freshness-refresh-plan-report-index moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status"
+            : "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status";
     if (isLoopPacketFreshnessReportArtifactRefresh) {
       commands.splice(
         1,
@@ -1030,7 +1030,7 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
   if (title.includes("ui smoke")) {
     commands.unshift("bun run moss:ui-smoke");
     commands[1] =
-      "bun --filter @synara/scripts test -- moss-ui-smoke moss-iteration-packet moss-loop-status";
+      "bun --filter @moss/scripts test -- moss-ui-smoke moss-iteration-packet moss-loop-status";
   }
   if (
     isReportIndexTask ||
@@ -1040,7 +1040,7 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
   ) {
     commands.unshift(`bun run moss:release-gate-report-index -- --created-at ${createdAt}`);
     commands[1] =
-      "bun --filter @synara/scripts test -- moss-release-gate-report-index moss-iteration-packet moss-loop-status";
+      "bun --filter @moss/scripts test -- moss-release-gate-report-index moss-iteration-packet moss-loop-status";
   }
   if (isReportArtifactRefreshTask) {
     commands.unshift(`bun run moss:loop-packet -- --created-at ${createdAt}`);
@@ -1059,7 +1059,7 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
     if (isReportArtifactRefreshTask) {
       commands.splice(3, 0, `bun run moss:release-gate -- --created-at ${createdAt}`);
       commands[4] =
-        "bun --filter @synara/scripts test -- moss-release-gate moss-release-gate-report-index moss-loop-packet moss-loop-ledger-snapshot moss-iteration-packet moss-loop-status";
+        "bun --filter @moss/scripts test -- moss-release-gate moss-release-gate-report-index moss-loop-packet moss-loop-ledger-snapshot moss-iteration-packet moss-loop-status";
     } else if (isLoopPacketFreshnessReportArtifactRefresh) {
       commands.splice(2, 0, `bun run moss:release-gate -- --report --created-at ${createdAt}`);
     } else {
@@ -1069,16 +1069,16 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
     }
     if (isLoopPacketFreshnessReportIndexReleaseReadiness) {
       commands[3] =
-        "bun --filter @synara/scripts test -- moss-release-gate moss-loop-packet-freshness-report-index moss-iteration-packet moss-loop-status";
+        "bun --filter @moss/scripts test -- moss-release-gate moss-loop-packet-freshness-report-index moss-iteration-packet moss-loop-status";
     } else if (isLoopPacketFreshnessReportArtifactRefresh) {
       commands[3] =
-        "bun --filter @synara/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-release-gate moss-iteration-packet moss-loop-status";
+        "bun --filter @moss/scripts test -- moss-loop-packet moss-loop-packet-freshness-report-index moss-release-gate moss-iteration-packet moss-loop-status";
     } else if (isDashboardFreshnessReleaseReadinessTask(title)) {
       commands[2] =
-        "bun --filter @synara/scripts test -- moss-release-gate moss-loop-packet moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status";
+        "bun --filter @moss/scripts test -- moss-release-gate moss-loop-packet moss-loop-ledger-snapshot moss-memory-packet moss-review-packet moss-iteration-packet moss-loop-status";
     } else if (isCodexDesktopLayoutGate) {
       commands[2] =
-        "bun --filter @synara/scripts test -- moss-codex-desktop-layout-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status";
+        "bun --filter @moss/scripts test -- moss-codex-desktop-layout-gate moss-release-gate moss-release-gate-report-index moss-loop-ledger-snapshot moss-codex-desktop-comparator moss-final-shell-parity moss-gui-parity moss-prd-coverage moss-iteration-packet moss-loop-status";
     } else if (isReportArtifactRefreshTask) {
       // Refresh tasks already pin the full command sequence above.
     } else {
@@ -1086,19 +1086,19 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
         isReportIndexTask || isReportFreshnessEvidenceTask || isReportFreshnessArtifactTask ? 2 : 1
       ] =
         isReportIndexTask || isReportFreshnessEvidenceTask || isReportFreshnessArtifactTask
-          ? "bun --filter @synara/scripts test -- moss-release-gate moss-release-gate-report-index moss-iteration-packet moss-loop-status"
-          : "bun --filter @synara/scripts test -- moss-release-gate moss-iteration-packet moss-loop-status";
+          ? "bun --filter @moss/scripts test -- moss-release-gate moss-release-gate-report-index moss-iteration-packet moss-loop-status"
+          : "bun --filter @moss/scripts test -- moss-release-gate moss-iteration-packet moss-loop-status";
     }
   }
   if (title.includes("loop ledger dashboard") || title.includes("dashboard snapshot")) {
     commands[0] =
-      "bun --filter @synara/scripts test -- moss-loop-ledger-snapshot moss-release-freshness-refresh-plan-report-index moss-iteration-packet moss-loop-status";
+      "bun --filter @moss/scripts test -- moss-loop-ledger-snapshot moss-release-freshness-refresh-plan-report-index moss-iteration-packet moss-loop-status";
     commands.unshift(`bun run moss:loop-ledger-snapshot -- --created-at ${createdAt}`);
     commands.unshift("bun --filter t3 test -- ProviderService");
-    commands.unshift("bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx");
-    commands.unshift("bun --filter @synara/contracts test -- mossLoopLedgerDashboard rpc ws");
+    commands.unshift("bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx");
+    commands.unshift("bun --filter @moss/contracts test -- mossLoopLedgerDashboard rpc ws");
     commands.unshift(
-      "bun --filter @synara/web test -- mossLoopLedgerDashboard MossControlPlanePanel",
+      "bun --filter @moss/web test -- mossLoopLedgerDashboard MossControlPlanePanel",
     );
   }
   if (
@@ -1106,9 +1106,9 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
     title.includes("moss control panel") ||
     title.includes("codex-like")
   ) {
-    commands.unshift("bun --filter @synara/web typecheck");
-    commands.unshift("bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx");
-    commands.unshift("bun --filter @synara/web test -- MossControlPlanePanel");
+    commands.unshift("bun --filter @moss/web typecheck");
+    commands.unshift("bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx");
+    commands.unshift("bun --filter @moss/web test -- MossControlPlanePanel");
   }
   if (
     title.includes("normalized timeline") ||
@@ -1116,9 +1116,9 @@ function verificationCommands(createdAt: string, task: MossLoopTask): ReadonlyAr
     title.includes("permission request") ||
     title.includes("tool lifecycle")
   ) {
-    commands.unshift("bun --filter @synara/web typecheck");
-    commands.unshift("bun --filter @synara/web test:browser -- MossControlPlanePanel.browser.tsx");
-    commands.unshift("bun --filter @synara/web test -- mossNormalizedTimeline");
+    commands.unshift("bun --filter @moss/web typecheck");
+    commands.unshift("bun --filter @moss/web test:browser -- MossControlPlanePanel.browser.tsx");
+    commands.unshift("bun --filter @moss/web test -- mossNormalizedTimeline");
   }
 
   return unique(commands);

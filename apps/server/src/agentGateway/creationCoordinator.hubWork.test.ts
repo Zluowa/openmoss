@@ -10,7 +10,7 @@ import {
   type OrchestrationThreadShell,
   type RuntimeMode,
   type MossCreateThreadsInput,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, Option } from "effect";
 
 import type { ServerConfigShape } from "../config.ts";

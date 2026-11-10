@@ -5,6 +5,7 @@
 // Layer: UI component
 // Exports: SettingsSidebarNav
 
+import { useTranslation } from "../localization";
 import { type KeyboardEvent as ReactKeyboardEvent, useState } from "react";
 
 import { CentralIcon } from "~/lib/central-icons";
@@ -13,6 +14,7 @@ import { Badge } from "./ui/badge";
 import { SearchInput } from "./ui/search-input";
 import { SidebarLeadingIcon } from "./SidebarLeadingIcon";
 import {
+  normalizeSettingsSection,
   SETTINGS_NAV_GROUPS,
   SETTINGS_NAV_ITEMS,
   type SettingsSectionId,
@@ -20,7 +22,7 @@ import {
 import {
   rankSettingsSearchEntries,
   settingsSearchEntryTarget,
-  settingsSectionLabel,
+  settingsSearchEntryTitle,
   type SettingsSearchContext,
   type SettingsSearchEntry,
 } from "../settingsSearchIndex";
@@ -52,7 +54,9 @@ function SettingsSearchResultRow(props: {
   onSelect: (entry: SettingsSearchEntry) => void;
 }) {
   const { entry, onSelect } = props;
-  const icon = SETTINGS_SECTION_ICON_BY_ID.get(entry.section) ?? "settings-gear-4";
+  const { t } = useTranslation();
+  const section = normalizeSettingsSection(entry.section);
+  const icon = SETTINGS_SECTION_ICON_BY_ID.get(section) ?? "settings-gear-4";
   // Mirrors the project header + nested thread layout: the section reuses the nav row
   // (muted icon + label) and the matched setting sits below as an indented thread-style row.
   return (
@@ -66,7 +70,7 @@ function SettingsSearchResultRow(props: {
           <CentralIcon name={icon} className={SETTINGS_SIDEBAR_ICON_CLASS_NAME} />
         </SidebarLeadingIcon>
         <span className={SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME}>
-          {settingsSectionLabel(entry.section)}
+          {t(`settings.nav.${section}.label`)}
         </span>
       </button>
       <button
@@ -79,7 +83,7 @@ function SettingsSearchResultRow(props: {
         )}
         onClick={() => onSelect(entry)}
       >
-        <span className="min-w-0 truncate">{entry.title}</span>
+        <span className="min-w-0 truncate">{settingsSearchEntryTitle(entry, t)}</span>
       </button>
     </li>
   );
@@ -97,6 +101,7 @@ export function SettingsSidebarNav(props: {
   searchContext?: SettingsSearchContext | undefined;
 }) {
   const { onSelectSection } = props;
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const trimmedQuery = query.trim();
   const isSearching = trimmedQuery.length > 0;
@@ -104,6 +109,7 @@ export function SettingsSidebarNav(props: {
     trimmedQuery,
     SETTINGS_SEARCH_RESULTS_LIMIT,
     props.searchContext,
+    t,
   );
 
   const handleSelectResult = (entry: SettingsSearchEntry) => {
@@ -136,8 +142,8 @@ export function SettingsSidebarNav(props: {
           spellCheck={false}
           autoCorrect="off"
           autoCapitalize="off"
-          placeholder="Search settings..."
-          aria-label="Search settings"
+          placeholder={t("settings.sidebar.searchPlaceholder")}
+          aria-label={t("settings.sidebar.searchAria")}
           onChange={(event) => setQuery(event.target.value)}
           onKeyDown={handleSearchKeyDown}
         />

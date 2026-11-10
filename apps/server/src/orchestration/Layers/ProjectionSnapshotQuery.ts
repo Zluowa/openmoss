@@ -55,7 +55,7 @@ import {
   ThreadHandoff,
   ModelSelection,
   type ServerSettings,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -69,7 +69,8 @@ import {
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import { normalizePersistedModelSelection } from "../../persistence/modelSelectionCompatibility.ts";
-import { deriveThreadSummaryMetadata } from "@synara/shared/threadSummary";
+import { deriveThreadSummaryMetadata } from "@moss/shared/threadSummary";
+import { HTML_RENDER_ACTIVITY_KIND } from "@moss/shared/htmlRenderActivity";
 import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionSpace } from "../../persistence/Services/ProjectionSpaces.ts";
@@ -210,6 +211,7 @@ const ProjectionGeneratedImageActivityDbRowSchema = Schema.Struct({
   kind: Schema.String,
   payload: Schema.fromJsonString(Schema.Unknown),
 });
+const ProjectionFoundRowSchema = Schema.Struct({ found: Schema.Number });
 const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   threadId: ProjectionThread.fields.threadId,
   turnId: TurnId,
@@ -272,6 +274,10 @@ const StaleInFlightThreadLookupInput = Schema.Struct({
 const ThreadTurnLookupInput = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,
+});
+const HtmlRenderSurfaceLookupInput = Schema.Struct({
+  threadId: ThreadId,
+  surface: Schema.String,
 });
 const ThreadMessagesByThreadLookupInput = Schema.Struct({
   threadId: ThreadId,
@@ -1357,6 +1363,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           mentions_json AS "mentions",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          dispatch_source_thread_id AS "dispatchSourceThreadId",
           starts_new_turn AS "startsNewTurn",
           async_user_input_json AS "asyncUserInput",
           is_streaming AS "isStreaming",
@@ -1865,6 +1872,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const getOriginalThreadIdByProject = SqlSchema.findOneOption({
+    Request: ProjectIdLookupInput,
+    Result: ProjectionThreadIdLookupRowSchema,
+    execute: ({ projectId }) => sql`
+      SELECT stream_id AS "threadId"
+      FROM orchestration_events
+      WHERE aggregate_kind = 'thread' AND event_type = 'thread.created'
+        AND sequence > (SELECT sequence FROM orchestration_events
+          WHERE aggregate_kind = 'project' AND stream_id = ${projectId} AND event_type = 'project.created'
+          ORDER BY sequence LIMIT 1)
+        AND json_extract(payload_json, '$.projectId') = ${projectId}
+      ORDER BY sequence LIMIT 1
+    `,
+  });
+
   const getProjectRowById = SqlSchema.findOneOption({
     Request: ProjectIdLookupInput,
     Result: ProjectionProjectLookupRowSchema,
@@ -2113,6 +2135,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           mentions_json AS "mentions",
           dispatch_mode AS "dispatchMode",
           dispatch_origin AS "dispatchOrigin",
+          dispatch_source_thread_id AS "dispatchSourceThreadId",
           starts_new_turn AS "startsNewTurn",
           async_user_input_json AS "asyncUserInput",
           is_streaming AS "isStreaming",
@@ -2882,6 +2905,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         GROUP BY kind, payload_json
         ORDER BY MIN(created_at) ASC, MIN(activity_id) ASC
         LIMIT ${MAX_TURN_GENERATED_IMAGE_ACTIVITY_RECORDS}
+      `,
+  });
+
+  // The (kind, thread_id, ...) activity index narrows this to the thread's published pages.
+  const findHtmlRenderSurfaceRow = SqlSchema.findOneOption({
+    Request: HtmlRenderSurfaceLookupInput,
+    Result: ProjectionFoundRowSchema,
+    execute: ({ threadId, surface }) =>
+      sql`
+        SELECT 1 AS "found"
+        FROM projection_thread_activities
+        WHERE kind = ${HTML_RENDER_ACTIVITY_KIND}
+          AND thread_id = ${threadId}
+          AND json_extract(payload_json, '$.htmlRender.surface') = ${surface}
+        LIMIT 1
       `,
   });
 
@@ -3732,6 +3770,20 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       );
 
+  const hasHtmlRenderSurface: ProjectionSnapshotQueryShape["hasHtmlRenderSurface"] = (
+    threadId,
+    surface,
+  ) =>
+    findHtmlRenderSurfaceRow({ threadId, surface }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.hasHtmlRenderSurface:query",
+          "ProjectionSnapshotQuery.hasHtmlRenderSurface:decodeRow",
+        ),
+      ),
+      Effect.map((row) => Option.isSome(row)),
+    );
+
   const getFullThreadDiffContext: ProjectionSnapshotQueryShape["getFullThreadDiffContext"] = (
     threadId,
     toTurnCount,
@@ -4488,9 +4540,20 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getProjectShellsByIds,
     getSpaceShellById,
     getFirstActiveThreadIdByProjectId,
+    getOriginalThreadIdByProjectId: (projectId) =>
+      getOriginalThreadIdByProject({ projectId }).pipe(
+        Effect.mapError(
+          toPersistenceSqlOrDecodeError(
+            "ProjectionSnapshotQuery.getOriginalThreadIdByProjectId:query",
+            "ProjectionSnapshotQuery.getOriginalThreadIdByProjectId:decodeRow",
+          ),
+        ),
+        Effect.map(Option.map((row) => row.threadId)),
+      ),
     getThreadCheckpointContext,
     getThreadTurnDiffContext,
     listGeneratedImageActivitiesByTurn,
+    hasHtmlRenderSurface,
     getFullThreadDiffContext,
     getThreadShellById,
     getThreadShellsByIds,

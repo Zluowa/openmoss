@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SidebarSectionId, ThreadId } from "@synara/contracts";
+import { SidebarSectionId, ThreadId } from "@moss/contracts";
 
 import {
   clearPendingSidebarPlacement,

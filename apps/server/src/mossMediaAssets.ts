@@ -5,7 +5,7 @@ import {
   outboundHttp,
   type OutboundHttpRequest,
   type OutboundHttpResponse,
-} from "@synara/shared/outboundHttp";
+} from "@moss/shared/outboundHttp";
 import { readRegularFileNoFollow } from "./workspaceImport/safeFile";
 
 const IMAGE_LIMIT = 32 * 1024 * 1024;
@@ -166,6 +166,7 @@ export class MossMediaAssetStore {
         const response = await this.download({
           url,
           method: "GET",
+          headers: { "user-agent": "MossDesktop/1", accept: `${kind}/*` },
           policy: {
             service: "moss-media-output",
             allowedOrigins: [url.origin],

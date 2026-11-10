@@ -108,6 +108,8 @@ vi.mock("~/localization", () => {
     "settings.history.loadingHistory": "Loading history…",
     "settings.history.loading": "Loading…",
     "settings.history.unavailable": "Computer History is unavailable on this platform.",
+    "settings.history.windowsMetadata":
+      "Windows records application names only. Browser activity and window titles are excluded.",
     "settings.history.state.off": "Off",
     "settings.history.state.on": "On",
     "settings.history.state.paused": "Paused",
@@ -454,6 +456,31 @@ describe("ComputerHistorySettingsPanel", () => {
   afterEach(() => {
     // vitest-browser-react owns React cleanup; clearing body manually breaks
     // portalled Menu/Dialog teardown in the next case.
+  });
+
+  it("offers Windows consent and explains metadata-only capture without a load error", async () => {
+    configureApi(
+      makeState({
+        captureCapability: {
+          mode: "window_metadata_only",
+          interactionEvents: false,
+          activitySummaries: false,
+          detail: "Windows records foreground application names only.",
+        },
+      }),
+    );
+    const screen = await render(<ComputerHistorySettingsPanel />);
+    await expect
+      .element(
+        page.getByText(
+          "Windows records application names only. Browser activity and window titles are excluded.",
+        ),
+      )
+      .toBeVisible();
+    await page.getByRole("button", { name: "Turn on" }).click();
+    await expect.element(page.getByRole("dialog", { name: "You're in control." })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await screen.unmount();
   });
 
   it("covers loading, off, and unsupported gates without diagnostic extras", async () => {

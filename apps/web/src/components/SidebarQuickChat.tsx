@@ -2,7 +2,7 @@
 // Purpose: Codex-parity sidebar Quick Chat trigger, recent-chat preview, and retained floating chat.
 // Layer: Sidebar UI / compact conversation presentation
 
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 import {
   useCallback,
   useEffect,

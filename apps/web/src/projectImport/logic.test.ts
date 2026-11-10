@@ -1,9 +1,19 @@
-import { ProjectId, type ProjectImportProject } from "@synara/contracts";
+import { ProjectId, type ProjectImportProject } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildProjectImportQueue,
+  defaultProjectImportKeys,
+  describeImportFailure,
+  filterProjectImportsByProvider,
+  IMPORT_PROVIDER_LABELS,
+  IMPORT_PROVIDERS,
   projectImportItemKey,
+  projectImportProviderCounts,
+  projectImportProvidersNotFound,
+  projectImportQuietNote,
+  projectImportUnreadableNotes,
   selectableProjectImportKeys,
+  shortenImportPath,
 } from "./logic";
 
 const project: ProjectImportProject = {
@@ -97,5 +107,184 @@ describe("project import selection", () => {
     expect(projectImportItemKey(project.key, "codex:one")).not.toBe(
       projectImportItemKey(project.key, "claude:one"),
     );
+  });
+});
+
+describe("import failures and defaults", () => {
+  it("keeps a retry only for failures that trying again can fix, in plain words", () => {
+    expect(
+      describeImportFailure({
+        _tag: "WsRpcError",
+        message: "The conversation file is no longer on this computer.",
+        code: "PROJECT_IMPORT_FAILED",
+        retryable: false,
+      }),
+    ).toEqual({ reason: "The conversation file is no longer on this computer.", transient: false });
+    expect(
+      describeImportFailure({
+        _tag: "WsRpcError",
+        message: "The disk was busy. Moss can try again.",
+        code: "PROJECT_IMPORT_FAILED",
+        retryable: true,
+      }).transient,
+    ).toBe(true);
+    // Anything else the server rejected is permanent, and its raw text is never shown.
+    expect(
+      describeImportFailure({
+        _tag: "WsRpcError",
+        message: "Thread 'x' already exists for command 'thread.create'.",
+        code: "ORCHESTRATION_COMMAND_REJECTED",
+        retryable: false,
+      }),
+    ).toEqual({ reason: "Moss couldn't add this conversation.", transient: false });
+    // No answer from the server at all: a dropped or busy connection is worth retrying.
+    expect(describeImportFailure(new Error("socket closed"))).toEqual({
+      reason: "Moss was busy for a moment. It can try again.",
+      transient: true,
+    });
+  });
+
+  it("leaves projects in temp folders unticked at first", () => {
+    const temporary = { ...project, key: "folder:/tmp/check", temporary: true };
+    expect(defaultProjectImportKeys([project, temporary], false)).toEqual(
+      selectableProjectImportKeys(project, false),
+    );
+  });
+});
+
+describe("agents found on this computer", () => {
+  const grokThread = {
+    ...project.threads[0]!,
+    key: "grok:four",
+    provider: "grok" as const,
+    title: "Four",
+  };
+  const grokOnly: ProjectImportProject = {
+    ...project,
+    key: "folder:/code/other",
+    title: "Other",
+    providers: ["grok"],
+    threads: [grokThread],
+  };
+  const emptyFolder: ProjectImportProject = {
+    ...project,
+    key: "folder:/code/empty",
+    providers: ["grok"],
+    threads: [],
+  };
+  const emptyCodexFolder: ProjectImportProject = {
+    ...project,
+    key: "folder:/code/empty-codex",
+    providers: ["codex"],
+    threads: [],
+  };
+
+  it("scans every agent and names each one", () => {
+    expect(IMPORT_PROVIDERS).toEqual([
+      "codex",
+      "claudeAgent",
+      "cursor",
+      "gemini",
+      "antigravity",
+      "grok",
+      "opencode",
+      "pi",
+      "hermes",
+      "devin",
+      "omp",
+      "zcode",
+    ]);
+    for (const provider of IMPORT_PROVIDERS) expect(IMPORT_PROVIDER_LABELS[provider]).toBeTruthy();
+  });
+
+  it("counts conversations per agent and lists the agents that had nothing", () => {
+    const projects = [project, grokOnly];
+    expect(projectImportProviderCounts(projects)).toEqual([
+      { provider: "codex", count: 2 },
+      { provider: "claudeAgent", count: 1 },
+      { provider: "grok", count: 1 },
+    ]);
+    expect(
+      projectImportProvidersNotFound(
+        {
+          projects,
+          sources: [{ provider: "pi", error: "unreadable" }],
+          unreadable: [{ provider: "antigravity", conversationCount: 4, reason: "encrypted" }],
+        },
+        IMPORT_PROVIDERS,
+      ),
+    ).toEqual(["cursor", "gemini", "opencode", "hermes", "devin", "omp", "zcode"]);
+  });
+
+  it("explains conversations that were found but can't be copied", () => {
+    expect(
+      projectImportUnreadableNotes({
+        projects: [],
+        sources: [],
+        unreadable: [
+          { provider: "antigravity", conversationCount: 1, reason: "encrypted" },
+          { provider: "kimi", conversationCount: 3, reason: "unsupported-format" },
+        ],
+      }),
+    ).toEqual([
+      "Found 1 Antigravity conversation that can't be copied: Antigravity keeps them encrypted.",
+      "Found 3 Kimi Code conversations that can't be copied yet: Moss can't read this Kimi Code format.",
+    ]);
+  });
+
+  it("folds what won't be imported into one quiet line", () => {
+    expect(projectImportQuietNote([], [])).toBeNull();
+    expect(projectImportQuietNote(["cursor", "gemini"], [])).toBe("Not found: Cursor, Gemini.");
+    expect(
+      projectImportQuietNote(
+        ["cursor"],
+        [
+          { provider: "antigravity", conversationCount: 2, reason: "encrypted" },
+          { provider: "kimi", conversationCount: 1, reason: "unsupported-format" },
+        ],
+      ),
+    ).toBe("Not found: Cursor · 3 can't be copied (Antigravity, Kimi Code).");
+    expect(
+      projectImportQuietNote(
+        [],
+        [{ provider: "antigravity", conversationCount: 2, reason: "encrypted" }],
+      ),
+    ).toBe("2 can't be copied (Antigravity).");
+  });
+
+  it("shortens folder paths for the project list", () => {
+    expect(shortenImportPath("C:\\Users\\me\\code\\moss", "C:\\Users\\me")).toBe("~\\code\\moss");
+    expect(shortenImportPath("/home/me/code/moss", "/home/me/")).toBe("~/code/moss");
+    // A sibling folder that only starts with the same letters is not home.
+    expect(shortenImportPath("/home/mesa/app", "/home/me")).toBe("/home/mesa/app");
+    expect(
+      shortenImportPath("/home/me/work/clients/acme-corp/services/billing-api", "/home/me"),
+    ).toBe("~/…/services/billing-api");
+    expect(
+      shortenImportPath("D:\\agent-ctx\\deriver\\codex-home\\projects\\very-long-name", null),
+    ).toBe("D:\\…\\projects\\very-long-name");
+  });
+
+  it("leaves out unticked agents' conversations and their empty project folders", () => {
+    const filtered = filterProjectImportsByProvider(
+      [project, grokOnly, emptyFolder, emptyCodexFolder],
+      ["grok"],
+    );
+    expect(filtered.map((entry) => [entry.key, entry.threads.map((thread) => thread.key)])).toEqual(
+      [
+        [grokOnly.key, ["grok:four"]],
+        [emptyFolder.key, []],
+      ],
+    );
+    const queue = buildProjectImportQueue({
+      projects: filterProjectImportsByProvider([project, grokOnly], ["codex"]),
+      selected: new Set([
+        projectImportItemKey(project.key, "codex:one"),
+        projectImportItemKey(grokOnly.key, "grok:four"),
+      ]),
+      includeArchived: false,
+      workspaceRoots: {},
+    });
+    expect(queue.map((item) => item.input.threadKey)).toEqual(["codex:one"]);
   });
 });

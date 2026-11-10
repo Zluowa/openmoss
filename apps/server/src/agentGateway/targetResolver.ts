@@ -16,13 +16,13 @@ import {
   type ProviderModelDescriptor,
   type ServerProviderAuthStatus,
   type MossProviderInstanceCatalog,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   getClaudeContextWindowSuffix,
   getDefaultModel,
   stripClaudeContextWindowSuffix,
-} from "@synara/shared/model";
-import { defaultInstanceIdForProvider } from "@synara/shared/providerInstances";
+} from "@moss/shared/model";
+import { defaultInstanceIdForProvider } from "@moss/shared/providerInstances";
 import { Effect, Option } from "effect";
 
 import type { ProviderDiscoveryServiceShape } from "../provider/Services/ProviderDiscoveryService.ts";

@@ -569,6 +569,24 @@ describe("deriveMossMcpToolTitle", () => {
     expect(localizeToolHeading("Open browser tab", "en")).toBe("Open browser tab");
   });
 
+  it("names Moss pages, Canvas and media actions, in Chinese for the zh-CN UI", () => {
+    const zh = (toolName: string, status: "running" | "completed" | "failed" | "cancelled") =>
+      localizeToolHeading(deriveMossMcpToolTitle({ toolName, status })!, "zh-CN");
+    expect(deriveMossMcpToolTitle({ toolName: "moss_pages_mutate" })).toBe("Moss updated a page");
+    expect(zh("moss_pages_mutate", "completed")).toBe("已更新页面");
+    expect(zh("moss_pages_spaces", "completed")).toBe("已列出资料空间");
+    expect(zh("moss_canvas_open", "running")).toBe("正在打开画布");
+    expect(zh("moss_canvas_open", "completed")).toBe("已打开画布");
+    expect(zh("moss_canvas_read", "failed")).toBe("无法查看画布");
+    expect(zh("moss_media_generate", "completed")).toBe("已提交生成");
+    expect(zh("moss_media_get", "cancelled")).toBe("已停止查询生成进度");
+    expect(zh("moss_context", "completed")).toBe("已检查上下文");
+    expect(zh("mcp__moss__moss_list_threads", "completed")).toBe("已列出对话");
+    // An action without its own copy still reads as Chinese, never "Moss handled …".
+    expect(zh("moss_future_action", "completed")).toBe("已使用 Moss 工具");
+    expect(localizeToolHeading("Moss updated a page", "en")).toBe("Moss updated a page");
+  });
+
   it("has intentional running and completed copy for every Moss gateway action", () => {
     const cases = [
       ["moss_context", "Moss is checking its context", "Moss checked its context"],
@@ -639,6 +657,21 @@ describe("deriveMossMcpToolTitle", () => {
     expect(localizeToolHeading("Rendered an HTML page", "zh-CN")).toBe("已渲染 HTML 页面");
     expect(localizeToolHeading("Couldn't render an HTML page", "zh-CN")).toBe("无法渲染 HTML 页面");
     expect(localizeToolHeading("Previewed an HTML page", "zh-CN")).toBe("已预览 HTML 页面");
+    // The visual tools read as actions, in both languages, however the CLI spells them.
+    for (const toolName of ["visual_guide", "mcp__moss__visual_guide", "moss_visual_guide"]) {
+      expect(deriveMossMcpToolTitle({ toolName, status: "completed" })).toBe(
+        "Read the visual guide",
+      );
+    }
+    expect(deriveMossMcpToolTitle({ toolName: "mcp__moss__place_photos", status: "running" })).toBe(
+      "Finding place photos",
+    );
+    expect(deriveMossMcpToolTitle({ toolName: "place_photos", status: "failed" })).toBe(
+      "Couldn't find place photos",
+    );
+    expect(localizeToolHeading("Reading the visual guide", "zh-CN")).toBe("正在阅读可视化指南");
+    expect(localizeToolHeading("Found place photos", "zh-CN")).toBe("已找到地点照片");
+    expect(localizeToolHeading("Couldn't find place photos", "zh-CN")).toBe("无法查找地点照片");
     expect(localizeToolHeading("Search tools:", "zh-CN")).toBe("搜索工具：");
     expect(localizeToolHeading("Search tools:", "en")).toBe("Search tools:");
     expect(

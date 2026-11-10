@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { assert, it } from "@effect/vitest";
-import { AutomationId, SpaceId, ThreadId, type Page, type PageSpaceId } from "@synara/contracts";
+import { AutomationId, SpaceId, ThreadId, type Page, type PageSpaceId } from "@moss/contracts";
 import { Effect, Exit, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 

@@ -2,7 +2,7 @@
 // Purpose: The app shortcuts an agent HTML render may forward, from the live keybindings.
 // Layer: Web keyboard hook
 
-import type { ResolvedKeybindingsConfig } from "@synara/contracts";
+import type { ResolvedKeybindingsConfig } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 

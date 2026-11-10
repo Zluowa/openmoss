@@ -18,7 +18,7 @@ import {
   ProjectTaskId,
   ProjectThreadIndexEntry,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -36,6 +36,7 @@ export const ProjectAgentReceipt = Schema.Struct({
 export type ProjectAgentReceipt = typeof ProjectAgentReceipt.Type;
 
 export interface ProjectAgentConfigSummaryRow {
+  readonly agentKind?: ProjectAgentConfig["agentKind"];
   readonly projectId: ProjectId;
   readonly coordinatorName: ProjectAgentConfig["coordinatorName"];
   readonly coordinatorThreadId: ThreadId;

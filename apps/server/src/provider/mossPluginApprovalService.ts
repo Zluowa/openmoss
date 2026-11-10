@@ -3,11 +3,11 @@ import {
   type MossPluginApprovalStore,
 } from "./mossPluginRuntime.ts";
 import { resolve } from "node:path";
-import type { MossPluginIR } from "@synara/shared/mossResourceRegistry";
+import type { MossPluginIR } from "@moss/shared/mossResourceRegistry";
 import {
   reconcileMossProjectionResources,
   type MossProjectionOwnershipStore,
-} from "@synara/shared/mossProjectionMaterializer";
+} from "@moss/shared/mossProjectionMaterializer";
 import { discoverMossPluginRuntime } from "./mossPluginRuntime.ts";
 
 export interface MossPluginApprovalChange {

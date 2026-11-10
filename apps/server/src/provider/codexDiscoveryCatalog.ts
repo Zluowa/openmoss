@@ -9,10 +9,12 @@ import {
   ProviderPluginAppSummary,
   ProviderPluginDescriptor,
   ProviderPluginDetail,
+  type ProviderServiceTierDescriptor,
   type ProviderSkillDescriptor,
-} from "@synara/contracts";
-import { MOSS_CODEX_RESPONSES_MODEL_IDS } from "@synara/shared/mossManagedModelCatalog";
-import { mossLaneEngineModelIds, type MossAccessLane } from "@synara/shared/mossRealmCatalog";
+} from "@moss/contracts";
+import { isCodexFastServiceTier } from "@moss/shared/model";
+import { MOSS_CODEX_RESPONSES_MODEL_IDS } from "@moss/shared/mossManagedModelCatalog";
+import { mossLaneEngineModelIds, type MossAccessLane } from "@moss/shared/mossRealmCatalog";
 import { Schema } from "effect";
 
 import { pathIsWithin } from "./claudePluginSkills.ts";
@@ -536,11 +538,9 @@ export function parseCodexModelListResponse(response: unknown): ProviderListMode
     const defaultReasoningEffort =
       readString(model, "defaultReasoningEffort") ?? readString(model, "default_reasoning_effort");
     const trimmedDefaultReasoningEffort = defaultReasoningEffort?.trim();
-    const additionalSpeedTiers =
-      readArray(model, "additionalSpeedTiers") ?? readArray(model, "additional_speed_tiers") ?? [];
-    const hasFastSpeedTier = additionalSpeedTiers.some(
-      (tier) => typeof tier === "string" && tier.trim().toLowerCase() === "fast",
-    );
+    const serviceTiers = readCodexServiceTiers(model);
+    const hasFastSpeedTier =
+      serviceTiers?.some((tier) => isCodexFastServiceTier(tier.value)) ?? false;
     const supportsFastMode =
       readFirstBoolean(model, [
         "supportsFastMode",
@@ -564,9 +564,115 @@ export function parseCodexModelListResponse(response: unknown): ProviderListMode
           ? { defaultReasoningEffort: trimmedDefaultReasoningEffort }
           : {}),
         ...(supportsFastMode !== undefined ? { supportsFastMode } : {}),
+        ...(serviceTiers !== undefined ? { serviceTiers } : {}),
       },
     ];
   });
+}
+
+const CODEX_SERVICE_TIER_LABELS: Readonly<Record<string, string>> = {
+  fast: "Fast",
+  priority: "Fast",
+  ultrafast: "Ultrafast",
+};
+
+/**
+ * A model's speed tiers beyond standard. Codex lists them in `serviceTiers`
+ * (`{ id, name, description }`); older app-servers send only the deprecated
+ * `additionalSpeedTiers` ids. Same precedence as T3 Code's Codex catalog mapping.
+ * Undefined when the entry says nothing about speed.
+ */
+function readCodexServiceTiers(
+  model: Record<string, unknown>,
+): ProviderServiceTierDescriptor[] | undefined {
+  const detailed = readArray(model, "serviceTiers") ?? readArray(model, "service_tiers");
+  const legacy =
+    readArray(model, "additionalSpeedTiers") ?? readArray(model, "additional_speed_tiers");
+  if (detailed === undefined && legacy === undefined) {
+    return undefined;
+  }
+  const fromDetailed = (detailed ?? []).flatMap((entry) => {
+    const tier = readObject(entry);
+    const value = tier ? readString(tier, "id")?.trim() : undefined;
+    if (!tier || !value) return [];
+    const label = readString(tier, "name")?.trim() || CODEX_SERVICE_TIER_LABELS[value] || value;
+    const description = readString(tier, "description")?.trim();
+    return [{ value, label, ...(description ? { description } : {}) }];
+  });
+  const tiers =
+    fromDetailed.length > 0
+      ? fromDetailed
+      : (legacy ?? []).flatMap((entry) => {
+          const value = typeof entry === "string" ? entry.trim() : "";
+          return value ? [{ value, label: CODEX_SERVICE_TIER_LABELS[value] ?? value }] : [];
+        });
+  return Array.from(new Map(tiers.map((tier) => [tier.value, tier] as const)).values());
+}
+
+/** The `service_tier` from a Codex `config/read` response, if one is set. */
+export function readCodexConfiguredServiceTier(response: unknown): string | undefined {
+  const config = readObject(readObject(response), "config");
+  const tier = config ? readString(config, "service_tier")?.trim() : undefined;
+  return tier || undefined;
+}
+
+/**
+ * The model the person's Codex config picks (`model`, with the active profile already
+ * applied by `config/read`), if one is set.
+ */
+export function readCodexConfiguredModel(response: unknown): string | undefined {
+  const config = readObject(readObject(response), "config");
+  const model = config ? readString(config, "model")?.trim() : undefined;
+  return model || undefined;
+}
+
+/** The entry `model/list` marks as Codex's own default (`isDefault`), if any. */
+export function readCodexListedDefaultModel(response: unknown): string | undefined {
+  const responseRecord = readObject(response);
+  const resultRecord = readObject(responseRecord, "result") ?? responseRecord;
+  const rawModels =
+    readArray(resultRecord, "items") ??
+    readArray(resultRecord, "data") ??
+    readArray(resultRecord, "models") ??
+    [];
+  for (const value of rawModels) {
+    const model = readObject(value);
+    if (!model || (model.isDefault !== true && model.is_default !== true)) continue;
+    const slug = (readString(model, "id") ?? readString(model, "model"))?.trim();
+    if (slug) return slug;
+  }
+  return undefined;
+}
+
+/**
+ * The account's default model: the one its config sets, else the one Codex marks default.
+ * A configured model the catalog does not list (hidden, or a custom provider's) still
+ * leads the list so the picker can show it and keep it selected.
+ */
+export function withCodexDefaultModel<T extends ProviderListModelsResult["models"][number]>(
+  models: ReadonlyArray<T>,
+  input: { readonly configuredModel?: string | undefined; readonly listedDefault?: string },
+): { readonly models: ReadonlyArray<T | { slug: string; name: string }>; defaultModel?: string } {
+  const configured = input.configuredModel?.trim();
+  const defaultModel = configured || input.listedDefault?.trim() || undefined;
+  if (!defaultModel) return { models };
+  const listed = models.some((model) => model.slug === defaultModel);
+  return {
+    models: listed || !configured ? models : [{ slug: configured, name: configured }, ...models],
+    defaultModel,
+  };
+}
+
+/**
+ * Records the account's configured speed tier on every model, as T3 Code does when it
+ * applies `service_tier` to its catalog. The web app then treats that tier as the
+ * default only on models that offer it, and asks for standard speed on the others.
+ */
+export function withConfiguredCodexServiceTier<
+  T extends ProviderListModelsResult["models"][number],
+>(models: ReadonlyArray<T>, configuredServiceTier: string | undefined): T[] {
+  const tier = configuredServiceTier?.trim();
+  return tier ? models.map((model) => ({ ...model, configuredServiceTier: tier })) : [...models];
 }
 
 /** Keep the managed Moss discovery response closed under the curated source list. */

@@ -4,7 +4,7 @@
 // Why: Every server reason has its own line in both languages; the server's English message is
 //      only the fallback for a reason this page predates.
 
-import type { GuestAccessErrorReason, GuestShareEndReason } from "@synara/contracts";
+import type { GuestAccessErrorReason, GuestShareEndReason } from "@moss/contracts";
 
 import type { TranslationKey } from "~/localization";
 

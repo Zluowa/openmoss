@@ -1,6 +1,6 @@
 import "../../index.css";
 import { useState } from "react";
-import { DEFAULT_SERVER_SETTINGS_VIEW } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS_VIEW } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
@@ -136,7 +136,7 @@ it("opens a meaningful local preview with the keyboard and cancels without using
 it("uses a template once to prefill and keeps style selection separate", async () => {
   await mount();
   await page.getByRole("tab", { name: "热门" }).click();
-  await page.getByRole("button", { name: "选择柔和水彩样式" }).click();
+  await page.getByRole("button", { name: "选择手绘水粉样式" }).click();
   await page.getByRole("tab", { name: "模板" }).click();
   await page.getByRole("button", { name: "预览徽标" }).click();
   await page.getByRole("button", { name: "使用模板", exact: true }).click();
@@ -145,7 +145,7 @@ it("uses a template once to prefill and keeps style selection separate", async (
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
   await page.getByRole("tab", { name: "热门" }).click();
   await expect
-    .element(page.getByRole("button", { name: "选择柔和水彩样式" }))
+    .element(page.getByRole("button", { name: "选择手绘水粉样式" }))
     .toHaveAttribute("aria-pressed", "true");
 });
 
@@ -187,14 +187,14 @@ it("selects, replaces and clears styles without using a template or requesting a
   const fetchSpy = vi.spyOn(globalThis, "fetch");
   await mount();
   await page.getByRole("tab", { name: "热门" }).click();
-  await page.getByRole("button", { name: "选择柔和水彩样式" }).click();
+  await page.getByRole("button", { name: "选择手绘水粉样式" }).click();
   await page.getByRole("tab", { name: "热门" }).click();
-  await page.getByRole("button", { name: "选择几何纸艺样式" }).click();
+  await page.getByRole("button", { name: "选择立体空间样式" }).click();
   await expect
-    .element(page.getByRole("button", { name: "选择柔和水彩样式" }))
+    .element(page.getByRole("button", { name: "选择手绘水粉样式" }))
     .toHaveAttribute("aria-pressed", "false");
   await expect
-    .element(page.getByRole("button", { name: "选择几何纸艺样式" }))
+    .element(page.getByRole("button", { name: "选择立体空间样式" }))
     .toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "清除样式" }).click();
   expect(selectStyle.mock.calls.map(([style]) => style?.id ?? null)).toEqual([
@@ -263,7 +263,7 @@ it("blocks actions inside an open portal when the owning workspace becomes unava
   await mount();
   const busy = page.getByRole("button", { name: "设为忙碌" }).element() as HTMLButtonElement;
   await page.getByRole("tab", { name: "热门" }).click();
-  await page.getByRole("button", { name: "选择柔和水彩样式" }).click();
+  await page.getByRole("button", { name: "选择手绘水粉样式" }).click();
   await page.getByRole("tab", { name: "模板" }).click();
   await page.getByRole("button", { name: "预览职业形象照" }).click();
   await page.getByRole("button", { name: "上传参考图" }).click();
@@ -280,7 +280,7 @@ it("blocks actions inside an open portal when the owning workspace becomes unava
   await expect.element(preview).toBeDisabled();
   (preview.element() as HTMLButtonElement).click();
   await page.getByRole("tab", { name: "热门" }).click();
-  for (const label of ["选择几何纸艺样式", "清除样式"]) {
+  for (const label of ["选择立体空间样式", "清除样式"]) {
     const button = page.getByRole("button", { name: label, exact: true });
     await expect.element(button).toBeDisabled();
     (button.element() as HTMLButtonElement).click();

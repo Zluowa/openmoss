@@ -6,7 +6,7 @@
 // Layer: web profile feature.
 
 import { forwardRef, type ReactNode } from "react";
-import type { ProfileStats, ProfileTokenStats } from "@synara/contracts";
+import type { ProfileStats, ProfileTokenStats } from "@moss/contracts";
 import type { MossLocaleCode } from "~/appSettings";
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { MossLogo } from "~/components/MossLogo";

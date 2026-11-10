@@ -9,8 +9,8 @@ import {
   type DesktopBetaActionResult,
   type DesktopBetaChannelState,
   type ResolvedKeybindingsConfig,
-} from "@synara/contracts";
-import { appSnapShortcutLabels } from "@synara/shared/appSnapShortcut";
+} from "@moss/contracts";
+import { appSnapShortcutLabels } from "@moss/shared/appSnapShortcut";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 
@@ -49,15 +49,13 @@ import {
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
-import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
-import { DisclosureRegion } from "~/components/ui/DisclosureRegion";
 import { Switch } from "~/components/ui/switch";
 import { toastManager } from "~/components/ui/toast";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 
 function appSnapStatusText(state: DesktopAppSnapState | null): string {
   if (!state) return "Available in the Moss desktop app";
-  if (!state.supported) return state.message ?? "Available on macOS only";
+  if (!state.supported) return state.message ?? "Available in the Moss desktop app";
   if (state.status === "ready") {
     const shortcut = state.shortcut;
     const label = shortcut ? appSnapShortcutLabels(shortcut).join(" + ") : "the shortcut";
@@ -298,7 +296,7 @@ export function AppSnapSettingsPanel({
       toastManager.add({
         type: "warning",
         title: "AppSnap unavailable",
-        description: "AppSnap requires the Moss desktop app on macOS.",
+        description: "AppSnap requires the Moss desktop app.",
       });
       return;
     }
@@ -361,8 +359,8 @@ export function AppSnapSettingsPanel({
           {!supported ? (
             <p className={cn(SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME, "pt-0.5")}>
               {appSnapState
-                ? (appSnapState.message ?? "AppSnap is available only in the macOS desktop app.")
-                : "AppSnap requires the Moss desktop app on macOS."}
+                ? (appSnapState.message ?? "AppSnap is available in the Moss desktop app.")
+                : "AppSnap requires the Moss desktop app."}
             </p>
           ) : null}
         </div>
@@ -393,7 +391,7 @@ export function AppSnapSettingsPanel({
 
         <SettingsRow
           title="Shortcut"
-          description="Choose exactly two keys: one modifier and one other key. Moss checks its own bindings and asks macOS whether another app already owns the shortcut before saving it."
+          description="Choose exactly two keys: one modifier and one other key. Moss checks whether the operating system or another app already owns the shortcut before saving it."
           control={
             <AppSnapShortcutControl
               key={
@@ -451,7 +449,7 @@ export function AppSnapSettingsPanel({
         />
       </SettingsSection>
 
-      {supported && appSnapState ? (
+      {supported && appSnapState?.platform === "macos" ? (
         <AppSnapPermissionSection
           panes={APP_SNAP_PERMISSION_PANES}
           feature="AppSnap"
@@ -577,7 +575,6 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
   const [actionPending, setActionPending] = useState<"copy" | "open" | "install" | null>(null);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
-  const [sharesDisclosureOpen, setSharesDisclosureOpen] = useState(false);
   const state: DesktopBetaChannelState | null = betaStateQuery.data ?? null;
 
   if (!active || !betaBridge || !state?.supported) return null;
@@ -661,50 +658,9 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
         <div className="min-w-0 flex-1 space-y-1">
           <p className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>You're on Moss Beta</p>
           <p className={SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME}>
-            To help us fix problems, Beta shares crash reports, app errors, and anonymous usage
-            counts. Crash reports may include private information.
+            Moss Beta works like Moss here: it sends error reports only while Send error reports is
+            on in Settings, and it doesn't send usage counts or crash dumps.
           </p>
-          <button
-            type="button"
-            className="flex cursor-pointer items-center gap-1.5 pt-1 text-ui-sm text-muted-foreground transition-colors hover:text-foreground"
-            aria-expanded={sharesDisclosureOpen}
-            onClick={() => setSharesDisclosureOpen((open) => !open)}
-          >
-            <DisclosureChevron open={sharesDisclosureOpen} />
-            What Beta shares
-          </button>
-          <DisclosureRegion open={sharesDisclosureOpen}>
-            <div className="space-y-2 pt-1.5">
-              <div>
-                <p className="m-0 text-ui-sm font-medium text-foreground">Shared</p>
-                <ul className="m-0 list-disc space-y-0.5 pl-4 pt-0.5 text-ui-sm text-muted-foreground">
-                  <li>A random ID for this install, not linked to you</li>
-                  <li>When Beta opens, closes, installs, or is removed</li>
-                  <li>Crashes and errors; error details are filtered</li>
-                  <li>App version, OS version, and language</li>
-                  <li>
-                    Which providers you use, and how many projects, chats, and turns (just counts)
-                  </li>
-                  <li>Whether updates install correctly</li>
-                </ul>
-              </div>
-              <div>
-                <p className="m-0 text-ui-sm font-medium text-foreground">
-                  Not included in usage counts
-                </p>
-                <ul className="m-0 list-disc space-y-0.5 pl-4 pt-0.5 text-ui-sm text-muted-foreground">
-                  <li>Your chats, prompts, or agent replies</li>
-                  <li>Your code, files, or project names</li>
-                  <li>Keys, passwords, or account details</li>
-                </ul>
-              </div>
-              <p className="m-0 text-ui-xs text-muted-foreground">
-                Error details are filtered, but may still include private information. Crash dumps
-                include app memory that can't be filtered. Reports and dumps are kept with no expiry
-                date.
-              </p>
-            </div>
-          </DisclosureRegion>
           <div className="flex flex-wrap items-center gap-2 pt-1.5">
             {state.stableInstalled ? (
               <Button size="xs" variant="outline" onClick={() => setLeaveDialogOpen(true)}>
@@ -747,8 +703,8 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
           </div>
           <p className={SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME}>
             {state.installed
-              ? "Beta runs next to Moss with its own data, so nothing here changes. Copy your data to bring over projects, settings, and provider sign-ins. Beta shares crash reports and anonymous usage stats."
-              : "Try new features before everyone else. Moss Beta is a separate app with its own data, and this app stays exactly as it is. Beta shares crash reports and anonymous usage stats to help us improve it."}
+              ? "Beta runs next to Moss with its own data, so nothing here changes. Copy your data to bring over projects, settings, and provider sign-ins."
+              : "Try new features before everyone else. Moss Beta is a separate app with its own data, and this app stays exactly as it is."}
           </p>
           {state.lastImportAt ? (
             <p className="text-ui-xs text-muted-foreground">

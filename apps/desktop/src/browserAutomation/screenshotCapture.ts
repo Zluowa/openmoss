@@ -2,10 +2,16 @@ import type {
   BrowserScreenshotHostOutput,
   BrowserScreenshotInput,
   BrowserTabId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import type { BrowserAutomationVisibleRuntime } from "../browserManager";
-import { drainOnAbort, evaluateInContext, sendCdpCommand, throwIfAborted } from "./cdpRuntime";
+import {
+  drainOnAbort,
+  ensureCdpAttached,
+  evaluateInContext,
+  sendCdpCommand,
+  throwIfAborted,
+} from "./cdpRuntime";
 import { browserHostError } from "./hostErrors";
 
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
@@ -63,6 +69,41 @@ const boundedUrl = (value: string): string => {
   return buffer.subarray(0, end).toString("utf8");
 };
 
+// capturePage crops through the page widget's own device scale. A page that
+// navigated while its native view was out of the window (panel hidden, or covered
+// by a menu or the address bar's suggestions) keeps a scale of 1 there, so on a
+// 150% display capturePage returns the top-left two thirds stretched to full size.
+// CDP reads the composited frame at the page's real scale. A parked view never
+// produces that frame, so callers pass only a page that is on screen. Null means
+// use capturePage instead.
+const COMPOSITED_CAPTURE_TIMEOUT_MS = 5_000;
+
+export const captureVisibleViewportPng = async (
+  webContents: BrowserAutomationVisibleRuntime["webContents"],
+  signal?: AbortSignal,
+): Promise<Buffer | null> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    ensureCdpAttached(webContents);
+    const response = (await Promise.race([
+      drainOnAbort(
+        webContents.debugger.sendCommand("Page.captureScreenshot", { format: "png" }),
+        signal,
+      ),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), COMPOSITED_CAPTURE_TIMEOUT_MS);
+      }),
+    ])) as { readonly data?: string } | null;
+    const png = response?.data ? Buffer.from(response.data, "base64") : null;
+    return png && png.byteLength >= 24 ? png : null;
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 // Electron's webContents.capturePage needs a live compositor surface; a parked
 // (setVisible(false)) automation view has none and the call never settles. CDP
 // captureScreenshot with fromSurface:false rasterizes straight from the
@@ -73,6 +114,21 @@ const captureViewport = async (
 ): Promise<{ readonly png: Buffer; readonly width: number; readonly height: number }> => {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     throwIfAborted(signal);
+    // Only parked background views carry `view`; the user-visible page omits it.
+    const composited =
+      (runtime.view?.getVisible() ?? true)
+        ? await captureVisibleViewportPng(runtime.webContents, signal)
+        : null;
+    if (composited) {
+      const dimensions = pngDimensions(runtime, composited);
+      // Anything over the limits goes through capturePage below, which can resize.
+      if (
+        composited.byteLength <= MAX_SCREENSHOT_BYTES &&
+        dimensions.width <= MAX_SCREENSHOT_WIDTH &&
+        dimensions.height <= MAX_FULL_PAGE_HEIGHT
+      )
+        return { png: composited, ...dimensions };
+    }
     // stayHidden/stayAwake let a parked native view produce a frame without
     // flashing it on screen; a plain capturePage never settles on Electron 43
     // once the view lost its compositor surface.

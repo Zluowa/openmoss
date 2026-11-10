@@ -1,3 +1,4 @@
+import { MossbotMark as MossbotIcon } from "./mossbot/MossbotAvatar";
 // FILE: SidebarNavigationRail.tsx
 // Purpose: Moss destination catalog, persistent rail, and Codex-shaped Explore navigation.
 // Layer: Web shell navigation
@@ -43,11 +44,12 @@ export const MOSS_DESTINATION_IDS = [
   "library",
   "automations",
   "skills",
+  "mossbot",
 ] as const;
 
 export type MossDestinationId = (typeof MOSS_DESTINATION_IDS)[number];
 
-export type MossDestinationPath = "/pull-requests" | "/automations" | "/skills";
+export type MossDestinationPath = "/pull-requests" | "/automations" | "/skills" | "/mossbot";
 
 export type MossDestinationCatalogItem = {
   readonly id: MossDestinationId;
@@ -62,6 +64,7 @@ export type MossDestinationCatalogItem = {
  * for entries that Moss keeps behind More through an explicit unpin override below.
  */
 export const MOSS_DESTINATION_CATALOG: readonly MossDestinationCatalogItem[] = [
+  { id: "mossbot", label: "Mossbot", path: "/mossbot", visibleByDefault: true },
   { id: "images", label: "Images", visibleByDefault: true },
   {
     id: "pullRequests",
@@ -89,6 +92,7 @@ export const MAX_DIRECT_DESTINATIONS = 8;
 export const DEFAULT_MOSS_DESTINATION_PIN_OVERRIDES: Readonly<
   Partial<Record<MossDestinationId, boolean>>
 > = {
+  mossbot: true,
   images: true,
   library: true,
   pullRequests: false,
@@ -234,6 +238,7 @@ type MossRailDestination = {
 // family (24px grid, 1.5px stroke) and stays OUTLINE in both rest and selected
 // states — selection is expressed by the chip background highlight, so the row
 // never mixes filled and outline glyphs.
+
 const ImagesIcon = createCentralIconComponent("images-3");
 const BooksIcon = createCentralIconComponent("books");
 const AtIcon = createCentralIconComponent("at");
@@ -245,6 +250,7 @@ const CalendarClockIcon = createCentralIconComponent("calendar-clock");
 const PuzzleIcon = createCentralIconComponent("puzzle");
 const ArrowDownLineIcon = createCentralIconComponent("arrow-down");
 const CATALOG_ICONS: Readonly<Record<MossDestinationId, MossRailDestination["railIcons"]>> = {
+  mossbot: { default: MossbotIcon, selected: MossbotIcon },
   images: { default: ImagesIcon, selected: ImagesIcon },
   library: { default: BooksIcon, selected: BooksIcon },
   pullRequests: { default: PullRequestOutlineIcon, selected: PullRequestOutlineIcon },

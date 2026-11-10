@@ -13,6 +13,7 @@ import { defineConfig } from "tsdown";
 const sourcemapEnv = process.env.MOSS_DESKTOP_SOURCEMAP?.trim().toLowerCase();
 const buildSourcemap = sourcemapEnv === "1" || sourcemapEnv === "true";
 const windowsUpdaterPublisher = process.env.AZURE_TRUSTED_SIGNING_SUBJECT_DN?.trim() ?? "";
+const sentryDsn = process.env.MOSS_SENTRY_DSN?.trim() ?? "";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const migrationRuntimeSource = fs.readFileSync(
   path.join(repoRoot, "apps/server/src/persistence/Migrations.ts"),
@@ -53,12 +54,20 @@ export default defineConfig([
     define: {
       __MOSS_WINDOWS_UPDATER_PUBLISHER__: JSON.stringify(windowsUpdaterPublisher),
       __MOSS_MIGRATION_RUNTIME_SOURCE_DIGEST__: JSON.stringify(migrationRuntimeSourceDigest),
+      __MOSS_SENTRY_DSN__: JSON.stringify(sentryDsn),
     },
-    noExternal: (id) => id.startsWith("@synara/"),
+    noExternal: (id) => id.startsWith("@moss/"),
   },
   {
     ...shared,
     entry: ["src/preload.ts"],
+    noExternal: bundlePreloadDependencies,
+  },
+  {
+    ...shared,
+    // Each sandbox preload must be self-contained. Multiple entries in one
+    // build emit shared relative requires that Electron's sandbox cannot load.
+    entry: ["src/sshWorkspacePreload.ts"],
     noExternal: bundlePreloadDependencies,
   },
   {
@@ -75,6 +84,6 @@ export default defineConfig([
     // `node dist-electron/cuaDriverHostStandalone.js --driver <path>`. It
     // must bundle the shared protocol (no node_modules on the target).
     entry: ["src/cuaDriverHostStandalone.ts"],
-    noExternal: (id) => id.startsWith("@synara/"),
+    noExternal: (id) => id.startsWith("@moss/"),
   },
 ]);

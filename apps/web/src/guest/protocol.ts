@@ -11,7 +11,7 @@ import {
   GuestStreamEvent,
   guestApiPath,
   type GuestAccessErrorReason,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Option, Schema } from "effect";
 
 export { GUEST_ROUTES, guestApiPath };
@@ -24,7 +24,7 @@ export type {
   GuestThreadModel,
   ThreadGuestMessage,
   ThreadGuestMessageStatus,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const decodeStreamEvent = Schema.decodeUnknownOption(GuestStreamEvent);
 

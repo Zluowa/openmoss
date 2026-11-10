@@ -35,6 +35,17 @@ const NATIVE_MENU_LABELS: readonly NativeMenuLabelDefinition[] = [
   { en: "Show All", zh: "显示全部" },
   { en: "Quit Moss", zh: "退出 Moss" },
 
+  // Startup and recovery dialog buttons.
+  { en: "Try restore again", zh: "再次尝试恢复" },
+  { en: "Restore backup and restart", zh: "恢复备份并重启" },
+  { en: "Update Moss and restart", zh: "更新 Moss 并重启" },
+  { en: "Download latest release", zh: "下载最新版本" },
+  { en: "Restart and recover", zh: "重启并恢复" },
+  { en: "Back up and continue", zh: "备份并继续" },
+  { en: "Try again", zh: "重试" },
+  { en: "Open logs", zh: "打开日志" },
+  { en: "Quit", zh: "退出" },
+
   // Top-level native menus.
   { en: "File", zh: "文件" },
   { en: "Edit", zh: "编辑" },
@@ -108,6 +119,21 @@ const NATIVE_MENU_LABELS: readonly NativeMenuLabelDefinition[] = [
 
   // Renderer-provided thread, terminal, file, and diff context actions.
   { en: "Rename thread", zh: "重命名", zhAliases: ["重命名对话"] },
+  { en: "Share with guest…", zh: "分享给访客…" },
+  { en: "Snooze", zh: "稍后提醒" },
+  { en: "Reschedule", zh: "重新安排" },
+  { en: "Return now", zh: "立即恢复" },
+  { en: "For 30 minutes", zh: "30 分钟" },
+  { en: "For 1 hour", zh: "1 小时" },
+  { en: "For 2 hours", zh: "2 小时" },
+  { en: "Until tomorrow at 9am", zh: "明天上午 9 点" },
+  { en: "Pick date & time…", zh: "选择日期和时间…" },
+  { en: "Fork", zh: "分支" },
+  { en: "Thread ID", zh: "对话 ID" },
+  { en: "Path", zh: "路径" },
+  { en: "Continue as a New Hub", zh: "继续为新协作组" },
+  { en: "Continue as a hub", zh: "继续为协作组" },
+
   { en: "Pin thread", zh: "置顶", zhAliases: ["固定对话"] },
   { en: "Unpin thread", zh: "取消置顶", zhAliases: ["取消固定对话"] },
   { en: "Pin project", zh: "固定项目" },

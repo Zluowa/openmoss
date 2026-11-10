@@ -1,6 +1,6 @@
 import "../index.css";
 
-import type { DesktopBetaChannelState, DesktopBridge } from "@synara/contracts";
+import type { DesktopBetaChannelState, DesktopBridge } from "@moss/contracts";
 import { page } from "vitest/browser";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";

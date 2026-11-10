@@ -1,7 +1,9 @@
-import { captureSentryException } from "./observability/sentry";
+import { captureSentryException, flushSentry } from "./observability/sentry";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 
 import { CliConfig, makeMossCli, type MossServerLayerOptions } from "./main";
@@ -12,10 +14,12 @@ import serverPackageJson from "../package.json" with { type: "json" };
 // JSON modules expose only a default export.
 const { version } = serverPackageJson;
 import { ServerLive } from "./effectServer";
-import { NetService } from "@synara/shared/Net";
+import { NetService } from "@moss/shared/Net";
 import { FetchHttpClient } from "effect/unstable/http";
 import { consumeDesktopParentInput, withDesktopParentLifetime } from "./desktopParentLifetime";
 import { hydrateWindowsUserEnvironment } from "./os-jank";
+import { installWindowsProviderProcessGuard } from "./platform/windowsProviderProcessGuard";
+import { installWindowsExitPriority } from "./platform/windowsExitPriority";
 
 const RuntimeLayer = Layer.empty.pipe(
   Layer.provideMerge(CliConfig.layer),
@@ -31,7 +35,7 @@ export function mossServerProgram(options: MossServerLayerOptions = {}) {
     .pipe(Effect.provide(RuntimeLayer))
     .pipe(
       Effect.tapCause((cause) =>
-        Effect.sync(() =>
+        Effect.promise(async () => {
           captureSentryException(new Error("Moss server process failure"), {
             errorSource: "server-process",
             errorClass:
@@ -40,15 +44,37 @@ export function mossServerProgram(options: MossServerLayerOptions = {}) {
                 : cause instanceof Error
                   ? cause.name.slice(0, 96)
                   : "UnknownError",
-          }),
-        ),
+          });
+          // The process exits right after this, which would drop a queued event.
+          await flushSentry();
+        }),
       ),
     ) as Effect.Effect<void, unknown, never>;
 }
 
 if (import.meta.main) {
   // Before any layer resolves a provider home (account import, health probes).
-  if (process.platform === "win32") hydrateWindowsUserEnvironment();
+  if (process.platform === "win32") {
+    hydrateWindowsUserEnvironment();
+    installWindowsProviderProcessGuard();
+    installWindowsExitPriority();
+  }
   const desktopParentInput = consumeDesktopParentInput(process.env, () => process.stdin);
-  NodeRuntime.runMain(withDesktopParentLifetime(mossServerProgram(), desktopParentInput));
+  // Effect finalizers close the server and provider resources, but Electron's
+  // Node mode can retain native handles after the scoped program resolves.
+  // The desktop backend has no independent work after that point: terminate
+  // the owned process once its runtime has completed instead of leaving the
+  // desktop waiting for an unrelated handle to drain. The exit code keeps the
+  // runtime's own mapping (0 success, 130 interrupt, 1 failure) so the desktop
+  // log and crash diagnostics still tell a clean exit from a crash.
+  NodeRuntime.runMain(
+    withDesktopParentLifetime(mossServerProgram(), desktopParentInput).pipe(
+      Effect.onExit((exit) =>
+        Effect.sync(() => {
+          if (process.env.MOSS_MODE !== "desktop") return;
+          process.exit(Exit.isFailure(exit) ? (Cause.hasInterruptsOnly(exit.cause) ? 130 : 1) : 0);
+        }),
+      ),
+    ),
+  );
 }

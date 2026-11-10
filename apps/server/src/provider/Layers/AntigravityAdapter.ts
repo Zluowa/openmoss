@@ -16,11 +16,11 @@ import {
   RuntimeTaskId,
   ThreadId,
   TurnId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   spawnProcess as spawnPlatformProcess,
   type RuntimeSpawnOptions,
-} from "@synara/shared/processRuntime";
+} from "@moss/shared/processRuntime";
 import { Effect, Layer, Option, Queue, Stream } from "effect";
 
 import {
@@ -77,6 +77,7 @@ import {
   type SizedProviderRuntimeEvent,
 } from "../providerRuntimeEventIngress.ts";
 import { teardownChildProcessTree } from "../supervisedProcessTeardown.ts";
+import { spawnGuardedProviderChild } from "../../platform/windowsProviderProcessGuard.ts";
 import { capHistoryBytes } from "../../terminal/terminalHistory.ts";
 
 const PROVIDER = "antigravity" as const;
@@ -2618,10 +2619,12 @@ const makeAntigravityAdapter = (dependencies: AntigravityAdapterDependencies = {
           const spawnProcess =
             dependencies.spawnProcess ??
             ((command: string, spawnArgs: readonly string[], options: RuntimeSpawnOptions) =>
-              spawnPlatformProcess(command, spawnArgs, {
-                ...options,
-                requireExecutable: true,
-              }) as AntigravityChildProcess);
+              spawnGuardedProviderChild(() =>
+                spawnPlatformProcess(command, spawnArgs, {
+                  ...options,
+                  requireExecutable: true,
+                }),
+              ) as AntigravityChildProcess);
           child = spawnProcess(context.binaryPath, args, {
             lowerPriority: yield* providerProcessPriorityEnabled,
             cwd: context.session.cwd ?? serverConfig.cwd,

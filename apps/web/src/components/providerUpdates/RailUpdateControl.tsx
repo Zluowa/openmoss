@@ -4,7 +4,7 @@
 //          beside the rail, where T3 Code's sidebar footer would hold it.
 // Layer: Web shell navigation.
 
-import type { DesktopUpdateState } from "@synara/contracts";
+import type { DesktopUpdateState } from "@moss/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useState, type CSSProperties } from "react";

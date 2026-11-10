@@ -6,7 +6,7 @@ import {
   TurnId,
   ThreadId,
   type OrchestrationSidebarSectionShell,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 import {
   buildSidebarSectionArchivePlan,

@@ -12,7 +12,7 @@ import { Effect, Layer } from "effect";
 import { createRejectedFileAlias } from "../../../../scripts/fixtures/filesystem-links.ts";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@synara/shared/migrationRecovery";
+import { MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS } from "@moss/shared/migrationRecovery";
 
 import {
   FAILED_MIGRATION_BUNDLE_RETENTION,
@@ -739,7 +739,7 @@ describe("migration backups", () => {
     }
   });
 
-  it("backs up an imported divergent lineage before reconciliation", async () => {
+  it("refuses a foreign lineage without offering consent or taking a backup", async () => {
     const dbPath = await makeDbPath();
     const latestId = Math.max(...migrationEntries.map(([id]) => id));
 
@@ -774,7 +774,7 @@ describe("migration backups", () => {
           );
         }),
       ),
-    ).rejects.toThrow(/MOSS_MIGRATION_DIVERGENCE_CONSENT_REQUIRED/);
+    ).rejects.toThrow(/does not match any known lineage/);
 
     expect(await backupPaths(dbPath)).toEqual([]);
     const database = new DatabaseSync(dbPath, { readOnly: true });

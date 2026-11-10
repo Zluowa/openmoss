@@ -7,14 +7,15 @@ import {
   type ProviderOptionDescriptor,
   type ProviderKind,
   type ProviderModelDescriptor,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import {
   applyClaudePromptEffortPrefix,
   getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
+  resolveCodexSpeedSelection,
   trimOrNull,
-} from "@synara/shared/model";
+} from "@moss/shared/model";
 
 import { buildProviderOptionPatch, type ProviderOptions } from "../../providerModelOptions";
 import { getRuntimeAwareModelCapabilities } from "./runtimeModelCapabilities";
@@ -154,9 +155,16 @@ export function getComposerTraitSelection(
     : null;
 
   const fastModeEnabled =
-    Boolean(fastModeDescriptor) &&
-    (fastModeDescriptor?.currentValue ??
-      (provider === "cursor" ? getCursorBooleanModelParameter(model, "fast") : false)) === true;
+    provider === "codex"
+      ? // Codex speed follows the model's own tiers and the user's Codex config.
+        resolveCodexSpeedSelection({
+          supportsFastMode: fastModeDescriptor !== null,
+          fastMode: fastModeDescriptor?.currentValue,
+          runtimeModel,
+        }).fastModeEnabled
+      : Boolean(fastModeDescriptor) &&
+        (fastModeDescriptor?.currentValue ??
+          (provider === "cursor" ? getCursorBooleanModelParameter(model, "fast") : false)) === true;
 
   const contextWindow = resolvedContextWindow ?? defaultContextWindow;
 

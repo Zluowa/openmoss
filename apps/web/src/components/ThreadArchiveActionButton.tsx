@@ -5,7 +5,7 @@
 // Exports: ThreadArchiveActionButton, THREAD_ARCHIVE_ICON
 
 import { ArchiveIcon } from "~/lib/icons";
-import type { ThreadId } from "@synara/contracts";
+import type { ThreadId } from "@moss/contracts";
 
 import { cn } from "~/lib/utils";
 import { SIDEBAR_TRAILING_ICON_CLASS, sidebarGlyphClass } from "./sidebarGlyphs";

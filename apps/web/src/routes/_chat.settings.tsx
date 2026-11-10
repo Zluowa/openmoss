@@ -8,13 +8,13 @@ import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
   type SidechatExpiry,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { useTranslation, type TranslationKey } from "../localization";
 import { GROUPS_ON, VISIBLE_PROVIDER_DESCRIPTORS } from "../betaFeatures";
-import { sameAppSnapShortcut } from "@synara/shared/appSnapShortcut";
-import { desktopFlavorFromProtocol } from "@synara/shared/betaFeatures";
+import { sameAppSnapShortcut } from "@moss/shared/appSnapShortcut";
+import { desktopFlavorFromProtocol } from "@moss/shared/betaFeatures";
 import { SafariAccessSetupButton } from "../components/SafariAccessOnboarding";
-import { createFileRoute, redirect, useSearch } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import {
@@ -48,6 +48,12 @@ import {
 import { APP_VERSION } from "../branding";
 import { AdvancedSettingsPanel } from "~/components/settings/AdvancedSettingsPanel";
 import { ComputerHistorySettingsPanel } from "~/components/settings/ComputerHistorySettingsPanel";
+import { ConnectionsSettingsPanel } from "~/components/settings/ConnectionsSettingsPanel";
+import {
+  CONNECTION_TABS,
+  connectionTabFromSearch,
+  type ConnectionTab,
+} from "~/connectionSettingsNavigation";
 import { RealtimeVoiceSettingsPanel } from "~/components/settings/RealtimeVoiceSettingsPanel";
 import { AppIconPicker } from "~/components/settings/AppIconPicker";
 import {
@@ -59,7 +65,6 @@ import {
   BetaChannelSettingsPanel,
   NotificationsSettingsPanel,
 } from "~/components/settings/DesktopSettingsPanels";
-import { ComputerSettingsPanel } from "~/components/settings/ComputerSettingsPanel";
 import { ImportSettingsPanel } from "~/components/settings/ImportSettingsPanel";
 import { ModelsSettingsPanel } from "~/components/settings/ModelsSettingsPanel";
 import {
@@ -102,6 +107,7 @@ import { Button } from "../components/ui/button";
 import { useOnboardingDialogStore } from "../onboarding/onboardingDialogStore";
 import { Input } from "../components/ui/input";
 import { SelectItem } from "../components/ui/select";
+import { ErrorReportsSettingsSection } from "../components/settings/ErrorReportsSettingsSection";
 import { Switch } from "../components/ui/switch";
 import { toastManager } from "../components/ui/toast";
 import { SettingsPageFrame } from "../components/settings/SettingsPageFrame";
@@ -123,6 +129,7 @@ import {
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import { isProviderKind, sameProviderOrder } from "../providerOrdering";
 import {
+  CODEX_RESOURCE_LEGACY_SECTIONS,
   normalizeSettingsSection,
   SETTINGS_NAV_ITEMS,
   SETTINGS_TARGETS,
@@ -339,6 +346,35 @@ function SettingsRouteView() {
   );
   const routeSearch = useSearch({ strict: false }) as Record<string, unknown>;
   const activeSection = normalizeSettingsSection(routeSearch.section);
+  const navigate = useNavigate();
+  const [lastConnectionTab, setLastConnectionTab] = useState<ConnectionTab>("this");
+  const connectionTab = connectionTabFromSearch(routeSearch, lastConnectionTab);
+  const hasConnectionTab = CONNECTION_TABS.some((tab) => tab === routeSearch.connectionTab);
+  useEffect(() => {
+    if (activeSection === "connections") setLastConnectionTab(connectionTab);
+  }, [activeSection, connectionTab]);
+  useEffect(() => {
+    if (activeSection !== "connections" || (hasConnectionTab && routeSearch.section !== "computer"))
+      return;
+    // Give the initial selection a URL too, so Back restores it after another tab is opened.
+    void navigate({
+      to: "/settings",
+      replace: true,
+      search: (previous) => ({ ...previous, section: "connections", connectionTab }),
+    });
+  }, [activeSection, connectionTab, hasConnectionTab, navigate, routeSearch.section]);
+  const selectConnectionTab = (tab: ConnectionTab) => {
+    setLastConnectionTab(tab);
+    void navigate({
+      to: "/settings",
+      search: (previous) => ({
+        ...previous,
+        section: "connections",
+        connectionTab: tab,
+        target: undefined,
+      }),
+    });
+  };
   const settingsTarget = typeof routeSearch.target === "string" ? routeSearch.target : null;
   const settingsProviderTarget =
     typeof routeSearch.provider === "string" && isProviderKind(routeSearch.provider)
@@ -1008,6 +1044,13 @@ function SettingsRouteView() {
           })}
         </SettingsSection>
       </div>
+
+      <ErrorReportsSettingsSection
+        checked={settings.errorReportsEnabled}
+        isDefault={settings.errorReportsEnabled === defaults.errorReportsEnabled}
+        defaultValue={defaults.errorReportsEnabled}
+        onChange={(errorReportsEnabled) => updateSettings({ errorReportsEnabled })}
+      />
     </div>
   );
 
@@ -1696,6 +1739,7 @@ function SettingsRouteView() {
         return <KeyboardShortcutsSettingsPanel />;
       case "history":
         return <ComputerHistorySettingsPanel />;
+
       case "voice":
         return <RealtimeVoiceSettingsPanel />;
       case "profile":
@@ -1727,7 +1771,9 @@ function SettingsRouteView() {
               <div className="mb-8 flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h1 className={cn("flex items-center gap-2", PAGE_TITLE_CLASS_NAME)}>
-                    {activeSectionItem.label}
+                    {activeSection === "connections"
+                      ? t("settings.nav.connections.label")
+                      : activeSectionItem.label}
                     {activeSectionItem.badge ? (
                       <Badge
                         variant="outline"
@@ -1737,11 +1783,13 @@ function SettingsRouteView() {
                       </Badge>
                     ) : null}
                   </h1>
-                  <p className="mt-1.5 text-ui leading-relaxed text-muted-foreground">
-                    {activeSectionItem.description}
-                  </p>
+                  {activeSection !== "connections" ? (
+                    <p className="mt-1.5 text-ui leading-relaxed text-muted-foreground">
+                      {activeSectionItem.description}
+                    </p>
+                  ) : null}
                 </div>
-                {activeSection === "shortcuts" ? (
+                {activeSection === "connections" ? null : activeSection === "shortcuts" ? (
                   <KeyboardShortcutsResetButton />
                 ) : (
                   <Button
@@ -1774,8 +1822,10 @@ function SettingsRouteView() {
                 defaults={defaults}
                 updateSettings={updateSettings}
               />
-              <ComputerSettingsPanel
-                active={activeSection === "computer"}
+              <ConnectionsSettingsPanel
+                active={activeSection === "connections"}
+                tab={connectionTab}
+                onTabChange={selectConnectionTab}
                 settings={settings}
                 defaults={defaults}
                 updateSettings={updateSettings}
@@ -1845,8 +1895,15 @@ export function providerDocLabelKey(label: string): TranslationKey {
 
 export const Route = createFileRoute("/_chat/settings")({
   beforeLoad: ({ search }) => {
-    // Settings > Plugins is its own page (as in Codex); the section link lands there.
-    if ((search as Record<string, unknown>).section === "plugins") {
+    // Codex resources is its own page (as in Codex). Keep old section links
+    // working by sending the former connectors, MCP, skills, and system-tools
+    // routes to the same canonical library.
+    const section = (search as Record<string, unknown>).section;
+    if (
+      section === "plugins" ||
+      (typeof section === "string" &&
+        (CODEX_RESOURCE_LEGACY_SECTIONS as readonly string[]).includes(section))
+    ) {
       throw redirect({ to: PLUGIN_LIBRARY_SETTINGS_PATH, replace: true });
     }
   },

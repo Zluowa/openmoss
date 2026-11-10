@@ -8,7 +8,7 @@ import {
   type ProjectAgentConfig,
   type ProjectAgentSummary,
   type ProjectThreadIndexEntry,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
 const listSummaries = vi.fn<() => Promise<{ summaries: ProjectAgentSummary[] }>>();
 
@@ -72,6 +72,7 @@ function resetStore() {
   useProjectAgentSummariesStore.setState({
     summariesByProjectId: new Map(),
     loaded: false,
+    loadFailed: false,
     membersLoaded: false,
   });
 }
@@ -82,6 +83,21 @@ beforeEach(() => {
 });
 
 describe("useProjectAgentSummaries store", () => {
+  it("marks a failed list so views stop waiting, and clears it on the next success", async () => {
+    listSummaries.mockRejectedValueOnce(new Error("offline"));
+    await loadProjectAgentSummaries();
+    expect(useProjectAgentSummariesStore.getState()).toMatchObject({
+      loaded: false,
+      loadFailed: true,
+    });
+
+    listSummaries.mockResolvedValueOnce({ summaries: [makeSummary()] });
+    await loadProjectAgentSummaries();
+    const state = useProjectAgentSummariesStore.getState();
+    expect(state).toMatchObject({ loaded: true, loadFailed: false });
+    expect(state.summariesByProjectId.has(groupId)).toBe(true);
+  });
+
   it("applies hasGoal on goal-upserted so the goal chip hides", async () => {
     vi.useFakeTimers();
     try {

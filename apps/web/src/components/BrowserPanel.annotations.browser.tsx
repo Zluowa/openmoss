@@ -10,7 +10,7 @@ import {
   type BrowserAnnotationEvent,
   type BrowserAnnotationMethods,
   type BrowserAnnotationSession,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -175,7 +175,7 @@ describe("BrowserPanel annotations", () => {
     await expect.element(annotate).toHaveAttribute("aria-pressed", "false");
     await annotate.click();
     await expect
-      .element(mounted.getByRole("button", { name: "Cancel annotation" }))
+      .element(mounted.getByRole("button", { name: "Close annotation", exact: true }))
       .toHaveAttribute("aria-pressed", "true");
     expect(harness.start).toHaveBeenCalledWith({
       threadId: THREAD_A,
@@ -187,7 +187,7 @@ describe("BrowserPanel annotations", () => {
       }),
     });
 
-    await mounted.getByRole("button", { name: "Cancel annotation" }).click();
+    await mounted.getByRole("button", { name: "Close annotation", exact: true }).click();
     await expect.element(mounted.getByRole("button", { name: "Annotate page" })).toBeVisible();
     expect(harness.cancel).toHaveBeenCalledWith({ threadId: THREAD_A, tabId: "tab-a" });
 
@@ -205,7 +205,9 @@ describe("BrowserPanel annotations", () => {
     const mounted = await render(<AnnotationHarness harness={harness} onAdd={onAdd} />);
 
     await mounted.getByRole("button", { name: "Annotate page" }).click();
-    await expect.element(mounted.getByRole("button", { name: "Cancel annotation" })).toBeVisible();
+    await expect
+      .element(mounted.getByRole("button", { name: "Close annotation", exact: true }))
+      .toBeVisible();
     harness.emit(
       committedEvent({
         threadId: THREAD_B,
@@ -240,7 +242,9 @@ describe("BrowserPanel annotations", () => {
         }),
       );
     });
-    await expect.element(mounted.getByRole("button", { name: "Cancel annotation" })).toBeVisible();
+    await expect
+      .element(mounted.getByRole("button", { name: "Close annotation", exact: true }))
+      .toBeVisible();
 
     await mounted.getByRole("button", { name: "Remove annotations" }).click();
     await vi.waitFor(() => {
@@ -273,7 +277,9 @@ describe("BrowserPanel annotations", () => {
     const harness = createMethodsHarness();
     const mounted = await render(<AnnotationHarness harness={harness} onAdd={() => {}} />);
     await mounted.getByRole("button", { name: "Annotate page" }).click();
-    await expect.element(mounted.getByRole("button", { name: "Cancel annotation" })).toBeVisible();
+    await expect
+      .element(mounted.getByRole("button", { name: "Close annotation", exact: true }))
+      .toBeVisible();
 
     await mounted.getByRole("button", { name: "Switch tab" }).click();
     await vi.waitFor(() => {

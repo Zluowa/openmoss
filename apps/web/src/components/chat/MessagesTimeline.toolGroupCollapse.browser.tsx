@@ -1,14 +1,15 @@
 // FILE: MessagesTimeline.toolGroupCollapse.browser.tsx
 // Purpose: Browser regressions for collapsing settled tool-call runs into
-//          summary rows ("Ran commands") once a newer narration block starts,
+//          summary rows ("Ran 4 commands") once a newer narration block starts,
 //          and for folding the live run to one line wearing its newest call.
 // Layer: Vitest browser tests
 
 import "../../index.css";
 
-import { MessageId, TurnId } from "@synara/contracts";
+import { MessageId, TurnId } from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
+import { page } from "vitest/browser";
 
 // These interaction assertions use English labels; the product's bare context
 // intentionally defaults to Chinese.
@@ -156,6 +157,31 @@ async function expectLiveRunFoldedToNewestCall(): Promise<HTMLButtonElement> {
 }
 
 describe("MessagesTimeline tool group collapse", () => {
+  it("collapses automation instructions while keeping them inspectable", async () => {
+    const entry = assistantEntry(
+      "auto-instructions",
+      "Automation: QA\nAutomation ID: qa-run\n\nInternal automation instructions for QA",
+      false,
+    );
+    if (entry.kind !== "message") throw new Error("Expected message");
+    const automationEntry: TimelineEntry = {
+      ...entry,
+      message: { ...entry.message, role: "user", dispatchOrigin: "automation" },
+    };
+    await render(<ToolGroupCollapseTimeline timelineEntries={[automationEntry]} />);
+    const toggle = page.getByRole("button", { name: "Automation instructions", exact: true });
+    await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+    await page.screenshot({ path: "__screenshots__/qa-automation-collapsed.png" });
+    await toggle.click();
+    await expect
+      .element(
+        page.getByText(
+          "Automation: QA\nAutomation ID: qa-run\n\nInternal automation instructions for QA",
+          { exact: true },
+        ),
+      )
+      .toBeVisible();
+  });
   afterEach(() => {
     document.body.innerHTML = "";
   });
@@ -230,7 +256,7 @@ describe("MessagesTimeline tool group collapse", () => {
       );
 
       try {
-        await expect.poll(() => findSummaryTrigger("Ran commands") !== null).toBe(true);
+        await expect.poll(() => findSummaryTrigger("Ran 4 commands") !== null).toBe(true);
         await expectLiveRunFoldedToNewestCall();
         expect(isVisibleOutsideClosedDisclosure("Then verify cancellation.")).toBe(true);
         if (kind === "reasoning") {
@@ -400,8 +426,8 @@ describe("MessagesTimeline tool group collapse", () => {
     );
 
     try {
-      await expect.poll(() => findSummaryTrigger("Ran commands") !== null).toBe(true);
-      const trigger = findSummaryTrigger("Ran commands")!;
+      await expect.poll(() => findSummaryTrigger("Ran 4 commands") !== null).toBe(true);
+      const trigger = findSummaryTrigger("Ran 4 commands")!;
       expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
       // Closed groups do not mount every tool row; this keeps large settled
@@ -450,8 +476,8 @@ describe("MessagesTimeline tool group collapse", () => {
     );
 
     try {
-      await expect.poll(() => findSummaryTrigger("Ran commands") !== null).toBe(true);
-      expect(findSummaryTrigger("Ran commands")!.getAttribute("aria-expanded")).toBe("false");
+      await expect.poll(() => findSummaryTrigger("Ran 4 commands") !== null).toBe(true);
+      expect(findSummaryTrigger("Ran 4 commands")!.getAttribute("aria-expanded")).toBe("false");
       for (const command of SETTLED_COMMANDS) {
         expect(document.body.textContent ?? "").not.toContain(command);
       }

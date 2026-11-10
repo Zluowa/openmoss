@@ -7,6 +7,7 @@
 import { memo, useEffect, useRef, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
+import { Kbd } from "../ui/kbd";
 import {
   Command,
   CommandGroup,
@@ -50,6 +51,13 @@ export type ComposerMenuPanelGroup = {
   rows: ComposerMenuPanelRow[];
 };
 
+/** One action the open menu takes from the keyboard, e.g. `↵ Run`. */
+export type ComposerMenuPanelKeyHint = {
+  /** Each entry is drawn as its own keycap. */
+  keys: readonly string[];
+  label: string;
+};
+
 export function ComposerMenuPanel(props: {
   groups: ComposerMenuPanelGroup[];
   activeRowId: string | null;
@@ -59,6 +67,8 @@ export function ComposerMenuPanel(props: {
   footer?: ReactNode;
   /** Loading / empty copy rendered as a sibling of the list. */
   status?: ReactNode;
+  /** Key hints pinned under the list, outside its scroll area. Hidden on touch screens. */
+  keyHints?: readonly ComposerMenuPanelKeyHint[];
   listClassName?: string;
   surfaceClassName?: string;
 }) {
@@ -113,8 +123,33 @@ export function ComposerMenuPanel(props: {
           </CommandList>
         ) : null}
         {props.status}
+        {props.keyHints && props.keyHints.length > 0 ? (
+          <ComposerMenuPanelKeyHints hints={props.keyHints} />
+        ) : null}
       </div>
     </Command>
+  );
+}
+
+function ComposerMenuPanelKeyHints(props: { hints: readonly ComposerMenuPanelKeyHint[] }) {
+  return (
+    <div
+      data-slot="composer-menu-key-hints"
+      className="mx-1 flex items-center gap-3 border-border/60 border-t px-2 py-1.5 text-ui-xs text-muted-foreground/55 pointer-coarse:hidden"
+    >
+      {props.hints.map((hint) => (
+        <span key={hint.label} className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-0.5">
+            {hint.keys.map((key) => (
+              <Kbd key={key} className="h-4 min-w-4 px-1 text-ui-xs text-muted-foreground/80">
+                {key}
+              </Kbd>
+            ))}
+          </span>
+          {hint.label}
+        </span>
+      ))}
+    </div>
   );
 }
 

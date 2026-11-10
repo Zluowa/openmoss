@@ -11,7 +11,7 @@ import {
   isMemFireCloudApiHostname,
   isMossCloudRegion,
   type MossCloudRegion,
-} from "@synara/shared/mossProductionPublicConfig";
+} from "@moss/shared/mossProductionPublicConfig";
 
 export const MOSS_SUPABASE_CONFIG_ENV_KEYS = {
   cloudRegion: "MOSS_CLOUD_REGION",
@@ -518,8 +518,10 @@ const normalizeSession = (
 
   const expiresInSeconds = Math.max(0, finiteNumber(value.expires_in) ?? 0);
   const expiresAtSeconds = finiteNumber(value.expires_at);
+  // Everything local compares this against the local clock, so a relative
+  // lifetime stays right on a machine whose clock is wrong; `expires_at` does not.
   const expiresAt =
-    expiresAtSeconds === null
+    expiresInSeconds > 0 || expiresAtSeconds === null
       ? now() + expiresInSeconds * 1_000
       : Math.max(0, expiresAtSeconds * 1_000);
 

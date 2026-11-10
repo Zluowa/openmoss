@@ -24,6 +24,24 @@ describe("normalizeNativeMenuLocale", () => {
   });
 });
 
+describe("recovery dialog buttons", () => {
+  it.each([
+    ["Try restore again", "再次尝试恢复"],
+    ["Restore backup and restart", "恢复备份并重启"],
+    ["Update Moss and restart", "更新 Moss 并重启"],
+    ["Download latest release", "下载最新版本"],
+    ["Restart and recover", "重启并恢复"],
+    ["Back up and continue", "备份并继续"],
+    ["Try again", "重试"],
+    ["Open logs", "打开日志"],
+    ["Quit", "退出"],
+    ["Reload", "重新加载"],
+  ])("translates %s and leaves it alone in English", (english, chinese) => {
+    expect(translateNativeMenuLabel(english, "zh-CN")).toBe(chinese);
+    expect(translateNativeMenuLabel(english, "en")).toBe(english);
+  });
+});
+
 describe("translateNativeAppSnapMessage", () => {
   it("translates known helper failures and keeps dynamic diagnostics intact", () => {
     expect(
@@ -186,5 +204,22 @@ describe("translateNativeMenuLabel", () => {
       expect(translateNativeMenuLabel(value, "zh-CN")).toBe(value);
       expect(translateNativeMenuLabel(value, "en")).toBe(value);
     }
+  });
+});
+
+describe("reported thread context menu labels", () => {
+  it.each([
+    ["Share with guest…", "分享给访客…"],
+    ["Snooze", "稍后提醒"],
+    ["Reschedule", "重新安排"],
+    ["Return now", "立即恢复"],
+    ["For 30 minutes", "30 分钟"],
+    ["For 1 hour", "1 小时"],
+    ["For 2 hours", "2 小时"],
+    ["Until tomorrow at 9am", "明天上午 9 点"],
+    ["Pick date & time…", "选择日期和时间…"],
+  ])("translates %s and reverses it when language changes", (en, zh) => {
+    expect(translateNativeMenuLabel(en, "zh-CN")).toBe(zh);
+    expect(translateNativeMenuLabel(zh, "en")).toBe(en);
   });
 });

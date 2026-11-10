@@ -1,10 +1,89 @@
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { PagesReadResult, PagesRpcError } from "./pages";
+import {
+  PageComment,
+  PageVersion,
+  PageVersionContributors,
+  PagesReadResult,
+  PagesRpcError,
+} from "./pages";
 import { WebSocketRequest, WS_METHODS } from "./ws";
 
 describe("Pages wire contract", () => {
+  it("carries the observed Space sync preference through the real WebSocket request schema", () => {
+    const parse = Schema.decodeUnknownSync(WebSocketRequest);
+    const body = { _tag: WS_METHODS.pageSpaceSync, scopeSpaceId: null, spaceId: "notes" };
+    expect(parse({ id: "sync-read", body })).toMatchObject({ body });
+    const observed = { ...body, enabled: false, observation: "a".repeat(64) };
+    expect(parse({ id: "sync-change", body: observed })).toMatchObject({ body: observed });
+    expect(() => parse({ id: "bad", body: { ...observed, observation: "bad" } })).toThrow();
+  });
+  it("checks bounded unique contributor identities and refuses extra proof or identity fields", () => {
+    const parse = Schema.decodeUnknownSync(PageVersionContributors);
+    const sources = [
+      { kind: "local-user" },
+      { kind: "agent", threadId: "agent" },
+      { kind: "guest", actorRef: "a".repeat(64) },
+      { kind: "unrecorded" },
+    ];
+    expect(parse(sources)).toEqual(sources);
+    expect(parse([])).toEqual([]);
+    for (const bad of [
+      [...sources, sources[0]],
+      [{ kind: "guest", actorRef: "secret" }],
+      [{ kind: "local-user", proof: "private" }],
+      [{ kind: "agent", threadId: "a".repeat(513) }],
+      Array.from({ length: 129 }, (_, index) => ({ kind: "agent", threadId: String(index) })),
+    ])
+      expect(() => parse(bad)).toThrow();
+  });
+  it("admits only a bounded guest history reference without widening comment authors", () => {
+    const record = {
+      page: {
+        id: "page",
+        scopeSpaceId: null,
+        spaceId: null,
+        parentPageId: null,
+        rootPageId: "page",
+        title: "History",
+        revision: 2,
+        pinned: false,
+        trashedAt: null,
+        sourceThreadId: null,
+        assetIds: [],
+        automationIds: [],
+        createdAt: "2026-11-06T00:00:00.000Z",
+        updatedAt: "2026-11-06T00:00:00.000Z",
+      },
+      content: "body",
+      operation: "update",
+      author: "guest",
+      authorThreadId: null,
+      authorGuestRef: "a".repeat(64),
+      createdAt: "2026-11-06T00:00:00.000Z",
+    };
+    expect(Schema.decodeUnknownSync(PageVersion)(record)).toEqual(record);
+    for (const bad of [
+      { authorGuestRef: undefined },
+      { authorGuestRef: "bad" },
+      { authorThreadId: "thread" },
+      { author: "local-user" },
+    ])
+      expect(() => Schema.decodeUnknownSync(PageVersion)({ ...record, ...bad })).toThrow();
+    expect(() =>
+      Schema.decodeUnknownSync(PageComment)({
+        id: "c",
+        pageId: "page",
+        revision: 2,
+        content: "comment",
+        author: "guest",
+        authorThreadId: null,
+        createdAt: record.createdAt,
+      }),
+    ).toThrow();
+  });
+
   it("preserves mutation discriminants and CAS fields in the tagged WebSocket union", () => {
     const common = {
       requestId: "retry-this-write",

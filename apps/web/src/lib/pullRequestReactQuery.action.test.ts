@@ -4,7 +4,7 @@ import type {
   GitStatusResult,
   NativeApi,
   ProjectId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

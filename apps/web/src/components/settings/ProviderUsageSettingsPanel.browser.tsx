@@ -4,7 +4,7 @@
 
 import "../../index.css";
 
-import { DEFAULT_SERVER_SETTINGS, type ProviderKind } from "@synara/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ProviderKind } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -652,6 +652,38 @@ describe("ProviderUsageSettingsPanel", () => {
 });
 
 describe("rail usage account selection", () => {
+  it("adds a third account to the sidebar with no account limit", async () => {
+    appSettingsHarness.railOverride = {
+      disabledProviders: [],
+      railUsageProviders: ["codex", "claudeAgent"],
+      railUsageInstanceIds: null,
+      railUsageWindow: "both",
+    };
+    try {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false, enabled: false } },
+      });
+      client.setQueryData(serverQueryKeys.settings(), DEFAULT_SERVER_SETTINGS);
+      client.setQueryData(serverQueryKeys.allProviderUsage(), []);
+      await render(
+        <QueryClientProvider client={client}>
+          <ProviderUsageSettingsPanel />
+        </QueryClientProvider>,
+      );
+      await expect.element(page.getByText("Sidebar usage rings", { exact: true })).toBeVisible();
+      const opencode = page.getByRole("switch", {
+        name: "Show OpenCode usage at the bottom of the sidebar",
+      });
+      await expect.element(opencode).not.toBeDisabled();
+      await opencode.click();
+      expect(appSettingsHarness.updateSettings).toHaveBeenCalledWith({
+        railUsageInstanceIds: ["codex", "claudeAgent", "opencode"],
+      });
+    } finally {
+      appSettingsHarness.railOverride = null;
+    }
+  });
+
   it("keeps disabled sidebar preferences when selecting another provider", async () => {
     appSettingsHarness.railOverride = {
       disabledProviders: ["codex", "claudeAgent"],

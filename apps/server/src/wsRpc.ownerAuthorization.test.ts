@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -49,5 +50,16 @@ describe("WebSocket owner-only RPC authorization", () => {
       changed: true,
     });
     expect(calls).toBe(1);
+  });
+});
+
+describe("final WebSocket registry owner-only list", () => {
+  it("guards every Computer History RPC, so a paired client cannot read the owner's timeline", async () => {
+    const source = await readFile(new URL("./wsRpc.ts", import.meta.url), "utf8");
+    const block = /const ownerOnlyMethods = new Set\(\[([\s\S]*?)\]\);/u.exec(source)?.[1];
+    expect(block).toBeDefined();
+    expect(block).toContain("...COMPUTER_HISTORY_WS_METHODS");
+    // Individually listed history methods would let a newly added read slip through.
+    expect(block).not.toMatch(/WS_METHODS\.computerHistory/u);
   });
 });

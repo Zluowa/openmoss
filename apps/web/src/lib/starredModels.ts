@@ -4,12 +4,12 @@
 // Layer: Web local-storage helpers used by the composer model picker and model cycle shortcuts.
 // Depends on: legacy per-provider favorite slugs (modelFavorites) for the one-time seed.
 
-import type { ProviderInstanceId, ProviderKind } from "@synara/contracts";
+import type { ProviderInstanceId, ProviderKind } from "@moss/contracts";
 import { Schema } from "effect";
 
 import { isProviderKind } from "../providerOrdering";
 import { FAVORITE_MODEL_STORAGE_KEYS, readFavoriteModelSlugs } from "./modelFavorites";
-import { inferLegacyProviderKindFromInstanceId } from "@synara/shared/providerInstances";
+import { inferLegacyProviderKindFromInstanceId } from "@moss/shared/providerInstances";
 
 export const STARRED_MODELS_STORAGE_KEY = "moss:starred-models:v1";
 

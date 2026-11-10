@@ -13,9 +13,9 @@ import type {
   OrchestrationThreadDetailSnapshot,
   ThreadGuestMessage,
   ThreadId,
-} from "@synara/contracts";
+} from "@moss/contracts";
 
-import { parseGuestMessageAttribution } from "@synara/shared/guestShareAttribution";
+import { parseGuestMessageAttribution } from "@moss/shared/guestShareAttribution";
 import type { useStore } from "~/store";
 import type { ChatMessage } from "~/types";
 import type { MossLocaleCode } from "~/uiLocale";

@@ -9,7 +9,7 @@ import {
   ShareRelayRegisterResponse,
   type GuestShareId,
   type ShareRelayRegisterRequest,
-} from "@synara/contracts";
+} from "@moss/contracts";
 import { Effect, Schema } from "effect";
 
 import { guestShareOwnerError, type GuestShareOwnerError } from "./Errors.ts";

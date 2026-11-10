@@ -1,4 +1,4 @@
-import { verifyHtmlRenderFrameAccess } from "@synara/shared/htmlRenderFrameAccess";
+import { verifyHtmlRenderFrameAccess } from "@moss/shared/htmlRenderFrameAccess";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {

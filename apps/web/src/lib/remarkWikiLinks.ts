@@ -1,4 +1,4 @@
-import { isLocalAbsolutePath, joinWorkspaceRelativePath } from "@synara/shared/path";
+import { isLocalAbsolutePath, joinWorkspaceRelativePath } from "@moss/shared/path";
 import type { Root, RootContent, Text } from "mdast";
 import { decodeString } from "micromark-util-decode-string";
 

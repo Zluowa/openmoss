@@ -5,31 +5,36 @@ import { createHash, randomUUID } from "node:crypto";
 import { pipeline } from "node:stream/promises";
 import { createGunzip, createGzip } from "node:zlib";
 
-import { Effect } from "effect";
+import { Cause, Effect, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import {
   MIGRATION_RECOVERY_MAX_RESUME_ATTEMPTS,
   migrationBackupDirectory,
   migrationBackupProvenancePath,
   migrationRecoveryMarkerPath,
+  migrationRepairFailurePath,
   parseMigrationRecoveryResumeState,
+  parseMigrationRepairFailureRecord,
+  serializeMigrationRepairFailure,
+  type MigrationRepairFailure,
   type MigrationSchemaTooNewRecovery,
-} from "@synara/shared/migrationRecovery";
+} from "@moss/shared/migrationRecovery";
 export {
   migrationBackupDirectory,
   migrationBackupProvenancePath,
   migrationRecoveryMarkerPath,
-} from "@synara/shared/migrationRecovery";
+} from "@moss/shared/migrationRecovery";
 
 import {
   sameFileIdentity,
   syncDirectoryEntry,
   syncRegularFile,
-} from "@synara/shared/filesystemPlatform";
+} from "@moss/shared/filesystemPlatform";
 import { ensurePrivateDirectorySync, repairPrivateFile } from "../privatePathPermissions.ts";
 import { withDatabaseLifecycleLock } from "./DatabaseLifecycleLock.ts";
 import {
   MigrationBackupAuthorization,
+  T3CODE_IMPORT_DESCRIPTOR,
   inspectCurrentMigrationLineage,
   type MigrationLineageClassification,
 } from "./MigrationLineage.ts";
@@ -222,6 +227,9 @@ function migrationLineageFingerprint(
     .digest("hex");
 }
 
+const canonicalMigrationName = (migrationId: number): string =>
+  migrationEntries.find(([id]) => id === migrationId)?.[1] ?? "<none>";
+
 export const inspectMigrationBackupPlan = Effect.gen(function* () {
   const inspection = yield* inspectCurrentMigrationLineage;
   if (!inspection.trackerExists && !inspection.hasUserSchema) {
@@ -249,6 +257,12 @@ export const inspectMigrationBackupPlan = Effect.gen(function* () {
         targetVersion: latestMigrationId,
         sourceClassification: classification.kind,
       };
+    case "mossbot-161-prefix":
+      return {
+        sourceVersion: "mossbot-v161",
+        targetVersion: latestMigrationId,
+        sourceClassification: classification.kind,
+      };
     case "too-new":
       return yield* Effect.fail(
         new MigrationSchemaTooNewError({
@@ -256,32 +270,28 @@ export const inspectMigrationBackupPlan = Effect.gen(function* () {
           latestSupportedMigrationId: classification.latestSupportedMigrationId,
         }),
       );
-    case "unknown-or-mixed":
-      if (
-        classification.firstDivergedId === null ||
-        classification.highWaterMark === null ||
-        classification.firstDivergedId <= LAST_SHARED_LINEAGE_MIGRATION_ID
-      ) {
-        return yield* Effect.fail(
-          new MigrationLineageError({
-            firstDivergedId: classification.firstDivergedId ?? 0,
-            expectedName: classification.expectedName,
-            recordedName: classification.recordedName,
-          }),
-        );
-      }
+    case "t3code-import-prefix":
       return {
         sourceVersion: `imported-v${classification.highWaterMark}-from${classification.firstDivergedId}`,
         targetVersion: latestMigrationId,
         sourceClassification: classification.kind,
         lineageDivergence: {
           firstDivergedId: classification.firstDivergedId,
-          expectedName: classification.expectedName,
-          recordedName: classification.recordedName,
+          expectedName: canonicalMigrationName(classification.firstDivergedId),
+          recordedName: T3CODE_IMPORT_DESCRIPTOR[classification.firstDivergedId - 1]![1],
           highWaterMark: classification.highWaterMark,
           lineageFingerprint: migrationLineageFingerprint(inspection.tracker),
         },
       };
+    case "unknown-or-mixed":
+      // No consent is offered: there is no repair to consent to.
+      return yield* Effect.fail(
+        new MigrationLineageError({
+          firstDivergedId: classification.firstDivergedId ?? 0,
+          expectedName: classification.expectedName,
+          recordedName: classification.recordedName,
+        }),
+      );
   }
 });
 
@@ -902,6 +912,94 @@ export interface RunWithPreMigrationBackupOptions {
   readonly divergenceConsent?: string | undefined;
 }
 
+/**
+ * The adopted-lineage repair failed and its transaction rolled back, so the
+ * database is exactly what it was. The record beside the database stops the
+ * consent prompt from promising the same repair on every launch, and a build
+ * with a newer target offers it again.
+ */
+export class MigrationRepairFailedError extends Error {
+  readonly _tag = "MigrationRepairFailedError";
+
+  constructor(readonly failure: MigrationRepairFailure) {
+    super(
+      `Moss could not upgrade ${failure.databasePath} (${failure.sourceVersion} to ${failure.targetVersion}) and left it unchanged: ${failure.reason}\n` +
+        serializeMigrationRepairFailure(failure),
+    );
+    this.name = "MigrationRepairFailedError";
+  }
+}
+
+const REPAIR_FAILURE_REASON_LIMIT = 600;
+
+function repairFailureReason(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.replace(/\s+/gu, " ").slice(0, REPAIR_FAILURE_REASON_LIMIT);
+}
+
+const readMatchingRepairFailure = (
+  dbPath: string,
+  plan: MigrationBackupPlan,
+): Effect.Effect<MigrationRepairFailure | null, unknown> =>
+  attemptPromise(async () => {
+    const recordPath = migrationRepairFailurePath(dbPath);
+    const text = await fs.readFile(recordPath, "utf8").catch((cause) => {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw cause;
+    });
+    if (text === null) return null;
+    const record = parseMigrationRepairFailureRecord(text);
+    if (
+      record &&
+      record.targetVersion === plan.targetVersion &&
+      record.lineageFingerprint === plan.lineageDivergence?.lineageFingerprint
+    ) {
+      return record;
+    }
+    // Another target or another database: this attempt deserves its own outcome.
+    await fs.unlink(recordPath).catch(() => undefined);
+    return null;
+  });
+
+/**
+ * Runs an adopted repair. A failure that rolled back cleanly clears the marker and
+ * records the failure, because nothing needs restoring. If the tracker did not
+ * return to what the plan inspected, the marker stays and the backup is the way back.
+ */
+const withRepairFailureHandling = <A, E, R>(
+  dbPath: string,
+  plan: MigrationBackupPlan,
+  backupPath: string,
+  migration: Effect.Effect<A, E, R>,
+) =>
+  migration.pipe(
+    // The migrator reports a failing statement as a defect, so this has to see the whole cause.
+    Effect.catchCause((cause) =>
+      Effect.gen(function* () {
+        if (Cause.hasInterrupts(cause)) return yield* Effect.failCause(cause);
+        const after = yield* inspectCurrentMigrationLineage;
+        const rolledBack =
+          migrationLineageFingerprint(after.tracker) === plan.lineageDivergence?.lineageFingerprint;
+        if (!rolledBack) return yield* Effect.failCause(cause);
+        const failure: MigrationRepairFailure = {
+          version: 1,
+          databasePath: path.resolve(dbPath),
+          backupPath,
+          sourceVersion: plan.sourceVersion,
+          targetVersion: plan.targetVersion,
+          lineageFingerprint: plan.lineageDivergence?.lineageFingerprint ?? "",
+          reason: repairFailureReason(Cause.squash(cause)),
+          failedAt: new Date().toISOString(),
+        };
+        yield* attemptPromise(() =>
+          writePrivateJsonFile(migrationRepairFailurePath(dbPath), failure),
+        );
+        yield* removeRecoveryMarker(dbPath);
+        return yield* Effect.fail(new MigrationRepairFailedError(failure));
+      }),
+    ),
+  );
+
 export const runWithPreMigrationBackup = <A, E, R>(
   dbPath: string,
   migration: Effect.Effect<A, E, R>,
@@ -910,6 +1008,12 @@ export const runWithPreMigrationBackup = <A, E, R>(
   Effect.gen(function* () {
     const plan = yield* inspectMigrationBackupPlan;
     if (plan) {
+      const previousFailure = plan.lineageDivergence
+        ? yield* readMatchingRepairFailure(dbPath, plan)
+        : null;
+      if (previousFailure) {
+        return yield* Effect.fail(new MigrationRepairFailedError(previousFailure));
+      }
       const challenge = createMigrationDivergenceConsentChallenge(dbPath, plan);
       if (challenge && options.divergenceConsent !== challenge.consentToken) {
         return yield* Effect.fail(new MigrationDivergenceConsentRequiredError(challenge));
@@ -923,9 +1027,16 @@ export const runWithPreMigrationBackup = <A, E, R>(
       // explicitly restores the known-good snapshot.
       yield* writeRecoveryMarker(dbPath, recoveryPayload);
     }
-    const result = yield* plan?.sourceClassification === "moss-3cefd5a-prefix"
+    const adopting =
+      plan?.sourceClassification === "mossbot-161-prefix" ||
+      plan?.sourceClassification === "moss-3cefd5a-prefix" ||
+      plan?.sourceClassification === "t3code-import-prefix";
+    const guarded = adopting
       ? migration.pipe(Effect.provideService(MigrationBackupAuthorization, true))
       : migration;
+    const result = yield* plan?.lineageDivergence && backup
+      ? withRepairFailureHandling(dbPath, plan, backup.backupPath, guarded)
+      : guarded;
     if (backup && recoveryPayload) {
       yield* writeCompletedMigrationProvenance(dbPath, recoveryPayload);
       yield* removeRecoveryMarker(dbPath);
@@ -1427,6 +1538,24 @@ export const inspectPendingMigrationRecovery = (dbPath: string) =>
  * duplicate-looking error as success would merely hide the restore point while
  * leaving the same migration ready to fail again on the next startup.
  */
+/** The repair a marker recorded, when it recorded one, so a resume can report its failure the same way. */
+function repairPlanFromMarker(marker: MigrationRecoveryMarker): MigrationBackupPlan | null {
+  const { lineageDivergence, sourceVersion, targetVersion } = marker.payload;
+  if (
+    typeof lineageDivergence !== "object" ||
+    lineageDivergence === null ||
+    typeof sourceVersion !== "string" ||
+    typeof targetVersion !== "number"
+  ) {
+    return null;
+  }
+  return {
+    sourceVersion,
+    targetVersion,
+    lineageDivergence: lineageDivergence as MigrationBackupPlan["lineageDivergence"],
+  };
+}
+
 export const resumeMarkedMigration = <A, E, R>(
   dbPath: string,
   marker: MigrationRecoveryMarker,
@@ -1445,7 +1574,15 @@ export const resumeMarkedMigration = <A, E, R>(
       lastResumeAt: new Date().toISOString(),
     };
     yield* attemptPromise(() => writePrivateJsonFile(marker.markerPath, resumedPayload));
-    const result = yield* migration;
+    // The marker proves the durable backup exists, and consent was given for the attempt it records.
+    const authorized = migration.pipe(Effect.provideService(MigrationBackupAuthorization, true));
+    const plan = repairPlanFromMarker(marker);
+    const sqlClient = yield* Effect.serviceOption(SqlClient.SqlClient);
+    const result = yield* plan && Option.isSome(sqlClient)
+      ? withRepairFailureHandling(dbPath, plan, marker.backupPath, authorized).pipe(
+          Effect.provideService(SqlClient.SqlClient, sqlClient.value),
+        )
+      : authorized;
     yield* writeCompletedMigrationProvenance(dbPath, resumedPayload);
     yield* removeRecoveryMarker(dbPath);
     yield* Effect.logInfo("Interrupted database migration completed on resume", {

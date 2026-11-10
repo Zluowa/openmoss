@@ -1,16 +1,19 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { chmod, rm } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import {
   cuaComputerTaskKey,
   type CuaComputerTask,
   type CuaPreviewTarget,
-} from "@synara/shared/cuaDriverProtocol";
+} from "@moss/shared/cuaDriverProtocol";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
+import {
+  createComputerSocketDirectory,
+  type ComputerSocketDirectory,
+} from "./computerSocketDirectory";
 import { stopNativeHelper } from "./stopNativeHelper";
 
 /** Channel carrying live JPEG frames to the renderer: {windowId, seq, jpeg}. */
@@ -68,8 +71,8 @@ export class ComputerFrameTap implements ComputerFrameTapHost {
   private revision = 0;
   private appliedRevision = -1;
   private sequence = 0;
-  private directory: string | undefined;
-  private directoryPromise: Promise<string> | undefined;
+  private directory: ComputerSocketDirectory | undefined;
+  private directoryPromise: Promise<ComputerSocketDirectory> | undefined;
   private readonly deadTargets = new Set<string>();
 
   constructor(
@@ -125,7 +128,7 @@ export class ComputerFrameTap implements ComputerFrameTapHost {
     const directory = this.directory;
     this.directory = undefined;
     this.directoryPromise = undefined;
-    if (directory) await rm(directory, { recursive: true, force: true });
+    if (directory) await directory.remove();
   }
 
   private reconcile(): Promise<void> {
@@ -179,12 +182,11 @@ export class ComputerFrameTap implements ComputerFrameTapHost {
     return this.subscribed ? this.desired : undefined;
   }
 
-  private async socketDirectory(): Promise<string> {
+  private async socketDirectory(): Promise<ComputerSocketDirectory> {
     if (this.directory) return this.directory;
     if (!this.directoryPromise) {
       const pending = (async () => {
-        const directory = await mkdtemp(join(tmpdir(), "moss-frames-"));
-        await chmod(directory, 0o700);
+        const directory = await createComputerSocketDirectory("frames");
         this.directory = directory;
         return directory;
       })();
@@ -201,7 +203,7 @@ export class ComputerFrameTap implements ComputerFrameTapHost {
     const socketPath =
       process.platform === "win32"
         ? `\\\\.\\pipe\\moss-computer-frames-${randomUUID()}`
-        : join(directory, `tap-${randomUUID().slice(0, 8)}.sock`);
+        : join(directory.path, `tap-${randomUUID().slice(0, 8)}.sock`);
     let state: ActiveTap | undefined;
     const server = createServer((socket) => {
       if (state) this.attach(state, socket);
