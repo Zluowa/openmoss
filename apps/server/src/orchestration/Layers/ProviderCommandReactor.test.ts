@@ -208,6 +208,33 @@ describe("legacy provider blocker recovery", () => {
     expect(outcome._tag).toBe("rejected");
   });
 
+  it.each(["session/start", "session/new", "initialize", "authenticate"])(
+    "rejects a %s request failure: session setup never sends the message",
+    (method) => {
+      const outcome = classifyProviderAttemptOutcome(
+        Exit.fail(
+          new ProviderAdapterRequestError({
+            provider: "grok",
+            method,
+            detail:
+              "Grok is not authenticated for headless ACP. Run `grok login` (or launch `grok`) and retry.",
+          }),
+        ),
+      );
+      expect(outcome._tag).toBe("rejected");
+    },
+  );
+
+  it.each(["session/prompt", "turn/start", "session/set_model"])(
+    "keeps a %s request failure uncertain",
+    (method) => {
+      const outcome = classifyProviderAttemptOutcome(
+        Exit.fail(new ProviderAdapterRequestError({ provider: "grok", method, detail: "lost" })),
+      );
+      expect(outcome._tag).toBe("uncertain");
+    },
+  );
+
   it("keeps process lifecycle failures uncertain", () => {
     const outcome = classifyProviderAttemptOutcome(
       Exit.fail(

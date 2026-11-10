@@ -192,7 +192,8 @@ describe("ChatComposerSendButton", () => {
       },
       provider: "claudeAgent" as const,
       reason: "Claude Work is not authenticated yet.",
-      expected: "Claude Work 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。",
+      expected:
+        "Claude Work 尚未登录。请在「设置 → 模型账号」中登录，或在模型菜单里把服务商换成 Moss。",
     },
     {
       name: "managed runtime failure",
@@ -605,6 +606,8 @@ describe("runChatProviderSendPreflight", () => {
         status: unauthenticated,
         unavailableReason: "Claude Work is not authenticated yet.",
       }),
-    ).toBe("Claude Work 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。");
+    ).toBe(
+      "Claude Work 尚未登录。请在「设置 → 模型账号」中登录，或在模型菜单里把服务商换成 Moss。",
+    );
   });
 });

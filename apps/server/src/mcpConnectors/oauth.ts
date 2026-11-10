@@ -4,6 +4,7 @@
 //   the origin-pinned outbound HTTP client.
 // Layer: Connectors runtime (promise-based; driven by the McpConnectors layer)
 
+import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
 import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
@@ -16,7 +17,7 @@ import type {
 import { outboundHttp } from "@moss/shared/outboundHttp";
 
 export const MOSS_OAUTH_CLIENT_NAME = "Moss";
-export const MOSS_OAUTH_CLIENT_URI = "https://trymoss.com";
+export const MOSS_OAUTH_CLIENT_URI = MOSS_OFFICIAL_SITE_URL;
 const OAUTH_TIMEOUT_MS = 20_000;
 const OAUTH_MAX_RESPONSE_BYTES = 1024 * 1024;
 

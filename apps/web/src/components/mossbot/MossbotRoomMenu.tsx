@@ -46,15 +46,15 @@ export function MossbotRoomMenu({
           render={
             <Button
               variant="ghost"
-              size="icon"
-              className="mossbot-round-button mossbot-overflow"
+              size="icon-sm"
+              className="mossbot-overflow"
               aria-label={`${t("Group chat actions")} · ${room.name}`}
             />
           }
         >
           <EllipsisIcon />
         </MenuTrigger>
-        <ComposerPickerMenuPopup align="end" className="mossbot-menu">
+        <ComposerPickerMenuPopup align="end">
           <MenuItem
             onClick={
               onManageMembers ??

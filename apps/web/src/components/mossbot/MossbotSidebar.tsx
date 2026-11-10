@@ -9,10 +9,16 @@ import { useProjectAgentSummaries } from "~/components/chat/project/useProjectAg
 import { SidebarPanelTitle } from "~/components/SidebarPanelTitle";
 import { SidebarPrimaryAction } from "~/components/SidebarPrimaryAction";
 import { SidebarIconButton } from "~/components/SidebarIconButton";
-import { SidebarGroup, SidebarMenu, useSidebar } from "~/components/ui/sidebar";
+import {
+  SidebarGroup,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  useSidebar,
+} from "~/components/ui/sidebar";
 import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
-import { PlusIcon, SearchIcon } from "~/lib/icons";
+import { LinkIcon, PlusIcon, SearchIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useMossbotCopy } from "./mossbot.copy";
 
@@ -80,7 +86,7 @@ export function MossbotSidebar(props: { activeProjectId: ProjectId | null; compa
           </DisclosureRegion>
         </SidebarGroup>
       )}
-      <div className="min-h-0 px-1.5 py-1">
+      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1">
         <MossbotConversationRoster
           sidebar
           compact={props.compact ?? false}
@@ -102,22 +108,22 @@ export function MossbotSidebar(props: { activeProjectId: ProjectId | null; compa
         )}
       </div>
       {!props.compact && (
-        <div className="mt-auto px-4 py-5">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mb-2 -ml-2 justify-start text-muted-foreground"
-            onClick={() => {
-              void navigate({ to: "/settings", search: { section: "integrations" } });
-              if (isMobile) setOpenMobile(false);
-            }}
-          >
-            {t("Connect another agent")}
-          </Button>
-          <p className="text-ui-xs leading-relaxed text-muted-foreground/70">
-            {t("A little help. A little more room to think.")}
-          </p>
-        </div>
+        <SidebarGroup className="mt-auto px-1.5 pb-2">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="text-muted-foreground"
+                onClick={() => {
+                  void navigate({ to: "/settings", search: { section: "integrations" } });
+                  if (isMobile) setOpenMobile(false);
+                }}
+              >
+                <LinkIcon />
+                <span>{t("Connect another agent")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
       )}
       {creatingRoom && (
         <MossbotRoomCreateDialog

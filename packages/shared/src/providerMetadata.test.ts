@@ -2,6 +2,7 @@
 // Purpose: Prevents broken same-origin setup paths from reaching native external navigation.
 // Layer: Shared presentation metadata tests
 import { describe, expect, it } from "vitest";
+import { MOSS_OFFICIAL_SITE_URL } from "./desktopIdentity";
 import { PROVIDER_DESCRIPTORS } from "./providerMetadata";
 
 describe("agent setup guides", () => {
@@ -12,9 +13,10 @@ describe("agent setup guides", () => {
     expect(guide.username).toBe("");
     expect(guide.password).toBe("");
   });
-  it("opens the verified Cursor CLI documentation instead of a missing Moss route", () => {
-    expect(PROVIDER_DESCRIPTORS.find((provider) => provider.kind === "cursor")?.setupDocsHref).toBe(
-      "https://cursor.com/docs/cli/overview",
-    );
+  it("opens Moss's official site for every agent's guide and usage link, never a vendor page", () => {
+    for (const provider of PROVIDER_DESCRIPTORS) {
+      expect(provider.setupDocsHref).toBe(MOSS_OFFICIAL_SITE_URL);
+      expect(provider.usage?.learnMoreHref ?? MOSS_OFFICIAL_SITE_URL).toBe(MOSS_OFFICIAL_SITE_URL);
+    }
   });
 });

@@ -119,7 +119,7 @@ describe("conversation parity pass 3", () => {
       const learnMore = page.getByRole("link", { name: "Learn more" });
       await expect.element(learnMore).toBeVisible();
       expect(learnMore.element().getAttribute("href")).toBe(
-        "https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it",
+        "https://zluowa.github.io/moss-releases/",
       );
       // Exactly three tiers; the third expresses its risk with color, not a text wall.
       const items = page.getByRole("menuitemradio").elements();
@@ -153,7 +153,7 @@ describe("conversation parity pass 3", () => {
       await openConfirmation();
       await expect.element(page.getByText("Turn on Full Access?")).toBeVisible();
       expect(page.getByRole("alertdialog").element().querySelector("a")?.getAttribute("href")).toBe(
-        "https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it",
+        "https://zluowa.github.io/moss-releases/",
       );
       for (const text of ["Files and folders", "Terminal commands", "Internet and connected apps"])
         await expect.element(page.getByText(text, { exact: true })).toBeVisible();

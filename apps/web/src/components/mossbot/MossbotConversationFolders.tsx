@@ -47,15 +47,15 @@ export function MossbotNewConversationMenu({
         render={
           <Button
             variant="ghost"
-            size="icon"
-            className={sidebar ? "mossbot-folder-menu" : "mossbot-round-button"}
+            size="icon-sm"
+            className={sidebar ? "sidebar-icon-button" : undefined}
             aria-label={t("New assistant or group")}
           />
         }
       >
         <PlusIcon />
       </MenuTrigger>
-      <ComposerPickerMenuPopup className="mossbot-menu" align="end">
+      <ComposerPickerMenuPopup align="end">
         <MenuItem onClick={onAssistant}>
           <PlusIcon />
           {t("New assistant")}
@@ -130,7 +130,7 @@ export function MossbotMoveToFolderMenu({
         <FoldersIcon />
         {t("Move to conversation group")}
       </MenuSubTrigger>
-      <ComposerPickerMenuSubPopup className="mossbot-menu">
+      <ComposerPickerMenuSubPopup>
         <MenuRadioGroup
           value={current ?? UNGROUPED_CONVERSATIONS}
           onValueChange={(id) =>
@@ -198,15 +198,15 @@ export function MossbotFolderSection({
                   render={
                     <Button
                       variant="ghost"
-                      size="icon"
-                      className="mossbot-folder-menu"
+                      size="icon-xs"
+                      className="text-muted-foreground"
                       aria-label={`${t("Conversation group actions")} · ${folder.name}`}
                     />
                   }
                 >
                   <EllipsisIcon />
                 </MenuTrigger>
-                <ComposerPickerMenuPopup className="mossbot-menu" align="end">
+                <ComposerPickerMenuPopup align="end">
                   <MenuItem onClick={() => setRenaming(true)}>
                     {t("Rename conversation group")}
                   </MenuItem>
@@ -226,7 +226,7 @@ export function MossbotFolderSection({
           }
         />
         <CollapsiblePanel>
-          <ul className="mossbot-assistant-list">{children}</ul>
+          <ul className="mossbot-assistant-list flex flex-col gap-px">{children}</ul>
         </CollapsiblePanel>
       </Collapsible>
       {renaming && <MossbotFolderDialog folderId={id} onClose={() => setRenaming(false)} />}

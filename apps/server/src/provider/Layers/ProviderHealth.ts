@@ -98,7 +98,10 @@ import {
   explicitMossEnvironmentKeys,
   type ProviderChildKind,
 } from "../../providerChildEnvironment.ts";
-import { buildOpenCodeServerProcessEnv } from "../providerBinaryResolution.ts";
+import {
+  buildOpenCodeServerProcessEnv,
+  resolveOpenCodeBinaryPath,
+} from "../providerBinaryResolution.ts";
 import { ServerSettingsService } from "../../serverSettings";
 import {
   codexStateBindingAccountFromSettings,
@@ -122,6 +125,7 @@ import {
 } from "../acp/CursorAcpCommand";
 import { hasDroidApiKeyEnv, resolveDroidCliBinaryPath } from "../acp/DroidAcpSupport";
 import { hasGrokApiKeyEnv } from "../acp/GrokAcpSupport";
+import { MOSS_MANAGED_GROK_CONFIG_ENV_KEY } from "../mossManagedGrokEnvironment";
 import {
   type AcpAgentSpec,
   KIMI_ACP_AGENT_SPEC,
@@ -2049,11 +2053,31 @@ export const makeCheckGrokProviderStatus = (
     const version = versionProbe.result;
     const parsedVersion = parseGenericCliVersion(`${version.stdout}\n${version.stderr}`);
     const hasApiKey = hasGrokApiKeyEnv(probeEnv);
+    // A Moss-managed Grok authenticates through its generated config, never a personal login.
+    const managed = environment?.[MOSS_MANAGED_GROK_CONFIG_ENV_KEY] !== undefined;
     // Sessions authenticate with the API key when one is set, otherwise with the
     // cached `grok login` session (ACP `cached_token`), so report the same source.
     const hasCachedLogin =
       !hasApiKey &&
+      !managed &&
       (yield* Effect.promise(() => readCachedLogin(probeEnv, paths?.homeDir))) !== null;
+    if (!hasApiKey && !managed && !hasCachedLogin) {
+      // Neither source a session could use exists, so a turn would fail at session
+      // start. Say so up front: the composer then offers sign-in (or Moss) before
+      // sending instead of showing "connected" and failing afterwards.
+      return {
+        provider: GROK_PROVIDER,
+        instanceId: GROK_PROVIDER,
+        driver: GROK_PROVIDER,
+        status: "error" as const,
+        available: true,
+        authStatus: "unauthenticated" as const,
+        version: parsedVersion,
+        checkedAt,
+        message:
+          "Grok is not signed in. Run `grok login` to sign in, or set XAI_API_KEY before starting a session.",
+      } satisfies ServerProviderStatus;
+    }
 
     return {
       provider: GROK_PROVIDER,
@@ -2061,17 +2085,14 @@ export const makeCheckGrokProviderStatus = (
       driver: GROK_PROVIDER,
       status: "ready" as const,
       available: true,
-      authStatus: hasApiKey || hasCachedLogin ? ("authenticated" as const) : ("unknown" as const),
+      authStatus: "authenticated" as const,
       version: parsedVersion,
       checkedAt,
       ...(hasApiKey
         ? { authType: "apiKey", authLabel: "xAI API Key" }
         : hasCachedLogin
           ? { authType: "grokLogin", authLabel: "Grok Account" }
-          : {
-              message:
-                "Grok CLI is installed. Run `grok` to authenticate locally, or set XAI_API_KEY before starting a session.",
-            }),
+          : {}),
     } satisfies ServerProviderStatus;
   });
 
@@ -2230,7 +2251,9 @@ export const makeCheckOpenCodeProviderStatus = (
         experimentalWebSockets: connection?.experimentalWebSockets,
       });
     }
-    const executable = expandHomePath(nonEmptyTrimmed(binaryPath) ?? "opencode");
+    const executable = resolveOpenCodeBinaryPath(
+      expandHomePath(nonEmptyTrimmed(binaryPath) ?? "opencode"),
+    );
     const probeEnvResult = tryMakeProviderProbeEnv(
       OPENCODE_PROVIDER,
       environment,
@@ -3849,7 +3872,7 @@ export function makeProviderHealthLive(options?: {
           let installedVersion = target.installedVersion;
           if (target.provider === "opencode" && installedVersion === undefined) {
             const probe = yield* probeProviderCliVersion(
-              runOpenCodeCommand(["--version"], binaryPath ?? "opencode", updateEnv),
+              runOpenCodeCommand(["--version"], resolveOpenCodeBinaryPath(binaryPath), updateEnv),
               OPENCODE_HEALTH_TIMEOUT_MS,
             ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
             if (probe.outcome !== "success")

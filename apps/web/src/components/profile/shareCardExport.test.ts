@@ -10,7 +10,7 @@ describe("shareIntentUrl", () => {
     );
 
     const zhReddit = new URL(shareIntentUrl("reddit", "zh-CN"));
-    expect(zhReddit.searchParams.get("url")).toBe("https://trymoss.com");
+    expect(zhReddit.searchParams.get("url")).toBe("https://zluowa.github.io/moss-releases/");
     expect(zhReddit.searchParams.get("title")).toBe("我的 Moss 开发数据");
 
     const enTweet = new URL(shareIntentUrl("x", "en"));

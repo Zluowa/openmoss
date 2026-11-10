@@ -38,7 +38,7 @@ import {
 import { COMPOSER_PICKER_MODEL_LIST_SCROLL_CLASS_NAME } from "./composerPickerStyles";
 import { PICKER_PANEL_ROW_SELECTED_CLASS_NAME } from "./pickerPanelStyles";
 
-/** The agents Moss ships with: a signed-out person is offered Moss for them. */
+/** The agents Moss ships its own CLI for. */
 const MOSS_BUNDLED_AGENTS: ReadonlySet<ProviderKind> = new Set(["codex", "claudeAgent"]);
 
 /** One provider (服务商) an agent can take its models from: one provider instance. */
@@ -111,7 +111,7 @@ function mossSignInTab(
 
 // One tab per enabled account, so a second Codex or Claude account is as reachable as
 // another provider. A started thread stays on its account: siblings are listed but closed.
-// Signed out, the agents Moss ships with also list Moss, which leads to signing in.
+// Signed out, every agent Moss can serve also lists Moss, which leads to signing in.
 export function resolveComposerModelPickerProviderTabs(input: {
   options: ReadonlyArray<{ value: ProviderKind; label: string }>;
   providers: ReadonlyArray<ServerProviderStatus> | undefined;
@@ -204,10 +204,16 @@ export function resolveComposerModelPickerProviderTabs(input: {
       mossSignIn: false,
       blocked: lockedToSibling(tab.instanceId),
     }));
+    // Every agent Moss's gateway serves offers the Moss account next to the local one.
+    // Moss ships Codex and Claude itself; the other agents' Moss lane still runs their
+    // own CLI, so a missing CLI keeps reading as "install", not "sign in".
     const mossInstanceId = mossSourceInstanceIdForAgent(option.value);
+    const cliAvailable =
+      MOSS_BUNDLED_AGENTS.has(option.value) ||
+      resolved.some((tab) => tab.readiness.state !== "notInstalled");
     if (
       !signedInToMoss &&
-      MOSS_BUNDLED_AGENTS.has(option.value) &&
+      cliAvailable &&
       mossInstanceId !== undefined &&
       !resolved.some((tab) => tab.instanceId === mossInstanceId)
     ) {

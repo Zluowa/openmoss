@@ -1,6 +1,10 @@
 // Adapted from OpenMaus @ 58378e8 (Apache-2.0). See third_party/openmaus/UI-PORTS.md.
+// Moss owns the bar: RouteSurfaceHeader (sidebar controls, drag region, window-control and
+// traffic-light gutters) and the chat header's title and control sizes.
 import type { RefObject, ReactNode } from "react";
-import { ChevronRight } from "./icons";
+import { RouteSurfaceHeader } from "~/components/RouteSurface";
+import { CHAT_HEADER_CONTROL_CLASS_NAME } from "~/components/chat/chatHeaderControls";
+import { cn } from "~/lib/utils";
 import type { RoomBot } from "./host";
 import { BotAvatar } from "./host";
 import { MossbotGroupAvatar } from "../MossbotGroupAvatar";
@@ -25,34 +29,34 @@ export function RoomHeader({
   const more = members.length - SIMPLE_FACES;
   const membersLabel = `${t("Manage members")} · ${members.length}`;
   const faces = members.map((bot) => (
-    <span key={bot.id} className="rounded-full border-2 border-background bg-background p-0.5">
-      <BotAvatar bot={bot} size={24} />
+    <span key={bot.id} className="rounded-full border-2 border-background bg-background">
+      <BotAvatar bot={bot} size={20} />
     </span>
   ));
   return (
-    <div className="mossbot-room-header @container/roomhead">
-      <div data-roomhead-row className="flex min-w-0 flex-1 items-center justify-between gap-3">
-        <div className="shrink-0">{navigation}</div>
-        <div data-roomhead-identity className="flex min-w-0 items-center">
-          <button
-            type="button"
-            data-room-name
-            onClick={() => onOpenMembers()}
-            title={t("Group settings")}
-            aria-label={`${t("Group settings")} · ${group.name}`}
-            aria-haspopup="dialog"
-            className="mossbot-room-identity group flex min-w-0 items-center gap-2"
-          >
-            <MossbotGroupAvatar members={members} className="mossbot-room-header-avatar" />
-            <span className="truncate text-ui font-semibold text-foreground">{group.name}</span>
-            <ChevronRight
-              size={14}
-              aria-hidden="true"
-              className="-ml-1 w-0 shrink-0 text-muted-foreground opacity-0 transition-[width,margin,opacity] duration-150 group-hover:ml-0 group-hover:w-3.5 group-hover:opacity-100 group-focus-visible:ml-0 group-focus-visible:w-3.5 group-focus-visible:opacity-100"
-            />
-          </button>
-        </div>
-        <div data-roomhead-controls className="flex shrink-0 items-center">
+    <RouteSurfaceHeader divider={false} className="mossbot-room-header shrink-0">
+      <div data-roomhead-row className="flex min-w-0 flex-1 items-center gap-1">
+        {navigation}
+        <button
+          type="button"
+          data-room-name
+          onClick={() => onOpenMembers()}
+          title={t("Group settings")}
+          aria-label={`${t("Group settings")} · ${group.name}`}
+          aria-haspopup="dialog"
+          className={cn(
+            CHAT_HEADER_CONTROL_CLASS_NAME,
+            "flex min-w-0 items-center gap-2 px-1.5 text-ui text-foreground outline-none [-webkit-app-region:no-drag] hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-ring/60",
+          )}
+        >
+          <MossbotGroupAvatar members={members} className="mossbot-row-avatar" />
+          <span className="truncate font-medium">{group.name}</span>
+        </button>
+        <div className="min-w-0 flex-1" />
+        <div
+          data-roomhead-controls
+          className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
+        >
           {menu ?? (
             <button
               ref={membersTriggerRef}
@@ -61,12 +65,15 @@ export function RoomHeader({
               onClick={onOpenMembers}
               title={t("Manage members")}
               aria-label={membersLabel}
-              className="flex items-center rounded-full py-0.5 pl-1 pr-1.5 hover:bg-muted/60"
+              className={cn(
+                CHAT_HEADER_CONTROL_CLASS_NAME,
+                "flex items-center px-1 hover:bg-[var(--color-background-button-secondary-hover)]",
+              )}
             >
               <span className="flex items-center -space-x-1.5">
                 {faces.slice(0, SIMPLE_FACES)}
                 {more > 0 && (
-                  <span className="relative flex h-6 min-w-6 items-center justify-center rounded-full border border-background bg-muted px-1 text-ui-xs font-medium tabular-nums text-muted-foreground">
+                  <span className="relative flex h-5 min-w-5 items-center justify-center rounded-full border border-background bg-muted px-1 text-ui-xs font-medium tabular-nums text-muted-foreground">
                     +{more}
                   </span>
                 )}
@@ -75,6 +82,6 @@ export function RoomHeader({
           )}
         </div>
       </div>
-    </div>
+    </RouteSurfaceHeader>
   );
 }

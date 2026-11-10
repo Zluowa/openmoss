@@ -9,7 +9,9 @@ import {
   buildOpenCodeServerProcessEnv,
   commandExistsOnPath,
   directoriesContainingCommand,
+  isBrokenWindowsCommandShim,
   openCodeBinarySearchDirectories,
+  resolveOpenCodeBinaryPath,
   resolveWindowsLocalAppDataBinary,
 } from "./providerBinaryResolution.ts";
 
@@ -229,5 +231,98 @@ describe("appendDirectoriesToPathEnv", () => {
       pathExists: missingPath,
     });
     expect(env.PATH).toBe("/usr/bin");
+  });
+});
+
+describe("resolveOpenCodeBinaryPath", () => {
+  // A fake Windows disk: the owner's stale wrapper sits first on PATH and points at a
+  // desktop install folder that has since moved.
+  const LOCAL_BIN = "C:\\Users\\me\\.local\\bin";
+  const NPM_BIN = "C:\\Users\\me\\AppData\\Roaming\\npm";
+  const LOCALAPPDATA = "C:\\Users\\me\\AppData\\Local";
+  const STALE_SHIM = [
+    "@echo off",
+    "rem OpenCode shim -> desktop CLI",
+    '"%LOCALAPPDATA%\\Programs\\@opencodedesktop\\resources\\opencode-cli.exe" %*',
+  ].join("\r\n");
+  const NPM_SHIM = [
+    "@ECHO off",
+    "SET dp0=%~dp0",
+    'IF EXIST "%dp0%\\node.exe" ( SET "_prog=%dp0%\\node.exe" ) ELSE ( SET "_prog=node" )',
+    '"%_prog%"  "%dp0%\\node_modules\\opencode-ai\\bin\\opencode" %*',
+  ].join("\r\n");
+
+  function fakeDisk(files: Record<string, string>) {
+    const byLowerPath = new Map(
+      Object.entries(files).map(([path, text]) => [path.toLowerCase(), text] as const),
+    );
+    const exists = (path: string) => byLowerPath.has(path.toLowerCase());
+    return {
+      platform: "win32" as const,
+      env: {
+        PATH: [LOCAL_BIN, NPM_BIN].join(";"),
+        PATHEXT: ".COM;.EXE;.BAT;.CMD",
+        LOCALAPPDATA,
+      },
+      pathExists: exists,
+      isExecutable: exists,
+      readText: (path: string) => byLowerPath.get(path.toLowerCase()),
+    };
+  }
+
+  it("keeps the plain name when the first opencode on PATH works", () => {
+    const disk = fakeDisk({
+      [`${NPM_BIN}\\opencode.cmd`]: NPM_SHIM,
+      [`${NPM_BIN}\\node_modules\\opencode-ai\\bin\\opencode`]: "",
+    });
+    expect(resolveOpenCodeBinaryPath(undefined, disk)).toBe("opencode");
+  });
+
+  it("skips a wrapper whose target is gone for the next opencode on PATH", () => {
+    const disk = fakeDisk({
+      [`${LOCAL_BIN}\\opencode.cmd`]: STALE_SHIM,
+      [`${NPM_BIN}\\opencode.cmd`]: NPM_SHIM,
+      [`${NPM_BIN}\\node_modules\\opencode-ai\\bin\\opencode`]: "",
+    });
+    expect(isBrokenWindowsCommandShim(`${LOCAL_BIN}\\opencode.cmd`, disk)).toBe(true);
+    // npm's shim names a missing node.exe too, but its real target exists.
+    expect(isBrokenWindowsCommandShim(`${NPM_BIN}\\opencode.cmd`, disk)).toBe(false);
+    expect(resolveOpenCodeBinaryPath(undefined, disk).toLowerCase()).toBe(
+      `${NPM_BIN}\\opencode.cmd`.toLowerCase(),
+    );
+  });
+
+  it("prefers OpenCode desktop's current CLI when the stale wrapper aimed at the desktop CLI", () => {
+    const desktopCli = `${LOCALAPPDATA}\\Programs\\ai.opencode.desktop\\resources\\opencode-cli.exe`;
+    const disk = fakeDisk({
+      [`${LOCAL_BIN}\\opencode.cmd`]: STALE_SHIM,
+      [`${NPM_BIN}\\opencode.cmd`]: NPM_SHIM,
+      [`${NPM_BIN}\\node_modules\\opencode-ai\\bin\\opencode`]: "",
+      [desktopCli]: "",
+    });
+    expect(resolveOpenCodeBinaryPath(undefined, disk)).toBe(desktopCli);
+  });
+
+  it("falls back to OpenCode desktop's bundled CLI when PATH has only the stale wrapper", () => {
+    const desktopCli = `${LOCALAPPDATA}\\Programs\\ai.opencode.desktop\\resources\\opencode-cli.exe`;
+    const disk = fakeDisk({ [`${LOCAL_BIN}\\opencode.cmd`]: STALE_SHIM, [desktopCli]: "" });
+    expect(resolveOpenCodeBinaryPath(undefined, disk)).toBe(desktopCli);
+  });
+
+  it("finds OpenCode desktop's CLI when no opencode is on PATH at all", () => {
+    const desktopCli = `${LOCALAPPDATA}\\Programs\\ai.opencode.desktop\\resources\\opencode-cli.exe`;
+    expect(resolveOpenCodeBinaryPath(undefined, fakeDisk({ [desktopCli]: "" }))).toBe(desktopCli);
+    expect(resolveOpenCodeBinaryPath(undefined, fakeDisk({}))).toBe("opencode");
+  });
+
+  it("never second-guesses a configured binary or a shim it cannot read statically", () => {
+    const disk = fakeDisk({
+      [`${LOCAL_BIN}\\opencode.cmd`]: '"%MOSS_UNSET_VARIABLE%\\opencode.exe" %*',
+    });
+    expect(resolveOpenCodeBinaryPath("D:\\tools\\opencode.exe", disk)).toBe(
+      "D:\\tools\\opencode.exe",
+    );
+    expect(resolveOpenCodeBinaryPath(undefined, disk)).toBe("opencode");
+    expect(resolveOpenCodeBinaryPath(undefined, { ...disk, platform: "linux" })).toBe("opencode");
   });
 });

@@ -3,6 +3,7 @@ import { Check } from "./icons";
 import type { RoomBot as Bot } from "./host";
 import { BotAvatar } from "./host";
 import { cn } from "~/lib/utils";
+import { CHECKBOX_BOX_CLASS_NAME } from "~/components/ui/checkbox";
 
 export function BotPickerList({
   bots,
@@ -30,14 +31,15 @@ export function BotPickerList({
           role="checkbox"
           aria-label={b.name}
           aria-checked={picked.has(b.id)}
-          className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-muted/50"
+          className="flex min-h-control items-center gap-2 rounded-row px-2 text-left outline-none hover:bg-[color-mix(in_srgb,var(--foreground)_3.5%,transparent)] focus-visible:ring-1 focus-visible:ring-ring/60"
         >
-          <BotAvatar bot={b} state="happy" size={28} animated={false} />
+          <BotAvatar bot={b} state="happy" size={20} animated={false} />
           <span className="min-w-0 flex-1 truncate text-ui text-foreground">{b.name}</span>
           <span
             className={cn(
-              "flex size-[18px] shrink-0 items-center justify-center rounded-full border",
-              picked.has(b.id) ? "border-primary bg-primary text-white" : "border-border/60",
+              CHECKBOX_BOX_CLASS_NAME,
+              "size-4",
+              picked.has(b.id) && "border-primary bg-primary text-primary-foreground",
             )}
           >
             {picked.has(b.id) && <Check size={12} />}

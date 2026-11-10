@@ -1173,6 +1173,26 @@ describe("ComposerModelPicker with several accounts", () => {
     }
   });
 
+  it("offers a signed-out person Moss next to the local account for every agent Moss serves", async () => {
+    const screen = await mountPicker({
+      providers: [readyProvider("codex"), readyProvider("grok"), readyProvider("opencode")],
+    });
+    try {
+      await openAgents();
+      for (const agent of ["Grok", "OpenCode"]) {
+        await selectAgent(agent);
+        await openProviders();
+        expect(listRows("Provider").map((option) => option.getAttribute("aria-label"))).toEqual([
+          "Moss",
+          "Local account",
+        ]);
+        await expect.element(menuOption("Moss")).toHaveTextContent("MossSign in");
+      }
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("names a provider that cannot start in plain words, never its diagnostic", async () => {
     const screen = await mountPicker({
       providers: [

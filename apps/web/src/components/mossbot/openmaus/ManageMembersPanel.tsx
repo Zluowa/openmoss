@@ -6,6 +6,7 @@ import { BotPickerList } from "./BotPickerList";
 import { nextMemberIds } from "./room-members";
 import { DefaultResponderSelect } from "./DefaultResponderSelect";
 import { useMossbotCopy } from "../mossbot.copy";
+import { Button } from "~/components/ui/button";
 export function ManageMembersPanel({
   group,
   bots,
@@ -67,8 +68,25 @@ export function ManageMembersPanel({
     }
   };
   return (
-    <RoomDialog title={group.name} onClose={onClose} busy={busy}>
-      <label className="mb-4 flex items-center justify-between gap-2 text-ui-sm">
+    <RoomDialog
+      title={group.name}
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
+            {t("Cancel")}
+          </Button>
+          <Button
+            onClick={() => void save()}
+            disabled={!memberIds.length || memberIds.length > 12 || busy}
+          >
+            {t("Save changes")}
+          </Button>
+        </>
+      }
+    >
+      <label className="mb-3 flex items-center justify-between gap-2 text-ui">
         {t("Default responder")}
         <DefaultResponderSelect
           members={bots.filter((b) => picked.has(b.id))}
@@ -94,26 +112,6 @@ export function ManageMembersPanel({
           {saveError}
         </div>
       )}
-      <div className="mt-3 flex gap-2">
-        <button
-          disabled={busy}
-          onClick={onClose}
-          className="flex-1 rounded-lg bg-muted py-2 text-ui font-medium text-foreground hover:brightness-110"
-        >
-          {t("Cancel")}
-        </button>
-        <button
-          onClick={() => void save()}
-          disabled={!memberIds.length || memberIds.length > 12 || busy}
-          className="flex-1 rounded-lg bg-primary py-2 text-ui font-medium text-white hover:brightness-110 disabled:opacity-40"
-        >
-          {!memberIds.length
-            ? t("Save changes")
-            : memberIds.length === 1
-              ? t("Save changes")
-              : t("Save changes")}
-        </button>
-      </div>
     </RoomDialog>
   );
 }

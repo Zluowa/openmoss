@@ -584,9 +584,13 @@ describe("ComputerHistorySettingsPanel", () => {
     const offScreen = await render(<ComputerHistorySettingsPanel />);
     const offLearnMore = page.getByTestId("computer-history-off-learn-more");
     await expect.element(offLearnMore).toBeVisible();
-    expect(offLearnMore.element().getAttribute("href")).toBe("https://trymoss.com/docs");
+    expect(offLearnMore.element().getAttribute("href")).toBe(
+      "https://zluowa.github.io/moss-releases/",
+    );
     await offLearnMore.click();
-    expect(harness.api.shell.openExternal).toHaveBeenCalledWith("https://trymoss.com/docs");
+    expect(harness.api.shell.openExternal).toHaveBeenCalledWith(
+      "https://zluowa.github.io/moss-releases/",
+    );
 
     await page.getByRole("button", { name: "Turn on" }).click();
     const consent = page.getByRole("dialog", { name: "You're in control." });
@@ -621,16 +625,24 @@ describe("ComputerHistorySettingsPanel", () => {
     const onScreen = await render(<ComputerHistorySettingsPanel />);
     const enabledLearnMore = page.getByTestId("computer-history-enabled-learn-more");
     await expect.element(enabledLearnMore).toBeVisible();
-    expect(enabledLearnMore.element().getAttribute("href")).toBe("https://trymoss.com/docs");
+    expect(enabledLearnMore.element().getAttribute("href")).toBe(
+      "https://zluowa.github.io/moss-releases/",
+    );
     await enabledLearnMore.click();
-    expect(harness.api.shell.openExternal).toHaveBeenLastCalledWith("https://trymoss.com/docs");
+    expect(harness.api.shell.openExternal).toHaveBeenLastCalledWith(
+      "https://zluowa.github.io/moss-releases/",
+    );
 
     await page.getByRole("button", { name: "Choose" }).click();
     const permissionsLearnMore = page.getByTestId("computer-history-permissions-learn-more");
     await expect.element(permissionsLearnMore).toBeVisible();
-    expect(permissionsLearnMore.element().getAttribute("href")).toBe("https://trymoss.com/docs");
+    expect(permissionsLearnMore.element().getAttribute("href")).toBe(
+      "https://zluowa.github.io/moss-releases/",
+    );
     await permissionsLearnMore.click();
-    expect(harness.api.shell.openExternal).toHaveBeenLastCalledWith("https://trymoss.com/docs");
+    expect(harness.api.shell.openExternal).toHaveBeenLastCalledWith(
+      "https://zluowa.github.io/moss-releases/",
+    );
     await onScreen.unmount();
   });
 

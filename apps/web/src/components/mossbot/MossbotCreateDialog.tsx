@@ -1,4 +1,4 @@
-import { MossbotAvatar, MossbotAvatarPicker } from "./MossbotAvatar";
+import { MossbotAvatarPicker } from "./MossbotAvatar";
 import { useMossbotCopy } from "./mossbot.copy";
 import { useRef, useState } from "react";
 import type { ModelSelection, ProjectAgentOverview, ProjectId } from "@moss/contracts";
@@ -143,9 +143,8 @@ export function MossbotCreateDialog(props: {
     >
       <DialogPopup className="max-w-lg">
         <DialogHeader>
-          <MossbotAvatar icon={avatar} className="mb-3 size-12" />
           <DialogTitle>Create a Mossbot</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             Give your assistant a purpose. You can change its model, memory, and skills later.
           </DialogDescription>
         </DialogHeader>
@@ -179,9 +178,6 @@ export function MossbotCreateDialog(props: {
               disabled={busy}
               onChange={(event) => setInstructions(event.target.value)}
             />
-            <p className="text-ui-xs text-muted-foreground">
-              A standing brief for this assistant, kept separate from your other assistants.
-            </p>
           </div>
           <GroupModelRow
             title="CLI & model"

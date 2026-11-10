@@ -32,6 +32,7 @@ import {
 } from "../../provider/opencodeRuntime.ts";
 import { TextGenerationError } from "../Errors.ts";
 import { canUseDefaultOpenCodeServerPassword } from "../../provider/openCodeServerPassword.ts";
+import { resolveOpenCodeBinaryPath } from "../../provider/providerBinaryResolution.ts";
 import {
   type TextGenerationOperation,
   type TextGenerationShape,
@@ -405,7 +406,10 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       }
 
       const providerOptions = input.providerOptions?.[config.provider];
-      const binaryPath = providerOptions?.binaryPath?.trim() || config.cliSpec.defaultBinaryPath;
+      const binaryPath =
+        config.cliSpec.defaultBinaryPath === "opencode"
+          ? resolveOpenCodeBinaryPath(providerOptions?.binaryPath)
+          : providerOptions?.binaryPath?.trim() || config.cliSpec.defaultBinaryPath;
       const serverUrl = providerOptions?.serverUrl?.trim() || "";
       const explicitServerPassword = providerOptions?.serverPassword?.trim();
       const serverPassword =

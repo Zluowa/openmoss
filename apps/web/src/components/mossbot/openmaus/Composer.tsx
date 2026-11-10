@@ -8,6 +8,11 @@ import { mentionPicksFor } from "./mention-picks";
 import { ComposerSendButton } from "./ComposerSendButton";
 import { Square } from "./icons";
 import { DisclosureRegion } from "~/components/ui/DisclosureRegion";
+import {
+  COMPOSER_INPUT_SHELL_CLASS_NAME,
+  COMPOSER_INPUT_SURFACE_CLASS_NAME,
+} from "~/components/chat/composerPickerStyles";
+import { cn } from "~/lib/utils";
 import { composerFocusBehavior, MOBILE_CHAT_QUERY } from "../threebot/chatBehavior";
 import { useMossbotCopy } from "../mossbot.copy";
 import "./room.css";
@@ -82,7 +87,14 @@ export function Composer({
   };
   return (
     <div data-room-composer className="relative mx-auto w-full max-w-3xl px-4 pb-5">
-      <div className="mossbot-room-composer-surface relative rounded-2xl bg-background p-2 ring-[0.5px] ring-foreground/10 shadow-sm focus-within:ring-foreground/25">
+      <div
+        data-chat-composer-surface=""
+        className={cn(
+          COMPOSER_INPUT_SHELL_CLASS_NAME,
+          COMPOSER_INPUT_SURFACE_CLASS_NAME,
+          "mossbot-room-composer-surface relative p-2",
+        )}
+      >
         <div className="absolute bottom-full start-2 z-20 mb-2 w-72 max-w-[calc(100%-1rem)]">
           <DisclosureRegion open={mentionPickerOpen}>
             <MentionMenu
@@ -162,13 +174,13 @@ export function Composer({
               type="button"
               onClick={onStop}
               aria-label={t("Stop group")}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground"
+              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground"
             >
               <Square size={14} />
             </button>
           )}
           <ComposerSendButton
-            compact
+            compact={false}
             waits={working}
             label={t(working ? "Queue message" : "Send message")}
             title={t(working ? "Queue message" : "Send message")}

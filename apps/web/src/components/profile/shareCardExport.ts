@@ -4,6 +4,7 @@
 // opening a social composer is an explicit, user-initiated action.
 // Layer: web profile feature.
 
+import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
 import { toBlob } from "html-to-image";
 import type { MossLocaleCode } from "~/appSettings";
 import { copyPngBlobToDesktopClipboard } from "~/lib/desktopClipboard";
@@ -20,7 +21,7 @@ const SHARE_REDDIT_TITLE: Readonly<Record<MossLocaleCode, string>> = {
   en: "My Moss dev stats",
   "zh-CN": "我的 Moss 开发数据",
 };
-const SHARE_URL = "https://trymoss.com";
+const SHARE_URL = MOSS_OFFICIAL_SITE_URL;
 
 export type ShareTarget = "x" | "linkedin" | "reddit";
 

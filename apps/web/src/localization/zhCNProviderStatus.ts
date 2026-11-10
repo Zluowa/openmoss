@@ -113,6 +113,8 @@ const EXACT_STATUS: Readonly<Record<string, string>> = {
     "Cursor Agent 已认证，但模型发现失败。",
 
   // Grok and Droid
+  "Grok is not signed in. Run `grok login` to sign in, or set XAI_API_KEY before starting a session.":
+    "Grok 还没有登录。请运行 `grok login` 登录，或在开始会话前设置 XAI_API_KEY。",
   "Grok CLI is installed. Run `grok` to authenticate locally, or set XAI_API_KEY before starting a session.":
     "Grok CLI 已安装。请运行 `grok` 在本地认证，或在开始会话前设置 XAI_API_KEY。",
   "Droid CLI is installed. Moss can use the CLI's cached device-pairing login; run `droid` to authenticate locally if needed, or set FACTORY_API_KEY.":

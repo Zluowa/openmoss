@@ -4,6 +4,8 @@ import type { RoomBot } from "./host";
 import { RoomDialog } from "./host";
 import { useMossbotCopy } from "../mossbot.copy";
 import { BotPickerList } from "./BotPickerList";
+import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 
 /** Sidebar → New channel: name it, optionally file it under a context, pick its bots. */
 export function NewRoomPanel({
@@ -54,8 +56,22 @@ export function NewRoomPanel({
     }
   };
   return (
-    <RoomDialog title={t("New group chat")} onClose={onClose} busy={busy}>
-      <input
+    <RoomDialog
+      title={t("New group chat")}
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <>
+          <Button variant="ghost" disabled={busy} onClick={onClose}>
+            {t("Cancel")}
+          </Button>
+          <Button onClick={() => void create()} disabled={!picked.size || busy || picked.size > 12}>
+            {picked.size === 0 ? t("Choose assistants") : t("Create group")}
+          </Button>
+        </>
+      }
+    >
+      <Input
         autoFocus
         maxLength={100}
         value={name}
@@ -65,9 +81,9 @@ export function NewRoomPanel({
         }}
         aria-label={t("Group name")}
         placeholder={t("Name this conversation")}
-        className="mb-3 w-full rounded-lg bg-muted/70 px-3 py-2 text-ui text-foreground placeholder:text-muted-foreground focus:outline-none"
+        className="mb-2"
       />
-      <input
+      <Input
         value={section}
         maxLength={60}
         onChange={(e) => setSection(e.target.value)}
@@ -76,7 +92,7 @@ export function NewRoomPanel({
         }}
         placeholder={t("Context (optional)")}
         aria-label={t("Group context")}
-        className="mb-3 w-full rounded-lg bg-muted/70 px-3 py-2 text-ui text-foreground placeholder:text-muted-foreground focus:outline-none"
+        className="mb-3"
       />
       <BotPickerList
         disabled={busy}
@@ -90,17 +106,6 @@ export function NewRoomPanel({
           {error}
         </p>
       )}
-      <button
-        onClick={() => void create()}
-        disabled={!picked.size || busy || picked.size > 12}
-        className="mt-3 w-full rounded-lg bg-primary py-2 text-ui font-medium text-white hover:brightness-110 disabled:opacity-40"
-      >
-        {picked.size === 0
-          ? t("Choose assistants")
-          : picked.size === 1
-            ? t("Create group")
-            : t("Create group")}
-      </button>
     </RoomDialog>
   );
 }

@@ -103,15 +103,15 @@ export function MossbotAssistantMenu({
           render={
             <Button
               variant="ghost"
-              size="icon"
-              className="mossbot-round-button mossbot-overflow"
+              size="icon-sm"
+              className="mossbot-overflow"
               aria-label={`${t("Assistant actions")} · ${assistant.coordinatorName ?? "Moss"}`}
             />
           }
         >
-          <EllipsisIcon className="size-5" />
+          <EllipsisIcon />
         </MenuTrigger>
-        <ComposerPickerMenuPopup align="end" className="mossbot-menu">
+        <ComposerPickerMenuPopup align="end">
           {conversation ? (
             <>
               <MenuItem onClick={() => setSurface("profile")}>
@@ -198,7 +198,7 @@ export function MossbotAssistantMenu({
               <EllipsisIcon />
               {t("More")}
             </MenuSubTrigger>
-            <ComposerPickerMenuSubPopup className="mossbot-menu">
+            <ComposerPickerMenuSubPopup>
               {conversation && assistant.coordinatorThreadId && (
                 <MenuItem
                   onClick={() => {

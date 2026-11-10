@@ -1,3 +1,4 @@
+import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
 import type {
   ComputerHistoryApp,
   ComputerHistoryClearScope,
@@ -71,7 +72,7 @@ import { useTranslation, type TranslationKey } from "~/localization";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
 
-const COMPUTER_HISTORY_LEARN_MORE_URL = "https://trymoss.com/docs";
+const COMPUTER_HISTORY_LEARN_MORE_URL = MOSS_OFFICIAL_SITE_URL;
 
 const COMPUTER_HISTORY_TOOLTIP_CLASS_NAME =
   "!rounded-lg !border !border-[var(--color-text-foreground)] !bg-[var(--color-background-primary-solid)] !px-2 !py-1.5 !text-ui !leading-[18px] !text-[var(--color-text-primary-solid)] !shadow-none !backdrop-blur-0";

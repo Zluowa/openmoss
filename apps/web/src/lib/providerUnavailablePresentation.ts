@@ -3,6 +3,7 @@
 // Layer: Shared web presentation logic
 
 import {
+  mossDefaultManagedInstanceIdForProvider,
   providerStatusDisplayLabel,
   resolveProviderSendBlockedReasonKind,
   type ProviderSendAvailability,
@@ -20,9 +21,16 @@ export function localizeProviderSendBlockedReason(
     case "disabled":
       return translateMoss(locale, "provider.send.blocked.disabled");
     case "unauthenticated":
-      return formatMossTranslation(locale, "provider.send.blocked.unauthenticated", {
-        provider: providerLabel,
-      });
+      // Agents Moss's gateway serves can switch to the Moss account instead of signing in.
+      return formatMossTranslation(
+        locale,
+        mossDefaultManagedInstanceIdForProvider(input.provider) !== undefined &&
+          (input.status?.instanceId ?? input.provider) !==
+            mossDefaultManagedInstanceIdForProvider(input.provider)
+          ? "provider.send.blocked.unauthenticatedWithMoss"
+          : "provider.send.blocked.unauthenticated",
+        { provider: providerLabel },
+      );
     case "status-loading":
       return translateMoss(locale, "provider.send.blocked.statusLoading");
     case "status-timeout":

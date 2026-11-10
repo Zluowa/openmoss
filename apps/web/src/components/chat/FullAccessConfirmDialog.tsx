@@ -63,11 +63,7 @@ export function FullAccessConfirmDialog(props: {
             )}{" "}
             <a
               className="underline"
-              href={
-                props.isCyberModel
-                  ? "https://learn.chatgpt.com/docs/sandboxing/auto-review#configuration"
-                  : RUNTIME_PERMISSIONS_LEARN_MORE_URL
-              }
+              href={RUNTIME_PERMISSIONS_LEARN_MORE_URL}
               target="_blank"
               rel="noreferrer"
             >

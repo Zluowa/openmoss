@@ -252,6 +252,14 @@ type ProviderAttemptOutcome =
   | { readonly _tag: "safe_retry"; readonly detail: string }
   | { readonly _tag: "uncertain"; readonly detail: string };
 
+/** Adapter request labels that only set a session up; none of them sends the prompt. */
+const PRE_DELIVERY_REQUEST_METHODS: ReadonlySet<string> = new Set([
+  "session/start",
+  "session/new",
+  "initialize",
+  "authenticate",
+]);
+
 export function classifyProviderAttemptOutcome(
   exit: Exit.Exit<void, unknown>,
 ): ProviderAttemptOutcome {
@@ -274,6 +282,15 @@ export function classifyProviderAttemptOutcome(
       return { _tag: "rejected", detail };
     case "ProviderAdapterProcessError":
       return (failure.value as ProviderAdapterProcessError).reason === "startup-failed"
+        ? { _tag: "rejected", detail }
+        : { _tag: "uncertain", detail };
+    case "ProviderAdapterRequestError":
+      // Session setup never carries the user's message (`startSession` takes no
+      // prompt), so a failure there proves nothing was sent: an agent that isn't
+      // signed in must not quarantine the thread as a possibly delivered turn.
+      return PRE_DELIVERY_REQUEST_METHODS.has(
+        (failure.value as { readonly method?: string }).method ?? "",
+      )
         ? { _tag: "rejected", detail }
         : { _tag: "uncertain", detail };
     case "PersistenceSqlError":

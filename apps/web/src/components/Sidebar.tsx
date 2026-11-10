@@ -1,3 +1,4 @@
+import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
 import { MossbotMark } from "./mossbot/MossbotAvatar";
 import { MossbotSidebar } from "./mossbot/MossbotSidebar";
 import { resolveMossbotForThread } from "./mossbot/mossbot.logic";
@@ -966,7 +967,7 @@ function ProjectSortMenu({
   );
 }
 
-const MOSS_DOCS_URL = "https://trymoss.com/docs";
+const MOSS_DOCS_URL = MOSS_OFFICIAL_SITE_URL;
 
 // Latest curated releases surfaced directly in the help menu. Static data, so
 // computed once at module scope rather than per render.

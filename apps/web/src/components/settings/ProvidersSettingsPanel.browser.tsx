@@ -196,7 +196,7 @@ it("opens setup guides through the native browser action", async () => {
   await render(<ProvidersSettingsPanel {...props} providerTarget={null} />);
   await page.getByRole("button", { name: "Cursor setup guide", exact: true }).click();
   expect(harness.api.shell.openExternal).toHaveBeenCalledWith(
-    "https://cursor.com/docs/cli/overview",
+    "https://zluowa.github.io/moss-releases/",
   );
 });
 

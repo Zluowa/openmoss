@@ -3,6 +3,9 @@ import type { ProjectAgentSummary } from "@moss/contracts";
 import { Button } from "~/components/ui/button";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowLeftIcon } from "~/lib/icons";
+import { cn } from "~/lib/utils";
+import { isElectron } from "~/env";
+import { CHAT_HEADER_CONTROL_CLASS_NAME } from "~/components/chat/chatHeaderControls";
 import { useMossbotPreferencesStore } from "~/mossbotPreferencesStore";
 import { MossbotAvatar } from "./MossbotAvatar";
 import { MossbotAssistantMenu } from "./MossbotAssistantMenu";
@@ -28,27 +31,30 @@ export function MossbotConversationIdentity({
   }, [assistant.projectId]);
   return (
     <div className="mossbot-conversation-identity" data-mossbot-conversation>
+      {!isElectron && (
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="md:hidden"
+          aria-label={t("Back to assistants")}
+          onClick={() => void navigate({ to: "/mossbot" })}
+        >
+          <ArrowLeftIcon />
+        </Button>
+      )}
       <Button
         variant="ghost"
-        size="icon"
-        className="mossbot-round-button md:hidden"
-        aria-label={t("Back to assistants")}
-        onClick={() => void navigate({ to: "/mossbot" })}
-      >
-        <ArrowLeftIcon />
-      </Button>
-      <Button
-        variant="ghost"
-        className="mossbot-conversation-pill"
+        size="sm"
+        className={cn(CHAT_HEADER_CONTROL_CLASS_NAME, "min-w-0 gap-2 px-1.5")}
         aria-label={t("View profile")}
         onClick={() => setProfileOpen(true)}
       >
         <MossbotAvatar
           icon={assistant.coordinatorIcon}
           color={assistant.coordinatorColor}
-          className="size-7"
+          className="size-5"
         />
-        <span className="truncate text-ui-lg font-medium">{assistant.coordinatorName}</span>
+        <span className="truncate text-ui font-medium">{assistant.coordinatorName}</span>
       </Button>
       <MossbotAssistantMenu assistant={assistant} conversation onOpenWorkbench={onOpenWorkbench} />
       {profileOpen && (

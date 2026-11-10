@@ -18,6 +18,7 @@ import {
   providerCliCommandName,
 } from "@moss/shared/providerCliProfiles";
 import { MOSS_CN_NPM_MIRROR_REGISTRY } from "@moss/shared/mossRealmCatalog";
+import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
 import { providerImportedDirectoryConfig } from "@moss/shared/providerInstances";
 import {
   closestCenter,
@@ -230,14 +231,15 @@ const PROVIDER_VISIBILITY_OPTIONS = VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor
   setupDocsHref: descriptor.setupDocsHref,
 }));
 
+// CLI guides live on Moss's own site, never the vendor's.
+const MOSS_PROVIDER_DOCS: ProviderInstallSettings["docs"] = [
+  { label: "Read the guide", href: MOSS_OFFICIAL_SITE_URL },
+];
+
 const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   {
     provider: "codex",
-    docs: [
-      { label: "Install", href: "https://help.openai.com/en/articles/11096431" },
-      { label: "Update", href: "https://help.openai.com/en/articles/11096431" },
-      { label: "Config", href: "https://github.com/openai/codex/blob/main/docs/config.md" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -271,11 +273,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "claudeAgent",
-    docs: [
-      { label: "Install", href: "https://code.claude.com/docs/en/installation" },
-      { label: "Update", href: "https://code.claude.com/docs/en/installation#update-claude-code" },
-      { label: "Config", href: "https://code.claude.com/docs/en/settings" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -329,11 +327,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "cursor",
-    docs: [
-      { label: "Install", href: "https://docs.cursor.com/en/cli/installation" },
-      { label: "Update", href: "https://docs.cursor.com/en/cli/installation#updates" },
-      { label: "Config", href: "https://docs.cursor.com/en/cli/overview" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -358,11 +352,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "antigravity",
-    docs: [
-      { label: "Install", href: "https://antigravity.google/docs/cli-using" },
-      { label: "Reference", href: "https://antigravity.google/docs/cli-reference" },
-      { label: "Hooks", href: "https://antigravity.google/docs/hooks" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -379,11 +369,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "grok",
-    docs: [
-      { label: "Install", href: "https://docs.x.ai/build/overview" },
-      { label: "Headless", href: "https://docs.x.ai/build/cli/headless-scripting" },
-      { label: "Config", href: "https://docs.x.ai/build/overview" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -400,12 +386,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "droid",
-    docs: [
-      {
-        label: "Quickstart",
-        href: "https://docs.factory.ai/cli/getting-started/quickstart.md",
-      },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -422,11 +403,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "devin",
-    docs: [
-      { label: "Install", href: "https://docs.devin.ai/cli" },
-      { label: "Commands", href: "https://docs.devin.ai/cli/reference/commands" },
-      { label: "Config", href: "https://docs.devin.ai/cli/reference/configuration/config-file" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -444,11 +421,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "opencode",
-    docs: [
-      { label: "Install", href: "https://opencode.ai/docs/" },
-      { label: "Update", href: "https://opencode.ai/docs/cli/" },
-      { label: "Config", href: "https://opencode.ai/docs/config/" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -487,11 +460,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "pi",
-    docs: [
-      { label: "Install", href: "https://pi.dev/docs/latest" },
-      { label: "Update", href: "https://pi.dev/docs/latest/settings" },
-      { label: "Config", href: "https://pi.dev/docs/latest/settings" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -515,11 +484,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "omp",
-    docs: [
-      { label: "Docs", href: "https://omp.sh/docs" },
-      { label: "Install", href: "https://omp.sh/docs/quickstart" },
-      { label: "Source", href: "https://github.com/can1357/oh-my-pi" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     fields: [
       {
         kind: "text",
@@ -544,10 +509,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "kimi",
-    docs: [
-      { label: "Install", href: "https://www.npmjs.com/package/@moonshot-ai/kimi-code" },
-      { label: "Quickstart", href: "https://www.kimi.com/code" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     install: {
       command: "npm install -g @moonshot-ai/kimi-code",
       noteKey: "settings.providers.install.kimi.note",
@@ -568,10 +530,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "minimax",
-    docs: [
-      { label: "Install", href: "https://www.npmjs.com/package/@minimax-ai/code" },
-      { label: "Quickstart", href: "https://platform.minimax.io/docs/coding-plan" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     install: {
       // MiniMax Code ships a native better-sqlite3 dependency, so npm needs the
       // install scripts allowed (the README's official command).
@@ -594,11 +553,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
   },
   {
     provider: "zcode",
-    docs: [
-      { label: "Install", href: "https://www.npmjs.com/package/zcode-acp-server" },
-      { label: "Quickstart", href: "https://docs.bigmodel.cn/cn/coding-plan" },
-      { label: "Source", href: "https://github.com/william0wang/zcode-acp" },
-    ],
+    docs: MOSS_PROVIDER_DOCS,
     install: {
       command: "npm install -g zcode-acp-server",
       noteKey: "settings.providers.install.zcode.note",

@@ -81,19 +81,17 @@ export function MossbotProfile({
         <header className="mossbot-profile-nav">
           <Button
             variant="ghost"
-            size="icon"
-            className="mossbot-round-button"
+            size="icon-sm"
             aria-label={t("Back")}
             onClick={() => (tasksOpen ? setTasksOpen(false) : onClose())}
           >
             <ArrowLeftIcon />
           </Button>
           {tasksOpen && <span className="text-ui font-medium">{t("Scheduled tasks")}</span>}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1">
             <Button
               variant="ghost"
-              size="icon"
-              className="mossbot-round-button"
+              size="icon-sm"
               aria-label={t("Share as template…")}
               onClick={() => setSharing(true)}
             >
@@ -101,8 +99,7 @@ export function MossbotProfile({
             </Button>
             <Button
               variant="ghost"
-              size="icon"
-              className="mossbot-round-button"
+              size="icon-sm"
               aria-label={t("Assistant settings")}
               onClick={() => setSection("general")}
             >
@@ -117,7 +114,7 @@ export function MossbotProfile({
               color={assistant.coordinatorColor}
               className="mossbot-profile-avatar"
             />
-            <DialogTitle className="mt-4 max-w-full break-words text-center text-2xl font-semibold [overflow-wrap:anywhere]">
+            <DialogTitle className="mt-3 max-w-full break-words text-center text-ui-xl font-medium [overflow-wrap:anywhere]">
               {assistant.coordinatorName ?? "Moss"}
             </DialogTitle>
             <DialogDescription className="sr-only">
@@ -125,14 +122,15 @@ export function MossbotProfile({
             </DialogDescription>
             <Button
               variant="secondary"
-              className="mt-3 rounded-full px-5"
+              size="sm"
+              className="mt-3"
               onClick={() => setSection("general")}
             >
               {t("Edit")}
             </Button>
           </div>
           {tasksOpen ? (
-            <div className="mossbot-profile-card p-4">
+            <div className="mossbot-profile-card p-3">
               <GroupAutomationsSection
                 definitions={definitions}
                 automations={automations}
@@ -186,7 +184,7 @@ export function MossbotProfile({
                   <ChevronRightIcon />
                 </button>
               </div>
-              <div className="mossbot-profile-card mt-6">
+              <div className="mossbot-profile-card mt-4">
                 <div className="mossbot-profile-row">
                   <label htmlFor={`mossbot-notify-${assistant.projectId}`} className="flex-1">
                     {t("Notifications")}
@@ -199,19 +197,19 @@ export function MossbotProfile({
                       useMossbotPreferencesStore.getState().setMuted(assistant.projectId, !checked)
                     }
                     aria-describedby="mossbot-notification-help"
-                    className="mossbot-notification-switch"
                   />
                 </div>
               </div>
               <p
                 id="mossbot-notification-help"
-                className="px-4 pt-2 text-ui-sm text-muted-foreground"
+                className="px-3 pt-2 text-ui-sm text-muted-foreground"
               >
                 {t("Notify me when this assistant finishes or needs me.")}
               </p>
               <Button
                 variant="link"
-                className="mt-2 text-ui-sm text-muted-foreground"
+                size="sm"
+                className="mt-1 px-3 text-ui-sm text-muted-foreground"
                 onClick={() => {
                   onClose();
                   void navigate({ to: "/settings", search: { section: "notifications" } });

@@ -1,6 +1,10 @@
 // Adapted from OpenMaus @ 58378e8 (Apache-2.0). See third_party/openmaus/UI-PORTS.md.
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
+import {
+  USER_MESSAGE_BUBBLE_RADIUS_CLASS_NAME,
+  USER_MESSAGE_BUBBLE_SHELL_CHROME_CLASS_NAME,
+} from "~/components/chat/chatTypography";
 export interface BubbleJoin {
   above: boolean;
   below: boolean;
@@ -57,11 +61,15 @@ export function RoomBubble({
           data-chat-bubble="simple"
           data-author={user ? "user" : "assistant"}
           className={cn(
-            "w-fit min-w-9 max-w-[min(560px,85%)] rounded-[18px] px-3 py-[7px] text-chat leading-relaxed",
+            "w-fit min-w-9 text-chat leading-relaxed",
+            // The user turn is Moss's own bubble; an assistant reply is plain transcript prose.
             user
-              ? "whitespace-pre-wrap [overflow-wrap:anywhere] bg-foreground/5 font-normal"
-              : "min-w-0 bg-background text-foreground",
-            joinedCorners(user ? "end" : "start", join),
+              ? cn(
+                  USER_MESSAGE_BUBBLE_RADIUS_CLASS_NAME,
+                  USER_MESSAGE_BUBBLE_SHELL_CHROME_CLASS_NAME,
+                  "max-w-[85%] whitespace-pre-wrap [overflow-wrap:anywhere] bg-[var(--app-user-message-background)] font-normal",
+                )
+              : "min-w-0 max-w-full py-0.5 text-foreground",
           )}
         >
           {children}

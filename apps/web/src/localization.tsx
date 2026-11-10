@@ -1924,6 +1924,8 @@ const EN_TRANSLATIONS = {
   "provider.send.blocked.disabled": "This provider is disabled in Moss settings.",
   "provider.send.blocked.unauthenticated":
     "{provider} is not signed in. Sign in under Settings → Model accounts, or choose another model.",
+  "provider.send.blocked.unauthenticatedWithMoss":
+    "{provider} is not signed in. Sign in under Settings → Model accounts, or pick Moss as its provider in the model menu.",
   "provider.send.blocked.unavailable": "{provider} is unavailable right now.",
   "provider.send.blocked.statusLoading": "Provider status is still loading.",
   "provider.send.blocked.statusTimeout":
@@ -5902,6 +5904,8 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "provider.send.blocked.disabled": "此服务商已在 Moss 设置中禁用。",
   "provider.send.blocked.unauthenticated":
     "{provider} 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。",
+  "provider.send.blocked.unauthenticatedWithMoss":
+    "{provider} 尚未登录。请在「设置 → 模型账号」中登录，或在模型菜单里把服务商换成 Moss。",
   "provider.send.blocked.unavailable": "{provider} 当前不可用。",
   "provider.send.blocked.statusLoading": "服务商状态仍在加载中。",
   "provider.send.blocked.statusTimeout": "服务商状态检查超时。请选择其他可用服务商或重试。",

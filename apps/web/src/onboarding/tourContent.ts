@@ -1,8 +1,9 @@
 // FILE: tourContent.ts
-// Purpose: Copy and links for the "what Moss can do" tour. Wording mirrors the public
-//          docs (trymoss.com/docs) and changelog so onboarding and docs stay consistent.
+// Purpose: Copy and links for the "what Moss can do" tour. Guide links open Moss's
+//          official site.
 // Layer: Web content (no React)
 
+import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
 import type { LucideIcon } from "~/lib/icons";
 import {
   BotIcon,
@@ -14,7 +15,8 @@ import {
   TerminalIcon,
 } from "~/lib/icons";
 
-export const MOSS_DOCS_URL = "https://trymoss.com/docs";
+// No per-topic docs pages exist yet, so every guide link opens Moss's official site.
+export const MOSS_DOCS_URL = MOSS_OFFICIAL_SITE_URL;
 
 export interface TourCard {
   readonly id: string;
@@ -39,7 +41,7 @@ export const TOUR_CARDS: ReadonlyArray<TourCard> = [
       "Hand a thread to another provider",
       "Usage for every provider",
     ],
-    docsHref: `${MOSS_DOCS_URL}/getting-started/providers`,
+    docsHref: MOSS_DOCS_URL,
     icon: BotIcon,
   },
   {
@@ -49,7 +51,7 @@ export const TOUR_CARDS: ReadonlyArray<TourCard> = [
     description:
       "Each task owns one body of work: its conversation, provider session, working environment, tool activity, and Git changes. Run tasks in parallel on managed Git worktrees so two agents never edit the same checkout.",
     highlights: ["Managed worktrees", "Forks from any message", "Subagents and side chats"],
-    docsHref: `${MOSS_DOCS_URL}/workflows/worktrees`,
+    docsHref: MOSS_DOCS_URL,
     icon: GitForkIcon,
   },
   {
@@ -63,7 +65,7 @@ export const TOUR_CARDS: ReadonlyArray<TourCard> = [
       "Commit → push → PR",
       "Native pull-request workspace",
     ],
-    docsHref: `${MOSS_DOCS_URL}/workflows/pull-requests`,
+    docsHref: MOSS_DOCS_URL,
     icon: GitPullRequestIcon,
   },
   {
@@ -73,7 +75,7 @@ export const TOUR_CARDS: ReadonlyArray<TourCard> = [
     description:
       "Agents drive a visible, task-owned browser you can watch and annotate. On macOS, an iOS Simulator pane streams the device so agents can build, launch, and tap through an app while you follow along.",
     highlights: ["Shared Chromium surface", "Element annotations", "iOS Simulator pane"],
-    docsHref: `${MOSS_DOCS_URL}/workflows/browser-verification`,
+    docsHref: MOSS_DOCS_URL,
     icon: GlobeIcon,
   },
   {
@@ -87,7 +89,7 @@ export const TOUR_CARDS: ReadonlyArray<TourCard> = [
       "Natural-language stop conditions",
       "Thread goals",
     ],
-    docsHref: `${MOSS_DOCS_URL}/workflows/automations`,
+    docsHref: MOSS_DOCS_URL,
     icon: ClockIcon,
   },
   {
@@ -97,7 +99,7 @@ export const TOUR_CARDS: ReadonlyArray<TourCard> = [
     description:
       "A built-in MCP surface lets a supported provider session create tasks, wait on them, read transcripts, and steer other threads. Pair Codex, Claude Code, or Claude Desktop from outside with scoped, revocable credentials.",
     highlights: ["Parallel task batches", "External MCP pairing", "Approval boundaries"],
-    docsHref: `${MOSS_DOCS_URL}/workflows/agent-gateway`,
+    docsHref: MOSS_DOCS_URL,
     icon: TerminalIcon,
   },
   {
@@ -107,7 +109,7 @@ export const TOUR_CARDS: ReadonlyArray<TourCard> = [
     description:
       "Everything in the workspace has a shortcut, and the keymap is editable from Settings. A few worth learning on day one:",
     highlights: [],
-    docsHref: `${MOSS_DOCS_URL}/reference/keyboard-shortcuts`,
+    docsHref: MOSS_DOCS_URL,
     icon: KeyboardIcon,
   },
 ];

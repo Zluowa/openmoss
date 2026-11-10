@@ -1,156 +1,116 @@
+// FILE: MossbotWorkspace.tsx
+// Purpose: The Mossbot landing: Moss's route surface and top bar, the standard empty state,
+//          and one searchable list of assistants and group chats.
+// Layer: Mossbot route UI
+// Exports: MossbotWorkspace
+
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
-import type { ProjectAgentSummary } from "@moss/contracts";
 import { Button } from "~/components/ui/button";
-import { Input } from "~/components/ui/input";
+import { SearchInput } from "~/components/ui/search-input";
 import { Menu, MenuTrigger, MenuCheckboxItem } from "~/components/ui/menu";
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
-import { SidebarHeaderNavigationControls } from "~/components/SidebarHeaderNavigationControls";
-import { CirclePersonIcon, SearchIcon, LayoutGridIcon, XIcon } from "~/lib/icons";
+import { CHAT_BACKGROUND_CLASS_NAME } from "~/components/chat/composerPickerStyles";
+import { RouteInsetSurface } from "~/components/RouteInsetSurface";
+import { RouteSurfaceHeader } from "~/components/RouteSurface";
+import { FilterIcon } from "~/lib/icons";
+import { cn } from "~/lib/utils";
 import { useProjectAgentSummaries } from "~/components/chat/project/useProjectAgentSummaries";
-import { useMossbotPreferencesStore } from "~/mossbotPreferencesStore";
 import { useMossbotCopy } from "./mossbot.copy";
-import { MossbotAvatar } from "./MossbotAvatar";
+import { MossbotMark } from "./MossbotAvatar";
 import { MossbotCreateLauncher } from "./MossbotCreateLauncher";
-import { MossbotRoomCreateDialog } from "./MossbotRooms";
+import { MossbotRoomCreateDialog, useMossbotRoomList } from "./MossbotRooms";
 import { MossbotConversationRoster } from "./MossbotConversationRoster";
 import { MossbotFolderDialog, MossbotNewConversationMenu } from "./MossbotConversationFolders";
 import { isMossbot } from "./mossbot.logic";
 
-/** One native assistant roster on phones; a spacious conversation landing on desktop. */
 export function MossbotWorkspace() {
   const { t } = useMossbotCopy();
-  const navigate = useNavigate();
   const { summariesByProjectId, loaded } = useProjectAgentSummaries();
+  const rooms = useMossbotRoomList();
   const [creatingRoom, setCreatingRoom] = useState<string[] | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [template, setTemplate] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [showHidden, setShowHidden] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
-  const mainId = useMossbotPreferencesStore((state) => state.mainProjectId);
-  const hiddenIds = useMossbotPreferencesStore((state) => state.hiddenProjectIds);
   const assistants = [...summariesByProjectId.values()].filter(isMossbot);
-  const available = assistants.filter(
-    (bot) => !bot.archivedAt && !hiddenIds.includes(bot.projectId),
-  );
-  const main = available.find((bot) => bot.projectId === mainId) ?? available[0];
-  const openAssistant = (bot: ProjectAgentSummary) => {
-    if (!bot.coordinatorThreadId) return;
-    useMossbotPreferencesStore.getState().setUnread(bot.projectId, false);
-    void navigate({ to: "/$threadId", params: { threadId: bot.coordinatorThreadId } });
-  };
+  // Nothing yet: the page is the one invitation, not an empty list under it.
+  const empty = loaded && assistants.length === 0 && rooms.isSuccess && rooms.data.length === 0;
   return (
-    <main data-mossbot-workspace className="mossbot-home">
-      <header className="mossbot-home-header">
-        <div className="hidden items-center gap-3 md:flex">
-          <SidebarHeaderNavigationControls />
-          <span className="text-ui text-muted-foreground">Mossbot</span>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="mossbot-round-button md:ml-auto"
-          aria-label={t("Your profile")}
-          onClick={() => void navigate({ to: "/settings", search: { section: "profile" } })}
-        >
-          <CirclePersonIcon className="size-6" />
-        </Button>
-        <MossbotNewConversationMenu
-          onAssistant={() => setTemplate("personal")}
-          onRoom={() => setCreatingRoom([])}
-          onFolder={() => setCreatingFolder(true)}
-        />
-      </header>
-      <>
-        <div className="mossbot-home-scroll">
-          <div className="mossbot-home-content">
-            <button
-              type="button"
-              className="mossbot-main-assistant"
-              aria-label={
-                main
-                  ? `${t("Open conversation")} · ${main.coordinatorName}`
-                  : t("Create your assistant")
-              }
-              onClick={() => (main ? openAssistant(main) : setTemplate("personal"))}
-            >
-              <MossbotAvatar
-                icon={main?.coordinatorIcon}
-                color={main?.coordinatorColor}
-                className="mossbot-main-avatar"
-              />
-              <span className="mt-4 text-ui-lg">{main?.coordinatorName ?? "Moss"}</span>
-            </button>
-            {loaded && assistants.length === 0 && (
-              <div className="mossbot-home-empty">
-                <p className="text-ui-lg font-medium">{t("A little help, always at hand.")}</p>
-                <p className="mt-2 text-ui-sm text-muted-foreground">
-                  {t("Research, write, plan, and keep track of what matters.")}
-                </p>
-                <Button
-                  className="mossbot-primary mt-5 rounded-full"
-                  onClick={() => setTemplate("personal")}
-                >
-                  {t("Create your assistant")}
-                </Button>
-              </div>
-            )}
-            <MossbotConversationRoster
-              query={query}
-              showHidden={showHidden}
-              showArchived={showArchived}
-              onNewRoom={(id) => setCreatingRoom(id ? [id] : [])}
+    <RouteInsetSurface>
+      <div
+        data-mossbot-workspace
+        className={cn(
+          "mossbot-home flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+          CHAT_BACKGROUND_CLASS_NAME,
+        )}
+      >
+        <RouteSurfaceHeader divider={false}>
+          {/* The sidebar already names the page on desktop; phones have no sidebar. */}
+          <span className="min-w-0 flex-1 truncate text-ui font-medium md:invisible">Mossbot</span>
+          <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag] md:hidden">
+            <MossbotNewConversationMenu
+              onAssistant={() => setTemplate("personal")}
+              onRoom={() => setCreatingRoom([])}
+              onFolder={() => setCreatingFolder(true)}
             />
           </div>
-        </div>
-        <footer className="mossbot-home-footer">
-          <div className="mossbot-home-search">
-            <Menu>
-              <MenuTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="mossbot-round-button"
-                    aria-label={t("Conversation filters")}
-                  />
-                }
-              >
-                <LayoutGridIcon />
-              </MenuTrigger>
-              <ComposerPickerMenuPopup className="mossbot-menu" align="start" side="top">
-                <MenuCheckboxItem checked={showHidden} onCheckedChange={setShowHidden}>
-                  {t("Show hidden assistants")}
-                </MenuCheckboxItem>
-                <MenuCheckboxItem checked={showArchived} onCheckedChange={setShowArchived}>
-                  {t("Show archived")}
-                </MenuCheckboxItem>
-              </ComposerPickerMenuPopup>
-            </Menu>
-            <div className="mossbot-search-field">
-              <SearchIcon className="size-5 shrink-0" />
-              <Input
-                aria-label={t("Search assistants and groups")}
-                placeholder={t("Search")}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="mossbot-search-input"
+        </RouteSurfaceHeader>
+        {empty ? (
+          <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 pb-16 text-center">
+            <MossbotMark className="mb-3 size-8 text-muted-foreground" />
+            <p className="text-ui-lg font-medium text-foreground">
+              {t("A little help, always at hand.")}
+            </p>
+            <p className="max-w-xs text-ui leading-snug text-muted-foreground">
+              {t("Research, write, plan, and keep track of what matters.")}
+            </p>
+            <Button size="sm" className="mt-4" onClick={() => setTemplate("personal")}>
+              {t("Create your assistant")}
+            </Button>
+          </main>
+        ) : (
+          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="mx-auto w-full max-w-[680px] px-4 pt-2 pb-8 sm:px-6">
+              <div className="mb-2 flex items-center gap-1">
+                <SearchInput
+                  aria-label={t("Search assistants and groups")}
+                  placeholder={t("Search")}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+                <Menu>
+                  <MenuTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={t("Conversation filters")}
+                      />
+                    }
+                  >
+                    <FilterIcon />
+                  </MenuTrigger>
+                  <ComposerPickerMenuPopup align="end">
+                    <MenuCheckboxItem checked={showHidden} onCheckedChange={setShowHidden}>
+                      {t("Show hidden assistants")}
+                    </MenuCheckboxItem>
+                    <MenuCheckboxItem checked={showArchived} onCheckedChange={setShowArchived}>
+                      {t("Show archived")}
+                    </MenuCheckboxItem>
+                  </ComposerPickerMenuPopup>
+                </Menu>
+              </div>
+              <MossbotConversationRoster
+                query={query}
+                showHidden={showHidden}
+                showArchived={showArchived}
+                onNewRoom={(id) => setCreatingRoom(id ? [id] : [])}
               />
-              {query && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={t("Clear search")}
-                  onClick={() => setQuery("")}
-                >
-                  <XIcon />
-                </Button>
-              )}
             </div>
-          </div>
-        </footer>
-      </>
+          </main>
+        )}
+      </div>
       {creatingRoom && (
         <MossbotRoomCreateDialog
           initialMemberIds={creatingRoom}
@@ -159,6 +119,6 @@ export function MossbotWorkspace() {
       )}
       {creatingFolder && <MossbotFolderDialog onClose={() => setCreatingFolder(false)} />}
       <MossbotCreateLauncher template={template} onClose={() => setTemplate(null)} />
-    </main>
+    </RouteInsetSurface>
   );
 }

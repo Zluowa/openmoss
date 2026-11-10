@@ -39,7 +39,11 @@ describe("Windows foreground history", () => {
       }
     },
   );
-  it.runIf(process.platform === "win32")(
+  // This case needs a real foreground window, so it takes focus from whatever app is in front.
+  // It never runs on a desktop someone is using: opt in with MOSS_TEST_REAL_FOREGROUND_WINDOW=1
+  // on a dedicated Windows runner. Even then the window is parked off-screen, not TopMost and
+  // out of the taskbar, so nothing appears on the screen.
+  it.runIf(process.platform === "win32" && process.env.MOSS_TEST_REAL_FOREGROUND_WINDOW === "1")(
     "samples an owned real foreground window and stops its native collector",
     async () => {
       const root = await mkdtemp(join(tmpdir(), "moss-history-native-window-"));
@@ -58,7 +62,7 @@ public class MossHistoryFixture {
  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
  [STAThread] public static void Main() {
   Application.EnableVisualStyles();
-  var form=new Form(); form.Text="Moss history isolated test"; form.Width=420; form.Height=150; form.StartPosition=FormStartPosition.CenterScreen; form.TopMost=true;
+  var form=new Form(); form.Text="Moss history isolated test"; form.Width=420; form.Height=150; form.StartPosition=FormStartPosition.Manual; form.Location=new System.Drawing.Point(-32000,-32000); form.ShowInTaskbar=false; form.TopMost=false;
   var label=new Label(); label.Text="Moss isolated history test window"; label.Dock=DockStyle.Fill; form.Controls.Add(label);
   var timer=new Timer(); timer.Interval=20000; timer.Tick+=(sender,e)=>form.Close(); timer.Start();
   form.Shown+=(sender,e)=>{
@@ -72,8 +76,9 @@ public class MossHistoryFixture {
 '@
 $fixture = Start-Process -FilePath '${executable.replaceAll("'", "''")}' -WindowStyle Normal -PassThru
 $null = $fixture.WaitForInputIdle(5000)
+[Console]::Out.Write($fixture.Id)
 `;
-      await promisify(execFile)(
+      const { stdout: fixturePid } = await promisify(execFile)(
         "powershell.exe",
         [
           "-NoLogo",
@@ -102,6 +107,12 @@ $null = $fixture.WaitForInputIdle(5000)
         expect(failure).toBe(false);
       } finally {
         await stop();
+        // The fixture would otherwise hold the foreground for its full 20 s timer.
+        try {
+          process.kill(Number(fixturePid.trim()));
+        } catch {
+          // Already closed.
+        }
       }
     },
     30_000,

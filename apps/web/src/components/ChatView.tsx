@@ -8201,9 +8201,6 @@ export default function ChatView({
             !isEditorRail && CHAT_SURFACE_HEADER_PADDING_X_CLASS,
             "flex items-center",
             isEditorRail ? "h-10" : CHAT_SURFACE_HEADER_HEIGHT_CLASS,
-            isCoordinatorConversation &&
-              activeGroupSummary?.agentKind === "mossbot" &&
-              "max-md:h-[76px] max-md:px-4",
             isElectron && "drag-region",
             // The editor-rail chat header sits in the editor's second row (inside the
             // right-side chat pane), not flush against the window edges — the editor's
@@ -8216,8 +8213,12 @@ export default function ChatView({
           )}
         >
           <ChatHeader
+            // Phones get the assistant's own back-and-name bar; the desktop app keeps Moss's
+            // sidebar controls and toolbar at every width.
             compactAssistantHeader={
-              isCoordinatorConversation && activeGroupSummary?.agentKind === "mossbot"
+              !isElectron &&
+              isCoordinatorConversation &&
+              activeGroupSummary?.agentKind === "mossbot"
             }
             activeThreadId={activeThread.id}
             activeThreadTitle={activeThreadDisplayTitle}

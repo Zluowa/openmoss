@@ -2,7 +2,7 @@
 // Purpose: Resolves provider CLI binaries from PATH and vendor-owned install folders.
 // Layer: Server provider runtime
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { posix, win32 } from "node:path";
 
 import {
@@ -313,4 +313,177 @@ export function appendDirectoriesToPathEnv(
   });
   if (appended.length === 0) return resolved.env;
   return { ...resolved.env, [pathKey]: [...existing, ...appended].join(separator) };
+}
+
+const WINDOWS_SHIM_EXTENSIONS = new Set([".cmd", ".bat"]);
+// A quoted absolute target inside a .cmd/.bat shim, e.g. "%LOCALAPPDATA%\Programs\x\cli.exe"
+// or npm's "%dp0%\node_modules\pkg\bin\cli".
+const WINDOWS_SHIM_TARGET_PATTERN = /"([^"\r\n]*[\\/][^"\r\n]*)"/gu;
+
+function expandWindowsShimVariables(
+  value: string,
+  shimDirectory: string,
+  env: NodeJS.ProcessEnv,
+): string | undefined {
+  let unresolved = false;
+  const expanded = value
+    .replace(/%~dp0%?/giu, `${shimDirectory}\\`)
+    .replace(/%([A-Za-z_][A-Za-z0-9_()]*)%/gu, (_match, name: string) => {
+      if (name.toLowerCase() === "dp0") return `${shimDirectory}\\`;
+      const key = Object.keys(env).find(
+        (candidate) => candidate.toLowerCase() === name.toLowerCase(),
+      );
+      const resolved = key ? env[key] : undefined;
+      if (resolved === undefined) unresolved = true;
+      return resolved ?? "";
+    });
+  return unresolved || expanded.includes("%") ? undefined : expanded;
+}
+
+/**
+ * True when a Windows `.cmd`/`.bat` shim only points at files that no longer exist: a
+ * personal wrapper left behind after the program it wrapped moved or was uninstalled.
+ * Running it fails with "The system cannot find the path specified", so discovery should
+ * move on to the next copy of the command. Shims whose targets cannot be resolved
+ * statically are kept (never guessed broken).
+ */
+export function isBrokenWindowsCommandShim(
+  shimPath: string,
+  options: ProviderBinaryResolutionOptions & {
+    readonly readText?: (path: string) => string | undefined;
+  } = {},
+): boolean {
+  const resolved = resolveOptions(options);
+  if (resolved.platform !== "win32") return false;
+  if (!WINDOWS_SHIM_EXTENSIONS.has(win32.extname(shimPath).toLowerCase())) return false;
+  const readText =
+    options.readText ??
+    ((path: string) => {
+      try {
+        return readFileSync(path, "utf8");
+      } catch {
+        return undefined;
+      }
+    });
+  const text = readText(shimPath);
+  if (text === undefined) return false;
+  const shimDirectory = win32.dirname(shimPath);
+  const targets: string[] = [];
+  for (const match of text.matchAll(WINDOWS_SHIM_TARGET_PATTERN)) {
+    const expanded = expandWindowsShimVariables(match[1]!, shimDirectory, resolved.env);
+    if (expanded === undefined || !win32.isAbsolute(expanded)) continue;
+    targets.push(win32.normalize(expanded));
+  }
+  return targets.length > 0 && targets.every((target) => !resolved.pathExists(target));
+}
+
+/**
+ * The command name when its first PATH match is usable, otherwise the first later match
+ * (or vendor install) that is. Only broken `.cmd` shims are skipped, so a working first
+ * match always keeps today's plain-name launch. A broken wrapper that aimed at a file
+ * named like one of the vendor installs (the person chose that build) prefers the
+ * vendor install over later PATH matches.
+ */
+export function resolveCommandSkippingBrokenShims(
+  command: string,
+  options: ProviderBinaryResolutionOptions & {
+    readonly readText?: (path: string) => string | undefined;
+    readonly fallbacks?: ReadonlyArray<string>;
+  } = {},
+): string {
+  const resolved = resolveOptions(options);
+  const canExecute =
+    options.isExecutable ?? (options.pathExists ? resolved.pathExists : resolved.isExecutable);
+  const fallback = () => options.fallbacks?.find((candidate) => canExecute(candidate));
+  let skipped = false;
+  for (const candidate of executableCandidates(command, resolved)) {
+    if (!canExecute(candidate.path)) continue;
+    if (isBrokenWindowsCommandShim(candidate.path, options)) {
+      if (!skipped && shimTargetsFallbackName(candidate.path, options)) {
+        const preferred = fallback();
+        if (preferred) return preferred;
+      }
+      skipped = true;
+      continue;
+    }
+    return skipped ? candidate.path : command;
+  }
+  // Nothing usable on PATH (missing, or only broken shims): try the vendor installs.
+  return fallback() ?? command;
+}
+
+function shimTargetsFallbackName(
+  shimPath: string,
+  options: {
+    readonly readText?: (path: string) => string | undefined;
+    readonly fallbacks?: ReadonlyArray<string>;
+  },
+): boolean {
+  const names = new Set(
+    (options.fallbacks ?? []).map((fallback) => win32.basename(fallback).toLowerCase()),
+  );
+  if (names.size === 0) return false;
+  let text: string | undefined;
+  try {
+    text = options.readText ? options.readText(shimPath) : readFileSync(shimPath, "utf8");
+  } catch {
+    return false;
+  }
+  for (const match of text?.matchAll(WINDOWS_SHIM_TARGET_PATTERN) ?? []) {
+    if (names.has(win32.basename(match[1]!).toLowerCase())) return true;
+  }
+  return false;
+}
+
+// OpenCode desktop ships its own CLI; folders differ between desktop releases.
+const WINDOWS_OPENCODE_DESKTOP_CLI_RELATIVE_PATHS = [
+  ["Programs", "ai.opencode.desktop", "resources", "opencode-cli.exe"],
+  ["Programs", "@opencodedesktop", "resources", "opencode-cli.exe"],
+  ["Programs", "OpenCode", "resources", "opencode-cli.exe"],
+] as const;
+const OPENCODE_BINARY_CACHE_TTL_MS = 30_000;
+let openCodeBinaryCache:
+  | { readonly key: string; readonly value: string; readonly expiresAt: number }
+  | undefined;
+
+/**
+ * The OpenCode CLI to launch when the person hasn't configured one. A personal
+ * `opencode.cmd` wrapper first on PATH can outlive the install it pointed at (it then
+ * fails with "The system cannot find the path specified"); skip it for the next copy
+ * on PATH, or OpenCode desktop's bundled CLI.
+ */
+export function resolveOpenCodeBinaryPath(
+  binaryPath?: string | null | undefined,
+  options: ProviderBinaryResolutionOptions & {
+    readonly readText?: (path: string) => string | undefined;
+  } = {},
+): string {
+  const trimmed = binaryPath?.trim();
+  if (trimmed && trimmed !== "opencode") return trimmed;
+  const resolved = resolveOptions(options);
+  if (resolved.platform !== "win32") return "opencode";
+  const pathKey = envPathKeyFor(resolved.env, resolved.platform);
+  const cacheable = options.pathExists === undefined && options.isExecutable === undefined;
+  const cacheKey = `${resolved.env[pathKey] ?? ""}\u0000${resolved.env.LOCALAPPDATA ?? ""}`;
+  const now = Date.now();
+  if (cacheable && openCodeBinaryCache?.key === cacheKey && openCodeBinaryCache.expiresAt > now) {
+    return openCodeBinaryCache.value;
+  }
+  const localAppData =
+    resolved.env.LOCALAPPDATA?.trim() ||
+    (resolved.env.USERPROFILE?.trim()
+      ? win32.join(resolved.env.USERPROFILE.trim(), "AppData", "Local")
+      : undefined);
+  const value = resolveCommandSkippingBrokenShims("opencode", {
+    ...options,
+    fallbacks: localAppData
+      ? WINDOWS_OPENCODE_DESKTOP_CLI_RELATIVE_PATHS.map((parts) =>
+          win32.join(localAppData, ...parts),
+        )
+      : [],
+  });
+  if (cacheable) {
+    openCodeBinaryCache = { key: cacheKey, value, expiresAt: now + OPENCODE_BINARY_CACHE_TTL_MS };
+  }
+  return value;
 }

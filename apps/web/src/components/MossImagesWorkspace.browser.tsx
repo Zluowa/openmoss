@@ -420,7 +420,7 @@ describe("Moss Images browser workflow", () => {
       .toBeDisabled();
     // Signed-out copy is in the UI language and says where to sign in.
     expect(document.body.textContent).toContain(
-      "Codex 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。",
+      "Codex 尚未登录。请在「设置 → 模型账号」中登录，或在模型菜单里把服务商换成 Moss。",
     );
     expect(document.body.textContent).not.toContain("not authenticated");
     await page.getByRole("button", { name: "预览海报" }).click();

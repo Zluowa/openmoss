@@ -17,8 +17,7 @@ export function DefaultResponderSelect({
   return (
     <Select
       disabled={disabled}
-      variant="pill"
-      size="sm"
+      variant="ghost"
       className="shrink-0 max-w-[190px]"
       aria-label={t("Default responder")}
       value={value}

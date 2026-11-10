@@ -1,3 +1,4 @@
+import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
 import type {
   ProviderKind,
   ProviderModelDescriptor,
@@ -26,8 +27,7 @@ export function providerModelSupportsAutoRuntimeMode(
 }
 
 // Documentation target for the permissions-mode dropdown.
-export const RUNTIME_PERMISSIONS_LEARN_MORE_URL =
-  "https://developers.openai.com/codex/concepts/sandboxing#how-you-control-it";
+export const RUNTIME_PERMISSIONS_LEARN_MORE_URL = MOSS_OFFICIAL_SITE_URL;
 
 export const RUNTIME_MODE_PRESENTATION: Record<
   RuntimeMode,

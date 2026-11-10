@@ -21,7 +21,7 @@ export function ConversationSectionHeader({
   return (
     <div className="mossbot-conversation-section-header" data-section={name}>
       <CollapsibleTrigger
-        className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left text-ui-sm text-muted-foreground"
+        className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-row px-2 text-left text-ui text-muted-foreground hover:text-foreground"
         aria-label={name}
         aria-keyshortcuts={onMove ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onKeyDown={(event) => {

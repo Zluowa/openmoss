@@ -3,6 +3,7 @@
 // Layer: Web component
 // Exports: PluginMarketplaceDialog and its exact mutation result shape
 
+import { MOSS_OFFICIAL_SITE_URL } from "@moss/shared/desktopIdentity";
 import { useEffect, useState } from "react";
 import type { ProviderAddMarketplaceResult } from "@moss/contracts";
 
@@ -88,7 +89,7 @@ export function PluginMarketplaceDialog({
           <DialogDescription>
             {t("plugins.marketplace.subtitle")}{" "}
             <a
-              href="https://developers.openai.com/codex/plugins/build"
+              href={MOSS_OFFICIAL_SITE_URL}
               target="_blank"
               rel="noreferrer noopener"
               className="text-foreground underline underline-offset-2"

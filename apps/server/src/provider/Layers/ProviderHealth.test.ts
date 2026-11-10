@@ -4799,7 +4799,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
   });
 
   describe("checkGrokProviderStatus", () => {
-    it.effect("returns ready when Grok CLI is installed", () => {
+    it.effect("reports Grok not signed in when it has no API key or cached login", () => {
       const previousXaiApiKey = process.env.XAI_API_KEY;
       const previousApiKey = process.env.GROK_CODE_XAI_API_KEY;
       delete process.env.XAI_API_KEY;
@@ -4813,9 +4813,9 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           async () => null,
         );
         assert.strictEqual(status.provider, "grok");
-        assert.strictEqual(status.status, "ready");
+        assert.strictEqual(status.status, "error");
         assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "unknown");
+        assert.strictEqual(status.authStatus, "unauthenticated");
         assert.strictEqual(status.version, "0.1.0");
       }).pipe(
         Effect.provide(
@@ -4841,6 +4841,33 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         ),
       );
     });
+
+    it.effect("treats a Moss-managed Grok as signed in without a personal login", () =>
+      Effect.gen(function* () {
+        let lookedUpPersonalLogin = false;
+        const status = yield* makeCheckGrokProviderStatus(
+          undefined,
+          { MOSS_GROK_CONFIG_CONTENT: "{}" },
+          "grok_moss",
+          { homeDir: OS.tmpdir(), isolationRootDir: OS.tmpdir() },
+          async () => {
+            lookedUpPersonalLogin = true;
+            return null;
+          },
+        );
+        assert.strictEqual(status.status, "ready");
+        assert.strictEqual(status.authStatus, "authenticated");
+        assert.strictEqual(lookedUpPersonalLogin, false);
+      }).pipe(
+        Effect.provide(
+          mockSpawnerLayer((args) =>
+            args.join(" ") === "--version"
+              ? { stdout: "grok 0.1.0\n", stderr: "", code: 0 }
+              : { stdout: "", stderr: `Unexpected args: ${args.join(" ")}`, code: 1 },
+          ),
+        ),
+      ),
+    );
 
     it.effect("marks Grok authenticated when XAI_API_KEY is present", () => {
       const previousXaiApiKey = process.env.XAI_API_KEY;
@@ -4924,7 +4951,13 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
     it.effect("uses configured Grok binary for version probe", () =>
       Effect.gen(function* () {
-        const status = yield* makeCheckGrokProviderStatus("/custom/bin/grok");
+        const status = yield* makeCheckGrokProviderStatus(
+          "/custom/bin/grok",
+          undefined,
+          undefined,
+          undefined,
+          async () => ({ accessToken: "cached-token" }),
+        );
         assert.strictEqual(status.status, "ready");
       }).pipe(
         Effect.provide(
@@ -4951,7 +4984,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             return null;
           },
         );
-        assert.strictEqual(status.authStatus, "unknown");
+        assert.strictEqual(status.authStatus, "unauthenticated");
         assert.ok(cachedLoginHome?.includes("provider-homes"));
       }).pipe(
         Effect.provide(
@@ -5015,7 +5048,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           undefined,
           "grok",
         );
-        assert.strictEqual(workWithoutLogin.authStatus, "unknown");
+        assert.strictEqual(workWithoutLogin.authStatus, "unauthenticated");
         assert.strictEqual(personalWithLogin.authStatus, "authenticated");
 
         writeFileSync(
@@ -5037,7 +5070,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         );
         assert.strictEqual(workWithLogin.authStatus, "authenticated");
         assert.strictEqual(workWithLogin.authType, "grokLogin");
-        assert.strictEqual(personalWithoutLogin.authStatus, "unknown");
+        assert.strictEqual(personalWithoutLogin.authStatus, "unauthenticated");
       }).pipe(
         Effect.provide(
           mockSpawnerLayer((args) => {
@@ -5060,8 +5093,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           undefined,
           "grok_work",
         );
-        assert.strictEqual(status.status, "ready");
-        assert.strictEqual(status.authStatus, "unknown");
+        assert.strictEqual(status.status, "error");
+        assert.strictEqual(status.authStatus, "unauthenticated");
       }).pipe(
         Effect.provide(
           mockSpawnerLayer((args, command, env) => {
@@ -5086,8 +5119,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       process.env.XAI_API_KEY = "ambient-account-a";
       return Effect.gen(function* () {
         const status = yield* makeCheckGrokProviderStatus("/custom/bin/grok", {}, "grok");
-        assert.strictEqual(status.status, "ready");
-        assert.strictEqual(status.authStatus, "unknown");
+        assert.strictEqual(status.status, "error");
+        assert.strictEqual(status.authStatus, "unauthenticated");
       }).pipe(
         Effect.provide(
           mockSpawnerLayer((args, command, env) => {

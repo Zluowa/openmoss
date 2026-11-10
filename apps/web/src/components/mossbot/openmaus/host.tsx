@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogPanel,
+  DialogFooter,
 } from "~/components/ui/dialog";
 import { MossbotAvatar } from "../MossbotAvatar";
 export type RoomBot = {
@@ -35,11 +36,13 @@ export function RoomDialog({
   title,
   onClose,
   busy,
+  footer,
   children,
 }: {
   title: string;
   onClose: () => void;
   busy?: boolean;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -49,11 +52,12 @@ export function RoomDialog({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogPopup className="max-w-[340px]">
+      <DialogPopup className="max-w-sm">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <DialogPanel className="pb-4">{children}</DialogPanel>
+        <DialogPanel className={footer ? undefined : "pb-4"}>{children}</DialogPanel>
+        {footer && <DialogFooter>{footer}</DialogFooter>}
       </DialogPopup>
     </Dialog>
   );
