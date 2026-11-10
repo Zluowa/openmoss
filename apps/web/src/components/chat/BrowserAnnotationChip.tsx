@@ -33,7 +33,7 @@ export function BrowserAnnotationChip({
     variant === "list" ? (
       <span
         className={cn(
-          "group relative flex h-9 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-ui leading-snug text-foreground transition-colors hover:bg-[var(--color-background-button-secondary-hover)]",
+          "group relative flex h-9 w-full min-w-0 items-center gap-2 rounded-row px-2 text-ui leading-snug text-foreground transition-colors hover:bg-[var(--color-background-button-secondary-hover)]",
           onRemove && "pr-8",
           className,
         )}
@@ -41,7 +41,7 @@ export function BrowserAnnotationChip({
         data-testid="browser-annotation-chip"
         {...rest}
       >
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--sidebar-accent-active)] text-ui-xs font-semibold text-muted-foreground">
+        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--sidebar-accent-active)] text-ui-xs font-medium text-muted-foreground">
           {annotation.ordinal}
         </span>
         <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
@@ -71,7 +71,7 @@ export function BrowserAnnotationChip({
         {...rest}
       >
         <span className="inline-flex h-6 min-w-0 max-w-[11rem] items-center gap-1.5 rounded-full pl-2 pr-2">
-          <span className="shrink-0 text-ui-xs font-semibold text-muted-foreground">
+          <span className="shrink-0 text-ui-xs font-medium text-muted-foreground">
             #{annotation.ordinal}
           </span>
           <span className="min-w-0 truncate">{label}</span>

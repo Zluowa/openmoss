@@ -664,7 +664,7 @@ describe("ComputerHistorySettingsPanel", () => {
       .element()
       .closest<HTMLElement>('[data-slot="menu-popup"]');
     expect(appModeMenu).not.toBeNull();
-    expect(getComputedStyle(appModeMenu!).borderRadius).toBe("10px");
+    expect(getComputedStyle(appModeMenu!).borderRadius).toBe("12px");
     expect(getComputedStyle(appModeMenu!).backdropFilter).toContain("blur(8px)");
     expect(getComputedStyle(appModeMenu!).boxShadow).toContain("0.5px");
     expect(getComputedStyle(appModeMenu!).minWidth).toBe("220px");

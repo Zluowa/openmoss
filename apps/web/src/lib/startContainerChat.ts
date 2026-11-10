@@ -29,12 +29,11 @@ type StartFreshContainerChat = (options?: { fresh?: boolean }) => Promise<StartC
  */
 export function startFreshChatForActiveSurface(input: {
   readonly activeProject: Pick<Project, "cwd" | "kind"> | null;
-  readonly isGroupsRoute: boolean;
   readonly paths: ServerWorkspacePaths;
   readonly handleNewChat: StartFreshContainerChat;
   readonly handleNewGroupChat: StartFreshContainerChat;
 }): Promise<StartContainerChatResult> {
-  const isGroup = input.isGroupsRoute || isGroupContainerProject(input.activeProject, input.paths);
+  const isGroup = isGroupContainerProject(input.activeProject, input.paths);
   const handler = isGroup ? input.handleNewGroupChat : input.handleNewChat;
   // Groups always mints a fresh draft; home chat reuses the stored draft thread
   // when one exists (so a draft typed in a new chat survives switching threads),

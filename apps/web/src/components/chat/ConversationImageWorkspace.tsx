@@ -20,7 +20,12 @@ import {
   type MossCanvasBinding,
 } from "~/lib/mossCanvasClient";
 import type { MossCanvasImageFocus } from "~/lib/mossCanvasBridge";
-import type { MossCanvasSelection, MossCanvasSelectionItem } from "~/lib/mossCanvasSelection";
+import type {
+  MossCanvasImageOpen,
+  MossCanvasSelection,
+  MossCanvasSelectionItem,
+} from "~/lib/mossCanvasSelection";
+import { requestComposerImagePreview } from "~/lib/composerImagePreviewRequest";
 import { buildLocalImageUrl } from "~/lib/localImageUrls";
 import { useMossCanvasRuntimeLifecycle } from "~/lib/mossCanvasLifecycle";
 import {
@@ -73,6 +78,7 @@ export function ConversationImageWorkspace(props: {
   const selectionVersion = useRef(0);
   const selectionError = useRef(false);
   const ownedAttachments = useRef<string[]>([]);
+  const latestSelection = useRef<MossCanvasSelection | null>(null);
   const selectedAsset = useMemo(
     () =>
       selectedCanvasImage
@@ -230,6 +236,7 @@ export function ConversationImageWorkspace(props: {
       // The agent can read the live selection (moss_canvas_read), like the
       // browser panel's selected element.
       reportMossCanvasLiveSelection(props.threadId, selection);
+      latestSelection.current = selection;
       // Selected text and shapes become a composer chip right away.
       syncMossCanvasSelectionChip(props.threadId, selectionChipId, selection.content);
       if (selection.items[0]) setSelectedCanvasImage({ item: selection.items[0], binding });
@@ -238,6 +245,31 @@ export function ConversationImageWorkspace(props: {
       );
     },
     [prepareSelection, props.threadId, selectionChipId],
+  );
+  // Opening an image on the board works like ChatGPT's image view: it is
+  // attached to the message (as the selection already does) and shown large,
+  // ready to mark up with Moss's shared markup editor.
+  const onImageOpen = useCallback(
+    (open: MossCanvasImageOpen, binding: MossCanvasBinding) => {
+      if (!visibleRef.current) return;
+      const selected =
+        latestSelection.current?.items.findIndex((item) => item.shapeId === open.item.shapeId) ??
+        -1;
+      if (selected < 0)
+        prepareSelection(async () => [await readMossCanvasSelectionFile(open.item, binding)]);
+      void (async () => {
+        let work: Promise<void>;
+        do {
+          work = selectionWork.current;
+          await work.catch(() => undefined);
+        } while (work !== selectionWork.current);
+        if (!visibleRef.current || selectionError.current) return;
+        const owned = ownedAttachments.current;
+        const imageId = owned[Math.max(0, selected)] ?? owned[0];
+        if (imageId) requestComposerImagePreview({ imageId, markup: true });
+      })();
+    },
+    [prepareSelection],
   );
   const beforeLeave = useCallback(async () => (await flushRef.current?.()) ?? true, []);
   useEffect(
@@ -477,6 +509,7 @@ export function ConversationImageWorkspace(props: {
               {...(localImages ? { localImages } : {})}
               {...(props.imageFocus ? { image: props.imageFocus } : {})}
               onSelectionChange={onSelection}
+              onImageOpen={onImageOpen}
               onImportStateChange={setImportState}
               onComposeContextChange={setComposeContext}
               onLeaveGuardChange={setFlush}
@@ -499,7 +532,7 @@ export function ConversationImageWorkspace(props: {
       >
         {!canvas && (
           <div
-            className="pointer-events-auto mb-2 flex max-w-full items-center gap-1 overflow-x-auto rounded-xl bg-foreground px-2 py-1 text-background shadow-lg"
+            className="pointer-events-auto mb-2 flex max-w-full items-center gap-1 overflow-x-auto rounded-card bg-foreground px-2 py-1 text-background shadow-lg"
             role="toolbar"
             aria-label="图片编辑"
           >
@@ -521,7 +554,7 @@ export function ConversationImageWorkspace(props: {
         {error && (
           <p
             role="alert"
-            className="pointer-events-auto mb-2 rounded-lg bg-background px-3 py-2 text-ui-sm text-destructive"
+            className="pointer-events-auto mb-2 rounded-card bg-background px-3 py-2 text-ui-sm text-destructive"
           >
             {error}
           </p>

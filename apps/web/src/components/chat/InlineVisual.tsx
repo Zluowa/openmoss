@@ -24,7 +24,10 @@ function StoredOpenUIVisual({
   const source = useQuery(inlineVisualQueryOptions({ threadId, visualId: visual.visualId }));
   if (source.isPending || typeof source.data !== "string") {
     return (
-      <div className="my-2 h-24 animate-pulse rounded-md bg-muted/30" data-openui-state="loading" />
+      <div
+        className="my-2 h-24 animate-pulse rounded-control bg-muted/30"
+        data-openui-state="loading"
+      />
     );
   }
   const directive: OpenUIDirective = {

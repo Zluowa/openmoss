@@ -224,7 +224,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }),
   );
 
-  it.effect("keeps the shipped thread tab chords distinct from space navigation", () =>
+  it.effect("ships the thread tab chords and no Space chords (Spaces were removed)", () =>
     Effect.gen(function* () {
       const keybindings = yield* Keybindings;
       const snapshot = yield* keybindings.loadConfigState;
@@ -232,17 +232,9 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         const tabRules = snapshot.keybindings.filter(
           (rule) => rule.command === `threadTab.${direction}`,
         );
-        const spaceRules = snapshot.keybindings.filter(
-          (rule) => rule.command === `space.${direction}`,
-        );
         assert.lengthOf(tabRules, 2);
-        assert.lengthOf(spaceRules, 1);
-        for (const tabRule of tabRules) {
-          for (const spaceRule of spaceRules) {
-            assert.notDeepEqual(tabRule.shortcut, spaceRule.shortcut);
-          }
-        }
       }
+      assert.isFalse(snapshot.keybindings.some((rule) => rule.command.startsWith("space.")));
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 

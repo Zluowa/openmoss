@@ -29,10 +29,10 @@ export function ComputerActionCard({
 }) {
   const metaStyle = metaFontSizePx ? { fontSize: `${metaFontSizePx}px` } : undefined;
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] p-3">
+    <div className="flex items-start gap-3 rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] p-3">
       <span
         className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-lg",
+          "flex size-9 shrink-0 items-center justify-center rounded-control",
           tone === "success"
             ? "bg-success/8 text-success dark:bg-success/16"
             : tone === "error"

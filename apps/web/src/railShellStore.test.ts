@@ -1,7 +1,7 @@
 import { ProjectId } from "@moss/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { useRailShellStore } from "./railShellStore";
+import { parsePersistedRailShellState, useRailShellStore } from "./railShellStore";
 
 const PROJECT_A = ProjectId.makeUnsafe("project-a");
 const PROJECT_B = ProjectId.makeUnsafe("project-b");
@@ -11,24 +11,24 @@ describe("railShellStore", () => {
     useRailShellStore.setState({
       activeItem: "home",
       panelView: "home",
-      spacesProjectId: null,
+      railProjectId: null,
       selectionVersion: 0,
       reconciledRouteKey: null,
     });
   });
 
   it("selectPanelItem sets both the active item and the panel view", () => {
-    useRailShellStore.getState().selectPanelItem("spaces");
+    useRailShellStore.getState().selectPanelItem("project");
     const state = useRailShellStore.getState();
-    expect(state.activeItem).toBe("spaces");
-    expect(state.panelView).toBe("spaces");
+    expect(state.activeItem).toBe("project");
+    expect(state.panelView).toBe("project");
   });
 
   it("counts explicit panel and route selections even when their active item stays the same", () => {
     const { selectPanelItem, selectRouteItem } = useRailShellStore.getState();
     selectPanelItem("home");
     selectPanelItem("home");
-    selectPanelItem("spaces");
+    selectPanelItem("project");
     selectRouteItem("images");
     selectRouteItem("images");
     expect(useRailShellStore.getState().selectionVersion).toBe(5);
@@ -37,49 +37,61 @@ describe("railShellStore", () => {
   it("does not count automatic route reconciliation as an explicit selection", () => {
     const { reconcile, selectRouteItem } = useRailShellStore.getState();
     selectRouteItem("images");
-    reconcile({ pathname: "/original-thread", onStudioSurface: false, projectIds: null });
+    reconcile({ pathname: "/original-thread", projectIds: null });
     expect(useRailShellStore.getState().activeItem).toBe("home");
     expect(useRailShellStore.getState().selectionVersion).toBe(1);
   });
 
-  it("reconcile clears a drill-in project that no longer exists", () => {
-    useRailShellStore.getState().openSpacesProject(PROJECT_A);
+  it("reconcile clears a pinned project that no longer exists", () => {
+    useRailShellStore.getState().openRailProject(PROJECT_A);
     const { reconcile } = useRailShellStore.getState();
-    reconcile({ pathname: "/", onStudioSurface: false, projectIds: null });
-    expect(useRailShellStore.getState().spacesProjectId).toBe(PROJECT_A);
-    reconcile({ pathname: "/", onStudioSurface: false, projectIds: new Set([PROJECT_B]) });
-    expect(useRailShellStore.getState().spacesProjectId).toBeNull();
+    reconcile({ pathname: "/", projectIds: null });
+    expect(useRailShellStore.getState().railProjectId).toBe(PROJECT_A);
+    reconcile({ pathname: "/", projectIds: new Set([PROJECT_B]) });
+    expect(useRailShellStore.getState().railProjectId).toBeNull();
   });
 
   it("reconcile keeps a clicked panel item until the pathname changes", () => {
     const { reconcile, selectPanelItem } = useRailShellStore.getState();
     const projectIds = new Set([PROJECT_A]);
-    reconcile({ pathname: "/pull-requests", onStudioSurface: false, projectIds: null });
+    reconcile({ pathname: "/pull-requests", projectIds: null });
     expect(useRailShellStore.getState().activeItem).toBe("pullRequests");
-    selectPanelItem("spaces");
-    reconcile({ pathname: "/pull-requests", onStudioSurface: false, projectIds });
-    expect(useRailShellStore.getState().activeItem).toBe("spaces");
-    reconcile({ pathname: "/kanban", onStudioSurface: false, projectIds });
+    selectPanelItem("project");
+    reconcile({ pathname: "/pull-requests", projectIds });
+    expect(useRailShellStore.getState().activeItem).toBe("project");
+    reconcile({ pathname: "/kanban", projectIds });
     expect(useRailShellStore.getState().activeItem).toBe("kanban");
   });
 
   it("reconciles a deep-linked assistant after summaries hydrate, and leaves it for ordinary chat", () => {
     const { reconcile } = useRailShellStore.getState();
-    reconcile({ pathname: "/assistant", onStudioSurface: false, projectIds: null });
+    reconcile({ pathname: "/assistant", projectIds: null });
     expect(useRailShellStore.getState().activeItem).toBe("home");
     reconcile({
       pathname: "/assistant",
-      onStudioSurface: false,
       onMossbotSurface: true,
       projectIds: new Set([PROJECT_A]),
     });
     expect(useRailShellStore.getState().activeItem).toBe("mossbot");
     reconcile({
       pathname: "/ordinary",
-      onStudioSurface: false,
       onMossbotSurface: false,
       projectIds: new Set([PROJECT_A]),
     });
     expect(useRailShellStore.getState().activeItem).toBe("home");
+  });
+
+  it("opens Home when a session saved the removed Spaces panel", () => {
+    expect(
+      parsePersistedRailShellState(
+        JSON.stringify({ activeItem: "spaces", panelView: "spaces", spacesProjectId: "p" }),
+      ),
+    ).toEqual({ activeItem: "home", panelView: "home", railProjectId: null });
+    expect(
+      parsePersistedRailShellState(
+        JSON.stringify({ panelView: "project", railProjectId: PROJECT_A }),
+      ),
+    ).toEqual({ activeItem: "project", panelView: "project", railProjectId: PROJECT_A });
+    expect(parsePersistedRailShellState("not json").panelView).toBe("home");
   });
 });

@@ -63,10 +63,10 @@ describe("feature menu", () => {
       .not.toBeInTheDocument();
   });
 
-  it("adds and removes Spaces and projects as rail shortcuts from a submenu", async () => {
+  it("adds and removes projects as rail shortcuts from a submenu", async () => {
     function Harness() {
       const [open, setOpen] = useState(false);
-      const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set(["space:void"]));
+      const [pinned, setPinned] = useState<ReadonlySet<string>>(new Set());
       return (
         <>
           <output data-testid="pinned">{[...pinned].join(",")}</output>
@@ -78,7 +78,6 @@ describe("feature menu", () => {
             plugins={[]}
             utilities={[]}
             shortcuts={{
-              spaces: [{ key: "space:void", label: "Void" }],
               projects: [{ key: "project:p1", label: "Profile" }],
               pinnedKeys: pinned,
               onToggle: (key) =>
@@ -96,10 +95,9 @@ describe("feature menu", () => {
     await render(<Harness />);
     await page.getByRole("button", { name: "More", exact: true }).click();
     await page.getByRole("menuitem", { name: "Projects in the sidebar", exact: true }).click();
-    await expect
-      .element(page.getByRole("menuitemcheckbox", { name: "Void", exact: true }))
-      .toHaveAttribute("aria-checked", "true");
+    // Only projects can be pinned: Spaces were removed, so no Spaces group is listed.
+    expect(page.getByText("Spaces", { exact: true }).elements()).toHaveLength(0);
     await page.getByRole("menuitemcheckbox", { name: "Profile", exact: true }).click();
-    await expect.element(page.getByTestId("pinned")).toHaveTextContent("space:void,project:p1");
+    await expect.element(page.getByTestId("pinned")).toHaveTextContent("project:p1");
   });
 });

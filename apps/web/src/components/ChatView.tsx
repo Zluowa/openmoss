@@ -151,7 +151,7 @@ import {
   resolveDefaultProviderInstanceId,
   useAppSettings,
 } from "../appSettings";
-import { GROUPS_ON, MCP_CONNECTORS_ON } from "../betaFeatures";
+import { MCP_CONNECTORS_ON } from "../betaFeatures";
 import { mcpConnectorsQueryOptions } from "../lib/mcpConnectorsReactQuery";
 import { providerSupportsMcpConnectors } from "@moss/shared/mcpConnectors";
 import {
@@ -7684,7 +7684,8 @@ export default function ChatView({
                   instead of a banner fused into the composer surface. An approval takes
                   precedence and suppresses the question card while one is active. */}
               {shouldShowHubPendingApprovals({
-                groupsOn: GROUPS_ON || activeGroupSummary?.agentKind === "mossbot",
+                // Hubs are gone; only a Mossbot conversation runs a coordinator.
+                groupsOn: activeGroupSummary?.agentKind === "mossbot",
                 isCoordinatorConversation,
                 hasActiveThread: activeThread != null,
               }) && activeThread ? (

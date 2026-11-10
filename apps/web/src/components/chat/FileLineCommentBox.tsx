@@ -69,7 +69,7 @@ export function FileLineCommentBox(props: FileLineCommentBoxProps) {
       onContextMenu={(event) => event.stopPropagation()}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-2 text-ui-lg font-semibold text-[var(--color-text-foreground)]">
+        <span className="inline-flex items-center gap-2 text-ui-lg font-medium text-[var(--color-text-foreground)]">
           <span className="editor-file-viewer__comment-badge">
             <MossLogo className="size-3 text-[var(--color-text-foreground-secondary)]" />
           </span>

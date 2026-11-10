@@ -215,7 +215,7 @@ export function GroupThreadRow({
   const meta = row.projectName ? `${row.projectName} · ${updatedLabel}` : updatedLabel;
   return (
     <div
-      className="group/grouprow flex h-7 items-center gap-2 rounded-lg px-2 transition-colors hover:bg-[var(--color-background-elevated-secondary)]"
+      className="group/grouprow flex h-7 items-center gap-2 rounded-row px-2 transition-colors hover:bg-[var(--color-background-elevated-secondary)]"
       onContextMenu={onContextMenu}
     >
       <button
@@ -277,7 +277,7 @@ export function GroupPullRequestsSection({
         return (
           <div
             key={row.thread.id}
-            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-foreground/5"
+            className="flex items-center gap-1.5 rounded-card px-2 py-1.5 hover:bg-foreground/5"
           >
             <button
               type="button"
@@ -370,7 +370,7 @@ function GroupAutomationRow({
   const { locale } = useTranslation();
   const name = automationDisplayName(definition, locale);
   return (
-    <div className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-foreground/5">
+    <div className="flex items-center gap-1.5 rounded-card px-2 py-1.5 hover:bg-foreground/5">
       <button
         type="button"
         className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"

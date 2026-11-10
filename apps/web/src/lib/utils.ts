@@ -49,6 +49,21 @@ const twMerge = extendTailwindMerge({
         "size-code",
         "size-code-sm",
       ],
+      // Radius roles from index.css (docs/design/moss-design-standard.md). Registered so a
+      // caller's role (`rounded-control`) replaces a primitive's role (`rounded-card`) instead of
+      // both staying in the class list and the stylesheet order deciding.
+      radius: [
+        "inline",
+        "row",
+        "control-xs",
+        "control",
+        "card",
+        "popover",
+        "panel",
+        "composer",
+        "dialog",
+        "bubble",
+      ],
     },
   },
 });

@@ -168,11 +168,11 @@ function KanbanColumnComponent({
 
   return (
     <section className="flex min-h-0 w-full min-w-0 flex-col @min-[52rem]/kanban-project:min-w-64 @min-[52rem]/kanban-project:flex-1">
-      <header className="flex shrink-0 items-center gap-2 px-1.5 pb-2">
-        <h3 className="text-ui-lg font-medium text-foreground/90">
+      <header className="flex h-8 shrink-0 items-center gap-2 px-2 pb-1">
+        <h3 className="text-ui font-medium text-foreground">
           {KANBAN_COLUMN_V2_LABELS[columnKey]}
         </h3>
-        <span className="text-ui leading-snug text-muted-foreground/70">{cards.length}</span>
+        <span className="text-ui-sm leading-snug text-muted-foreground">{cards.length}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
           {dispatchTarget ? (
             <span className="text-ui-sm leading-snug text-sky-600 dark:text-sky-300/90">
@@ -197,7 +197,7 @@ function KanbanColumnComponent({
       <ul
         ref={setNodeRef}
         className={cn(
-          "flex min-h-24 flex-1 flex-col gap-2 overflow-y-auto rounded-xl p-1 transition-colors",
+          "flex min-h-24 flex-1 flex-col gap-1.5 overflow-y-auto rounded-panel p-1 transition-colors",
           dispatchTarget && "bg-sky-500/5 ring-1 ring-sky-400/30",
           dispatchTarget && isOver && "bg-sky-500/10 ring-sky-400/60",
         )}
@@ -210,7 +210,7 @@ function KanbanColumnComponent({
           cardElements
         )}
         {cards.length === 0 ? (
-          <li className="list-none rounded-lg border border-dashed border-border/60 px-3 py-4 text-center text-ui leading-snug text-muted-foreground/60">
+          <li className="list-none rounded-panel border border-dashed border-border px-3 py-4 text-center text-ui-sm leading-snug text-muted-foreground">
             No cards
           </li>
         ) : null}
@@ -219,7 +219,7 @@ function KanbanColumnComponent({
             <button
               type="button"
               onClick={() => setShowAll(true)}
-              className="w-full rounded-lg px-3 py-1.5 text-center text-ui leading-snug text-muted-foreground/80 transition-colors hover:bg-muted/40 hover:text-foreground"
+              className="w-full rounded-control px-3 py-1.5 text-center text-ui-sm leading-snug text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,transparent)] hover:text-foreground"
             >
               Show {hiddenCount} more
             </button>

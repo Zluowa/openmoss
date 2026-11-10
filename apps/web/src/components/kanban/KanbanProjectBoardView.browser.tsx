@@ -198,38 +198,33 @@ async function dragCardOntoColumn(titleSnippet: string, columnHeading: string) {
 
 beforeEach(() => {
   useKanbanUiStore.setState({
-    kanbanViewMode: "v2",
     kanbanNeedsReviewFilter: false,
     hasRevealedReviewFold: false,
   });
 });
 
-describe("KanbanProjectBoardView v2 (browser)", () => {
-  it("lets users select Classic in the page header and remembers it on remount", async () => {
+describe("KanbanProjectBoardView (browser)", () => {
+  it("shows one quiet header: a title, the filter menu and New task, with no board-style tabs", async () => {
     const screen = await render(<KanbanView projectId="project-1" />);
     try {
-      // Immediate lookup makes the missing-control regression fail without a timeout.
-      expect(page.getByRole("button", { name: "Classic", exact: true }).elements()).toHaveLength(1);
-      await page.getByRole("button", { name: "Classic", exact: true }).click();
-      expect(useKanbanUiStore.getState().kanbanViewMode).toBe("classic");
-      await expect
-        .element(page.getByRole("heading", { name: "Awaiting you" }))
-        .not.toBeInTheDocument();
+      // The duplicate Attention / Classic board styles are gone; the board is always the
+      // attention board, so Awaiting you is a column.
+      expect(page.getByRole("button", { name: "Classic", exact: true }).elements()).toHaveLength(0);
+      expect(page.getByRole("button", { name: "Attention", exact: true }).elements()).toHaveLength(
+        0,
+      );
+      await expect.element(page.getByRole("heading", { name: "Awaiting you" })).toBeVisible();
+      // The needs-review filter lives behind the one filter control, not on the board.
+      expect(page.getByRole("checkbox", { name: "Needs review" }).elements()).toHaveLength(0);
+      await page.getByRole("button", { name: "Filter", exact: true }).click();
+      await page.getByRole("menuitemcheckbox", { name: "Needs review" }).click();
+      await expect.poll(() => useKanbanUiStore.getState().kanbanNeedsReviewFilter).toBe(true);
       expect(
-        JSON.parse(localStorage.getItem("moss:kanban-ui:v1") ?? "null").state.kanbanViewMode,
-      ).toBe("classic");
+        JSON.parse(localStorage.getItem("moss:kanban-ui:v1") ?? "null").state
+          .kanbanNeedsReviewFilter,
+      ).toBe(true);
     } finally {
       await screen.unmount();
-    }
-    const remounted = await render(<KanbanView projectId="project-1" />);
-    try {
-      await expect
-        .element(page.getByRole("button", { name: "Classic", exact: true }))
-        .toHaveAttribute("aria-pressed", "true");
-      await page.getByRole("button", { name: "Attention", exact: true }).click();
-      await expect.element(page.getByRole("heading", { name: "Awaiting you" })).toBeVisible();
-    } finally {
-      await remounted.unmount();
     }
   });
 
@@ -286,7 +281,6 @@ describe("KanbanProjectBoardView v2 (browser)", () => {
           onNewTask={vi.fn()}
           prByThreadId={new Map()}
           nowMs={NOW_MS}
-          viewMode="v2"
         />
       );
     }
@@ -306,7 +300,15 @@ describe("KanbanProjectBoardView v2 (browser)", () => {
       expect(document.querySelectorAll("li button").length).toBe(30);
       // Leaving the review filter restores the ordinary column's thirty-card
       // cap and its own reveal, rather than removing that existing safeguard.
-      await page.getByRole("checkbox", { name: "Needs review" }).click();
+      useKanbanUiStore.getState().setKanbanNeedsReviewFilter(false);
+      await expect
+        .poll(
+          () =>
+            [...document.querySelectorAll("li button")].filter((button) =>
+              button.textContent?.includes("Review "),
+            ).length,
+        )
+        .toBe(30);
       expect(
         [...document.querySelectorAll("li button")].filter((button) =>
           button.textContent?.includes("Review "),
@@ -327,7 +329,6 @@ describe("KanbanProjectBoardView v2 (browser)", () => {
         onNewTask={vi.fn()}
         prByThreadId={new Map()}
         nowMs={NOW_MS}
-        viewMode="v2"
       />,
     );
 
@@ -340,26 +341,8 @@ describe("KanbanProjectBoardView v2 (browser)", () => {
     await expect
       .element(page.getByText(KANBAN_ATTENTION_LABELS["awaiting-approval"]))
       .toBeVisible();
-    await expect.element(page.getByText("Needs review")).toBeVisible();
-  });
-
-  it("keeps classic mode at three columns without the awaiting-you column", async () => {
-    const { unmount } = await render(
-      <KanbanProjectBoardView
-        board={{ ...board, awaitingYou: [] }}
-        onOpenCard={vi.fn()}
-        onNewTask={vi.fn()}
-        prByThreadId={new Map()}
-        nowMs={NOW_MS}
-        viewMode="classic"
-      />,
-    );
-
-    for (const label of ["Draft", "In Progress"] as const) {
-      await expect.element(page.getByRole("heading", { name: label })).toBeVisible();
-    }
-    expect(document.body.textContent).not.toContain(KANBAN_COLUMN_V2_LABELS.awaitingYou);
-    await unmount();
+    // The needs-review filter is in the page header's filter menu, not on the board.
+    expect(page.getByRole("checkbox", { name: "Needs review" }).elements()).toHaveLength(0);
   });
 
   it("dispatches a draft drop on In Progress WITH the goal variant", async () => {
@@ -381,7 +364,6 @@ describe("KanbanProjectBoardView v2 (browser)", () => {
         onNewTask={vi.fn()}
         prByThreadId={new Map()}
         nowMs={NOW_MS}
-        viewMode="v2"
       />,
     );
     try {
@@ -398,9 +380,9 @@ describe("KanbanProjectBoardView v2 (browser)", () => {
     }
   });
 
-  it.each(["classic", "v2"] as const)(
+  it.each(["board"] as const)(
     "offers only In Progress in the %s card menu and uses the drop dispatch",
-    async (viewMode) => {
+    async () => {
       dispatchAsGoalMock.mockClear();
       const card = makeCard("menu-goal", "draft", {
         cardId: "draft:menu-goal",
@@ -415,7 +397,6 @@ describe("KanbanProjectBoardView v2 (browser)", () => {
           onCardContextMenu={contextMenu}
           onNewTask={vi.fn()}
           prByThreadId={new Map()}
-          viewMode={viewMode}
         />,
       );
       try {
@@ -476,7 +457,6 @@ describe("KanbanProjectBoardView v2 (browser)", () => {
           onCardContextMenu={contextMenu}
           onNewTask={vi.fn()}
           prByThreadId={new Map()}
-          viewMode="v2"
         />,
       );
       try {
@@ -509,7 +489,6 @@ describe("KanbanProjectBoardView v2 (browser)", () => {
         onNewTask={vi.fn()}
         prByThreadId={new Map()}
         nowMs={NOW_MS}
-        viewMode="v2"
       />,
     );
     try {

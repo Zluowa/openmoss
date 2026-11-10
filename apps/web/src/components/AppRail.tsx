@@ -1,5 +1,5 @@
 // FILE: AppRail.tsx
-// Purpose: The rail layout's fixed icon tab strip (Home, Spaces, route destinations, Settings).
+// Purpose: The rail layout's fixed icon tab strip (Home, route destinations, Settings).
 // Layer: App shell component
 // Exports: AppRail, AppRailItem, AppRailPortal, AppRailSlotProvider
 // Depends on: SidebarIconButton and the shared sidebar row tokens. ThreadSidebar owns the
@@ -38,7 +38,7 @@ export type AppRailGlyphs = { readonly idle: RailGlyph; readonly active: RailGly
 // Glyph components are cached so a shortcut keeps one component identity across renders.
 const glyphCache = new Map<string, AppRailGlyphs>();
 
-/** Rail glyphs for a Central icon name (rail items and Space shortcuts). */
+/** Rail glyphs for a Central icon name (the fixed rail items). */
 export function railCentralGlyphs(name: string): AppRailGlyphs {
   const cacheKey = `central:${name}`;
   const cached = glyphCache.get(cacheKey);
@@ -81,9 +81,8 @@ const RAIL_ITEM_GLYPH_NAMES: Record<RailItemId, string> = {
   automations: "clock",
   library: "folders",
   tasks: "square-checklist",
-  spaces: "folders",
-  // Hubs (stored id "studio").
-  studio: "layout-dashboard",
+  // A project pinned to the rail opens this panel; its own glyph is the project icon.
+  project: "folders",
   kanban: "columns-3-wide",
   settings: "settings-gear-4",
   images: "images-3",
@@ -101,7 +100,7 @@ export function railItemGlyphs(id: RailItemId): AppRailGlyphs {
 export const RAIL_MORE_GLYPHS = railCentralGlyphs("dot-grid-1x3-horizontal");
 
 export type AppRailItem = {
-  /** A rail item id, or a shortcut key ("space:…" / "project:…"). */
+  /** A rail item id, or a shortcut key ("project:…"). */
   readonly id: string;
   readonly glyphs: AppRailGlyphs;
   readonly label: string;
@@ -114,7 +113,7 @@ export type AppRailItem = {
 
 type AppRailProps = {
   items: ReadonlyArray<AppRailItem>;
-  /** Spaces and projects the user added from the "…" menu, below the fixed items. */
+  /** Projects the user added from the "…" menu, below the fixed items. */
   shortcuts: ReadonlyArray<AppRailItem>;
   /** The "…" menu trigger, after the shortcuts. */
   moreSlot?: ReactNode;

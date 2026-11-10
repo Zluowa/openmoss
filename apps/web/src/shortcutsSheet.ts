@@ -60,18 +60,11 @@ const EFFORT_CYCLE_DEFINITION: ShortcutDefinition = {
   description: "Cycle the model's available effort levels and briefly show the selected level.",
 };
 
-// Space jumps address the switcher's visual tab order, so slot 1 is always Void.
-const SPACE_JUMP_DEFINITIONS: readonly ShortcutDefinition[] = Array.from(
-  { length: 9 },
-  (_, index) => ({
-    command: `space.jump.${index + 1}` as KeybindingCommand,
-    label: index === 0 ? "Jump to Void" : `Jump to space ${index + 1}`,
-    description:
-      index === 0
-        ? "Switch straight to the Void tab of the space switcher."
-        : "Switch straight to this tab of the space switcher.",
-  }),
-);
+const RETIRED_SPACE_COMMANDS: readonly KeybindingCommand[] = [
+  "space.previous",
+  "space.next",
+  ...SPACE_JUMP_KEYBINDING_COMMANDS,
+];
 
 const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
   {
@@ -104,17 +97,6 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     label: "Import thread",
     description: "Bring an existing conversation into the current workspace.",
   },
-  {
-    command: "space.previous",
-    label: "Previous space",
-    description: "Switch to the previous project space and restore its last working context.",
-  },
-  {
-    command: "space.next",
-    label: "Next space",
-    description: "Switch to the next project space and restore its last working context.",
-  },
-  ...SPACE_JUMP_DEFINITIONS,
   {
     command: "chat.new",
     label: "New thread",
@@ -442,16 +424,9 @@ function singleCommandEditorDefinitions(
  * rebind them as a single shortcut.
  */
 export function listShortcutEditorDefinitions(): ShortcutEditorDefinition[] {
-  const spaceJumpCommands = new Set<KeybindingCommand>(SPACE_JUMP_KEYBINDING_COMMANDS);
   const definitions: ShortcutEditorDefinition[] = [
     ...singleCommandEditorDefinitions([SIDEBAR_TOGGLE_DEFINITION]),
-    ...singleCommandEditorDefinitions(
-      AVAILABLE_NOW_DEFINITIONS.filter(
-        (definition) =>
-          Array.isArray(definition.command) ||
-          !spaceJumpCommands.has(definition.command as KeybindingCommand),
-      ),
-    ),
+    ...singleCommandEditorDefinitions(AVAILABLE_NOW_DEFINITIONS),
     ...singleCommandEditorDefinitions(WORKSPACE_DEFINITIONS),
     {
       id: "thread.jump",
@@ -460,16 +435,14 @@ export function listShortcutEditorDefinitions(): ShortcutEditorDefinition[] {
       commands: THREAD_JUMP_KEYBINDING_COMMANDS,
       members: singleCommandEditorDefinitions(THREAD_JUMP_DEFINITIONS),
     },
-    {
-      id: "space.jump",
-      label: "Jump to space 1–9",
-      description: "Switch straight to a tab of the space switcher. 1 is always Void.",
-      commands: SPACE_JUMP_KEYBINDING_COMMANDS,
-      members: singleCommandEditorDefinitions(SPACE_JUMP_DEFINITIONS),
-    },
   ];
 
-  const covered = new Set(definitions.flatMap((definition) => definition.commands));
+  // Spaces were removed (2026-11-10); their commands stay in the contract only so old
+  // keybinding files load, and are never offered here.
+  const covered = new Set<KeybindingCommand>([
+    ...definitions.flatMap((definition) => definition.commands),
+    ...RETIRED_SPACE_COMMANDS,
+  ]);
   for (const command of STATIC_KEYBINDING_COMMANDS) {
     if (covered.has(command) || command.startsWith("terminal.split")) continue;
     definitions.push({

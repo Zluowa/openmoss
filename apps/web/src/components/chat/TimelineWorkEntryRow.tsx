@@ -1053,6 +1053,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       ? formatLiveActivityMeta(workEntry.liveActivity, liveActivityNowMs, {
           subagent: workEntry.itemType === "collab_agent_tool_call",
           awaitingUser: isMossUserAnswerToolCall(workEntry.toolName),
+          locale,
         })
       : null;
   const failureMetaText = failure
@@ -1236,7 +1237,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   }
 
   return (
-    <div className={cn(compact ? "py-0.5" : "rounded-lg py-1")}>
+    <div className={cn(compact ? "py-0.5" : "rounded-card py-1")}>
       {showEditedRows ? (
         <div className="space-y-0.5">
           {changedFiles.map((changedFilePath) => {
@@ -1760,7 +1761,7 @@ function ProviderContextLifecycleDetails(props: {
     info.provider;
   return (
     <div className="space-y-3" data-provider-context-lifecycle-details="true">
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg border border-border/45 bg-background/60 px-3 py-2.5 text-ui-sm">
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-card border border-border/45 bg-background/60 px-3 py-2.5 text-ui-sm">
         <dt className="text-muted-foreground/56">{zh ? "服务商" : "Provider"}</dt>
         <dd className="text-foreground/84">{provider}</dd>
         <dt className="text-muted-foreground/56">{zh ? "之前的历史记录" : "Previous history"}</dt>
@@ -1798,7 +1799,7 @@ function ProviderContextLifecycleDetails(props: {
             {zh ? "摘要预览" : "Summary preview"}
           </h3>
           <pre
-            className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/45 bg-background/60 px-3 py-2.5 font-chat-code text-chat-code leading-relaxed text-foreground/84"
+            className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-card border border-border/45 bg-background/60 px-3 py-2.5 font-chat-code text-chat-code leading-relaxed text-foreground/84"
             data-session-context-recap-preview="true"
           >
             {info.recapPreview}
@@ -1836,7 +1837,7 @@ export function ProviderHandoffDetails(props: {
   const { info } = props;
   return (
     <div className="space-y-3" data-provider-handoff-details="true">
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg border border-border/45 bg-background/60 px-3 py-2.5 text-ui-sm">
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-card border border-border/45 bg-background/60 px-3 py-2.5 text-ui-sm">
         <dt className="text-muted-foreground/56">From</dt>
         <dd className="text-foreground/84">
           {providerModelLabel(info.sourceModelSelection, info.sourceFastModeNotice)}
@@ -1865,7 +1866,7 @@ export function ProviderHandoffDetails(props: {
         <section className="space-y-2">
           <h3 className="text-ui-sm font-medium text-muted-foreground/56">Transferred context</h3>
           <pre
-            className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/45 bg-background/60 px-3 py-2.5 font-chat-code text-chat-code leading-relaxed text-foreground/84"
+            className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-card border border-border/45 bg-background/60 px-3 py-2.5 font-chat-code text-chat-code leading-relaxed text-foreground/84"
             data-provider-handoff-context="true"
           >
             {info.contextText}
@@ -2046,7 +2047,7 @@ function ToolDetailsDisclosure(props: {
           aria-controls={bodyId}
           aria-expanded={disclosureOpen}
           aria-labelledby={summaryLabelId}
-          className="absolute inset-0 z-0 cursor-pointer rounded-md bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:ring-offset-0"
+          className="absolute inset-0 z-0 cursor-pointer rounded-control bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:ring-offset-0"
           data-file-change-row={props.dataFileChangeRow ? "true" : undefined}
           data-tool-detail-trigger="true"
           onClick={(event) => {
@@ -2066,7 +2067,7 @@ function ToolDetailsDisclosure(props: {
     const appRootClassName = cn(
       "group/tool-details min-w-0",
       appPresentation?.prefersBorder &&
-        "overflow-hidden rounded-lg border border-strong bg-surface [border-end-end-radius:max(0px,calc(var(--radius-lg)-1px))] [border-end-start-radius:max(0px,calc(var(--radius-lg)-1px))]",
+        "overflow-hidden rounded-card border border-strong bg-surface [border-end-end-radius:max(0px,calc(var(--radius-lg)-1px))] [border-end-start-radius:max(0px,calc(var(--radius-lg)-1px))]",
     );
     return (
       <div className={appRootClassName} data-tool-detail-disclosure="true" data-mcp-app-card="true">

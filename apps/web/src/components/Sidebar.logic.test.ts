@@ -7,7 +7,6 @@ import {
   deriveSidebarProjectData,
   describeAddProjectError,
   excludeHiddenProjectAgentCoordinatorThreads,
-  filterSidebarThreadsBySpace,
   findDeepestWorkspaceRootMatch,
   findWorkspaceRootMatch,
   getFallbackThreadIdAfterDelete,
@@ -18,9 +17,7 @@ import {
   getNextVisibleSidebarThreadId,
   getSidebarThreadIdsToPrewarm,
   groupSidebarThreadsByProjectId,
-  mergeGroupMemberThreadsIntoProjectBuckets,
   isLatestPinnedProjectMutation,
-  isProjectsSidebarSurface,
   getUnpinnedThreadsForSidebar,
   hasUnseenCompletion,
   canSnoozeSidebarThread,
@@ -52,9 +49,9 @@ import {
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
   sortThreadsForSidebar,
+  resolvePrimaryNewChatAction,
 } from "./Sidebar.logic";
-import { ProjectId, SpaceId, ThreadId } from "@moss/contracts";
-import { buildActivityViewModel } from "./SidebarActivityView.logic";
+import { ProjectId, ThreadId } from "@moss/contracts";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -90,67 +87,6 @@ describe("project agent sidebar hiding", () => {
         hiddenIds,
       ).map((thread) => thread.id),
     ).toEqual([childId]);
-  });
-});
-
-describe("isProjectsSidebarSurface", () => {
-  it("enables Space shortcuts only where the Space switcher is visible", () => {
-    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnGroups: false })).toBe(true);
-    expect(isProjectsSidebarSurface({ isOnSettings: false, isOnGroups: true })).toBe(false);
-    expect(isProjectsSidebarSurface({ isOnSettings: true, isOnGroups: false })).toBe(false);
-  });
-});
-
-describe("sidebar Space thread lists", () => {
-  it("scopes pins and snoozed projects to the selected Space while keeping chats global", () => {
-    const spaceA = SpaceId.makeUnsafe("space-a");
-    const spaceB = SpaceId.makeUnsafe("space-b");
-    const projects = [
-      makeProject({ id: ProjectId.makeUnsafe("project-a"), spaceId: spaceA }),
-      makeProject({ id: ProjectId.makeUnsafe("project-b"), spaceId: spaceB }),
-      makeProject({ id: ProjectId.makeUnsafe("project-void"), spaceId: null }),
-      makeProject({ id: ProjectId.makeUnsafe("chat"), kind: "chat" }),
-    ];
-    const projectById = new Map(projects.map((project) => [project.id, project]));
-    const threads = projects.map((project) =>
-      makeSidebarThreadSummary({
-        id: ThreadId.makeUnsafe(`thread-${project.id}`),
-        projectId: project.id,
-        snoozedUntil:
-          project.kind === "chat" ? "2026-10-03T10:00:00.000Z" : "2026-10-03T09:00:00.000Z",
-      }),
-    );
-    const pinnedThreadIds = threads.map((thread) => thread.id);
-    const paths = {
-      homeDir: null,
-      chatWorkspaceRoot: null,
-      studioWorkspaceRoot: null,
-      groupsWorkspaceRoot: null,
-    };
-
-    for (const [spaceId, projectId] of [
-      [spaceA, projects[0]!.id],
-      [spaceB, projects[1]!.id],
-      [null, projects[2]!.id],
-    ] as const) {
-      const expected = [`thread-${projectId}`, "thread-chat"];
-      const snoozed = buildActivityViewModel({
-        threads: filterSidebarThreadsBySpace({ threads, projectById, spaceId, paths }),
-        pinnedThreadIdSet: new Set(pinnedThreadIds),
-      });
-      expect(snoozed.snoozed.map((thread) => thread.id)).toEqual(expected);
-      expect(snoozed.pinned).toEqual([]);
-      const pins = getPinnedThreadsForSidebar(
-        filterSidebarThreadsBySpace({
-          threads: threads.map((thread) => Object.assign({}, thread, { snoozedUntil: null })),
-          projectById,
-          spaceId,
-          paths,
-        }),
-        pinnedThreadIds,
-      );
-      expect(pins.map((thread) => thread.id)).toEqual(expected);
-    }
   });
 });
 
@@ -1813,97 +1749,6 @@ describe("partitionSidebarThreadsByProjectIds", () => {
   });
 });
 
-const sortThreadsById = (threads: readonly SidebarThreadSummary[]) =>
-  [...threads].toSorted((left, right) => left.id.localeCompare(right.id));
-
-describe("mergeGroupMemberThreadsIntoProjectBuckets", () => {
-  const groupProjectId = ProjectId.makeUnsafe("project-group");
-  const repoProjectId = ProjectId.makeUnsafe("project-repo");
-
-  it("unions linked-repo member threads into the group bucket", () => {
-    const ownThread = makeSidebarThreadSummary({
-      id: ThreadId.makeUnsafe("thread-own"),
-      projectId: groupProjectId,
-    });
-    const memberThread = makeSidebarThreadSummary({
-      id: ThreadId.makeUnsafe("thread-member"),
-      projectId: repoProjectId,
-    });
-    const otherRepoThread = makeSidebarThreadSummary({
-      id: ThreadId.makeUnsafe("thread-repo-other"),
-      projectId: repoProjectId,
-    });
-    const base = groupSidebarThreadsByProjectId([ownThread, memberThread, otherRepoThread]);
-
-    const merged = mergeGroupMemberThreadsIntoProjectBuckets({
-      sortedSidebarThreadsByProjectId: base,
-      threads: [ownThread, memberThread, otherRepoThread],
-      memberThreadIdsByProjectId: new Map([
-        [groupProjectId, new Set([ownThread.id, memberThread.id])],
-      ]),
-      sortThreads: sortThreadsById,
-    });
-
-    expect(merged.get(groupProjectId)?.map((thread) => thread.id)).toEqual([
-      "thread-member",
-      "thread-own",
-    ]);
-    // Membership adds the thread to the group; it still lives under its own repo.
-    expect(merged.get(repoProjectId)?.map((thread) => thread.id)).toEqual([
-      memberThread.id,
-      otherRepoThread.id,
-    ]);
-  });
-
-  it("returns the input map unchanged when no member extras apply", () => {
-    const ownThread = makeSidebarThreadSummary({
-      id: ThreadId.makeUnsafe("thread-own"),
-      projectId: groupProjectId,
-    });
-    const base = groupSidebarThreadsByProjectId([ownThread]);
-
-    const missingOnly = mergeGroupMemberThreadsIntoProjectBuckets({
-      sortedSidebarThreadsByProjectId: base,
-      threads: [ownThread],
-      memberThreadIdsByProjectId: new Map([
-        [groupProjectId, new Set([ThreadId.makeUnsafe("thread-not-loaded")])],
-      ]),
-      sortThreads: sortThreadsById,
-    });
-    expect(missingOnly).toBe(base);
-
-    const alreadyMember = mergeGroupMemberThreadsIntoProjectBuckets({
-      sortedSidebarThreadsByProjectId: base,
-      threads: [ownThread],
-      memberThreadIdsByProjectId: new Map([[groupProjectId, new Set([ownThread.id])]]),
-      sortThreads: sortThreadsById,
-    });
-    expect(alreadyMember).toBe(base);
-  });
-
-  it("keeps member threads out of other groups' buckets", () => {
-    const secondGroupId = ProjectId.makeUnsafe("project-group-2");
-    const memberThread = makeSidebarThreadSummary({
-      id: ThreadId.makeUnsafe("thread-member"),
-      projectId: repoProjectId,
-    });
-    const base = groupSidebarThreadsByProjectId([memberThread]);
-
-    const merged = mergeGroupMemberThreadsIntoProjectBuckets({
-      sortedSidebarThreadsByProjectId: base,
-      threads: [memberThread],
-      memberThreadIdsByProjectId: new Map([
-        [secondGroupId, new Set<ThreadId>()],
-        [groupProjectId, new Set([memberThread.id])],
-      ]),
-      sortThreads: sortThreadsById,
-    });
-
-    expect(merged.get(secondGroupId)).toBeUndefined();
-    expect(merged.get(groupProjectId)?.map((thread) => thread.id)).toEqual([memberThread.id]);
-  });
-});
-
 describe("deriveSidebarProjectData", () => {
   it("keeps pinned threads in the total project thread count", () => {
     const project = makeProject();
@@ -2592,5 +2437,25 @@ describe("sortProjectsForSidebar", () => {
       ProjectId.makeUnsafe("project-2"),
       ProjectId.makeUnsafe("project-1"),
     ]);
+  });
+});
+
+describe("resolvePrimaryNewChatAction", () => {
+  it("starts a project thread when there is a project target", () => {
+    expect(resolvePrimaryNewChatAction({ hasProjectTarget: true, threadsHydrated: true })).toBe(
+      "project-thread",
+    );
+  });
+
+  it("opens the global chat home, never Create project, when there is no project", () => {
+    expect(resolvePrimaryNewChatAction({ hasProjectTarget: false, threadsHydrated: true })).toBe(
+      "home-chat",
+    );
+  });
+
+  it("waits while the first snapshot is still loading", () => {
+    expect(resolvePrimaryNewChatAction({ hasProjectTarget: false, threadsHydrated: false })).toBe(
+      "wait",
+    );
   });
 });

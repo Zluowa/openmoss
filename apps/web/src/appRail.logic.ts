@@ -1,38 +1,28 @@
 // FILE: appRail.logic.ts
 // Purpose: Pure rules for the rail layout's tab strip: item ids, route item order, and
-//          which item is active for a pathname, plus the Spaces panel's section list.
+//          which item is active for a pathname, plus the projects pinned to the rail.
 // Layer: Web shell logic
 // Exports: rail item ids/types, rail item order and visibility, railItemForPathname,
-//          reconcileActiveRailItem, buildRailSpacesSections
+//          reconcileActiveRailItem, rail project shortcuts
 
-import type { ProjectId, SpaceId } from "@moss/contracts";
+import type { ProjectId } from "@moss/contracts";
 
-import {
-  groupItemsBySpace,
-  orderedSpaceIdsForPicker,
-  spaceDisplayName,
-  spaceKey,
-  VOID_SPACE_KEY,
-  type VoidSpacePresentation,
-} from "./lib/spaceGrouping";
 import { normalizeIdOrder, normalizeKnownIds, placeNewIdAfter } from "./lib/orderedIds";
 import type { SidebarNavItemId } from "./sidebarNavOrdering";
-import type { Space } from "./types";
 
-/** Rail items that switch the panel content instead of navigating. */
-export const RAIL_PANEL_ITEM_IDS = ["home", "spaces"] as const;
+/**
+ * Rail items that switch the panel content instead of navigating: Home (projects and chats)
+ * and "project", the panel a project pinned to the rail opens (that project's chats).
+ * Spaces and Hubs were removed (2026-11-10); their saved ids drop out on read.
+ */
+export const RAIL_PANEL_ITEM_IDS = ["home", "project"] as const;
 export type RailPanelItemId = (typeof RAIL_PANEL_ITEM_IDS)[number];
-export const RAIL_PANEL_ITEM_LABELS: Record<RailPanelItemId, string> = {
-  home: "Home",
-  spaces: "Spaces",
-};
 /**
  * Rail items that navigate to a route. "New thread" stays in the panel, never the rail;
  * Inbox is available in Stable and Beta (see INBOX_ON).
  */
 export type RailRouteItemId =
   | Exclude<SidebarNavItemId, "newThread">
-  | "studio"
   | "settings"
   | "skills"
   | "mossbot";
@@ -54,21 +44,17 @@ export const RAIL_ORDERABLE_ITEM_IDS = [
   "inbox",
   "pullRequests",
   "skills",
-  "spaces",
   "kanban",
   "tasks",
-  "studio",
 ] as const;
 export type RailOrderableItemId = (typeof RAIL_ORDERABLE_ITEM_IDS)[number];
 /**
- * Moss rail spec: only the Codex destinations show by default. Spaces, the Kanban/Tasks
- * board slot, and Hubs stay in the codebase (and in Customize) but off the rail.
+ * Moss rail spec: only the Codex destinations show by default. The Kanban/Tasks board slot
+ * stays in Customize and the "…" menu but off the rail.
  */
 export const DEFAULT_HIDDEN_RAIL_ITEMS: readonly RailOrderableItemId[] = [
-  "spaces",
   "kanban",
   "tasks",
-  "studio",
   "skills",
 ];
 
@@ -83,6 +69,10 @@ export function railItemCanHide(id: RailOrderableItemId): boolean {
   return id !== "home";
 }
 
+/**
+ * A saved rail order as current ids. Ids of removed destinations (Spaces "spaces", Hubs
+ * "studio") are dropped, so an old saved order never leaves a gap or a dead item.
+ */
 export function normalizeRailItemOrder(order: readonly string[]): RailOrderableItemId[] {
   if (order.length === 0) return [...RAIL_ORDERABLE_ITEM_IDS];
   const previousCodexDefault = [
@@ -143,8 +133,6 @@ export function normalizeHiddenRailItems(hidden: readonly string[]): RailOrderab
 }
 
 export interface RailAvailability {
-  /** Studio needs its section enabled in Settings. */
-  readonly studioAvailable: boolean;
   /** Whether this host offers Inbox. */
   readonly inboxAvailable: boolean;
   /** Whether this host ships the Images surface; account checks happen on use. */
@@ -153,7 +141,6 @@ export interface RailAvailability {
 
 /** Whether an item exists on this host at all: the rail and its Customize list agree. */
 export function isRailItemAvailable(id: RailOrderableItemId, availability: RailAvailability) {
-  if (id === "studio") return availability.studioAvailable;
   if (id === "inbox") return availability.inboxAvailable;
   if (id === "images") return availability.imagesAvailable ?? false;
   return true;
@@ -175,17 +162,14 @@ export function buildRailItemOrder(
   );
 }
 
-/** A Space or a single project the user added to the rail from its "…" menu. */
-export type RailShortcut =
-  | { readonly kind: "space"; readonly key: string; readonly spaceId: SpaceId | null }
-  | { readonly kind: "project"; readonly key: string; readonly projectId: ProjectId };
+/** A project the user added to the rail from its "…" menu. */
+export type RailShortcut = {
+  readonly kind: "project";
+  readonly key: string;
+  readonly projectId: ProjectId;
+};
 
-const SPACE_SHORTCUT_PREFIX = "space:";
 const PROJECT_SHORTCUT_PREFIX = "project:";
-
-export function railSpaceShortcutKey(spaceId: SpaceId | null): string {
-  return `${SPACE_SHORTCUT_PREFIX}${spaceKey(spaceId)}`;
-}
 
 export function railProjectShortcutKey(projectId: ProjectId): string {
   return `${PROJECT_SHORTCUT_PREFIX}${projectId}`;
@@ -193,11 +177,11 @@ export function railProjectShortcutKey(projectId: ProjectId): string {
 
 /**
  * The persisted shortcut keys that still point at something, in their saved order: unknown,
- * deleted, and duplicate entries drop out (Void always exists).
+ * deleted, and duplicate entries drop out, and so do the "space:…" keys older builds saved
+ * when Spaces could be pinned.
  */
 export function resolveRailShortcuts(input: {
   keys: readonly string[];
-  spaceIds: ReadonlySet<SpaceId>;
   projectIds: ReadonlySet<ProjectId>;
 }): RailShortcut[] {
   const seen = new Set<string>();
@@ -205,14 +189,7 @@ export function resolveRailShortcuts(input: {
   for (const key of input.keys) {
     if (seen.has(key)) continue;
     seen.add(key);
-    if (key.startsWith(SPACE_SHORTCUT_PREFIX)) {
-      const id = key.slice(SPACE_SHORTCUT_PREFIX.length);
-      if (id === VOID_SPACE_KEY) {
-        shortcuts.push({ kind: "space", key, spaceId: null });
-      } else if (input.spaceIds.has(id as SpaceId)) {
-        shortcuts.push({ kind: "space", key, spaceId: id as SpaceId });
-      }
-    } else if (key.startsWith(PROJECT_SHORTCUT_PREFIX)) {
+    if (key.startsWith(PROJECT_SHORTCUT_PREFIX)) {
       const id = key.slice(PROJECT_SHORTCUT_PREFIX.length) as ProjectId;
       if (input.projectIds.has(id)) shortcuts.push({ kind: "project", key, projectId: id });
     }
@@ -227,36 +204,22 @@ export function toggleRailShortcutKey(keys: readonly string[], key: string): str
 
 /**
  * The shortcut that stands for what the panel shows, so exactly one rail item is active:
- * a pinned Space while Home shows that Space, a pinned project while Spaces shows its threads.
+ * a pinned project while the project panel shows its chats.
  */
 export function resolveActiveRailShortcutKey(input: {
   activeItem: RailItemId;
-  activeSpaceId: SpaceId | null;
-  spacesProjectId: ProjectId | null;
+  railProjectId: ProjectId | null;
   shortcuts: readonly RailShortcut[];
 }): string | null {
-  for (const shortcut of input.shortcuts) {
-    if (
-      shortcut.kind === "space" &&
-      input.activeItem === "home" &&
-      shortcut.spaceId === input.activeSpaceId
-    ) {
-      return shortcut.key;
-    }
-    if (
-      shortcut.kind === "project" &&
-      input.activeItem === "spaces" &&
-      shortcut.projectId === input.spacesProjectId
-    ) {
-      return shortcut.key;
-    }
-  }
-  return null;
+  if (input.activeItem !== "project") return null;
+  return (
+    input.shortcuts.find((shortcut) => shortcut.projectId === input.railProjectId)?.key ?? null
+  );
 }
 
 /**
  * Whether the panel column shows next to the rail for the active item. Every section either
- * owns a panel (Home/Spaces: projects and threads; Automations, Studio, Settings: their own
+ * owns a panel (Home and a pinned project: projects and threads; Automations, Settings: their own
  * lists) or takes the full width: Kanban, Tasks, Pull requests, Inbox, and Plugins each own
  * their page layout. Images/Library keep the panel: their surfaces replace only the route
  * column, like the pre-merge Moss shell.
@@ -281,85 +244,23 @@ export function railItemForPathname(pathname: string): RailRouteItemId | null {
   if (matchesRoute(pathname, "/automations")) return "automations";
   // Plugins (stored id "skills") owns the Codex Skills & Apps route family.
   if (matchesRoute(pathname, "/skills")) return "skills";
-  // The rail item keeps its stored id "studio"; Hubs live at /hubs with legacy redirects.
-  if (
-    matchesRoute(pathname, "/hubs") ||
-    matchesRoute(pathname, "/groups") ||
-    matchesRoute(pathname, "/studio")
-  )
-    return "studio";
   if (matchesRoute(pathname, "/settings")) return "settings";
   return null;
 }
 
 /**
  * Re-syncs the active item after navigation: a route item wins when the pathname is its
- * route (shortcut, deep link, command palette); a Studio thread lives at a plain thread
- * path, so the sidebar's Studio detection counts as the Studio route; anywhere else the
+ * route (shortcut, deep link, command palette); a Mossbot chat lives at a plain thread
+ * path, so the sidebar's Mossbot detection counts as the Mossbot route; anywhere else the
  * current panel item is active, so exactly one rail item is active at a time.
  */
 export function reconcileActiveRailItem(input: {
   current: RailItemId;
   pathname: string;
-  onStudioSurface: boolean;
   onMossbotSurface?: boolean;
   panelView: RailPanelItemId;
 }): RailItemId {
   return (
-    railItemForPathname(input.pathname) ??
-    (input.onMossbotSurface ? "mossbot" : input.onStudioSurface ? "studio" : input.panelView)
+    railItemForPathname(input.pathname) ?? (input.onMossbotSurface ? "mossbot" : input.panelView)
   );
-}
-
-export interface RailSpacesSection<T> {
-  readonly key: string;
-  readonly spaceId: SpaceId | null;
-  readonly name: string;
-  readonly items: ReadonlyArray<T>;
-}
-
-/**
- * Spaces panel sections in the shared picker order (active space, Void, the rest, then
- * spaces the snapshot has not caught up with). Empty spaces stay listed so they can show
- * their empty state; an empty Void is dropped because it is only the unfiled bucket,
- * unless it is the only section there is.
- */
-export function buildRailSpacesSections<T>(input: {
-  items: ReadonlyArray<T>;
-  spaces: ReadonlyArray<Space>;
-  activeSpaceId: SpaceId | null;
-  activeLabel: string;
-  spaceIdOf: (item: T) => SpaceId | null;
-  voidSpace: VoidSpacePresentation;
-}): RailSpacesSection<T>[] {
-  const groups = groupItemsBySpace(input);
-  const groupByKey = new Map(groups.map((group) => [group.key, group]));
-  const orderedKeys = new Set<string>();
-  const sections: RailSpacesSection<T>[] = [];
-  for (const spaceId of orderedSpaceIdsForPicker(input.spaces, input.activeSpaceId)) {
-    const key = spaceKey(spaceId);
-    orderedKeys.add(key);
-    const group = groupByKey.get(key);
-    if (!group && spaceId === null) continue;
-    sections.push({
-      key,
-      spaceId,
-      name: group?.name ?? spaceDisplayName(spaceId, input.spaces, input.voidSpace),
-      items: group?.items ?? [],
-    });
-  }
-  for (const group of groups) {
-    if (!orderedKeys.has(group.key)) {
-      sections.push({
-        key: group.key,
-        spaceId: group.spaceId,
-        name: group.name,
-        items: group.items,
-      });
-    }
-  }
-  if (sections.length === 0) {
-    sections.push({ key: spaceKey(null), spaceId: null, name: input.voidSpace.name, items: [] });
-  }
-  return sections;
 }

@@ -263,7 +263,9 @@ describe("listShortcutEditorDefinitions", () => {
 
     expect(listed.toSorted()).toEqual(
       STATIC_KEYBINDING_COMMANDS.filter(
-        (command) => !command.startsWith("terminal.split"),
+        // Space commands stay in the contract for old keybinding files only (Spaces were
+        // removed), so the editor never offers them.
+        (command) => !command.startsWith("terminal.split") && !command.startsWith("space."),
       ).toSorted(),
     );
     expect(listed.some((command) => command.startsWith("terminal.split"))).toBe(false);
@@ -272,7 +274,7 @@ describe("listShortcutEditorDefinitions", () => {
   it("gives each numbered family one member per number key", () => {
     const families = listShortcutEditorDefinitions().filter((definition) => definition.members);
 
-    expect(families.map((family) => family.id)).toEqual(["thread.jump", "space.jump"]);
+    expect(families.map((family) => family.id)).toEqual(["thread.jump"]);
     for (const family of families) {
       expect(family.members?.map((member) => member.commands)).toEqual(
         family.commands.map((command) => [command]),

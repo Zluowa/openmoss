@@ -136,7 +136,7 @@ export function SubagentBriefCard({
   return (
     <div
       data-testid="subagent-brief-card"
-      className="w-full rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] px-3.5 py-2.5"
+      className="w-full rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] px-3.5 py-2.5"
     >
       <div className="mb-1 flex min-w-0 items-center gap-1.5 font-system-ui text-ui-sm text-muted-foreground">
         <BotIcon className="size-4 shrink-0" />

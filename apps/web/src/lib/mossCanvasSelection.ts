@@ -306,3 +306,44 @@ export function parseMossCanvasSelection(
     content,
   };
 }
+
+/** Canvas asks Moss to show one of its images large, with the shared markup editor. */
+export interface MossCanvasImageOpen {
+  readonly threadId: string;
+  readonly documentEpoch: number;
+  readonly item: MossCanvasSelectionItem;
+}
+
+/** Moss-host capability sent with the Canvas bootstrap: the host opens images itself. */
+export const MOSS_CANVAS_IMAGE_OPEN_CAPABILITY = "image-open";
+
+export function parseMossCanvasImageOpen(
+  value: unknown,
+  threadId: string,
+): MossCanvasImageOpen | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const data = value as Record<string, unknown>;
+  const item = data.item as Record<string, unknown> | undefined;
+  if (
+    data.type !== "moss-canvas-image-open" ||
+    data.version !== 1 ||
+    data.threadId !== threadId ||
+    !Number.isSafeInteger(data.documentEpoch) ||
+    (data.documentEpoch as number) < 1 ||
+    !item ||
+    typeof item !== "object" ||
+    Array.isArray(item) ||
+    typeof item.shapeId !== "string" ||
+    !MOSS_CANVAS_SHAPE_ID.test(item.shapeId) ||
+    typeof item.assetId !== "string" ||
+    !MOSS_CANVAS_IMAGE_ASSET.test(item.assetId) ||
+    typeof item.title !== "string" ||
+    item.title.length > 200
+  )
+    return null;
+  return {
+    threadId,
+    documentEpoch: data.documentEpoch as number,
+    item: { shapeId: item.shapeId, assetId: item.assetId, title: item.title },
+  };
+}

@@ -686,7 +686,7 @@ export function ChatHeader({
                   className={cn(
                     "flex min-w-0 items-center gap-2",
                     showSidechatTitleChip &&
-                      "rounded-lg bg-secondary py-1 pl-2 pr-1 text-secondary-foreground",
+                      "rounded-card bg-secondary py-1 pl-2 pr-1 text-secondary-foreground",
                   )}
                 >
                   {threadIconKind === "none" ? null : (
@@ -719,7 +719,7 @@ export function ChatHeader({
                       label={t("chat.header.closeSelectedSide")}
                       tooltip={t("chat.header.closeSelectedSide")}
                       tooltipSide="bottom"
-                      className="size-5 rounded-lg [-webkit-app-region:no-drag] [&_svg,&_[data-slot=central-icon]]:size-3"
+                      className="size-5 rounded-control [-webkit-app-region:no-drag] [&_svg,&_[data-slot=central-icon]]:size-3"
                       onClick={(event) => {
                         event.stopPropagation();
                         onCloseThreadPane();

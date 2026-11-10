@@ -1,5 +1,6 @@
 // FILE: kanbanUiStore.ts
-// Purpose: Persists kanban control-center UI state (manual draft-card order per project)
+// Purpose: Persists kanban control-center UI state (manual draft-card order per project, the
+//          needs-review filter; a saved "classic" board choice from older builds is ignored)
 //          plus the ephemeral optimistic-dispatch overlay for drag-to-In-Progress drops.
 // Layer: UI state store
 // Exports: useKanbanUiStore
@@ -9,22 +10,16 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { KanbanOptimisticDispatchSnapshot } from "./components/kanban/kanban.logic";
 
-/** Which kanban board the user sees: the classic 3-column escape hatch or the v2 board. */
-export type KanbanViewMode = "classic" | "v2";
-
 interface KanbanUiStoreState {
   /** Manual order of draft-column card ids per project, captured after a drag. */
   draftOrderByProjectId: Record<string, string[]>;
   setDraftOrder: (projectId: string, order: readonly string[]) => void;
   clearDraftOrder: (projectId: string) => void;
-  /** Board flavor: classic 3-column escape hatch vs v2 attention-first board. */
-  kanbanViewMode: KanbanViewMode;
-  setKanbanViewMode: (mode: KanbanViewMode) => void;
-  /** v2-only needs-review filter (S1-P8): narrows cards to those with an open PR. */
+  /** Needs-review filter (S1-P8): narrows cards to those with an open PR. */
   kanbanNeedsReviewFilter: boolean;
   setKanbanNeedsReviewFilter: (enabled: boolean) => void;
   /**
-   * v2-only board-level reveal of the needs-review folded tail (H1): once on,
+   * Board-level reveal of the needs-review folded tail (H1): once on,
    * the per-column review cap drops until the filter itself changes.
    */
   hasRevealedReviewFold: boolean;
@@ -80,10 +75,6 @@ function sanitizeDraftOrderByProjectId(value: unknown): Record<string, string[]>
   return result;
 }
 
-function sanitizeViewMode(value: unknown): KanbanViewMode {
-  return value === "classic" ? "classic" : "v2";
-}
-
 function sanitizeNeedsReviewFilter(value: unknown): boolean {
   return value === true;
 }
@@ -125,10 +116,6 @@ export const useKanbanUiStore = create<KanbanUiStoreState>()(
           delete next[projectId];
           return { draftOrderByProjectId: next };
         });
-      },
-      kanbanViewMode: "v2",
-      setKanbanViewMode: (mode) => {
-        set((state) => (state.kanbanViewMode === mode ? state : { kanbanViewMode: mode }));
       },
       kanbanNeedsReviewFilter: false,
       setKanbanNeedsReviewFilter: (enabled) => {
@@ -190,7 +177,6 @@ export const useKanbanUiStore = create<KanbanUiStoreState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         draftOrderByProjectId: state.draftOrderByProjectId,
-        kanbanViewMode: state.kanbanViewMode,
         kanbanNeedsReviewFilter: state.kanbanNeedsReviewFilter,
         hasRevealedReviewFold: state.hasRevealedReviewFold,
       }),
@@ -198,16 +184,12 @@ export const useKanbanUiStore = create<KanbanUiStoreState>()(
         const persisted = persistedState as Partial<
           Pick<
             KanbanUiStoreState,
-            | "draftOrderByProjectId"
-            | "kanbanViewMode"
-            | "kanbanNeedsReviewFilter"
-            | "hasRevealedReviewFold"
+            "draftOrderByProjectId" | "kanbanNeedsReviewFilter" | "hasRevealedReviewFold"
           >
         > | null;
         return {
           ...currentState,
           draftOrderByProjectId: sanitizeDraftOrderByProjectId(persisted?.draftOrderByProjectId),
-          kanbanViewMode: sanitizeViewMode(persisted?.kanbanViewMode),
           kanbanNeedsReviewFilter: sanitizeNeedsReviewFilter(persisted?.kanbanNeedsReviewFilter),
           hasRevealedReviewFold: sanitizeHasRevealedReviewFold(persisted?.hasRevealedReviewFold),
         };

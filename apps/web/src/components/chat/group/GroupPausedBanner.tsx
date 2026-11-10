@@ -20,7 +20,7 @@ export function GroupPausedBanner(props: {
     <div
       role="status"
       className={cn(
-        "flex items-center gap-2 rounded-md border border-[color:var(--color-border-light)]",
+        "flex items-center gap-2 rounded-control border border-[color:var(--color-border-light)]",
         "bg-[var(--sidebar-accent)]/40 px-3 py-2 text-ui text-muted-foreground",
       )}
     >

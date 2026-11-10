@@ -61,7 +61,7 @@ export const ComposerExtrasMenu = function ComposerExtrasMenu(props: {
             <Button
               size="icon-sm"
               variant="chrome"
-              className="shrink-0 rounded-md"
+              className="shrink-0 rounded-control"
               aria-label={t("chat.composer.extras")}
               data-moss-visible-attachment-control="true"
             />

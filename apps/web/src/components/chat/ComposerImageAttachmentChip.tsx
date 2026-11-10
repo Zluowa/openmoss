@@ -59,7 +59,7 @@ export function ComposerImageAttachmentChip({
     const appIconDataUrl = appSnapSource.appIconDataUrl ?? null;
 
     return (
-      <div className="group relative h-32 w-52 shrink-0 overflow-hidden rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-secondary)] transition-colors duration-150 hover:border-[color:var(--color-border)]">
+      <div className="group relative h-32 w-52 shrink-0 overflow-hidden rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-secondary)] transition-colors duration-150 hover:border-[color:var(--color-border)]">
         <button
           type="button"
           className="relative flex size-full items-center justify-center overflow-hidden bg-[var(--color-background-secondary)] p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
@@ -71,7 +71,7 @@ export function ComposerImageAttachmentChip({
             <img
               src={image.previewUrl}
               alt={image.name}
-              className="max-h-full max-w-full rounded-md object-contain"
+              className="max-h-full max-w-full rounded-control object-contain"
             />
           ) : (
             <span className="flex size-full items-center justify-center text-ui-xs font-medium text-muted-foreground/70">
@@ -127,7 +127,7 @@ export function ComposerImageAttachmentChip({
     <div className="group relative shrink-0">
       <button
         type="button"
-        className="block size-16 overflow-hidden rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] transition-colors hover:border-[color:var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="block size-16 overflow-hidden rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] transition-colors hover:border-[color:var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`Preview ${image.name}`}
         title={image.name}
         onClick={previewImage}

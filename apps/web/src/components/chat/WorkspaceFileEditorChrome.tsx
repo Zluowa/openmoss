@@ -150,7 +150,7 @@ export function WorkspaceFileEditorHeader(props: WorkspaceFileEditorHeaderProps)
           type="button"
           size="xs"
           variant="chrome-outline"
-          className="!h-7 shrink-0 rounded-lg"
+          className="!h-7 shrink-0 rounded-control"
           disabled={!props.canSave || props.saving}
           onClick={props.onSave}
         >
@@ -221,7 +221,7 @@ export function WorkspaceFileEditorConflictBar(props: WorkspaceFileEditorConflic
         type="button"
         size="xs"
         variant="chrome-outline"
-        className="!h-6 shrink-0 rounded-md text-ui-sm"
+        className="!h-6 shrink-0 rounded-control text-ui-sm"
         onClick={props.onReload}
       >
         Reload from disk
@@ -231,7 +231,7 @@ export function WorkspaceFileEditorConflictBar(props: WorkspaceFileEditorConflic
           type="button"
           size="xs"
           variant="chrome-outline"
-          className="!h-6 shrink-0 rounded-md text-ui-sm"
+          className="!h-6 shrink-0 rounded-control text-ui-sm"
           onClick={props.onOverwrite}
         >
           Overwrite

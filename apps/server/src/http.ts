@@ -2157,6 +2157,18 @@ export const canvasStaticEffectRouteLayer = HttpRouter.add(
         .stat(resolvedPath)
         .pipe(Effect.catch(() => Effect.succeed(null)));
       if (!info || info.type !== "File") return null;
+      // Canvas assets are content-hashed by its build, so they are cached for
+      // good, like the app's own. Opening Canvas used to re-download and
+      // re-compile about 25 MB every time. Other files revalidate by ETag.
+      const etag = staticEtag(Number(info.size), info.mtime?.getTime() ?? 0);
+      const headers = {
+        "Cache-Control": staticCacheControl(path.relative(root, resolvedPath)),
+        ETag: etag,
+        "X-Content-Type-Options": "nosniff",
+        ...corsHeaders,
+      };
+      if (ifNoneMatchSatisfies(request.headers["if-none-match"], etag))
+        return HttpServerResponse.empty({ status: 304, headers });
       const data = yield* fileSystem
         .readFile(resolvedPath)
         .pipe(Effect.catch(() => Effect.succeed(null)));
@@ -2165,15 +2177,15 @@ export const canvasStaticEffectRouteLayer = HttpRouter.add(
       return HttpServerResponse.uint8Array(data, {
         status: 200,
         contentType: contentType === "text/html" ? "text/html; charset=utf-8" : contentType,
-        headers: {
-          "Cache-Control": "no-cache",
-          "X-Content-Type-Options": "nosniff",
-          ...corsHeaders,
-        },
+        headers,
       });
     });
     const direct = yield* serve(path.resolve(root, relativePath));
     if (direct) return direct;
+    // A missing hashed asset is a real miss: never answer it with the app
+    // shell, which the browser would then cache as that script for a year.
+    if (relativePath.replaceAll("\\", "/").startsWith("assets/"))
+      return HttpServerResponse.text("Not Found", { status: 404, headers: corsHeaders });
     // SPA fallback: client-side canvas routes get the app shell.
     const fallback = yield* serve(path.resolve(root, "index.html"));
     return fallback ?? HttpServerResponse.text("Not Found", { status: 404, headers: corsHeaders });

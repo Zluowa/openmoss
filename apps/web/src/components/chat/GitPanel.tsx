@@ -77,7 +77,7 @@ function GitFileRow(props: {
   return (
     <div
       className={cn(
-        "group flex items-center gap-1.5 rounded-md px-1.5 py-1 text-left",
+        "group flex items-center gap-1.5 rounded-control px-1.5 py-1 text-left",
         props.isSelected ? "bg-sidebar-accent" : "hover:bg-sidebar-accent/60",
       )}
     >
@@ -136,7 +136,7 @@ function GitFileSection(props: {
   return (
     <section className="min-w-0">
       <header className="flex items-center gap-2 px-1.5 py-1">
-        <span className="text-ui-sm font-semibold text-muted-foreground">{props.title}</span>
+        <span className="text-ui-sm font-medium text-muted-foreground">{props.title}</span>
         <span className="rounded-full bg-muted px-1.5 text-ui-xs font-medium text-muted-foreground">
           {props.files.length}
         </span>
@@ -184,7 +184,7 @@ function GitFileSection(props: {
 function SelectedFileDiff(props: { fileDiff: FileDiffMetadata; theme: "light" | "dark" }) {
   return (
     <FileDiffSurface className="h-full min-h-0 overflow-auto px-2 py-2">
-      <div className="diff-render-file rounded-md">
+      <div className="diff-render-file rounded-control">
         <FileDiffCard fileDiff={props.fileDiff} theme={props.theme} />
       </div>
     </FileDiffSurface>

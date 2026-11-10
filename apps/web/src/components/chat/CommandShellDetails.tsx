@@ -121,7 +121,7 @@ export function CommandShellDetails(props: {
             aria-expanded={commandExpanded}
             aria-label={format("chat.shell.commandLine", { command: normalizedCommand })}
             className={cx(
-              "cursor-interaction rounded-md bg-transparent text-size-chat-sm text-codex-description whitespace-pre-wrap break-words font-vscode-editor focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0",
+              "cursor-interaction rounded-control bg-transparent text-size-chat-sm text-codex-description whitespace-pre-wrap break-words font-vscode-editor focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0",
               !commandExpanded && "line-clamp-2",
             )}
             data-shell-command="true"
@@ -139,7 +139,7 @@ export function CommandShellDetails(props: {
           </div>
           <button
             type="button"
-            className="absolute top-0 right-0 inline-flex size-5 items-center justify-center rounded-sm text-tertiary opacity-0 outline-none transition-opacity duration-200 hover:bg-muted hover:text-default group-hover/command:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+            className="absolute top-0 right-0 inline-flex size-5 items-center justify-center rounded-control-xs text-tertiary opacity-0 outline-none transition-opacity duration-200 hover:bg-muted hover:text-default group-hover/command:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
             aria-label={commandCopied ? t("chat.shell.copied") : t("chat.shell.copyCommand")}
             title={commandCopied ? t("chat.shell.copied") : t("chat.shell.copyCommand")}
             data-shell-copy="command"
@@ -184,7 +184,7 @@ export function CommandShellDetails(props: {
         </div>
         <button
           type="button"
-          className="absolute top-0 right-2.5 inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground/75 opacity-0 outline-none transition-opacity duration-200 hover:bg-muted hover:text-foreground group-hover/output:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+          className="absolute top-0 right-2.5 inline-flex size-5 items-center justify-center rounded-control-xs text-muted-foreground/75 opacity-0 outline-none transition-opacity duration-200 hover:bg-muted hover:text-foreground group-hover/output:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
           aria-label={outputCopied ? t("chat.shell.copied") : t("chat.shell.copyOutput")}
           title={outputCopied ? t("chat.shell.copied") : t("chat.shell.copyOutput")}
           data-shell-copy="output"
@@ -201,7 +201,7 @@ export function CommandShellDetails(props: {
   return (
     <div
       className={cx(
-        "group flex min-w-0 flex-col overflow-hidden rounded-lg border",
+        "group flex min-w-0 flex-col overflow-hidden rounded-card border",
         isEmbedded
           ? "border-strong bg-secondary-soft-alpha"
           : "bg-[var(--color-background-elevated-secondary)]",
@@ -227,7 +227,7 @@ export function CommandShellDetails(props: {
           <span className="flex items-center gap-0.5">
             <button
               type="button"
-              className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground/75 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              className="inline-flex size-6 items-center justify-center rounded-control-xs text-muted-foreground/75 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               aria-label={contentsCopied ? t("chat.shell.copied") : t("chat.shell.copyContents")}
               title={contentsCopied ? t("chat.shell.copied") : t("chat.shell.copyContents")}
               data-shell-copy="contents"
@@ -242,7 +242,7 @@ export function CommandShellDetails(props: {
             </button>
             <button
               type="button"
-              className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground/75 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              className="inline-flex size-6 items-center justify-center rounded-control-xs text-muted-foreground/75 transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               aria-label={shellExpanded ? t("chat.shell.collapse") : t("chat.shell.expand")}
               title={shellExpanded ? t("chat.shell.collapse") : t("chat.shell.expand")}
               data-shell-toggle="true"

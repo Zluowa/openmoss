@@ -58,7 +58,6 @@ async function renderDialog(environment: ExecutionEnvironmentDescriptor) {
   queryClient.setQueryData(serverQueryKeys.environment(), environment);
   const props: CreateProjectDialogProps = {
     open: true,
-    activeSpaceId: null,
     onOpenChange: vi.fn(),
     onSubmit: vi.fn().mockResolvedValue(undefined),
   };

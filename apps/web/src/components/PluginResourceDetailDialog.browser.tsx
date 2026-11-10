@@ -164,7 +164,7 @@ describe("PluginResourceDetailPage signed geometry", () => {
       expect(appRow.getBoundingClientRect().left - content.getBoundingClientRect().left).toBe(24);
       expect(appRow.getBoundingClientRect().width).toBeCloseTo(720, 3);
       expect(getComputedStyle(appRow).paddingTop).toBe("5px");
-      expect(getComputedStyle(appRow).borderRadius).toBe("10px");
+      expect(getComputedStyle(appRow).borderRadius).toBe("12px");
       expect(appRow.getAttribute("role")).toBeNull();
       expect(appRow.getAttribute("tabindex")).toBeNull();
       expect(getComputedStyle(description).fontSize).toBe("15px");

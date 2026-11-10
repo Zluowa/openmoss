@@ -110,6 +110,11 @@ export type WorkspaceImportLocalePreference = typeof WorkspaceImportLocalePrefer
 
 export const WorkspaceImportProbeInput = Schema.Struct({
   now: Schema.optionalKey(IsoDateTime),
+  /**
+   * `tools` leaves out chats and projects, the expensive part. Settings → Import asks
+   * for this: its conversations come from the project import panel instead.
+   */
+  scope: Schema.optionalKey(Schema.Literals(["all", "tools"])),
 });
 export type WorkspaceImportProbeInput = typeof WorkspaceImportProbeInput.Type;
 
@@ -135,6 +140,11 @@ export const WorkspaceImportSourcePreview = Schema.Struct({
   olderChatCount: NonNegativeInt,
   projectCount: Schema.optionalKey(NonNegativeInt),
   categoryCounts: Schema.optionalKey(WorkspaceImportCategoryCounts),
+  /**
+   * Some of this source's data could not be read in time (or at all), so its counts
+   * are lower bounds. The client says so and offers to look again.
+   */
+  incomplete: Schema.optionalKey(Schema.Boolean),
 });
 export type WorkspaceImportSourcePreview = typeof WorkspaceImportSourcePreview.Type;
 

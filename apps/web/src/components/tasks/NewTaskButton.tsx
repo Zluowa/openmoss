@@ -1,5 +1,5 @@
 // FILE: NewTaskButton.tsx
-// Purpose: The "New task" header button Tasks and Kanban share, with a tooltip that names
+// Purpose: The "New task" header button the Tasks page header shows, with a tooltip that names
 //          the shortcut.
 // Layer: Tasks UI component
 // Exports: NewTaskButton
@@ -24,7 +24,7 @@ export function NewTaskButton({
           <Button
             size="sm"
             variant="chrome"
-            className="ml-auto shrink-0 gap-1.5"
+            className="shrink-0 gap-1.5"
             disabled={disabled}
             onClick={onClick}
           >

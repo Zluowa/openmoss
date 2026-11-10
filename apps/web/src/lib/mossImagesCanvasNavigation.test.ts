@@ -108,7 +108,7 @@ describe("historical image original conversation navigation", () => {
     expect(value.input.onOpened).not.toHaveBeenCalled();
   });
 
-  it.each(["home", "spaces", "images"] as const)(
+  it.each(["home", "project", "images"] as const)(
     "does not resume a pending Canvas handoff after an explicit %s rail selection",
     async (item) => {
       useRailShellStore.setState({ activeItem: "images", selectionVersion: 0 });
@@ -149,7 +149,6 @@ describe("historical image original conversation navigation", () => {
     value.input.navigate.mockImplementation(async () => {
       useRailShellStore.getState().reconcile({
         pathname: "/original-thread",
-        onStudioSurface: false,
         projectIds: null,
       });
       return true;

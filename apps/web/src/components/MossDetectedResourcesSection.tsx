@@ -283,7 +283,7 @@ export function MossDetectedResourcesSettingsList({
           {t("plugins.detected.settingsSubtitle")}
         </p>
       </div>
-      <div className="flex flex-col divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/70">
+      <div className="flex flex-col divide-y divide-border/60 overflow-hidden rounded-card border border-border/70">
         {groups.map((group) => {
           const busy = adopt.isPending && adopt.variables?.key === group.key;
           return (
@@ -293,7 +293,7 @@ export function MossDetectedResourcesSettingsList({
               className="flex items-center justify-between gap-3 px-3 py-3"
             >
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 text-muted-foreground">
+                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-control border border-border/60 text-muted-foreground">
                   <Icon aria-hidden="true" className="size-4" />
                 </span>
                 <span className="min-w-0 flex-1">

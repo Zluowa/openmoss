@@ -73,7 +73,6 @@ describe("CreateProjectDialog (Codex form)", () => {
       const onSubmit = vi.fn().mockResolvedValue(undefined);
       await renderDialog(locale, {
         open: true,
-        activeSpaceId: null,
         onOpenChange: vi.fn(),
         onSubmit,
       });
@@ -112,7 +111,6 @@ describe("CreateProjectDialog (Codex form)", () => {
       });
       await renderDialog(locale, {
         open: true,
-        activeSpaceId: null,
         onOpenChange: vi.fn(),
         onSubmit: vi.fn().mockResolvedValue(undefined),
       });
@@ -129,7 +127,6 @@ describe("CreateProjectDialog (Codex form)", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     await renderDialog("en", {
       open: true,
-      activeSpaceId: null,
       onOpenChange: vi.fn(),
       onSubmit,
     });
@@ -148,13 +145,12 @@ describe("CreateProjectDialog (Codex form)", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("shows the picked folder as a removable chip and submits name, path, and active space", async () => {
+  it("shows the picked folder as a removable chip and submits name and path", async () => {
     nativeApi.pickFolder.mockResolvedValue("/Users/test/Developer/moss-app");
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     const onOpenChange = vi.fn();
     await renderDialog("en", {
       open: true,
-      activeSpaceId: "space-1" as CreateProjectDialogProps["activeSpaceId"],
       onOpenChange,
       onSubmit,
     });
@@ -183,7 +179,6 @@ describe("CreateProjectDialog (Codex form)", () => {
       source: "local",
       workspaceRoot: "/Users/test/Developer/moss-app",
       name: "My app",
-      spaceId: "space-1",
       createIfMissing: false,
     });
     expect(options.signal).toBeInstanceOf(AbortSignal);
@@ -205,7 +200,6 @@ describe("CreateProjectDialog (Codex form)", () => {
       return (
         <CreateProjectDialog
           open={open}
-          activeSpaceId={null}
           onOpenChange={(nextOpen) => {
             onOpenChange(nextOpen);
             setOpen(nextOpen);
@@ -241,7 +235,6 @@ describe("CreateProjectDialog (Codex form)", () => {
     await page.viewport(390, 720);
     await renderDialog("zh-CN", {
       open: true,
-      activeSpaceId: null,
       onOpenChange: vi.fn(),
       onSubmit,
     });

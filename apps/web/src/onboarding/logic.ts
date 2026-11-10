@@ -194,10 +194,34 @@ export function summarizeProviderSetup(
   return { enabled, connected, needsSignIn, notInstalled, detecting, checkFailed };
 }
 
-export function describeOnboardingAgentSummary(summary: ProviderSetupSummary): string {
-  if (summary.detecting > 0) return "Checking agents…";
-  if (summary.checkFailed > 0) return "Could not check all agents";
+export function describeOnboardingAgentSummary(
+  summary: ProviderSetupSummary,
+  locale = "en",
+): string {
+  const zh = locale.toLowerCase().startsWith("zh");
+  if (summary.detecting > 0) return zh ? "正在检查智能体…" : "Checking agents…";
+  if (summary.checkFailed > 0) return zh ? "有些智能体没能检查" : "Could not check all agents";
+  if (zh) return `已连接 ${summary.connected} 个智能体`;
   return `${summary.connected} agent${summary.connected === 1 ? "" : "s"} connected`;
+}
+
+// The last step's one-line summary: agents, theme, projects.
+export function describeOnboardingDoneSummary(input: {
+  readonly agents: string;
+  readonly themeLabel: string;
+  readonly projectsAdded: number;
+  readonly locale?: string;
+}): string {
+  const zh = (input.locale ?? "en").toLowerCase().startsWith("zh");
+  const projects = zh
+    ? input.projectsAdded > 0
+      ? `已添加 ${input.projectsAdded} 个项目`
+      : "还没有项目"
+    : input.projectsAdded > 0
+      ? `${input.projectsAdded} project${input.projectsAdded === 1 ? "" : "s"} added`
+      : "No project yet";
+  const theme = zh ? `${input.themeLabel} 主题` : `${input.themeLabel} theme`;
+  return [input.agents, theme, projects].join(" · ");
 }
 
 export function toggleSelection<T>(selection: ReadonlySet<T>, id: T): ReadonlySet<T> {

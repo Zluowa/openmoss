@@ -15,12 +15,13 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "~/components/ui/menu";
-import { groupItemsBySpace, resolveActiveSpaceId, spaceDisplayName } from "~/lib/spaceGrouping";
-import { useSpacesUiStore } from "~/spacesUiStore";
+import { groupItemsBySpace, spaceDisplayName } from "~/lib/spaceGrouping";
 import { useTranslation } from "~/localization";
-import { useStore } from "~/store";
+import type { Space } from "~/types";
 import { useVoidSpace } from "~/voidSpaceStore";
 import { SpaceIcon } from "./SpaceIcon";
+
+const NO_SPACES: readonly Space[] = [];
 
 export interface ProjectMenuPickerOption {
   readonly id: ProjectId;
@@ -91,23 +92,17 @@ function ProjectMenuPickerList(props: {
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  const projects = useStore((state) => state.projects);
-  const spaces = useStore((state) => state.spaces);
-  const storedActiveSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
-  const activeSpaceId = resolveActiveSpaceId(storedActiveSpaceId, spaces);
+  // Spaces were removed (2026-11-10): every project lists in one group, as it always did for
+  // people who never made a Space. Saved Space assignments stay in the data but are not shown.
+  const spaces = NO_SPACES;
+  const activeSpaceId: SpaceId | null = null;
   const voidSpace = useVoidSpace();
 
   const groupedOptions = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const projectById = new Map(projects.map((project) => [project.id, project] as const));
-    // A caller may pass its own space assignment (e.g. an optimistic move); otherwise the
-    // project snapshot is the source of truth.
     const resolved: ResolvedProjectOption[] = props.projectOptions
       .map((option) => {
-        const resolvedSpaceId =
-          option.spaceId !== undefined
-            ? option.spaceId
-            : (projectById.get(option.id)?.spaceId ?? null);
+        const resolvedSpaceId: SpaceId | null = null;
         return {
           ...option,
           resolvedSpaceId,
@@ -130,7 +125,7 @@ function ProjectMenuPickerList(props: {
       spaceIdOf: (option) => option.resolvedSpaceId,
       voidSpace,
     });
-  }, [activeSpaceId, projects, props.projectOptions, query, spaces, voidSpace]);
+  }, [activeSpaceId, props.projectOptions, query, spaces, t, voidSpace]);
 
   return (
     <PickerPanelShell

@@ -297,14 +297,14 @@ describe("workspace import", () => {
       createThreadId: () => crypto.randomUUID(),
     });
 
+    // New Cursor chats are left to the project import panel (see conversationIdentity.ts).
     expect(prepared.result.chats.map((chat) => chat.title).toSorted()).toEqual([
       "Recent Claude review",
-      "Recent Cursor fix",
     ]);
     expect(prepared.result.chats.every((chat) => chat.workingDirectory === cwd)).toBe(true);
     expect(prepared.result.chats.every((chat) => chat.action === "created")).toBe(true);
     expect(prepared.result.skippedOlderChatCount).toBe(2);
-    expect([...prepared.result.connectors].toSorted()).toEqual(["github", "linear"]);
+    expect([...prepared.result.connectors].toSorted()).toEqual(["github"]);
     expect(now.getTime() - WORKSPACE_IMPORT_CHAT_WINDOW_MS).toBeLessThan(
       new Date("2026-07-20T12:00:00.000Z").getTime(),
     );
@@ -352,16 +352,91 @@ describe("workspace import", () => {
       },
     });
 
-    expect(first.result.chats).toHaveLength(2);
-    expect(second.result.chats).toHaveLength(2);
+    expect(first.result.chats).toHaveLength(1);
+    expect(second.result.chats).toHaveLength(1);
     expect(second.result.chats.map((chat) => chat.threadId).toSorted()).toEqual(
       first.result.chats.map((chat) => chat.threadId).toSorted(),
     );
     expect(second.result.chats.every((chat) => chat.action === "unchanged")).toBe(true);
-    expect(created).toBe(2);
-    expect(
-      second.ledger.entries[workspaceImportLedgerKey("cursor", "cursor-recent")]?.threadId,
-    ).toBe(first.result.chats.find((chat) => chat.source === "cursor")?.threadId);
+    expect(created).toBe(1);
+  });
+
+  it("keeps syncing a Cursor chat it imported before, but adds no new one", async () => {
+    const now = new Date("2026-08-17T12:00:00.000Z");
+    const homeDir = await makeTempDir("moss-import-cursor-kept-");
+    const mossBaseDir = await makeTempDir("moss-import-cursor-kept-base-");
+    const cwd = "/tmp/import-workspace";
+    await seedCursorHome({ homeDir, now, cwd });
+    const stateDir = nodePath.join(mossBaseDir, "userdata");
+    const key = workspaceImportLedgerKey("cursor", "cursor-recent");
+    await persistWorkspaceImportLedger(stateDir, {
+      version: 1,
+      entries: {
+        [key]: {
+          threadId: "cursor-thread",
+          source: "cursor",
+          sourceId: "cursor-recent",
+          title: "Recent Cursor fix",
+          workingDirectory: cwd,
+          importedCount: 0,
+          sourceUpdatedAt: isoDaysAgo(now, 40),
+          importedAt: isoDaysAgo(now, 40),
+          updatedAt: isoDaysAgo(now, 40),
+        },
+      },
+    });
+    const prepare = (existing: readonly string[]) =>
+      prepareWorkspaceImportApply({
+        sources: ["cursor"],
+        homeDir,
+        mossBaseDir,
+        mossCwd: cwd,
+        stateDir,
+        platform: "linux",
+        now,
+        currentSettings: DEFAULT_SERVER_SETTINGS,
+        existingThreadIds: new Set(existing),
+        createThreadId: () => "new-thread",
+        categories: ["chats"],
+      });
+
+    const kept = await prepare(["cursor-thread"]);
+    expect(kept.result.chats.map((chat) => [chat.title, chat.threadId])).toEqual([
+      ["Recent Cursor fix", "cursor-thread"],
+    ]);
+    // Once its thread is deleted the chat counts as new, and new Cursor chats are not added.
+    expect((await prepare([])).result.chats).toEqual([]);
+  });
+
+  it("skips a new chat the project import already brought in", async () => {
+    const now = new Date("2026-08-17T12:00:00.000Z");
+    const homeDir = await makeTempDir("moss-import-project-dedupe-");
+    const mossBaseDir = await makeTempDir("moss-import-project-dedupe-base-");
+    const cwd = "/tmp/import-workspace";
+    await seedClaudeHome({ homeDir, now, cwd });
+    const prepare = (importedByProjectImport: ReadonlySet<string> | "unavailable") =>
+      prepareWorkspaceImportApply({
+        sources: ["claude"],
+        homeDir,
+        mossBaseDir,
+        mossCwd: cwd,
+        stateDir: nodePath.join(mossBaseDir, "userdata"),
+        platform: "linux",
+        now,
+        currentSettings: DEFAULT_SERVER_SETTINGS,
+        existingThreadIds: new Set(),
+        createThreadId: () => crypto.randomUUID(),
+        categories: ["chats"],
+        importedByProjectImport,
+      });
+
+    expect((await prepare(new Set())).result.chats.map((chat) => chat.title)).toEqual([
+      "Recent Claude review",
+    ]);
+    // The Claude transcript is named after its session id, which project import records.
+    expect((await prepare(new Set(["claudeAgent:recent-session"]))).result.chats).toEqual([]);
+    // When that list cannot be read, no new chat is added rather than risk a duplicate.
+    expect((await prepare("unavailable")).result.chats).toEqual([]);
   });
 
   it("asks which source to use when both Claude Code and Cursor have data", async () => {

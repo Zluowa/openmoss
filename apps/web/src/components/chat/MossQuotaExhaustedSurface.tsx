@@ -40,7 +40,7 @@ export function MossQuotaExhaustedSurface({
       <div className="flex min-w-0 flex-1 items-start gap-2">
         <RefreshCwIcon className="icon-sm mt-0.5 shrink-0" aria-hidden="true" />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h2 className="text-ui-lg leading-5 font-bold" id="moss-quota-exhausted-title">
+          <h2 className="text-ui-lg leading-5 font-semibold" id="moss-quota-exhausted-title">
             {t("mossQuota.exhausted.title")}
           </h2>
           <p className="whitespace-pre-wrap text-ui-lg leading-[18px] font-normal text-codex-description">

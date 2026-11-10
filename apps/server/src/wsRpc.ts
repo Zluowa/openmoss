@@ -275,6 +275,7 @@ import { makeImportThreadHandler } from "./orchestration/importThreadRoute";
 import { makeProjectImportHandlers } from "./orchestration/projectImportRoute";
 import { ProjectImportError } from "./orchestration/projectImportHistory";
 import { makeProjectImportRepository } from "./persistence/projectImportRepository";
+import { listProjectImportedConversationKeys } from "./orchestration/importedConversationKeys";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
 import { SidechatExpiryReactor } from "./orchestration/Services/SidechatExpiryReactor";
@@ -1648,8 +1649,9 @@ const makeWsRpcHandlersLayer = () =>
         serverConfig: config,
         serverSettings,
       });
+      const projectImportRepository = yield* makeProjectImportRepository;
       const projectImports = makeProjectImportHandlers({
-        repository: yield* makeProjectImportRepository,
+        repository: projectImportRepository,
         orchestrationEngine,
         providerService,
         providerAdapterRegistry,
@@ -2284,6 +2286,7 @@ const makeWsRpcHandlersLayer = () =>
         serverSettings,
         projectionReadModelQuery,
         dispatchOrchestrationCommand,
+        importedByProjectImport: () => listProjectImportedConversationKeys(projectImportRepository),
       });
 
       // Host-global account/provider/voice operations are available to the

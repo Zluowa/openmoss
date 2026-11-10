@@ -104,7 +104,7 @@ export function AsyncUserInputCard({
       <CollapsiblePanel>
         <div className="pt-2">
           {acceptedAnswers ? (
-            <dl className="space-y-3 rounded-xl border border-border p-3.5 text-ui leading-snug">
+            <dl className="space-y-3 rounded-card border border-border p-3.5 text-ui leading-snug">
               {questions.map((question, index) => (
                 <div key={question.id}>
                   <dt className="font-medium">{question.question}</dt>

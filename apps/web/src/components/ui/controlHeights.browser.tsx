@@ -220,10 +220,10 @@ describe("comfortable control geometry", () => {
     );
     await page.getByRole("button", { name: "Open menu" }).click();
     await expect.element(page.getByRole("menuitem", { name: "设置" })).toBeVisible();
-    expect(element('[data-slot="menu-item"]').getBoundingClientRect().height).toBeCloseTo(
-      (32 * fontSize) / 14,
-      1,
-    );
+    // Menus open with Claude's 120 ms scale-in from 0.98; poll until the row has settled.
+    await expect
+      .poll(() => element('[data-slot="menu-item"]').getBoundingClientRect().height)
+      .toBeCloseTo((32 * fontSize) / 14, 1);
     expect(
       parseFloat(
         getComputedStyle(element('[data-slot="menu-item"] [data-slot="central-icon"]')).width,

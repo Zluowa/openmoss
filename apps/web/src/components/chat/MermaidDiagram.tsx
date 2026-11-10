@@ -315,7 +315,7 @@ export function MermaidDiagram({
         aria-label={t("chat.markdown.mermaid.expand")}
         hidden={renderError !== null}
         disabled={!onExpand}
-        className="block w-full cursor-zoom-in rounded-md focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default"
+        className="block w-full cursor-zoom-in rounded-control focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default"
         onClick={(event) => {
           const svg = event.currentTarget.querySelector("svg");
           if (svg && onExpand) onExpand(diagramImageUrl(svg));

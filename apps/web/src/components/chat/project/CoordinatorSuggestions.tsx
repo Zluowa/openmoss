@@ -41,7 +41,7 @@ export function CoordinatorSuggestions({
           <DisclosureRegion open={!dismissed}>
             <div className="mossbot-onboarding">
               <div className="mb-2 flex items-center gap-3">
-                <h2 className="flex-1 text-ui-lg font-semibold">
+                <h2 className="flex-1 text-ui-lg font-medium">
                   {t("What would you like help with?")}
                 </h2>
                 <Button

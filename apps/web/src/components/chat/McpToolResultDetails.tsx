@@ -26,7 +26,7 @@ import { resolveAttachmentPreviewUrl } from "~/lib/wsHttpUrl";
 import { McpCodePane } from "./McpCodePane";
 
 const MCP_CODE_CLASS_NAME =
-  "max-h-[min(46vh,30rem)] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border/45 bg-background/70 px-3 py-2.5 font-chat-code text-ui-xs leading-relaxed text-foreground";
+  "max-h-[min(46vh,30rem)] overflow-auto whitespace-pre-wrap break-words rounded-card border border-border/45 bg-background/70 px-3 py-2.5 font-chat-code text-ui-xs leading-relaxed text-foreground";
 
 export function formatMcpJson(value: unknown): string {
   try {
@@ -142,7 +142,7 @@ function LocalArtifactContentBlock({
   if (failed) {
     return (
       <div
-        className="rounded-lg border border-amber-500/35 bg-amber-500/8 px-3 py-2.5 text-ui-xs text-foreground"
+        className="rounded-card border border-amber-500/35 bg-amber-500/8 px-3 py-2.5 text-ui-xs text-foreground"
         data-mcp-content-type="local_artifact"
         data-mcp-state="media-unavailable"
         data-mcp-attachment-id={block.attachmentId}
@@ -159,7 +159,7 @@ function LocalArtifactContentBlock({
   };
   const image = (
     <img
-      className="max-h-48 w-max max-w-full gap-0.5 rounded-md object-contain"
+      className="max-h-48 w-max max-w-full gap-0.5 rounded-control object-contain"
       alt={imageAlt}
       src={src}
       onError={() => setFailed(true)}
@@ -170,7 +170,7 @@ function LocalArtifactContentBlock({
       onImageExpand ? (
         <button
           type="button"
-          className="block w-fit max-w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="block w-fit max-w-full cursor-zoom-in rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={imageAlt}
           onClick={activateImage}
         >
@@ -235,7 +235,7 @@ function ContentBlockView({
   if (block.type === "text") {
     return (
       <div>
-        <div className="relative overflow-clip rounded-lg border border-strong bg-secondary-soft-alpha contain-inline-size">
+        <div className="relative overflow-clip rounded-card border border-strong bg-secondary-soft-alpha contain-inline-size">
           <div className="sticky top-0 z-10 flex items-center justify-between py-1 ps-2 pe-2 font-sans text-ui-lg text-codex-description select-none">
             <span className="min-w-0 truncate">{labels.plaintext}</span>
             <div className="flex items-center" />
@@ -312,7 +312,7 @@ function ContentBlockView({
             <span className="font-medium text-default">{labels.content}</span>
             <pre
               tabIndex={0}
-              className="max-h-48 overflow-auto rounded-md bg-primary-soft px-3 py-2 whitespace-pre-wrap text-foreground dark:text-foreground/80"
+              className="max-h-48 overflow-auto rounded-control bg-primary-soft px-3 py-2 whitespace-pre-wrap text-foreground dark:text-foreground/80"
             >
               {body}
             </pre>
@@ -340,7 +340,7 @@ function ContentBlockView({
   if (block.type === "binary_deferred") {
     return (
       <div
-        className="rounded-lg border border-amber-500/35 bg-amber-500/8 px-3 py-2.5 text-ui-xs text-foreground"
+        className="rounded-card border border-amber-500/35 bg-amber-500/8 px-3 py-2.5 text-ui-xs text-foreground"
         data-mcp-content-type="binary_deferred"
         data-mcp-state="binary-deferred"
       >
@@ -545,7 +545,7 @@ export function McpToolResultDetails({
       {hasError ? (
         <Section title={t("chat.mcpResult.error")} tone="danger">
           <div
-            className="flex min-w-0 items-start gap-2 rounded-lg border border-rose-500/35 bg-rose-500/8 px-3 py-2.5 text-ui-xs text-rose-800 dark:text-rose-100"
+            className="flex min-w-0 items-start gap-2 rounded-card border border-rose-500/35 bg-rose-500/8 px-3 py-2.5 text-ui-xs text-rose-800 dark:text-rose-100"
             data-mcp-error="true"
           >
             <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
@@ -562,7 +562,7 @@ export function McpToolResultDetails({
 
       {result.truncation.truncated ? (
         <p
-          className="rounded-lg border border-amber-500/35 bg-amber-500/8 px-3 py-2.5 text-ui-xs text-foreground"
+          className="rounded-card border border-amber-500/35 bg-amber-500/8 px-3 py-2.5 text-ui-xs text-foreground"
           data-mcp-state="truncated"
         >
           {t("chat.mcpResult.truncated")}

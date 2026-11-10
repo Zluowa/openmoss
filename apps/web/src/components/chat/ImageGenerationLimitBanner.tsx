@@ -135,7 +135,7 @@ export function ImageGenerationLimitBanner({
         <UsageGaugeIcon />
         <div className="flex min-w-0 grow flex-row items-center justify-between gap-2 max-[400px]:flex-col max-[400px]:items-stretch max-[400px]:gap-2">
           <div className="flex w-full min-w-0 flex-col gap-1 text-ui-lg">
-            <p className="text-ui-lg font-bold text-pretty" id={titleId}>
+            <p className="text-ui-lg font-semibold text-pretty" id={titleId}>
               {t(titleKeyForVariant(presentation.variant))}
             </p>
             <p className="leading-[18px] font-normal text-codex-description">{message}</p>

@@ -187,7 +187,7 @@ function RightDockLauncher(props: {
               key={kind}
               variant="subtle"
               size="xl"
-              className="h-11 w-full justify-start gap-3 rounded-xl px-4 text-ui-lg font-normal"
+              className="h-11 w-full justify-start gap-3 rounded-card px-4 text-ui-lg font-normal"
               aria-label={format("rightDock.launcher.openPane", { label })}
               data-testid={`right-dock-empty-action-${kind}`}
               onClick={() => props.onOpen(kind)}

@@ -66,7 +66,7 @@ export function PeerMessageCard(props: {
           type="button"
           aria-expanded={showAll}
           onClick={() => setShowAll((value) => !value)}
-          className="self-start rounded-sm px-1 text-ui-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="self-start rounded-inline px-1 text-ui-sm text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           {showAll ? t("transcript.showLess") : t("transcript.showMore")}
         </button>

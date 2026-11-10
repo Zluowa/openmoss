@@ -5,7 +5,6 @@
 
 import {
   desktopFlavorFromProtocol,
-  GROUPS_BETA_FEATURE,
   INLINE_VISUALS_BETA_FEATURE,
   INBOX_BETA_FEATURE,
   isBetaFeatureEnabled,
@@ -27,12 +26,8 @@ const DESKTOP_FLAVOR = desktopFlavorFromProtocol(
 export const isBetaFeatureOn = (feature: string): boolean =>
   isBetaFeatureEnabled(feature, DESKTOP_FLAVOR);
 
-/**
- * Groups is Beta-only. Off, group folders read as ordinary projects (so no
- * chat is hidden), and every Groups entry point is gone. The server refuses
- * the group APIs regardless; this only keeps Stable from offering them.
- */
-export const GROUPS_ON = isBetaFeatureOn(GROUPS_BETA_FEATURE);
+// Hubs (the "groups" Beta feature) were removed from the web app on 2026-11-10 in every
+// flavor; the server's hub runtime stays because Mossbot runs on it.
 
 /**
  * Inline visuals are available in Stable and Beta. HTML keeps the same

@@ -27,19 +27,19 @@ interface AttachmentCardSizeStyles {
 const ATTACHMENT_CARD_SIZE_STYLES: Record<AttachmentCardSize, AttachmentCardSizeStyles> = {
   // Compact tile for pasted-text cards (composer + transcript echo).
   sm: {
-    shell: "max-w-[16rem] gap-2 rounded-lg py-1 pl-1",
+    shell: "max-w-[16rem] gap-2 rounded-card py-1 pl-1",
     shellWithRemove: "pr-5",
     shellWithoutRemove: "pr-2",
-    tile: "size-6 rounded-md",
+    tile: "size-6 rounded-control",
     title: "text-ui leading-snug",
     remove: "sm",
   },
   // Roomier composer card with a prominent type glyph (file attachments).
   md: {
-    shell: "h-14 w-60 max-w-full gap-2.5 rounded-xl py-2 pl-2",
+    shell: "h-14 w-60 max-w-full gap-2.5 rounded-card py-2 pl-2",
     shellWithRemove: "pr-8",
     shellWithoutRemove: "pr-3",
-    tile: "size-10 rounded-lg",
+    tile: "size-10 rounded-card",
     title: "text-ui-lg",
     remove: "md",
   },

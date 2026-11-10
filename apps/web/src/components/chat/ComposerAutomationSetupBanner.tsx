@@ -13,9 +13,7 @@ export const ComposerAutomationSetupBanner = function ComposerAutomationSetupBan
 }) {
   return (
     <div className="flex items-center justify-between gap-3 px-5 pt-4 pb-4 sm:px-6 sm:pt-4.5 sm:pb-5">
-      <span className="text-ui-sm font-semibold text-muted-foreground/50">
-        Setting up automation
-      </span>
+      <span className="text-ui-sm font-medium text-muted-foreground/50">Setting up automation</span>
       <button
         type="button"
         aria-label="Cancel automation setup"

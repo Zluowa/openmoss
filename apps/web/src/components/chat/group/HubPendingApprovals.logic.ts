@@ -1,5 +1,5 @@
 // Whether the coordinator composer may show worker approval cards.
-// Hubs stay behind the Beta gate: Stable (GROUPS_ON false) never mounts them.
+// Only Mossbot conversations mount these now; the Hubs surface was removed (2026-11-10).
 
 export function shouldShowHubPendingApprovals(input: {
   readonly groupsOn: boolean;

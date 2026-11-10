@@ -306,7 +306,7 @@ function InspectorSection({
       {rows.length === 0 ? (
         <div className="text-ui-sm text-muted-foreground">{emptyLabel}</div>
       ) : (
-        <dl className="divide-y divide-border/60 rounded-md border border-border/60">
+        <dl className="divide-y divide-border/60 rounded-control border border-border/60">
           {rows.map((row) => (
             <div key={`${row.label}:${row.value}`} className="grid grid-cols-[9rem_1fr] gap-2 p-2">
               <dt className="min-w-0 break-words text-muted-foreground">{row.label}</dt>

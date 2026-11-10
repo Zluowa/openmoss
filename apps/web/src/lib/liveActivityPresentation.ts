@@ -136,7 +136,21 @@ export interface LiveActivityMetaOptions {
   // A tool blocked on the user's own answer (a secret request card): the quiet
   // time is the user's to end, so it reads as waiting on them, never idleness.
   readonly awaitingUser?: boolean;
+  // The meta is one joined sentence, so it is written in the person's language here
+  // instead of being left to the page translator. Defaults to English.
+  readonly locale?: string;
 }
+
+const ZH_CN_LIVE_ACTIVITY_STATE_LABELS: Readonly<Record<WorkLogLiveActivity["state"], string>> = {
+  starting: "正在启动",
+  thinking: "正在思考",
+  running_tool: "正在使用工具",
+  waiting: "等待中",
+  streaming: "正在输出",
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
 
 // Live meta only exists to explain work the row can't state on its own: how long
 // something in flight has been running, or that it ended badly. A tool call that
@@ -151,31 +165,45 @@ export function formatLiveActivityMeta(
     return null;
   }
 
+  const locale = options?.locale ?? "en";
+  const zh = locale.toLowerCase().startsWith("zh");
   const parts: string[] = [];
-  const elapsed = formatLiveActivityElapsed(activity, nowMs);
+  const elapsedMs = liveActivityElapsedMs(activity, nowMs);
+  const elapsed = elapsedMs === null ? null : formatClockDuration(elapsedMs, locale);
   const lastActivityAtMs = parseTimestamp(activity.lastActivityAt);
 
   if (isLiveActivityInProgress(activity)) {
     if (options?.subagent) {
-      parts.push("Subagent working");
+      parts.push(zh ? "子智能体工作中" : "Subagent working");
     } else if (options?.awaitingUser) {
-      parts.push("Waiting for your answer");
+      parts.push(zh ? "等你回答" : "Waiting for your answer");
     } else if (lastActivityAtMs !== null) {
       const idleMs = Math.max(0, nowMs - lastActivityAtMs);
+      const idle = formatClockDuration(idleMs, locale);
       parts.push(
         idleMs >= NO_ACTIVITY_THRESHOLD_MS
-          ? `No activity for ${formatClockDuration(idleMs)}`
+          ? zh
+            ? `${idle}没有动静`
+            : `No activity for ${idle}`
           : idleMs < 1_000
-            ? "Active now"
-            : `Active ${formatClockDuration(idleMs)} ago`,
+            ? zh
+              ? "刚刚有动静"
+              : "Active now"
+            : zh
+              ? `${idle}前有动静`
+              : `Active ${idle} ago`,
       );
     }
   } else {
-    parts.push(formatLiveActivityStateLabel(activity.state));
+    parts.push(
+      zh
+        ? ZH_CN_LIVE_ACTIVITY_STATE_LABELS[activity.state]
+        : formatLiveActivityStateLabel(activity.state),
+    );
   }
 
   if (elapsed !== null) {
-    parts.push(`${elapsed} elapsed`);
+    parts.push(zh ? `已用时 ${elapsed}` : `${elapsed} elapsed`);
   }
   if (activity.progress !== undefined) {
     parts.push(formatLiveActivityProgress(activity.progress));

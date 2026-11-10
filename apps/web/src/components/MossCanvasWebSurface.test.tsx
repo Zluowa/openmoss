@@ -355,6 +355,54 @@ describe("complete Canvas host boundaries", () => {
     expect(host.props.onSelectionChange).toHaveBeenCalledTimes(1);
   });
 
+  it("tells the Canvas it opens images, then forwards an opened image with its binding", async () => {
+    const onImageOpen = vi.fn();
+    const host = await mount({ onImageOpen });
+    await host.emit({ type: "moss-canvas-bootstrap-ready" });
+    const bootstrap = host.post.mock.calls
+      .map(([message]) => message)
+      .find((message) => message.type === "moss-canvas-bootstrap") as
+      | Record<string, unknown>
+      | undefined;
+    expect(bootstrap?.capabilities).toEqual(["image-open"]);
+    await host.ready();
+    const item = {
+      shapeId: "shape:moss-image",
+      assetId: `moss-canvas-asset:${"a".repeat(64)}.png`,
+      title: "Cat",
+    };
+    await host.emit({
+      type: "moss-canvas-image-open",
+      version: 1,
+      threadId: "thread-b",
+      documentEpoch: 1,
+      item,
+    });
+    expect(onImageOpen).not.toHaveBeenCalled();
+    await host.emit({
+      type: "moss-canvas-image-open",
+      version: 1,
+      threadId: "thread-a",
+      documentEpoch: 1,
+      item,
+    });
+    expect(onImageOpen).toHaveBeenCalledExactlyOnceWith(
+      { threadId: "thread-a", documentEpoch: 1, item },
+      binding,
+    );
+  });
+
+  it("advertises nothing when the host does not open images itself", async () => {
+    const host = await mount();
+    await host.emit({ type: "moss-canvas-bootstrap-ready" });
+    const bootstrap = host.post.mock.calls
+      .map(([message]) => message)
+      .find((message) => message.type === "moss-canvas-bootstrap") as
+      | Record<string, unknown>
+      | undefined;
+    expect(bootstrap?.capabilities).toEqual([]);
+  });
+
   it("does not accept readiness or acknowledgements without their thread and document lease", async () => {
     const host = await mount();
     await host.emit({ type: "moss-canvas-ready", version: 1, threadId: "thread-a" });

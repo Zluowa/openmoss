@@ -112,4 +112,15 @@ describe("live activity presentation", () => {
     expect(liveActivityElapsedMs(activity, Date.parse("2026-07-26T14:03:00.000Z"))).toBeNull();
     expect(formatLiveActivityMeta(activity, Date.parse("2026-07-26T14:03:00.000Z"))).toBeNull();
   });
+
+  it("writes the meta in Chinese for a zh-CN reader", () => {
+    const nowMs = Date.parse("2026-07-26T14:02:14.000Z");
+    const text = formatLiveActivityMeta(runningActivity(), nowMs, { locale: "zh-CN" });
+    expect(text).toContain("前有动静");
+    expect(text).toContain("已用时");
+    expect(text).not.toMatch(/Active|elapsed|ago/);
+    expect(
+      formatLiveActivityMeta(runningActivity({ state: "failed" }), nowMs, { locale: "zh-CN" }),
+    ).toMatch(/^失败/);
+  });
 });

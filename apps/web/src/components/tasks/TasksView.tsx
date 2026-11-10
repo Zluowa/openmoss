@@ -14,14 +14,13 @@ import { useNowMs } from "~/hooks/useNowMs";
 import { isNewTaskShortcut } from "~/lib/newTaskShortcut";
 import { useTasksSurfaceEnabled } from "../../tasksSurface";
 import { RouteInsetSurface } from "../RouteInsetSurface";
-import { RouteSurface, RouteSurfaceHeader } from "../RouteSurface";
+import { RouteSurface } from "../RouteSurface";
 import { TaskCardSurface, useTaskSelection } from "./TaskCardSurface";
 import { TaskListItem } from "./TaskListItem";
 import { TaskQuickAdd } from "./TaskQuickAdd";
-import { TasksViewSwitch } from "./TasksViewSwitch";
-import { buildTaskSections, summarizeTaskList, type TaskRowModel } from "./tasks.logic";
+import { TasksPageHeader } from "./TasksPageHeader";
+import { buildTaskSections, type TaskRowModel } from "./tasks.logic";
 import { useTaskRows, useTodoList, useTodoMutations } from "./useTodos";
-import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
 
 /** Finished to-dos shown before "Show all". */
 const DONE_PREVIEW_COUNT = 2;
@@ -74,20 +73,14 @@ export default function TasksView() {
   return (
     <RouteInsetSurface>
       <RouteSurface>
-        <RouteSurfaceHeader>
-          <div className="ml-auto">
-            <TasksViewSwitch current="list" />
-          </div>
-        </RouteSurfaceHeader>
+        <TasksPageHeader view="list" onNewTask={() => quickAddRef.current?.focus()} />
 
         <TaskCardSurface selection={selection} now={now} mutations={mutations}>
-          <div className="mx-auto flex w-full max-w-[36rem] flex-col gap-7 px-6 pt-10 pb-20">
-            <header className="flex flex-col gap-1 px-3">
-              <h1 className={PAGE_TITLE_CLASS_NAME}>Tasks</h1>
-              <p className="text-ui text-muted-foreground">
-                {isLoading ? "Loading…" : summarizeTaskList(rows)}
-              </p>
-            </header>
+          {/* The header names the page; the list starts right under it, Codex-dense. */}
+          <div className="mx-auto flex w-full max-w-[40rem] flex-col gap-6 px-6 pt-4 pb-20">
+            {isLoading && rows.length === 0 ? (
+              <p className="px-3 text-ui-sm text-muted-foreground">Loading…</p>
+            ) : null}
 
             {isError && rows.length === 0 ? (
               <div className="flex items-center gap-3 px-3">

@@ -26,7 +26,6 @@ import { pagesQueryKeys } from "~/lib/pagesReactQuery";
 import { isPageMutationRejected, PageMutationIntent } from "~/lib/pageMutationIntent";
 import { listSpacePageApps, promoteHtmlToPageApp } from "~/lib/spacePageApps";
 import { clearSpacePageHash, readSpacePageHash, SPACE_PAGE_HASH_PREFIX } from "~/lib/spacePageLink";
-import { useSpacesUiStore } from "~/spacesUiStore";
 
 import { MossLibraryDestination } from "./MossLibraryDestination";
 import { PageView } from "./pages/PageView";
@@ -86,7 +85,8 @@ export { SPACE_PAGE_HASH_PREFIX };
 /** Data spaces own Pages; the existing Library remains the file/asset surface. */
 export function MossDataSpaceDestination(props: Props) {
   const boundary = useMossImagesAccountBoundary();
-  const scopeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
+  // The sidebar's Spaces were removed, so 资料空间 always opens the shared (unscoped) library.
+  const scopeSpaceId: SpaceId | null = null;
   return boundary.transitioning ? (
     <div role="status">正在切换账号…</div>
   ) : (

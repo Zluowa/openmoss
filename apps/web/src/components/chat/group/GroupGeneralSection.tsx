@@ -25,7 +25,7 @@ import {
 // hairline ring and a soft fill when selected.
 function appearanceOptionClassName(selected: boolean): string {
   return cn(
-    "grid size-8 place-items-center rounded-lg border transition-colors motion-reduce:transition-none",
+    "grid size-8 place-items-center rounded-control border transition-colors motion-reduce:transition-none",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
     selected
       ? "border-foreground/40 bg-[var(--color-background-elevated-secondary)]"
@@ -69,7 +69,7 @@ export function GroupGeneralSection(props: {
                   props.personal ? "Use the default assistant avatar" : "Use the default hub icon"
                 }
                 className={cn(
-                  "cursor-pointer rounded-sm text-ui-sm text-muted-foreground transition-colors hover:text-foreground",
+                  "cursor-pointer rounded-inline text-ui-sm text-muted-foreground transition-colors hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
                 )}
                 onClick={() => onChange({ coordinatorIcon: "", coordinatorColor: "" })}

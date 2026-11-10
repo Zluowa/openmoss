@@ -3,11 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { resolveChatIndexRestoreRoute } from "../routes/-chatIndexRoute.logic";
 import type { ServerWorkspacePaths } from "./serverWorkspacePaths";
-import {
-  isThreadReachableFromSpace,
-  resolveSpaceSelectionTarget,
-  type SpaceSelectionTarget,
-} from "./spaceNavigation";
+import { isThreadReachableFromSpace } from "./spaceNavigation";
 import type { Project, SidebarThreadSummary } from "../types";
 
 // No server paths resolved: container classification then falls back to `kind` alone, which is
@@ -76,20 +72,8 @@ const projectById = new Map([
 describe("selecting an empty Space", () => {
   // The user-visible symptom: clicking a Space in the switcher appeared to do nothing. Selecting
   // an empty Space fell through to the generic "/" restore, which reopened the *previous* Space's
-  // thread, and useRouteSpaceSync then wrote that thread's Space back over the click.
+  // thread, and the route-to-Space sync then wrote that thread's Space back over the click.
   it("never lands on a thread belonging to another Space", () => {
-    const target: SpaceSelectionTarget = resolveSpaceSelectionTarget({
-      spaceId: workSpaceId,
-      projects: [voidProject],
-      projectById,
-      threads: [voidThread],
-      rememberedThreadId: null,
-      rememberedProjectId: null,
-      paths,
-      sortThreads: (threads) => threads,
-    });
-    expect(target).toEqual({ kind: "empty", spaceId: workSpaceId });
-
     const restored = resolveChatIndexRestoreRoute({
       safeMainNavigationTarget: null,
       // The Space we just left is still the remembered route.
@@ -102,7 +86,7 @@ describe("selecting an empty Space", () => {
       rememberedSplitViewThreadIds: undefined,
       projectById,
       landingSpace: {
-        spaceId: target.kind === "empty" ? target.spaceId : null,
+        spaceId: workSpaceId,
         projectById,
         workspacePaths: paths,
       },
@@ -150,18 +134,6 @@ describe("selecting an empty Space", () => {
   });
 
   it("prefers explicit space landing intent over a persisted kanban startup target", () => {
-    const target: SpaceSelectionTarget = resolveSpaceSelectionTarget({
-      spaceId: workSpaceId,
-      projects: [voidProject],
-      projectById,
-      threads: [voidThread],
-      rememberedThreadId: null,
-      rememberedProjectId: null,
-      paths,
-      sortThreads: (threads) => threads,
-    });
-    expect(target).toEqual({ kind: "empty", spaceId: workSpaceId });
-
     expect(
       resolveChatIndexRestoreRoute({
         safeMainNavigationTarget: { kind: "kanban", projectId: voidProject.id },
@@ -174,7 +146,7 @@ describe("selecting an empty Space", () => {
         rememberedSplitViewThreadIds: undefined,
         projectById,
         landingSpace: {
-          spaceId: target.kind === "empty" ? target.spaceId : null,
+          spaceId: workSpaceId,
           projectById,
           workspacePaths: paths,
         },
@@ -286,83 +258,6 @@ describe("selecting an empty Space", () => {
         },
       }),
     ).toEqual({ threadId: firstThread.id, splitViewId: "split-work" });
-  });
-});
-
-describe("resolveSpaceSelectionTarget", () => {
-  it("prefers the Space's remembered thread, then its remembered project, then its newest thread", () => {
-    const workProject = project({ id: "project-work", spaceId: workSpaceId });
-    const older = thread({ id: "thread-older", projectId: "project-work" });
-    const newer = thread({ id: "thread-newer", projectId: "project-work" });
-    const byId = new Map([...projectById, [workProject.id, workProject]]);
-    const base = {
-      spaceId: workSpaceId,
-      projects: [voidProject, workProject],
-      projectById: byId,
-      threads: [voidThread, older, newer],
-      paths,
-      sortThreads: (threads: readonly SidebarThreadSummary[]) =>
-        threads.toSorted((left, right) => right.id.localeCompare(left.id)),
-    };
-
-    expect(
-      resolveSpaceSelectionTarget({
-        ...base,
-        rememberedThreadId: older.id,
-        rememberedProjectId: null,
-      }),
-    ).toEqual({ kind: "thread", threadId: older.id });
-
-    expect(
-      resolveSpaceSelectionTarget({
-        ...base,
-        rememberedThreadId: null,
-        rememberedProjectId: workProject.id,
-      }),
-    ).toEqual({ kind: "project", projectId: workProject.id });
-
-    expect(
-      resolveSpaceSelectionTarget({ ...base, rememberedThreadId: null, rememberedProjectId: null }),
-    ).toEqual({ kind: "thread", threadId: older.id });
-  });
-
-  it("ignores remembered context that no longer belongs to the Space", () => {
-    expect(
-      resolveSpaceSelectionTarget({
-        spaceId: workSpaceId,
-        projects: [voidProject],
-        projectById,
-        threads: [voidThread],
-        // Both were remembered for this Space but their project has since moved to Void.
-        rememberedThreadId: voidThread.id,
-        rememberedProjectId: voidProject.id,
-        paths,
-        sortThreads: (threads) => threads,
-      }),
-    ).toEqual({ kind: "empty", spaceId: workSpaceId });
-  });
-
-  it("never treats a parent-linked side chat as a Space landing", () => {
-    const workProject = project({ id: "project-work", spaceId: workSpaceId });
-    const parent = thread({ id: "thread-parent", projectId: "project-work" });
-    const sidechat = thread({
-      id: "thread-sidechat",
-      projectId: "project-work",
-      sidechatSourceThreadId: parent.id,
-    });
-
-    expect(
-      resolveSpaceSelectionTarget({
-        spaceId: workSpaceId,
-        projects: [workProject],
-        projectById: new Map([[workProject.id, workProject]]),
-        threads: [sidechat, parent],
-        rememberedThreadId: sidechat.id,
-        rememberedProjectId: null,
-        paths,
-        sortThreads: (threads) => threads,
-      }),
-    ).toEqual({ kind: "thread", threadId: parent.id });
   });
 });
 

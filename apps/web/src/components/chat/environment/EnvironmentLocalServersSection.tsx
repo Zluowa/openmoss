@@ -47,7 +47,7 @@ function LocalServersRefreshButton({
       onClick={onRefresh}
       aria-label={t("environment.localServers.refresh")}
       title={t("environment.localServers.refresh")}
-      className="inline-flex size-5 items-center justify-center rounded-md p-0 text-muted-foreground/60 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)]"
+      className="inline-flex size-5 items-center justify-center rounded-control p-0 text-muted-foreground/60 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)]"
     >
       <RefreshCwIcon className={cn("size-3", refreshing && "animate-spin")} />
     </MenuItem>

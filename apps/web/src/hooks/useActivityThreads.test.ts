@@ -33,11 +33,6 @@ vi.mock("../components/chat/project/useProjectAgentSummaries", () => ({
     selector({ summariesByProjectId: harness.summaries }),
 }));
 
-vi.mock("../betaFeatures", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../betaFeatures")>()),
-  GROUPS_ON: true,
-}));
-
 import { useActivityThreads } from "./useActivityThreads";
 
 function makeThread(

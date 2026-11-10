@@ -31,7 +31,7 @@ export function HubWorkItemCard({
   );
   return (
     <article
-      className="rounded-xl border border-border/70 bg-card/50 px-3 py-2"
+      className="rounded-card border border-border/70 bg-card/50 px-3 py-2"
       aria-label={`Work: ${item.title}`}
     >
       <div className="flex items-center gap-2">

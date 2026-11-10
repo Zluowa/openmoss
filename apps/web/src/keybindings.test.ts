@@ -16,7 +16,6 @@ import {
   resolveKeybindingForCommand,
   shouldShowThreadJumpHints,
   shortcutLabelForCommand,
-  spaceJumpIndexFromCommand,
   splitShortcutLabel,
   suspendShortcutDispatch,
   terminalNavigationShortcutData,
@@ -434,11 +433,6 @@ const DEFAULT_BINDINGS = compile([
     command: "view.recent.previous",
   },
   ...Array.from({ length: 9 }, (_, index) => ({
-    shortcut: modShortcut(String(index + 1), { altKey: true }),
-    command: `space.jump.${index + 1}` as KeybindingCommand,
-    whenAst: whenModChordAllowed,
-  })),
-  ...Array.from({ length: 9 }, (_, index) => ({
     shortcut: modShortcut(String(index + 1)),
     command: `thread.jump.${index + 1}` as KeybindingCommand,
     whenAst: whenOr(
@@ -750,38 +744,19 @@ describe("copy thread id shortcut", () => {
   });
 });
 
-describe("space jump shortcuts", () => {
-  it("maps space jump commands to strip indices", () => {
-    assert.strictEqual(spaceJumpIndexFromCommand("space.jump.1"), 0);
-    assert.strictEqual(spaceJumpIndexFromCommand("space.jump.9"), 8);
-    assert.isNull(spaceJumpIndexFromCommand("thread.jump.1"));
-  });
-
-  it("resolves space jumps from the built-in fallbacks when no config is present", () => {
-    assert.strictEqual(
+describe("removed space shortcuts", () => {
+  it("binds nothing to the old space chords any more", () => {
+    assert.isNull(
       resolveShortcutCommand(event({ code: "Digit1", key: "1", metaKey: true, altKey: true }), [], {
         platform: "MacIntel",
         context: { terminalFocus: false },
       }),
-      "space.jump.1",
-    );
-  });
-
-  it("fires from a focused terminal on macOS but yields to it elsewhere", () => {
-    assert.strictEqual(
-      resolveShortcutCommand(
-        event({ code: "Digit3", key: "3", metaKey: true, altKey: true }),
-        DEFAULT_BINDINGS,
-        { platform: "MacIntel", context: { terminalFocus: true } },
-      ),
-      "space.jump.3",
     );
     assert.isNull(
-      resolveShortcutCommand(
-        event({ code: "Digit3", key: "3", ctrlKey: true, altKey: true }),
-        DEFAULT_BINDINGS,
-        { platform: "Linux", context: { terminalFocus: true } },
-      ),
+      resolveShortcutCommand(event({ key: "ArrowRight", metaKey: true, altKey: true }), [], {
+        platform: "MacIntel",
+        context: { terminalFocus: false },
+      }),
     );
   });
 });

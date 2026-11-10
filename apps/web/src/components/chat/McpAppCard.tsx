@@ -254,7 +254,7 @@ export function McpAppCard(props: McpAppCardProps) {
   const inlineNavigation =
     inline && hasNavigationHistory && navigationPortalTarget
       ? createPortal(
-          <div className="absolute top-2 left-2 z-50 rounded-md border border-default bg-surface/95 p-0.5 shadow-sm">
+          <div className="absolute top-2 left-2 z-50 rounded-control border border-default bg-surface/95 p-0.5 shadow-sm">
             <McpAppNavigationControls
               canGoBack={snapshot.canGoBack}
               canGoForward={snapshot.canGoForward}
@@ -323,7 +323,7 @@ export function McpAppCard(props: McpAppCardProps) {
           />
         ) : null}
         {noContent ? (
-          <div className="w-full min-w-0 rounded-lg border border-border bg-surface-muted px-4 py-3 text-ui-lg text-muted-foreground">
+          <div className="w-full min-w-0 rounded-card border border-border bg-surface-muted px-4 py-3 text-ui-lg text-muted-foreground">
             {snapshot.errorMessage ?? "MCP app returned no HTML content"}
           </div>
         ) : null}

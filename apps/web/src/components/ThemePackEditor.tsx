@@ -35,12 +35,13 @@ import {
   SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
 } from "../settingsPanelStyles";
 import { ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME } from "../surfaceStyles";
+import { useTranslation } from "~/localization";
 import {
-  CODE_THEME_OPTIONS,
   DEFAULT_THEME_STATE,
   VIBRANCY_EQUIVALENT_BLUR_RADIUS,
   WINDOW_TRANSLUCENCY_OPACITY_MIN,
   buildThemeCssVariables,
+  codeThemeLabel as resolveCodeThemeLabel,
   getAvailableCodeThemes,
   getCodeThemeSeed,
   resolveThemePack,
@@ -99,17 +100,17 @@ export function ThemePackEditor({
     [pack, variant, systemUiFont],
   );
   const defaultTheme = resolveThemePack(DEFAULT_THEME_STATE, variant).theme;
+  const { locale } = useTranslation();
   const codeThemes = useMemo(() => {
     const options = getAvailableCodeThemes(variant);
     return options.map((option) => ({
       id: option.id,
-      label: option.label,
+      label: resolveCodeThemeLabel(option.id, locale),
       previewTheme: getCodeThemeSeed(option.id, variant),
       variants: option.variants,
     }));
-  }, [variant]);
-  const codeThemeLabel =
-    CODE_THEME_OPTIONS.find((option) => option.id === pack.codeThemeId)?.label ?? pack.codeThemeId;
+  }, [variant, locale]);
+  const codeThemeLabel = resolveCodeThemeLabel(pack.codeThemeId, locale);
   const isPristine = isDefaultThemePack(variant);
   const titleLabel = variant === "dark" ? "Dark theme" : "Light theme";
   const contextLabel = isActive

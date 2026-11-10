@@ -25,7 +25,7 @@ import {
 } from "../FileChipHoverCard";
 
 const CHIP_BASE_CLASS_NAME =
-  "inline-flex max-w-full items-center gap-0.75 rounded-sm px-1.5 align-baseline leading-tight no-underline";
+  "inline-flex max-w-full items-center gap-0.75 rounded-inline px-1.5 align-baseline leading-tight no-underline";
 const CHIP_LIVE_CLASS_NAME = cn(
   CHIP_BASE_CLASS_NAME,
   "cursor-interaction bg-[color-mix(in_srgb,var(--color-text-accent)_10%,transparent)] text-[var(--color-text-accent)]",

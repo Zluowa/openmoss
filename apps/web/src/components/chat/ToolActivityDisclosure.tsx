@@ -102,7 +102,7 @@ export function ToolActivityDisclosure(props: {
               aria-expanded={expanded}
               aria-controls={bodyId}
               data-tool-group-trigger="true"
-              className="absolute inset-0 cursor-interaction rounded-md bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-inset"
+              className="absolute inset-0 cursor-interaction rounded-control bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-inset"
               onClick={toggle}
             />
           )}

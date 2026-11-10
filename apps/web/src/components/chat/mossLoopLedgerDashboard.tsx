@@ -58,7 +58,7 @@ export function MossLoopLedgerDashboard({ snapshot, className }: MossLoopLedgerD
           </div>
           <span
             className={cn(
-              "rounded-md border px-2 py-1 text-ui-sm font-medium",
+              "rounded-control border px-2 py-1 text-ui-sm font-medium",
               statusBadgeClassName(model.status),
             )}
             data-moss-ledger-release-gate=""
@@ -74,10 +74,10 @@ export function MossLoopLedgerDashboard({ snapshot, className }: MossLoopLedgerD
         {model.metricRows.map((metric) => (
           <div
             key={metric.label}
-            className="rounded-md border border-border/60 bg-background px-2.5 py-2"
+            className="rounded-control border border-border/60 bg-background px-2.5 py-2"
           >
             <dt className="text-ui-sm text-muted-foreground">{metric.label}</dt>
-            <dd className={cn("mt-1 text-lg font-semibold", metricClassName(metric.tone))}>
+            <dd className={cn("mt-1 text-lg font-medium", metricClassName(metric.tone))}>
               {metric.value}
             </dd>
           </div>
@@ -150,7 +150,7 @@ function DashboardSection({
 function TaskRow({ task }: { readonly task: MossLoopLedgerTaskSummary }) {
   return (
     <article
-      className="rounded-md border border-border/60 bg-background px-2.5 py-2"
+      className="rounded-control border border-border/60 bg-background px-2.5 py-2"
       data-moss-ledger-task=""
       data-status={task.status}
     >
@@ -174,7 +174,7 @@ function TaskRow({ task }: { readonly task: MossLoopLedgerTaskSummary }) {
 function ReviewRow({ review }: { readonly review: MossLoopLedgerReviewSummary }) {
   return (
     <article
-      className="rounded-md border border-border/60 bg-background px-2.5 py-2"
+      className="rounded-control border border-border/60 bg-background px-2.5 py-2"
       data-moss-ledger-review=""
       data-decision={review.decision}
     >
@@ -195,7 +195,7 @@ function ReviewRow({ review }: { readonly review: MossLoopLedgerReviewSummary })
 function EvidenceRow({ evidence }: { readonly evidence: MossLoopLedgerEvidenceSummary }) {
   return (
     <div
-      className="flex items-center justify-between gap-2 rounded-md border border-border/60 bg-background px-2.5 py-2 text-ui-sm"
+      className="flex items-center justify-between gap-2 rounded-control border border-border/60 bg-background px-2.5 py-2 text-ui-sm"
       data-moss-ledger-evidence=""
       data-status={evidence.status}
     >
@@ -208,7 +208,7 @@ function EvidenceRow({ evidence }: { readonly evidence: MossLoopLedgerEvidenceSu
 function RoleRow({ role }: { readonly role: MossLoopLedgerRoleSummary }) {
   return (
     <div
-      className="rounded-md border border-border/60 bg-background px-2.5 py-2"
+      className="rounded-control border border-border/60 bg-background px-2.5 py-2"
       data-moss-ledger-role=""
       data-status={role.status}
     >
@@ -231,7 +231,7 @@ function RoleRow({ role }: { readonly role: MossLoopLedgerRoleSummary }) {
 function GateCheckRow({ check }: { readonly check: MossLoopLedgerGateCheck }) {
   return (
     <div
-      className="rounded-md border border-border/60 bg-background px-2.5 py-2"
+      className="rounded-control border border-border/60 bg-background px-2.5 py-2"
       data-moss-ledger-gate-check=""
       data-status={check.status}
     >
@@ -254,7 +254,7 @@ function ReleaseFreshnessSummary({
   if (!freshness) {
     return (
       <div
-        className="rounded-md border border-border/60 bg-background px-2.5 py-2 text-ui-sm text-muted-foreground"
+        className="rounded-control border border-border/60 bg-background px-2.5 py-2 text-ui-sm text-muted-foreground"
         data-moss-ledger-release-freshness="missing"
         data-status="pending"
       >
@@ -265,7 +265,7 @@ function ReleaseFreshnessSummary({
 
   return (
     <div
-      className="space-y-2 rounded-md border border-border/60 bg-background px-2.5 py-2 text-ui-sm"
+      className="space-y-2 rounded-control border border-border/60 bg-background px-2.5 py-2 text-ui-sm"
       data-moss-ledger-release-freshness=""
       data-status={freshness.status}
     >
@@ -295,7 +295,7 @@ function RefreshPlanSummary({
   if (!refreshPlan) {
     return (
       <div
-        className="rounded-md border border-border/60 bg-background px-2.5 py-2 text-ui-sm text-muted-foreground"
+        className="rounded-control border border-border/60 bg-background px-2.5 py-2 text-ui-sm text-muted-foreground"
         data-moss-ledger-refresh-plan="missing"
         data-status="pending"
       >
@@ -306,7 +306,7 @@ function RefreshPlanSummary({
 
   return (
     <div
-      className="space-y-2 rounded-md border border-border/60 bg-background px-2.5 py-2 text-ui-sm"
+      className="space-y-2 rounded-control border border-border/60 bg-background px-2.5 py-2 text-ui-sm"
       data-moss-ledger-refresh-plan=""
       data-status={refreshPlan.status}
     >
@@ -343,9 +343,9 @@ function FreshnessMetric({ label, value }: { readonly label: string; readonly va
 
 function CountPill({ label, value }: { readonly label: string; readonly value: number }) {
   return (
-    <div className="rounded-md border border-border/60 bg-background px-2 py-1.5">
+    <div className="rounded-control border border-border/60 bg-background px-2 py-1.5">
       <div className="text-muted-foreground">{label}</div>
-      <div className="mt-0.5 font-semibold text-foreground">{value}</div>
+      <div className="mt-0.5 font-medium text-foreground">{value}</div>
     </div>
   );
 }

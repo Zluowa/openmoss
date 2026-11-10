@@ -132,12 +132,12 @@ function SubagentRunRowView({
 
   return (
     <div data-testid="subagent-run-row" data-phase={row.phase} data-depth={depth}>
-      <div className="group/subagent-row relative flex min-w-0 items-center gap-1 rounded-lg px-1.5 py-0.5 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] focus-within:bg-[var(--color-background-button-secondary-hover)] [&>button:not(:first-child)]:relative [&>button:not(:first-child)]:z-[1]">
+      <div className="group/subagent-row relative flex min-w-0 items-center gap-1 rounded-card px-1.5 py-0.5 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] focus-within:bg-[var(--color-background-button-secondary-hover)] [&>button:not(:first-child)]:relative [&>button:not(:first-child)]:z-[1]">
         {/* The open button stretches over the whole row (chevron included);
             the row's own controls sit above it. */}
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none after:absolute after:inset-0 after:rounded-lg after:content-[''] focus-visible:after:ring-1 focus-visible:after:ring-ring/60 disabled:cursor-default"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none after:absolute after:inset-0 after:rounded-card after:content-[''] focus-visible:after:ring-1 focus-visible:after:ring-ring/60 disabled:cursor-default"
           disabled={!openThread}
           onClick={openThread}
           aria-label={`Open ${row.item.primaryLabel}`}

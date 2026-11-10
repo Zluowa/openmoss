@@ -1,8 +1,8 @@
 import type { LucideIcon } from "~/lib/icons";
-import { Columns2Icon, GitPullRequestIcon, UsersIcon, WorkflowIcon } from "~/lib/icons";
+import { Columns2Icon, GitPullRequestIcon, UsersIcon } from "~/lib/icons";
 
 export interface FeatureTourSlide {
-  id: "workspace" | "accounts" | "review" | "hubs";
+  id: "workspace" | "accounts" | "review";
   title: string;
   description: string;
   highlights: readonly string[];
@@ -47,18 +47,5 @@ export const FEATURE_TOUR_SLIDES: readonly FeatureTourSlide[] = [
       "Ask an agent to review or continue the work.",
     ],
     icon: GitPullRequestIcon,
-  },
-  {
-    id: "hubs",
-    title: "Give bigger work a team",
-    description:
-      "Hubs bring a coordinator and worker agents together around a shared project in Moss Beta.",
-    highlights: [
-      "Keep shared context in the Hub Library and track delegated work.",
-      "Plan Tasks in a list or Kanban board and hand them to agents.",
-      "Open Inbox for today's tasks, review requests, and activity recap.",
-    ],
-    icon: WorkflowIcon,
-    feature: "groups",
   },
 ];

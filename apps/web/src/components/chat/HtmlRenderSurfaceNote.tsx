@@ -21,7 +21,7 @@ export const HtmlRenderSurfaceNote = memo(function HtmlRenderSurfaceNote(props: 
   return (
     <button
       type="button"
-      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md text-muted-foreground text-ui-sm transition-colors duration-150 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
+      className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-control text-muted-foreground text-ui-sm transition-colors duration-150 hover:text-foreground focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
       data-html-render-surface-note={liveId}
       onClick={() => onShow(liveId)}
     >

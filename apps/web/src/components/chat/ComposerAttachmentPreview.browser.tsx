@@ -327,3 +327,22 @@ it("keeps small images at their own size and big ones inside the window, 860 to 
     await screen.unmount();
   }
 });
+
+it("opens an image straight into markup when another surface asks (a Canvas image)", async () => {
+  await page.viewport(1280, 820);
+  const { requestComposerImagePreview } = await import("~/lib/composerImagePreviewRequest");
+  const image = imageAttachment("img-canvas", await pictureFile("canvas-cat.png", 1024, 768));
+  const screen = await render(<Harness initialImages={[image]} onReplaced={() => {}} />);
+  try {
+    // The Canvas asks before its attachment has arrived: the request waits for it.
+    requestComposerImagePreview({ imageId: "img-missing", markup: true });
+    requestComposerImagePreview({ imageId: "img-canvas", markup: true });
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+    await expect
+      .poll(() => document.querySelectorAll("[data-sketch-tool]").length)
+      .toBeGreaterThan(0);
+    expect(document.querySelector('[data-sketch-tool="pen"][aria-pressed="true"]')).not.toBeNull();
+  } finally {
+    await screen.unmount();
+  }
+});

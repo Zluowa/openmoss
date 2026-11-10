@@ -67,6 +67,7 @@ import {
   resolveProjectImportSourceHome,
   resolveProjectImportSources,
 } from "./projectImportSources";
+import { listWorkspaceImportedConversationKeys } from "./importedConversationKeys";
 
 interface ProjectImportRouteOptions {
   readonly repository: ProjectImportRepository;
@@ -372,6 +373,18 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
       }),
     );
     const known = yield* readKnownBindings(destinations);
+    // Chats the older workspace import synced into threads already: offering them here
+    // would import the same conversation a second time.
+    const stateDir = options.stateDir;
+    const synced = stateDir
+      ? yield* Effect.tryPromise(() =>
+          listWorkspaceImportedConversationKeys({
+            stateDir,
+            threadExists: (threadId) =>
+              destinations.findThread(ThreadId.makeUnsafe(threadId)) !== undefined,
+          }),
+        ).pipe(Effect.orElseSucceed((): ReadonlySet<string> => new Set()))
+      : new Set<string>();
     const now = Date.now();
     for (const [key, value] of projects) if (value.expiresAt < now) projects.delete(key);
     for (const [key, value] of sessions) if (value.expiresAt < now) sessions.delete(key);
@@ -410,7 +423,9 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
           archived: session.archived,
           alreadyImported:
             origins.get(session.key)?.status === "completed" ||
-            (!origins.has(session.key) && known.has(`${session.provider}:${session.id}`)),
+            (!origins.has(session.key) &&
+              (known.has(`${session.provider}:${session.id}`) ||
+                synced.has(`${session.provider}:${session.id.toLowerCase()}`))),
         })),
       })),
       sources: results.map(({ provider, providerInstanceId, accountLabel, error }) => ({

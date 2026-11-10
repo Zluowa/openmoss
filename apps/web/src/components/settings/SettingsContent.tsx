@@ -14,7 +14,7 @@ import {
   useTranslation,
   type TranslationKey,
 } from "~/localization";
-import { GROUPS_ON, VISIBLE_PROVIDER_DESCRIPTORS } from "~/betaFeatures";
+import { VISIBLE_PROVIDER_DESCRIPTORS } from "~/betaFeatures";
 import { sameAppSnapShortcut } from "@moss/shared/appSnapShortcut";
 import { desktopFlavorFromProtocol } from "@moss/shared/betaFeatures";
 import { SafariAccessSetupButton } from "~/components/SafariAccessOnboarding";
@@ -491,9 +491,6 @@ export function SettingsContent({
       ? ["Working and unread on top"]
       : []),
     ...(settings.showChatsSection !== defaults.showChatsSection ? ["Chats section"] : []),
-    ...(GROUPS_ON && settings.showGroupsSection !== defaults.showGroupsSection
-      ? ["Hubs section"]
-      : []),
     ...(settings.showAutomationRunThreads !== defaults.showAutomationRunThreads
       ? ["Automation runs"]
       : []),
@@ -888,16 +885,6 @@ export function SettingsContent({
           resetLabel: "chats section",
           ariaLabel: "Show the Chats section in the sidebar",
         })}
-
-        {GROUPS_ON
-          ? renderBooleanSettingRow({
-              settingKey: "showGroupsSection",
-              title: "Hubs",
-              description: "Show the Hubs tab in the sidebar switcher.",
-              resetLabel: "hubs section",
-              ariaLabel: "Show the Hubs section in the sidebar",
-            })
-          : null}
 
         {renderBooleanSettingRow({
           settingKey: "showAutomationRunThreads",

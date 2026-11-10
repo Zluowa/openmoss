@@ -77,7 +77,7 @@ export function DevsReportStatus({ threadId }: { threadId: ThreadId }) {
         return (
           <div
             key={report.id}
-            className="rounded-xl border border-border bg-muted/40 px-3 py-2"
+            className="rounded-card border border-border bg-muted/40 px-3 py-2"
             data-testid="devs-report-card"
             data-status={report.status}
           >

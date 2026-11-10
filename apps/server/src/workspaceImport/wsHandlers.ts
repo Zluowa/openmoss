@@ -14,6 +14,7 @@ import {
   ProjectId,
   ThreadId,
   type OrchestrationCommand,
+  type ServerSettings,
   type ServerSettingsPatch,
   type WorkspaceImportApplyInput,
   type WorkspaceImportApplyResult,
@@ -44,8 +45,14 @@ import {
 } from "./apply";
 import { readWorkspaceImportLedger } from "./ledger";
 import { readWorkspaceImportSync } from "./history";
-import { probeWorkspaceImport } from "./probe";
+import { probeWorkspaceImport, type WorkspaceImportSourceProbeEvent } from "./probe";
 import { sanitizeImportSettingsPatch } from "./settingsAbsorb";
+
+interface ProbeRun {
+  readonly result: WorkspaceImportProbeResult;
+  readonly events: readonly WorkspaceImportSourceProbeEvent[];
+  readonly durationMs: number;
+}
 
 function parseNow(value: string | undefined): Date {
   if (!value) {
@@ -161,6 +168,11 @@ export function makeWorkspaceImportWsHandlers(input: {
   readonly dispatchOrchestrationCommand: (
     command: OrchestrationCommand,
   ) => Effect.Effect<unknown, unknown>;
+  /**
+   * Conversations the project import already brought in (`nativeConversationKey`s), so
+   * chat sync does not import them a second time.
+   */
+  readonly importedByProjectImport?: () => Effect.Effect<ReadonlySet<string>, unknown>;
 }) {
   const requireOwner = Effect.gen(function* () {
     const role = yield* CurrentWsSessionRole;
@@ -169,29 +181,89 @@ export function makeWorkspaceImportWsHandlers(input: {
       return yield* Effect.fail(new Error("Workspace import requires the owner session."));
     }
   });
-  const probeSemaphore = Semaphore.makeUnsafe(1);
+  // A second probe that arrives while one is running (the settings page and the
+  // onboarding dialog, or a React dev double mount) shares the running one instead
+  // of queueing behind it and doubling the wait.
+  const probesInFlight = new Map<string, Promise<ProbeRun>>();
+
+  const startProbe = (request: WorkspaceImportProbeInput, currentSettings: ServerSettings) => {
+    const key = `${request.scope ?? "all"}:${request.now ?? ""}`;
+    const running = probesInFlight.get(key);
+    if (running) return { run: running, joined: true };
+    const events: WorkspaceImportSourceProbeEvent[] = [];
+    const startedAt = performance.now();
+    const run = probeWorkspaceImport({
+      homeDir: input.config.homeDir,
+      mossCwd: input.config.cwd,
+      platform: process.platform,
+      env: process.env,
+      now: parseNow(request.now),
+      currentSettings,
+      stateDir: input.config.stateDir,
+      toolsOnly: request.scope === "tools",
+      onSourceProbed: (event) => events.push(event),
+    })
+      .then(
+        (result): ProbeRun => ({
+          result,
+          events,
+          durationMs: Math.round(performance.now() - startedAt),
+        }),
+      )
+      .finally(() => probesInFlight.delete(key));
+    probesInFlight.set(key, run);
+    return { run, joined: false };
+  };
 
   const probe = (request: WorkspaceImportProbeInput = {}) =>
-    probeSemaphore.withPermits(1)(
-      Effect.gen(function* () {
-        yield* requireOwner;
-        const currentSettings = yield* input.serverSettings.getSettings;
-        return yield* Effect.tryPromise({
-          try: () =>
-            probeWorkspaceImport({
-              homeDir: input.config.homeDir,
-              mossCwd: input.config.cwd,
-              platform: process.platform,
-              env: process.env,
-              now: parseNow(request.now),
-              currentSettings,
-              stateDir: input.config.stateDir,
-            }),
-          catch: (error) =>
-            new Error(error instanceof Error ? error.message : "Failed to probe workspace import"),
-        });
-      }),
-    );
+    Effect.gen(function* () {
+      yield* requireOwner;
+      const currentSettings = yield* input.serverSettings.getSettings;
+      const { run, joined } = startProbe(request, currentSettings);
+      if (!joined) yield* Effect.logInfo("workspace import probe started");
+      const outcome = yield* Effect.tryPromise({
+        try: () => run,
+        catch: (error) =>
+          new Error(error instanceof Error ? error.message : "Failed to probe workspace import"),
+      }).pipe(
+        Effect.tapError((error) =>
+          joined
+            ? Effect.void
+            : Effect.logWarning("workspace import probe failed", { error: error.message }),
+        ),
+      );
+      if (!joined) {
+        const incomplete = outcome.events.filter(
+          (event) => event.timedOutSteps.length > 0 || event.failedSteps.length > 0,
+        );
+        const summary = {
+          durationMs: outcome.durationMs,
+          // Total and per-step milliseconds for each source, so a slow probe in the field
+          // says which provider and which step (chats, projects, ...) took the time.
+          sources: Object.fromEntries(
+            outcome.events.map((event) => [
+              event.source,
+              { totalMs: event.durationMs, ...event.stepDurationsMs },
+            ]),
+          ),
+          present: outcome.result.sources
+            .filter((source) => source.present)
+            .map((source) => source.source),
+        };
+        yield* incomplete.length > 0
+          ? Effect.logWarning("workspace import probe finished with unfinished sources", {
+              ...summary,
+              unfinished: Object.fromEntries(
+                incomplete.map((event) => [
+                  event.source,
+                  { timedOut: event.timedOutSteps, failed: event.failedSteps },
+                ]),
+              ),
+            })
+          : Effect.logInfo("workspace import probe finished", summary);
+      }
+      return outcome.result;
+    });
 
   const applyUnlocked = (request: WorkspaceImportApplyInput) =>
     Effect.gen(function* () {
@@ -212,9 +284,22 @@ export function makeWorkspaceImportWsHandlers(input: {
         }
       }
 
+      const importedByProjectImport = input.importedByProjectImport
+        ? yield* input.importedByProjectImport().pipe(
+            Effect.catch((error) =>
+              // Without the list a new chat could be a duplicate: add none this time.
+              Effect.logWarning("workspace import could not read project imports", {
+                error: error instanceof Error ? error.message : String(error),
+              }).pipe(Effect.as(null)),
+            ),
+          )
+        : undefined;
       const prepared = yield* Effect.tryPromise({
         try: () =>
           prepareWorkspaceImportApply({
+            ...(importedByProjectImport !== undefined
+              ? { importedByProjectImport: importedByProjectImport ?? "unavailable" }
+              : {}),
             sources: request.sources,
             homeDir: input.config.homeDir,
             mossBaseDir: input.config.baseDir,

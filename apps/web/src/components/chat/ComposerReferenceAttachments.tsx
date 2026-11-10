@@ -4,7 +4,12 @@
 //   image opens (with Mark up for images).
 // Layer: Chat composer presentation
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import {
+  subscribeComposerImagePreview,
+  type ComposerImagePreviewRequest,
+} from "~/lib/composerImagePreviewRequest";
 
 import {
   type ComposerFileAttachment,
@@ -70,6 +75,35 @@ export function ComposerReferenceAttachments({
   const pastedTexts = pastedTextsProp ?? [];
   const pullRequestContexts = pullRequestContextsProp ?? [];
   const [previewed, setPreviewed] = useState<{ kind: "image" | "file"; id: string } | null>(null);
+  // Another surface (Canvas) may ask to open an image here, straight into markup.
+  // Its attachment can still be on its way, so a request waits briefly for it.
+  const [markupRequestKey, setMarkupRequestKey] = useState(0);
+  const pendingPreview = useRef<{ request: ComposerImagePreviewRequest; until: number } | null>(
+    null,
+  );
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
+  const answerPreviewRequest = useCallback((request: ComposerImagePreviewRequest) => {
+    if (!imagesRef.current.some((image) => image.id === request.imageId)) return false;
+    pendingPreview.current = null;
+    setPreviewed({ kind: "image", id: request.imageId });
+    if (request.markup) setMarkupRequestKey((key) => key + 1);
+    return true;
+  }, []);
+  useEffect(
+    () =>
+      subscribeComposerImagePreview((request) => {
+        if (!answerPreviewRequest(request))
+          pendingPreview.current = { request, until: Date.now() + 10_000 };
+      }),
+    [answerPreviewRequest],
+  );
+  useEffect(() => {
+    const pending = pendingPreview.current;
+    if (!pending) return;
+    if (Date.now() > pending.until) pendingPreview.current = null;
+    else answerPreviewRequest(pending.request);
+  }, [images, answerPreviewRequest]);
   // Looked up each render, so a removed attachment closes its preview.
   const previewImage =
     previewed?.kind === "image" ? images.find((image) => image.id === previewed.id) : undefined;
@@ -150,6 +184,7 @@ export function ComposerReferenceAttachments({
         onShowImage={(imageId) => setPreviewed({ kind: "image", id: imageId })}
         onClose={() => setPreviewed(null)}
         onReplaceImage={onReplaceImage}
+        markupRequestKey={markupRequestKey}
       />
     </div>
   );

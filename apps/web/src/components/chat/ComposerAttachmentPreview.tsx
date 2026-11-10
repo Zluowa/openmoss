@@ -49,6 +49,8 @@ interface ComposerAttachmentPreviewProps {
   /** Arrow keys step through these while an image is shown (not while marking it up). */
   readonly images?: readonly ComposerImageAttachment[];
   readonly onShowImage?: (imageId: string) => void;
+  /** Each change opens markup on the shown image (a Canvas image opened in Moss). */
+  readonly markupRequestKey?: number;
 }
 
 // The image never grows past 40rem wide, as in Claude's preview, and leaves room for the
@@ -106,6 +108,11 @@ export function ComposerAttachmentPreview(props: ComposerAttachmentPreviewProps)
     setConfirmingDiscard(false);
     setTool("pen");
   }, [targetKey]);
+  // ...unless it was opened to be marked up, as a Canvas image is.
+  const canMarkUp = target?.kind === "image" && Boolean(props.onReplaceImage);
+  useEffect(() => {
+    if (props.markupRequestKey && canMarkUp) setMarking(true);
+  }, [props.markupRequestKey, canMarkUp, targetKey]);
 
   // The browser panel's native page view must step aside while this covers the window.
   useLayoutEffect(() => {

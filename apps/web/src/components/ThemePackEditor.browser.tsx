@@ -48,7 +48,7 @@ it("preserves saved Codex on mount, applies and persists Vercel, then restores C
   expect(root.getAttribute("data-window-material")).toBe("opaque");
   expect(localStorage.getItem("moss:theme")).toBe(stored);
 
-  await selectLightPreset("Vercel");
+  await selectLightPreset("Monochrome");
   await expect.poll(() => root.style.getPropertyValue("--codex-base-accent")).toBe("#006aff");
   expect(getComputedStyle(root).getPropertyValue("--color-text-foreground").trim()).toBe("#171717");
   expect(root.style.getPropertyValue("--codex-base-surface")).toBe("#ffffff");
@@ -56,10 +56,10 @@ it("preserves saved Codex on mount, applies and persists Vercel, then restores C
     "vercel",
   );
   await expect
-    .element(page.getByRole("img", { name: "Light theme preview: Vercel" }))
+    .element(page.getByRole("img", { name: "Light theme preview: Monochrome" }))
     .toBeVisible();
 
-  await selectLightPreset("Codex");
+  await selectLightPreset("Classic");
   // Moss 品牌真值：Codex 主题 accent 为 #339cff、ink 派生前景色 #1a1c1f
   // （theme.seed.generated.ts 的 codex 条目与 theme.logic.test.ts 同步维护），
   // 与上游 #0169cc/#0d0d0d 不同。
@@ -84,11 +84,11 @@ it("keeps Import and Copy on one line when the code theme select takes the row",
 it("previews an inactive light preset and applies it only when the user chooses Use light theme", async () => {
   localStorage.setItem("moss:theme", JSON.stringify({ ...DEFAULT_THEME_STATE, mode: "dark" }));
   await render(<ThemePackEditor variant="light" />);
-  await selectLightPreset("Vercel");
+  await selectLightPreset("Monochrome");
 
   expect(root.getAttribute("data-theme-variant")).toBe("dark");
   expect(root.getAttribute("data-code-theme-id")).toBe("moss");
-  const preview = page.getByRole("img", { name: "Light theme preview: Vercel" });
+  const preview = page.getByRole("img", { name: "Light theme preview: Monochrome" });
   expect(getComputedStyle(preview.element()).backgroundColor).toBe("rgb(255, 255, 255)");
   expect(getComputedStyle(preview.element()).color).toBe("rgb(23, 23, 23)");
 

@@ -36,7 +36,7 @@ export const MossThreadCreationCard = memo(function MossThreadCreationCard({
       data-moss-thread-creation-card="true"
     >
       <div className="flex min-w-0 items-center gap-3 px-3 py-2.5">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[var(--color-background-elevated-secondary)] text-foreground">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-card bg-[var(--color-background-elevated-secondary)] text-foreground">
           <MossLogo className="h-[22px] w-auto" aria-label="Moss" />
         </span>
         <div className="min-w-0 flex-1">

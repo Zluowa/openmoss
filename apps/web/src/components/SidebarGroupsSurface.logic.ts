@@ -1,13 +1,12 @@
 // FILE: SidebarGroupsSurface.logic.ts
-// Purpose: Pure helpers for the Groups sidebar surface — coordinator row labels,
-//          empty states, and new-chat target resolution.
+// Purpose: Pure helpers for group (Mossbot) chats — which threads belong to a group,
+//          new-chat target resolution, and waiting for a fresh coordinator thread. The Hubs
+//          sidebar surface they were written for was removed (2026-11-10).
 // Layer: Web view logic (no React)
-// Exports: resolveGroupCoordinatorRowLabel, resolveGroupsListEmptyState,
-//          resolveGroupChatTargetProjectId, activateThreadWhenHydrated
+// Exports: isGroupThreadRoute, resolveGroupChatTargetProjectId, activateThreadWhenHydrated
 
 import type { ProjectAgentSummary, ProjectId, ThreadId } from "@moss/contracts";
 
-import { resolveGroupCoordinatorDisplayName } from "../lib/groupCoordinatorName";
 import type { Project } from "../types";
 
 /** A hub worker can belong to the hub while running in a linked repository. */
@@ -32,31 +31,6 @@ export function isGroupThreadRoute(input: {
     }
   }
   return false;
-}
-
-export function resolveGroupCoordinatorRowLabel(input: {
-  readonly configured: boolean;
-  readonly coordinatorName: string | null | undefined;
-  readonly groupName: string;
-  readonly remoteName?: string | null | undefined;
-  readonly threadTitle?: string | null | undefined;
-}): string {
-  if (!input.configured) {
-    return "Set up coordinator";
-  }
-  return resolveGroupCoordinatorDisplayName(input);
-}
-
-export type GroupsListEmptyState = "loading" | "no-groups" | null;
-
-export function resolveGroupsListEmptyState(input: {
-  readonly threadsHydrated: boolean;
-  readonly groupCount: number;
-}): GroupsListEmptyState {
-  if (!input.threadsHydrated) {
-    return "loading";
-  }
-  return input.groupCount === 0 ? "no-groups" : null;
 }
 
 /**

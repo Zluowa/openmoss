@@ -153,7 +153,7 @@ function TodoPlanTooltipContent(props: {
 }) {
   return (
     <div
-      className="flex min-h-0 max-w-80 flex-1 flex-col overflow-hidden rounded-xl"
+      className="flex min-h-0 max-w-80 flex-1 flex-col overflow-hidden rounded-card"
       data-todo-plan-tooltip="true"
       style={{ maxHeight: TODO_PLAN_TOOLTIP_MAX_HEIGHT }}
     >

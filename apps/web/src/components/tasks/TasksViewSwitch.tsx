@@ -1,18 +1,19 @@
 // FILE: TasksViewSwitch.tsx
-// Purpose: The List / Kanban switch shown in the Tasks and Kanban headers where both views
-//          exist. Picking one opens it and makes it what the Tasks entry opens next.
+// Purpose: The compact List / Board segmented control in the Tasks page header, where both
+//          views exist. Picking one opens it and makes it what the Tasks entry opens next.
 // Layer: Tasks UI component
 // Exports: TasksViewSwitch
 
 import { useNavigate } from "@tanstack/react-router";
 
 import { type TasksViewMode, useAppSettings } from "~/appSettings";
-import { FilterPillGroup } from "~/components/FilterPillGroup";
+import { SegmentedPicker, type SegmentedPickerOption } from "~/components/SegmentedPicker";
+import { KanbanIcon, ListTodoIcon } from "~/lib/icons";
 import { useTasksSurfaceEnabled } from "~/tasksSurface";
 
-const VIEW_OPTIONS: ReadonlyArray<{ value: TasksViewMode; label: string }> = [
-  { value: "list", label: "List" },
-  { value: "kanban", label: "Kanban" },
+const VIEW_OPTIONS: ReadonlyArray<SegmentedPickerOption<TasksViewMode>> = [
+  { value: "list", label: "List", icon: <ListTodoIcon className="size-3.5 shrink-0" /> },
+  { value: "kanban", label: "Kanban", icon: <KanbanIcon className="size-3.5 shrink-0" /> },
 ];
 
 export function TasksViewSwitch({ current }: { current: TasksViewMode }) {
@@ -21,11 +22,12 @@ export function TasksViewSwitch({ current }: { current: TasksViewMode }) {
   const tasksSurfaceEnabled = useTasksSurfaceEnabled();
   if (!tasksSurfaceEnabled) return null;
   return (
-    <FilterPillGroup
+    <SegmentedPicker
       ariaLabel="View"
       value={current}
       options={VIEW_OPTIONS}
-      onChange={(view) => {
+      className="w-40 shrink-0"
+      onValueChange={(view) => {
         if (view === current) return;
         updateSettings({ tasksViewMode: view });
         void navigate({ to: view === "kanban" ? "/kanban" : "/tasks" });

@@ -126,7 +126,7 @@ function InlineVisualFrameBody({
           <div
             className={cn(
               DISCLOSURE_FADE_MOTION_CLASS,
-              "absolute end-1 top-1 flex items-center gap-0.5 rounded-md border border-border/60 bg-popover/90 p-0.5 opacity-0 shadow-xs backdrop-blur-sm focus-within:opacity-100 group-hover/inline-visual:opacity-100 pointer-coarse:opacity-100",
+              "absolute end-1 top-1 flex items-center gap-0.5 rounded-control border border-border/60 bg-popover/90 p-0.5 opacity-0 shadow-xs backdrop-blur-sm focus-within:opacity-100 group-hover/inline-visual:opacity-100 pointer-coarse:opacity-100",
             )}
           >
             {html !== undefined ? (
@@ -154,7 +154,7 @@ function InlineVisualFrameBody({
         />
       ) : (
         <div
-          className="flex items-center justify-center rounded-lg bg-muted/40 text-muted-foreground text-ui-xs"
+          className="flex items-center justify-center rounded-card bg-muted/40 text-muted-foreground text-ui-xs"
           style={{ height: clampInlineVisualHeight(visual.height) }}
           role="status"
         >
@@ -177,7 +177,7 @@ function InlineVisualNotice(props: {
 }) {
   return (
     <div
-      className="flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2 text-muted-foreground text-ui-sm"
+      className="flex items-center gap-2 rounded-card border border-border/60 px-3 py-2 text-muted-foreground text-ui-sm"
       role="status"
     >
       <span className="max-w-[40%] truncate text-foreground">{props.title}</span>

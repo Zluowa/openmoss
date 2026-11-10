@@ -9,8 +9,6 @@ import {
   activateThreadWhenHydrated,
   isGroupThreadRoute,
   resolveGroupChatTargetProjectId,
-  resolveGroupCoordinatorRowLabel,
-  resolveGroupsListEmptyState,
 } from "./SidebarGroupsSurface.logic";
 
 const GROUP_A = ProjectId.makeUnsafe("group-a");
@@ -54,52 +52,6 @@ describe("isGroupThreadRoute", () => {
   });
 });
 
-describe("resolveGroupCoordinatorRowLabel", () => {
-  it("shows the configured coordinator name", () => {
-    expect(
-      resolveGroupCoordinatorRowLabel({
-        configured: true,
-        coordinatorName: "Hub lead",
-        groupName: "Alpha",
-      }),
-    ).toBe("Hub lead");
-  });
-
-  it("defaults to the hub name when the stored name is the generated default", () => {
-    expect(
-      resolveGroupCoordinatorRowLabel({
-        configured: true,
-        coordinatorName: "Alpha Coordinator",
-        groupName: "Alpha",
-      }),
-    ).toBe("Alpha");
-    expect(
-      resolveGroupCoordinatorRowLabel({
-        configured: true,
-        coordinatorName: "  ",
-        groupName: "Alpha",
-      }),
-    ).toBe("Alpha");
-    expect(
-      resolveGroupCoordinatorRowLabel({
-        configured: true,
-        coordinatorName: null,
-        groupName: "Alpha",
-      }),
-    ).toBe("Alpha");
-  });
-
-  it("falls back to the setup label when unconfigured", () => {
-    expect(
-      resolveGroupCoordinatorRowLabel({
-        configured: false,
-        coordinatorName: null,
-        groupName: "Alpha",
-      }),
-    ).toBe("Set up coordinator");
-  });
-});
-
 describe("resolveGroupCoordinatorDisplayName", () => {
   it("maps the legacy '<title> Coordinator' default onto the hub name", () => {
     expect(
@@ -136,18 +88,6 @@ describe("isDefaultGroupCoordinatorName", () => {
     expect(isDefaultGroupCoordinatorName("Alpha Coordinator", ["Alpha"])).toBe(true);
     expect(isDefaultGroupCoordinatorName(null, ["Alpha"])).toBe(true);
     expect(isDefaultGroupCoordinatorName("Team lead", ["Alpha"])).toBe(false);
-  });
-});
-
-describe("resolveGroupsListEmptyState", () => {
-  it("is loading before threads hydrate", () => {
-    expect(resolveGroupsListEmptyState({ threadsHydrated: false, groupCount: 0 })).toBe("loading");
-    expect(resolveGroupsListEmptyState({ threadsHydrated: false, groupCount: 2 })).toBe("loading");
-  });
-
-  it("reports no hubs once hydrated and none exist", () => {
-    expect(resolveGroupsListEmptyState({ threadsHydrated: true, groupCount: 0 })).toBe("no-groups");
-    expect(resolveGroupsListEmptyState({ threadsHydrated: true, groupCount: 1 })).toBeNull();
   });
 });
 

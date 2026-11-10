@@ -52,8 +52,8 @@ export function AutomationCreatedCard({
   }, [automationId, proposalListQuery.data]);
 
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] px-3 py-2.5">
-      <span className="flex size-11 shrink-0 items-center justify-center rounded-lg border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] text-[var(--color-text-foreground)]">
+    <div className="flex items-center gap-3 rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-primary)] px-3 py-2.5">
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] text-[var(--color-text-foreground)]">
         <ClockIcon className="size-5" aria-hidden />
       </span>
       <div className="min-w-0 flex-1">

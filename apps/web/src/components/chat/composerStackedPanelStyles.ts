@@ -80,4 +80,4 @@ export const COMPOSER_STACKED_PANEL_FOOTER_ROW_CLASS_NAME =
 
 /** Ghost icon button used in stacked panel header actions. */
 export const COMPOSER_STACKED_PANEL_ICON_BUTTON_CLASS_NAME =
-  "size-5 rounded-md text-[var(--color-text-foreground-tertiary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]";
+  "size-5 rounded-control text-[var(--color-text-foreground-tertiary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)]";

@@ -8,7 +8,6 @@ import { THREAD_OUTPUT_ROUTE, threadOutputHref } from "@moss/shared/threadWorksp
 import { downloadUrlAsBlob } from "~/lib/browserDownload";
 import { openSpacePage, SPACE_PAGE_LINK_PREFIX, spacePageIdOfLink } from "~/lib/spacePageLink";
 import { ChatDeckCardPagesContext, openSpacePageFromChat } from "~/lib/chatSpacePageLink";
-import { useSpacesUiStore } from "~/spacesUiStore";
 import { ensureNativeApi } from "~/nativeApi";
 import { ChatOutputFileCard, openDeckInSidePanel } from "./chat/ChatArtifactCards";
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
@@ -2109,7 +2108,7 @@ const MARKDOWN_COMPONENTS: Components = {
             // In a chat a deck opens in the right panel; other pages open 资料空间.
             void openSpacePageFromChat(spacePageId, chatThreadId, {
               readPage: (input) => ensureNativeApi().pages.read(input),
-              scopes: [null, useSpacesUiStore.getState().activeSpaceId],
+              scopes: [null],
               openDeck: (deck) => {
                 if (chatThreadId) openDeckInSidePanel(chatThreadId, deck);
               },

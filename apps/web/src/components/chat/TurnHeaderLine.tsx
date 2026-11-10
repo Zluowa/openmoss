@@ -22,7 +22,7 @@ export function TurnModelChip({ model }: { model: TurnModel }) {
   const label = formatProviderModelOptionName({ provider: model.provider, slug: model.model });
   return (
     <span
-      className="inline-flex max-w-[14rem] items-center gap-1 rounded-md bg-[var(--app-user-message-background)] px-1.5 py-px"
+      className="inline-flex max-w-[14rem] items-center gap-1 rounded-control bg-[var(--app-user-message-background)] px-1.5 py-px"
       data-turn-model-chip="true"
     >
       <ProviderIcon provider={model.provider} className="size-3 shrink-0" />

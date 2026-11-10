@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ProviderIcon } from "~/components/ProviderIcon";
-import { CheckIcon, GitPullRequestIcon, UsersIcon, WorkflowIcon } from "~/lib/icons";
+import { CheckIcon, GitPullRequestIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import type { FeatureTourSlide } from "./content";
 
@@ -14,7 +14,6 @@ export function FeatureTourPreview({ slide }: { slide: FeatureTourSlide }) {
         {slide.id === "workspace" ? <WorkspacePreview /> : null}
         {slide.id === "accounts" ? <AccountsPreview /> : null}
         {slide.id === "review" ? <ReviewPreview /> : null}
-        {slide.id === "hubs" ? <HubPreview /> : null}
       </div>
     </div>
   );
@@ -109,30 +108,6 @@ function ReviewPreview() {
       <div className="flex items-center gap-2 pt-1 text-muted-foreground">
         <ProviderIcon provider="claudeAgent" className="size-4 shrink-0" />
         Ask an agent to review
-      </div>
-    </div>
-  );
-}
-
-function HubPreview() {
-  return (
-    <div className="flex flex-col items-center">
-      <Chip active>
-        <WorkflowIcon className="size-4 shrink-0" />
-        Coordinator
-      </Chip>
-      <div className="h-3 w-px bg-border" />
-      <div className="h-px w-1/2 bg-border" />
-      <div className="grid w-full grid-cols-2 gap-2">
-        {(["codex", "claudeAgent"] as const).map((provider) => (
-          <div key={provider} className="flex min-w-0 flex-col items-center">
-            <div className="h-3 w-px bg-border" />
-            <Chip>
-              <ProviderIcon provider={provider} className="size-4 shrink-0" />
-              <span className="truncate">{provider === "codex" ? "Frontend" : "API"}</span>
-            </Chip>
-          </div>
-        ))}
       </div>
     </div>
   );

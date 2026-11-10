@@ -784,7 +784,7 @@ export function MessageTrail({
         id={tooltipId}
         className={cn(
           APP_TOOLTIP_SURFACE_CLASS_NAME,
-          "pointer-events-none invisible absolute z-30 w-64 -translate-y-1/2 rounded-xl p-2",
+          "pointer-events-none invisible absolute z-30 w-64 -translate-y-1/2 rounded-card p-2",
         )}
         style={{
           left: RAIL_WIDTH_PX + TOOLTIP_OFFSET_X_PX,

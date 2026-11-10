@@ -19,6 +19,7 @@ import { type ProjectDirectoryEntry, type ProjectId, type SpaceId } from "@moss/
 import { useTranslation, type TranslationKey } from "../../localization";
 import { readNativeApi } from "../../nativeApi";
 import { useStore } from "../../store";
+import type { Space } from "../../types";
 import { PlusIcon, XIcon, FolderIcon } from "~/lib/icons";
 import { getLocalFoldersGroupLabel } from "~/lib/localFoldersGroupLabel";
 import type { ProjectAppearance } from "~/lib/projectAppearance";
@@ -50,8 +51,9 @@ import {
   ComboboxTrigger,
 } from "../ui/combobox";
 import { useWorkspacePathsStore } from "../../workspacePathsStore";
-import { useSpacesUiStore } from "../../spacesUiStore";
 import { useCreateProjectDialogStore } from "../../createProjectDialogStore";
+
+const NO_SPACES: readonly Space[] = [];
 
 interface ProjectPickerProps {
   align?: "start" | "center" | "end";
@@ -236,8 +238,10 @@ export const ProjectPicker = memo(function ProjectPicker({
   const resetActionLabel = resetActionLabelProp ?? defaultCopy.resetActionLabel;
   const searchPlaceholder = searchPlaceholderProp ?? defaultCopy.searchPlaceholder;
   const projects = useStore((state) => state.projects);
-  const spaces = useStore((state) => state.spaces);
-  const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
+  // Spaces were removed (2026-11-10): every project lists in one group, as it always did for
+  // people who never made a Space. Saved Space assignments stay in the data but are not shown.
+  const spaces = NO_SPACES;
+  const activeSpaceId: SpaceId | null = null;
   const voidSpace = useVoidSpace();
   const homeDir = useWorkspacePathsStore((state) => state.homeDir);
   const [open, setOpen] = useState(false);
@@ -266,7 +270,7 @@ export const ProjectPicker = memo(function ProjectPicker({
       const primaryLabel = project.localName?.trim() || folderName;
       const secondaryLabel =
         project.localName?.trim() && project.localName.trim() !== folderName ? folderName : null;
-      const spaceId = project.spaceId ?? null;
+      const spaceId: SpaceId | null = null;
       nextOptions.push({
         projectId: project.id,
         appearance: project.appearance ?? null,

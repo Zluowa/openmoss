@@ -92,7 +92,7 @@ export function InlineVisualCalculator({
             );
           })}
         </div>
-        <dl className="m-0 flex min-w-0 flex-col justify-center gap-2 rounded-xl bg-[var(--surface)] px-3.5 py-3">
+        <dl className="m-0 flex min-w-0 flex-col justify-center gap-2 rounded-card bg-[var(--surface)] px-3.5 py-3">
           {block.outputs.map((output, index) => {
             const result = results[index] ?? Number.NaN;
             return (
@@ -108,7 +108,7 @@ export function InlineVisualCalculator({
                   className={cn(
                     "m-0 tabular-nums",
                     output.emphasis
-                      ? "text-chat-display font-semibold tracking-tight"
+                      ? "text-chat-display font-medium tracking-tight"
                       : "text-chat font-medium",
                   )}
                   aria-live="polite"

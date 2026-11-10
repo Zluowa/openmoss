@@ -1,14 +1,10 @@
-import { ProjectId, SpaceId } from "@moss/contracts";
+import { ProjectId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_VOID_SPACE } from "./lib/spaceGrouping";
-import type { Space } from "./types";
 import {
   buildRailItemOrder,
-  buildRailSpacesSections,
   railItemShowsPanel,
   railProjectShortcutKey,
-  railSpaceShortcutKey,
   resolveActiveRailShortcutKey,
   resolveRailShortcuts,
   toggleRailShortcutKey,
@@ -45,8 +41,8 @@ describe("rail item order", () => {
       "inbox",
     ]);
     expect(normalizeHiddenRailItems(["spaces", "kanban", "tasks", "studio"])).toContain("skills");
-    expect(normalizeHiddenRailItems(["spaces"])).toEqual(["spaces"]);
   });
+
   it("completes a saved order with new items and drops unknown or duplicate ids", () => {
     expect(normalizeRailItemOrder(["automations", "gone", "home", "automations"])).toEqual([
       "automations",
@@ -57,19 +53,48 @@ describe("rail item order", () => {
       "images",
       "pullRequests",
       "skills",
+      "kanban",
+      "tasks",
+    ]);
+  });
+
+  it("drops the removed Spaces and Hubs items from saved orders without leaving a gap", () => {
+    // The default order saved by builds that still had Spaces ("spaces") and Hubs ("studio").
+    const savedWithRemovedItems = [
+      "home",
+      "mossbot",
+      "library",
+      "automations",
+      "images",
+      "inbox",
+      "pullRequests",
+      "skills",
       "spaces",
       "kanban",
       "tasks",
       "studio",
+    ];
+    expect(normalizeRailItemOrder(savedWithRemovedItems)).toEqual(RAIL_ORDERABLE_ITEM_IDS);
+    // A user who pinned both to the top keeps the rest of their order.
+    expect(normalizeRailItemOrder(["spaces", "studio", "images", "home"]).slice(0, 2)).toEqual([
+      "images",
+      "home",
     ]);
+    expect(normalizeRailItemOrder(["spaces", "studio"])).not.toContain("spaces");
+    // Hidden lists that still name them: the current default maps to the new default, and a
+    // custom list just loses the removed ids.
+    expect(normalizeHiddenRailItems(["spaces", "kanban", "tasks", "studio", "skills"])).toEqual(
+      DEFAULT_HIDDEN_RAIL_ITEMS,
+    );
+    expect(normalizeHiddenRailItems(["spaces"])).toEqual([]);
+    expect(normalizeHiddenRailItems(["studio", "images"])).toEqual(["images"]);
   });
 
   it("slots Inbox next to Home in orders saved before it shipped, then keeps its place", () => {
-    expect(normalizeRailItemOrder(["kanban", "home", "spaces"])).toEqual([
+    expect(normalizeRailItemOrder(["kanban", "home"])).toEqual([
       "kanban",
       "home",
       "inbox",
-      "spaces",
       "mossbot",
       "library",
       "automations",
@@ -77,11 +102,10 @@ describe("rail item order", () => {
       "pullRequests",
       "skills",
       "tasks",
-      "studio",
     ]);
-    expect(normalizeRailItemOrder(["home", "spaces", "inbox"]).slice(0, 3)).toEqual([
+    expect(normalizeRailItemOrder(["home", "images", "inbox"]).slice(0, 3)).toEqual([
       "home",
-      "spaces",
+      "images",
       "inbox",
     ]);
   });
@@ -90,14 +114,13 @@ describe("rail item order", () => {
     expect(normalizeHiddenRailItems(["home", "kanban", "gone", "kanban"])).toEqual(["kanban"]);
   });
 
-  it("drops hidden items unless active, and Studio, Inbox or Images unless available", () => {
+  it("drops hidden items unless active, and Inbox or Images unless available", () => {
     const order = normalizeRailItemOrder([]);
     expect(
       buildRailItemOrder({
         order,
-        hidden: new Set(["spaces", "automations"]),
+        hidden: new Set(["automations"]),
         activeItem: "automations",
-        studioAvailable: false,
         inboxAvailable: false,
         imagesAvailable: false,
       }),
@@ -116,15 +139,14 @@ describe("rail item order", () => {
         order,
         hidden: new Set(),
         activeItem: "home",
-        studioAvailable: true,
         inboxAvailable: true,
         imagesAvailable: true,
       }),
     ).toEqual(order);
   });
 
-  it("offers Inbox, Studio and Images in Customize only where they exist", () => {
-    const stable = { studioAvailable: false, inboxAvailable: false, imagesAvailable: false };
+  it("offers Inbox and Images in Customize only where they exist", () => {
+    const stable = { inboxAvailable: false, imagesAvailable: false };
     expect(RAIL_ORDERABLE_ITEM_IDS.filter((id) => isRailItemAvailable(id, stable))).toEqual([
       "home",
       "mossbot",
@@ -132,28 +154,17 @@ describe("rail item order", () => {
       "automations",
       "pullRequests",
       "skills",
-      "spaces",
       "kanban",
       "tasks",
     ]);
-    expect(
-      isRailItemAvailable("inbox", {
-        studioAvailable: false,
-        inboxAvailable: true,
-        imagesAvailable: false,
-      }),
-    ).toBe(true);
-    // The host advertises its surface independently of account admission.
-    expect(
-      isRailItemAvailable("images", {
-        studioAvailable: false,
-        inboxAvailable: false,
-        imagesAvailable: true,
-      }),
-    ).toBe(true);
-    expect(isRailItemAvailable("images", { studioAvailable: false, inboxAvailable: false })).toBe(
-      false,
+    expect(isRailItemAvailable("inbox", { inboxAvailable: true, imagesAvailable: false })).toBe(
+      true,
     );
+    // The host advertises its surface independently of account admission.
+    expect(isRailItemAvailable("images", { inboxAvailable: false, imagesAvailable: true })).toBe(
+      true,
+    );
+    expect(isRailItemAvailable("images", { inboxAvailable: false })).toBe(false);
   });
 });
 
@@ -180,47 +191,47 @@ describe("restored Codex destination defaults", () => {
 });
 
 describe("rail shortcuts", () => {
-  const work = SpaceId.makeUnsafe("space-work");
   const alpha = ProjectId.makeUnsafe("project-alpha");
 
-  it("keeps saved shortcuts that still exist, in order, without duplicates", () => {
+  it("keeps saved project shortcuts that still exist, in order, without duplicates", () => {
     const shortcuts = resolveRailShortcuts({
       keys: [
         railProjectShortcutKey(alpha),
-        railSpaceShortcutKey(null),
-        "space:gone",
+        "project:gone",
         railProjectShortcutKey(alpha),
-        railSpaceShortcutKey(work),
+        "unknown",
       ],
-      spaceIds: new Set([work]),
       projectIds: new Set([alpha]),
     });
-    expect(shortcuts.map((shortcut) => shortcut.key)).toEqual([
-      railProjectShortcutKey(alpha),
-      railSpaceShortcutKey(null),
-      railSpaceShortcutKey(work),
+    expect(shortcuts.map((shortcut) => shortcut.key)).toEqual([railProjectShortcutKey(alpha)]);
+  });
+
+  it("drops Space shortcuts saved by builds that still had Spaces", () => {
+    const shortcuts = resolveRailShortcuts({
+      keys: ["space:__void__", "space:space-work", railProjectShortcutKey(alpha)],
+      projectIds: new Set([alpha]),
+    });
+    expect(shortcuts).toEqual([
+      { kind: "project", key: railProjectShortcutKey(alpha), projectId: alpha },
     ]);
   });
 
   it("toggles a shortcut in and out at the end of the rail", () => {
-    const key = railSpaceShortcutKey(work);
+    const key = railProjectShortcutKey(alpha);
     expect(toggleRailShortcutKey(["a"], key)).toEqual(["a", key]);
     expect(toggleRailShortcutKey(["a", key], key)).toEqual(["a"]);
   });
 
-  it("marks the shortcut that matches what the panel shows", () => {
+  it("marks the pinned project the project panel shows", () => {
     const shortcuts = resolveRailShortcuts({
-      keys: [railSpaceShortcutKey(work), railProjectShortcutKey(alpha)],
-      spaceIds: new Set([work]),
+      keys: [railProjectShortcutKey(alpha)],
       projectIds: new Set([alpha]),
     });
-    const base = { shortcuts, activeSpaceId: work, spacesProjectId: alpha };
-    expect(resolveActiveRailShortcutKey({ ...base, activeItem: "home" })).toBe(
-      railSpaceShortcutKey(work),
-    );
-    expect(resolveActiveRailShortcutKey({ ...base, activeItem: "spaces" })).toBe(
+    const base = { shortcuts, railProjectId: alpha };
+    expect(resolveActiveRailShortcutKey({ ...base, activeItem: "project" })).toBe(
       railProjectShortcutKey(alpha),
     );
+    expect(resolveActiveRailShortcutKey({ ...base, activeItem: "home" })).toBeNull();
     expect(resolveActiveRailShortcutKey({ ...base, activeItem: "kanban" })).toBeNull();
   });
 });
@@ -233,15 +244,7 @@ describe("railItemShowsPanel", () => {
     expect(railItemShowsPanel("inbox")).toBe(false);
     expect(railItemShowsPanel("skills")).toBe(false);
     expect(railItemShowsPanel("mossbot")).toBe(true);
-    for (const id of [
-      "home",
-      "spaces",
-      "automations",
-      "studio",
-      "settings",
-      "images",
-      "library",
-    ] as const) {
+    for (const id of ["home", "project", "automations", "settings", "images", "library"] as const) {
       expect(railItemShowsPanel(id)).toBe(true);
     }
   });
@@ -257,11 +260,10 @@ describe("railItemForPathname", () => {
     expect(railItemForPathname("/mossbot")).toBe("mossbot");
     expect(railItemForPathname("/skills")).toBe("skills");
     expect(railItemForPathname("/skills/manage")).toBe("skills");
-    expect(railItemForPathname("/studio/abc")).toBe("studio");
-    expect(railItemForPathname("/groups")).toBe("studio");
-    expect(railItemForPathname("/hubs")).toBe("studio");
-    expect(railItemForPathname("/hubs/alpha")).toBe("studio");
-    expect(railItemForPathname("/hubsish")).toBeNull();
+    // Hubs were removed; their old paths redirect Home and own no rail item.
+    expect(railItemForPathname("/studio/abc")).toBeNull();
+    expect(railItemForPathname("/groups")).toBeNull();
+    expect(railItemForPathname("/hubs")).toBeNull();
     expect(railItemForPathname("/settings")).toBe("settings");
     expect(railItemForPathname("/kanbanish")).toBeNull();
     expect(railItemForPathname("/")).toBeNull();
@@ -271,59 +273,23 @@ describe("railItemForPathname", () => {
 
 describe("reconcileActiveRailItem", () => {
   it("lets a route match win and otherwise falls back to the current panel", () => {
-    const base = { onStudioSurface: false, panelView: "spaces" } as const;
-    expect(reconcileActiveRailItem({ ...base, current: "spaces", pathname: "/kanban" })).toBe(
+    const base = { panelView: "project" } as const;
+    expect(reconcileActiveRailItem({ ...base, current: "project", pathname: "/kanban" })).toBe(
       "kanban",
     );
     expect(reconcileActiveRailItem({ ...base, current: "kanban", pathname: "/thread-1" })).toBe(
-      "spaces",
+      "project",
     );
   });
 
-  it("keeps Studio active on a Studio thread's plain thread path", () => {
+  it("keeps Mossbot active on a Mossbot chat's plain thread path", () => {
     expect(
       reconcileActiveRailItem({
-        current: "studio",
+        current: "mossbot",
         pathname: "/thread-1",
-        onStudioSurface: true,
+        onMossbotSurface: true,
         panelView: "home",
       }),
-    ).toBe("studio");
-  });
-});
-
-describe("buildRailSpacesSections", () => {
-  const work = SpaceId.makeUnsafe("space-work");
-  const home = SpaceId.makeUnsafe("space-home");
-  const spaces = [
-    { id: work, name: "Work" },
-    { id: home, name: "Home" },
-  ] as unknown as Space[];
-
-  it("orders the active space first, keeps empty spaces, and drops an empty Void", () => {
-    const sections = buildRailSpacesSections({
-      items: [{ id: "a", spaceId: work }],
-      spaces,
-      activeSpaceId: home,
-      activeLabel: "Active",
-      spaceIdOf: (item) => item.spaceId,
-      voidSpace: DEFAULT_VOID_SPACE,
-    });
-    expect(sections.map((section) => [section.name, section.items.length])).toEqual([
-      ["Home", 0],
-      ["Work", 1],
-    ]);
-  });
-
-  it("falls back to a single Void section when there is nothing else", () => {
-    const sections = buildRailSpacesSections({
-      items: [] as { spaceId: SpaceId | null }[],
-      spaces: [],
-      activeSpaceId: null,
-      activeLabel: "Active",
-      spaceIdOf: (item) => item.spaceId,
-      voidSpace: DEFAULT_VOID_SPACE,
-    });
-    expect(sections.map((section) => section.name)).toEqual([DEFAULT_VOID_SPACE.name]);
+    ).toBe("mossbot");
   });
 });

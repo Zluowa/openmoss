@@ -27,7 +27,7 @@ export function TimelineCodexNoticeRow(props: { workEntry: WorkLogEntry; fontSiz
         <p className={MUTED_LABEL_TEXT_CLASS_NAME}>{label}</p>
         <div
           className={cn(
-            "mt-1 h-36 w-full max-w-sm rounded-lg border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)]",
+            "mt-1 h-36 w-full max-w-sm rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)]",
             loading && "animate-pulse",
           )}
           data-generated-image-placeholder="true"

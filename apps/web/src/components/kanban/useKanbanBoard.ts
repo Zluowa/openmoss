@@ -65,7 +65,6 @@ export function useKanbanBoard(): KanbanBoard {
   const studioWorkspaceRoot = useWorkspacePathsStore((state) => state.studioWorkspaceRoot);
   const groupsWorkspaceRoot = useWorkspacePathsStore((state) => state.groupsWorkspaceRoot);
   const projectSortOrder = settings.sidebarProjectSortOrder;
-  const kanbanViewMode = useKanbanUiStore((state) => state.kanbanViewMode);
   const kanbanNeedsReviewFilter = useKanbanUiStore((state) => state.kanbanNeedsReviewFilter);
   const hasRevealedReviewFold = useKanbanUiStore((state) => state.hasRevealedReviewFold);
 
@@ -269,25 +268,22 @@ export function useKanbanBoard(): KanbanBoard {
   const hasAttentionCandidate = threads.some((thread) =>
     hasKanbanAttentionCandidate(thread, lastActivityTimestampMsByThreadId[thread.id]),
   );
-  const nowMs = useNowMs(kanbanViewMode === "v2" && hasAttentionCandidate);
+  const nowMs = useNowMs(hasAttentionCandidate);
 
-  // The needs-review filter is a v2-only surface (S1-P8). Its active predicate
+  // The needs-review filter (S1-P8). Its active predicate
   // ("at least one card has an open PR") and the per-thread flag consult the same
   // live resolved PR rows the card chips render — a merged PR drops the "Needs
   // review" flag even though `lastKnownPr` still says open (H2). Polling is
   // bounded: only threads whose persisted seed says open (pill and filter
-  // candidates) run live lookups, in v2 mode only — the pills need the live
-  // state even when the filter itself is off. When v2 is off, nothing polls.
+  // candidates) run live lookups — the pills need the live state even when the
+  // filter itself is off.
   const projectCwdById = useMemo(
     () => new Map(allProjects.map((project) => [project.id, project.cwd] as const)),
     [allProjects],
   );
   const needsReviewSeedThreads = useMemo(
-    () =>
-      kanbanViewMode === "v2"
-        ? threads.filter((t) => t.worktreePath !== null && t.lastKnownPr?.state === "open")
-        : [],
-    [kanbanViewMode, threads],
+    () => threads.filter((t) => t.worktreePath !== null && t.lastKnownPr?.state === "open"),
+    [threads],
   );
   const needsReviewPrLookup = useThreadPullRequests({
     threads: needsReviewSeedThreads,
@@ -327,17 +323,15 @@ export function useKanbanBoard(): KanbanBoard {
           terminalEntryThreadIds,
           optimisticDispatchByThreadId,
         },
-        kanbanViewMode === "v2"
-          ? {
-              now: nowMs,
-              needsReviewByThreadId,
-              isNeedsReviewActive: kanbanNeedsReviewFilter,
-              // The board-level "Show more" affordance drops the per-column review
-              // cap so the folded tail renders (H1).
-              uncapped: hasRevealedReviewFold,
-              lastActivityTimestampMsByThreadId,
-            }
-          : undefined,
+        {
+          now: nowMs,
+          needsReviewByThreadId,
+          isNeedsReviewActive: kanbanNeedsReviewFilter,
+          // The board-level "Show more" affordance drops the per-column review
+          // cap so the folded tail renders (H1).
+          uncapped: hasRevealedReviewFold,
+          lastActivityTimestampMsByThreadId,
+        },
       ),
     [
       projects,
@@ -348,7 +342,6 @@ export function useKanbanBoard(): KanbanBoard {
       projectIdAliases,
       terminalEntryThreadIds,
       optimisticDispatchByThreadId,
-      kanbanViewMode,
       nowMs,
       needsReviewByThreadId,
       kanbanNeedsReviewFilter,

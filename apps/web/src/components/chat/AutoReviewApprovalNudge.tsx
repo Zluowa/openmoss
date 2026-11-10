@@ -58,7 +58,7 @@ export function AutoReviewApprovalNudge(props: AutoReviewApprovalNudgeProps) {
             {t("approvalRequest.autoReviewNudge.description")}{" "}
             {AUTO_REVIEW_LEARN_MORE_URL ? (
               <a
-                className="cursor-interaction rounded-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring"
+                className="cursor-interaction rounded-inline underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring"
                 href={AUTO_REVIEW_LEARN_MORE_URL}
                 target="_blank"
                 rel="noreferrer"

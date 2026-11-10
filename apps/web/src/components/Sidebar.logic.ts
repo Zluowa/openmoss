@@ -7,7 +7,6 @@ import {
   type ProjectAgentSummary,
   type OrchestrationSidebarSectionShell,
   type ProjectId,
-  type SpaceId,
   type ThreadId,
 } from "@moss/contracts";
 import { resolveThreadPresentationOwners } from "@moss/shared/threadHierarchy";
@@ -39,8 +38,6 @@ import {
   SIDEBAR_THREAD_ROW_BASE_CLASS_NAME,
 } from "../sidebarRowStyles";
 import { isDuplicateProjectCreateError } from "../lib/projectCreateRecovery";
-import { isThreadReachableFromSpace } from "../lib/spaceNavigation";
-import type { ServerWorkspacePaths } from "../lib/serverWorkspacePaths";
 import {
   canSessionAnswerPendingRequests,
   hasLiveLatestTurn,
@@ -71,13 +68,6 @@ export type SidebarActionBadge = {
   readonly text: string;
   readonly accessibleLabel: string;
 };
-
-export function isProjectsSidebarSurface(input: {
-  readonly isOnSettings: boolean;
-  readonly isOnGroups: boolean;
-}): boolean {
-  return !input.isOnSettings && !input.isOnGroups;
-}
 
 /** Keep partial review counts visible without presenting them as exact. */
 export function resolvePullRequestReviewBadge(
@@ -1939,61 +1929,6 @@ export function canSnoozeSidebarThread(input: {
   );
 }
 
-/** Classic thread sections share the active Space; container chats remain global. */
-export function filterSidebarThreadsBySpace<
-  T extends Pick<SidebarThreadSummary, "projectId">,
->(input: {
-  readonly threads: readonly T[];
-  readonly projectById: ReadonlyMap<ProjectId, Project>;
-  readonly spaceId: SpaceId | null;
-  readonly paths: ServerWorkspacePaths;
-}): T[] {
-  return input.threads.filter((thread) => {
-    const project = input.projectById.get(thread.projectId);
-    // Preserve the sidebar's existing rows while their projects hydrate.
-    return (
-      project === undefined ||
-      isThreadReachableFromSpace({ project, spaceId: input.spaceId, paths: input.paths })
-    );
-  });
-}
-
-// A thread's projectId says where it runs; a group's member set says who it
-// belongs to. Threads the coordinator dispatches into a linked repo carry the
-// repo's projectId, so the projectId-keyed buckets alone would never surface
-// them under the group. Union each group's member ids into its bucket.
-export function mergeGroupMemberThreadsIntoProjectBuckets(input: {
-  readonly sortedSidebarThreadsByProjectId: ReadonlyMap<ProjectId, SidebarThreadSummary[]>;
-  readonly threads: readonly SidebarThreadSummary[];
-  readonly memberThreadIdsByProjectId: ReadonlyMap<ProjectId, ReadonlySet<ThreadId>>;
-  readonly sortThreads: (
-    threads: readonly SidebarThreadSummary[],
-  ) => readonly SidebarThreadSummary[];
-}): ReadonlyMap<ProjectId, SidebarThreadSummary[]> {
-  if (input.memberThreadIdsByProjectId.size === 0) {
-    return input.sortedSidebarThreadsByProjectId;
-  }
-  const threadById = new Map<ThreadId, SidebarThreadSummary>();
-  for (const thread of input.threads) {
-    threadById.set(thread.id, thread);
-  }
-  let merged: Map<ProjectId, SidebarThreadSummary[]> | null = null;
-  for (const [projectId, memberIds] of input.memberThreadIdsByProjectId) {
-    const bucket = input.sortedSidebarThreadsByProjectId.get(projectId) ?? [];
-    const knownIds = new Set(bucket.map((thread) => thread.id));
-    const extras: SidebarThreadSummary[] = [];
-    for (const threadId of memberIds) {
-      if (knownIds.has(threadId)) continue;
-      const thread = threadById.get(threadId);
-      if (thread) extras.push(thread);
-    }
-    if (extras.length === 0) continue;
-    merged ??= new Map(input.sortedSidebarThreadsByProjectId);
-    merged.set(projectId, [...input.sortThreads([...bucket, ...extras])]);
-  }
-  return merged ?? input.sortedSidebarThreadsByProjectId;
-}
-
 // Centralizes the expensive per-project row derivation so Sidebar.tsx can mostly orchestrate UI state.
 export function deriveSidebarProjectData(input: {
   projects: readonly Pick<Project, "id" | "cwd" | "expanded">[];
@@ -2217,4 +2152,19 @@ function treeParentThreadId<T extends SidebarTreeThread>(
     return sourceThreadId;
   }
   return parentThreadId;
+}
+
+/**
+ * What the sidebar's primary "New chat" does: a new thread in the target project when
+ * there is one; nothing while the first snapshot is still loading (an empty project list
+ * then means "not loaded yet"); otherwise the global chat home, the same place the
+ * "Open new chat home" button opens. It never opens "Create project" — someone with no
+ * projects asked for a chat, not for a project (owner acceptance, 2026-11-11).
+ */
+export function resolvePrimaryNewChatAction(input: {
+  readonly hasProjectTarget: boolean;
+  readonly threadsHydrated: boolean;
+}): "project-thread" | "wait" | "home-chat" {
+  if (input.hasProjectTarget) return "project-thread";
+  return input.threadsHydrated ? "home-chat" : "wait";
 }

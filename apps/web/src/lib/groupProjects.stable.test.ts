@@ -1,12 +1,7 @@
-// Stable build: the hub entry points are off, but Mossbot assistants live in group folders,
-// so a group folder is still a container, never an ordinary project.
+// Hubs are gone from the web app, but Mossbot assistants live in group folders, so a group
+// folder is still a container, never an ordinary project.
 import { type ProjectId } from "@moss/contracts";
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock(import("../betaFeatures"), async (importOriginal) => ({
-  ...(await importOriginal()),
-  GROUPS_ON: false,
-}));
+import { describe, expect, it } from "vitest";
 
 import type { Project } from "../types";
 import { isGroupContainerProject } from "./groupProjects";

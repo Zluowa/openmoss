@@ -116,8 +116,15 @@ function providerForSource(source: WorkspaceImportSourceKind): SupportedProvider
 function sourceSummary(
   preview: WorkspaceImportSourcePreview,
   format: ReturnType<typeof useTranslation>["format"],
+  includeConversations: boolean,
 ): string {
   const counts = workspaceImportCategoryCounts(preview);
+  if (!includeConversations) {
+    return format("import.source.toolsSummary", {
+      skills: counts.skills,
+      settings: counts.settings,
+    });
+  }
   return format("import.source.summary", {
     skills: counts.skills,
     settings: counts.settings,
@@ -136,14 +143,23 @@ function formatHistoryDate(value: string): string {
 export function WorkspaceImportFlow({
   onCancel,
   variant,
+  includeConversations = true,
 }: {
   onCancel?: () => void;
   variant: "dialog" | "panel";
+  /**
+   * Offer chats and projects too. Settings → Import turns this off: its conversations
+   * come from the same project import panel as onboarding, so one list covers every
+   * agent and nothing is imported twice.
+   */
+  includeConversations?: boolean;
 }) {
   const { t, format } = useTranslation();
   const { setTheme } = useTheme();
   const { updateSettings } = useAppSettings();
   const [state, setState] = useState<WorkspaceImportUiState>(INITIAL_WORKSPACE_IMPORT_UI_STATE);
+  // Bumped by 重试 to run the probe again.
+  const [probeAttempt, setProbeAttempt] = useState(0);
   const [activeSource, setActiveSource] = useState<WorkspaceImportSourcePreview | null>(null);
   const [selectionOpen, setSelectionOpen] = useState(false);
   const [selection, setSelection] = useState<Set<WorkspaceImportCategoryKind>>(new Set());
@@ -173,6 +189,7 @@ export function WorkspaceImportFlow({
 
   useEffect(() => {
     let cancelled = false;
+    if (probeAttempt > 0) setState(INITIAL_WORKSPACE_IMPORT_UI_STATE);
     const api = readNativeApi();
     if (!api) {
       setState(reduceWorkspaceImportError(t("import.error.unavailable")));
@@ -181,7 +198,7 @@ export function WorkspaceImportFlow({
       };
     }
     void api.server
-      .probeWorkspaceImport()
+      .probeWorkspaceImport(includeConversations ? {} : { scope: "tools" })
       .then((probe) => {
         if (cancelled) return;
         setState(reduceWorkspaceImportProbe(probe));
@@ -197,19 +214,20 @@ export function WorkspaceImportFlow({
           setSyncSources([...probe.sync.sources]);
         }
       })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setState(
-            reduceWorkspaceImportError(
-              error instanceof Error ? error.message : t("import.error.probe"),
-            ),
-          );
-        }
+      .catch(() => {
+        // Transport and server messages (RPC method names, timeouts) are for the
+        // log, not for people; the error block offers 重试 instead.
+        if (!cancelled) setState(reduceWorkspaceImportError(t("import.error.probe")));
       });
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [t, probeAttempt, includeConversations]);
+  const retryProbe = () => setProbeAttempt((attempt) => attempt + 1);
+  const incompleteSources = useMemo(
+    () => (state.probe?.sources ?? []).filter((source) => source.present && source.incomplete),
+    [state.probe],
+  );
 
   const present = useMemo(
     () => (state.probe ? presentWorkspaceImportSources(state.probe) : []),
@@ -274,12 +292,14 @@ export function WorkspaceImportFlow({
 
   const openSelection = (source: WorkspaceImportSourcePreview) => {
     if (state.step === "importing") return;
-    const defaults = workspaceImportDefaultCategories(source);
+    const keep = (category: WorkspaceImportCategoryKind) =>
+      includeConversations || (category !== "chats" && category !== "projects");
+    const defaults = workspaceImportDefaultCategories(source).filter(keep);
     const fallback = [
       ...WORKSPACE_IMPORT_DEFAULT_CATEGORIES,
       ...(workspaceImportCategoryCounts(source).projects > 0 ? ["projects" as const] : []),
       ...(workspaceImportCategoryCounts(source).chats > 0 ? ["chats" as const] : []),
-    ];
+    ].filter(keep);
     setActiveSource(source);
     setState((current) => ({
       ...current,
@@ -331,13 +351,9 @@ export function WorkspaceImportFlow({
             : categoriesSnapshot;
         await persistSyncPreferences(true, categoriesForSync, nextSources);
       }
-    } catch (error) {
+    } catch {
       if (importOperationRef.current !== operationId) return;
-      setState((current) => ({
-        ...current,
-        step: "error",
-        error: error instanceof Error ? error.message : t("import.error.apply"),
-      }));
+      setState((current) => ({ ...current, step: "error", error: t("import.error.apply") }));
     }
   };
 
@@ -387,7 +403,30 @@ export function WorkspaceImportFlow({
           className="rounded-xl border border-destructive/35 bg-destructive/5 px-4 py-4 text-ui-lg text-destructive"
           role="alert"
         >
-          {state.error ?? t("import.error.apply")}
+          <p>{state.error ?? t("import.error.apply")}</p>
+          {state.probe ? null : (
+            <Button type="button" size="xs" variant="outline" className="mt-3" onClick={retryProbe}>
+              {t("import.retry")}
+            </Button>
+          )}
+        </div>
+      ) : null}
+
+      {incompleteSources.length > 0 && (state.step === "ready" || state.step === "pick-sources") ? (
+        <div
+          className="flex items-center justify-between gap-3 rounded-card border border-border/70 px-4 py-3 text-ui-sm text-muted-foreground"
+          role="status"
+        >
+          <span>
+            {format("import.partial", {
+              sources: incompleteSources
+                .map((source) => source.displayName ?? workspaceImportSourceLabel(source.source))
+                .join("、"),
+            })}
+          </span>
+          <Button type="button" size="xs" variant="outline" onClick={retryProbe}>
+            {t("import.retry")}
+          </Button>
         </div>
       ) : null}
 
@@ -448,7 +487,7 @@ export function WorkspaceImportFlow({
                 <SourceRow
                   key={source.source}
                   source={source}
-                  summary={sourceSummary(source, format)}
+                  summary={sourceSummary(source, format, includeConversations)}
                   disabled={isBusy}
                   onImport={() => openSelection(source)}
                 />
@@ -521,6 +560,7 @@ export function WorkspaceImportFlow({
       ) : null}
 
       <ImportSelectionDialog
+        includeConversations={includeConversations}
         open={selectionOpen}
         source={activeSource}
         selection={selection}
@@ -641,7 +681,9 @@ function ImportSelectionDialog({
   onToggleCategory,
   onImport,
   disabled = false,
+  includeConversations,
 }: {
+  includeConversations: boolean;
   open: boolean;
   source: WorkspaceImportSourcePreview | null;
   selection: ReadonlySet<WorkspaceImportCategoryKind>;
@@ -720,24 +762,28 @@ function ImportSelectionDialog({
                   onExpand={() => undefined}
                   disabled
                 />
-                <SelectionTopRow
-                  icon={FolderIcon}
-                  title={format("import.modal.projects", { count: counts.projects })}
-                  description={t("import.modal.projectsDescription")}
-                  checked={selection.has("projects")}
-                  disabled
-                  info={t("import.modal.projectsDescription")}
-                  onToggle={() => undefined}
-                />
-                <SelectionTopRow
-                  icon={MessageCircleIcon}
-                  title={format("import.modal.chats", { count: counts.chats })}
-                  description={t("import.modal.chatsDescription")}
-                  checked={selection.has("chats")}
-                  disabled
-                  info={t("import.modal.chatsDescription")}
-                  onToggle={() => undefined}
-                />
+                {includeConversations ? (
+                  <>
+                    <SelectionTopRow
+                      icon={FolderIcon}
+                      title={format("import.modal.projects", { count: counts.projects })}
+                      description={t("import.modal.projectsDescription")}
+                      checked={selection.has("projects")}
+                      disabled
+                      info={t("import.modal.projectsDescription")}
+                      onToggle={() => undefined}
+                    />
+                    <SelectionTopRow
+                      icon={MessageCircleIcon}
+                      title={format("import.modal.chats", { count: counts.chats })}
+                      description={t("import.modal.chatsDescription")}
+                      checked={selection.has("chats")}
+                      disabled
+                      info={t("import.modal.chatsDescription")}
+                      onToggle={() => undefined}
+                    />
+                  </>
+                ) : null}
               </div>
             </div>
           ) : (
@@ -777,24 +823,28 @@ function ImportSelectionDialog({
                   />
                 ))}
               </DisclosureRegion>
-              <SelectionTopRow
-                icon={FolderIcon}
-                title={format("import.modal.projects", { count: counts.projects })}
-                description={t("import.modal.projectsDescription")}
-                checked={selection.has("projects")}
-                disabled={!available.has("projects") || disabled}
-                info={t("import.modal.projectsDescription")}
-                onToggle={() => onToggleCategory("projects")}
-              />
-              <SelectionTopRow
-                icon={MessageCircleIcon}
-                title={format("import.modal.chats", { count: counts.chats })}
-                description={t("import.modal.chatsDescription")}
-                checked={selection.has("chats")}
-                disabled={!available.has("chats") || disabled}
-                info={t("import.modal.chatsDescription")}
-                onToggle={() => onToggleCategory("chats")}
-              />
+              {includeConversations ? (
+                <>
+                  <SelectionTopRow
+                    icon={FolderIcon}
+                    title={format("import.modal.projects", { count: counts.projects })}
+                    description={t("import.modal.projectsDescription")}
+                    checked={selection.has("projects")}
+                    disabled={!available.has("projects") || disabled}
+                    info={t("import.modal.projectsDescription")}
+                    onToggle={() => onToggleCategory("projects")}
+                  />
+                  <SelectionTopRow
+                    icon={MessageCircleIcon}
+                    title={format("import.modal.chats", { count: counts.chats })}
+                    description={t("import.modal.chatsDescription")}
+                    checked={selection.has("chats")}
+                    disabled={!available.has("chats") || disabled}
+                    info={t("import.modal.chatsDescription")}
+                    onToggle={() => onToggleCategory("chats")}
+                  />
+                </>
+              ) : null}
             </div>
           )}
         </div>

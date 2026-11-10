@@ -250,33 +250,56 @@ export const CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
   { id: "absolutely", label: "Absolutely", variants: ["light", "dark"] },
   { id: "ayu", label: "Ayu", variants: ["dark"] },
   { id: "catppuccin", label: "Catppuccin", variants: ["light", "dark"] },
-  { id: "codex", label: "Codex", variants: ["light", "dark"] },
+  { id: "codex", label: "Classic", variants: ["light", "dark"] },
   { id: "moss", label: "Moss", variants: ["light", "dark"] },
   { id: "dracula", label: "Dracula", variants: ["dark"] },
   { id: "everforest", label: "Everforest", variants: ["light", "dark"] },
-  { id: "github", label: "GitHub", variants: ["light", "dark"] },
+  { id: "github", label: "Slate", variants: ["light", "dark"] },
   { id: "gruvbox", label: "Gruvbox", variants: ["light", "dark"] },
-  { id: "linear", label: "Linear", variants: ["light", "dark"] },
+  { id: "linear", label: "Indigo", variants: ["light", "dark"] },
   { id: "lobster", label: "Lobster", variants: ["dark"] },
   { id: "material", label: "Material", variants: ["dark"] },
   { id: "matrix", label: "Matrix", variants: ["dark"] },
   { id: "monokai", label: "Monokai", variants: ["dark"] },
   { id: "night-owl", label: "Night Owl", variants: ["dark"] },
   { id: "nord", label: "Nord", variants: ["dark"] },
-  { id: "notion", label: "Notion", variants: ["light", "dark"] },
+  { id: "notion", label: "Paper", variants: ["light", "dark"] },
   { id: "one", label: "One", variants: ["light", "dark"] },
   { id: "oscurange", label: "Oscurange", variants: ["dark"] },
   { id: "proof", label: "Proof", variants: ["light"] },
-  { id: "raycast", label: "Raycast", variants: ["light", "dark"] },
+  { id: "raycast", label: "Coral", variants: ["light", "dark"] },
   { id: "rose-pine", label: "Rose Pine", variants: ["light", "dark"] },
-  { id: "sentry", label: "Sentry", variants: ["dark"] },
+  { id: "sentry", label: "Violet Night", variants: ["dark"] },
   { id: "soft", label: "Soft", variants: ["light", "dark"] },
   { id: "solarized", label: "Solarized", variants: ["light", "dark"] },
   { id: "temple", label: "Temple", variants: ["dark"] },
   { id: "tokyo-night", label: "Tokyo Night", variants: ["dark"] },
-  { id: "vercel", label: "Vercel", variants: ["light", "dark"] },
-  { id: "vscode-plus", label: "VS Code Plus", variants: ["light", "dark"] },
+  { id: "vercel", label: "Monochrome", variants: ["light", "dark"] },
+  { id: "vscode-plus", label: "Azure", variants: ["light", "dark"] },
 ] as const;
+
+// Themes are named after their look, never after another company's product. The ids stay
+// as they were so stored settings and share strings keep resolving.
+const ZH_CN_CODE_THEME_LABELS: Readonly<Record<string, string>> = {
+  codex: "经典",
+  github: "石板",
+  linear: "靛蓝",
+  moss: "Moss",
+  notion: "纸墨",
+  raycast: "珊瑚",
+  sentry: "紫夜",
+  soft: "柔和",
+  vercel: "黑白",
+  "vscode-plus": "湛蓝",
+};
+
+export function codeThemeLabel(codeThemeId: string, locale = "en"): string {
+  if (locale.toLowerCase().startsWith("zh")) {
+    const zh = ZH_CN_CODE_THEME_LABELS[codeThemeId];
+    if (zh) return zh;
+  }
+  return CODE_THEME_OPTIONS.find((option) => option.id === codeThemeId)?.label ?? codeThemeId;
+}
 
 export const DEFAULT_CHROME_THEME_BY_VARIANT: Record<ThemeVariant, ChromeTheme> = {
   dark: {

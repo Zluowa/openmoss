@@ -1,12 +1,10 @@
 // FILE: CreateProjectDialog.tsx
 // Purpose: Codex-style create-project dialog — project name (folder icon inline)
 //          plus a source folder chosen through the native picker and shown as a
-//          removable chip. No GitHub tab and no Space picker per the Codex flow
-//          spec: the project lands in the currently active Space.
+//          removable chip. No GitHub tab, per the Codex flow spec.
 // Layer: Web UI dialog
 // Exports: CreateProjectDialog, CreateProjectSubmitValue, CreateProjectSubmitOptions
 
-import { type SpaceId } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
@@ -49,8 +47,6 @@ interface CreateLocalProjectSubmitValue {
   /** Extra source folders of a multi-folder project; `workspaceRoot` is the primary one.
       The Codex-form dialog never sets this today; the sidebar submit path accepts it. */
   readonly additionalFolders?: ReadonlyArray<string> | undefined;
-  /** Destination Space; `null` is Void (unassigned). Always the active Space. */
-  readonly spaceId: SpaceId | null;
   /** True when the path was typed by hand, so a missing folder may be created. */
   readonly createIfMissing: boolean;
 }
@@ -61,7 +57,6 @@ interface CreateGitHubProjectSubmitValue {
   readonly repository: string;
   readonly destinationParent: string;
   readonly directoryName: string;
-  readonly spaceId: SpaceId | null;
 }
 
 // The GitHub variant stays in the union because the sidebar's submit handler still
@@ -76,7 +71,6 @@ export interface CreateProjectSubmitOptions {
 
 export function CreateProjectDialog(props: {
   open: boolean;
-  activeSpaceId: SpaceId | null;
   onOpenChange: (open: boolean) => void;
   onSubmit: (value: CreateProjectSubmitValue, options: CreateProjectSubmitOptions) => Promise<void>;
 }) {
@@ -206,7 +200,6 @@ export function CreateProjectDialog(props: {
           source: "local",
           workspaceRoot: trimmedPath,
           ...(trimmedName.length > 0 ? { name: trimmedName } : {}),
-          spaceId: props.activeSpaceId ?? null,
           createIfMissing: trimmedPath !== pickedPath,
         },
         { signal: abortController.signal },

@@ -1241,7 +1241,7 @@ function MossNormalizedEventTimelineRow({
 
   return (
     <li
-      className={`rounded-md border bg-background px-2.5 py-2 text-ui-lg ${
+      className={`rounded-control border bg-background px-2.5 py-2 text-ui-lg ${
         selected ? "border-foreground/80 shadow-sm" : "border-border/60"
       }`}
       data-event-type={eventType}
@@ -1374,7 +1374,7 @@ function MossNormalizedEventDetailInspector({
       <div className="mt-3 grid gap-2">
         {detail.sections.map((section) => (
           <section
-            className="rounded-md border border-border/60 bg-background px-2.5 py-2"
+            className="rounded-control border border-border/60 bg-background px-2.5 py-2"
             data-detail-field-count={dataNumber(section.fields.length)}
             data-detail-section-kind={section.kind}
             data-moss-normalized-event-detail-section=""
@@ -1716,7 +1716,7 @@ function MossNormalizedEventFilterBar({
           <button
             key={option.value}
             aria-pressed={active}
-            className={`shrink-0 rounded-md border px-2 py-1 text-ui-sm transition-colors ${
+            className={`shrink-0 rounded-control border px-2 py-1 text-ui-sm transition-colors ${
               active
                 ? "border-foreground bg-foreground text-background"
                 : "border-border/70 bg-background text-muted-foreground hover:text-foreground"

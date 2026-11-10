@@ -34,7 +34,7 @@ export function McpCodePane({
           {showCopyButton && code !== null ? (
             <button
               type="button"
-              className="inline-flex size-8 cursor-interaction items-center justify-center rounded-lg text-codex-secondary hover:bg-surface-secondary hover:text-default focus-visible:outline-2 focus-visible:outline-ring"
+              className="inline-flex size-8 cursor-interaction items-center justify-center rounded-control text-codex-secondary hover:bg-surface-secondary hover:text-default focus-visible:outline-2 focus-visible:outline-ring"
               aria-label={t(isCopied ? "chat.markdown.code.copied" : "chat.markdown.code.copy")}
               data-mcp-copy-code="true"
               onClick={() => copyToClipboard(code, undefined)}

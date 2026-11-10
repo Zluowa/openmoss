@@ -44,7 +44,7 @@ export function TooltipControl({
       >
         {trigger}
       </TooltipTrigger>
-      <TooltipPopup className="max-w-65">
+      <TooltipPopup className="max-w-72">
         {title ? (
           <span className="flex flex-col">
             <span className="font-medium">{title}</span>

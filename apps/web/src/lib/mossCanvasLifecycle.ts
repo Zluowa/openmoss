@@ -16,7 +16,10 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
 /** How long a hidden Canvas stays loaded before it is saved and unloaded. */
-export const MOSS_CANVAS_SUSPEND_AFTER_MS = 30_000;
+// Long enough to look at the chat, answer and come back without the editor
+// starting from scratch, which costs seconds (owner, 2026-11-10: Canvas is slow
+// to open). Memory is held for one conversation only.
+export const MOSS_CANVAS_SUSPEND_AFTER_MS = 3 * 60_000;
 /** A save that did not finish is retried after this long. */
 export const MOSS_CANVAS_SUSPEND_RETRY_MS = 10_000;
 

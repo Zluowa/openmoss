@@ -213,7 +213,7 @@ export function TimelineReasoningRow(props: {
           reasoningHeaderClassName,
           reasoningHeaderDisplayClassName,
           REASONING_SUMMARY_TEXT_CLASS_NAME,
-          "cursor-interaction rounded-md bg-transparent focus-visible:px-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-inset",
+          "cursor-interaction rounded-control bg-transparent focus-visible:px-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-inset",
         )}
         aria-expanded={expanded}
         aria-controls={bodyId}

@@ -27,6 +27,9 @@ import {
 import {
   parseMossCanvasComposeContext,
   parseMossCanvasSelection,
+  parseMossCanvasImageOpen,
+  MOSS_CANVAS_IMAGE_OPEN_CAPABILITY,
+  type MossCanvasImageOpen,
   type MossCanvasComposeContext,
   type MossCanvasSelection,
 } from "../lib/mossCanvasSelection";
@@ -58,6 +61,11 @@ interface MossCanvasWebSurfaceProps {
     readonly action?: MossCanvasImageFocus["action"];
   };
   readonly onSelectionChange?: (selection: MossCanvasSelection, binding: MossCanvasBinding) => void;
+  /**
+   * Opening an image on the board (double-click, its edit button). With it, the
+   * Canvas hands images to Moss's viewer instead of its own preview.
+   */
+  readonly onImageOpen?: (open: MossCanvasImageOpen, binding: MossCanvasBinding) => void;
   readonly onImportStateChange?: (state: "loading" | "ready" | "failed") => void;
 }
 
@@ -113,6 +121,7 @@ export function MossCanvasWebSurface({
   embedded = false,
   localImages,
   onSelectionChange,
+  onImageOpen,
   onImportStateChange,
 }: MossCanvasWebSurfaceProps) {
   const boundary = useMossImagesAccountBoundary();
@@ -169,6 +178,10 @@ export function MossCanvasWebSurface({
   const latestSelection = useRef<MossCanvasSelection | null>(null);
   const selectionCallback = useRef(onSelectionChange);
   selectionCallback.current = onSelectionChange;
+  const imageOpenCallback = useRef(onImageOpen);
+  imageOpenCallback.current = onImageOpen;
+  // Told to the Canvas with its bootstrap: what this host handles itself.
+  const hostCapabilities = onImageOpen ? [MOSS_CANVAS_IMAGE_OPEN_CAPABILITY] : [];
   const selectionSequence = useRef(0);
   const selectionEpoch = useRef(-1);
   const documentGeneration = useRef(0);
@@ -510,9 +523,19 @@ export function MossCanvasWebSurface({
           return;
         }
       }
+      if (event.data?.type === "moss-canvas-image-open" && resolvedThread) {
+        const open = parseMossCanvasImageOpen(event.data, resolvedThread);
+        if (open && binding.current && acceptEpoch(open.documentEpoch))
+          imageOpenCallback.current?.(open, binding.current);
+        return;
+      }
       if (event.data?.type === "moss-canvas-bootstrap-ready") {
         frame.current?.contentWindow?.postMessage(
-          { type: "moss-canvas-bootstrap", token: connection?.token ?? "" },
+          {
+            type: "moss-canvas-bootstrap",
+            token: connection?.token ?? "",
+            capabilities: hostCapabilities,
+          },
           new URL(src).origin,
         );
         return;
@@ -826,7 +849,11 @@ export function MossCanvasWebSurface({
               onLoad={() => {
                 if (!boundary.isCurrent() || currentFrameKey.current !== frameKey) return;
                 frame.current?.contentWindow?.postMessage(
-                  { type: "moss-canvas-bootstrap", token: connection?.token ?? "" },
+                  {
+                    type: "moss-canvas-bootstrap",
+                    token: connection?.token ?? "",
+                    capabilities: hostCapabilities,
+                  },
                   new URL(src).origin,
                 );
               }}

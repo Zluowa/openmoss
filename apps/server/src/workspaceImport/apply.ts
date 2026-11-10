@@ -23,9 +23,15 @@ import { appendWorkspaceImportHistory, writeWorkspaceImportSync } from "./histor
 import {
   readWorkspaceImportLedger,
   upsertWorkspaceImportLedgerEntry,
+  workspaceImportLedgerKey,
   writeWorkspaceImportLedger,
   type WorkspaceImportLedger,
 } from "./ledger";
+import {
+  chatSyncAddsNewChats,
+  nativeConversationIdentity,
+  nativeConversationKey,
+} from "./conversationIdentity";
 import { absorbHonorAbleSettings, mergeAbsorbedSettings } from "./settingsAbsorb";
 import {
   copyImportResources,
@@ -48,6 +54,12 @@ export interface WorkspaceImportApplyContext {
   readonly createThreadId: (chat?: CollectedImportChat) => string;
   readonly categories?: readonly WorkspaceImportCategoryKind[] | undefined;
   readonly keepInSync?: boolean | undefined;
+  /**
+   * Conversations the project import already brought in, as `nativeConversationKey`s.
+   * A chat the workspace import has not imported before is skipped when it is here.
+   * `unavailable` (the list could not be read) adds no new chats at all this time.
+   */
+  readonly importedByProjectImport?: ReadonlySet<string> | "unavailable" | undefined;
 }
 
 export interface WorkspaceImportPreparedApply {
@@ -183,8 +195,20 @@ export async function prepareWorkspaceImportApply(
 
   const ledger = await readWorkspaceImportLedger(context.stateDir);
   const nowIso = context.now.toISOString();
+  // A chat this import brought in before keeps updating its own thread. A new one is only
+  // added when the project import has not brought in the same conversation, and only when
+  // that can be checked (see conversationIdentity.ts).
+  const chatsToSync = collectedChats.filter((chat) => {
+    const entry = ledger.entries[workspaceImportLedgerKey(chat.source, chat.sourceId)];
+    if (entry && context.existingThreadIds.has(entry.threadId)) return true;
+    if (!chatSyncAddsNewChats(chat.source)) return false;
+    const imported = context.importedByProjectImport;
+    if (imported === "unavailable") return false;
+    const identity = nativeConversationIdentity(chat.source, chat.sourceId);
+    return !(identity && imported?.has(nativeConversationKey(identity)));
+  });
   const chatPlans = planChatSync({
-    chats: collectedChats,
+    chats: chatsToSync,
     ledger,
     existingThreadIds: context.existingThreadIds,
     nowIso,

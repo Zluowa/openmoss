@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   classifyProviderSetup,
   describeOnboardingAgentSummary,
+  describeOnboardingDoneSummary,
   isOnboardingSetupStep,
   nextOnboardingStep,
   previousOnboardingStep,
@@ -242,5 +243,32 @@ describe("toggleSelection", () => {
     expect([...added]).toEqual(["a", "b"]);
     expect([...initial]).toEqual(["a"]);
     expect([...toggleSelection(added, "a")]).toEqual(["b"]);
+  });
+});
+
+describe("onboarding finish summary", () => {
+  it("reads in Chinese for a zh-CN reader", () => {
+    const summary = summarizeProviderSetup([
+      { provider: "codex", state: "connected" },
+      { provider: "grok", state: "connected" },
+    ]);
+    expect(
+      describeOnboardingDoneSummary({
+        agents: describeOnboardingAgentSummary(summary, "zh-CN"),
+        themeLabel: "Moss",
+        projectsAdded: 0,
+        locale: "zh-CN",
+      }),
+    ).toBe("已连接 2 个智能体 · Moss 主题 · 还没有项目");
+  });
+
+  it("keeps the English wording for other locales", () => {
+    expect(
+      describeOnboardingDoneSummary({
+        agents: "6 agents connected",
+        themeLabel: "Moss",
+        projectsAdded: 2,
+      }),
+    ).toBe("6 agents connected · Moss theme · 2 projects added");
   });
 });

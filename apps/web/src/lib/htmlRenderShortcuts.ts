@@ -11,7 +11,6 @@ import {
   type KeybindingCommand,
   type KeybindingShortcut,
   type ResolvedKeybindingsConfig,
-  SPACE_JUMP_KEYBINDING_COMMANDS,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@moss/contracts";
 import type { HtmlRenderKeyDown, HtmlRenderShortcut } from "@moss/shared/htmlRender";
@@ -34,9 +33,6 @@ export const HTML_RENDER_SHORTCUT_COMMANDS: ReadonlySet<KeybindingCommand> = new
   "sidebar.floatToggle",
   "sidebar.search",
   "sidebar.activity",
-  "space.previous",
-  "space.next",
-  ...SPACE_JUMP_KEYBINDING_COMMANDS,
   "terminal.toggle",
   "rightPanel.toggle",
   "preview.toggle",

@@ -341,7 +341,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
             type="button"
             onClick={props.onSave}
             disabled={!props.dirty || props.saveState === "Saving..."}
-            className="rounded-md px-2 py-1 text-ui-sm disabled:opacity-50"
+            className="rounded-control px-2 py-1 text-ui-sm disabled:opacity-50"
           >
             Save
           </button>
@@ -361,7 +361,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
           <div
             role="radiogroup"
             aria-label={props.isHtml ? "HTML view" : "Markdown view"}
-            className="flex h-7 shrink-0 items-center rounded-lg bg-[var(--color-background-elevated-secondary)] p-0.5"
+            className="flex h-7 shrink-0 items-center rounded-control bg-[var(--color-background-elevated-secondary)] p-0.5"
           >
             {MARKDOWN_VIEW_SEGMENTS.map((segment) => {
               const selected = segment.rendered === props.markdownPreviewEnabled;
@@ -373,7 +373,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
                   aria-checked={selected}
                   title={props.isHtml ? segment.htmlTitle : segment.title}
                   className={cn(
-                    "flex h-6 w-7 cursor-pointer items-center justify-center rounded-md transition-colors",
+                    "flex h-6 w-7 cursor-pointer items-center justify-center rounded-control transition-colors",
                     selected
                       ? "bg-[var(--color-background-button-secondary)] text-[var(--color-text-foreground)]"
                       : "text-muted-foreground hover:text-foreground",

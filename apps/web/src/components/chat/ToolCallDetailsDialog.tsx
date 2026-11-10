@@ -49,7 +49,7 @@ export function ToolCallDetailsContent({
   }
   if (!details && !activity) {
     return (
-      <div className="rounded-lg border border-border/45 bg-background/60 px-3 py-2 text-ui leading-snug text-muted-foreground">
+      <div className="rounded-card border border-border/45 bg-background/60 px-3 py-2 text-ui leading-snug text-muted-foreground">
         No detailed payload was available for this tool call.
       </div>
     );
@@ -77,7 +77,7 @@ export function ToolCallDetailsContent({
             {details.files.map((file) => (
               <span
                 key={file}
-                className="max-w-full rounded-md border border-border/45 bg-background/70 px-2 py-1 font-chat-code text-chat-code text-foreground/82"
+                className="max-w-full rounded-control border border-border/45 bg-background/70 px-2 py-1 font-chat-code text-chat-code text-foreground/82"
                 title={file}
                 data-translation-skip="true"
               >
@@ -100,7 +100,7 @@ export function ToolCallDetailsContent({
             {details.edits.map((edit, index) => (
               <div
                 key={`${edit.path ?? "edit"}:${index}`}
-                className="overflow-hidden rounded-lg border border-border/45 bg-background/58"
+                className="overflow-hidden rounded-card border border-border/45 bg-background/58"
               >
                 {edit.path ? (
                   <div className="border-b border-border/45 px-3 py-2 font-chat-code text-chat-code text-muted-foreground/72">
@@ -159,7 +159,7 @@ function LiveActivityMetadata({
 
   return (
     <ToolDetailSection title="Activity">
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-lg border border-border/45 bg-background/60 px-3 py-2.5 text-ui-sm">
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-card border border-border/45 bg-background/60 px-3 py-2.5 text-ui-sm">
         <dt className="text-muted-foreground/56">Status</dt>
         <dd className="text-foreground/84">{stateLabel}</dd>
         {activity.startedAt ? (
@@ -265,7 +265,7 @@ function ToolOutputSection({ output }: { output: WorkLogToolOutputDetails }) {
 
 function LabeledCodeBlock(props: { title: string; tone: "output" | "error"; children: string }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-border/45 bg-background/58">
+    <div className="overflow-hidden rounded-card border border-border/45 bg-background/58">
       <div
         className={cn(
           DETAIL_HEADER_CLASS_NAME,
@@ -308,7 +308,7 @@ function ToolCodeBlock(props: { children: string; tone?: "default" | "command"; 
         props.tone === "command" && "text-sky-100/92",
         props.bare
           ? "px-3 py-2.5"
-          : "rounded-lg border border-border/45 bg-background/70 px-3 py-2.5",
+          : "rounded-card border border-border/45 bg-background/70 px-3 py-2.5",
       )}
     >
       {props.children}
@@ -319,7 +319,7 @@ function ToolCodeBlock(props: { children: string; tone?: "default" | "command"; 
 function DiffCodeBlock({ children }: { children: string }) {
   const lines = children.split(/\r?\n/);
   return (
-    <pre className="max-h-[min(52vh,34rem)] overflow-auto rounded-lg border border-border/45 bg-background/70 px-0 py-2 font-chat-code text-chat-code leading-relaxed">
+    <pre className="max-h-[min(52vh,34rem)] overflow-auto rounded-card border border-border/45 bg-background/70 px-0 py-2 font-chat-code text-chat-code leading-relaxed">
       {lines.map((line, index) => (
         <span
           key={`${index}:${line.slice(0, 24)}`}

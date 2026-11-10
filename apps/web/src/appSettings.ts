@@ -471,8 +471,8 @@ export const AppSettingsSchema = Schema.Struct({
   sidechatExpiry: SidechatExpiry.pipe(withDefaults(() => "1h" as const satisfies SidechatExpiry)),
   // Local-only UI preferences for hiding sidebar surfaces a user doesn't want.
   // `showChatsSection` controls the standalone "Chats" list in the sidebar footer
-  // (rootless chats not tied to a project). `showGroupsSection` controls the
-  // optional Groups tab in the section switcher.
+  // (rootless chats not tied to a project). `showGroupsSection` controlled the Hubs tab,
+  // which was removed (2026-11-10); the key stays so saved settings keep decoding.
   showChatsSection: Schema.Boolean.pipe(withDefaults(() => true)),
   showGroupsSection: Schema.Boolean.pipe(withDefaults(() => true)),
   // Deprecated rename bridge from the Studio surface. Normalization migrates this

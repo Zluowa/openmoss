@@ -15,7 +15,6 @@ const [
   rightDock,
   environmentToggle,
   chatHeader,
-  spaceEditorDialog,
 ] = await Promise.all([
   import("./components/BranchToolbar"),
   import("./components/chat/ComposerExtrasMenu"),
@@ -24,7 +23,6 @@ const [
   import("./components/chat/RightDock"),
   import("./components/chat/environment/EnvironmentToggle"),
   import("./components/chat/ChatHeader"),
-  import("./components/SpaceEditorDialog"),
 ]);
 
 describe("HEL-20 localized primary-journey modules", () => {
@@ -36,10 +34,9 @@ describe("HEL-20 localized primary-journey modules", () => {
     expect(rightDock.RightDock).toBeTypeOf("function");
     expect(environmentToggle.EnvironmentToggle).toBeTypeOf("function");
     expect(chatHeader.ChatHeader).toBeTypeOf("function");
-    expect(spaceEditorDialog.SpaceEditorDialog).toBeTypeOf("function");
   });
 
-  it("resolves actual ProjectPicker and SpaceEditor runtime copy in both locales", () => {
+  it("resolves actual ProjectPicker runtime copy in both locales", () => {
     const translator = (locale: "en" | "zh-CN") => (key: TranslationKey) =>
       translateMoss(locale, key);
 
@@ -53,26 +50,6 @@ describe("HEL-20 localized primary-journey modules", () => {
       resetActionLabel: "不在项目中工作",
       searchPlaceholder: "搜索项目",
     });
-
-    expect(spaceEditorDialog.resolveSpaceEditorModeCopy("void", translator("zh-CN"))).toEqual({
-      title: "编辑未归类分组",
-      description: "为尚未归入空间的项目分组命名。这只是本地偏好，不会改变其中项目的位置。",
-      placeholder: "未归类",
-    });
-    expect(
-      spaceEditorDialog.resolveSpaceEditorNameError(
-        " Moss Core ",
-        ["moss core"],
-        translator("zh-CN"),
-      ),
-    ).toBe("该名称已被占用。");
-    expect(
-      spaceEditorDialog.resolveSpaceEditorNameError(
-        "User Project Name",
-        ["Moss Core"],
-        translator("zh-CN"),
-      ),
-    ).toBeNull();
 
     const rawDiagnostic = new Error("EPERM /Users/alice/private/project.json");
     expect(

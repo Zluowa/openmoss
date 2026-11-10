@@ -12,7 +12,6 @@ import {
   pruneSavedTaskText,
   recordSavedTaskText,
   resolveDuePreset,
-  summarizeTaskList,
   UNSAVED_TODO_UPDATED_AT,
   type TaskRowModel,
   unlinkChatInput,
@@ -237,21 +236,6 @@ describe("describeTaskMeta", () => {
     );
     expect(describeTaskMeta(taskStatus("todo"), null)).toBeNull();
     expect(describeTaskMeta(taskStatus("done"), null)).toBeNull();
-  });
-});
-
-describe("summarizeTaskList", () => {
-  it("leads with what needs the user", () => {
-    expect(
-      summarizeTaskList([
-        row(todo({ id: "a" }), "needs"),
-        row(todo({ id: "b" }), "review"),
-        row(todo({ id: "c" }), "running"),
-        row(todo({ id: "d" }), "todo"),
-      ]),
-    ).toBe("2 things need you · 1 working · 1 to do");
-    expect(summarizeTaskList([row(todo({ id: "e" }), "done")])).toBe("All done");
-    expect(summarizeTaskList([])).toBe("Add anything you need to do");
   });
 });
 

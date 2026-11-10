@@ -208,22 +208,6 @@ export function describeTaskMeta(
   }
 }
 
-/** The line under the page title: what needs the user, then what's left to do. */
-export function summarizeTaskList(rows: readonly TaskRowModel[]): string {
-  const attention = rows.filter((row) => isTaskNeedingAttention(row.status)).length;
-  const toDo = rows.filter((row) => row.status.kind === "todo").length;
-  const working = rows.filter(
-    (row) => row.status.kind === "running" || row.status.kind === "starting",
-  ).length;
-  const parts = [
-    attention > 0 ? `${attention} ${attention === 1 ? "thing needs" : "things need"} you` : null,
-    working > 0 ? `${working} working` : null,
-    toDo > 0 ? `${toDo} to do` : null,
-  ].filter((part) => part !== null);
-  if (parts.length > 0) return parts.join(" · ");
-  return rows.length > 0 ? "All done" : "Add anything you need to do";
-}
-
 export function folderLabel(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, "");
   return trimmed.split(/[\\/]/).at(-1) || trimmed;

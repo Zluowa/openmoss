@@ -74,7 +74,7 @@ export function BrowserAnnotationStrip({
             tooltipStyle
             side="top"
             align="end"
-            className="w-80 max-w-[calc(100vw-2rem)] rounded-xl shadow-lg/10"
+            className="w-80 max-w-[calc(100vw-2rem)] rounded-card shadow-lg/10"
           >
             <div className="min-w-0 py-1">
               <p className="px-2 pb-1.5 text-ui-sm font-medium text-muted-foreground">

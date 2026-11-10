@@ -140,7 +140,7 @@ export function EnvironmentEditableChecklistRow({
   return (
     <li
       className={cn(
-        "flex items-center gap-1.5 rounded-lg px-2 py-1",
+        "flex items-center gap-1.5 rounded-card px-2 py-1",
         ELEVATED_HOVER_SURFACE_CLASS_NAME,
         className,
       )}

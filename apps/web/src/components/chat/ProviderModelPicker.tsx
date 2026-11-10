@@ -170,7 +170,7 @@ export function isProviderLoginActive(status: ServerProviderStatus | undefined):
 
 export function providerLoginActionClassName(loginActive: boolean): string {
   return cn(
-    "ms-auto inline-flex min-h-5 items-center rounded-md px-2 text-ui-2xs font-medium leading-none",
+    "ms-auto inline-flex min-h-5 items-center rounded-control px-2 text-ui-2xs font-medium leading-none",
     loginActive ? "bg-muted text-muted-foreground" : "bg-foreground text-background shadow-sm",
   );
 }
@@ -1118,7 +1118,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
       return (
         <div className="space-y-2 px-2 py-2" aria-label="Loading models">
           {Array.from({ length: 6 }, (_, index) => (
-            <div key={index} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+            <div key={index} className="flex items-center gap-2 rounded-control px-2 py-1.5">
               <Skeleton className="size-4 rounded-full" />
               <Skeleton className={cn("h-3.5 rounded-full", index % 3 === 0 ? "w-24" : "w-32")} />
             </div>
@@ -1381,7 +1381,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
             <Button
               variant="chrome"
               size="icon-chip"
-              className="size-5 rounded-md focus-visible:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-0"
+              className="size-5 rounded-control focus-visible:bg-[var(--color-background-elevated-secondary)] focus-visible:ring-0"
               aria-label={t("chat.modelSource.back")}
               onClick={() => setSourcePanel("models")}
             >
@@ -1543,7 +1543,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
           <Button
             variant="chrome"
             size="chip"
-            className="h-5 max-w-28 gap-1 rounded-sm px-1 font-normal text-ui-2xs text-muted-foreground/80 focus-visible:ring-0 focus-visible:underline"
+            className="h-5 max-w-28 gap-1 rounded-control-xs px-1 font-normal text-ui-2xs text-muted-foreground/80 focus-visible:ring-0 focus-visible:underline"
             aria-label={`${t("chat.modelSource.change")}: ${selectedSourceLabel}`}
             onClick={() => setSourcePanel("sources")}
           >

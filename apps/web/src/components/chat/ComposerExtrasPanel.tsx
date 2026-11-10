@@ -136,7 +136,7 @@ export function ComposerExtrasPanel(props: {
                               type="button"
                               aria-label="Choose another window"
                               className={cn(
-                                "-mr-1 flex size-5 items-center justify-center rounded-md text-muted-foreground/60 transition-colors",
+                                "-mr-1 flex size-5 items-center justify-center rounded-control text-muted-foreground/60 transition-colors",
                                 "hover:bg-[var(--color-background-button-secondary)] hover:text-foreground/80",
                               )}
                               onClick={(event) => {

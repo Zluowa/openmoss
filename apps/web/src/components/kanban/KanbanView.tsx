@@ -8,37 +8,26 @@ import type { ProjectId } from "@moss/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Button } from "~/components/ui/button";
-import { FilterPillGroup } from "~/components/FilterPillGroup";
 import { RouteInsetSurface } from "../RouteInsetSurface";
 import { useNowMs } from "~/hooks/useNowMs";
 import { useThreadPullRequests } from "~/hooks/useThreadPullRequests";
-import { ArrowLeftIcon } from "~/lib/icons";
 import { isNewTaskShortcut } from "~/lib/newTaskShortcut";
 
 import { useStore } from "../../store";
-import { NewTaskButton } from "../tasks/NewTaskButton";
-import { TasksViewSwitch } from "../tasks/TasksViewSwitch";
-import { RouteSurface, RouteSurfaceHeader } from "../RouteSurface";
+import { TasksPageHeader } from "../tasks/TasksPageHeader";
+import { RouteSurface } from "../RouteSurface";
+import { KanbanFilterMenu } from "./KanbanFilterMenu";
 import { KanbanNewTaskDialog } from "./KanbanNewTaskDialog";
 import { KanbanOverview } from "./KanbanOverview";
 import { KanbanProjectBoardView } from "./KanbanProjectBoardView";
 import { useKanbanBoard } from "./useKanbanBoard";
 import { useKanbanCardContextMenu } from "./useKanbanCardContextMenu";
 import { overviewVisibleKanbanCards, type KanbanCard } from "./kanban.logic";
-import { useKanbanUiStore, type KanbanViewMode } from "../../kanbanUiStore";
-
-const BOARD_VIEW_OPTIONS: ReadonlyArray<{ value: KanbanViewMode; label: string }> = [
-  { value: "v2", label: "Attention" },
-  { value: "classic", label: "Classic" },
-];
 
 export default function KanbanView({ projectId }: { projectId: string | null }) {
   const navigate = useNavigate();
   const board = useKanbanBoard();
   const threadsHydrated = useStore((state) => state.threadsHydrated);
-  const kanbanViewMode = useKanbanUiStore((state) => state.kanbanViewMode);
-  const setKanbanViewMode = useKanbanUiStore((state) => state.setKanbanViewMode);
 
   const projectBoard =
     projectId === null
@@ -60,19 +49,18 @@ export default function KanbanView({ projectId }: { projectId: string | null }) 
     [allProjects],
   );
   const renderedCardThreads = useMemo(() => {
-    const isV2 = kanbanViewMode === "v2";
     const cards = projectBoard
       ? [
           ...projectBoard.inProgress,
-          ...(isV2 ? projectBoard.awaitingYou : []),
+          ...projectBoard.awaitingYou,
           ...projectBoard.draft,
           ...projectBoard.done,
         ]
       : board.projects.flatMap(
-          (candidate) => overviewVisibleKanbanCards(candidate, isV2).visibleCards,
+          (candidate) => overviewVisibleKanbanCards(candidate, true).visibleCards,
         );
     return cards.flatMap((card) => (card.thread ? [card.thread] : []));
-  }, [board.projects, kanbanViewMode, projectBoard]);
+  }, [board.projects, projectBoard]);
   const prByThreadId = useThreadPullRequests({
     threads: renderedCardThreads,
     projectCwdById,
@@ -157,39 +145,17 @@ export default function KanbanView({ projectId }: { projectId: string | null }) 
   return (
     <RouteInsetSurface>
       <RouteSurface>
-        <RouteSurfaceHeader>
-          <div className="flex min-w-0 flex-1 items-center gap-2 [-webkit-app-region:no-drag]">
-            {projectBoard ? (
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                onClick={handleBackToOverview}
-                aria-label="Back to all projects"
-              >
-                <ArrowLeftIcon className="size-4" />
-              </Button>
-            ) : null}
-            <h2 className="max-w-[clamp(16rem,50vw,40rem)] truncate text-ui-lg font-medium text-foreground">
-              {projectBoard ? projectBoard.projectName : "Kanban"}
-            </h2>
-            <span className="shrink-0 text-ui leading-snug text-muted-foreground/70">
-              {`${projectBoard ? projectBoard.totalCount : board.totalCount} tasks`}
-            </span>
-            {projectBoard ? null : <TasksViewSwitch current="kanban" />}
-            <FilterPillGroup
-              ariaLabel="Board view"
-              value={kanbanViewMode}
-              options={BOARD_VIEW_OPTIONS}
-              onChange={setKanbanViewMode}
-            />
-            <NewTaskButton
-              disabled={newTaskProjectOptions.length === 0}
-              onClick={handleNewTaskInProjectBoard}
-            />
-          </div>
-        </RouteSurfaceHeader>
+        <TasksPageHeader
+          view="kanban"
+          {...(projectBoard
+            ? { title: projectBoard.projectName, onBack: handleBackToOverview }
+            : {})}
+          filter={<KanbanFilterMenu />}
+          onNewTask={handleNewTaskInProjectBoard}
+          newTaskDisabled={newTaskProjectOptions.length === 0}
+        />
 
-        <div className="min-h-0 min-w-0 flex-1 pt-3">
+        <div className="min-h-0 min-w-0 flex-1 pt-2">
           {projectBoard ? (
             <KanbanProjectBoardView
               board={projectBoard}
@@ -198,7 +164,6 @@ export default function KanbanView({ projectId }: { projectId: string | null }) 
               onNewTask={handleNewDraftInProjectBoard}
               prByThreadId={prByThreadId}
               nowMs={nowMs}
-              viewMode={kanbanViewMode}
             />
           ) : (
             <KanbanOverview
@@ -209,7 +174,6 @@ export default function KanbanView({ projectId }: { projectId: string | null }) 
               onNewTask={handleNewTask}
               prByThreadId={prByThreadId}
               nowMs={nowMs}
-              viewMode={kanbanViewMode}
             />
           )}
         </div>

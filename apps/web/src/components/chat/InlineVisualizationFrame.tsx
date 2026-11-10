@@ -51,7 +51,7 @@ export function InlineVisualizationFrame(props: {
   if (unavailable) {
     return (
       <div
-        className="my-2 rounded-md border border-border/70 bg-muted/20 px-3 py-2 text-ui-xs text-muted-foreground"
+        className="my-2 rounded-control border border-border/70 bg-muted/20 px-3 py-2 text-ui-xs text-muted-foreground"
         data-inline-visualization-state="unavailable"
       >
         <p>{t("chat.visualReply.unavailable")}</p>
@@ -74,7 +74,7 @@ export function InlineVisualizationFrame(props: {
   if (src === undefined) {
     return (
       <div
-        className="my-2 h-80 animate-pulse rounded-md bg-muted/30"
+        className="my-2 h-80 animate-pulse rounded-control bg-muted/30"
         data-inline-visualization-state="loading"
       />
     );

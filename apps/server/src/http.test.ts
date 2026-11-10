@@ -436,6 +436,45 @@ describe("production Effect HTTP routes", () => {
     });
   });
 
+  it("caches Canvas's hashed assets for good and revalidates its pages", async () => {
+    const canvasDir = makeTempDir("moss-effect-canvas-cache-");
+    mkdirSync(path.join(canvasDir, "assets"));
+    writeFileSync(path.join(canvasDir, "index.html"), "<main>Canvas cache fixture</main>");
+    writeFileSync(
+      path.join(canvasDir, "assets", "editor-Ab12Cd34.js"),
+      "globalThis.editor = true;",
+    );
+    vi.stubEnv("MOSS_CANVAS_STATIC_DIR", canvasDir);
+
+    await withEffectServer(makeConfig(), { kind: "canvas" }, async (origin) => {
+      const asset = await fetch(`${origin}/canvas/assets/editor-Ab12Cd34.js`);
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      const assetTag = asset.headers.get("etag");
+      expect(assetTag).toMatch(/^W\//u);
+      await asset.text();
+
+      const page = await fetch(`${origin}/canvas/`);
+      expect(page.headers.get("cache-control")).toBe("no-cache");
+      const pageTag = page.headers.get("etag")!;
+      await page.text();
+      const revalidated = await fetch(`${origin}/canvas/`, {
+        headers: { "If-None-Match": pageTag },
+      });
+      expect(revalidated.status).toBe(304);
+      expect(await revalidated.text()).toBe("");
+
+      // A missing hashed asset is a 404, never the app shell cached as a script.
+      const missing = await fetch(`${origin}/canvas/assets/gone-Zz99.js`);
+      expect(missing.status).toBe(404);
+      expect(await missing.text()).not.toContain("Canvas cache fixture");
+      // Client-side Canvas routes still get the shell.
+      expect(await (await fetch(`${origin}/canvas/project/demo`)).text()).toContain(
+        "Canvas cache fixture",
+      );
+    });
+  });
+
   it("serves the real Page editor entry separately from the Canvas app shell", async () => {
     const canvasDir = makeTempDir("moss-effect-page-editor-");
     mkdirSync(path.join(canvasDir, "assets"));

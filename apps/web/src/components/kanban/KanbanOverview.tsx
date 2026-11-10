@@ -1,7 +1,7 @@
 // FILE: KanbanOverview.tsx
 // Purpose: Top kanban layer — one column per project (In Progress → Draft → Done cards);
-//          clicking a project drills into its full 3-column board. v2 mode threads the
-//          attention-first flatten order and the needs-review filter.
+//          clicking a project drills into its full board. Cards follow the attention-first
+//          flatten order; the needs-review filter lives in the page header.
 // Layer: UI component (read-only; drag & drop lives in the project board)
 // Exports: KanbanOverview
 
@@ -9,9 +9,7 @@ import type { ProjectId } from "@moss/contracts";
 import { Button } from "~/components/ui/button";
 import { ChevronRightIcon, PlusIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
-import type { KanbanViewMode } from "../../kanbanUiStore";
 import { KanbanCardView, type KanbanCardPrLookup } from "./KanbanCardView";
-import { NeedsReviewFilter } from "./NeedsReviewFilter";
 import {
   overviewVisibleKanbanCards,
   type KanbanBoard,
@@ -27,7 +25,6 @@ const OverviewProjectColumn = function OverviewProjectColumn({
   onNewTask,
   prByThreadId,
   nowMs,
-  viewMode,
 }: {
   projectBoard: KanbanProjectBoard;
   onOpenProject: (projectId: ProjectId) => void;
@@ -36,9 +33,8 @@ const OverviewProjectColumn = function OverviewProjectColumn({
   onNewTask: (projectId: ProjectId) => void;
   prByThreadId: KanbanCardPrLookup;
   nowMs?: number;
-  viewMode: KanbanViewMode;
 }) {
-  const { visibleCards, hiddenCount } = overviewVisibleKanbanCards(projectBoard, viewMode === "v2");
+  const { visibleCards, hiddenCount } = overviewVisibleKanbanCards(projectBoard, true);
 
   return (
     <section className="flex w-72 shrink-0 flex-col">
@@ -47,14 +43,14 @@ const OverviewProjectColumn = function OverviewProjectColumn({
           type="button"
           onClick={() => onOpenProject(projectBoard.projectId)}
           className={cn(
-            "group/kanban-project flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors",
-            "hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
+            "group/kanban-project flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-2 text-left transition-colors",
+            "hover:bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,transparent)] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
           )}
         >
-          <h2 className="min-w-0 truncate text-ui-lg font-semibold text-foreground/90">
+          <h2 className="min-w-0 truncate text-ui font-medium text-foreground">
             {projectBoard.projectName}
           </h2>
-          <span className="text-ui leading-snug text-muted-foreground/70">
+          <span className="text-ui-sm leading-snug text-muted-foreground">
             {projectBoard.totalCount}
           </span>
           <ChevronRightIcon className="ml-auto size-4 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover/kanban-project:opacity-100 group-focus-visible/kanban-project:opacity-100" />
@@ -70,7 +66,7 @@ const OverviewProjectColumn = function OverviewProjectColumn({
           <PlusIcon className="size-4" />
         </Button>
       </div>
-      <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-1">
+      <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-1">
         {visibleCards.map((card) => (
           <li key={card.cardId} className="list-none">
             <KanbanCardView
@@ -87,7 +83,7 @@ const OverviewProjectColumn = function OverviewProjectColumn({
             <button
               type="button"
               onClick={() => onOpenProject(projectBoard.projectId)}
-              className="w-full rounded-lg px-3 py-1.5 text-center text-ui leading-snug text-muted-foreground/80 transition-colors hover:bg-muted/40 hover:text-foreground"
+              className="w-full rounded-control px-3 py-1.5 text-center text-ui-sm leading-snug text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,transparent)] hover:text-foreground"
             >
               Show {hiddenCount} more
             </button>
@@ -106,7 +102,6 @@ export function KanbanOverview({
   onNewTask,
   prByThreadId,
   nowMs,
-  viewMode,
 }: {
   board: KanbanBoard;
   onOpenProject: (projectId: ProjectId) => void;
@@ -115,7 +110,6 @@ export function KanbanOverview({
   onNewTask: (projectId: ProjectId) => void;
   prByThreadId: KanbanCardPrLookup;
   nowMs?: number;
-  viewMode: KanbanViewMode;
 }) {
   // Projects without any cards are pure noise on the overview; their boards stay
   // reachable through /kanban/$projectId if linked directly.
@@ -136,12 +130,7 @@ export function KanbanOverview({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {viewMode === "v2" ? (
-        <div className="flex shrink-0 items-center gap-2 px-4 pb-2">
-          <NeedsReviewFilter />
-        </div>
-      ) : null}
-      <div className="flex min-h-0 flex-1 gap-4 overflow-x-auto px-4 pb-4">
+      <div className="flex min-h-0 flex-1 gap-5 overflow-x-auto px-4 pb-4">
         {visibleProjects.map((projectBoard) => (
           <OverviewProjectColumn
             key={projectBoard.projectId}
@@ -152,7 +141,6 @@ export function KanbanOverview({
             onNewTask={onNewTask}
             prByThreadId={prByThreadId}
             {...(nowMs !== undefined ? { nowMs } : {})}
-            viewMode={viewMode}
           />
         ))}
       </div>

@@ -3540,7 +3540,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           />
                           <button
                             type="button"
-                            className="inline-flex items-center justify-center rounded-md p-1 text-muted-foreground/70 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground/80"
+                            className="inline-flex items-center justify-center rounded-control p-1 text-muted-foreground/70 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground/80"
                             aria-expanded={fileChangesExpanded}
                             aria-label={
                               fileChangesExpanded
@@ -3748,7 +3748,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         row.kind === "message" && row.message.role === "assistant" ? "group/assistant" : null,
         (row.kind === "message" || row.kind === "message-segment") &&
           row.message.id === highlightedMessageId
-          ? "rounded-xl bg-[var(--color-background-elevated-secondary)]"
+          ? "rounded-card bg-[var(--color-background-elevated-secondary)]"
           : null,
         enteringMessageRowIds.has(row.id) ? "chat-message-send-enter" : null,
       )}

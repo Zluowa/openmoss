@@ -13,42 +13,9 @@ import {
 } from "./localization";
 
 const primaryCopy = [
-  ["sidebar.surface.switch", "Switch sidebar surface", "切换侧边栏界面"],
-  ["sidebar.surface.mossDescription", "Build, debug, and ship", "构建、调试与发布"],
-  ["sidebar.surface.studioDescription", "Open-ended agent work", "开放式智能体工作"],
   ["sidebar.openNewChatHome", "Open new chat home", "打开新建全局对话主页"],
   ["sidebar.noProjectsYet", "No projects yet", "暂无项目"],
   ["sidebar.space.active", "Active", "当前"],
-  ["sidebar.space.empty.projectTitle", "{name} is empty", "{name} 为空"],
-  ["sidebar.space.empty.voidTitle", "Void is empty", "未归类项目为空"],
-  [
-    "sidebar.space.empty.moveHint",
-    "Move projects here, or right-click a project to file it.",
-    "将项目移到这里，或右键点击项目将其归类。",
-  ],
-  [
-    "sidebar.space.empty.unfiledHint",
-    "New and unassigned projects appear here.",
-    "新建且尚未归类的项目会显示在这里。",
-  ],
-  ["sidebar.space.empty.moveHere", "Move projects here", "将项目移到这里"],
-  ["sidebar.spacePicker.noProjectsYet", "No projects yet.", "暂无项目。"],
-  ["sidebar.spacePicker.noMatchingProjects", "No matching projects.", "没有匹配的项目。"],
-  [
-    "sidebar.spacePicker.everyProjectInTarget",
-    "Every project is already in {space}.",
-    "所有项目都已在 {space} 中。",
-  ],
-  ["sidebar.spacePicker.thisSpace", "this space", "此空间"],
-  ["sidebar.spacePicker.title", "Move projects to {space}", "将项目移到 {space}"],
-  [
-    "sidebar.spacePicker.description",
-    "Choose existing projects. Their chats and pinned state move with them.",
-    "选择已有项目。项目中的对话和置顶状态会一并移动。",
-  ],
-  ["sidebar.spacePicker.moving", "Moving…", "正在移动…"],
-  ["sidebar.spacePicker.moveProjects", "Move projects", "移动项目"],
-  ["sidebar.spacePicker.moveError", "Unable to move the selected projects.", "无法移动所选项目。"],
   ["settings.behavior.followUp.title", "Follow-up behavior", "后续消息处理"],
   [
     "settings.behavior.followUp.description",
@@ -75,7 +42,6 @@ const primaryCopy = [
     "Show pull request diff colors",
     "显示拉取请求差异着色",
   ],
-  ["sidebar.newSpace", "New space", "新建空间"],
   ["sidebar.help", "Help", "帮助"],
   ["chat.composer.addImagesAria", "Add images to the message", "向消息添加图片"],
   ["chat.composer.fast", "Fast", "快速"],
@@ -364,16 +330,11 @@ describe("HEL-20 primary zh-CN localization contract", () => {
       {
         path: "./components/Sidebar.tsx",
         keys: [
-          "sidebar.surface.switch",
-          "sidebar.surface.mossDescription",
-          "sidebar.surface.studioDescription",
           "sidebar.openNewChatHome",
           "sidebar.newChat",
           "sidebar.newThread",
           "sidebar.project.newConversationAria",
           "sidebar.project.newConversationTooltip",
-          "sidebar.newSpace",
-          "sidebar.newSpace.description",
           "sidebar.noChatsYet",
           "sidebar.activity.switchToActivityView",
           "sidebar.activity.switchToClassicView",
@@ -603,50 +564,6 @@ describe("HEL-20 primary zh-CN localization contract", () => {
         ],
       },
       {
-        path: "./components/SpaceSwitcher.tsx",
-        keys: ["sidebar.newSpace"],
-        forbidden: ['aria-label="New space"', ">New space<"],
-      },
-      {
-        path: "./components/SpaceEditorDialog.tsx",
-        keys: [
-          "sidebar.newSpace",
-          "sidebar.newSpace.dialogDescription",
-          "sidebar.spaceEditor.edit.title",
-          "sidebar.spaceEditor.edit.description",
-          "sidebar.spaceEditor.void.title",
-          "sidebar.spaceEditor.void.description",
-          "sidebar.spaceEditor.name",
-          "sidebar.spaceEditor.nameRequired",
-          "sidebar.spaceEditor.nameTaken",
-          "sidebar.spaceEditor.saveFailed",
-          "sidebar.spaceEditor.placeholder.unfiled",
-          "sidebar.spaceEditor.placeholder.work",
-          "sidebar.spaceEditor.icon",
-          "sidebar.spaceEditor.cancel",
-          "sidebar.spaceEditor.saving",
-          "sidebar.spaceEditor.create",
-          "sidebar.spaceEditor.save",
-        ],
-        forbidden: [
-          'props.mode === "create" ? "New space"',
-          '"Edit unfiled group"',
-          '"Edit space"',
-          '"Name the group that holds projects you haven\'t filed into a space. This is a local preference — the projects in it stay where they are."',
-          '"Rename this space or give it a different icon. Its projects stay where they are."',
-          '"Enter a name."',
-          '"That name is already taken."',
-          '"Unable to save the space."',
-          'isVoid ? "Unfiled" : "Work"',
-          ">Name<",
-          ">Icon<",
-          ">Cancel<",
-          'submitting ? "Saving…"',
-          '? "Create space" : "Save"',
-          "error.message",
-        ],
-      },
-      {
         path: "./components/Sidebar.tsx",
         keys: ["sidebar.voice.starting", "sidebar.voice.active", "sidebar.voice.ending"],
         forbidden: [
@@ -687,7 +604,7 @@ describe("HEL-20 primary zh-CN localization contract", () => {
     expect(contents).toContain("chat.permissions.fullAccess");
   });
 
-  it("wires reviewed panel, project-picker, and space-dialog copy through runtime translation calls", () => {
+  it("wires reviewed panel and project-picker copy through runtime translation calls", () => {
     const rightDock = source("./components/chat/RightDock.tsx");
     expect(rightDock).toContain("items.map(({ kind, Icon, label })");
 
@@ -715,46 +632,17 @@ describe("HEL-20 primary zh-CN localization contract", () => {
     expect(projectPicker).toContain("onError: (message) => {");
     expect(projectPicker).toContain("setErrorMessage(message);");
     expect(projectPicker).toContain("setOpen(true);");
-
-    const spaceEditor = source("./components/SpaceEditorDialog.tsx");
-    expect(spaceEditor).toContain('t("sidebar.spaceEditor.edit.title")');
-    expect(spaceEditor).toContain('t("sidebar.spaceEditor.edit.description")');
-    expect(spaceEditor).toContain('t("sidebar.spaceEditor.void.title")');
-    expect(spaceEditor).toContain('t("sidebar.spaceEditor.void.description")');
   });
 
-  it("keeps the reachable space and behavior panels free of hardcoded English copy", () => {
-    const spaceEmptyState = source("./components/SpaceEmptyState.tsx");
-    expect(spaceEmptyState).toContain('t("sidebar.noProjectsYet")');
-    expect(spaceEmptyState).toContain('format("sidebar.space.empty.projectTitle"');
-    expect(spaceEmptyState).toContain('t("sidebar.space.empty.voidTitle")');
-    expect(spaceEmptyState).not.toContain("No projects yet");
+  it("keeps the reachable project and behavior panels free of hardcoded English copy", () => {
+    const sidebar = source("./components/Sidebar.tsx");
+    expect(sidebar).toContain('t("sidebar.noProjectsYet")');
 
     const projectMenuPicker = source("./components/ProjectMenuPicker.tsx");
     expect(projectMenuPicker).toContain('t("chat.projectPicker.searchPlaceholder")');
     expect(projectMenuPicker).toContain('t("sidebar.noProjectsYet")');
     expect(projectMenuPicker).toContain('t("chat.projectPicker.noMatches")');
     expect(projectMenuPicker).not.toContain('"No matching projects"');
-
-    const spacePicker = source("./components/SpaceProjectPickerDialog.tsx");
-    for (const key of [
-      "sidebar.space.active",
-      "sidebar.spacePicker.noProjectsYet",
-      "sidebar.spacePicker.noMatchingProjects",
-      "sidebar.spacePicker.everyProjectInTarget",
-      "sidebar.spacePicker.title",
-      "sidebar.spacePicker.description",
-      "sidebar.spacePicker.moving",
-      "sidebar.spacePicker.moveProjects",
-      "sidebar.spacePicker.moveError",
-      "chat.projectPicker.searchPlaceholder",
-      "sidebar.spaceEditor.cancel",
-    ] as const) {
-      expect(spacePicker, `SpaceProjectPickerDialog must use ${key}`).toContain(key);
-    }
-    expect(spacePicker).not.toContain('"No projects yet."');
-    expect(spacePicker).not.toContain('"No matching projects."');
-    expect(spacePicker).not.toContain('"Follow-up behavior"');
 
     const settings = source("./components/settings/SettingsContent.tsx");
     for (const key of [
@@ -773,59 +661,6 @@ describe("HEL-20 primary zh-CN localization contract", () => {
     expect(settings).not.toContain('{ value: "queue", label: "Queue" }');
     expect(settings).not.toContain('{ value: "steer", label: "Steer" }');
     expect(settings).not.toContain('title: "Pull request diff colors"');
-  });
-
-  it("localizes every Space editor mode title and description", () => {
-    const cases = [
-      ["sidebar.newSpace", "New space", "新建空间"],
-      [
-        "sidebar.newSpace.dialogDescription",
-        "Group projects into a focused work context. Projects you add while a space is open land in it.",
-        "将项目归入一个专注的工作情境。空间打开期间添加的项目会归入该空间。",
-      ],
-      ["sidebar.spaceEditor.edit.title", "Edit space", "编辑空间"],
-      [
-        "sidebar.spaceEditor.edit.description",
-        "Rename this space or give it a different icon. Its projects stay where they are.",
-        "重命名此空间或更换图标。其中的项目位置不会改变。",
-      ],
-      ["sidebar.spaceEditor.void.title", "Edit unfiled group", "编辑未归类分组"],
-      [
-        "sidebar.spaceEditor.void.description",
-        "Name the group that holds projects you haven't filed into a space. This is a local preference — the projects in it stay where they are.",
-        "为尚未归入空间的项目分组命名。这只是本地偏好，不会改变其中项目的位置。",
-      ],
-    ] as const satisfies ReadonlyArray<readonly [TranslationKey, string, string]>;
-
-    for (const [key, english, chinese] of cases) {
-      expect(translateMoss("en", key), key).toBe(english);
-      expect(translateMoss("zh-CN", key), key).toBe(chinese);
-    }
-  });
-
-  it("localizes the complete Space editor form without translating user-entered names", () => {
-    const formCases = [
-      ["sidebar.spaceEditor.name", "Name", "名称"],
-      ["sidebar.spaceEditor.nameRequired", "Enter a name.", "请输入名称。"],
-      ["sidebar.spaceEditor.nameTaken", "That name is already taken.", "该名称已被占用。"],
-      ["sidebar.spaceEditor.saveFailed", "Unable to save the space.", "无法保存空间。"],
-      ["sidebar.spaceEditor.placeholder.unfiled", "Unfiled", "未归类"],
-      ["sidebar.spaceEditor.placeholder.work", "Work", "工作"],
-      ["sidebar.spaceEditor.icon", "Icon", "图标"],
-      ["sidebar.spaceEditor.cancel", "Cancel", "取消"],
-      ["sidebar.spaceEditor.saving", "Saving…", "正在保存…"],
-      ["sidebar.spaceEditor.create", "Create space", "创建空间"],
-      ["sidebar.spaceEditor.save", "Save", "保存"],
-    ] as const satisfies ReadonlyArray<readonly [TranslationKey, string, string]>;
-
-    for (const [key, english, chinese] of formCases) {
-      expect(translateMoss("en", key), key).toBe(english);
-      expect(translateMoss("zh-CN", key), key).toBe(chinese);
-    }
-
-    const spaceEditor = source("./components/SpaceEditorDialog.tsx");
-    expect(spaceEditor).toContain("value={name}");
-    expect(spaceEditor).toContain("onSubmit({ name: trimmedName, icon })");
   });
 
   it("formats ChatHeader dynamic labels while preserving thread names and shortcuts", () => {

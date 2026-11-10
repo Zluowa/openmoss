@@ -19,7 +19,6 @@ import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { mossServerQueryKeys } from "./auth/mossServerReactQuery";
 import { useStore } from "~/store";
 import { initialState } from "~/storeState";
-import { useSpacesUiStore } from "~/spacesUiStore";
 import { createDataSpaceFixture, pageDocument } from "~/test/mossDataSpaceFixture";
 
 let fixture: ReturnType<typeof createDataSpaceFixture>;
@@ -76,7 +75,6 @@ describe("Page recovery when the Canvas bundle cannot connect", () => {
     window.nativeApi = fixture.api;
     localStorage.clear();
     localStorage.setItem("moss:server-settings-migrated:v1", "1");
-    useSpacesUiStore.setState({ activeSpaceId: null });
     useStore.setState({
       ...initialState,
       projects: [
@@ -102,7 +100,6 @@ describe("Page recovery when the Canvas bundle cannot connect", () => {
     await client?.cancelQueries();
     client?.clear();
     useStore.setState(initialState);
-    useSpacesUiStore.setState({ activeSpaceId: null });
     if (previousApi) window.nativeApi = previousApi;
     else delete window.nativeApi;
     localStorage.clear();

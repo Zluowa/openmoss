@@ -205,7 +205,7 @@ function ExplorerLoadingRows(props: { depth: number }) {
     >
       {EXPLORER_SKELETON_ROW_WIDTHS.map((width) => (
         <div key={width} className="flex h-5 items-center gap-1.5">
-          <Skeleton className="size-4 shrink-0 rounded-sm" />
+          <Skeleton className="size-4 shrink-0 rounded-inline" />
           <Skeleton className={cn("h-3 rounded-full", width)} />
         </div>
       ))}

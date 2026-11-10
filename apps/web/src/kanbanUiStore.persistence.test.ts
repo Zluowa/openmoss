@@ -52,28 +52,27 @@ describe("kanbanUiStore view-mode persistence", () => {
     vi.unstubAllGlobals();
   });
 
-  it("defaults fresh state to the v2 board with folded review", async () => {
+  it("defaults fresh state to folded review", async () => {
     const state = (await loadStore()).getState();
-    expect(state.kanbanViewMode).toBe("v2");
     expect(state.kanbanNeedsReviewFilter).toBe(false);
   });
 
-  it("round-trips persisted classic mode through partialize and merge", async () => {
+  it("round-trips the needs-review filter and ignores a saved Classic board choice", async () => {
     const store = await loadStore();
-    store.setState((state) => ({
-      ...state,
-      kanbanViewMode: "classic",
-      kanbanNeedsReviewFilter: true,
-    }));
+    store.setState((state) => ({ ...state, kanbanNeedsReviewFilter: true }));
     const options = persistApi(store).getOptions();
     const persistedState = options.partialize(store.getState());
 
-    expect(persistedState.kanbanViewMode).toBe("classic");
     expect(persistedState.kanbanNeedsReviewFilter).toBe(true);
+    expect(persistedState).not.toHaveProperty("kanbanViewMode");
 
-    const merged = options.merge(persistedState, store.getInitialState());
-    expect(merged.kanbanViewMode).toBe("classic");
+    // Older builds saved `kanbanViewMode: "classic"`; it must load cleanly and drop out.
+    const merged = options.merge(
+      { ...persistedState, kanbanViewMode: "classic" } as typeof persistedState,
+      store.getInitialState(),
+    );
     expect(merged.kanbanNeedsReviewFilter).toBe(true);
+    expect(merged).not.toHaveProperty("kanbanViewMode");
   });
 
   it("turns the filter off with the reveal so a stale fold never persists alone (H1)", async () => {

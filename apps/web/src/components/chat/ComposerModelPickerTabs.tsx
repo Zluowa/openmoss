@@ -624,7 +624,7 @@ export function ComposerModelPickerSourceNotice(props: {
       data-model-picker-notice={source.mossSignIn ? "mossSignIn" : state}
     >
       {moss ? (
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/60 ring-1 ring-border/70">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-muted/60 ring-1 ring-border/70">
           <MossLogo className="size-4" />
         </span>
       ) : (

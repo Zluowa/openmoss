@@ -55,7 +55,6 @@ import {
 } from "../keybindings";
 import { useStore } from "../store";
 import { createProjectLastActivityAtSelector } from "../storeSelectors";
-import { useSpacesUiStore } from "../spacesUiStore";
 import { railItemShowsPanel } from "../appRail.logic";
 import { useRailShellStore } from "../railShellStore";
 import {
@@ -124,12 +123,6 @@ function isRecentViewSwitcherCommitKey(event: KeyboardEvent): boolean {
 
 function ChatRouteGlobalShortcuts() {
   const navigate = useNavigate();
-  const isGroupsRoute = useLocation({
-    select: (location) =>
-      location.pathname.startsWith("/hubs") ||
-      location.pathname.startsWith("/groups") ||
-      location.pathname.startsWith("/studio"),
-  });
   const { toggleSidebar } = useSidebar();
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
@@ -166,7 +159,6 @@ function ChatRouteGlobalShortcuts() {
   const threadsHydrated = useStore((state) => state.threadsHydrated);
   const selectProjectLastActivityAt = useMemo(() => createProjectLastActivityAtSelector(), []);
   const projectLastActivityAt = useStore(selectProjectLastActivityAt);
-  const activeSpaceId = useSpacesUiStore((state) => state.activeSpaceId);
   useTemporaryThreadLifecycle(activeContextThreadId);
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
@@ -187,72 +179,57 @@ function ChatRouteGlobalShortcuts() {
     presentationMode: activeThreadTerminalState?.presentationMode ?? "drawer",
     terminalOpen,
   });
-  // Shortcuts that target "a project" must stay inside the Space you are looking at, or
-  // mod+alt+arrow would switch Space and the next new-thread shortcut would drop you back
-  // out of it.
   const workspacePaths = useMemo(
     () => ({ homeDir, chatWorkspaceRoot, studioWorkspaceRoot, groupsWorkspaceRoot }),
     [chatWorkspaceRoot, groupsWorkspaceRoot, homeDir, studioWorkspaceRoot],
   );
-  const activeSpaceProjects = useMemo(
-    () =>
-      projects.filter(
-        (project) =>
-          isOrdinarySpaceProject(project, workspacePaths) &&
-          (project.spaceId ?? null) === activeSpaceId,
-      ),
-    [activeSpaceId, projects, workspacePaths],
+  const ordinaryProjects = useMemo(
+    () => projects.filter((project) => isOrdinarySpaceProject(project, workspacePaths)),
+    [projects, workspacePaths],
   );
   const groupProjects = useMemo(
     () => projects.filter((project) => isGroupContainerProject(project, workspacePaths)),
     [projects, workspacePaths],
   );
   const currentProjectId = resolveCurrentProjectTargetId(
-    activeSpaceProjects,
+    ordinaryProjects,
     activeProject?.id ?? null,
   );
-  // The remembered project is global, so it is unusable the moment you switch Space. Fall
-  // back to this Space's most recently touched project rather than to nothing.
+  // Falls back to the most recently touched project when the remembered one is gone.
   const latestUsableProjectId = useMemo(
     () =>
       resolveLatestProjectTargetIdWithFallback(
-        activeSpaceProjects,
+        ordinaryProjects,
         latestProjectId,
         projectLastActivityAt,
       ),
-    [activeSpaceProjects, latestProjectId, projectLastActivityAt],
+    [ordinaryProjects, latestProjectId, projectLastActivityAt],
   );
   // Deliberately unscoped: the persisted id is only cleared once the project is gone from
-  // the app entirely, not merely absent from the Space you happen to be in.
+  // the app entirely.
   const persistedLatestProjectStillExists = resolveLatestProjectTargetId(projects, latestProjectId);
-  // A bare "new chat" on the Groups surface lands in the active (or first) group; with
-  // no groups at all there is no implicit container — the /hubs empty state shows.
+  // A bare "new chat" inside a group container (a Mossbot assistant) stays in that group;
+  // the Hubs surface is gone, so with no group to target it is an ordinary new chat.
   const handleNewGroupChatForSurface = useCallback(
     (options?: { fresh?: boolean }) => {
       const targetProjectId = resolveGroupChatTargetProjectId({
         activeProject,
         groupProjects,
       });
-      if (!targetProjectId) {
-        return navigate({ to: "/hubs" }).then((): { ok: true; threadId: null } => ({
-          ok: true,
-          threadId: null,
-        }));
-      }
+      if (!targetProjectId) return handleNewChat();
       return handleNewGroupChat(targetProjectId, options);
     },
-    [activeProject, groupProjects, handleNewGroupChat, navigate],
+    [activeProject, groupProjects, handleNewChat, handleNewGroupChat],
   );
   const handleNewChatForActiveSurface = useCallback(
     () =>
       startFreshChatForActiveSurface({
         activeProject,
-        isGroupsRoute,
         paths: workspacePaths,
         handleNewChat,
         handleNewGroupChat: handleNewGroupChatForSurface,
       }),
-    [activeProject, handleNewChat, handleNewGroupChatForSurface, isGroupsRoute, workspacePaths],
+    [activeProject, handleNewChat, handleNewGroupChatForSurface, workspacePaths],
   );
 
   useEffect(() => {

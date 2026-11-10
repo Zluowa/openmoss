@@ -206,13 +206,6 @@ const HOT_PATH_MODULES: readonly HotPathModule[] = [
     allowedBailoutReasons: [],
   },
   { relativePath: "Sidebar.tsx", allowedBailoutReasons: [] },
-  // Renders every group/coordinator/chat row on the Groups surface — keep it at a
-  // zero-bailout budget like the sidebar itself.
-  {
-    relativePath: "SidebarGroupsSurface.tsx",
-    requiredFunction: "SidebarGroupsSurface",
-    allowedBailoutReasons: [],
-  },
   {
     relativePath: "chat/MessagesTimeline.tsx",
     // `useStableRows` deliberately reads and rewrites a previous-state ref inside

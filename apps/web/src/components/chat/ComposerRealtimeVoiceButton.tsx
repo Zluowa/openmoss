@@ -41,7 +41,7 @@ export function ComposerRealtimeVoiceButton(props: {
       type="button"
       size={mode === "return" ? "icon-xs" : "icon-sm"}
       variant={mode === "return" ? "prominent" : "ghost"}
-      className={mode === "return" ? "size-7 shrink-0 rounded-full" : "shrink-0 rounded-md"}
+      className={mode === "return" ? "size-7 shrink-0 rounded-full" : "shrink-0 rounded-control"}
       disabled={props.disabled || props.busy}
       aria-label={label}
       title={label}

@@ -37,7 +37,7 @@ export function ExternalImage(props: { src: string; alt: string }) {
           event.stopPropagation();
           setAsking(true);
         }}
-        className="inline-grid h-32 w-40 cursor-interaction items-center justify-items-center rounded-xl border border-border bg-black/[0.03] p-4 align-top font-sans text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-black/25"
+        className="inline-grid h-32 w-40 cursor-interaction items-center justify-items-center rounded-card border border-border bg-black/[0.03] p-4 align-top font-sans text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-black/25"
       >
         {t("transcript.image.show")}
       </button>

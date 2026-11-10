@@ -124,7 +124,6 @@ import { useOpenThreadTabsStore } from "../openThreadTabsStore";
 import { resolveSplitViewPaneIdForThread, useSplitViewStore } from "../splitViewStore";
 import { splitViewPaneScopeId } from "../lib/chatPaneScope";
 import { gitQueryKeys } from "../lib/gitReactQuery";
-import { useSpacesUiStore } from "../spacesUiStore";
 import { openMossCanvas, openMossLibraryDestination } from "../lib/mossCanvasBridge";
 import { useRailShellStore } from "../railShellStore";
 import { usePinnedThreadsStore } from "../pinnedThreadsStore";
@@ -5651,13 +5650,13 @@ describe("ChatView transcript geometry (full app)", () => {
         JSON.parse(localStorage.getItem("moss:app-settings:v1") ?? "{}").railShortcuts,
       ).toEqual([`project:${PROJECT_ID}`]);
       await rail.getByRole("button", { name: "Project", exact: true }).click();
-      await expect.poll(() => useRailShellStore.getState().spacesProjectId).toBe(PROJECT_ID);
+      await expect.poll(() => useRailShellStore.getState().railProjectId).toBe(PROJECT_ID);
       await expect
         .element(rail.getByRole("button", { name: "Project", exact: true }))
         .toHaveAttribute("aria-current", "page");
     } finally {
       await mounted.cleanup();
-      useRailShellStore.getState().closeSpacesProject();
+      useRailShellStore.setState({ railProjectId: null });
       useRailShellStore.getState().selectPanelItem("home");
     }
   });
@@ -5913,7 +5912,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("keeps absent project pins when a rail shortcut list contains one", async () => {
+  it("keeps absent project pins and drops Space pins saved by older builds", async () => {
     localStorage.setItem(
       "moss:app-settings:v1",
       JSON.stringify({ railShortcuts: ["project:temporarily-absent", "space:void"] }),
@@ -5933,10 +5932,11 @@ describe("ChatView transcript geometry (full app)", () => {
       await userEvent.keyboard("{Escape}");
       await expect.poll(() => settingsDialogStore.getState().isOpen).toBe(false);
       await waitForLayout();
-      // The absent project pin drops out of the rail but stays in the saved list; the
-      // Space shortcut that still resolves renders as its own rail button.
+      // The absent project pin drops out of the rail but stays in the saved list; Spaces
+      // were removed, so the saved Space pin renders nothing and leaves no gap.
       const rail = await openPhonePrimaryRail(mounted);
-      await expect.element(rail.getByRole("button", { name: "Void", exact: true })).toBeVisible();
+      await expect.element(rail.getByRole("button", { name: "Home", exact: true })).toBeVisible();
+      expect(rail.getByRole("button", { name: "Void", exact: true }).elements()).toHaveLength(0);
       expect(
         JSON.parse(localStorage.getItem("moss:app-settings:v1") ?? "{}").railShortcuts,
       ).toEqual(["project:temporarily-absent", "space:void"]);
@@ -5947,19 +5947,15 @@ describe("ChatView transcript geometry (full app)", () => {
 
   it.each([
     { destination: "Home", keepsActivity: true },
-    { destination: "Spaces", keepsActivity: false },
     { destination: "Project", keepsActivity: false },
-    { destination: "Void", keepsActivity: false },
   ])(
     "keeps Activity=$keepsActivity when selecting rail $destination",
     async ({ destination, keepsActivity }) => {
-      // hiddenRailItems: [] opts back into the upstream rail (Spaces visible) for this
-      // upstream-behavior test; the Moss default hides it.
       localStorage.setItem(
         "moss:app-settings:v1",
         JSON.stringify({
           hiddenRailItems: [],
-          railShortcuts: ["project:project-1", "space:void"],
+          railShortcuts: ["project:project-1"],
         }),
       );
       const mounted = await mountChatView({
@@ -5991,67 +5987,11 @@ describe("ChatView transcript geometry (full app)", () => {
         }
       } finally {
         await mounted.cleanup();
-        useRailShellStore.getState().closeSpacesProject();
+        useRailShellStore.setState({ railProjectId: null });
         useRailShellStore.getState().selectPanelItem("home");
       }
     },
   );
-
-  it("creates a project in the rail Space whose Add project button was clicked", async () => {
-    const currentSpaceId = SpaceId.makeUnsafe("rail-current");
-    const destinationSpaceId = SpaceId.makeUnsafe("rail-destination");
-    const snapshot = createSnapshotForTargetUser({
-      targetMessageId: MessageId.makeUnsafe("rail-create"),
-      targetText: "Rail create",
-    });
-    // Opt back into the upstream rail: the Moss default hides the Spaces item.
-    localStorage.setItem("moss:app-settings:v1", JSON.stringify({ hiddenRailItems: [] }));
-    useSpacesUiStore.getState().setActiveSpaceId(currentSpaceId);
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: {
-        ...snapshot,
-        spaces: [currentSpaceId, destinationSpaceId].map((id, index) => ({
-          id,
-          name: index === 0 ? "Current" : "Destination",
-          icon: "bag",
-          sortOrder: index,
-          createdAt: NOW_ISO,
-          updatedAt: NOW_ISO,
-          deletedAt: null,
-        })),
-        projects: snapshot.projects.map((project) => ({ ...project, spaceId: currentSpaceId })),
-      },
-    });
-    try {
-      const rail = await openPhonePrimaryRail(mounted);
-      await rail.getByRole("button", { name: "Spaces", exact: true }).click();
-      const header = await waitForElement(
-        () =>
-          Array.from(document.querySelectorAll<HTMLElement>(".group\\/project-header")).find(
-            (element) => element.textContent?.includes("Destination"),
-          ) ?? null,
-        "Destination Space header missing",
-      );
-      header.querySelector<HTMLButtonElement>('button[aria-label="Add project"]')!.click();
-      await page.getByLabelText("Project folder path").fill("/repo/rail-created");
-      await page.getByRole("button", { name: "Create project", exact: true }).click();
-      await vi.waitFor(() => {
-        const request = wsRequests.find(
-          (request) =>
-            request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-            "command" in request &&
-            (request.command as { workspaceRoot?: string })?.workspaceRoot === "/repo/rail-created",
-        );
-        expect((request?.command as { spaceId?: string })?.spaceId).toBe(destinationSpaceId);
-      });
-    } finally {
-      await mounted.cleanup();
-      useSpacesUiStore.getState().setActiveSpaceId(null);
-      useRailShellStore.getState().closeSpacesProject();
-      useRailShellStore.getState().selectPanelItem("home");
-    }
-  });
 
   it("refreshes the full conversation when an approval was already answered", async () => {
     const requestId = ApprovalRequestId.makeUnsafe("approval-refresh-race");
@@ -12900,7 +12840,9 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("opens Add project when the global New thread action has no usable project target", async () => {
+  // Owner acceptance 2026-11-11: with no project, 新对话 opened 「创建项目」. It must open the
+  // global chat home instead, like the "Open new chat home" button.
+  it("opens the global chat home, not Add project, when New chat has no project target", async () => {
     useLatestProjectStore.setState({ latestProjectId: PROJECT_ID });
     const snapshot = withActiveHomeChatThread(
       createSnapshotForTargetUser({
@@ -12914,6 +12856,14 @@ describe("ChatView transcript geometry (full app)", () => {
         ...snapshot,
         projects: snapshot.projects.filter((project) => project.kind !== "project"),
       },
+      configureFixture: (nextFixture) => {
+        nextFixture.welcome = {
+          ...nextFixture.welcome,
+          homeDir: "/Users/tester",
+          // The fixture's home chat container lives at the home folder.
+          chatWorkspaceRoot: "/Users/tester",
+        };
+      },
     });
 
     try {
@@ -12922,10 +12872,16 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect.element(newThreadButton).toBeInTheDocument();
       await newThreadButton.click();
 
-      await expect
-        .element(page.getByRole("heading", { name: "Create project" }))
-        .toBeInTheDocument();
-      expect(mounted.router.state.location.pathname).toBe(initialPath);
+      const newChatPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path) && path !== initialPath,
+        "New chat without a project should open a fresh home chat draft.",
+      );
+      const newChatId = newChatPath.slice(1) as ThreadId;
+      expect(useComposerDraftStore.getState().getDraftThread(newChatId)?.projectId).toBe(
+        HOME_PROJECT_ID,
+      );
+      expect(page.getByRole("heading", { name: "Create project" }).elements()).toHaveLength(0);
     } finally {
       await mounted.cleanup();
     }
@@ -13116,137 +13072,6 @@ describe("ChatView transcript geometry (full app)", () => {
       await mounted.cleanup();
     }
   });
-
-  it.each(["/hubs", "/groups", "/studio"])(
-    "restores the saved hub draft from %s and coalesces repeated new-chat clicks",
-    async (initialEntry) => {
-      useComposerDraftStore.setState({
-        draftThreadsByThreadId: {
-          [STUDIO_DRAFT_THREAD_ID]: {
-            projectId: STUDIO_PROJECT_ID,
-            createdAt: NOW_ISO,
-            runtimeMode: "full-access",
-            interactionMode: "default",
-            entryPoint: "chat",
-            branch: null,
-            worktreePath: null,
-            envMode: "local",
-          },
-        },
-        projectDraftThreadIdByProjectId: {
-          [STUDIO_PROJECT_ID]: STUDIO_DRAFT_THREAD_ID,
-        },
-      });
-
-      const mounted = await mountChatView({
-        viewport: DEFAULT_VIEWPORT,
-        // Keep one non-group server thread in the snapshot. This matches the real failure: Groups
-        // has no persisted chats, while the global missing-thread recovery sees known threads and
-        // immediately redirects a transiently-cleared group draft to the home index.
-        snapshot: withStudioProject(
-          withHomeChatProject(
-            createSnapshotForTargetUser({
-              targetMessageId: "msg-user-studio-draft-regression" as MessageId,
-              targetText: "projects-side thread",
-            }),
-          ),
-        ),
-        initialEntry,
-        configureFixture: (nextFixture) => {
-          nextFixture.welcome = {
-            ...nextFixture.welcome,
-            homeDir: "/Users/tester",
-            chatWorkspaceRoot: "/Users/tester/Documents/Moss",
-            studioWorkspaceRoot: "/Users/tester/Documents/Moss/Studio",
-            groupsWorkspaceRoot: "/Users/tester/Documents/Moss/Groups",
-          };
-        },
-      });
-
-      try {
-        expect(mounted.router.state.location.pathname).toBe(`/${STUDIO_DRAFT_THREAD_ID}`);
-        expect(
-          useComposerDraftStore.getState().getDraftThread(STUDIO_DRAFT_THREAD_ID)?.projectId,
-        ).toBe(STUDIO_PROJECT_ID);
-        // Fire the surface-aware new-chat chord twice: on the Groups segment it maps to
-        // the group chat create path, and the second fire must coalesce with the first.
-        await dispatchConfiguredShortcutWhenReady(window, { key: "n", altKey: true });
-        await dispatchConfiguredShortcutWhenReady(window, { key: "n", altKey: true });
-
-        const newThreadPath = await waitForURL(
-          mounted.router,
-          (path) => UUID_ROUTE_RE.test(path),
-          "A fresh hub chat should navigate to a new draft UUID.",
-        );
-        const newThreadId = newThreadPath.slice(1) as ThreadId;
-
-        await vi.waitFor(
-          () => {
-            expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-              projectId: STUDIO_PROJECT_ID,
-              entryPoint: "chat",
-              envMode: "local",
-              branch: null,
-              worktreePath: null,
-              workingDirectory: null,
-            });
-            expect(
-              document.querySelector('[data-testid="workspace-picker-trigger"]'),
-            ).not.toBeNull();
-            expect(
-              useComposerDraftStore.getState().projectDraftThreadIdByProjectId[HOME_PROJECT_ID],
-            ).toBeUndefined();
-            expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-          },
-          { timeout: 8_000, interval: 16 },
-        );
-
-        await page.getByTestId("workspace-picker-trigger").click();
-        const projectFolderOption = await waitForElement(
-          () =>
-            Array.from(document.querySelectorAll<HTMLElement>('[data-slot="combobox-item"]')).find(
-              (item) => item.textContent?.trim() === "project",
-            ) ?? null,
-          "Unable to find the reference folder option.",
-        );
-        projectFolderOption.click();
-        await vi.waitFor(
-          () => {
-            expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).toMatchObject({
-              projectId: STUDIO_PROJECT_ID,
-              envMode: "local",
-              branch: null,
-              worktreePath: null,
-              workingDirectory: "/repo/project",
-            });
-          },
-          { timeout: 8_000, interval: 16 },
-        );
-
-        // A superseded navigation resolves the older navigate() promise before the newer route has
-        // committed. Give route effects enough time to expose a late Home redirect, then assert the
-        // stable final state and cleanup of the displaced group draft.
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
-        await vi.waitFor(
-          () => {
-            const state = useComposerDraftStore.getState();
-            const studioDraftIds = Object.entries(state.draftThreadsByThreadId)
-              .filter(([, draft]) => draft.projectId === STUDIO_PROJECT_ID)
-              .map(([threadId]) => threadId);
-            expect(mounted.router.state.status).toBe("idle");
-            expect(mounted.router.state.location.pathname).toBe(newThreadPath);
-            expect(state.getDraftThread(STUDIO_DRAFT_THREAD_ID)).toBeNull();
-            expect(studioDraftIds).toEqual([newThreadId]);
-            expect(state.projectDraftThreadIdByProjectId[STUDIO_PROJECT_ID]).toBe(newThreadId);
-            expect(state.projectDraftThreadIdByProjectId[HOME_PROJECT_ID]).toBeUndefined();
-          },
-          { timeout: 8_000, interval: 16 },
-        );
-      } finally {
-        await mounted.cleanup();
-      }
-    },
-  );
 
   it("keeps Mossbot secret input visible in the full native conversation timeline", async () => {
     const previousSummaries = useProjectAgentSummariesStore.getState();
@@ -14102,17 +13927,15 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  // MERGE-ADAPT(2026-10-09): Codex 规格 §3.2 (.docs/CODEX_FLOWS_SPEC.md) — the Create
-  // Project dialog is a narrow folder picker with no Space concept; the inline
-  // "New space" flow and Space selector were deliberately removed. Projects file
-  // into the active Space implicitly instead.
-  it("creates a project without any Space affordance and files it into the active Space", async () => {
+  // Codex 规格 §3.2: the Create Project dialog is a narrow folder picker with no Space
+  // concept. Spaces were removed from Moss (2026-11-10): a project an older build filed
+  // under a Space still lists in Home, and a new project is filed under none.
+  it("creates a project without any Space affordance and files it under no Space", async () => {
     const activeSpaceId = SpaceId.makeUnsafe("space-active-no-affordance");
     const baseSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-create-project-no-space-ui" as MessageId,
       targetText: "create project without space ui",
     });
-    useSpacesUiStore.getState().setActiveSpaceId(activeSpaceId);
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: {
@@ -14144,6 +13967,8 @@ describe("ChatView transcript geometry (full app)", () => {
         .find((command) => command?.type === type && matches(command));
 
     try {
+      // The project filed under the old Space is still listed, and no Space tab shows.
+      expect(document.body.textContent).not.toContain("Active");
       await page.getByRole("button", { name: "Add project", exact: true }).click();
       const dialogPopup = await waitForElement(
         () => document.querySelector<HTMLElement>('[data-slot="dialog-popup"]'),
@@ -14170,7 +13995,7 @@ describe("ChatView transcript geometry (full app)", () => {
             (command) => command.workspaceRoot === "/repo/spaced-project",
           );
           expect(projectCreateCommand).toBeDefined();
-          expect(projectCreateCommand?.spaceId).toBe(activeSpaceId);
+          expect(projectCreateCommand?.spaceId).toBeNull();
           expect(
             wsRequests
               .map(readDispatchedCommand)
@@ -14180,21 +14005,17 @@ describe("ChatView transcript geometry (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
     } finally {
-      useSpacesUiStore.getState().setActiveSpaceId(null);
       await mounted.cleanup();
     }
   });
 
-  // MERGE-ADAPT(2026-10-09): Codex 规格 §3.2 (.docs/CODEX_FLOWS_SPEC.md) — the Space
-  // selector (and its provisional-switch rollback) is gone; a failed creation just
-  // surfaces the error, keeps the dialog open, and leaves the active Space alone.
-  it("surfaces project creation failures without touching the active Space", async () => {
+  // Codex 规格 §3.2: a failed creation just surfaces the error and keeps the dialog open.
+  it("surfaces project creation failures and keeps the dialog open", async () => {
     const currentSpaceId = SpaceId.makeUnsafe("space-current");
     const baseSnapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-create-project-space-rollback" as MessageId,
       targetText: "create project space rollback",
     });
-    useSpacesUiStore.getState().setActiveSpaceId(currentSpaceId);
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: {
@@ -14240,12 +14061,10 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect
         .element(page.getByRole("alert"))
         .toHaveTextContent("Project creation failed for test.");
-      expect(useSpacesUiStore.getState().activeSpaceId).toBe(currentSpaceId);
       await expect
         .element(page.getByRole("heading", { name: "Create project" }))
         .toBeInTheDocument();
     } finally {
-      useSpacesUiStore.getState().setActiveSpaceId(null);
       if (previousNativeApi) {
         Object.defineProperty(window, "nativeApi", {
           configurable: true,

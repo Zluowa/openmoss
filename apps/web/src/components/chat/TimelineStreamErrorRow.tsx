@@ -194,7 +194,7 @@ function StreamErrorDetails(props: {
           aria-controls={bodyId}
           aria-expanded={open}
           aria-label={`${toggleLabel}: ${props.accessibleCopy}`}
-          className="absolute inset-0 z-0 cursor-pointer rounded-sm bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+          className="absolute inset-0 z-0 cursor-pointer rounded-row bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
           data-stream-error-details-button="true"
           onClick={() => setOpen((current) => !current)}
         />

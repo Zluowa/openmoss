@@ -28,7 +28,7 @@ export function ForgeRefChip(props: {
       data-forge-ref-chip={forgeRef.kind}
       title={props.href}
       className={cn(
-        "inline rounded-sm px-1.5 box-decoration-clone align-baseline no-underline",
+        "inline rounded-inline px-1.5 box-decoration-clone align-baseline no-underline",
         "bg-[color-mix(in_srgb,var(--color-text-accent)_10%,transparent)] text-[var(--color-text-accent)]",
         "hover:bg-[color-mix(in_srgb,var(--color-text-accent)_18%,transparent)]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

@@ -77,7 +77,7 @@ function PageCommentAvatar(props: {
     <span
       aria-hidden
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full font-semibold leading-none",
+        "inline-flex shrink-0 items-center justify-center rounded-full font-medium leading-none",
         props.agent
           ? "bg-[color-mix(in_srgb,var(--foreground)_5%,var(--popover))]"
           : "bg-[var(--color-text-accent)] text-white",
@@ -123,7 +123,7 @@ function Breadcrumb(props: { readonly pageTitle: string; readonly anchor: PageCo
     <div className="flex min-w-0 items-center gap-1 text-ui-sm text-muted-foreground">
       <span className="min-w-0 truncate">{props.pageTitle}</span>
       <span aria-hidden>›</span>
-      <span className="min-w-0 shrink-0 truncate font-mono text-[11px]">{props.anchor.label}</span>
+      <span className="min-w-0 shrink-0 truncate font-mono text-ui-2xs">{props.anchor.label}</span>
     </div>
   );
 }
@@ -342,7 +342,7 @@ function ThreadCard(props: {
   return (
     <CardFrame label="Comment thread" style={props.position} pulse={props.pulse}>
       <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
-        <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+        <span className="min-w-0 truncate font-mono text-ui-2xs text-muted-foreground">
           {comment.anchor.label}
         </span>
         <div className="flex items-center">

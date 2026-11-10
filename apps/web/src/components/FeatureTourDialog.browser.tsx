@@ -132,7 +132,7 @@ it("announces again when the browser connects to a different installation", asyn
   ]);
 });
 
-it("shows Beta highlights and waits for onboarding and other modal flows to close", async () => {
+it("shows the same highlights on Beta (no Hubs slide) and waits for other modal flows to close", async () => {
   tourState.flavor = "beta";
   useOnboardingDialogStore.setState({ startupGateSettled: false });
   function Flow() {
@@ -154,8 +154,14 @@ it("shows Beta highlights and waits for onboarding and other modal flows to clos
   await expect.element(page.getByRole("dialog", { name: "Existing setup" })).toBeVisible();
   expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
   await page.getByRole("button", { name: "Finish setup" }).click();
-  await page.getByRole("button", { name: "Show Give bigger work a team" }).click();
-  await expect.element(page.getByRole("dialog", { name: "Give bigger work a team" })).toBeVisible();
+  // Hubs were removed (2026-11-10), so Beta ends on the review slide like Stable.
+  await page.getByRole("button", { name: "Show From review to the next change" }).click();
+  await expect
+    .element(page.getByRole("dialog", { name: "From review to the next change" }))
+    .toBeVisible();
+  expect(
+    page.getByRole("button", { name: "Show Give bigger work a team" }).elements(),
+  ).toHaveLength(0);
   await page.getByRole("button", { name: "Start exploring" }).click();
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
 });

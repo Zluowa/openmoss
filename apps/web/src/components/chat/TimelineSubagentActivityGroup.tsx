@@ -239,7 +239,7 @@ export const TimelineSubagentActivityGroup = memo(function TimelineSubagentActiv
               {props.onOpenThread && row.resolvedThreadId ? (
                 <button
                   type="button"
-                  className="inline cursor-interaction rounded-sm bg-transparent p-0 text-start hover:text-default focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring"
+                  className="inline cursor-interaction rounded-inline bg-transparent p-0 text-start hover:text-default focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring"
                   data-subagent-thread-id={row.resolvedThreadId}
                   onClick={() => props.onOpenThread?.(ThreadId.makeUnsafe(row.resolvedThreadId!))}
                 >

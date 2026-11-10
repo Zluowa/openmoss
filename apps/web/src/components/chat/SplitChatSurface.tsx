@@ -307,7 +307,7 @@ function SplitPaneEmptyState(props: {
                 type="button"
                 disabled={isUsed}
                 className={cn(
-                  "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors",
+                  "flex w-full items-center gap-3 rounded-card border px-3 py-2 text-left transition-colors",
                   isUsed
                     ? "cursor-default border-border/30 opacity-35"
                     : "border-[color:var(--color-border-light)] hover:bg-[var(--sidebar-accent)]",
@@ -1006,7 +1006,7 @@ export function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadI
                     key={thread.id}
                     type="button"
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors",
+                      "flex w-full items-center gap-3 rounded-card border px-3 py-2 text-left transition-colors",
                       isSelected
                         ? "border-[color:var(--color-border)] bg-[var(--sidebar-accent)]"
                         : "border-[color:var(--color-border-light)] hover:bg-[var(--sidebar-accent)]",

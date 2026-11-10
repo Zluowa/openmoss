@@ -38,6 +38,11 @@ import { buttonVariants } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { useRadioGroupKeyboardNav } from "~/hooks/useRadioGroupKeyboardNav";
 import { ArrowUpRightIcon, EyeIcon, PlayIcon, StarFilledIcon } from "~/lib/icons";
+import {
+  DISCLOSURE_INNER_CLASS,
+  disclosureContentClassName,
+  disclosureShellClassName,
+} from "~/lib/disclosureMotion";
 import { useTranslation } from "~/localization";
 import { inline } from "./oiuMarkdown";
 import { cx, textOf, toOption, webUrl } from "./oiuStyle";
@@ -153,6 +158,12 @@ const MEDIA_EDGE =
   "after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--border)]";
 
 const PANEL = "rounded-card border border-border bg-card text-card-foreground";
+/**
+ * A card whose title link carries the click shows keyboard focus around the whole card, drawn
+ * inside its edge so rows joined into one list do not cover it.
+ */
+const CARD_FOCUS =
+  "has-[a:focus-visible]:z-10 has-[a:focus-visible]:outline-2 has-[a:focus-visible]:-outline-offset-2 has-[a:focus-visible]:outline-ring";
 const LABEL_TEXT = "text-ui-sm text-muted-foreground";
 const FOCUS_RING =
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
@@ -162,6 +173,9 @@ const FOCUS_RING =
  * link color never leaks into a card or a button.
  */
 const PLAIN_LINK = "!no-underline hover:!no-underline focus-visible:!no-underline";
+/** Focus for a row that is itself the link: inside its edge, so joined rows do not cover it. */
+const ROW_FOCUS =
+  "focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring";
 /** The underline a row's title gets while the row is hovered, as on Moss's own links. */
 const ROW_TITLE_UNDERLINE =
   "underline-offset-[0.18em] decoration-from-font decoration-muted-foreground/50";
@@ -458,7 +472,7 @@ export function SegmentedControlView({ props }) {
             onClick={() => field.setValue(option.value)}
             {...radioItemProps(option.value)}
             className={cx(
-              "h-6 cursor-pointer rounded-inline px-2.5 text-ui-sm whitespace-nowrap transition-colors disabled:cursor-default",
+              "h-7 cursor-pointer rounded-inline px-3 text-ui-sm whitespace-nowrap transition-colors disabled:cursor-default",
               active
                 ? "font-medium text-foreground"
                 : "text-muted-foreground hover:text-foreground",
@@ -549,32 +563,40 @@ export function FaviconView({ props }) {
 function SiteIcon({ url, size }) {
   const href = webUrl(url);
   const host = hostOf(href);
-  const [failed, setFailed] = useState(false);
+  const [state, setState] = useState<"loading" | "loaded" | "failed">("loading");
   const box = { width: size, height: size };
-  if (!href || failed) {
-    return (
-      <span
-        aria-hidden
-        style={{ ...box, fontSize: Math.max(9, size * 0.6) }}
-        className={cx(
-          "inline-flex shrink-0 items-center justify-center rounded-inline font-medium uppercase leading-none text-muted-foreground",
-          INK_FILL,
-        )}
-      >
-        {host.slice(0, 1) || "?"}
-      </span>
-    );
-  }
+  // The letter shows until the site's icon has loaded, so a slow or blocked favicon never
+  // leaves a hole in the row.
+  const letter = (
+    <span
+      aria-hidden
+      style={{ ...box, fontSize: Math.max(9, size * 0.6) }}
+      className={cx(
+        "inline-flex shrink-0 items-center justify-center rounded-inline font-medium uppercase leading-none text-muted-foreground",
+        INK_FILL,
+      )}
+    >
+      {host.slice(0, 1) || "?"}
+    </span>
+  );
+  if (!href || state === "failed") return letter;
   return (
-    <img
-      src={`${new URL(href).origin}/favicon.ico`}
-      alt=""
-      style={box}
-      className="shrink-0 rounded-inline object-contain"
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      onError={() => setFailed(true)}
-    />
+    <span className="relative inline-flex shrink-0" style={box}>
+      {state === "loading" ? letter : null}
+      <img
+        src={`${new URL(href).origin}/favicon.ico`}
+        alt=""
+        style={box}
+        className={cx(
+          "shrink-0 rounded-inline object-contain",
+          state === "loading" && "absolute inset-0 opacity-0",
+        )}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        onLoad={() => setState("loaded")}
+        onError={() => setState("failed")}
+      />
+    </span>
   );
 }
 
@@ -674,7 +696,7 @@ export function VideoView({ props }) {
     >
       <span
         className={cx(
-          "relative block aspect-video w-full overflow-hidden rounded-card",
+          "relative block aspect-video max-h-80 w-full overflow-hidden rounded-card",
           INK_FILL,
           MEDIA_EDGE,
         )}
@@ -743,7 +765,7 @@ export function PulseIndicatorView({ props }) {
       <span
         aria-hidden
         className={cx(
-          "inline-block size-1.5 shrink-0 animate-pulse rounded-full motion-reduce:animate-none",
+          "inline-block size-2 shrink-0 animate-pulse rounded-full motion-reduce:animate-none dark:brightness-130",
           TONE_DOT[tone],
         )}
       />
@@ -761,13 +783,15 @@ export function FlashcardFlipView({ props }) {
   const [open, setOpen] = useState(false);
   return (
     <div
+      // Several study cards stacked on their own join into one deck (index.css, data-oiu-row).
+      data-oiu-row=""
       className={cx("flex min-w-0 cursor-pointer flex-col", PANEL)}
       onClick={(event) => {
         if (event.target instanceof Element && event.target.closest("button, a")) return;
         setOpen((value) => !value);
       }}
     >
-      <div className="flex min-w-0 items-center gap-3 p-3">
+      <div className="flex min-w-0 items-center gap-3 px-3.5 py-3">
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="text-chat font-medium text-foreground">{inline(text(props.front))}</span>
           <span className={LABEL_TEXT}>
@@ -786,15 +810,14 @@ export function FlashcardFlipView({ props }) {
             : t("chat.visualReply.standard.showAnswer")}
         </button>
       </div>
-      <div
-        className={cx(
-          "grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
-          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-        )}
-        aria-hidden={!open}
-      >
-        <div className="min-h-0 overflow-hidden">
-          <div className="border-t border-border px-3 py-2.5 text-chat text-foreground">
+      <div className={disclosureShellClassName(open)} aria-hidden={!open}>
+        <div className={DISCLOSURE_INNER_CLASS}>
+          <div
+            className={disclosureContentClassName(
+              open,
+              "border-t border-border bg-[color-mix(in_srgb,var(--foreground)_2.5%,transparent)] px-3.5 py-3 text-chat text-foreground last:rounded-b-[inherit]",
+            )}
+          >
             {inline(text(props.back))}
           </div>
         </div>
@@ -866,22 +889,25 @@ export function LinkCardView({ props }) {
       ) : null}
     </>
   );
-  const className = cx("flex min-w-0 items-center gap-3 px-3 py-2", PANEL);
+  const className = cx("flex min-w-0 items-center gap-3 px-3.5 py-2.5", PANEL);
   return url ? (
     <ExternalLink
       url={url}
       label={title}
-      className={cx("group", className, PLAIN_LINK, "transition-colors", INK_HOVER, FOCUS_RING)}
+      data-oiu-row=""
+      className={cx("group", className, PLAIN_LINK, "transition-colors", INK_HOVER, ROW_FOCUS)}
     >
       {body}
     </ExternalLink>
   ) : (
-    <div className={className}>{body}</div>
+    <div data-oiu-row="" className={className}>
+      {body}
+    </div>
   );
 }
 
 const CHIP = cx(
-  "group/chip inline-flex h-4.5 max-w-36 items-center rounded-inline px-1.5 align-[1px] text-ui-xs font-medium leading-none transition-colors",
+  "group/chip inline-flex h-5 max-w-40 items-center rounded-inline px-1.5 align-[1px] text-ui-xs font-medium leading-none transition-colors",
   INK_FILL,
   INK_FILL_HOVER,
   "data-[popup-open]:bg-[color-mix(in_srgb,var(--foreground)_9%,transparent)]",
@@ -918,17 +944,35 @@ function CitationMarker({ entries }) {
       <SourceSummary source={first.source} index={first.index} />
       {rest.length ? (
         <span className="-mx-1 flex min-w-0 flex-col border-t border-border pt-1.5">
-          {rest.map((entry) => (
-            <span
-              key={entry.index}
-              className="flex h-6 min-w-0 items-center gap-1.5 rounded-control px-1 text-ui-sm text-foreground"
-            >
-              <SiteIcon url={entry.source?.url} size={14} />
-              <span className="min-w-0 truncate">
-                {text(entry.source?.title) || publisherOf(entry.source, entry.index)}
+          {rest.map((entry) => {
+            const href = webUrl(entry.source?.url);
+            const name = text(entry.source?.title) || publisherOf(entry.source, entry.index);
+            const rowClass =
+              "flex h-7 min-w-0 items-center gap-1.5 rounded-control px-1 text-ui-sm text-foreground";
+            return href ? (
+              <ExternalLink
+                key={entry.index}
+                url={href}
+                label={name}
+                className={cx(
+                  rowClass,
+                  "transition-colors",
+                  INK_FILL_HOVER,
+                  PLAIN_LINK,
+                  FOCUS_RING,
+                )}
+              >
+                <SiteIcon url={href} size={14} />
+                {/* The chat link color would win on the anchor itself. */}
+                <span className="min-w-0 truncate text-foreground">{name}</span>
+              </ExternalLink>
+            ) : (
+              <span key={entry.index} className={rowClass}>
+                <SiteIcon url={href} size={14} />
+                <span className="min-w-0 truncate">{name}</span>
               </span>
-            </span>
-          ))}
+            );
+          })}
         </span>
       ) : null}
     </span>
@@ -1085,9 +1129,8 @@ export function EntityCardView({ props }) {
       url={url}
       label={title}
       className={cx(
-        "min-w-0 truncate text-ui font-medium after:absolute after:inset-0 after:rounded-[inherit]",
+        "min-w-0 truncate text-ui font-medium outline-none after:absolute after:inset-0 after:rounded-[inherit]",
         PLAIN_LINK,
-        FOCUS_RING,
       )}
     >
       {titleText}
@@ -1096,7 +1139,7 @@ export function EntityCardView({ props }) {
     <span className="min-w-0 truncate text-ui font-medium text-foreground">{title}</span>
   );
   const metaLine =
-    props.meta || hasRating || (horizontal && props.subtitle) ? (
+    props.meta || hasRating || props.subtitle ? (
       <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-ui-sm text-muted-foreground tabular-nums">
         {props.meta ? (
           <span className="font-medium text-foreground">{text(props.meta)}</span>
@@ -1107,12 +1150,12 @@ export function EntityCardView({ props }) {
           </span>
         ) : null}
         {hasRating ? <Rating rating={props.rating} count={props.ratingCount} /> : null}
-        {horizontal && props.subtitle && (props.meta || hasRating) ? (
+        {props.subtitle && (props.meta || hasRating) ? (
           <span aria-hidden className="opacity-60">
             ·
           </span>
         ) : null}
-        {horizontal && props.subtitle ? <span>{text(props.subtitle)}</span> : null}
+        {props.subtitle ? <span>{text(props.subtitle)}</span> : null}
       </span>
     ) : null;
   const badgeNode = badge ? (
@@ -1130,7 +1173,7 @@ export function EntityCardView({ props }) {
       className={cx(
         "relative shrink-0 overflow-hidden",
         INK_FILL,
-        horizontal ? "size-11 rounded-control" : "block aspect-[4/3] w-full",
+        horizontal ? "size-12 rounded-control" : "block aspect-video w-full",
         horizontal && MEDIA_EDGE,
       )}
     >
@@ -1147,10 +1190,11 @@ export function EntityCardView({ props }) {
   if (horizontal) {
     return (
       <div
+        data-oiu-row=""
         className={cx(
-          "group relative flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5",
+          "group relative flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-3",
           PANEL,
-          url && cx("transition-colors", INK_HOVER),
+          url && cx("transition-colors", INK_HOVER, CARD_FOCUS),
         )}
       >
         {picture}
@@ -1166,7 +1210,12 @@ export function EntityCardView({ props }) {
           ) : null}
           {metaLine}
         </div>
-        <EntityActions actions={actions} title={title} />
+        {actions.length ? (
+          // ms-auto keeps the actions on the right edge whether they fit beside the text or wrap.
+          <div className="ms-auto">
+            <EntityActions actions={actions} title={title} />
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -1175,16 +1224,13 @@ export function EntityCardView({ props }) {
       className={cx(
         "group relative flex min-w-0 flex-col overflow-hidden",
         PANEL,
-        url && cx("transition-colors", INK_HOVER),
+        url && cx("transition-colors", INK_HOVER, CARD_FOCUS),
       )}
     >
       {picture}
-      <div className="flex min-w-0 flex-1 flex-col gap-1 p-3">
+      <div className="flex min-w-0 flex-1 flex-col gap-1 px-3.5 py-3">
         <div className="flex min-w-0 items-start gap-2">
-          <div className="flex min-w-0 flex-1 flex-col">
-            {titleLine}
-            {props.subtitle ? <span className={LABEL_TEXT}>{text(props.subtitle)}</span> : null}
-          </div>
+          <div className="flex min-w-0 flex-1 flex-col">{titleLine}</div>
           {badgeNode}
         </div>
         {props.description ? (
@@ -1255,7 +1301,7 @@ export function ImageGridView({ props }) {
               className={cx(
                 "relative block w-full cursor-zoom-in overflow-hidden after:absolute after:inset-0 after:bg-black/0 after:transition-colors hover:after:bg-black/10 focus-visible:z-10",
                 INK_FILL,
-                big ? "h-full min-h-full" : "aspect-square",
+                big ? "h-full min-h-full" : "aspect-[4/3]",
                 captioned && cx("rounded-card", MEDIA_EDGE),
                 FOCUS_RING,
               )}
@@ -1268,7 +1314,7 @@ export function ImageGridView({ props }) {
                 className="size-full object-cover"
               />
               {last ? (
-                <span className="absolute inset-0 z-10 flex items-center justify-center bg-[rgb(20_20_19/0.52)] text-ui font-medium text-white">
+                <span className="absolute inset-0 z-10 flex items-center justify-center bg-[rgb(20_20_19/0.52)] text-ui-lg font-medium text-white">
                   +{hidden}
                 </span>
               ) : null}

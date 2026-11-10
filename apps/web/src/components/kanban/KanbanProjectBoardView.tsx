@@ -39,7 +39,6 @@ import {
 } from "../../lib/kanbanDispatch";
 import { KanbanCardView, type KanbanCardPrLookup } from "./KanbanCardView";
 import { KanbanColumn, parseKanbanColumnDropId } from "./KanbanColumn";
-import { NeedsReviewFilter } from "./NeedsReviewFilter";
 import {
   reorderDraftCardIdsInFullOrder,
   resolveDraftDropAction,
@@ -86,7 +85,6 @@ export function KanbanProjectBoardView({
   onNewTask,
   prByThreadId,
   nowMs,
-  viewMode,
 }: {
   board: KanbanProjectBoard;
   onOpenCard: (card: KanbanCard) => void;
@@ -94,8 +92,6 @@ export function KanbanProjectBoardView({
   onNewTask: () => void;
   prByThreadId: KanbanCardPrLookup;
   nowMs?: number;
-  /** v2 four-column layout vs classic 3-column escape hatch. */
-  viewMode: "classic" | "v2";
 }) {
   const { locale, t } = useTranslation();
   const { settings } = useAppSettings();
@@ -346,19 +342,18 @@ export function KanbanProjectBoardView({
       onDragCancel={handleDragCancel}
     >
       <div className="@container/kanban-project flex h-full min-h-0 w-full min-w-0 flex-col">
-        {viewMode === "v2" ? (
+        {/* The needs-review filter lives in the page header's filter menu; only its
+            folded-tail reveal sits on the board, and only while cards are folded. */}
+        {shouldShowReviewFoldToggle(hasRevealedReviewFold, board.hiddenCount) ? (
           <div className="flex shrink-0 items-center gap-2 px-4 pb-2">
-            <NeedsReviewFilter />
-            {shouldShowReviewFoldToggle(hasRevealedReviewFold, board.hiddenCount) ? (
-              <Button
-                size="xs"
-                variant="ghost"
-                className="text-ui-xs text-muted-foreground/80 hover:text-foreground"
-                onClick={() => setHasRevealedReviewFold(!hasRevealedReviewFold)}
-              >
-                {resolveReviewFoldToggleLabel(hasRevealedReviewFold, board.hiddenCount)}
-              </Button>
-            ) : null}
+            <Button
+              size="xs"
+              variant="ghost"
+              className="text-ui-xs text-muted-foreground/80 hover:text-foreground"
+              onClick={() => setHasRevealedReviewFold(!hasRevealedReviewFold)}
+            >
+              {resolveReviewFoldToggleLabel(hasRevealedReviewFold, board.hiddenCount)}
+            </Button>
           </div>
         ) : null}
         <div
@@ -390,25 +385,23 @@ export function KanbanProjectBoardView({
             prByThreadId={prByThreadId}
             {...nowMsProps}
           />
-          {viewMode === "v2" ? (
-            <KanbanColumn
-              projectId={board.projectId}
-              columnKey="awaitingYou"
-              cards={board.awaitingYou}
-              onOpenCard={handleOpenCard}
-              onCardContextMenu={handleCardContextMenu}
-              // Droppable so a drop onto it produces the explaining toast rather
-              // than silently falling through to empty space (L1).
-              droppable
-              activeCard={activeCard}
-              prByThreadId={prByThreadId}
-              {...nowMsProps}
-            />
-          ) : null}
+          <KanbanColumn
+            projectId={board.projectId}
+            columnKey="awaitingYou"
+            cards={board.awaitingYou}
+            onOpenCard={handleOpenCard}
+            onCardContextMenu={handleCardContextMenu}
+            // Droppable so a drop onto it produces the explaining toast rather
+            // than silently falling through to empty space (L1).
+            droppable
+            activeCard={activeCard}
+            prByThreadId={prByThreadId}
+            {...nowMsProps}
+          />
           <KanbanColumn
             projectId={board.projectId}
             columnKey="done"
-            capDone={viewMode !== "v2" || !needsReviewFilter}
+            capDone={!needsReviewFilter}
             cards={board.done}
             onOpenCard={handleOpenCard}
             onCardContextMenu={handleCardContextMenu}

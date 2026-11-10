@@ -21,6 +21,7 @@ import {
   localImageFileName,
 } from "~/lib/localImageUrls";
 import { setGeneratedImageDragData } from "~/lib/generatedImageDrag";
+import { scheduleMossCanvasPrewarm } from "~/lib/mossCanvasPrewarm";
 import { useIsSharedViewer } from "~/lib/sharedViewer";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "../../localization";
@@ -210,6 +211,11 @@ export function GeneratedImageGallery({
   // The canvas edits the owner's own files; a shared conversation's guest zooms the image
   // instead (the click on the image itself opens it the same way for both).
   const sharedViewer = useIsSharedViewer();
+  const hasFinishedImage = gallery.images.length > 0;
+  // A finished image is when Canvas is likely to be opened next: warm it while idle.
+  useEffect(() => {
+    if (hasFinishedImage && !sharedViewer) scheduleMossCanvasPrewarm();
+  }, [hasFinishedImage, sharedViewer]);
   const containerRef = useRef<HTMLDivElement>(null);
   const thumbnailsRef = useRef<HTMLDivElement>(null);
   const [containerWidthPx, setContainerWidthPx] = useState<number | null>(null);
@@ -413,7 +419,7 @@ export function GeneratedImageGallery({
               key={image.id}
               type="button"
               className={cn(
-                "flex size-14 shrink-0 cursor-interaction overflow-hidden rounded-lg border border-border bg-surface outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "flex size-14 shrink-0 cursor-interaction overflow-hidden rounded-card border border-border bg-surface outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 image.id === selectedImage?.id &&
                   "ring-2 ring-[color:var(--color-accent-blue,#339cff)] focus-visible:ring-[color:var(--color-accent-blue,#339cff)]",
               )}
@@ -440,7 +446,7 @@ export function GeneratedImageGallery({
               key={`pending-${index}`}
               data-testid="generated-image-pending"
               aria-hidden={gallery.images.length === 0 || index > 0 ? true : undefined}
-              className="size-14 shrink-0 overflow-hidden rounded-lg"
+              className="size-14 shrink-0 overflow-hidden rounded-card"
             >
               <GeneratedImagePendingPlaceholder
                 label={t("chat.generatedImage.loadingLabel")}

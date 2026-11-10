@@ -12,7 +12,7 @@ import {
 import { settleDevsReportConfirmation, useDevsReportConfirmStore } from "./devsReportConfirmStore";
 
 const SENT_TEXT_CLASS =
-  "m-0 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-foreground/5 px-3 py-2 font-mono text-ui-sm";
+  "m-0 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-card bg-foreground/5 px-3 py-2 font-mono text-ui-sm";
 
 export function DevsReportConfirmDialog() {
   const { t, format } = useTranslation();
@@ -64,7 +64,7 @@ export function DevsReportConfirmDialog() {
                         key={index}
                         src={url}
                         alt=""
-                        className="size-16 rounded-lg border border-border object-cover"
+                        className="size-16 rounded-card border border-border object-cover"
                       />
                     ))}
                   </div>

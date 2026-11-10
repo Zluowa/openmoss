@@ -30,7 +30,6 @@ describe("startFreshChatForActiveSurface", () => {
         kind: "group",
         cwd: "/Users/tester/Documents/Moss/Groups/Team A",
       },
-      isGroupsRoute: false,
       paths,
       handleNewChat,
       handleNewGroupChat,
@@ -50,7 +49,6 @@ describe("startFreshChatForActiveSurface", () => {
         kind: "studio",
         cwd: "/Users/tester/Documents/Moss/Studio",
       },
-      isGroupsRoute: false,
       paths,
       handleNewChat,
       handleNewGroupChat,
@@ -58,22 +56,6 @@ describe("startFreshChatForActiveSurface", () => {
 
     expect(handleNewGroupChat).toHaveBeenCalledOnce();
     expect(handleNewGroupChat).toHaveBeenCalledWith({ fresh: true });
-    expect(handleNewChat).not.toHaveBeenCalled();
-  });
-
-  it("keeps the global New chat action on the Groups landing route", async () => {
-    const handleNewChat = successfulHandler();
-    const handleNewGroupChat = successfulHandler();
-
-    await startFreshChatForActiveSurface({
-      activeProject: null,
-      isGroupsRoute: true,
-      paths,
-      handleNewChat,
-      handleNewGroupChat,
-    });
-
-    expect(handleNewGroupChat).toHaveBeenCalledOnce();
     expect(handleNewChat).not.toHaveBeenCalled();
   });
 
@@ -87,7 +69,6 @@ describe("startFreshChatForActiveSurface", () => {
 
       await startFreshChatForActiveSurface({
         activeProject,
-        isGroupsRoute: false,
         paths,
         handleNewChat,
         handleNewGroupChat,

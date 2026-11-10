@@ -107,7 +107,7 @@ function ThreadSummarySection({
       <header className="sticky top-0 z-10 flex h-7 w-full min-w-0 items-center justify-start gap-2 bg-[var(--color-background-elevated-primary-opaque)] ps-3.5 pe-2.5 pb-0.5 text-ui-lg text-[var(--color-text-foreground-tertiary)]">
         <button
           type="button"
-          className="group/section-toggle inline-flex min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-1 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+          className="group/section-toggle inline-flex min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-control py-0.5 pr-1 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
           aria-expanded={open}
           aria-controls={contentId}
           onClick={() => setOpen(!open)}
@@ -174,7 +174,7 @@ function SummaryRow({
     </>
   );
   const className =
-    "group relative isolate flex min-h-7 w-full min-w-0 items-center gap-2 rounded-sm border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-sm before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]";
+    "group relative isolate flex min-h-7 w-full min-w-0 items-center gap-2 rounded-row border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-row before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]";
 
   return onClick ? (
     <button type="button" className={className} onClick={onClick} aria-label={ariaLabel}>
@@ -199,7 +199,7 @@ function CreateOutputMenu({
         type="button"
         aria-label={label}
         title={label}
-        className="flex size-6 items-center justify-center rounded-md text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-[var(--color-text-foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+        className="flex size-6 items-center justify-center rounded-control text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-[var(--color-text-foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
       >
         <PlusIcon className="size-4" />
       </button>
@@ -207,7 +207,7 @@ function CreateOutputMenu({
       <button
         type="button"
         aria-label={label}
-        className="group relative isolate flex min-h-7 w-full min-w-0 cursor-pointer items-center rounded-sm border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-sm before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+        className="group relative isolate flex min-h-7 w-full min-w-0 cursor-pointer items-center rounded-row border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-row before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
       </button>
@@ -258,7 +258,7 @@ function AddSourceMenu({
         type="button"
         aria-label={label}
         title={label}
-        className="flex size-6 items-center justify-center rounded-md text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-[var(--color-text-foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+        className="flex size-6 items-center justify-center rounded-control text-[var(--color-text-foreground-secondary)] outline-none transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-[var(--color-text-foreground)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
       >
         <PlusIcon className="size-4" />
       </button>
@@ -266,7 +266,7 @@ function AddSourceMenu({
       <button
         type="button"
         aria-label={label}
-        className="group relative isolate flex min-h-7 w-full min-w-0 cursor-pointer items-center rounded-sm border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-sm before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+        className="group relative isolate flex min-h-7 w-full min-w-0 cursor-pointer items-center rounded-row border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-row before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
       </button>
@@ -359,7 +359,7 @@ function SubagentOverviewRow({
       disabled={!onOpen}
       onClick={onOpen}
       data-preview-count={preview.length}
-      className="group relative isolate flex min-h-7 w-full min-w-0 items-center gap-2 rounded-sm border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-sm before:content-[''] enabled:hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+      className="group relative isolate flex min-h-7 w-full min-w-0 items-center gap-2 rounded-row border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-row before:content-[''] enabled:hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
     >
       <span className="flex shrink-0 items-center gap-1">
         {preview.map((subagent) => (
@@ -474,7 +474,7 @@ export function ThreadSummaryPanelContent({
           {artifacts.length > SUMMARY_INITIAL_VISIBLE_ITEMS ? (
             <button
               type="button"
-              className="w-fit rounded-sm py-1 text-left text-ui-lg text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+              className="w-fit rounded-inline py-1 text-left text-ui-lg text-[var(--color-text-foreground-tertiary)] outline-none hover:text-[var(--color-text-foreground-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
               onClick={() =>
                 setVisibleArtifactCount((current) =>
                   current >= artifacts.length ? SUMMARY_INITIAL_VISIBLE_ITEMS : artifacts.length,
@@ -582,7 +582,7 @@ export function ThreadSummaryPanelContent({
                 })}
                 <button
                   type="button"
-                  className="group relative isolate flex min-h-7 w-full min-w-0 items-center gap-2 rounded-sm border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground-secondary)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-sm before:content-[''] hover:text-[var(--color-text-foreground)] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+                  className="group relative isolate flex min-h-7 w-full min-w-0 items-center gap-2 rounded-row border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground-secondary)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-row before:content-[''] hover:text-[var(--color-text-foreground)] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
                   onClick={() => setSourcesSheetOpen(true)}
                 >
                   <span className="flex size-4 shrink-0 items-center justify-center">

@@ -22,7 +22,6 @@ import { isMacNavigatorPlatform } from "~/lib/utils";
 import { mossServerQueryKeys } from "./auth/mossServerReactQuery";
 import { useStore } from "~/store";
 import { initialState } from "~/storeState";
-import { useSpacesUiStore } from "~/spacesUiStore";
 import { createDataSpaceFixture, pageDocument } from "~/test/mossDataSpaceFixture";
 
 let fixture: ReturnType<typeof createDataSpaceFixture>;
@@ -177,7 +176,6 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     window.nativeApi = fixture.api;
     localStorage.clear();
     localStorage.setItem("moss:server-settings-migrated:v1", "1");
-    useSpacesUiStore.setState({ activeSpaceId: null });
     useStore.setState({
       ...initialState,
       projects: [
@@ -203,7 +201,6 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     await client?.cancelQueries();
     client?.clear();
     useStore.setState(initialState);
-    useSpacesUiStore.setState({ activeSpaceId: null });
     if (previousApi) window.nativeApi = previousApi;
     else delete window.nativeApi;
     localStorage.clear();

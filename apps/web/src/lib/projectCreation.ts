@@ -13,7 +13,6 @@ import {
 } from "@moss/contracts";
 import { getDefaultModel } from "@moss/shared/model";
 
-import { readActiveSpaceId } from "../spacesUiStore";
 import {
   extractDuplicateProjectCreateProjectId,
   isDuplicateProjectCreateError,
@@ -103,10 +102,8 @@ export async function createOrRecoverProjectFromPath(input: {
               provider: seedProvider,
               model: seedModel,
             },
-      // A project created while a space is active belongs to that space — filing it
-      // afterwards would bounce the sidebar back to Void to follow the new project.
-      // Callers with an explicit destination (the Create Project dialog) override it.
-      spaceId: input.spaceId !== undefined ? input.spaceId : readActiveSpaceId(),
+      // Spaces were removed: new projects are never filed under one.
+      spaceId: input.spaceId ?? null,
       createdAt,
     });
 

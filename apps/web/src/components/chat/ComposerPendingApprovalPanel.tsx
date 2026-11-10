@@ -23,7 +23,7 @@ import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 // Approval chrome, modeled on the Codex desktop app's approval card:
 // - shell: 1.5rem radius with a glass fill
 // - header: identity in `text-size-chat-sm text-secondary`, title in `text-size-chat font-medium`
-// - exec body: `rounded-md bg-surface-tertiary font-mono`
+// - exec body: `rounded-control bg-surface-tertiary font-mono`
 //   (conversation token is white, so the well matches the card)
 // - menu: Allow once, then scoped action. Not a second Always allow.
 // i18n: approvalRequestCard.* , execApprovalRequest.shellLabel / .prompt
@@ -45,8 +45,8 @@ function ShortcutKeycap({
       aria-hidden="true"
       className={
         variant === "primary"
-          ? "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-md border-0 bg-[color-mix(in_oklab,currentcolor_10%,transparent)] px-1.5 py-0 font-sans text-ui-sm leading-4 text-[var(--color-text-primary-solid)] shadow-none"
-          : "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-md border-0 bg-[color-mix(in_oklab,currentcolor_10%,transparent)] px-1.5 py-0 font-sans text-ui-sm leading-4 text-[var(--color-text-foreground)] shadow-none"
+          ? "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-control border-0 bg-[color-mix(in_oklab,currentcolor_10%,transparent)] px-1.5 py-0 font-sans text-ui-sm leading-4 text-[var(--color-text-primary-solid)] shadow-none"
+          : "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-control border-0 bg-[color-mix(in_oklab,currentcolor_10%,transparent)] px-1.5 py-0 font-sans text-ui-sm leading-4 text-[var(--color-text-foreground)] shadow-none"
       }
     >
       {children}
@@ -431,7 +431,7 @@ function ApprovalDetail({
           </p>
         ) : null}
         <pre
-          className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[var(--color-background-elevated-secondary)] px-2.5 py-2 font-mono text-ui-sm leading-relaxed text-foreground/85"
+          className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-control bg-[var(--color-background-elevated-secondary)] px-2.5 py-2 font-mono text-ui-sm leading-relaxed text-foreground/85"
           title="Requested permission profile"
         >
           <code>{JSON.stringify(permissionProfile, null, 2)}</code>
@@ -447,7 +447,7 @@ function ApprovalDetail({
           <p className="text-ui-sm leading-snug text-muted-foreground/70">{parsed.fallback}</p>
         ) : null}
         {toolParamsDisplay && toolParamsDisplay.length > 0 ? (
-          <dl className="mt-2 space-y-1 rounded-md bg-[var(--color-background-elevated-secondary)] px-2.5 py-2 text-ui-xs leading-snug">
+          <dl className="mt-2 space-y-1 rounded-control bg-[var(--color-background-elevated-secondary)] px-2.5 py-2 text-ui-xs leading-snug">
             {toolParamsDisplay.map((parameter) => (
               <div className="grid grid-cols-[auto_1fr] gap-x-2" key={parameter.name}>
                 <dt className="font-medium text-muted-foreground/65">
@@ -489,7 +489,7 @@ function ApprovalDetail({
   if (code && code !== suppressText) {
     return (
       <div className="px-3 pb-1">
-        <div className="flex max-h-80 w-full flex-col overflow-hidden rounded-md bg-surface-tertiary text-size-code text-tertiary">
+        <div className="flex max-h-80 w-full flex-col overflow-hidden rounded-control bg-surface-tertiary text-size-code text-tertiary">
           <div className="min-h-0 overflow-y-auto px-2 pt-2 pb-2 font-mono font-medium">
             <Tooltip>
               <TooltipTrigger

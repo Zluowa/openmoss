@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatMossCanvasSelectionContext,
   parseMossCanvasComposeContext,
+  parseMossCanvasImageOpen,
   parseMossCanvasSelection,
 } from "./mossCanvasSelection";
 const selection = {
@@ -18,6 +19,39 @@ const selection = {
     },
   ],
 };
+describe("Canvas image-open message", () => {
+  const open = {
+    type: "moss-canvas-image-open",
+    version: 1,
+    threadId: "thread-a",
+    documentEpoch: 2,
+    item: selection.items[0],
+  };
+  it("accepts one owned image for this thread", () => {
+    expect(parseMossCanvasImageOpen(open, "thread-a")).toEqual({
+      threadId: "thread-a",
+      documentEpoch: 2,
+      item: selection.items[0],
+    });
+  });
+  it("rejects other threads, bad epochs and anything but an owned asset", () => {
+    expect(parseMossCanvasImageOpen(open, "thread-b")).toBeNull();
+    expect(parseMossCanvasImageOpen({ ...open, documentEpoch: 0 }, "thread-a")).toBeNull();
+    expect(parseMossCanvasImageOpen({ ...open, version: 2 }, "thread-a")).toBeNull();
+    expect(
+      parseMossCanvasImageOpen(
+        { ...open, item: { ...open.item, assetId: "https://x.test/a.png" } },
+        "thread-a",
+      ),
+    ).toBeNull();
+    expect(
+      parseMossCanvasImageOpen(
+        { ...open, item: { ...open.item, shapeId: "not-a-shape" } },
+        "thread-a",
+      ),
+    ).toBeNull();
+  });
+});
 describe("Canvas selection protocol", () => {
   it("accepts a bounded owned selection and explicit deselection", () => {
     expect(parseMossCanvasSelection(selection, "thread-a")).toEqual({ ...selection, content: [] });

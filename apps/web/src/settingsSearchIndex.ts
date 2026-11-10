@@ -139,12 +139,6 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
       "Show the standalone Chats list in the sidebar footer chats not tied to a project. sidebar section",
   },
   {
-    id: "general:groups-section",
-    section: "general",
-    title: "Hubs",
-    keywords: "Show the Hubs tab in the sidebar switcher. sidebar section content outbox groups",
-  },
-  {
     id: "general:automation-run-threads",
     section: "general",
     title: "Automation runs",

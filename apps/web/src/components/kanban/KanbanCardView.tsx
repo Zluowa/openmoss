@@ -4,7 +4,6 @@
 // Layer: UI component (pure; drag wiring lives in KanbanColumn)
 // Exports: KanbanCardView
 
-import { GLASS_RAISED_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 import type { ThreadId } from "@moss/contracts";
 
 import {
@@ -27,7 +26,6 @@ import { resolveThreadEnvironmentPresentation } from "~/lib/threadEnvironment";
 import { formatRelativeTime } from "~/lib/relativeTime";
 import { cn } from "~/lib/utils";
 import { formatElapsed } from "../../session-logic";
-import { RAISED_SURFACE_CHROME_CLASS_NAME } from "../chat/composerPickerStyles";
 import { KANBAN_ATTENTION_LABELS, KANBAN_COLUMN_V2_LABELS } from "@moss/shared/kanban";
 import { KanbanStatusIcon } from "./KanbanStatusIcon";
 import { kanbanThreadCardId, refineAttentionFlagsForLivePr, type KanbanCard } from "./kanban.logic";
@@ -190,20 +188,16 @@ function KanbanCardViewComponent({
       onContextMenu={onContextMenu ? (event) => onContextMenu(card, event) : undefined}
       onKeyDown={onKeyDown ? (event) => onKeyDown(card, event) : undefined}
       className={cn(
-        "flex w-full cursor-pointer flex-col gap-1.5 rounded-lg bg-card/70 px-3 py-2.5 text-left transition-colors",
-        RAISED_SURFACE_CHROME_CLASS_NAME,
-        // The shared raised chrome drops its border in dark mode (shadow-only),
-        // which leaves kanban cards edgeless against the column. Re-add a faint
-        // hairline so each card stays visually separated in dark mode.
-        "dark:border dark:border-white/[0.05]",
-        "hover:bg-card focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
-        // A dragged card floats over the board, so it keeps its opaque fill on a glass window.
-        isOverlay ? "bg-card shadow-lg dark:shadow-lg" : GLASS_RAISED_SURFACE_CLASS_NAME,
+        // Moss destination cards are panels: hairline border on the card fill, no grey wash
+        // or glass. Hover tints with ink; a dragged card lifts with the overlay shadow.
+        "flex w-full cursor-pointer flex-col gap-1.5 rounded-panel border border-border bg-card px-3 py-2.5 text-left transition-colors",
+        "hover:border-[color-mix(in_srgb,var(--color-text-foreground)_16%,transparent)] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
+        isOverlay && "shadow-xl",
         isDragSource && "opacity-40",
       )}
     >
       <span className="flex min-w-0 items-start gap-1.5">
-        <span className="line-clamp-2 min-w-0 flex-1 text-ui-lg leading-snug font-medium text-foreground/90">
+        <span className="line-clamp-2 min-w-0 flex-1 text-ui leading-snug font-medium text-foreground">
           {card.title}
         </span>
         {card.thread?.isPinned ? (

@@ -34,7 +34,7 @@ export const ComposerVoiceButton = function ComposerVoiceButton(props: {
     <Button
       size="icon-sm"
       variant={circle ? "circle" : "ghost"}
-      className={circle ? COMPOSER_ACTION_CIRCLE_CLASS_NAME : "shrink-0 rounded-md"}
+      className={circle ? COMPOSER_ACTION_CIRCLE_CLASS_NAME : "shrink-0 rounded-control"}
       disabled={props.disabled || isBusy}
       aria-label={label}
       title={label}

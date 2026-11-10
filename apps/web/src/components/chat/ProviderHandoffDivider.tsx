@@ -56,7 +56,7 @@ export const ProviderHandoffDivider = memo(function ProviderHandoffDivider({
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
           className={cn(
-            "inline-flex min-w-0 shrink items-center gap-2 rounded-sm text-ui-sm transition-opacity duration-150 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-border-focus)]/60",
+            "inline-flex min-w-0 shrink items-center gap-2 rounded-inline text-ui-sm transition-opacity duration-150 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-border-focus)]/60",
             failed ? "text-destructive" : "text-muted-foreground",
           )}
         >

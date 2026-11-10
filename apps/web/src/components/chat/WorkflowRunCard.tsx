@@ -165,7 +165,7 @@ function WorkflowAgentDetail({
   return (
     <div
       data-testid="workflow-agent-detail"
-      className="mb-1 ml-[14px] space-y-1.5 rounded-md border border-border/40 bg-muted/20 px-2 py-1.5"
+      className="mb-1 ml-[14px] space-y-1.5 rounded-control border border-border/40 bg-muted/20 px-2 py-1.5"
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-ui-sm text-muted-foreground/70">
@@ -243,7 +243,7 @@ function WorkflowAgentRowView({
       <button
         type="button"
         data-testid="workflow-agent-row"
-        className="group -mx-1 flex w-[calc(100%+0.5rem)] min-w-0 items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-[var(--color-background-button-secondary-hover)]"
+        className="group -mx-1 flex w-[calc(100%+0.5rem)] min-w-0 items-center gap-2 rounded-control px-1 py-1 text-left transition-colors hover:bg-[var(--color-background-button-secondary-hover)]"
         title={agent.description}
         aria-expanded={expanded}
         onClick={onToggle}

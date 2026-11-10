@@ -25,11 +25,13 @@ import { useTheme } from "~/hooks/useTheme";
 import { CheckIcon } from "~/lib/icons";
 import { findProviderStatus, resolveAgentReadiness } from "~/lib/providerAvailability";
 import { cn } from "~/lib/utils";
-import { CODE_THEME_OPTIONS } from "~/theme/theme.logic";
+import { useTranslation } from "~/localization";
+import { codeThemeLabel } from "~/theme/theme.logic";
 import { ONBOARDING_INSET_CLASS_NAME } from "./layout";
 import {
   classifyProviderSetup,
   describeOnboardingAgentSummary,
+  describeOnboardingDoneSummary,
   isOnboardingSetupStep,
   nextOnboardingStep,
   ONBOARDING_STEPS,
@@ -70,10 +72,6 @@ function isHeroStep(step: OnboardingStep): boolean {
   return step === "welcome" || step === "done";
 }
 
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? "" : "s"}`;
-}
-
 function OnboardingFlow(props: {
   onComplete: () => void;
   projectBusy: boolean;
@@ -87,6 +85,7 @@ function OnboardingFlow(props: {
   const statuses = useProviderStatusesForLocalConfig();
   const providerDetection = useProviderDetection();
   const { activeTheme } = useTheme();
+  const { locale } = useTranslation();
 
   const goBack = () => setStep(previousOnboardingStep(step));
   const goNext = () => setStep(nextOnboardingStep(step));
@@ -111,16 +110,12 @@ function OnboardingFlow(props: {
       };
     }),
   );
-  const themeLabel =
-    CODE_THEME_OPTIONS.find((option) => option.id === activeTheme.codeThemeId)?.label ??
-    activeTheme.codeThemeId;
-  const doneSummary = [
-    describeOnboardingAgentSummary(providerSummary),
-    `${themeLabel} theme`,
-    projectResults.length > 0
-      ? `${plural(projectResults.length, "project")} added`
-      : "No project yet",
-  ].join(" · ");
+  const doneSummary = describeOnboardingDoneSummary({
+    agents: describeOnboardingAgentSummary(providerSummary, locale),
+    themeLabel: codeThemeLabel(activeTheme.codeThemeId, locale),
+    projectsAdded: projectResults.length,
+    locale,
+  });
 
   const description = step === "done" ? doneSummary : STEP_DESCRIPTIONS[step];
   const stepIndex = ONBOARDING_STEPS.indexOf(step);

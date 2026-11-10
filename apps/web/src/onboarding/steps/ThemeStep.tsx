@@ -7,7 +7,13 @@ import { ThemeModePicker } from "~/components/settings/ThemeModePicker";
 import { useRadioGroupKeyboardNav } from "~/hooks/useRadioGroupKeyboardNav";
 import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
-import { CODE_THEME_OPTIONS, getCodeThemeSeed, type ThemeVariant } from "~/theme/theme.logic";
+import { useTranslation } from "~/localization";
+import {
+  CODE_THEME_OPTIONS,
+  codeThemeLabel,
+  getCodeThemeSeed,
+  type ThemeVariant,
+} from "~/theme/theme.logic";
 
 /**
  * Packs that ship both a light and a dark variant. Picking one here sets it for both
@@ -39,6 +45,7 @@ function ThemePackSwatch(props: { codeThemeId: string; variant: ThemeVariant }) 
 
 export function ThemeStep() {
   const { theme, setTheme, activeTheme, resolvedTheme, setCodeThemeId } = useTheme();
+  const { locale } = useTranslation();
   const selectedPackId = activeTheme.codeThemeId;
   const selectPack = (codeThemeId: string) => {
     for (const variant of THEME_VARIANTS) setCodeThemeId(variant, codeThemeId);
@@ -93,7 +100,7 @@ export function ThemeStep() {
               >
                 <ThemePackSwatch codeThemeId={option.id} variant={resolvedTheme} />
                 <span className={cn("truncate text-ui text-foreground", selected && "font-medium")}>
-                  {option.label}
+                  {codeThemeLabel(option.id, locale)}
                 </span>
               </button>
             );

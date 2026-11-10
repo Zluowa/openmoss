@@ -3,16 +3,10 @@
 // Layer: Web helper tests
 // Depends on: projectCreation helper plus mocked NativeApi orchestration calls.
 
-import {
-  type NativeApi,
-  type OrchestrationShellSnapshot,
-  type ProjectId,
-  SpaceId,
-} from "@moss/contracts";
+import { type NativeApi, type OrchestrationShellSnapshot, type ProjectId } from "@moss/contracts";
 import { getDefaultModel } from "@moss/shared/model";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { useSpacesUiStore } from "../spacesUiStore";
 import {
   createOrRecoverProjectFromPath,
   PROJECT_CREATE_MULTI_FOLDER_DUPLICATE_ERROR,
@@ -58,9 +52,7 @@ function makeApi(dispatchCommand: ReturnType<typeof vi.fn>): NativeApi {
 }
 
 describe("createOrRecoverProjectFromPath", () => {
-  afterEach(() => {
-    useSpacesUiStore.getState().setActiveSpaceId(null);
-  });
+  afterEach(() => {});
 
   it("dispatches project.create and returns the synced project", async () => {
     let createdProjectId: ProjectId | null = null;
@@ -210,9 +202,7 @@ describe("createOrRecoverProjectFromPath", () => {
     );
   });
 
-  it("preserves an optimistically selected space before the shell snapshot catches up", async () => {
-    const activeSpaceId = SpaceId.makeUnsafe("space-new");
-    useSpacesUiStore.getState().setActiveSpaceId(activeSpaceId);
+  it("files a new project under no Space (Spaces were removed)", async () => {
     let createdProjectId: ProjectId | null = null;
     const dispatchCommand = vi.fn(async (command: { projectId?: ProjectId }) => {
       createdProjectId = command.projectId ?? null;
@@ -229,7 +219,7 @@ describe("createOrRecoverProjectFromPath", () => {
     expect(dispatchCommand).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "project.create",
-        spaceId: activeSpaceId,
+        spaceId: null,
       }),
     );
   });

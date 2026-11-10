@@ -126,7 +126,7 @@ function BlocksNotice(props: {
 }) {
   return (
     <div
-      className="flex items-center gap-2 rounded-xl border border-border/60 px-3 py-2 text-muted-foreground text-ui-sm"
+      className="flex items-center gap-2 rounded-card border border-border/60 px-3 py-2 text-muted-foreground text-ui-sm"
       role="status"
     >
       <span className="max-w-[40%] truncate text-foreground">{props.title}</span>
@@ -207,7 +207,7 @@ function StatsBlock({ block }: { readonly block: BlockOf<"stats"> }) {
         >
           <span className="line-clamp-2 text-chat-sm text-muted-foreground">{item.label}</span>
           <span
-            className="truncate text-chat-display font-semibold tracking-tight tabular-nums"
+            className="truncate text-chat-display font-medium tracking-tight tabular-nums"
             title={item.value}
           >
             {item.value}

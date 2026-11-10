@@ -2467,8 +2467,9 @@ describe("AppSettingsSchema", () => {
     const decoded = decode(
       JSON.stringify({
         sidebarLayout: "classic",
-        railItemOrder: ["some-future-item", "kanban", "home"],
-        hiddenRailItems: ["some-future-item", "studio"],
+        // "spaces" (Spaces) and "studio" (Hubs) were removed; saved ids drop out too.
+        railItemOrder: ["some-future-item", "spaces", "kanban", "studio", "home"],
+        hiddenRailItems: ["some-future-item", "studio", "spaces", "tasks"],
         sidebarNavOrder: ["some-future-item", "kanban"],
         hiddenSidebarNavItems: ["some-future-item"],
       }),
@@ -2476,7 +2477,7 @@ describe("AppSettingsSchema", () => {
 
     expect(decoded).toMatchObject({
       railItemOrder: ["kanban", "home"],
-      hiddenRailItems: ["studio"],
+      hiddenRailItems: ["tasks"],
     });
     // Settings saved while the classic sidebar existed still decode; its keys are dropped.
     expect(decoded).not.toHaveProperty("sidebarLayout");

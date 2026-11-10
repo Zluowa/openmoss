@@ -38,7 +38,7 @@ interface ThreadFindBarProps {
 const FIND_QUERY_MAX_LENGTH = 200;
 
 const FIND_STEP_BUTTON_CLASS_NAME =
-  "size-6 rounded-md border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/15 hover:text-foreground sm:size-6";
+  "size-6 rounded-control border-transparent bg-transparent text-muted-foreground shadow-none hover:bg-muted-foreground/15 hover:text-foreground sm:size-6";
 
 export function ThreadFindBar({
   open,

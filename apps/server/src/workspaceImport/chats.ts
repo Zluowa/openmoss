@@ -36,6 +36,15 @@ const MAX_CODEX_CHAT_FILE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_CODEX_CHAT_FILES_PER_SOURCE = 1_000;
 const MAX_CODEX_CHAT_BYTES_PER_SOURCE = 16 * 1024 * 1024 * 1024;
 const MAX_SETTINGS_FILE_BYTES = 2 * 1024 * 1024;
+/**
+ * How much of each end of a Codex session the probe reads. Session metadata and the
+ * first messages sit at the start and the latest turns at the end; the middle is tool
+ * output. 1 MiB per end keeps a probe of 1,000 sessions near 2 GiB of reads at worst
+ * instead of 16 GiB.
+ */
+const CODEX_PROBE_WINDOW_BYTES = 1024 * 1024;
+/** Codex sessions the probe inspects at once. */
+const CODEX_PROBE_CONCURRENCY = 8;
 const MAX_CLAUDE_PROJECTS = 500;
 const MAX_IMPORTED_MESSAGES = 2_000;
 const MAX_IMPORTED_MESSAGE_CHARS = 64_000;
@@ -131,6 +140,30 @@ function readTranscriptText(value: unknown): string {
   }
   return "";
 }
+
+type TranscriptTextReader = (value: unknown) => string;
+
+/** Whether `readTranscriptText` would return any text, without building or redacting it. */
+function hasTranscriptText(value: unknown): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.some(hasTranscriptText);
+  const record = asRecord(value);
+  if (!record) return false;
+  if (typeof record.text === "string") return record.text.trim().length > 0;
+  if (typeof record.content === "string") return record.content.trim().length > 0;
+  if (Array.isArray(record.content)) return record.content.some(hasTranscriptText);
+  if (Array.isArray(record.parts)) return record.parts.some(hasTranscriptText);
+  return false;
+}
+
+/**
+ * The probe only counts chats, so it reads messages with this instead of
+ * `readTranscriptText`: the same yes/no answer without running the secret
+ * redaction patterns over every message, and no message text kept in memory.
+ */
+const COUNTED_MESSAGE_TEXT = "…";
+const countTranscriptText: TranscriptTextReader = (value) =>
+  hasTranscriptText(value) ? COUNTED_MESSAGE_TEXT : "";
 
 function uniqueConnectors(values: readonly string[]): string[] {
   const seen = new Set<string>();
@@ -241,11 +274,22 @@ async function readJsonFile(path: string): Promise<unknown> {
   return JSON.parse(raw) as unknown;
 }
 
+/**
+ * Reads one chat file whole. `remainingBytes` is what is left of the source's
+ * aggregate budget: a file that would overrun it is refused from its size alone,
+ * before any of it is read, so a large history costs a stat per skipped file
+ * instead of a full read that is then thrown away.
+ */
 async function readBoundedChatFile(
   filePath: string,
+  remainingBytes: number = MAX_CHAT_FILE_BYTES,
 ): Promise<{ readonly contents: string; readonly stat: import("node:fs").Stats }> {
   const stat = await fs.lstat(filePath);
-  if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_CHAT_FILE_BYTES) {
+  if (
+    stat.isSymbolicLink() ||
+    !stat.isFile() ||
+    stat.size > Math.min(MAX_CHAT_FILE_BYTES, remainingBytes)
+  ) {
     throw new Error("Chat source is not a regular bounded file.");
   }
   const contents = (await readRegularFileNoFollow(filePath, MAX_CHAT_FILE_BYTES)).toString("utf8");
@@ -335,8 +379,10 @@ function parseGenericChatRecord(
     readonly sourceId: string;
     readonly fallbackCwd: string;
     readonly fallbackUpdatedAt: string;
+    readonly readText?: TranscriptTextReader;
   },
 ): CollectedImportChat | null {
+  const readText = input.readText ?? readTranscriptText;
   const record = asRecord(value);
   if (!record) {
     return null;
@@ -349,7 +395,7 @@ function parseGenericChatRecord(
       continue;
     }
     const role = message.role === "user" || message.role === "assistant" ? message.role : null;
-    const text = readTranscriptText(message);
+    const text = readText(message);
     if (!role || text.length === 0) {
       continue;
     }
@@ -402,7 +448,9 @@ function parseClaudeJsonl(input: {
   readonly sourceId: string;
   readonly fallbackCwd: string;
   readonly fallbackUpdatedAt: string;
+  readonly readText?: TranscriptTextReader;
 }): CollectedImportChat | null {
+  const readText = input.readText ?? readTranscriptText;
   const messages: CollectedImportMessage[] = [];
   const connectors: string[] = [];
   let title: string | null = null;
@@ -440,7 +488,7 @@ function parseClaudeJsonl(input: {
     if (record.type !== "user" && record.type !== "assistant") {
       continue;
     }
-    const text = readTranscriptText(record.message ?? record);
+    const text = readText(record.message ?? record);
     if (text.length === 0) {
       continue;
     }
@@ -471,6 +519,7 @@ async function collectClaudeChats(input: {
   readonly env?: NodeJS.ProcessEnv | undefined;
   readonly now: Date;
   readonly fallbackCwd: string;
+  readonly countOnly?: boolean | undefined;
 }): Promise<{ chats: CollectedImportChat[]; olderChatCount: number }> {
   const chats: CollectedImportChat[] = [];
   let olderChatCount = 0;
@@ -521,8 +570,10 @@ async function collectClaudeChats(input: {
       let stat: import("node:fs").Stats;
       let contents: string;
       try {
-        ({ contents, stat } = await readBoundedChatFile(transcriptPath));
-        if (bytesRead + stat.size > MAX_CHAT_BYTES_PER_SOURCE) continue;
+        ({ contents, stat } = await readBoundedChatFile(
+          transcriptPath,
+          MAX_CHAT_BYTES_PER_SOURCE - bytesRead,
+        ));
         filesRead += 1;
         bytesRead += stat.size;
       } catch {
@@ -537,6 +588,7 @@ async function collectClaudeChats(input: {
         sourceId,
         fallbackCwd,
         fallbackUpdatedAt: stat.mtime.toISOString(),
+        ...(input.countOnly ? { readText: countTranscriptText } : {}),
       });
       if (!chat) {
         continue;
@@ -610,7 +662,9 @@ function parseCursorJsonl(input: {
   readonly sourceId: string;
   readonly fallbackCwd: string;
   readonly fallbackUpdatedAt: string;
+  readonly readText?: TranscriptTextReader;
 }): CollectedImportChat | null {
+  const readText = input.readText ?? readTranscriptText;
   const messages: CollectedImportMessage[] = [];
   const connectors: string[] = [];
   let title: string | null = null;
@@ -641,7 +695,7 @@ function parseCursorJsonl(input: {
       updatedAt = timestamp.toISOString();
     }
     const role = record.role === "user" || record.role === "assistant" ? record.role : null;
-    const text = readTranscriptText(record);
+    const text = readText(record);
     if (!role || text.length === 0) {
       continue;
     }
@@ -672,6 +726,7 @@ async function collectCursorChats(input: {
   readonly env?: NodeJS.ProcessEnv | undefined;
   readonly now: Date;
   readonly fallbackCwd: string;
+  readonly countOnly?: boolean | undefined;
 }): Promise<{ chats: CollectedImportChat[]; olderChatCount: number }> {
   const chats: CollectedImportChat[] = [];
   let olderChatCount = 0;
@@ -687,8 +742,10 @@ async function collectCursorChats(input: {
       let stat: import("node:fs").Stats;
       let contents: string;
       try {
-        ({ contents, stat } = await readBoundedChatFile(filePath));
-        if (bytesRead + stat.size > MAX_CHAT_BYTES_PER_SOURCE) continue;
+        ({ contents, stat } = await readBoundedChatFile(
+          filePath,
+          MAX_CHAT_BYTES_PER_SOURCE - bytesRead,
+        ));
         bytesRead += stat.size;
       } catch {
         continue;
@@ -705,6 +762,7 @@ async function collectCursorChats(input: {
             sourceId,
             fallbackCwd: input.fallbackCwd,
             fallbackUpdatedAt: stat.mtime.toISOString(),
+            ...(input.countOnly ? { readText: countTranscriptText } : {}),
           })
         : (() => {
             try {
@@ -713,6 +771,7 @@ async function collectCursorChats(input: {
                 sourceId,
                 fallbackCwd: input.fallbackCwd,
                 fallbackUpdatedAt: stat.mtime.toISOString(),
+                ...(input.countOnly ? { readText: countTranscriptText } : {}),
               });
             } catch {
               return null;
@@ -764,6 +823,7 @@ async function collectGenericProviderChats(input: {
   readonly env?: NodeJS.ProcessEnv | undefined;
   readonly now: Date;
   readonly fallbackCwd: string;
+  readonly countOnly?: boolean | undefined;
 }): Promise<{ chats: CollectedImportChat[]; olderChatCount: number }> {
   const chats: CollectedImportChat[] = [];
   let olderChatCount = 0;
@@ -777,8 +837,10 @@ async function collectGenericProviderChats(input: {
       let stat: import("node:fs").Stats;
       let contents: string;
       try {
-        ({ contents, stat } = await readBoundedChatFile(filePath));
-        if (bytesRead + stat.size > MAX_CHAT_BYTES_PER_SOURCE) continue;
+        ({ contents, stat } = await readBoundedChatFile(
+          filePath,
+          MAX_CHAT_BYTES_PER_SOURCE - bytesRead,
+        ));
         bytesRead += stat.size;
       } catch {
         continue;
@@ -793,6 +855,7 @@ async function collectGenericProviderChats(input: {
             sourceId,
             fallbackCwd: input.fallbackCwd,
             fallbackUpdatedAt,
+            ...(input.countOnly ? { readText: countTranscriptText } : {}),
           })
         : (() => {
             try {
@@ -801,6 +864,7 @@ async function collectGenericProviderChats(input: {
                 sourceId,
                 fallbackCwd: input.fallbackCwd,
                 fallbackUpdatedAt,
+                ...(input.countOnly ? { readText: countTranscriptText } : {}),
               });
             } catch {
               return null;
@@ -988,7 +1052,7 @@ async function readFileSuffixNoFollow(
 function codexRecordHasMessage(record: Record<string, unknown>): boolean {
   if (parseCodexMessageRecord(record, new Date(0).toISOString())) return true;
   const role = record.role === "user" || record.role === "assistant" ? record.role : null;
-  return role !== null && readTranscriptText(record.message ?? record).length > 0;
+  return role !== null && hasTranscriptText(record.message ?? record);
 }
 
 /**
@@ -1009,57 +1073,72 @@ export async function inspectCodexChatInventory(input: {
   }
   let chatCount = 0;
   let olderChatCount = 0;
-  for (const file of filesByPath.values()) {
-    try {
-      const probeWindowBytes = 8 * 1024 * 1024;
-      const { prefix } = await readFilePrefixNoFollow(file.path, probeWindowBytes);
-      // Large Codex sessions can put a tool/output record before the first
-      // user message. Scan the tail window too so probe counts the same
-      // importable session that Apply will discover without reading a 2 GiB
-      // append-only file in full.
-      const windows =
-        file.size > probeWindowBytes
-          ? [prefix, (await readFileSuffixNoFollow(file.path, probeWindowBytes)).suffix]
-          : [prefix];
-      let latestTimestamp: Date | null = null;
-      let hasMessage = false;
-      for (const line of windows.flatMap((window) => window.split(/\r?\n/u))) {
-        if (
-          !line.includes('"response_item"') &&
-          !line.includes('"event_msg"') &&
-          !line.includes('"session_meta"') &&
-          !line.includes('"role"')
-        ) {
-          continue;
-        }
-        try {
-          const record = asRecord(JSON.parse(line) as unknown);
-          if (!record) continue;
-          const payload = record.type === "session_meta" ? asRecord(record.payload) : null;
-          const timestamp =
-            parseImportTimestamp(record.timestamp ?? record.updatedAt ?? record.createdAt) ??
-            parseImportTimestamp(payload?.timestamp ?? payload?.createdAt);
-          if (timestamp && (!latestTimestamp || timestamp > latestTimestamp)) {
-            latestTimestamp = timestamp;
-          }
-          if (codexRecordHasMessage(record)) hasMessage = true;
-        } catch {
-          // Ignore malformed or truncated prefix lines; Apply does the full
-          // resilient parse when the user confirms the import.
-        }
-      }
-      if (!hasMessage) continue;
-      const timestamp = latestTimestamp ?? new Date(file.mtimeMs);
-      if (!isWithinWorkspaceImportWindow({ now: input.now, timestamp })) {
-        olderChatCount += 1;
+  const files = [...filesByPath.values()];
+  let nextFile = 0;
+  const inspectNext = async (): Promise<void> => {
+    while (nextFile < files.length) {
+      const file = files[nextFile]!;
+      nextFile += 1;
+      const verdict = await inspectCodexChatFile(file, input.now);
+      if (verdict === "recent") chatCount += 1;
+      else if (verdict === "older") olderChatCount += 1;
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CODEX_PROBE_CONCURRENCY, files.length) }, () => inspectNext()),
+  );
+  return { chatCount, olderChatCount };
+}
+
+async function inspectCodexChatFile(
+  file: CodexChatFile,
+  now: Date,
+): Promise<"recent" | "older" | null> {
+  try {
+    const probeWindowBytes = CODEX_PROBE_WINDOW_BYTES;
+    const { prefix } = await readFilePrefixNoFollow(file.path, probeWindowBytes);
+    // Large Codex sessions can put a tool/output record before the first
+    // user message. Scan the tail window too so probe counts the same
+    // importable session that Apply will discover without reading a 2 GiB
+    // append-only file in full.
+    const windows =
+      file.size > probeWindowBytes
+        ? [prefix, (await readFileSuffixNoFollow(file.path, probeWindowBytes)).suffix]
+        : [prefix];
+    let latestTimestamp: Date | null = null;
+    let hasMessage = false;
+    for (const line of windows.flatMap((window) => window.split(/\r?\n/u))) {
+      if (
+        !line.includes('"response_item"') &&
+        !line.includes('"event_msg"') &&
+        !line.includes('"session_meta"') &&
+        !line.includes('"role"')
+      ) {
         continue;
       }
-      chatCount += 1;
-    } catch {
-      // A file that cannot be safely opened is not an import candidate.
+      try {
+        const record = asRecord(JSON.parse(line) as unknown);
+        if (!record) continue;
+        const payload = record.type === "session_meta" ? asRecord(record.payload) : null;
+        const timestamp =
+          parseImportTimestamp(record.timestamp ?? record.updatedAt ?? record.createdAt) ??
+          parseImportTimestamp(payload?.timestamp ?? payload?.createdAt);
+        if (timestamp && (!latestTimestamp || timestamp > latestTimestamp)) {
+          latestTimestamp = timestamp;
+        }
+        if (codexRecordHasMessage(record)) hasMessage = true;
+      } catch {
+        // Ignore malformed or truncated prefix lines; Apply does the full
+        // resilient parse when the user confirms the import.
+      }
     }
+    if (!hasMessage) return null;
+    const timestamp = latestTimestamp ?? new Date(file.mtimeMs);
+    return isWithinWorkspaceImportWindow({ now, timestamp }) ? "recent" : "older";
+  } catch {
+    // A file that cannot be safely opened is not an import candidate.
+    return null;
   }
-  return { chatCount, olderChatCount };
 }
 
 function collectCodexConnectors(record: Record<string, unknown>, into: string[]): void {
@@ -1288,7 +1367,9 @@ function parseGenericJsonl(input: {
   readonly sourceId: string;
   readonly fallbackCwd: string;
   readonly fallbackUpdatedAt: string;
+  readonly readText?: TranscriptTextReader;
 }): CollectedImportChat | null {
+  const readText = input.readText ?? readTranscriptText;
   const records: unknown[] = [];
   for (const line of input.contents.split("\n")) {
     const trimmed = line.trim();
@@ -1330,7 +1411,7 @@ function parseGenericJsonl(input: {
       ) ?? parseImportTimestamp(metaPayload?.timestamp ?? metaPayload?.createdAt);
     if (timestamp) updatedAt = timestamp.toISOString();
     const role = record.role === "user" || record.role === "assistant" ? record.role : null;
-    const text = readTranscriptText(record.message ?? record);
+    const text = readText(record.message ?? record);
     if (role && text) {
       const message = { role, text, createdAt: timestamp?.toISOString() ?? updatedAt } as const;
       const key = `${message.role}:${message.createdAt}:${message.text}`;
@@ -1353,7 +1434,7 @@ function parseGenericJsonl(input: {
         nestedRecord.role === "user" || nestedRecord.role === "assistant"
           ? nestedRecord.role
           : null;
-      const nestedText = readTranscriptText(nestedRecord);
+      const nestedText = readText(nestedRecord);
       if (!nestedRole || !nestedText) continue;
       const nestedTimestamp = parseImportTimestamp(
         nestedRecord.createdAt ?? nestedRecord.timestamp,
@@ -1391,6 +1472,11 @@ export async function collectImportChats(input: {
   readonly env?: NodeJS.ProcessEnv | undefined;
   readonly now: Date;
   readonly fallbackCwd: string;
+  /**
+   * The probe only needs counts and working directories: message texts come back
+   * as placeholders, and the secret redaction that Apply needs is skipped.
+   */
+  readonly countOnly?: boolean | undefined;
 }): Promise<{ chats: CollectedImportChat[]; olderChatCount: number }> {
   const source = normalizeWorkspaceImportSource(input.source);
   if (source === "claude") return collectClaudeChats(input);
@@ -1407,6 +1493,7 @@ export async function collectImportChats(input: {
     env: input.env,
     now: input.now,
     fallbackCwd: input.fallbackCwd,
+    countOnly: input.countOnly,
   });
 }
 

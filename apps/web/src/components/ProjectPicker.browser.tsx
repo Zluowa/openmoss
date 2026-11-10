@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ProjectPicker } from "./chat/ProjectPicker";
-import { useSpacesUiStore } from "../spacesUiStore";
 import { useStore } from "../store";
 import { initialState } from "../storeState";
 import type { Project, SidebarThreadSummary } from "../types";
@@ -90,7 +89,6 @@ const clients: QueryClient[] = [];
 beforeEach(() => {
   localizationTestState.locale = "en";
   useStore.setState({ ...initialState, projects: [project], threadsHydrated: true });
-  useSpacesUiStore.setState({ activeSpaceId: null });
   // Home-directory discovery is independent of the registered-project list.
   useWorkspacePathsStore.setState({ homeDir: null });
 });

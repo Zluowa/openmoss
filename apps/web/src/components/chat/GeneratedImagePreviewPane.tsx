@@ -268,7 +268,7 @@ function GeneratedImagePreviewViewToggle(props: {
       role="group"
       aria-label={t("chat.generatedImage.preview.imageView")}
       data-testid="generated-image-preview-view-toggle"
-      className="flex items-center gap-0.5 rounded-lg bg-surface p-1 shadow-sm ring-1 ring-border"
+      className="flex items-center gap-0.5 rounded-card bg-surface p-1 shadow-sm ring-1 ring-border"
     >
       {options.map(({ view, label, Icon }) => {
         const active = props.view === view;
@@ -282,7 +282,7 @@ function GeneratedImagePreviewViewToggle(props: {
             disabled={props.disabled}
             data-testid={`generated-image-preview-view-${view}`}
             className={cn(
-              "flex size-6 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 motion-reduce:transition-none",
+              "flex size-6 items-center justify-center rounded-control text-muted-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 motion-reduce:transition-none",
               active && "bg-surface-secondary text-default shadow-xs",
               !active && "enabled:hover:bg-surface-secondary/70",
               props.disabled && "cursor-default opacity-50",
@@ -591,7 +591,7 @@ function GeneratedImagePlaygroundView(props: {
                     data-generated-image-playground-image="true"
                     data-image-id={image.id}
                     className={cn(
-                      "relative block max-w-full shrink-0 cursor-interaction overflow-hidden rounded-xl bg-surface-secondary/85 outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.995]",
+                      "relative block max-w-full shrink-0 cursor-interaction overflow-hidden rounded-card bg-surface-secondary/85 outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.995]",
                       active && "ring-2 ring-chart-blue",
                     )}
                     onClick={() => props.onActiveImageChange(image.id)}
@@ -764,7 +764,7 @@ function GeneratedImagePreviewRail(props: {
             aria-current={active ? "true" : undefined}
             data-testid={`generated-image-preview-rail-tile-${image.id}`}
             className={cn(
-              "mx-auto mb-2 flex size-[46px] cursor-interaction overflow-hidden rounded-lg border border-default bg-surface-secondary/85 outline-none transition-[opacity,transform] duration-120 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 motion-reduce:transition-none motion-reduce:duration-0",
+              "mx-auto mb-2 flex size-[46px] cursor-interaction overflow-hidden rounded-card border border-default bg-surface-secondary/85 outline-none transition-[opacity,transform] duration-120 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 motion-reduce:transition-none motion-reduce:duration-0",
               active ? "opacity-100" : "opacity-34",
             )}
             style={{ transform: active ? "scale(1.2)" : "scale(0.95)" }}
@@ -777,7 +777,7 @@ function GeneratedImagePreviewRail(props: {
               decoding="async"
               draggable={false}
               referrerPolicy="no-referrer"
-              className="size-full rounded-lg object-cover"
+              className="size-full rounded-card object-cover"
             />
           </button>
         );
@@ -1581,7 +1581,7 @@ export function GeneratedImagePreviewPane(props: {
                   <button
                     type="button"
                     data-testid="generated-image-preview-canvas-coachmark-dismiss"
-                    className="absolute top-2 right-2 -me-1 -mt-1 flex h-6 w-6 items-center justify-center !rounded-md !p-0 !text-inverse outline-none hover:!bg-text-inverse/10 hover:!text-inverse focus-visible:ring-2 focus-visible:ring-ring dark:!text-default dark:hover:!bg-text/10 dark:hover:!text-default"
+                    className="absolute top-2 right-2 -me-1 -mt-1 flex h-6 w-6 items-center justify-center !rounded-control !p-0 !text-inverse outline-none hover:!bg-text-inverse/10 hover:!text-inverse focus-visible:ring-2 focus-visible:ring-ring dark:!text-default dark:hover:!bg-text/10 dark:hover:!text-default"
                     aria-label={t("chat.generatedImage.preview.dismissCoachmark")}
                     title={t("chat.generatedImage.preview.dismissCoachmark")}
                     onClick={dismissCoachmark}
@@ -1731,7 +1731,7 @@ export function GeneratedImagePreviewPane(props: {
                         referrerPolicy="no-referrer"
                         ref={zoomTargetRef}
                         className={cn(
-                          "block shrink-0 rounded-xl object-contain",
+                          "block shrink-0 rounded-card object-contain",
                           scaledImageSize ? "max-w-none" : "max-h-full max-w-full",
                           isOverflowing && !isDragging && "cursor-grab",
                           isDragging && "cursor-grabbing",

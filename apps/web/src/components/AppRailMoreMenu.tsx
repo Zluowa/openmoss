@@ -1,6 +1,6 @@
 // FILE: AppRailMoreMenu.tsx
 // Purpose: Codex-shaped feature and common-plugin menu with persistent sidebar pins, plus
-//          the Spaces and projects the user keeps in the rail as their own shortcuts.
+//          the projects the user keeps in the rail as their own shortcuts.
 // Layer: App shell component
 import type { ComponentType, ReactNode } from "react";
 import { useTranslation } from "~/localization";
@@ -36,15 +36,14 @@ export type AppRailMoreMenuEntry = {
   readonly onTogglePin?: (() => void) | undefined;
 };
 
-/** A Space or project the user can add to the rail as its own shortcut. */
+/** A project the user can add to the rail as its own shortcut. */
 export type AppRailMoreMenuShortcut = {
-  /** Shortcut key ("space:…" / "project:…"). */
+  /** Shortcut key ("project:…"). */
   readonly key: string;
   readonly label: string;
 };
 
 export type AppRailMoreMenuShortcuts = {
-  readonly spaces: readonly AppRailMoreMenuShortcut[];
   readonly projects: readonly AppRailMoreMenuShortcut[];
   readonly pinnedKeys: ReadonlySet<string>;
   readonly onToggle: (key: string) => void;
@@ -69,15 +68,7 @@ function ShortcutsSubmenu({ shortcuts }: { readonly shortcuts: AppRailMoreMenuSh
         <span className="min-w-0 flex-1 truncate">{t("sidebar.more.railShortcuts")}</span>
       </MenuSubTrigger>
       <ComposerPickerMenuSubPopup className="max-h-[min(28rem,calc(100dvh-5rem))] w-56 overflow-y-auto font-normal">
-        {shortcuts.spaces.length > 0 ? (
-          <MenuGroup>
-            <MenuGroupLabel className="font-normal">{t("sidebar.more.railSpaces")}</MenuGroupLabel>
-            {shortcuts.spaces.map(row)}
-          </MenuGroup>
-        ) : null}
-        {shortcuts.spaces.length > 0 ? <MenuSeparator /> : null}
         <MenuGroup>
-          <MenuGroupLabel className="font-normal">{t("sidebar.more.railProjects")}</MenuGroupLabel>
           {shortcuts.projects.length === 0 ? (
             <div className="px-2 py-1.5 text-ui-sm text-muted-foreground">
               {t("sidebar.more.noProjects")}
@@ -150,7 +141,7 @@ export function AppRailMoreMenu({
   readonly destinations: readonly AppRailMoreMenuEntry[];
   readonly plugins: readonly AppRailMoreMenuEntry[];
   readonly utilities: readonly AppRailMoreMenuEntry[];
-  /** Spaces/projects as rail shortcuts; omitted where the rail has none to offer. */
+  /** Projects as rail shortcuts; omitted where the rail has none to offer. */
   readonly shortcuts?: AppRailMoreMenuShortcuts | undefined;
   /** The Help submenu (what's new, keybindings, feedback, docs); the rail has no other entry. */
   readonly helpMenu?: ReactNode;

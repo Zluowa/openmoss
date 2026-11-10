@@ -331,7 +331,7 @@ export function InlineVisualLineChart({ block }: { readonly block: LineChartBloc
         )}
         {hover !== null ? (
           <div
-            className="pointer-events-none absolute top-0 z-10 min-w-28 rounded-lg border border-border/70 bg-popover px-2.5 py-1.5 text-chat-sm shadow-md"
+            className="pointer-events-none absolute top-0 z-10 min-w-28 rounded-card border border-border/70 bg-popover px-2.5 py-1.5 text-chat-sm shadow-md"
             style={
               x(hover) > width / 2 ? { right: width - x(hover) + 10 } : { left: x(hover) + 10 }
             }

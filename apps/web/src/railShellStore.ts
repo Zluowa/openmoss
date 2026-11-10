@@ -1,7 +1,7 @@
 // FILE: railShellStore.ts
 // Purpose: Per-window state for the rail layout: the active rail item, which panel the
-//          panel column shows (Home or Spaces), and the Spaces drill-in project.
-// Layer: Web UI store (sessionStorage, modeled on spacesUiStore)
+//          panel column shows (Home, or a project pinned to the rail), and that project.
+// Layer: Web UI store (sessionStorage)
 
 import type { ProjectId } from "@moss/contracts";
 import { create } from "zustand";
@@ -18,17 +18,38 @@ const STORAGE_KEY = "moss:rail-shell:v1";
 interface PersistedRailShellState {
   activeItem: RailItemId;
   panelView: RailPanelItemId;
-  spacesProjectId: ProjectId | null;
+  railProjectId: ProjectId | null;
 }
 
 const DEFAULT_RAIL_SHELL_STATE: PersistedRailShellState = {
   activeItem: "home",
   panelView: "home",
-  spacesProjectId: null,
+  railProjectId: null,
 };
 
 function isRailPanelItemId(value: unknown): value is RailPanelItemId {
   return (RAIL_PANEL_ITEM_IDS as ReadonlyArray<unknown>).includes(value);
+}
+
+/**
+ * The saved session state, or the default. A panel this build no longer has (the removed
+ * Spaces panel, saved as "spaces") reads as Home.
+ */
+export function parsePersistedRailShellState(raw: string | null): PersistedRailShellState {
+  try {
+    const parsed = JSON.parse(raw ?? "null") as Partial<PersistedRailShellState> | null;
+    const panelView = isRailPanelItemId(parsed?.panelView) ? parsed.panelView : "home";
+    return {
+      // The active item is re-derived from the route on mount (reconcile), so only a
+      // valid panel item is worth restoring here.
+      activeItem: panelView,
+      panelView,
+      railProjectId:
+        typeof parsed?.railProjectId === "string" ? (parsed.railProjectId as ProjectId) : null,
+    };
+  } catch {
+    return DEFAULT_RAIL_SHELL_STATE;
+  }
 }
 
 function readPersisted(): PersistedRailShellState {
@@ -36,18 +57,7 @@ function readPersisted(): PersistedRailShellState {
     return DEFAULT_RAIL_SHELL_STATE;
   }
   try {
-    const parsed = JSON.parse(
-      window.sessionStorage.getItem(STORAGE_KEY) ?? "null",
-    ) as Partial<PersistedRailShellState> | null;
-    const panelView = isRailPanelItemId(parsed?.panelView) ? parsed.panelView : "home";
-    return {
-      // The active item is re-derived from the route on mount (reconcile), so only a
-      // valid panel item is worth restoring here.
-      activeItem: panelView,
-      panelView,
-      spacesProjectId:
-        typeof parsed?.spacesProjectId === "string" ? (parsed.spacesProjectId as ProjectId) : null,
-    };
+    return parsePersistedRailShellState(window.sessionStorage.getItem(STORAGE_KEY));
   } catch {
     return DEFAULT_RAIL_SHELL_STATE;
   }
@@ -61,7 +71,7 @@ function persist(state: PersistedRailShellState): void {
       JSON.stringify({
         activeItem: state.activeItem,
         panelView: state.panelView,
-        spacesProjectId: state.spacesProjectId,
+        railProjectId: state.railProjectId,
       }),
     );
   } catch {
@@ -77,12 +87,11 @@ interface RailShellState extends PersistedRailShellState {
   selectPanelItem: (id: RailPanelItemId) => void;
   /** Route items and the Moss surface items (Images/Library) share the active slot. */
   selectRouteItem: (id: Exclude<RailItemId, RailPanelItemId>) => void;
-  openSpacesProject: (projectId: ProjectId) => void;
-  closeSpacesProject: () => void;
+  openRailProject: (projectId: ProjectId) => void;
+  closeRailProject: () => void;
   /** `projectIds: null` means the project list is not hydrated yet, so the drill-in is kept. */
   reconcile: (input: {
     pathname: string;
-    onStudioSurface: boolean;
     onMossbotSurface?: boolean;
     projectIds: ReadonlySet<ProjectId> | null;
   }) => void;
@@ -104,47 +113,42 @@ export const useRailShellStore = create<RailShellState>((set, get) => ({
     set((state) => ({ activeItem: id, selectionVersion: state.selectionVersion + 1 }));
     persist(get());
   },
-  openSpacesProject: (projectId) => {
-    set({ spacesProjectId: projectId });
+  openRailProject: (projectId) => {
+    set({ railProjectId: projectId });
     persist(get());
   },
-  closeSpacesProject: () => {
-    set({ spacesProjectId: null });
+  closeRailProject: () => {
+    set({ railProjectId: null });
     persist(get());
   },
-  reconcile: ({ pathname, onStudioSurface, onMossbotSurface = false, projectIds }) => {
+  reconcile: ({ pathname, onMossbotSurface = false, projectIds }) => {
     const current = get();
-    // A clicked panel item stays active on a route item's route (Spaces while on Pull
+    // A clicked panel item stays active on a route item's route (a pinned project while on Pull
     // requests); only a navigation re-syncs it.
-    const routeKey = onMossbotSurface
-      ? `mossbot:${pathname}`
-      : onStudioSurface
-        ? `studio:${pathname}`
-        : pathname;
+    const routeKey = onMossbotSurface ? `mossbot:${pathname}` : pathname;
     const activeItem =
       routeKey === current.reconciledRouteKey
         ? current.activeItem
         : reconcileActiveRailItem({
             current: current.activeItem,
             pathname,
-            onStudioSurface,
             onMossbotSurface,
             panelView: current.panelView,
           });
-    const spacesProjectId =
-      current.spacesProjectId !== null &&
+    const railProjectId =
+      current.railProjectId !== null &&
       projectIds !== null &&
-      !projectIds.has(current.spacesProjectId)
+      !projectIds.has(current.railProjectId)
         ? null
-        : current.spacesProjectId;
+        : current.railProjectId;
     if (
       activeItem === current.activeItem &&
-      spacesProjectId === current.spacesProjectId &&
+      railProjectId === current.railProjectId &&
       routeKey === current.reconciledRouteKey
     ) {
       return;
     }
-    set({ activeItem, spacesProjectId, reconciledRouteKey: routeKey });
+    set({ activeItem, railProjectId, reconciledRouteKey: routeKey });
     persist(get());
   },
 }));

@@ -585,12 +585,12 @@ export function ProjectPanel({
 // A soft grouped tile (Apple inset-group style): rows sit on a faint fill with
 // no rules between them; hovering a row deepens the same fill.
 const GROUP_PANEL_TILE_CLASS_NAME = cn(
-  "flex flex-col rounded-xl p-1",
+  "flex flex-col rounded-card p-1",
   SOFT_SURFACE_FILL_CLASS_NAME,
 );
 
 const CONTEXT_TEXTAREA_CLASS_NAME =
-  "relative inline-flex w-full rounded-lg border border-[color:var(--color-border-light)] bg-transparent text-ui text-foreground transition-colors has-focus-visible:border-foreground/25 [&_[data-slot=textarea]]:px-3 [&_[data-slot=textarea]]:py-2";
+  "relative inline-flex w-full rounded-card border border-[color:var(--color-border-light)] bg-transparent text-ui text-foreground transition-colors has-focus-visible:border-foreground/25 [&_[data-slot=textarea]]:px-3 [&_[data-slot=textarea]]:py-2";
 
 function ProjectFocusLink({
   row,

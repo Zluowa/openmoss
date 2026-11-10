@@ -126,7 +126,7 @@ export function TranscriptDisclosureRow(props: {
             aria-controls={bodyId}
             data-transcript-disclosure-toggle=""
             onClick={() => onOpenChange(!open)}
-            className="-m-0.75 flex shrink-0 cursor-interaction rounded-sm p-0.75 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="-m-0.75 flex shrink-0 cursor-interaction rounded-inline p-0.75 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <CaretRightFillIcon aria-hidden className={disclosureChevronClassName(open)} />
           </button>

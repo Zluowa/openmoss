@@ -80,7 +80,7 @@ export interface ImportResourceInventory {
   readonly counts: Readonly<Record<WorkspaceImportCategoryKind, number>>;
 }
 
-function emptyCounts(): Record<WorkspaceImportCategoryKind, number> {
+export function emptyCounts(): Record<WorkspaceImportCategoryKind, number> {
   return {
     settings: 0,
     skills: 0,
@@ -104,6 +104,7 @@ async function walkResourceRoot(
   root: string,
   source: WorkspaceImportSourceKind,
   category: WorkspaceImportCategoryKind,
+  countOnly = false,
 ): Promise<DiscoveredImportResource[]> {
   const resources: DiscoveredImportResource[] = [];
   try {
@@ -138,7 +139,9 @@ async function walkResourceRoot(
       } catch {
         continue;
       }
-      const sensitive = await resourceContainsSecret(next);
+      // Counting (the probe) never imports, so it skips the content scan that
+      // decides whether a resource is safe to activate.
+      const sensitive = countOnly ? false : await resourceContainsSecret(next);
       resources.push({
         name: entry.name,
         source,
@@ -187,6 +190,8 @@ export async function discoverImportResources(input: {
   readonly homeDir: string;
   readonly platform: NodeJS.Platform;
   readonly env?: NodeJS.ProcessEnv | undefined;
+  /** Count files only: `sensitive` is left unset because no file is read. */
+  readonly countOnly?: boolean | undefined;
 }): Promise<ImportResourceInventory> {
   const source = normalizeWorkspaceImportSource(input.source);
   const resources: DiscoveredImportResource[] = [];
@@ -195,7 +200,12 @@ export async function discoverImportResources(input: {
     if (resources.length >= MAX_TOTAL_RESOURCE_FILES) break;
     for (const root of resourceRootsForSource(source, category, input)) {
       if (resources.length >= MAX_TOTAL_RESOURCE_FILES) break;
-      for (const resource of await walkResourceRoot(root, source, category)) {
+      for (const resource of await walkResourceRoot(
+        root,
+        source,
+        category,
+        input.countOnly === true,
+      )) {
         if (resources.length >= MAX_TOTAL_RESOURCE_FILES) break;
         const key = `${category}:${nodePath.resolve(resource.path)}`;
         if (seen.has(key)) continue;
@@ -405,34 +415,53 @@ async function readChatMetadataPaths(input: {
     if (files.length >= MAX_CHAT_METADATA_FILES) break;
     await visit(root, 0);
   }
+  // Read several files at once (on a cold disk most of the time is spent waiting
+  // on each open), but keep each file's paths in walk order so the result is the
+  // same as reading them one after another.
+  const pathsByFile: string[][] = Array.from({ length: files.length }, () => []);
+  let nextFile = 0;
+  const readNext = async (): Promise<void> => {
+    while (nextFile < files.length) {
+      const index = nextFile;
+      nextFile += 1;
+      pathsByFile[index] = await readChatMetadataFilePaths(files[index]!);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CHAT_METADATA_READ_CONCURRENCY, files.length) }, () =>
+      readNext(),
+    ),
+  );
+  return [...new Set(pathsByFile.flat().map((path) => nodePath.resolve(path)))];
+}
+
+const CHAT_METADATA_READ_CONCURRENCY = 8;
+
+async function readChatMetadataFilePaths(file: string): Promise<string[]> {
   const paths: string[] = [];
-  for (const file of files) {
-    try {
-      const raw = (await readRegularFileNoFollow(file, PROJECT_METADATA_FILE_BYTES)).toString(
-        "utf8",
-      );
-      if (file.endsWith(".jsonl")) {
-        for (const line of raw.split("\n")) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            collectProjectMetadataPaths(JSON.parse(trimmed) as unknown, paths);
-          } catch {
-            // Ignore malformed lines and keep scanning the bounded file.
-          }
-        }
-      } else {
+  try {
+    const raw = (await readRegularFileNoFollow(file, PROJECT_METADATA_FILE_BYTES)).toString("utf8");
+    if (file.endsWith(".jsonl")) {
+      for (const line of raw.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
         try {
-          collectProjectMetadataPaths(JSON.parse(raw) as unknown, paths);
+          collectProjectMetadataPaths(JSON.parse(trimmed) as unknown, paths);
         } catch {
-          // Ignore unrelated JSON files.
+          // Ignore malformed lines and keep scanning the bounded file.
         }
       }
-    } catch {
-      continue;
+    } else {
+      try {
+        collectProjectMetadataPaths(JSON.parse(raw) as unknown, paths);
+      } catch {
+        // Ignore unrelated JSON files.
+      }
     }
+  } catch {
+    // An unreadable file contributes no project paths.
   }
-  return [...new Set(paths.map((path) => nodePath.resolve(path)))];
+  return paths;
 }
 
 /**

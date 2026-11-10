@@ -33,7 +33,6 @@ import {
 } from "../../lib/projectCreateRecovery";
 import { formatTerminalContextLabel, type TerminalContextDraft } from "../../lib/terminalContext";
 import { buildModelSelection } from "../../providerModelOptions";
-import { readActiveSpaceId } from "../../spacesUiStore";
 import { useStore } from "../../store";
 import type { Project } from "../../types";
 import { type Thread } from "../../types";
@@ -138,9 +137,6 @@ export async function prepareChatSendWorkspace({
   // Keep the optimistic label short while the server asks Codex for a better summary.
   const title = buildPromptThreadTitleFallback(titleSeed);
   const currentStoreState = useStore.getState();
-  // Keep an optimistically selected Space across the command/snapshot race. The server
-  // validates this best-effort target and degrades genuinely stale/deleted ids to Void.
-  const activeSpaceIdForSend = readActiveSpaceId();
   const firstSendProvider = selectedModelSelectionForSend.provider ?? "codex";
   const firstSendDefaultModelSelection = buildModelSelection(
     firstSendProvider,
@@ -208,12 +204,6 @@ export async function prepareChatSendWorkspace({
     if (firstSendTarget.kind === "create-project") {
       const projectId = newProjectId();
       const createdAt = firstSendCreatedAt.toISOString();
-      // Managed chat rows stay global; a folder mention creates an ordinary project and
-      // should inherit the Space where the first send originated. Resolved before the
-      // `try`: a value block inside a try body makes React Compiler bail out on the whole
-      // component.
-      const createProjectSpaceFields =
-        firstSendTarget.creation.kind === "project" ? { spaceId: activeSpaceIdForSend } : {};
       try {
         await api.orchestration.dispatchCommand({
           type: "project.create",
@@ -224,7 +214,6 @@ export async function prepareChatSendWorkspace({
           workspaceRoot: firstSendTarget.creation.workspaceRoot,
           createWorkspaceRootIfMissing: firstSendTarget.creation.createWorkspaceRootIfMissing,
           defaultModelSelection: firstSendTarget.creation.defaultModelSelection,
-          ...createProjectSpaceFields,
           createdAt,
         });
         targetProjectIdForSend = projectId;

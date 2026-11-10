@@ -16,7 +16,7 @@ import { useTranslation } from "~/localization";
 import { Button } from "../../ui/button";
 
 const CARD_CLASS_NAME =
-  "flex w-full max-w-[min(100%,46rem)] flex-col gap-2 rounded-xl border border-[color:var(--color-border-light)] px-4 py-3 text-size-chat";
+  "flex w-full max-w-[min(100%,46rem)] flex-col gap-2 rounded-card border border-[color:var(--color-border-light)] px-4 py-3 text-size-chat";
 
 function searchTextOf(box: WrapUp, answer: string | null): string {
   return [box.recap, box.ask ?? "", answer ?? "", ...box.actions].filter(Boolean).join("\n");

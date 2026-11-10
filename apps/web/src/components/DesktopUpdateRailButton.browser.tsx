@@ -101,10 +101,9 @@ function RailFixture({
   });
   const ids = buildRailItemOrder({
     order: resolveTasksSurfaceSlot([...RAIL_ORDERABLE_ITEM_IDS], flavor === "beta"),
-    // Match the shipping Moss rail: Spaces, the board slot and Hubs start hidden.
-    hidden: new Set(["spaces", "kanban", "tasks", "studio"] as const),
+    // Match the shipping Moss rail: the board slot starts hidden.
+    hidden: new Set(["kanban", "tasks"] as const),
     activeItem: "home",
-    studioAvailable: flavor === "beta",
     inboxAvailable: flavor === "beta",
     imagesAvailable: flavor === "beta",
   });
@@ -118,9 +117,9 @@ function RailFixture({
         <AppRail
           items={ids.map(item)}
           shortcuts={Array.from({ length: shortcutCount }, (_, index) => ({
-            ...item("spaces"),
-            id: `space:${index}`,
-            label: `Space ${index + 1}`,
+            ...item("project"),
+            id: `project:${index}`,
+            label: `Project ${index + 1}`,
           }))}
           moreSlot={
             <SidebarIconButton

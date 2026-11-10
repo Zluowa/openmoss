@@ -70,7 +70,7 @@ export function AgentActivityDetailView({
         <button
           type="button"
           data-scroll-anchor-ignore
-          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-muted-foreground/70 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded-control px-1.5 py-1 text-muted-foreground/70 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground"
           style={footerTextStyle}
           onClick={onBack}
         >
@@ -80,7 +80,7 @@ export function AgentActivityDetailView({
 
         <div className="mt-3 border-b border-border/55 pb-4">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-md border border-border/45 bg-background/65 text-muted-foreground/58">
+            <span className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-control border border-border/45 bg-background/65 text-muted-foreground/58">
               <BotIcon className="size-4" />
             </span>
             <div className="min-w-0 flex-1">

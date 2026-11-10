@@ -14,7 +14,7 @@ import type {
 import { collectImportChats, inspectCodexChatInventory, readSourceSettings } from "./chats";
 import { readWorkspaceImportHistory, readWorkspaceImportSync } from "./history";
 import { canonicalWorkspaceImportSources, workspaceImportProviderForSource } from "./providers";
-import { countImportProjects, discoverImportResources } from "./resources";
+import { countImportProjects, discoverImportResources, emptyCounts } from "./resources";
 import { absorbHonorAbleSettings } from "./settingsAbsorb";
 import { discoverImportSkills } from "./skills";
 import { resourceRootsForSource } from "./paths";
@@ -27,6 +27,57 @@ export interface WorkspaceImportProbeContext {
   readonly now: Date;
   readonly currentSettings: ServerSettings;
   readonly stateDir?: string | undefined;
+  /** Skip chats and projects (see `WorkspaceImportProbeInput.scope`). */
+  readonly toolsOnly?: boolean | undefined;
+  /** How long one probe step of one source may take before it is reported as unfinished. */
+  readonly stepTimeoutMs?: number | undefined;
+  /** Called once per source when its probe settles, for the server log. */
+  readonly onSourceProbed?: ((event: WorkspaceImportSourceProbeEvent) => void) | undefined;
+}
+
+export interface WorkspaceImportSourceProbeEvent {
+  readonly source: WorkspaceImportSourceKind;
+  readonly durationMs: number;
+  /** Steps that ran out of time; their counts are missing from the preview. */
+  readonly timedOutSteps: readonly string[];
+  /** Steps that threw; their counts are missing from the preview. */
+  readonly failedSteps: readonly string[];
+  /** How long each step took, cut-off steps included (at the cut-off time). */
+  readonly stepDurationsMs: Readonly<Record<string, number>>;
+}
+
+/**
+ * The web client gives up on an RPC after 60 s. Every step of every source runs at
+ * once and each is cut off after this long, so the probe answers well inside that
+ * window even when one provider's history is huge or on a slow disk. A cut-off
+ * step keeps running in the background; its source is marked incomplete.
+ */
+export const WORKSPACE_IMPORT_PROBE_STEP_TIMEOUT_MS = 12_000;
+
+type StepOutcome<T> = (
+  | { readonly kind: "done"; readonly value: T }
+  | { readonly kind: "timedOut" }
+  | { readonly kind: "failed" }
+) & { readonly durationMs: number };
+
+async function runStep<T>(work: () => Promise<T>, timeoutMs: number): Promise<StepOutcome<T>> {
+  const startedAt = performance.now();
+  const elapsed = () => Math.round(performance.now() - startedAt);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<StepOutcome<T>>((resolve) => {
+    timer = setTimeout(() => resolve({ kind: "timedOut", durationMs: elapsed() }), timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      work().then(
+        (value): StepOutcome<T> => ({ kind: "done", value, durationMs: elapsed() }),
+        (): StepOutcome<T> => ({ kind: "failed", durationMs: elapsed() }),
+      ),
+      deadline,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function firstExistingPath(paths: readonly string[]): Promise<string | null> {
@@ -41,27 +92,6 @@ async function firstExistingPath(paths: readonly string[]): Promise<string | nul
   return null;
 }
 
-async function mapWithConcurrency<T, R>(
-  values: readonly T[],
-  limit: number,
-  operation: (value: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = Array.from({ length: values.length });
-  let nextIndex = 0;
-  const worker = async (): Promise<void> => {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= values.length) return;
-      results[index] = await operation(values[index]!);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(Math.max(1, limit), values.length) }, () => worker()),
-  );
-  return results;
-}
-
 async function probeSource(
   source: WorkspaceImportSourceKind,
   context: WorkspaceImportProbeContext,
@@ -71,20 +101,49 @@ async function probeSource(
     platform: context.platform,
     env: context.env,
   } as const;
-  const [skills, settingsRaw, chatInventory, resources, projectCount] = await Promise.all([
-    discoverImportSkills({ source, ...pathInput }),
-    readSourceSettings({ source, ...pathInput }),
-    source === "codex"
-      ? inspectCodexChatInventory({ ...pathInput, now: context.now })
-      : collectImportChats({
-          source,
-          ...pathInput,
-          now: context.now,
-          fallbackCwd: context.mossCwd,
-        }),
-    discoverImportResources({ source, ...pathInput }),
-    countImportProjects({ source, ...pathInput, fallbackCwd: context.mossCwd }),
+  const startedAt = performance.now();
+  const timeoutMs = context.stepTimeoutMs ?? WORKSPACE_IMPORT_PROBE_STEP_TIMEOUT_MS;
+  const timedOutSteps: string[] = [];
+  const failedSteps: string[] = [];
+  const stepDurationsMs: Record<string, number> = {};
+  const settle = <T>(step: string, outcome: StepOutcome<T>, fallback: T): T => {
+    stepDurationsMs[step] = outcome.durationMs;
+    if (outcome.kind === "done") return outcome.value;
+    (outcome.kind === "timedOut" ? timedOutSteps : failedSteps).push(step);
+    return fallback;
+  };
+  const [skillsStep, settingsStep, chatsStep, resourcesStep, projectsStep] = await Promise.all([
+    runStep(() => discoverImportSkills({ source, ...pathInput }), timeoutMs),
+    runStep(() => readSourceSettings({ source, ...pathInput }), timeoutMs),
+    runStep(
+      async () =>
+        context.toolsOnly
+          ? { chatCount: 0, olderChatCount: 0 }
+          : source === "codex"
+            ? await inspectCodexChatInventory({ ...pathInput, now: context.now })
+            : await collectImportChats({
+                source,
+                ...pathInput,
+                now: context.now,
+                fallbackCwd: context.mossCwd,
+                countOnly: true,
+              }),
+      timeoutMs,
+    ),
+    runStep(() => discoverImportResources({ source, ...pathInput, countOnly: true }), timeoutMs),
+    runStep(
+      async () =>
+        context.toolsOnly
+          ? 0
+          : await countImportProjects({ source, ...pathInput, fallbackCwd: context.mossCwd }),
+      timeoutMs,
+    ),
   ]);
+  const skills = settle("skills", skillsStep, []);
+  const settingsRaw = settle("settings", settingsStep, null);
+  const chatInventory = settle("chats", chatsStep, { chatCount: 0, olderChatCount: 0 });
+  const resources = settle("resources", resourcesStep, { resources: [], counts: emptyCounts() });
+  const projectCount = settle("projects", projectsStep, 0);
   const absorbed = absorbHonorAbleSettings({
     source,
     raw: settingsRaw,
@@ -118,15 +177,27 @@ async function probeSource(
     ...descriptor.chatRoots(pathInput),
     ...resourceRootsForSource(source, "projects", pathInput),
   ]);
+  const incomplete = timedOutSteps.length > 0 || failedSteps.length > 0;
   const present =
     skills.length > 0 ||
     settingsRaw !== null ||
     chatCount > 0 ||
     resources.resources.length > 0 ||
-    projectCount > 0;
+    projectCount > 0 ||
+    // A source whose data folder exists but could not be read in time is still
+    // there; leaving it out would make a slow history look like no history.
+    (incomplete && detectedPath !== null);
+  context.onSourceProbed?.({
+    source,
+    durationMs: Math.round(performance.now() - startedAt),
+    timedOutSteps,
+    failedSteps,
+    stepDurationsMs,
+  });
   return {
     source,
     present,
+    ...(incomplete ? { incomplete: true } : {}),
     displayName: descriptor.label,
     ...(detectedPath ? { detectedPath } : {}),
     skillCount: skills.length,
@@ -141,10 +212,10 @@ async function probeSource(
 export async function probeWorkspaceImport(
   context: WorkspaceImportProbeContext,
 ): Promise<WorkspaceImportProbeResult> {
-  // Probing traverses several provider trees and transcript files. Bound the
-  // source fan-out so a single RPC cannot create an unbounded I/O burst.
-  const sources = await mapWithConcurrency(canonicalWorkspaceImportSources(), 2, (source) =>
-    probeSource(source, context),
+  // Every source runs at once: each one's own reads are bounded (file counts, byte
+  // budgets, step deadlines), so the total is the slowest source, not the sum.
+  const sources = await Promise.all(
+    canonicalWorkspaceImportSources().map((source) => probeSource(source, context)),
   );
   const stateDir = context.stateDir;
   if (!stateDir) {

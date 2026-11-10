@@ -75,7 +75,7 @@ export function AutomaticApprovalReviewDetails({
         type="button"
         aria-expanded={open}
         aria-controls={bodyId}
-        className="group/automatic-approval-review inline-flex w-fit max-w-full cursor-interaction items-center gap-1.5 rounded-md text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="group/automatic-approval-review inline-flex w-fit max-w-full cursor-interaction items-center gap-1.5 rounded-control text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-automatic-approval-review-trigger="true"
         onClick={() => setOpen((current) => !current)}
       >
