@@ -1805,6 +1805,12 @@ describe("codex CLI version gate", () => {
       await assertSupportedCodexCliVersion({ binaryPath, cwd: dir, homePath });
       expect(probeCount()).toBe(1);
 
+      // So does a chat in another project folder: an absolute binary does not depend on cwd.
+      const otherProject = path.join(dir, "other-project");
+      mkdirSync(otherProject);
+      await assertSupportedCodexCliVersion({ binaryPath, cwd: otherProject, homePath });
+      expect(probeCount()).toBe(1);
+
       // The per-call working-directory precondition is never served from the cache.
       await expect(
         assertSupportedCodexCliVersion({

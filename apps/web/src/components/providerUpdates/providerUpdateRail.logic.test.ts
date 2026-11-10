@@ -145,14 +145,12 @@ describe("getProviderUpdatePillView", () => {
     );
     expect(failure?.tone).toBe("error");
     expect(failure?.title).toBe("Codex v1.1.0 update failed");
-    expect(failure?.description).toBe(
-      "Update command exited with code 1. Codex keeps working on the version it has. To update it yourself, open agent settings and run its update command in a terminal.",
-    );
+    expect(failure?.description).toBe("Codex keeps working on the version it has.");
     expect(failure?.dismissible).toBe(true);
     expect(failure?.dismissAfterVisibleMs).toBeUndefined();
   });
 
-  it("says why an update failed and what a person can do about it", () => {
+  it("says briefly that the agent still works, and offers to retry", () => {
     const failed = [
       provider(
         "claudeAgent",
@@ -163,12 +161,28 @@ describe("getProviderUpdatePillView", () => {
         ),
       ),
     ];
-    expect(getProviderUpdatePillView(failed, EN)?.description).toBe(
-      "Update command exited with code 1: npm error code EACCES. Claude keeps working on the version it has. To update it yourself, open agent settings and run its update command in a terminal.",
-    );
+    // No command output or terminal steps in the pill; the update dialog keeps the details.
+    expect(getProviderUpdatePillView(failed, ZH)?.title).toBe("Claude v1.1.0 更新失败");
     expect(getProviderUpdatePillView(failed, ZH)?.description).toBe(
-      "更新命令出错退出（退出码 1）：npm error code EACCES。Claude 会继续用现在的版本工作。想自己更新的话，打开智能体设置，在终端里运行它的更新命令。",
+      "Claude 仍可用当前版本，稍后可重试。",
     );
+    expect(getProviderUpdatePillView(failed, EN)?.description).toBe(
+      "Claude keeps working on the version it has.",
+    );
+    expect(
+      getProviderUpdatePillView(failed, ZH)?.retryTargets?.map((target) => target.driver),
+    ).toEqual(["claudeAgent"]);
+  });
+
+  it("offers no retry for an agent Moss can no longer update in one click", () => {
+    const failed = provider("opencode", updateState("failed", CHECKED_AT, "boom"));
+    const manual = {
+      ...failed,
+      versionAdvisory: { ...failed.versionAdvisory!, canUpdate: false, updateCommand: null },
+    } as ServerProviderStatus;
+    const view = getProviderUpdatePillView([manual], ZH);
+    expect(view?.tone).toBe("error");
+    expect(view?.retryTargets).toBeUndefined();
   });
 
   it("warns when the command ran but the old version remains", () => {

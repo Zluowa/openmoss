@@ -13,7 +13,7 @@ interface TranscriptSelectionActionProps {
   left: number;
   top: number;
   placement: "top" | "bottom";
-  /** Opens the reply box above the selection (desktop chat "Reply", also Enter). */
+  /** Quotes the selection into the composer (desktop chat "Reply", also Enter). */
   onReply?: (() => void) | undefined;
   /** File and diff selections attach to the composer instead of replying. */
   onAddToChat?: (() => void) | undefined;
@@ -61,14 +61,20 @@ function TranscriptSelectionToolbarButton({
 export function TranscriptSelectionAction(props: TranscriptSelectionActionProps) {
   const { t } = useTranslation();
   const { onReply, disabled } = props;
-  // Enter replies while the toolbar is up and focus is not in a text field.
+  // Enter replies while the toolbar is up, unless the reader is typing in a field. The
+  // composer keeps focus while transcript text is selected, so a focused editor whose
+  // text does not hold the selection is not typing. That Enter belongs to the toolbar:
+  // it stops here, and until the key comes up no Enter reaches the composer that Reply
+  // focuses, so neither this press nor a held key can send the draft or the fresh quote.
   useEffect(() => {
     if (!onReply) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey)
         return;
-      if (disabled || isEditableTarget(event.target)) return;
+      if (event.isComposing || disabled || isTypingIn(event.target)) return;
       event.preventDefault();
+      event.stopImmediatePropagation();
+      holdEnterUntilRelease();
       onReply();
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -115,12 +121,31 @@ export function TranscriptSelectionAction(props: TranscriptSelectionActionProps)
   );
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
+function isTypingIn(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return (
-    target.isContentEditable ||
-    target.tagName === "INPUT" ||
-    target.tagName === "TEXTAREA" ||
-    target.tagName === "SELECT"
-  );
+  if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT")
+    return true;
+  if (!target.isContentEditable) return false;
+  const anchor = window.getSelection()?.anchorNode ?? null;
+  return anchor !== null && target.contains(anchor);
+}
+
+function swallowEnter(event: KeyboardEvent): void {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+// Swallows Enter keydowns (a held key's repeats) until Enter is released or the window
+// loses focus.
+function holdEnterUntilRelease(): void {
+  const release = (event: Event) => {
+    if (event instanceof KeyboardEvent && event.key !== "Enter") return;
+    window.removeEventListener("keydown", swallowEnter, true);
+    window.removeEventListener("keyup", release, true);
+    window.removeEventListener("blur", release);
+  };
+  window.addEventListener("keydown", swallowEnter, true);
+  window.addEventListener("keyup", release, true);
+  window.addEventListener("blur", release);
 }

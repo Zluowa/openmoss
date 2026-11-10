@@ -112,7 +112,6 @@ import {
   setThreadDetailResumeCursor,
 } from "../threadDetailResumeCursors";
 import { resetHomeChatProjectPrewarmStateForTests } from "../lib/chatProjects";
-import { startQueuedComposerDrainWatcher } from "../lib/queuedComposerDrain";
 import { hasReconciledServerProviderStatuses } from "../lib/serverReactQuery";
 import { getRouter } from "../router";
 import { showContextMenuFallback } from "../contextMenuFallback";
@@ -12654,11 +12653,12 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  const selectAssistantFiller = async () => {
+  const selectAssistantFiller = async (options: { keepFocus?: boolean } = {}) => {
     const source = page.getByText("assistant filler 21", { exact: true });
     await expect.element(source).toBeVisible();
     expect(source.element().closest("[data-assistant-message-id]")).not.toBeNull();
-    await source.click();
+    // keepFocus selects without a click, so a focused composer stays focused.
+    if (!options.keepFocus) await source.click();
     const sourceNode = source.element();
     const range = document.createRange();
     range.selectNodeContents(sourceNode);
@@ -12674,11 +12674,88 @@ describe("ChatView transcript geometry (full app)", () => {
     );
   };
 
-  it("replies to a selected passage in the same chat, quoting it", async () => {
+  it("quotes a selected passage into the composer; Enter in the popover doesn't send", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const snapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-selection-reply" as MessageId,
       targetText: "Selection reply test",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          messages: thread.messages.slice(-2),
+        })),
+      },
+    });
+    const turnStarts = () =>
+      wsRequests
+        .map(readDispatchedCommand)
+        .filter((command) => command?.type === "thread.turn.start");
+    try {
+      // A draft already in the composer is what a leaked Enter would send.
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "Draft so far.");
+      const composerEditor = await waitForComposerEditor();
+      await vi.waitFor(() => expect(composerEditor.textContent).toContain("Draft so far."));
+      await waitForLayout();
+      composerEditor.focus();
+      await selectAssistantFiller({ keepFocus: true });
+      await expect.element(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
+      wsRequests.length = 0;
+      // The composer keeps focus while transcript text is selected, so a popover Enter
+      // that fell through would send this draft.
+      expect(document.activeElement).toBe(composerEditor);
+
+      // One Enter on the popover, held long enough to repeat into the composer.
+      await userEvent.keyboard("{Enter>6}");
+      expect(document.activeElement).toBe(composerEditor);
+
+      await vi.waitFor(() => {
+        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+        expect(draft?.assistantSelections.map((selection) => selection.text)).toEqual([
+          "assistant filler 21",
+        ]);
+      });
+      await expect
+        .element(page.getByRole("toolbar", { name: "Selection actions" }))
+        .not.toBeInTheDocument();
+      expect(page.getByText("1 selection", { exact: true }).elements()).toHaveLength(1);
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 600));
+      expect(turnStarts()).toHaveLength(0);
+      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
+        "Draft so far.",
+      );
+
+      // Only the reader's own Enter, after writing, sends the quote with their words.
+      await userEvent.keyboard("{End} Explain this selected passage");
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(
+        () => {
+          const sends = turnStarts();
+          expect(sends).toHaveLength(1);
+          expect(sends[0]).toMatchObject({ threadId: THREAD_ID });
+          const text = String((sends[0]?.message as { text?: string } | undefined)?.text ?? "");
+          expect(text).toContain("Draft so far. Explain this selected passage");
+          expect(text).toContain("<assistant_selection>");
+          expect(text).toContain("assistant filler 21");
+        },
+        { timeout: 15_000 },
+      );
+    } finally {
+      window.getSelection()?.removeAllRanges();
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("quotes into the composer from the Reply button and keeps the current draft", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-selection-reply-button" as MessageId,
+      targetText: "Selection reply button test",
     });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -12698,105 +12775,21 @@ describe("ChatView transcript geometry (full app)", () => {
       );
       await waitForLayout();
       await selectAssistantFiller();
-      await expect
-        .element(page.getByRole("button", { name: "Start a side chat", exact: true }))
-        .toBeVisible();
-      await page.getByRole("button", { name: "Reply", exact: true }).click();
-      const replyInput = page.getByRole("textbox", { name: "Reply", exact: true });
-      await expect.element(replyInput).toHaveFocus();
-      await replyInput.fill("Explain this selected passage");
       wsRequests.length = 0;
-      await page.getByRole("button", { name: "Send reply", exact: true }).click();
-
-      await vi.waitFor(
-        () => {
-          const commands = wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command !== null);
-          const sends = commands.filter((command) => command.type === "thread.turn.start");
-          expect(sends).toHaveLength(1);
-          expect(sends[0]).toMatchObject({ threadId: THREAD_ID });
-          const message = sends[0]?.message as { text?: string } | undefined;
-          const text = String(message?.text ?? "");
-          expect(text).toContain("<!-- reply -->");
-          expect(text).toContain("> assistant filler 21");
-          expect(text).toContain("Explain this selected passage");
-          expect(commands.some((command) => command.type === "thread.create")).toBe(false);
-        },
-        { timeout: 15_000 },
-      );
-      await expect
-        .element(page.getByRole("textbox", { name: "Reply", exact: true }))
-        .not.toBeInTheDocument();
-      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
-        "Keep the current draft",
-      );
-    } finally {
-      window.getSelection()?.removeAllRanges();
-      await mounted.cleanup();
-      restoreNativeApi();
-    }
-  });
-
-  it("keeps a failed reply queued without a stale optimistic message", async () => {
-    const restoreNativeApi = installDeterministicSendNativeApi({ rejectTurnStart: true });
-    const snapshot = createSnapshotForTargetUser({
-      targetMessageId: "msg-user-selection-reply-failed-send" as MessageId,
-      targetText: "Selection reply failed send test",
-    });
-    const mounted = await mountChatView({
-      viewport: DEFAULT_VIEWPORT,
-      snapshot: {
-        ...snapshot,
-        threads: snapshot.threads.map((thread) => ({
-          ...thread,
-          messages: thread.messages.slice(-2),
-        })),
-      },
-    });
-    // Hold only the queue's retry clock. Browser scheduling can take longer than
-    // the first 1s backoff on CI; rendering and assertion deadlines stay real.
-    let retryNow = Date.now();
-    const stopRetryClock = startQueuedComposerDrainWatcher({ now: () => retryNow });
-
-    try {
-      useComposerDraftStore.getState().setPrompt(THREAD_ID, "Keep the source draft");
-      await waitForLayout();
-      await selectAssistantFiller();
       await page.getByRole("button", { name: "Reply", exact: true }).click();
-      const comment = "Retry this selected passage";
-      await page.getByRole("textbox", { name: "Reply", exact: true }).fill(comment);
-      wsRequests.length = 0;
-      await page.getByRole("button", { name: "Send reply", exact: true }).click();
-
-      const expectRecoverableReply = (attemptCount: number) => {
-        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
-        expect(draft?.queuedTurns).toHaveLength(1);
-        const queued = draft?.queuedTurns[0] as { kind?: string; prompt?: string } | undefined;
-        expect(queued?.kind).toBe("chat");
-        expect(queued?.prompt).toContain("<!-- reply -->");
-        expect(queued?.prompt).toContain(comment);
-        expect(draft?.prompt).toBe("Keep the source draft");
-        expect(
-          wsRequests
-            .map(readDispatchedCommand)
-            .filter((command) => command?.type === "thread.turn.start"),
-        ).toHaveLength(attemptCount);
-        expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(1);
-        const staleOptimisticRows = Array.from(
-          document.querySelectorAll<HTMLElement>('[data-message-role="user"]'),
-        ).filter((row) => row.textContent?.includes(comment));
-        expect(staleOptimisticRows).toHaveLength(0);
-      };
-      await vi.waitFor(() => expectRecoverableReply(1), { timeout: 8_000, interval: 16 });
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
-      expectRecoverableReply(1);
-      // One intentional retry is allowed after the backoff, and its rejection
-      // must keep exactly the same queued reply without an optimistic row.
-      retryNow += 1_000;
-      await vi.waitFor(() => expectRecoverableReply(2), { timeout: 8_000, interval: 16 });
+      await vi.waitFor(() => expect(document.activeElement).toBe(composerEditor));
+      const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+      expect(draft?.prompt).toBe("Keep the current draft");
+      expect(draft?.assistantSelections.map((selection) => selection.text)).toEqual([
+        "assistant filler 21",
+      ]);
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 400));
+      expect(
+        wsRequests
+          .map(readDispatchedCommand)
+          .some((command) => command?.type === "thread.turn.start"),
+      ).toBe(false);
     } finally {
-      stopRetryClock();
       window.getSelection()?.removeAllRanges();
       await mounted.cleanup();
       restoreNativeApi();
@@ -19500,9 +19493,11 @@ describe("ChatView transcript geometry (full app)", () => {
         .toBeInTheDocument();
 
       await page.getByRole("menuitem", { name: "帮助", exact: true }).click();
-      for (const name of ["按键绑定", "发送反馈", "文档", "完整发行说明"]) {
+      for (const name of ["按键绑定", "发送反馈", "完整发行说明"]) {
         await expect.element(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
       }
+      // Docs wait for Moss's help site (MOSS_HELP_SITE_URL), so Help leaves the entry out.
+      expect(page.getByRole("menuitem", { name: "文档", exact: true }).elements()).toHaveLength(0);
       await page.getByRole("menuitem", { name: "按键绑定", exact: true }).click();
       await expect.poll(() => settingsDialogStore.getState().isOpen).toBe(true);
       expect(settingsDialogStore.getState().request).toMatchObject({ section: "shortcuts" });

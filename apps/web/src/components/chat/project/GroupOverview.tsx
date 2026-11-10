@@ -28,6 +28,8 @@ import { archiveThreadFromClient, unarchiveThreadFromClient } from "~/lib/thread
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import type { useAutomations } from "~/routes/-automations.shared";
+import { automationDisplayName } from "~/lib/automationDisplayName";
+import { useTranslation } from "~/localization";
 
 import {
   GROUP_THREAD_SECTIONS,
@@ -365,6 +367,8 @@ function GroupAutomationRow({
   readonly onToggleEnabled: (enabled: boolean) => void;
   readonly onOpen: () => void;
 }) {
+  const { locale } = useTranslation();
+  const name = automationDisplayName(definition, locale);
   return (
     <div className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 hover:bg-foreground/5">
       <button
@@ -372,7 +376,7 @@ function GroupAutomationRow({
         className="flex min-w-0 flex-1 flex-col gap-0.5 text-left"
         onClick={onOpen}
       >
-        <span className={GROUP_OVERVIEW_ROW_TITLE_CLASS_NAME}>{definition.name}</span>
+        <span className={GROUP_OVERVIEW_ROW_TITLE_CLASS_NAME}>{name}</span>
         <span className="flex items-center gap-1.5 text-ui-xs text-muted-foreground">
           <span className="truncate">{formatSchedule(definition.schedule)}</span>
           <span>
@@ -383,7 +387,7 @@ function GroupAutomationRow({
       <Switch
         checked={definition.enabled}
         disabled={pending}
-        aria-label={`Enable ${definition.name}`}
+        aria-label={`Enable ${name}`}
         onCheckedChange={onToggleEnabled}
       />
     </div>

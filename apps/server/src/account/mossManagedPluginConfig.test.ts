@@ -10,6 +10,7 @@ import { createRejectedFileAlias } from "../../../../scripts/fixtures/filesystem
 
 import {
   installMossBundledPlugin,
+  isTransientWindowsPluginInstallError,
   mutateMossManagedPluginConfig,
   prepareMossManagedPluginStore,
   readMossManagedPluginConfig,
@@ -112,7 +113,7 @@ describe("managed native plugin config", () => {
       try {
         if (permanent) {
           await expect(boot).rejects.toBe(nativeError);
-          expect(attempts).toEqual(Array(5).fill("moss-imagegen"));
+          expect(attempts).toEqual(Array(6).fill("moss-imagegen"));
           await expect(
             readFile(path.join(managedHomePath, ".moss-imagegen-bootstrap-v1")),
           ).rejects.toMatchObject({ code: "ENOENT" });
@@ -137,6 +138,48 @@ describe("managed native plugin config", () => {
       } finally {
         await held.close();
       }
+    },
+  );
+
+  it("treats Windows locks on a fresh plugin's files as transient", () => {
+    for (const message of [
+      "plugin/install failed: failed to persist installed plugin config: Access is denied. (os error 5)",
+      "plugin/install failed: failed to install plugin: failed to activate plugin cache entry: 拒绝访问。 (os error 5)",
+      "plugin/install failed: failed to install plugin: failed to activate plugin cache entry: The process cannot access the file because it is being used by another process. (os error 32)",
+    ]) {
+      expect(isTransientWindowsPluginInstallError(new Error(message))).toBe(true);
+    }
+    for (const message of [
+      "plugin/install failed: failed to install plugin: plugin not found in marketplace",
+      "plugin/install failed: failed to activate plugin cache entry: (os error 2)",
+    ]) {
+      expect(isTransientWindowsPluginInstallError(new Error(message))).toBe(false);
+    }
+  });
+
+  it.runIf(process.platform === "win32")(
+    "installs again while Windows still holds a just-copied plugin's cache entry",
+    async () => {
+      const { managedHomePath, configPath } = await setup("model = 'kept'\n");
+      let attempts = 0;
+      await installMossBundledPlugin({
+        runtimeHomePath: managedHomePath,
+        pluginName: "moss-imagegen",
+        assertCurrent() {},
+        install: async () => {
+          attempts++;
+          if (attempts < 3) {
+            throw new Error(
+              "plugin/install failed: failed to install plugin: failed to activate plugin cache entry: 拒绝访问。 (os error 5)",
+            );
+          }
+          const config = parse(await readFile(configPath, "utf8"));
+          config.plugins = { "moss-imagegen@moss-bundled": { enabled: true } };
+          await writeFile(configPath, stringify(config));
+        },
+        isInstalledAndEnabled: async () => attempts >= 3,
+      });
+      expect(attempts).toBe(3);
     },
   );
 

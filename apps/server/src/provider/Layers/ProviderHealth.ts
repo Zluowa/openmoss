@@ -100,6 +100,7 @@ import {
 } from "../../providerChildEnvironment.ts";
 import {
   buildOpenCodeServerProcessEnv,
+  isOpenCodeDesktopCliCommand,
   resolveOpenCodeBinaryPath,
 } from "../providerBinaryResolution.ts";
 import { ServerSettingsService } from "../../serverSettings";
@@ -194,6 +195,7 @@ import {
   normalizeCommandPath,
   parseGenericCliVersion,
   providerUpdateFailureReason,
+  isPackageRegistryFailure,
   prepareProviderMaintenanceUpdate,
   PROVIDER_UPDATE_SETTINGS_CHANGED_MESSAGE,
   PROVIDER_UPDATE_VERSION_UNCONFIRMED_MESSAGE,
@@ -527,6 +529,8 @@ export const PACKAGE_MANAGED_PROVIDER_UPDATES: Partial<
     provider: OPENCODE_PROVIDER,
     binaryName: "opencode",
     npmPackageName: "opencode-ai",
+    // OpenCode desktop's bundled CLI updates with the desktop app; `opencode upgrade` fails on it.
+    isAppBundledCommandPath: (commandPath) => isOpenCodeDesktopCliCommand(commandPath),
     homebrew: { name: "anomalyco/tap/opencode", kind: "formula" },
     latestVersionSource: { kind: "npm", name: "opencode-ai" },
     nativeUpdate: {
@@ -5211,14 +5215,18 @@ export function makeProviderHealthLive(options?: {
               },
               catch: toUpdateError,
             }),
-            () =>
-              Effect.raceFirst(
+            () => {
+              const runAttempt = (attempt: {
+                readonly args: ReadonlyArray<string>;
+                readonly packageChannel: ProviderPackageChannel | undefined;
+              }) =>
                 runUpdateCommand({
                   instance: currentInstance,
                   command: verifiedUpdate.executable,
-                  args: verifiedUpdate.args,
+                  args: attempt.args,
                   onSpawn: () => {
                     updateSpawned = true;
+                    updateCompleted = false;
                   },
                   onComplete: () => {
                     updateCompleted = true;
@@ -5234,17 +5242,42 @@ export function makeProviderHealthLive(options?: {
                   ...(verifiedUpdate.pathPrepend
                     ? { pathPrepend: verifiedUpdate.pathPrepend }
                     : {}),
-                  ...(effectiveCapabilities.packageChannel
-                    ? { packageChannel: effectiveCapabilities.packageChannel }
-                    : {}),
+                  ...(attempt.packageChannel ? { packageChannel: attempt.packageChannel } : {}),
                 }).pipe(
                   Effect.scoped,
                   Effect.timeoutOption(Duration.millis(providerUpdateTimeoutMs)),
                   Effect.result,
-                  Effect.map((result) => ({ _tag: "completed" as const, result })),
-                ),
+                );
+              const attempts = Effect.gen(function* () {
+                const first = yield* runAttempt({
+                  args: verifiedUpdate.args,
+                  packageChannel:
+                    verifiedUpdate.packageChannel ?? effectiveCapabilities.packageChannel,
+                });
+                const fallback = verifiedUpdate.registryFallback;
+                // Only a registry or network error gets the second registry: a permission
+                // error would fail there too, and a timeout already used the whole budget
+                // (the person can retry from the status pill).
+                const registryFailed =
+                  Result.isSuccess(first) &&
+                  Option.isSome(first.success) &&
+                  first.success.value.exitCode !== 0 &&
+                  isPackageRegistryFailure(first.success.value);
+                if (!fallback || !registryFailed) return first;
+                // A registry that lagged, was down or refused the request: one more try from
+                // the other registry before telling the person the update failed.
+                yield* Effect.logWarning("provider.update.registry_fallback", {
+                  provider,
+                  from: verifiedUpdate.packageChannel ?? "official",
+                  to: fallback.packageChannel,
+                });
+                return yield* runAttempt(fallback);
+              });
+              return Effect.raceFirst(
+                attempts.pipe(Effect.map((result) => ({ _tag: "completed" as const, result }))),
                 waitForProviderDisablement.pipe(Effect.as({ _tag: "disabled" as const })),
-              ),
+              );
+            },
             (maintenance) =>
               Effect.sync(() =>
                 maintenance?.finish(updateSpawned, !updateSpawned || updateCompleted),

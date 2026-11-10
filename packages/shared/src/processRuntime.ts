@@ -25,6 +25,11 @@ import {
   type ProcessLaunchPlan,
 } from "./platformProcess";
 import { resolveWindowsComSpec, withWindowsPowerShellModules } from "./platformEnvironment";
+import {
+  cancelAgentStartupPriority,
+  deferAgentPriorityUntilReady,
+  shouldDeferAgentPriority,
+} from "./agentStartupPriority";
 
 import { trackProcessSpawn } from "./processSpawnOutcome";
 export { didProcessFailToSpawn } from "./processSpawnOutcome";
@@ -36,6 +41,11 @@ type ProcessGroupOptions = {
   readonly ownProcessGroup?: boolean;
   /** Opt-in for agent processes; internal request-path helpers keep their priority. */
   readonly lowerPriority?: boolean;
+  /**
+   * With `lowerPriority`, keep normal priority on Windows until the owner calls
+   * `settleAgentStartupPriority(child)` once the session is ready (or the grace ends).
+   */
+  readonly deferPriorityUntilReady?: boolean;
 };
 
 export type RuntimeSpawnOptions = Omit<
@@ -94,12 +104,18 @@ function planFromOptions(
 
 function runtimeOptions<
   T extends ProcessPlanningOptions & ProcessGroupOptions & { env?: NodeJS.ProcessEnv | undefined },
->(options: T): Omit<T, "platform" | "requireExecutable" | "ownProcessGroup" | "lowerPriority"> {
+>(
+  options: T,
+): Omit<
+  T,
+  "platform" | "requireExecutable" | "ownProcessGroup" | "lowerPriority" | "deferPriorityUntilReady"
+> {
   const {
     platform: _platform,
     requireExecutable: _requireExecutable,
     ownProcessGroup: _ownProcessGroup,
     lowerPriority: _lowerPriority,
+    deferPriorityUntilReady: _deferPriorityUntilReady,
     ...nodeOptions
   } = options;
   return (options.platform ?? process.platform) === "win32"
@@ -153,11 +169,16 @@ export function spawnPlannedProcess(
     windowsHide: plan.windowsHide,
     windowsVerbatimArguments: plan.windowsVerbatimArguments,
   });
-  if (
-    options.lowerPriority &&
-    ((options.platform ?? process.platform) === "win32" || !plan.priorityBeforeExec)
-  ) {
-    lowerProcessPriority(child.pid, options);
+  const platform = options.platform ?? process.platform;
+  if (options.lowerPriority && (platform === "win32" || !plan.priorityBeforeExec)) {
+    if (options.deferPriorityUntilReady && shouldDeferAgentPriority(platform)) {
+      deferAgentPriorityUntilReady(child, { pid: child.pid, platform });
+      const cancel = () => cancelAgentStartupPriority(child);
+      child.once("exit", cancel);
+      child.once("error", cancel);
+    } else {
+      lowerProcessPriority(child.pid, options);
+    }
   }
   return trackProcessSpawn(child);
 }

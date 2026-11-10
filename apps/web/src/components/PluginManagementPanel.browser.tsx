@@ -366,8 +366,65 @@ describe("PluginManagementPanel authoritative tabs", () => {
       await expect
         .element(page.getByRole("alert"))
         .toHaveTextContent(/Unable to load apps|无法加载应用/u);
-      await expect.element(page.getByRole("alert")).toHaveTextContent("refresh failed");
+      await expect
+        .element(page.getByRole("alert"))
+        .toHaveTextContent("暂时连不上应用，请稍后重试。");
+      expect(document.body.textContent).not.toContain("refresh failed");
       await expect.element(page.getByText("Gmail")).toBeInTheDocument();
+      await page.getByRole("button", { name: /Retry|重试/u }).click();
+      expect(onRetryApps).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("renders a host's per-tab supplement under that tab's list only", async () => {
+    const renderTabSupplement = vi.fn((tab: string, query: string) =>
+      tab === "mcps" ? <p data-testid="tab-supplement">{`extra:${query}`}</p> : null,
+    );
+    const screen = await renderZh(
+      <PluginManagementPanel
+        {...commonProps()}
+        apps={[]}
+        appsError={null}
+        marketplaces={[]}
+        renderTabSupplement={renderTabSupplement}
+      />,
+    );
+    try {
+      await page.getByTestId("plugin-manage-tab-apps").click();
+      await expect.element(page.getByTestId("tab-supplement")).not.toBeInTheDocument();
+      await page.getByTestId("plugin-manage-tab-mcps").click();
+      await expect.element(page.getByTestId("tab-supplement")).toHaveTextContent("extra:");
+      expect(renderTabSupplement).toHaveBeenCalledWith("apps", "");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("never shows the provider's raw error when apps fail to load", async () => {
+    const onRetryApps = vi.fn();
+    const screen = await renderZh(
+      <PluginManagementPanel
+        {...commonProps()}
+        apps={[]}
+        appsError={
+          new Error(
+            "Provider adapter request failed (codex) for app/list: app/list failed: thread not found: fe08f1c9-009f-4012-986b-e3e5c6b63ab3",
+          )
+        }
+        marketplaces={[]}
+        onRetryApps={onRetryApps}
+      />,
+    );
+
+    try {
+      await page.getByTestId("plugin-manage-tab-apps").click();
+      await expect.element(page.getByText("无法加载应用", { exact: true })).toBeVisible();
+      await expect.element(page.getByText("暂时连不上应用，请稍后重试。")).toBeVisible();
+      for (const raw of ["Provider adapter", "app/list", "thread not found", "fe08f1c9"]) {
+        expect(document.body.textContent).not.toContain(raw);
+      }
       await page.getByRole("button", { name: /Retry|重试/u }).click();
       expect(onRetryApps).toHaveBeenCalledTimes(1);
     } finally {

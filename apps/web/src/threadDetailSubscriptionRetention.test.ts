@@ -338,6 +338,76 @@ describe("threadDetailSubscriptionRetention", () => {
     ]);
   });
 
+  it("orders retained chats most recently used first", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-11T00:00:00.000Z"));
+    const [a, b, c] = ["chat-a", "chat-b", "chat-c"].map((id) => ThreadId.makeUnsafe(id));
+    const releaseA = retainThreadDetailSubscription(a!);
+    vi.advanceTimersByTime(1_000);
+    const releaseB = retainThreadDetailSubscription(b!);
+    vi.advanceTimersByTime(1_000);
+    retainThreadDetailSubscription(c!)();
+    vi.advanceTimersByTime(1_000);
+    // Leaving chat A last makes it the most recent one again.
+    releaseB();
+    vi.advanceTimersByTime(1_000);
+    releaseA();
+
+    expect(getRetainedThreadDetailIdsSnapshot()).toEqual([a, b, c]);
+  });
+
+  it("sheds retained leases to the budget but never a visible chat", () => {
+    const visible = [ThreadId.makeUnsafe("on-screen")];
+    const retained = ["r-1", "r-2", "r-3", "r-4"].map((id) => ThreadId.makeUnsafe(id));
+    const input = {
+      visibleThreadIds: visible,
+      retainedThreadIds: retained,
+      serverThreadIds: new Set([...visible, ...retained]),
+      draftThreadIds: new Set<ThreadId>(),
+    };
+
+    expect(resolveThreadDetailSubscriptionLeaseIds({ ...input, retainedBudget: 2 })).toEqual([
+      visible[0],
+      retained[0],
+      retained[1],
+    ]);
+    expect(resolveThreadDetailSubscriptionLeaseIds({ ...input, retainedBudget: 0 })).toEqual(
+      visible,
+    );
+  });
+
+  it("leases the Mossbot chat opened after visiting five other chats", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-11T00:00:00.000Z"));
+    const visited = ["claude", "grok", "codex", "opencode", "pi"].map((id) =>
+      ThreadId.makeUnsafe(`chat-${id}`),
+    );
+    for (const threadId of visited) {
+      registerIdleSidebarThread(threadId);
+      const release = retainThreadDetailSubscription(threadId);
+      vi.advanceTimersByTime(1_000);
+      release();
+    }
+    const mossbot = ThreadId.makeUnsafe("mossbot-assistant");
+    registerIdleSidebarThread(mossbot);
+    retainThreadDetailSubscription(mossbot);
+    const leaseFor = (retainedBudget?: number) =>
+      resolveThreadDetailSubscriptionLeaseIds({
+        visibleThreadIds: [mossbot],
+        retainedThreadIds: getRetainedThreadDetailIdsSnapshot(),
+        serverThreadIds: new Set([...visited, mossbot]),
+        draftThreadIds: new Set(),
+        retainedBudget,
+      });
+
+    // The chat on screen leases first; the others follow most recent first.
+    expect(leaseFor()).toEqual([mossbot, ...visited.toReversed()]);
+    // Every lease fits next to the app-wide streams of one window (about 15).
+    expect(leaseFor().length + 15).toBeLessThanOrEqual(WS_STREAM_LIMITS.totalPerClient);
+    // If the server still refuses, the oldest visited chats give their streams up first.
+    expect(leaseFor(2)).toEqual([mossbot, visited[4], visited[3]]);
+  });
+
   it("does not lease an arbitrary missing route", () => {
     const serverThreadId = ThreadId.makeUnsafe("server-thread");
     const draftThreadId = ThreadId.makeUnsafe("draft-thread");

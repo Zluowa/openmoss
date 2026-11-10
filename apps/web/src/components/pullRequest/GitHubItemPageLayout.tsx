@@ -12,7 +12,7 @@
 //          PullRequestDetailSkeleton
 
 import { useInPageGlassOverlay } from "~/hooks/useInPageGlassOverlay";
-import type { ProjectId, ThreadId } from "@moss/contracts";
+import { GITHUB_PERSONAL_PROJECT_ID, type ProjectId, type ThreadId } from "@moss/contracts";
 import { useState, type ReactNode } from "react";
 
 import {
@@ -91,8 +91,12 @@ export function GitHubItemAskComposer({
   const projectId =
     chosenProjectId !== null && sendTargets.some((target) => target.projectId === chosenProjectId)
       ? chosenProjectId
-      : defaultProjectId;
+      : (sendTargets.find((target) => target.projectId === defaultProjectId)?.projectId ??
+        sendTargets[0]?.projectId ??
+        defaultProjectId);
   if (!host.onAskQuestion || !host.composerVisible) return null;
+  // An item only "My GitHub" lists has no project folder for the chat to run in.
+  if (projectId === GITHUB_PERSONAL_PROJECT_ID) return null;
   const { onAskQuestion, onAsk } = host;
   return (
     <GitHubItemFloatingComposer

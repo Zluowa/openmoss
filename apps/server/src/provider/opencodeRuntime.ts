@@ -45,6 +45,7 @@ import * as Semaphore from "effect/Semaphore";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import {
   makeEffectProcessCommand,
+  settleProviderStartupPriority,
   spawnProviderProcess,
 } from "../platform/effectProcessRuntime.ts";
 
@@ -69,7 +70,11 @@ import {
 
 import { decodeProviderCommandOutput, readWindowsAnsiEncoding } from "./providerCommandOutput";
 
-const DEFAULT_OPENCODE_SERVER_TIMEOUT_MS = 20_000;
+// A first launch on a busy Windows PC (a cold 100+ MB binary, CPU saturated by other
+// programs) was measured past 20 s. Failing it blocks the thread, so allow a cold start.
+const DEFAULT_OPENCODE_SERVER_TIMEOUT_MS = 45_000;
+// 0.25 + 0.5 + 1 + 2 + 2 s of back-off between six probes: ~6 s for a server still loading.
+const OPENCODE_READINESS_PROBE_ATTEMPTS = 6;
 const DEFAULT_HOSTNAME = "127.0.0.1";
 export const OPENCODE_LOCAL_SERVER_IDLE_TTL_MS = 5 * 60_000;
 const OPENCODE_STARTUP_OUTPUT_MAX_CHARS = 4_000;
@@ -1087,6 +1092,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
         // inherited value from another OpenCode instance.
         childEnv.OPENCODE_PASSWORD = serverPassword;
         const child = yield* spawnProviderProcess(spawner, expandHomePath(input.binaryPath), args, {
+          deferPriorityUntilReady: true,
           env: childEnv,
           ...(input.cwd ? { cwd: expandHomePath(input.cwd) } : {}),
           detached: false,
@@ -1246,8 +1252,11 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
         };
         let probeStatus: number | null = null;
         let surfaceConfirmed = false;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          if (attempt > 0) yield* Effect.sleep(250);
+        const lastAttempt = OPENCODE_READINESS_PROBE_ATTEMPTS - 1;
+        for (let attempt = 0; attempt < OPENCODE_READINESS_PROBE_ATTEMPTS; attempt += 1) {
+          // A server that just printed its URL can still be loading on a busy PC (HTTP 499,
+          // 5xx or no answer). Back off instead of failing the thread after ~0.75 s.
+          if (attempt > 0) yield* Effect.sleep(Math.min(250 * 2 ** (attempt - 1), 2_000));
           const protocolExit = yield* Effect.exit(
             Effect.tryPromise({
               try: (signal) =>
@@ -1266,7 +1275,7 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
             }),
           );
           if (Exit.isFailure(protocolExit)) {
-            if (attempt === 2) return yield* Effect.failCause(protocolExit.cause);
+            if (attempt === lastAttempt) return yield* Effect.failCause(protocolExit.cause);
             continue;
           }
           if (protocolExit.value === "v2") {
@@ -1300,10 +1309,12 @@ const makeOpenCodeRuntime = (options?: OpenCodeRuntimeLiveOptions) =>
         if (!surfaceConfirmed) {
           return yield* new OpenCodeRuntimeError({
             operation: "startOpenCodeServerProcess",
-            detail: `${cliSpec.displayName} server did not pass the API readiness probe after 3 attempts (GET /provider → ${probeStatus === null ? "unreachable" : `HTTP ${probeStatus}`}).${probeStatus === 401 || probeStatus === 403 ? " The server rejected the credentials it was started with; report this as a bug." : ""}`,
+            detail: `${cliSpec.displayName} server did not pass the API readiness probe after ${OPENCODE_READINESS_PROBE_ATTEMPTS} attempts (GET /provider → ${probeStatus === null ? "unreachable" : `HTTP ${probeStatus}`}).${probeStatus === 401 || probeStatus === 403 ? " The server rejected the credentials it was started with; report this as a bug." : ""}`,
           });
         }
 
+        // Started at normal priority; the session's tools inherit the configured lower one.
+        yield* settleProviderStartupPriority(child);
         return {
           url: readyOption.value,
           serverPassword,

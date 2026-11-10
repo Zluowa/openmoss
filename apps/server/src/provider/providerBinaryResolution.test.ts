@@ -10,9 +10,11 @@ import {
   commandExistsOnPath,
   directoriesContainingCommand,
   isBrokenWindowsCommandShim,
+  isOpenCodeDesktopCliCommand,
   openCodeBinarySearchDirectories,
   resolveOpenCodeBinaryPath,
   resolveWindowsLocalAppDataBinary,
+  windowsCommandShimTargets,
 } from "./providerBinaryResolution.ts";
 
 const missingPath = () => false;
@@ -252,11 +254,17 @@ describe("resolveOpenCodeBinaryPath", () => {
     '"%_prog%"  "%dp0%\\node_modules\\opencode-ai\\bin\\opencode" %*',
   ].join("\r\n");
 
+  /**
+   * The fake disk's lookup key. Windows paths ignore case, and PATH candidates are joined
+   * with the host's `node:path`, so off Windows a candidate reads `…\npm/opencode.cmd`.
+   */
+  const diskKey = (path: string) => path.replaceAll("/", "\\").toLowerCase();
+
   function fakeDisk(files: Record<string, string>) {
     const byLowerPath = new Map(
-      Object.entries(files).map(([path, text]) => [path.toLowerCase(), text] as const),
+      Object.entries(files).map(([path, text]) => [diskKey(path), text] as const),
     );
-    const exists = (path: string) => byLowerPath.has(path.toLowerCase());
+    const exists = (path: string) => byLowerPath.has(diskKey(path));
     return {
       platform: "win32" as const,
       env: {
@@ -266,7 +274,7 @@ describe("resolveOpenCodeBinaryPath", () => {
       },
       pathExists: exists,
       isExecutable: exists,
-      readText: (path: string) => byLowerPath.get(path.toLowerCase()),
+      readText: (path: string) => byLowerPath.get(diskKey(path)),
     };
   }
 
@@ -287,8 +295,8 @@ describe("resolveOpenCodeBinaryPath", () => {
     expect(await isBrokenWindowsCommandShim(`${LOCAL_BIN}\\opencode.cmd`, disk)).toBe(true);
     // npm's shim names a missing node.exe too, but its real target exists.
     expect(await isBrokenWindowsCommandShim(`${NPM_BIN}\\opencode.cmd`, disk)).toBe(false);
-    expect((await resolveOpenCodeBinaryPath(undefined, disk)).toLowerCase()).toBe(
-      `${NPM_BIN}\\opencode.cmd`.toLowerCase(),
+    expect(diskKey(await resolveOpenCodeBinaryPath(undefined, disk))).toBe(
+      diskKey(`${NPM_BIN}\\opencode.cmd`),
     );
   });
 
@@ -328,5 +336,28 @@ describe("resolveOpenCodeBinaryPath", () => {
     expect(await resolveOpenCodeBinaryPath(undefined, { ...disk, platform: "linux" })).toBe(
       "opencode",
     );
+  });
+
+  it("recognises OpenCode desktop's own CLI, directly and behind a personal shim", async () => {
+    const desktopCli = `${LOCALAPPDATA}\\Programs\\@opencodedesktop\\resources\\opencode-cli.exe`;
+    const disk = fakeDisk({
+      [`${LOCAL_BIN}\\opencode.cmd`]: STALE_SHIM,
+      [`${NPM_BIN}\\opencode.cmd`]: NPM_SHIM,
+      [desktopCli]: "",
+    });
+    expect(await windowsCommandShimTargets(`${LOCAL_BIN}\\opencode.cmd`, disk)).toEqual([
+      desktopCli,
+    ]);
+    expect(await isOpenCodeDesktopCliCommand(desktopCli, disk)).toBe(true);
+    expect(await isOpenCodeDesktopCliCommand(`${LOCAL_BIN}\\opencode.cmd`, disk)).toBe(true);
+    expect(
+      await isOpenCodeDesktopCliCommand("/Applications/OpenCode.app/Contents/MacOS/opencode-cli", {
+        ...disk,
+        platform: "darwin",
+      }),
+    ).toBe(true);
+    // npm's own shim and an unrelated binary are not the desktop app's.
+    expect(await isOpenCodeDesktopCliCommand(`${NPM_BIN}\\opencode.cmd`, disk)).toBe(false);
+    expect(await isOpenCodeDesktopCliCommand("C:\\tools\\opencode.exe", disk)).toBe(false);
   });
 });

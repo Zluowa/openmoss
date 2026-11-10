@@ -18,7 +18,6 @@ import { MessagesTimeline } from "./MessagesTimeline";
 import { TurnHeaderLine } from "./TurnHeaderLine";
 import { TranscriptCardBoundary } from "./transcript/cards/transcriptCards";
 import { RewindMarker } from "./transcript/RewindMarker";
-import { TranscriptReplyBox } from "./transcript/TranscriptReplyBox";
 import { WrapUpLiveBox } from "./transcript/WrapUpBox";
 
 // Shimmering lines are captured at rest, not mid-sweep.
@@ -337,37 +336,6 @@ it.each(["light", "dark"] as const)(
       await expect.element(page.getByRole("alert")).toHaveTextContent("回复暂未发送，请重试。");
       expect(document.body.textContent).toContain("The parser reads the header once.");
       await shot(`wrap-up-zh-CN-${theme}`);
-      await screen.rerender(
-        <BrowserThemeFixture>
-          <MossLocaleScope locale="zh-CN">
-            <TranscriptReplyBox
-              quote="Keep the offsets stable across retries."
-              range={null}
-              onSend={async () => false}
-              onClose={() => {}}
-            />
-          </MossLocaleScope>
-        </BrowserThemeFixture>,
-      );
-      const input = page.getByRole("textbox", { name: "回复", exact: true });
-      await expect.element(input).toBeVisible();
-      expect(input.element().getAttribute("placeholder")).toBe("回复智能体");
-      await input.fill("请保留我输入的回复。");
-      await page.getByRole("button", { name: "发送回复" }).click();
-      await expect.element(page.getByRole("alert")).toHaveTextContent("回复暂未发送，请重试。");
-      await expect.element(input).toHaveValue("请保留我输入的回复。");
-      expect(document.querySelector("[data-reply-quote]")?.textContent).toBe(
-        "Keep the offsets stable across retries.",
-      );
-      const rect = page
-        .getByRole("dialog", { name: "回复", exact: true })
-        .element()
-        .getBoundingClientRect();
-      expect(rect.width).toBeGreaterThan(0);
-      expect(rect.left).toBeGreaterThanOrEqual(0);
-      expect(rect.right).toBeLessThanOrEqual(window.innerWidth);
-      expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
-      await shot(`reply-box-zh-CN-${theme}`);
     } finally {
       await screen.unmount();
     }

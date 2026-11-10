@@ -29,11 +29,31 @@ const evictionListeners = new Set<(threadId: ThreadId) => void>();
 let cachedSnapshot: readonly ThreadId[] = [];
 let visibleThreadIds: ReadonlySet<ThreadId> = new Set();
 
+// Most recently used first: retained chats compete for stream leases in this order, so the
+// chat left longest ago is the first to give its stream up (least recently used).
+function retainedIdsByRecency(): ThreadId[] {
+  return [...retainedThreadEntries.entries()]
+    .toSorted((left, right) => right[1].lastAccessedAt - left[1].lastAccessedAt)
+    .map(([threadId]) => threadId);
+}
+
 function emitChange(): void {
-  cachedSnapshot = [...retainedThreadEntries.keys()];
+  cachedSnapshot = retainedIdsByRecency();
   for (const listener of listeners) {
     listener();
   }
+}
+
+/** Re-publish the order only when recency actually moved a thread. */
+function emitIfRecencyChanged(): void {
+  const next = retainedIdsByRecency();
+  if (
+    next.length === cachedSnapshot.length &&
+    next.every((id, index) => id === cachedSnapshot[index])
+  ) {
+    return;
+  }
+  emitChange();
 }
 
 function emitEviction(threadId: ThreadId): void {
@@ -256,6 +276,7 @@ export function retainThreadDetailSubscription(threadId: ThreadId): () => void {
     clearEvictionTimeout(existing);
     existing.refCount += 1;
     existing.lastAccessedAt = Date.now();
+    emitIfRecencyChanged();
     return release;
   }
 
@@ -278,6 +299,7 @@ export function releaseThreadDetailSubscription(threadId: ThreadId): void {
 
   entry.refCount = Math.max(0, entry.refCount - 1);
   entry.lastAccessedAt = Date.now();
+  emitIfRecencyChanged();
   if (entry.refCount > 0) {
     return;
   }
@@ -324,6 +346,10 @@ export function isThreadDetailRetained(threadId: ThreadId): boolean {
  * compete for the slots left after visible ones. Threads with live or
  * actionable work go first: a running thread that loses its lease freezes its
  * cached detail mid-turn, and reopening it later has to replay the whole gap.
+ * Idle retained threads follow most recently used first. `retainedBudget`
+ * (see threadStreamLeaseBudget) caps the retained share only: the chats on
+ * screen always lease first, so a full connection sheds background chats
+ * instead of leaving the visible one loading forever.
  */
 export function resolveThreadDetailSubscriptionLeaseIds(input: {
   readonly visibleThreadIds: readonly ThreadId[];
@@ -331,6 +357,7 @@ export function resolveThreadDetailSubscriptionLeaseIds(input: {
   readonly serverThreadIds: ReadonlySet<ThreadId>;
   readonly draftThreadIds: ReadonlySet<ThreadId>;
   readonly retentionExcludedThreadIds?: ReadonlySet<ThreadId> | undefined;
+  readonly retainedBudget?: number | undefined;
 }): ThreadId[] {
   const threadIds = new Set<ThreadId>();
   for (const threadId of input.visibleThreadIds) {
@@ -347,12 +374,16 @@ export function resolveThreadDetailSubscriptionLeaseIds(input: {
     (threadId) =>
       !input.retentionExcludedThreadIds?.has(threadId) && input.serverThreadIds.has(threadId),
   );
+  const retainedLimit = Math.min(
+    WS_STREAM_LIMITS.threadPerClient,
+    threadIds.size + Math.max(0, input.retainedBudget ?? WS_STREAM_LIMITS.threadPerClient),
+  );
   // Same predicate that shields detail from eviction: live or actionable work.
   for (const threadId of [
     ...leasableRetainedThreadIds.filter((threadId) => isThreadDetailEvictionUnsafe(threadId)),
     ...leasableRetainedThreadIds,
   ]) {
-    if (threadIds.size >= WS_STREAM_LIMITS.threadPerClient) break;
+    if (threadIds.size >= retainedLimit) break;
     threadIds.add(threadId);
   }
   return [...threadIds];

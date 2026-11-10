@@ -7,6 +7,8 @@
 import type { AutomationDefinition } from "@moss/contracts";
 
 import { formatCadence } from "~/routes/-automations.shared";
+import { automationDisplayName } from "~/lib/automationDisplayName";
+import { useTranslation } from "~/localization";
 import { ClockIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
@@ -27,6 +29,7 @@ export function EnvironmentAutomationsSection({
   readonly automations: readonly EnvironmentAutomationPanelItem[];
   readonly onOpenAutomation: (definition: AutomationDefinition) => void;
 }) {
+  const { locale } = useTranslation();
   if (automations.length === 0) {
     return null;
   }
@@ -36,6 +39,7 @@ export function EnvironmentAutomationsSection({
       <EnvironmentSectionLabel>Automations</EnvironmentSectionLabel>
       {automations.map(({ definition }) => {
         const cadence = definition.enabled ? formatCadence(definition.schedule) : "Paused";
+        const name = automationDisplayName(definition, locale);
         return (
           <EnvironmentRow
             key={definition.id}
@@ -48,14 +52,14 @@ export function EnvironmentAutomationsSection({
                 aria-hidden
               />
             }
-            label={<span className="truncate">{definition.name}</span>}
+            label={<span className="truncate">{name}</span>}
             trailing={
               <span className="max-w-24 truncate text-[var(--color-text-foreground-secondary)]">
                 {cadence}
               </span>
             }
-            aria-label={`Open automation ${definition.name}`}
-            title={`${definition.name} - ${cadence}`}
+            aria-label={`Open automation ${name}`}
+            title={`${name} - ${cadence}`}
             onClick={() => onOpenAutomation(definition)}
           />
         );

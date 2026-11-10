@@ -4004,6 +4004,7 @@ export default function ChatView({
   }, [settings.anchorSentMessagesToTop, tailAnchorScrollInFlightRef]);
   const {
     pendingTranscriptSelectionAction,
+    commitTranscriptAssistantSelection,
     dismissTranscriptSelectionAction,
     onMessagesClickCapture,
     onMessagesMouseUp,
@@ -8991,7 +8992,7 @@ export default function ChatView({
                 runtimeMode,
               })
             }
-            onSendReply={onSendPromptTurn}
+            onQuoteToComposer={commitTranscriptAssistantSelection}
           />
         ) : null}
         <ExpandedImageOverlay

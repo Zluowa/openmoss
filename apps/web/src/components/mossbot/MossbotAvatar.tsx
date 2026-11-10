@@ -1,4 +1,5 @@
 import type { SVGProps } from "react";
+import { MossbotIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useMossbotCopy } from "./mossbot.copy";
 import "./mossbot.css";
@@ -27,21 +28,6 @@ function CompanionGlyph({ shape, ...props }: SVGProps<SVGSVGElement> & { shape: 
   );
 }
 
-/** The default assistant face (a picture, not the Mossbot mark: that is MossbotIcon). */
-export function MossbotPebbleFace(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="-6 -6 92 92" fill="none" aria-hidden="true" {...props}>
-      <g transform="rotate(-22 40 40)">
-        <path
-          d="M26 10C29-2 47-3 53 8C67 4 79 17 73 30C86 39 82 56 69 60C71 75 54 85 42 76C30 87 13 78 13 64C-2 59-3 42 9 34C3 21 14 8 26 10Z"
-          fill="currentColor"
-        />
-        <rect x="29" y="30" width="9" height="20" rx="4.5" fill="#17151d" />
-        <rect x="46" y="30" width="9" height="20" rx="4.5" fill="#17151d" />
-      </g>
-    </svg>
-  );
-}
 export function MossbotSprout(props: SVGProps<SVGSVGElement>) {
   return <CompanionGlyph shape="sprout" {...props} />;
 }
@@ -104,7 +90,8 @@ function MossbotDrop(props: SVGProps<SVGSVGElement>) {
 }
 
 export const MOSSBOT_AVATARS = [
-  { key: "mossbot-pebble", label: "Moss", tone: "default", Icon: MossbotPebbleFace },
+  // The default face is the Mossbot mark itself, in ink (the stored key stays "mossbot-pebble").
+  { key: "mossbot-pebble", label: "Moss", tone: "default", Icon: MossbotIcon },
   { key: "mossbot-sprout", label: "Sprout", tone: "green", Icon: MossbotSprout },
   { key: "mossbot-orbit", label: "Orbit", tone: "blue", Icon: MossbotOrbit },
   { key: "mossbot-bloom", label: "Bloom", tone: "rose", Icon: MossbotBloom },

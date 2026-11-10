@@ -14,7 +14,6 @@ import {
 
 import type { MossLocaleCode } from "~/appSettings";
 import type { TranslationKey } from "~/localization";
-import { translateZhCnPresentationText } from "~/localization/zhCN";
 import { isProviderKind } from "~/providerOrdering";
 import { isProviderUpdateActive } from "~/providerUpdates";
 
@@ -47,6 +46,8 @@ export interface ProviderUpdatePillView {
   readonly description: string;
   readonly dismissible?: boolean;
   readonly dismissAfterVisibleMs?: number;
+  /** A failed update the person can run again from the pill. */
+  readonly retryTargets?: ReadonlyArray<ProviderUpdateTarget>;
 }
 
 export interface ProviderUpdateRunProgress {
@@ -69,16 +70,6 @@ export function providerStatusDisplayName(provider: ServerProviderStatus): strin
 
 function formatVersion(value: string): string {
   return value.startsWith("v") ? value : `v${value}`;
-}
-
-/** The server words update results in English; the pill composes them into its own copy. */
-function localizeServerText(value: string, locale: MossLocaleCode): string {
-  return locale === "zh-CN" ? translateZhCnPresentationText(value) : value;
-}
-
-function asSentence(value: string, locale: MossLocaleCode): string {
-  if (/[.!?。！？]$/u.test(value)) return value;
-  return `${value}${locale === "zh-CN" ? "。" : "."}`;
 }
 
 function formatProviderList(
@@ -235,7 +226,10 @@ export function getProviderUpdatePillView(
   if (failed[0]) {
     const first = failed[0];
     const attempted = first.versionAdvisory?.latestVersion;
-    const reason = failed.length === 1 ? first.updateState?.message?.trim() : undefined;
+    // Only agents Moss can still update in one click; the details stay in the update dialog.
+    const retryTargets = collectProviderUpdateTargets(
+      failed.filter((provider) => provider.versionAdvisory?.canUpdate === true),
+    );
     candidates.push({
       finishedAt: latestFinishedAt(failed),
       view: {
@@ -250,15 +244,11 @@ export function getProviderUpdatePillView(
                   version: formatVersion(attempted),
                 })
               : format("providerUpdate.pill.failed", { name: providerStatusDisplayName(first) }),
-        description: reason
-          ? format("providerUpdate.pill.failedReason", {
-              reason: asSentence(localizeServerText(reason, locale), locale),
-              name: providerStatusDisplayName(first),
-            })
-          : format("providerUpdate.pill.failedDescription", {
-              names: formatProviderList(failed, locale),
-            }),
+        description: format("providerUpdate.pill.failedDescription", {
+          names: formatProviderList(failed, locale),
+        }),
         dismissible: true,
+        ...(retryTargets.length > 0 ? { retryTargets } : {}),
       },
     });
   }

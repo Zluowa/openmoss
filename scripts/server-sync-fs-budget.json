@@ -377,6 +377,14 @@
       "readFileSync": 1
     }
   },
+  "packages/shared/src/codexNativeLaunch.ts": {
+    "reason": "Synchronous pre-spawn plan like platformProcess: on Windows only, a stat and a 4 KB read of npm's codex.cmd shim, one realpath and up to three stats for the native binary it starts.",
+    "references": {
+      "readFileSync": 1,
+      "realpathSync": 1,
+      "statSync": 2
+    }
+  },
   "packages/shared/src/executable.ts": {
     "reason": "Shared executable resolution boundary; existing discovery references frozen pending profiling.",
     "references": {

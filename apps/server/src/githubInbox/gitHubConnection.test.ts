@@ -4,7 +4,7 @@ import type { ProcessRunOptions, ProcessRunResult } from "../processRunner";
 import type {
   SystemToolInstallOutcome,
   SystemToolInstallPhase,
-} from "../provider/systemToolInstall";
+} from "../systemTools/systemToolInstall";
 
 const one = "00000000-0000-4000-8000-000000000001";
 const two = "00000000-0000-4000-8000-000000000002";

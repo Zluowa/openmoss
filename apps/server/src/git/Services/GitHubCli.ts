@@ -148,6 +148,31 @@ export interface GitHubRepositoryInboxSnapshot {
   readonly rateLimit: GitHubGraphQlRateLimit | null;
 }
 
+/** One row of the viewer's own GitHub search, with the repository it belongs to. */
+export interface GitHubViewerInboxEntry {
+  readonly repository: string;
+  readonly item: GitHubInboxRemoteItem;
+}
+
+/**
+ * The signed-in person's own pull requests and issues across GitHub, independent of Moss
+ * projects: authored, review-requested (teams included) and assigned, for one state.
+ */
+export interface GitHubViewerInbox {
+  readonly viewer: string;
+  /** Deduplicated across the three searches, newest first per search. */
+  readonly entries: ReadonlyArray<GitHubViewerInboxEntry>;
+  /** `owner/name#number`, lowercased: matched by the authored or assigned search. */
+  readonly involvedKeys: ReadonlyArray<string>;
+  /** `owner/name#number`, lowercased: open pull requests awaiting the viewer's review. */
+  readonly reviewRequestedKeys: ReadonlyArray<string>;
+  /** GitHub's uncapped count of pull requests awaiting the viewer's review in this state. */
+  readonly reviewRequestedCount: number;
+  /** A search matched more rows than the page returned. */
+  readonly truncated: boolean;
+  readonly rateLimit: GitHubGraphQlRateLimit | null;
+}
+
 /** The lists document alone, before the involvement search is merged in. */
 export type GitHubRepositoryInboxLists = Omit<GitHubRepositoryInboxSnapshot, "involvedNumbers">;
 
@@ -249,6 +274,17 @@ export interface GitHubCliShape {
     readonly state: GitHubInboxState;
     readonly sort?: GitHubInboxSort;
   }) => Effect.Effect<GitHubRepositoryInboxLists, GitHubCliError>;
+
+  /**
+   * The viewer's own pull requests and issues across GitHub for one state (authored,
+   * review-requested and assigned; first 50 each, full row fields) in one `gh api graphql`
+   * call. Needs no repository or project; `cwd` is only where gh runs.
+   */
+  readonly listViewerInbox: (input: {
+    readonly cwd: string;
+    readonly state: GitHubInboxState;
+    readonly sort?: GitHubInboxSort;
+  }) => Effect.Effect<GitHubViewerInbox, GitHubCliError>;
 
   /**
    * Read the items matching `involves:@me` for one repository and state (first 50, full row

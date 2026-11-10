@@ -4,6 +4,10 @@
 // Exports: WsTransport plus stream-selection helpers used by tests.
 
 import { adoptVerifiedThreadCacheIdentity } from "./threadDetailCacheIdentity";
+import {
+  noteThreadStreamCapacityRefused,
+  resetRetainedThreadStreamBudget,
+} from "./threadStreamLeaseBudget";
 import { recordRendererActivity, rendererRpcActivity } from "./lib/rendererErrorDiagnostics";
 
 import {
@@ -691,6 +695,10 @@ const RETRYABLE_STREAM_CAPACITY_ERROR_CODES = new Set([
 ]);
 const DEFAULT_STREAM_CAPACITY_RETRY_MS = 1_000;
 const MAX_STREAM_CAPACITY_RETRY_MS = 10_000;
+// After this many capacity refusals in a row (about 6 s of retries) a chat stream reports a
+// failure, so its view shows "didn't load / try again" instead of loading forever. The retry
+// itself keeps going, and a later admission clears the failure with its snapshot.
+export const THREAD_STREAM_CAPACITY_FAILURE_ATTEMPTS = 4;
 const INITIAL_UNEXPECTED_STREAM_COMPLETION_RETRY_MS = 100;
 const MAX_UNEXPECTED_STREAM_COMPLETION_RETRY_MS = 5_000;
 const STABLE_STREAM_LIFETIME_MS = 10_000;
@@ -1737,6 +1745,8 @@ export class WsTransport {
 
   private createSession() {
     const sessionVersion = ++this.sessionVersion;
+    // A new socket has a new server-side admission ledger.
+    resetRetainedThreadStreamBudget();
     // Reconnects reuse the cached negotiation while the server generation is
     // unchanged, so a reconnect costs exactly one WebSocket handshake.
     const cachedCompatibility = this.compatibility;
@@ -2617,6 +2627,20 @@ export class WsTransport {
                       ? this.streamThreadBootstrapRetries
                       : this.streamResnapshotRetries;
               retries.set(key, admissionRetry.attempt);
+              if (admissionRetry.kind === "capacity") {
+                const capacityThreadId = threadIdFromStreamKey(key);
+                if (capacityThreadId !== null && this.threadSubscriptions.has(capacityThreadId)) {
+                  // Retained chats give their stream slots up so this one can get in.
+                  noteThreadStreamCapacityRefused(this.threadSubscriptions.size);
+                  if (admissionRetry.attempt === THREAD_STREAM_CAPACITY_FAILURE_ATTEMPTS) {
+                    this.emitThreadStreamFailure({
+                      threadId: capacityThreadId,
+                      code: getStreamFailureCode(exit.cause),
+                      error: causeToError(exit.cause),
+                    });
+                  }
+                }
+              }
               if (admissionRetry.kind === "resnapshot") {
                 // The server refused the stream because its snapshot trails the
                 // journal beyond the replay limit. A resume cursor makes the

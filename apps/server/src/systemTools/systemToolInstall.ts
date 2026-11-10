@@ -2,7 +2,8 @@
 // Purpose: One-click install of tools that are not npm packages (GitHub CLI). On Windows the
 //          official zip is unpacked into a folder Moss owns; on macOS Homebrew comes first, then
 //          the official package.
-// Layer: Provider maintenance (server). The npm-based agent installs live in providerInstall.ts.
+// Layer: System tools (server), outside provider/. The npm-based agent installs live in
+//        provider/providerInstall.ts.
 // Exports: SYSTEM_TOOL_INSTALLS, runSystemToolInstall, createSystemToolInstallHost, the Moss
 //          tools folder helpers and the release helpers used by its tests.
 //
@@ -24,7 +25,7 @@ import { outboundHttp, resolveOutboundProxyUrl } from "@moss/shared/outboundHttp
 import { mergePathEntries } from "@moss/shared/shell";
 
 import { runProcess } from "../processRunner.ts";
-import { parseGenericCliVersion } from "./providerMaintenance.ts";
+import { parseGenericCliVersion } from "../provider/providerMaintenance.ts";
 
 export type SystemToolId = "github-cli";
 

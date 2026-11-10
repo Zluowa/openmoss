@@ -2,6 +2,7 @@
 // Purpose: Runs schema-constrained Codex CLI text generation against account-owned auth.
 // Layer: Git and orchestration text-generation service.
 
+import { resolveCodexNativeLaunch } from "@moss/shared/codexNativeLaunch";
 import {
   Deferred,
   Effect,
@@ -898,15 +899,26 @@ const makeCodexTextGeneration = Effect.gen(function* () {
               },
               (spawned) =>
                 Effect.gen(function* () {
-                  const child = yield* spawnProviderProcess(commandSpawner, codexBinaryPath, args, {
-                    cwd: isolatedCodexHome.workDirectoryPath,
-                    detached: true,
+                  // An npm install's cmd.exe -> Node -> codex.exe chain becomes codex.exe alone.
+                  const nativeLaunch = resolveCodexNativeLaunch({
+                    binaryPath: codexBinaryPath,
                     env,
-                    killSignal: "SIGKILL",
-                    stdin: {
-                      stream: Stream.make(new TextEncoder().encode(prompt)),
+                    cwd: isolatedCodexHome.workDirectoryPath,
+                  });
+                  const child = yield* spawnProviderProcess(
+                    commandSpawner,
+                    nativeLaunch?.command ?? codexBinaryPath,
+                    args,
+                    {
+                      cwd: isolatedCodexHome.workDirectoryPath,
+                      detached: true,
+                      env: nativeLaunch?.env ?? env,
+                      killSignal: "SIGKILL",
+                      stdin: {
+                        stream: Stream.make(new TextEncoder().encode(prompt)),
+                      },
                     },
-                  }).pipe(
+                  ).pipe(
                     Effect.mapError((cause) =>
                       normalizeCodexError(
                         codexBinaryPath,

@@ -131,10 +131,6 @@ interface ManageTabItem {
   readonly count: number;
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 function SubTabButton({
   id,
   label,
@@ -472,6 +468,13 @@ export interface PluginManagementPanelProps extends PluginManagementPanelTabData
   readonly headerActions?: ReactNode;
   /** Shown under the MCP list: in Settings, letting other agents connect to Moss. */
   readonly mcpFooter?: ReactNode;
+  /**
+   * Extra sections under a tab's own list (e.g. Settings' "On this computer" for MCP and
+   * Skills). Hosts add sections per tab here instead of reaching into the lists.
+   */
+  readonly renderTabSupplement?:
+    | ((tab: PluginLibraryManageTab, query: string) => ReactNode)
+    | undefined;
 }
 
 // Codex's settings page always offers Plugins / Apps / MCP / Skills.
@@ -688,6 +691,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
   );
   const visibleMossApps = mossAppRows.filter((row) => matches(row.title, row.subtitle));
 
+  const tabSupplement = props.renderTabSupplement?.(tab, query) ?? null;
   let content;
   if (tab === "apps") {
     content =
@@ -696,7 +700,8 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
       ) : props.appsError && accessibleApps.length === 0 && mossAppRows.length === 0 ? (
         <CenterState
           title={t("plugins.manage.appsUnavailable")}
-          description={errorMessage(props.appsError)}
+          // Never the provider's raw error (ids, method names): one plain line and a retry.
+          description={t("plugins.manage.appsUnavailableDescription")}
           retrying={props.appsRetrying}
           onRetry={props.onRetryApps}
         />
@@ -714,7 +719,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
                   {t("plugins.manage.appsUnavailable")}
                 </p>
                 <p className="mt-1 break-words text-ui-sm text-muted-foreground">
-                  {errorMessage(props.appsError)}
+                  {t("plugins.manage.appsUnavailableDescription")}
                 </p>
               </div>
               {props.onRetryApps ? (
@@ -823,6 +828,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
             aria-labelledby={`plugin-manage-tab-${tab}`}
           >
             {content}
+            {tabSupplement ? <div className="mt-8">{tabSupplement}</div> : null}
             {tab === "mcps" && props.mcpFooter ? (
               <div className="mt-8">{props.mcpFooter}</div>
             ) : null}

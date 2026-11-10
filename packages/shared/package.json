@@ -149,6 +149,14 @@
       "types": "./src/executable.ts",
       "import": "./src/executable.ts"
     },
+    "./agentStartupPriority": {
+      "types": "./src/agentStartupPriority.ts",
+      "import": "./src/agentStartupPriority.ts"
+    },
+    "./codexNativeLaunch": {
+      "types": "./src/codexNativeLaunch.ts",
+      "import": "./src/codexNativeLaunch.ts"
+    },
     "./platformProcess": {
       "types": "./src/platformProcess.ts",
       "import": "./src/platformProcess.ts"

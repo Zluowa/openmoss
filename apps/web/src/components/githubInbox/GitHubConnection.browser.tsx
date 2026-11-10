@@ -109,7 +109,7 @@ describe("GitHub connection entry", () => {
           : { state: "pending", code: "ABCD-1234" };
       });
       await mount();
-      await page.getByRole("button", { name: "Connect GitHub", exact: true }).click();
+      await page.getByRole("button", { name: "Sign in to GitHub", exact: true }).click();
       const open = page.getByRole("button", { name: "Open GitHub", exact: true });
       await expect.element(page.getByText("ABCD-1234", { exact: true })).toBeVisible();
       expect(openExternal).not.toHaveBeenCalled();
@@ -135,14 +135,14 @@ describe("GitHub connection entry", () => {
       return { state: "cancelled" };
     });
     await mount();
-    await page.getByRole("button", { name: "Connect GitHub", exact: true }).click();
+    await page.getByRole("button", { name: "Sign in to GitHub", exact: true }).click();
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     finish({ state: "connected", login: "old-user" });
     await vi.waitFor(() =>
       expect(connection.mock.calls.some(([i]) => i.op === "cancel")).toBe(true),
     );
     await expect
-      .element(page.getByRole("button", { name: "Connect GitHub", exact: true }))
+      .element(page.getByRole("button", { name: "Sign in to GitHub", exact: true }))
       .toBeVisible();
     expect(page.getByRole("heading", { name: "Verified GitHub inbox" }).query()).toBeNull();
   });
@@ -154,7 +154,7 @@ describe("GitHub connection entry", () => {
         : { state: "disconnected" },
     );
     await mount();
-    await page.getByRole("button", { name: "Connect GitHub", exact: true }).click();
+    await page.getByRole("button", { name: "Sign in to GitHub", exact: true }).click();
     await expect.element(page.getByText("ABCD-1234", { exact: true })).toBeVisible();
     client.setQueryData(mossServerQueryKeys.mossAccountSession(), {
       ...member,
@@ -165,7 +165,7 @@ describe("GitHub connection entry", () => {
       expect(connection.mock.calls.some(([i]) => i.op === "cancel")).toBe(true),
     );
     await expect
-      .element(page.getByRole("button", { name: "Connect GitHub", exact: true }))
+      .element(page.getByRole("button", { name: "Sign in to GitHub", exact: true }))
       .toBeVisible();
     expect(page.getByText("ABCD-1234", { exact: true }).query()).toBeNull();
   });
@@ -194,7 +194,7 @@ describe("GitHub connection entry", () => {
     await expect.element(bar).toHaveAttribute("aria-valuenow", "42");
     await expect.element(page.getByText("42%", { exact: true })).toBeVisible();
     await expect
-      .element(page.getByRole("button", { name: "Connect GitHub", exact: true }))
+      .element(page.getByRole("button", { name: "Sign in to GitHub", exact: true }))
       .toBeVisible();
     expect(connection.mock.calls.filter(([i]) => i.op === "install")).toHaveLength(1);
     expect(openExternal).not.toHaveBeenCalled();
@@ -229,7 +229,7 @@ describe("GitHub connection entry", () => {
         : { state: "disconnected" },
     );
     await mount();
-    await page.getByRole("button", { name: "Connect GitHub", exact: true }).click();
+    await page.getByRole("button", { name: "Sign in to GitHub", exact: true }).click();
     await page.getByRole("button", { name: "Open GitHub", exact: true }).click();
     await expect.element(page.getByRole("alert")).toBeVisible();
     await expect

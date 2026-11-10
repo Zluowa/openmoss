@@ -88,6 +88,68 @@ const preparedChildObservers = new WeakMap<ProcessExitHandle, PreparedChildObser
 // Bound cold PowerShell/CIM initialization separately from fresh query and exit-proof windows.
 export const WINDOWS_OBSERVER_STARTUP_TIMEOUT_MS = 30_000;
 
+// Each agent launch waits for its own observer (a PowerShell worker with CIM loaded) before it
+// spawns. On a busy PC that wait measured 0.8–6.9 s, so the server keeps one observer warmed in
+// advance: a launch takes it ready, and a replacement starts a few seconds later, off the
+// critical path. Only the server process turns this on, and it disposes the spare on exit.
+const WARM_OBSERVER_REFILL_DELAY_MS = 5_000;
+let warmObserversEnabled = false;
+let warmObserver: TeardownProcessChildrenSnapshotObserver | null = null;
+let warmRefillTimer: ReturnType<typeof setTimeout> | null = null;
+
+function startWarmObserver(): TeardownProcessChildrenSnapshotObserver {
+  const observer = createWindowsTeardownProcessSnapshotObserver({ startImmediately: true });
+  observer.prepareWithin?.(WINDOWS_OBSERVER_STARTUP_TIMEOUT_MS).catch(() => {
+    // A launch that already took it handles readiness itself; only a parked spare is dropped.
+    if (warmObserver !== observer) return;
+    warmObserver = null;
+    observer.dispose();
+  });
+  return observer;
+}
+
+function scheduleWarmObserverRefill(): void {
+  if (!warmObserversEnabled || warmObserver !== null || warmRefillTimer !== null) return;
+  warmRefillTimer = setTimeout(() => {
+    warmRefillTimer = null;
+    if (!warmObserversEnabled || warmObserver !== null) return;
+    warmObserver = startWarmObserver();
+  }, WARM_OBSERVER_REFILL_DELAY_MS);
+  warmRefillTimer.unref?.();
+}
+
+/** The observer for a child about to spawn: the warmed spare when one is parked. */
+function takeWindowsTeardownObserver(): TeardownProcessChildrenSnapshotObserver {
+  const spare = warmObserver;
+  warmObserver = null;
+  scheduleWarmObserverRefill();
+  return spare ?? createWindowsTeardownProcessSnapshotObserver({ startImmediately: true });
+}
+
+/** Server startup on Windows: keep one launch observer warmed from now on. */
+export function enableWarmWindowsTeardownObservers(
+  platform: NodeJS.Platform = process.platform,
+): void {
+  if (platform !== "win32") return;
+  warmObserversEnabled = true;
+  scheduleWarmObserverRefill();
+}
+
+/** Server exit: stop refilling and close the parked observer's PowerShell worker. */
+export function disposeWarmWindowsTeardownObservers(): void {
+  warmObserversEnabled = false;
+  if (warmRefillTimer !== null) clearTimeout(warmRefillTimer);
+  warmRefillTimer = null;
+  const spare = warmObserver;
+  warmObserver = null;
+  spare?.dispose();
+}
+
+/** Test seam: whether a warmed observer is parked. */
+export function hasWarmWindowsTeardownObserver(): boolean {
+  return warmObserver !== null;
+}
+
 /** Initialize a child owner's worker before spawn; capture only fresh rows during teardown. */
 export function prepareEffectProcessTree(
   options: {
@@ -101,9 +163,7 @@ export function prepareEffectProcessTree(
   return Effect.acquireRelease(
     Effect.tryPromise({
       try: async (signal) => {
-        const observer =
-          options.createObserver?.() ??
-          createWindowsTeardownProcessSnapshotObserver({ startImmediately: true });
+        const observer = options.createObserver?.() ?? takeWindowsTeardownObserver();
         try {
           if (!observer.prepareWithin || !observer.assertReady)
             throw new Error("Windows process observer cannot establish readiness.");
@@ -139,9 +199,7 @@ export async function spawnChildWithPreparedTree<TChild extends ChildProcess, T>
   try {
     options.signal?.throwIfAborted();
     if (options.enabled !== false && (options.platform ?? process.platform) === "win32") {
-      observer =
-        options.createObserver?.() ??
-        createWindowsTeardownProcessSnapshotObserver({ startImmediately: true });
+      observer = options.createObserver?.() ?? takeWindowsTeardownObserver();
       if (!observer.prepareWithin || !observer.assertReady)
         throw new Error("Windows process observer cannot establish readiness.");
       await observer.prepareWithin(WINDOWS_OBSERVER_STARTUP_TIMEOUT_MS, options.signal);

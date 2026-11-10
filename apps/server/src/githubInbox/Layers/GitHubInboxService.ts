@@ -1,9 +1,11 @@
-import type {
-  GitHubInboxItem,
-  GitHubInboxListError,
-  GitHubInboxListResult,
-  GitHubInboxRepositoryBatch,
-  OrchestrationProject,
+import {
+  GITHUB_PERSONAL_PROJECT_ID,
+  type GitHubInboxItem,
+  type GitHubInboxListError,
+  type GitHubInboxListInput,
+  type GitHubInboxListResult,
+  type GitHubInboxRepositoryBatch,
+  type OrchestrationProject,
 } from "@moss/contracts";
 import { pullRequestListProjectContexts } from "@moss/shared/githubRepository";
 import { Effect, Layer, Scope, Stream } from "effect";
@@ -15,7 +17,9 @@ import {
   GitHubCli,
   type GitHubCliShape,
   type GitHubIssueDetailData,
+  type GitHubInboxRemoteItem,
   type GitHubRepositoryInboxLookup,
+  type GitHubViewerInbox,
 } from "../../git/Services/GitHubCli";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery";
@@ -33,6 +37,7 @@ import {
   isLiveRepositoryProject,
   liveProjectFromShell,
   makeProjectRepositoryAccess,
+  personalGitHubProject,
 } from "../../pullRequests/projectRepositoryAccess";
 import {
   cleanupUnconfiguredPullRequestPins,
@@ -45,6 +50,7 @@ import {
   resolveGitHubRepositories,
   type GitHubRepositoryInventory,
 } from "../../pullRequests/repositoryResolution";
+import { ServerConfig } from "../../config";
 import { ServerSettingsService } from "../../serverSettings";
 import {
   GITHUB_INBOX_SNAPSHOT_TTL_MS,
@@ -84,8 +90,66 @@ export interface GitHubInboxServiceDependencies {
   ) => Effect.Effect<GitHubRepositoryInventory, unknown>;
   /** Server setting `githubInboxIncludeUpstreams`. */
   readonly includeUpstreams: () => Effect.Effect<boolean>;
+  /**
+   * Where gh runs for the person's own items across GitHub (Moss's home). When set, the inbox
+   * also lists what they authored, what awaits their review and what is assigned to them, under
+   * the built-in "My GitHub" scope, so Code review is useful before any project exists.
+   */
+  readonly personalWorkspaceRoot?: string;
   /** Injectable for tests; defaults to `Date.now`. */
   readonly now?: () => number;
+}
+
+/** Search rows already listed under a project stay there; the rest join "My GitHub". */
+function personalInboxRows(input: {
+  readonly inbox: GitHubViewerInbox;
+  readonly project: OrchestrationProject;
+  readonly listed: ReadonlySet<string>;
+  readonly pinnedKeys: ReadonlySet<string>;
+}): { readonly items: GitHubInboxItem[]; readonly pullRequests: number; readonly issues: number } {
+  const involved = new Set(input.inbox.involvedKeys);
+  const reviewRequested = new Set(input.inbox.reviewRequestedKeys);
+  const byRepository = new Map<
+    string,
+    { repository: string; items: GitHubInboxRemoteItem[]; keys: string[] }
+  >();
+  for (const entry of input.inbox.entries) {
+    const key = `${entry.repository.toLowerCase()}#${entry.item.item.number}`;
+    if (input.listed.has(key)) continue;
+    const group = byRepository.get(entry.repository.toLowerCase()) ?? {
+      repository: entry.repository,
+      items: [],
+      keys: [],
+    };
+    group.items.push(entry.item);
+    group.keys.push(key);
+    byRepository.set(entry.repository.toLowerCase(), group);
+  }
+  const items: GitHubInboxItem[] = [];
+  let pullRequests = 0;
+  let issues = 0;
+  for (const group of byRepository.values()) {
+    const numbersWhere = (keys: ReadonlySet<string>) =>
+      new Set(
+        group.items
+          .filter((_, index) => keys.has(group.keys[index]!))
+          .map((remote) => remote.item.number),
+      );
+    const context: GitHubInboxRowContext = {
+      repository: group.repository,
+      projects: [input.project],
+      viewer: input.inbox.viewer,
+      involvedNumbers: numbersWhere(involved),
+      reviewRequestedNumbers: numbersWhere(reviewRequested),
+      pinnedKeys: input.pinnedKeys,
+    };
+    for (const remote of group.items) {
+      items.push(buildGitHubInboxItem(context, remote));
+      if (remote.kind === "pullRequest") pullRequests += 1;
+      else issues += 1;
+    }
+  }
+  return { items, pullRequests, issues };
 }
 
 function belongsToRepository(key: string, repository: string): boolean {
@@ -151,9 +215,18 @@ export const makeGitHubInboxService = (
 
     const resolveProjectRepositories = (project: OrchestrationProject) =>
       repositoryCache.get(project.workspaceRoot, dependencies.resolveRepositories(project));
+    const personalProject = dependencies.personalWorkspaceRoot
+      ? personalGitHubProject(dependencies.personalWorkspaceRoot)
+      : null;
     const access = makeProjectRepositoryAccess({
       listProjects: dependencies.listProjects,
       resolveProjectRepositories,
+      ...(personalProject ? { personalProject } : {}),
+    });
+    // One search per state and sort, shared by every window polling the inbox.
+    const personalCache = yield* makeKeyedSingleFlightCache<GitHubViewerInbox, GitHubCliError>({
+      maxEntries: 8,
+      ttlMs: GITHUB_INBOX_SNAPSHOT_TTL_MS,
     });
 
     const invalidateRepository: GitHubInboxServiceShape["invalidateRepository"] = (repository) =>
@@ -163,12 +236,14 @@ export const makeGitHubInboxService = (
             snapshots.invalidateRepository(repository),
             pinRecoveryCache.invalidateWhere((key) => belongsToRepository(key, repository)),
             issueDetailCache.invalidateWhere((key) => belongsToRepository(key, repository)),
+            // A change to any repository can move one of the person's own items.
+            personalCache.invalidateAll,
           ],
-          { concurrency: 3, discard: true },
+          { concurrency: 4, discard: true },
         ),
       );
 
-    const list: GitHubInboxServiceShape["list"] = (input) =>
+    const listProjectItems = (input: GitHubInboxListInput) =>
       Effect.gen(function* () {
         const forceRefresh = input.forceRefresh === true;
         const includeUpstreams = yield* dependencies.includeUpstreams();
@@ -386,6 +461,84 @@ export const makeGitHubInboxService = (
         } satisfies GitHubInboxListResult;
       });
 
+    /** The person's own search, or null where it is not offered. Failures stay out of the
+     * project rows: they only mark the "My GitHub" scope unavailable. */
+    const loadPersonal = (input: GitHubInboxListInput) => {
+      if (!personalProject) return Effect.succeed(null);
+      const sort = input.sort ?? "updated";
+      const key = `${input.state}\u0000${sort}`;
+      return (input.forceRefresh === true ? personalCache.invalidate(key) : Effect.void).pipe(
+        Effect.andThen(
+          personalCache.get(
+            key,
+            withGitHubRead(
+              dependencies.github.listViewerInbox({
+                cwd: personalProject.workspaceRoot,
+                state: input.state,
+                sort,
+              }),
+            ),
+          ),
+        ),
+        Effect.map((inbox) => ({ _tag: "loaded" as const, inbox })),
+        Effect.catch(() => Effect.succeed({ _tag: "unavailable" as const })),
+      );
+    };
+
+    const list: GitHubInboxServiceShape["list"] = (input) =>
+      Effect.gen(function* () {
+        const [result, personal] = yield* Effect.all(
+          [listProjectItems(input), loadPersonal(input)],
+          { concurrency: 2 },
+        );
+        if (!personal || !personalProject) return result;
+        if (personal._tag === "unavailable")
+          return { ...result, personalState: "unavailable" } satisfies GitHubInboxListResult;
+        const pins = yield* dependencies.pins
+          .listByProjectIds({ projectIds: [GITHUB_PERSONAL_PROJECT_ID] })
+          .pipe(Effect.catch(() => Effect.succeed([])));
+        const rows = personalInboxRows({
+          inbox: personal.inbox,
+          project: personalProject,
+          listed: new Set(
+            result.items.map((item) => `${item.repository.toLowerCase()}#${item.number}`),
+          ),
+          pinnedKeys: new Set(
+            pins.map((row) =>
+              projectPullRequestIdentityKey({
+                projectId: row.projectId,
+                repository: row.repositoryKey,
+                number: row.number,
+              }),
+            ),
+          ),
+        });
+        const batch: GitHubInboxRepositoryBatch = {
+          repository: "github.com",
+          projectIds: [GITHUB_PERSONAL_PROJECT_ID],
+          truncatedPullRequests: personal.inbox.truncated,
+          truncatedIssues: personal.inbox.truncated,
+          totalPullRequests: rows.pullRequests,
+          totalIssues: rows.issues,
+          fetchedAt: new Date((dependencies.now ?? Date.now)()).toISOString(),
+        };
+        return {
+          ...result,
+          personalState: "loaded",
+          viewer: result.viewer ?? personal.inbox.viewer,
+          items: orderPullRequestListEntries([...result.items, ...rows.items]),
+          repositoryBatches: [...result.repositoryBatches, batch],
+          // GitHub's own search spans every repository, so it is never below the per-project sum.
+          reviewRequestedCount:
+            input.state === "open"
+              ? Math.max(result.reviewRequestedCount, personal.inbox.reviewRequestedCount)
+              : result.reviewRequestedCount,
+          reviewRequestedCountIncomplete:
+            result.reviewRequestedCountIncomplete &&
+            result.reviewRequestedCount >= personal.inbox.reviewRequestedCount,
+        } satisfies GitHubInboxListResult;
+      });
+
     const issueDetail: GitHubInboxServiceShape["issueDetail"] = (input) =>
       Effect.gen(function* () {
         const project = yield* access.findProject(input.projectId);
@@ -454,7 +607,12 @@ export const makeGitHubInboxService = (
       invalidateRepository,
       invalidateRepositoryInventories: repositoryCache.invalidateAll,
       clearAccount: Effect.all(
-        [snapshots.clearAccount, pinRecoveryCache.invalidateAll, issueDetailCache.invalidateAll],
+        [
+          snapshots.clearAccount,
+          pinRecoveryCache.invalidateAll,
+          issueDetailCache.invalidateAll,
+          personalCache.invalidateAll,
+        ],
         { discard: true },
       ),
     };
@@ -469,9 +627,11 @@ export const GitHubInboxServiceLive = Layer.effect(
     const projection = yield* ProjectionSnapshotQuery;
     const settings = yield* ServerSettingsService;
     const orchestrationEngine = yield* OrchestrationEngineService;
+    const config = yield* ServerConfig;
     const service = yield* makeGitHubInboxService({
       github,
       pins,
+      personalWorkspaceRoot: config.baseDir,
       listProjects: () =>
         projection
           .getShellSnapshot()

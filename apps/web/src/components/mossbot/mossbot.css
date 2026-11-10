@@ -4,6 +4,11 @@
 .dark .mossbot-avatar {
   --mossbot-ink: #9955ff;
 }
+/* The default face is the Mossbot mark: ink, like every Moss glyph. */
+.mossbot-avatar[data-tone="default"] {
+  --mossbot-ink: currentColor;
+  color: inherit;
+}
 .mossbot-avatar[data-tone="mint"] {
   --mossbot-ink: #05c988;
 }

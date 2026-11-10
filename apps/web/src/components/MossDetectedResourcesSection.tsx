@@ -5,8 +5,12 @@
 //          imports it into the workspace's canonical `.moss` source through the
 //          reversible resource-import plan, and the projection then hands it
 //          to every agent — the user never configures it per CLI again.
-// Layer: Web destination content (inside PluginLibrary's Skills tab)
-// Exports: MossDetectedResourcesSection, groupDetectedResources
+//          Settings › Plugins shows the same inventory per tab (MCP, Skills) as
+//          a Codex-style list; there, only the Import button imports.
+//          Inventory is read-only; nothing is imported without a click.
+// Layer: Web destination content (PluginLibrary's Skills tab, Settings › Plugins)
+// Exports: MossDetectedResourcesSection, MossDetectedResourcesSettingsList,
+//          groupDetectedResources
 
 import type { MossResourceImportProvider, MossResourceImportResource } from "@moss/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -82,12 +86,14 @@ export function groupDetectedResources(
   return grouped.toSorted((left, right) => left.name.localeCompare(right.name));
 }
 
-export function MossDetectedResourcesSection({
+function useDetectedResources({
   cwd,
   search,
+  kind,
 }: {
   readonly cwd: string | null;
   readonly search: string;
+  readonly kind?: "skill" | "mcp" | undefined;
 }) {
   const { t, format } = useTranslation();
   const queryClient = useQueryClient();
@@ -132,23 +138,40 @@ export function MossDetectedResourcesSection({
       void queryClient.invalidateQueries({ queryKey });
     },
     onError: (cause, group) => {
+      // Never the raw import error (paths, plan ids): one plain line.
+      console.warn("[moss] resource import failed", cause);
       toastManager.add({
         type: "error",
         title: format("plugins.detected.failed", { name: group.name }),
-        description: cause instanceof Error ? cause.message : String(cause),
+        description: t("plugins.detected.failedDescription"),
       });
     },
   });
 
   const groups = useMemo(() => {
-    const all = groupDetectedResources(inventoryQuery.data?.resources ?? []);
+    const all = groupDetectedResources(inventoryQuery.data?.resources ?? []).filter(
+      (group) => kind === undefined || group.kind === kind,
+    );
     const query = search.trim().toLowerCase();
     if (!query) return all;
     return all.filter(
       (group) =>
         group.name.toLowerCase().includes(query) || group.description.toLowerCase().includes(query),
     );
-  }, [inventoryQuery.data, search]);
+  }, [inventoryQuery.data, kind, search]);
+
+  return { groups, adopt };
+}
+
+export function MossDetectedResourcesSection({
+  cwd,
+  search,
+}: {
+  readonly cwd: string | null;
+  readonly search: string;
+}) {
+  const { t, format } = useTranslation();
+  const { groups, adopt } = useDetectedResources({ cwd, search });
 
   // The section only adds value when something was found; failures stay quiet
   // because the CLI-scoped list below remains authoritative for each provider.
@@ -216,6 +239,98 @@ export function MossDetectedResourcesSection({
           );
         })}
       </PluginLibraryTwoColumnGrid>
+    </section>
+  );
+}
+
+/**
+ * Settings › Plugins › MCP / Skills: what the user's other CLIs already have, as one
+ * rounded list under the tab's own list. Each row shows the CLIs it was found in and an
+ * Import button; a row click does nothing, so importing always takes that button.
+ */
+export function MossDetectedResourcesSettingsList({
+  cwd,
+  search,
+  kind,
+}: {
+  readonly cwd: string | null;
+  readonly search: string;
+  readonly kind: "skill" | "mcp";
+}) {
+  const { t, format } = useTranslation();
+  const { groups, adopt } = useDetectedResources({ cwd, search, kind });
+  if (cwd === null || groups.length === 0) return null;
+  const Icon = kind === "mcp" ? McpIcon : SkillCubeIcon;
+  return (
+    <section
+      className="flex flex-col gap-3"
+      data-testid={`moss-detected-settings-${kind}`}
+      aria-label={t(
+        kind === "mcp"
+          ? "plugins.detected.settingsTitle.mcp"
+          : "plugins.detected.settingsTitle.skills",
+      )}
+    >
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-ui-lg font-medium text-foreground">
+          {t(
+            kind === "mcp"
+              ? "plugins.detected.settingsTitle.mcp"
+              : "plugins.detected.settingsTitle.skills",
+          )}
+        </h3>
+        <p className="truncate text-ui-sm text-muted-foreground">
+          {t("plugins.detected.settingsSubtitle")}
+        </p>
+      </div>
+      <div className="flex flex-col divide-y divide-border/60 overflow-hidden rounded-2xl border border-border/70">
+        {groups.map((group) => {
+          const busy = adopt.isPending && adopt.variables?.key === group.key;
+          return (
+            <div
+              key={group.key}
+              data-testid="moss-detected-settings-row"
+              className="flex items-center justify-between gap-3 px-3 py-3"
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 text-muted-foreground">
+                  <Icon aria-hidden="true" className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-ui font-medium text-foreground">
+                    {group.name}
+                  </span>
+                  <span className="block truncate text-ui-sm text-muted-foreground">
+                    {group.description ||
+                      t(
+                        kind === "mcp"
+                          ? "plugins.detected.kind.mcp"
+                          : "plugins.detected.kind.skill",
+                      )}
+                  </span>
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {group.providers.map((provider) => (
+                  <Badge key={provider} variant="secondary" className="text-ui-2xs font-medium">
+                    {provider}
+                  </Badge>
+                ))}
+                <Button
+                  variant="outline"
+                  size="xs"
+                  aria-label={format("plugins.detected.importAria", { name: group.name })}
+                  disabled={adopt.isPending}
+                  onClick={() => adopt.mutate(group)}
+                >
+                  {busy ? <Spinner className="size-3.5" /> : null}
+                  {t("plugins.detected.import")}
+                </Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }

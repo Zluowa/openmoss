@@ -27,6 +27,7 @@ import {
 } from "@moss/contracts";
 
 import {
+  THREAD_STREAM_CAPACITY_FAILURE_ATTEMPTS,
   shouldKeepServerLifecycleStream,
   getUnexpectedStreamCompletionRetryDelayMs,
   getReconnectRetryDelayMs,
@@ -59,6 +60,10 @@ import {
   WsTransportRequestInterruptedError,
   type WsThreadStreamFailure,
 } from "./wsTransport";
+import {
+  getRetainedThreadStreamBudget,
+  resetRetainedThreadStreamBudget,
+} from "./threadStreamLeaseBudget";
 import {
   advanceThreadDetailResumeCursor,
   buildThreadSubscribeInput,
@@ -1438,6 +1443,51 @@ describe("WsTransport", () => {
       getProjectFileWatchRetryDelayMs(failure, MAX_PROJECT_FILE_WATCH_RETRY_ATTEMPTS),
     ).toBeNull();
     expect(getProjectFileWatchRetryDelayMs(Cause.fail(new Error("transient")), 0)).toBeNull();
+  });
+
+  it("sheds retained chat streams and reports a chat that capacity keeps out", async () => {
+    vi.useFakeTimers();
+    bindWindowTimersToCurrentGlobals();
+    resetRetainedThreadStreamBudget();
+    try {
+      const { internals } = makeBareTransport();
+      const threadId = "thread-refused";
+      const key = `orchestration.thread:${threadId}`;
+      for (const id of [threadId, "thread-a", "thread-b", "thread-c", "thread-d"]) {
+        internals.threadSubscriptions.set(id, { threadId: id });
+      }
+      const failures: Array<{ threadId: string; code: string | null }> = [];
+      internals.threadStreamFailureListeners.add((failure) => {
+        failures.push({ threadId: failure.threadId, code: failure.code });
+      });
+      const refused = Stream.fail({
+        code: "STREAM_CAPACITY_EXCEEDED",
+        retryable: true,
+        retryAfterMs: 1_000,
+      });
+      const restart = vi.fn();
+
+      internals.startStream({}, key, refused, () => undefined, restart);
+      await Promise.resolve();
+      await Promise.resolve();
+      // Five chat streams wanted, one refused: the retained share drops below what is leased.
+      expect(getRetainedThreadStreamBudget()).toBe(4);
+      expect(failures).toEqual([]);
+
+      internals.streamCapacityRetries.set(key, THREAD_STREAM_CAPACITY_FAILURE_ATTEMPTS - 1);
+      internals.startStream({}, key, refused, () => undefined, restart);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(failures).toEqual([{ threadId, code: "STREAM_CAPACITY_EXCEEDED" }]);
+      expect(getRetainedThreadStreamBudget()).toBe(3);
+
+      // The retry keeps going after the failure is shown.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(restart).toHaveBeenCalled();
+    } finally {
+      resetRetainedThreadStreamBudget();
+      vi.useRealTimers();
+    }
   });
 
   it("retries a failed project file watcher in place without reconnecting the socket", async () => {

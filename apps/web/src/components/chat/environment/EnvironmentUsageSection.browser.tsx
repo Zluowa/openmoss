@@ -119,6 +119,35 @@ describe("EnvironmentUsageSection", () => {
     expect(page.getByRole("button", { name: /Codex usage:/ }).query()).toBeNull();
   });
 
+  it("hides an account whose usage is unsupported, even beside another account", async () => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(serverQueryKeys.allProviderUsage(), [
+      { ...snapshot("codex", []), instanceId: "codex", status: "unsupported" },
+      {
+        ...snapshot("codex", [{ window: "Weekly", usedPercent: 60, windowDurationMins: 10_080 }]),
+        instanceId: "codex_work",
+      },
+    ]);
+    queryClient.setQueryData(serverQueryKeys.settings(), {
+      ...DEFAULT_SERVER_SETTINGS_VIEW,
+      providerInstances: {
+        codex: { driver: "codex" },
+        codex_work: { driver: "codex", displayName: "Work" },
+      },
+    });
+
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <EnvironmentUsageSection provider="codex" />
+      </QueryClientProvider>,
+    );
+
+    await expect
+      .element(page.getByRole("button", { name: "Codex · Work usage: Weekly 40% remaining" }))
+      .toBeVisible();
+    expect(document.querySelector('button[aria-label^="Codex · Default usage"]')).toBeNull();
+  });
+
   it("hides the section when only another provider has usage", async () => {
     const queryClient = createQueryClient();
     // Another provider's cached usage must not make the active provider's section appear.

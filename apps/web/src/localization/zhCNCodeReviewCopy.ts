@@ -18,6 +18,18 @@ const CODE_REVIEW_COPY: Readonly<Record<string, string>> = {
   "Could not check the GitHub connection": "无法检查 GitHub 连接",
   "Another GitHub sign-in is in progress": "另一个窗口正在连接 GitHub",
   "Connect GitHub": "连接 GitHub",
+  "Sign in to GitHub": "登录 GitHub",
+  "Sign in once, and Code review lists the pull requests and issues you opened, that await your review, or that are assigned to you.":
+    "登录一次，代码审查就会列出你发起的、等你审查的和指派给你的拉取请求和问题。",
+  // "My GitHub": the person's own items across GitHub, listed with or without projects.
+  "My GitHub": "我的 GitHub",
+  "Nothing on GitHub needs you right now": "GitHub 上暂时没有需要你处理的内容",
+  "Pull requests and issues you opened, that await your review, or that are assigned to you show up here. Add a project to see everything in its repository.":
+    "你发起的、等你审查的和指派给你的拉取请求和问题会显示在这里。添加项目后，还能看到该仓库里的全部内容。",
+  "Your GitHub items could not be loaded": "未能读取你在 GitHub 上的内容",
+  "Side chats need a project": "侧边对话需要一个项目",
+  "Add this repository as a project in Moss to ask an agent about it.":
+    "把这个仓库添加为 Moss 项目后，就可以让智能体处理它。",
   "Enter this one-time code on GitHub and return here after approving access.":
     "在 GitHub 页面输入这组一次性代码，确认授权后返回这里。",
   "Install GitHub CLI on the computer running Moss, then check again.":

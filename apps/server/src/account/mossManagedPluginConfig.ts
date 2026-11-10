@@ -580,6 +580,16 @@ export async function mutateMossManagedPluginConfig<T>(
 }
 
 /** Only the server's local default plugins can replay an install after a Windows config write fails. */
+// Windows denies the rename while another process (antivirus scanning the files Moss just
+// copied, an indexer) still holds them: the config write, or activating the plugin's cache
+// entry. Both clear within a few seconds, so the install is retried.
+const TRANSIENT_WINDOWS_PLUGIN_INSTALL_ERROR =
+  /^plugin\/install failed: failed to (?:persist installed plugin config|install plugin: failed to activate plugin cache entry): [^\n]*\(os error (?:5|32)\)$/u;
+
+export function isTransientWindowsPluginInstallError(error: unknown): error is Error {
+  return error instanceof Error && TRANSIENT_WINDOWS_PLUGIN_INSTALL_ERROR.test(error.message);
+}
+
 export async function installMossBundledPlugin(input: {
   readonly runtimeHomePath: string;
   readonly pluginName: string;
@@ -609,7 +619,7 @@ export async function installMossBundledPlugin(input: {
     return record(entry) && entry.enabled === true && (await input.isInstalledAndEnabled());
   };
   let writeError: Error | undefined;
-  for (const pause of [0, 75, 200, 500, 1_000]) {
+  for (const pause of [0, 75, 200, 500, 1_000, 2_000]) {
     if (pause) await delay(pause);
     input.assertCurrent();
     if (writeError) {
@@ -620,14 +630,7 @@ export async function installMossBundledPlugin(input: {
     try {
       await input.install();
     } catch (error) {
-      if (
-        process.platform !== "win32" ||
-        !(error instanceof Error) ||
-        !/^plugin\/install failed: failed to persist installed plugin config: [^\n]*\(os error 5\)$/u.test(
-          error.message,
-        )
-      )
-        throw error;
+      if (process.platform !== "win32" || !isTransientWindowsPluginInstallError(error)) throw error;
       writeError = error;
       continue;
     }

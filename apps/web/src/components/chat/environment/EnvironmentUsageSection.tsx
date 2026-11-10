@@ -18,6 +18,7 @@ import {
   useProviderUsageMenuModel,
 } from "~/components/ProviderUsageMenuControl";
 import { ProviderIcon } from "~/components/ProviderIcon";
+import { useTranslation } from "~/localization";
 import { MenuTrigger } from "~/components/ui/menu";
 import {
   serverAllProviderUsageQueryOptions,
@@ -104,6 +105,7 @@ function EnvironmentUsageAccountRow({
 }
 
 export function EnvironmentUsageSection({ provider }: { provider: ProviderKind }) {
+  const { locale } = useTranslation();
   const usageQuery = useQuery(serverAllProviderUsageQueryOptions());
   const settingsQuery = useQuery(serverSettingsQueryOptions());
   const providerInstances = deriveProviderInstances(
@@ -119,6 +121,9 @@ export function EnvironmentUsageSection({ provider }: { provider: ProviderKind }
       snapshot.limits.length > 0 ||
       snapshot.usageLines.length > 0 ||
       (snapshot.resetCredits?.availableCount ?? 0) > 0;
+    // An account whose usage the provider can't report has nothing to show: a bare
+    // "unsupported" row is noise, whichever account it is.
+    if (!hasUsage && snapshot.status === "unsupported") return [];
     // Unused default providers should not crowd the panel. Configured extra
     // accounts stay visible so an expired login or failed usage check is clear.
     if (
@@ -134,7 +139,9 @@ export function EnvironmentUsageSection({ provider }: { provider: ProviderKind }
       !instance.isDefault || providerInstances.length > 1 || instance.displayName !== providerName;
     const accountName =
       instance.isDefault && instance.displayName === providerName
-        ? "Default"
+        ? locale === "zh-CN"
+          ? "默认"
+          : "Default"
         : instance.displayName;
     return [
       {

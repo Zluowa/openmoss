@@ -45,6 +45,8 @@ import {
   type GitHubRepositoryInboxInvolvement,
   type GitHubRepositoryInboxLists,
   type GitHubRepositoryInboxLookup,
+  type GitHubViewerInbox,
+  type GitHubViewerInboxEntry,
 } from "../Services/GitHubCli.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -1043,6 +1045,47 @@ ${selections}
 ${githubInboxFragments(options)}`;
 }
 
+/**
+ * The viewer's own items across GitHub, for when they have no (or few) Moss projects: what they
+ * authored, what awaits their review (teams included) and what is assigned to them. Each node
+ * names its repository, since these searches span every repository the viewer can see.
+ */
+export function buildGitHubViewerInboxQuery(options: { readonly includeStacks: boolean }): string {
+  const node = `__typename ...InboxPullRequestFields ...InboxIssueFields
+      ... on PullRequest { repository { nameWithOwner } }
+      ... on Issue { repository { nameWithOwner } }`;
+  return `query($authoredQuery: String!, $reviewQuery: String!, $assignedQuery: String!) {
+  viewer { login }
+  rateLimit { cost remaining resetAt }
+  authored: search(query: $authoredQuery, type: ISSUE, first: ${GITHUB_INBOX_PAGE_SIZE}) {
+    issueCount nodes { ${node} }
+  }
+  reviewRequested: search(query: $reviewQuery, type: ISSUE, first: ${GITHUB_INBOX_PAGE_SIZE}) {
+    issueCount nodes { ${node} }
+  }
+  assigned: search(query: $assignedQuery, type: ISSUE, first: ${GITHUB_INBOX_PAGE_SIZE}) {
+    issueCount nodes { ${node} }
+  }
+}
+${githubInboxFragments(options)}`;
+}
+
+/** `gh api graphql` variables for {@link buildGitHubViewerInboxQuery}. */
+export function githubViewerInboxQueryVariables(
+  state: "open" | "closed",
+  sort: GitHubInboxSort = "updated",
+): string[] {
+  const order = `sort:${sort}-desc`;
+  return [
+    "-f",
+    `authoredQuery=is:${state} author:@me archived:false ${order}`,
+    "-f",
+    `reviewQuery=is:pr is:${state} review-requested:@me archived:false ${order}`,
+    "-f",
+    `assignedQuery=is:${state} assignee:@me archived:false ${order}`,
+  ];
+}
+
 /** `gh api graphql` variables for {@link buildGitHubInboxInvolvementQuery}. The repository must
  * already be validated, since it is interpolated into GitHub search syntax. */
 export function githubInboxInvolvementQueryVariables(
@@ -1185,6 +1228,23 @@ const RawRepositoryInvolvementResponseSchema = Schema.Struct({
       Schema.Struct({
         rateLimit: Schema.optional(Schema.NullOr(RawGraphQlRateLimitSchema)),
         mine: RawNodeList,
+      }),
+    ),
+  ),
+});
+
+const RawViewerInboxResponseSchema = Schema.Struct({
+  errors: Schema.optional(Schema.NullOr(Schema.Array(Schema.NullOr(RawGraphQlPathErrorSchema)))),
+  data: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        viewer: Schema.optional(
+          Schema.NullOr(Schema.Struct({ login: Schema.optional(Schema.NullOr(Schema.String)) })),
+        ),
+        rateLimit: Schema.optional(Schema.NullOr(RawGraphQlRateLimitSchema)),
+        authored: RawNodeList,
+        reviewRequested: RawNodeList,
+        assigned: RawNodeList,
       }),
     ),
   ),
@@ -1505,6 +1565,79 @@ export function decodeRepositoryInvolvementJson(
   );
 }
 
+function viewerInboxNodeRepository(node: unknown): string | null {
+  const repository =
+    typeof node === "object" && node !== null && "repository" in node
+      ? (node as { repository?: { nameWithOwner?: unknown } | null }).repository?.nameWithOwner
+      : undefined;
+  return typeof repository === "string" && /^[\w.-]+\/[\w.-]+$/u.test(repository.trim())
+    ? repository.trim()
+    : null;
+}
+
+/** Decode {@link buildGitHubViewerInboxQuery}. Malformed nodes are dropped; a missing search
+ * alias or viewer fails the call. */
+export function decodeViewerInboxJson(
+  raw: string,
+): Effect.Effect<GitHubViewerInbox, GitHubCliError> {
+  return decodeGitHubJson(
+    raw.trim(),
+    RawViewerInboxResponseSchema,
+    "listViewerInbox",
+    "GitHub CLI returned invalid personal inbox JSON.",
+  ).pipe(
+    Effect.flatMap((response) => {
+      const failure = graphQlErrorFailure("listViewerInbox", response.errors ?? []);
+      if (failure) return Effect.fail(failure);
+      const data = response.data;
+      const viewer = data?.viewer?.login?.trim();
+      if (!data || !viewer || !data.authored || !data.reviewRequested || !data.assigned) {
+        return Effect.fail(
+          new GitHubCliError({
+            operation: "listViewerInbox",
+            detail: "GitHub returned an incomplete personal inbox response.",
+            reason: "other",
+          }),
+        );
+      }
+      const entries = new Map<string, GitHubViewerInboxEntry>();
+      const involvedKeys = new Set<string>();
+      const reviewRequestedKeys = new Set<string>();
+      let truncated = false;
+      const collect = (
+        list: NonNullable<typeof data.authored>,
+        role: "involved" | "review-requested",
+      ) => {
+        const nodes = list.nodes ?? [];
+        if (graphQlCount(list.issueCount, nodes.length) > nodes.length) truncated = true;
+        for (const node of nodes) {
+          const repository = viewerInboxNodeRepository(node);
+          const item = repository ? decodeInboxNode(node) : null;
+          if (!repository || !item) continue;
+          const key = `${repository.toLowerCase()}#${item.item.number}`;
+          (role === "involved" ? involvedKeys : reviewRequestedKeys).add(key);
+          if (!entries.has(key)) entries.set(key, { repository, item });
+        }
+      };
+      collect(data.authored, "involved");
+      collect(data.reviewRequested, "review-requested");
+      collect(data.assigned, "involved");
+      return Effect.succeed({
+        viewer,
+        entries: [...entries.values()],
+        involvedKeys: [...involvedKeys],
+        reviewRequestedKeys: [...reviewRequestedKeys],
+        reviewRequestedCount: graphQlCount(
+          data.reviewRequested.issueCount,
+          reviewRequestedKeys.size,
+        ),
+        truncated,
+        rateLimit: normalizeGraphQlRateLimit(data.rateLimit),
+      } satisfies GitHubViewerInbox);
+    }),
+  );
+}
+
 /** Decode {@link buildGitHubInboxItemsQuery}. Only a NOT_FOUND error whose path names one alias
  * marks that number missing; any other GraphQL error fails the lookup as a whole. */
 export function decodeRepositoryInboxItemsJson(
@@ -1668,6 +1801,7 @@ function decodeGitHubJson<S extends Schema.Top>(
     | "getPullRequestStack"
     | "listRepositoryInbox"
     | "listRepositoryInboxInvolvement"
+    | "listViewerInbox"
     | "getRepositoryInboxItems"
     | "getPullRequestDetail"
     | "getIssueDetail"
@@ -2162,6 +2296,15 @@ const makeGitHubCli = Effect.gen(function* () {
             decodeRepositoryInboxJson,
           ),
         ),
+      ),
+    listViewerInbox: (input) =>
+      runInboxGraphQl(
+        input.cwd,
+        (includeStacks) => [
+          `query=${buildGitHubViewerInboxQuery({ includeStacks })}`,
+          ...githubViewerInboxQueryVariables(input.state, input.sort ?? "updated"),
+        ],
+        decodeViewerInboxJson,
       ),
     listRepositoryInboxInvolvement: (input) =>
       validateRepository(input.repository, "listRepositoryInboxInvolvement").pipe(

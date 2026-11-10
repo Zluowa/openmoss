@@ -67,6 +67,15 @@ export const GitHubConnectionResult = Schema.Union([
 ]);
 export type GitHubConnectionResult = typeof GitHubConnectionResult.Type;
 
+/**
+ * The built-in scope for the signed-in person's own pull requests and issues (authored, awaiting
+ * their review, assigned) from anywhere on GitHub. It is not a Moss project: it has no folder,
+ * cannot host an agent thread, and is listed even when the person has no projects at all. Its
+ * rows carry this id where a project id would go, so filters, pins and detail views keep working.
+ */
+export const GITHUB_PERSONAL_PROJECT_ID = "github-personal" as ProjectId;
+export const GITHUB_PERSONAL_PROJECT_TITLE = "My GitHub";
+
 export const GitHubInboxItemKind = Schema.Literals(["pullRequest", "issue"]);
 export type GitHubInboxItemKind = typeof GitHubInboxItemKind.Type;
 
@@ -175,6 +184,11 @@ export type GitHubInboxRateLimit = typeof GitHubInboxRateLimit.Type;
 export const GitHubInboxListResult = Schema.Struct({
   /** Older servers did not report inventory separately from an empty GitHub result. */
   repositoryState: Schema.optional(Schema.Literals(["configured", "none", "incomplete"])),
+  /**
+   * The viewer's own search across GitHub ({@link GITHUB_PERSONAL_PROJECT_ID}): `loaded` even when
+   * it found nothing, `unavailable` when it could not run. Absent from older servers.
+   */
+  personalState: Schema.optional(Schema.Literals(["loaded", "unavailable"])),
   viewer: Schema.NullOr(TrimmedNonEmptyString),
   items: Schema.Array(GitHubInboxItem),
   errors: Schema.Array(GitHubInboxListError),

@@ -122,6 +122,7 @@ import {
   subscribeThreadDetailEvictions,
   useRetainedThreadDetailIds,
 } from "../threadDetailSubscriptionRetention";
+import { useRetainedThreadStreamBudget } from "../threadStreamLeaseBudget";
 import {
   advanceThreadDetailResumeCursor,
   buildThreadSubscribeInput,
@@ -1009,6 +1010,7 @@ function EventRouter() {
     [dockStateByThreadId, hostThreadIds, isGitHubInboxRoute, routeSearch.view],
   );
   const retainedThreadIds = useRetainedThreadDetailIds();
+  const retainedThreadStreamBudget = useRetainedThreadStreamBudget();
   const serverThreadIdSet = useMemo(() => new Set(serverThreadIds), [serverThreadIds]);
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const availableProjectIds = useMemo(
@@ -1043,6 +1045,7 @@ function EventRouter() {
     serverThreadIds: serverThreadIdSet,
     draftThreadIds,
     retentionExcludedThreadIds: sidechatThreadIdSet,
+    retainedBudget: retainedThreadStreamBudget,
   });
   const subscribedThreadIdsRef = useRef(nextSubscribedThreadIds);
   const subscribedThreadIds = arraysShallowEqual(

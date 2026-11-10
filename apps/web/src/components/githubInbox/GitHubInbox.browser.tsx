@@ -9,6 +9,8 @@ import "../../index.css";
 
 import {
   DEFAULT_SERVER_SETTINGS_VIEW,
+  GITHUB_PERSONAL_PROJECT_ID,
+  GITHUB_PERSONAL_PROJECT_TITLE,
   type GitHubInboxItem,
   type GitHubInboxListInput,
   type GitHubInboxListResult,
@@ -716,6 +718,67 @@ describe("GitHubInbox states", () => {
     await mount();
 
     await expect.element(page.getByText("No pull requests and issues found")).toBeVisible();
+  });
+});
+
+describe("GitHubInbox without projects", () => {
+  // The owner had GitHub CLI signed in and no Moss project: Code review showed nothing.
+  const personal = (item: GitHubInboxItem): GitHubInboxItem => ({
+    ...item,
+    projectId: GITHUB_PERSONAL_PROJECT_ID,
+    projectTitle: GITHUB_PERSONAL_PROJECT_TITLE,
+    projectContexts: [
+      {
+        projectId: GITHUB_PERSONAL_PROJECT_ID,
+        projectTitle: GITHUB_PERSONAL_PROJECT_TITLE,
+        isPinned: false,
+      },
+    ],
+  });
+
+  it("lists the person's own pull requests and issues and offers My GitHub as a filter", async () => {
+    useStore.setState({ projects: [] });
+    api.list.mockImplementation(({ state }) =>
+      Promise.resolve(
+        state === "open"
+          ? listResult({
+              repositoryState: "none",
+              personalState: "loaded",
+              items: [personal(PULL_REQUEST_41), personal(ISSUE_42)],
+            })
+          : listResult({ repositoryState: "none", personalState: "loaded", items: [] }),
+      ),
+    );
+    await mount();
+
+    await expectRows([42, 41]);
+    expect(page.getByText("No projects yet").query()).toBeNull();
+    await page.getByRole("button", { name: /^Filter/ }).click();
+    await page.getByRole("menuitem", { name: /^Projects/ }).click();
+    await page.getByRole("menuitemcheckbox", { name: GITHUB_PERSONAL_PROJECT_TITLE }).click();
+    await expectRows([42, 41]);
+    await closeMenu();
+  });
+
+  it("says nothing needs the person yet, and offers a retry when the search failed", async () => {
+    useStore.setState({ projects: [] });
+    api.list.mockResolvedValue(
+      listResult({ repositoryState: "none", personalState: "loaded", items: [] }),
+    );
+    const view = await mount();
+    await expect.element(page.getByText("Nothing on GitHub needs you right now")).toBeVisible();
+    await view.unmount();
+
+    api.list
+      .mockReset()
+      .mockResolvedValue(
+        listResult({ repositoryState: "none", personalState: "unavailable", items: [] }),
+      );
+    await mount();
+    await expect.element(page.getByText("Your GitHub items could not be loaded")).toBeVisible();
+    const calls = api.list.mock.calls.length;
+    await page.getByRole("button", { name: "Try again" }).click();
+    await expect.poll(() => api.list.mock.calls.length).toBeGreaterThan(calls);
   });
 });
 

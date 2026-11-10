@@ -65,12 +65,16 @@ function RailUpdatePill({
   onOpenSettings,
   onDismiss,
   dismissLabel,
+  onRetry,
+  retryLabel,
 }: {
   readonly view: ProviderUpdatePillView;
   readonly exiting: boolean;
   readonly onOpenSettings: () => void;
   readonly onDismiss: () => void;
   readonly dismissLabel: string;
+  readonly onRetry?: (() => void) | undefined;
+  readonly retryLabel: string;
 }) {
   const dismissMs = view.dismissAfterVisibleMs;
   return (
@@ -125,6 +129,16 @@ function RailUpdatePill({
             {view.description}
           </TooltipPopup>
         </Tooltip>
+        {onRetry ? (
+          <button
+            type="button"
+            data-provider-update-retry
+            className="relative z-[1] mr-0.5 shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 font-medium outline-none hover:bg-current/10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+            onClick={onRetry}
+          >
+            {retryLabel}
+          </button>
+        ) : null}
         {view.dismissible ? (
           <button
             type="button"
@@ -245,6 +259,16 @@ export function RailUpdateControl({
           }}
           onDismiss={pill.dismiss}
           dismissLabel={t("providerUpdate.pill.dismiss")}
+          onRetry={
+            pill.view.retryTargets && !run
+              ? () => {
+                  const retryTargets = pill.view?.retryTargets ?? [];
+                  pill.dismiss();
+                  void runProviderUpdates(retryTargets, queryClient, i18n);
+                }
+              : undefined
+          }
+          retryLabel={t("providerUpdate.pill.retry")}
         />
       ) : null}
       <ProviderUpdateDialog

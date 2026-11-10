@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  GitHubInboxItem,
-  GitHubInboxRepositoryBatch,
-  ProjectId,
-  PullRequestActor,
+import {
+  GITHUB_PERSONAL_PROJECT_ID,
+  type GitHubInboxItem,
+  type GitHubInboxRepositoryBatch,
+  type ProjectId,
+  type PullRequestActor,
 } from "@moss/contracts";
 
 import {
@@ -559,6 +560,25 @@ describe("githubInboxSendTargets", () => {
         projectIds: ["project-c" as ProjectId],
       }),
     ).toHaveLength(2);
+  });
+
+  it("never offers My GitHub, which has no folder for an agent thread", () => {
+    const mine = pullRequest(5, {
+      projectId: GITHUB_PERSONAL_PROJECT_ID,
+      projectTitle: "My GitHub",
+      projectContexts: [
+        { projectId: GITHUB_PERSONAL_PROJECT_ID, projectTitle: "My GitHub", isPinned: false },
+      ],
+    });
+    expect(
+      githubInboxSendTargets(
+        [mine],
+        { ...selection, projectId: GITHUB_PERSONAL_PROJECT_ID },
+        {
+          projectIds: [],
+        },
+      ),
+    ).toEqual([]);
   });
 
   it("is empty for an item the list has not loaded, leaving the panel its own project", () => {

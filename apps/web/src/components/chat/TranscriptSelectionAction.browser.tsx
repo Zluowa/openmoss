@@ -22,7 +22,7 @@ function props() {
     canAddToSide: true,
     onDismiss: vi.fn(),
     onAddToSide: vi.fn().mockResolvedValue(undefined),
-    onSendReply: vi.fn().mockResolvedValue(true),
+    onQuoteToComposer: vi.fn(),
   };
 }
 
@@ -63,94 +63,76 @@ it("sends into the open side chat once one exists", async () => {
   }
 });
 
-it("replies to the quote with Enter and sends the desktop chat's reply format", async () => {
+it("quotes into the composer from Reply without sending", async () => {
   const callbacks = props();
   const screen = await render(<TranscriptSelectionActionLayer {...callbacks} />);
   try {
     await page.getByRole("button", { name: "Reply", exact: true }).click();
-    const box = page.getByRole("dialog", { name: "Reply" });
-    await expect.element(box).toBeVisible();
-    expect(box.element().querySelector("[data-reply-quote]")?.textContent).toBe(
-      action.selection.text,
-    );
-    const input = page.getByRole("textbox", { name: "Reply" });
-    await expect.element(input).toHaveFocus();
-    expect(input.element().getAttribute("placeholder")).toBe("Reply to the agent");
-    await input.fill("Why does the TTL stay?");
-    await userEvent.keyboard("{Enter}");
-    expect(callbacks.onSendReply).toHaveBeenCalledExactlyOnceWith(
-      `<!-- reply -->\n> ${action.selection.text}\n\nWhy does the TTL stay?`,
-    );
-    await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+    expect(callbacks.onQuoteToComposer).toHaveBeenCalledOnce();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   } finally {
     await screen.unmount();
   }
 });
 
-it("opens Reply from the Enter key while the toolbar is up", async () => {
-  const screen = await render(<TranscriptSelectionActionLayer {...props()} />);
-  try {
-    await expect.element(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
-    await userEvent.keyboard("{Enter}");
-    await expect.element(page.getByRole("dialog", { name: "Reply" })).toBeVisible();
-    await userEvent.keyboard("{Escape}");
-    await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-  } finally {
-    await screen.unmount();
-  }
-});
+// A stand-in for the chat composer: Enter in it sends, like the real one.
+function FakeComposer(props: { onSend: () => void }) {
+  return (
+    <div
+      contentEditable
+      suppressContentEditableWarning
+      aria-label="Composer"
+      role="textbox"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          props.onSend();
+        }
+      }}
+    />
+  );
+}
 
-it("keeps the reply text when sending fails", async () => {
+it("quote, then Enter in the popover doesn't send", async () => {
+  const send = vi.fn();
   const callbacks = props();
-  callbacks.onSendReply.mockResolvedValue(false);
-  const screen = await render(<TranscriptSelectionActionLayer {...callbacks} />);
-  try {
-    await page.getByRole("button", { name: "Reply", exact: true }).click();
-    const input = page.getByRole("textbox", { name: "Reply" });
-    await input.fill("Keep this message");
-    await page.getByRole("button", { name: "Send reply" }).click();
-    expect(callbacks.onSendReply).toHaveBeenCalledOnce();
-    await expect.element(page.getByRole("dialog", { name: "Reply" })).toBeVisible();
-    await expect.element(input).toHaveValue("Keep this message");
-  } finally {
-    await screen.unmount();
-  }
-});
-
-it("keeps a rejected reply for retry without exposing transport errors", async () => {
-  const callbacks = props();
-  callbacks.onSendReply.mockRejectedValueOnce(new Error("private transport detail"));
-  const screen = await render(<TranscriptSelectionActionLayer {...callbacks} />);
-  try {
-    await page.getByRole("button", { name: "Reply", exact: true }).click();
-    const input = page.getByRole("textbox", { name: "Reply" });
-    await input.fill("Keep this reply");
-    await page.getByRole("button", { name: "Send reply" }).click();
-    await expect
-      .element(page.getByRole("alert"))
-      .toHaveTextContent("The reply couldn't be sent. Try again.");
-    await expect.element(input).toHaveValue("Keep this reply");
-    await page.getByRole("button", { name: "Send reply" }).click();
-    await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-    expect(callbacks.onSendReply).toHaveBeenCalledTimes(2);
-  } finally {
-    await screen.unmount();
-  }
-});
-
-it("fits the reply box inside a narrow viewport", async () => {
-  await page.viewport(360, 480);
+  // Worst case: the composer takes focus synchronously, inside the same keydown.
+  callbacks.onQuoteToComposer.mockImplementation(() => {
+    document.querySelector<HTMLElement>('[aria-label="Composer"]')?.focus();
+  });
   const screen = await render(
-    <TranscriptSelectionActionLayer {...props()} action={{ ...action, left: 8, top: 8 }} />,
+    <>
+      <FakeComposer onSend={send} />
+      <TranscriptSelectionActionLayer {...callbacks} />
+    </>,
   );
   try {
-    await page.getByRole("button", { name: "Reply", exact: true }).click();
-    const rect = page.getByRole("dialog", { name: "Reply" }).element().getBoundingClientRect();
-    expect(rect.left).toBeGreaterThanOrEqual(8);
-    expect(rect.top).toBeGreaterThanOrEqual(8);
-    expect(rect.bottom).toBeLessThanOrEqual(472);
+    await expect.element(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
+    // Held: the first keydown quotes, the repeats land on the focused composer.
+    await userEvent.keyboard("{Enter>5}");
+    await expect.element(page.getByRole("textbox", { name: "Composer" })).toHaveFocus();
+    await userEvent.keyboard("{/Enter}");
+    expect(callbacks.onQuoteToComposer).toHaveBeenCalledOnce();
+    expect(send).not.toHaveBeenCalled();
+    // The reader's own next Enter is theirs again.
+    await userEvent.keyboard("{Enter}");
+    expect(send).toHaveBeenCalledOnce();
   } finally {
     await screen.unmount();
-    await page.viewport(1280, 720);
+  }
+});
+
+it("leaves an IME-composing Enter alone", async () => {
+  const callbacks = props();
+  const screen = await render(<TranscriptSelectionActionLayer {...callbacks} />);
+  try {
+    await expect.element(page.getByRole("toolbar", { name: "Selection actions" })).toBeVisible();
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }),
+    );
+    expect(callbacks.onQuoteToComposer).not.toHaveBeenCalled();
+  } finally {
+    await screen.unmount();
   }
 });

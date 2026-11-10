@@ -195,6 +195,7 @@ function makeTestLayer(options?: {
     readonly modelSelection?: unknown;
   }> = [];
   const automationDeletes: string[] = [];
+  const automationCreateNames: string[] = [];
   const runNowCalls: string[] = [];
   const automationRuns: Array<{ readonly id: string }> = [];
   const digestGenerationInputs: unknown[] = [];
@@ -378,10 +379,12 @@ function makeTestLayer(options?: {
     getStatuses: Effect.succeed(providerStatuses),
   } as unknown as ProviderHealth["Service"]);
   const automationLayer = Layer.succeed(AutomationService, {
-    createProjectManaged: () =>
-      Effect.succeed({
+    createProjectManaged: (input: { readonly name: string }) => {
+      automationCreateNames.push(input.name);
+      return Effect.succeed({
         id: AutomationId.makeUnsafe("automation-1"),
-      }),
+      });
+    },
     list: () => Effect.succeed({ definitions: [...automationDefinitions], runs: [] }),
     delete: (input: { readonly id: string }) => {
       automationDeletes.push(String(input.id));
@@ -410,6 +413,7 @@ function makeTestLayer(options?: {
     automationDefinitions,
     automationUpdates,
     automationDeletes,
+    automationCreateNames,
     runNowCalls,
     automationRuns,
     digestGenerationInputs,
@@ -634,6 +638,9 @@ it.effect("writes a new hub's greeting in the language it was set up in", () => 
     if (imported?.type === "thread.messages.import") {
       assert.equal(imported.messages[0]?.text.startsWith("你好，Dilip！"), true);
     }
+    // The event automation shows in the hub's panels, so it is named in Chinese too.
+    assert.equal(harness.automationCreateNames.length, 1);
+    assert.equal(harness.automationCreateNames[0]?.endsWith(" · 项目事件"), true);
   }).pipe(Effect.provide(harness.layer));
 });
 

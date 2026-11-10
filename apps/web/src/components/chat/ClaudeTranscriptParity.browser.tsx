@@ -30,7 +30,6 @@ import { TranscriptMarkdownContext } from "./transcript/externalImageHosts";
 import { PeerMessageCard } from "./transcript/PeerMessageCard";
 import { RewindMarker } from "./transcript/RewindMarker";
 import { setTranscriptDisclosureOpen } from "./transcript/TranscriptDisclosureRow";
-import { TranscriptReplyBox } from "./transcript/TranscriptReplyBox";
 import { WrapUpLiveBox } from "./transcript/WrapUpBox";
 
 vi.mock("~/localization", async (importOriginal) => {
@@ -185,7 +184,7 @@ describe("Claude transcript parity", () => {
     await shot("reply-chips");
   });
 
-  it("offers Start a side chat and Reply on a selection, then the reply box", async () => {
+  it("offers Start a side chat and Reply on a selection", async () => {
     await render(
       <div style={{ width: 736, padding: 24 }}>
         <p data-testid="passage">
@@ -203,36 +202,6 @@ describe("Claude transcript parity", () => {
     await expect.element(page.getByRole("button", { name: "Start a side chat" })).toBeVisible();
     await expect.element(page.getByRole("button", { name: "Reply" })).toBeVisible();
     await shot("selection-toolbar");
-  });
-
-  it("opens the reply box over the quoted passage", async () => {
-    const screen = await render(
-      <div style={{ width: 736, padding: 24 }}>
-        <p data-testid="passage">
-          The parser reads the header once and keeps the offsets stable across retries.
-        </p>
-      </div>,
-    );
-    const passage = screen.getByTestId("passage").element();
-    const range = document.createRange();
-    range.selectNodeContents(passage);
-    await screen.rerender(
-      <div style={{ width: 736, padding: 24 }}>
-        <p data-testid="passage">
-          The parser reads the header once and keeps the offsets stable across retries.
-        </p>
-        <TranscriptReplyBox
-          quote="keeps the offsets stable across retries"
-          range={range}
-          onSend={async () => true}
-          onClose={() => {}}
-        />
-      </div>,
-    );
-    const input = page.getByRole("textbox", { name: "Reply" });
-    await expect.element(input).toBeVisible();
-    expect(input.element().getAttribute("placeholder")).toBe("Reply to the agent");
-    await shot("reply-box");
   });
 
   it("draws the wrap-up box, a chapter heading and the rewind marker", async () => {

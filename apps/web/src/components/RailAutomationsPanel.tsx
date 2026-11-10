@@ -1,4 +1,5 @@
 import { useTranslation } from "~/localization";
+import { automationDisplayName } from "~/lib/automationDisplayName";
 // FILE: RailAutomationsPanel.tsx
 // Purpose: The rail layout's Automations panel: title, "New automation", and every automation
 //          (active, then paused) as compact rows that open its detail page in the content area.
@@ -33,7 +34,7 @@ export function RailAutomationsPanel({
   createOpen: boolean;
   onCreateOpenChange: (open: boolean) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const navigate = useNavigate();
   const openAutomationId = useParams({
     strict: false,
@@ -64,7 +65,7 @@ export function RailAutomationsPanel({
           })
         }
         leading={<CentralIcon name={icon.name} className={icon.className} />}
-        title={definition.name}
+        title={automationDisplayName(definition, locale)}
         detail={automationRowSubtitle(definition, latestRun, now, t)}
         meta={
           hasUnreadResult(latestRun) ? (

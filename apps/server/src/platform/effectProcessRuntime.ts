@@ -4,6 +4,12 @@ import { withWindowsPowerShellModules } from "@moss/shared/platformEnvironment";
 // Layer: Server platform runtime
 
 import {
+  cancelAgentStartupPriority,
+  deferAgentPriorityUntilReady,
+  settleAgentStartupPriority,
+  shouldDeferAgentPriority,
+} from "@moss/shared/agentStartupPriority";
+import {
   lowerProcessPriority,
   prepareProcess,
   type ProcessLaunchInput,
@@ -18,14 +24,22 @@ export function spawnProviderProcess(
   spawner: Pick<ChildProcessSpawner.ChildProcessSpawner["Service"], "spawn">,
   command: string,
   args: ReadonlyArray<string>,
-  options: EffectProcessRuntimeOptions = {},
+  options: EffectProcessRuntimeOptions & {
+    /**
+     * Keep normal priority on Windows until the owner runs
+     * {@link settleProviderStartupPriority} once its session is ready (or the grace ends), so a
+     * busy PC does not starve the handshake. Tools started afterwards inherit the lower class.
+     */
+    readonly deferPriorityUntilReady?: boolean;
+  } = {},
 ): ReturnType<ChildProcessSpawner.ChildProcessSpawner["Service"]["spawn"]> {
+  const { deferPriorityUntilReady, ...launchOptions } = options;
   return Effect.gen(function* () {
     const enabled = yield* providerProcessPriorityEnabled;
     const prepared = yield* Effect.try({
       try: () =>
         prepareEffectProcessCommand(command, args, {
-          ...options,
+          ...launchOptions,
           lowerPriority: enabled,
         }),
       catch: (cause) =>
@@ -42,15 +56,28 @@ export function spawnProviderProcess(
     // Finalizers run last-added first, so the owner's teardown, added after this
     // returns, finishes while the guard is still watching the tree.
     yield* Effect.addFinalizer(() => Effect.sync(releaseFromGuard));
-    if (
-      enabled &&
-      ((options.platform ?? process.platform) === "win32" || !prepared.priorityBeforeExec)
-    ) {
-      lowerProcessPriority(child.pid, options);
+    const platform = launchOptions.platform ?? process.platform;
+    if (enabled && (platform === "win32" || !prepared.priorityBeforeExec)) {
+      if (deferPriorityUntilReady && shouldDeferAgentPriority(platform)) {
+        deferAgentPriorityUntilReady(child, { pid: Number(child.pid), platform });
+        // Never lower a PID after its process is gone: it may already belong to another one.
+        yield* Effect.addFinalizer(() => Effect.sync(() => cancelAgentStartupPriority(child)));
+        yield* child.exitCode.pipe(
+          Effect.ignore,
+          Effect.andThen(Effect.sync(() => cancelAgentStartupPriority(child))),
+          Effect.forkScoped,
+        );
+      } else {
+        lowerProcessPriority(child.pid, launchOptions);
+      }
     }
     return child;
   });
 }
+
+/** The provider session is ready: apply its deferred lower priority now. Idempotent. */
+export const settleProviderStartupPriority = (child: object): Effect.Effect<void> =>
+  Effect.sync(() => settleAgentStartupPriority(child));
 
 type ProcessPlanningOptions = Pick<ProcessLaunchInput, "platform" | "lowerPriority">;
 

@@ -278,7 +278,7 @@ describe("RailUpdateControl", () => {
     await vi.waitFor(() => expect(railState()).toBeNull());
   });
 
-  it("offers the update again after a failure, with the reason and the manual command", async () => {
+  it("offers a retry after a failure, with the details kept in the update dialog", async () => {
     const finishedAt = new Date(Date.now() + 1_000).toISOString();
     const failed = provider({
       updateState: {
@@ -293,14 +293,13 @@ describe("RailUpdateControl", () => {
     setProviders(client, [failed]);
 
     await vi.waitFor(() => expect(pillTone()).toBe("error"));
-    // The pill says why, that the agent still works, and how to update it by hand.
+    // One short sentence: the agent still works on its current version, and it can retry.
     await expect
-      .element(
-        page.getByRole("button", {
-          name: "更新命令出错退出（退出码 1）：npm error code EACCES。OpenCode 会继续用现在的版本工作。想自己更新的话，打开智能体设置，在终端里运行它的更新命令。",
-        }),
-      )
+      .element(page.getByRole("button", { name: "OpenCode 仍可用当前版本，稍后可重试。" }))
       .toHaveTextContent("OpenCode v1.1.0 更新失败");
+    await expect
+      .element(page.getByRole("button", { name: "重试", exact: true }))
+      .toBeInTheDocument();
     expect(railState()).toBe("update");
 
     await userEvent.click(page.getByRole("button", { name: "关闭智能体更新提示" }));
@@ -312,6 +311,29 @@ describe("RailUpdateControl", () => {
       .element(dialog)
       .toHaveTextContent("Update command exited with code 1: npm error code EACCES");
     await expect.element(page.getByRole("button", { name: "复制命令" })).toBeInTheDocument();
+  });
+
+  it("runs the same update again from the failure pill's retry", async () => {
+    const finishedAt = new Date(Date.now() + 1_000).toISOString();
+    updateProvider.mockResolvedValue({ providers: [] });
+    const { client } = await renderControl([provider()]);
+    setProviders(client, [
+      provider({
+        updateState: {
+          status: "failed",
+          startedAt: CHECKED_AT,
+          finishedAt,
+          message: "Update command exited with code 1: npm error code ETIMEDOUT",
+          output: null,
+        },
+      }),
+    ]);
+
+    await vi.waitFor(() => expect(pillTone()).toBe("error"));
+    await userEvent.click(page.getByRole("button", { name: "重试", exact: true }));
+    await vi.waitFor(() =>
+      expect(updateProvider).toHaveBeenCalledWith({ provider: "opencode", instanceId: "opencode" }),
+    );
   });
 
   it("opens agent settings from the status pill", async () => {
@@ -329,7 +351,9 @@ describe("RailUpdateControl", () => {
       }),
     ]);
 
-    await userEvent.click(page.getByRole("button", { name: "boom" }));
+    await userEvent.click(
+      page.getByRole("button", { name: "OpenCode 仍可用当前版本，稍后可重试。" }),
+    );
     expect(settingsDialogStore.getState()).toMatchObject({
       isOpen: true,
       request: { section: "providers" },

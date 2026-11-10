@@ -25,7 +25,10 @@ import {
 } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { MOSS_MCP_SERVER_NAME } from "../../agentGateway/mcpInjection.ts";
-import { spawnProviderProcess } from "../../platform/effectProcessRuntime.ts";
+import {
+  settleProviderStartupPriority,
+  spawnProviderProcess,
+} from "../../platform/effectProcessRuntime.ts";
 import { assertNoReservedMossMcpServerIdentity } from "../mcpCatalog.ts";
 import { deriveMossPluginMcpServers, type MossPluginApprovalStore } from "../mossPluginRuntime.ts";
 import * as AcpErrors from "./AcpErrors.ts";
@@ -88,7 +91,9 @@ export interface AcpSessionStartupTimeouts {
 // prompt cannot be displayed. Budgets are generous so slow-but-healthy
 // handshakes still succeed; adapters override them via `startupTimeouts`.
 export const DEFAULT_ACP_SESSION_STARTUP_TIMEOUTS: AcpSessionStartupTimeouts = {
-  initializeMs: 20_000,
+  // A first launch on a busy Windows PC was measured past 20 s (Grok's cold binary with the
+  // CPU saturated). The aggregate cap below still bounds a hung agent.
+  initializeMs: 40_000,
   authenticateMs: 30_000,
   sessionSetupMs: 20_000,
   totalMs: 60_000,
@@ -1860,6 +1865,7 @@ const makeAcpSessionRuntime = (
       ),
     );
     const child = yield* spawnProviderProcess(spawner, options.spawn.command, options.spawn.args, {
+      deferPriorityUntilReady: true,
       ...(options.spawn.cwd ? { cwd: options.spawn.cwd } : {}),
       env,
     }).pipe(
@@ -2628,6 +2634,8 @@ const makeAcpSessionRuntime = (
             : runAuthenticate.pipe(Effect.andThen(runSessionSetup));
 
         const { sessionId, sessionSetupResult, sessionSetupMethod } = yield* setup;
+        // The handshake ran at normal priority; prompts' tools inherit the configured lower one.
+        yield* settleProviderStartupPriority(child);
 
         // setSessionEpoch already installed the setup baseline and replayed pending
         // updates through the same reducer, so no separate post-setup mutation is

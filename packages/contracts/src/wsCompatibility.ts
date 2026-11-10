@@ -18,8 +18,15 @@ export const WS_FEATURE_PATH = "/ws";
 // These are protocol budgets, not server implementation details. Keeping the
 // browser's desired lease set and server admission on the same values prevents
 // prewarming from creating subscriptions the connection can never admit.
+//
+// The total must hold every thread lease next to the app-wide streams. One window keeps about
+// 15 of those open at all times (shell, domain events, dev servers, terminal, server lifecycle,
+// config, provider statuses, settings, keep-awake, automations, todos, guest shares, voice,
+// device, computer), plus one per open Hub/assistant panel and per watched preview file. At 20,
+// five warm chats filled the budget and the next chat opened (a Mossbot assistant) could never
+// subscribe. 40 leaves room for all 8 thread leases and those panel streams.
 export const WS_STREAM_LIMITS = {
-  totalPerClient: 20,
+  totalPerClient: 40,
   threadPerClient: 8,
 } as const;
 

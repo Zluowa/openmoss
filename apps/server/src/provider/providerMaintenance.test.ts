@@ -8,6 +8,7 @@ import {
   createProviderVersionAdvisory,
   deriveNpmGlobalPrefix,
   enrichProviderStatusWithVersionAdvisory,
+  isPackageRegistryFailure,
   makeProviderMaintenanceCapabilities,
   providerUpdateFailureReason,
   prepareProviderMaintenanceUpdate,
@@ -171,6 +172,37 @@ describe("providerMaintenance", () => {
       });
       assert.strictEqual(capabilities.update, null, commandPath);
     }
+  });
+
+  it("offers no update for a CLI that ships inside another app", () => {
+    const desktopCli =
+      "C:\\Users\\Test\\AppData\\Local\\Programs\\@opencodedesktop\\resources\\opencode-cli.exe";
+    const definition = OPENCODE_DEFINITION;
+    for (const channel of [undefined, "cn-mirror"] as const) {
+      const capabilities = resolvePackageManagedProviderMaintenance(definition, {
+        binaryPath: "opencode",
+        realCommandPath: desktopCli,
+        appBundled: true,
+        ...(channel ? { packageChannel: channel } : {}),
+      });
+      // Not `opencode upgrade`: the desktop app owns this copy, and no "update available".
+      assert.strictEqual(capabilities.update, null);
+      assert.strictEqual(capabilities.latestVersionSource, null);
+      const advisory = createProviderVersionAdvisory({
+        provider: "opencode",
+        currentVersion: "2.0.13",
+        maintenanceCapabilities: capabilities,
+      });
+      assert.strictEqual(advisory.canUpdate, false);
+      assert.strictEqual(advisory.latestVersionKnowable, false);
+    }
+    // Other OpenCode installs keep their update.
+    assert.ok(
+      resolvePackageManagedProviderMaintenance(definition, {
+        binaryPath: "opencode",
+        realCommandPath: "/usr/local/lib/node_modules/opencode-ai/bin/opencode",
+      }).update,
+    );
   });
 
   it("does not guess an update command for unclassified binaries", () => {
@@ -338,6 +370,29 @@ describe("providerMaintenance", () => {
         ),
       );
     }
+
+    it("asks the definition whether the command it found ships inside another app", async () => {
+      const asked: string[] = [];
+      const layer = FileSystem.layerNoop({
+        exists: () => Effect.succeed(true),
+        realPath: (probedPath: string) => Effect.succeed(probedPath),
+      });
+      const capabilities = await Effect.runPromise(
+        resolveProviderMaintenanceCapabilitiesEffect(
+          {
+            ...OPENCODE_DEFINITION,
+            isAppBundledCommandPath: async (commandPath) => {
+              asked.push(fileNameOf(commandPath));
+              return true;
+            },
+          },
+          { binaryPath: "opencode", platform: "win32", env: { PATH: "C:\bin", PATHEXT: ".CMD" } },
+        ).pipe(Effect.provide(layer)),
+      );
+      assert.deepStrictEqual(asked, ["opencode.CMD"]);
+      assert.strictEqual(capabilities.update, null);
+      assert.strictEqual(capabilities.latestVersionSource, null);
+    });
 
     it("walks PATH in order and reports the first directory that holds the binary", async () => {
       const { capabilities, probed } = await runWithVirtualFileSystem(
@@ -917,10 +972,25 @@ describe("providerMaintenance", () => {
           });
           const prepared = yield* prepareProviderMaintenanceUpdate(capabilities, "1.0.67");
           assert.ok(prepared.update);
+          // The mirror's tag lags the release, so it cannot serve 1.0.77 yet: install from the
+          // official registry first and keep the mirror as the one fallback.
           assert.deepStrictEqual(prepared.update.args, [
-            ...capabilities.update!.args.slice(0, -1),
+            "install",
+            "-g",
+            "--prefix",
+            "C:\\selected npm",
             `${packageName}@1.0.77`,
           ]);
+          assert.strictEqual(prepared.update.packageChannel, "official");
+          assert.deepStrictEqual(prepared.update.registryFallback?.args, [
+            "install",
+            "-g",
+            "--registry=https://registry.npmmirror.com",
+            "--prefix",
+            "C:\\selected npm",
+            `${packageName}@1.0.77`,
+          ]);
+          assert.strictEqual(prepared.update.registryFallback?.packageChannel, "cn-mirror");
           assert.include(prepared.update.command, `${packageName}@1.0.77`);
           assert.notInclude(prepared.update.command, "@latest");
           assert.include(prepared.update.command, '--prefix "C:\\selected npm"');
@@ -1041,6 +1111,118 @@ describe("providerMaintenance", () => {
       );
     }
 
+    it.effect("keeps the mirror first when it serves the release, with official as fallback", () =>
+      Effect.gen(function* () {
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (async () =>
+          Response.json({ version: "1.0.77" })) as unknown as typeof fetch;
+        yield* Effect.addFinalizer(() => Effect.sync(() => (globalThis.fetch = realFetch)));
+        const packageName = "@test/mirror-serves";
+        const capabilities = makeProviderMaintenanceCapabilities({
+          provider: "grok",
+          packageName,
+          updateExecutable: "npm",
+          updateArgs: [
+            "install",
+            "-g",
+            "--registry=https://registry.npmmirror.com",
+            `${packageName}@latest`,
+          ],
+          updateLockKey: "npm-global",
+          packageChannel: "cn-mirror",
+        });
+        const prepared = yield* prepareProviderMaintenanceUpdate(capabilities, "1.0.67");
+        assert.deepStrictEqual(prepared.update?.args, [
+          "install",
+          "-g",
+          "--registry=https://registry.npmmirror.com",
+          `${packageName}@1.0.77`,
+        ]);
+        assert.strictEqual(prepared.update?.packageChannel, "cn-mirror");
+        assert.deepStrictEqual(prepared.update?.registryFallback?.args, [
+          "install",
+          "-g",
+          `${packageName}@1.0.77`,
+        ]);
+        assert.strictEqual(prepared.update?.registryFallback?.packageChannel, "official");
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect(
+      "updates through the mirror when this network cannot reach the official registry",
+      () =>
+        Effect.gen(function* () {
+          const requested: string[] = [];
+          const realFetch = globalThis.fetch;
+          globalThis.fetch = (async (input: string | URL | Request) => {
+            requested.push(String(input));
+            return String(input).startsWith("https://registry.npmjs.org/")
+              ? new Response("", { status: 503 })
+              : Response.json({ version: "1.0.77" });
+          }) as unknown as typeof fetch;
+          yield* Effect.addFinalizer(() => Effect.sync(() => (globalThis.fetch = realFetch)));
+          const packageName = "@test/official-unreachable";
+          // The global lane: no mirror flag, official metadata expected.
+          const capabilities = makeProviderMaintenanceCapabilities({
+            provider: "grok",
+            packageName,
+            updateExecutable: "npm",
+            updateArgs: ["install", "-g", `${packageName}@latest`],
+            updateLockKey: "npm-global",
+          });
+          const status = {
+            provider: "grok",
+            driver: "grok",
+            instanceId: "grok",
+            status: "ready",
+            available: true,
+            authStatus: "unknown",
+            version: "1.0.67",
+            checkedAt: "2026-11-06T06:17:12.288Z",
+          } as const;
+          const enriched = yield* enrichProviderStatusWithVersionAdvisory(status, capabilities);
+          assert.strictEqual(enriched.versionAdvisory.status, "behind_latest");
+          assert.strictEqual(enriched.versionAdvisory.latestVersion, "1.0.77");
+          assert.strictEqual(enriched.versionAdvisory.canUpdate, true);
+          const prepared = yield* prepareProviderMaintenanceUpdate(capabilities, "1.0.67");
+          assert.deepStrictEqual(prepared.update?.args, [
+            "install",
+            "-g",
+            "--registry=https://registry.npmmirror.com",
+            `${packageName}@1.0.77`,
+          ]);
+          assert.strictEqual(prepared.update?.packageChannel, "cn-mirror");
+          assert.strictEqual(prepared.update?.registryFallback?.packageChannel, "official");
+          assert.ok(requested.some((url) => url.startsWith("https://registry.npmmirror.com/")));
+        }).pipe(Effect.scoped),
+    );
+
+    it.effect("never asks the mirror when the official registry answers on the global lane", () =>
+      Effect.gen(function* () {
+        const requested: string[] = [];
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (async (input: string | URL | Request) => {
+          requested.push(String(input));
+          return Response.json({ version: "1.0.77" });
+        }) as unknown as typeof fetch;
+        yield* Effect.addFinalizer(() => Effect.sync(() => (globalThis.fetch = realFetch)));
+        const packageName = "@test/official-reachable";
+        const capabilities = makeProviderMaintenanceCapabilities({
+          provider: "grok",
+          packageName,
+          updateExecutable: "npm",
+          updateArgs: ["install", "-g", `${packageName}@latest`],
+          updateLockKey: "npm-global",
+        });
+        const prepared = yield* prepareProviderMaintenanceUpdate(capabilities, "1.0.67");
+        assert.deepStrictEqual(prepared.update?.args, ["install", "-g", `${packageName}@1.0.77`]);
+        assert.strictEqual(prepared.update?.packageChannel, "official");
+        assert.deepStrictEqual(requested, [
+          `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`,
+        ]);
+      }).pipe(Effect.scoped),
+    );
+
     it.effect(
       "keeps native release-channel owners with no queryable source on their own syntax",
       () =>
@@ -1077,10 +1259,11 @@ describe("providerMaintenance", () => {
       } as const;
       assert.strictEqual(yield* resolveLatestProviderVersion(capabilities), null);
       assert.strictEqual(yield* resolveLatestProviderVersion(capabilities), null);
-      assert.strictEqual(calls, 1);
+      // The official registry and, because it failed, the mirror.
+      assert.strictEqual(calls, 2);
       yield* TestClock.adjust("6 minutes");
       yield* resolveLatestProviderVersion(capabilities);
-      assert.strictEqual(calls, 2);
+      assert.strictEqual(calls, 4);
     }).pipe(Effect.scoped),
   );
 
@@ -1165,6 +1348,27 @@ describe("providerUpdatePreparationFailure", () => {
       PROVIDER_UPDATE_VERSION_UNCONFIRMED_MESSAGE,
     ])
       assert.notInclude(message, "does not support");
+  });
+});
+
+describe("isPackageRegistryFailure", () => {
+  it("recognises a registry that could not serve the install", () => {
+    for (const stderr of [
+      "npm error code ETIMEDOUT",
+      "npm error code ETARGET\nnpm error notarget No matching version found for @x/y@1.2.3.",
+      "npm error code E503",
+      "npm error code ENOTFOUND",
+      " ERR_PNPM_META_FETCH_FAIL  GET https://registry.npmjs.org/x: request to https://registry.npmjs.org/x failed",
+      "error: ConnectionRefused downloading package manifest",
+    ]) {
+      assert.isTrue(isPackageRegistryFailure({ stdout: "", stderr }), stderr);
+    }
+  });
+
+  it("leaves other failures alone", () => {
+    for (const stderr of ["npm error code EACCES", "npm error code EBUSY", ""]) {
+      assert.isFalse(isPackageRegistryFailure({ stdout: "", stderr }), stderr);
+    }
   });
 });
 

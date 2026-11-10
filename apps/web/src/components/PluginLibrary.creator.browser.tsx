@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveSelectableProviderInstanceId } from "~/appSettings";
 import { toastManager } from "~/components/ui/toast";
 import { useComposerDraftStore } from "~/composerDraftStore";
+import { closeSettings, openSettings, settingsDialogStore } from "~/settingsDialogStore";
 import { createDraftThread } from "~/lib/draftThreadCreate";
 import { serverSettingsQueryOptions } from "~/lib/serverReactQuery";
 import { draftNavigationSlotKey, runDraftNavigationOnce } from "~/lib/stagedDraftNavigation";
@@ -76,6 +77,7 @@ const snapshot: OrchestrationShellSnapshot = {
 let mounted: Awaited<ReturnType<typeof mountGeneratedPluginApp>> | undefined;
 
 afterEach(async () => {
+  closeSettings();
   await mounted?.cleanup();
   mounted = undefined;
   vi.restoreAllMocks();
@@ -536,6 +538,40 @@ describe("bundled Plugin Creator entry", () => {
       .toHaveTextContent("help me create a plugin");
     expect(commands).toEqual([]);
   });
+
+  it.each([
+    ["Create plugin", "help me create a plugin"],
+    ["Create app", "help me create an app: a plugin that connects a service to Moss"],
+  ] as const)(
+    "Settings › Plugins › Add › %s closes Settings and opens the creator chat",
+    async (action, request) => {
+      const { app, commands } = await mountCreator();
+      openSettings({ section: "plugins" });
+      const dialog = page.getByRole("dialog", { name: "Settings" });
+      await expect.element(dialog).toBeVisible();
+      await userEvent.click(dialog.getByRole("button", { name: "Add", exact: true }));
+      // Settings' Add menu offers every creator, as Codex's does.
+      // Without a skill creator in this fixture, Create skill is listed but disabled.
+      await expect
+        .element(page.getByRole("menuitem", { name: "Create skill" }))
+        .toHaveAttribute("aria-disabled", "true");
+      await userEvent.click(page.getByRole("menuitem", { name: action }));
+
+      await expect.poll(() => settingsDialogStore.getState().isOpen).toBe(false);
+      await expect.element(page.getByTestId("composer-editor")).toBeInTheDocument();
+      const draft = useComposerDraftStore.getState().getDraftThreadByProjectId(PROJECT_ID, "chat");
+      expect(draft).not.toBeNull();
+      await expect.poll(() => app.router.state.location.pathname).toBe(`/${draft!.threadId}`);
+      await expect
+        .poll(() => useComposerDraftStore.getState().draftsByThreadId[draft!.threadId]?.skills)
+        .toEqual([CREATOR]);
+      await expect
+        .poll(() => useComposerDraftStore.getState().draftsByThreadId[draft!.threadId]?.prompt)
+        .toBe(`/moss-plugin-creator:plugin-creator ${request}`);
+      // As in Codex, the request is prefilled and the user sends it.
+      expect(commands).toEqual([]);
+    },
+  );
 
   it("does not offer an unavailable creator as a working action", async () => {
     const { app, commands } = await mountCreator(false);

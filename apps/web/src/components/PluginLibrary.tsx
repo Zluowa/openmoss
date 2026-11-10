@@ -200,7 +200,10 @@ import {
   PluginLibraryTwoColumnGrid,
   type PluginLibraryBrowseTab,
 } from "./PluginLibraryPrimitives";
-import { MossDetectedResourcesSection } from "./MossDetectedResourcesSection";
+import {
+  MossDetectedResourcesSection,
+  MossDetectedResourcesSettingsList,
+} from "./MossDetectedResourcesSection";
 import { MossAppConnectDialog, type MossAppConnectTarget } from "./MossAppConnectDialog";
 import { MossAppsAccountNotice } from "./MossAppsAccountNotice";
 import {
@@ -2882,21 +2885,32 @@ export function PluginLibrary({
     addCustomMcpServer: t("plugins.action.addCustomMcpServer"),
     addMcpServer: t("plugins.action.addMcpServer"),
     createSkill: t("plugins.action.createSkill"),
+    createApp: t("plugins.action.createApp"),
     recordSkill: t("plugins.action.recordSkill"),
     addMarketplace: t("plugins.action.addMarketplace"),
     requestPlugin: t("plugins.action.requestPlugin"),
   };
 
-  const handleCreate = (kind: CreatorKind) => {
-    const creator = kind === "skill" ? skillCreatorSkill : pluginCreatorSkill;
+  // "Create app" reuses the plugin creator (an app is a plugin that connects a service)
+  // with its own request, until Moss has an app creator of its own.
+  const handleCreate = (kind: CreatorKind | "app") => {
+    const creatorKind: CreatorKind = kind === "skill" ? "skill" : "plugin";
+    const creator = creatorKind === "skill" ? skillCreatorSkill : pluginCreatorSkill;
     if (!creator) return;
     void resourceActions
       .createViaCreator(
-        kind,
+        creatorKind,
         { name: creator.name, path: creator.path },
-        kind === "plugin" ? { prompt: t("plugins.create.creatorPrompt") } : undefined,
+        kind === "plugin"
+          ? { prompt: t("plugins.create.creatorPrompt") }
+          : kind === "app"
+            ? { prompt: t("plugins.create.appCreatorPrompt") }
+            : undefined,
       )
       .then((started) => {
+        // Like Codex: the new chat with the creator attached is where the user goes next,
+        // so Settings gets out of the way once it has opened.
+        if (started && embeddedInSettings) closeSettings();
         if (!started) {
           toastManager.add({
             type: "error",
@@ -2908,6 +2922,8 @@ export function PluginLibrary({
   };
   const headerCreateCallbacks = {
     onCreatePlugin: pluginCreatorSkill ? () => handleCreate("plugin") : undefined,
+    onCreateApp: pluginCreatorSkill ? () => handleCreate("app") : undefined,
+    offerAllCreators: embeddedInSettings,
     onAddMarketplace: () => setAddMarketplaceOpen(true),
     onUploadPluginArchive: () => openImport("plugin"),
     onAddCustomMcpServer: () => openImport("mcp"),
@@ -3885,6 +3901,15 @@ export function PluginLibrary({
                     handleCopyPath(t("plugins.detail.label.path"), path)
                   }
                   mcpServers={mcpServers}
+                  renderTabSupplement={(tab, query) =>
+                    tab === "mcps" || tab === "skills" ? (
+                      <MossDetectedResourcesSettingsList
+                        cwd={discoveryCwd}
+                        search={query}
+                        kind={tab === "mcps" ? "mcp" : "skill"}
+                      />
+                    ) : null
+                  }
                   skills={manageableSkills}
                   disabledSkillNames={disabledSkillNames}
                   onTogglePlugin={handleTogglePlugin}

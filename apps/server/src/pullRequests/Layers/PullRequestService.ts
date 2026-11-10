@@ -1,6 +1,7 @@
 import type { OrchestrationProject, PullRequestDetail } from "@moss/contracts";
 import { Effect, Layer, Scope } from "effect";
 
+import { ServerConfig } from "../../config";
 import { GitHubCli, type GitHubCliShape } from "../../git/Services/GitHubCli";
 import {
   GITHUB_ITEM_DETAIL_CACHE_TTL_MS,
@@ -16,7 +17,11 @@ import {
   type ProjectPullRequestPinsShape,
 } from "../../persistence/Services/ProjectPullRequestPins";
 import { makeKeyedSingleFlightCache } from "../KeyedSingleFlightCache";
-import { liveProjectFromShell, makeProjectRepositoryAccess } from "../projectRepositoryAccess";
+import {
+  liveProjectFromShell,
+  makeProjectRepositoryAccess,
+  personalGitHubProject,
+} from "../projectRepositoryAccess";
 import { makePullRequestOperations } from "../pullRequestOperations";
 import { PullRequestService, type PullRequestServiceShape } from "../Services/PullRequestService";
 
@@ -30,6 +35,8 @@ export interface PullRequestServiceDependencies {
   readonly listProjects: () => Effect.Effect<ReadonlyArray<OrchestrationProject>, unknown>;
   /** Repository inventory, read queue, and snapshot invalidation shared with the inbox. */
   readonly inbox: GitHubInboxSharedReads;
+  /** Where gh runs for "My GitHub" items; the same folder the inbox lists them with. */
+  readonly personalWorkspaceRoot?: string;
 }
 
 export const makePullRequestService = (
@@ -49,6 +56,9 @@ export const makePullRequestService = (
     const access = makeProjectRepositoryAccess({
       listProjects: dependencies.listProjects,
       resolveProjectRepositories: dependencies.inbox.resolveProjectRepositories,
+      ...(dependencies.personalWorkspaceRoot
+        ? { personalProject: personalGitHubProject(dependencies.personalWorkspaceRoot) }
+        : {}),
     });
 
     const finalizeMutationCaches = (
@@ -110,9 +120,11 @@ export const PullRequestServiceLive = Layer.effect(
     const pins = yield* ProjectPullRequestPins;
     const projection = yield* ProjectionSnapshotQuery;
     const inbox = yield* GitHubInboxService;
+    const config = yield* ServerConfig;
     return yield* makePullRequestService({
       github,
       pins,
+      personalWorkspaceRoot: config.baseDir,
       listProjects: () =>
         projection
           .getShellSnapshot()

@@ -9,7 +9,14 @@
 // Layer: GitHub inbox presentation
 // Exports: GitHubInbox
 
-import type { GitHubInboxItem, GitHubInboxListError, ProjectId, ThreadId } from "@moss/contracts";
+import {
+  GITHUB_PERSONAL_PROJECT_ID,
+  GITHUB_PERSONAL_PROJECT_TITLE,
+  type GitHubInboxItem,
+  type GitHubInboxListError,
+  type ProjectId,
+  type ThreadId,
+} from "@moss/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -309,25 +316,33 @@ export function GitHubInbox({
         .toSorted((left, right) => left.name.localeCompare(right.name)),
     [projects],
   );
+  // Fetched before the filters resolve: whether "My GitHub" exists decides which persisted
+  // project filters still apply. The list is one per state and sort either way.
+  const persistedState = search.state ?? settings.githubInboxState;
+  const listQuery = useQuery(
+    githubInboxListQueryOptions(githubInboxListState(persistedState), settings.githubInboxSort),
+  );
+  const personalListed = listQuery.data?.personalState === "loaded";
   const projectOptions = useMemo(
-    () =>
-      repositoryProjects.map((project) => ({
+    () => [
+      // The person's own items across GitHub, listed with or without projects.
+      ...(personalListed
+        ? [{ id: GITHUB_PERSONAL_PROJECT_ID, name: GITHUB_PERSONAL_PROJECT_TITLE }]
+        : []),
+      ...repositoryProjects.map((project) => ({
         id: project.id,
         name: project.name,
       })),
-    [repositoryProjects],
+    ],
+    [personalListed, repositoryProjects],
   );
   const existingProjectIds = useMemo(
-    () => new Set(repositoryProjects.map((project) => project.id)),
-    [repositoryProjects],
+    () => new Set(projectOptions.map((project) => project.id)),
+    [projectOptions],
   );
   const filters = resolveGitHubInboxFilters(search, settings, existingProjectIds);
   const selection = githubInboxSelection(search);
   const listState = githubInboxListState(filters.state);
-
-  // One list per state and sort; kind, project, involvement, label, and text filters apply below, so
-  // switching them never reaches GitHub.
-  const listQuery = useQuery(githubInboxListQueryOptions(listState, settings.githubInboxSort));
   const refreshMutation = useMutation(pullRequestsForceRefreshMutationOptions(queryClient));
   const pinMutation = useMutation(pullRequestSetPinnedMutationOptions(queryClient));
   const activeActionCount = useIsMutating({
@@ -568,34 +583,53 @@ export function GitHubInbox({
                 <Empty className="py-12">
                   <EmptyHeader>
                     <EmptyTitle>
-                      {repositoryProjects.length === 0
-                        ? "No projects yet"
-                        : inventoryIncomplete && listData?.repositoryBatches.length === 0
-                          ? "Repositories could not be checked"
-                          : noRemote
-                            ? "No GitHub remote configured"
-                            : reviewRequestsOnlyOpen
-                              ? "Review requests only apply to open pull requests"
-                              : `No ${noun} found`}
+                      {repositoryProjects.length === 0 && listData?.personalState === "unavailable"
+                        ? "Your GitHub items could not be loaded"
+                        : repositoryProjects.length === 0 && listData?.personalState === "loaded"
+                          ? activeFilterCount > 0
+                            ? `No ${noun} found`
+                            : "Nothing on GitHub needs you right now"
+                          : repositoryProjects.length === 0
+                            ? "No projects yet"
+                            : inventoryIncomplete && listData?.repositoryBatches.length === 0
+                              ? "Repositories could not be checked"
+                              : noRemote
+                                ? "No GitHub remote configured"
+                                : reviewRequestsOnlyOpen
+                                  ? "Review requests only apply to open pull requests"
+                                  : `No ${noun} found`}
                     </EmptyTitle>
                     <EmptyDescription>
-                      {repositoryProjects.length === 0
-                        ? "Code review lists pull requests and issues from the GitHub repositories of your projects."
-                        : inventoryIncomplete && listData?.repositoryBatches.length === 0
-                          ? "Retry to check the repositories that did not respond."
-                          : noRemote
-                            ? "Add a project with a GitHub.com remote, or configure a remote in an existing project."
-                            : reviewRequestsOnlyOpen
-                              ? "Select Open to see pull requests awaiting your review."
-                              : activeFilterCount > 0
-                                ? "Try another filter, or clear them."
-                                : "Nothing here in the repositories of your projects."}
+                      {repositoryProjects.length === 0 && listData?.personalState === "unavailable"
+                        ? "Check your connection and try again."
+                        : repositoryProjects.length === 0 && listData?.personalState === "loaded"
+                          ? activeFilterCount > 0
+                            ? "Try another filter, or clear them."
+                            : "Pull requests and issues you opened, that await your review, or that are assigned to you show up here. Add a project to see everything in its repository."
+                          : repositoryProjects.length === 0
+                            ? "Code review lists pull requests and issues from the GitHub repositories of your projects."
+                            : inventoryIncomplete && listData?.repositoryBatches.length === 0
+                              ? "Retry to check the repositories that did not respond."
+                              : noRemote
+                                ? "Add a project with a GitHub.com remote, or configure a remote in an existing project."
+                                : reviewRequestsOnlyOpen
+                                  ? "Select Open to see pull requests awaiting your review."
+                                  : activeFilterCount > 0
+                                    ? "Try another filter, or clear them."
+                                    : "Nothing here in the repositories of your projects."}
                     </EmptyDescription>
                   </EmptyHeader>
                   {activeFilterCount > 0 ? (
                     <EmptyContent>
                       <Button variant="outline" size="sm" onClick={clearFilters}>
                         Clear filters
+                      </Button>
+                    </EmptyContent>
+                  ) : repositoryProjects.length === 0 &&
+                    listData?.personalState === "unavailable" ? (
+                    <EmptyContent>
+                      <Button variant="outline" size="sm" onClick={() => void listQuery.refetch()}>
+                        Try again
                       </Button>
                     </EmptyContent>
                   ) : null}
@@ -607,9 +641,7 @@ export function GitHubInbox({
                   isSectionOpen={isSectionOpen}
                   onToggleSection={toggleSection}
                   isSelected={(item) => isGitHubInboxItemSelected(item, selection)}
-                  showProjectTitle={
-                    filters.projectIds.length !== 1 && repositoryProjects.length > 1
-                  }
+                  showProjectTitle={filters.projectIds.length !== 1 && projectOptions.length > 1}
                   projectIconFor={projectIconFor}
                   onSelect={selectItem}
                   onTogglePinned={togglePinned}

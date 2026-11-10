@@ -6436,8 +6436,3 @@ body[data-moss-theme-skin-drag="patternOpacity"] .moss-theme-skin-slider-handle 
     animation: none;
   }
 }
-
-/* Selection Reply (desktop chat): the quoted words stay painted while the reply box has focus. */
-::highlight(moss-reply-selection) {
-  background-color: color-mix(in srgb, var(--color-text-accent) 22%, transparent);
-}

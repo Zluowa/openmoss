@@ -2007,6 +2007,155 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       }).pipe(Effect.scoped),
     );
 
+    it.effect("installs from the other registry when the first one cannot serve the update", () =>
+      Effect.gen(function* () {
+        yield* stubNpmLatestVersion({ "@openai/codex": CODEX_UPDATE_LATEST_VERSION });
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "provider-update-registry-fallback-",
+        });
+        yield* writeProviderStatusCache({
+          filePath: resolveProviderStatusCachePath({
+            stateDir: path.join(baseDir, "userdata"),
+            provider: "codex",
+          }),
+          provider: {
+            provider: "codex",
+            instanceId: "codex",
+            driver: "codex",
+            status: "ready",
+            available: true,
+            authStatus: "authenticated",
+            checkedAt: "2026-07-15T12:00:00.000Z",
+            message: "Codex CLI is installed and authenticated.",
+            version: "7.3.46",
+          },
+        });
+        const settings = {
+          ...allProvidersDisabledServerSettings,
+          providers: {
+            ...allProvidersDisabledServerSettings.providers,
+            codex: {
+              ...DEFAULT_SERVER_SETTINGS.providers.codex,
+              enabled: true,
+              binaryPath:
+                "/Users/test/.nvm/versions/node/v24.13.0/lib/node_modules/@openai/codex/bin/codex",
+            },
+          },
+        } satisfies typeof DEFAULT_SERVER_SETTINGS;
+        const installs: string[] = [];
+        // A fake npm whose first registry times out and whose mirror works.
+        const layer = makeProviderHealthLive().pipe(
+          Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+          Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+          Layer.provideMerge(
+            mockSpawnerLayer((args, command) => {
+              if (command === "npm" && args[0] === "install") {
+                installs.push(args.join(" "));
+                return args.some((argument) => argument.startsWith("--registry="))
+                  ? { stdout: "added 1 package", stderr: "", code: 0 }
+                  : {
+                      stdout: "",
+                      stderr:
+                        "npm error code ETIMEDOUT\nnpm error network request to https://registry.npmjs.org/@openai%2fcodex failed\n",
+                      code: 1,
+                    };
+              }
+              return {
+                stdout: args.includes("--version")
+                  ? `codex-cli ${CODEX_UPDATE_INSTALLED_VERSION}`
+                  : "",
+                stderr: "",
+                code: 0,
+              };
+            }),
+          ),
+        );
+
+        const result = yield* Effect.gen(function* () {
+          const providerHealth = yield* ProviderHealth;
+          return yield* providerHealth.updateProvider({ provider: "codex" });
+        }).pipe(Effect.provide(layer));
+        const codex = result.providers.find((provider) => provider.provider === "codex");
+
+        assert.deepStrictEqual(installs, [
+          CODEX_UPDATE_PINNED_INSTALL,
+          `install -g --registry=https://registry.npmmirror.com --prefix /Users/test/.nvm/versions/node/v24.13.0 @openai/codex@${CODEX_UPDATE_LATEST_VERSION}`,
+        ]);
+        assert.strictEqual(codex?.updateState?.status, "succeeded");
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("does not retry another registry for an error that is not the registry's", () =>
+      Effect.gen(function* () {
+        yield* stubNpmLatestVersion({ "@openai/codex": CODEX_UPDATE_LATEST_VERSION });
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "provider-update-no-fallback-",
+        });
+        yield* writeProviderStatusCache({
+          filePath: resolveProviderStatusCachePath({
+            stateDir: path.join(baseDir, "userdata"),
+            provider: "codex",
+          }),
+          provider: {
+            provider: "codex",
+            instanceId: "codex",
+            driver: "codex",
+            status: "ready",
+            available: true,
+            authStatus: "authenticated",
+            checkedAt: "2026-07-15T12:00:00.000Z",
+            message: "Codex CLI is installed and authenticated.",
+            version: "7.3.46",
+          },
+        });
+        const settings = {
+          ...allProvidersDisabledServerSettings,
+          providers: {
+            ...allProvidersDisabledServerSettings.providers,
+            codex: {
+              ...DEFAULT_SERVER_SETTINGS.providers.codex,
+              enabled: true,
+              binaryPath:
+                "/Users/test/.nvm/versions/node/v24.13.0/lib/node_modules/@openai/codex/bin/codex",
+            },
+          },
+        } satisfies typeof DEFAULT_SERVER_SETTINGS;
+        let installs = 0;
+        const layer = makeProviderHealthLive().pipe(
+          Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+          Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+          Layer.provideMerge(
+            mockSpawnerLayer((args, command) => {
+              if (command === "npm" && args[0] === "install") {
+                installs += 1;
+                return { stdout: "", stderr: "npm error code EACCES\n", code: 1 };
+              }
+              return {
+                stdout: args.includes("--version")
+                  ? `codex-cli ${CODEX_UPDATE_INSTALLED_VERSION}`
+                  : "",
+                stderr: "",
+                code: 0,
+              };
+            }),
+          ),
+        );
+
+        const result = yield* Effect.gen(function* () {
+          const providerHealth = yield* ProviderHealth;
+          return yield* providerHealth.updateProvider({ provider: "codex" });
+        }).pipe(Effect.provide(layer));
+        const codex = result.providers.find((provider) => provider.provider === "codex");
+
+        assert.strictEqual(installs, 1);
+        assert.strictEqual(codex?.updateState?.status, "failed");
+      }).pipe(Effect.scoped),
+    );
+
     it("updates npm-managed Pi with npm at the prefix that owns it, never with pi update", () => {
       const definition = PACKAGE_MANAGED_PROVIDER_UPDATES.pi;
       assert.ok(definition);

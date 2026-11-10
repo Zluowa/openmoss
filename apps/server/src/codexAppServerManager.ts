@@ -10,6 +10,8 @@ import {
   type CodexWireEvidenceCollector,
 } from "./codexWireEvidence.ts";
 import { providerProcessPriorityEnabled } from "./providerProcessPriority";
+import { resolveCodexNativeLaunch } from "@moss/shared/codexNativeLaunch";
+import { settleAgentStartupPriority } from "@moss/shared/agentStartupPriority";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -125,6 +127,7 @@ import { bootstrapMossBundledPlugins } from "./account/mossBundledPluginBootstra
 import { upgradeManagedImageSkills } from "./account/mossBundledImageSkillUpgrade.ts";
 import {
   installMossBundledPlugin,
+  isTransientWindowsPluginInstallError,
   mutateMossManagedPluginConfig,
   prepareMossManagedPluginStore,
 } from "./account/mossManagedPluginConfig.ts";
@@ -1338,6 +1341,8 @@ export function resolveCodexModelForAccount(
 
 export function spawnCodexAppServer(input: {
   readonly lowerPriority: boolean;
+  /** Keep normal priority on Windows until the session is ready; see agentStartupPriority. */
+  readonly deferPriorityUntilReady?: boolean;
   readonly binaryPath: string;
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
@@ -1347,9 +1352,15 @@ export function spawnCodexAppServer(input: {
   if (!sourceHomePath) {
     throw new Error("Codex app-server requires a verified shared continuation home.");
   }
+  // An npm install's cmd.exe -> Node -> codex.exe chain becomes codex.exe alone.
+  const nativeLaunch = resolveCodexNativeLaunch({
+    binaryPath: input.binaryPath,
+    env: input.env,
+    cwd: input.cwd,
+  });
   return spawnGuardedProviderChild(() =>
     spawnProcess(
-      input.binaryPath,
+      nativeLaunch?.command ?? input.binaryPath,
       [
         ...buildCodexAppServerArgs(sourceHomePath),
         "--config",
@@ -1358,9 +1369,10 @@ export function spawnCodexAppServer(input: {
       ],
       {
         lowerPriority: input.lowerPriority,
+        ...(input.deferPriorityUntilReady ? { deferPriorityUntilReady: true } : {}),
         requireExecutable: true,
         cwd: input.cwd,
-        env: input.env,
+        env: nativeLaunch?.env ?? input.env,
         stdio: ["pipe", "pipe", "pipe"],
       },
     ),
@@ -2538,7 +2550,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
     // Startup may itself be inside runPluginMutation. The bootstrap helper owns
     // its single-flight guard, so do not re-enter the plugin mutation lock here.
-    await bootstrapMossBundledPlugins({
+    const bootstrap = bootstrapMossBundledPlugins({
       expectedHomePath: managedHome,
       ...(context.codexOptions.homePath ? { homePath: context.codexOptions.homePath } : {}),
       ...(context.codexOptions.shadowHomePath
@@ -2578,6 +2590,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         this.skillsCache.clear();
       },
     });
+    try {
+      await bootstrap;
+    } catch (error) {
+      // A default plugin that Windows kept locked past its retries must not fail the
+      // person's message: its marker stays unwritten, so the next session installs it.
+      if (!this.isContextRoutable(context) || !isTransientWindowsPluginInstallError(error)) {
+        throw error;
+      }
+      log.warn("Moss default plugin install deferred to the next session", { error });
+    }
     const cwd = context.session.cwd ?? managedHome;
     const changed = await upgradeManagedImageSkills({
       managedHomePath: managedHome,
@@ -3516,10 +3538,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const discoveryGeneration = this.beginDiscoveryRequest();
     const authFingerprint = await this.authFingerprintForOptions(codexOptions);
     this.assertDiscoveryGeneration(discoveryGeneration);
+    // The app listing is account-wide. It never names a thread and never runs in a chat's
+    // session: a Moss thread id means nothing to Codex ("thread not found"), and a busy or
+    // stuck chat must not be able to break Settings › Plugins › Apps.
     const params = {
       ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
       ...(input.limit !== undefined ? { limit: input.limit } : {}),
-      ...(input.threadId !== undefined ? { threadId: input.threadId } : {}),
       ...(input.forceRefetch !== undefined ? { forceRefetch: input.forceRefetch } : {}),
     };
     const cacheKey = JSON.stringify({
@@ -3537,10 +3561,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     const context = await this.resolveContextForDiscovery(
-      input.threadId ?? undefined,
+      undefined,
       cwd,
       codexOptions,
       authFingerprint,
+      true,
     );
     this.assertDiscoveryAuthMatchesRequest(context, codexOptions, authFingerprint);
     const response = await this.sendRequest<Record<string, unknown>>(context, "app/list", params);
@@ -4023,6 +4048,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         spawn: () =>
           this.spawnAppServer({
             lowerPriority,
+            deferPriorityUntilReady: true,
             binaryPath: codexBinaryPath,
             cwd: resolvedCwd,
             env: processLaunch.env,
@@ -4244,6 +4270,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         threadOpenMethod,
         providerThreadId,
       });
+      // Startup ran at normal priority; the turn's tools inherit the configured lower one.
+      settleAgentStartupPriority(context.child);
       if (threadOpenMethod === "thread/resume" || threadOpenMethod === "thread/fork") {
         context.serverAuthoritativePermissions = true;
       }
@@ -8905,13 +8933,19 @@ function runCodexVersionCommand(input: {
         cwd: input.cwd,
         env: input.env,
         sourceHomePath: agentProgramSourceHome("codex", input.env, input.cwd),
-        spawn: () =>
-          spawnProcess(input.binaryPath, ["--version"], {
+        spawn: () => {
+          const nativeLaunch = resolveCodexNativeLaunch({
+            binaryPath: input.binaryPath,
+            env: input.env,
+            cwd: input.cwd,
+          });
+          return spawnProcess(nativeLaunch?.command ?? input.binaryPath, ["--version"], {
             requireExecutable: true,
             cwd: input.cwd,
-            env: input.env,
+            env: nativeLaunch?.env ?? input.env,
             stdio: ["ignore", "pipe", "pipe"],
-          }),
+          });
+        },
       });
     } catch (error) {
       resolve({
@@ -9016,7 +9050,10 @@ async function runCodexCliVersionGate(
   // `buildCodexProcessEnv` can replace PATH with the login shell's, so resolving through the
   // process environment could fingerprint a different `codex` than the one being probed — or
   // none at all — and the staleness check would then be watching the wrong file.
-  const resolvedPath = resolveExecutable(input.binaryPath, { env, cwd: input.cwd });
+  // An npm shim never changes on upgrade; the native binary it starts does.
+  const resolvedPath =
+    resolveCodexNativeLaunch({ binaryPath: input.binaryPath, env, cwd: input.cwd })?.command ??
+    resolveExecutable(input.binaryPath, { env, cwd: input.cwd });
   const identity = resolvedPath ? executableIdentity(resolvedPath) : null;
   const result = await runCodexVersionCommand({
     runtimePrograms: input.runtimePrograms,
@@ -9104,10 +9141,12 @@ function codexCliVersionGateKey(
   // environment (especially PATH and CODEX_HOME). Hash environment values so
   // credentials never live in the cache key. The required floor is part of the
   // verdict. cwd also affects relative PATH entries and Windows' exclusion of
-  // the working directory from bare-command lookup.
+  // the working directory from bare-command lookup. An absolute binary path does
+  // not depend on cwd, so every new project folder reuses the same verdict instead
+  // of starting another Codex process; the file fingerprint still catches upgrades.
   return JSON.stringify([
     binaryPath,
-    path.resolve(cwd),
+    path.isAbsolute(binaryPath) ? "" : path.resolve(cwd),
     homePath ?? "",
     shadowHomePath ?? "",
     accountId ?? "",

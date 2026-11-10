@@ -29,6 +29,7 @@ import {
   type GitHubPullRequestSummary,
   type GitHubRepositoryChangeProbe,
   type GitHubRepositoryInboxLookup,
+  type GitHubViewerInbox,
   PULL_REQUEST_SUMMARY_JSON_FIELDS,
 } from "../Services/GitHubCli.ts";
 
@@ -63,6 +64,10 @@ export interface FakeGhScenario {
   repositoryChangeProbe?: GitHubRepositoryChangeProbe;
   /** Fails only the involvement search (`listRepositoryInboxInvolvement`). */
   repositoryInvolvementError?: GitHubCliError;
+  /** The viewer's own search across GitHub (`listViewerInbox`), keyed by state. Defaults to
+   * nothing found; `viewerInboxError` fails only that call. */
+  viewerInbox?: Partial<Record<"open" | "closed", GitHubViewerInbox>>;
+  viewerInboxError?: GitHubCliError;
   repositoryInboxItems?: Record<number, GitHubRepositoryInboxLookup>;
   issueDetail?: GitHubIssueDetailData;
   pullRequestDetail?: GitHubPullRequestDetailData;
@@ -307,6 +312,22 @@ export function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
         return decodeRepositoryInboxJson(fakeInboxFixture(input));
       },
       // The one fixture answers both documents; each decoder reads only its own fields.
+      listViewerInbox: (input) => {
+        ghCalls.push(`api graphql viewer-inbox ${input.state}`);
+        const failure = scenario.failWith ?? scenario.viewerInboxError;
+        if (failure) return Effect.fail(failure);
+        return Effect.succeed(
+          scenario.viewerInbox?.[input.state] ?? {
+            viewer: scenario.viewerLogin ?? "octocat",
+            entries: [],
+            involvedKeys: [],
+            reviewRequestedKeys: [],
+            reviewRequestedCount: 0,
+            truncated: false,
+            rateLimit: null,
+          },
+        );
+      },
       listRepositoryInboxInvolvement: (input) => {
         ghCalls.push(`api graphql inbox-involvement ${input.repository} ${input.state}`);
         const failure = scenario.failWith ?? scenario.repositoryInvolvementError;

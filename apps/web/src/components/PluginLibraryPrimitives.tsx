@@ -19,6 +19,7 @@ import {
 } from "react";
 
 import {
+  AppsIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   FileAddIcon,
@@ -65,6 +66,7 @@ export interface PluginLibraryHeaderLabels {
   readonly addCustomMcpServer?: string;
   readonly addMcpServer?: string;
   readonly createSkill: string;
+  readonly createApp?: string;
   readonly recordSkill: string;
   readonly addMarketplace: string;
   readonly requestPlugin: string;
@@ -83,6 +85,7 @@ const DEFAULT_HEADER_LABELS: PluginLibraryHeaderLabels = {
   addCustomMcpServer: "Add custom MCP server",
   addMcpServer: "Add MCP server",
   createSkill: "Create skill",
+  createApp: "Create app",
   recordSkill: "Record a skill",
   addMarketplace: "Add marketplace",
   requestPlugin: "Request a plugin",
@@ -202,6 +205,13 @@ function HeaderCreateMenu({
 
 interface PluginLibraryCreateCallbacks {
   readonly onCreatePlugin?: (() => void) | undefined;
+  /** Settings › Plugins: start a chat that builds an app (a plugin that connects a service). */
+  readonly onCreateApp?: (() => void) | undefined;
+  /**
+   * Settings › Plugins lists every creator (plugin, app, skill), disabled when one is
+   * unavailable. Elsewhere manage keeps Codex's single Create plugin action.
+   */
+  readonly offerAllCreators?: boolean | undefined;
   /** Legacy entry kept for hosts that still offer one combined import. */
   readonly onImportPluginsAndSkills?: (() => void) | undefined;
   readonly onUploadPluginArchive?: (() => void) | undefined;
@@ -255,6 +265,8 @@ function usePluginLibraryHeaderActions({
   selectedTab,
   labels,
   onCreatePlugin,
+  onCreateApp,
+  offerAllCreators,
   onImportPluginsAndSkills,
   onUploadPluginArchive,
   onAddCustomMcpServer,
@@ -294,6 +306,22 @@ function usePluginLibraryHeaderActions({
       icon: <PluginIcon className={MENU_ICON_CLASS_NAME} />,
       onSelect: onCreatePlugin,
     });
+    // Settings › Plugins also creates apps and skills, each in a new chat (as in Codex).
+    // Like Create plugin, they stay listed (disabled) when their creator is unavailable.
+    if (mode === "manage" && offerAllCreators) {
+      next.push({
+        key: "create-app",
+        label: labels.createApp ?? t("plugins.action.createApp"),
+        icon: <AppsIcon className={MENU_ICON_CLASS_NAME} />,
+        onSelect: onCreateApp,
+      });
+      next.push({
+        key: "create-skill",
+        label: labels.createSkill,
+        icon: <ListChecksIcon className={MENU_ICON_CLASS_NAME} />,
+        onSelect: onCreateSkill,
+      });
+    }
     if (onAddMarketplace) {
       next.push({
         key: "add-marketplace",
@@ -351,6 +379,8 @@ function usePluginLibraryHeaderActions({
     mode,
     onAddCustomMcpServer,
     onAddMarketplace,
+    onCreateApp,
+    offerAllCreators,
     onCreatePlugin,
     onImportPluginsAndSkills,
     onCreateSkill,

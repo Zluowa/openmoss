@@ -2876,7 +2876,11 @@ export const makeProjectAgentService = Effect.gen(function* () {
               .createProjectManaged({
                 projectId: input.projectId,
                 sourceThreadId: coordinatorThreadId,
-                name: `${coordinatorName} events`,
+                // Shown in the Hub/assistant panels; a Chinese user reads it in Chinese.
+                name:
+                  input.userLocale === "zh-CN"
+                    ? `${coordinatorName} · 项目事件`
+                    : `${coordinatorName} events`,
                 prompt: PROJECT_BOT_HEARTBEAT_PROMPT,
                 schedule: { type: "project-event", projectId: input.projectId },
                 enabled: true,

@@ -8,7 +8,7 @@ import {
   SYSTEM_TOOL_INSTALLS,
   type SystemToolInstallOutcome,
   type SystemToolInstallPhase,
-} from "../provider/systemToolInstall";
+} from "../systemTools/systemToolInstall";
 
 /**
  * Installs GitHub CLI on this computer: on Windows the official zip into Moss's own folder, on

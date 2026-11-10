@@ -11,12 +11,48 @@ import { Cause, Effect, Exit, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { ServerSettingsService } from "../serverSettings";
 
-import { makeEffectProcessCommand, spawnProviderProcess } from "./effectProcessRuntime";
+import {
+  makeEffectProcessCommand,
+  settleProviderStartupPriority,
+  spawnProviderProcess,
+} from "./effectProcessRuntime";
 import { installWindowsProviderProcessGuard } from "./windowsProviderProcessGuard";
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("spawnProviderProcess", () => {
+  it.runIf(process.platform === "win32")(
+    "keeps a deferred agent at normal priority until its session is ready",
+    async () => {
+      const serverPriority = os.getPriority();
+      const observed = await Effect.runPromise(
+        Effect.gen(function* () {
+          const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+          const child = yield* spawnProviderProcess(
+            spawner,
+            process.execPath,
+            ["-e", "setTimeout(() => {}, 10000)"],
+            { deferPriorityUntilReady: true },
+          );
+          const pid = Number(child.pid);
+          const atStart = os.getPriority(pid);
+          yield* settleProviderStartupPriority(child);
+          const afterReady = os.getPriority(pid);
+          yield* child.kill();
+          return { atStart, afterReady };
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(NodeServices.layer),
+          Effect.provide(ServerSettingsService.layerTest({ lowerProviderProcessPriority: true })),
+        ),
+      );
+      expect(observed.atStart).toBe(serverPriority);
+      expect(observed.afterReady).toBe(
+        Math.max(serverPriority, os.constants.priority.PRIORITY_BELOW_NORMAL),
+      );
+    },
+  );
+
   it("keeps a provider registered with the guard until its owner's teardown has run", async () => {
     const events: string[] = [];
     installWindowsProviderProcessGuard({

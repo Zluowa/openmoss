@@ -6,15 +6,16 @@
 // Layer: Web domain helpers (no React)
 // Exports: GitHubInboxSearch and helpers, GitHubInboxFilters and helpers, row pipeline helpers
 
-import type {
-  GitHubInboxItem,
-  GitHubInboxItemKind,
-  GitHubInboxListError,
-  GitHubInboxRepositoryBatch,
-  GitHubInboxState,
-  GitHubInboxSort,
-  PullRequestDetailInput,
-  ProjectId,
+import {
+  GITHUB_PERSONAL_PROJECT_ID,
+  type GitHubInboxItem,
+  type GitHubInboxItemKind,
+  type GitHubInboxListError,
+  type GitHubInboxRepositoryBatch,
+  type GitHubInboxState,
+  type GitHubInboxSort,
+  type PullRequestDetailInput,
+  type ProjectId,
 } from "@moss/contracts";
 import {
   coalescePullRequestListEntries,
@@ -212,6 +213,8 @@ export function githubInboxSendTargets(
       byProjectId.set(context.projectId, context.projectTitle);
     }
   }
+  // "My GitHub" has no folder, so it cannot host an agent thread.
+  byProjectId.delete(GITHUB_PERSONAL_PROJECT_ID);
   const all = [...byProjectId].map(([projectId, projectTitle]) => ({
     projectId,
     projectTitle,

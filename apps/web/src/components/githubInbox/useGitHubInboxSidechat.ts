@@ -7,7 +7,7 @@
 // Layer: GitHub inbox orchestration hook
 // Exports: useGitHubInboxSidechat
 
-import type { ProjectId, ThreadId } from "@moss/contracts";
+import { GITHUB_PERSONAL_PROJECT_ID, type ProjectId, type ThreadId } from "@moss/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -209,6 +209,14 @@ export function useGitHubInboxSidechat(selection: GitHubInboxSelection | null) {
       number: target.source.number,
     });
     if (creatingKeys.current.has(key)) return Promise.resolve();
+    if (target.projectId === GITHUB_PERSONAL_PROJECT_ID) {
+      toastManager.add({
+        type: "info",
+        title: "Side chats need a project",
+        description: "Add this repository as a project in Moss to ask an agent about it.",
+      });
+      return Promise.resolve();
+    }
     const api = readNativeApi();
     if (!api) {
       toastManager.add({ type: "error", title: "Could not start a side chat" });

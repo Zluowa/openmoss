@@ -262,7 +262,7 @@ function HostConnection({ children, current }: { children: ReactNode; current: (
                 ? "Another GitHub sign-in is in progress"
                 : result.state === "failed"
                   ? "GitHub sign-in could not be confirmed"
-                  : "Connect GitHub";
+                  : "Sign in to GitHub";
   const description = pending
     ? "Enter this one-time code on GitHub and return here after approving access."
     : result?.state === "missing"
@@ -273,7 +273,9 @@ function HostConnection({ children, current }: { children: ReactNode; current: (
           : INSTALL_PHASE_COPY[result.phase]
         : result?.state === "installFailed"
           ? INSTALL_FAILURE_COPY[result.reason]
-          : "Moss uses the GitHub account on this computer to load pull requests and issues.";
+          : result?.state === "disconnected"
+            ? "Sign in once, and Code review lists the pull requests and issues you opened, that await your review, or that are assigned to you."
+            : "Moss uses the GitHub account on this computer to load pull requests and issues.";
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <RouteSurfaceHeader
@@ -348,7 +350,7 @@ function HostConnection({ children, current }: { children: ReactNode; current: (
                   result.state !== "unavailable" &&
                   result.state !== "busy" && (
                     <Button size="sm" onClick={() => void start()}>
-                      Connect GitHub
+                      Sign in to GitHub
                     </Button>
                   )
                 )}

@@ -20,6 +20,10 @@ import { consumeDesktopParentInput, withDesktopParentLifetime } from "./desktopP
 import { hydrateWindowsUserEnvironment } from "./os-jank";
 import { installWindowsProviderProcessGuard } from "./platform/windowsProviderProcessGuard";
 import { installWindowsExitPriority } from "./platform/windowsExitPriority";
+import {
+  disposeWarmWindowsTeardownObservers,
+  enableWarmWindowsTeardownObservers,
+} from "@moss/shared/supervisedProcessTeardown";
 
 const RuntimeLayer = Layer.empty.pipe(
   Layer.provideMerge(CliConfig.layer),
@@ -58,6 +62,8 @@ if (import.meta.main) {
     hydrateWindowsUserEnvironment();
     installWindowsProviderProcessGuard();
     installWindowsExitPriority();
+    // Agent launches take a pre-warmed process-tree observer instead of waiting for one.
+    enableWarmWindowsTeardownObservers();
   }
   const desktopParentInput = consumeDesktopParentInput(process.env, () => process.stdin);
   // Effect finalizers close the server and provider resources, but Electron's
@@ -69,6 +75,7 @@ if (import.meta.main) {
   // log and crash diagnostics still tell a clean exit from a crash.
   NodeRuntime.runMain(
     withDesktopParentLifetime(mossServerProgram(), desktopParentInput).pipe(
+      Effect.ensuring(Effect.sync(disposeWarmWindowsTeardownObservers)),
       Effect.onExit((exit) =>
         Effect.sync(() => {
           if (process.env.MOSS_MODE !== "desktop") return;

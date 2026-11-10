@@ -73,6 +73,17 @@ export interface ProviderMaintenanceCommandAction {
   readonly targetVersion?: string;
   /** Put the selected provider binary's directory first so its package manager matches. */
   readonly pathPrepend?: string;
+  /** Registry the args above install from; set on verified package-manager updates. */
+  readonly packageChannel?: ProviderPackageChannel;
+  /**
+   * The same install from the other registry, tried once when the first attempt fails: the
+   * mainland mirror can lag or be down, and the official registry can be unreachable.
+   */
+  readonly registryFallback?: {
+    readonly args: ReadonlyArray<string>;
+    readonly command: string;
+    readonly packageChannel: ProviderPackageChannel;
+  };
 }
 
 export interface ProviderMaintenanceCapabilityResolutionOptions {
@@ -84,12 +95,20 @@ export interface ProviderMaintenanceCapabilityResolutionOptions {
   /** npm prefix that holds the package beside a Windows command shim. */
   readonly npmGlobalPrefix?: string | null;
   readonly packageChannel?: ProviderPackageChannel;
+  /** Set when `isAppBundledCommandPath` matched the command Moss would update. */
+  readonly appBundled?: boolean;
 }
 
 export interface PackageManagedProviderMaintenanceDefinition {
   readonly provider: ProviderKind;
   readonly binaryName: string;
   readonly npmPackageName: string | null;
+  /**
+   * True for a CLI that ships inside another app (OpenCode desktop's bundled CLI, directly or
+   * through a personal shim). That app updates it; a package manager or the CLI's own updater
+   * cannot, so Moss offers no update and no "update available" for it.
+   */
+  readonly isAppBundledCommandPath?: (commandPath: string) => boolean | Promise<boolean>;
   /** Extra `npm install -g` flags the package needs, e.g. install-script allowlists. */
   readonly npmInstallArgs?: ReadonlyArray<string>;
   readonly homebrew:
@@ -667,6 +686,18 @@ export function resolvePackageManagedProviderMaintenance(
     .map(nonEmptyString)
     .filter((value): value is string => value !== null);
 
+  if (options?.appBundled === true) {
+    return makeProviderMaintenanceCapabilities({
+      provider: definition.provider,
+      packageName: null,
+      latestVersionSource: null,
+      updateExecutable: null,
+      updateArgs: [],
+      updateLockKey: null,
+      packageChannel,
+    });
+  }
+
   for (const commandPath of commandPaths) {
     const installSource = detectInstallSource(definition, commandPath);
     if (installSource !== "unknown") {
@@ -738,6 +769,19 @@ const resolveWindowsNpmGlobalPrefix = Effect.fn("resolveWindowsNpmGlobalPrefix")
   return exists ? commandDirectory : null;
 });
 
+const isAppBundled = (
+  definition: PackageManagedProviderMaintenanceDefinition,
+  commandPaths: ReadonlyArray<string>,
+) =>
+  Effect.promise(async () => {
+    const predicate = definition.isAppBundledCommandPath;
+    if (!predicate) return false;
+    for (const commandPath of new Set(commandPaths)) {
+      if (await predicate(commandPath)) return true;
+    }
+    return false;
+  });
+
 export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
   "resolveProviderMaintenanceCapabilitiesEffect",
 )(function* (
@@ -760,6 +804,7 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
       binaryPath,
       realCommandPath,
       npmGlobalPrefix,
+      appBundled: yield* isAppBundled(definition, [realCommandPath, binaryPath]),
     });
   }
 
@@ -793,6 +838,7 @@ export const resolveProviderMaintenanceCapabilitiesEffect = Effect.fn(
       realCommandPath,
       commandDirectory: candidate.directory,
       npmGlobalPrefix,
+      appBundled: yield* isAppBundled(definition, [realCommandPath, candidate.path]),
     });
   }
 
@@ -957,7 +1003,19 @@ const resolveLatestProviderVersionResult = Effect.fn("resolveLatestProviderVersi
             { officialVersion: fetchVersion("official"), mirrorVersion: fetchVersion("cn-mirror") },
             { concurrency: "unbounded" },
           )
-        : { officialVersion: yield* fetchVersion(channel), mirrorVersion: null };
+        : yield* Effect.gen(function* () {
+            const official = yield* fetchVersion(channel);
+            // An official registry this network cannot reach (mainland China without a
+            // VPN on the global lane): the mirror can still show an available update and
+            // serve the install. It never proves the CLI current.
+            return {
+              officialVersion: official,
+              mirrorVersion:
+                official === null && source.kind === "npm"
+                  ? yield* fetchVersion("cn-mirror")
+                  : null,
+            };
+          });
     const result = {
       version: officialVersion ?? mirrorVersion,
       mirrorVersion,
@@ -980,6 +1038,44 @@ export const resolveLatestProviderVersion = Effect.fn("resolveLatestProviderVers
 });
 
 const PACKAGE_UPDATE_LOCK_KEYS = new Set(["npm-global", "bun-global", "pnpm-global"]);
+
+/** Package-manager args for `channel`: the mirror gets an explicit flag, official uses npm's own. */
+function argsForPackageChannel(
+  args: ReadonlyArray<string>,
+  channel: ProviderPackageChannel,
+): ReadonlyArray<string> {
+  const withoutRegistry = args.filter((argument) => !argument.startsWith("--registry="));
+  if (channel !== "cn-mirror") return withoutRegistry;
+  const globalFlag = withoutRegistry.indexOf("-g");
+  const insertAt = globalFlag === -1 ? withoutRegistry.length - 1 : globalFlag + 1;
+  return [
+    ...withoutRegistry.slice(0, insertAt),
+    ...registryArgs(channel),
+    ...withoutRegistry.slice(insertAt),
+  ];
+}
+
+/**
+ * Which registry installs the target first. The account's lane decides, unless the lookup
+ * already showed that registry cannot serve the target: a lagging or unreachable mirror, or an
+ * official registry this network cannot reach while the mirror answered.
+ */
+function orderPackageChannels(
+  preferred: ProviderPackageChannel,
+  latest: ProviderLatestVersionResult,
+): readonly [ProviderPackageChannel, ProviderPackageChannel] {
+  const mirrorServesTarget =
+    latest.mirrorVersion !== null &&
+    latest.version !== null &&
+    compareSemverVersions(latest.mirrorVersion, latest.version) === 0;
+  if (preferred === "cn-mirror" && !mirrorServesTarget && latest.authoritative) {
+    return ["official", "cn-mirror"];
+  }
+  if (preferred === "official" && !latest.authoritative && mirrorServesTarget) {
+    return ["cn-mirror", "official"];
+  }
+  return preferred === "cn-mirror" ? ["cn-mirror", "official"] : ["official", "cn-mirror"];
+}
 
 function withVerifiedProviderUpdateTarget(
   capabilities: ProviderMaintenanceCapabilities,
@@ -1004,9 +1100,15 @@ function withVerifiedProviderUpdateTarget(
     ) {
       return { ...capabilities, update: null };
     }
-    const args = update.args.map((argument) =>
+    const pinned = update.args.map((argument) =>
       argument === packageArgument ? `${capabilities.packageName}@${latest.version}` : argument,
     );
+    const [firstChannel, fallbackChannel] = orderPackageChannels(
+      capabilities.packageChannel ?? "official",
+      latest,
+    );
+    const args = argsForPackageChannel(pinned, firstChannel);
+    const fallbackArgs = argsForPackageChannel(pinned, fallbackChannel);
     return {
       ...capabilities,
       update: {
@@ -1014,6 +1116,12 @@ function withVerifiedProviderUpdateTarget(
         args,
         targetVersion: latest.version,
         command: providerMaintenanceCommand(update.executable, args),
+        packageChannel: firstChannel,
+        registryFallback: {
+          args: fallbackArgs,
+          command: providerMaintenanceCommand(update.executable, fallbackArgs),
+          packageChannel: fallbackChannel,
+        },
       },
     };
   }
@@ -1031,6 +1139,19 @@ function withVerifiedProviderUpdateTarget(
     return { ...capabilities, update: null };
   }
   return capabilities;
+}
+
+// npm, bun and pnpm wording for a registry that could not serve the install: unreachable,
+// timed out, rate limited, a server error, or a release it has not synced yet.
+const PACKAGE_REGISTRY_FAILURE =
+  /\b(?:ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|ESOCKETTIMEDOUT|ERR_SOCKET_TIMEOUT|ETARGET|E404|E429|E5\d\d|ERR_PNPM_FETCH_\d+|ERR_PNPM_META_FETCH_FAIL|ERR_PNPM_NO_MATCHING_VERSION|ConnectionRefused|ConnectionClosed|No matching version|socket hang up|fetch failed|network (?:error|timeout)|request to \S+ failed)\b/iu;
+
+/** True when a failed package-manager update blamed the registry, so another registry may work. */
+export function isPackageRegistryFailure(output: {
+  readonly stdout: string;
+  readonly stderr: string;
+}): boolean {
+  return PACKAGE_REGISTRY_FAILURE.test(`${output.stderr}\n${output.stdout}`);
 }
 
 export const PROVIDER_UPDATE_SETTINGS_CHANGED_MESSAGE =

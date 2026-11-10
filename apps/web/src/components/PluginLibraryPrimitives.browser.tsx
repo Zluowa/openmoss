@@ -174,7 +174,8 @@ describe("PluginLibraryHeader", () => {
     }
   });
 
-  it("offers Settings' Add menu: Create plugin, Add marketplace, Add MCP server", async () => {
+  // Owner feedback 2026-11-10: Settings' Add also creates apps and skills, each in a new chat.
+  it("offers Settings' Add menu: Create plugin, app and skill, Add marketplace, Add MCP server", async () => {
     const screen = await render(
       <PluginLibraryHeader
         mode="manage"
@@ -182,6 +183,8 @@ describe("PluginLibraryHeader", () => {
         onTabChange={vi.fn()}
         onRefresh={vi.fn()}
         onCreatePlugin={vi.fn()}
+        onCreateApp={vi.fn()}
+        offerAllCreators
         onCreateSkill={vi.fn()}
         onAddMarketplace={vi.fn()}
         onUploadPluginArchive={vi.fn()}
@@ -194,7 +197,13 @@ describe("PluginLibraryHeader", () => {
       const menuLabels = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
         (item) => item.textContent?.trim(),
       );
-      expect(menuLabels).toEqual(["Create plugin", "Add marketplace", "Add MCP server"]);
+      expect(menuLabels).toEqual([
+        "Create plugin",
+        "Create app",
+        "Create skill",
+        "Add marketplace",
+        "Add MCP server",
+      ]);
     } finally {
       await screen.unmount();
     }

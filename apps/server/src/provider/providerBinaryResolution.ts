@@ -371,6 +371,29 @@ async function shimTargetExists(
 }
 
 /**
+ * The absolute files a Windows `.cmd`/`.bat` shim runs, with `%VAR%` and `%~dp0` expanded.
+ * Empty for other files and for targets that cannot be resolved statically.
+ */
+export async function windowsCommandShimTargets(
+  shimPath: string,
+  options: ProviderBinaryResolutionOptions & ShimReadOptions = {},
+): Promise<string[]> {
+  const resolved = resolveOptions(options);
+  if (resolved.platform !== "win32") return [];
+  if (!WINDOWS_SHIM_EXTENSIONS.has(win32.extname(shimPath).toLowerCase())) return [];
+  const text = await readShimText(shimPath, options);
+  if (text === undefined) return [];
+  const shimDirectory = win32.dirname(shimPath);
+  const targets: string[] = [];
+  for (const match of text.matchAll(WINDOWS_SHIM_TARGET_PATTERN)) {
+    const expanded = expandWindowsShimVariables(match[1]!, shimDirectory, resolved.env);
+    if (expanded === undefined || !win32.isAbsolute(expanded)) continue;
+    targets.push(win32.normalize(expanded));
+  }
+  return targets;
+}
+
+/**
  * True when a Windows `.cmd`/`.bat` shim only points at files that no longer exist: a
  * personal wrapper left behind after the program it wrapped moved or was uninstalled.
  * Running it fails with "The system cannot find the path specified", so discovery should
@@ -381,18 +404,7 @@ export async function isBrokenWindowsCommandShim(
   shimPath: string,
   options: ProviderBinaryResolutionOptions & ShimReadOptions = {},
 ): Promise<boolean> {
-  const resolved = resolveOptions(options);
-  if (resolved.platform !== "win32") return false;
-  if (!WINDOWS_SHIM_EXTENSIONS.has(win32.extname(shimPath).toLowerCase())) return false;
-  const text = await readShimText(shimPath, options);
-  if (text === undefined) return false;
-  const shimDirectory = win32.dirname(shimPath);
-  const targets: string[] = [];
-  for (const match of text.matchAll(WINDOWS_SHIM_TARGET_PATTERN)) {
-    const expanded = expandWindowsShimVariables(match[1]!, shimDirectory, resolved.env);
-    if (expanded === undefined || !win32.isAbsolute(expanded)) continue;
-    targets.push(win32.normalize(expanded));
-  }
+  const targets = await windowsCommandShimTargets(shimPath, options);
   if (targets.length === 0) return false;
   for (const target of targets) {
     if (await shimTargetExists(target, options)) return false;
@@ -456,6 +468,33 @@ const WINDOWS_OPENCODE_DESKTOP_CLI_RELATIVE_PATHS = [
   ["Programs", "@opencodedesktop", "resources", "opencode-cli.exe"],
   ["Programs", "OpenCode", "resources", "opencode-cli.exe"],
 ] as const;
+const OPENCODE_DESKTOP_CLI_SUFFIXES = WINDOWS_OPENCODE_DESKTOP_CLI_RELATIVE_PATHS.map(
+  (parts) => `/${parts.join("/").toLowerCase()}`,
+);
+// macOS: /Applications/OpenCode.app/Contents/MacOS/opencode-cli (or any app bundle folder).
+const MACOS_APP_BUNDLED_OPENCODE_CLI = /\.app\/contents\/(?:[^/]+\/)*opencode-cli$/u;
+
+/** True for OpenCode desktop's own CLI, which only the desktop app can update. */
+export function isOpenCodeDesktopCliPath(commandPath: string): boolean {
+  const normalized = commandPath.replaceAll("\\", "/").toLowerCase();
+  return (
+    OPENCODE_DESKTOP_CLI_SUFFIXES.some((suffix) => normalized.endsWith(suffix)) ||
+    MACOS_APP_BUNDLED_OPENCODE_CLI.test(normalized)
+  );
+}
+
+/**
+ * OpenCode desktop's CLI, run directly or through a personal `opencode.cmd` shim (people add
+ * one so the desktop app and an older npm copy stop sharing one database).
+ */
+export async function isOpenCodeDesktopCliCommand(
+  commandPath: string,
+  options: ProviderBinaryResolutionOptions & ShimReadOptions = {},
+): Promise<boolean> {
+  if (isOpenCodeDesktopCliPath(commandPath)) return true;
+  return (await windowsCommandShimTargets(commandPath, options)).some(isOpenCodeDesktopCliPath);
+}
+
 const OPENCODE_BINARY_CACHE_TTL_MS = 30_000;
 let openCodeBinaryCache:
   | { readonly key: string; readonly value: string; readonly expiresAt: number }
