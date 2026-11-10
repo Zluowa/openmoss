@@ -358,6 +358,17 @@ function SidebarAccountMenuPopupSections({
   );
 }
 
+// Plans the catalog doesn't list (enterprise keys) still need a readable name, not the raw code.
+// The English names go through the zh-CN copy table like catalog names do.
+const KNOWN_MOSS_PLAN_NAMES: Readonly<Record<string, string>> = {
+  free: "Free",
+  enterprise: "Enterprise",
+};
+
+export function fallbackMossPlanName(planCode: string): string {
+  return KNOWN_MOSS_PLAN_NAMES[planCode.toLowerCase()] ?? planCode;
+}
+
 export function SidebarAccountMenuView({
   identity,
   labels,
@@ -507,7 +518,7 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
   const payPlanCode = payQuotaQuery.data?.planCode?.trim() ?? "";
   const planName = payPlanCode
     ? (payCatalogQuery.data?.plans.find((plan) => plan.code === payPlanCode)?.displayName.trim() ??
-      payPlanCode)
+      fallbackMossPlanName(payPlanCode))
     : null;
 
   const openSettings = useCallback(() => openSettingsDialog(), []);

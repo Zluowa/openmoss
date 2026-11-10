@@ -206,6 +206,11 @@ export function buildExternalMcpSetupPrompt(input: {
   return sections.join("\n\n");
 }
 
+// The name is stored as typed, so the default is chosen per locale instead of translated on screen.
+export function defaultExternalMcpConnectionName(locale: string): string {
+  return locale.toLowerCase().startsWith("zh") ? "编程智能体" : "Coding agent";
+}
+
 export function describeExternalMcpProjects(input: {
   readonly projectScope?: ExternalMcpProjectScope | undefined;
   readonly allowedProjects: ReadonlyArray<{ readonly title: string }>;
@@ -232,7 +237,7 @@ export function describeExternalMcpPermissions(
     descriptions.push("Run without approval prompts");
   }
   if (capabilities.includes("computer:control")) {
-    descriptions.push("Control this Mac (per-action approval still applies)");
+    descriptions.push("Control this computer (per-action approval still applies)");
   }
   return descriptions.join(" · ");
 }

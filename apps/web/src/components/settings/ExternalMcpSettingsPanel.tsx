@@ -19,15 +19,16 @@ import {
   buildExternalMcpClientConfiguration,
   buildExternalMcpExamplePrompt,
   buildExternalMcpSetupPrompt,
+  defaultExternalMcpConnectionName,
   describeExternalMcpPermissions,
   describeExternalMcpProjects,
   externalMcpSetupAction,
 } from "./externalMcpSetup";
 import { SettingsListRow, SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
+import { useTranslation } from "~/localization";
 
 const INTEGRATIONS_QUERY_KEY = ["server", "externalMcpIntegrations"] as const;
 const PROJECTS_QUERY_KEY = ["orchestration", "externalMcpProjects"] as const;
-const DEFAULT_NAME = "Coding agent";
 const CORE_CAPABILITIES: ReadonlyArray<ExternalMcpCapability> = [
   "projects:read",
   "tasks:create",
@@ -59,7 +60,9 @@ function copyWithToast(value: string, title: string): void {
 
 export function ExternalMcpSettingsPanel(props: { active: boolean }) {
   const queryClient = useQueryClient();
-  const [name, setName] = useState<string>(DEFAULT_NAME);
+  const { locale } = useTranslation();
+  const defaultName = defaultExternalMcpConnectionName(locale);
+  const [name, setName] = useState<string>(() => defaultName);
   const [allProjects, setAllProjects] = useState(true);
   const [selectedProjects, setSelectedProjects] = useState<ReadonlySet<string>>(new Set());
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -259,7 +262,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
                 className="w-full sm:w-64"
                 value={name}
                 maxLength={120}
-                placeholder={DEFAULT_NAME}
+                placeholder={defaultName}
                 onChange={(event) => setName(event.target.value)}
               />
             }
@@ -361,7 +364,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
                 <div>
                   <div className="text-ui-sm font-medium">Computer control</div>
                   <div className="mt-0.5 text-ui-xs leading-relaxed text-muted-foreground">
-                    High impact. Tasks may drive this Mac&apos;s screen — observe, click, type,
+                    High impact. Tasks may drive this computer&apos;s screen — observe, click, type,
                     menus, clipboard. Every computer action still asks for your approval.
                   </div>
                 </div>

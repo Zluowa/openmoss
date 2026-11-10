@@ -52,7 +52,7 @@ describe("settings copy in zh-CN", () => {
       "Codex account usage requires a compatible app-server runtime.",
       "High impact. Tasks may modify the checkout you are actively using instead of an isolated worktree.",
       "High impact. The external agent may start full-access execution without asking you to approve tool actions.",
-      "High impact. Tasks may drive this Mac's screen — observe, click, type, menus, clipboard. Every computer action still asks for your approval.",
+      "High impact. Tasks may drive this computer's screen — observe, click, type, menus, clipboard. Every computer action still asks for your approval.",
       "Applies to newly launched agent processes. Restart existing sessions to apply consistently.",
       "Visible because projects exist but no chat history is currently available.",
       "Rebuilds local project indexes and refreshes project snapshots. Existing chats stay in place.",
@@ -77,5 +77,35 @@ describe("settings copy in zh-CN", () => {
     expect(translateZhCnPresentationText("enabled providers")).toBe("已启用的服务商");
     expect(translateZhCnPresentationText("keep computer awake")).toBe("保持电脑唤醒");
     expect(translateZhCnPresentationText("thread order")).toBe("对话排序");
+  });
+});
+
+describe("external agent connection copy in zh-CN", () => {
+  it("translates pairing status, project scope and plan name", () => {
+    expect(translateZhCnPresentationText("Waiting for pairing")).toBe("等待配对");
+    expect(translateZhCnPresentationText("Paired — not used yet")).toBe("已配对，尚未使用");
+    expect(translateZhCnPresentationText("All projects, including future ones")).toBe(
+      "所有项目，包括以后新建的",
+    );
+    expect(translateZhCnPresentationText("Enterprise")).toBe("企业版");
+  });
+
+  it("translates the joined permission list part by part", () => {
+    expect(translateZhCnPresentationText("Create and follow its own tasks")).toBe(
+      "创建并跟进自己的任务",
+    );
+    expect(
+      translateZhCnPresentationText(
+        "Create and follow its own tasks · Use the shared local checkout · Control this computer (per-action approval still applies)",
+      ),
+    ).toBe("创建并跟进自己的任务 · 使用共享的本地检出 · 控制这台电脑（每个操作仍需批准）");
+  });
+
+  it("never says Mac for the computer-control warning", () => {
+    const text = translateZhCnPresentationText(
+      "High impact. Tasks may drive this computer's screen — observe, click, type, menus, clipboard. Every computer action still asks for your approval.",
+    );
+    expect(text).toContain("这台电脑");
+    expect(text).not.toContain("Mac");
   });
 });

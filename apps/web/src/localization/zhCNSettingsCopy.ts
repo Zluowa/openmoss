@@ -481,6 +481,7 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Codex account usage requires a compatible app-server runtime.":
     "查看 Codex 账号用量需要兼容的 app-server 运行时。",
   Free: "免费版",
+  Enterprise: "企业版",
   Account: "账号",
   "A previous reset is unconfirmed. Retry checks the same attempt.":
     "上一次重置尚未确认。重试会检查同一次尝试。",
@@ -543,8 +544,8 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
     "影响较大。任务可能修改你正在使用的检出目录，而不是隔离的工作树。",
   "High impact. The external agent may start full-access execution without asking you to approve tool actions.":
     "影响较大。外部智能体可能以完全访问权限运行，不会请你批准工具操作。",
-  "High impact. Tasks may drive this Mac's screen — observe, click, type, menus, clipboard. Every computer action still asks for your approval.":
-    "影响较大。任务可能操作这台 Mac 的屏幕：查看、点击、输入、菜单和剪贴板。每个电脑操作仍会请你批准。",
+  "High impact. Tasks may drive this computer's screen — observe, click, type, menus, clipboard. Every computer action still asks for your approval.":
+    "影响较大。任务可能操作这台电脑的屏幕：查看、点击、输入、菜单和剪贴板。每个电脑操作仍会请你批准。",
   "This connection has been revoked and can no longer access Moss.":
     "这个连接已被撤销，不能再访问 Moss。",
   "This connection has expired and can no longer access Moss.": "这个连接已过期，不能再访问 Moss。",
@@ -562,6 +563,17 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "2. Try it": "2. 试一试",
   "Projects:": "项目：",
   "Permissions:": "权限：",
+  "Waiting for pairing": "等待配对",
+  "Paired — waiting for first use": "已配对，等待首次使用",
+  "Paired — not used yet": "已配对，尚未使用",
+  "Pairing code expired": "配对码已过期",
+  Revoked: "已撤销",
+  "All projects, including future ones": "所有项目，包括以后新建的",
+  "No projects": "没有项目",
+  "Create and follow its own tasks": "创建并跟进自己的任务",
+  "Read other tasks in selected projects": "读取所选项目中的其他任务",
+  "Read redacted desktop diagnostics": "读取已脱敏的桌面诊断信息",
+  "Control this computer (per-action approval still applies)": "控制这台电脑（每个操作仍需批准）",
   "· Last used": "· 上次使用",
   "· Expires": "· 到期",
   "Continue setup": "继续设置",
@@ -799,6 +811,15 @@ const SETTINGS_COPY_PATTERNS: ReadonlyArray<readonly [RegExp, (match: RegExpExec
     [/^(\d+) installed$/, (match) => `已安装 ${match[1]} 个`],
     [/^(.+) · Shared \(\.agents\)$/, (match) => `${match[1]} · 共享（.agents）`],
     [/^From Shared \(\.agents\)$/, () => "来自共享（.agents）"],
+    // External agent permissions are one " · " list built in externalMcpSetup.ts.
+    [
+      /^Create and follow its own tasks(?: · .+)?$/,
+      (match) =>
+        match[0]
+          .split(" · ")
+          .map((part) => lookupPhrase(SETTINGS_COPY, part) ?? part)
+          .join(" · "),
+    ],
   ];
 
 export function translateZhCnSettingsCopyText(value: string): string {
