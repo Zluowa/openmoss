@@ -57,6 +57,9 @@ import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
 import { type RealtimeVoiceState } from "@moss/contracts";
 import { useTasksNeedingAttentionCount, useTodoEventSubscription } from "./tasks/useTodos";
 import { THREAD_CONTEXT_MENU_ICONS } from "~/lib/contextMenuIcons";
+import { useStableCallback } from "~/hooks/useStableCallback";
+import { canKeepOpenThreadTab } from "~/openThreadTabs.logic";
+import { useOpenThreadTabsStore } from "~/openThreadTabsStore";
 import { ensureNativeApi } from "~/nativeApi";
 import {
   getActiveComposerSendThreadIds,
@@ -3141,6 +3144,10 @@ export default function Sidebar() {
     [],
   );
 
+  // The thread menu below is built before the activation controller it needs; it reaches
+  // "Open in New Tab" through this ref, set once that handler exists.
+  const openThreadInNewTabRef = useRef<((threadId: ThreadId) => void) | null>(null);
+
   const handleThreadContextMenu = useCallback(
     async (
       threadId: ThreadId,
@@ -3253,9 +3260,29 @@ export default function Sidebar() {
         envMode: thread.envMode,
         worktreePath: thread.worktreePath,
       });
+      // Offered for a thread that could hold a tab and does not have one yet; the tab
+      // strip's own menu (which passes extra rows) is already about a tab.
+      const canOpenInNewTab =
+        extraItems.length === 0 &&
+        canKeepOpenThreadTab(threadSummary, false) &&
+        !useOpenThreadTabsStore.getState().threadIds.includes(threadId);
       const clicked = await api.contextMenu.show(
         [
-          { id: "rename", label: "Rename thread", icon: THREAD_CONTEXT_MENU_ICONS.rename },
+          ...(canOpenInNewTab
+            ? [
+                {
+                  id: "open-in-new-tab",
+                  label: "Open in New Tab",
+                  icon: THREAD_CONTEXT_MENU_ICONS.openInNewTab,
+                },
+              ]
+            : []),
+          {
+            id: "rename",
+            label: "Rename thread",
+            icon: THREAD_CONTEXT_MENU_ICONS.rename,
+            ...(canOpenInNewTab ? { separatorBefore: true } : {}),
+          },
           {
             id: "share-guest",
             label: "Share with guest…",
@@ -3370,6 +3397,10 @@ export default function Sidebar() {
 
       if (clicked !== null && extraItemIds.has(clicked)) {
         await options?.onExtraAction?.(clicked);
+        return;
+      }
+      if (clicked === "open-in-new-tab") {
+        openThreadInNewTabRef.current?.(threadId);
         return;
       }
       if (clicked === "rename") {
@@ -3709,6 +3740,18 @@ export default function Sidebar() {
     terminalStateByThreadId,
   });
   // Capture at activation, after selection modifiers and before the route changes layout.
+  // A sidebar click opens the thread in place (in the current tab). A middle click and the
+  // menu's "Open in New Tab" give it a tab of its own beside the one on screen instead.
+  const openThreadInNewTab = useStableCallback((threadId: ThreadId) => {
+    useOpenThreadTabsStore.getState().openThreadTab(threadId);
+    activateThreadFromSidebarIntent(threadId);
+  });
+  useLayoutEffect(() => {
+    openThreadInNewTabRef.current = openThreadInNewTab;
+    return () => {
+      openThreadInNewTabRef.current = null;
+    };
+  }, [openThreadInNewTab]);
   const activateThreadRow = (threadId: ThreadId, row: HTMLElement) => {
     const viewport = row.closest<HTMLElement>('[data-slot="scroll-area-viewport"]');
     pendingThreadRowAnchorRef.current =
@@ -5054,6 +5097,11 @@ export default function Sidebar() {
                   ),
             )}
             onPointerDown={(event) => primeThreadActivation(event, thread.id)}
+            onAuxClick={(event) => {
+              if (event.button !== 1) return;
+              event.preventDefault();
+              openThreadInNewTab(thread.id);
+            }}
             onClick={(event) => activateThreadRow(thread.id, event.currentTarget)}
             onDoubleClick={(event) => {
               event.preventDefault();
@@ -5219,6 +5267,11 @@ export default function Sidebar() {
                   handleThreadClick(event, thread.id, orderedProjectThreadIds);
                 }}
                 onPointerDown={(event) => primeThreadActivation(event, thread.id)}
+                onAuxClick={(event) => {
+                  if (event.button !== 1) return;
+                  event.preventDefault();
+                  openThreadInNewTab(thread.id);
+                }}
                 onDoubleClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();

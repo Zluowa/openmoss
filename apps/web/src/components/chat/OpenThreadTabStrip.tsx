@@ -8,12 +8,13 @@
 // Depends on: open-thread tab hooks/store, the shared SurfaceContentTabs, and the sidebar's
 //             thread context menu.
 
-import type { ProjectId, ResolvedKeybindingsConfig, ThreadId } from "@moss/contracts";
+import type { ProjectId, ProviderKind, ResolvedKeybindingsConfig, ThreadId } from "@moss/contracts";
 import { useEffect, useId, useState, type ReactNode, type RefObject } from "react";
 
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import {
+  runInNewThreadTab,
   useActivateThreadTab,
   useOpenThreadTabs,
   useReadRouteThreadId,
@@ -35,6 +36,7 @@ import {
   replaceLastTabWithFreshChat,
   resolveDraggedOpenThreadTab,
   resolveOpenThreadTabsInCloseScope,
+  withActiveDraftOpenThreadTab,
 } from "~/openThreadTabs.logic";
 import { useOpenThreadTabsStore } from "~/openThreadTabsStore";
 
@@ -82,15 +84,31 @@ export function OpenThreadTabStrip(props: {
   keybindings: ResolvedKeybindingsConfig;
   closeActiveTabRef?: RefObject<(() => boolean) | null>;
   onRenameActiveThread: () => void;
+  /** The header's title and agent for the thread on screen, shown while no strip is. */
+  activeThreadTitle: string;
+  activeProvider: ProviderKind;
   /**
    * Creates a thread in the active workspace, rendered as the strip's trailing `+` right
    * after the last tab. Null hides it: a thread with no workspace to inherit has no control.
+   * Resolves with the thread it opened, which gets a tab of its own.
    */
-  onNewThread: (() => void) | null;
+  onNewThread: (() => Promise<ThreadId | null>) | null;
 }) {
   const { activeThreadId, keybindings } = props;
   useRecordOpenThreadTab(activeThreadId);
-  const tabs = useOpenThreadTabs({ activeThreadId });
+  const openTabs = useOpenThreadTabs({ activeThreadId });
+  const storedThreadIds = useOpenThreadTabsStore((state) => state.threadIds);
+  const activeDraftProjectId = useComposerDraftStore(
+    (state) => state.draftThreadsByThreadId[activeThreadId]?.projectId ?? null,
+  );
+  const tabs = withActiveDraftOpenThreadTab({
+    tabs: openTabs,
+    threadIds: storedThreadIds,
+    activeThreadId,
+    activeDraft: activeDraftProjectId ? { projectId: activeDraftProjectId } : null,
+    title: props.activeThreadTitle,
+    provider: props.activeProvider,
+  });
   const closeThreadTab = useOpenThreadTabsStore((state) => state.closeThreadTab);
   const pruneThreadTabs = useOpenThreadTabsStore((state) => state.pruneThreadTabs);
   const moveThreadTab = useOpenThreadTabsStore((state) => state.moveThreadTab);
@@ -261,6 +279,63 @@ export function OpenThreadTabStrip(props: {
     moveThreadTabDrag({ ownerId: dragOwnerId, payload, ghost: { title: tab.title, icon }, point });
   };
 
+  const newThreadButton = props.onNewThread ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            type="button"
+            variant="chrome"
+            size="icon-xs"
+            aria-label="New thread in this workspace"
+            className={DOCK_HEADER_ICON_BUTTON_CLASS}
+            onClick={() => {
+              const onNewThread = props.onNewThread;
+              if (onNewThread) void runInNewThreadTab(onNewThread);
+            }}
+          />
+        }
+      >
+        <PlusSignIcon className="size-4" />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">New thread in this workspace</TooltipPopup>
+    </Tooltip>
+  ) : null;
+
+  // One tab is no strip: the header shows the thread's title, as a single chat always
+  // did, and the + stays beside it to open a second tab. A draft on screen (which has no
+  // tab until its first send) reads the same way when it is the only thread open.
+  const loneTab = tabs.length === 1 && tabs[0]!.threadId === activeThreadId ? tabs[0]! : null;
+  if (loneTab || tabs.length === 0) {
+    return (
+      <div className="flex min-w-0 items-center gap-2" data-open-thread-title="">
+        <span className="inline-flex size-4 shrink-0 items-center justify-center">
+          {loneTab ? (
+            <OpenThreadTabIcon tab={loneTab} />
+          ) : (
+            <ProviderIcon provider={props.activeProvider} className="size-4" />
+          )}
+        </span>
+        <h2
+          className="max-w-[clamp(12rem,42vw,36rem)] truncate font-system-ui text-ui font-normal text-foreground [-webkit-app-region:no-drag]"
+          title={loneTab?.title ?? props.activeThreadTitle}
+          onDoubleClick={props.onRenameActiveThread}
+          onContextMenu={
+            loneTab
+              ? (event) => {
+                  event.preventDefault();
+                  openTabContextMenu(loneTab, { x: event.clientX, y: event.clientY });
+                }
+              : undefined
+          }
+        >
+          {loneTab?.title ?? props.activeThreadTitle}
+        </h2>
+        {newThreadButton}
+      </div>
+    );
+  }
+
   return (
     <>
       <SurfaceContentTabs
@@ -294,27 +369,7 @@ export function OpenThreadTabStrip(props: {
             onContextMenu: (position) => openTabContextMenu(tab, position),
           };
         })}
-        trailing={
-          props.onNewThread ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="chrome"
-                    size="icon-xs"
-                    aria-label="New thread in this workspace"
-                    className={DOCK_HEADER_ICON_BUTTON_CLASS}
-                    onClick={() => props.onNewThread?.()}
-                  />
-                }
-              >
-                <PlusSignIcon className="size-4" />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">New thread in this workspace</TooltipPopup>
-            </Tooltip>
-          ) : null
-        }
+        trailing={newThreadButton}
       />
       <ThreadTabDragOverlay ownerId={dragOwnerId} />
     </>

@@ -65,6 +65,7 @@ import { sortThreadsForSidebar } from "../Sidebar.logic";
 import {
   useOpenThreadTabs,
   useReadRouteThreadId,
+  runInNewThreadTab,
   useRecordOpenThreadTab,
 } from "../../hooks/useOpenThreadTabs";
 import { useOptimisticTabSelection } from "../../hooks/useOptimisticTabSelection";
@@ -149,7 +150,7 @@ interface ChatHeaderProps {
     activeSurface: "chat" | "terminal";
     terminalAvailable: boolean;
     terminalHasRunningActivity: boolean;
-    onNewChat: () => void;
+    onNewChat: () => Promise<ThreadId | null> | void;
     onNewTerminal: () => void;
     // Resolves once the navigation settles, so a closed tab can wait for it.
     onOpenChat: (threadId: ThreadId) => Promise<unknown>;
@@ -249,7 +250,7 @@ function EditorRailTabs(props: {
   activeSurface: "chat" | "terminal";
   terminalAvailable: boolean;
   terminalHasRunningActivity: boolean;
-  onNewChat: () => void;
+  onNewChat: () => Promise<ThreadId | null> | void;
   onNewTerminal: () => void;
   onOpenChat: (threadId: ThreadId) => Promise<unknown>;
   onOpenTerminal: () => void;
@@ -359,7 +360,7 @@ function EditorRailTabs(props: {
             sideOffset={6}
             className="w-44 min-w-44"
           >
-            <MenuItem onClick={props.onNewChat}>
+            <MenuItem onClick={() => void runInNewThreadTab(props.onNewChat)}>
               <MessageCircleIcon className="size-4 shrink-0 text-muted-foreground" />
               <span>{t("chat.header.newChat")}</span>
             </MenuItem>

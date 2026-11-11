@@ -278,7 +278,10 @@ export async function mountGeneratedPluginApp(input: {
     sessionStorage.clear();
     resetClientStoresForFreshProfile();
     // Locale is the only seeded preference; no workspace/profile registration is seeded.
-    localStorage.setItem("moss:app-settings:v1", JSON.stringify({ localeOverride: "en" }));
+    localStorage.setItem(
+      "moss:app-settings:v1",
+      JSON.stringify({ localeOverride: input.locale ?? "en" }),
+    );
   } else {
     const rawSettings = localStorage.getItem("moss:app-settings:v1");
     let settings: Record<string, unknown> = {};

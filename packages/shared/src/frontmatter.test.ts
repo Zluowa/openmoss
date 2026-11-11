@@ -95,6 +95,14 @@ description: Use when: the user asks for it
     });
   });
 
+  it("reads a block saved with a byte-order mark and Windows line ends", () => {
+    expect(
+      parseScalarFrontmatter(
+        "\uFEFF---\r\nname: dst-home-skins\r\ndescription: 饥荒家园主题皮肤\r\n---\r\n",
+      ),
+    ).toEqual({ name: "dst-home-skins", description: "饥荒家园主题皮肤" });
+  });
+
   it("keeps parseSkillFrontmatter as an identical alias", () => {
     expect(parseSkillFrontmatter).toBe(parseScalarFrontmatter);
   });

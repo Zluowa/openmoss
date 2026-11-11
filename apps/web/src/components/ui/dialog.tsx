@@ -52,9 +52,14 @@ function DialogViewport({ className, ...props }: DialogPrimitive.Viewport.Props)
  * Single dialog surface: a fully opaque popover fill, a generously rounded shell,
  * and a soft lift shadow — mirrors the command-palette / composer aesthetic.
  * Dialogs have no backdrop blur, so a translucent fill reads muddy over the dark
- * backdrop; keep this surface opaque. */
+ * backdrop; keep this surface opaque.
+ *
+ * A dialog opened from another (a skill's detail or a consent over Settings) leaves the
+ * one behind at full size and fully opaque, and brings its own overlay, as Claude
+ * desktop does. Scaling and fading the dialog behind made Settings shrink and let the
+ * page show through it (owner feedback 2026-11-11). */
 const dialogPopupClassName =
-  "-translate-y-[calc(1.25rem*var(--nested-dialogs))] relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg scale-[calc(1-0.1*var(--nested-dialogs))] flex-col rounded-dialog border border-[color:var(--color-border-light)] bg-popover text-[var(--color-text-foreground)] shadow-[0_16px_50px_-12px_rgba(0,0,0,0.34)] dark:shadow-[0_16px_50px_-12px_rgba(0,0,0,0.7)] opacity-[calc(1-0.1*var(--nested-dialogs))] transition-[scale,opacity,translate] duration-200 ease-out motion-reduce:transition-none will-change-transform data-nested:data-ending-style:translate-y-1 data-nested:data-starting-style:translate-y-1 data-nested-dialog-open:origin-top data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0";
+  "relative row-start-2 flex max-h-full min-h-0 w-full min-w-0 max-w-lg flex-col rounded-dialog border border-[color:var(--color-border-light)] bg-popover text-[var(--color-text-foreground)] shadow-[0_16px_50px_-12px_rgba(0,0,0,0.34)] dark:shadow-[0_16px_50px_-12px_rgba(0,0,0,0.7)] transition-[scale,opacity,translate] duration-200 ease-out motion-reduce:transition-none will-change-transform data-nested:data-ending-style:translate-y-1 data-nested:data-starting-style:translate-y-1 data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0";
 
 // Capsule-shaped buttons (class contains `rounded-full`) keep their own pill
 // geometry in footers, so they are excluded from the sizing override.
@@ -107,7 +112,9 @@ function DialogPopup({
   const bottomStickOnMobile = !fullscreen && (bottomStickOnMobileProp ?? true);
   return (
     <DialogPortal>
+      {/* Nested dialogs draw their own overlay too; Base UI skips it by default. */}
       <DialogBackdrop
+        forceRender
         className={cn(fullscreen && DISCLOSURE_FADE_MOTION_CLASS, backdropClassName)}
       />
       <DialogViewport

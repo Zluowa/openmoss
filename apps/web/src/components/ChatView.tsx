@@ -6504,13 +6504,13 @@ export default function ChatView({
     [activeProjectId, navigate],
   );
   const activeProjectIdForNewChat = activeProject?.id ?? null;
-  const onNewEditorChat = useCallback(() => {
+  const onNewEditorChat = useCallback((): Promise<ThreadId | null> => {
     if (!activeProjectIdForNewChat) {
-      return;
+      return Promise.resolve(null);
     }
     // Keep the editor workspace view (and any open file) across the new-thread
     // navigation; the default new-thread flow clears all search params.
-    void handleNewThread(activeProjectIdForNewChat, undefined, {
+    return handleNewThread(activeProjectIdForNewChat, undefined, {
       search: (previous) => ({ ...stripDiffSearchParams(previous), view: "editor" }),
     });
   }, [activeProjectIdForNewChat, handleNewThread]);
@@ -6621,13 +6621,14 @@ export default function ChatView({
   );
   // A thread-strip `+` uses the active project's workspace. A pending, reusable draft wins
   // so this never retargets unsent work to the thread currently on screen.
-  const onNewThreadFromHeader = useStableCallback(() => {
+  // Resolves with the thread it opened, so the strip can give that thread a tab of its own.
+  const onNewThreadFromHeader = useStableCallback((): Promise<ThreadId | null> => {
     const targetProjectId = activeProject?.id ?? activeThread?.projectId ?? null;
-    if (!targetProjectId) return;
+    if (!targetProjectId) return Promise.resolve(null);
     const pendingProjectDraft = useComposerDraftStore
       .getState()
       .getDraftThreadByProjectId(targetProjectId);
-    void handleNewThread(
+    return handleNewThread(
       targetProjectId,
       resolveInheritedThreadContext({
         activeThread,
@@ -8256,6 +8257,10 @@ export default function ChatView({
                         keybindings={keybindings}
                         closeActiveTabRef={closeActiveThreadTabRef}
                         onRenameActiveThread={() => setRenameDialogOpen(true)}
+                        activeThreadTitle={activeThreadDisplayTitle}
+                        activeProvider={
+                          activeThread.session?.provider ?? activeThread.modelSelection.provider
+                        }
                         onNewThread={
                           activeProjectScripts !== undefined && !isCenteredEmptyLanding
                             ? onNewThreadFromHeader

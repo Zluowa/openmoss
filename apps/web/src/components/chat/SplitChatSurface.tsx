@@ -9,6 +9,7 @@ import {
   lazy,
   Suspense,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -88,6 +89,7 @@ import {
 } from "./composerPickerStyles";
 import { routeSplitBrowserPanelOpenRequest } from "./browserPanelOpenRequest";
 import { cn } from "~/lib/utils";
+import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@moss/shared/desktopChrome";
 import { isSidechatThread } from "@moss/shared/sidechatThread";
 
 const SPLIT_PANE_PANEL_DEFAULT_WIDTH_PX = 22 * 16;
@@ -95,6 +97,8 @@ const BROWSER_SPLIT_PANE_PANEL_DEFAULT_WIDTH_PX = 30 * 16;
 const SPLIT_PANE_CHAT_MIN_WIDTH = 20 * 16;
 const SINGLE_PANEL_MIN_WIDTH = 26 * 16;
 const BROWSER_PANEL_MIN_WIDTH = 21 * 16;
+// Beside the chat a panel gives up width down to this before it has to cover the chat.
+const SPLIT_PANE_PANEL_NARROW_MIN_WIDTH = 18 * 16;
 const RIGHT_PANEL_SIDEBAR_WIDTH_STORAGE_KEY = "chat_right_panel_width";
 const DockTerminalPane = lazy(() => import("./DockTerminalPane"));
 // Split panes cannot reuse the desktop Sidebar primitive because it positions the panel
@@ -203,7 +207,29 @@ function SplitPaneEmbeddedPanel(props: {
     });
   };
 
-  if ((!props.panelOpen && !terminalPane && !subagentsPane) || !props.threadId) {
+  const hidden = (!props.panelOpen && !terminalPane && !subagentsPane) || !props.threadId;
+  // The chat keeps its 20rem first: beside it the panel narrows (down to 18rem) instead of
+  // pushing the chat into a sliver. A pane too narrow even for that (a small window, a
+  // third or fourth pane) shows the panel over its chat, below the pane's header so the
+  // chat's own controls stay in reach; closing the panel brings the chat back. Measured
+  // before paint so neither layout flashes.
+  const [coversChat, setCoversChat] = useState(false);
+  useLayoutEffect(() => {
+    const pane = hidden ? null : wrapperRef.current?.parentElement;
+    if (!pane) return;
+    const measure = () => {
+      const width = pane.getBoundingClientRect().width;
+      if (width > 0) {
+        setCoversChat(width < SPLIT_PANE_PANEL_NARROW_MIN_WIDTH + SPLIT_PANE_CHAT_MIN_WIDTH);
+      }
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(pane);
+    return () => observer.disconnect();
+  }, [hidden]);
+
+  if (hidden || !props.threadId) {
     return null;
   }
 
@@ -211,19 +237,29 @@ function SplitPaneEmbeddedPanel(props: {
     <div
       ref={wrapperRef}
       data-native-browser-surface={panel === "browser" ? "true" : undefined}
-      className="relative flex h-full min-h-0 min-w-0 flex-none border-l border-[var(--app-surface-divider)] bg-card text-foreground"
+      data-split-pane-panel={coversChat ? "covers-chat" : "beside-chat"}
+      className={cn(
+        "flex h-full min-h-0 min-w-0 bg-card text-foreground",
+        coversChat
+          ? "absolute inset-x-0 bottom-0 z-30 border-t border-[var(--app-surface-divider)]"
+          : "relative flex-none border-l border-[var(--app-surface-divider)]",
+      )}
       style={
-        {
-          width: `${panelWidth}px`,
-          maxWidth: `calc(100% - ${SPLIT_PANE_CHAT_MIN_WIDTH}px)`,
-          minWidth: minPanelWidth,
-        } as CSSProperties
+        coversChat
+          ? { top: CHAT_SURFACE_HEADER_HEIGHT_PX }
+          : ({
+              width: `${panelWidth}px`,
+              maxWidth: `calc(100% - ${SPLIT_PANE_CHAT_MIN_WIDTH}px)`,
+              minWidth: `min(${minPanelWidth}px, max(${SPLIT_PANE_PANEL_NARROW_MIN_WIDTH}px, calc(100% - ${SPLIT_PANE_CHAT_MIN_WIDTH}px)))`,
+            } as CSSProperties)
       }
     >
-      <div
-        className="absolute inset-y-0 left-0 z-20 w-2 -translate-x-1/2 cursor-col-resize bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-[var(--app-surface-divider)]"
-        onPointerDown={startResize}
-      />
+      {coversChat ? null : (
+        <div
+          className="absolute inset-y-0 left-0 z-20 w-2 -translate-x-1/2 cursor-col-resize bg-transparent before:absolute before:inset-y-0 before:left-1/2 before:w-px before:-translate-x-1/2 before:bg-[var(--app-surface-divider)]"
+          onPointerDown={startResize}
+        />
+      )}
       {subagentsPane ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <DockPaneHeader
@@ -405,6 +441,7 @@ function SplitPaneSurface(props: {
       // The focused pane is marked only by its composer's accent border (see index.css);
       // unfocused panes stay undimmed so they never read as disabled.
       data-split-pane-focused={props.isFocused ? "true" : undefined}
+      data-split-pane-id={props.paneId}
     >
       {/* Kept alive across the swap with SingleChatSurface, and keyed by pane rather than by
           thread so replacing a pane's thread still reuses its chat. */}

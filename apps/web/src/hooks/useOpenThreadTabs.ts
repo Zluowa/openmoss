@@ -115,16 +115,45 @@ export function useOpenThreadTabs(input: {
 
 /**
  * Registers the thread a chat surface is showing, including drafts so they appear on
- * promotion. Unsent drafts remain hidden. A layout effect so a newly opened
- * thread's tab paints in the same frame as the thread itself.
+ * promotion. Unsent drafts remain hidden. A thread without a tab opens in the current
+ * one unless a new tab was asked for. A layout effect so a newly opened thread's tab
+ * paints in the same frame as the thread itself.
  */
 export function useRecordOpenThreadTab(threadId: ThreadId | null): void {
-  const openThreadTab = useOpenThreadTabsStore((state) => state.openThreadTab);
+  const showThreadInTab = useOpenThreadTabsStore((state) => state.showThreadInTab);
   useLayoutEffect(() => {
     if (threadId) {
-      openThreadTab(threadId);
+      showThreadInTab(threadId);
     }
-  }, [openThreadTab, threadId]);
+  }, [showThreadInTab, threadId]);
+}
+
+/**
+ * Runs an action that puts a new thread on screen (a fresh chat) so that thread gets a
+ * tab of its own instead of replacing the current one. The request is dropped once the
+ * action settles without showing a thread that needs a tab, so it cannot leak into a
+ * later sidebar click.
+ */
+export async function runInNewThreadTab(
+  action: () => Promise<ThreadId | null> | ThreadId | null | void,
+): Promise<void> {
+  const store = useOpenThreadTabsStore.getState();
+  const threadIdBefore = store.currentThreadId;
+  store.requestNewTab();
+  let threadId: ThreadId | null = null;
+  try {
+    threadId = (await action()) ?? null;
+  } finally {
+    const after = useOpenThreadTabsStore.getState();
+    // Not consumed yet: either nothing new was shown, or the thread's surface has not
+    // committed. Keep it only for the latter: a thread that is new and not yet current.
+    if (
+      after.newTabRequested &&
+      (threadId === null || threadId === threadIdBefore || after.threadIds.includes(threadId))
+    ) {
+      after.cancelNewTabRequest();
+    }
+  }
 }
 
 /**

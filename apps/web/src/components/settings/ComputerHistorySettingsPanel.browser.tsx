@@ -253,6 +253,7 @@ vi.mock("~/localization", () => {
 });
 
 import { ComputerHistorySettingsPanel } from "./ComputerHistorySettingsPanel";
+import { Dialog, DialogPopup, DialogTitle } from "~/components/ui/dialog";
 
 const SETTINGS = {
   consentAt: null,
@@ -539,6 +540,64 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(document.body.textContent).not.toContain("Ask about your history");
     expect(document.body.textContent).not.toContain("Clear history");
     await emptyScreen.unmount();
+  });
+
+  // Owner feedback 2026-11-11 (34): inside the Settings window the consent dialog
+  // shrank Settings behind it and let the page show through. A nested dialog keeps the
+  // window behind it at full size and opaque, on a solid overlay, as in Claude desktop.
+  it("opens consent over Settings without shrinking it or letting the page show through", async () => {
+    await page.viewport(1280, 860);
+    const backdropArt = document.createElement("div");
+    backdropArt.setAttribute("aria-hidden", "true");
+    backdropArt.style.cssText =
+      "position:fixed;inset:0;z-index:0;background:repeating-linear-gradient(45deg,#e9a23b 0 40px,#7a4b1c 40px 80px)";
+    document.body.append(backdropArt);
+    const screen = await render(
+      <Dialog open>
+        <DialogPopup
+          showCloseButton={false}
+          bottomStickOnMobile={false}
+          backdropClassName="bg-black/25"
+          data-testid="parent-settings-window"
+          className="h-[640px] w-[960px] max-w-[92vw] sm:max-w-[960px]"
+        >
+          <DialogTitle className="px-5 pt-4">Settings</DialogTitle>
+          <div className="min-h-0 flex-1 overflow-y-auto px-8">
+            <ComputerHistorySettingsPanel />
+          </div>
+        </DialogPopup>
+      </Dialog>,
+    );
+    try {
+      const parent = page.getByTestId("parent-settings-window");
+      await expect.element(parent).toBeVisible();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const before = parent.element().getBoundingClientRect();
+      await page.getByRole("button", { name: "Turn on" }).click();
+      const consent = page.getByRole("dialog", { name: "You're in control." });
+      await expect.element(consent).toBeVisible();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      await page.screenshot({
+        path: "__screenshots__/settings-owner-r6/34-computer-history-consent.png",
+      });
+      const after = parent.element().getBoundingClientRect();
+      expect(after.width).toBeCloseTo(before.width, 0);
+      expect(after.top).toBeCloseTo(before.top, 0);
+      expect(getComputedStyle(parent.element()).opacity).toBe("1");
+      const consentPopup = document.querySelector<HTMLElement>(
+        '[data-testid="computer-history-dialog"]',
+      )!;
+      expect(getComputedStyle(consentPopup).backdropFilter).toBe("none");
+      // Opaque: no alpha at all (a missing colour reads as rgba(0, 0, 0, 0)).
+      expect(getComputedStyle(consentPopup).backgroundColor).not.toMatch(
+        /rgba\(|\/\s*0?\.|transparent/u,
+      );
+      // The consent dialog has its own overlay over Settings.
+      expect(document.querySelectorAll('[data-slot="dialog-backdrop"]').length).toBe(2);
+    } finally {
+      await screen.unmount();
+      backdropArt.remove();
+    }
   });
 
   it("supports consent cancel, allow-all, and customize handoff", async () => {
@@ -1117,9 +1176,13 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(document.querySelector('[data-testid="computer-history-dialog"]')?.className).toContain(
       "w-[680px]",
     );
+    // Opaque: a see-through sheet over Settings let the page show (owner feedback 2026-11-11).
     expect(document.querySelector('[data-testid="computer-history-dialog"]')?.className).toContain(
-      "bg-[var(--color-surface-elevated-secondary)]/90",
+      "bg-popover",
     );
+    expect(
+      document.querySelector('[data-testid="computer-history-dialog"]')?.className,
+    ).not.toMatch(/backdrop-blur|surface-elevated-secondary\)\]\/\d+/u);
     expect(document.querySelector('[data-testid="computer-history-dialog"]')?.className).toContain(
       "ring-[0.5px]",
     );

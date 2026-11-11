@@ -17,6 +17,7 @@ import { discoverClaudePluginSkillRoots } from "./claudePluginSkills.ts";
 import { MOSS_PLUGIN_CREATOR_SKILL } from "../account/mossPluginCreatorSkill.ts";
 import { MOSS_SKILL_CREATOR_SKILL } from "./mossSkillCreatorSkill.ts";
 import { readRegularFileNoFollow } from "../workspaceImport/safeFile.ts";
+import { workspaceRootsEqual } from "@moss/shared/threadWorkspace";
 
 const MAX_SKILL_MARKDOWN_BYTES = 1024 * 1024;
 
@@ -231,14 +232,36 @@ export async function readSkillDescriptor(input: {
  * A client path alone never grants access to a local file. Canonicalizing only
  * after the exact registration check preserves supported provider-home symlinks.
  */
+/**
+ * Which folder a skill preview may be read for: the server's own folder, or any folder Moss
+ * registered (a project, and also a chat, studio, group or room space). Only `project` was
+ * accepted, so every skill read failed while a plain chat was focused (owner feedback
+ * 2026-11-11: 「无法读取此技能的说明」 for an existing, enabled skill). The text itself is
+ * still read only for a skill the listing for that folder returned.
+ */
+export function isSkillPreviewWorkspace(input: {
+  readonly cwd: string;
+  readonly serverCwd: string;
+  readonly registeredRoots: ReadonlyArray<string>;
+}): boolean {
+  return (
+    workspaceRootsEqual(input.cwd, input.serverCwd) ||
+    input.registeredRoots.some((root) => workspaceRootsEqual(root, input.cwd))
+  );
+}
+
+/** Same file whatever its slashes, and its letter case on Windows. */
+function sameSkillPath(left: string, right: string): boolean {
+  return workspaceRootsEqual(nodePath.resolve(left), nodePath.resolve(right));
+}
+
 export async function readRegisteredSkillContent(input: {
   readonly skills: ReadonlyArray<ProviderSkillDescriptor>;
   readonly name: string;
   readonly path: string;
 }): Promise<string> {
-  const requestedPath = nodePath.resolve(input.path);
   const registered = input.skills.find(
-    (skill) => skill.name === input.name && nodePath.resolve(skill.path) === requestedPath,
+    (skill) => skill.name === input.name && sameSkillPath(skill.path, input.path),
   );
   if (!registered) throw new Error("The skill is no longer registered for this provider.");
   const registeredPath = await fs.realpath(registered.path);

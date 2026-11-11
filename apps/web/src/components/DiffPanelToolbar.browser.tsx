@@ -3,7 +3,7 @@ import "../index.css";
 import { TurnId } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
 import { getAppTypographyScale } from "../lib/appTypography";
@@ -20,9 +20,16 @@ afterEach(() => {
   }
 });
 
-it.each([false, true])(
-  "keeps diff actions reachable at the minimum dock width and largest UI font (turn: %s)",
-  async (turn) => {
+// 404px is the dock's minimum width; 352px is a split pane's panel, where the full row of
+// tools used to pile onto each other.
+it.each([
+  { turn: false, width: 404 },
+  { turn: true, width: 404 },
+  { turn: false, width: 352 },
+  { turn: true, width: 352 },
+])(
+  "keeps diff actions reachable and apart at $width px and the largest UI font (turn: $turn)",
+  async ({ turn, width }) => {
     await page.viewport(1280, 800);
     const onReload = vi.fn();
     const onClose = vi.fn();
@@ -52,7 +59,7 @@ it.each([false, true])(
     });
     const mounted = await render(
       <QueryClientProvider client={client}>
-        <div data-testid="toolbar" style={{ width: 404, height: 40 }}>
+        <div data-testid="toolbar" style={{ width, height: 40 }}>
           <DiffPanelToolbar
             activeCwd="/fixture"
             activeThreadId={null}
@@ -125,13 +132,25 @@ it.each([false, true])(
           }
           await vi.waitFor(() => {
             const rect = root.getBoundingClientRect();
-            for (const button of root.querySelectorAll("button")) {
+            const buttons = [...root.querySelectorAll("button")];
+            for (const button of buttons) {
               const bounds = button.getBoundingClientRect();
               expect(
                 bounds.right,
                 `${button.ariaLabel}, ${font}, ${dark}, ${translucency}`,
               ).toBeLessThanOrEqual(rect.right + 1);
               expect(bounds.left).toBeGreaterThanOrEqual(rect.left - 1);
+            }
+            // Side by side, never on top of each other (the split-pane pile-up).
+            for (const [index, button] of buttons.entries()) {
+              const a = button.getBoundingClientRect();
+              for (const other of buttons.slice(index + 1)) {
+                const b = other.getBoundingClientRect();
+                expect(
+                  Math.min(a.right, b.right) - Math.max(a.left, b.left),
+                  `${button.ariaLabel} over ${other.ariaLabel}, ${font}`,
+                ).toBeLessThanOrEqual(0.5);
+              }
             }
           });
         }
@@ -142,11 +161,29 @@ it.each([false, true])(
       .toHaveAccessibleDescription(
         turn ? "Turn diff, +1234 -567" : "Working tree, 12 files, +1234 -567",
       );
-    await expect.element(page.getByRole("button", { name: "Previous change" })).toBeDisabled();
+    // At the dock's minimum width the change, file tree and turn tools wait in ···.
+    expect(root.querySelector("[data-diff-toolbar]")?.getAttribute("data-diff-toolbar")).toBe(
+      "compact",
+    );
+    await page.getByRole("button", { name: "Diff view options" }).click();
+    await expect.element(page.getByRole("menuitem", { name: "Previous change" })).toBeDisabled();
+    await expect.element(page.getByRole("menuitem", { name: "Next change" })).toBeEnabled();
+    await expect
+      .element(page.getByRole("menuitemcheckbox", { name: "Show file tree" }))
+      .toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
     await page.getByRole("button", { name: "Reload diff" }).click();
     expect(onReload).toHaveBeenCalledOnce();
     await page.getByRole("button", { name: "Close file view" }).click();
     expect(onClose).toHaveBeenCalledOnce();
+    // With room for them, they are buttons in the row again.
+    root.style.width = "640px";
+    await vi.waitFor(() =>
+      expect(root.querySelector("[data-diff-toolbar]")?.getAttribute("data-diff-toolbar")).toBe(
+        "full",
+      ),
+    );
+    await expect.element(page.getByRole("button", { name: "Previous change" })).toBeDisabled();
     await mounted.unmount();
   },
 );

@@ -40,10 +40,12 @@ export function ComputerHistoryModal({
         if (!nextOpen) onClose();
       }}
     >
+      {/* The Dialog's own opaque surface, on its own overlay: a see-through, blurred sheet
+          over Settings showed the page behind it (owner feedback 2026-11-11). */}
       <DialogPopup
         className={`!max-h-full ${
           size === "xwide" ? "w-[680px]" : "w-[520px]"
-        } computer-history-dialog-popup max-w-[92vw] overflow-visible rounded-dialog border-0 bg-[var(--color-surface-elevated-secondary)]/90 p-0 text-[var(--color-text-foreground)] shadow-[0_4px_8px_-2px_#0000001a] ring-[0.5px] ring-border backdrop-blur-xl !transition-none !duration-0 data-ending-style:!scale-100 data-starting-style:!scale-100 data-ending-style:!opacity-100 data-starting-style:!opacity-100 data-ending-style:!translate-y-0 data-starting-style:!translate-y-0 motion-reduce:transition-none`}
+        } computer-history-dialog-popup max-w-[92vw] overflow-visible rounded-dialog border-0 p-0 text-[var(--color-text-foreground)] shadow-[0_4px_8px_-2px_#0000001a] ring-[0.5px] ring-border !transition-none !duration-0 data-ending-style:!scale-100 data-starting-style:!scale-100 data-ending-style:!opacity-100 data-starting-style:!opacity-100 data-ending-style:!translate-y-0 data-starting-style:!translate-y-0 motion-reduce:transition-none`}
         backdropClassName="bg-[#00000022] !transition-none !duration-0 data-ending-style:!opacity-100 data-starting-style:!opacity-100 motion-reduce:transition-none"
         bottomStickOnMobile={false}
         showCloseButton={showCloseButton}

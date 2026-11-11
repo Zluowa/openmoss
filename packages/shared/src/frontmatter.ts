@@ -63,7 +63,8 @@ function parseLenientFrontmatter(block: string): Record<string, FrontmatterValue
 // (`description: >-`) and nested maps parse correctly. Frontmatter that is not
 // valid YAML falls back to the historical lenient line reader.
 export function parseScalarFrontmatter(markdown: string): Record<string, FrontmatterValue> {
-  const normalized = markdown.replace(/\r\n/g, "\n");
+  // A byte-order mark (some Windows editors save one) would hide the whole block.
+  const normalized = markdown.replace(/^\uFEFF/u, "").replace(/\r\n/g, "\n");
   const match = /^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/.exec(normalized);
   if (!match) {
     return {};

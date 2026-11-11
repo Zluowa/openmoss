@@ -22,6 +22,7 @@ import {
   AppsIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  DownloadIcon,
   FileAddIcon,
   ListChecksIcon,
   McpIcon,
@@ -217,6 +218,8 @@ interface PluginLibraryCreateCallbacks {
   readonly onUploadPluginArchive?: (() => void) | undefined;
   readonly onAddCustomMcpServer?: (() => void) | undefined;
   readonly onCreateSkill?: (() => void) | undefined;
+  /** Settings › Plugins: import the skills the user's other CLIs have. */
+  readonly onImportSkillsFromOtherClis?: (() => void) | undefined;
   readonly onRecordSkill?: (() => void) | undefined;
   readonly onAddMarketplace?: (() => void) | undefined;
   readonly onRequestPlugin?: (() => void) | undefined;
@@ -271,6 +274,7 @@ function usePluginLibraryHeaderActions({
   onUploadPluginArchive,
   onAddCustomMcpServer,
   onCreateSkill,
+  onImportSkillsFromOtherClis,
   onRecordSkill,
   onAddMarketplace,
   onRequestPlugin,
@@ -321,6 +325,14 @@ function usePluginLibraryHeaderActions({
         icon: <ListChecksIcon className={MENU_ICON_CLASS_NAME} />,
         onSelect: onCreateSkill,
       });
+      if (onImportSkillsFromOtherClis) {
+        next.push({
+          key: "import-cli-skills",
+          label: t("plugins.action.importCliSkills"),
+          icon: <DownloadIcon className={MENU_ICON_CLASS_NAME} />,
+          onSelect: onImportSkillsFromOtherClis,
+        });
+      }
     }
     if (onAddMarketplace) {
       next.push({
@@ -384,6 +396,7 @@ function usePluginLibraryHeaderActions({
     onCreatePlugin,
     onImportPluginsAndSkills,
     onCreateSkill,
+    onImportSkillsFromOtherClis,
     onRecordSkill,
     onRequestPlugin,
     onUploadPluginArchive,

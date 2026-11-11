@@ -14,6 +14,8 @@ import {
   resolveDraggedOpenThreadTab,
   resolveOpenThreadTabCloseTarget,
   resolveOpenThreadTabsInCloseScope,
+  showThreadInOpenTabs,
+  withActiveDraftOpenThreadTab,
 } from "./openThreadTabs.logic";
 import type { SidebarThreadSummary, Thread } from "./types";
 
@@ -69,6 +71,93 @@ describe("open thread tab list", () => {
   it("restores a persisted list without duplicates or malformed entries", () => {
     expect(normalizeOpenThreadTabIds(["a", " b ", "a", "", 3, null, "c"])).toEqual(["a", "b", "c"]);
     expect(normalizeOpenThreadTabIds({ threadIds: ["a"] })).toEqual([]);
+  });
+});
+
+describe("showThreadInOpenTabs", () => {
+  const a = ThreadId.makeUnsafe("a");
+  const b = ThreadId.makeUnsafe("b");
+  const c = ThreadId.makeUnsafe("c");
+  const d = ThreadId.makeUnsafe("d");
+
+  it("opens a thread without a tab in the current tab, keeping its slot", () => {
+    expect(
+      showThreadInOpenTabs({
+        threadIds: [a, b, c],
+        threadId: d,
+        currentThreadId: b,
+        inNewTab: false,
+      }),
+    ).toEqual([a, d, c]);
+  });
+
+  it("gives the thread its own tab only when asked, or with no current tab", () => {
+    expect(
+      showThreadInOpenTabs({ threadIds: [a, b], threadId: d, currentThreadId: a, inNewTab: true }),
+    ).toEqual([a, b, d]);
+    expect(
+      showThreadInOpenTabs({
+        threadIds: [a, b],
+        threadId: d,
+        currentThreadId: null,
+        inNewTab: false,
+      }),
+    ).toEqual([a, b, d]);
+    // The current thread lost its tab (closed or pruned): nothing to take over.
+    expect(
+      showThreadInOpenTabs({ threadIds: [a, b], threadId: d, currentThreadId: c, inNewTab: false }),
+    ).toEqual([a, b, d]);
+  });
+
+  it("switches to a thread that already has a tab without changing the list", () => {
+    const threadIds = [a, b, c];
+    expect(
+      showThreadInOpenTabs({ threadIds, threadId: c, currentThreadId: a, inNewTab: true }),
+    ).toBe(threadIds);
+  });
+});
+
+describe("withActiveDraftOpenThreadTab", () => {
+  const draft = ThreadId.makeUnsafe("draft");
+  const tabs = buildOpenThreadTabs({
+    sources: [serverSource("a"), serverSource("b")],
+    activeThreadId: null,
+  });
+
+  it("shows the draft on screen as a tab in its slot", () => {
+    const result = withActiveDraftOpenThreadTab({
+      tabs,
+      threadIds: [ThreadId.makeUnsafe("a"), draft, ThreadId.makeUnsafe("b")],
+      activeThreadId: draft,
+      activeDraft: { projectId: projectA },
+      title: "New thread",
+      provider: "codex",
+    });
+    expect(result.map((tab) => tab.threadId)).toEqual(["a", "draft", "b"]);
+    expect(result[1]).toMatchObject({ title: "New thread", projectId: projectA });
+  });
+
+  it("leaves the tabs alone for a draft without a slot or a saved thread", () => {
+    const input = {
+      tabs,
+      threadIds: [ThreadId.makeUnsafe("a"), ThreadId.makeUnsafe("b")],
+      title: "New thread",
+      provider: "codex" as const,
+    };
+    expect(
+      withActiveDraftOpenThreadTab({
+        ...input,
+        activeThreadId: draft,
+        activeDraft: { projectId: projectA },
+      }),
+    ).toBe(tabs);
+    expect(
+      withActiveDraftOpenThreadTab({
+        ...input,
+        activeThreadId: ThreadId.makeUnsafe("a"),
+        activeDraft: null,
+      }),
+    ).toBe(tabs);
   });
 });
 

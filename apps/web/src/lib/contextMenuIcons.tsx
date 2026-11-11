@@ -21,6 +21,7 @@ import {
   type LucideIcon,
   PENCIL_ICON_NAME,
   PIN_ICON_NAME,
+  PlusSignIcon,
   TerminalIcon,
   Trash2,
   UsersIcon,
@@ -33,6 +34,8 @@ export function menuIcon(Icon: LucideIcon): string {
 }
 
 export const THREAD_CONTEXT_MENU_ICONS = {
+  // Same glyph as the tab strip's new-tab +.
+  openInNewTab: menuIcon(PlusSignIcon),
   rename: PENCIL_ICON_NAME,
   // Same glyph as the sidebar's guest-message chip and the waiting-messages card.
   shareGuest: menuIcon(UsersIcon),

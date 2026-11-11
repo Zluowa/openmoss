@@ -33,6 +33,15 @@ import {
 } from "./PluginLibraryPrimitives";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
 import { Spinner } from "./ui/spinner";
 import { toastManager } from "./ui/toast";
 
@@ -423,9 +432,12 @@ interface DetectedSkillSource {
 function DetectedSkillSourcesList({
   search,
   onImported,
+  layout = "section",
 }: {
   readonly search: string;
   readonly onImported?: (() => void) | undefined;
+  /** "dialog": rows in the dialog's panel, Import all in its footer (Add › Import). */
+  readonly layout?: "section" | "dialog";
 }) {
   const { t, format } = useTranslation();
   const queryClient = useQueryClient();
@@ -484,9 +496,62 @@ function DetectedSkillSourcesList({
     },
   });
 
-  if (sources.length === 0) return null;
   const pending = sources.filter((entry) => !imported.has(entry.source));
   const pendingCount = pending.reduce((total, entry) => total + entry.count, 0);
+  const importAllButton = (
+    <Button
+      variant={layout === "dialog" ? "default" : "outline"}
+      size={layout === "dialog" ? "sm" : "xs"}
+      className="shrink-0"
+      disabled={importSkills.isPending}
+      onClick={() => importSkills.mutate(pending)}
+    >
+      {importSkills.isPending && importSkills.variables?.length === pending.length ? (
+        <Spinner className="size-3.5" />
+      ) : null}
+      {format("plugins.detected.importAll", { count: pendingCount })}
+    </Button>
+  );
+  const rows = (
+    <div className={SETTINGS_LIST_CLASS_NAME}>
+      {sources.map((entry) => (
+        <SettingsListRow
+          key={entry.source}
+          kind="skill"
+          title={entry.label}
+          subtitle={format("plugins.detected.sourceSkillCount", { count: entry.count })}
+          done={imported.has(entry.source)}
+          busy={
+            importSkills.isPending &&
+            importSkills.variables?.some((target) => target.source === entry.source) === true
+          }
+          disabled={importSkills.isPending}
+          importLabel={format("plugins.detected.importAria", { name: entry.label })}
+          onImport={() => importSkills.mutate([entry])}
+        />
+      ))}
+    </div>
+  );
+  if (layout === "dialog") {
+    return (
+      <>
+        <DialogPanel data-testid="moss-detected-settings-skill">
+          {sources.length > 0 ? (
+            rows
+          ) : probeQuery.isPending ? (
+            <p role="status" className="flex items-center gap-2 text-ui text-muted-foreground">
+              <Spinner className="size-3.5" />
+              {t("plugins.manage.loading")}
+            </p>
+          ) : (
+            <p className="text-ui text-muted-foreground">{t("plugins.detected.noCliSkills")}</p>
+          )}
+        </DialogPanel>
+        {pending.length > 1 ? <DialogFooter>{importAllButton}</DialogFooter> : null}
+      </>
+    );
+  }
+  if (sources.length === 0) return null;
   return (
     <section
       className="flex flex-col gap-3"
@@ -496,42 +561,40 @@ function DetectedSkillSourcesList({
       <SettingsListHeader
         kind="skill"
         subtitle={t("plugins.detected.skillsSubtitle")}
-        action={
-          pending.length > 1 ? (
-            <Button
-              variant="outline"
-              size="xs"
-              className="shrink-0"
-              disabled={importSkills.isPending}
-              onClick={() => importSkills.mutate(pending)}
-            >
-              {importSkills.isPending && importSkills.variables?.length === pending.length ? (
-                <Spinner className="size-3.5" />
-              ) : null}
-              {format("plugins.detected.importAll", { count: pendingCount })}
-            </Button>
-          ) : null
-        }
+        action={pending.length > 1 ? importAllButton : null}
       />
-      <div className={SETTINGS_LIST_CLASS_NAME}>
-        {sources.map((entry) => (
-          <SettingsListRow
-            key={entry.source}
-            kind="skill"
-            title={entry.label}
-            subtitle={format("plugins.detected.sourceSkillCount", { count: entry.count })}
-            done={imported.has(entry.source)}
-            busy={
-              importSkills.isPending &&
-              importSkills.variables?.some((target) => target.source === entry.source) === true
-            }
-            disabled={importSkills.isPending}
-            importLabel={format("plugins.detected.importAria", { name: entry.label })}
-            onImport={() => importSkills.mutate([entry])}
-          />
-        ))}
-      </div>
+      {rows}
     </section>
+  );
+}
+
+/**
+ * Settings › Plugins › Add › 从其他 CLI 导入…: the skills the user's other CLIs have, one row
+ * per CLI with Import, and Import all. It used to sit on top of the Skills list; the owner
+ * wanted the list itself kept clean (feedback 2026-11-11).
+ */
+export function ImportSkillsFromOtherClisDialog({
+  open,
+  onOpenChange,
+  onImported,
+}: {
+  readonly open: boolean;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onImported?: (() => void) | undefined;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogPopup className="max-w-[560px]" data-testid="import-cli-skills-dialog">
+        <DialogHeader>
+          <DialogTitle>{t("plugins.detected.importDialogTitle")}</DialogTitle>
+          <DialogDescription>{t("plugins.detected.skillsSubtitle")}</DialogDescription>
+        </DialogHeader>
+        {open ? (
+          <DetectedSkillSourcesList search="" layout="dialog" onImported={onImported} />
+        ) : null}
+      </DialogPopup>
+    </Dialog>
   );
 }
 

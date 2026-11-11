@@ -474,6 +474,8 @@ interface TestFixture {
   providerStatusesSnapshot: ServerConfig["providers"] | null;
   welcome: WsWelcomePayload;
   gitBranchByCwd: Record<string, string>;
+  // Opt-in working tree for the diff panel: a cwd listed here answers its diff reads.
+  workingTreePatchByCwd: Record<string, string>;
   projectAgentOverviews: Record<string, unknown>;
 }
 
@@ -860,6 +862,7 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
     providerUsageSnapshot: null,
     providerStatusesSnapshot: null,
     gitBranchByCwd: {},
+    workingTreePatchByCwd: {},
     projectAgentOverviews: {},
     welcome: {
       cwd: "/repo/project",
@@ -1727,6 +1730,20 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
           worktreePath: null,
         },
       ],
+    };
+  }
+  if (
+    (tag === WS_METHODS.gitReadWorkingTreeDiff || tag === WS_METHODS.gitWorkingTreeDiffStats) &&
+    typeof body.cwd === "string" &&
+    fixture.workingTreePatchByCwd[body.cwd] !== undefined
+  ) {
+    const patch = fixture.workingTreePatchByCwd[body.cwd]!;
+    if (tag === WS_METHODS.gitReadWorkingTreeDiff) return { patch, truncated: false };
+    const lines = patch.split("\n");
+    return {
+      additions: lines.filter((line) => /^\+(?!\+\+)/.test(line)).length,
+      deletions: lines.filter((line) => /^-(?!--)/.test(line)).length,
+      fileCount: lines.filter((line) => line.startsWith("diff --git ")).length,
     };
   }
   if (tag === WS_METHODS.gitStatus) {
@@ -5117,6 +5134,153 @@ describe("ChatView transcript geometry (full app)", () => {
         expect(document.querySelector('[contenteditable="true"]')).toBe(survivingEditor);
         expect(useSplitViewStore.getState().splitViewIdBySourceThreadId[THREAD_ID]).toBe(
           survivorSplitId,
+        );
+      } finally {
+        await mounted.cleanup();
+      }
+    },
+  );
+
+  it.each([
+    { width: 1_920, layout: "beside-chat", toolbar: "compact" },
+    // The pane fits the chat but not the panel's usual minimum: the panel narrows.
+    { width: 1_600, layout: "beside-chat", toolbar: "compact" },
+    { width: 1_100, layout: "covers-chat", toolbar: "compact" },
+  ] as const)(
+    "fits a split pane's diff panel and loads its content ($width px window)",
+    async (scenario) => {
+      const snapshot = addThreadToSnapshot(
+        createSnapshotWithLongAssistantResponse(),
+        OTHER_THREAD_ID,
+      );
+      const mounted = await mountChatView({
+        viewport: { name: "owner-window", width: scenario.width, height: 900 },
+        snapshot,
+        configureFixture: (nextFixture) => {
+          nextFixture.workingTreePatchByCwd["/repo/project"] = [
+            "diff --git a/src/plugin.json b/src/plugin.json",
+            "new file mode 100644",
+            "--- /dev/null",
+            "+++ b/src/plugin.json",
+            "@@ -0,0 +1,3 @@",
+            "+{",
+            '+  "name": "moss-image-studio"',
+            "+}",
+            "",
+          ].join("\n");
+        },
+      });
+      try {
+        const splitViewId = useSplitViewStore.getState().createFromDrop({
+          sourceThreadId: THREAD_ID,
+          ownerProjectId: PROJECT_ID,
+          droppedThreadId: OTHER_THREAD_ID,
+          direction: "horizontal",
+          side: "second",
+        });
+        await mounted.router.navigate({
+          to: "/$threadId",
+          params: { threadId: THREAD_ID },
+          search: () => ({ splitViewId }),
+        });
+        await waitForSplitChatReady([THREAD_ID, OTHER_THREAD_ID]);
+        const split = useSplitViewStore.getState().splitViewsById[splitViewId]!;
+        if (split.root.kind !== "split" || split.root.second.kind !== "leaf") {
+          throw new Error("Expected two panes");
+        }
+        const paneRoot = document.querySelector<HTMLElement>(
+          `[data-split-pane-id="${split.root.second.id}"]`,
+        )!;
+        const chatWidthBefore = paneRoot
+          .querySelector<HTMLElement>("[data-chat-pane-scope]")!
+          .getBoundingClientRect().width;
+        await userEvent.click(
+          paneRoot.querySelector<HTMLButtonElement>(
+            'header button[aria-label="Toggle diff panel"]',
+          )!,
+        );
+        const toolbar = await vi.waitFor(() => {
+          const element = paneRoot.querySelector<HTMLElement>("[data-diff-toolbar]");
+          expect(element?.dataset.diffToolbar).toBe(scenario.toolbar);
+          return element!;
+        }, 10_000);
+        await waitForLayout();
+        // Every control sits inside the header and none overlaps another.
+        const toolbarRect = toolbar.getBoundingClientRect();
+        const controls = [...toolbar.querySelectorAll<HTMLElement>("button")]
+          .map((button) => button.getBoundingClientRect())
+          .filter((rect) => rect.width > 0);
+        expect(toolbarRect.right).toBeLessThanOrEqual(window.innerWidth + 0.5);
+        expect(controls.length).toBeGreaterThanOrEqual(3);
+        for (const rect of controls) {
+          expect(rect.left).toBeGreaterThanOrEqual(toolbarRect.left - 0.5);
+          expect(rect.right).toBeLessThanOrEqual(toolbarRect.right + 0.5);
+        }
+        for (const [index, a] of controls.entries()) {
+          for (const b of controls.slice(index + 1)) {
+            const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+            expect(overlap).toBeLessThanOrEqual(0.5);
+          }
+        }
+        // The panel settles on its content, not on a loading skeleton.
+        await vi.waitFor(
+          () =>
+            expect(
+              [...paneRoot.querySelectorAll('[role="status"][aria-live="polite"]')].map((node) =>
+                node.getAttribute("aria-label"),
+              ),
+            ).toEqual([]),
+          { timeout: 5_000 },
+        );
+        await vi.waitFor(() => expect(paneRoot.textContent).toContain("plugin.json"));
+        // The chat never drops below its readable width: beside the panel when the pane fits
+        // both, otherwise the panel covers it, and closing the panel brings it back whole.
+        const panel = paneRoot.querySelector<HTMLElement>("[data-split-pane-panel]")!;
+        const paneRect = paneRoot.getBoundingClientRect();
+        expect(panel.dataset.splitPanePanel).toBe(scenario.layout);
+        if (scenario.layout === "covers-chat") {
+          expect(Math.abs(panel.getBoundingClientRect().width - paneRect.width)).toBeLessThan(1);
+          // It covers the chat below the pane's header; the header's own buttons stay usable.
+          const toggle = paneRoot.querySelector<HTMLButtonElement>(
+            'header button[aria-label="Toggle diff panel"]',
+          )!;
+          const toggleRect = toggle.getBoundingClientRect();
+          expect(
+            toggle.contains(
+              document.elementFromPoint(
+                toggleRect.left + toggleRect.width / 2,
+                toggleRect.top + toggleRect.height / 2,
+              ),
+            ),
+          ).toBe(true);
+        } else {
+          // The chat keeps the 20rem a split pane's chat needs beside the panel.
+          const besideWidth = paneRect.width - panel.getBoundingClientRect().width;
+          expect(besideWidth).toBeGreaterThanOrEqual(20 * 16 - 1);
+        }
+        await waitForLayout();
+        // The diff itself draws (its file, not just an empty shell).
+        await vi.waitFor(
+          () => {
+            const file = panel.querySelector<HTMLElement>(".diff-render-file");
+            expect(file?.getBoundingClientRect().height ?? 0).toBeGreaterThan(40);
+          },
+          { timeout: 10_000 },
+        );
+        await page.screenshot({
+          path: `../../../../output/playwright/split-diff-panel-${scenario.width}.png`,
+        });
+        await userEvent.click(
+          toolbar.querySelector<HTMLButtonElement>('button[aria-label="Close file view"]')!,
+        );
+        await vi.waitFor(() =>
+          expect(paneRoot.querySelector("[data-split-pane-panel]")).toBeNull(),
+        );
+        const chatPane = paneRoot.querySelector<HTMLElement>("[data-chat-pane-scope]")!;
+        await vi.waitFor(() =>
+          expect(Math.abs(chatPane.getBoundingClientRect().width - chatWidthBefore)).toBeLessThan(
+            1,
+          ),
         );
       } finally {
         await mounted.cleanup();
@@ -12818,7 +12982,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("keeps a new draft out of horizontal tabs until it becomes a saved thread", async () => {
+  it("opens a new draft in place of the current tab and keeps it there once saved", async () => {
     useOpenThreadTabsStore.setState({ threadIds: [] });
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
@@ -12846,15 +13010,12 @@ describe("ChatView transcript geometry (full app)", () => {
       // The composer editor should be present for the new draft thread.
       await waitForComposerEditor();
 
+      // A sidebar action opens in place: the draft takes the saved chat's tab, and a lone
+      // tab shows the thread's title instead of a strip.
       await vi.waitFor(() => {
-        const tabs = document.querySelectorAll('nav[aria-label="Open threads"] [data-surface-tab]');
-        expect(tabs).toHaveLength(1);
-        expect(
-          document.querySelector('nav[aria-label="Open threads"] button[title="New thread"]'),
-        ).toBeNull();
-        expect(
-          document.querySelector('nav[aria-label="Open threads"] button[aria-current="page"]'),
-        ).toBeNull();
+        expect(document.querySelector('nav[aria-label="Open threads"]')).toBeNull();
+        expect(document.querySelector("[data-open-thread-title]")).not.toBeNull();
+        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([newThreadId]);
       });
 
       // Simulate the snapshot sync arriving from the server after the draft
@@ -12875,12 +13036,11 @@ describe("ChatView transcript geometry (full app)", () => {
       );
 
       await vi.waitFor(() => {
-        expect(
-          document.querySelectorAll('nav[aria-label="Open threads"] [data-surface-tab]'),
-        ).toHaveLength(2);
-        expect(
-          document.querySelector('nav[aria-label="Open threads"] button[aria-current="page"]'),
-        ).not.toBeNull();
+        expect(document.querySelector('nav[aria-label="Open threads"]')).toBeNull();
+        expect(document.querySelector("[data-open-thread-title] h2")?.textContent).toBe(
+          "New thread",
+        );
+        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([newThreadId]);
       });
 
       // The empty thread view and composer should still be visible.
@@ -16048,6 +16208,97 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("opens sidebar threads in place and adds a tab only on request", async () => {
+    const thirdId = ThreadId.makeUnsafe("in-place-tab-third");
+    let snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("in-place-tabs"),
+      targetText: "In place tabs",
+    });
+    snapshot = addThreadToSnapshot(addThreadToSnapshot(snapshot, OTHER_THREAD_ID), thirdId);
+    const titles: Record<string, string> = {
+      [THREAD_ID]: "Multiply 31 by 4",
+      [OTHER_THREAD_ID]: "Multiply 31 by 5",
+      [thirdId]: "Multiply 31 by 6",
+    };
+    snapshot = {
+      ...snapshot,
+      threads: snapshot.threads.map((thread) =>
+        titles[thread.id] ? Object.assign({}, thread, { title: titles[thread.id] }) : thread,
+      ),
+    };
+    // A strip saved by an older build (every visited thread kept a tab) still loads as is.
+    localStorage.setItem(
+      "moss:open-thread-tabs:v1",
+      JSON.stringify({ state: { threadIds: [THREAD_ID] }, version: 0 }),
+    );
+    await useOpenThreadTabsStore.persist.rehydrate();
+    useOpenThreadTabsStore.setState({ currentThreadId: null, newTabRequested: false });
+    expect(useOpenThreadTabsStore.getState().threadIds).toEqual([THREAD_ID]);
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const strip = () => document.querySelector('nav[aria-label="Open threads"]');
+    const sidebarRow = (title: string) =>
+      [...document.querySelectorAll<HTMLElement>('[data-thread-item] [role="button"]')].find(
+        (row) => row.textContent?.includes(title),
+      )!;
+    try {
+      // One tab is no strip: the header reads as the thread's title.
+      await vi.waitFor(() => {
+        expect(document.querySelector("[data-open-thread-title]")).not.toBeNull();
+        expect(strip()).toBeNull();
+      });
+      await page.screenshot({ path: "../../../../output/playwright/tabs-in-place-single.png" });
+
+      // A plain sidebar click replaces the thread in the current tab.
+      await vi.waitFor(() => expect(sidebarRow("Multiply 31 by 5")).toBeTruthy());
+      await userEvent.click(sidebarRow("Multiply 31 by 5"));
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe(`/${OTHER_THREAD_ID}`);
+        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([OTHER_THREAD_ID]);
+      });
+      await userEvent.click(sidebarRow("Multiply 31 by 6"));
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe(`/${thirdId}`);
+        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([thirdId]);
+      });
+      expect(strip()).toBeNull();
+      expect(document.querySelector("[data-open-thread-title] h2")?.textContent).toBe(
+        "Multiply 31 by 6",
+      );
+
+      // A middle click opens the thread in a tab of its own beside the current one.
+      sidebarRow("Multiply 31 by 5").dispatchEvent(
+        new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }),
+      );
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe(`/${OTHER_THREAD_ID}`);
+        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([thirdId, OTHER_THREAD_ID]);
+        expect(strip()?.querySelectorAll("[data-surface-tab]")).toHaveLength(2);
+      });
+
+      // Back in place: the active tab follows the next sidebar click; the other tab stays.
+      await userEvent.click(sidebarRow("Multiply 31 by 4"));
+      await vi.waitFor(() => {
+        expect(mounted.router.state.location.pathname).toBe(`/${THREAD_ID}`);
+        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([thirdId, THREAD_ID]);
+      });
+      await page.screenshot({ path: "../../../../output/playwright/tabs-in-place-two.png" });
+
+      // The strip's + opens the new chat in a new tab, shown as a tab before its first send.
+      await userEvent.click(page.getByRole("button", { name: "New thread in this workspace" }));
+      await vi.waitFor(() => {
+        const threadIds = useOpenThreadTabsStore.getState().threadIds;
+        expect(threadIds).toHaveLength(3);
+        expect(threadIds.slice(0, 2)).toEqual([thirdId, THREAD_ID]);
+        expect(mounted.router.state.location.pathname).toBe(`/${threadIds[2]}`);
+        expect(strip()?.querySelectorAll("[data-surface-tab]")).toHaveLength(3);
+      });
+      expect(useOpenThreadTabsStore.getState().newTabRequested).toBe(false);
+    } finally {
+      useOpenThreadTabsStore.setState({ threadIds: [], currentThreadId: null });
+      await mounted.cleanup();
+    }
+  });
+
   it.each(["saved", "promoted-draft", "terminal"] as const)(
     "reorders a background horizontal tab across navigation and persists the order (%s)",
     async (kind) => {
@@ -16233,7 +16484,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("keeps the saved editor chat reachable while an unsent draft is on screen", async () => {
+  it("opens an unsent editor draft in place and returns to the saved chat", async () => {
     const consoleError = vi.spyOn(console, "error");
     onTestFinished(() => consoleError.mockRestore());
     useOpenThreadTabsStore.setState({ threadIds: [] });
@@ -16261,15 +16512,22 @@ describe("ChatView transcript geometry (full app)", () => {
           "Keep this unsent prompt",
         ),
       );
-      const savedTab = page.getByRole("button", { name: "Chat 1", exact: true });
-      await expect.element(savedTab, { timeout: 2_000 }).toBeVisible();
-      expect(savedTab.element().getAttribute("aria-pressed")).toBe("false");
-      expect(page.getByRole("button", { name: "Chat 2", exact: true }).elements()).toHaveLength(0);
-      await savedTab.click();
+      // The draft opened in place of the saved chat, so the rail has no second chat tab.
+      expect(useOpenThreadTabsStore.getState().threadIds).toEqual([draftId]);
+      expect(page.getByRole("button", { name: "Chat 1", exact: true }).elements()).toHaveLength(0);
+      // Back to the saved chat the way the sidebar goes there; the draft keeps its text.
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+        search: () => ({ view: "editor" as const }),
+      });
       await waitForURL(
         mounted.router,
         (path) => path === `/${THREAD_ID}`,
-        "The saved tab should return to its chat from the draft.",
+        "The saved chat should open again from the draft.",
+      );
+      await vi.waitFor(() =>
+        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([THREAD_ID]),
       );
       expect(mounted.router.state.location.search.view).toBe("editor");
       expect(useComposerDraftStore.getState().draftsByThreadId[draftId]?.prompt).toBe(
@@ -16744,11 +17002,14 @@ describe("ChatView transcript geometry (full app)", () => {
       useComposerDraftStore.getState().setPrompt(draftId, "Unsent text behind the only tab");
       // The draft is open but has no tab, so the saved chat is the last one in the strip.
       useOpenThreadTabsStore.setState({ threadIds: [draftId, THREAD_ID] });
-      const close = await waitForElement<HTMLButtonElement>(
-        () => document.querySelector('nav[aria-label="Open threads"] button[aria-label^="Close "]'),
-        "The active thread should have a closeable tab.",
+      // A lone tab shows no strip (so no X); the close-tab shortcut still closes it.
+      await waitForElement(
+        () => document.querySelector("[data-open-thread-title]"),
+        "The lone tab should read as the thread's title.",
       );
-      close.click();
+      await userEvent.keyboard(
+        isMacNavigatorPlatform() ? "{Meta>}w{/Meta}" : "{Control>}w{/Control}",
+      );
       await waitForURL(
         mounted.router,
         (path) => path === `/${draftId}`,
@@ -16792,12 +17053,14 @@ describe("ChatView transcript geometry (full app)", () => {
         useComposerDraftStore.getState().setPrompt(staleDraftId, "Unsent text from a closed tab");
         useOpenThreadTabsStore.setState({ threadIds: [THREAD_ID] });
         useProjectEnvironmentStore.getState().setProjectEnvMode(projectId, "worktree");
-        const close = await waitForElement<HTMLButtonElement>(
-          () =>
-            document.querySelector('nav[aria-label="Open threads"] button[aria-label^="Close "]'),
-          "The active thread should have a closeable rail tab.",
+        // A lone tab shows no strip (so no X); the close-tab shortcut still closes it.
+        await waitForElement(
+          () => document.querySelector("[data-open-thread-title]"),
+          "The lone tab should read as the thread's title.",
         );
-        close.click();
+        await userEvent.keyboard(
+          isMacNavigatorPlatform() ? "{Meta>}w{/Meta}" : "{Control>}w{/Control}",
+        );
         await vi.waitFor(() => {
           const nextId = mounted.router.state.location.pathname.slice(1) as ThreadId;
           expect(nextId).not.toBe(THREAD_ID);

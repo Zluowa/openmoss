@@ -204,6 +204,7 @@ import {
   type PluginLibraryBrowseTab,
 } from "./PluginLibraryPrimitives";
 import {
+  ImportSkillsFromOtherClisDialog,
   MossDetectedResourcesSection,
   MossDetectedResourcesSettingsList,
 } from "./MossDetectedResourcesSection";
@@ -1416,6 +1417,7 @@ export function PluginLibrary({
   const [addMarketplaceOpen, setAddMarketplaceOpen] = useState(false);
   const [importPluginsAndSkillsOpen, setImportPluginsAndSkillsOpen] = useState(false);
   const [importKind, setImportKind] = useState<"plugin" | "skill" | "mcp">("plugin");
+  const [cliSkillImportOpen, setCliSkillImportOpen] = useState(false);
   const importTriggerRef = useRef<HTMLButtonElement>(null);
   const [pluginAuthSetup, setPluginAuthSetup] = useState<PluginAuthSetup | null>(null);
   const [retainedPluginAuthSession, setRetainedPluginAuthSession] = useState<number | null>(null);
@@ -3008,6 +3010,7 @@ export function PluginLibrary({
     onUploadPluginArchive: () => openImport("plugin"),
     onAddCustomMcpServer: () => openImport("mcp"),
     onCreateSkill: skillCreatorUsable ? () => handleCreate("skill") : undefined,
+    onImportSkillsFromOtherClis: embeddedInSettings ? () => setCliSkillImportOpen(true) : undefined,
   };
 
   const handleTryInChat = (resource: ResourceDetail, promptOverride?: string) => {
@@ -4051,13 +4054,14 @@ export function PluginLibrary({
                   skillsError={skillsError}
                   skillsRetrying={skillsQuery.isFetching || capabilitiesLoading}
                   onRetrySkills={refetchSkills}
+                  // Other CLIs' skills are imported from Add › 从其他 CLI 导入…, so the
+                  // Skills list stays clean (owner feedback 2026-11-11).
                   renderTabLead={(tab, query) =>
-                    tab === "mcps" || tab === "skills" ? (
+                    tab === "mcps" ? (
                       <MossDetectedResourcesSettingsList
                         workspace={importWorkspace}
                         search={query}
-                        kind={tab === "mcps" ? "mcp" : "skill"}
-                        onImported={() => void skillsQuery.refetch()}
+                        kind="mcp"
                       />
                     ) : null
                   }
@@ -4403,6 +4407,12 @@ export function PluginLibrary({
             title: format("plugins.install.success", { pluginName: connector.name }),
           });
         }}
+      />
+
+      <ImportSkillsFromOtherClisDialog
+        open={cliSkillImportOpen}
+        onOpenChange={setCliSkillImportOpen}
+        onImported={() => void skillsQuery.refetch()}
       />
 
       <PluginMarketplaceDialog

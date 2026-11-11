@@ -289,6 +289,7 @@ import { ProviderDiscoveryService } from "./provider/Services/ProviderDiscoveryS
 import {
   discoverSkillsCatalog,
   mossSkillsDir,
+  isSkillPreviewWorkspace,
   readRegisteredSkillContent,
 } from "./provider/skillsCatalog";
 import { recoverUnregisteredGitHubCheckout } from "./project/githubProjectRegistration";
@@ -4131,14 +4132,13 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(
             Effect.gen(function* () {
               const readModel = yield* orchestrationEngine.getReadModel();
-              const allowed =
-                workspaceRootsEqual(input.cwd, config.cwd) ||
-                readModel.projects.some(
-                  (project) =>
-                    project.kind === "project" &&
-                    project.deletedAt === null &&
-                    workspaceRootsEqual(project.workspaceRoot, input.cwd),
-                );
+              const allowed = isSkillPreviewWorkspace({
+                cwd: input.cwd,
+                serverCwd: config.cwd,
+                registeredRoots: readModel.projects
+                  .filter((project) => project.deletedAt === null)
+                  .map((project) => project.workspaceRoot),
+              });
               if (!allowed) {
                 return yield* Effect.fail(
                   new WsRpcError({
@@ -4158,7 +4158,7 @@ const makeWsRpcHandlersLayer = () =>
               const portableMatch = portable.some(
                 (skill) =>
                   skill.name === input.name &&
-                  nodePath.resolve(skill.path) === nodePath.resolve(input.path),
+                  workspaceRootsEqual(nodePath.resolve(skill.path), nodePath.resolve(input.path)),
               );
               const skills = portableMatch
                 ? portable

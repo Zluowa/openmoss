@@ -22,6 +22,7 @@ import {
   filterDisabledSkills,
   mergeSkillsIntoCatalog,
   parseSkillFrontmatter,
+  isSkillPreviewWorkspace,
   readRegisteredSkillContent,
 } from "./skillsCatalog.ts";
 import { pathIsWithin } from "./claudePluginSkills.ts";
@@ -128,6 +129,66 @@ describe("registered skill content", () => {
         path: directorySkill.path,
       }),
     ).toContain("description: Review changes");
+  });
+
+  // Owner feedback 2026-11-11: 饥荒家园主题皮肤 read 「无法读取此技能的说明」.
+  it("reads a skill whose folder, name, description and body are Chinese", async () => {
+    const skillDir = path.join(mossBaseDir, "skills", "饥荒家园主题皮肤");
+    await mkdir(skillDir, { recursive: true });
+    const document = `---
+name: dst-home-skins
+description: 制作饥荒联机版 DST 家园主题外观包，为火把、火堆、木牌、箱子、冰箱等批量设计原创皮肤。
+---
+
+# 饥荒家园主题皮肤
+
+先盘点原版贴图和动画，再为每个物件画一套原创外观。
+`;
+    await writeFile(path.join(skillDir, "SKILL.md"), `\uFEFF${document}`);
+    const skills = await discoverSkillsCatalog({ homeDir, mossBaseDir });
+    const skill = skills.find((entry) => entry.name === "dst-home-skins")!;
+    expect(skill.description).toContain("饥荒联机版");
+    const contents = await readRegisteredSkillContent({
+      skills,
+      name: skill.name,
+      path: skill.path,
+    });
+    expect(contents).toBe(document);
+    if (process.platform === "win32") {
+      // The same file named with other slashes and letter case is the same skill.
+      expect(
+        await readRegisteredSkillContent({
+          skills,
+          name: skill.name,
+          path: skill.path.replaceAll("\\", "/").toUpperCase(),
+        }),
+      ).toBe(document);
+    }
+  });
+
+  it("previews skills for any folder Moss registered, not only projects", () => {
+    const registeredRoots = ["/repo/owner-dev", "C:\\Users\\me\\Documents\\Moss\\chat-1"];
+    // A plain chat's folder (kind "chat") was refused before.
+    expect(
+      isSkillPreviewWorkspace({
+        cwd: "C:\\Users\\me\\Documents\\Moss\\chat-1",
+        serverCwd: "/server",
+        registeredRoots,
+      }),
+    ).toBe(true);
+    expect(
+      isSkillPreviewWorkspace({
+        cwd: "c:/users/me/documents/moss/chat-1/",
+        serverCwd: "/server",
+        registeredRoots,
+      }),
+    ).toBe(true);
+    expect(
+      isSkillPreviewWorkspace({ cwd: "/server", serverCwd: "/server", registeredRoots: [] }),
+    ).toBe(true);
+    expect(
+      isSkillPreviewWorkspace({ cwd: "/somewhere/else", serverCwd: "/server", registeredRoots }),
+    ).toBe(false);
   });
 
   it("rejects undiscovered files, changed names, oversized content and invalid UTF-8", async () => {

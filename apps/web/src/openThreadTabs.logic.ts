@@ -39,12 +39,40 @@ export interface OpenThreadTabSource {
 // The transitions return the input array untouched when nothing changes, so the store
 // can skip no-op writes (and the persist round-trip) by identity.
 
-/** Opening a thread that already has a tab keeps its position; a new one goes last. */
+/**
+ * Opening a thread that already has a tab keeps its position; a new one goes last. This
+ * is the explicit "open in a new tab"; showing a thread on screen goes through
+ * {@link showThreadInOpenTabs}, which opens it in place.
+ */
 export function addOpenThreadTab(
   threadIds: readonly ThreadId[],
   threadId: ThreadId,
 ): readonly ThreadId[] {
   return threadIds.includes(threadId) ? threadIds : [...threadIds, threadId];
+}
+
+/**
+ * The tab list once `threadId` is the thread on screen. A thread that already has a tab
+ * just becomes active. Any other thread opens in place: it takes over the tab of the
+ * thread shown before it (`currentThreadId`), the way a browser tab follows a link and
+ * Claude desktop follows a sidebar click. It only gets a tab of its own when the caller
+ * asked for one (`inNewTab`: the strip's +, a middle click, "Open in New Tab") or when
+ * there is no current tab to take over.
+ */
+export function showThreadInOpenTabs(input: {
+  threadIds: readonly ThreadId[];
+  threadId: ThreadId;
+  currentThreadId: ThreadId | null;
+  inNewTab: boolean;
+}): readonly ThreadId[] {
+  const { threadIds, threadId, currentThreadId } = input;
+  if (threadIds.includes(threadId)) return threadIds;
+  const currentIndex =
+    !input.inNewTab && currentThreadId !== null ? threadIds.indexOf(currentThreadId) : -1;
+  if (currentIndex < 0) return [...threadIds, threadId];
+  const next = [...threadIds];
+  next[currentIndex] = threadId;
+  return next;
 }
 
 export function removeOpenThreadTab(
@@ -158,6 +186,43 @@ export function buildOpenThreadTabs(input: {
     }
     return [tab];
   });
+}
+
+/**
+ * The tabs with the draft on screen shown as one, so a new chat opened in a new tab is
+ * visibly that tab before its first send. Background drafts stay hidden (as in
+ * {@link buildOpenThreadTabs}); the draft takes its slot in the open list.
+ */
+export function withActiveDraftOpenThreadTab(input: {
+  tabs: readonly OpenThreadTab[];
+  threadIds: readonly ThreadId[];
+  activeThreadId: ThreadId | null;
+  activeDraft: { projectId: ProjectId } | null;
+  title: string;
+  provider: ProviderKind;
+}): readonly OpenThreadTab[] {
+  const { tabs, threadIds, activeThreadId, activeDraft } = input;
+  if (
+    activeThreadId === null ||
+    activeDraft === null ||
+    !threadIds.includes(activeThreadId) ||
+    tabs.some((tab) => tab.threadId === activeThreadId)
+  ) {
+    return tabs;
+  }
+  const draftTab: OpenThreadTab = {
+    threadId: activeThreadId,
+    projectId: activeDraft.projectId,
+    title: input.title,
+    provider: input.provider,
+    isTerminal: false,
+    isRunning: false,
+  };
+  const draftOrder = threadIds.indexOf(activeThreadId);
+  const insertAt = tabs.findIndex((tab) => threadIds.indexOf(tab.threadId) > draftOrder);
+  return insertAt < 0
+    ? [...tabs, draftTab]
+    : [...tabs.slice(0, insertAt), draftTab, ...tabs.slice(insertAt)];
 }
 
 /**
