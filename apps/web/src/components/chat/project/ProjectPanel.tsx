@@ -327,7 +327,11 @@ export function ProjectPanel({
     }
   };
 
-  const personal = agent.overview?.config?.agentKind === "mossbot";
+  // The summary already knows an assistant before its overview loads; without it the
+  // title read "Hubs" for a moment in every Mossbot chat.
+  const personal =
+    agent.overview?.config?.agentKind === "mossbot" ||
+    (projectId !== null && summariesByProjectId.get(projectId)?.agentKind === "mossbot");
 
   const content = (
     <div className="flex min-h-0 flex-1 flex-col">

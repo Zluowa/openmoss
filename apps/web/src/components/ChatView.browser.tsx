@@ -13246,6 +13246,10 @@ describe("ChatView transcript geometry (full app)", () => {
           getComputedStyle(field).getPropertyValue("-webkit-text-security") === "disc",
       ).toBe(true);
       expect(document.querySelector("[data-mossbot-conversation]")).not.toBeNull();
+      // Hubs are gone: the header has no Hub button, and More → Overview opens the overview.
+      expect(
+        document.querySelector('[aria-label="Toggle hub panel"], [aria-label="切换 Hub 面板"]'),
+      ).toBeNull();
     } finally {
       await mounted.cleanup();
       useProjectAgentSummariesStore.setState(previousSummaries);

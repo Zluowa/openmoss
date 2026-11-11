@@ -10,6 +10,7 @@ import {
   deriveKanbanCardAttention,
   deriveKanbanColumn,
   deriveKanbanColumnV2,
+  formatKanbanUntitledDraftTitle,
   isKanbanDraftOnlyCard,
   kanbanDraftCardId,
   kanbanThreadCardId,
@@ -396,8 +397,9 @@ describe("buildKanbanBoard", () => {
     );
 
     const draftCard = board.projects[0]!.draft[0]!;
-    // Nothing readable to name it by: a plain "Draft" (草稿), and the card shows its time.
-    expect(draftCard.title).toBe("Draft");
+    // No typed or quoted text (an image only): "Draft" plus when it was made.
+    expect(draftCard.title).toBe(formatKanbanUntitledDraftTitle(T0, "en"));
+    expect(draftCard.title).toMatch(/^Draft \w{3} \d{1,2}, \d{2}:\d{2}$/);
     expect(draftCard.draftHasAttachments).toBe(true);
     expect(draftCard.provider).toBe("cursor");
     expect(resolveDraftDropAction(draftCard)).toBe("dispatch");
@@ -438,6 +440,7 @@ describe("buildKanbanBoard", () => {
     );
 
     const titles = board.projects[0]!.draft.map((card) => [card.threadId, card.title]);
+    // (attachmentTitle is the quoted text; file names never reach it.)
     expect(Object.fromEntries(titles)).toEqual({
       // Same word cap as prompt titles: the first words of the quote.
       [quoteOnly]: "Move the retry into the upload",
@@ -840,7 +843,8 @@ describe("buildKanbanComposerDraftSnapshot", () => {
     );
 
     expect(snapshot?.hasAttachments).toBe(true);
-    expect(snapshot?.attachmentTitle).toBe("notes.txt");
+    // A file name says nothing about the task: no title from it.
+    expect(snapshot?.attachmentTitle).toBeNull();
   });
 
   it("names a quote-only draft by the first line of the quote, ahead of files", () => {
@@ -878,6 +882,98 @@ describe("buildKanbanComposerDraftSnapshot", () => {
       )?.attachmentTitle,
     ).toBe("Error: ENOENT");
     expect(buildKanbanComposerDraftSnapshot(makeDraftSource())?.attachmentTitle).toBeNull();
+  });
+
+  it("takes page and terminal quotes by their text, never an element or terminal name", () => {
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({
+          browserAnnotations: [
+            { tagName: "button", selector: "#save", name: "Save", text: "" } as never,
+            { tagName: "p", selector: "p", text: "\n 价格显示错了\n第二行" } as never,
+          ],
+        }),
+      )?.attachmentTitle,
+    ).toBe("价格显示错了");
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({
+          browserAnnotations: [{ tagName: "img", selector: "img.logo", name: "logo" } as never],
+        }),
+      )?.attachmentTitle,
+    ).toBeNull();
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({
+          terminalContexts: [
+            {
+              id: "ctx-1",
+              threadId: ThreadId.makeUnsafe("thread-1"),
+              terminalId: "terminal-1",
+              terminalLabel: "Terminal 1",
+              lineStart: 4,
+              lineEnd: 6,
+              text: "  error: lockfile is out of date\nrun bun install",
+              createdAt: T0,
+            },
+          ],
+        }),
+      )?.attachmentTitle,
+    ).toBe("error: lockfile is out of date");
+  });
+});
+
+describe("draft card titles", () => {
+  const imageOnly = { prompt: "", hasAttachments: true, providerInstanceId: null, provider: null };
+
+  it("titles a draft by the first line of what was typed or quoted", () => {
+    const typed = ThreadId.makeUnsafe("thread-typed");
+    const quoted = ThreadId.makeUnsafe("thread-quoted");
+    const board = buildKanbanBoard(
+      makeBoardInput({
+        locale: "zh-CN",
+        draftThreads: [makeDraftThread(typed), makeDraftThread(quoted)],
+        composerDraftByThreadId: {
+          [typed]: { ...imageOnly, prompt: "  修好登录跳转\n再看看注册页" },
+          [quoted]: { ...imageOnly, attachmentTitle: "上传失败时重试两次" },
+        },
+      }),
+    );
+    const titles = Object.fromEntries(
+      board.projects[0]!.draft.map((card) => [card.threadId, card.title]),
+    );
+    expect(titles).toEqual({ [typed]: "修好登录跳转", [quoted]: "上传失败时重试两次" });
+  });
+
+  it("titles image-only drafts 「草稿 + time」, so two of them never look the same", () => {
+    const first = ThreadId.makeUnsafe("thread-image-1");
+    const second = ThreadId.makeUnsafe("thread-image-2");
+    const later = "2026-03-09T10:07:00.000Z";
+    const board = buildKanbanBoard(
+      makeBoardInput({
+        locale: "zh-CN",
+        draftThreads: [makeDraftThread(first), makeDraftThread(second, { createdAt: later })],
+        composerDraftByThreadId: { [first]: imageOnly, [second]: imageOnly },
+      }),
+    );
+    const titles = board.projects[0]!.draft.map((card) => card.title);
+    expect(new Set(titles).size).toBe(2);
+    expect(titles).toContain(formatKanbanUntitledDraftTitle(T0, "zh-CN"));
+    expect(titles).toContain(formatKanbanUntitledDraftTitle(later, "zh-CN"));
+    for (const title of titles) {
+      expect(title).toMatch(/^草稿 \d{1,2}月\d{1,2}日 \d{2}:\d{2}$/);
+      expect(title).not.toMatch(/\.png|image/i);
+    }
+  });
+
+  it("formats 「草稿 + time」 in local time, and falls back to the bare word without a time", () => {
+    const at = new Date(T0);
+    const pad = (value: number) => String(value).padStart(2, "0");
+    expect(formatKanbanUntitledDraftTitle(T0, "zh-CN")).toBe(
+      `草稿 ${at.getMonth() + 1}月${at.getDate()}日 ${pad(at.getHours())}:${pad(at.getMinutes())}`,
+    );
+    expect(formatKanbanUntitledDraftTitle(null, "zh-CN")).toBe("草稿");
+    expect(formatKanbanUntitledDraftTitle("not a date", "en")).toBe("Draft");
   });
 });
 

@@ -24,9 +24,7 @@ import {
 import { isPendingThreadWorktree } from "@moss/shared/threadEnvironment";
 import { composerDraftHasAttachments } from "../../composerDraftDomain";
 import { normalizeAssistantSelectionText } from "../../lib/assistantSelections";
-import { formatBrowserAnnotationLabel } from "../../lib/browserAnnotations";
-import { pastedTextTitle } from "../../lib/composerPastedText";
-import { formatTerminalContextLabel } from "../../lib/terminalContext";
+import { currentUiLocale, isChineseLocale } from "../../lib/timeFormat";
 import type { ComposerThreadDraftState } from "../../composerDraftStore";
 import {
   canSessionAnswerPendingRequests,
@@ -48,8 +46,32 @@ export type KanbanClassicColumnKey = "draft" | "inProgress" | "done";
 
 export const KANBAN_FALLBACK_DRAFT_TITLE = "New thread";
 
-/** Title of a draft that holds attachments but nothing readable to name it by (zh-CN 草稿). */
-export const KANBAN_ATTACHMENT_DRAFT_TITLE = "Draft";
+/**
+ * Title of a draft with no typed or quoted text (only images or files): 「草稿 11月11日 14:05」 /
+ * "Draft Nov 11, 14:05", so several such drafts never read as copies of one another.
+ */
+export function formatKanbanUntitledDraftTitle(
+  iso: string | null | undefined,
+  locale: string,
+): string {
+  const zh = isChineseLocale(locale);
+  const label = zh ? "草稿" : "Draft";
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return label;
+  if (zh) {
+    // Built by hand: ICU builds disagree on zh-CN short dates ("11/11" vs "11月11日").
+    const pad = (value: number) => String(value).padStart(2, "0");
+    return `${label} ${date.getMonth() + 1}月${date.getDate()}日 ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+  const time = new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+  return `${label} ${time}`;
+}
 
 /** Pending composer content for one thread, projected from the composer draft store. */
 export interface KanbanComposerDraftSnapshot {
@@ -57,8 +79,9 @@ export interface KanbanComposerDraftSnapshot {
   /** Files, images, terminal contexts, or references attached to the composer draft. */
   hasAttachments: boolean;
   /**
-   * Words that name an attachment-only draft on its card: the first line of a quoted reply,
-   * a file comment or pasted text, a picked page element, a terminal range or a file name.
+   * The quoted or typed text that names an attachment-only draft on its card (first line,
+   * trimmed): a quoted reply, a file or page comment, pasted text or quoted terminal lines.
+   * Never a file name: "image-1.png" says nothing about the task.
    */
   attachmentTitle?: string | null;
   providerInstanceId: ProviderInstanceId | null;
@@ -109,42 +132,28 @@ function firstTextLine(text: string): string {
 }
 
 /**
- * What an attachment-only draft is about, in the attachment's own words, so the board never
- * shows a row of identical "Attached references" cards. Quotes and notes come first (they say
- * what the task is), then a picked page element, terminal lines and file names.
+ * What an attachment-only draft is about, in the words quoted or typed into it, so the board
+ * never shows a row of identical cards. A quoted reply comes first (it says what the task is),
+ * then comments the person typed, pasted text, quoted page text and quoted terminal lines.
+ * Files and images have no text to offer; those drafts get 「草稿 + time」 instead.
  */
 function resolveDraftAttachmentTitle(draft: KanbanComposerDraftSource): string | null {
-  const candidates: Array<() => string> = [
+  const texts: Array<() => string | undefined> = [
     () =>
-      firstTextLine(
-        draft.assistantSelections
-          .map((selection) => normalizeAssistantSelectionText(selection.text))
-          .find((text) => text.length > 0) ?? "",
-      ),
-    () => firstTextLine(draft.fileComments.find((comment) => comment.text.trim())?.text ?? ""),
-    () => {
-      const pasted = draft.pastedTexts.find((entry) => entry.text.trim().length > 0);
-      return pasted ? pastedTextTitle(pasted.text) : "";
-    },
-    () => {
-      const annotation = draft.browserAnnotations?.[0];
-      return annotation ? formatBrowserAnnotationLabel(annotation) : "";
-    },
-    () => {
-      const context = draft.terminalContexts.find((entry) => entry.text.trim().length > 0);
-      return context ? formatTerminalContextLabel(context) : "";
-    },
+      draft.assistantSelections
+        .map((selection) => normalizeAssistantSelectionText(selection.text))
+        .find((text) => text.length > 0),
+    () => draft.fileComments.find((comment) => comment.text.trim())?.text,
+    () => draft.pastedTexts.find((entry) => entry.text.trim())?.text,
     () =>
-      (
-        draft.files[0]?.name ??
-        draft.images[0]?.name ??
-        draft.persistedAttachments[0]?.name ??
-        ""
-      ).trim(),
+      draft.browserAnnotations
+        ?.map((annotation) => annotation.comment?.trim() || annotation.text?.trim() || "")
+        .find((text) => text.length > 0),
+    () => draft.terminalContexts.find((entry) => entry.text.trim())?.text,
   ];
-  for (const candidate of candidates) {
-    const title = candidate();
-    if (title.length > 0) return title;
+  for (const text of texts) {
+    const line = firstTextLine(text() ?? "");
+    if (line.length > 0) return line;
   }
   return null;
 }
@@ -320,6 +329,8 @@ export interface BuildKanbanBoardInput {
   optimisticDispatchByThreadId?: Readonly<
     Record<string, KanbanOptimisticDispatchSnapshot | undefined>
   >;
+  /** UI language for the 「草稿 + time」 title of drafts with no text; defaults to the app's. */
+  locale?: string;
 }
 
 export function kanbanThreadCardId(threadId: ThreadId): string {
@@ -603,15 +614,13 @@ function buildUnsentPromptCard(
   thread: SidebarThreadSummary,
   composerDraftByThreadId: BuildKanbanBoardInput["composerDraftByThreadId"],
   isTerminal: boolean,
+  locale: string,
 ): KanbanCard | null {
   const composerDraft = resolveComposerDraft(composerDraftByThreadId, thread.id);
   if (composerDraft.prompt.length === 0 && !composerDraft.hasAttachments) {
     return null;
   }
-  const titleSeed =
-    composerDraft.prompt.length > 0
-      ? composerDraft.prompt
-      : (composerDraft.attachmentTitle ?? KANBAN_ATTACHMENT_DRAFT_TITLE);
+  const timestamp = thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt ?? null;
   const threadProvider = isTerminal
     ? null
     : (thread.session?.provider ?? thread.modelSelection.provider);
@@ -620,7 +629,7 @@ function buildUnsentPromptCard(
     threadId: thread.id,
     projectId: thread.projectId,
     column: "draft",
-    title: buildPromptThreadTitleFallback(titleSeed),
+    title: resolveDraftCardTitle(composerDraft, timestamp, locale),
     provider: composerDraft.provider ?? threadProvider,
     providerInstanceId:
       composerDraft.providerInstanceId ??
@@ -643,9 +652,25 @@ function buildUnsentPromptCard(
   };
 }
 
+/**
+ * A draft card's title: the typed prompt, else the quoted text, each by its first line
+ * (trimmed, capped like thread titles); a draft with neither reads 「草稿 + time」.
+ */
+function resolveDraftCardTitle(
+  composerDraft: { prompt: string; attachmentTitle: string | null },
+  timestamp: string | null,
+  locale: string,
+): string {
+  const text = firstTextLine(composerDraft.prompt) || composerDraft.attachmentTitle;
+  return text
+    ? buildPromptThreadTitleFallback(text)
+    : formatKanbanUntitledDraftTitle(timestamp, locale);
+}
+
 function buildLocalDraftCard(
   draftThread: KanbanDraftThreadSnapshot,
   composerDraftByThreadId: BuildKanbanBoardInput["composerDraftByThreadId"],
+  locale: string,
 ): KanbanCard {
   const composerDraft = resolveComposerDraft(composerDraftByThreadId, draftThread.threadId);
   return {
@@ -654,13 +679,9 @@ function buildLocalDraftCard(
     projectId: draftThread.projectId,
     column: "draft",
     title:
-      composerDraft.prompt.length > 0
-        ? buildPromptThreadTitleFallback(composerDraft.prompt)
-        : composerDraft.hasAttachments
-          ? buildPromptThreadTitleFallback(
-              composerDraft.attachmentTitle ?? KANBAN_ATTACHMENT_DRAFT_TITLE,
-            )
-          : KANBAN_FALLBACK_DRAFT_TITLE,
+      composerDraft.prompt.length > 0 || composerDraft.hasAttachments
+        ? resolveDraftCardTitle(composerDraft, draftThread.createdAt, locale)
+        : KANBAN_FALLBACK_DRAFT_TITLE,
     provider: composerDraft.provider,
     providerInstanceId: composerDraft.providerInstanceId,
     isTerminal: false,
@@ -900,6 +921,7 @@ export function buildKanbanBoard(
   const threadIds = new Set<string>();
   const cardsByProjectId = new Map<ProjectId, KanbanProjectBuckets>();
   const knownProjectIds = new Set<string>(input.projects.map((project) => project.id));
+  const locale = input.locale ?? currentUiLocale();
   const optimisticDispatchByThreadId = input.optimisticDispatchByThreadId ?? {};
   const handledOptimisticThreadIds = new Set<string>();
 
@@ -952,6 +974,7 @@ export function buildKanbanBoard(
         thread,
         input.composerDraftByThreadId,
         isTerminal,
+        locale,
       );
       if (unsentPromptCard && cardPassesNeedsReviewFilter(unsentPromptCard)) {
         bucket.draft.push(unsentPromptCard);
@@ -979,7 +1002,7 @@ export function buildKanbanBoard(
     if (!optimisticEntry && composerDraft.prompt.length === 0 && !composerDraft.hasAttachments) {
       continue;
     }
-    const card = buildLocalDraftCard(draftThread, input.composerDraftByThreadId);
+    const card = buildLocalDraftCard(draftThread, input.composerDraftByThreadId, locale);
     if (optimisticEntry) {
       handledOptimisticThreadIds.add(draftThread.threadId);
       bucketFor(boardProjectId).inProgress.push(

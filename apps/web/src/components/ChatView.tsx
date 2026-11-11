@@ -514,10 +514,6 @@ import { GroupPausedBanner } from "./chat/group/GroupPausedBanner";
 import { useProjectInstructionsSource } from "./chat/project/useProjectInstructionsSource";
 import { resolveProjectPanelEnabled } from "./chat/auxiliary/auxiliaryPanel.logic";
 import { useAuxiliarySurface } from "./chat/auxiliary/useAuxiliarySurface";
-import {
-  createGroupNeedsAttentionSelector,
-  type GroupNeedsAttentionGroup,
-} from "./chat/project/groupOverview.logic";
 import { usePinnedMessageActions } from "./chat/environment/usePinnedMessageActions";
 import {
   CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
@@ -1624,7 +1620,7 @@ export default function ChatView({
     markThreadVisited,
   ]);
 
-  const { coordinatorThreadIds, summariesByProjectId, summaryFor } = useProjectAgentSummaries();
+  const { coordinatorThreadIds, summaryFor } = useProjectAgentSummaries();
   const isCoordinatorConversation = Boolean(
     activeThread && coordinatorThreadIds.has(activeThread.id),
   );
@@ -6726,24 +6722,6 @@ export default function ChatView({
     scheduleComposerFocus();
   }, [scheduleComposerFocus, updateSettings]);
 
-  // Only built when the Group panel applies — in every other chat view the
-  // needs-attention selector has no consumer and stays empty. No manual
-  // useMemo: the compiler owns this scope (see chatHotPath.compiler.test.ts).
-  const projectPanelAttentionGroups = new Map<ProjectId, GroupNeedsAttentionGroup>();
-  if (projectPanelEnabled && activeProject) {
-    const summary = summariesByProjectId.get(activeProject.id);
-    projectPanelAttentionGroups.set(activeProject.id, {
-      projectId: activeProject.id,
-      coordinatorThreadId: summary?.coordinatorThreadId ?? null,
-      memberThreadIds: new Set(summary?.memberThreadIds ?? []),
-      needsYouThreadIds: new Set(summary?.needsYouThreadIds ?? []),
-    });
-  }
-  const projectPanelNeedsAttention = useStore(
-    createGroupNeedsAttentionSelector({
-      groups: projectPanelAttentionGroups,
-    }),
-  );
   // "Use default" in group settings means the app default — the project's default
   // model first, then the user's default provider, never the active thread's model.
   const groupPanelDefaultModelSelection = useMemo<ModelSelection>(
@@ -7456,14 +7434,6 @@ export default function ChatView({
     ? {
         open: environmentPanelVisibleEffective,
         onOpenChange: setEnvironmentFromAuxiliary,
-      }
-    : null;
-  const projectHeaderState = projectPanelEnabled
-    ? {
-        open: projectPanelVisible,
-        onOpenChange: setProjectFromAuxiliary,
-        attention:
-          activeProject === undefined ? false : projectPanelNeedsAttention.has(activeProject.id),
       }
     : null;
   const libraryHeaderState = projectPanelEnabled
@@ -8302,7 +8272,6 @@ export default function ChatView({
             {...(onToggleRightDock ? { onToggleRightDock } : {})}
             rightDockShortcutLabel={rightPanelShortcutLabel}
             environment={isEditorRail ? null : environmentHeaderState}
-            projectPanel={isEditorRail ? null : projectHeaderState}
             libraryPanel={isEditorRail ? null : libraryHeaderState}
             surfaceMode={surfaceMode}
             editorChatControls={

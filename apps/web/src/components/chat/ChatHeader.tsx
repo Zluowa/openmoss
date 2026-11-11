@@ -26,7 +26,6 @@ import {
   LayoutRightIcon,
   PlusIcon,
   TerminalIcon,
-  WorkflowIcon,
   XIcon,
   GitBranchIcon,
 } from "~/lib/icons";
@@ -142,7 +141,6 @@ interface ChatHeaderProps {
   // Open-in-editor + git-actions + diff-toggle cluster into one Environment button that
   // drives the Environment panel; otherwise the legacy cluster is rendered.
   environment?: EnvironmentToggleState | null;
-  projectPanel?: SurfacePanelToggleState | null;
   libraryPanel?: SurfacePanelToggleState | null;
   // Editor-rail chat controls rendered beside the title: a "new chat" button and
   // a project chat-history menu. Provided only by the editor workspace chat pane.
@@ -473,7 +471,6 @@ export function ChatHeader({
   surfaceMode: surfaceModeProp,
   isSidechat: isSidechatProp,
   environment: environmentProp,
-  projectPanel = null,
   libraryPanel = null,
   editorChatControls: editorChatControlsProp,
   onRunProjectScript,
@@ -859,14 +856,8 @@ export function ChatHeader({
         {environment ? (
           <>
             <EnvironmentToggle environment={environment} />
-            {projectPanel ? (
-              <SurfacePanelToggle
-                state={projectPanel}
-                icon={WorkflowIcon}
-                ariaLabel="Toggle hub panel"
-                tooltip="Hub"
-              />
-            ) : null}
+            {/* No Hub button: Hubs are gone (2026-11-10). A Mossbot chat opens its overview
+                from the assistant's ··· menu (More → Overview). */}
             {libraryPanel ? (
               <SurfacePanelToggle
                 state={libraryPanel}

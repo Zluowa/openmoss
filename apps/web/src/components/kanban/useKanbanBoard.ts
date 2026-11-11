@@ -12,6 +12,7 @@ import { useStableValue } from "~/hooks/useStableValue";
 import { useThreadPullRequests } from "~/hooks/useThreadPullRequests";
 import { toastManager } from "~/components/ui/toast";
 import { useComposerDraftStore } from "../../composerDraftStore";
+import { useTranslation } from "~/localization";
 import { useKanbanUiStore } from "../../kanbanUiStore";
 import { isHomeChatContainerProject } from "../../lib/chatProjects";
 import { isGroupContainerProject } from "../../lib/groupProjects";
@@ -43,6 +44,7 @@ const OPTIMISTIC_DISPATCH_EXPIRY_CHECK_MS = 5_000;
 
 export function useKanbanBoard(): KanbanBoard {
   const { settings } = useAppSettings();
+  const { locale } = useTranslation();
   // Memoized so the selector's internal reference cache survives across
   // renders (mirroring Sidebar.tsx); rebuilding it inline each render returned
   // a fresh `threads` array every time, which re-fired the effects below and
@@ -322,6 +324,7 @@ export function useKanbanBoard(): KanbanBoard {
           projectIdAliases,
           terminalEntryThreadIds,
           optimisticDispatchByThreadId,
+          locale,
         },
         {
           now: nowMs,
@@ -342,6 +345,7 @@ export function useKanbanBoard(): KanbanBoard {
       projectIdAliases,
       terminalEntryThreadIds,
       optimisticDispatchByThreadId,
+      locale,
       nowMs,
       needsReviewByThreadId,
       kanbanNeedsReviewFilter,
