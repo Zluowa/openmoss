@@ -3,6 +3,7 @@ import { EventId, type OrchestrationThreadActivity, TurnId } from "@moss/contrac
 
 import {
   nominalClaudeContextWindowTokens,
+  withContextWindowMaxTokens,
   deriveContextWindowSelectionStatus,
   deriveComposerContextWindowLabel,
   deriveAppliedContextWindowSelection,
@@ -509,5 +510,25 @@ describe("nominal Claude context window", () => {
     expect(nominalClaudeContextWindowTokens(258_000)).toBeNull();
     expect(nominalClaudeContextWindowTokens(128_000)).toBeNull();
     expect(nominalClaudeContextWindowTokens(null)).toBeNull();
+  });
+});
+
+describe("withContextWindowMaxTokens", () => {
+  it("measures the same usage against the model window", () => {
+    const snapshot = {
+      usedTokens: 18_000,
+      maxTokens: 167_000,
+      remainingTokens: 149_000,
+      usedPercentage: 10.8,
+      remainingPercentage: 89.2,
+      updatedAt: "2026-09-17T00:00:01Z",
+    } as Parameters<typeof withContextWindowMaxTokens>[0];
+    expect(withContextWindowMaxTokens(snapshot, 200_000)).toMatchObject({
+      usedTokens: 18_000,
+      maxTokens: 200_000,
+      remainingTokens: 182_000,
+      usedPercentage: 9,
+      remainingPercentage: 91,
+    });
   });
 });

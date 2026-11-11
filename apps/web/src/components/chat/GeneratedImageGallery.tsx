@@ -28,9 +28,10 @@ import { useTranslation } from "../../localization";
 import { Button } from "../ui/button";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 import { GeneratedImagePreviewIcon } from "./GeneratedImagePreviewIcon";
-import type {
-  GeneratedImageGallery as GeneratedImageGalleryModel,
-  GeneratedImageGalleryImage,
+import {
+  generatedImageDisplayName,
+  type GeneratedImageGallery as GeneratedImageGalleryModel,
+  type GeneratedImageGalleryImage,
 } from "./generatedImageGallery.logic";
 
 const GALLERY_GAP_PX = 8;
@@ -207,7 +208,7 @@ export function GeneratedImageGallery({
   onImageExpand,
   className,
 }: GeneratedImageGalleryProps) {
-  const { t, format } = useTranslation();
+  const { t, format, locale } = useTranslation();
   // The canvas edits the owner's own files; a shared conversation's guest zooms the image
   // instead (the click on the image itself opens it the same way for both).
   const sharedViewer = useIsSharedViewer();
@@ -343,11 +344,18 @@ export function GeneratedImageGallery({
           kind: "generated-image",
           groupId,
           createdAt,
-          images: gallery.images.map((candidate) => ({
+          images: gallery.images.map((candidate, candidateIndex) => ({
             id: candidate.id,
             path: candidate.path,
-            name:
-              localImageFileName(candidate.path) || t("chat.markdown.generatedImage.defaultAlt"),
+            name: generatedImageDisplayName({
+              path: candidate.path,
+              createdAt,
+              index: candidateIndex,
+              count: gallery.images.length,
+              locale,
+              format: (time) => format("chat.markdown.generatedImage.timedName", { time }),
+              fallback: t("chat.markdown.generatedImage.defaultAlt"),
+            }),
           })),
           activeImageId: image.id,
           index: imageIndex,
@@ -356,7 +364,7 @@ export function GeneratedImageGallery({
         },
       });
     },
-    [createdAt, cwd, gallery.images, groupId, onImageExpand, t],
+    [createdAt, cwd, format, gallery.images, groupId, locale, onImageExpand, t],
   );
 
   return (

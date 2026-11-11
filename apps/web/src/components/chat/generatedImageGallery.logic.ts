@@ -1,5 +1,6 @@
 // Shared typed image lifecycle grouping; failed records never become pending.
 import type { TurnId } from "@moss/contracts";
+import { isMossConversationImageSource, localImageFileName } from "../../lib/localImageUrls";
 import type { TimelineEntry, WorkLogEntry, WorkLogGeneratedImage } from "../../workLog";
 
 export interface GeneratedImageGalleryImage {
@@ -205,4 +206,46 @@ export function hasGeneratedImageGalleryContent(
   gallery: GeneratedImageGallery | null | undefined,
 ): boolean {
   return Boolean(gallery && (gallery.images.length > 0 || gallery.pendingImageCount > 0));
+}
+
+/**
+ * The name a generated image carries into the Canvas and the viewer: "图片 12:44",
+ * numbered when one turn made several. Its address ("0?accountScope=…") is not
+ * a name. Null when the turn has no usable time.
+ */
+export function generatedImageTimedName(input: {
+  readonly createdAt: string | null | undefined;
+  readonly index: number;
+  readonly count: number;
+  readonly locale: string;
+  readonly format: (time: string) => string;
+}): string | null {
+  const at = input.createdAt ? new Date(input.createdAt) : null;
+  if (!at || !Number.isFinite(at.getTime())) return null;
+  const time = new Intl.DateTimeFormat(input.locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(at);
+  const name = input.format(time);
+  return input.count > 1 ? `${name} (${input.index + 1})` : name;
+}
+
+/**
+ * The name a generated image carries into the Canvas and the viewer. A real
+ * file keeps its file name; a Moss media address ("0?accountScope=…") is not a
+ * name, so that image is named by its turn's time ("图片 12:44").
+ */
+export function generatedImageDisplayName(input: {
+  readonly path: string;
+  readonly createdAt: string | null | undefined;
+  readonly index: number;
+  readonly count: number;
+  readonly locale: string;
+  readonly format: (time: string) => string;
+  readonly fallback: string;
+}): string {
+  const fileName = isMossConversationImageSource(input.path) ? "" : localImageFileName(input.path);
+  if (fileName && !/[?#=]/u.test(fileName)) return fileName;
+  return generatedImageTimedName(input) ?? (localImageFileName(input.path) || input.fallback);
 }

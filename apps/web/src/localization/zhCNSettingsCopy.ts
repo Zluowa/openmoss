@@ -239,7 +239,6 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Command:": "命令：",
   "No providers enabled. Open Disabled providers below to enable one.":
     "没有启用任何服务商。请打开下方的“已停用的服务商”来启用。",
-  "Disabled providers (": "已停用的服务商（",
   "Conventional Commits": "约定式提交",
   "Use Conventional Commit prefixes and keep change request text concise.":
     "使用约定式提交前缀，并保持变更请求的文字简洁。",
@@ -472,6 +471,10 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
     "Claude 的 token 总量来自可核实的记录。较早的历史和未完成的回合可能不完整。",
   "Share of tracked tokens.": "已统计 token 的占比。",
   "Share of turns.": "回合占比。",
+  // ProfileUsageCoverage renders the provider list as its own text node, so the sentence
+  // after it arrives starting with the period that closes that list.
+  ". Percentages reflect tracked tokens only. Their turns still count toward activity totals.":
+    "。百分比只按已统计的 token 计算，这些服务商的回合仍计入活动总数。",
   "Sidebar usage ring": "侧边栏用量圆环",
   "No usage data reported yet.": "还没有上报用量数据。",
   "Open the details below the limits. When off, they stay behind the Details toggle; your last toggle also updates this preference.":
@@ -809,6 +812,14 @@ const SETTINGS_COPY_PATTERNS: ReadonlyArray<readonly [RegExp, (match: RegExpExec
     ],
     [/^(\d+) updates? available$/, (match) => `${match[1]} 个更新可用`],
     [/^(\d+) installed$/, (match) => `已安装 ${match[1]} 个`],
+    // One text node, so both brackets come out full width.
+    [/^Disabled providers \((\d+)\)$/, (match) => `已停用的服务商（${match[1]}）`],
+    // Profile "Most used provider": `${provider} · ${percent}% of ${basis}`.
+    [
+      /^(.+) · (\d+(?:\.\d+)?)% of (tracked tokens|turns)$/,
+      (match) =>
+        `${match[1]} · 占${match[3] === "turns" ? "回合的" : "已统计 token 的"} ${match[2]}%`,
+    ],
     [/^(.+) · Shared \(\.agents\)$/, (match) => `${match[1]} · 共享（.agents）`],
     [/^From Shared \(\.agents\)$/, () => "来自共享（.agents）"],
     // External agent permissions are one " · " list built in externalMcpSetup.ts.

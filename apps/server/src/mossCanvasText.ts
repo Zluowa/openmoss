@@ -5,8 +5,38 @@ import {
 } from "./account/mossGatewayModels";
 import { MossMediaJobsError, type MossMediaCredential } from "./mossMediaJobsService";
 
+const TEXT_MODELS_REUSE_MS = 60_000;
+const textModels = new Map<
+  string,
+  { readonly at: number; readonly value: Promise<ReadonlyArray<string>> }
+>();
+
 /** Canvas uses the same entitled gateway and actual-cost ledger as Moss chat. */
-export async function mossCanvasTextModels(
+export function mossCanvasTextModels(
+  credential: MossMediaCredential,
+): Promise<ReadonlyArray<string>> {
+  // Opening a Canvas and each text request ask for the same list; one answer
+  // serves them for a minute. A failed read is never reused.
+  const key = JSON.stringify([
+    credential.realm,
+    credential.account.id,
+    credential.gatewayBaseUrl,
+    credential.accessToken,
+  ]);
+  const now = Date.now();
+  for (const [entryKey, entry] of textModels)
+    if (now - entry.at >= TEXT_MODELS_REUSE_MS || now < entry.at) textModels.delete(entryKey);
+  const cached = textModels.get(key);
+  if (cached) return cached.value;
+  const value = fetchMossCanvasTextModels(credential);
+  textModels.set(key, { at: now, value });
+  value.catch(() => {
+    if (textModels.get(key)?.value === value) textModels.delete(key);
+  });
+  return value;
+}
+
+async function fetchMossCanvasTextModels(
   credential: MossMediaCredential,
 ): Promise<ReadonlyArray<string>> {
   const catalog = normalizeMossGatewayModelCatalog(
@@ -127,4 +157,9 @@ export async function relayMossCanvasText(
       ...(usage ? { usage } : {}),
     },
   };
+}
+
+/** Tests only: forget the reused text model lists. */
+export function resetMossCanvasTextModelsReuse(): void {
+  textModels.clear();
 }

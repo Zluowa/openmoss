@@ -98,9 +98,19 @@ function exceedsKeybindingLimit(previousCount: number, nextCount: number): boole
 
 const SIDEBAR_SEARCH_DEFAULT_KEYBINDINGS = [
   // Cmd-only on macOS so Ctrl+K stays available for kill-to-end-of-line.
-  // Keep Ctrl+K on Windows/Linux (where `mod` would otherwise be Ctrl).
-  { key: "cmd+k", command: "sidebar.search" },
+  // Keep Ctrl+K on Windows/Linux (where `mod` would otherwise be Ctrl). The Cmd rule is
+  // macOS-only: elsewhere `cmd` is the Windows/Super key, which the system keeps, and the
+  // shortcut editor listed it as a second "Meta+K".
+  { key: "cmd+k", command: "sidebar.search", when: "isMac" },
   { key: "ctrl+k", command: "sidebar.search", when: "!isMac" },
+] as const satisfies ReadonlyArray<KeybindingRule>;
+
+const COMPOSER_FOCUS_DEFAULT_KEYBINDINGS = [
+  // Cmd+L on macOS. On Windows/Linux the bare `cmd+l` was Win+L, which locks the computer
+  // and never reaches Moss, so the shortcut did nothing there. Ctrl+L only while no
+  // terminal has focus keeps the shell's clear-screen chord.
+  { key: "cmd+l", command: "composer.focus.toggle", when: "!terminalFocus && isMac" },
+  { key: "ctrl+l", command: "composer.focus.toggle", when: "!terminalFocus && !isMac" },
 ] as const satisfies ReadonlyArray<KeybindingRule>;
 
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
@@ -131,8 +141,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" },
   { key: "alt+arrowdown", command: "diff.change.next", when: "!terminalFocus" },
   { key: "alt+arrowup", command: "diff.change.previous", when: "!terminalFocus" },
-  // Cmd-only instead of mod so Ctrl+L remains available to shells on non-macOS.
-  { key: "cmd+l", command: "composer.focus.toggle", when: "!terminalFocus" },
+  ...COMPOSER_FOCUS_DEFAULT_KEYBINDINGS,
   { key: "mod+f", command: "chat.find", when: "!terminalFocus" },
   // Workspace search palette: file names and snippet content. Keep these off terminal focus
   // so Ctrl+P/Ctrl+Shift+F remain available to the shell on Windows/Linux.
@@ -625,6 +634,7 @@ const RETIRED_LEGACY_KEYBINDING_COMMANDS = new Set(["chat.newGemini"]);
 const RETIRED_LEGACY_KEYBINDING_COMMAND_PATTERN = /^(?:composer\.)?modelPicker\.jump\.[1-9]$/;
 const OUTDATED_RECENT_VIEW_TERMINAL_GUARD = "!terminalFocus";
 const OUTDATED_SIDEBAR_SEARCH_SHORTCUT = "mod+k";
+const OUTDATED_COMPOSER_FOCUS_GUARD = "!terminalFocus";
 const RECENT_VIEW_SHORTCUT_BY_COMMAND: Partial<Record<KeybindingRule["command"], string>> = {
   "view.recent.next": "ctrl+tab",
   "view.recent.previous": "ctrl+shift+tab",
@@ -756,6 +766,33 @@ function migrateOutdatedSidebarSearchDefault(rules: readonly KeybindingRule[]): 
   return { rules: next, migratedCount };
 }
 
+// The Cmd-only search and composer-focus defaults once had no macOS guard, so on
+// Windows/Linux they bound the Windows/Super key: search showed a second "Meta+K", and
+// composer focus was Win+L, the system's lock chord. Rewrite only those exact shipped
+// shapes; a user's own keys and conditions stay as they are.
+function migrateUnguardedCmdDefaults(rules: readonly KeybindingRule[]): {
+  readonly rules: KeybindingRule[];
+  readonly migratedCount: number;
+} {
+  let migratedCount = 0;
+  const next = rules.flatMap((rule): KeybindingRule[] => {
+    if (rule.command === "sidebar.search" && rule.key === "cmd+k" && rule.when === undefined) {
+      migratedCount += 1;
+      return [{ ...rule, when: "isMac" }];
+    }
+    if (
+      rule.command === "composer.focus.toggle" &&
+      rule.key === "cmd+l" &&
+      rule.when === OUTDATED_COMPOSER_FOCUS_GUARD
+    ) {
+      migratedCount += 1;
+      return COMPOSER_FOCUS_DEFAULT_KEYBINDINGS.map((binding) => ({ ...binding }));
+    }
+    return [rule];
+  });
+  return { rules: next, migratedCount };
+}
+
 // Add the `|| isMac` escape hatch to new-surface creation commands still pinned to the
 // bare `!terminalFocus` guard, so existing configs gain the macOS terminal-focus fix the
 // shipped defaults already carry. Matched on command + exact old guard (not key) so it
@@ -831,7 +868,8 @@ function migrateOutdatedDefaultKeybindingRules(rules: readonly KeybindingRule[])
     return migrated.rule;
   });
   const sidebarSearch = migrateOutdatedSidebarSearchDefault(perRule);
-  const relaxed = relaxCreationCommandTerminalGuards(sidebarSearch.rules);
+  const unguardedCmd = migrateUnguardedCmdDefaults(sidebarSearch.rules);
+  const relaxed = relaxCreationCommandTerminalGuards(unguardedCmd.rules);
   const numberedWorkspace = migrateNumberedTerminalWorkspaceDefaults(relaxed.rules);
   // An expansion can recreate a rule the config already holds; keep its later copy.
   const identities = numberedWorkspace.rules.map(keybindingRuleIdentity);
@@ -843,6 +881,7 @@ function migrateOutdatedDefaultKeybindingRules(rules: readonly KeybindingRule[])
     migratedCount:
       migratedCount +
       sidebarSearch.migratedCount +
+      unguardedCmd.migratedCount +
       relaxed.migratedCount +
       numberedWorkspace.migratedCount,
   };

@@ -4243,7 +4243,52 @@ function extractToolCommand(
 }
 
 function extractToolTitle(payload: Record<string, unknown> | null): string | null {
+  const codeCall = openCodeCodeModeCall(payload);
+  // A script that is neither one tool call nor one tool search reads "Ran code",
+  // never the runner's own name ("Execute").
+  if (codeCall?.kind === "code")
+    return payload?.status === "completed" || payload?.status === "failed"
+      ? "Ran code"
+      : "Running code";
+  // Shaped like other agents' tool searches, so it reads and groups the same.
+  if (codeCall?.kind === "search")
+    return `Search tools: "${[codeCall.namespace, codeCall.query].filter(Boolean).join(" ")}"`;
   return asTrimmedString(payload?.title);
+}
+
+type OpenCodeCodeModeCall =
+  | { readonly kind: "tool"; readonly toolName: string }
+  | { readonly kind: "search"; readonly query: string; readonly namespace: string | null }
+  | { readonly kind: "code" };
+
+const CODE_MODE_TOOL_CALL = /\btools\.([A-Za-z0-9_$-]{1,64})\.([A-Za-z0-9_$]{1,128})\s*\(/gu;
+const CODE_MODE_SEARCH = /\bsearch\s*\(\s*\{\s*query\s*:\s*(["'`])((?:\\.|(?!\1)[^\\])*)\1/gu;
+const CODE_MODE_NAMESPACE = /\bnamespace\s*:\s*["'`]([A-Za-z0-9_-]{1,64})["'`]/u;
+
+/**
+ * OpenCode reaches MCP tools through its code runner: a tool named `execute`
+ * whose input is a short script, `await search({query: "…"})` to find a tool or
+ * `await tools.moss.moss_media_generate({…})` to call one. The row is about the
+ * tool the script calls, so it takes that tool's identity and wording.
+ */
+export function openCodeCodeModeCall(
+  payload: Record<string, unknown> | null,
+): OpenCodeCodeModeCall | null {
+  const data = asRecord(payload?.data);
+  const name = asTrimmedString(data?.toolName ?? data?.tool ?? payload?.toolName);
+  if (name?.toLowerCase() !== "execute") return null;
+  const code = asRecord(data?.input)?.code ?? asRecord(asRecord(data?.state)?.input)?.code;
+  if (typeof code !== "string" || code.length === 0 || code.length > 20_000) return null;
+  const tools = new Set<string>();
+  for (const match of code.matchAll(CODE_MODE_TOOL_CALL))
+    tools.add(match[1] === "moss" ? match[2]! : `mcp__${match[1]}__${match[2]}`);
+  const searches = [...code.matchAll(CODE_MODE_SEARCH)];
+  const query = searches[0]?.[2]?.trim();
+  const namespace = CODE_MODE_NAMESPACE.exec(code)?.[1] ?? null;
+  if (tools.size === 1 && searches.length === 0) return { kind: "tool", toolName: [...tools][0]! };
+  if (tools.size === 0 && searches.length === 1 && query)
+    return { kind: "search", query, namespace };
+  return { kind: "code" };
 }
 
 function extractPrimaryCommandAction(
@@ -4375,6 +4420,8 @@ function compactWorkLogPath(value: string | undefined): string | null {
 }
 
 function extractToolName(payload: Record<string, unknown> | null): string | null {
+  const codeCall = openCodeCodeModeCall(payload);
+  if (codeCall?.kind === "tool") return codeCall.toolName;
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
   const itemInput = asRecord(item?.input);
@@ -4511,6 +4558,9 @@ function extractHtmlDocumentTitle(value: unknown): string | null {
 }
 
 function extractToolSearchQuery(payload: Record<string, unknown> | null): string | null {
+  const codeCall = openCodeCodeModeCall(payload);
+  if (codeCall?.kind === "search")
+    return [codeCall.namespace, codeCall.query].filter(Boolean).join(" ");
   const rawInput = asArgumentRecord(asRecord(payload?.data)?.rawInput);
   if (!rawInput) return null;
   const isSearchTool =

@@ -209,8 +209,10 @@ export function ProjectPanel({
           : coordinatorStatus === "stopped"
             ? GROUP_PANEL_STATUS_DOT.stopped
             : GROUP_PANEL_STATUS_DOT.idle;
-  const coordinatorModel =
-    agent.overview?.config?.coordinatorModelSelection ?? defaultModelSelection;
+  // Only the hub's saved coordinator model is a fact. Before its config loads (or when
+  // there is none) the app default is a guess: the static Codex default showed Mossbot as
+  // "GPT-6 Astra" while it ran on Moss. Show no model rather than a made-up one.
+  const coordinatorModel = agent.overview?.config?.coordinatorModelSelection ?? null;
   const coordinatorModelSummary = resolveThreadModelSummary(coordinatorModel);
   const coordinatorFastModeNotice = useThreadFastModeNotice(
     coordinatorModel?.provider === "claudeAgent" ? coordinatorThreadId : null,

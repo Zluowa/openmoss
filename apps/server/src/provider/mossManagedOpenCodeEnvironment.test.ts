@@ -55,6 +55,20 @@ describe("managed OpenCode model limits", () => {
     );
   });
 
+  it("names the lane Moss like the other agents and still proves an instance saved as before", () => {
+    const instance = fixture();
+    expect(instance.displayName).toBe("Moss");
+    const verify = (displayName: string) =>
+      isVerifiedMossManagedOpenCodeProviderInstance({
+        instanceId: "opencode_moss",
+        instance: { ...instance, displayName },
+        env,
+      });
+    expect(verify("Moss")).toBe(true);
+    expect(verify("Moss DeepSeek & Kimi")).toBe(true);
+    expect(verify("My OpenCode")).toBe(false);
+  });
+
   it("recognizes the prior context catalog so reconciliation can replace it", () => {
     const instance = fixture();
     const config = JSON.parse(instance.environment![0]!.value!);

@@ -10,7 +10,10 @@ import { isTrustedMossManagedGatewayUrl } from "./mossManagedGatewayTrust.ts";
 export const MOSS_MANAGED_OPENCODE_PROVIDER_INSTANCE_ID = "opencode_moss";
 export const MOSS_MANAGED_OPENCODE_CONFIG_ENV_KEY = "OPENCODE_CONFIG_CONTENT";
 export const MOSS_MANAGED_OPENCODE_CREDENTIAL_ENV_KEY = "MOSS_ACCESS_TOKEN";
-export const MOSS_MANAGED_OPENCODE_DISPLAY_NAME = "Moss DeepSeek & Kimi";
+export const MOSS_MANAGED_OPENCODE_DISPLAY_NAME = "Moss";
+// The name the lane carried while it served only DeepSeek and Kimi. Saved instances keep
+// it until the next provisioning writes the current name; it still proves the instance.
+const MOSS_MANAGED_OPENCODE_LEGACY_DISPLAY_NAME = "Moss DeepSeek & Kimi";
 export const MOSS_MANAGED_OPENCODE_LOOPBACK_NO_PROXY = "127.0.0.1,localhost,::1";
 // Keep a managed chat turn within the gateway's bounded streaming budget. A
 // 128k OpenCode output reservation makes reasoning models spend minutes before
@@ -319,7 +322,8 @@ export function isVerifiedMossManagedOpenCodeProviderInstance(input: {
   if (
     input.instanceId !== MOSS_MANAGED_OPENCODE_PROVIDER_INSTANCE_ID ||
     verificationInstance?.driver !== "opencode" ||
-    verificationInstance.displayName !== MOSS_MANAGED_OPENCODE_DISPLAY_NAME ||
+    (verificationInstance.displayName !== MOSS_MANAGED_OPENCODE_DISPLAY_NAME &&
+      verificationInstance.displayName !== MOSS_MANAGED_OPENCODE_LEGACY_DISPLAY_NAME) ||
     config.managed !== true ||
     config.credentialEnvKey !== MOSS_MANAGED_OPENCODE_CREDENTIAL_ENV_KEY ||
     !gatewayBaseUrl ||

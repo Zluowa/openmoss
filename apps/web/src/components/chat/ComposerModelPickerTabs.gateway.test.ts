@@ -1,7 +1,10 @@
 import type { ProviderInstanceId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
-import { isMossGatewayUnreachableState } from "../auth/useMossGatewayUnreachable";
+import {
+  isMossGatewayUnreachableState,
+  resolveMossAccountGatewayState,
+} from "../auth/useMossGatewayUnreachable";
 import { providerReadinessDescriptionKey } from "~/lib/providerReadinessCopy";
 import { resolveComposerModelPickerProviderTabs } from "./ComposerModelPickerTabs";
 
@@ -83,5 +86,38 @@ describe("Moss gateway unreachable", () => {
       expect(row.mossSignIn).toBe(false);
       expect(row.readiness.reason).toBe("moss-gateway-unreachable");
     }
+  });
+});
+
+describe("Moss row in Settings → 模型账号", () => {
+  const signedIn = (modelGatewayStatus?: string) => ({ authenticated: true, modelGatewayStatus });
+  const signedOut = { authenticated: false };
+
+  it("says connected, can't be reached, or unavailable from the gateway's answer", () => {
+    expect(resolveMossAccountGatewayState({ accounts: [signedIn("ready")], loading: false })).toBe(
+      "connected",
+    );
+    expect(
+      resolveMossAccountGatewayState({
+        accounts: [signedIn("transport-degraded"), signedOut],
+        loading: false,
+      }),
+    ).toBe("unreachable");
+    expect(
+      resolveMossAccountGatewayState({ accounts: [signedIn("no-entitlement")], loading: false }),
+    ).toBe("unavailable");
+    // A gateway that hasn't answered yet reads like the lanes the account already has.
+    expect(resolveMossAccountGatewayState({ accounts: [signedIn()], loading: false })).toBe(
+      "connected",
+    );
+  });
+
+  it("says signed out only once every way to sign in has answered", () => {
+    expect(
+      resolveMossAccountGatewayState({ accounts: [signedOut, undefined], loading: true }),
+    ).toBe("checking");
+    expect(
+      resolveMossAccountGatewayState({ accounts: [signedOut, signedOut], loading: false }),
+    ).toBe("signed-out");
   });
 });

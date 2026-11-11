@@ -481,6 +481,36 @@ describe("resolveAvailableProviderPreference", () => {
     ).toBe("codex");
   });
 
+  it("keeps the default agent while its Moss lane works and its local login is signed out", () => {
+    expect(
+      resolveAvailableProviderPreference({
+        preferredProvider: "codex",
+        statuses: [
+          {
+            ...READY_STATUS,
+            provider: "codex",
+            instanceId: "codex",
+            driver: "codex",
+            authStatus: "unauthenticated",
+          },
+          {
+            ...READY_STATUS,
+            provider: "pi",
+            instanceId: "pi",
+            driver: "pi",
+          },
+          {
+            ...READY_STATUS,
+            provider: "codex",
+            instanceId: "codex_moss",
+            driver: "codex",
+          },
+        ],
+        providerOrder: ["pi", "codex"],
+      }),
+    ).toBe("codex");
+  });
+
   it("preserves the preference while provider status is loading", () => {
     expect(
       resolveAvailableProviderPreference({

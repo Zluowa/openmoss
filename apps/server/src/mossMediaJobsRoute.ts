@@ -226,8 +226,18 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
         error: { code: "authentication_required", message: "请先登录 Moss 账号。" },
       });
     }
-    const installed =
-      url.pathname === PREFIX ? yield* Effect.result(installedMossMediaModels) : null;
+    // Listing the jobs needs both the installed media plugins and the cloud
+    // credential; each can take seconds (a cold plugin listing, a sign-in check
+    // over the network), so ask for them together.
+    const [installed, prefetchedCloud] =
+      url.pathname === PREFIX
+        ? request.method === "GET" && cloudResult === null
+          ? yield* Effect.all(
+              [Effect.result(installedMossMediaModels), Effect.result(resolveMossMediaCredential)],
+              { concurrency: "unbounded" },
+            )
+          : [yield* Effect.result(installedMossMediaModels), null]
+        : [null, null];
     const credential = {
       ...result.success,
       ...(installed?._tag === "Success" ? { installedModelIds: installed.success } : {}),
@@ -243,7 +253,12 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
       cloudCredential
         ? Effect.succeed(cloudCredential)
         : Effect.gen(function* () {
-            const current = yield* resolveMossMediaCredential;
+            const current =
+              prefetchedCloud === null
+                ? yield* resolveMossMediaCredential
+                : prefetchedCloud._tag === "Success"
+                  ? prefetchedCloud.success
+                  : yield* Effect.fail(prefetchedCloud.failure);
             if (
               current.account.id !== credential.account.id ||
               current.realm !== credential.realm ||

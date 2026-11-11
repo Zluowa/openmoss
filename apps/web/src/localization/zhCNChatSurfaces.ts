@@ -37,6 +37,9 @@ const CHAT_SURFACE_COPY: Readonly<Record<string, string>> = {
   "Cache state is estimated. It does not measure your plan's remaining usage.":
     "缓存状态是估算值，不代表你的方案剩余用量。",
   "Auto-compact target:": "自动压缩目标：",
+  // Claude's window picker in the composer model menu.
+  "Auto-compact": "自动压缩",
+  "Auto (Claude Code)": "自动（由 Claude Code 决定）",
   "The session's auto-compact target can be lower than the model's supported window.":
     "会话的自动压缩目标可能低于模型支持的上下文窗口。",
   "Starting compaction...": "正在开始压缩…",

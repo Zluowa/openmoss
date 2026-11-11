@@ -360,7 +360,11 @@ export interface ComposerDraftStoreState {
     threadId: ThreadId,
     modelOptions: ProviderModelOptions | null | undefined,
   ) => void;
-  applyStickyState: (threadId: ThreadId) => void;
+  /**
+   * Seeds a new chat's draft with the remembered models. `newChatProvider` is the agent the
+   * chat defaults to; the last-used account is kept only when it belongs to that agent.
+   */
+  applyStickyState: (threadId: ThreadId, newChatProvider?: ProviderKind) => void;
   setProviderModelOptions: (
     threadId: ThreadId,
     provider: ProviderKind,

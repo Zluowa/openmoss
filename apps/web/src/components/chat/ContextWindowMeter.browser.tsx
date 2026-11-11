@@ -66,11 +66,35 @@ it("shows Auto as applied with the 967k runtime threshold and no pending Auto", 
       pendingWindowLabel={status.pendingSelectedLabel}
     />,
   );
-  await page.getByRole("button", { name: "Context window 52% used" }).click();
+  // Measured against the 1M window the composer names, not the 967k budget.
+  await page.getByRole("button", { name: "Context window 50% used" }).click();
   await expect.element(page.getByText("Auto-compact target: Auto")).toBeVisible();
   // Claude's 967k is its auto-compact threshold: the popover names the 1M window like the
   // composer does, and says where it compacts.
   await expect.element(page.getByText("Model window: 1M tokens")).toBeVisible();
   await expect.element(page.getByText("Compacts automatically at 967k tokens")).toBeVisible();
   await expect.element(page.getByText("Next turn:", { exact: false })).not.toBeInTheDocument();
+});
+
+it("uses the model window the composer names for every number, and says where it compacts", async () => {
+  const usage = deriveLatestContextWindowState([
+    {
+      id: EventId.makeUnsafe("usage-200k"),
+      kind: "context-window.updated",
+      tone: "info",
+      summary: "Usage",
+      payload: { usedTokens: 18_000, maxTokens: 167_000, usedPercent: 10.8 },
+      turnId: null,
+      createdAt: "2026-09-17T00:00:01Z",
+    },
+  ]).snapshot!;
+  await render(<ContextWindowMeter usage={usage} showClaudeCache activeWindowLabel="200k" />);
+  await page.getByRole("button", { name: "Context window 9% used" }).click();
+  await expect.element(page.getByText("200k context used")).toBeVisible();
+  await expect.element(page.getByText("Model window: 200k tokens")).toBeVisible();
+  await expect.element(page.getByText("Compacts automatically at 167k tokens")).toBeVisible();
+  await expect.element(page.getByText("167k context used")).not.toBeInTheDocument();
+  await expect
+    .element(page.getByText("Auto-compact target", { exact: false }))
+    .not.toBeInTheDocument();
 });

@@ -5,6 +5,7 @@
 
 import type { ModelSlug, ProviderInstanceId, ProviderKind } from "@moss/contracts";
 import { getDefaultModel, resolveSelectableModel } from "@moss/shared/model";
+import { sortByMossCatalogOrder } from "@moss/shared/mossRealmCatalog";
 
 import { type StarredModel, starredModelInstanceId, starredModelKey } from "~/lib/starredModels";
 import {
@@ -18,6 +19,7 @@ import {
   planComposerEffortChange,
   supportsComposerFastModeControl,
 } from "./composerTraits";
+import { isMossManagedSourceInstanceId } from "./providerAccountSources";
 
 type ComposerTraitSelection = ReturnType<typeof getComposerTraitSelection>;
 
@@ -195,7 +197,13 @@ export function buildProviderTabRows(input: {
             .includes(query),
         )
       : input.options;
-  return groupProviderModelOptions(filteredOptions).flatMap((group) =>
+  // A Moss lane lists its models in the one catalog order, so the same row (and Ctrl
+  // number) is the same model in every agent. Pi and OpenCode arrive default-first.
+  const orderedOptions =
+    input.instanceId && isMossManagedSourceInstanceId(input.instanceId as ProviderInstanceId)
+      ? sortByMossCatalogOrder(filteredOptions)
+      : filteredOptions;
+  return groupProviderModelOptions(orderedOptions).flatMap((group) =>
     group.options.map((option) => ({
       key: `${input.instanceId ?? provider}:${option.slug}`,
       provider,

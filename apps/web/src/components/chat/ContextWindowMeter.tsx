@@ -6,6 +6,7 @@ import {
   formatContextWindowTokens,
   formatCostUsd,
   nominalClaudeContextWindowTokens,
+  withContextWindowMaxTokens,
 } from "~/lib/contextWindow";
 import { useTranslation } from "~/localization";
 import { useState } from "react";
@@ -31,11 +32,16 @@ export function ContextWindowMeter(props: {
   const { usage, cumulativeCostUsd, activeWindowLabel, pendingWindowLabel } = props;
   const [open, setOpen] = useState(false);
   const nowMs = useNowMs(open && usage.claudeCache != null, 10_000);
-  const display = deriveContextWindowMeterDisplay(usage);
-  // Claude: name the model's window like the composer does, and say where it compacts.
+  // Claude reports its compaction budget (167k of a 200k model) as the window. Every number
+  // here uses the model's window, the one the composer names ("(200k)"), and one line says
+  // where it compacts.
   const nominalWindowTokens = props.showClaudeCache
     ? nominalClaudeContextWindowTokens(usage.maxTokens)
     : null;
+  const shownUsage = nominalWindowTokens
+    ? withContextWindowMaxTokens(usage, nominalWindowTokens)
+    : usage;
+  const display = deriveContextWindowMeterDisplay(shownUsage);
   // Never an empty dial once anything is used: a sliver keeps "some" distinct from "none".
   const sectorPath = contextWindowMeterSectorPath(
     display.normalizedPercentage > 0 ? Math.max(display.normalizedPercentage, 4) : 0,
@@ -122,7 +128,7 @@ export function ContextWindowMeter(props: {
                   <span>{display.tokenUsageLabel}</span>
                   <span>/</span>
                   <span>
-                    {formatContextWindowTokens(usage.maxTokens)}{" "}
+                    {formatContextWindowTokens(shownUsage.maxTokens)}{" "}
                     {t("chat.contextWindow.contextUsed")}
                   </span>
                 </>
@@ -138,7 +144,7 @@ export function ContextWindowMeter(props: {
           {usage.maxTokens !== null ? (
             <div className="text-ui leading-snug text-muted-foreground">
               {format("chat.contextWindow.modelWindow", {
-                tokens: formatContextWindowTokens(nominalWindowTokens ?? usage.maxTokens),
+                tokens: formatContextWindowTokens(shownUsage.maxTokens),
               })}
             </div>
           ) : null}
@@ -149,12 +155,13 @@ export function ContextWindowMeter(props: {
               })}
             </div>
           ) : null}
-          {props.showClaudeCache && activeWindowLabel ? (
+          {/* A mode such as Auto; a size here would be a second window number. */}
+          {props.showClaudeCache &&
+          activeWindowLabel &&
+          (nominalWindowTokens === null || !/\d/.test(activeWindowLabel)) ? (
             <div className="max-w-72 space-y-1 text-ui leading-snug text-muted-foreground">
-              <div>Auto-compact target: {activeWindowLabel}</div>
-              <p className="leading-relaxed">
-                The session's auto-compact target can be lower than the model's supported window.
-              </p>
+              <div>{format("chat.contextWindow.compactTarget", { window: activeWindowLabel })}</div>
+              <p className="leading-relaxed">{t("chat.contextWindow.compactTargetHint")}</p>
             </div>
           ) : null}
           {pendingWindowLabel ? (
@@ -196,11 +203,12 @@ export function ContextWindowMeter(props: {
                   void props.compactAction?.onCompact();
                 }}
               >
-                {props.compactAction.isSubmitting ? "Starting compaction..." : "Compact now"}
+                {props.compactAction.isSubmitting
+                  ? t("chat.contextWindow.compacting")
+                  : t("chat.contextWindow.compactNow")}
               </Button>
               <p className="text-ui leading-relaxed text-muted-foreground">
-                {props.compactAction.disabledReason ??
-                  "Compaction processes this conversation and consumes usage. Later turns use its summary."}
+                {props.compactAction.disabledReason ?? t("chat.contextWindow.compactHint")}
               </p>
             </div>
           ) : null}

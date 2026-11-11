@@ -16,6 +16,7 @@ import {
   mergeConversationImages,
 } from "~/lib/conversationGeneratedImages";
 import { resolveGeneratedImageGalleryGroup } from "./chat/GeneratedImageGallery";
+import { generatedImageDisplayName } from "./chat/generatedImageGallery.logic";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
   parseComputerInvocation,
@@ -810,7 +811,7 @@ export default function ChatView({
   // AssignmentPattern in the parameter list makes React Compiler bail out (silently —
   // `panicThreshold` is unset) on this entire component, the hottest one in the app.
   // See chatHotPath.compiler.test.ts.
-  const { format, t } = useTranslation();
+  const { format, t, locale } = useTranslation();
   const paneScopeId = paneScopeIdProp ?? SINGLE_CHAT_PANE_SCOPE_ID;
   const surfaceMode = surfaceModeProp ?? "single";
   const presentationMode = presentationModeProp ?? "default";
@@ -2299,13 +2300,21 @@ export default function ChatView({
   const conversationGeneratedImages = useMemo(
     () =>
       [...groupGeneratedImagesByTurn(timelineEntries).values()].flatMap((group) =>
-        group.images.map((image) => ({
+        group.images.map((image, index) => ({
           id: conversationImageIdentity(resolveGeneratedImageGalleryGroup(group).groupId, image.id),
           path: image.path,
-          name: image.path.replace(/\\/g, "/").split("/").at(-1) || "image",
+          name: generatedImageDisplayName({
+            path: image.path,
+            createdAt: group.createdAt,
+            index,
+            count: group.images.length,
+            locale,
+            format: (time) => format("chat.markdown.generatedImage.timedName", { time }),
+            fallback: t("chat.markdown.generatedImage.defaultAlt"),
+          }),
         })),
       ),
-    [timelineEntries],
+    [format, locale, t, timelineEntries],
   );
   useEffect(() => {
     if (conversationGeneratedImages.length === 0) return;

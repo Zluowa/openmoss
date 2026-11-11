@@ -23,6 +23,12 @@ import type { MossCanvasWorkspace } from "./mossCanvasWorkspace";
 
 type MediaFetch = NonNullable<HoolaCanvasBridgeOptions["fetchImpl"]>;
 const log = createLogger("media-catalog");
+const MEDIA_CATALOG_REUSE_MS = 30_000;
+interface MossMediaCatalog {
+  readonly models: readonly MossMediaModel[];
+  readonly creditBalance?: number;
+  readonly mediaWallet?: MossMediaWallet;
+}
 
 export interface MossMediaAccount {
   readonly id: string;
@@ -145,6 +151,13 @@ export class MossMediaJobsService {
   readonly #history: MossMediaHistory;
   readonly #initialized = new Map<string, Promise<void>>();
   readonly #bindingWrites = new Map<string, Promise<void>>();
+  // Canvas asks for the catalog from several routes as it opens. One answer
+  // serves them for a short while; a new job (which may change the balance)
+  // asks again.
+  readonly #catalogs = new Map<
+    string,
+    { readonly at: number; readonly value: Promise<MossMediaCatalog> }
+  >();
   #canvasWorkspace: ((threadId: string) => Promise<MossCanvasWorkspace>) | null = null;
   #conversationImageObserver:
     | ((observation: MossConversationImageObservation) => Promise<void>)
@@ -509,11 +522,49 @@ export class MossMediaJobsService {
     };
   }
 
-  async #loadCatalog(credential: MossMediaCredential): Promise<{
-    models: readonly MossMediaModel[];
-    creditBalance?: number;
-    mediaWallet?: MossMediaWallet;
-  }> {
+  async #loadCatalog(
+    credential: MossMediaCredential,
+    options: { readonly fresh?: boolean } = {},
+  ): Promise<MossMediaCatalog> {
+    const catalog = options.fresh
+      ? await this.#loadCatalogFresh(credential)
+      : await this.#readCatalog(credential);
+    // Which plugins are installed is local and changes at once; ask every time.
+    const models: MossMediaModel[] = [];
+    for (const model of catalog.models)
+      models.push({
+        ...model,
+        installed: this.options.isModelInstalled
+          ? await this.options.isModelInstalled(credential.account, model.id)
+          : credential.installedModelIds?.includes(model.id) === true,
+      });
+    return { ...catalog, models };
+  }
+
+  #readCatalog(credential: MossMediaCredential): Promise<MossMediaCatalog> {
+    // The bearer is part of the key: a refreshed or different credential asks again.
+    const key = JSON.stringify([
+      credential.realm,
+      credential.account.id,
+      credential.gatewayBaseUrl,
+      credential.accessToken,
+    ]);
+    const now = Date.now();
+    for (const [entryKey, entry] of this.#catalogs)
+      if (now - entry.at >= MEDIA_CATALOG_REUSE_MS || now < entry.at)
+        this.#catalogs.delete(entryKey);
+    const cached = this.#catalogs.get(key);
+    if (cached) return cached.value;
+    const value = this.#loadCatalogFresh(credential);
+    this.#catalogs.set(key, { at: now, value });
+    // A failed read is never reused.
+    value.catch(() => {
+      if (this.#catalogs.get(key)?.value === value) this.#catalogs.delete(key);
+    });
+    return value;
+  }
+
+  async #loadCatalogFresh(credential: MossMediaCredential): Promise<MossMediaCatalog> {
     const root = credential.gatewayBaseUrl.replace(/\/+$/u, "").replace(/\/v1$/u, "");
     const response = await this.#fetch(`${root}/v1/canvas/media/catalog`, {
       headers: { authorization: `Bearer ${credential.accessToken}` },
@@ -546,14 +597,11 @@ export class MossMediaJobsService {
         (model.kind !== "image" && model.kind !== "video")
       )
         continue;
-      const installed = this.options.isModelInstalled
-        ? await this.options.isModelInstalled(credential.account, model.id)
-        : credential.installedModelIds?.includes(model.id) === true;
       models.push({
         id: model.id,
         label: model.label.slice(0, 120),
         kind: model.kind,
-        installed,
+        installed: false,
         available: model.available === true,
         ...(typeof model.unavailableReason === "string"
           ? { unavailableReason: model.unavailableReason.slice(0, 200) }
@@ -580,7 +628,6 @@ export class MossMediaJobsService {
       errorCode: null,
       hasAccount: account !== null,
       modelsCount: models.length,
-      installedModelsCount: models.filter((model) => model.installed).length,
       hasMediaWallet: validMediaWallet(payload.mediaWallet),
     });
     return {
@@ -595,8 +642,11 @@ export class MossMediaJobsService {
     };
   }
 
-  async catalog(credential: MossMediaCredential): Promise<readonly MossMediaModel[]> {
-    return (await this.#loadCatalog(credential)).models;
+  async catalog(
+    credential: MossMediaCredential,
+    options: { readonly fresh?: boolean } = {},
+  ): Promise<readonly MossMediaModel[]> {
+    return (await this.#loadCatalog(credential, options)).models;
   }
 
   async list(credential: MossMediaCredential): Promise<{
@@ -646,6 +696,7 @@ export class MossMediaJobsService {
     expectedWorkspaceRoot?: string,
     imageOrigin?: MossMediaConversationOrigin,
   ) {
+    this.#catalogs.clear();
     if (!record(raw)) throw new MossMediaJobsError("invalid_request");
     if (
       imageOrigin &&
@@ -702,7 +753,8 @@ export class MossMediaJobsService {
       )
         throw new MossMediaJobsError("invalid_conversation", 409);
     }
-    const models = await this.catalog(credential);
+    // A paid request checks the gateway's current catalog, never a reused one.
+    const models = await this.catalog(credential, { fresh: true });
     const model = models.find((item) => item.id === raw.modelId);
     if (!model) throw new MossMediaJobsError("unsupported_model");
     if (!model.installed) throw new MossMediaJobsError("media_skill_not_installed", 403);

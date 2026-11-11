@@ -24,6 +24,7 @@ import {
 import { newThreadId } from "~/lib/utils";
 import {
   providerInstanceModelSelectionKey,
+  stickyActiveProviderForNewChat,
   useComposerDraftStore,
   useComposerThreadDraft,
 } from "../composerDraftStore";
@@ -43,20 +44,25 @@ export function useScratchComposerDraft(input: {
   const [scratchThreadId] = useState<ThreadId>(() => newThreadId());
   const [initialPrompt] = useState(input.initialPrompt ?? "");
   const [initialModelSelection] = useState(input.initialModelSelection);
+  const [defaultProvider] = useState(input.defaultProvider);
   useEffect(() => {
     const store = useComposerDraftStore.getState();
-    store.applyStickyState(scratchThreadId);
+    store.applyStickyState(scratchThreadId, defaultProvider);
     if (initialModelSelection) store.setModelSelection(scratchThreadId, initialModelSelection);
     if (initialPrompt.length > 0) store.setPrompt(scratchThreadId, initialPrompt);
     return () => {
       useComposerDraftStore.getState().clearDraftThread(scratchThreadId);
     };
-  }, [initialPrompt, initialModelSelection, scratchThreadId]);
+  }, [defaultProvider, initialPrompt, initialModelSelection, scratchThreadId]);
 
   const scratchDraft = useComposerThreadDraft(scratchThreadId);
-  const stickyActiveProvider = useComposerDraftStore((state) => state.stickyActiveProvider);
   const stickyModelSelectionByProvider = useComposerDraftStore(
     (state) => state.stickyModelSelectionByProvider,
+  );
+  const stickyActiveProvider = stickyActiveProviderForNewChat(
+    useComposerDraftStore((state) => state.stickyActiveProvider),
+    stickyModelSelectionByProvider,
+    input.defaultProvider,
   );
   const activeProviderInstanceId =
     scratchDraft.activeProvider ??

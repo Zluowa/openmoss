@@ -205,7 +205,9 @@ export function describeOnboardingAgentSummary(
   return `${summary.connected} agent${summary.connected === 1 ? "" : "s"} connected`;
 }
 
-// The last step's one-line summary: agents, theme, projects.
+// The last step's one-line summary: agents, theme, projects. It names a project count only
+// for projects added in this tour: the stored list also holds projects the sidebar doesn't
+// show (Home, Groups, hidden imports), so any other count could disagree with the sidebar.
 export function describeOnboardingDoneSummary(input: {
   readonly agents: string;
   readonly themeLabel: string;
@@ -216,19 +218,18 @@ export function describeOnboardingDoneSummary(input: {
 }): string {
   const zh = (input.locale ?? "en").toLowerCase().startsWith("zh");
   const existing = input.existingProjects ?? 0;
-  const projects = zh
-    ? input.projectsAdded > 0
-      ? `已添加 ${input.projectsAdded} 个项目`
+  const projects =
+    input.projectsAdded > 0
+      ? zh
+        ? `已添加 ${input.projectsAdded} 个项目`
+        : `${input.projectsAdded} project${input.projectsAdded === 1 ? "" : "s"} added`
       : existing > 0
-        ? `${existing} 个项目`
-        : "还没有项目"
-    : input.projectsAdded > 0
-      ? `${input.projectsAdded} project${input.projectsAdded === 1 ? "" : "s"} added`
-      : existing > 0
-        ? `${existing} project${existing === 1 ? "" : "s"}`
-        : "No project yet";
+        ? null
+        : zh
+          ? "还没有项目"
+          : "No project yet";
   const theme = zh ? `${input.themeLabel} 主题` : `${input.themeLabel} theme`;
-  return [input.agents, theme, projects].join(" · ");
+  return [input.agents, theme, projects].filter((part) => part !== null).join(" · ");
 }
 
 export function toggleSelection<T>(selection: ReadonlySet<T>, id: T): ReadonlySet<T> {

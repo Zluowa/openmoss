@@ -72,6 +72,7 @@ import {
   normalizeProviderModelOptions,
   providerInstanceModelSelectionKey,
   reconcileProviderScopedModelSelection,
+  stickyActiveProviderForNewChat,
   stripNonStickyModelOptions,
 } from "./composerDraftModels";
 import { isComposerAppSnapCaptureSource } from "./lib/composerImageSource";
@@ -534,13 +535,20 @@ export const createComposerDraftStoreState =
         };
       });
     },
-    applyStickyState: (threadId) => {
+    applyStickyState: (threadId, newChatProvider) => {
       if (threadId.length === 0) {
         return;
       }
       set((state) => {
         const stickyMap = state.stickyModelSelectionByProvider;
-        const stickyActiveProvider = state.stickyActiveProvider;
+        const stickyActiveProvider =
+          newChatProvider === undefined
+            ? state.stickyActiveProvider
+            : stickyActiveProviderForNewChat(
+                state.stickyActiveProvider,
+                stickyMap,
+                newChatProvider,
+              );
         if (Object.keys(stickyMap).length === 0 && stickyActiveProvider === null) {
           return state;
         }

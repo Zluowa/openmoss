@@ -385,6 +385,30 @@ it("shows each agent's state with one plain line and one action, no setup guides
   expect(page.getByRole("link", { name: /setup guide/u }).elements()).toHaveLength(0);
 });
 
+it("says an agent is connected through Moss, with no sign-in, while its Moss lane works", async () => {
+  // The owner's own Claude login is signed out, but Claude over Moss is up.
+  harness.statuses = [
+    ...harness.statuses,
+    {
+      provider: "claudeAgent",
+      instanceId: "claude_moss",
+      driver: "claudeAgent",
+      status: "ready",
+      available: true,
+      authStatus: "authenticated",
+      checkedAt: "2026-09-16T21:46:18.000Z",
+    },
+  ];
+  await render(<ProvidersSettingsPanel {...props} />);
+  await vi.waitFor(() =>
+    expect(activityRow("Claude").textContent).toContain("Connected through Moss"),
+  );
+  expect(activityRow("Claude").textContent).not.toContain("Sign in to your Claude account");
+  expect(
+    page.getByRole("button", { name: "Sign in for Claude", exact: true }).elements(),
+  ).toHaveLength(0);
+});
+
 it("signs an agent in through the browser and lets the person cancel", async () => {
   harness.statuses = harness.statuses.map((status) =>
     status.provider === "codex"

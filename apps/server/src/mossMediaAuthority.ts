@@ -4,7 +4,7 @@ import {
   mossMediaPluginsForModel,
 } from "@moss/shared/mossMediaPlugins";
 import { codexAccountInstanceId } from "@moss/shared/providerInstances";
-import { Effect, Option } from "effect";
+import { Deferred, Effect, Exit, Option } from "effect";
 import { MossCloudAccountService } from "./account/Services/MossCloudAccountService";
 import { MossEnterpriseKeyAccount } from "./account/Services/MossEnterpriseKeyAccount";
 import { MossPhoneAccountService } from "./account/Services/MossPhoneAccountService";
@@ -112,7 +112,7 @@ export const resolveMossMediaIdentity = Effect.gen(function* () {
   return identity;
 });
 
-export const resolveMossMediaCredential = Effect.gen(function* () {
+const resolveMossMediaCredentialFresh = Effect.gen(function* () {
   const enterprise = yield* resolveActiveEnterpriseMediaCredential;
   if (enterprise) return enterprise;
   const phone = yield* MossPhoneAccountService;
@@ -164,6 +164,91 @@ export const resolveMossMediaCredential = Effect.gen(function* () {
     ...credential,
     account: { id: accountId, realm: credential.realm },
   } satisfies MossMediaCredential;
+});
+
+// One Canvas open asks for the cloud credential from several routes at once
+// (models, jobs, providers), and every fresh answer validates the sign-in over
+// the network inside the account's one-at-a-time lock: about 3 s each through a
+// proxy, 14-15 s for an open. A credential validated a moment ago is reused
+// while the account on this device is still the same (a local read that sees a
+// logout or a switch at once) and its bearer has time left. The gateway checks
+// the bearer on every call either way.
+export const MOSS_MEDIA_CREDENTIAL_REUSE_MS = 60_000;
+const MOSS_MEDIA_CREDENTIAL_EXPIRY_MARGIN_MS = 120_000;
+let recentMediaCredential: {
+  readonly credential: MossMediaCredential;
+  readonly checkedAt: number;
+  readonly expiresAt: number;
+} | null = null;
+let pendingMediaCredential: Deferred.Deferred<MossMediaCredential, unknown> | null = null;
+
+/** Tests only: forget the reused credential. */
+export function resetMossMediaCredentialReuse(): void {
+  recentMediaCredential = null;
+  pendingMediaCredential = null;
+}
+
+function bearerExpiresAt(accessToken: string): number | null {
+  try {
+    const exp = JSON.parse(
+      Buffer.from(accessToken.split(".")[1] ?? "", "base64url").toString("utf8"),
+    ).exp;
+    return typeof exp === "number" && Number.isFinite(exp) ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+const sameMediaAccount = (
+  credential: MossMediaCredential,
+  local: Pick<MossLocalAccountAuthority, "account" | "realm" | "gatewayBaseUrl">,
+) =>
+  credential.account.id === local.account.id &&
+  credential.realm === local.realm &&
+  credential.gatewayBaseUrl === local.gatewayBaseUrl;
+
+export const resolveMossMediaCredential = Effect.gen(function* () {
+  const local = yield* Effect.result(resolveMossMediaIdentity);
+  const recent = recentMediaCredential;
+  const now = Date.now();
+  if (
+    local._tag === "Success" &&
+    recent &&
+    now - recent.checkedAt >= 0 &&
+    now - recent.checkedAt < MOSS_MEDIA_CREDENTIAL_REUSE_MS &&
+    recent.expiresAt - now > MOSS_MEDIA_CREDENTIAL_EXPIRY_MARGIN_MS &&
+    sameMediaAccount(recent.credential, local.success)
+  )
+    return recent.credential;
+  recentMediaCredential = null;
+  // Requests that arrive while a validation runs share it.
+  const pending = pendingMediaCredential;
+  if (pending) {
+    const shared = yield* Effect.result(Deferred.await(pending));
+    if (
+      shared._tag === "Success" &&
+      local._tag === "Success" &&
+      sameMediaAccount(shared.success, local.success)
+    )
+      return shared.success;
+    // A failed or foreign answer is not reused: this request asks on its own.
+  }
+  const deferred = yield* Deferred.make<MossMediaCredential, unknown>();
+  pendingMediaCredential = deferred;
+  const checkedAt = Date.now();
+  return yield* resolveMossMediaCredentialFresh.pipe(
+    Effect.onExit((exit) =>
+      Effect.gen(function* () {
+        if (pendingMediaCredential === deferred) pendingMediaCredential = null;
+        if (Exit.isSuccess(exit)) {
+          const expiresAt = bearerExpiresAt(exit.value.accessToken);
+          recentMediaCredential =
+            expiresAt !== null ? { credential: exit.value, checkedAt, expiresAt } : null;
+        }
+        yield* Deferred.done(deferred, exit);
+      }),
+    ),
+  );
 });
 
 export const installedMossMediaModels = Effect.gen(function* () {

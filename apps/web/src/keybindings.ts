@@ -217,11 +217,17 @@ export const DEFAULT_SHORTCUT_FALLBACKS: ResolvedKeybindingsConfig = [
     shortcut: commandShortcut("arrowup", { altKey: true, modKey: false }),
     whenAst: whenNotTerminalFocus,
   },
-  // Cmd-only instead of mod so Ctrl+L remains available to shells on non-macOS.
+  // Mirrors the server default: Cmd+L on macOS, Ctrl+L elsewhere, and never while a
+  // terminal has focus, so the shell keeps its Ctrl+L clear-screen chord.
   {
     command: "composer.focus.toggle",
     shortcut: commandShortcut("l", { metaKey: true, modKey: false }),
-    whenAst: whenNotTerminalFocus,
+    whenAst: whenAnd(whenNotTerminalFocus, whenIdentifier("isMac")),
+  },
+  {
+    command: "composer.focus.toggle",
+    shortcut: commandShortcut("l", { ctrlKey: true, modKey: false }),
+    whenAst: whenAnd(whenNotTerminalFocus, whenNot(whenIdentifier("isMac"))),
   },
   {
     command: "chat.find",

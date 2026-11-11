@@ -113,7 +113,12 @@ import {
 } from "~/providerUpdates";
 import { agentSettingsAnchorId } from "~/lib/agentInstall";
 import { supportsAgentSignIn } from "~/lib/agentSignIn";
-import { providerStatusInstanceKey, resolveAgentReadiness } from "~/lib/providerAvailability";
+import {
+  isProviderUsable,
+  providerStatusInstanceKey,
+  resolveAgentReadiness,
+} from "~/lib/providerAvailability";
+import { isMossManagedSourceInstanceId } from "~/components/chat/providerAccountSources";
 import {
   PROVIDER_READINESS_LABEL_KEY,
   providerReadinessDescriptionKey,
@@ -154,6 +159,7 @@ import {
   SettingsSelectControl,
   useSettingsRestoreSignal,
 } from "./SettingControls";
+import { MossAccountSettingsSection } from "./MossAccountSettingsSection";
 import { SettingsListRow, SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
 
 type ProviderInstallTextKey =
@@ -2178,6 +2184,21 @@ export function ProvidersSettingsPanel({
       ),
     [localProviderStatuses],
   );
+  // Agents a working Moss lane serves: their row says so instead of asking for a sign-in.
+  const providersServedByMoss = useMemo(
+    () =>
+      new Set<ProviderKind>(
+        localProviderStatuses.flatMap((status) => {
+          const driver = status.driver ?? status.provider;
+          return isProviderKind(driver) &&
+            isMossManagedSourceInstanceId(providerStatusInstanceKey(status)) &&
+            isProviderUsable(status)
+            ? [driver]
+            : [];
+        }),
+      ),
+    [localProviderStatuses],
+  );
   const providerStatusByInstance = useMemo(
     () =>
       new Map<string, ServerProviderStatus>(
@@ -2354,12 +2375,18 @@ export function ProvidersSettingsPanel({
         : null;
     // One plain line from the server's readiness, never the CLI's own diagnostic, and one
     // action: 登录 runs the agent's sign-in in the browser, 安装 installs it in place.
+    // The agent's own login is signed out, but its Moss lane runs it: nothing to sign in to.
+    const servedByMoss =
+      readiness?.state === "needsLogin" && providersServedByMoss.has(option.provider);
     const descriptionKey = readiness ? providerReadinessDescriptionKey(readiness) : null;
     const canSignIn =
-      readiness?.state === "needsLogin" && supportsAgentSignIn(option.provider, providerStatus);
+      !servedByMoss &&
+      readiness?.state === "needsLogin" &&
+      supportsAgentSignIn(option.provider, providerStatus);
     // Only what Moss cannot fix by itself keeps the agent's own help page.
     const showGuide =
-      readiness?.state === "error" || (readiness?.state === "needsLogin" && !canSignIn);
+      readiness?.state === "error" ||
+      (readiness?.state === "needsLogin" && !canSignIn && !servedByMoss);
     return (
       <SettingsListRow
         key={option.provider}
@@ -2371,16 +2398,21 @@ export function ProvidersSettingsPanel({
           </span>
         }
         description={
-          <span className="block" data-agent-readiness={readiness?.state ?? "unknown"}>
-            {readiness
-              ? descriptionKey
-                ? format(descriptionKey, { provider: option.title })
-                : t(PROVIDER_READINESS_LABEL_KEY[readiness.state])
-              : providerSetupStatusLabel({
-                  status: providerStatus,
-                  reconciled: providerStatusesReconciled,
-                  disabled: !enabled,
-                })}
+          <span
+            className="block"
+            data-agent-readiness={servedByMoss ? "moss" : (readiness?.state ?? "unknown")}
+          >
+            {servedByMoss
+              ? t("settings.providers.accounts.connectedViaMoss")
+              : readiness
+                ? descriptionKey
+                  ? format(descriptionKey, { provider: option.title })
+                  : t(PROVIDER_READINESS_LABEL_KEY[readiness.state])
+                : providerSetupStatusLabel({
+                    status: providerStatus,
+                    reconciled: providerStatusesReconciled,
+                    disabled: !enabled,
+                  })}
           </span>
         }
         actions={
@@ -2473,6 +2505,7 @@ export function ProvidersSettingsPanel({
           }}
         />
       ) : null}
+      <MossAccountSettingsSection />
       <SettingsSection title="Provider activity">
         <SettingsRow
           title="Enabled providers"
@@ -2525,7 +2558,7 @@ export function ProvidersSettingsPanel({
             >
               <CollapsibleTrigger className="flex w-full items-center gap-2 py-2 text-left text-ui text-muted-foreground">
                 <DisclosureChevron open={disabledProvidersOpen} className="size-4 shrink-0" />
-                <span>Disabled providers ({disabledProviderOptions.length})</span>
+                <span>{`Disabled providers (${disabledProviderOptions.length})`}</span>
               </CollapsibleTrigger>
               <CollapsiblePanel>
                 <div

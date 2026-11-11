@@ -1130,3 +1130,23 @@ export function resolvePreferredComposerModelSelection(input: {
     )
   );
 }
+
+/**
+ * The remembered account a new chat opens on. A new chat opens on the agent it defaults to
+ * (Settings → 通用 → 默认服务商, or the project's default); the last-used account is kept
+ * only when it belongs to that agent (Moss or a local login, and its model). Picking
+ * another agent in one chat never moves where new chats open.
+ */
+export function stickyActiveProviderForNewChat(
+  stickyActiveProvider: ProviderInstanceId | null | undefined,
+  stickyModelSelectionByProvider: ModelSelectionByProviderInstance,
+  newChatProvider: ProviderKind,
+): ProviderInstanceId | null {
+  if (!stickyActiveProvider) {
+    return null;
+  }
+  const provider =
+    stickyModelSelectionByProvider[stickyActiveProvider]?.provider ??
+    (Schema.is(ProviderKind)(stickyActiveProvider) ? stickyActiveProvider : null);
+  return provider === newChatProvider ? stickyActiveProvider : null;
+}

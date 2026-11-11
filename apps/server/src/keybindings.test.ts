@@ -736,7 +736,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
               altKey: false,
               modKey: false,
             },
-            whenAst: undefined,
+            whenAst: { type: "identifier", name: "isMac" },
           },
           {
             shortcut: {
@@ -761,8 +761,41 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       assert.deepEqual(
         persisted.filter((entry) => entry.command === "sidebar.search"),
         [
-          { key: "cmd+k", command: "sidebar.search" },
+          { key: "cmd+k", command: "sidebar.search", when: "isMac" },
           { key: "ctrl+k", command: "sidebar.search", when: "!isMac" },
+        ],
+      );
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("keeps the Cmd-only search and composer-focus defaults off Windows and Linux", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      // The shipped shapes before the macOS guard: on Windows they bound Win+K and Win+L.
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        { key: "cmd+k", command: "sidebar.search" },
+        { key: "ctrl+k", command: "sidebar.search", when: "!isMac" },
+        { key: "cmd+l", command: "composer.focus.toggle", when: "!terminalFocus" },
+        { key: "cmd+j", command: "terminal.toggle" },
+      ]);
+
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        yield* keybindings.syncDefaultKeybindingsOnStartup;
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(
+        persisted.filter((entry) =>
+          ["sidebar.search", "composer.focus.toggle", "terminal.toggle"].includes(entry.command),
+        ),
+        [
+          { key: "cmd+k", command: "sidebar.search", when: "isMac" },
+          { key: "ctrl+k", command: "sidebar.search", when: "!isMac" },
+          { key: "cmd+l", command: "composer.focus.toggle", when: "!terminalFocus && isMac" },
+          { key: "ctrl+l", command: "composer.focus.toggle", when: "!terminalFocus && !isMac" },
+          // A user's own Cmd chord is theirs; only the exact shipped shapes move.
+          { key: "cmd+j", command: "terminal.toggle" },
         ],
       );
     }).pipe(Effect.provide(makeKeybindingsLayer())),
@@ -1199,7 +1232,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig;
       yield* writeKeybindingsConfig(keybindingsConfigPath, [
-        { key: "cmd+k", command: "sidebar.search" },
+        { key: "cmd+k", command: "sidebar.search", when: "isMac" },
         { key: "ctrl+k", command: "sidebar.search", when: "!isMac" },
       ]);
 
@@ -1207,7 +1240,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         const keybindings = yield* Keybindings;
         return yield* keybindings.upsertKeybindingRule(
           { key: "meta+shift+k", command: "sidebar.search" },
-          { key: "meta+k", command: "sidebar.search" },
+          { key: "meta+k", command: "sidebar.search", when: "isMac" },
         );
       });
 
@@ -1565,7 +1598,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       // with the defaults, so removing one binding must not take its sibling along.
       const result = applyKeybindingEdits(
         [],
-        [{ type: "remove", rule: { key: "meta+k", command: "sidebar.search" } }],
+        [{ type: "remove", rule: { key: "meta+k", command: "sidebar.search", when: "isMac" } }],
       );
 
       assert.deepEqual(result, {
@@ -1742,7 +1775,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig;
       yield* writeKeybindingsConfig(keybindingsConfigPath, [
-        { key: "cmd+k", command: "sidebar.search" },
+        { key: "cmd+k", command: "sidebar.search", when: "isMac" },
         { key: "ctrl+k", command: "sidebar.search", when: "!isMac" },
       ]);
       const keybindings = yield* Keybindings;
@@ -1752,17 +1785,17 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
         {
           type: "set",
           rule: { key: "mod+k", command: "sidebar.search" },
-          replacing: { key: "cmd+k", command: "sidebar.search" },
+          replacing: { key: "cmd+k", command: "sidebar.search", when: "isMac" },
         },
       ]);
       assert.deepEqual(yield* readKeybindingsConfig(keybindingsConfigPath), [
-        { key: "cmd+k", command: "sidebar.search" },
+        { key: "cmd+k", command: "sidebar.search", when: "isMac" },
         { key: "ctrl+k", command: "sidebar.search", when: "!isMac" },
       ]);
 
       // What was cached matches the file, so the next edit is not refused as stale.
       yield* keybindings.editKeybindings([
-        { type: "remove", rule: { key: "cmd+k", command: "sidebar.search" } },
+        { type: "remove", rule: { key: "cmd+k", command: "sidebar.search", when: "isMac" } },
       ]);
       assert.deepEqual(yield* readKeybindingsConfig(keybindingsConfigPath), [
         { key: "ctrl+k", command: "sidebar.search", when: "!isMac" },
@@ -1791,7 +1824,7 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
       yield* Effect.gen(function* () {
         const keybindings = yield* Keybindings;
         return yield* keybindings.editKeybindings([
-          { type: "remove", rule: { key: "cmd+k", command: "sidebar.search" } },
+          { type: "remove", rule: { key: "cmd+k", command: "sidebar.search", when: "isMac" } },
         ]);
       });
 

@@ -108,6 +108,8 @@ const ZH_CN_TOOL_HEADINGS: Readonly<Record<string, string>> = {
   "Found place photos": "已找到地点照片",
   "Couldn't find place photos": "无法查找地点照片",
   "Search tools:": "搜索工具：",
+  "Running code": "正在运行代码",
+  "Ran code": "已运行代码",
   ...Object.fromEntries(
     Object.entries(ZH_CN_MOSS_APPS_ACTIONS).map(([action, translated]) => [
       `${MOSS_APPS_DISPLAY_NAME}: ${action}`,
@@ -839,8 +841,10 @@ export function isMossMediaToolSearch(input: {
   readonly toolName?: string | null | undefined;
   readonly title?: string | null | undefined;
   readonly label?: string | null | undefined;
+  /** The searched words, when the row keeps them apart from its title. */
+  readonly query?: string | null | undefined;
 }): boolean {
-  const names = [input.toolName, input.title, input.label].filter(
+  const names = [input.toolName, input.title, input.label, input.query].filter(
     (value): value is string => typeof value === "string",
   );
   return (

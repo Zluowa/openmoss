@@ -163,6 +163,12 @@ describe("AppSnapSettingsPanel", () => {
 
     const mounted = await render(<AppSnapActivityHarness />);
     await expect.element(mounted.getByText("On while Moss is open")).toBeVisible();
+    // Both Option keys are the two Alt keys off macOS, and the keycaps say so.
+    const [leftKey, rightKey] = /Mac/.test(navigator.platform)
+      ? ["⌥ left", "⌥ right"]
+      : ["Left Alt", "Right Alt"];
+    await expect.element(mounted.getByText(leftKey, { exact: true })).toBeVisible();
+    await expect.element(mounted.getByText(rightKey, { exact: true })).toBeVisible();
     expect(onState).toHaveBeenCalledOnce();
     expect(onPermissionGuideState).toHaveBeenCalledOnce();
 

@@ -42,6 +42,7 @@ import {
 } from "../lib/groupWorkerRouting";
 import {
   findProviderStatus,
+  hasUsableProviderAccount,
   isProviderUsable,
   resolveAvailableProviderPreference,
 } from "../lib/providerAvailability";
@@ -607,7 +608,12 @@ export function useHandleNewThread() {
       useStore.getState().projects.find((project) => project.id === projectId)
         ?.defaultModelSelection ?? null;
     const applyUsableStickyState = (threadId: ThreadId) => {
-      applyStickyState(threadId);
+      // New chats open on the default agent (the project's, else Settings → 通用); a chat
+      // that picked another agent doesn't move it.
+      applyStickyState(
+        threadId,
+        projectDefaultModelSelection?.provider ?? settings.defaultProvider,
+      );
       if (options?.provider || !hasReconciledServerProviderStatuses(queryClient)) {
         return;
       }
@@ -632,7 +638,7 @@ export function useHandleNewThread() {
         providerOrder: settings.providerOrder,
         hiddenProviders: settings.hiddenProviders,
       });
-      if (!isProviderUsable(findProviderStatus(providerStatuses, fallbackProvider))) {
+      if (!hasUsableProviderAccount(providerStatuses, fallbackProvider)) {
         return;
       }
 

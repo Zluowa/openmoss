@@ -774,6 +774,36 @@ describe("MossMediaJobsService", () => {
     const disk = await history.get(scope, created.jobId);
     expect(disk?.checkpoint.input.referenceImages).toEqual([]);
   });
+  it("answers a Canvas opening's catalog reads with one gateway read, and reads it fresh for a paid request", async () => {
+    let catalogReads = 0;
+    const service = new MossMediaJobsService({
+      stateDirectory: stateDirectory(),
+      fetchImpl: async (url) => {
+        if (String(url).endsWith("/catalog")) {
+          catalogReads += 1;
+          return Response.json({
+            models: [{ id: request.modelId, label: "GPT", kind: "image", available: true }],
+          });
+        }
+        return Response.json({ error: { code: "fixture_rejected" } }, { status: 400 });
+      },
+    });
+    await Promise.all([
+      service.list(credential),
+      service.list(credential),
+      service.catalog(credential),
+    ]);
+    expect(catalogReads).toBe(1);
+    // Which plugins are installed is never taken from the reused answer.
+    expect((await service.catalog({ ...credential, installedModelIds: [] }))[0]?.installed).toBe(
+      false,
+    );
+    expect(catalogReads).toBe(1);
+    await service.create(request, credential).catch(() => undefined);
+    expect(catalogReads).toBe(2);
+    await service.list(credential);
+    expect(catalogReads).toBe(3);
+  });
   it("exposes only explicit editing capabilities and refuses unavailable edits before generation", async () => {
     const png =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6FAAAAAASUVORK5CYII=";

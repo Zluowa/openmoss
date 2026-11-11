@@ -414,6 +414,22 @@ export function nominalClaudeContextWindowTokens(
   return nominal !== undefined && maxTokens != null && nominal >= maxTokens ? nominal : null;
 }
 
+/** The same usage measured against another window size: tokens, remaining and percentages. */
+export function withContextWindowMaxTokens(
+  usage: ContextWindowSnapshot,
+  maxTokens: number,
+): ContextWindowSnapshot {
+  if (usage.maxTokens === maxTokens || maxTokens <= 0) return usage;
+  const usedPercentage = Math.min(100, (usage.usedTokens / maxTokens) * 100);
+  return {
+    ...usage,
+    maxTokens,
+    remainingTokens: Math.max(0, maxTokens - usage.usedTokens),
+    usedPercentage,
+    remainingPercentage: Math.max(0, 100 - usedPercentage),
+  };
+}
+
 export function deriveContextWindowSelectionStatus(input: {
   activeSnapshot: ContextWindowSnapshot | null;
   appliedValue?: string | null;

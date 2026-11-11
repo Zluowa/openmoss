@@ -29,6 +29,7 @@ import { focusPullRequestRow } from "~/components/pullRequest/pullRequestFocus";
 import { toastManager } from "~/components/ui/toast";
 import {
   resolvePreferredComposerModelSelection,
+  stickyActiveProviderForNewChat,
   useComposerDraftStore,
 } from "~/composerDraftStore";
 import { randomUUID } from "~/lib/utils";
@@ -182,14 +183,19 @@ export function useGitHubInboxSidechat(selection: GitHubInboxSelection | null) {
     },
   });
 
-  // The same precedence a new chat uses: the last-used model, then the project's default.
+  // The same precedence a new chat uses: the default agent (the project's, else the setting),
+  // on its last-used account and model.
   const defaultModelSelectionFor = (projectId: ProjectId): ModelSelection => {
     const project = useStore.getState().projects.find((entry) => entry.id === projectId);
     const draftStore = useComposerDraftStore.getState();
     return resolvePreferredComposerModelSelection({
       draft: {
         modelSelectionByProvider: draftStore.stickyModelSelectionByProvider,
-        activeProvider: draftStore.stickyActiveProvider,
+        activeProvider: stickyActiveProviderForNewChat(
+          draftStore.stickyActiveProvider,
+          draftStore.stickyModelSelectionByProvider,
+          project?.defaultModelSelection?.provider ?? settings.defaultProvider,
+        ),
       },
       threadModelSelection: null,
       projectModelSelection: project?.defaultModelSelection ?? null,

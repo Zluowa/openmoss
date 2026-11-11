@@ -112,6 +112,27 @@ describe("account-scoped starred presets", () => {
   });
 });
 
+describe("Moss lane picker rows", () => {
+  it("lists a Moss lane in catalog order even when the agent reports its default first", () => {
+    const options = [
+      { slug: "moss/kimi-k3", name: "Kimi K3" },
+      { slug: "moss/deepseek-v4-pro", name: "DeepSeek V4 Pro" },
+      { slug: "moss/glm-5.3", name: "GLM-5.3" },
+    ];
+    const names = (instanceId: string) =>
+      buildProviderTabRows({
+        provider: "pi",
+        instanceId,
+        options,
+        query: "",
+        selectedModel: null,
+      }).map((row) => row.name);
+    expect(names("pi_moss")).toEqual(["DeepSeek V4 Pro", "GLM-5.3", "Kimi K3"]);
+    // A personal account keeps its runtime's own order.
+    expect(names("pi_work")).toEqual(["Kimi K3", "DeepSeek V4 Pro", "GLM-5.3"]);
+  });
+});
+
 describe("OMP picker rows", () => {
   it("does not reinterpret another provider's opaque role: model id", () => {
     const customOption = { slug: "role:custom", name: "Private Model", isCustom: true };

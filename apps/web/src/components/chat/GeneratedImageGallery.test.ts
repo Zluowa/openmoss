@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { generatedImageDisplayName, generatedImageTimedName } from "./generatedImageGallery.logic";
 import {
   deriveGeneratedImageGalleryLayout,
   GENERATED_IMAGE_PENDING_DOT_OPACITY_AMPLITUDE,
@@ -91,5 +92,59 @@ describe("generated image gallery SVG assets", () => {
     ]);
     expect(CODEX_GENERATED_IMAGE_CHEVRON_VIEW_BOX).toBe("0 0 20 21");
     expect(CODEX_GENERATED_IMAGE_CHEVRON_PATH).toBe("M4.75 8l5.25 5.25L15.25 8");
+  });
+});
+
+const timedNameFormat = (time: string) => `图片 ${time}`;
+
+describe("generated image names", () => {
+  const format = timedNameFormat;
+  it("names an image by its turn's time, numbered when the turn made several", () => {
+    const createdAt = new Date(2026, 10, 11, 12, 44, 5).toISOString();
+    expect(
+      generatedImageTimedName({ createdAt, index: 0, count: 1, locale: "zh-CN", format }),
+    ).toBe("图片 12:44");
+    expect(
+      generatedImageTimedName({ createdAt, index: 1, count: 3, locale: "zh-CN", format }),
+    ).toBe("图片 12:44 (2)");
+  });
+  it("has no name without a usable time, so the caller falls back", () => {
+    expect(
+      generatedImageTimedName({ createdAt: "", index: 0, count: 1, locale: "zh-CN", format }),
+    ).toBeNull();
+    expect(
+      generatedImageTimedName({
+        createdAt: "not a date",
+        index: 0,
+        count: 1,
+        locale: "zh-CN",
+        format,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("generated image display names", () => {
+  const createdAt = new Date(2026, 10, 11, 12, 44, 5).toISOString();
+  const base = {
+    createdAt,
+    index: 0,
+    count: 1,
+    locale: "zh-CN",
+    format: timedNameFormat,
+    fallback: "生成的图片",
+  };
+  it("keeps a real file name", () => {
+    expect(generatedImageDisplayName({ ...base, path: "/tmp/out/generated-preview-one.png" })).toBe(
+      "generated-preview-one.png",
+    );
+  });
+  it("names a Moss media address by its time, never by the address", () => {
+    expect(
+      generatedImageDisplayName({
+        ...base,
+        path: `/api/moss/media/assets/moss_abc/0?accountScope=${"a".repeat(64)}`,
+      }),
+    ).toBe("图片 12:44");
   });
 });

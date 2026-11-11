@@ -288,6 +288,56 @@ describe("official media transcript lifecycle", () => {
       expect(workRows(rowsFor([...piCalls, shaped, finished, failedCall]))).toHaveLength(1);
     });
 
+    // OpenCode in the owner's run (2026-11-11): its code runner `execute`, first a
+    // tool search script, then a script that calls moss_media_generate.
+    const codeTool = (
+      id: string,
+      sequence: number,
+      kind: "tool.started" | "tool.completed",
+      callId: string,
+      code: string,
+    ) =>
+      makeActivity({
+        id,
+        kind,
+        sequence,
+        tone: "tool",
+        turnId: "turn-image",
+        summary: "execute",
+        payload: {
+          itemType: "dynamic_tool_call",
+          status: kind === "tool.started" ? "inProgress" : "completed",
+          title: "execute",
+          data: { tool: "execute", toolName: "execute", toolCallId: callId, input: { code } },
+        },
+      });
+    const searchCode =
+      'const r = await search({query: "media generate image", namespace: "moss"});\nreturn r;';
+    const generateCode =
+      'const r = await tools.moss.moss_media_generate({\n  modelId: "gpt-image-2.5-flare",\n  prompt: "hedgehog"\n});\nreturn r;';
+    const openCodeCalls = [
+      codeTool("oc-1", 1, "tool.started", "call-oc-search", searchCode),
+      codeTool("oc-2", 2, "tool.completed", "call-oc-search", searchCode),
+      codeTool("oc-3", 3, "tool.started", "call-oc-generate", generateCode),
+      codeTool("oc-4", 4, "tool.completed", "call-oc-generate", generateCode),
+    ];
+
+    it("reads OpenCode's code runner as the tool it calls, never as Execute", () => {
+      const entries = deriveWorkLogEntries(openCodeCalls, undefined, live);
+      expect(entries.map((entry) => entry.toolName)).toContain("moss_media_generate");
+      expect(entries.some((entry) => /^search tools/iu.test(entry.toolTitle ?? ""))).toBe(true);
+      expect(JSON.stringify(entries)).not.toMatch(/"toolTitle":"[Ee]xecute"/u);
+      // Once the image is there, the search and the call are plumbing, as for Grok and Pi.
+      expect(workRows(rowsFor([...openCodeCalls, shaped, finished]))).toEqual([]);
+      // A script that is neither one call nor one search says it ran code.
+      const both = deriveWorkLogEntries(
+        [codeTool("oc-5", 5, "tool.completed", "call-oc-both", `${searchCode}\n${generateCode}`)],
+        undefined,
+        live,
+      );
+      expect(both[0]?.toolTitle).toBe("Ran code");
+    });
+
     it("recognises each agent's spelling of the media tools and nothing else", () => {
       for (const name of [
         "moss_media_generate",

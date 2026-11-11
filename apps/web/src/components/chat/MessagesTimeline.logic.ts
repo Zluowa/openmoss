@@ -1269,7 +1269,12 @@ export function isMossMediaPlumbingEntry(entry: WorkLogEntry): boolean {
     return false;
   return (
     [entry.toolName, entry.toolTitle, entry.label].some((name) => isMossMediaJobToolCall(name)) ||
-    isMossMediaToolSearch({ toolName: entry.toolName, title: entry.toolTitle, label: entry.label })
+    isMossMediaToolSearch({
+      toolName: entry.toolName,
+      title: entry.toolTitle,
+      label: entry.label,
+      query: entry.preview,
+    })
   );
 }
 

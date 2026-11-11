@@ -22,7 +22,8 @@ import { useRef, useState, type KeyboardEvent } from "react";
 
 import { appSnapShortcutConflictCommand } from "~/appSnapShortcut";
 import { shortcutSheetCommandLabel } from "~/shortcutsSheet";
-import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
+import { cn, getNavigatorPlatform, isMacPlatform } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { toastManager } from "~/components/ui/toast";
@@ -74,7 +75,16 @@ export function AppSnapShortcutControl({
   // Source of truth for held modifiers: consecutive keydowns can arrive before
   // React re-renders, so the render-time capture state may lag one event behind.
   const heldCodesRef = useRef<string[]>([]);
-  const labels = appSnapShortcutLabels(candidate);
+  const { t } = useTranslation();
+  // Keycaps skip page translation, so the two-Option-key labels come from the locale
+  // table, and off macOS they name the key on the keyboard: Alt, not ⌥.
+  const onMac = isMacPlatform(getNavigatorPlatform());
+  const labels: readonly [string, string] =
+    candidate.kind === "both-option-keys"
+      ? onMac
+        ? [t("settings.appsnap.shortcut.left"), t("settings.appsnap.shortcut.right")]
+        : [t("settings.appsnap.shortcut.altLeft"), t("settings.appsnap.shortcut.altRight")]
+      : appSnapShortcutLabels(candidate);
   const changed = !sameAppSnapShortcut(candidate, shortcut);
   const canSave = changed && checkState.availability?.available === true;
   const capturedModifiers = heldModifiers(capture.heldModifierCodes);

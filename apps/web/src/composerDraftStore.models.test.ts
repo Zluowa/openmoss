@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   deriveEffectiveComposerModelState,
   resolvePreferredComposerModelSelection,
+  stickyActiveProviderForNewChat,
   useComposerDraftStore,
 } from "./composerDraftStore";
 import { normalizeModelSelection } from "./composerDraftModels";
@@ -1204,6 +1205,41 @@ describe("composerDraftStore sticky composer settings", () => {
       },
       activeProvider: "devin",
     });
+  });
+
+  it("opens a new chat on the default agent, not on another agent picked in an earlier chat", () => {
+    const store = useComposerDraftStore.getState();
+    const threadId = ThreadId.makeUnsafe("thread-sticky-follows-default");
+    // Pi picked in an earlier chat; Settings → 通用 says Codex.
+    store.setStickyModelSelection(modelSelection("pi", "pi-auto"));
+    store.applyStickyState(threadId, "codex");
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.activeProvider ?? null).toBeNull();
+    // Pi's model is still remembered for when Pi is picked again.
+    expect(draft?.modelSelectionByProvider.pi).toEqual(modelSelection("pi", "pi-auto"));
+  });
+
+  it("keeps the last-used account of the default agent (its Moss lane) for a new chat", () => {
+    const store = useComposerDraftStore.getState();
+    const threadId = ThreadId.makeUnsafe("thread-sticky-default-account");
+    const moss = modelSelection(
+      "codex",
+      "gpt-5.4",
+      undefined,
+      ProviderInstanceId.makeUnsafe("codex_moss"),
+    );
+    store.setStickyModelSelection(moss);
+    store.applyStickyState(threadId, "codex");
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.activeProvider).toBe(
+      "codex_moss",
+    );
+    expect(
+      stickyActiveProviderForNewChat(
+        ProviderInstanceId.makeUnsafe("codex_moss"),
+        { [ProviderInstanceId.makeUnsafe("codex_moss")]: moss },
+        "claudeAgent",
+      ),
+    ).toBeNull();
   });
 
   it("does not overwrite existing model-scoped options with another sticky model", () => {

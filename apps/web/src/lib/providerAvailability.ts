@@ -463,6 +463,19 @@ export function findProviderStatus(
   return statuses.find((status) => (status.driver ?? status.provider) === provider) ?? null;
 }
 
+/**
+ * Whether any account of this agent can take a chat. A Moss lane works while the local
+ * login is signed out, so the first status alone can't speak for the agent.
+ */
+export function hasUsableProviderAccount(
+  statuses: readonly ServerProviderStatus[],
+  provider: ProviderKind,
+): boolean {
+  return statuses.some(
+    (status) => (status.driver ?? status.provider) === provider && isProviderUsable(status),
+  );
+}
+
 export function resolveAvailableProviderPreference(input: {
   readonly preferredProvider: ProviderKind;
   readonly statuses: readonly ServerProviderStatus[];
@@ -473,8 +486,7 @@ export function resolveAvailableProviderPreference(input: {
     return input.preferredProvider;
   }
 
-  const preferredStatus = findProviderStatus(input.statuses, input.preferredProvider);
-  if (isProviderUsable(preferredStatus)) {
+  if (hasUsableProviderAccount(input.statuses, input.preferredProvider)) {
     return input.preferredProvider;
   }
 

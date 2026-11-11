@@ -75,7 +75,7 @@ it("keeps custom provider instances distinct while restoring and changing a scra
       options: { reasoningEffort: "high" },
     });
   const hook = await renderHook(() =>
-    useScratchComposerDraft({ defaultProvider: "claudeAgent", settings }),
+    useScratchComposerDraft({ defaultProvider: "codex", settings }),
   );
   try {
     expect(hook.result.current).toMatchObject({

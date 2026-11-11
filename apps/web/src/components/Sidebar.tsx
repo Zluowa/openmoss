@@ -219,7 +219,7 @@ import { readNativeApi } from "../nativeApi";
 import { isHomeChatContainerProject, prewarmHomeChatProject } from "../lib/chatProjects";
 import { isGroupContainerProject } from "../lib/groupProjects";
 import { useProjectEnvironmentStore } from "../projectEnvironmentStore";
-import { useComposerDraftStore } from "../composerDraftStore";
+import { stickyActiveProviderForNewChat, useComposerDraftStore } from "../composerDraftStore";
 import { useLatestProjectStore } from "../latestProjectStore";
 import {
   resolveThreadEnvironmentPresentation,
@@ -2756,7 +2756,11 @@ export default function Sidebar() {
         serverSettings: serverSettings ?? null,
         hiddenProviders: appSettings.hiddenProviders,
         draftActiveProvider: draftComposer?.activeProvider ?? null,
-        stickyActiveProvider: draftStore.stickyActiveProvider,
+        stickyActiveProvider: stickyActiveProviderForNewChat(
+          draftStore.stickyActiveProvider,
+          draftStore.stickyModelSelectionByProvider,
+          project.defaultModelSelection?.provider ?? appSettings.defaultProvider,
+        ),
         projectDefaultProvider: project.defaultModelSelection?.provider ?? null,
         projectCwd: project.cwd,
         draftWorktreePath: draftThread?.worktreePath ?? null,

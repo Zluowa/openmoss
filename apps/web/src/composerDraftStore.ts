@@ -73,6 +73,7 @@ export {
   deriveEffectiveComposerModelState,
   providerInstanceModelSelectionKey,
   resolvePreferredComposerModelSelection,
+  stickyActiveProviderForNewChat,
 } from "./composerDraftModels";
 export type { EffectiveComposerModelState } from "./composerDraftModels";
 export { partializeComposerDraftStoreState } from "./composerDraftPersistence";

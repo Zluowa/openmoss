@@ -2488,10 +2488,16 @@ async function dispatchConfiguredShortcutWhenReady(
   );
 }
 
-function dispatchComposerFocusToggleShortcut(): KeyboardEvent {
+// Cmd+L on macOS, Ctrl+L elsewhere: off macOS `meta` is the Windows/Super key, and
+// Win+L locks the computer before Moss ever sees it.
+function dispatchComposerFocusToggleShortcut(
+  chord: "platform" | "meta" = "platform",
+): KeyboardEvent {
+  const useMeta = chord === "meta" || isMacNavigatorPlatform();
   const event = new KeyboardEvent("keydown", {
     key: "l",
-    metaKey: true,
+    metaKey: useMeta,
+    ctrlKey: !useMeta,
     bubbles: true,
     cancelable: true,
   });
@@ -11199,7 +11205,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("toggles composer focus with Cmd+L", async () => {
+  it("toggles composer focus with Cmd+L (Ctrl+L off macOS)", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -11217,6 +11223,12 @@ describe("ChatView transcript geometry (full app)", () => {
       const composerEditor = await waitForComposerEditor();
       focusTarget.focus();
       expect(document.activeElement).toBe(focusTarget);
+
+      if (!isMacNavigatorPlatform()) {
+        // Win+L is the system's lock chord there; Moss must not claim it.
+        expect(dispatchComposerFocusToggleShortcut("meta").defaultPrevented).toBe(false);
+        expect(document.activeElement).toBe(focusTarget);
+      }
 
       const focusEvent = dispatchComposerFocusToggleShortcut();
       expect(focusEvent.defaultPrevented).toBe(true);
@@ -15396,7 +15408,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("restores a usable sticky claude model on fresh chat", async () => {
+  it("opens a fresh chat on the default agent and keeps the sticky Claude model for later", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
         claudeAgent: {
@@ -15456,25 +15468,24 @@ describe("ChatView transcript geometry (full app)", () => {
       );
       const newThreadId = newThreadPath.slice(1) as ThreadId;
 
-      expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
-        modelSelectionByProvider: {
-          claudeAgent: {
-            provider: "claudeAgent",
-            model: "claude-opus-4-6",
-            options: {
-              effort: "max",
-              fastMode: true,
-            },
-          },
+      // Claude was picked in an earlier chat; the default agent is Codex, so the new chat
+      // opens on Codex. Claude's model is remembered for when Claude is picked again.
+      const draft = useComposerDraftStore.getState().draftsByThreadId[newThreadId];
+      expect(draft?.modelSelectionByProvider.claudeAgent).toMatchObject({
+        provider: "claudeAgent",
+        model: "claude-opus-4-6",
+        options: {
+          effort: "max",
+          fastMode: true,
         },
-        activeProvider: "claudeAgent",
       });
+      expect(draft?.activeProvider ?? null).toBeNull();
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("falls back from an unauthenticated sticky provider on fresh chat", async () => {
+  it("does not open a fresh chat on an unauthenticated sticky agent", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
         claudeAgent: {
@@ -15534,15 +15545,10 @@ describe("ChatView transcript geometry (full app)", () => {
       );
       const newThreadId = newThreadPath.slice(1) as ThreadId;
 
-      expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
-        modelSelectionByProvider: {
-          codex: {
-            provider: "codex",
-            model: "gpt-5",
-          },
-        },
-        activeProvider: "codex",
-      });
+      // Not the default agent, so it never becomes the new chat's agent; Codex stays.
+      expect(
+        useComposerDraftStore.getState().draftsByThreadId[newThreadId]?.activeProvider ?? null,
+      ).toBeNull();
     } finally {
       await mounted.cleanup();
     }

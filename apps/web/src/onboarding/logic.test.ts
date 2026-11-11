@@ -272,7 +272,7 @@ describe("onboarding finish summary", () => {
     ).toBe("6 agents connected · Moss theme · 2 projects added");
   });
 
-  it("counts projects Moss already has instead of saying there are none", () => {
+  it("names no count for projects Moss already had, so it can't disagree with the sidebar", () => {
     expect(
       describeOnboardingDoneSummary({
         agents: "已连接 6 个智能体",
@@ -281,7 +281,7 @@ describe("onboarding finish summary", () => {
         existingProjects: 3,
         locale: "zh-CN",
       }),
-    ).toBe("已连接 6 个智能体 · Moss 主题 · 3 个项目");
+    ).toBe("已连接 6 个智能体 · Moss 主题");
     expect(
       describeOnboardingDoneSummary({
         agents: "6 agents connected",
@@ -289,6 +289,6 @@ describe("onboarding finish summary", () => {
         projectsAdded: 0,
         existingProjects: 1,
       }),
-    ).toBe("6 agents connected · Moss theme · 1 project");
+    ).toBe("6 agents connected · Moss theme");
   });
 });

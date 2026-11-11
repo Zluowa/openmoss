@@ -27,10 +27,15 @@ vi.mock("@moss/shared/providerInstances", () => ({
 
 import { ServerConfig } from "./config";
 import { mossMediaJobsEffectRouteLayer } from "./mossMediaJobsRoute";
+import { resetMossCanvasTextModelsReuse } from "./mossCanvasText";
+import { resetMossMediaCredentialReuse } from "./mossMediaAuthority";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  // Each test has its own accounts; reuse within a test is what is covered.
+  resetMossCanvasTextModelsReuse();
+  resetMossMediaCredentialReuse();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
