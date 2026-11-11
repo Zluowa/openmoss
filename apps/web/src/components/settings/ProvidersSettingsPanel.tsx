@@ -113,12 +113,8 @@ import {
 } from "~/providerUpdates";
 import { agentSettingsAnchorId } from "~/lib/agentInstall";
 import { supportsAgentSignIn } from "~/lib/agentSignIn";
-import {
-  isProviderUsable,
-  providerStatusInstanceKey,
-  resolveAgentReadiness,
-} from "~/lib/providerAvailability";
-import { isMossManagedSourceInstanceId } from "~/components/chat/providerAccountSources";
+import { providerStatusInstanceKey, resolveAgentReadiness } from "~/lib/providerAvailability";
+import { providersServedByMoss } from "~/components/chat/providerAccountSources";
 import {
   PROVIDER_READINESS_LABEL_KEY,
   providerReadinessDescriptionKey,
@@ -2185,18 +2181,8 @@ export function ProvidersSettingsPanel({
     [localProviderStatuses],
   );
   // Agents a working Moss lane serves: their row says so instead of asking for a sign-in.
-  const providersServedByMoss = useMemo(
-    () =>
-      new Set<ProviderKind>(
-        localProviderStatuses.flatMap((status) => {
-          const driver = status.driver ?? status.provider;
-          return isProviderKind(driver) &&
-            isMossManagedSourceInstanceId(providerStatusInstanceKey(status)) &&
-            isProviderUsable(status)
-            ? [driver]
-            : [];
-        }),
-      ),
+  const servedByMossProviders = useMemo(
+    () => providersServedByMoss(localProviderStatuses),
     [localProviderStatuses],
   );
   const providerStatusByInstance = useMemo(
@@ -2377,7 +2363,7 @@ export function ProvidersSettingsPanel({
     // action: 登录 runs the agent's sign-in in the browser, 安装 installs it in place.
     // The agent's own login is signed out, but its Moss lane runs it: nothing to sign in to.
     const servedByMoss =
-      readiness?.state === "needsLogin" && providersServedByMoss.has(option.provider);
+      readiness?.state === "needsLogin" && servedByMossProviders.has(option.provider);
     const descriptionKey = readiness ? providerReadinessDescriptionKey(readiness) : null;
     const canSignIn =
       !servedByMoss &&

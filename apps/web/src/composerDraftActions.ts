@@ -46,6 +46,7 @@ import {
   assistantSelectionDedupKey,
   buildDraftThreadState,
   buildTransferredComposerDraft,
+  composerDraftHasUnsentContent,
   createEmptyThreadDraft,
   draftThreadStatesEqual,
   fileCommentDedupKey,
@@ -196,8 +197,17 @@ export const createComposerDraftStoreState =
           ...state.draftThreadsByThreadId,
           [threadId]: nextDraftThread,
         };
+        const previousComposerDraft = previousThreadIdForProject
+          ? state.draftsByThreadId[previousThreadIdForProject]
+          : undefined;
+        // A replaced draft that still holds unsent words or attachments is parked, not
+        // deleted, when the caller asks (a new chat never silently drops someone's text).
+        const parksPreviousDraft =
+          options?.preservePreviousDraft === true &&
+          previousComposerDraft !== undefined &&
+          composerDraftHasUnsentContent(previousComposerDraft);
         const cleanedDrafts =
-          previousThreadIdForProject === threadId
+          previousThreadIdForProject === threadId || parksPreviousDraft
             ? {
                 draftThreadsByThreadId: nextDraftThreadsByThreadId,
                 draftsByThreadId: state.draftsByThreadId,

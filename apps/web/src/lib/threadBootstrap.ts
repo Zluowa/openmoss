@@ -34,6 +34,12 @@ export interface NewThreadOptions {
   provider?: ProviderKind;
   providerInstanceId?: ProviderInstanceId;
   fresh?: boolean;
+  /**
+   * Go back to the project's open chat draft even when it holds unsent text. Only for flows
+   * that return to that draft (closing the last tab); New chat never sets it, so it always
+   * opens an empty composer.
+   */
+  resumeUnsentDraft?: boolean;
   /** Keeps a requested custom-section incarnation beside a new draft until promotion. */
   pendingSidebarPlacement?: {
     sectionId: string;

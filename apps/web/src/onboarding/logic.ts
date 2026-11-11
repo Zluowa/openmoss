@@ -143,6 +143,8 @@ export type ProviderSetupState =
 export function classifyProviderSetup(input: {
   readonly readiness: Pick<ServerProviderReadiness, "state"> | null | undefined;
   readonly disabled: boolean;
+  /** A working Moss lane runs this agent, so its own signed-out login needs nothing. */
+  readonly servedByMoss?: boolean;
   readonly detecting?: boolean;
   readonly detectionFailed?: boolean;
 }): ProviderSetupState {
@@ -157,7 +159,7 @@ export function classifyProviderSetup(input: {
     case "ready":
       return "connected";
     case "needsLogin":
-      return "needs-sign-in";
+      return input.servedByMoss === true ? "connected" : "needs-sign-in";
     case "notInstalled":
       return "not-installed";
     case "error":

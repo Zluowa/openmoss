@@ -3,9 +3,14 @@
 // Layer: Chat composer domain logic
 // Depends on: provider instance identifiers only.
 
-import type { ProviderInstanceId, ProviderKind } from "@moss/contracts";
+import type { ProviderInstanceId, ProviderKind, ServerProviderStatus } from "@moss/contracts";
 
-import { mossDefaultManagedInstanceIdForProvider } from "~/lib/providerAvailability";
+import {
+  isProviderUsable,
+  mossDefaultManagedInstanceIdForProvider,
+  providerStatusInstanceKey,
+} from "~/lib/providerAvailability";
+import { isProviderKind } from "~/providerOrdering";
 
 export const MOSS_MANAGED_SOURCE_INSTANCE_IDS = new Set<ProviderInstanceId>([
   "codex_moss",
@@ -167,4 +172,26 @@ export function resolveProviderInstanceIdForProviderSwitch(input: {
     input.targetInstances.find((instance) => instance.isDefault)?.instanceId ??
     input.targetInstances[0]!.instanceId
   );
+}
+
+/**
+ * Agents a working Moss lane runs right now. Their own signed-out login is then nothing
+ * to ask about: Settings, the welcome tour and the model picker say connected instead
+ * of 登录.
+ */
+export function providersServedByMoss(
+  statuses: ReadonlyArray<ServerProviderStatus>,
+): ReadonlySet<ProviderKind> {
+  const served = new Set<ProviderKind>();
+  for (const status of statuses) {
+    const driver = status.driver ?? status.provider;
+    if (
+      isProviderKind(driver) &&
+      isMossManagedSourceInstanceId(providerStatusInstanceKey(status)) &&
+      isProviderUsable(status)
+    ) {
+      served.add(driver);
+    }
+  }
+  return served;
 }

@@ -4,6 +4,7 @@ import { EventId, type OrchestrationThreadActivity, TurnId } from "@moss/contrac
 import {
   nominalClaudeContextWindowTokens,
   withContextWindowMaxTokens,
+  modelWindowContextSnapshot,
   deriveContextWindowSelectionStatus,
   deriveComposerContextWindowLabel,
   deriveAppliedContextWindowSelection,
@@ -530,5 +531,24 @@ describe("withContextWindowMaxTokens", () => {
       usedPercentage: 9,
       remainingPercentage: 91,
     });
+  });
+});
+
+describe("modelWindowContextSnapshot", () => {
+  const snapshot = {
+    usedTokens: 21_000,
+    maxTokens: 167_000,
+    remainingTokens: 146_000,
+    usedPercentage: 12.6,
+    remainingPercentage: 87.4,
+    updatedAt: "2026-09-17T00:00:01Z",
+  } as Parameters<typeof modelWindowContextSnapshot>[0];
+
+  it("gives Claude the window the composer names, for the meter and the Environment panel", () => {
+    expect(modelWindowContextSnapshot(snapshot, { claude: true }).maxTokens).toBe(200_000);
+  });
+
+  it("leaves other agents' reported window alone", () => {
+    expect(modelWindowContextSnapshot(snapshot, { claude: false })).toBe(snapshot);
   });
 });

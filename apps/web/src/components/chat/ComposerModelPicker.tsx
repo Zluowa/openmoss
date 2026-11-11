@@ -67,6 +67,7 @@ import {
   ComposerModelPickerAgentColumn,
   ComposerModelPickerProviderRows,
   ComposerModelPickerSourceNotice,
+  composerAccountName,
   composerSourceListsModels,
   MODEL_PICKER_AGENT_TAB_ATTRIBUTE,
   resolveComposerModelPickerProviderTabs,
@@ -385,6 +386,7 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     lockedInstanceProvider:
       lockedProvider === null ? (props.boundProviderInstance?.provider ?? null) : null,
     mossGatewayUnreachable: props.mossGatewayUnreachable === true,
+    activeInstanceId,
   });
   const activeProviderTab = providerTabs.find(
     (providerTab) => providerTab.instanceId === activeInstanceId,
@@ -456,7 +458,7 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     const hasSiblingAccounts = instancesFor(account.provider).some(
       (instance) => instance.instanceId !== instanceId && instance.enabled,
     );
-    return hasSiblingAccounts || !account.isDefault ? account.label : undefined;
+    return hasSiblingAccounts || !account.isDefault ? composerAccountName(account) : undefined;
   };
 
   // Codex parity: a first-class Default row (recommended model set) leads the codex model

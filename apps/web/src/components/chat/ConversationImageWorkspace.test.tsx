@@ -233,6 +233,31 @@ describe("original canvas and ordinary conversation composer", () => {
     );
   });
 
+  it("attaches the selected image once however many times the Canvas opens, keeping the user's own images", async () => {
+    // Owner, 2026-11-11: every opening added another copy (3 rabbits after 3
+    // opens), and the image's name changed between them, so no dedup caught it.
+    const userImage = makeImage({
+      id: "user-cat",
+      name: "cat.png",
+      sizeBytes: 5,
+      previewUrl: "data:image/png;base64,aW1hZ2U=",
+    });
+    useComposerDraftStore.getState().addImages(threadId, [userImage]);
+    const images = () => useComposerDraftStore.getState().draftsByThreadId[threadId]?.images ?? [];
+    for (const [opening, name] of ["0?accountScope=aaaa", "image-1", "图片 05:10"].entries()) {
+      const view = render(
+        <ConversationImageWorkspace {...props} pane={{ id: `pane-${opening}` }} />,
+      );
+      await act(async () => select(opening + 1, name));
+      await waitFor(() =>
+        expect(images().map((image) => image.name)).toEqual(["cat.png", `${name}.png`]),
+      );
+      view.unmount();
+    }
+    expect(images()[0]).toEqual(userImage);
+    expect(images()).toHaveLength(2);
+  });
+
   it("accepts an existing reference at full capacity and rejects a genuinely ninth image", async () => {
     const userImages = Array.from({ length: PROVIDER_SEND_TURN_MAX_ATTACHMENTS }, (_, index) =>
       makeImage({

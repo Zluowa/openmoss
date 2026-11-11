@@ -2593,10 +2593,9 @@ export default function Sidebar() {
   // Opens a fresh home-chat draft directly on the draft thread route so the first send
   // does not need a second route swap from "/" to "/$threadId".
   const handleCreateHomeChat = useCallback(async () => {
-    // Reuse the stored home-chat draft thread when one exists (matching the
-    // project "New thread" button), so a draft typed in a new chat survives
-    // switching to another thread and back. Only mint a fresh draft when there
-    // is no stored draft to resume.
+    // An empty stored home-chat draft is reused (no pile of empty drafts); one that still
+    // holds unsent text is parked on the Tasks board and a fresh, empty draft opens
+    // (useHandleNewThread), so New chat never brings back old text.
     await handleNewChat();
   }, [handleNewChat]);
 

@@ -147,6 +147,19 @@ describe("resolveOnboardingCompletionToReconcile", () => {
 });
 
 describe("classifyProviderSetup", () => {
+  it("reads a signed-out agent as connected while its Moss lane runs it", () => {
+    expect(
+      classifyProviderSetup({
+        readiness: { state: "needsLogin" },
+        disabled: false,
+        servedByMoss: true,
+      }),
+    ).toBe("connected");
+    expect(classifyProviderSetup({ readiness: { state: "needsLogin" }, disabled: false })).toBe(
+      "needs-sign-in",
+    );
+  });
+
   it("treats a disabled provider as disabled regardless of detection", () => {
     expect(classifyProviderSetup({ readiness: { state: "ready" }, disabled: true })).toBe(
       "disabled",

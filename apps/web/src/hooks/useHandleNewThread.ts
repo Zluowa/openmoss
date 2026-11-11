@@ -36,6 +36,7 @@ import {
   resolvePreferredComposerModelSelection,
   useComposerDraftStore,
 } from "../composerDraftStore";
+import { composerDraftHasUnsentContent } from "../composerDraftDomain";
 import {
   applyGroupWorkerRoutingDefaults,
   resolveGroupContainerThreadDefaults,
@@ -577,6 +578,14 @@ export function useHandleNewThread() {
       setModelSelection,
     } = useComposerDraftStore.getState();
     const shouldForceFreshThread = options?.fresh === true;
+    // A new chat always opens on an empty composer (as in Claude desktop). A chat draft that
+    // still holds unsent text or attachments is never reopened here, or new typing would merge
+    // into it and Enter would send both; it is parked instead and stays on the Tasks board.
+    const holdsUnsentChatContent = (threadId: ThreadId | null | undefined): boolean => {
+      if (entryPoint !== "chat" || options?.resumeUnsentDraft === true || !threadId) return false;
+      const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+      return draft !== undefined && composerDraftHasUnsentContent(draft);
+    };
 
     const storedDraftThreadCandidate = getDraftThreadByProjectId(projectId, entryPoint);
     const latestActiveDraftThreadCandidate: DraftThreadState | null = focusedThreadId
@@ -586,6 +595,7 @@ export function useHandleNewThread() {
       !shouldForceFreshThread &&
       !wantsTemporaryThread &&
       !(storedDraftThreadCandidate && hasActiveComposerSend(storedDraftThreadCandidate.threadId)) &&
+      !holdsUnsentChatContent(storedDraftThreadCandidate?.threadId) &&
       storedDraftThreadCandidate?.isTemporary !== true
         ? storedDraftThreadCandidate
         : null;
@@ -593,6 +603,7 @@ export function useHandleNewThread() {
       !shouldForceFreshThread &&
       !wantsTemporaryThread &&
       !(focusedThreadId && hasActiveComposerSend(focusedThreadId)) &&
+      !holdsUnsentChatContent(focusedThreadId) &&
       latestActiveDraftThreadCandidate?.isTemporary !== true
         ? latestActiveDraftThreadCandidate
         : null;
@@ -849,10 +860,12 @@ export function useHandleNewThread() {
           // Verify the committed route before deleting the previous project draft.
           isDestinationActive: () =>
             router.state.location.pathname === `/${threadId}` && requestedInstanceIsSelectable(),
+          // A chat draft this replaces keeps its unsent content (parked, on the Tasks board);
+          // prefilled flows (创建插件 / 技能 / 应用) take the slot this way too.
           finalize: () =>
             setProjectDraftThreadId(projectId, threadId, {
               ...draftSeed,
-              ...(navigation?.preservePreviousDraft === true
+              ...(navigation?.preservePreviousDraft === true || entryPoint === "chat"
                 ? { preservePreviousDraft: true }
                 : {}),
             }),

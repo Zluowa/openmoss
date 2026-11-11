@@ -254,6 +254,12 @@ export interface DraftThreadMutationOptions {
   isTemporary?: boolean;
   // Empty string clears the staged goal; undefined leaves it unchanged.
   goal?: string;
+  /**
+   * setProjectDraftThreadId only: when this replaces the project's draft slot, keep the
+   * previous draft (thread and composer text) if it still holds unsent content, as a
+   * standalone draft (it stays on the Tasks board) instead of deleting it.
+   */
+  preservePreviousDraft?: boolean;
 }
 
 type DraftThreadCreatedAtMode = "accept-empty" | "preserve-existing-on-empty";

@@ -1,4 +1,8 @@
 import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS, type ThreadId } from "@moss/contracts";
+import {
+  isMossCanvasReferenceImageId,
+  mossCanvasReferenceImageId,
+} from "~/lib/mossCanvasReferenceImages";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { mergeComposerImages } from "~/composerDraftAttachments";
 import { useComposerDraftStore } from "~/composerDraftStore";
@@ -128,7 +132,14 @@ export function ConversationImageWorkspace(props: {
     selectionVersion.current += 1;
     selectionError.current = true;
     const store = useComposerDraftStore.getState();
-    for (const id of ownedAttachments.current) store.removeImage(props.threadId, id);
+    const draft = store.draftsByThreadId[props.threadId];
+    for (const id of new Set([
+      ...ownedAttachments.current,
+      ...[...(draft?.images ?? []), ...(draft?.persistedAttachments ?? [])]
+        .map((image) => image.id)
+        .filter(isMossCanvasReferenceImageId),
+    ]))
+      store.removeImage(props.threadId, id);
     if (ownedContextId.current) store.removePastedText(props.threadId, ownedContextId.current);
     store.removePastedText(props.threadId, `canvas-selection:${props.pane.id}`);
     ownedContextId.current = null;
@@ -167,12 +178,23 @@ export function ConversationImageWorkspace(props: {
         }
         const store = useComposerDraftStore.getState();
         const latestDraft = store.draftsByThreadId[props.threadId];
+        // Images any Canvas of this conversation attached before (an earlier
+        // opening, a reload) are this selection's too: replace them, never add
+        // the same picture again (owner, 2026-11-11: 3 copies after 3 opens).
         const previousOwned = new Set(ownedAttachments.current);
+        for (const image of [
+          ...(latestDraft?.images ?? []),
+          ...(latestDraft?.persistedAttachments ?? []),
+        ])
+          if (isMossCanvasReferenceImageId(image.id)) previousOwned.add(image.id);
         const retainedImages =
           latestDraft?.images.filter((image) => !previousOwned.has(image.id)) ?? [];
         // Reuse the store's deduplication and discarded-preview cleanup. A reused
         // user image remains user-owned; only the appended images need insertion.
-        const mergedImages = mergeComposerImages(retainedImages, result.images);
+        const mergedImages = mergeComposerImages(
+          retainedImages,
+          result.images.map((image) => ({ ...image, id: mossCanvasReferenceImageId(image.id) })),
+        );
         const newImages = mergedImages?.slice(retainedImages.length) ?? [];
         if (
           effectiveComposerAttachmentCount({
@@ -188,7 +210,7 @@ export function ConversationImageWorkspace(props: {
           });
           throw new Error("图片数量超过当前会话可接收的上限。");
         }
-        for (const id of ownedAttachments.current) store.removeImage(props.threadId, id);
+        for (const id of previousOwned) store.removeImage(props.threadId, id);
         const accepted = store.addImages(props.threadId, newImages);
         const committedIds = new Set(
           useComposerDraftStore

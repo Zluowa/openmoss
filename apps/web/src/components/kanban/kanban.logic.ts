@@ -23,6 +23,7 @@ import {
 } from "@moss/shared/kanban";
 import { isPendingThreadWorktree } from "@moss/shared/threadEnvironment";
 import { composerDraftHasAttachments } from "../../composerDraftDomain";
+import { withoutMossCanvasReferenceImages } from "../../lib/mossCanvasReferenceImages";
 import { normalizeAssistantSelectionText } from "../../lib/assistantSelections";
 import { currentUiLocale, isChineseLocale } from "../../lib/timeFormat";
 import type { ComposerThreadDraftState } from "../../composerDraftStore";
@@ -110,10 +111,13 @@ export function buildKanbanComposerDraftSnapshot(
   if (!draft) {
     return null;
   }
+  // The image a Canvas attaches for its selected card is not something the
+  // owner wrote; a draft holding only that is not a task draft.
+  const owned = withoutMossCanvasReferenceImages(draft);
   return {
     prompt: draft.prompt,
     hasAttachments:
-      composerDraftHasAttachments(draft) ||
+      composerDraftHasAttachments(owned) ||
       draft.pastedTexts.some((pasted) => pasted.text.trim().length > 0),
     attachmentTitle: resolveDraftAttachmentTitle(draft),
     providerInstanceId: draft.activeProvider,
@@ -617,7 +621,9 @@ function buildUnsentPromptCard(
   locale: string,
 ): KanbanCard | null {
   const composerDraft = resolveComposerDraft(composerDraftByThreadId, thread.id);
-  if (composerDraft.prompt.length === 0 && !composerDraft.hasAttachments) {
+  // A finished chat earns a draft card only for words left unsent (typed or quoted). Images
+  // alone are what the canvas side chat attaches each time it opens; they are not a task.
+  if (composerDraft.prompt.length === 0 && composerDraft.attachmentTitle === null) {
     return null;
   }
   const timestamp = thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt ?? null;

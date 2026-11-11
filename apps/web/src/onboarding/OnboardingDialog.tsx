@@ -23,6 +23,7 @@ import {
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { useTheme } from "~/hooks/useTheme";
 import { CheckIcon } from "~/lib/icons";
+import { providersServedByMoss } from "~/components/chat/providerAccountSources";
 import { findProviderStatus, resolveAgentReadiness } from "~/lib/providerAvailability";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
@@ -98,6 +99,7 @@ function OnboardingFlow(props: {
     if (isOnboardingSetupStep(step)) markEngaged();
   }, [markEngaged, step]);
 
+  const servedByMoss = providersServedByMoss(statuses);
   const providerSummary = summarizeProviderSetup(
     VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor) => {
       const status = findProviderStatus(statuses, descriptor.kind, descriptor.kind);
@@ -105,6 +107,7 @@ function OnboardingFlow(props: {
         provider: descriptor.kind,
         state: classifyProviderSetup({
           readiness: status ? resolveAgentReadiness(status) : null,
+          servedByMoss: servedByMoss.has(descriptor.kind),
           disabled: settings.disabledProviders.includes(descriptor.kind),
           detecting: providerDetection.detecting,
           detectionFailed: providerDetection.failed,

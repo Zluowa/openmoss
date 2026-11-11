@@ -95,6 +95,18 @@ const READINESS_RANK: Record<AgentReadiness["state"], number> = {
   notInstalled: 4,
 };
 
+/**
+ * The name an account goes by in the composer. Every Moss lane is just "Moss", whatever the
+ * server calls the instance internally ("Moss Claude"), so Claude's button reads like the
+ * other agents'.
+ */
+export function composerAccountName(account: {
+  readonly instanceId: ProviderInstanceId;
+  readonly label: string;
+}): string {
+  return isMossManagedSourceInstanceId(account.instanceId) ? "Moss" : account.label;
+}
+
 function mossSignInTab(
   option: { value: ProviderKind; label: string },
   instanceId: ProviderInstanceId,
@@ -125,6 +137,8 @@ export function resolveComposerModelPickerProviderTabs(input: {
   lockedInstanceId?: ProviderInstanceId | null | undefined;
   // Locks only this provider's sibling accounts; other providers stay pickable.
   lockedInstanceProvider?: ProviderKind | null | undefined;
+  /** The account the composer runs on: its tab always stays listed. */
+  activeInstanceId?: ProviderInstanceId | null | undefined;
   /** Signed in, but Moss's gateway can't be reached: Moss rows say so, never "sign in". */
   mossGatewayUnreachable?: boolean | undefined;
 }): ComposerModelPickerProviderTab[] {
@@ -148,6 +162,8 @@ function resolveComposerModelPickerProviderTabsReachable(input: {
   providerInstances?: ReadonlyArray<ProviderModelPickerInstance> | undefined;
   lockedInstanceId?: ProviderInstanceId | null | undefined;
   lockedInstanceProvider?: ProviderKind | null | undefined;
+  /** The account the composer runs on: its tab always stays listed. */
+  activeInstanceId?: ProviderInstanceId | null | undefined;
 }): ComposerModelPickerProviderTab[] {
   const signedInToMoss = (input.providerInstances ?? []).some(
     (instance) => instance.enabled && isMossManagedSourceInstanceId(instance.instanceId),
@@ -189,19 +205,22 @@ function resolveComposerModelPickerProviderTabsReachable(input: {
     const hasSiblingAccounts = accounts.length > 1;
     const tabs =
       accounts.length > 0
-        ? accounts.map((account) => ({
-            instanceId: account.instanceId,
-            label: hasSiblingAccounts
-              ? providerAccountQualifiedLabel(option.label, account.label)
-              : account.isDefault
-                ? option.label
-                : account.label,
-            accountLabel: account.label,
-            isDefaultAccount: account.isDefault,
-            name: hasSiblingAccounts ? account.label : null,
-            dotted: hasSiblingAccounts && !account.isDefault,
-            accentColor: account.accentColor,
-          }))
+        ? accounts.map((account) => {
+            const accountName = composerAccountName(account);
+            return {
+              instanceId: account.instanceId,
+              label: hasSiblingAccounts
+                ? providerAccountQualifiedLabel(option.label, accountName)
+                : account.isDefault
+                  ? option.label
+                  : accountName,
+              accountLabel: accountName,
+              isDefaultAccount: account.isDefault,
+              name: hasSiblingAccounts ? accountName : null,
+              dotted: hasSiblingAccounts && !account.isDefault,
+              accentColor: account.accentColor,
+            };
+          })
         : [
             {
               instanceId: option.value,
@@ -248,7 +267,20 @@ function resolveComposerModelPickerProviderTabsReachable(input: {
     ) {
       return [mossSignInTab(option, mossInstanceId, lockedToSibling(mossInstanceId)), ...resolved];
     }
-    return resolved;
+    // While the agent's Moss lane runs, its signed-out local login asks for nothing: the
+    // agent is usable, so no 登录 row. The account the chat already uses always stays.
+    const servedByMoss = resolved.some(
+      (tab) => isMossManagedSourceInstanceId(tab.instanceId) && tab.readiness.state === "ready",
+    );
+    return servedByMoss
+      ? resolved.filter(
+          (tab) =>
+            isMossManagedSourceInstanceId(tab.instanceId) ||
+            tab.readiness.state !== "needsLogin" ||
+            tab.instanceId === input.activeInstanceId ||
+            tab.instanceId === input.lockedInstanceId,
+        )
+      : resolved;
   });
 }
 

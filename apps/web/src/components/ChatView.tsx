@@ -239,6 +239,7 @@ import {
   deriveAppliedContextWindowSelection,
   deriveCumulativeCostUsd,
   deriveLatestContextWindowState,
+  modelWindowContextSnapshot,
 } from "../lib/contextWindow";
 import { reconcileDeletedThreadFromClient } from "../lib/deletedThreadClientReconciliation";
 import { resolveGroupCoordinatorDisplayName } from "../lib/groupCoordinatorName";
@@ -5803,6 +5804,17 @@ export default function ChatView({
     selectedRuntimeModel,
   );
   const runtimeUsageContextWindow = activeContextWindow;
+  // The window the composer names ("(200k)"), for every surface that prints a context size
+  // without the meter's own compaction line: the Environment panel and /status.
+  const displayedContextWindow = useMemo(
+    () =>
+      activeContextWindow
+        ? modelWindowContextSnapshot(activeContextWindow, {
+            claude: activeThread?.session?.provider === "claudeAgent",
+          })
+        : null,
+    [activeContextWindow, activeThread?.session?.provider],
+  );
   const claudeSwitchKey =
     (activeThread?.messages.length ?? 0) > 0 &&
     boundProvider === "claudeAgent" &&
@@ -7388,7 +7400,7 @@ export default function ChatView({
     onOpenEditorView: viewModeAction?.onClick ?? null,
     onClose: closeEnvironmentPanelAfterAction,
     onRegisterCommitAndPushTrigger,
-    contextWindow: activeContextWindow,
+    contextWindow: displayedContextWindow,
     projectScripts:
       activeProject && activeProjectScripts !== undefined && !activeThreadIsSidechat
         ? {
@@ -8946,7 +8958,7 @@ export default function ChatView({
           envMode={envMode}
           envState={envState}
           branch={activeThread?.branch ?? activeRootBranch}
-          contextWindow={activeContextWindow}
+          contextWindow={displayedContextWindow}
           cumulativeCostUsd={activeCumulativeCostUsd}
           rateLimitStatus={activeRateLimitStatus}
           activeContextWindowLabel={contextWindowSelectionStatus.activeLabel}

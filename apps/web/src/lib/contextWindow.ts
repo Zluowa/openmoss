@@ -430,6 +430,19 @@ export function withContextWindowMaxTokens(
   };
 }
 
+/**
+ * The one window every surface shows for a thread. Claude reports its compaction budget
+ * (167k of a 200k model) as the window; the composer names the model's window ("(200k)"),
+ * so the meter and the Environment panel measure against that same number.
+ */
+export function modelWindowContextSnapshot(
+  usage: ContextWindowSnapshot,
+  options: { readonly claude: boolean },
+): ContextWindowSnapshot {
+  const nominal = options.claude ? nominalClaudeContextWindowTokens(usage.maxTokens) : null;
+  return nominal ? withContextWindowMaxTokens(usage, nominal) : usage;
+}
+
 export function deriveContextWindowSelectionStatus(input: {
   activeSnapshot: ContextWindowSnapshot | null;
   appliedValue?: string | null;

@@ -91,6 +91,35 @@ describe("composerDraftStore project draft thread mapping", () => {
     URL.revokeObjectURL = originalRevokeObjectUrl;
   });
 
+  it("parks a replaced draft that still holds text when asked, and drops an empty one", () => {
+    const store = useComposerDraftStore.getState();
+    const thirdThreadId = ThreadId.makeUnsafe("thread-c");
+    store.setProjectDraftThreadId(projectId, threadId);
+    store.setPrompt(threadId, "unsent words");
+
+    // A new chat takes the slot: the old draft keeps its text, unmapped.
+    useComposerDraftStore
+      .getState()
+      .setProjectDraftThreadId(projectId, otherThreadId, { preservePreviousDraft: true });
+    let state = useComposerDraftStore.getState();
+    expect(state.getDraftThreadByProjectId(projectId)?.threadId).toBe(otherThreadId);
+    expect(state.getDraftThread(threadId)).not.toBeNull();
+    expect(state.draftsByThreadId[threadId]?.prompt).toBe("unsent words");
+
+    // An empty draft is still cleaned up, flag or not.
+    state.setProjectDraftThreadId(projectId, thirdThreadId, { preservePreviousDraft: true });
+    state = useComposerDraftStore.getState();
+    expect(state.getDraftThread(otherThreadId)).toBeNull();
+    expect(state.getDraftThread(threadId)).not.toBeNull();
+
+    // Without the flag the replaced draft goes, as before.
+    state.setPrompt(thirdThreadId, "more words");
+    state.setProjectDraftThreadId(projectId, otherThreadId);
+    state = useComposerDraftStore.getState();
+    expect(state.getDraftThread(thirdThreadId)).toBeNull();
+    expect(state.draftsByThreadId[thirdThreadId]).toBeUndefined();
+  });
+
   it("stores and reads project draft thread ids via actions", () => {
     const store = useComposerDraftStore.getState();
     expect(store.getDraftThreadByProjectId(projectId)).toBeNull();

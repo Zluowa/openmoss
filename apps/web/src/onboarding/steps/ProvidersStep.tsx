@@ -34,6 +34,7 @@ import {
   prioritizeInstalledProviders,
 } from "~/providerOrdering";
 import { ONBOARDING_TILE_CLASS_NAME } from "../layout";
+import { providersServedByMoss } from "~/components/chat/providerAccountSources";
 import { classifyProviderSetup, summarizeProviderSetup, type ProviderSetupState } from "../logic";
 import type { ProviderDetection } from "../useProviderDetection";
 
@@ -292,6 +293,7 @@ export function ProvidersStep(props: { readonly detection: ProviderDetection }) 
   const descriptorByKind = new Map<ProviderKind, (typeof VISIBLE_PROVIDER_DESCRIPTORS)[number]>(
     VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor) => [descriptor.kind, descriptor]),
   );
+  const servedByMoss = providersServedByMoss(statuses);
   const rows = prioritizeInstalledProviders(
     VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor) => descriptor.kind),
     installedRef.current,
@@ -304,6 +306,7 @@ export function ProvidersStep(props: { readonly detection: ProviderDetection }) 
     const state = classifyProviderSetup({
       readiness,
       disabled: disabledSet.has(descriptor.kind),
+      servedByMoss: servedByMoss.has(descriptor.kind),
       detecting: detection.detecting,
       detectionFailed: detection.failed,
     });

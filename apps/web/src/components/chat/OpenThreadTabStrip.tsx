@@ -156,6 +156,7 @@ export function OpenThreadTabStrip(props: {
             useOpenThreadTabsStore.getState().threadIds.includes(openDraft.threadId);
           return handleNewThread(projectId, {
             fresh: !reuseOpenDraft,
+            ...(reuseOpenDraft ? { resumeUnsentDraft: true } : {}),
             // Home and Hubs use their container workspace; ordinary projects keep
             // their chosen local/worktree default through handleNewThread.
             ...(project && project.kind !== "project"

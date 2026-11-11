@@ -6,7 +6,7 @@ import {
   formatContextWindowTokens,
   formatCostUsd,
   nominalClaudeContextWindowTokens,
-  withContextWindowMaxTokens,
+  modelWindowContextSnapshot,
 } from "~/lib/contextWindow";
 import { useTranslation } from "~/localization";
 import { useState } from "react";
@@ -38,9 +38,7 @@ export function ContextWindowMeter(props: {
   const nominalWindowTokens = props.showClaudeCache
     ? nominalClaudeContextWindowTokens(usage.maxTokens)
     : null;
-  const shownUsage = nominalWindowTokens
-    ? withContextWindowMaxTokens(usage, nominalWindowTokens)
-    : usage;
+  const shownUsage = modelWindowContextSnapshot(usage, { claude: props.showClaudeCache === true });
   const display = deriveContextWindowMeterDisplay(shownUsage);
   // Never an empty dial once anything is used: a sliver keeps "some" distinct from "none".
   const sectorPath = contextWindowMeterSectorPath(

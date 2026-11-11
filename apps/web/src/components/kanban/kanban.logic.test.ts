@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { ProjectId, ThreadId } from "@moss/contracts";
+import { makeImage } from "../../composerDraftStoreTestFixtures";
+import { mossCanvasReferenceImageId } from "../../lib/mossCanvasReferenceImages";
 import { DEFAULT_INTERACTION_MODE } from "../../types";
 import type { SidebarThreadSummary, ThreadSession } from "../../types";
 import {
@@ -405,6 +407,27 @@ describe("buildKanbanBoard", () => {
     expect(resolveDraftDropAction(draftCard)).toBe("dispatch");
   });
 
+  it("shows no draft for a finished chat holding only images (canvas side chat)", () => {
+    const threadId = ThreadId.makeUnsafe("thread-canvas-dog");
+    const board = buildKanbanBoard(
+      makeBoardInput({
+        threads: [makeSidebarThreadSummary({ id: threadId, latestTurn: makeLatestTurn() })],
+        composerDraftByThreadId: {
+          [threadId]: {
+            prompt: "",
+            hasAttachments: true,
+            attachmentTitle: null,
+            providerInstanceId: null,
+            provider: null,
+          },
+        },
+      }),
+    );
+    const project = board.projects[0]!;
+    expect(project.done.map((card) => card.threadId)).toEqual([threadId]);
+    expect(project.draft).toEqual([]);
+  });
+
   it("titles quote-only drafts by the quote's first words, not a shared placeholder", () => {
     const quoteOnly = ThreadId.makeUnsafe("thread-quote-only");
     const zhQuoteOnly = ThreadId.makeUnsafe("thread-zh-quote-only");
@@ -805,6 +828,53 @@ const makeDraftSource = (
 });
 
 describe("buildKanbanComposerDraftSnapshot", () => {
+  it("does not count the image a Canvas attached on its own as a draft", () => {
+    // Owner, 2026-11-11: every Canvas opening left an unsent 「草稿 11月11日 16:16」 card.
+    const canvasImage = makeImage({
+      id: mossCanvasReferenceImageId("rabbit"),
+      name: "图片 05:10.png",
+      previewUrl: "data:image/png;base64,aW1hZ2U=",
+    });
+    expect(
+      buildKanbanComposerDraftSnapshot(makeDraftSource({ images: [canvasImage] }))?.hasAttachments,
+    ).toBe(false);
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({
+          persistedAttachments: [
+            {
+              id: mossCanvasReferenceImageId("rabbit"),
+              name: "r.png",
+              mimeType: "image/png",
+              sizeBytes: 5,
+              dataUrl: "data:image/png;base64,aW1hZ2U=",
+            },
+          ],
+        }),
+      )?.hasAttachments,
+    ).toBe(false);
+    // An image the owner attached, or text beside the Canvas image, is still a draft.
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({
+          images: [
+            canvasImage,
+            makeImage({
+              id: "user-cat",
+              name: "cat.png",
+              previewUrl: "data:image/png;base64,aW1hZ2U=",
+            }),
+          ],
+        }),
+      )?.hasAttachments,
+    ).toBe(true);
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({ images: [canvasImage], prompt: "改成水彩" }),
+      )?.prompt,
+    ).toBe("改成水彩");
+  });
+
   it("ignores terminal contexts whose text is not available anymore", () => {
     const snapshot = buildKanbanComposerDraftSnapshot(
       makeDraftSource({

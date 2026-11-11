@@ -14508,44 +14508,59 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("keeps composer edits made while New thread reopens a stored draft", async () => {
+  it("opens an empty composer on New chat and parks the unsent draft (round 7 repro)", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
-        targetMessageId: MessageId.makeUnsafe("stored-draft-reopen"),
-        targetText: "Stored draft reopen",
+        targetMessageId: MessageId.makeUnsafe("new-chat-unsent-draft"),
+        targetText: "New chat unsent draft",
       }),
     });
+    const newChatButton = () =>
+      page.getByLabelText("Create new thread in Project").element() as HTMLElement;
+    const draftPrompt = (threadId: ThreadId) =>
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt ?? "";
 
     try {
-      useComposerDraftStore.getState().setProjectDraftThreadId(PROJECT_ID, OTHER_THREAD_ID);
-      useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, "Older stored draft");
-      const newThreadButton = page.getByLabelText("Create new thread in Project").element();
-      (newThreadButton as HTMLElement).click();
-      // Type into the reopened draft as soon as its route is active, while the
-      // New thread navigation is still settling.
-      await new Promise<void>((resolve) => {
-        let microtaskChecks = 0;
-        const editWhenRouted = () => {
-          if (mounted.router.state.location.pathname === `/${OTHER_THREAD_ID}`) {
-            useComposerDraftStore.getState().setPrompt(OTHER_THREAD_ID, "Newer typed text");
-            resolve();
-            return;
-          }
-          microtaskChecks += 1;
-          if (microtaskChecks < 10_000) queueMicrotask(editWhenRouted);
-          else window.setTimeout(editWhenRouted, 0);
-        };
-        editWhenRouted();
-      });
-      await vi.waitFor(() =>
-        expect(document.querySelector('[data-testid="empty-landing-heading"]')).not.toBeNull(),
+      // 1. New chat, type something, don't send.
+      newChatButton().click();
+      const firstPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "New chat should open a draft route.",
       );
-      await waitForLayout();
+      const firstDraftId = firstPath.slice(1) as ThreadId;
+      await page.getByTestId("composer-editor").fill("草稿复现测试，不要发送");
+      await vi.waitFor(() => expect(draftPrompt(firstDraftId)).toBe("草稿复现测试，不要发送"));
 
-      expect(useComposerDraftStore.getState().draftsByThreadId[OTHER_THREAD_ID]?.prompt).toBe(
-        "Newer typed text",
+      // 2. Open another chat.
+      await mounted.router.navigate({ to: "/$threadId", params: { threadId: THREAD_ID } });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${THREAD_ID}`,
+        "Should be on the other chat.",
       );
+
+      // 3. New chat again: a fresh, empty draft, not the old one.
+      newChatButton().click();
+      const secondPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path) && path !== firstPath,
+        "New chat must open a fresh draft, not reopen the unsent one.",
+      );
+      const secondDraftId = secondPath.slice(1) as ThreadId;
+      await waitForLayout();
+      expect(draftPrompt(secondDraftId)).toBe("");
+      expect((await waitForComposerEditor()).textContent?.trim() ?? "").toBe("");
+
+      // The unsent draft is parked, text intact (it stays on the Tasks board).
+      expect(useComposerDraftStore.getState().getDraftThread(firstDraftId)).not.toBeNull();
+      expect(draftPrompt(firstDraftId)).toBe("草稿复现测试，不要发送");
+
+      // New typing goes only into the new draft; nothing merges.
+      await page.getByTestId("composer-editor").fill("生成一张图片");
+      await vi.waitFor(() => expect(draftPrompt(secondDraftId)).toBe("生成一张图片"));
+      expect(draftPrompt(firstDraftId)).toBe("草稿复现测试，不要发送");
     } finally {
       await mounted.cleanup();
     }
@@ -15673,7 +15688,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("preserves a new-chat draft when switching to another thread and back via New chat", async () => {
+  it("parks a new-chat draft and opens an empty one when New chat is clicked after a thread switch", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: withActiveHomeChatThread(
@@ -15731,32 +15746,24 @@ describe("ChatView transcript geometry (full app)", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      // Come back via "New chat" — must return to the SAME draft thread with the draft intact
+      // "New chat" again opens a fresh, empty draft (as in Claude desktop), never the old one.
       const newChatButtonAgain = page.getByLabelText("Open new chat home");
       await expect.element(newChatButtonAgain).toBeInTheDocument();
       await newChatButtonAgain.click();
       const returnedPath = await waitForURL(
         mounted.router,
-        (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a draft thread UUID.",
+        (path) => UUID_ROUTE_RE.test(path) && path !== newThreadPath,
+        "New chat should open a fresh draft thread UUID.",
       );
-
-      await vi.waitFor(
-        () => {
-          expect(returnedPath).toBe(newThreadPath);
-        },
-        { timeout: 8_000, interval: 16 },
+      const freshThreadId = returnedPath.slice(1) as ThreadId;
+      await waitForLayout();
+      expect(useComposerDraftStore.getState().draftsByThreadId[freshThreadId]?.prompt ?? "").toBe(
+        "",
       );
+      expect((await waitForComposerEditor()).textContent ?? "").not.toContain(prompt);
 
-      const composerEditorAfter = await waitForComposerEditor();
-      await vi.waitFor(
-        () => {
-          expect(composerEditorAfter.textContent ?? "").toContain(prompt);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      // The original draft thread must still be registered with its content
+      // The original draft is parked with its content (it stays on the Tasks board).
+      expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).not.toBeNull();
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]?.prompt).toBe(prompt);
     } finally {
       await mounted.cleanup();
@@ -16966,7 +16973,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("preserves a home-chat draft when the chat.newChat shortcut is reused after a thread switch", async () => {
+  it("parks a home-chat draft and opens an empty one when chat.newChat is reused after a thread switch", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: withActiveHomeChatThread(
@@ -17062,25 +17069,19 @@ describe("ChatView transcript geometry (full app)", () => {
       const returnedPath = await triggerThreadShortcutUntilPath(
         mounted.router,
         dispatchNewChatShortcut,
-        (path) => UUID_ROUTE_RE.test(path),
-        "chat.newChat should route back to a draft thread UUID.",
+        (path) => UUID_ROUTE_RE.test(path) && path !== newThreadPath,
+        "chat.newChat should open a fresh draft thread UUID, not the unsent one.",
       );
-      await vi.waitFor(
-        () => {
-          expect(returnedPath).toBe(newThreadPath);
-        },
-        { timeout: 8_000, interval: 16 },
+      const freshThreadId = returnedPath.slice(1) as ThreadId;
+      await waitForLayout();
+      expect(useComposerDraftStore.getState().draftsByThreadId[freshThreadId]?.prompt ?? "").toBe(
+        "",
       );
+      expect((await waitForComposerEditor()).textContent ?? "").not.toContain(prompt);
 
-      // The draft must survive the round trip on the same thread
+      // The unsent draft is parked on its own thread with its text.
+      expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).not.toBeNull();
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]?.prompt).toBe(prompt);
-      const composerEditorAfter = await waitForComposerEditor();
-      await vi.waitFor(
-        () => {
-          expect(composerEditorAfter.textContent ?? "").toContain(prompt);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
     } finally {
       await mounted.cleanup();
     }
