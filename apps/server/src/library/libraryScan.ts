@@ -26,8 +26,19 @@ export interface LibraryScanRootSpec {
 /** Index files codex keeps next to attachments are not library content. */
 const SCAN_SKIP_FILE_NAMES = new Set(["pasted-text-attachments.json"]);
 
+/**
+ * Claude Code's undo backups under `file-history/<session>/`: `<16 hex>@v<n>`, no
+ * extension. They are copies of source files from before an edit, not something the
+ * person made or downloaded, and listed as 「597739aa38c2486a@v5」 they read as junk.
+ */
+const AGENT_BACKUP_SNAPSHOT_NAME = /^[0-9a-f]{16}@v\d+$/u;
+
 export function isSkippableLibraryScanFile(fileName: string): boolean {
-  return fileName.startsWith(".") || SCAN_SKIP_FILE_NAMES.has(fileName);
+  return (
+    fileName.startsWith(".") ||
+    SCAN_SKIP_FILE_NAMES.has(fileName) ||
+    AGENT_BACKUP_SNAPSHOT_NAME.test(fileName)
+  );
 }
 
 export function resolveLibraryScanRoots(input: {

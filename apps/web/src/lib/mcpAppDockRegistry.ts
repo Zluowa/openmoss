@@ -257,6 +257,18 @@ export function registerMcpAppDockHost(threadId: string, host: McpAppDockHost): 
   };
 }
 
+/** True when the thread has a side panel that can hold a widget (its "fullscreen" mode). */
+export function hasMcpAppDockHost(threadId: string): boolean {
+  return hosts.has(threadId);
+}
+
+/** Bring an already-docked widget's tab forward and open the side panel. */
+export function showMcpAppDockEntry(entryId: string): void {
+  const entry = entries.get(boundedId(entryId));
+  if (!entry) return;
+  hosts.get(entry.threadId)?.open(entry.id);
+}
+
 export function selectMcpAppDockEntry(threadId: string, entryId: string | null): void {
   const selected = entryId && entries.get(entryId)?.threadId === threadId ? entryId : null;
   if ((selectedEntryByThread.get(threadId) ?? null) === selected) return;
@@ -510,6 +522,16 @@ export async function requestMcpAppDisplayMode(
       return { mode: "fullscreen" };
     }
     if (entry.requestedDisplayMode === "fullscreen") return { mode: "fullscreen" };
+    // One widget in the side panel at a time: the one already there moves back inline.
+    for (const other of entries.values()) {
+      if (
+        other !== entry &&
+        other.threadId === entry.threadId &&
+        (other.displayMode === "fullscreen" || other.requestedDisplayMode === "fullscreen")
+      ) {
+        void requestMcpAppDisplayMode(other.id, "inline");
+      }
+    }
     cancelPending(entry);
     entry.requestedDisplayMode = "fullscreen";
     syncFrameVisibility(entry.threadId);

@@ -44,6 +44,7 @@ import {
   type CuaEffect,
   type CuaComputerTask,
   cuaComputerTaskKey,
+  CUA_DRIVER_MISSING_CODE,
 } from "@moss/shared/cuaDriverProtocol";
 import {
   ComputerBackendError,
@@ -114,6 +115,14 @@ const availabilityFailureMessage = (error: unknown): string =>
       ? error.message
       : String(error)
   ).slice(0, 2048);
+/** The unavailable state for a failure, with the reason when the host named one. */
+const unavailableAvailability = (error: unknown): ComputerAvailability => ({
+  kind: "backend-unavailable",
+  message: availabilityFailureMessage(error),
+  ...(error instanceof CuaActionError && error.code === CUA_DRIVER_MISSING_CODE
+    ? { reason: "component-missing" as const }
+    : {}),
+});
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 const text = (value: unknown, max = 1024): string =>
@@ -573,6 +582,7 @@ export class CuaComputerBackend implements ComputerBackend {
         throw new CuaActionError(
           reply.error ?? "Cua host failed.",
           reply.effect ?? "not-dispatched",
+          reply.code === CUA_DRIVER_MISSING_CODE ? CUA_DRIVER_MISSING_CODE : undefined,
         );
       return reply;
     } catch (error) {
@@ -704,6 +714,7 @@ export class CuaComputerBackend implements ComputerBackend {
         kind: "backend-unavailable",
         message:
           "Computer requires a connected Moss desktop host, which owns native access on that computer.",
+        reason: "host-not-running",
       };
     try {
       await this.host({ method: "probe" });
@@ -714,10 +725,7 @@ export class CuaComputerBackend implements ComputerBackend {
         ? { kind: "available", backend: "cua" }
         : this.currentAvailability;
     } catch (error) {
-      return {
-        kind: "backend-unavailable",
-        message: availabilityFailureMessage(error),
-      };
+      return unavailableAvailability(error);
     }
   }
   async availability(options?: { readonly refresh?: boolean }): Promise<ComputerAvailability> {
@@ -883,10 +891,7 @@ export class CuaComputerBackend implements ComputerBackend {
       this.snapshotAt = Date.now();
     })()
       .catch((error) => {
-        this.currentAvailability = {
-          kind: "backend-unavailable",
-          message: availabilityFailureMessage(error),
-        };
+        this.currentAvailability = unavailableAvailability(error);
         this.setHealth({
           ...this.currentHealth,
           status: "unavailable",

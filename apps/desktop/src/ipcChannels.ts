@@ -207,6 +207,9 @@ export const DESKTOP_IPC_CHANNELS = {
     unregister: "moss_desktop:mcp-app-unregister",
     guestMessage: "moss_desktop:mcp-app-guest-message",
     trustedMessage: "moss_desktop:mcp-app-trusted-message",
+    requestPermissions: "moss_desktop:mcp-app-request-permissions",
+    openExternal: "moss_desktop:mcp-app-open-external",
+    saveDownload: "moss_desktop:mcp-app-save-download",
   },
 } as const;
 

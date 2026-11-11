@@ -42,6 +42,11 @@ beforeEach(() => {
     session: {
       setProxy: vi.fn(async () => {}),
       closeAllConnections: vi.fn(async () => {}),
+      webRequest: {
+        onSendHeaders: vi.fn(),
+        onCompleted: vi.fn(),
+        onErrorOccurred: vi.fn(),
+      },
     },
   } as unknown as WebContents;
   vi.mocked(contents.getBackgroundThrottling).mockReturnValue(false);

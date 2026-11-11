@@ -1,0 +1,272 @@
+[
+  {
+    "id": "server:apps/server/integration/orchestrationEngine.integration.test.ts > reverts to an earlier checkpoint and trims checkpoint projections + git refs",
+    "platform": "win32",
+    "reason": "Machine-only: fails on plain main on the shared Windows PC (git checkpoint refs); passes on Linux CI.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Local server lane failed in 40/41 runs 11-03..11-11, incl. verify-full combos 459a2e649, fbb0202b4, 2f2bf3fb7; listed as machine-only in the operator's testing notes."
+  },
+  {
+    "id": "server:apps/server/src/http.test.ts > production Effect HTTP routes > does not serve unsafe project logo content: $kind symlink",
+    "platform": "win32",
+    "reason": "Machine-only: the three symlink cases need symlink rights the Windows test user does not have.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "3 symlink cases fail in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/http.test.ts > production Effect HTTP routes > serves only sandboxed image responses through an in-project link:",
+    "platform": "win32",
+    "reason": "Machine-only: the in-project link cases need symlink rights the Windows test user does not have.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "svg/png/ico cases fail in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/provider/cursorSkillsDiscovery.test.ts",
+    "platform": "win32",
+    "reason": "Machine-only: both tests fail on the shared Windows PC (home-directory layout).",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "2 of 2 tests fail in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/checkpointing/Layers/CheckpointStore.test.ts > CheckpointStoreLive > reconstructs provider patches from the captured baseline in a private index",
+    "platform": "win32",
+    "reason": "Machine-only: git private-index patch reconstruction differs on the shared Windows PC.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "1 of 20 tests; fails in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/git/Layers/GitCore.test.ts > git integration > stashAndCheckout",
+    "platform": "win32",
+    "reason": "Machine-only: git stash/checkout integration fails on the shared Windows PC.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "All 3 tests of the block fail in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/git/Layers/GitCore.test.ts > git integration > raw patches with configured textconv > uses raw patches for worktree copies, snapshots, and ownership checks",
+    "platform": "win32",
+    "reason": "Machine-only: git textconv integration fails on the shared Windows PC.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Fails in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/git/Layers/GitCore.test.ts > git integration > createGitWorktree > copies checkout changes and .worktreeinclude files into a detached worktree",
+    "platform": "win32",
+    "reason": "Machine-only: git worktree integration fails on the shared Windows PC.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Fails in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/git/Layers/GitCore.test.ts > git integration > GitCore > counts untracked numstats in-process with Git's numstat semantics",
+    "platform": "win32",
+    "reason": "Machine-only: numstat comparison against git fails on the shared Windows PC.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Fails in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/git/Layers/GitManager.test.ts > GitManager > skips push when branch is already up to date",
+    "platform": "win32",
+    "reason": "Machine-only: git push integration fails on the shared Windows PC.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Fails in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4); 2 of 59 tests in the file."
+  },
+  {
+    "id": "server:apps/server/src/git/Layers/GitManager.test.ts > GitManager > carries uncommitted local changes into a new handoff worktree without leaking the stash",
+    "platform": "win32",
+    "reason": "Machine-only: git stash/worktree handoff fails on the shared Windows PC (also EBUSY temp locks).",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Fails in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/provider/Layers/ProviderDiscoveryService.test.ts > ProviderDiscoveryService.listSkills",
+    "platform": "win32",
+    "reason": "Machine-only: 4 of the block's 5 skill-listing tests fail on the shared Windows PC.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Fails in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/provider/Layers/ProviderDiscoveryService.test.ts > ProviderDiscoveryService provider instances > serves Moss's skills when the agent's skill listing never answers",
+    "platform": "win32",
+    "reason": "Machine-only: fails on the shared Windows PC with the listSkills block above.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Fails in 40/41 local server runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "server:apps/server/src/provider/acp/AcpSdkConformance.test.ts",
+    "platform": "win32",
+    "reason": "Load flake: a different timing-bound conformance case fails whenever the PC is busy; passes alone.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "17/41 local server runs, 30+ distinct cases, last verify-full 2d115cfe9 (11-10); ci-audit C12."
+  },
+  {
+    "id": "server:apps/server/src/orchestration/Layers/CheckpointReactor.test.ts > CheckpointReactor > retains the initial skipped reason through completion for a",
+    "platform": "win32",
+    "reason": "Load flake: child/root-turn timing case fails under load; passes alone.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-full fbb0202b4 (11-11, 6 sessions testing) and 6 earlier local runs; ci-audit C12."
+  },
+  {
+    "id": "server:apps/server/src/account/Layers/MossManagedProvider.test.ts > MossManagedProvider > reuses an unchanged active generation without waiting for runtime drain",
+    "platform": "win32",
+    "reason": "Load flake: timing-bound runtime-drain case; passes alone.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-full 2d115cfe9 (11-10), c080f51ef and 3 pr runs; passed alone after c080f51ef (merge log 11-06); ci-audit C12."
+  },
+  {
+    "id": "server:apps/server/src/codexAppServerManager.test.ts > thread checkpoint control > forks a provider thread with an explicitly selected Standard tier",
+    "platform": "win32",
+    "reason": "Load flake: the fork cases time out when the PC is busy.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-full 2d115cfe9 (11-10), 15f013adf and 5 pr runs (inProgress, legacy-* cases); ci-audit C12."
+  },
+  {
+    "id": "server:apps/server/src/platform/windowsProviderProcessGuard.test.ts > windows provider process guard script > stops a registered tree when its owner is terminated while the guard is still starting, and nothing else",
+    "platform": "win32",
+    "reason": "Load flake: the guard-start race times out under 4 workers; passes alone.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed once in the coordinator's verify-quick 26544fb02 (11-12, 4 workers); passed alone 2/2 the same night."
+  },
+  {
+    "id": "scripts:scripts/release-workflow-recovery.test.ts",
+    "platform": "win32",
+    "reason": "Machine-only: 46 of 78 tests fail on the shared Windows PC (POSIX shell recovery scripts).",
+    "owner": "release",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Fails in 28/29 local scripts runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4)."
+  },
+  {
+    "id": "scripts:scripts/lib/cua-benchmark.test.ts",
+    "platform": "win32",
+    "reason": "Machine-only: the one test fails on the shared Windows PC.",
+    "owner": "release",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Fails in 28/29 local scripts runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4, 2f2bf3fb7)."
+  },
+  {
+    "id": "scripts:scripts/lib/bundled-codex-release-compliance.test.ts",
+    "platform": "win32",
+    "reason": "Load flake: real-checkout byte audits time out under load; a different case fails each time.",
+    "owner": "release",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "9/29 local scripts runs, 20 distinct cases, last verify-full 2f2bf3fb7 (11-11) and 71b9bd1f9 (11-10); ci-audit C12."
+  },
+  {
+    "id": "scripts:scripts/moss-managed-plugin-smoke-cleanup.test.ts",
+    "platform": "win32",
+    "reason": "Load flake: waits on a real Windows file lock; times out under load.",
+    "owner": "release",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "6/29 local scripts runs, last verify-full 2f2bf3fb7 (11-11) and 0b44b7b0f; passed alone after c080f51ef (merge log 11-06); ci-audit C12."
+  },
+  {
+    "id": "shared:packages/shared/src/processRuntime.test.ts > processRuntime > priority ready fixture (enabled=true) > applies opt-in priority before descendants launch (enabled=true)",
+    "platform": "win32",
+    "reason": "Fails on plain main on the shared Windows PC when it is busy (process priority of descendants); passed alone on a quiet PC on 11-12.",
+    "owner": "shared",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-quick 538bed07d and verify-full 2f2bf3fb7 (11-11); control run on plain main 78f797335 failed 2 of 3."
+  },
+  {
+    "id": "shared:packages/shared/src/agentStartupPriority.test.ts > agent startup priority > keeps tools the ready agent starts at the configured lower priority",
+    "platform": "win32",
+    "reason": "Fails on plain main on the shared Windows PC when it is busy (process priority of agent tools); passed alone on a quiet PC on 11-12.",
+    "owner": "shared",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-quick 538bed07d (11-11) and alone; control run on plain main 78f797335 failed 1 of 1."
+  },
+  {
+    "id": "shared:packages/shared/src/mossHooks.test.ts > runMossHooks > marks a non-zero exit as failed while the run still resolves (A2)",
+    "platform": "win32",
+    "reason": "Load flake: hook child-process exit timing; passes alone.",
+    "owner": "shared",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-quick 538bed07d (11-11) under load; passed alone the same night."
+  },
+  {
+    "id": "web:apps/web/src/hooks/useCommittedPathname.test.ts",
+    "platform": "win32",
+    "reason": "Load flake: 4 of 5 navigation-timing tests fail when the PC is busy; pass alone.",
+    "owner": "web",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-full 2f2bf3fb7 (11-11, 4 tests), b88cfde18, 311eccbf7 and 4 pr runs; listed as a load flake in the testing notes; ci-audit C12."
+  },
+  {
+    "id": "web:apps/web/src/components/chatHotPath.compiler.test.ts > chat hot-path React Compiler coverage > compiles ChatView.tsx without unexpected bailouts",
+    "platform": "win32",
+    "reason": "Load flake: compiling ChatView.tsx exceeds the test timeout when the PC is busy.",
+    "owner": "web",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-full 2f2bf3fb7 (11-11), 311eccbf7 and 4 pr runs; ci-audit C12."
+  },
+  {
+    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > covers generated image preview B2.1 controls and full-width rail",
+    "platform": "win32",
+    "reason": "Load flake: fails in the full chat lane under load; passes alone.",
+    "owner": "web/transcript",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-full fbb0202b4 (11-11), ac83ca313, 81cd3ff55; passed alone after fbb0202b4 (merge log 11-11)."
+  },
+  {
+    "id": "components:apps/web/src/components/browser/BrowserSketch.browser.tsx > fits the armed bar in a",
+    "platform": "win32",
+    "reason": "Load flake: the armed-bar layout cases fail in the full components lane under load; pass alone.",
+    "owner": "web",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-full 2f2bf3fb7 and fbb0202b4 (11-11); BrowserSketch passed alone 6/6 and 2x (merge log 11-11)."
+  },
+  {
+    "id": "geometry:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > [geometry:linux]",
+    "platform": "all",
+    "reason": "Pixel/font/layout assertions that differ on hosted Ubuntu. The stable browser lanes filter out every [geometry:linux] case; the geometry lane runs them, without blocking.",
+    "owner": "web/transcript",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Commit 7c80c0dee: 12+ ChatView geometry failures when browser tests first moved to hosted Ubuntu. 5 tagged cases, pinned by scripts/browser-ci-partitions.test.ts."
+  }
+]

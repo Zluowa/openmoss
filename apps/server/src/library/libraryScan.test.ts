@@ -120,6 +120,14 @@ describe("import root + safety rules", () => {
     assert.strictEqual(isSkippableLibraryScanFile("image-1.png"), false);
   });
 
+  it("skips Claude Code's file-history undo backups, not files that merely look alike", () => {
+    assert.strictEqual(isSkippableLibraryScanFile("597739aa38c2486a@v5"), true);
+    assert.strictEqual(isSkippableLibraryScanFile("94d955b05da5bdaa@v1"), true);
+    assert.strictEqual(isSkippableLibraryScanFile("597739aa38c2486a@v5.png"), false);
+    assert.strictEqual(isSkippableLibraryScanFile("report@v2.pdf"), false);
+    assert.strictEqual(isSkippableLibraryScanFile("notes@v1"), false);
+  });
+
   it("blocks rename attempts that change the extension", () => {
     assert.strictEqual(libraryRenamePreservesExtension("shot.png", "renamed.png"), true);
     assert.strictEqual(libraryRenamePreservesExtension("shot.png", "renamed.jpg"), false);

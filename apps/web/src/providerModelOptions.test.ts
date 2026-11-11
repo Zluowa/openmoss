@@ -383,8 +383,8 @@ describe("mergeDynamicModelOptions", () => {
     ).toEqual([
       { slug: "enterprise-model", name: "Enterprise Model" },
       { slug: "claude-fable-6", name: "Claude Fable 6" },
-      { slug: "claude-fable-5", name: "Claude Fable 5" },
       { slug: "claude-opus-6", name: "Claude Opus 6" },
+      { slug: "claude-fable-5", name: "Claude Fable 5" },
       { slug: "claude-opus-5", name: "Claude Opus 5" },
     ]);
   });
@@ -413,7 +413,7 @@ describe("mergeDynamicModelOptions", () => {
     );
   });
 
-  it("lists a newer release behind a Claude alias under its own id below Fable", () => {
+  it("lists a newer release behind a Claude alias under its own id above its family", () => {
     const options = mergeDynamicModelOptions({
       provider: "claudeAgent",
       staticOptions: getAppModelOptions("claudeAgent", []),
@@ -422,14 +422,30 @@ describe("mergeDynamicModelOptions", () => {
       ),
     }).map((option) => ({ slug: option.slug, name: option.name }));
 
-    expect(options.slice(0, 5)).toEqual([
-      { slug: "claude-fable-5-1", name: "Claude Fable 5.1" },
-      { slug: "claude-fable-5", name: "Claude Fable 5" },
+    expect(options.slice(0, 6)).toEqual([
+      { slug: "claude-fable-5-2", name: "Claude Fable 5.2" },
       { slug: "claude-opus-6", name: "Claude Opus 6" },
       { slug: "claude-opus-5-5", name: "Claude Opus 5.5" },
-      { slug: "claude-opus-5", name: "Claude Opus 5" },
+      { slug: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
+      { slug: "claude-haiku-5-5", name: "Claude Haiku 5.5" },
+      { slug: "claude-fable-5-1", name: "Claude Fable 5.1" },
     ]);
     expect(options).toHaveLength(MODEL_OPTIONS_BY_PROVIDER.claudeAgent.length + 1);
+  });
+
+  it("keeps the CLI default row first when Grok or Antigravity discovery owns the catalog", () => {
+    for (const [provider, discovered] of [
+      ["grok", "grok-4.6"],
+      ["antigravity", "Gemini 3.8 Flash"],
+    ] as const) {
+      expect(
+        mergeDynamicModelOptions({
+          provider,
+          staticOptions: getAppModelOptions(provider, []),
+          dynamicModels: [{ slug: discovered, name: discovered }],
+        }).map((option) => option.slug),
+      ).toEqual(["default", discovered]);
+    }
   });
 
   it("normalizes Devin family labels to canonical brand casing", () => {

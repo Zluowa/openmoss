@@ -457,16 +457,69 @@ function claudeCodeModeOption(
   return { value, label, description, apiEffortValue, controlSource: "provider-setting" };
 }
 
-// No-fast xhigh ladder: newer Claude Code models with xhigh/max API efforts and
-// the ultracode mode setting, but no ultrathink prompt mode or fast mode.
+// Claude capability ladders follow T3 Code's Claude model manifest profiles
+// (apps/server/src/provider/model-manifest.json). Live Claude Code metadata
+// still wins at runtime: the adapter keeps only the modes the CLI's efforts
+// allow and drops the ultrathink prompt mode on adaptive-thinking models.
+const CLAUDE_ULTRACODE_OPTION = claudeCodeModeOption(
+  "ultracode",
+  "Ultracode",
+  "xhigh",
+  "xhigh + workflows",
+);
+const CLAUDE_ULTRATHINK_OPTION = claudePromptModeOption("ultrathink", "Ultrathink");
+
+function claudeEffortLadder(
+  efforts: ReadonlyArray<readonly [ClaudeApiEffort, string]>,
+  defaultEffort: ClaudeApiEffort,
+): EffortOption[] {
+  return efforts.map(([value, label]) =>
+    claudeApiEffortOption(value, label, value === defaultEffort ? { isDefault: true } : {}),
+  );
+}
+
+const CLAUDE_EFFORTS_TO_MAX = [
+  ["low", "Low"],
+  ["medium", "Medium"],
+  ["high", "High"],
+  ["max", "Max"],
+] as const;
+const CLAUDE_EFFORTS_TO_XHIGH_MAX = [
+  ["low", "Low"],
+  ["medium", "Medium"],
+  ["high", "High"],
+  ["xhigh", "Extra High"],
+  ["max", "Max"],
+] as const;
+
+// Claude 5 ladder: low..max, Ultracode (xhigh + workflows) and Ultrathink, a
+// one-million-token window, and no fast-mode lane. Fable, Sonnet 5.5 and
+// Haiku 5.5 use it as is; Opus adds the fast-mode lane.
+function claude5Capabilities(
+  defaultEffort: ClaudeApiEffort,
+  options: { readonly fastMode?: boolean; readonly ultracode?: boolean } = {},
+): ModelCapabilities {
+  return {
+    reasoningEffortLevels: [
+      ...claudeEffortLadder(CLAUDE_EFFORTS_TO_XHIGH_MAX, defaultEffort),
+      ...(options.ultracode === false ? [] : [CLAUDE_ULTRACODE_OPTION]),
+      CLAUDE_ULTRATHINK_OPTION,
+    ],
+    supportsFastMode: options.fastMode === true,
+    supportsThinkingToggle: false,
+    promptInjectedEffortLevels: ["ultrathink"],
+    contextWindowOptions: [],
+    autoCompactWindowOptions: CLAUDE_AUTO_COMPACT_WINDOWS,
+    contextWindowTokens: 1_000_000,
+  };
+}
+
+// No-fast xhigh ladder without the ultrathink prompt mode. Non-Claude-Code
+// harnesses (OpenCode) that list Claude 5 models keep this shape.
 const CLAUDE_NO_FAST_XHIGH_CAPABILITIES: ModelCapabilities = {
   reasoningEffortLevels: [
-    claudeApiEffortOption("low", "Low"),
-    claudeApiEffortOption("medium", "Medium"),
-    claudeApiEffortOption("high", "High", { isDefault: true }),
-    claudeApiEffortOption("xhigh", "Extra High"),
-    claudeApiEffortOption("max", "Max"),
-    claudeCodeModeOption("ultracode", "Ultracode", "xhigh", "xhigh + workflows"),
+    ...claudeEffortLadder(CLAUDE_EFFORTS_TO_XHIGH_MAX, "high"),
+    CLAUDE_ULTRACODE_OPTION,
   ],
   supportsFastMode: false,
   supportsThinkingToggle: false,
@@ -476,27 +529,28 @@ const CLAUDE_NO_FAST_XHIGH_CAPABILITIES: ModelCapabilities = {
   contextWindowTokens: 1_000_000,
 };
 
-// Fable 5 and 5.1 share the ladder: thinking is always on (no toggle, no
-// ultrathink prompt mode), effort runs low..max, and there is no fast-mode lane.
-const CLAUDE_FABLE_CAPABILITIES: ModelCapabilities = CLAUDE_NO_FAST_XHIGH_CAPABILITIES;
+// Fable 5, 5.1 and 5.2 share one profile and default to Medium.
+const CLAUDE_FABLE_CAPABILITIES = claude5Capabilities("medium");
+const CLAUDE_OPUS_5_5_CAPABILITIES = claude5Capabilities("medium", { fastMode: true });
+const CLAUDE_OPUS_5_CAPABILITIES = claude5Capabilities("high", { fastMode: true });
+// Opus 4.8 keeps the same ladder as Opus 5.
+const CLAUDE_OPUS_4_8_CAPABILITIES = CLAUDE_OPUS_5_CAPABILITIES;
+const CLAUDE_SONNET_5_5_CAPABILITIES = claude5Capabilities("high");
+// Sonnet 5 never gained Ultracode.
+const CLAUDE_SONNET_5_CAPABILITIES = claude5Capabilities("high", { ultracode: false });
+const CLAUDE_HAIKU_5_5_CAPABILITIES = claude5Capabilities("medium");
 
-// Opus 5 and 5.5 keep the Claude 5 ladder (thinking is adaptive, so no ultrathink prompt
-// mode) but stays on the Opus fast-mode lane that Fable and Sonnet lack.
-const CLAUDE_OPUS_5_CAPABILITIES: ModelCapabilities = {
-  ...CLAUDE_NO_FAST_XHIGH_CAPABILITIES,
-  supportsFastMode: true,
-};
+// Opus 4.7 defaults to Extra High and has no Ultracode.
+const CLAUDE_OPUS_4_7_CAPABILITIES = claude5Capabilities("xhigh", {
+  fastMode: true,
+  ultracode: false,
+});
 
-// Full reasoning ladder: xhigh + ultracode + ultrathink (Opus 4.7/4.8).
-const CLAUDE_FLAGSHIP_CAPABILITIES: ModelCapabilities = {
+// Reasoning ladder before xhigh/ultracode landed (Opus 4.6, Sonnet 4.6).
+const CLAUDE_EXTENDED_THINKING_CAPABILITIES: ModelCapabilities = {
   reasoningEffortLevels: [
-    claudeApiEffortOption("low", "Low"),
-    claudeApiEffortOption("medium", "Medium"),
-    claudeApiEffortOption("high", "High", { isDefault: true }),
-    claudeApiEffortOption("xhigh", "Extra High"),
-    claudeApiEffortOption("max", "Max"),
-    claudePromptModeOption("ultrathink", "Ultrathink"),
-    claudeCodeModeOption("ultracode", "Ultracode", "xhigh", "xhigh + workflows"),
+    ...claudeEffortLadder(CLAUDE_EFFORTS_TO_MAX, "high"),
+    CLAUDE_ULTRATHINK_OPTION,
   ],
   supportsFastMode: true,
   supportsThinkingToggle: false,
@@ -505,21 +559,6 @@ const CLAUDE_FLAGSHIP_CAPABILITIES: ModelCapabilities = {
   autoCompactWindowOptions: CLAUDE_AUTO_COMPACT_WINDOWS,
   contextWindowTokens: 1_000_000,
 };
-
-// Reasoning ladder before xhigh/ultracode landed (Opus 4.6, Sonnet 4.6).
-const CLAUDE_EXTENDED_THINKING_CAPABILITIES: ModelCapabilities = {
-  ...CLAUDE_FLAGSHIP_CAPABILITIES,
-  reasoningEffortLevels: [
-    claudeApiEffortOption("low", "Low"),
-    claudeApiEffortOption("medium", "Medium"),
-    claudeApiEffortOption("high", "High", { isDefault: true }),
-    claudeApiEffortOption("max", "Max"),
-    claudePromptModeOption("ultrathink", "Ultrathink"),
-  ],
-};
-
-// Sonnet 5 adds xhigh for long agentic work, while staying in the Sonnet no-fast-mode lane.
-const CLAUDE_SONNET_5_CAPABILITIES: ModelCapabilities = CLAUDE_NO_FAST_XHIGH_CAPABILITIES;
 
 type ModelDefinition = {
   readonly slug: string;
@@ -536,6 +575,19 @@ const EMPTY_MODEL_CAPABILITIES: ModelCapabilities = {
   promptInjectedEffortLevels: [],
   contextWindowOptions: [],
 };
+
+/**
+ * Model slug that leaves the model to the agent CLI: Moss starts the CLI
+ * without a model flag, so it runs the model the person set in that CLI.
+ * Never sent to the CLI as a model id.
+ */
+export const PROVIDER_CLI_DEFAULT_MODEL = "default" as const;
+
+const PROVIDER_CLI_DEFAULT_MODEL_OPTION = {
+  slug: PROVIDER_CLI_DEFAULT_MODEL,
+  name: "Default",
+  capabilities: EMPTY_MODEL_CAPABILITIES,
+} as const satisfies ModelDefinition;
 
 /**
  * TODO: This should not be a static array, each provider
@@ -780,19 +832,15 @@ const DROID_CORE_HIGH_ONLY_CAPABILITIES: ModelCapabilities = {
 
 export const MODEL_OPTIONS_BY_PROVIDER = {
   codex: [
-    {
-      slug: "gpt-6-astra",
-      name: "GPT-6 Astra",
-      capabilities: CODEX_GPT_6_CAPABILITIES,
-    },
-    {
-      slug: "gpt-6-sol",
-      name: "GPT-6 Sol",
-      capabilities: CODEX_GPT_6_CAPABILITIES,
-    },
+    // Current models first (T3 Code's model manifest order), then legacy ones.
     {
       slug: "gpt-6.1-sol",
       name: "GPT-6.1 Sol",
+      capabilities: CODEX_GPT_6_CAPABILITIES,
+    },
+    {
+      slug: "gpt-6-astra",
+      name: "GPT-6 Astra",
       capabilities: CODEX_GPT_6_CAPABILITIES,
     },
     {
@@ -801,9 +849,9 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
       capabilities: CODEX_GPT_6_LUNA_CAPABILITIES,
     },
     {
-      slug: "gpt-5.5",
-      name: "GPT-5.5",
-      capabilities: CODEX_GPT_5_5_CAPABILITIES,
+      slug: "gpt-6-sol",
+      name: "GPT-6 Sol",
+      capabilities: CODEX_GPT_6_CAPABILITIES,
     },
     {
       slug: "gpt-5.6-sol",
@@ -818,6 +866,11 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
     {
       slug: "gpt-5.6-luna",
       name: "GPT-5.6 Luna",
+      capabilities: CODEX_GPT_5_5_CAPABILITIES,
+    },
+    {
+      slug: "gpt-5.5",
+      name: "GPT-5.5",
       capabilities: CODEX_GPT_5_5_CAPABILITIES,
     },
     ...MOSS_VENDOR_CODEX_MODEL_OPTIONS,
@@ -951,6 +1004,27 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
     },
   ],
   claudeAgent: [
+    // Current models first (T3 Code's currentModels order), then legacy ones.
+    {
+      slug: "claude-fable-5-2",
+      name: "Claude Fable 5.2",
+      capabilities: CLAUDE_FABLE_CAPABILITIES,
+    },
+    {
+      slug: "claude-opus-5-5",
+      name: "Claude Opus 5.5",
+      capabilities: CLAUDE_OPUS_5_5_CAPABILITIES,
+    },
+    {
+      slug: "claude-sonnet-5-5",
+      name: "Claude Sonnet 5.5",
+      capabilities: CLAUDE_SONNET_5_5_CAPABILITIES,
+    },
+    {
+      slug: "claude-haiku-5-5",
+      name: "Claude Haiku 5.5",
+      capabilities: CLAUDE_HAIKU_5_5_CAPABILITIES,
+    },
     {
       slug: "claude-fable-5-1",
       name: "Claude Fable 5.1",
@@ -962,11 +1036,6 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
       capabilities: CLAUDE_FABLE_CAPABILITIES,
     },
     {
-      slug: "claude-opus-5-5",
-      name: "Claude Opus 5.5",
-      capabilities: CLAUDE_OPUS_5_CAPABILITIES,
-    },
-    {
       slug: "claude-opus-5",
       name: "Claude Opus 5",
       capabilities: CLAUDE_OPUS_5_CAPABILITIES,
@@ -974,12 +1043,12 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
     {
       slug: "claude-opus-4-8",
       name: "Claude Opus 4.8",
-      capabilities: CLAUDE_FLAGSHIP_CAPABILITIES,
+      capabilities: CLAUDE_OPUS_4_8_CAPABILITIES,
     },
     {
       slug: "claude-opus-4-7",
       name: "Claude Opus 4.7",
-      capabilities: CLAUDE_FLAGSHIP_CAPABILITIES,
+      capabilities: CLAUDE_OPUS_4_7_CAPABILITIES,
     },
     {
       slug: "claude-opus-4-6",
@@ -990,12 +1059,8 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
       slug: "claude-opus-4-5",
       name: "Claude Opus 4.5",
       capabilities: {
-        reasoningEffortLevels: [
-          { value: "low", label: "Low" },
-          { value: "medium", label: "Medium" },
-          { value: "high", label: "High", isDefault: true },
-        ],
-        supportsFastMode: false,
+        reasoningEffortLevels: claudeEffortLadder(CLAUDE_EFFORTS_TO_MAX, "high"),
+        supportsFastMode: true,
         supportsThinkingToggle: false,
         promptInjectedEffortLevels: [],
         contextWindowOptions: [],
@@ -1107,8 +1172,9 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
   ],
   // Antigravity owns its live model catalog; the server populates this from
   // `agy models` so CLI updates do not require a Moss release.
-  antigravity: [],
+  antigravity: [PROVIDER_CLI_DEFAULT_MODEL_OPTION],
   grok: [
+    PROVIDER_CLI_DEFAULT_MODEL_OPTION,
     {
       slug: "grok-4.6",
       name: "Grok 4.6",
@@ -1319,7 +1385,7 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
     {
       slug: "anthropic/claude-sonnet-5",
       name: "Claude Sonnet 5",
-      capabilities: CLAUDE_SONNET_5_CAPABILITIES,
+      capabilities: CLAUDE_NO_FAST_XHIGH_CAPABILITIES,
     },
     {
       slug: "google/gemini-3-pro",
@@ -1602,12 +1668,13 @@ export type ProviderWithDefaultModel = Exclude<
 
 export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderWithDefaultModel, ModelSlug> = {
   codex: "gpt-6-astra",
-  claudeAgent: "claude-sonnet-5",
+  claudeAgent: "claude-opus-5-5",
   cursor: "auto",
   gemini: "auto-gemini-3",
   devin: "adaptive",
-  antigravity: "Gemini 3.5 Flash",
-  grok: "grok-4.6",
+  // Antigravity and Grok run the model set in their own CLI unless one is picked.
+  antigravity: PROVIDER_CLI_DEFAULT_MODEL,
+  grok: PROVIDER_CLI_DEFAULT_MODEL,
   opencode: "openai/gpt-5",
 };
 
@@ -1655,7 +1722,10 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "gpt-5.3-spark": "gpt-5.3-codex-spark",
   },
   claudeAgent: {
-    fable: "claude-fable-5-1",
+    fable: "claude-fable-5-2",
+    "fable-5.2": "claude-fable-5-2",
+    "claude-fable-5.2": "claude-fable-5-2",
+    "claude-fable-5-2": "claude-fable-5-2",
     "fable-5.1": "claude-fable-5-1",
     "claude-fable-5.1": "claude-fable-5-1",
     "claude-fable-5-1": "claude-fable-5-1",
@@ -1667,6 +1737,8 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "claude-opus-5-5": "claude-opus-5-5",
     "opus-5": "claude-opus-5",
     "claude-opus-5": "claude-opus-5",
+    "claude-opus-5.0": "claude-opus-5",
+    "claude-opus-5-0": "claude-opus-5",
     "opus-4.8": "claude-opus-4-8",
     "claude-opus-4.8": "claude-opus-4-8",
     "claude-opus-4-8-20260528": "claude-opus-4-8",
@@ -1679,17 +1751,26 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "opus-4.5": "claude-opus-4-5",
     "claude-opus-4.5": "claude-opus-4-5",
     "claude-opus-4-5-20250120": "claude-opus-4-5",
-    sonnet: "claude-sonnet-5",
+    sonnet: "claude-sonnet-5-5",
+    "sonnet-5.5": "claude-sonnet-5-5",
+    "claude-sonnet-5.5": "claude-sonnet-5-5",
+    "claude-sonnet-5-5": "claude-sonnet-5-5",
     "sonnet-5": "claude-sonnet-5",
     "claude-sonnet-5": "claude-sonnet-5",
+    "claude-sonnet-5.0": "claude-sonnet-5",
+    "claude-sonnet-5-0": "claude-sonnet-5",
     "sonnet-4.6": "claude-sonnet-4-6",
     "claude-sonnet-4.6": "claude-sonnet-4-6",
     "claude-sonnet-4-6-20251117": "claude-sonnet-4-6",
-    haiku: "claude-haiku-4-5",
+    haiku: "claude-haiku-5-5",
+    "haiku-5.5": "claude-haiku-5-5",
+    "claude-haiku-5.5": "claude-haiku-5-5",
+    "claude-haiku-5-5": "claude-haiku-5-5",
     "haiku-4.5": "claude-haiku-4-5",
     "claude-haiku-4.5": "claude-haiku-4-5",
     "claude-haiku-4-5-20251001": "claude-haiku-4-5",
   },
+
   // Retired Cursor slugs are remapped, not dropped: the agent answers -32602 for
   // ids it no longer serves, so persisted selections must migrate to live ones.
   cursor: {

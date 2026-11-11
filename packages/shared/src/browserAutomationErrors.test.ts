@@ -14,6 +14,7 @@ import {
   browserInputErrorCode,
   makeBrowserAutomationError,
   makeBrowserMcpToolErrorEnvelope,
+  normalizeBrowserErrorDetail,
 } from "./browserAutomationErrors";
 
 const browserErrorCodes = Object.keys(BrowserAutomationErrorMessages) as BrowserErrorCode[];
@@ -190,5 +191,33 @@ describe("browser automation error factories", () => {
     });
     expect(JSON.stringify(envelope)).not.toContain(secret);
     expect(Schema.is(BrowserMcpToolErrorEnvelope)(envelope)).toBe(true);
+  });
+});
+
+describe("browser error detail", () => {
+  it("strips terminal escapes and collapses whitespace per line", () => {
+    expect(normalizeBrowserErrorDetail("\u001b[2m  waiting   for x \u001b[22m\n\n next ")).toBe(
+      "waiting for x\nnext",
+    );
+    expect(normalizeBrowserErrorDetail("  \n ")).toBeUndefined();
+  });
+
+  it("clips to the contract's byte bound on a character boundary", () => {
+    const detail = normalizeBrowserErrorDetail("超时".repeat(1_000))!;
+    expect(utf8ByteLength(detail)).toBeLessThanOrEqual(1_024);
+    expect(detail.endsWith("…")).toBe(true);
+  });
+
+  it("keeps the fixed message and carries the normalized detail", () => {
+    const error = makeBrowserAutomationError({
+      code: "BrowserEvaluationFailed",
+      retryable: false,
+      phase: "evaluate",
+      effectMayHaveCommitted: true,
+      detail: "locator.click timed out after 1500ms.",
+    });
+    expect(error.message).toContain("detail, when present");
+    expect(error.detail).toBe("locator.click timed out after 1500ms.");
+    expect(makeBrowserAutomationError({ code: "BrowserTargetAmbiguous" }).detail).toBeUndefined();
   });
 });

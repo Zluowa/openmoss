@@ -23,8 +23,8 @@ export function NewTaskButton({
         render={
           <Button
             size="sm"
-            variant="chrome"
-            className="shrink-0 gap-1.5"
+            variant="secondary"
+            className="shrink-0"
             disabled={disabled}
             onClick={onClick}
           >

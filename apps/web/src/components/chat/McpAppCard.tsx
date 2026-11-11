@@ -1,205 +1,199 @@
 // FILE: McpAppCard.tsx
-// Purpose: Inline MCP App transcript enhancement. The surrounding MCP tool row
-// supplies the only header; this component owns only the bounded app surface.
+// Purpose: A connector widget's transcript block, wired to its host: one McpAppHostController
+//          per widget, the side-panel registry, per-device preferences, the composer (for
+//          `ui/message`) and toasts. It sits under the normal tool row; McpAppBlockView draws it.
+// Layer: Chat transcript UI
+// Exports: McpAppCard
 
-import { useTranslation } from "~/localization";
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import type { ThreadId } from "@moss/contracts";
+import { useNavigate } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { motion } from "motion/react";
 
-import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
+import { useComposerDraftStore } from "../../composerDraftStore";
+import { selectRightDockState, useRightDockStore } from "../../rightDockStore";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { useTheme } from "~/hooks/useTheme";
+import { McpAppHostController } from "~/lib/mcpAppHost";
 import {
-  CODEX_BROWSER_MCP_IFRAME_ALLOW,
-  CODEX_BROWSER_MCP_IFRAME_REFERRER_POLICY,
-  CODEX_BROWSER_MCP_IFRAME_SANDBOX,
-} from "~/lib/mcpAppBrowserFrame";
-import { McpAppHostController, type McpAppHostPhase } from "~/lib/mcpAppHost";
-import {
+  hasMcpAppDockHost,
   makeMcpAppDockEntryId,
   registerMcpAppDockEntry,
-  resolveMcpAppDockTitle,
   requestMcpAppDisplayMode,
+  showMcpAppDockEntry,
   updateMcpAppDockEntryNavigation,
   updateMcpAppDockEntryTitle,
   useMcpAppDockEntries,
 } from "~/lib/mcpAppDockRegistry";
-import { cn } from "~/lib/utils";
-import { useMediaQuery } from "~/hooks/useMediaQuery";
-import { CircleAlertIcon } from "~/lib/icons";
-import { Alert, AlertAction, AlertDescription } from "../ui/alert";
-import { Button } from "../ui/button";
+import { resolveMcpAppBinding } from "~/lib/mcpApps/binding";
+import type { McpAppBinding } from "~/lib/mcpApps/contracts";
+import { mcpAppStylesForThemePacks } from "~/lib/mcpApps/hostStyles";
+import {
+  hashMcpAppKey,
+  setMcpAppConnectorHidden,
+  setMcpAppToolClosed,
+  useMcpAppPreferences,
+} from "~/lib/mcpApps/preferences";
+import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
+import { useTranslation } from "~/localization";
+import { toastManager } from "../ui/toast";
+import type { ExpandedImagePreview } from "./ExpandedImagePreview";
+import { McpAppBlockView } from "./McpAppBlockView";
 import { McpAppNavigationControls } from "./McpAppNavigationControls";
 
 export interface McpAppCardProps {
   readonly projection: WorkLogMcpToolResult;
   readonly threadId: string;
-  readonly compact?: boolean;
   readonly theme?: "light" | "dark";
-  readonly onPresentation?: (presentation: {
-    phase: McpAppHostPhase;
-    prefersBorder: boolean;
-    isCollapsible: boolean;
-  }) => void;
+  readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }
 
-function currentTheme(fallback: "light" | "dark"): "light" | "dark" {
-  if (typeof document === "undefined") return fallback;
-  const explicit = document.documentElement.getAttribute("data-theme");
-  if (explicit === "dark" || explicit === "light") return explicit;
-  return document.documentElement.classList.contains("dark") ? "dark" : fallback;
+function askReplaceWithToast(
+  threadId: string,
+  title: string,
+  action: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let id: ReturnType<typeof toastManager.add> | null = null;
+    const settle = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      if (id !== null) toastManager.close(id);
+      resolve(value);
+    };
+    const timer = window.setTimeout(() => settle(false), timeoutMs);
+    id = toastManager.add({
+      title,
+      timeout: timeoutMs,
+      actionProps: { children: action, onClick: () => settle(true) },
+      data: { threadId: threadId as ThreadId, onClose: () => settle(false) },
+    });
+  });
 }
 
-function ErrorSurface(props: { message: string; retry?: (() => void) | undefined }) {
-  return (
-    <Alert
-      variant="error"
-      className="flex max-h-48 min-w-0 flex-wrap items-start gap-2 px-3.5 py-3"
-      data-mcp-app-error={props.retry ? "sandbox" : "resource"}
-    >
-      <CircleAlertIcon className="mt-0.5 shrink-0" />
-      <AlertDescription className="max-h-48 min-w-0 flex-1 overflow-auto text-ui-lg text-destructive">
-        {props.message}
-      </AlertDescription>
-      {props.retry ? (
-        <AlertAction className="items-center">
-          <Button size="xs" variant="secondary" onClick={props.retry}>
-            Try again
-          </Button>
-        </AlertAction>
-      ) : null}
-    </Alert>
-  );
-}
-
-function LoadingSurface({ height }: { height: number }) {
+function McpAppBlock(props: McpAppCardProps & { readonly binding: McpAppBinding }) {
+  const { t, format, locale } = useTranslation();
+  const navigate = useNavigate();
+  const { projection, threadId, binding } = props;
+  const { lightTheme, darkTheme, resolvedTheme } = useTheme();
+  const theme = props.theme ?? resolvedTheme;
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const { t } = useTranslation();
-  return (
-    <div
-      className="relative w-full min-w-0 overflow-hidden bg-surface"
-      style={{ height: `${height}px`, minHeight: `${height}px` }}
-      role="status"
-      aria-label={t("codex.mcpTool.mcpAppLoading")}
-      data-mcp-app-expanding-placeholder="true"
-      data-animate={reducedMotion ? "false" : "true"}
-      data-reduced-motion={reducedMotion ? "true" : "false"}
-      data-mcp-app-loading="true"
-    >
-      <motion.div
-        className="pointer-events-none absolute inset-0 bg-codex-description/7 dark:bg-codex-description/14"
-        initial={{ opacity: 0 }}
-        animate={reducedMotion ? { opacity: 0 } : { opacity: [0, 1, 0] }}
-        data-mcp-app-loading-animation={reducedMotion ? "none" : "pulse-3s"}
-        transition={
-          reducedMotion ? { duration: 0 } : { duration: 3, ease: "easeInOut", repeat: Infinity }
-        }
-      />
-    </div>
+  const styles = useMemo(
+    () => mcpAppStylesForThemePacks(lightTheme, darkTheme),
+    [darkTheme, lightTheme],
   );
-}
+  const preferences = useMcpAppPreferences();
+  const hideOffered = !binding.isFirstParty;
+  const hidden =
+    hideOffered && preferences.hiddenConnectors.includes(hashMcpAppKey(binding.serverKey));
+  const toolClosed = preferences.closedTools.includes(binding.toolName);
+  const [openOverride, setOpenOverride] = useState<boolean | null>(null);
+  const [peek, setPeek] = useState(false);
+  const open = hidden ? peek : (openOverride ?? !toolClosed);
+  // A widget starts the first time its block is open, and keeps running when collapsed.
+  const [started, setStarted] = useState(open);
+  useEffect(() => {
+    if (open) setStarted(true);
+  }, [open]);
 
-function errorCopy(message: string | undefined): string {
-  if (message?.startsWith("Failed to load MCP app:")) return message;
-  return `Failed to load MCP app: ${message ?? "Unable to start MCP app sandbox."}`;
-}
-
-export function McpAppCard(props: McpAppCardProps) {
-  const { t } = useTranslation();
-  const { projection, threadId } = props;
-  const app = projection.app;
-  const hasApp = app !== undefined;
-  const appName = app?.appName;
-  const actionName = app?.actionName;
-  const dockTitle = resolveMcpAppDockTitle(appName, actionName, projection.tool);
   const hostContainerRef = useRef<HTMLDivElement>(null);
-  const presentationCallbackRef = useRef(props.onPresentation);
-  const theme = props.theme ?? currentTheme("light");
   const entryId = useMemo(
-    () => makeMcpAppDockEntryId(threadId, projection.callId, app?.resourceUri ?? ""),
-    [app?.resourceUri, projection.callId, threadId],
+    () => makeMcpAppDockEntryId(threadId, projection.callId, binding.resourceUri),
+    [binding.resourceUri, projection.callId, threadId],
   );
-  // Keep the controller lifetime bound to every provider identity field while
-  // retaining only a fixed-size opaque key in the controller identity.
-  const controllerIdentityKey = useMemo(
-    () =>
-      makeMcpAppDockEntryId(
-        threadId,
-        `${projection.callId}\u0000${projection.server}\u0000${app?.source ?? ""}\u0000${app?.connectorId ?? ""}`,
-        app?.resourceUri ?? "",
-      ),
-    [
-      app?.connectorId,
-      app?.resourceUri,
-      app?.source,
-      projection.callId,
-      projection.server,
-      threadId,
-    ],
-  );
-  const projectionForControllerRef = useRef(projection);
-  const themeForControllerRef = useRef(theme);
-  const controllerRef = useRef<McpAppHostController | null>(null);
+  const dockTitle = binding.toolTitle ?? binding.serverLabel;
+  const latest = useRef({ projection, theme, locale, styles, format, t, open, navigate });
+  latest.current = { projection, theme, locale, styles, format, t, open, navigate };
+  const registryVisibleRef = useRef(true);
   const unregisterEntryRef = useRef<(() => Promise<void>) | null>(null);
-  const dockTitleRef = useRef(dockTitle);
-  const controllerIdentity = useMemo(
-    () => ({
-      callId: projection.callId,
-      lifecycleKey: controllerIdentityKey,
-      resourceUri: app?.resourceUri ?? "",
-      threadId,
-    }),
-    [app?.resourceUri, controllerIdentityKey, projection.callId, threadId],
-  );
-  presentationCallbackRef.current = props.onPresentation;
-  projectionForControllerRef.current = projection;
-  themeForControllerRef.current = theme;
-  dockTitleRef.current = dockTitle;
+  const controllerRef = useRef<McpAppHostController | null>(null);
+
   const registerDockEntry = useCallback(() => {
-    const activeController = controllerRef.current;
-    if (!hasApp || !activeController || unregisterEntryRef.current) return;
+    const active = controllerRef.current;
+    if (!active || unregisterEntryRef.current) return;
     unregisterEntryRef.current = registerMcpAppDockEntry({
       id: entryId,
       threadId,
-      title: dockTitleRef.current,
+      title: binding.toolTitle ?? binding.serverLabel,
       getInlineContainer: () => hostContainerRef.current,
-      layoutFrameTo: (target, displayMode) => activeController.layoutFrameTo(target, displayMode),
-      navigate: (delta) => activeController.navigate(delta),
-      setFrameVisibility: (visible) => activeController.setFrameVisibility(visible),
+      layoutFrameTo: (target, displayMode) => active.layoutFrameTo(target, displayMode),
+      navigate: (delta) => active.navigate(delta),
+      setFrameVisibility: (visible) => {
+        registryVisibleRef.current = visible;
+        active.setFrameVisibility(visible && latest.current.open);
+      },
       onUnregistered: () => {
         unregisterEntryRef.current = null;
       },
     });
-    const currentSnapshot = activeController.getSnapshot();
-    updateMcpAppDockEntryNavigation(
-      entryId,
-      currentSnapshot.canGoBack,
-      currentSnapshot.canGoForward,
-    );
-  }, [entryId, hasApp, threadId]);
-  const controller = useMemo(
-    () =>
-      new McpAppHostController({
-        identity: controllerIdentity,
-        projection: projectionForControllerRef.current,
-        theme: themeForControllerRef.current,
-        onRequestDisplayMode: (mode) => {
-          registerDockEntry();
-          return requestMcpAppDisplayMode(entryId, mode).then((result) => result.mode);
-        },
-      }),
-    [controllerIdentity, entryId, registerDockEntry],
-  );
-  controllerRef.current = controller;
+  }, [binding.serverLabel, binding.toolTitle, entryId, threadId]);
+
+  // One controller per widget identity; theme, locale and style changes are pushed below.
+  const controller = useMemo(() => {
+    const created = new McpAppHostController({
+      projection: latest.current.projection,
+      binding,
+      identity: {
+        threadId,
+        callId: projection.callId,
+        resourceUri: binding.resourceUri,
+        lifecycleKey: entryId,
+      },
+      theme: latest.current.theme,
+      locale: latest.current.locale,
+      styles: latest.current.styles,
+      paneAvailable: () => hasMcpAppDockHost(threadId),
+      onRequestDisplayMode: (mode) => {
+        registerDockEntry();
+        return requestMcpAppDisplayMode(entryId, mode).then((result) => result.mode);
+      },
+      message: {
+        readComposer: () =>
+          useComposerDraftStore.getState().draftsByThreadId[threadId as ThreadId]?.prompt ?? "",
+        writeComposer: (text) =>
+          useComposerDraftStore.getState().setPrompt(threadId as ThreadId, text),
+        askReplace: (serverLabel, timeoutMs) =>
+          askReplaceWithToast(
+            threadId,
+            latest.current.format("mcpApp.message.replacePrompt", { serverName: serverLabel }),
+            latest.current.t("mcpApp.message.replaceAction"),
+            timeoutMs,
+          ),
+        // No thread surface sends a widget's message by itself yet (no first-party widget
+        // tools this round, SPEC §12), so every message lands in the composer.
+        sendNow: null,
+        notifySent: (serverLabel) =>
+          toastManager.add({
+            title: latest.current.format("mcpApp.message.sent", { serverName: serverLabel }),
+            data: { threadId: threadId as ThreadId },
+          }),
+      },
+      openInApp: (path) => void latest.current.navigate({ href: path }),
+    });
+    controllerRef.current = created;
+    return created;
+  }, [binding, entryId, projection.callId, registerDockEntry, threadId]);
+
   const snapshot = useSyncExternalStore(
     controller.subscribe.bind(controller),
     controller.getSnapshot.bind(controller),
     controller.getSnapshot.bind(controller),
   );
   const dockEntry = useMcpAppDockEntries(threadId).find((entry) => entry.id === entryId);
+  const dockState = useRightDockStore(
+    useMemo(() => selectRightDockState(threadId as ThreadId), [threadId]),
+  );
+  const docked =
+    dockEntry !== undefined &&
+    (dockEntry.displayMode === "fullscreen" || dockEntry.requestedDisplayMode === "fullscreen");
+  const dockShowing = docked && dockState.open && dockEntry?.selected === true;
 
   useEffect(() => {
     const container = hostContainerRef.current;
-    if (!container || !hasApp) return;
+    if (!container || !started) return;
     registerDockEntry();
     void controller.start(container).catch(() => undefined);
     return () => {
@@ -208,53 +202,38 @@ export function McpAppCard(props: McpAppCardProps) {
       void unregister?.().catch(() => undefined);
       void controller.teardown().catch(() => undefined);
     };
-  }, [controller, entryId, hasApp, registerDockEntry, threadId]);
+  }, [controller, registerDockEntry, started]);
 
   useEffect(() => {
-    if (!hasApp) return;
-    updateMcpAppDockEntryTitle(entryId, dockTitle);
-  }, [dockTitle, entryId, hasApp]);
-
-  useEffect(() => {
-    if (!hasApp) return;
-    updateMcpAppDockEntryNavigation(entryId, snapshot.canGoBack, snapshot.canGoForward);
-  }, [entryId, hasApp, snapshot.canGoBack, snapshot.canGoForward]);
-
-  useEffect(() => {
-    if (!hasApp) return;
     controller.updateProjection(projection);
-    controller.updateTheme(theme);
-  }, [controller, hasApp, projection, theme]);
-
+  }, [controller, projection]);
   useEffect(() => {
-    if (!hasApp) return;
-    presentationCallbackRef.current?.({
-      phase: snapshot.phase,
-      prefersBorder: snapshot.prefersBorder,
-      isCollapsible: snapshot.isCollapsible,
-    });
-  }, [hasApp, snapshot.isCollapsible, snapshot.phase, snapshot.prefersBorder]);
+    controller.updateTheme(theme);
+    controller.updateLocale(locale);
+    controller.updateStyles(styles);
+  }, [controller, locale, styles, theme]);
+  useEffect(() => {
+    controller.setFrameVisibility(registryVisibleRef.current && (open || docked));
+  }, [controller, docked, open]);
+  useEffect(() => {
+    updateMcpAppDockEntryTitle(entryId, dockTitle);
+  }, [dockTitle, entryId]);
+  useEffect(() => {
+    updateMcpAppDockEntryNavigation(entryId, snapshot.canGoBack, snapshot.canGoForward);
+  }, [entryId, snapshot.canGoBack, snapshot.canGoForward]);
 
-  if (!app) return null;
-
-  const loading = snapshot.phase === "loading";
-  const browserUnavailable = snapshot.phase === "browser_unavailable";
-  const resourceError = snapshot.phase === "resource_error" || snapshot.phase === "too_large";
-  const sandboxError = snapshot.phase === "sandbox_error";
-  const noContent = snapshot.phase === "no_content";
-  const ready = snapshot.phase === "ready";
-  const inline =
-    snapshot.displayMode === "inline" && dockEntry?.requestedDisplayMode !== "fullscreen";
-  const hostStyle =
-    ready && inline
-      ? { height: `${snapshot.height}px`, minHeight: `${snapshot.height}px` }
-      : { height: "0px", minHeight: "0px" };
+  const phase = snapshot.phase;
+  const canOpenPane =
+    open &&
+    !docked &&
+    phase === "ready" &&
+    !snapshot.fullscreenDeclined &&
+    hasMcpAppDockHost(threadId);
   const navigationPortalTarget = controller.getNavigationPortalTarget();
-  const hasNavigationHistory = snapshot.canGoBack || snapshot.canGoForward;
   const inlineNavigation =
-    inline && hasNavigationHistory && navigationPortalTarget
+    open && !docked && (snapshot.canGoBack || snapshot.canGoForward) && navigationPortalTarget
       ? createPortal(
-          <div className="absolute top-2 left-2 z-50 rounded-control border border-default bg-surface/95 p-0.5 shadow-sm">
+          <div className="absolute top-2 left-2 z-50 rounded-control border border-border bg-surface/95 p-0.5 shadow-sm">
             <McpAppNavigationControls
               canGoBack={snapshot.canGoBack}
               canGoForward={snapshot.canGoForward}
@@ -266,68 +245,70 @@ export function McpAppCard(props: McpAppCardProps) {
       : null;
 
   return (
-    <div
-      className={cn("w-full min-w-0", props.compact && "text-ui-lg")}
-      data-mcp-app-card="true"
-      data-mcp-app-phase={snapshot.phase}
-      data-mcp-app-display-mode={snapshot.displayMode}
-    >
-      {inlineNavigation}
-      <div className="relative w-full min-w-0" data-mcp-app-content="true">
-        {loading ? <LoadingSurface height={snapshot.height} /> : null}
-        <div
-          ref={hostContainerRef}
-          className={cn(
-            "relative flex min-h-0 w-full min-w-0 flex-col overflow-hidden",
-            // Inline surface: rounded-lg + outline/shadow. Browser
-            // srcdoc is the resource itself, so it is visible immediately
-            // (desktop webview stays opacity-0 until sandbox-resource-ready).
-            ready && snapshot.browserHtml && "mcp-app-card-sandbox bg-surface",
-          )}
-          style={hostStyle}
-          data-mcp-app-frame="true"
-          data-mcp-app-inline-surface="card"
-          data-mcp-app-ready={ready ? "true" : undefined}
-          data-mcp-app-border={snapshot.prefersBorder ? "true" : undefined}
-          aria-hidden={!ready}
-        >
-          {ready && snapshot.browserHtml ? (
-            <iframe
-              title={dockTitle}
-              srcDoc={snapshot.browserHtml}
-              sandbox={CODEX_BROWSER_MCP_IFRAME_SANDBOX}
-              referrerPolicy={CODEX_BROWSER_MCP_IFRAME_REFERRER_POLICY}
-              allow={CODEX_BROWSER_MCP_IFRAME_ALLOW}
-              className="h-full w-full border-0 bg-surface"
-              data-mcp-app-browser-frame="true"
-            />
-          ) : null}
-        </div>
-        {browserUnavailable ? (
-          <p
-            className="w-full px-4 py-3 text-ui-lg text-muted-foreground"
-            data-mcp-app-desktop-only="true"
-          >
-            {t("codex.mcpTool.desktopOnly")}
-          </p>
-        ) : null}
-        {resourceError ? <ErrorSurface message={errorCopy(snapshot.errorMessage)} /> : null}
-        {sandboxError ? (
-          <ErrorSurface
-            message={errorCopy(snapshot.errorMessage)}
-            retry={
-              snapshot.canRetry
-                ? () => void controller.retry(hostContainerRef.current ?? undefined)
-                : undefined
-            }
-          />
-        ) : null}
-        {noContent ? (
-          <div className="w-full min-w-0 rounded-card border border-border bg-surface-muted px-4 py-3 text-ui-lg text-muted-foreground">
-            {snapshot.errorMessage ?? "MCP app returned no HTML content"}
-          </div>
-        ) : null}
-      </div>
-    </div>
+    <McpAppBlockView
+      binding={binding}
+      projection={projection}
+      phase={phase}
+      loading={started && (phase === "idle" || phase === "loading")}
+      open={open}
+      hidden={hidden}
+      hideOffered={hideOffered}
+      height={snapshot.height}
+      prefersBorder={snapshot.prefersBorder}
+      docked={docked}
+      dockShowing={dockShowing}
+      canOpenPane={canOpenPane}
+      prompt={snapshot.prompt}
+      dialog={snapshot.dialog}
+      reducedMotion={reducedMotion}
+      frameRef={hostContainerRef}
+      overlay={inlineNavigation}
+      onToggle={() => {
+        if (hidden) {
+          setPeek((current) => !current);
+          return;
+        }
+        const next = !open;
+        setOpenOverride(next);
+        setMcpAppToolClosed(binding.toolName, !next);
+      }}
+      onToggleHidden={() => {
+        setMcpAppConnectorHidden(binding.serverKey, !hidden);
+        setPeek(false);
+      }}
+      onOpenPane={() => {
+        registerDockEntry();
+        void requestMcpAppDisplayMode(entryId, "fullscreen");
+      }}
+      onDockAction={() => {
+        if (dockShowing) void requestMcpAppDisplayMode(entryId, "inline");
+        else showMcpAppDockEntry(entryId);
+      }}
+      onPromptAnswer={(answer) => controller.respondPrompt(answer)}
+      onConnect={() => {
+        void navigate({ to: "/plugins" });
+        controller.respondPrompt(true);
+      }}
+      onDialogAnswer={(answer) => controller.respondDialog(answer)}
+      onImageExpand={props.onImageExpand}
+    />
+  );
+}
+
+export function McpAppCard(props: McpAppCardProps) {
+  // Projection updates arrive as new objects; keep the binding stable while its fields are.
+  const resolved = resolveMcpAppBinding(props.projection);
+  const bindingKey = resolved ? JSON.stringify(resolved) : "";
+  const binding = useMemo(
+    () => (bindingKey ? (JSON.parse(bindingKey) as McpAppBinding) : null),
+    [bindingKey],
+  );
+  if (!binding) return null;
+  return (
+    <McpAppBlock
+      key={`${binding.serverKey}\u0000${binding.resourceUri}`}
+      {...props}
+      binding={binding}
+    />
   );
 }

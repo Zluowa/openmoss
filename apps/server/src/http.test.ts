@@ -801,9 +801,38 @@ describe("production Effect HTTP routes", () => {
       makeConfig({ devUrl: new URL("http://localhost:5173/") }),
       { kind: "static" },
       async (origin) => {
+        // The same path on the dev server, never its bare root.
         const response = await fetch(`${origin}/chat`, { redirect: "manual" });
         expect(response.status).toBe(302);
-        expect(response.headers.get("location")).toBe("http://localhost:5173/");
+        expect(response.headers.get("location")).toBe("http://localhost:5173/chat");
+
+        const withQuery = await fetch(`${origin}/settings?section=plugins&tab=apps`, {
+          redirect: "manual",
+        });
+        expect(withQuery.status).toBe(302);
+        expect(withQuery.headers.get("location")).toBe(
+          "http://localhost:5173/settings?section=plugins&tab=apps",
+        );
+
+        const offOrigin = await fetch(`${origin}//evil.example/x`, { redirect: "manual" });
+        expect(offOrigin.status).toBe(302);
+        expect(new URL(offOrigin.headers.get("location")!).origin).toBe("http://localhost:5173");
+
+        // The page editor's icon masks are served from this origin in dev.
+        const icon = await fetch(`${origin}/central-icons-fill/3d-box-top.svg`, {
+          redirect: "manual",
+        });
+        expect(icon.status).toBe(200);
+        expect(icon.headers.get("content-type")).toContain("image/svg+xml");
+        await expect(icon.text()).resolves.toContain("<svg");
+
+        const missingIcon = await fetch(`${origin}/central-icons-fill/no-such-icon.svg`, {
+          redirect: "manual",
+        });
+        expect(missingIcon.status).toBe(302);
+        expect(missingIcon.headers.get("location")).toBe(
+          "http://localhost:5173/central-icons-fill/no-such-icon.svg",
+        );
       },
     );
 

@@ -87,6 +87,12 @@ import {
   readStringArg,
 } from "../toolInput.ts";
 import { WRITE_TOOL_ANNOTATIONS, type ToolContext, type ToolEntry } from "../toolRuntime.ts";
+import {
+  makeReadWidgetContextTool,
+  registerGatewayWithMcpApps,
+} from "../../mcpApps/gatewayTools.ts";
+import { McpAppService } from "../../mcpApps/Services/McpAppService.ts";
+import { MOSS_MCP_SERVER_NAME } from "../mcpInjection.ts";
 import { makeAgentGatewayMcpTransport } from "../mcpTransport.ts";
 import { deliverGatewayCompletions } from "../completionDelivery.ts";
 import { recoverInterruptedAgentGatewayOperations } from "../startupRecovery.ts";
@@ -228,6 +234,8 @@ export const makeAgentGateway = Effect.gen(function* () {
   const pageTypesService = Option.getOrUndefined(yield* Effect.serviceOption(PageTypesService));
   const pageDraftsService = Option.getOrUndefined(yield* Effect.serviceOption(PageDraftsService));
   const pageAppsService = Option.getOrUndefined(yield* Effect.serviceOption(PageAppsService));
+  // Interactive connectors: widget context for the model, and `moss` widgets' own calls.
+  const mcpApps = Option.getOrUndefined(yield* Effect.serviceOption(McpAppService));
   // Optional like pages: a host without the secret store offers no moss_request_secret.
   const secretRequests = Option.getOrUndefined(yield* Effect.serviceOption(SecretRequests));
   const git = yield* GitCore;
@@ -1898,6 +1906,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     makeAgentGatewayOpenUIReferenceTool(),
     makeAgentGatewayVisualGuideTool(),
     makeAgentGatewayWrapUpTool(),
+    ...(mcpApps === undefined ? [] : [makeReadWidgetContextTool(mcpApps)]),
     ...inlineVisualTools,
     ...(htmlRender === undefined
       ? []
@@ -1958,23 +1967,48 @@ export const makeAgentGateway = Effect.gen(function* () {
       .map((tool) => tool.definition.name),
   );
 
-  return {
-    handleMcpPost: makeAgentGatewayMcpTransport({
+  const handleMcpPost = makeAgentGatewayMcpTransport({
+    credentials,
+    snapshotQuery,
+    tools,
+    ...(mcpApps === undefined
+      ? {}
+      : {
+          resources: mcpApps.gatewayResources,
+          onUiToolResult: (call) =>
+            mcpApps.captureProxyCall({
+              threadId: call.callerThreadId,
+              server: MOSS_MCP_SERVER_NAME,
+              toolName: call.toolName,
+              arguments: call.arguments,
+              ...(call.callIdHint !== undefined ? { callIdHint: call.callIdHint } : {}),
+              result: { ...call.result },
+            }),
+        }),
+    onCapabilityDenied: surfaceCapabilityDenial,
+    // Namespace-insensitive: a session that never saw the catalog reaches
+    // for prefixed spellings (moss_computer_click,
+    // mcp__moss__computer_click). Those must deny with the card, never die
+    // as Unknown-tool. The exact set stays as a backstop for any catalog
+    // computer name outside the static family list.
+    isComputerToolName: (toolName) =>
+      computerToolNames.has(toolName) || isMossComputerToolFamilyName(toolName),
+    computerControlCapability: COMPUTER_CONTROL_CAPABILITY,
+    instructions: AGENT_GATEWAY_INSTRUCTIONS,
+    requireThreadShell,
+  });
+  if (mcpApps !== undefined) {
+    registerGatewayWithMcpApps({
+      service: mcpApps,
+      tools,
+      handleMcpPost,
       credentials,
       snapshotQuery,
-      tools,
-      onCapabilityDenied: surfaceCapabilityDenial,
-      // Namespace-insensitive: a session that never saw the catalog reaches
-      // for prefixed spellings (moss_computer_click,
-      // mcp__moss__computer_click). Those must deny with the card, never die
-      // as Unknown-tool. The exact set stays as a backstop for any catalog
-      // computer name outside the static family list.
-      isComputerToolName: (toolName) =>
-        computerToolNames.has(toolName) || isMossComputerToolFamilyName(toolName),
-      computerControlCapability: COMPUTER_CONTROL_CAPABILITY,
-      instructions: AGENT_GATEWAY_INSTRUCTIONS,
-      requireThreadShell,
-    }),
+    });
+  }
+
+  return {
+    handleMcpPost,
   } satisfies AgentGatewayShape;
 });
 

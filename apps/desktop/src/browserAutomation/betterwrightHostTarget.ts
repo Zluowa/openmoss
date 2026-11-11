@@ -12,6 +12,14 @@ export interface MossHostTarget extends HostTarget {
   run: NonNullable<HostTarget["run"]>;
   /** Immediately revoke every transport this adapter vended; callers race worker shutdown. */
   revokeAll(cancel?: boolean): Promise<void>;
+  /**
+   * After revokeAll: resolves once requests the session sent through this
+   * target's guard proxy (from any tab) have finished, `maxMs` passes, or the
+   * signal aborts. Close the worker only after it: the worker serves them.
+   */
+  drainGuardedRequests(maxMs: number, signal?: AbortSignal): Promise<void>;
+  /** After revokeAll: requests still flowing through this target's guard. */
+  guardedRequestCount(): number;
 }
 
 /**
@@ -39,7 +47,9 @@ export function mossHostTarget(
   let networkGuardLease:
     | { proxyUrl: string; lease: Awaited<ReturnType<typeof networkGuard.attach>> }
     | undefined;
+  let releasedLease: Awaited<ReturnType<typeof networkGuard.attach>> | undefined;
   let revoked = false;
+  let inputRevocation: Promise<void> | undefined;
   let connecting = Promise.resolve();
   let changingProxy = Promise.resolve();
 
@@ -56,7 +66,9 @@ export function mossHostTarget(
     return result;
   };
   const releaseProxy = async () => {
-    await networkGuardLease?.lease.release();
+    const lease = networkGuardLease?.lease;
+    await lease?.release();
+    if (lease) releasedLease = lease;
     networkGuardLease = undefined;
   };
   const closeConnection = async (connection: OpenedConnection, cancel: boolean) => {
@@ -69,6 +81,24 @@ export function mossHostTarget(
     );
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
+  };
+
+  const revokeInput = (cancel: boolean): Promise<void> => {
+    if (inputRevocation) return inputRevocation;
+    revoked = true;
+    lifetime.abort(new Error("Browser control was interrupted."));
+    // Cancel in-flight leases without waiting for them: a never-settling
+    // open must not stall teardown. connect() refuses to vend once its
+    // opening settles. No later connect may revive this target.
+    for (const opening of pending) {
+      void opening.then(
+        (connection) => connection.close(true).catch(() => {}),
+        () => {},
+      );
+    }
+    inputRevocation = drainConnections(cancel);
+    void inputRevocation.catch(() => {});
+    return inputRevocation;
   };
 
   return {
@@ -151,20 +181,14 @@ export function mossHostTarget(
         if (!contents.isDestroyed()) contents.setBackgroundThrottling(throttled);
       }
     },
+    drainGuardedRequests(maxMs, signal) {
+      return releasedLease?.drainGuardedRequests(maxMs, signal) ?? Promise.resolve();
+    },
+    guardedRequestCount() {
+      return releasedLease?.guardedRequestCount ?? 0;
+    },
     revokeAll(cancel = true) {
-      revoked = true;
-      lifetime.abort(new Error("Browser control was interrupted."));
-      // Cancel in-flight leases without waiting for them: a never-settling
-      // open must not stall teardown. connect() refuses to vend once its
-      // opening settles. No later connect may revive this target.
-      for (const opening of pending) {
-        void opening.then(
-          (connection) => connection.close(true).catch(() => {}),
-          () => {},
-        );
-      }
-      const draining = drainConnections(cancel);
-      void draining.catch(() => {});
+      const draining = revokeInput(cancel);
       return changeProxy(async () => {
         await draining;
         await releaseProxy();

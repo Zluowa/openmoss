@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, toNamespacedPath } from "node:path";
 import { outboundHttp } from "@moss/shared/outboundHttp";
-import { cacheMossCanvasRemoteAsset, mossCanvasStorageFor } from "./mossCanvasStorage";
+import {
+  cacheMossCanvasRemoteAsset,
+  legacyMossCanvasDirectory,
+  mossCanvasStorageDirectory,
+  mossCanvasStorageExists,
+  mossCanvasStorageFor,
+} from "./mossCanvasStorage";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -110,5 +117,122 @@ describe("Canvas imports of existing Moss outputs", () => {
       });
     }
     expect(network).not.toHaveBeenCalled();
+  });
+});
+
+describe("where a conversation's Canvas lives", () => {
+  const identity = {
+    account: { id: "owner", realm: "memfire-phone" as const },
+    realm: "memfire-phone" as const,
+    gatewayBaseUrl: "https://models.example/v1",
+  };
+  async function setup() {
+    const root = await mkdtemp(join(tmpdir(), "moss-canvas-home-"));
+    const bundle = join(root, "bundle");
+    await mkdir(join(bundle, "apps/codex-canvas/server"), { recursive: true });
+    // The fake Canvas store reports which folder it was given.
+    await writeFile(
+      join(bundle, "apps/codex-canvas/server/hosted-storage.mjs"),
+      `export function createMossCanvasHostedStorage({ stateDirectory }) {
+         return { stateDirectory, request: async () => ({}), close() {} };
+       }`,
+    );
+    vi.stubEnv("MOSS_CANVAS_BUNDLE_DIR", bundle);
+    const state = join(root, "state");
+    const cwd = join(root, "project");
+    await mkdir(cwd, { recursive: true });
+    return { root, state, cwd };
+  }
+  const opened = async (state: string, cwd: string, threadId: string) =>
+    (await mossCanvasStorageFor(state, identity, {
+      cwd,
+      threadId,
+      title: "Canvas",
+    })) as unknown as {
+      stateDirectory: string;
+    };
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("keeps it in Moss's own state, never inside the project", async () => {
+    const { root, state, cwd } = await setup();
+    try {
+      const store = await opened(state, cwd, "thread-new");
+      expect(store.stateDirectory).toContain(join("state", "moss-canvas-threads"));
+      expect(store.stateDirectory).toBe(
+        toNamespacedPath(
+          mossCanvasStorageDirectory(state, identity, { cwd, threadId: "thread-new", title: "" }),
+        ),
+      );
+      expect(existsSync(join(cwd, ".moss"))).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("moves a Canvas made inside the project once, with its files, and clears the emptied folders", async () => {
+    const { root, state, cwd } = await setup();
+    try {
+      const legacy = legacyMossCanvasDirectory(identity, {
+        cwd,
+        threadId: "thread-old",
+        title: "",
+      });
+      await mkdir(join(legacy, "workspace/.hoola/assets"), { recursive: true });
+      await writeFile(join(legacy, "workspace/.hoola/assets/a.png"), "png");
+      await writeFile(join(cwd, "notes.md"), "mine");
+      const store = await opened(state, cwd, "thread-old");
+      const moved = mossCanvasStorageDirectory(state, identity, {
+        cwd,
+        threadId: "thread-old",
+        title: "",
+      });
+      expect(store.stateDirectory).toBe(toNamespacedPath(moved));
+      expect(readFileSync(join(moved, "workspace/.hoola/assets/a.png"), "utf8")).toBe("png");
+      expect(existsSync(legacy)).toBe(false);
+      expect(existsSync(join(cwd, ".moss"))).toBe(false);
+      // The person's own files stay where they were.
+      expect(readFileSync(join(cwd, "notes.md"), "utf8")).toBe("mine");
+      expect(
+        await mossCanvasStorageExists(state, identity, { cwd, threadId: "thread-old", title: "" }),
+      ).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("finds a Canvas still in the project without creating anything", async () => {
+    const { root, state, cwd } = await setup();
+    try {
+      const workspace = { cwd, threadId: "thread-waiting", title: "" };
+      expect(await mossCanvasStorageExists(state, identity, workspace)).toBe(false);
+      await mkdir(legacyMossCanvasDirectory(identity, workspace), { recursive: true });
+      expect(await mossCanvasStorageExists(state, identity, workspace)).toBe(true);
+      expect(existsSync(join(state, "moss-canvas-threads"))).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("never follows a link out of the project, and leaves what it points at alone", async () => {
+    const { root, state, cwd } = await setup();
+    try {
+      const outside = join(root, "outside");
+      const workspace = { cwd, threadId: "thread-linked", title: "" };
+      const target = join(
+        outside,
+        legacyMossCanvasDirectory(identity, workspace).slice(join(cwd, ".moss").length + 1),
+      );
+      await mkdir(target, { recursive: true });
+      await writeFile(join(target, "secret.txt"), "keep");
+      await symlink(outside, join(cwd, ".moss"), "junction");
+      const store = await opened(state, cwd, "thread-linked");
+      expect(store.stateDirectory).toBe(
+        toNamespacedPath(mossCanvasStorageDirectory(state, identity, workspace)),
+      );
+      expect(readFileSync(join(target, "secret.txt"), "utf8")).toBe("keep");
+    } finally {
+      await rm(join(root, "project", ".moss"), { force: true }).catch(() => undefined);
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

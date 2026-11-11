@@ -546,7 +546,16 @@ let sshConnectionManager: SshConnectionManager | undefined;
 let remoteComputersManager: RemoteComputersManager | undefined;
 const sshWorkspaceUrls = new Map<number, string>();
 const sshWorkspaceKinds = new Map<number, "ssh" | "paired">();
-const mcpAppSandboxRuntime = new McpAppSandboxRuntime();
+const mcpAppSandboxRuntime = new McpAppSandboxRuntime({
+  // Inter for widget host styles, read from the served web build.
+  loadFont: async () => {
+    const staticDir = resolveServedStaticRoot()?.dir ?? resolveDesktopStaticDir();
+    if (!staticDir) return null;
+    return FS.promises.readFile(
+      Path.join(staticDir, "inline-visualization-libs", "inter-latin.woff2"),
+    );
+  },
+});
 const MAX_CLIPBOARD_IMAGE_DATA_URL_LENGTH = 16 * 1024 * 1024;
 const packagedDesktopFlavor = app.isPackaged
   ? (

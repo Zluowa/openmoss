@@ -1,4 +1,0 @@
-
-# Moss program control-plane & evidence artifacts — audit records, not shippable
-# source. Evidence JSON/MD keep byte-for-byte fidelity (review fingerprints).
-.moss/program/

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveToolFailureSummary, deriveWorkLogToolDetails } from "./toolCallDetails";
+import {
+  deriveToolFailureSummary,
+  deriveWorkLogToolDetails,
+  parseWorkLogMcpToolResult,
+} from "./toolCallDetails";
 
 describe("deriveToolFailureSummary", () => {
   it("reads Claude's leading exit code and skips it for the excerpt", () => {
@@ -63,5 +67,66 @@ describe("tool output exit-code suffixes", () => {
     });
     expect(details?.output?.stdout).toBe(output);
     expect(details?.output?.exitCode).toBe(exitCode);
+  });
+});
+
+describe("parseWorkLogMcpToolResult widget binding", () => {
+  const projection = (app: Record<string, unknown>) => ({
+    data: {
+      kind: "codex.mcp_tool_call",
+      version: 1,
+      callId: "call-1",
+      server: "codex_apps",
+      tool: "open_issue",
+      status: "completed",
+      arguments: {},
+      result: { content: [] },
+      truncation: { truncated: false, deferredBinary: false },
+      app,
+    },
+  });
+
+  it("fills a pre-binding Codex descriptor from the projection", () => {
+    const parsed = parseWorkLogMcpToolResult(
+      "tool.completed",
+      projection({
+        resourceUri: "ui://linear/issue",
+        source: "appContext",
+        connectorId: "linear",
+        appName: "Linear",
+      }),
+      "mcp_tool_call",
+    );
+    expect(parsed?.app).toEqual({
+      resourceUri: "ui://linear/issue",
+      source: "appContext",
+      connectorId: "linear",
+      appName: "Linear",
+      server: "codex_apps",
+      serverKey: "codex_apps/linear",
+      serverLabel: "Linear",
+      toolName: "open_issue",
+      isFirstParty: false,
+      visibility: [],
+    });
+  });
+
+  it("keeps the server's binding fields", () => {
+    const binding = {
+      resourceUri: "ui://fixture/widget.html",
+      source: "toolDefinition",
+      server: "fixture_connector",
+      serverKey: "conn-1",
+      serverLabel: "Fixture",
+      toolName: "fixture_show_widget",
+      toolTitle: "Fixture widget",
+      connectorId: "conn-1",
+      connectorUrl: "https://fixture.example/mcp",
+      isFirstParty: false,
+      visibility: ["model", "app"],
+    };
+    expect(
+      parseWorkLogMcpToolResult("tool.completed", projection(binding), "mcp_tool_call")?.app,
+    ).toEqual(binding);
   });
 });

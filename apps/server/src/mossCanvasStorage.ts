@@ -1,8 +1,8 @@
 // The account-scoped Moss host reuses Open Moss Canvas's durable project and
 // snapshot modules. No renderer path or account field chooses a storage root.
-import { access, lstat, mkdir, realpath } from "node:fs/promises";
+import { access, cp, lstat, mkdir, realpath, rename, rm, rmdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join, resolve, toNamespacedPath } from "node:path";
+import { dirname, join, resolve, toNamespacedPath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { outboundHttp } from "@moss/shared/outboundHttp";
 import {
@@ -64,7 +64,14 @@ export async function resolveMossCanvasBundleRoot(): Promise<string> {
   throw new MossMediaJobsError("canvas_bundle_unavailable", 503);
 }
 
-/** Where one account's Canvas for one conversation (or the account-wide Canvas) lives. */
+const threadKey = (threadId: string) => createHash("sha256").update(threadId).digest("hex");
+
+/**
+ * Where one account's Canvas for one conversation (or the account-wide Canvas) lives: in Moss's
+ * own state, never in the project. A Canvas inside the project (`.moss/canvas/…`, the layout
+ * before 2026-11-11) showed up as project changes and its deep asset paths broke checkpoints with
+ * Windows' "Filename too long". The thread key is shortened to keep the canvas's own folders short.
+ */
 export function mossCanvasStorageDirectory(
   stateDirectory: string,
   credential: MossMediaIdentity,
@@ -72,17 +79,90 @@ export function mossCanvasStorageDirectory(
 ): string {
   const scope = mediaAccountScope(credential);
   return workspace
-    ? join(
-        workspace.cwd,
-        ".moss",
-        "canvas",
-        scope,
-        createHash("sha256").update(workspace.threadId).digest("hex"),
-      )
+    ? join(stateDirectory, "moss-canvas-threads", scope, threadKey(workspace.threadId).slice(0, 32))
     : join(stateDirectory, "moss-canvas", scope);
 }
 
-/** Whether this conversation's Canvas exists yet. Never creates it. */
+/** The pre-2026-11-11 location inside the conversation's folder. */
+export function legacyMossCanvasDirectory(
+  credential: MossMediaIdentity,
+  workspace: MossCanvasWorkspace,
+): string {
+  return join(
+    workspace.cwd,
+    ".moss",
+    "canvas",
+    mediaAccountScope(credential),
+    threadKey(workspace.threadId),
+  );
+}
+
+/**
+ * The legacy Canvas folder, only when every part of its path below the conversation's folder is
+ * a real directory there: a link out of the project is never followed, moved or deleted.
+ */
+async function realLegacyDirectory(
+  credential: MossMediaIdentity,
+  workspace: MossCanvasWorkspace,
+): Promise<string | null> {
+  let current = workspace.cwd;
+  for (const part of [
+    ".moss",
+    "canvas",
+    mediaAccountScope(credential),
+    threadKey(workspace.threadId),
+  ]) {
+    current = join(current, part);
+    try {
+      const info = await lstat(current);
+      if (!info.isDirectory() || info.isSymbolicLink() || (await realpath(current)) !== current)
+        return null;
+    } catch {
+      return null;
+    }
+  }
+  return current;
+}
+
+async function isRealDirectory(path: string): Promise<boolean> {
+  try {
+    const info = await lstat(path);
+    return info.isDirectory() && !info.isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Moves a legacy Canvas into Moss's state: a rename on the same volume, otherwise a copy and
+ * then the old folder's removal. Returns where the Canvas is now; if it could not be moved it
+ * stays usable where it was. Emptied `.moss/canvas` folders are removed; `.moss` only if empty.
+ */
+async function moveLegacyCanvas(legacy: string, target: string): Promise<string> {
+  await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+  try {
+    await rename(legacy, target);
+  } catch {
+    try {
+      await cp(toNamespacedPath(legacy), toNamespacedPath(target), {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+        verbatimSymlinks: true,
+      });
+    } catch {
+      await rm(toNamespacedPath(target), { recursive: true, force: true }).catch(() => undefined);
+      return legacy;
+    }
+    await rm(toNamespacedPath(legacy), { recursive: true, force: true }).catch(() => undefined);
+  }
+  // Only empty folders: anything else under .moss is not the Canvas's.
+  for (let folder = dirname(legacy), depth = 0; depth < 3; folder = dirname(folder), depth += 1)
+    await rmdir(folder).catch(() => undefined);
+  return target;
+}
+
+/** Whether this conversation's Canvas exists yet (here or at its legacy place). Never creates it. */
 export async function mossCanvasStorageExists(
   stateDirectory: string,
   credential: MossMediaIdentity,
@@ -90,12 +170,8 @@ export async function mossCanvasStorageExists(
 ): Promise<boolean> {
   const directory = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
   if (stores.has(directory)) return true;
-  try {
-    const info = await lstat(directory);
-    return info.isDirectory() && !info.isSymbolicLink();
-  } catch {
-    return false;
-  }
+  if (await isRealDirectory(directory)) return true;
+  return workspace ? (await realLegacyDirectory(credential, workspace)) !== null : false;
 }
 
 export function mossCanvasStorageFor(
@@ -103,30 +179,17 @@ export function mossCanvasStorageFor(
   credential: MossMediaIdentity,
   workspace?: MossCanvasWorkspace | null,
 ): Promise<CanvasStorage> {
-  const scope = mediaAccountScope(credential);
-  const directory = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
-  let pending = stores.get(directory);
+  const target = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
+  let pending = stores.get(target);
   if (!pending) {
     pending = (async () => {
-      if (workspace) {
-        // Every newly created ancestor remains inside the server-selected cwd.
-        // Never follow a pre-existing .moss/canvas link into another directory.
-        let current = workspace.cwd;
-        for (const part of [
-          ".moss",
-          "canvas",
-          scope,
-          createHash("sha256").update(workspace.threadId).digest("hex"),
-        ]) {
-          current = join(current, part);
-          await mkdir(current, { mode: 0o700 }).catch((error: unknown) => {
-            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-          });
-          const info = await lstat(current);
-          if (!info.isDirectory() || info.isSymbolicLink() || (await realpath(current)) !== current)
-            throw new MossMediaJobsError("canvas_workspace_path_invalid", 409);
-        }
+      let directory = target;
+      if (workspace && !(await isRealDirectory(target))) {
+        // A Canvas made before 2026-11-11 lives in the project; bring it over once.
+        const legacy = await realLegacyDirectory(credential, workspace);
+        if (legacy) directory = await moveLegacyCanvas(legacy, target);
       }
+      await mkdir(directory, { recursive: true, mode: 0o700 });
       const root = await resolveMossCanvasBundleRoot();
       const moduleUrl = pathToFileURL(
         join(root, "apps/codex-canvas/server/hosted-storage.mjs"),
@@ -138,17 +201,17 @@ export function mossCanvasStorageFor(
         }): Promise<CanvasStorage>;
       };
       return upstream.createMossCanvasHostedStorage({
-        // SQLite opens the same validated folder through the Windows long-path namespace.
+        // SQLite opens the folder through the Windows long-path namespace.
         stateDirectory: toNamespacedPath(directory),
         ...(workspace
           ? { conversation: { threadId: workspace.threadId, title: workspace.title } }
           : {}),
       });
     })().catch((error: unknown) => {
-      stores.delete(directory);
+      stores.delete(target);
       throw error;
     });
-    stores.set(directory, pending);
+    stores.set(target, pending);
   }
   return pending;
 }

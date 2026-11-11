@@ -43,7 +43,42 @@ export type PageEditorAiEvent =
   | { event: "open-ref"; kind: "page" | "file" | "chat" | "thread" | "app-page"; id: string }
   | { event: "request-subpage" }
   | { event: "request-upload"; kind: "image" | "file"; anchorBlockId: string | null }
-  | { event: "ai-input-changed"; mode: "generate" | "visualize" | "image" | null };
+  | { event: "ai-input-changed"; mode: "generate" | "visualize" | "image" | null }
+  /** A page media card (the Canvas's image or video card) asks Moss to run its media job. */
+  | {
+      event: "media-generate";
+      blockId: string;
+      requestId: string;
+      kind: "image" | "video";
+      request: Record<string, unknown>;
+    }
+  /** After a reload: a card asks about a job it already submitted; never a new submission. */
+  | { event: "media-resume"; blockId: string; requestId: string; jobId: string };
+
+export type PageEditorMediaEvent = Extract<
+  PageEditorAiEvent,
+  { event: "media-generate" } | { event: "media-resume" }
+>;
+
+/** Moss's media catalog for the page's image and video cards. */
+export interface PageMediaCatalog {
+  status: "loading" | "ready" | "unavailable";
+  models: { id: string; available: boolean; installed: boolean }[];
+}
+export interface PageMediaJobUpdate {
+  blockId: string;
+  requestId: string;
+  jobId?: string;
+  status: "submitting" | "queued" | "running" | "failed";
+  error?: string;
+}
+export interface PageMediaResult {
+  blockId: string;
+  requestId: string;
+  kind: "image" | "video";
+  url: string;
+  name: string;
+}
 export interface PageEditorAiContext {
   locale: "zh-CN" | "en";
   aiAvailable: boolean;
@@ -119,6 +154,35 @@ export function parsePageEditorAiEvent(value: Message): PageEditorAiEvent | null
       return (value.kind === "image" || value.kind === "file") && nullableId(value.anchorBlockId)
         ? (value as unknown as PageEditorAiEvent)
         : null;
+    case "media-generate": {
+      const request = value.request;
+      let size = Number.POSITIVE_INFINITY;
+      try {
+        size = JSON.stringify(request).length;
+      } catch {
+        // An unserializable request is refused below.
+      }
+      return shortString(value.blockId, 256) &&
+        value.blockId !== "" &&
+        shortString(value.requestId, 128) &&
+        /^[A-Za-z0-9-]{8,128}$/u.test(value.requestId) &&
+        (value.kind === "image" || value.kind === "video") &&
+        !!request &&
+        typeof request === "object" &&
+        !Array.isArray(request) &&
+        size <= 8 * 1024 * 1024
+        ? (value as unknown as PageEditorAiEvent)
+        : null;
+    }
+    case "media-resume":
+      return shortString(value.blockId, 256) &&
+        value.blockId !== "" &&
+        shortString(value.requestId, 128) &&
+        value.requestId !== "" &&
+        typeof value.jobId === "string" &&
+        /^moss_[A-Za-z0-9_-]{1,128}$/u.test(value.jobId)
+        ? (value as unknown as PageEditorAiEvent)
+        : null;
     default:
       return null;
   }
@@ -167,6 +231,8 @@ export class PageRichEditorChannel {
   /** The loaded editor speaks the page AI protocol (drafts, slash AI items). */
   aiSupported = false;
   onAiEvent: (event: PageEditorAiEvent) => void = () => {};
+  /** The page's media cards: their jobs run through Moss's media API (usePageMediaBridge). */
+  onMediaEvent: (event: PageEditorMediaEvent) => void = () => {};
   private header: PageRichEditorHeader | null = null;
   /** The loaded editor draws the page header itself (title and body scroll as one page). */
   headerSupported = false;
@@ -277,6 +343,22 @@ export class PageRichEditorChannel {
   }) => {
     if (this.ready && this.loaded && this.aiSupported && !this.disposed)
       this.post("insert-media", media);
+  };
+  /** Whether this editor draws 图像 / 视频 as the Canvas's media cards. */
+  get mediaCardsSupported() {
+    return this.capabilities.includes("media-cards");
+  }
+  setMediaCatalog = (catalog: PageMediaCatalog) => {
+    if (this.ready && this.mediaCardsSupported && !this.disposed)
+      this.post("set-media-catalog", { catalog });
+  };
+  mediaJob = (update: PageMediaJobUpdate) => {
+    if (this.ready && this.loaded && this.mediaCardsSupported && !this.disposed)
+      this.post("media-job", { update });
+  };
+  mediaResult = (result: PageMediaResult) => {
+    if (this.ready && this.loaded && this.mediaCardsSupported && !this.disposed)
+      this.post("media-result", { result });
   };
   reset = () => {
     this.onUnavailable(false);
@@ -421,7 +503,15 @@ export class PageRichEditorChannel {
       const aiEvent = parsePageEditorAiEvent(value);
       if (aiEvent) {
         this.childSeq = value.seq as number;
-        if (!this.document.readOnly || aiEvent.event === "open-ref") this.onAiEvent(aiEvent);
+        // Following an already submitted media job only observes it; a read-only page may.
+        if (
+          !this.document.readOnly ||
+          aiEvent.event === "open-ref" ||
+          aiEvent.event === "media-resume"
+        )
+          if (aiEvent.event === "media-generate" || aiEvent.event === "media-resume")
+            this.onMediaEvent(aiEvent);
+          else this.onAiEvent(aiEvent);
         return true;
       }
     }

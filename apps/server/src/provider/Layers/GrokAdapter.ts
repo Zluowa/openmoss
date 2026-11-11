@@ -22,12 +22,14 @@ import {
   TurnId,
   type GrokModelSelection,
   type ModelSelection,
+  PROVIDER_CLI_DEFAULT_MODEL,
   ProviderInstanceId,
 } from "@moss/contracts";
 import {
   getDefaultEffort,
   getModelCapabilities,
   humanizeModelSlug,
+  isProviderCliDefaultModel,
   normalizeGrokModelOptions,
 } from "@moss/shared/model";
 import { decodeOutboundJson, decodeOutboundText, outboundHttp } from "@moss/shared/outboundHttp";
@@ -767,7 +769,8 @@ export function resolveGrokRuntimeModelSettings(
       }
     | undefined,
 ): GrokAcpRuntimeSettings {
-  if (!modelSelection) return {};
+  // The CLI-default slug starts Grok without `-m`, so it runs its own model setting.
+  if (!modelSelection || isProviderCliDefaultModel(PROVIDER, modelSelection.model)) return {};
   const options = normalizeGrokModelOptions(modelSelection.model, modelSelection.options);
   return {
     model: modelSelection.model,
@@ -1173,6 +1176,14 @@ export function makeGrokAdapter(
           });
           const providerGrokOptions = input.providerOptions?.grok;
           const runtimeGrokModelSettings = resolveGrokRuntimeModelSettings(grokModelSelection);
+          // The cursor records the CLI default by name so a session started on it is
+          // told apart from a legacy cursor that never recorded its spawn flags.
+          const resumeModelSettings: {
+            readonly model?: string | undefined;
+            readonly reasoningEffort?: string | undefined;
+          } = isProviderCliDefaultModel(PROVIDER, grokModelSelection?.model)
+            ? { model: PROVIDER_CLI_DEFAULT_MODEL }
+            : runtimeGrokModelSettings;
           const effectiveGrokSettings: GrokAcpRuntimeSettings = {
             homeDir: serverConfig.homeDir,
             isolationRootDir: serverConfig.stateDir,
@@ -1198,21 +1209,21 @@ export function makeGrokAdapter(
           // ProviderService then starts a fresh session and carries the transcript.
           if (
             resume !== undefined &&
-            runtimeGrokModelSettings.model !== undefined &&
-            (resume.model !== runtimeGrokModelSettings.model ||
-              resume.reasoningEffort !== runtimeGrokModelSettings.reasoningEffort)
+            resumeModelSettings.model !== undefined &&
+            (resume.model !== resumeModelSettings.model ||
+              resume.reasoningEffort !== resumeModelSettings.reasoningEffort)
           ) {
             yield* Effect.logInfo("grok.acp.resume.model-mismatch", {
               threadId: input.threadId,
               resumedModel: resume.model,
               resumedReasoningEffort: resume.reasoningEffort,
-              model: runtimeGrokModelSettings.model,
-              reasoningEffort: runtimeGrokModelSettings.reasoningEffort,
+              model: resumeModelSettings.model,
+              reasoningEffort: resumeModelSettings.reasoningEffort,
             });
             return yield* new ProviderAdapterProcessError({
               provider: PROVIDER,
               threadId: input.threadId,
-              detail: `Grok session '${resume.sessionId}' was created for different model settings than '${runtimeGrokModelSettings.model}'.`,
+              detail: `Grok session '${resume.sessionId}' was created for different model settings than '${resumeModelSettings.model}'.`,
               reason: "resume-state-unavailable",
             });
           }
@@ -1511,7 +1522,7 @@ export function makeGrokAdapter(
               started.sessionId,
               resume !== undefined && started.sessionId === resume.sessionId
                 ? resume
-                : runtimeGrokModelSettings,
+                : resumeModelSettings,
             ),
             createdAt: now,
             updatedAt: now,

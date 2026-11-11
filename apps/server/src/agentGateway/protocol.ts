@@ -51,10 +51,16 @@ export interface JsonRpcNotification {
  *   type, and documented in `@anthropic-ai/claude-agent-sdk`.
  * - `anthropic/searchHint`: replaces the description the same harness indexes
  *   (and sends) for a *deferred* tool. Unused today — see computerTools.ts.
+ * - `ui`: MCP Apps (SEP-1865). `resourceUri` names the `ui://moss/...` widget the gateway
+ *   serves itself; `visibility` `["app"]` keeps a widget-only tool out of the model's list.
  */
 export interface McpToolMeta {
   readonly "anthropic/alwaysLoad"?: boolean;
   readonly "anthropic/searchHint"?: string;
+  readonly ui?: {
+    readonly resourceUri?: string;
+    readonly visibility?: ReadonlyArray<"model" | "app">;
+  };
 }
 
 export interface McpToolDefinition {
@@ -79,6 +85,8 @@ export interface McpToolCallResult {
   >;
   readonly isError?: boolean;
   readonly structuredContent?: Record<string, unknown>;
+  /** Result `_meta` (MCP Apps widgets read it; reserved `moss/` keys never reach a widget). */
+  readonly _meta?: Record<string, unknown>;
 }
 
 export function mcpToolResultError(text: string): McpToolCallResult {
@@ -168,6 +176,8 @@ export function buildMcpInitializeResult(input: {
     protocolVersion: negotiateMcpProtocolVersion(input.requestedProtocolVersion),
     capabilities: {
       tools: { listChanged: false },
+      // MCP Apps: the gateway serves its own `ui://moss/...` widget resources.
+      resources: { listChanged: false },
     },
     serverInfo: {
       name: "moss",

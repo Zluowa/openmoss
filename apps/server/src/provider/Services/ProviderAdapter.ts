@@ -209,6 +209,34 @@ export type ProviderNextUserMessagePrediction =
   | { readonly kind: "skipped"; readonly reason: string }
   | { readonly kind: "predicted"; readonly text: string | null };
 
+/** Interactive connectors: one CLI-own MCP server and its tool definitions. */
+export interface ProviderMcpAppServerTools {
+  readonly server: string;
+  readonly tools: ReadonlyArray<Record<string, unknown>>;
+  /** Resource listings the CLI reported, when it reports them. */
+  readonly resources?: ReadonlyArray<Record<string, unknown>>;
+  readonly resourceTemplates?: ReadonlyArray<Record<string, unknown>>;
+}
+
+export interface ProviderMcpAppServerInput {
+  readonly threadId: ThreadId;
+  readonly server?: string;
+}
+
+export interface ProviderMcpAppToolCallInput {
+  readonly threadId: ThreadId;
+  readonly server: string;
+  readonly toolName: string;
+  readonly arguments: Record<string, unknown>;
+  readonly meta?: Record<string, unknown>;
+}
+
+export interface ProviderMcpAppResourceContentsInput {
+  readonly threadId: ThreadId;
+  readonly server: string;
+  readonly uri: string;
+}
+
 export interface ProviderAdapterShape<TError> {
   /**
    * Provider kind implemented by this adapter.
@@ -320,6 +348,25 @@ export interface ProviderAdapterShape<TError> {
   readonly readMcpAppResource?: (
     input: McpAppResourceReadInput,
   ) => Effect.Effect<McpAppResourceReadResult, TError>;
+
+  /**
+   * Interactive connectors: the MCP servers this thread's CLI dialed itself, with their tool
+   * definitions as the server listed them (`_meta.ui` included). Optional; absent means the
+   * provider has no CLI-own servers Moss can reach.
+   */
+  readonly listMcpAppTools?: (
+    input: ProviderMcpAppServerInput,
+  ) => Effect.Effect<ReadonlyArray<ProviderMcpAppServerTools>, TError>;
+
+  /** Interactive connectors: a widget-initiated `tools/call` on a CLI-own server. */
+  readonly callMcpAppTool?: (
+    input: ProviderMcpAppToolCallInput,
+  ) => Effect.Effect<Record<string, unknown>, TError>;
+
+  /** Interactive connectors: a widget's own `resources/read` on a CLI-own server. */
+  readonly readMcpResourceContents?: (
+    input: ProviderMcpAppResourceContentsInput,
+  ) => Effect.Effect<Record<string, unknown>, TError>;
 
   /**
    * Stop and release every resource owned by a thread.

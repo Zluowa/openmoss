@@ -21,5 +21,13 @@
       }
     ]
   },
-  "include": ["src", "perf", "scripts/production-assets*.ts", "vite.config.ts"]
+  "include": [
+    "src",
+    "perf",
+    "scripts/production-assets*.ts",
+    "vite.config.ts",
+    "../../tools/test-quarantine/vitest.ts",
+    "../../tools/test-quarantine/context.ts",
+    "../../tools/test-quarantine/quarantine.ts"
+  ]
 }

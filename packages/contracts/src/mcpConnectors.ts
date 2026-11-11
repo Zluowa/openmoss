@@ -23,6 +23,17 @@ export type McpConnectorAuthKind = typeof McpConnectorAuthKind.Type;
 export const McpConnectorStatus = Schema.Literals(["connected", "needs-auth"]);
 export type McpConnectorStatus = typeof McpConnectorStatus.Type;
 
+/** One tool of a connector as the directory shows it (交互式连接器). */
+export const McpConnectorToolSummary = Schema.Struct({
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  title: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(200))),
+  /** The tool definition declares a `ui://` widget resource. */
+  hasUi: Schema.Boolean,
+  /** `_meta.ui.visibility`; empty when undeclared (model and app may both call it). */
+  visibility: Schema.Array(Schema.Literals(["model", "app"])).check(Schema.isMaxLength(2)),
+});
+export type McpConnectorToolSummary = typeof McpConnectorToolSummary.Type;
+
 export const McpConnector = Schema.Struct({
   connectorId: McpConnectorId,
   /** Catalog key, or null for a custom URL. */
@@ -38,6 +49,12 @@ export const McpConnector = Schema.Struct({
   status: McpConnectorStatus,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  /**
+   * Tools with a widget, from the last tool list Moss read. Absent until Moss has listed the
+   * connector's tools (it lists them in the background after connecting).
+   */
+  interactiveToolCount: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  tools: Schema.optional(Schema.Array(McpConnectorToolSummary).check(Schema.isMaxLength(500))),
 });
 export type McpConnector = typeof McpConnector.Type;
 

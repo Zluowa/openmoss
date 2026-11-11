@@ -26,7 +26,7 @@ export function TasksViewSwitch({ current }: { current: TasksViewMode }) {
       ariaLabel="View"
       value={current}
       options={VIEW_OPTIONS}
-      className="w-40 shrink-0"
+      className="w-48 shrink-0"
       onValueChange={(view) => {
         if (view === current) return;
         updateSettings({ tasksViewMode: view });

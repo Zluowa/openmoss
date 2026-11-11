@@ -8,6 +8,12 @@
 
 import { type KeyboardEvent, type RefObject, useState } from "react";
 
+import { cn } from "~/lib/utils";
+import {
+  SIDEBAR_ROW_HEIGHT_CLASS_NAME,
+  SIDEBAR_ROW_RADIUS_CLASS_NAME,
+} from "../../sidebarRowStyles";
+
 export function TaskQuickAdd({
   inputRef,
   placeholder = "Add a task, or press Tab to hand it to an agent",
@@ -46,7 +52,13 @@ export function TaskQuickAdd({
   };
 
   return (
-    <label className="flex min-h-10.5 items-center gap-3 rounded-card px-3">
+    <label
+      className={cn(
+        "flex items-center gap-ui-gap-xs px-ui-pad-sm",
+        SIDEBAR_ROW_HEIGHT_CLASS_NAME,
+        SIDEBAR_ROW_RADIUS_CLASS_NAME,
+      )}
+    >
       <svg viewBox="0 0 18 18" fill="none" aria-hidden className="size-4.5 shrink-0">
         <circle
           cx="9"
@@ -65,7 +77,7 @@ export function TaskQuickAdd({
         value={draftTitle}
         onChange={(event) => setDraftTitle(event.target.value)}
         onKeyDown={handleKeyDown}
-        className="font-system-ui h-10 min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-muted-foreground/70"
+        className="font-system-ui h-control min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-muted-foreground/70"
       />
     </label>
   );

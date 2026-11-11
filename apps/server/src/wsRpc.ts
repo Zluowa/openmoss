@@ -309,6 +309,7 @@ import { redactSensitiveProcessArgs } from "./processArgumentRedaction";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ExternalMcpService } from "./externalMcp/Services/ExternalMcpService";
 import { type McpConnectorError, McpConnectors } from "./mcpConnectors/Services/McpConnectors";
+import { decorateMcpConnectorsWithApps } from "./mcpApps/connectorDirectory";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup";
 import { KeepAwakeService } from "./keepAwake";
@@ -3712,7 +3713,11 @@ const makeWsRpcHandlersLayer = () =>
             "Failed to refresh external MCP pairing",
           ),
         [WS_METHODS.serverListMcpConnectors]: () =>
-          connectorRpc(mcpConnectors.list(), "Failed to list connectors"),
+          connectorRpc(
+            // Interactive connectors: tool counts and per-tool UI flags for the directory.
+            mcpConnectors.list().pipe(Effect.flatMap(decorateMcpConnectorsWithApps(mcpConnectors))),
+            "Failed to list connectors",
+          ),
         [WS_METHODS.serverConnectMcpConnector]: (input) =>
           connectorRpc(mcpConnectors.connect(input), "Failed to connect"),
         [WS_METHODS.serverGetMcpConnectorSetup]: () =>

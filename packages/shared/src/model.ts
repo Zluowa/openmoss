@@ -5,6 +5,7 @@ import {
   MODEL_OPTIONS_BY_PROVIDER,
   MODEL_SLUG_ALIASES_BY_PROVIDER,
   OMP_THINKING_LEVEL_OPTIONS,
+  PROVIDER_CLI_DEFAULT_MODEL,
   isSupportedProviderKind,
   type AntigravityModelOptions,
   type ClaudeApiEffort,
@@ -164,6 +165,22 @@ export function getDefaultModel(provider?: ProviderWithDefaultModel): ModelSlug;
 export function getDefaultModel(provider: ProviderKind): ModelSlug | null;
 export function getDefaultModel(provider: ProviderKind = "codex"): ModelSlug | null {
   return hasDefaultModel(provider) ? DEFAULT_MODEL_BY_PROVIDER[provider] : null;
+}
+
+/**
+ * True when `model` is the slug that runs the model set in the provider's own
+ * CLI ({@link PROVIDER_CLI_DEFAULT_MODEL}). Adapters start the CLI without a
+ * model flag for it, and model validation accepts it without a catalog row.
+ */
+export function isProviderCliDefaultModel(
+  provider: ProviderKind,
+  model: string | null | undefined,
+): boolean {
+  return (
+    model?.trim() === PROVIDER_CLI_DEFAULT_MODEL &&
+    hasDefaultModel(provider) &&
+    DEFAULT_MODEL_BY_PROVIDER[provider] === PROVIDER_CLI_DEFAULT_MODEL
+  );
 }
 
 const MODEL_NAME_BY_SLUG = new Map(

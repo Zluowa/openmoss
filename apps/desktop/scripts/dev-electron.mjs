@@ -8,6 +8,7 @@ import { buildCanonicalFilesystemHelper } from "../../server/scripts/build-canon
 import { buildWindowMaterialAddon } from "./build-window-material-addon.mjs";
 import { configureMacLauncher, desktopDir, resolveElectronPath } from "./electron-launcher.mjs";
 import { createSourceDesktopEnvironment } from "./source-desktop-launch.mjs";
+import { ensureDevCuaDriver } from "./ensure-dev-cua-driver.mjs";
 
 const port = Number(process.env.ELECTRON_RENDERER_PORT ?? 5733);
 const devServerUrl = `http://localhost:${port}`;
@@ -35,6 +36,9 @@ const lostLockRetryDelayMs = 3_000;
 const maxLostLockRetries = 10;
 let lostLockRetries = 0;
 const staleComputerUseGracePeriodMs = 300;
+
+// Computer use on Windows needs the Cua Driver beside the checkout; stage it once.
+ensureDevCuaDriver();
 
 if (process.platform === "darwin") {
   buildAppSnapHelper({ arch: process.arch });

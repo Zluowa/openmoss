@@ -319,7 +319,6 @@ const CHAT_SURFACE_COPY: Readonly<Record<string, string>> = {
   "HTML visuals are available in Moss desktop. Use native components in the browser.":
     "HTML 可视化内容只能在 Moss 桌面版中使用。在浏览器中请使用原生组件。",
   "Reload visual": "重新加载可视化内容",
-  "MCP app returned no HTML content": "MCP 应用没有返回 HTML 内容",
   "Collapse changed files list": "收起已更改文件列表",
   "Expand changed files list": "展开已更改文件列表",
 

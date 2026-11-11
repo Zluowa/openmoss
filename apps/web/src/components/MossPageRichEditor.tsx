@@ -21,6 +21,7 @@ import { ensureNativeApi } from "~/nativeApi";
 import { Button } from "./ui/button";
 import { PageAiRunWatchers } from "./pages/ai/PageAiRunWatcher";
 import { usePageAiBridge, type PageAiHostOptions } from "./pages/ai/usePageAiBridge";
+import { usePageMediaBridge } from "./pages/media/usePageMediaBridge";
 
 /** A Page with a live room: edits sync through the room instead of the parent's autosave. */
 export interface MossPageRealtimeTarget {
@@ -138,6 +139,8 @@ export function MossPageRichEditor(props: {
         },
       ),
   );
+  // 图像 / 视频 cards run their jobs through Moss's media API, with or without page agents.
+  usePageMediaBridge(channel, ready);
   const pageAi = usePageAiBridge(channel, props.ai ?? null, () => {
     frame.current?.focus();
     frame.current?.contentWindow?.focus();

@@ -17,6 +17,12 @@ export const CUA_NATIVE_REVISION = release.nativeRevision;
 export const CUA_DRIVER_SOURCE = release.source;
 export const CUA_DRIVER_ARCHIVE_SHA256 = release.sha256;
 export const CUA_HOST_SOCKET_ENV = "MOSS_CUA_HOST_SOCKET";
+/**
+ * The host's reply code when the driver executable is not where it should be.
+ * The status surface keys its plain-language line off this code, never off
+ * the reply's English text.
+ */
+export const CUA_DRIVER_MISSING_CODE = "cua_driver_missing";
 // Setup includes native input retirement and a bounded, user-facing permission request.
 export const CUA_SETUP_TIMEOUT_MS = 120_000;
 export const CUA_MAX_RESPONSE_BYTES = 96 * 1024 * 1024;
@@ -431,6 +437,8 @@ export interface CuaReply {
    */
   result?: CuaToolResult & Record<string, unknown>;
   error?: string;
+  /** A stable machine code for a failed reply, e.g. {@link CUA_DRIVER_MISSING_CODE}. */
+  code?: string;
   /** The delivery verdict a failed or uncertain action reports; see {@link CuaEffect}. */
   effect?: CuaEffect;
 }

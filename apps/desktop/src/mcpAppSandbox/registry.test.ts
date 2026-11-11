@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MCP_APP_SANDBOX_PENDING_TTL_MS } from "@moss/contracts";
 
+import { mcpAppSandboxConnectorLabel, mcpAppSandboxThreadLabel } from "./origin";
 import { McpAppSandboxRegistry } from "./registry";
 
 const input = (overrides: Record<string, unknown> = {}) => ({
@@ -69,13 +70,21 @@ describe("McpAppSandboxRegistry", () => {
     expect(registry.pendingCount).toBe(0);
   });
 
-  it("isolates unrelated source identities and exact owner/generation", () => {
+  it("gives one origin per thread x server key and keeps exact owner/generation", () => {
     let init = 0;
     const registry = new McpAppSandboxRegistry({ createInitId: () => `init-${++init}` });
     const first = registry.register(10, input());
-    const other = registry.register(10, input({ resourceUri: "ui://widget/other" }));
-    expect(other.sandboxId).not.toBe(first.sandboxId);
-    expect(other.partition).not.toBe(first.partition);
+    expect(first.sandboxId).toBe(mcpAppSandboxThreadLabel("thread-1", "server-1"));
+    expect(first.origin).toBe(`moss-mcp-sandbox://${first.sandboxId}`);
+    expect(first.partition).toBe(`moss-mcp-${first.sandboxId}`);
+    // Another resource of the same server in the same thread shares the origin.
+    const sameServer = registry.register(10, input({ resourceUri: "ui://widget/other" }));
+    expect(sameServer.sandboxId).toBe(first.sandboxId);
+    const otherKey = registry.register(10, input({ serverKey: "connector-9" }));
+    expect(otherKey.sandboxId).toBe(mcpAppSandboxThreadLabel("thread-1", "connector-9"));
+    const otherThread = registry.register(10, input({ threadId: "thread-2" }));
+    expect(otherThread.sandboxId).not.toBe(first.sandboxId);
+    expect(otherThread.partition).not.toBe(first.partition);
     expect(
       registry.consumeAttachment({
         ownerId: 11,
@@ -87,11 +96,11 @@ describe("McpAppSandboxRegistry", () => {
         origin: first.origin,
       }),
     ).toBeNull();
-    expect(registry.teardownOwner(10)).toBe(2);
+    expect(registry.teardownOwner(10)).toBe(4);
     expect(registry.teardownOwner(10)).toBe(0);
   });
 
-  it("keeps same-source owners independent and fails closed on CSP ambiguity", () => {
+  it("keeps same-source owners independent and routes each registration to its own policy", () => {
     let init = 0;
     const registry = new McpAppSandboxRegistry({ createInitId: () => `init-${++init}` });
     const first = registry.register(1, input());
@@ -117,8 +126,63 @@ describe("McpAppSandboxRegistry", () => {
     );
     expect(differentPolicy.partition).toBe(first.partition);
     expect(
-      registry.lookupByUrl(first.src.split("#", 1)[0]!, { partition: first.partition }),
-    ).toBeNull();
+      registry.lookupByUrl(first.src.split("#", 1)[0]!, { partition: first.partition })?.descriptor,
+    ).toEqual(first);
+    expect(
+      registry.lookupByUrl(differentPolicy.src.split("#", 1)[0]!, { partition: first.partition })
+        ?.policy.connectDomains,
+    ).toEqual([]);
+  });
+
+  it("uses the connector-URL origin only for the stable variant", () => {
+    const registry = new McpAppSandboxRegistry();
+    const stable = registry.register(
+      1,
+      input({ stableOrigin: true, connectorUrl: "https://Connector.example.com:443/mcp" }),
+    );
+    expect(stable.sandboxId).toBe(mcpAppSandboxConnectorLabel("https://connector.example.com/mcp"));
+    expect(registry.lookupByUrl(stable.src)?.variant).toBe("stable");
+    // Another thread with the same connector shares the stable origin.
+    const otherThread = registry.register(
+      1,
+      input({
+        threadId: "thread-9",
+        stableOrigin: true,
+        connectorUrl: "https://connector.example.com/mcp",
+      }),
+    );
+    expect(otherThread.sandboxId).toBe(stable.sandboxId);
+    const noUrl = registry.register(1, input({ stableOrigin: true }));
+    expect(noUrl.sandboxId).toBe(mcpAppSandboxThreadLabel("thread-1", "server-1"));
+    expect(registry.lookupByUrl(noUrl.src)?.variant).toBe("isolated");
+  });
+
+  it("stores the effective policy and rejects malformed policy input", () => {
+    const registry = new McpAppSandboxRegistry();
+    const descriptor = registry.register(
+      1,
+      input({
+        csp: { ...input().csp, frameDomains: ["https://maps.example.com", "https://claude.ai"] },
+        permissions: { camera: {}, geolocation: true },
+      }),
+    );
+    const registration = registry.lookupByUrl(descriptor.src);
+    expect(registration?.policy.frameDomains).toEqual(["https://maps.example.com"]);
+    expect(registration?.policy.withholdDevicePermissions).toBe(true);
+    expect(registration?.policy.permissions).toEqual({});
+    expect(() => registry.register(1, input({ permissions: { usb: true } }))).toThrow();
+    expect(() => registry.register(1, input({ permissions: { camera: "yes" } }))).toThrow();
+    expect(() => registry.register(1, input({ connectorUrl: "javascript:alert(1)" }))).toThrow();
+  });
+
+  it("keeps the live authority limit", () => {
+    const registry = new McpAppSandboxRegistry();
+    for (let index = 0; index < 256; index += 1) {
+      registry.register(1, input({ callId: `call-${index}` }));
+    }
+    expect(() => registry.register(1, input({ callId: "call-over" }))).toThrow(
+      "MCP App authority limit reached.",
+    );
   });
 
   it("replaces only one owner's pending durable-card authority", () => {

@@ -52,6 +52,7 @@ import { invalidateSkillsCatalogCache, mossSkillsDir } from "../../provider/skil
 import { createLogger } from "../../logger.ts";
 import { jsonRpcErrorResult } from "../proxy.ts";
 import { McpConnectorFailure, McpConnectorRuntime } from "../runtime.ts";
+import { McpAppService } from "../../mcpApps/Services/McpAppService.ts";
 import type { AgentGatewayConnectorRegistration } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
   MOSS_APPS_CONNECTOR_ID,
@@ -96,6 +97,8 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
     const cloudAccount = yield* Effect.serviceOption(MossCloudAccountService);
     const enterpriseAccount = yield* Effect.serviceOption(MossEnterpriseKeyAccount);
     const appsScope = yield* Effect.serviceOption(Scope.Scope);
+    const mcpApps = Option.getOrUndefined(yield* Effect.serviceOption(McpAppService));
+    let connectorsPublishedOnce = false;
     // Local and network-free: the server's one phone-account check.
     const phoneSignedIn = () =>
       Effect.runPromise(phoneAccountSignedIn(Option.getOrUndefined(phoneAccount)));
@@ -193,6 +196,28 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
         publishAll();
         // Every saved change lands here, so connect and disconnect move the skill too.
         void syncServiceSkills();
+        // Interactive connectors: which server names are Moss connectors, and their URLs. A
+        // connect or reconnect re-reads that connector's tools (never at boot: no network then).
+        if (mcpApps) {
+          const connected = runtime.list().filter((connector) => connector.status === "connected");
+          mcpApps.setConnectorDirectory(
+            connected.map((connector) => ({
+              connectorId: connector.connectorId,
+              serverName: connector.serverName,
+              name: connector.name,
+              url: connector.url,
+            })),
+          );
+          if (connectorsPublishedOnce) {
+            for (const connector of connected) {
+              if (mcpApps.connectorTools(connector.connectorId) !== undefined) continue;
+              void mcpApps.refreshConnectorTools(connector.connectorId, (request) =>
+                runtime.forward(connector.connectorId, request),
+              );
+            }
+          }
+          connectorsPublishedOnce = true;
+        }
       },
       clientVersion: version,
       logWarning: (message, fields) => log.warn(message, fields),

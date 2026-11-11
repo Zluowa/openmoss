@@ -33,6 +33,12 @@ interface TrackedRequest {
   readonly frameId?: string | undefined;
   readonly loaderId?: string | undefined;
   readonly document: boolean;
+  /**
+   * An iframe's own document. Out-of-process frames report completion on
+   * their own target session, which this root-session tracker never sees.
+   */
+  readonly subframeDocument: boolean;
+  readonly startedAt: number;
 }
 
 export interface BrowserNavigationMark {
@@ -269,6 +275,18 @@ class BrowserNavigationTracker {
     });
   }
 
+  /**
+   * Unfinished requests that started at or after the mark: the traffic an
+   * agent action caused, as opposed to long-lived polling the page already had.
+   */
+  pendingRequestsSince(mark: BrowserNavigationMark): number {
+    let pending = 0;
+    for (const request of this.inFlight.values()) {
+      if (request.startedAt >= mark.startedAt && !request.subframeDocument) pending += 1;
+    }
+    return pending;
+  }
+
   networkIdle(): boolean {
     return (
       this.inFlight.size === 0 &&
@@ -332,13 +350,18 @@ class BrowserNavigationTracker {
         (!this.mainFrameId || !params.frameId || params.frameId === this.mainFrameId);
       // WebSockets are reported through their own Network events and should
       // not keep an otherwise settled document permanently non-idle.
-      if (params.type !== "WebSocket") {
+      if (params.type !== "WebSocket" && params.type !== "EventSource") {
+        const redirectedFrom = this.inFlight.get(params.requestId)?.startedAt;
         this.inFlight.delete(params.requestId);
         this.inFlight.set(params.requestId, {
           url: params.request.url,
           frameId: params.frameId,
           loaderId: params.loaderId,
           document,
+          subframeDocument: params.type === "Document" && !document,
+          // A redirect keeps the original start so it stays attributed to
+          // whatever began the request.
+          startedAt: redirectedFrom ?? now,
         });
         while (this.inFlight.size > MAX_IN_FLIGHT_REQUESTS) {
           this.inFlight.delete(this.inFlight.keys().next().value as string);

@@ -9,7 +9,10 @@ import { DesktopBrowserAutomationHost } from "./desktopBrowserAutomationHost";
 import { BrowserAutomationHostError } from "./hostErrors";
 import { runBetterwright } from "./betterwrightRuntime";
 
-vi.mock("./betterwrightRuntime", () => ({ runBetterwright: vi.fn() }));
+vi.mock("./betterwrightRuntime", () => ({
+  runBetterwright: vi.fn(),
+  closeLingeringBrowserWorkers: vi.fn(async () => {}),
+}));
 
 vi.mock("electron", () => ({
   app: { getPath: () => "/isolated/moss/userdata" },

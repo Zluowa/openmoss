@@ -16,9 +16,19 @@ off the path of everyday work.
 Budgets are part of the design. A lane that goes over budget is a defect with an
 owner, fixed like any other.
 
-These lanes are the target. Until they land, the pre-push lane is the quick gate
-in the `open-pr` skill, and the coordinator runs the full lanes locally on the
-combined result of each batch. `.github/CI.md` (kept in the private repository) says what runs in CI today.
+The pre-push lane exists: `bun run check` (`tools/check/README.md`). It compares
+your branch with its merge base on `origin/main`, checks format and lint on the
+changed files, runs the design, sync-fs, brand and skills checks when their files
+changed, typechecks the packages whose code imports a changed file, and runs the
+unit tests that import one, chosen from the import graph. It runs at most 20
+selected component browser files and never `ChatView.browser.tsx`; more than that
+is left to the coordinator's lane. A change to root configuration prints "full run
+required" and fails. Each step prints its time and, on failure, the exact command
+to reproduce it.
+
+The other lanes are the target. Until they land, the coordinator runs the full
+lanes locally on the combined result of each batch. `.github/CI.md` (kept in the
+private repository) says what runs in CI today.
 
 ## How the speed is kept
 
@@ -36,11 +46,19 @@ combined result of each batch. `.github/CI.md` (kept in the private repository) 
 
 A check that fails for reasons other than the change teaches agents to ignore it.
 
-- A flaky or machine-specific test goes into the quarantine list with a reason, an
-  owner and an expiry of at most 14 days. Quarantined tests run nightly.
-- Expired entries fail the gate. The list has a hard size limit.
-- One quarantine list for every lane is the target. Today only browser tests
-  have one: `apps/web/BROWSER_TEST_QUARANTINE.md`.
+- A flaky or machine-specific test goes into `test-quarantine.json` at the repository
+  root: one list for every lane, unit and browser. Each entry names the test, the
+  platform it is skipped on, a reason, an owner (an area), the evidence, and an expiry
+  at most 14 days after it was added. `tools/test-quarantine/README.md` has the format.
+- Every lane applies the list on the entry's platform; elsewhere the test runs.
+  `MOSS_TEST_QUARANTINE=off` runs a quarantined test in its normal lane.
+- `bun run lint` fails on expired entries, entries without an owner, and more than 40
+  entries.
+- `bun run test:quarantined` runs only the quarantined tests, with no retries, and
+  prints pass or fail per entry. It belongs in the nightly lane (not wired yet). An
+  entry that passes three nights in a row is deleted by its owner.
+- A test that needs the network is not quarantined: it sits behind an explicit opt-in.
+  `backendShutdown.windows.integration` is never quarantined: it finds real regressions.
 - Nobody says "that was already failing" without a control run on the base commit,
   with both results shown.
 - Nobody reruns until green. A test that passes on retry is flaky and is quarantined.

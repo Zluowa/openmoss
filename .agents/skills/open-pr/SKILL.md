@@ -21,16 +21,21 @@ opens the PR; the author never merges it.
 1. **Check scope.** `git diff --name-only origin/main...HEAD` plus
    `git status --short`. Every path must be inside the brief's scope. Move
    anything else out before going on.
-2. **Run the quick gate** on what you changed. Never `bun test`.
-   - Format: `bun x oxfmt --check <changed files>`. Check only your files: other
-     files on `main` may already fail, and they are not yours to fix.
-   - Lint: `bun run lint` when code changed (oxlint, then `design:check`,
-     `server-sync-fs:check` and `brand:check`). For a docs-only change,
-     `bun run brand:check` is enough.
-   - Types: `bun run --cwd <package> typecheck` for each package you changed.
-   - Tests: the ones your change affects, for example
-     `bun run --cwd apps/web test <files> --maxWorkers=2` or
-     `bun run --cwd apps/server test <files>`.
+2. **Run the quick gate:** `bun run check`. Never `bun test`.
+   - It compares your branch with its merge base on `origin/main` (`--base <ref>`
+     for another base) and runs, on what you changed: format, oxlint, the design,
+     sync-fs, brand and skills checks when relevant, types for the affected
+     packages, and the unit tests that import a changed file. One line per step
+     with its time; a failed step prints the exact command to reproduce it.
+   - "full run required" means you changed root configuration (`package.json`,
+     `bun.lock`, `turbo.json`, `tsconfig*`, Vitest configs or setup, `patches/`).
+     Say so in the PR; the full lanes are the coordinator's. `--allow-root` runs
+     the selection anyway.
+   - Browser files: it runs up to 20 selected component files and never
+     `ChatView.browser.tsx`; anything more is left to the coordinator's lane. Say
+     which in the report.
+   - Quote its output (steps, times, counts) in the report. `--json` gives the
+     same as one JSON object.
    - No full lanes, no `bun run test` across the repository, no installer builds,
      unless the brief says so.
 3. **Visible changes.** Run the `design-review` skill. Take screenshots in light

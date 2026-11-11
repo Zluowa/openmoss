@@ -74,7 +74,10 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.ts";
-import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
+import {
+  PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
+  type ProviderMcpAppServerTools,
+} from "../Services/ProviderAdapter.ts";
 import {
   CODEX_MANUAL_COMPACTION_MARKER,
   CodexAppServerManager,
@@ -95,6 +98,8 @@ import {
   resolveCodexMossFirstActivityTimeoutMs,
 } from "../codexMossFirstActivityWatchdog.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { captureCodexMcpToolItem } from "../../mcpApps/codexCapture.ts";
+import { McpAppService } from "../../mcpApps/Services/McpAppService.ts";
 import { sanitizeDiagnosticValue } from "../../agentGateway/diagnosticSanitizer.ts";
 import {
   acquireAgentGatewaySessionLease,
@@ -1675,15 +1680,24 @@ function mcpAppDescriptorFromSource(
     source.mcpAppResourceUri,
     MCP_APP_RESOURCE_URI_MAX_CHARS,
   );
-  const resourceUri = contextResourceUri ?? resultMetaResourceUri ?? legacyResourceUri;
+  // MCP Apps put the widget on the tool definition; Codex captures it as `mcpAppUi`. It wins
+  // over the result-side fallbacks, which stay for older Codex history.
+  const definitionResourceUri = boundedMcpAppDescriptorString(
+    asObject(source.mcpAppUi)?.resourceUri,
+    MCP_APP_RESOURCE_URI_MAX_CHARS,
+  );
+  const resourceUri =
+    definitionResourceUri ?? contextResourceUri ?? resultMetaResourceUri ?? legacyResourceUri;
   if (resourceUri === undefined) return undefined;
 
   const sourceKind: CodexMcpAppDescriptor["source"] =
-    contextResourceUri !== undefined
-      ? "appContext"
-      : resultMetaResourceUri !== undefined
-        ? "resultMeta"
-        : "legacy";
+    definitionResourceUri !== undefined
+      ? "toolDefinition"
+      : contextResourceUri !== undefined
+        ? "appContext"
+        : resultMetaResourceUri !== undefined
+          ? "resultMeta"
+          : "legacy";
   const linkId = boundedMcpAppDescriptorString(
     appContext?.linkId,
     MCP_APP_DESCRIPTOR_FIELD_MAX_CHARS,
@@ -1709,6 +1723,35 @@ function mcpAppDescriptorFromSource(
     ...(actionName !== undefined ? { actionName } : {}),
     ...(pluginId !== undefined ? { pluginId } : {}),
   };
+}
+
+/** `mcpServerStatus/list` entries as provider-neutral tool lists (tools arrive keyed by name). */
+export function codexMcpAppServerTools(
+  servers: ReadonlyArray<Record<string, unknown>>,
+): ReadonlyArray<ProviderMcpAppServerTools> {
+  return servers.flatMap((entry) => {
+    const server = typeof entry.name === "string" ? entry.name : undefined;
+    if (!server) return [];
+    const toolMap = asObject(entry.tools);
+    const tools = toolMap
+      ? Object.entries(toolMap).flatMap(([key, value]) => {
+          const tool = asObject(value);
+          return tool ? [{ name: key, ...tool }] : [];
+        })
+      : [];
+    const records = (value: unknown) =>
+      Array.isArray(value)
+        ? value.flatMap((item) => (asObject(item) ? [asObject(item)!] : []))
+        : [];
+    return [
+      {
+        server,
+        tools,
+        resources: records(entry.resources),
+        resourceTemplates: records(entry.resourceTemplates),
+      },
+    ];
+  });
 }
 
 export function projectCodexMcpAppDescriptor(
@@ -3810,6 +3853,8 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
+    // Interactive connectors keep full MCP results before the projection bounds them.
+    const mcpApps = Option.getOrUndefined(yield* Effect.serviceOption(McpAppService));
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -4200,6 +4245,41 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           cwd: snapshot.cwd ?? null,
         })),
       );
+
+    // Restored after the 2026-10-02 upstream merge dropped it (see
+    // CodexAdapter.mcpAppResource.test.ts): without it every Codex widget fails to load.
+    const readMcpAppResource: NonNullable<CodexAdapterShape["readMcpAppResource"]> = (input) =>
+      Effect.tryPromise({
+        try: () => manager.readMcpAppResource(input),
+        catch: (cause) => toRequestError(input.threadId, "mcpServer/resource/read", cause),
+      });
+
+    // Interactive connectors: tool definitions, widget tool calls and widget resource reads go
+    // through Codex's own MCP clients for servers Codex dialed itself.
+    const listMcpAppTools: NonNullable<CodexAdapterShape["listMcpAppTools"]> = (input) =>
+      Effect.tryPromise({
+        try: () => manager.listMcpServerStatus(input),
+        catch: (cause) => toRequestError(input.threadId, "mcpServerStatus/list", cause),
+      }).pipe(Effect.map(codexMcpAppServerTools));
+    const callMcpAppTool: NonNullable<CodexAdapterShape["callMcpAppTool"]> = (input) =>
+      Effect.tryPromise({
+        try: () =>
+          manager.callMcpServerTool({
+            threadId: input.threadId,
+            server: input.server,
+            tool: input.toolName,
+            arguments: input.arguments,
+            ...(input.meta !== undefined ? { meta: input.meta } : {}),
+          }),
+        catch: (cause) => toRequestError(input.threadId, "mcpServer/tool/call", cause),
+      });
+    const readMcpResourceContents: NonNullable<CodexAdapterShape["readMcpResourceContents"]> = (
+      input,
+    ) =>
+      Effect.tryPromise({
+        try: () => manager.readMcpResourceContents(input),
+        catch: (cause) => toRequestError(input.threadId, "mcpServer/resource/read", cause),
+      });
 
     const readExternalThread: NonNullable<CodexAdapterShape["readExternalThread"]> = (input) =>
       Effect.tryPromise({
@@ -4873,6 +4953,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         const listener = (event: ProviderEvent) => {
           const origin = manager.getSessionEventOrigin(event.threadId, event.lifecycleGeneration);
           const stampedEvent = stampEvent(event, origin.providerInstanceId);
+          if (mcpApps) captureCodexMcpToolItem(mcpApps, stampedEvent);
           const mappedRuntimeEvents = assignDerivedProviderRuntimeEventIds(
             mapToRuntimeEvents(stampedEvent, stampedEvent.threadId, origin.codexOptions),
           );
@@ -4975,6 +5056,10 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       startReview,
       interruptTurn,
       readThread,
+      readMcpAppResource,
+      listMcpAppTools,
+      callMcpAppTool,
+      readMcpResourceContents,
       readExternalThread,
       readExternalThreadPage,
       rollbackThread,

@@ -13,7 +13,7 @@
  *
  * @module mcpConnectors/httpRoute
  */
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import { readMcpJsonBody } from "../agentGateway/httpRoute.ts";
@@ -26,6 +26,8 @@ import {
 } from "./Layers/McpConnectors.ts";
 import type { McpConnectorProxyResult } from "./proxy.ts";
 import type { McpConnectorCallbackOutcome } from "./runtime.ts";
+import { observeConnectorExchange } from "../mcpApps/proxyObserver.ts";
+import { McpAppService } from "../mcpApps/Services/McpAppService.ts";
 import { McpConnectors } from "./Services/McpConnectors.ts";
 
 const CONNECTOR_ROUTE = `${AGENT_GATEWAY_CONNECTORS_PATH}/:connectorId`;
@@ -373,6 +375,7 @@ const authorizeConnectorRequest = Effect.gen(function* () {
     connectors,
     request,
     connectorId,
+    callerThreadId: credentials.verifySession(token)?.threadId,
     authorityKey: credentials.connectorAuthorityKey?.(token, connectorId),
     isAuthorized: () => credentials.canUseConnector?.(token, connectorId) ?? false,
     sessionId: request.headers["mcp-session-id"],
@@ -412,7 +415,19 @@ const postRoute = HttpRouter.add(
       authorityKey: access.authorityKey,
       isAuthorized: access.isAuthorized,
     });
-    return toHttpResponse(result);
+    // Interactive connectors: tool lists with `_meta.ui`, and full widget results.
+    const mcpApps = yield* Effect.serviceOption(McpAppService);
+    return toHttpResponse(
+      Option.isSome(mcpApps)
+        ? observeConnectorExchange({
+            service: mcpApps.value,
+            connectorId: access.connectorId,
+            threadId: access.callerThreadId,
+            requestBody: body.body,
+            result,
+          })
+        : result,
+    );
   }),
 );
 

@@ -44,6 +44,12 @@ const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
 // the worst per-command-capped chain, so it never truncates a capture the
 // per-command timeouts would allow.
 const CHECKPOINT_CAPTURE_TIMEOUT_MS = 180_000;
+/**
+ * What a checkpoint stages: the whole workspace except Moss's own Canvas data. Canvases made
+ * before 2026-11-11 lived in the project under `.moss/canvas`; their deep asset paths failed
+ * `git add` with Windows' "Filename too long" and are not the person's work.
+ */
+export const CHECKPOINT_PATHSPEC = [".", ":(exclude).moss/canvas"] as const;
 
 const makeCheckpointStore = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -238,7 +244,7 @@ const makeCheckpointStore = Effect.gen(function* () {
             yield* git.execute({
               operation,
               cwd: input.cwd,
-              args: ["add", "-A", "--", "."],
+              args: ["add", "-A", "--", ...CHECKPOINT_PATHSPEC],
               env: commitEnv,
             });
 
@@ -677,7 +683,7 @@ const makeCheckpointStore = Effect.gen(function* () {
       yield* git.execute({
         operation,
         cwd: input.cwd,
-        args: ["add", "-A", "--", "."],
+        args: ["add", "-A", "--", ...CHECKPOINT_PATHSPEC],
         env: mergeIndexEnv,
       });
       // Snapshot of the pre-attempt working tree, used to undo a conflicted

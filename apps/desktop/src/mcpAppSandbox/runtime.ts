@@ -2,11 +2,18 @@
 // Purpose: Electron integration for the isolated MCP App registry, port broker,
 // webview admission, and session teardown. Content never enters this runtime.
 
+import * as FS from "node:fs/promises";
+import * as Path from "node:path";
+
 import {
+  app,
+  BrowserWindow,
+  dialog,
   ipcMain,
   session,
-  type BrowserWindow,
+  shell,
   type IpcMainEvent,
+  type IpcMainInvokeEvent,
   type MessagePortMain,
   type Session,
   type WebContents,
@@ -16,21 +23,30 @@ import {
   MCP_APP_SANDBOX_PENDING_TTL_MS,
   MCP_APP_SANDBOX_PORT_NAMES,
   MCP_APP_SANDBOX_SCHEME,
+  decodeMcpAppSandboxDownloadInput,
   decodeMcpAppSandboxGuestInitEnvelope,
+  normalizeMcpAppSandboxPermissions,
   type McpAppSandboxDescriptor,
+  type McpAppSandboxPermissions,
 } from "@moss/contracts";
 
 import { MCP_APP_IPC_CHANNELS } from "../ipcChannels";
 import { registerSentryIpcHandler } from "../observability/sentry";
+import { normalizeMcpAppExternalUrl, sanitizeMcpAppDownloadFileName } from "./external";
+import {
+  decideMcpAppPermission,
+  decideMcpAppPermissionCheck,
+  grantableMcpAppPermissions,
+  type McpAppPermissionContext,
+} from "./permissions";
 import { resolveMcpAppSandboxProtocolRequest } from "./protocol";
 import { McpAppSandboxRegistry, type McpAppSandboxRegistration } from "./registry";
 import {
   MCP_APP_DENY_DOWNLOADS,
-  MCP_APP_DENY_PERMISSIONS,
   MCP_APP_DENY_POPUPS,
   hardenedMcpAppWebPreferences,
   isAllowedMcpAppNetworkUrl,
-  isExactMcpAppSandboxContentUrl,
+  isAllowedMcpAppSubframeUrl,
   isExactMcpAppSandboxUrl,
   isMcpAppSandboxPartition,
   normalizeMcpAppUserAgent,
@@ -74,6 +90,23 @@ export interface McpAppSandboxRuntimeHooks {
     readonly kind: "network" | "popup" | "download" | "permission";
     readonly url?: string;
   }) => void;
+  /** Every device-permission decision (request or check) for a widget guest. */
+  readonly onPermissionDecision?: (event: {
+    readonly permission: string;
+    readonly mediaTypes: readonly string[];
+    readonly granted: boolean;
+    readonly kind: "request" | "check";
+  }) => void;
+  /** Inter woff2 bytes for the sandbox asset origin; null when unavailable. */
+  readonly loadFont?: () => Promise<Uint8Array | null>;
+  /** System shell; replaced in tests. */
+  readonly openExternal?: (url: string) => Promise<void>;
+  /** Save dialog; replaced in tests. */
+  readonly showSaveDialog?: (
+    owner: BrowserWindow | null,
+    options: Electron.SaveDialogOptions,
+  ) => Promise<Electron.SaveDialogReturnValue>;
+  readonly downloadsPath?: () => string;
 }
 
 function identityKey(
@@ -102,6 +135,9 @@ export class McpAppSandboxRuntime {
   private readonly registrationTimers = new Map<string, RegistrationTimer>();
   private readonly partitionPolicies = new Map<string, PartitionPolicy>();
   private readonly registeredPartitions = new Map<string, Session>();
+  /** Device permissions the trusted host granted, per partition (cleared with it). */
+  private readonly partitionGrants = new Map<string, McpAppSandboxPermissions>();
+  private fontBytes: Uint8Array | null = null;
   private ipcRegistered = false;
 
   constructor(hooks: McpAppSandboxRuntimeHooks = {}) {
@@ -366,10 +402,88 @@ export class McpAppSandboxRuntime {
     return true;
   }
 
+  /**
+   * Grant exactly the approved device permissions to one partition. Only keys a
+   * live registration of this owner there declared (and may delegate) count.
+   */
+  requestPermissions(
+    ownerId: number,
+    sandboxId: unknown,
+    rawPermissions: unknown,
+  ): { readonly granted: McpAppSandboxPermissions } {
+    const denied = { granted: {} };
+    if (!this.ownerIds.has(ownerId) || typeof sandboxId !== "string") return denied;
+    const permissions = normalizeMcpAppSandboxPermissions(rawPermissions);
+    if (!permissions) return denied;
+    const partition = `moss-mcp-${sandboxId}`;
+    if (!isMcpAppSandboxPartition(partition, sandboxId)) return denied;
+    const registrations = this.registry
+      .registrationsForPartition(partition)
+      .filter((registration) => registration.ownerId === ownerId);
+    if (registrations.length === 0) return denied;
+    const granted = grantableMcpAppPermissions(
+      permissions,
+      registrations.map((registration) => registration.policy.permissions),
+    );
+    this.partitionGrants.set(partition, granted);
+    return { granted };
+  }
+
+  async openExternal(ownerId: number, rawUrl: unknown): Promise<{ readonly opened: boolean }> {
+    if (!this.ownerIds.has(ownerId)) return { opened: false };
+    const url = normalizeMcpAppExternalUrl(rawUrl);
+    if (!url) return { opened: false };
+    try {
+      await (this.hooks.openExternal ?? ((target: string) => shell.openExternal(target)))(url);
+      return { opened: true };
+    } catch {
+      return { opened: false };
+    }
+  }
+
+  async saveDownload(ownerId: number, rawInput: unknown): Promise<{ readonly saved: boolean }> {
+    const owner = this.ownerWebContents.get(ownerId);
+    if (!this.ownerIds.has(ownerId) || !owner || owner.isDestroyed()) return { saved: false };
+    const payload = decodeMcpAppSandboxDownloadInput(rawInput);
+    if (!payload) return { saved: false };
+    const fileName = sanitizeMcpAppDownloadFileName(payload.fileName);
+    const downloads = (this.hooks.downloadsPath ?? (() => app.getPath("downloads")))();
+    const showSaveDialog =
+      this.hooks.showSaveDialog ??
+      ((window: BrowserWindow | null, options: Electron.SaveDialogOptions) =>
+        window ? dialog.showSaveDialog(window, options) : dialog.showSaveDialog(options));
+    try {
+      const choice = await showSaveDialog(BrowserWindow.fromWebContents(owner), {
+        defaultPath: Path.join(downloads, fileName),
+      });
+      if (choice.canceled || !choice.filePath) return { saved: false };
+      await FS.writeFile(choice.filePath, payload.bytes);
+      return { saved: true };
+    } catch {
+      return { saved: false };
+    }
+  }
+
   registerIpcHandlers(): void {
     if (this.ipcRegistered) return;
     this.ipcRegistered = true;
-    const { register, unregister, guestMessage } = MCP_APP_IPC_CHANNELS;
+    const { register, unregister, guestMessage, requestPermissions, openExternal, saveDownload } =
+      MCP_APP_IPC_CHANNELS;
+    ipcMain.removeHandler(requestPermissions);
+    registerSentryIpcHandler(
+      ipcMain,
+      requestPermissions,
+      (event: IpcMainInvokeEvent, sandboxId: unknown, permissions: unknown) =>
+        this.requestPermissions(event.sender.id, sandboxId, permissions),
+    );
+    ipcMain.removeHandler(openExternal);
+    registerSentryIpcHandler(ipcMain, openExternal, (event: IpcMainInvokeEvent, url: unknown) =>
+      this.openExternal(event.sender.id, url),
+    );
+    ipcMain.removeHandler(saveDownload);
+    registerSentryIpcHandler(ipcMain, saveDownload, (event: IpcMainInvokeEvent, input: unknown) =>
+      this.saveDownload(event.sender.id, input),
+    );
     ipcMain.removeHandler(register);
     registerSentryIpcHandler(ipcMain, register, (event, input: unknown) =>
       this.register(event.sender.id, input),
@@ -395,10 +509,23 @@ export class McpAppSandboxRuntime {
       throw new Error("MCP App partition limit reached.");
     }
     const partitionSession = session.fromPartition(partition);
-    partitionSession.protocol.handle(MCP_APP_SANDBOX_SCHEME, (request) => {
-      const response = resolveMcpAppSandboxProtocolRequest(request.url, this.registry, partition);
+    partitionSession.protocol.handle(MCP_APP_SANDBOX_SCHEME, async (request) => {
+      const response = resolveMcpAppSandboxProtocolRequest(
+        request.url,
+        this.registry,
+        partition,
+        request.method,
+      );
       if (!response) {
         return new Response("Not found", { status: 404 });
+      }
+      if (response.kind === "font") {
+        const bytes = await this.loadFontBytes();
+        if (!bytes) return new Response("Not found", { status: 404 });
+        return new Response(new Uint8Array(bytes), {
+          headers: response.headers,
+          status: response.statusCode,
+        });
       }
       return new Response(response.data, {
         headers: response.headers,
@@ -406,6 +533,33 @@ export class McpAppSandboxRuntime {
       });
     });
     this.registeredPartitions.set(partition, partitionSession);
+  }
+
+  private async loadFontBytes(): Promise<Uint8Array | null> {
+    // Only a successful read is cached, so a failed read can be retried.
+    if (this.fontBytes) return this.fontBytes;
+    const loadFont = this.hooks.loadFont;
+    if (!loadFont) return null;
+    const bytes = await loadFont().catch(() => null);
+    if (bytes) this.fontBytes = bytes;
+    return bytes;
+  }
+
+  private permissionContextFor(
+    webContents: WebContents | null,
+    partition: string,
+  ): McpAppPermissionContext | null {
+    if (!webContents) return null;
+    const active = [...this.activeGuests.values()].find(
+      (candidate) =>
+        candidate.guest.id === webContents.id &&
+        candidate.registration.descriptor.partition === partition,
+    );
+    if (!active) return null;
+    return {
+      declared: active.registration.policy.permissions,
+      granted: this.partitionGrants.get(partition) ?? {},
+    };
   }
 
   private clearPendingAttachTimer(key: string): void {
@@ -458,6 +612,7 @@ export class McpAppSandboxRuntime {
   private releaseUnusedPartitionProtocols(): void {
     for (const [partition, partitionSession] of this.registeredPartitions) {
       if (this.registry.hasPartition(partition)) continue;
+      this.partitionGrants.delete(partition);
       try {
         partitionSession.protocol.unhandle(MCP_APP_SANDBOX_SCHEME);
       } catch {
@@ -528,9 +683,8 @@ export class McpAppSandboxRuntime {
 
   private installGuestPolicy(key: string, active: ActiveGuest): () => void {
     const { guest } = active;
-    const { descriptor, input } = active.registration;
+    const { descriptor, policy } = active.registration;
     const expectedSrc = descriptor.src;
-    const sandboxOrigin = descriptor.origin;
     const navigationHandler = (event: Electron.Event, url: string) => {
       if (url !== expectedSrc) event.preventDefault();
     };
@@ -547,14 +701,11 @@ export class McpAppSandboxRuntime {
         if (url !== expectedSrc) details.preventDefault();
         return;
       }
-      // The proxy's initial inner document may be about:blank. Once it
-      // navigates, only the exact installer route or normalized frame-src
-      // allowlist may be used.
-      if (
-        url !== "about:blank" &&
-        !isExactMcpAppSandboxContentUrl(url, descriptor) &&
-        !isAllowedMcpAppNetworkUrl(url, "frame-src", input.csp, sandboxOrigin)
-      ) {
+      // The widget frame is srcdoc (isolated) or about:blank (stable). It and
+      // its own sub-frames may only go to blank/data/blob documents, which
+      // inherit the proxy's policy, or to an allowed frame site.
+      if (!isAllowedMcpAppSubframeUrl(url, policy)) {
+        this.hooks.onSecurityDenied?.({ kind: "network", url });
         details.preventDefault();
       }
     };
@@ -568,6 +719,12 @@ export class McpAppSandboxRuntime {
       return { action: MCP_APP_DENY_POPUPS ? ("deny" as const) : ("allow" as const) };
     };
     const releasePartitionPolicy = this.acquirePartitionPolicy(active.registration);
+    // WebRTC traffic bypasses webRequest; never let it leave without a proxy.
+    try {
+      guest.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
+    } catch {
+      // Older guests without the setting still get the proxy page's CSP.
+    }
     guest.on("will-navigate", navigationHandler);
     guest.on("will-redirect", redirectHandler);
     guest.on("will-frame-navigate", frameNavigationHandler);
@@ -634,7 +791,7 @@ export class McpAppSandboxRuntime {
         return;
       }
       const descriptor = active.registration.descriptor;
-      const input = active.registration.input;
+      const policy = active.registration.policy;
       const resourceType = String(details.resourceType).toLowerCase();
       const expectedBase = descriptor.src.split("#", 1)[0];
       // Electron 43 includes the fragment for the initial custom-scheme
@@ -647,24 +804,55 @@ export class McpAppSandboxRuntime {
         resourceType === "mainframe"
           ? requestBase === expectedBase
           : resourceType === "subframe"
-            ? details.url === "about:blank" ||
-              isExactMcpAppSandboxContentUrl(details.url, descriptor) ||
-              isAllowedMcpAppNetworkUrl(details.url, "frame-src", input.csp, descriptor.origin)
+            ? isAllowedMcpAppSubframeUrl(details.url, policy)
             : resourceType === "xhr" || resourceType === "fetch" || resourceType === "websocket"
-              ? isAllowedMcpAppNetworkUrl(details.url, "connect-src", input.csp, descriptor.origin)
-              : isAllowedMcpAppNetworkUrl(details.url, "resource", input.csp, descriptor.origin);
+              ? isAllowedMcpAppNetworkUrl(details.url, "connect-src", policy)
+              : isAllowedMcpAppNetworkUrl(details.url, "resource", policy);
       if (!allowed) {
         this.hooks.onSecurityDenied?.({ kind: "network", url: details.url });
       }
       callback({ cancel: !allowed });
     };
-    partitionSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-      if (MCP_APP_DENY_PERMISSIONS) {
+    // Device permissions: only what the widget declared, the host granted for
+    // this partition, and no frame site withholds. Everything else is denied.
+    partitionSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+      const mediaTypes = [
+        ...(((details as { readonly mediaTypes?: readonly string[] } | undefined)?.mediaTypes ??
+          []) as readonly string[]),
+      ];
+      const granted = decideMcpAppPermission(
+        String(permission),
+        permission === "media" ? mediaTypes : undefined,
+        this.permissionContextFor(webContents, partition),
+      );
+      this.hooks.onPermissionDecision?.({
+        permission: String(permission),
+        mediaTypes,
+        granted,
+        kind: "request",
+      });
+      if (!granted) {
         this.hooks.onSecurityDenied?.({ kind: "permission", url: String(permission) });
       }
-      callback(!MCP_APP_DENY_PERMISSIONS);
+      callback(granted);
     });
-    partitionSession.setPermissionCheckHandler(() => false);
+    partitionSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
+      const mediaType = (details as { readonly mediaType?: string } | undefined)?.mediaType;
+      const granted = decideMcpAppPermissionCheck(
+        String(permission),
+        mediaType,
+        this.permissionContextFor(webContents, partition),
+      );
+      this.hooks.onPermissionDecision?.({
+        permission: String(permission),
+        mediaTypes: mediaType ? [mediaType] : [],
+        granted,
+        kind: "check",
+      });
+      return granted;
+    });
+    partitionSession.setDevicePermissionHandler(() => false);
+    partitionSession.setDisplayMediaRequestHandler((_request, callback) => callback({}));
     partitionSession.on("will-download", downloadHandler);
     partitionSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, requestHandler);
     partitionSession.setUserAgent(normalizeMcpAppUserAgent(partitionSession.getUserAgent()));
@@ -686,6 +874,8 @@ export class McpAppSandboxRuntime {
     policy.session.webRequest.onBeforeRequest(null);
     policy.session.setPermissionRequestHandler(null);
     policy.session.setPermissionCheckHandler(null);
+    policy.session.setDevicePermissionHandler(null);
+    policy.session.setDisplayMediaRequestHandler(null);
     this.partitionPolicies.delete(partition);
   }
 

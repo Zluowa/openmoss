@@ -5,7 +5,7 @@
 // Layer: Settings UI components
 // Exports: ComputerSettingsPanel
 
-import type { ComputerPermission } from "@moss/contracts";
+import type { ComputerPermission, ComputerUnavailableReason } from "@moss/contracts";
 import {
   COMPUTER_PERMISSION_KINDS,
   computerPermissionSetupMessage,
@@ -247,6 +247,10 @@ export function ComputerSettingsPanel({
   const statusLine = resolveComputerUseStatusLine({
     queryFailed: statusQuery.isError,
     availabilityKind: status?.availability.kind ?? null,
+    unavailableReason:
+      status?.availability.kind === "backend-unavailable"
+        ? (status.availability.reason ?? null)
+        : null,
     viewKind: availabilityView.kind,
     reconnecting: health?.status === "reconnecting",
     missingPermissions: missingPermissions.length > 0 || nativePermissionSetupError !== null,
@@ -255,13 +259,17 @@ export function ComputerSettingsPanel({
   });
   const statusBusy = setup.isPending || statusQuery.isFetching;
   const statusAction =
-    statusLine?.action === "grant" || statusLine?.action === "retry" ? (
+    statusLine?.action === "grant" ||
+    statusLine?.action === "retry" ||
+    statusLine?.action === "recheck" ? (
       <Button
         size="xs"
         variant="outline"
         disabled={statusBusy}
         onClick={() => {
-          if (statusQuery.isError) {
+          // A missing component or a host that never started is not fixed by
+          // setup; looking again is what can turn the line green.
+          if (statusQuery.isError || statusLine.action === "recheck") {
             void statusQuery.refetch();
             refreshPermissionState();
             return;
@@ -454,7 +462,7 @@ function ComputerUseAppTile() {
 export type ComputerUseStatusLine = {
   readonly text: string;
   readonly tone: "warning" | "error";
-  readonly action: "grant" | "retry" | null;
+  readonly action: "grant" | "retry" | "recheck" | null;
 };
 
 /**
@@ -466,6 +474,8 @@ export type ComputerUseStatusLine = {
 export function resolveComputerUseStatusLine(input: {
   readonly queryFailed: boolean;
   readonly availabilityKind: string | null;
+  /** Why the backend is unavailable, when it said; see `ComputerUnavailableReason`. */
+  readonly unavailableReason?: ComputerUnavailableReason | null;
   readonly viewKind: "ready" | "checking" | "blocked";
   readonly reconnecting: boolean;
   readonly missingPermissions: boolean;
@@ -493,6 +503,21 @@ export function resolveComputerUseStatusLine(input: {
     return { text: "Moss can't see the screen yet", tone: "warning", action: "grant" };
   }
   if (input.availabilityKind === "backend-unavailable") {
+    // Say what is missing when the backend knows, so the person can fix it.
+    if (input.unavailableReason === "component-missing") {
+      return {
+        text: "Moss is missing its computer control part. Restart or reinstall Moss",
+        tone: "error",
+        action: "recheck",
+      };
+    }
+    if (input.unavailableReason === "host-not-running") {
+      return {
+        text: "Computer control didn't start. Restart Moss",
+        tone: "error",
+        action: "recheck",
+      };
+    }
     return { text: "Computer use isn't working right now", tone: "error", action: "retry" };
   }
   if (input.reconnecting) {

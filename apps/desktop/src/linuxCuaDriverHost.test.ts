@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cuaRequest, type CuaReply } from "@moss/shared/cuaDriverProtocol";
+import { CUA_DRIVER_MISSING_CODE, cuaRequest, type CuaReply } from "@moss/shared/cuaDriverProtocol";
 
 import {
   CUA_DRIVER_MISSING_PACKAGED_MESSAGE,
@@ -97,6 +97,8 @@ describe("Linux desktop host startup", () => {
       expect(result).toMatchObject({
         ok: false,
         error: isPackaged ? CUA_DRIVER_MISSING_PACKAGED_MESSAGE : CUA_DRIVER_MISSING_SOURCE_MESSAGE,
+        // Status surfaces key their plain-language line off the code, not the text.
+        code: CUA_DRIVER_MISSING_CODE,
       });
       // A missing optional Computer artifact must not reject desktop/server
       // startup or prevent the app from displaying its unavailable state.

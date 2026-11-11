@@ -25,16 +25,10 @@ const jsonDepth = (value: unknown, depth = 0): number => {
   return values.reduce((maximum, item) => Math.max(maximum, jsonDepth(item, depth + 1)), depth);
 };
 
-export const browserEvaluationOutput = (tabId: string, value: unknown): BrowserRunOutput => {
-  if (value === undefined) {
-    browserHostError({
-      code: "BrowserEvaluationFailed",
-      retryable: false,
-      phase: "evaluate",
-      effectMayHaveCommitted: true,
-      tabId: tabId as BrowserTabId,
-    });
-  }
+export const browserEvaluationOutput = (tabId: string, rawValue: unknown): BrowserRunOutput => {
+  // A script that ends without `return` still ran every action it awaited.
+  // Reporting it as a failure would invite the agent to repeat those actions.
+  const value = rawValue === undefined ? null : rawValue;
   let serialized: string;
   try {
     serialized = JSON.stringify(value);

@@ -74,6 +74,7 @@ export * from "./computerHistory";
 export * from "./ssh";
 export * from "./remoteComputers";
 export * from "./mcpAppResource";
+export * from "./mcpAppRuntime";
 export * from "./mcpAppSandbox";
 export * from "./moss";
 export * from "./mossAccount";

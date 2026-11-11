@@ -23,6 +23,7 @@ import {
   parseCuaComputerTask,
   parseCuaShieldArgs,
   cuaComputerTaskKey,
+  CUA_DRIVER_MISSING_CODE,
 } from "@moss/shared/cuaDriverProtocol";
 import type { ComputerFrameTapHost } from "./computerFrameTap";
 import {
@@ -59,7 +60,13 @@ interface TaskRequest {
 export const CUA_CURSOR_IDLE_HIDE_MS = 60_000;
 /** A raw ENOENT names a path, not a remedy; source builds stage the driver themselves. */
 export const CUA_DRIVER_MISSING_SOURCE_MESSAGE =
-  "Cua Driver is not bundled. Run the provisioning script (`node apps/desktop/scripts/provision-cua-driver.mjs`, needs the pinned Rust toolchain) in this checkout, then relaunch Moss.";
+  process.platform === "win32"
+    ? "Cua Driver is not staged in this checkout. Relaunch the dev window (it downloads the pinned, checksum-verified driver), or run `node apps/desktop/scripts/provision-cua-driver.mjs`."
+    : "Cua Driver is not bundled. Run the provisioning script (`node apps/desktop/scripts/provision-cua-driver.mjs`, needs the pinned Rust toolchain) in this checkout, then relaunch Moss.";
+/** The driver executable is missing; replies carry {@link CUA_DRIVER_MISSING_CODE}. */
+class CuaDriverMissingError extends Error {
+  readonly code = CUA_DRIVER_MISSING_CODE;
+}
 /** An installed app has no checkout to run a script in. Translated by exact text in the web app. */
 export const CUA_DRIVER_MISSING_PACKAGED_MESSAGE =
   "Moss couldn't find its computer control component. Reinstall Moss to use computer control.";
@@ -882,6 +889,7 @@ export class CuaDriverHost {
         return {
           ok: false,
           error: this.driverMissingMessage(),
+          code: CUA_DRIVER_MISSING_CODE,
         };
       }
       return {
@@ -1601,7 +1609,8 @@ export class CuaDriverHost {
       }
       return reply;
     } catch (error) {
-      let detail = String(error);
+      const driverMissing = error instanceof CuaDriverMissingError;
+      let detail = driverMissing ? error.message : String(error);
       // A call that was cancelled — by the interrupt's abort or before
       // anything was dispatched — proves nothing about the generation's
       // health: nothing it observed indicts the driver. Retiring here would
@@ -1634,6 +1643,7 @@ export class CuaDriverHost {
       return {
         ok: false,
         error: detail,
+        ...(driverMissing ? { code: CUA_DRIVER_MISSING_CODE } : {}),
         effect: dispatched && mutation ? "dispatched-unknown" : "not-dispatched",
       };
     } finally {
@@ -1985,7 +1995,7 @@ export class CuaDriverHost {
         await access(this.options.binaryPath);
       } catch {
         // Same wording as the probe: a raw ENOENT names a path, not a remedy.
-        throw new Error(this.driverMissingMessage());
+        throw new CuaDriverMissingError(this.driverMissingMessage());
       }
       const endpoint =
         process.platform === "win32"

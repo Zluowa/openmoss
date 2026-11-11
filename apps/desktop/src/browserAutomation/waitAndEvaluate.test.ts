@@ -124,7 +124,7 @@ describe("browser host results", () => {
 
   it("bounds Betterwright results without evaluating page code", () => {
     expect(browserEvaluationOutput(TAB_ID, { ok: true })).toMatchObject({ value: { ok: true } });
-    expect(() => browserEvaluationOutput(TAB_ID, undefined)).toThrow();
+    expect(browserEvaluationOutput(TAB_ID, undefined)).toMatchObject({ value: null });
     expect(() => browserEvaluationOutput(TAB_ID, "x".repeat(262145))).toThrow();
     const cyclic: { self?: unknown } = {};
     cyclic.self = cyclic;

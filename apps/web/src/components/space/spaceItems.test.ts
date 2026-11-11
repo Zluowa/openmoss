@@ -14,6 +14,7 @@ import {
   itemsForSection,
   recentItems,
   trashDaysLeft,
+  spaceItemDisplayTitle,
 } from "./spaceItems";
 import type { SpacePageApp } from "~/lib/spacePageApps";
 
@@ -179,5 +180,13 @@ describe("资料空间 items", () => {
     expect(formatRelativeTime(new Date(now - 3 * 3_600_000).toISOString(), now)).toBe("3 小时前");
     expect(formatRelativeTime(at(8), now)).toBe("2 天前");
     expect(formatRelativeTime("2026-10-01T08:00:00.000Z", now)).toBe("10月1日");
+  });
+});
+
+describe("spaceItemDisplayTitle", () => {
+  it("keeps a real title and names untitled items instead of showing nothing", () => {
+    expect(spaceItemDisplayTitle({ title: "会议纪要", kind: "page" })).toBe("会议纪要");
+    expect(spaceItemDisplayTitle({ title: "  ", kind: "page" })).toBe("未命名页面");
+    expect(spaceItemDisplayTitle({ title: "", kind: "slides" })).toBe("未命名");
   });
 });

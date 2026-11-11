@@ -72,7 +72,10 @@ describe("agent gateway MCP protocol", () => {
       instructions: "use the tools",
     });
     assert.equal(result.protocolVersion, "2025-06-18");
-    assert.deepEqual(result.capabilities, { tools: { listChanged: false } });
+    assert.deepEqual(result.capabilities, {
+      tools: { listChanged: false },
+      resources: { listChanged: false },
+    });
     assert.equal(result.instructions, "use the tools");
     assert.deepEqual(result.serverInfo, {
       name: "moss",

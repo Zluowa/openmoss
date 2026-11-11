@@ -9,8 +9,13 @@ import type { ProjectId } from "@moss/contracts";
 import { Button } from "~/components/ui/button";
 import { ChevronRightIcon, PlusIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import {
+  SIDEBAR_HEADER_ROW_CLASS_NAME,
+  SIDEBAR_ROW_HOVER_CLASS_NAME,
+} from "../../sidebarRowStyles";
 import { KanbanCardView, type KanbanCardPrLookup } from "./KanbanCardView";
 import {
+  overviewColumnWeight,
   overviewVisibleKanbanCards,
   type KanbanBoard,
   type KanbanCard,
@@ -37,20 +42,28 @@ const OverviewProjectColumn = function OverviewProjectColumn({
   const { visibleCards, hiddenCount } = overviewVisibleKanbanCards(projectBoard, true);
 
   return (
-    <section className="flex w-72 shrink-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1">
+    // A project's share of the width follows how many cards it shows (up to four card
+    // widths), so a busy project spreads its cards across the page instead of one long
+    // strip beside a mostly empty window. Never narrower than one card.
+    <section
+      className="flex min-w-72 flex-col"
+      style={{ flex: `${overviewColumnWeight(visibleCards.length)} 1 18rem` }}
+    >
+      <div className="flex shrink-0 items-center gap-ui-gap-xs">
         <button
           type="button"
           onClick={() => onOpenProject(projectBoard.projectId)}
           className={cn(
-            "group/kanban-project flex h-8 min-w-0 flex-1 items-center gap-2 rounded-control px-2 text-left transition-colors",
-            "hover:bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,transparent)] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
+            "group/kanban-project",
+            SIDEBAR_HEADER_ROW_CLASS_NAME,
+            SIDEBAR_ROW_HOVER_CLASS_NAME,
+            "flex-1",
           )}
         >
           <h2 className="min-w-0 truncate text-ui font-medium text-foreground">
             {projectBoard.projectName}
           </h2>
-          <span className="text-ui-sm leading-snug text-muted-foreground">
+          <span className="text-ui-xs text-muted-foreground tabular-nums">
             {projectBoard.totalCount}
           </span>
           <ChevronRightIcon className="ml-auto size-4 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover/kanban-project:opacity-100 group-focus-visible/kanban-project:opacity-100" />
@@ -58,7 +71,7 @@ const OverviewProjectColumn = function OverviewProjectColumn({
         <Button
           size="icon-xs"
           variant="ghost"
-          className="shrink-0 text-muted-foreground/70 hover:text-foreground"
+          className="shrink-0"
           aria-label={`New task in ${projectBoard.projectName}`}
           title={`New task in ${projectBoard.projectName}`}
           onClick={() => onNewTask(projectBoard.projectId)}
@@ -66,7 +79,7 @@ const OverviewProjectColumn = function OverviewProjectColumn({
           <PlusIcon className="size-4" />
         </Button>
       </div>
-      <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-1">
+      <ul className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-ui-gap-xs overflow-y-auto p-1">
         {visibleCards.map((card) => (
           <li key={card.cardId} className="list-none">
             <KanbanCardView
@@ -79,14 +92,15 @@ const OverviewProjectColumn = function OverviewProjectColumn({
           </li>
         ))}
         {hiddenCount > 0 ? (
-          <li className="list-none">
-            <button
-              type="button"
+          <li className="col-span-full list-none">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="w-full"
               onClick={() => onOpenProject(projectBoard.projectId)}
-              className="w-full rounded-control px-3 py-1.5 text-center text-ui-sm leading-snug text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,transparent)] hover:text-foreground"
             >
               Show {hiddenCount} more
-            </button>
+            </Button>
           </li>
         ) : null}
       </ul>
@@ -119,8 +133,8 @@ export function KanbanOverview({
     return (
       <div className="flex h-full items-center justify-center px-6">
         <div className="max-w-sm text-center">
-          <div className="text-ui-lg font-medium text-foreground/85">Nothing on the board yet</div>
-          <div className="mt-1 text-ui leading-snug text-muted-foreground">
+          <div className="text-ui-lg font-medium text-foreground">Nothing on the board yet</div>
+          <div className="mt-1 text-ui text-muted-foreground">
             Drafted prompts, running turns, and completed chats will show up here automatically.
           </div>
         </div>
@@ -130,7 +144,7 @@ export function KanbanOverview({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-0 flex-1 gap-5 overflow-x-auto px-4 pb-4">
+      <div className="flex min-h-0 flex-1 gap-ui-gap-md overflow-x-auto px-ui-pad-lg pb-ui-pad-lg">
         {visibleProjects.map((projectBoard) => (
           <OverviewProjectColumn
             key={projectBoard.projectId}

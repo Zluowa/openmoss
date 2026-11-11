@@ -56,6 +56,10 @@ import type { CodexCredentialScopeInput } from "../../codexHomeIdentity.ts";
 import type { PersistedProviderRuntimeEvent } from "../../persistence/Services/ProviderRuntimeEvents.ts";
 import type {
   ProviderAdapterCapabilities,
+  ProviderMcpAppResourceContentsInput,
+  ProviderMcpAppServerInput,
+  ProviderMcpAppServerTools,
+  ProviderMcpAppToolCallInput,
   ProviderNextUserMessagePrediction,
   ProviderPredictNextUserMessageInput,
   ProviderTurnDispatchOptions,
@@ -188,6 +192,21 @@ export interface ProviderServiceShape {
   readonly readMcpAppResource?: (
     input: McpAppResourceReadInput,
   ) => Effect.Effect<McpAppResourceReadResult, ProviderServiceError>;
+
+  /** Interactive connectors: tool definitions of the thread CLI's own MCP servers. */
+  readonly listMcpAppTools?: (
+    input: ProviderMcpAppServerInput,
+  ) => Effect.Effect<ReadonlyArray<ProviderMcpAppServerTools>, ProviderServiceError>;
+
+  /** Interactive connectors: a widget's `tools/call` on a CLI-own server. */
+  readonly callMcpAppTool?: (
+    input: ProviderMcpAppToolCallInput,
+  ) => Effect.Effect<Record<string, unknown>, ProviderServiceError>;
+
+  /** Interactive connectors: a widget's own `resources/read` on a CLI-own server. */
+  readonly readMcpResourceContents?: (
+    input: ProviderMcpAppResourceContentsInput,
+  ) => Effect.Effect<Record<string, unknown>, ProviderServiceError>;
 
   /**
    * Redirect an active provider turn toward a new prompt when supported.

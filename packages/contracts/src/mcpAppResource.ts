@@ -17,7 +17,14 @@ const McpAppResourceDomain = TrimmedNonEmptyString.check(
   Schema.isMaxLength(MCP_APP_RESOURCE_MAX_DOMAIN_CHARS),
 );
 
-export const McpAppResourceSource = Schema.Literals(["appContext", "resultMeta", "legacy"]);
+// `toolDefinition`: the tool's own `tools/list` entry declared `_meta.ui.resourceUri` (the MCP
+// Apps rule). The other three are the Codex fallbacks Moss keeps.
+export const McpAppResourceSource = Schema.Literals([
+  "toolDefinition",
+  "appContext",
+  "resultMeta",
+  "legacy",
+]);
 export type McpAppResourceSource = typeof McpAppResourceSource.Type;
 
 export const McpAppResourceMimeType = Schema.Literals([
@@ -30,6 +37,18 @@ export type McpAppResourceMimeType = typeof McpAppResourceMimeType.Type;
 const McpAppResourceDomainList = Schema.Array(McpAppResourceDomain).check(
   Schema.isMaxLength(MCP_APP_RESOURCE_MAX_DOMAIN_ENTRIES),
 );
+
+/**
+ * Device permissions a UI resource asks for (`_meta.ui.permissions`). Only `true` entries are
+ * sent; the desktop grants nothing the person has not approved.
+ */
+export const McpAppResourcePermissions = Schema.Struct({
+  camera: Schema.optional(Schema.Boolean),
+  microphone: Schema.optional(Schema.Boolean),
+  geolocation: Schema.optional(Schema.Boolean),
+  clipboardWrite: Schema.optional(Schema.Boolean),
+});
+export type McpAppResourcePermissions = typeof McpAppResourcePermissions.Type;
 
 /** Normalized resource metadata; raw `_meta` never crosses this boundary. */
 export const McpAppResourceCsp = Schema.Struct({
@@ -58,6 +77,8 @@ export const McpAppResourceReadInput = Schema.Struct({
   resourceUri: McpAppResourceUri,
   source: McpAppResourceSource,
   connectorId: Schema.optional(McpAppResourceIdentity),
+  /** Bare tool name of the call that rendered the widget, when the host knows it. */
+  toolName: Schema.optional(McpAppResourceIdentity),
 });
 export type McpAppResourceReadInput = typeof McpAppResourceReadInput.Type;
 
@@ -74,6 +95,12 @@ export const McpAppResourceReadyResult = Schema.Struct({
   isCollapsible: Schema.Boolean,
   widgetDomain: Schema.NullOr(McpAppResourceDomain),
   originCallId: Schema.optional(McpAppResourceIdentity),
+  permissions: Schema.optional(McpAppResourcePermissions),
+  /**
+   * The resource declared `_meta.ui.domain` and its server is a Moss connector with a known URL:
+   * the desktop gives it the connector-stable origin instead of the per-thread one.
+   */
+  stableOrigin: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
 }).check(
   Schema.makeFilter(
     (value: typeof McpAppResourceReadyResult.Type) =>

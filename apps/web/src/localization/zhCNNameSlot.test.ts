@@ -19,7 +19,10 @@ const WHOLE_NAME_LITERALS = new Set(["Stop dev", "Preview test"]);
 function appSourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) return entry.name === "localization" ? [] : appSourceFiles(path);
+    // `test/` holds browser-test harnesses and fixtures, test code like `*.test.*` and `*.browser.*`.
+    if (entry.isDirectory()) {
+      return entry.name === "localization" || entry.name === "test" ? [] : appSourceFiles(path);
+    }
     // `localization.tsx` keeps its own Chinese table, so its English keys never reach these rules.
     if (entry.name === "localization.tsx") return [];
     return /\.tsx?$/.test(entry.name) && !/\.(test|browser)\.tsx?$/.test(entry.name) ? [path] : [];

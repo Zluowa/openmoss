@@ -5,6 +5,7 @@ import type { MouseEvent, PointerEvent } from "react";
 
 import { ArrowLeftIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 
 import { IconButton } from "../ui/icon-button";
 import { DOCK_HEADER_ICON_BUTTON_CLASS } from "./chatHeaderControls";
@@ -23,6 +24,7 @@ function stopPropagation(event: MouseEvent | PointerEvent): void {
 }
 
 export function McpAppNavigationControls(props: McpAppNavigationControlsProps) {
+  const { t } = useTranslation();
   if (!props.canGoBack && !props.canGoForward) return null;
 
   return (
@@ -36,8 +38,8 @@ export function McpAppNavigationControls(props: McpAppNavigationControlsProps) {
         variant="ghost"
         size="icon-xs"
         className={cn(DOCK_HEADER_ICON_BUTTON_CLASS, "[&_svg,&_[data-slot=central-icon]]:size-3.5")}
-        label="Back"
-        title="Back"
+        label={t("mcpApp.back")}
+        title={t("mcpApp.back")}
         disabled={!props.canGoBack}
         onClick={(event) => {
           event.stopPropagation();
@@ -51,8 +53,8 @@ export function McpAppNavigationControls(props: McpAppNavigationControlsProps) {
         variant="ghost"
         size="icon-xs"
         className={cn(DOCK_HEADER_ICON_BUTTON_CLASS, "[&_svg,&_[data-slot=central-icon]]:size-3.5")}
-        label="Next"
-        title="Next"
+        label={t("mcpApp.forward")}
+        title={t("mcpApp.forward")}
         disabled={!props.canGoForward}
         onClick={(event) => {
           event.stopPropagation();

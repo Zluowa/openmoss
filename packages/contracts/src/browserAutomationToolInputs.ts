@@ -443,6 +443,12 @@ export const BrowserRunInput = closedStruct({
     BoundedUtf8String(16_384, 1),
     "A bounded Betterwright snippet using page and snapshot(); return JSON. Snippet state does not persist between calls.",
   ),
+  observe: Schema.optional(
+    described(
+      Schema.Boolean,
+      "Also return the page outline after the script, including closed shadow root controls. Automatic after a navigation.",
+    ),
+  ),
 });
 export const BrowserCloseInput = closedStruct({
   ...invocationFields,

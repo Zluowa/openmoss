@@ -7,6 +7,7 @@ import path from "node:path";
 
 import {
   type AntigravityModelOptions,
+  DEFAULT_MODEL_BY_PROVIDER,
   EventId,
   type ProviderComposerCapabilities,
   type ProviderListModelsResult,
@@ -17,6 +18,7 @@ import {
   ThreadId,
   TurnId,
 } from "@moss/contracts";
+import { isProviderCliDefaultModel } from "@moss/shared/model";
 import {
   spawnProcess as spawnPlatformProcess,
   type RuntimeSpawnOptions,
@@ -81,7 +83,9 @@ import { spawnGuardedProviderChild } from "../../platform/windowsProviderProcess
 import { capHistoryBytes } from "../../terminal/terminalHistory.ts";
 
 const PROVIDER = "antigravity" as const;
-const DEFAULT_MODEL = "Gemini 3.5 Flash";
+// The CLI-default slug unless the person picked a model: `agy` then runs without
+// `--model` and uses the model set in Antigravity.
+const DEFAULT_MODEL = DEFAULT_MODEL_BY_PROVIDER.antigravity;
 const PRINT_TIMEOUT = "30m";
 const POLL_INTERVAL_MS = 75;
 const MODEL_DISCOVERY_TIMEOUT_MS = 30_000;
@@ -715,6 +719,7 @@ export function buildAntigravityTurnPrompt(
 }
 
 const DEFAULT_EFFORT_BY_MODEL: Readonly<Record<string, string>> = {
+  "Gemini 3.8 Flash": "high",
   "Gemini 3.7 Flash": "high",
   "Gemini 3.6 Flash": "medium",
   "Gemini 3.5 Flash": "medium",
@@ -1918,7 +1923,8 @@ const makeAntigravityAdapter = (dependencies: AntigravityAdapterDependencies = {
             {
               ...base(context),
               type: "turn.started",
-              payload: { model: modelName ?? context.modelName ?? DEFAULT_MODEL },
+              payload:
+                (modelName ?? context.modelName) ? { model: modelName ?? context.modelName } : {},
               raw: raw(eventName, payload),
             } satisfies ProviderRuntimeEvent,
             conversationId,
@@ -2511,11 +2517,11 @@ const makeAntigravityAdapter = (dependencies: AntigravityAdapterDependencies = {
           input.modelSelection?.provider === PROVIDER ? input.modelSelection : undefined;
         const model = modelSelection?.model ?? context.session.model ?? DEFAULT_MODEL;
         const modelOptions = modelSelection?.options ?? context.modelOptions;
-        const cliModel = resolveAntigravityCliModelLabel(
-          model,
-          modelOptions,
-          defaultEffortByModel.get(model),
-        );
+        // No `--model` for the CLI default: Antigravity keeps its own model setting.
+        const cliModel = isProviderCliDefaultModel(PROVIDER, model)
+          ? undefined
+          : resolveAntigravityCliModelLabel(model, modelOptions, defaultEffortByModel.get(model));
+        const reportedModel = cliModel === undefined ? context.modelName : model;
         const runDir = yield* Effect.tryPromise({
           try: () => fs.mkdtemp(path.join(os.tmpdir(), "moss-antigravity-")),
           catch: (cause) =>
@@ -2596,15 +2602,14 @@ const makeAntigravityAdapter = (dependencies: AntigravityAdapterDependencies = {
         offer({
           ...base(context),
           type: "turn.started",
-          payload: { model },
+          payload: reportedModel ? { model: reportedModel } : {},
         } satisfies ProviderRuntimeEvent);
 
         const conversationId = context.conversationId;
         const args: string[] = [
           ...(conversationId ? ["--conversation", conversationId] : ["--new-project"]),
           "--dangerously-skip-permissions",
-          "--model",
-          cliModel,
+          ...(cliModel === undefined ? [] : ["--model", cliModel]),
           "--output-format",
           "stream-json",
           "--log-file",

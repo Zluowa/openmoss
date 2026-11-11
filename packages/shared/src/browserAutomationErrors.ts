@@ -3,6 +3,7 @@ import {
   BrowserAutomationErrorMessages,
   BrowserFixedAutomationErrorInvariants,
   BrowserTimeoutMs,
+  utf8ByteLength,
   type BrowserAutomationErrorInput,
   type BrowserMcpToolErrorEnvelope,
 } from "@moss/contracts";
@@ -31,10 +32,38 @@ type BrowserContextualAutomationErrorInput = Exclude<
 const getFixedBrowserErrorInvariant = (code: BrowserAutomationErrorInput["code"]) =>
   BrowserFixedAutomationErrorInvariants[code as BrowserFixedAutomationErrorCode];
 
+const MAX_ERROR_DETAIL_BYTES = 1_024;
+// Terminal styling from runtime call logs carries no information for a model.
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE = /\u001b\[[0-9;]*[A-Za-z]/gu;
+
+/**
+ * Normalizes raw runtime text for an error's `detail`: no terminal escapes,
+ * whitespace collapsed per line, and clipped on a character boundary to the
+ * contract's byte bound. Empty text yields no detail.
+ */
+export const normalizeBrowserErrorDetail = (raw: string): string | undefined => {
+  const text = raw
+    .replace(ANSI_ESCAPE, "")
+    .split("\n")
+    .map((line) => line.replace(/\s+/gu, " ").trim())
+    .filter(Boolean)
+    .join("\n");
+  if (!text) return undefined;
+  if (utf8ByteLength(text) <= MAX_ERROR_DETAIL_BYTES) return text;
+  let clipped = "";
+  for (const character of text) {
+    if (utf8ByteLength(`${clipped}${character}…`) > MAX_ERROR_DETAIL_BYTES) break;
+    clipped += character;
+  }
+  return `${clipped}…`;
+};
+
 export const makeBrowserAutomationError = (
   input: BrowserAutomationErrorInput,
 ): BrowserAutomationError => {
   const fixedInvariant = getFixedBrowserErrorInvariant(input.code);
+  const detail = input.detail === undefined ? undefined : normalizeBrowserErrorDetail(input.detail);
   const contextualInput = input as BrowserContextualAutomationErrorInput;
   const invariant = fixedInvariant ?? {
     retryable: contextualInput.retryable,
@@ -48,6 +77,7 @@ export const makeBrowserAutomationError = (
     ...invariant,
     ...(input.operationId === undefined ? {} : { operationId: input.operationId }),
     ...(input.tabId === undefined ? {} : { tabId: input.tabId }),
+    ...(detail === undefined ? {} : { detail }),
   });
 };
 

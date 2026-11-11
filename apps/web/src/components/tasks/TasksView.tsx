@@ -12,6 +12,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { useNowMs } from "~/hooks/useNowMs";
 import { isNewTaskShortcut } from "~/lib/newTaskShortcut";
+import { cn } from "~/lib/utils";
+import { SIDEBAR_NESTED_LIST_GAP_CLASS_NAME } from "../../sidebarRowStyles";
 import { useTasksSurfaceEnabled } from "../../tasksSurface";
 import { RouteInsetSurface } from "../RouteInsetSurface";
 import { RouteSurface } from "../RouteSurface";
@@ -21,6 +23,9 @@ import { TaskQuickAdd } from "./TaskQuickAdd";
 import { TasksPageHeader } from "./TasksPageHeader";
 import { buildTaskSections, type TaskRowModel } from "./tasks.logic";
 import { useTaskRows, useTodoList, useTodoMutations } from "./useTodos";
+
+/** The list's one centred column; the page header row lines up with it. */
+const TASKS_LIST_COLUMN_CLASS_NAME = "mx-auto w-full max-w-[40rem] px-ui-pad-xl";
 
 /** Finished to-dos shown before "Show all". */
 const DONE_PREVIEW_COUNT = 2;
@@ -73,11 +78,15 @@ export default function TasksView() {
   return (
     <RouteInsetSurface>
       <RouteSurface>
-        <TasksPageHeader view="list" onNewTask={() => quickAddRef.current?.focus()} />
+        <TasksPageHeader
+          view="list"
+          onNewTask={() => quickAddRef.current?.focus()}
+          className={TASKS_LIST_COLUMN_CLASS_NAME}
+        />
 
         <TaskCardSurface selection={selection} now={now} mutations={mutations}>
-          {/* The header names the page; the list starts right under it, Codex-dense. */}
-          <div className="mx-auto flex w-full max-w-[40rem] flex-col gap-6 px-6 pt-4 pb-20">
+          {/* The page header names the page; the list starts right under it. */}
+          <div className={cn("flex flex-col gap-ui-gap-lg pb-20", TASKS_LIST_COLUMN_CLASS_NAME)}>
             {isLoading && rows.length === 0 ? (
               <p className="px-3 text-ui-sm text-muted-foreground">Loading…</p>
             ) : null}
@@ -91,27 +100,36 @@ export default function TasksView() {
               </div>
             ) : null}
 
-            <div className="flex flex-col gap-0.5">
-              <div role="list" aria-label="To do" className="flex flex-col gap-0.5">
+            <div className={cn("flex flex-col", SIDEBAR_NESTED_LIST_GAP_CLASS_NAME)}>
+              <div
+                role="list"
+                aria-label="To do"
+                className={cn("flex flex-col", SIDEBAR_NESTED_LIST_GAP_CLASS_NAME)}
+              >
                 {openRows.map(renderRow)}
               </div>
               <TaskQuickAdd inputRef={quickAddRef} onCreate={selection.addTask} />
             </div>
 
             {completed.length > 0 ? (
-              <div className="flex flex-col gap-0.5 opacity-80">
-                <div role="list" aria-label="Done" className="flex flex-col gap-0.5">
+              <div className={cn("flex flex-col opacity-80", SIDEBAR_NESTED_LIST_GAP_CLASS_NAME)}>
+                <div
+                  role="list"
+                  aria-label="Done"
+                  className={cn("flex flex-col", SIDEBAR_NESTED_LIST_GAP_CLASS_NAME)}
+                >
                   {shownDone.map(renderRow)}
                 </div>
                 {completed.length > DONE_PREVIEW_COUNT ? (
-                  <button
-                    type="button"
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     aria-expanded={showsAllDone}
                     onClick={() => setShowsAllDone((current) => !current)}
-                    className="self-start px-3 py-1.5 text-ui-sm text-muted-foreground outline-none hover:text-foreground focus-visible:underline"
+                    className="self-start"
                   >
                     {showsAllDone ? "Show less" : `Show all ${completed.length} done`}
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             ) : null}

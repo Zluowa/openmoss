@@ -8,7 +8,9 @@ import {
   AutomaticApprovalReviewUpdatePayload,
   CodexMcpToolCallProjection,
   type AutomaticApprovalReviewUpdatePayload as AutomaticApprovalReviewUpdatePayloadData,
+  type CodexMcpAppDescriptor,
   type CodexMcpToolCallProjection as CodexMcpToolCallProjectionData,
+  type McpAppToolVisibility,
   type ToolLifecycleItemType,
 } from "@moss/contracts";
 import { Option, Schema } from "effect";
@@ -46,10 +48,61 @@ export interface WorkLogToolDetails {
 
 export type WorkLogAutomaticApprovalReview = AutomaticApprovalReviewUpdatePayloadData;
 
+/**
+ * Provider-neutral widget binding (interactive connectors, PLAN §2.1). The server fills every
+ * field for new rows; rows journaled before it get the same shape from the projection's own
+ * server and tool, so the host never has to guess.
+ */
+export type McpAppBinding = Omit<
+  CodexMcpAppDescriptor,
+  "server" | "serverKey" | "serverLabel" | "toolName" | "isFirstParty" | "visibility"
+> & {
+  /** Provider's server name as the tool call names it. */
+  readonly server: string;
+  /** Stable key for origin and preferences: connector id, "moss", or the CLI server name. */
+  readonly serverKey: string;
+  /** Display name: the connector's title, else the server name. */
+  readonly serverLabel: string;
+  /** Bare tool name. */
+  readonly toolName: string;
+  readonly toolTitle?: string | undefined;
+  readonly resourceUri: string;
+  readonly source: "toolDefinition" | "appContext" | "resultMeta" | "legacy";
+  readonly connectorId?: string | undefined;
+  /** Only for Moss connectors (stable-origin input). */
+  readonly connectorUrl?: string | undefined;
+  /** Moss gateway tools. */
+  readonly isFirstParty: boolean;
+  /** `_meta.ui.visibility`; empty when the tool declared none. */
+  readonly visibility: ReadonlyArray<McpAppToolVisibility>;
+};
+
 // Only the versioned native projection becomes an MCP result or App card.
-export type WorkLogMcpToolResult = CodexMcpToolCallProjectionData & {
+export type WorkLogMcpToolResult = Omit<CodexMcpToolCallProjectionData, "app"> & {
+  app?: McpAppBinding;
   automaticApprovalReviews?: ReadonlyArray<WorkLogAutomaticApprovalReview>;
 };
+
+/** Completes a descriptor into a binding with the projection's own server and tool. */
+export function normalizeMcpAppBinding(
+  descriptor: CodexMcpAppDescriptor,
+  projection: { readonly server: string; readonly tool: string },
+): McpAppBinding {
+  const server = descriptor.server ?? projection.server;
+  const fallbackKey =
+    server === "codex_apps" && descriptor.connectorId
+      ? `codex_apps/${descriptor.connectorId}`
+      : server;
+  return {
+    ...descriptor,
+    server,
+    serverKey: descriptor.serverKey ?? fallbackKey,
+    serverLabel: descriptor.serverLabel ?? descriptor.appName ?? server,
+    toolName: descriptor.toolName ?? projection.tool,
+    isFirstParty: descriptor.isFirstParty ?? server === "moss",
+    visibility: descriptor.visibility ?? [],
+  };
+}
 
 export function parseWorkLogMcpToolResult(
   activityKind: string,
@@ -78,7 +131,8 @@ export function parseWorkLogMcpToolResult(
   ) {
     return undefined;
   }
-  return result;
+  const { app, ...rest } = result;
+  return app ? { ...rest, app: normalizeMcpAppBinding(app, result) } : rest;
 }
 
 export const parseMcpToolResultDetails = parseWorkLogMcpToolResult;

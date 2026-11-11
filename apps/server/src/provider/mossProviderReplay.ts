@@ -15,11 +15,10 @@ import {
   type ProviderRuntimeEvent,
 } from "@moss/contracts";
 
-import { MOSS_RELATIVE_PATHS } from "@moss/shared/mossSourceLayout";
-
 import { normalizeProviderRuntimeEvents } from "./mossNormalizeEvent.ts";
 
-const DEFAULT_FIXTURE_ROOT = MOSS_RELATIVE_PATHS.providerRuntimeFixturesRoot;
+// Repository-relative: the synthetic provider event streams checked in next to this file.
+const DEFAULT_FIXTURE_ROOT = "apps/server/src/provider/fixtures/provider-runtime";
 
 const decodeReplayFixture = Schema.decodeUnknownSync(
   Schema.Struct({

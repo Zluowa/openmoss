@@ -13,8 +13,12 @@ import type { MouseEvent } from "react";
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "../../nativeApi";
-import { SIDEBAR_ROW_ACTIVE_CLASS_NAME } from "../../sidebarRowStyles";
-import { ELEVATED_HOVER_SURFACE_CLASS_NAME } from "../../surfaceStyles";
+import {
+  SIDEBAR_ROW_ACTIVE_CLASS_NAME,
+  SIDEBAR_ROW_HEIGHT_CLASS_NAME,
+  SIDEBAR_ROW_HOVER_CLASS_NAME,
+  SIDEBAR_ROW_RADIUS_CLASS_NAME,
+} from "../../sidebarRowStyles";
 import { TASK_META_TONE_CLASS } from "./TaskCardPrimitives";
 import { TaskPriorityGlyph, TaskStatusGlyph } from "./TaskGlyphs";
 import { TaskRowTitle, useTaskRename } from "./TaskRowTitle";
@@ -93,9 +97,12 @@ export function TaskListItem({
       aria-current={selected ? "true" : undefined}
       onClick={onSelect}
       onContextMenu={handleContextMenu}
+      // A sidebar row: 32px, the row radius and the same ink hover and selection.
       className={cn(
-        "flex min-h-10.5 cursor-default items-center gap-3 rounded-card px-3 transition-colors",
-        selected ? SIDEBAR_ROW_ACTIVE_CLASS_NAME : ELEVATED_HOVER_SURFACE_CLASS_NAME,
+        "flex cursor-default items-center gap-ui-gap-xs px-ui-pad-sm transition-colors",
+        SIDEBAR_ROW_HEIGHT_CLASS_NAME,
+        SIDEBAR_ROW_RADIUS_CLASS_NAME,
+        selected ? SIDEBAR_ROW_ACTIVE_CLASS_NAME : SIDEBAR_ROW_HOVER_CLASS_NAME,
       )}
     >
       <button
@@ -107,7 +114,7 @@ export function TaskListItem({
         <TaskStatusGlyph kind={status.kind} className="size-4" />
       </button>
 
-      <div className="flex min-w-0 flex-1 items-baseline gap-2.5 py-2.5">
+      <div className="flex min-w-0 flex-1 items-baseline gap-ui-gap-xs py-ui-pad-xs">
         <TaskRowTitle title={todo.title} isDone={isDone} rename={rename} />
         {meta ? (
           <span

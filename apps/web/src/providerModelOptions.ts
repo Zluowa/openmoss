@@ -3,6 +3,7 @@ import {
   formatModelDisplayName,
   geminiModelOptionsFromEffortValue,
   humanizeModelSlug,
+  isProviderCliDefaultModel,
   normalizeModelDisplayName,
   normalizeModelSlug,
   resolveNewestKnownClaudeFamilyModel,
@@ -183,7 +184,7 @@ const CLAUDE_CATALOG_RANK_BY_SLUG: ReadonlyMap<string, number> = new Map(
 
 // Models the CLI exposes but the catalog does not know yet (a release landing
 // before Moss updates) sort just ahead of their family's newest catalog model,
-// so a new Opus stays below Fable. Other unknown models sort first.
+// so a new Opus sits right above Opus 5.5. Other unknown models sort first.
 function claudeModelRank(slug: string): number {
   const catalogRank = CLAUDE_CATALOG_RANK_BY_SLUG.get(slug);
   if (catalogRank !== undefined) {
@@ -328,9 +329,18 @@ export function mergeDynamicModelOptions(input: {
         input.provider === "droid" ||
         input.provider === "grok" ||
         input.provider === "devin"));
+  // The CLI-default row (Grok, Antigravity) leads even an authoritative catalog,
+  // so the person can always go back to the model set in the CLI itself.
+  const cliDefaultOptions = staticBuiltInModels.filter((model) =>
+    isProviderCliDefaultModel(input.provider, model.slug),
+  );
   const missingStaticBuiltIns = hasAuthoritativeCatalog
     ? []
-    : staticBuiltInModels.filter((model) => !dynamicNormalizedSlugs.has(model.slug));
+    : staticBuiltInModels.filter(
+        (model) =>
+          !dynamicNormalizedSlugs.has(model.slug) &&
+          !isProviderCliDefaultModel(input.provider, model.slug),
+      );
 
   if (input.provider === "claudeAgent") {
     return [
@@ -339,7 +349,16 @@ export function mergeDynamicModelOptions(input: {
     ];
   }
 
-  return [...normalizedDynamicOptions, ...missingStaticBuiltIns, ...customOnlyModels];
+  return [
+    ...cliDefaultOptions,
+    ...(cliDefaultOptions.length > 0
+      ? normalizedDynamicOptions.filter(
+          (model) => !isProviderCliDefaultModel(input.provider, model.slug),
+        )
+      : normalizedDynamicOptions),
+    ...missingStaticBuiltIns,
+    ...customOnlyModels,
+  ];
 }
 
 export function providerModelCostMultiplierLabel(description?: string): string | null {

@@ -215,6 +215,10 @@ const listDefaultTestModels: (typeof ProviderDiscoveryService)["Service"]["listM
     ],
     claudeAgent: [
       {
+        slug: "claude-opus-5-5",
+        name: "Claude Opus 5.5",
+      },
+      {
         slug: "claude-sonnet-5",
         name: "Claude Sonnet 5",
       },

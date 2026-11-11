@@ -16,6 +16,7 @@ function fixture() {
   const browserSession = {
     setProxy,
     closeAllConnections,
+    webRequest: { onSendHeaders: vi.fn(), onCompleted: vi.fn(), onErrorOccurred: vi.fn() },
   } as unknown as Session;
   return { browserSession, setProxy, closeAllConnections };
 }

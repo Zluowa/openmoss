@@ -108,6 +108,16 @@ describe("Grok runtime model settings", () => {
       }),
     ).toEqual({ model: "grok-build", reasoningEffort: "high" });
   });
+
+  it("starts Grok without a model flag for the CLI default", () => {
+    expect(resolveGrokRuntimeModelSettings({ model: "default" })).toEqual({});
+    expect(
+      resolveGrokRuntimeModelSettings({
+        model: "default",
+        options: { reasoningEffort: "high" },
+      }),
+    ).toEqual({});
+  });
 });
 
 describe("Grok native plan approval", () => {

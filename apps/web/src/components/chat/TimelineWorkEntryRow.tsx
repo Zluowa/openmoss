@@ -132,14 +132,7 @@ import { resolveSubagentPresentation } from "../../lib/subagentPresentation";
 import { TimelineSubagentActivityGroup } from "./TimelineSubagentActivityGroup";
 import { TimelineStreamErrorRow } from "./TimelineStreamErrorRow";
 import { McpAppCard } from "./McpAppCard";
-import {
-  McpAutomaticApprovalReviewContent,
-  McpRawDiagnosticAction,
-  McpRawDiagnosticDialog,
-  McpToolResultDetails,
-} from "./McpToolResultDetails";
 import { WebMcpActivity } from "./WebMcpActivity";
-import type { McpAppHostPhase } from "~/lib/mcpAppHost";
 import { deriveToolFailureSummary } from "../../lib/toolCallDetails";
 
 import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "../../lib/disclosureMotion";
@@ -879,11 +872,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   /** Current conversation id used only for the authenticated MCP App resource read. */
   threadId?: string;
   theme?: "light" | "dark";
-  onMcpAppPresentation?: (presentation: {
-    phase: McpAppHostPhase;
-    prefersBorder: boolean;
-    isCollapsible: boolean;
-  }) => void;
   computerControlEnabled?: boolean;
   onEnableComputerControl?: () => void;
   timestampFormat: TimestampFormat;
@@ -907,7 +895,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     onOpenAutomation,
     threadId,
     theme,
-    onMcpAppPresentation,
     computerControlEnabled,
     onEnableComputerControl,
     timestampFormat,
@@ -1499,16 +1486,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 details={shellDetails}
                 mcpToolResult={workEntry.mcpToolResult}
                 activity={workEntry.liveActivity}
-                mcpApp={
-                  workEntry.mcpToolResult?.app && threadId
-                    ? {
-                        projection: workEntry.mcpToolResult,
-                        threadId,
-                        theme: theme ?? "light",
-                      }
-                    : undefined
-                }
-                onMcpAppPresentation={onMcpAppPresentation}
                 onImageExpand={onImageExpand}
                 detailContent={
                   monitorNotification ? (
@@ -1561,6 +1538,20 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 {renderRowContentChildren(true)}
               </ToolDetailsDisclosure>
             );
+            // A widget is its own block under the normal tool row (SPEC §3, surface B).
+            if (workEntry.mcpToolResult?.app && threadId) {
+              return (
+                <div className="flex min-w-0 flex-col gap-1" data-mcp-app-parent="true">
+                  {parentRow}
+                  <McpAppCard
+                    projection={workEntry.mcpToolResult}
+                    threadId={threadId}
+                    {...(theme ? { theme } : {})}
+                    onImageExpand={onImageExpand}
+                  />
+                </div>
+              );
+            }
             return workEntry.mcpToolResult?.webMcpCalls?.length ? (
               <div
                 className="flex min-w-0 flex-col gap-[var(--conversation-grouped-item-gap,4px)]"
@@ -1886,20 +1877,6 @@ function ToolDetailsDisclosure(props: {
   dataFileChangeRow?: boolean | undefined;
   details?: TimelineWorkEntry["toolDetails"] | undefined;
   mcpToolResult?: TimelineWorkEntry["mcpToolResult"] | undefined;
-  mcpApp?:
-    | {
-        projection: NonNullable<TimelineWorkEntry["mcpToolResult"]>;
-        threadId: string;
-        theme: "light" | "dark";
-      }
-    | undefined;
-  onMcpAppPresentation?:
-    | ((presentation: {
-        phase: McpAppHostPhase;
-        prefersBorder: boolean;
-        isCollapsible: boolean;
-      }) => void)
-    | undefined;
   activity?: TimelineWorkEntry["liveActivity"] | undefined;
   detailContent?: ReactNode;
   onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
@@ -1922,7 +1899,7 @@ function ToolDetailsDisclosure(props: {
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const bodyId = `tool-details-body-${useId().replace(/[^a-zA-Z0-9-]/gu, "")}`;
   const summaryLabelId = `${bodyId}-summary`;
-  const initiallyOpen = props.defaultOpen ?? props.mcpApp !== undefined;
+  const initiallyOpen = props.defaultOpen ?? false;
   const [open, setOpen] = useState(initiallyOpen);
   // Upstream mount-on-open disclosure: the detail body only enters the DOM once
   // opened, starts hidden (aria-hidden + inert) for one frame, and unmounts
@@ -1963,45 +1940,20 @@ function ToolDetailsDisclosure(props: {
     [clearMotionTimers],
   );
   useEffect(() => () => clearMotionTimers(), [clearMotionTimers]);
-  const [appPresentation, setAppPresentation] = useState<{
-    phase: McpAppHostPhase;
-    prefersBorder: boolean;
-    isCollapsible: boolean;
-  } | null>(null);
-  const appIdentityKey = props.mcpApp
-    ? JSON.stringify([
-        props.mcpApp.threadId,
-        props.mcpApp.projection.callId,
-        props.mcpApp.projection.server,
-        props.mcpApp.projection.app?.resourceUri ?? "",
-      ])
-    : "";
-  const hasMcpApp = props.mcpApp !== undefined;
-  const previousAppIdentityKey = useRef(appIdentityKey);
-  useEffect(() => {
-    if (previousAppIdentityKey.current === appIdentityKey) return;
-    previousAppIdentityKey.current = appIdentityKey;
-    setAppPresentation(null);
-    setOpen(hasMcpApp);
-  }, [appIdentityKey, hasMcpApp]);
   const mcpDetailsAvailable =
     !props.mcpToolResult ||
     props.mcpToolResult.status !== "inProgress" ||
     props.mcpToolResult.result != null ||
     props.mcpToolResult.error != null;
-  const appCollapsible = props.mcpApp
-    ? (appPresentation?.isCollapsible ?? true)
-    : mcpDetailsAvailable;
-  const disclosureOpen = props.mcpApp && !appCollapsible ? true : open;
+  const appCollapsible = mcpDetailsAvailable;
+  const disclosureOpen = open;
 
   const chevronStyle: CSSProperties = {
     ...conversationDisclosureStyle(reducedMotion),
     transitionProperty: reducedMotion ? "none" : "opacity, transform",
   };
   const summary = props.renderSummary ? props.renderSummary(disclosureOpen) : props.children;
-  const appHeaderClassName = props.mcpApp
-    ? cn("w-full", disclosureOpen ? "px-4 pt-3 pb-2" : "px-4 py-3", summaryClassName)
-    : summaryClassName;
+  const appHeaderClassName = summaryClassName;
   const summaryHeader = (
     <div
       className={cn(appHeaderClassName, "relative")}
@@ -2058,88 +2010,6 @@ function ToolDetailsDisclosure(props: {
       ) : null}
     </div>
   );
-
-  if (props.mcpApp) {
-    const appResult = props.mcpApp.projection;
-    const appFallback =
-      appPresentation?.phase === "browser_unavailable" || appPresentation?.phase === "no_content";
-    const hasAutomaticApprovalReviews = (appResult.automaticApprovalReviews?.length ?? 0) > 0;
-    const appRootClassName = cn(
-      "group/tool-details min-w-0",
-      appPresentation?.prefersBorder &&
-        "overflow-hidden rounded-card border border-strong bg-surface [border-end-end-radius:max(0px,calc(var(--radius-lg)-1px))] [border-end-start-radius:max(0px,calc(var(--radius-lg)-1px))]",
-    );
-    return (
-      <div className={appRootClassName} data-tool-detail-disclosure="true" data-mcp-app-card="true">
-        <ToolRowTooltip content={props.tooltip} variant={props.tooltipVariant}>
-          {summaryHeader}
-        </ToolRowTooltip>
-        <DisclosureRegion
-          open={disclosureOpen}
-          className="w-full min-w-0"
-          contentClassName="w-full min-w-0"
-        >
-          <div
-            id={bodyId}
-            data-tool-detail-body="true"
-            data-tool-details-inline="true"
-            className="w-full min-w-0"
-          >
-            {appFallback ? (
-              <div
-                className={cn("min-w-0 max-w-full", props.compact ? "ml-5" : "ml-7")}
-                data-mcp-app-generic-fallback="true"
-              >
-                <div className={cn("min-w-0 max-w-full", toolActivityBodyClassName())}>
-                  <McpToolResultDetails
-                    result={appResult}
-                    {...(props.onImageExpand ? { onImageExpand: props.onImageExpand } : {})}
-                  />
-                </div>
-              </div>
-            ) : hasAutomaticApprovalReviews ? (
-              <div className="px-4" data-mcp-app-automatic-approval-reviews="true">
-                <McpAutomaticApprovalReviewContent result={appResult} />
-              </div>
-            ) : null}
-            {!appFallback ? (
-              <div className="group/mcp-tool-result-details relative w-full min-w-0">
-                <McpAppCard
-                  projection={appResult}
-                  threadId={props.mcpApp.threadId}
-                  theme={props.mcpApp.theme}
-                  compact={props.compact}
-                  onPresentation={(next) => {
-                    props.onMcpAppPresentation?.(next);
-                    setAppPresentation((current) =>
-                      current?.phase === next.phase &&
-                      current?.prefersBorder === next.prefersBorder &&
-                      current?.isCollapsible === next.isCollapsible
-                        ? current
-                        : next,
-                    );
-                  }}
-                />
-                {disclosureOpen &&
-                appPresentation !== null &&
-                appPresentation.phase !== "idle" &&
-                appPresentation.phase !== "loading" ? (
-                  <McpRawDiagnosticDialog
-                    result={appResult}
-                    trigger={
-                      <div className="absolute right-1 bottom-2 z-50">
-                        <McpRawDiagnosticAction />
-                      </div>
-                    }
-                  />
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        </DisclosureRegion>
-      </div>
-    );
-  }
 
   return (
     <div className="group/tool-details min-w-0" data-tool-detail-disclosure="true">

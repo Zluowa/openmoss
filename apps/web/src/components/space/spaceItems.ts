@@ -238,6 +238,16 @@ function isTrashRoot(item: SpaceItem, items: readonly SpaceItem[]): boolean {
   return !parent || parent.trashedAt === null;
 }
 
+/**
+ * The name a person sees for an item. Untitled ones read 「未命名页面」 (or 「未命名」 for
+ * other kinds) rather than an empty row or a stored id.
+ */
+export function spaceItemDisplayTitle(item: Pick<SpaceItem, "title" | "kind">): string {
+  const title = item.title.trim();
+  if (title) return title;
+  return item.kind === "page" ? "未命名页面" : "未命名";
+}
+
 /** Recent items for the sidebar list. */
 export function recentItems(items: readonly SpaceItem[], limit = 8): SpaceItem[] {
   return items.filter((item) => item.trashedAt === null).slice(0, limit);

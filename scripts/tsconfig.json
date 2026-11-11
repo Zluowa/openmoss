@@ -3,7 +3,8 @@
   "compilerOptions": {
     "composite": true,
     "types": ["node", "bun"],
-    "lib": ["ES2023", "esnext.disposable"],
+    // DOM: deploy tools type fetch inputs as RequestInfo.
+    "lib": ["ES2023", "esnext.disposable", "dom", "dom.iterable"],
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "plugins": [
@@ -26,7 +27,6 @@
     "**/*.ts",
     "**/*.d.mts",
     "../apps/web/src/test/browserCasePartition.ts",
-    "../apps/server/src/provider/mossCatalogSelectionRpc.ts",
     "../apps/server/src/device/helperSandbox.ts",
     "../apps/desktop/src/desktopAppIcon.ts",
     "../packages/shared/src/macosKeychainPolicy.ts"

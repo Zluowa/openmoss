@@ -5,6 +5,7 @@
 import * as Crypto from "node:crypto";
 
 import {
+  MCP_APP_SANDBOX_PATH,
   MCP_APP_SANDBOX_PENDING_TTL_MS,
   MCP_APP_SANDBOX_SCHEME,
   decodeMcpAppSandboxRegisterInput,
@@ -12,6 +13,13 @@ import {
   type McpAppSandboxDescriptor,
   type McpAppSandboxRegisterInput,
 } from "@moss/contracts";
+
+import { buildMcpAppSandboxPolicy, type McpAppSandboxEffectivePolicy } from "./csp";
+import {
+  isUsableMcpAppSandboxLabel,
+  resolveMcpAppSandboxOrigin,
+  type McpAppSandboxVariant,
+} from "./origin";
 
 const MAX_AUTHORITIES = 256;
 
@@ -22,6 +30,7 @@ function canonicalDomainList(domains: readonly string[]): string[] {
 export interface McpAppSandboxRegistryOptions {
   readonly now?: () => number;
   readonly createInitId?: () => string;
+  readonly createRouteId?: () => string;
 }
 
 export interface McpAppSandboxOwner {
@@ -47,35 +56,14 @@ export interface McpAppSandboxRegistration {
   readonly authorityKey: string;
   readonly cardIdentityKey: string;
   readonly cspFingerprint: string;
+  readonly variant: McpAppSandboxVariant;
+  /** Effective network/permission policy; drives the response headers and webRequest. */
+  readonly policy: McpAppSandboxEffectivePolicy;
 }
 
 export interface McpAppSandboxLookupOptions {
   readonly ownerId?: number;
   readonly partition?: string;
-}
-
-function normalizedWidgetDomain(value: string | null | undefined): string {
-  if (!value) return "";
-  const candidate = /^[a-z][a-z0-9+.-]*:\/\//iu.test(value) ? value : `https://${value}`;
-  try {
-    const parsed = new URL(candidate);
-    return `${parsed.hostname.toLowerCase()}${parsed.port ? `:${parsed.port}` : ""}`;
-  } catch {
-    return value.trim().toLowerCase();
-  }
-}
-
-function sourceKeyFor(input: McpAppSandboxRegisterInput): string {
-  return [
-    input.server,
-    input.connectorId ?? "",
-    input.resourceUri,
-    normalizedWidgetDomain(input.widgetDomain),
-  ].join("\u001f");
-}
-
-function sourceSandboxId(sourceKey: string): string {
-  return `mcp-${Crypto.createHash("sha256").update(sourceKey, "utf8").digest("hex").slice(0, 40)}`;
 }
 
 function authorityKeyFor(
@@ -89,18 +77,25 @@ function cardIdentityKeyFor(ownerId: number, input: McpAppSandboxRegisterInput):
   return [ownerId, input.threadId, input.callId, input.resourceUri].join("\u001f");
 }
 
-function cspFingerprintFor(input: McpAppSandboxRegisterInput): string {
-  const csp = input.csp;
+function cspFingerprintFor(
+  policy: McpAppSandboxEffectivePolicy,
+  variant: McpAppSandboxVariant,
+): string {
   return JSON.stringify({
-    baseUriDomains: canonicalDomainList(csp.baseUriDomains),
-    connectDomains: canonicalDomainList(csp.connectDomains),
-    frameDomains: canonicalDomainList(csp.frameDomains),
-    resourceDomains: canonicalDomainList(csp.resourceDomains),
+    connectDomains: canonicalDomainList(policy.connectDomains),
+    frameDomains: canonicalDomainList(policy.frameDomains),
+    permissions: Object.keys(policy.permissions).toSorted(),
+    resourceDomains: canonicalDomainList(policy.resourceDomains),
+    variant,
   });
 }
 
 function defaultInitId(): string {
   return `init-${Crypto.randomUUID().replaceAll("-", "").slice(0, 40)}`;
+}
+
+function defaultRouteId(): string {
+  return Crypto.randomBytes(8).toString("hex");
 }
 
 function sanitizeInitId(value: string): string {
@@ -113,29 +108,34 @@ function buildDescriptor(
   sandboxId: string,
   partition: string,
   initId: string,
+  routeId: string,
 ): McpAppSandboxDescriptor {
   const encodedInitId = encodeURIComponent(initId);
   const encodedGeneration = encodeURIComponent(String(input.generation));
   const origin = `${MCP_APP_SANDBOX_SCHEME}://${sandboxId}`;
+  // `route` keeps the fragment-less URL unique per registration: many cards of
+  // one thread x server share the origin, and each gets its own policy.
   return {
     generation: input.generation,
     initId,
     origin,
     partition,
     sandboxId,
-    src: `${origin}/ui?generation=${encodedGeneration}#init=${encodedInitId}`,
+    src: `${origin}${MCP_APP_SANDBOX_PATH}?generation=${encodedGeneration}&route=${routeId}#init=${encodedInitId}`,
   };
 }
 
 export class McpAppSandboxRegistry {
   private readonly now: () => number;
   private readonly createInitId: () => string;
+  private readonly createRouteId: () => string;
   private readonly pending = new Map<string, McpAppSandboxRegistration>();
   private readonly attached = new Map<string, McpAppSandboxRegistration>();
 
   constructor(options: McpAppSandboxRegistryOptions = {}) {
     this.now = options.now ?? Date.now;
     this.createInitId = options.createInitId ?? defaultInitId;
+    this.createRouteId = options.createRouteId ?? defaultRouteId;
   }
 
   register(ownerId: number, rawInput: unknown): McpAppSandboxDescriptor {
@@ -150,26 +150,33 @@ export class McpAppSandboxRegistry {
       throw new Error("MCP App authority limit reached.");
     }
 
-    const sourceKey = sourceKeyFor(input);
-    const sandboxId = sourceSandboxId(sourceKey);
-    // The partition is a pure deterministic source identity, not a cache. A
-    // source that has fully torn down can be opened again without consuming a
-    // process-lifetime slot; only live authorities are bounded below.
+    const policy = buildMcpAppSandboxPolicy(input.csp, input.permissions ?? {});
+    if (!policy) throw new Error("Invalid MCP App policy.");
+    const { label, variant } = resolveMcpAppSandboxOrigin(input);
+    if (!isUsableMcpAppSandboxLabel(label)) throw new Error("Unusable MCP App origin label.");
+    const sandboxId = label;
+    // One partition per origin label (thread x server, or connector URL for the
+    // stable variant). It is a deterministic identity, not a cache; only live
+    // authorities are bounded below.
     const partition = `moss-mcp-${sandboxId}`;
 
     const initId = sanitizeInitId(this.createInitId());
     if (initId.length === 0) throw new Error("Invalid MCP App init authority.");
-    const descriptor = buildDescriptor(input, sandboxId, partition, initId);
+    const routeId = this.createRouteId();
+    if (!/^[0-9a-f]{16}$/u.test(routeId)) throw new Error("Invalid MCP App route.");
+    const descriptor = buildDescriptor(input, sandboxId, partition, initId, routeId);
     const authorityKey = authorityKeyFor(ownerId, descriptor);
     const registration: McpAppSandboxRegistration = {
       ownerId,
       input,
       descriptor,
       expiresAt: this.now() + MCP_APP_SANDBOX_PENDING_TTL_MS,
-      sourceKey,
+      sourceKey: `${variant}:${label}`,
       authorityKey,
       cardIdentityKey: cardIdentityKeyFor(ownerId, input),
-      cspFingerprint: cspFingerprintFor(input),
+      cspFingerprint: cspFingerprintFor(policy, variant),
+      variant,
+      policy,
     };
     this.pending.set(authorityKey, registration);
     return descriptor;
@@ -349,13 +356,14 @@ export class McpAppSandboxRegistry {
     this.expire();
     return this.pending.size;
   }
+
+  /** Live registrations of one partition (pending or attached). */
+  registrationsForPartition(partition: string): McpAppSandboxRegistration[] {
+    this.expire();
+    return [...this.pending.values(), ...this.attached.values()].filter(
+      (registration) => registration.descriptor.partition === partition,
+    );
+  }
 }
 
-export {
-  authorityKeyFor,
-  cardIdentityKeyFor,
-  cspFingerprintFor,
-  normalizedWidgetDomain,
-  sourceKeyFor,
-  sourceSandboxId,
-};
+export { authorityKeyFor, cardIdentityKeyFor, cspFingerprintFor };

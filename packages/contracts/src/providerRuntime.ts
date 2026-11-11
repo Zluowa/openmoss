@@ -884,14 +884,37 @@ const McpProjectionTruncation = Schema.Struct({
 // B5.4c1 keeps MCP App provenance beside the existing v1 MCP projection. The
 // descriptor is deliberately metadata-only: the HTML resource is fetched on
 // demand through the authorized provider runtime and is never persisted here.
+//
+// Interactive connectors (2026-11) make it provider-neutral: the binding fields below say which
+// server and tool rendered the widget. They are optional so journals written before them still
+// decode; the web decoder fills the gaps from the projection's own `server` / `tool`.
+const McpAppDescriptorName = TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(200));
 export const CodexMcpAppDescriptor = Schema.Struct({
   resourceUri: TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(2_000)),
-  source: Schema.Literals(["appContext", "resultMeta", "legacy"]),
-  connectorId: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(200))),
-  linkId: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(200))),
-  appName: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(200))),
-  actionName: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(200))),
-  pluginId: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(200))),
+  source: Schema.Literals(["toolDefinition", "appContext", "resultMeta", "legacy"]),
+  connectorId: Schema.optional(McpAppDescriptorName),
+  linkId: Schema.optional(McpAppDescriptorName),
+  appName: Schema.optional(McpAppDescriptorName),
+  actionName: Schema.optional(McpAppDescriptorName),
+  pluginId: Schema.optional(McpAppDescriptorName),
+  /** Provider's server name as the tool call names it. */
+  server: Schema.optional(McpAppDescriptorName),
+  /** Stable key for origin and preferences: Moss connector id, "moss", or the CLI server name. */
+  serverKey: Schema.optional(McpAppDescriptorName),
+  /** Display name: the connector's title, else the server name. */
+  serverLabel: Schema.optional(McpAppDescriptorName),
+  /** Bare tool name. */
+  toolName: Schema.optional(McpAppDescriptorName),
+  /** The tool definition's `title`. */
+  toolTitle: Schema.optional(McpAppDescriptorName),
+  /** Moss connector URL (stable-origin input); only for Moss connectors. */
+  connectorUrl: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(2_000))),
+  /** Moss's own gateway tools. */
+  isFirstParty: Schema.optional(Schema.Boolean),
+  /** `_meta.ui.visibility`; empty when the tool declared none. */
+  visibility: Schema.optional(
+    Schema.Array(Schema.Literals(["model", "app"])).check(Schema.isMaxLength(2)),
+  ),
 });
 export type CodexMcpAppDescriptor = typeof CodexMcpAppDescriptor.Type;
 

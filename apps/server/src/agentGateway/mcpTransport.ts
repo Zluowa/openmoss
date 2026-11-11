@@ -29,6 +29,7 @@ import {
   parseMcpMessage,
   type JsonRpcId,
   type JsonRpcRequest,
+  type McpToolCallResult,
 } from "./protocol.ts";
 import { sanitizeToolInputSchema } from "./sanitizeToolInputSchema.ts";
 import {
@@ -41,6 +42,15 @@ import {
 import { errorText } from "./toolInput.ts";
 
 const MCP_MAX_BATCH_MESSAGES = 50;
+
+/** A widget resource the gateway serves (MCP Apps `ui://moss/...`). */
+export interface AgentGatewayUiResource {
+  readonly uri: string;
+  readonly name: string;
+  readonly mimeType: string;
+  readonly text: () => string;
+  readonly meta?: Record<string, unknown>;
+}
 
 type McpJsonRpcResponse = Record<string, unknown>;
 
@@ -181,6 +191,16 @@ export function makeAgentGatewayMcpTransport(input: {
    */
   readonly isComputerToolName?: (toolName: string) => boolean;
   readonly computerControlCapability?: AgentGatewayCapability;
+  /** MCP Apps: the gateway's own `ui://moss/...` resources (read live on every request). */
+  readonly resources?: () => ReadonlyArray<AgentGatewayUiResource>;
+  /** MCP Apps: a widget tool's full result, keyed by the client's call id when it sends one. */
+  readonly onUiToolResult?: (input: {
+    readonly callerThreadId: string;
+    readonly toolName: string;
+    readonly arguments: Record<string, unknown>;
+    readonly callIdHint?: string;
+    readonly result: McpToolCallResult;
+  }) => void;
 }): AgentGatewayShape["handleMcpPost"] {
   const toolsByName = new Map(input.tools.map((tool) => [tool.definition.name, tool]));
   // The catalog is immutable after construction, so the sanitized `tools/list`
@@ -217,6 +237,9 @@ export function makeAgentGatewayMcpTransport(input: {
             if (tool.discoveryOnly === true) continue;
             // Account-dependent tools are read at listing time; their handlers refuse by name.
             if (tool.available !== undefined && !(yield* tool.available())) continue;
+            // MCP Apps: a widget-only tool (`visibility: ["app"]`) is not offered to the model.
+            const visibility = tool.definition._meta?.ui?.visibility;
+            if (visibility !== undefined && !visibility.includes("model")) continue;
             offered.push(tool);
           }
           return jsonRpcResult(request.id, {
@@ -318,7 +341,45 @@ export function makeAgentGatewayMcpTransport(input: {
           const result = yield* Effect.suspend(() => tool.handler(args, invocationContext)).pipe(
             Effect.catchDefect((defect) => Effect.succeed(mcpToolResultError(errorText(defect)))),
           );
+          if (tool.definition._meta?.ui?.resourceUri !== undefined && input.onUiToolResult) {
+            const callIdHint = asRecord(request.params._meta)?.["claudecode/toolUseId"];
+            input.onUiToolResult({
+              callerThreadId: context.callerThreadId,
+              toolName,
+              arguments: args,
+              ...(typeof callIdHint === "string" ? { callIdHint } : {}),
+              result,
+            });
+          }
           return jsonRpcResult(request.id, result);
+        }
+        case "resources/list": {
+          const resources = input.resources?.() ?? [];
+          return jsonRpcResult(request.id, {
+            resources: resources.map((resource) => ({
+              uri: resource.uri,
+              name: resource.name,
+              mimeType: resource.mimeType,
+              ...(resource.meta ? { _meta: resource.meta } : {}),
+            })),
+          });
+        }
+        case "resources/read": {
+          const uri = request.params.uri;
+          const resource = input.resources?.().find((entry) => entry.uri === uri);
+          if (typeof uri !== "string" || !resource) {
+            return jsonRpcError(request.id, JSON_RPC_INVALID_PARAMS, "Unknown resource.");
+          }
+          return jsonRpcResult(request.id, {
+            contents: [
+              {
+                uri: resource.uri,
+                mimeType: resource.mimeType,
+                text: resource.text(),
+                ...(resource.meta ? { _meta: resource.meta } : {}),
+              },
+            ],
+          });
         }
         default:
           return jsonRpcError(

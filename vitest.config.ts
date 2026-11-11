@@ -1,7 +1,12 @@
 import * as path from "node:path";
 import { configDefaults, defineConfig } from "vitest/config";
 
+import { testQuarantine } from "./tools/test-quarantine/vitest";
+
 export default defineConfig({
+  // Applies test-quarantine.json to every package that uses this config (contracts, shared,
+  // desktop, scripts, and server through mergeConfig).
+  plugins: [testQuarantine()],
   resolve: {
     alias: [
       {

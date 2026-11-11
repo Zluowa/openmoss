@@ -376,7 +376,7 @@ describe("threadHandoff", () => {
     ).toEqual({
       provider: "antigravity",
       instanceId: "antigravity_work",
-      model: "Gemini 3.5 Flash",
+      model: DEFAULT_MODEL_BY_PROVIDER.antigravity,
     });
   });
 

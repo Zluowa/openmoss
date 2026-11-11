@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { basename, join, resolve as resolvePath } from "node:path";
 
 import {
   app,
@@ -29,6 +29,8 @@ const guestPreloadPath = process.env.MOSS_E2E_MCP_APP_GUEST_PRELOAD;
 const rendererBundlePath = process.env.MOSS_E2E_MCP_APP_RENDERER;
 const guestBundlePath = process.env.MOSS_E2E_MCP_APP_GUEST;
 const rendererCssPath = process.env.MOSS_E2E_MCP_APP_CSS;
+const proxyHostBundlePath = process.env.MOSS_E2E_MCP_APP_PROXY_HOST;
+const fontPath = resolvePath(__dirname, "../../public/inline-visualization-libs/inter-latin.woff2");
 
 if (
   !mossHome ||
@@ -41,6 +43,10 @@ if (
 }
 
 app.setPath("userData", join(mossHome, "electron-userdata"));
+// Off-screen windows count as occluded on Windows and would stop painting.
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+// Fake capture devices: permission tests never touch a real camera or microphone.
+app.commandLine.appendSwitch("use-fake-device-for-media-stream");
 protocol.registerSchemesAsPrivileged([
   {
     scheme: MCP_APP_SANDBOX_SCHEME,
@@ -61,6 +67,10 @@ const rendererBundle = readFileSync(rendererBundlePath, "utf8").replaceAll(
 const rendererCss =
   rendererCssPath && existsSync(rendererCssPath) ? readFileSync(rendererCssPath, "utf8") : "";
 const guestBundle = readFileSync(guestBundlePath, "utf8").replaceAll("</script", "<\\/script");
+const proxyHostBundle =
+  proxyHostBundlePath && existsSync(proxyHostBundlePath)
+    ? readFileSync(proxyHostBundlePath, "utf8").replaceAll("</script", "<\\/script")
+    : "";
 const guestHtml = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Moss MCP App fixture</title></head>
@@ -97,9 +107,42 @@ const diagnostics = {
   guestConsoleSecurityDenials: [] as string[],
   guestSecurityDenials: [] as string[],
 };
+// Host-action doubles: nothing reaches the real shell, dialogs or profile.
+const hostActions = {
+  fontHang: false,
+  fontRequests: 0,
+  opened: [] as string[],
+  saveAnswer: null as string | null,
+  saveDialogs: [] as string[],
+  permissionDecisions: [] as string[],
+};
+// Reads held back by setFontHang(true); released (as missing) when it is turned off.
+const pendingFontReads: Array<(value: Uint8Array | null) => void> = [];
 const runtime = new McpAppSandboxRuntime({
   onSecurityDenied: (event) => {
     diagnostics.guestSecurityDenials.push(`${event.kind}:${event.url ?? ""}`);
+  },
+  onPermissionDecision: (event) => {
+    hostActions.permissionDecisions.push(
+      `${event.kind}:${event.permission}:${event.mediaTypes.join("+")}:${String(event.granted)}`,
+    );
+  },
+  loadFont: async () => {
+    hostActions.fontRequests += 1;
+    if (hostActions.fontHang) {
+      return new Promise<Uint8Array | null>((resolve) => pendingFontReads.push(resolve));
+    }
+    return readFileSync(fontPath);
+  },
+  openExternal: async (url) => {
+    hostActions.opened.push(url);
+  },
+  downloadsPath: () => join(mossHome, "downloads"),
+  showSaveDialog: async (_window, options) => {
+    hostActions.saveDialogs.push(String(options.defaultPath ?? ""));
+    return hostActions.saveAnswer === null
+      ? { canceled: true, filePath: "" }
+      : { canceled: false, filePath: hostActions.saveAnswer };
   },
 });
 const runtimeWithInternals = runtime as unknown as {
@@ -204,6 +247,12 @@ function readRequest(request: import("node:http").IncomingMessage): Promise<void
   });
 }
 
+function makeProxyHostHtml(): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Moss widget sandbox host</title></head>
+<body style="margin:0"><script>${proxyHostBundle}</script></body></html>`;
+}
+
 function makeHostHtml(): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Moss MCP App host</title><link rel="stylesheet" href="/mcpAppSandbox.css"></head>
@@ -216,6 +265,11 @@ async function startServer(): Promise<string> {
       if (request.method === "GET" && request.url === "/") {
         response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
         response.end(makeHostHtml());
+        return;
+      }
+      if (request.method === "GET" && request.url === "/proxy-host") {
+        response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        response.end(makeProxyHostHtml());
         return;
       }
       if (request.method === "GET" && request.url === "/mcpAppSandboxRenderer.js") {
@@ -351,6 +405,51 @@ function authorityChecks() {
   return { results, expired };
 }
 
+function guestFor(initId: string): WebContents {
+  for (const active of runtimeWithInternals.activeGuests.values()) {
+    if (active.registration.descriptor.initId === initId) return active.guest;
+  }
+  throw new Error(`No active MCP App guest for ${initId}.`);
+}
+
+/** Run a script in the proxy page (the guest's main frame). */
+async function executeInShell(initId: string, script: string): Promise<unknown> {
+  return guestFor(initId).mainFrame.executeJavaScript(script);
+}
+
+/** Run a script in the widget frame (the proxy page's first child frame). */
+async function executeInWidget(
+  initId: string,
+  script: string,
+  userGesture = false,
+  timeoutMs: number | null = null,
+): Promise<unknown> {
+  const frame = guestFor(initId).mainFrame.frames[0];
+  if (!frame) throw new Error("The proxy page has no widget frame.");
+  // A script sent to a frame that the proxy replaces (the placeholder before
+  // injection) never settles; bound it so callers can poll again.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("widget frame script timed out")),
+      timeoutMs ?? 30_000,
+    );
+  });
+  try {
+    return await Promise.race([frame.executeJavaScript(script, userGesture), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function widgetFrameInfo(initId: string) {
+  const main = guestFor(initId).mainFrame;
+  return {
+    shellUrl: main.url,
+    frames: main.framesInSubtree.map((frame) => ({ url: frame.url, origin: frame.origin })),
+  };
+}
+
 async function executeActiveGuest(script: string): Promise<unknown> {
   const active = activeGuest();
   if (!active) throw new Error("Expected an active MCP App guest.");
@@ -399,6 +498,23 @@ Object.assign(globalThis, {
     state: stateSnapshot,
     authorityChecks,
     executeActiveGuest,
+    executeInShell,
+    executeInWidget,
+    widgetFrameInfo,
+    hostActions: () => ({ ...hostActions }),
+    setFontHang(value: boolean) {
+      hostActions.fontHang = value;
+      if (!value) for (const release of pendingFontReads.splice(0)) release(null);
+    },
+    setSaveAnswer(fileName: string | null) {
+      const directory = join(mossHome, "saved");
+      mkdirSync(directory, { recursive: true });
+      hostActions.saveAnswer = fileName === null ? null : join(directory, fileName);
+      return hostActions.saveAnswer;
+    },
+    readSaved(fileName: string) {
+      return readFileSync(join(mossHome, "saved", fileName)).toString("base64");
+    },
     sendStaleGuestInit,
     setWindowSize(width: number, height: number) {
       mainWindow?.setSize(Math.max(1, Math.round(width)), Math.max(1, Math.round(height)));
@@ -413,10 +529,16 @@ Object.assign(globalThis, {
 async function main(): Promise<void> {
   serverUrl = await startServer();
   await app.whenReady();
+  // Headless rule: the window is created hidden, parked off-screen and shown
+  // inactive so it paints without ever appearing on, or focusing, the desktop.
   mainWindow = new BrowserWindow({
     width: 1_000,
     height: 760,
-    show: true,
+    x: -32_000,
+    y: -32_000,
+    show: false,
+    focusable: false,
+    skipTaskbar: true,
     webPreferences: {
       preload: trustedPreloadPath,
       contextIsolation: true,
@@ -505,7 +627,8 @@ async function main(): Promise<void> {
     });
     runtime.handleDidAttachWebview(ownerId, guest);
   });
-  await mainWindow.loadURL(`${serverUrl}/`);
+  mainWindow.showInactive();
+  await mainWindow.loadURL(`${serverUrl}${process.env.MOSS_E2E_MCP_APP_START_PATH ?? "/"}`);
 }
 
 app.on("before-quit", () => {

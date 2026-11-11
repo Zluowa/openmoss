@@ -17,7 +17,6 @@ import {
   CheckpointRef,
   DEFAULT_AUTOMATION_STOP_AFTER_CONSECUTIVE_FAILURES,
   DEFAULT_SERVER_SETTINGS,
-  DEFAULT_MODEL_BY_PROVIDER,
   MODEL_OPTIONS_BY_PROVIDER,
   EventId,
   MessageId,
@@ -11430,7 +11429,7 @@ describe("ChatView transcript geometry (full app)", () => {
         expect(
           useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.modelSelectionByProvider
             .codex,
-        ).toMatchObject({ provider: "codex", model: DEFAULT_MODEL_BY_PROVIDER.codex });
+        ).toMatchObject({ provider: "codex", model: MODEL_OPTIONS_BY_PROVIDER.codex[0]!.slug });
       });
       expect(document.querySelector('[data-slot="menu-popup"]')).toBeNull();
 

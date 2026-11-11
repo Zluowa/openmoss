@@ -114,6 +114,7 @@ function fallbackContextWindowOptionsForCursorBase(
     ];
   }
   if (
+    baseSlug === "claude-fable-5-2" ||
     baseSlug === "claude-fable-5-1" ||
     baseSlug === "claude-fable-5" ||
     baseSlug === "claude-sonnet-5" ||

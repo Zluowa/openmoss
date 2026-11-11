@@ -30,6 +30,7 @@ export function SidebarPrimaryAction({
   disabled: disabledProp,
   shortcutLabel,
   badge,
+  detail,
   coachmark,
 }: {
   // Accepts both Lucide adapters and raw react-icons glyphs (rendered via SidebarGlyph).
@@ -45,6 +46,8 @@ export function SidebarPrimaryAction({
   disabled?: boolean;
   shortcutLabel?: string | null;
   badge?: SidebarActionBadge | null;
+  /** Quiet text at the row's end, such as when an untitled item was made. */
+  detail?: string | undefined;
 }) {
   // Defaults live in the body, not the destructuring pattern: an AssignmentPattern in
   // the parameter list makes React Compiler bail out on the whole component.
@@ -77,7 +80,9 @@ export function SidebarPrimaryAction({
         />
       </SidebarLeadingIcon>
       <span className="truncate">{label}</span>
-      {badge ? (
+      {detail ? (
+        <span className="ml-auto shrink-0 text-ui-sm text-muted-foreground">{detail}</span>
+      ) : badge ? (
         <span
           className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-control-xs bg-muted px-1 text-ui-xs font-medium text-muted-foreground"
           aria-label={badge.accessibleLabel}

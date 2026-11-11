@@ -120,6 +120,10 @@ function makeTransport(input: {
   readonly computerToolNames?: ReadonlyArray<string>;
   readonly onCapabilityDenied?: (denial: McpTransportTestDenial) => Effect.Effect<void>;
   readonly noteNativeMcpStartup?: (token: string) => void;
+  readonly mcpApps?: Pick<
+    Parameters<typeof makeAgentGatewayMcpTransport>[0],
+    "resources" | "onUiToolResult"
+  >;
 }) {
   const threads = new Map(input.threads.map((thread) => [String(thread.id), thread]));
   let nextSession = 0;
@@ -214,6 +218,7 @@ function makeTransport(input: {
       return thread ? Effect.succeed(thread) : Effect.fail(new Error("missing thread"));
     },
     ...(input.onCapabilityDenied ? { onCapabilityDenied: input.onCapabilityDenied } : {}),
+    ...input.mcpApps,
     ...(input.computerToolNames
       ? {
           isComputerToolName: (toolName: string) => input.computerToolNames!.includes(toolName),
@@ -1040,6 +1045,96 @@ describe("makeAgentGatewayMcpTransport capability truth", () => {
       });
       assert.include(rpcErrorOf(mismatch).message, "Do not retry with this token");
       assert.deepEqual(denials, []);
+    }),
+  );
+});
+
+describe("makeAgentGatewayMcpTransport MCP Apps", () => {
+  const widgetTool = (name: string, visibility: ReadonlyArray<"model" | "app">): ToolEntry => ({
+    definition: {
+      name,
+      description: name,
+      inputSchema: { type: "object" },
+      _meta: { ui: { resourceUri: "ui://moss/test.html", visibility } },
+    },
+    requiredCapability: "thread:read",
+    handler: () =>
+      Effect.succeed({
+        content: [{ type: "text" as const, text: "shown" }],
+        structuredContent: { ok: true },
+        _meta: { "moss/internal": 1 },
+      }),
+  });
+  const resource = {
+    uri: "ui://moss/test.html",
+    name: "test",
+    mimeType: "text/html;profile=mcp-app",
+    text: () => "<p>moss widget</p>",
+    meta: { ui: { prefersBorder: false } },
+  };
+
+  it.effect("hides app-only tools, serves ui://moss resources and reports widget results", () =>
+    Effect.gen(function* () {
+      const captured: Array<{ toolName: string; callIdHint?: string; result: unknown }> = [];
+      const transport = makeTransport({
+        threads: [makeThread("thread-mcp-apps")],
+        tools: [widgetTool("moss_show", ["model", "app"]), widgetTool("moss_widget_only", ["app"])],
+        mcpApps: {
+          resources: () => [resource],
+          onUiToolResult: (call) => captured.push(call),
+        },
+      });
+      const listed = yield* post(transport, "token-1", {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+      });
+      assert.deepEqual(
+        listedTools(listed.body).map((tool) => tool.name),
+        ["moss_show"],
+      );
+      const resources = yield* post(transport, "token-1", {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "resources/list",
+      });
+      assert.deepEqual((resources.body as { result: unknown }).result, {
+        resources: [
+          {
+            uri: "ui://moss/test.html",
+            name: "test",
+            mimeType: "text/html;profile=mcp-app",
+            _meta: { ui: { prefersBorder: false } },
+          },
+        ],
+      });
+      const read = yield* post(transport, "token-1", {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "resources/read",
+        params: { uri: "ui://moss/test.html" },
+      });
+      assert.equal(
+        (read.body as { result: { contents: Array<{ text: string }> } }).result.contents[0]!.text,
+        "<p>moss widget</p>",
+      );
+      // The widget-only tool stays callable by name (a widget's call arrives this way).
+      yield* post(transport, "token-1", {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: {
+          name: "moss_widget_only",
+          arguments: {},
+          _meta: { "claudecode/toolUseId": "toolu_gateway_1" },
+        },
+      });
+      assert.equal(captured.length, 1);
+      assert.equal(captured[0]!.toolName, "moss_widget_only");
+      assert.equal(captured[0]!.callIdHint, "toolu_gateway_1");
+      assert.deepEqual((captured[0]!.result as { structuredContent: unknown }).structuredContent, {
+        ok: true,
+      });
     }),
   );
 });

@@ -1018,7 +1018,11 @@ function SidebarMenuButton({
   // here, so `??` would not preserve behavior.
   const variant = variantProp === undefined ? "default" : variantProp;
   const size = sizeProp === undefined ? "default" : sizeProp;
-  const { isMobile, state } = useSidebar();
+  // Only the collapsed-rail tooltip needs the provider; a menu row mounted outside one
+  // (the 资料空间 panel in isolation, tests) reads as an expanded desktop sidebar.
+  const sidebar = React.useContext(SidebarContext);
+  const isMobile = sidebar?.isMobile ?? false;
+  const state = sidebar?.state ?? "expanded";
 
   const defaultProps = {
     className: cn(sidebarMenuButtonVariants({ size, variant }), className),

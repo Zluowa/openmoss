@@ -157,6 +157,35 @@ describe("ComputerSettingsPanel", () => {
     expect(markup).not.toContain("Rust");
   });
 
+  it("says what is missing when the backend knows, still without its English text", () => {
+    const missing = render({
+      status: status({
+        availability: {
+          kind: "backend-unavailable",
+          message:
+            "Cua Driver is not staged in this checkout. Relaunch the dev window (it downloads the pinned, checksum-verified driver), or run `node apps/desktop/scripts/provision-cua-driver.mjs`.",
+          reason: "component-missing",
+        },
+      }),
+    });
+    expect(missing).toContain(
+      "Moss is missing its computer control part. Restart or reinstall Moss",
+    );
+    expect(missing).toContain("Try again");
+    expect(missing).not.toContain("Cua");
+    expect(missing).not.toContain("provision");
+    const notStarted = render({
+      status: status({
+        availability: {
+          kind: "backend-unavailable",
+          message: "Moss's computer control is not running yet. Restart Moss, then refresh.",
+          reason: "host-not-running",
+        },
+      }),
+    });
+    expect(notStarted).toContain("Computer control didn&#x27;t start. Restart Moss");
+  });
+
   it("does not read out the backend or its abilities", () => {
     const markup = render({
       status: status({
@@ -191,6 +220,19 @@ describe("ComputerSettingsPanel", () => {
     expect(resolveComputerUseStatusLine({ ...base, reconnecting: true })?.text).toBe(
       "Reconnecting…",
     );
+    // A known reason is looked at again, never sent through setup.
+    for (const unavailableReason of ["component-missing", "host-not-running"] as const) {
+      expect(
+        resolveComputerUseStatusLine({
+          ...base,
+          availabilityKind: "backend-unavailable",
+          unavailableReason,
+        })?.action,
+      ).toBe("recheck");
+    }
+    expect(
+      resolveComputerUseStatusLine({ ...base, availabilityKind: "backend-unavailable" })?.action,
+    ).toBe("retry");
   });
 
   describe("agent cursor colors", () => {

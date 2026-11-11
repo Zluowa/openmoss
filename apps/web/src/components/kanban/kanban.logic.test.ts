@@ -18,6 +18,7 @@ import {
   kanbanThreadCardId,
   KANBAN_NEEDS_REVIEW_CAP,
   orderDraftCards,
+  overviewColumnWeight,
   overviewVisibleKanbanCards,
   reorderDraftCardIds,
   reorderDraftCardIdsInFullOrder,
@@ -1460,5 +1461,11 @@ describe("buildKanbanBoard v2 mode", () => {
     expect(project.inProgress).toHaveLength(0);
     expect(project.done.map((card) => card.threadId)).toEqual(["thread-review"]);
     expect(project.totalCount).toBe(1);
+  });
+});
+
+describe("overviewColumnWeight", () => {
+  it("gives a project one share per card, at least one and at most four", () => {
+    expect([0, 1, 2, 3, 4, 5, 31].map(overviewColumnWeight)).toEqual([1, 1, 2, 3, 4, 4, 4]);
   });
 });

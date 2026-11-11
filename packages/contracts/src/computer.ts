@@ -268,6 +268,9 @@ export const ComputerSetupRequiredPayload = Schema.Struct({
 });
 export type ComputerSetupRequiredPayload = typeof ComputerSetupRequiredPayload.Type;
 
+export const ComputerUnavailableReason = Schema.Literals(["component-missing", "host-not-running"]);
+export type ComputerUnavailableReason = typeof ComputerUnavailableReason.Type;
+
 export const ComputerAvailability = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("available"),
@@ -302,6 +305,12 @@ export const ComputerAvailability = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("backend-unavailable"),
     message: TrimmedNonEmptyString.check(Schema.isMaxLength(COMPUTER_MESSAGE_MAX_LENGTH)),
+    /**
+     * What is wrong, when the backend knows, so a surface can say it in plain
+     * words without reading the English `message`: the driver executable is
+     * missing from this install, or the desktop's computer host never started.
+     */
+    reason: Schema.optional(ComputerUnavailableReason),
   }),
 ]);
 export type ComputerAvailability = typeof ComputerAvailability.Type;

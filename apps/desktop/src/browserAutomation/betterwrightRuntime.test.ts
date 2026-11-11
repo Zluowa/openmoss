@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebContents } from "electron";
 import { BrowserAutomationErrorMessages } from "@moss/contracts";
-import { runBetterwright } from "./betterwrightRuntime";
+import { closeLingeringBrowserWorkers, runBetterwright } from "./betterwrightRuntime";
 
 const mocks = vi.hoisted(() => ({
   run: vi.fn(),
@@ -49,6 +49,11 @@ beforeEach(() => {
     session: {
       setProxy: vi.fn(async () => {}),
       closeAllConnections: vi.fn(async () => {}),
+      webRequest: {
+        onSendHeaders: vi.fn(),
+        onCompleted: vi.fn(),
+        onErrorOccurred: vi.fn(),
+      },
     },
   } as unknown as WebContents;
   mocks.browserClose.mockResolvedValue(undefined);
@@ -299,5 +304,137 @@ describe("Betterwright runtime errors", () => {
     finish({ ok: true, result: null });
     await expect(result).rejects.toBe(reason);
     expect(mocks.connectionClose).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Betterwright runtime settling and lingering workers", () => {
+  const runWith = (
+    extra: Partial<Parameters<typeof runBetterwright>[0]>,
+    code = "await page.click('#save')",
+  ) =>
+    runBetterwright({
+      home: "/synthetic",
+      contents,
+      code,
+      timeoutMs: 30000,
+      signal: new AbortController().signal,
+      ...extra,
+    });
+
+  it("settles after the script while the agent still holds the tab", async () => {
+    mocks.run.mockResolvedValue({ ok: true, result: null });
+    const order: string[] = [];
+    mocks.browserClose.mockImplementation(async () => {
+      order.push("close");
+    });
+    await runWith({
+      afterScript: async () => {
+        order.push("settle");
+        expect(contents.session.setProxy).toHaveBeenCalledTimes(1);
+      },
+    });
+    expect(order).toEqual(["settle", "close"]);
+  });
+
+  const requestEvents = () => {
+    const webRequest = (
+      contents.session as unknown as {
+        webRequest: Record<"onSendHeaders" | "onCompleted", ReturnType<typeof vi.fn>>;
+      }
+    ).webRequest;
+    const latest = (hook: ReturnType<typeof vi.fn>) =>
+      hook.mock.calls.findLast(([listener]) => typeof listener === "function")?.[0] as
+        | ((details: { id: number }) => void)
+        | undefined;
+    return {
+      send: (id: number) => latest(webRequest.onSendHeaders)?.({ id }),
+      finish: (id: number) => latest(webRequest.onCompleted)?.({ id }),
+    };
+  };
+
+  it("closes the worker before returning when no request is in flight", async () => {
+    mocks.run.mockResolvedValue({ ok: true, result: null });
+    await runWith({});
+    expect(mocks.browserClose).toHaveBeenCalledOnce();
+    expect(contents.session.setProxy).toHaveBeenLastCalledWith({ mode: "system" });
+  });
+
+  it("restores the session before returning but keeps the worker for requests in flight", async () => {
+    const events = requestEvents();
+    mocks.run.mockImplementation(async () => {
+      // Any tab of the shared session sends a request through the guard.
+      events.send(7);
+      return { ok: true, result: null };
+    });
+    await runWith({});
+    // The agent can no longer act, and new requests connect directly again.
+    expect(mocks.connectionClose).toHaveBeenCalledWith(false);
+    expect(contents.session.setProxy).toHaveBeenLastCalledWith({ mode: "system" });
+    // The worker still serves the request that flows through its guard.
+    expect(mocks.browserClose).not.toHaveBeenCalled();
+    events.finish(7);
+    await vi.waitFor(() => expect(mocks.browserClose).toHaveBeenCalledOnce());
+  });
+
+  it("does not hold a later run behind a lingering worker", async () => {
+    const events = requestEvents();
+    mocks.run.mockImplementationOnce(async () => {
+      events.send(9);
+      return { ok: true, result: null };
+    });
+    await runWith({});
+    expect(mocks.browserClose).not.toHaveBeenCalled();
+    mocks.run.mockResolvedValueOnce({ ok: true, result: "second" });
+    await expect(runWith({})).resolves.toBe("second");
+    // Only the second worker closed; the first still serves request 9.
+    expect(mocks.browserClose).toHaveBeenCalledOnce();
+    await closeLingeringBrowserWorkers();
+    expect(mocks.browserClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops at once instead of lingering after cancellation", async () => {
+    const events = requestEvents();
+    const controller = new AbortController();
+    mocks.run.mockImplementation(async () => {
+      events.send(11);
+      controller.abort(new Error("Synthetic human takeover."));
+      return { ok: true, result: null };
+    });
+    await expect(runWith({ signal: controller.signal })).rejects.toThrow();
+    expect(mocks.browserClose).toHaveBeenCalledOnce();
+  });
+
+  it("adds a host-authored detail that only quotes the script's own locator", async () => {
+    mocks.run.mockResolvedValue({
+      ok: false,
+      error:
+        "locator.click: Timeout 1500ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: 'Save' })\u001b[22m\n",
+    });
+    const failure = await runWith({}, "await page.getByRole('button',{name:'Save'}).click()").catch(
+      (value: unknown) => value,
+    );
+    expect(failure).toMatchObject({
+      browserError: {
+        code: "BrowserEvaluationFailed",
+        detail: expect.stringContaining(
+          "locator.click timed out after 1500ms waiting for getByRole('button', { name: 'Save' })",
+        ),
+      },
+    });
+  });
+
+  it("omits the locator when the call log names text the script never wrote", async () => {
+    mocks.run.mockResolvedValue({
+      ok: false,
+      error:
+        "locator.fill: Timeout 1000ms exceeded.\nCall log:\n  - waiting for getByLabel('private-password')\n",
+    });
+    const failure = await runWith({}, "await page.getByLabel('Name').fill('x')").catch(
+      (value: unknown) => value,
+    );
+    expect(failure).toMatchObject({
+      browserError: { detail: expect.stringContaining("locator.fill timed out after 1000ms.") },
+    });
+    expect(JSON.stringify(failure)).not.toContain("private-password");
   });
 });

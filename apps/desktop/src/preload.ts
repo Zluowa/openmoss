@@ -666,6 +666,10 @@ const desktopBridge = {
   mcpApps: {
     register: (input) => ipcRenderer.invoke(IPC.mcpApps.register, input),
     unregister: (input) => ipcRenderer.invoke(IPC.mcpApps.unregister, input),
+    requestPermissions: (sandboxId, permissions) =>
+      ipcRenderer.invoke(IPC.mcpApps.requestPermissions, sandboxId, permissions),
+    openExternal: (url) => ipcRenderer.invoke(IPC.mcpApps.openExternal, url),
+    saveDownload: (input) => ipcRenderer.invoke(IPC.mcpApps.saveDownload, input),
   },
 } satisfies DesktopBridge;
 

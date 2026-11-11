@@ -20,6 +20,7 @@ import {
 import {
   getClaudeContextWindowSuffix,
   getDefaultModel,
+  isProviderCliDefaultModel,
   stripClaudeContextWindowSuffix,
 } from "@moss/shared/model";
 import { defaultInstanceIdForProvider } from "@moss/shared/providerInstances";
@@ -1010,7 +1011,12 @@ export function resolveAgentGatewayTarget(input: {
           }
         : input.target;
 
-    if (catalog.models.length > 0 && descriptor === undefined) {
+    // The CLI-default slug names no catalog row: the CLI runs its own model setting.
+    const requestsCliDefaultModel = isProviderCliDefaultModel(
+      input.target.provider,
+      input.target.model,
+    );
+    if (catalog.models.length > 0 && descriptor === undefined && !requestsCliDefaultModel) {
       return yield* Effect.fail(
         new AgentGatewayTargetError(
           "model_unavailable",
@@ -1052,8 +1058,19 @@ export function resolveAgentGatewayTarget(input: {
       return target;
     }
 
+    if (descriptor === undefined) {
+      // Only the CLI-default slug reaches here; it has no advertised options.
+      try {
+        validateOptionsWithoutCatalog(input.target);
+      } catch (error) {
+        if (error instanceof AgentGatewayTargetError) return yield* Effect.fail(error);
+        throw error;
+      }
+      return target;
+    }
+
     try {
-      validateAdvertisedOption(input.target, descriptor!);
+      validateAdvertisedOption(input.target, descriptor);
     } catch (error) {
       if (error instanceof AgentGatewayTargetError) return yield* Effect.fail(error);
       throw error;

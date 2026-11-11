@@ -73,6 +73,27 @@ const startWith = (input: {
 };
 
 describe("Grok resume model pinning", () => {
+  it("starts the CLI default without -m and reloads only a session started on it", async () => {
+    const fresh = await startWith({ model: "default" });
+    expect(fresh.result._tag).toBe("Success");
+    expect(fresh.spawns).toEqual([{}]);
+    const cursor = fresh.result._tag === "Success" ? fresh.result.success.resumeCursor : undefined;
+    expect(cursor).toEqual({ schemaVersion: 1, sessionId: SESSION_ID, model: "default" });
+
+    const reloaded = await startWith({ model: "default", resumeCursor: cursor });
+    expect(reloaded.result._tag).toBe("Success");
+    expect(reloaded.spawns).toEqual([{ resumeSessionId: SESSION_ID }]);
+
+    for (const resumeCursor of [
+      { schemaVersion: 1, sessionId: SESSION_ID, model: "grok-4.6" },
+      { schemaVersion: 1, sessionId: SESSION_ID },
+    ]) {
+      const refused = await startWith({ model: "default", resumeCursor });
+      expect(refused.result._tag).toBe("Failure");
+      expect(refused.spawns).toEqual([]);
+    }
+  });
+
   it("records the spawn flags and reloads only a session created with them", async () => {
     const fresh = await startWith({ model: "grok-build", reasoningEffort: "high" });
     expect(fresh.result._tag).toBe("Success");

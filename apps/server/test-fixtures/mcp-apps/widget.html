@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fixture widget</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 12px;
+        font: 13px/1.4 var(--font-sans, system-ui);
+        color: var(--color-text-primary, #222);
+        background: var(--color-background-primary, transparent);
+      }
+      button {
+        margin: 2px 4px 2px 0;
+      }
+      pre {
+        max-height: 240px;
+        overflow: auto;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <h3 id="greeting">Waiting for the tool result…</h3>
+    <div>Counter: <span id="count">?</span></div>
+    <div id="actions">
+      <button id="increment">Increment (widget tool call)</button>
+      <button id="fullscreen">Open in pane</button>
+      <button id="message">Fill the composer</button>
+      <button id="link">Open a link</button>
+      <button id="download">Download report</button>
+    </div>
+    <pre id="log"></pre>
+    <!--MOSS_EXT_APPS_SDK-->
+    <script type="module">
+      // Exercises every widget → host request type; results land in window.__results and #log.
+      const results = (window.__results = []);
+      const logEl = document.getElementById("log");
+      const note = (key, value) => {
+        const entry = {
+          key,
+          value: value === undefined ? null : JSON.parse(JSON.stringify(value)),
+        };
+        results.push(entry);
+        logEl.textContent += `${key}: ${JSON.stringify(entry.value).slice(0, 300)}\n`;
+      };
+      const attempt = async (key, run) => {
+        try {
+          note(key, await run());
+        } catch (error) {
+          note(`${key}:error`, { message: error?.message, code: error?.code });
+        }
+      };
+      const sdk = document.getElementById("ext-apps-sdk").textContent;
+      const { App } = await import(
+        URL.createObjectURL(new Blob([sdk], { type: "text/javascript" }))
+      );
+      const app = new App(
+        { name: "moss-fixture-widget", version: "1.0.0" },
+        {},
+        { autoResize: true },
+      );
+      let count = 0;
+      app.ontoolinput = (params) => note("tool-input", params);
+      app.ontoolinputpartial = (params) => note("tool-input-partial", params);
+      app.ontoolresult = (result) => {
+        note("tool-result", result);
+        const structured = result?.structuredContent ?? {};
+        document.getElementById("greeting").textContent = structured.greeting ?? "No greeting";
+        count = typeof structured.count === "number" ? structured.count : count;
+        document.getElementById("count").textContent = String(count);
+      };
+      app.onhostcontextchanged = (context) => note("host-context-changed", context);
+      await attempt("connect", () => app.connect());
+      note("host-version", app.getHostVersion?.());
+      note("host-capabilities", app.getHostCapabilities?.());
+      note("host-context", app.getHostContext?.());
+
+      // Requests that need no user gesture run once on load.
+      await attempt("tools/list via read", () =>
+        app.callServerTool({ name: "fixture_app_read", arguments: {} }),
+      );
+      await attempt("model-only refused", () =>
+        app.callServerTool({ name: "fixture_model_only", arguments: { text: "x" } }),
+      );
+      await attempt("unknown refused", () =>
+        app.callServerTool({ name: "no_such_tool", arguments: {} }),
+      );
+      await attempt("resources/list", () => app.listServerResources({}));
+      await attempt("resources/read", () =>
+        app.readServerResource({ uri: "fixture://files/report.txt" }),
+      );
+      await attempt("update-model-context", () =>
+        app.updateModelContext({
+          content: [{ type: "text", text: `counter=${count}` }],
+          structuredContent: { count },
+        }),
+      );
+      await attempt("log", () => app.sendLog({ level: "info", logger: "fixture", data: "loaded" }));
+
+      document.getElementById("increment").onclick = () =>
+        attempt("increment", async () => {
+          const result = await app.callServerTool({
+            name: "fixture_app_increment",
+            arguments: { count },
+          });
+          count = result?.structuredContent?.count ?? count;
+          document.getElementById("count").textContent = String(count);
+          return result;
+        });
+      document.getElementById("fullscreen").onclick = () =>
+        attempt("request-display-mode", () => app.requestDisplayMode({ mode: "fullscreen" }));
+      document.getElementById("message").onclick = () =>
+        attempt("message", () =>
+          app.sendMessage({
+            role: "user",
+            content: [{ type: "text", text: `The counter is ${count}.` }],
+          }),
+        );
+      document.getElementById("link").onclick = () =>
+        attempt("open-link", () => app.openLink({ url: "https://example.com/fixture" }));
+      document.getElementById("download").onclick = () =>
+        attempt("download-file", () =>
+          app.downloadFile({
+            contents: [
+              {
+                type: "resource",
+                resource: {
+                  uri: "file:///counter.txt",
+                  mimeType: "text/plain",
+                  text: String(count),
+                },
+              },
+              { type: "resource_link", uri: "fixture://files/report.txt", name: "report.txt" },
+            ],
+          }),
+        );
+      window.__ready = true;
+    </script>
+  </body>
+</html>

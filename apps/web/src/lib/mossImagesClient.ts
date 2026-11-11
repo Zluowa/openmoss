@@ -703,6 +703,39 @@ export async function requestMossImagesGenerate(
   );
 }
 
+/**
+ * Posts a media job exactly as a Canvas card built it (a page's image or video card): the same
+ * request the hosted Canvas sends. The server validates every field and the model. Never retried
+ * automatically: an interrupted submission may already be billed.
+ */
+export async function requestMossMediaJob(
+  body: Readonly<Record<string, unknown>>,
+  signal?: AbortSignal,
+  fetchImpl: ImagesFetch = globalThis.fetch,
+): Promise<MossImageJob> {
+  if (
+    typeof body.idempotencyKey !== "string" ||
+    !/^[A-Za-z0-9-]{8,128}$/u.test(body.idempotencyKey) ||
+    typeof body.modelId !== "string" ||
+    !body.modelId ||
+    typeof body.prompt !== "string" ||
+    !body.prompt.trim() ||
+    body.prompt.length > 8_000 ||
+    // A page card is not a conversation's Canvas: it never binds a conversation folder.
+    (typeof body.projectId === "string" && body.projectId.startsWith("thread:")) ||
+    body.expectedWorkspace !== undefined
+  ) {
+    throw new MossImagesError("请输入不超过 8,000 字符的描述并选择模型。", "invalid_request");
+  }
+  return parseJob(
+    await readJson(
+      JOBS_PATH,
+      { method: "POST", body: JSON.stringify(body), ...(signal ? { signal } : {}) },
+      fetchImpl,
+    ),
+  );
+}
+
 /** Reconcile the original operation without ever re-submitting a paid generation. */
 export async function loadMossImageJob(
   jobId: string,

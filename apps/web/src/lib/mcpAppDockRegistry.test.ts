@@ -230,42 +230,33 @@ describe("MCP App RightDock registry", () => {
     expect(getMcpAppDockEntries("thread-one")).toEqual([]);
   });
 
-  it("does not steal another selected tab on a repeated fullscreen request", async () => {
+  it("does not reopen the panel on a repeated fullscreen request", async () => {
     vi.useFakeTimers();
     const inline = hostElement();
     const sidePanel = hostElement();
     const open = vi.fn();
-    const host = { open, hide: vi.fn() };
-    registerMcpAppDockHost("thread-one", host);
-    const ids = ["one", "two"].map((suffix) =>
-      makeMcpAppDockEntryId("thread-one", `call-${suffix}`, `ui://${suffix}`),
-    );
-    for (const id of ids) {
-      await registerMcpAppDockEntry({
-        id,
-        threadId: "thread-one",
-        title: id,
-        getInlineContainer: () => inline,
-        layoutFrameTo: () => true,
-      });
-      await requestMcpAppDisplayMode(id, "fullscreen");
-      selectMcpAppDockEntry("thread-one", id);
-      attachMcpAppSidePanelHost(id, sidePanel);
-      await vi.advanceTimersByTimeAsync(0);
-    }
-    selectMcpAppDockEntry("thread-one", ids[0]!);
+    registerMcpAppDockHost("thread-one", { open, hide: vi.fn() });
+    const id = makeMcpAppDockEntryId("thread-one", "call-one", "ui://one");
+    await registerMcpAppDockEntry({
+      id,
+      threadId: "thread-one",
+      title: id,
+      getInlineContainer: () => inline,
+      layoutFrameTo: () => true,
+    });
+    await requestMcpAppDisplayMode(id, "fullscreen");
+    selectMcpAppDockEntry("thread-one", id);
+    attachMcpAppSidePanelHost(id, sidePanel);
+    await vi.advanceTimersByTimeAsync(0);
     open.mockClear();
 
-    await expect(requestMcpAppDisplayMode(ids[1]!, "fullscreen")).resolves.toEqual({
+    await expect(requestMcpAppDisplayMode(id, "fullscreen")).resolves.toEqual({
       mode: "fullscreen",
     });
     expect(open).not.toHaveBeenCalled();
-    expect(getMcpAppDockEntries("thread-one")).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: ids[0], selected: true }),
-        expect.objectContaining({ id: ids[1], selected: false }),
-      ]),
-    );
+    expect(getMcpAppDockEntries("thread-one")).toEqual([
+      expect.objectContaining({ id, selected: true, displayMode: "fullscreen" }),
+    ]);
   });
 
   it("hides an inactive stable frame and restores it after inline exit", async () => {
@@ -333,7 +324,7 @@ describe("MCP App RightDock registry", () => {
     ]);
   });
 
-  it("selects a surviving transient app when the selected app exits", async () => {
+  it("keeps one widget in the side panel: a second one sends the first back inline", async () => {
     vi.useFakeTimers();
     const inline = hostElement();
     const sidePanel = hostElement();
@@ -342,29 +333,35 @@ describe("MCP App RightDock registry", () => {
     const ids = ["one", "two"].map((suffix) =>
       makeMcpAppDockEntryId("thread-one", `call-${suffix}`, `ui://${suffix}`),
     );
+    const layouts: Array<[string, string]> = [];
     for (const id of ids) {
       await registerMcpAppDockEntry({
         id,
         threadId: "thread-one",
         title: id,
         getInlineContainer: () => inline,
-        layoutFrameTo: () => true,
+        layoutFrameTo: (_target, mode) => {
+          layouts.push([id, mode]);
+          return true;
+        },
       });
-      const pending = requestMcpAppDisplayMode(id, "fullscreen");
-      attachMcpAppSidePanelHost(id, sidePanel);
-      await pending;
-      await vi.advanceTimersByTimeAsync(0);
     }
-    selectMcpAppDockEntry("thread-one", ids[0]!);
-    await requestMcpAppDisplayMode(ids[0]!, "inline");
-    expect(getMcpAppDockEntries("thread-one")).toHaveLength(2);
+    const first = requestMcpAppDisplayMode(ids[0]!, "fullscreen");
+    attachMcpAppSidePanelHost(ids[0]!, sidePanel);
+    await first;
     await vi.advanceTimersByTimeAsync(0);
-    expect(getMcpAppDockEntries("thread-one")).toHaveLength(1);
-    expect(getMcpAppDockEntries("thread-one")[0]).toMatchObject({
-      id: ids[1],
-      selected: true,
-      displayMode: "fullscreen",
-    });
+    expect(getMcpAppDockEntries("thread-one")).toEqual([
+      expect.objectContaining({ id: ids[0], displayMode: "fullscreen" }),
+    ]);
+
+    const second = requestMcpAppDisplayMode(ids[1]!, "fullscreen");
+    attachMcpAppSidePanelHost(ids[1]!, sidePanel);
+    await second;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(layouts).toContainEqual([ids[0], "inline"]);
+    expect(getMcpAppDockEntries("thread-one")).toEqual([
+      expect.objectContaining({ id: ids[1], displayMode: "fullscreen" }),
+    ]);
   });
 
   it("times out without a host and cleans the pending transient state", async () => {

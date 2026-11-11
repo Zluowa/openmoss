@@ -89,6 +89,11 @@ function fixture(rememberSessionImport = vi.fn(async (_domains: readonly string[
       cookies: { flushStore: vi.fn(async () => {}) },
       setProxy: vi.fn(async () => {}),
       closeAllConnections: vi.fn(async () => {}),
+      webRequest: {
+        onSendHeaders: vi.fn(),
+        onCompleted: vi.fn(),
+        onErrorOccurred: vi.fn(),
+      },
     },
   });
   const releaseHumanOperation = vi.fn();

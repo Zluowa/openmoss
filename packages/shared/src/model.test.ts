@@ -38,7 +38,9 @@ import {
   resolveModelSlug,
   resolveModelSlugForProvider,
   getDefaultEffort,
+  getDefaultModel,
   getProviderOptionDescriptors,
+  isProviderCliDefaultModel,
   hasEffortLevel,
   resolveGrokEffortFamily,
   codexServiceTiersInclude,
@@ -147,7 +149,10 @@ describe("normalizeModelSlug", () => {
   });
 
   it("uses provider-specific aliases", () => {
-    expect(normalizeModelSlug("sonnet", "claudeAgent")).toBe("claude-sonnet-5");
+    expect(normalizeModelSlug("sonnet", "claudeAgent")).toBe("claude-sonnet-5-5");
+    expect(normalizeModelSlug("sonnet-5", "claudeAgent")).toBe("claude-sonnet-5");
+    expect(normalizeModelSlug("haiku", "claudeAgent")).toBe("claude-haiku-5-5");
+    expect(normalizeModelSlug("haiku-4.5", "claudeAgent")).toBe("claude-haiku-4-5");
     expect(normalizeModelSlug("opus", "claudeAgent")).toBe("claude-opus-5-5");
     expect(normalizeModelSlug("opus-5.5", "claudeAgent")).toBe("claude-opus-5-5");
     expect(normalizeModelSlug("claude-opus-5.5", "claudeAgent")).toBe("claude-opus-5-5");
@@ -183,10 +188,15 @@ describe("resolveModelSlug", () => {
     expect(resolveModelSlugForProvider("claudeAgent", undefined)).toBe(
       DEFAULT_MODEL_BY_PROVIDER.claudeAgent,
     );
-    expect(resolveModelSlugForProvider("claudeAgent", "sonnet")).toBe("claude-sonnet-5");
-    expect(resolveModelSlugForProvider("claudeAgent", "fable")).toBe("claude-fable-5-1");
+    expect(resolveModelSlugForProvider("claudeAgent", "sonnet")).toBe("claude-sonnet-5-5");
+    expect(resolveModelSlugForProvider("claudeAgent", "fable")).toBe("claude-fable-5-2");
     expect(resolveModelSlugForProvider("claudeAgent", "claude-opus-5-5[1m]")).toBe(
       "claude-opus-5-5",
+    );
+    expect(resolveModelSlugForProvider("claudeAgent", "fable-5.2")).toBe("claude-fable-5-2");
+    expect(resolveModelSlugForProvider("claudeAgent", "claude-fable-5.2")).toBe("claude-fable-5-2");
+    expect(resolveModelSlugForProvider("claudeAgent", "claude-fable-5-2[1m]")).toBe(
+      "claude-fable-5-2",
     );
     expect(resolveModelSlugForProvider("claudeAgent", "fable-5.1")).toBe("claude-fable-5-1");
     expect(resolveModelSlugForProvider("claudeAgent", "claude-fable-5-1[1m]")).toBe(
@@ -225,10 +235,11 @@ describe("resolveSelectableModel", () => {
     expect(
       resolveSelectableModel("claudeAgent", "sonnet", [
         { slug: "claude-opus-4-6", name: "Claude Opus 4.6" },
+        { slug: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
         { slug: "claude-sonnet-5", name: "Claude Sonnet 5" },
         { slug: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
       ]),
-    ).toBe("claude-sonnet-5");
+    ).toBe("claude-sonnet-5-5");
     expect(
       resolveSelectableModel("claudeAgent", "sonnet-4.6", [
         { slug: "claude-sonnet-5", name: "Claude Sonnet 5" },
@@ -347,7 +358,6 @@ describe("getModelCapabilities reasoningEffortLevels", () => {
       "xhigh",
       "max",
       "ultrathink",
-      "ultracode",
     ]);
   });
 
@@ -358,8 +368,27 @@ describe("getModelCapabilities reasoningEffortLevels", () => {
       "high",
       "xhigh",
       "max",
-      "ultracode",
+      "ultrathink",
     ]);
+  });
+
+  it("returns the Claude 5 ladder for current Claude models", () => {
+    for (const slug of [
+      "claude-fable-5-2",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "claude-haiku-5-5",
+    ]) {
+      expect(values("claudeAgent", slug)).toEqual([
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultracode",
+        "ultrathink",
+      ]);
+    }
   });
 
   it("marks Claude API efforts separately from Claude Code modes", () => {
@@ -369,7 +398,7 @@ describe("getModelCapabilities reasoningEffortLevels", () => {
 
     const sonnet5Levels = getModelCapabilities(
       "claudeAgent",
-      "claude-sonnet-5",
+      "claude-sonnet-5-5",
     ).reasoningEffortLevels;
     expect(sonnet5Levels.find((option) => option.value === "max")).toMatchObject({
       controlSource: "api-effort",
@@ -409,9 +438,17 @@ describe("getDefaultEffort", () => {
     expect(getDefaultEffort(getModelCapabilities("codex", "gpt-5.5"))).toBe("medium");
     expect(getDefaultEffort(getModelCapabilities("codex", "gpt-5.4"))).toBe("high");
     expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-opus-5"))).toBe("high");
-    expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-opus-4-7"))).toBe("high");
+    expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-opus-4-7"))).toBe("xhigh");
     expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-opus-4-6"))).toBe("high");
     expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-sonnet-5"))).toBe("high");
+    expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-sonnet-5-5"))).toBe("high");
+    expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-opus-5-5"))).toBe("medium");
+    expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-fable-5-2"))).toBe(
+      "medium",
+    );
+    expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-haiku-5-5"))).toBe(
+      "medium",
+    );
     expect(getDefaultEffort(getModelCapabilities("claudeAgent", "claude-haiku-4-5"))).toBeNull();
     expect(getDefaultEffort(getModelCapabilities("grok", "grok-build-0.1"))).toBe("low");
     expect(getDefaultEffort(getModelCapabilities("grok", "grok-build"))).toBe("low");
@@ -835,9 +872,9 @@ describe("normalizeClaudeModelOptions", () => {
     });
   });
 
-  it("keeps Sonnet 5 xhigh and ultracode options while removing unsupported fast mode", () => {
+  it("keeps Sonnet 5.5 xhigh and ultracode options while removing unsupported fast mode", () => {
     expect(
-      normalizeClaudeModelOptions("claude-sonnet-5", {
+      normalizeClaudeModelOptions("claude-sonnet-5-5", {
         effort: "xhigh",
         fastMode: true,
       }),
@@ -845,12 +882,17 @@ describe("normalizeClaudeModelOptions", () => {
       effort: "xhigh",
     });
     expect(
-      normalizeClaudeModelOptions("claude-sonnet-5", {
+      normalizeClaudeModelOptions("claude-sonnet-5-5", {
         effort: "ultracode",
       }),
     ).toEqual({
       effort: "ultracode",
     });
+    expect(
+      normalizeClaudeModelOptions("claude-sonnet-5", {
+        effort: "ultracode",
+      }),
+    ).toBeUndefined();
   });
 
   it("keeps the Haiku thinking toggle and removes unsupported effort", () => {
@@ -1155,6 +1197,21 @@ describe("normalizeOmpModelOptions", () => {
   });
 });
 
+describe("isProviderCliDefaultModel", () => {
+  it("leaves Grok and Antigravity on their own CLI model setting by default", () => {
+    expect(getDefaultModel("grok")).toBe("default");
+    expect(getDefaultModel("antigravity")).toBe("default");
+    expect(isProviderCliDefaultModel("grok", "default")).toBe(true);
+    expect(isProviderCliDefaultModel("antigravity", " default ")).toBe(true);
+    expect(isProviderCliDefaultModel("grok", "grok-4.6")).toBe(false);
+    expect(isProviderCliDefaultModel("codex", "default")).toBe(false);
+    expect(isProviderCliDefaultModel("claudeAgent", "default")).toBe(false);
+    expect(resolveModelSlugForProvider("grok", "default")).toBe("default");
+    expect(getModelCapabilities("grok", "default").reasoningEffortLevels).toEqual([]);
+    expect(getModelCapabilities("antigravity", "default").reasoningEffortLevels).toEqual([]);
+  });
+});
+
 describe("getModelCapabilities Claude capability flags", () => {
   it("keeps every catalog Claude model on its own catalog capabilities", () => {
     for (const model of MODEL_OPTIONS_BY_PROVIDER.claudeAgent) {
@@ -1169,9 +1226,9 @@ describe("getModelCapabilities Claude capability flags", () => {
     expect(caps("claude-opus-6")).toBe(caps("claude-opus-5-5"));
     expect(caps("claude-opus-6[1m]")).toBe(caps("claude-opus-5-5"));
     expect(caps("claude-opus-5-6")).toBe(caps("claude-opus-5-5"));
-    expect(caps("claude-fable-6")).toBe(caps("claude-fable-5-1"));
-    expect(caps("claude-sonnet-5-1")).toBe(caps("claude-sonnet-5"));
-    expect(caps("claude-haiku-5")).toBe(caps("claude-haiku-4-5"));
+    expect(caps("claude-fable-6")).toBe(caps("claude-fable-5-2"));
+    expect(caps("claude-sonnet-6")).toBe(caps("claude-sonnet-5-5"));
+    expect(caps("claude-haiku-6")).toBe(caps("claude-haiku-5-5"));
     expect(resolveNewestKnownClaudeFamilyModel("claude-opus-6[1m]")).toBe("claude-opus-5-5");
   });
 

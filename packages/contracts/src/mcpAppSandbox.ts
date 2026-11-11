@@ -9,8 +9,8 @@ import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 import { McpAppResourceCsp } from "./mcpAppResource";
 
 export const MCP_APP_SANDBOX_SCHEME = "moss-mcp-sandbox" as const;
-export const MCP_APP_SANDBOX_PATH = "/ui" as const;
-export const MCP_APP_SANDBOX_CONTENT_PATH = "/content" as const;
+/** The Moss proxy page every widget guest loads (`moss-mcp-sandbox://<label>/mcp_apps`). */
+export const MCP_APP_SANDBOX_PATH = "/mcp_apps" as const;
 export const MCP_APP_SANDBOX_PORT_NAME = "mcp-app-host" as const;
 export const MCP_APP_SANDBOX_NAVIGATION_PORT_NAME = "mcp-app-navigation" as const;
 export const MCP_APP_SANDBOX_PORT_NAMES = [
@@ -19,25 +19,71 @@ export const MCP_APP_SANDBOX_PORT_NAMES = [
 ] as const;
 export const MCP_APP_SANDBOX_NAVIGATION_STATE_TYPE = "state" as const;
 export const MCP_APP_SANDBOX_NAVIGATION_COMMAND_TYPE = "navigate" as const;
-export const MCP_APP_SANDBOX_CONTENT_READY_TYPE = "moss_desktop:mcp-app-content-ready" as const;
-export const MCP_APP_SANDBOX_CONTENT_INSTALL_TYPE = "moss_desktop:mcp-app-content-install" as const;
-export const MCP_APP_SANDBOX_INNER_SANDBOX = "allow-scripts allow-same-origin allow-forms" as const;
+/** Inner widget frame of the default (isolated, opaque-origin srcdoc) variant. */
+export const MCP_APP_SANDBOX_INNER_SANDBOX = "allow-scripts allow-forms" as const;
+/** Inner widget frame of the stable-origin variant (same origin as the proxy page). */
+export const MCP_APP_SANDBOX_STABLE_INNER_SANDBOX =
+  "allow-scripts allow-same-origin allow-forms" as const;
 export const MCP_APP_SANDBOX_PROXY_READY_METHOD = "ui/notifications/sandbox-proxy-ready" as const;
+export const MCP_APP_SANDBOX_RESOURCE_READY_METHOD =
+  "ui/notifications/sandbox-resource-ready" as const;
+/** Host-only streaming extension; the proxy turns it into `tool-input-partial`. */
+export const MCP_APP_SANDBOX_TOOL_INPUT_DELTA_METHOD = "ui/notifications/tool-input-delta" as const;
+export const MCP_APP_SANDBOX_TOOL_INPUT_PARTIAL_METHOD =
+  "ui/notifications/tool-input-partial" as const;
+export const MCP_APP_SANDBOX_TOOL_INPUT_METHOD = "ui/notifications/tool-input" as const;
+/** Proxy -> widget print sidecar (`{type, phase: "before" | "after", theme?}`). */
+export const MCP_APP_SANDBOX_PRINT_THEME_TYPE = "moss:print-theme" as const;
+/** Marker of every shell -> host bridge envelope. */
+export const MCP_APP_SANDBOX_BRIDGE_MESSAGE_TYPE = "moss:mcp-app-message" as const;
 export const MCP_APP_SANDBOX_MAIN_TO_TRUSTED_CHANNEL =
   "moss_desktop:mcp-app-sandbox-host-message" as const;
 export const MCP_APP_SANDBOX_GUEST_INIT_TYPE = "init" as const;
 export const MCP_APP_SANDBOX_ACK_TYPE = "moss_desktop:mcp-app-sandbox-ack" as const;
+
+/**
+ * Fixed origin of the sandbox's own assets (fonts). Every widget CSP lists it in
+ * its resource directives, and every partition serves it.
+ */
+export const MCP_APP_SANDBOX_ASSET_ORIGIN = `${MCP_APP_SANDBOX_SCHEME}://assets` as const;
+export const MCP_APP_SANDBOX_FONT_PATH = "/fonts/inter-latin.woff2" as const;
+/** Inter (latin, variable 100-900) for `hostContext.styles.css.fonts`. */
+export const MCP_APP_SANDBOX_FONT_URL =
+  `${MCP_APP_SANDBOX_ASSET_ORIGIN}${MCP_APP_SANDBOX_FONT_PATH}` as const;
+export const MCP_APP_SANDBOX_FONT_FACE_CSS = `@font-face { font-family: "Inter"; src: url("${MCP_APP_SANDBOX_FONT_URL}") format("woff2"); font-weight: 100 900; font-style: normal; font-display: swap; }`;
 
 export const MCP_APP_SANDBOX_MAX_GENERATION = 1_000_000 as const;
 export const MCP_APP_SANDBOX_MAX_DIMENSION = 16_384 as const;
 export const MCP_APP_SANDBOX_MAX_CSP_CHARS = 64_000;
 export const MCP_APP_SANDBOX_MAX_MESSAGE_BYTES = 512 * 1024;
 export const MCP_APP_SANDBOX_MAX_OUTSTANDING_REQUESTS = 32;
-export const MCP_APP_SANDBOX_INIT_TIMEOUT_MS = 15_000;
+/** Proxy flushes buffered host traffic to an isolated widget after this at the latest. */
+export const MCP_APP_SANDBOX_READY_FLUSH_TIMEOUT_MS = 5_000 as const;
+/** Wait for `sandbox-proxy-ready`, retried once with a fresh guest. */
+export const MCP_APP_SANDBOX_PROXY_READY_TIMEOUT_MS = 30_000 as const;
+export const MCP_APP_SANDBOX_PROXY_READY_RETRIES = 1 as const;
+/** Wait for the widget's `initialized` (third-party servers get the extra slack). */
+export const MCP_APP_SANDBOX_INIT_TIMEOUT_MS = 10_000;
+export const MCP_APP_SANDBOX_INIT_TIMEOUT_SLACK_MS = 5_000 as const;
 export const MCP_APP_SANDBOX_PENDING_TTL_MS = 30_000 as const;
 export const MCP_APP_FRAME_DEFAULT_HEIGHT = 240 as const;
-export const MCP_APP_FRAME_MIN_HEIGHT = 200 as const;
-export const MCP_APP_FRAME_MAX_HEIGHT = 720 as const;
+/** Inline widget heights are clamped to this; there is no lower clamp. */
+export const MCP_APP_INLINE_MAX_HEIGHT = 5_000 as const;
+/** `size-changed` heights at or below this are ignored while a remembered height is restored. */
+export const MCP_APP_SIZE_EMPTY_THRESHOLD = 8 as const;
+export const MCP_APP_DOWNLOAD_MAX_BYTES = 32 * 1024 * 1024;
+export const MCP_APP_EXTERNAL_URL_SCHEMES = ["http:", "https:", "mailto:", "tel:", "sms:"] as const;
+export const MCP_APP_SANDBOX_PERMISSION_KEYS = [
+  "camera",
+  "microphone",
+  "geolocation",
+  "clipboardWrite",
+] as const;
+export type McpAppSandboxPermissionKey = (typeof MCP_APP_SANDBOX_PERMISSION_KEYS)[number];
+/** A permission is requested/granted when its key is `true`. */
+export type McpAppSandboxPermissions = {
+  readonly [Key in McpAppSandboxPermissionKey]?: boolean | undefined;
+};
 
 const BoundedIdentity = TrimmedNonEmptyString.check(Schema.isMaxLength(200));
 const BoundedDomain = TrimmedNonEmptyString.check(Schema.isMaxLength(2_000));
@@ -72,19 +118,34 @@ const BoundedDimensions = Schema.Struct({
 export type McpAppSandboxTheme = typeof BoundedTheme.Type;
 export type McpAppSandboxDimensions = typeof BoundedDimensions.Type;
 
+const BoundedPermissions = Schema.Struct({
+  camera: Schema.optional(Schema.Boolean),
+  clipboardWrite: Schema.optional(Schema.Boolean),
+  geolocation: Schema.optional(Schema.Boolean),
+  microphone: Schema.optional(Schema.Boolean),
+});
+
 /** The only fields the trusted renderer may ask main to register. */
 export const McpAppSandboxRegisterInput = Schema.Struct({
   callId: BoundedIdentity,
   connectorId: Schema.optional(BoundedIdentity),
+  /** Remote connector URL; only read when `stableOrigin` is true. */
+  connectorUrl: Schema.optional(BoundedDomain),
   containerDimensions: BoundedDimensions,
   csp: McpAppResourceCsp,
   generation: BoundedGeneration,
   heightHint: Schema.optional(BoundedHeightHint),
   isCollapsible: Schema.Boolean,
   minFrameHeight: Schema.optional(BoundedMinFrameHeight),
+  /** Resource-level `_meta.ui.permissions` the widget declared. */
+  permissions: Schema.optional(BoundedPermissions),
   prefersBorder: Schema.Boolean,
   resourceUri: BoundedUri,
   server: BoundedIdentity,
+  /** Origin key: connector id, `moss` for the gateway, the CLI server name. Defaults to `server`. */
+  serverKey: Schema.optional(BoundedIdentity),
+  /** The resource declared `_meta.ui.domain` and the server is a Moss connector with a URL. */
+  stableOrigin: Schema.optional(Schema.Boolean),
   theme: BoundedTheme,
   threadId: ThreadId.check(Schema.isMaxLength(200)),
   widgetDomain: Schema.optional(Schema.NullOr(BoundedDomain)),
@@ -254,9 +315,24 @@ export function decodeMcpAppSandboxRegisterInput(
     "theme",
     "threadId",
   ] as const;
-  const optionalKeys = ["connectorId", "heightHint", "minFrameHeight", "widgetDomain"] as const;
+  const optionalKeys = [
+    "connectorId",
+    "connectorUrl",
+    "heightHint",
+    "minFrameHeight",
+    "permissions",
+    "serverKey",
+    "stableOrigin",
+    "widgetDomain",
+  ] as const;
   if (!exactKeys(value, requiredKeys, optionalKeys)) return null;
-  const candidate = value as Record<string, unknown>;
+  const candidate = { ...(value as Record<string, unknown>) };
+  if (candidate.permissions !== undefined) {
+    const permissions = normalizeMcpAppSandboxPermissions(candidate.permissions);
+    if (!permissions) return null;
+    candidate.permissions = permissions;
+  }
+  if (candidate.connectorUrl !== undefined && !isConnectorUrl(candidate.connectorUrl)) return null;
   if (!exactKeys(candidate.containerDimensions, dimensionsKeys)) return null;
   if (!exactKeys(candidate.csp, cspKeys)) return null;
   if (!isNormalizedCsp(candidate.csp)) return null;
@@ -277,7 +353,132 @@ export function decodeMcpAppSandboxRegisterInput(
     !isWidgetDomain(candidate.widgetDomain)
   )
     return null;
-  return decode(McpAppSandboxRegisterInput, value, requiredKeys, optionalKeys);
+  return decode(McpAppSandboxRegisterInput, candidate, requiredKeys, optionalKeys);
+}
+
+function isConnectorUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0 || value.length > 2_000) return false;
+  if (value !== value.trim() || /[\p{Cc}\s]/u.test(value)) return false;
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === "https:" || parsed.protocol === "http:") && parsed.hostname !== "";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Accepts the MCP Apps shape (`{camera: {}}`) and plain booleans; returns the
+ * requested keys as `true`. Unknown keys or other values reject the whole map.
+ */
+export function normalizeMcpAppSandboxPermissions(value: unknown): McpAppSandboxPermissions | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const result: Partial<Record<McpAppSandboxPermissionKey, boolean>> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!(MCP_APP_SANDBOX_PERMISSION_KEYS as readonly string[]).includes(key)) return null;
+    if (entry === undefined || entry === null || entry === false) continue;
+    if (entry === true || (typeof entry === "object" && !Array.isArray(entry))) {
+      result[key as McpAppSandboxPermissionKey] = true;
+      continue;
+    }
+    return null;
+  }
+  return result;
+}
+
+/**
+ * Shell -> host message on the bridge port. Host -> shell traffic stays raw
+ * JSON-RPC; only the upward direction carries the widget's user activation.
+ */
+export interface McpAppSandboxBridgeEnvelope {
+  readonly type: typeof MCP_APP_SANDBOX_BRIDGE_MESSAGE_TYPE;
+  readonly message: Readonly<Record<string, unknown>>;
+  /** True when the widget's message was sent with an active user activation. */
+  readonly userActivation: boolean;
+}
+
+export function decodeMcpAppSandboxBridgeEnvelope(
+  value: unknown,
+): McpAppSandboxBridgeEnvelope | null {
+  if (!exactKeys(value, ["message", "type", "userActivation"])) return null;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.type !== MCP_APP_SANDBOX_BRIDGE_MESSAGE_TYPE) return null;
+  const message = candidate.message;
+  if (typeof message !== "object" || message === null || Array.isArray(message)) return null;
+  if (typeof candidate.userActivation !== "boolean") return null;
+  return {
+    type: MCP_APP_SANDBOX_BRIDGE_MESSAGE_TYPE,
+    message: message as Readonly<Record<string, unknown>>,
+    userActivation: candidate.userActivation,
+  };
+}
+
+/** `saveDownload` input: exactly one of `text` or `base64`. */
+export interface McpAppSandboxDownloadInput {
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly text?: string;
+  readonly base64?: string;
+}
+
+export interface McpAppSandboxDownloadPayload {
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly bytes: Uint8Array;
+}
+
+const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/u;
+
+export function decodeMcpAppSandboxDownloadInput(
+  value: unknown,
+): McpAppSandboxDownloadPayload | null {
+  if (!exactKeys(value, ["fileName", "mimeType"], ["text", "base64"])) return null;
+  const { fileName, mimeType, text, base64 } = value as Record<string, unknown>;
+  if (typeof fileName !== "string" || fileName.length === 0 || fileName.length > 1_000) return null;
+  if (typeof mimeType !== "string" || mimeType.length > 255 || /[\r\n]/u.test(mimeType)) {
+    return null;
+  }
+  if ((text === undefined) === (base64 === undefined)) return null;
+  if (text !== undefined) {
+    if (typeof text !== "string" || text.length > MCP_APP_DOWNLOAD_MAX_BYTES) return null;
+    const bytes = new TextEncoder().encode(text);
+    if (bytes.byteLength > MCP_APP_DOWNLOAD_MAX_BYTES) return null;
+    return { fileName, mimeType, bytes };
+  }
+  if (typeof base64 !== "string" || base64.length % 4 !== 0) return null;
+  if (base64.length > Math.ceil(MCP_APP_DOWNLOAD_MAX_BYTES / 3) * 4) return null;
+  if (!BASE64_PATTERN.test(base64)) return null;
+  let binary: string;
+  try {
+    binary = atob(base64);
+  } catch {
+    return null;
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  if (bytes.byteLength > MCP_APP_DOWNLOAD_MAX_BYTES) return null;
+  return { fileName, mimeType, bytes };
+}
+
+/** `window.desktopBridge.mcpApps` (trusted renderer only). */
+export interface McpAppSandboxDesktopBridge {
+  readonly register: (input: McpAppSandboxRegisterInput) => Promise<McpAppSandboxDescriptor | null>;
+  readonly unregister: (input: McpAppSandboxUnregisterInput) => Promise<boolean>;
+  /**
+   * Grant exactly `permissions` (after the user approved them) to the widgets of
+   * `sandboxId`. Only keys the registered resources declared are granted, and
+   * none to a widget that declares frame sites. Returns what is now granted.
+   */
+  readonly requestPermissions: (
+    sandboxId: string,
+    permissions: McpAppSandboxPermissions,
+  ) => Promise<{ readonly granted: McpAppSandboxPermissions }>;
+  /** http, https, mailto, tel and sms only; opens with the system shell. */
+  readonly openExternal: (url: string) => Promise<{ readonly opened: boolean }>;
+  /** Save dialog (default folder Downloads), then writes the file. */
+  readonly saveDownload: (
+    input: McpAppSandboxDownloadInput,
+  ) => Promise<{ readonly saved: boolean }>;
 }
 
 export function decodeMcpAppSandboxDescriptor(value: unknown): McpAppSandboxDescriptor | null {
@@ -353,7 +554,11 @@ function hasExactRawPortNames(value: unknown): boolean {
   );
 }
 
-/** Frame height calculation, with non-finite values rejected by the caller. */
+/**
+ * Inline frame height: the widget's own height (or the hint before it reports
+ * one), at least `minFrameHeight`, rounded up and clamped to 5 000 px. There is
+ * no lower clamp beyond that.
+ */
 export function resolveMcpAppFrameHeight(input: {
   readonly intrinsicHeight: number | null;
   readonly heightHint?: number;
@@ -371,15 +576,13 @@ export function resolveMcpAppFrameHeight(input: {
   if (intrinsic !== null && intrinsic < 0) return MCP_APP_FRAME_DEFAULT_HEIGHT;
   if (heightHint !== undefined && heightHint <= 0) return MCP_APP_FRAME_DEFAULT_HEIGHT;
   if (minFrameHeight !== undefined && minFrameHeight < 0) return MCP_APP_FRAME_DEFAULT_HEIGHT;
-  return Math.min(
-    Math.max(
-      intrinsic === null
-        ? (heightHint ?? MCP_APP_FRAME_DEFAULT_HEIGHT)
-        : Math.max(intrinsic, heightHint ?? 0),
-      minFrameHeight ?? MCP_APP_FRAME_MIN_HEIGHT,
-    ),
-    MCP_APP_FRAME_MAX_HEIGHT,
+  const height = Math.max(
+    intrinsic === null
+      ? (heightHint ?? MCP_APP_FRAME_DEFAULT_HEIGHT)
+      : Math.max(intrinsic, heightHint ?? 0),
+    minFrameHeight ?? 0,
   );
+  return Math.min(Math.ceil(height), MCP_APP_INLINE_MAX_HEIGHT);
 }
 
 export const MCP_APP_SANDBOX_CSP_KEYS = cspKeys;

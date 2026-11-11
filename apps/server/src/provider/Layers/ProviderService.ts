@@ -87,6 +87,8 @@ import type {
   ProviderTurnDispatchOptions,
 } from "../Services/ProviderAdapter.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
+import { appendWidgetContextHint } from "../../mcpApps/modelContext.ts";
+import { McpAppService } from "../../mcpApps/Services/McpAppService.ts";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -1416,6 +1418,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const registry = yield* ProviderAdapterRegistry;
     const directory = yield* ProviderSessionDirectory;
     const serverSettings = yield* ServerSettingsService;
+    // Interactive connectors: binds widget calls on every provider's MCP rows (optional in tests).
+    const mcpApps = Option.getOrUndefined(yield* Effect.serviceOption(McpAppService));
     const serverConfig = Option.getOrUndefined(yield* Effect.serviceOption(ServerConfig));
     const workspaceQuery = Option.getOrUndefined(
       yield* Effect.serviceOption(ProjectionSnapshotQuery),
@@ -2437,6 +2441,57 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           { scheduleIdleStopOnSuccess: true },
         );
       });
+
+    // Interactive connectors: widget traffic for servers a CLI dialed itself, routed to the
+    // provider runtime bound to the thread like readMcpAppResource.
+    const routeMcpAppProviderCall = <A>(
+      operation: string,
+      threadId: ThreadId,
+      run: (
+        adapter: ProviderAdapterShape<ProviderAdapterError>,
+      ) => Effect.Effect<A, ProviderAdapterError> | undefined,
+    ) =>
+      runIdleSensitiveProviderWork(
+        threadId,
+        Effect.gen(function* () {
+          const routed = yield* resolveRoutableSession({
+            threadId,
+            operation,
+            allowRecovery: true,
+          });
+          if (!routed.isActive) {
+            return yield* toValidationError(
+              operation,
+              `Provider runtime for thread '${threadId}' is not active.`,
+            );
+          }
+          const effect = run(routed.adapter);
+          if (effect === undefined) {
+            return yield* toValidationError(
+              operation,
+              `Provider '${routed.adapter.provider}' does not support interactive connectors.`,
+            );
+          }
+          return yield* effect;
+        }),
+        { scheduleIdleStopOnSuccess: true },
+      );
+    const listMcpAppTools: NonNullable<ProviderServiceShape["listMcpAppTools"]> = (input) =>
+      routeMcpAppProviderCall("ProviderService.listMcpAppTools", input.threadId, (adapter) =>
+        adapter.listMcpAppTools?.(input),
+      );
+    const callMcpAppTool: NonNullable<ProviderServiceShape["callMcpAppTool"]> = (input) =>
+      routeMcpAppProviderCall("ProviderService.callMcpAppTool", input.threadId, (adapter) =>
+        adapter.callMcpAppTool?.(input),
+      );
+    const readMcpResourceContents: NonNullable<ProviderServiceShape["readMcpResourceContents"]> = (
+      input,
+    ) =>
+      routeMcpAppProviderCall(
+        "ProviderService.readMcpResourceContents",
+        input.threadId,
+        (adapter) => adapter.readMcpResourceContents?.(input),
+      );
 
     const sessionBindingMatchesLaunchOptions: NonNullable<
       ProviderServiceShape["sessionBindingMatchesLaunchOptions"]
@@ -3629,6 +3684,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         Effect.suspend(() => {
           const journalAndPublish = (acceptedEvent: ProviderRuntimeEvent) =>
             correlateRuntimeEvent(acceptedEvent).pipe(
+              Effect.map((correlated) =>
+                correlated !== null && mcpApps
+                  ? mcpApps.enrichRuntimeEvent(correlated)
+                  : correlated,
+              ),
               Effect.flatMap((canonicalEvent) => {
                 if (canonicalEvent === null) {
                   return Effect.void;
@@ -5809,8 +5869,17 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               routed.adapter.provider,
               routed.providerInstanceId,
             );
+            // Interactive connectors: a person's message freezes what widgets shared and tells
+            // the model how to read it (SPEC §10). Never shown in the transcript.
+            const widgetInput = mcpApps
+              ? appendWidgetContextHint(
+                  input.input,
+                  mcpApps.modelContext.snapshotForSend(input.threadId),
+                )
+              : input.input;
             const routedInput = {
               ...input,
+              ...(widgetInput !== undefined ? { input: widgetInput } : {}),
               ...(routedModelSelection !== undefined
                 ? { modelSelection: routedModelSelection }
                 : {}),
@@ -7365,6 +7434,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       getLoopLedgerDashboardSnapshot,
       submitPermissionAction,
       readMcpAppResource,
+      listMcpAppTools,
+      callMcpAppTool,
+      readMcpResourceContents,
       sessionBindingMatchesLaunchOptions,
       prepareSharedAccountSwitch,
       fenceProviderInstanceLaunchesAndWait,

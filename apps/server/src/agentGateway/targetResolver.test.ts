@@ -294,6 +294,35 @@ describe("agent gateway target resolver", () => {
     }),
   );
 
+  it.effect("accepts the CLI default for Grok and Antigravity without a catalog row", () =>
+    Effect.gen(function* () {
+      const cliDiscovery = {
+        listModels: (input: { provider: string }) =>
+          Effect.succeed({
+            source: "test",
+            models: [
+              { slug: input.provider === "grok" ? "grok-4.6" : "Gemini 3.8 Flash", name: "x" },
+            ],
+          }),
+      } as unknown as ProviderDiscoveryServiceShape;
+      for (const provider of ["grok", "antigravity"] as const) {
+        const target = { provider, model: "default" };
+        assert.deepEqual(
+          yield* resolveAgentGatewayTarget({ target, discovery: cliDiscovery }),
+          target,
+        );
+      }
+      const rejected = yield* resolveAgentGatewayTarget({
+        target: { provider: "codex", model: "default" },
+        discovery,
+      }).pipe(
+        Effect.map(() => ({ code: "unexpected-success" })),
+        Effect.catch((error) => Effect.succeed(error)),
+      );
+      assert.equal(rejected.code, "model_unavailable");
+    }),
+  );
+
   it.effect("accepts the advertised OpenCode agent key without accepting arbitrary keys", () =>
     Effect.gen(function* () {
       const optionDiscovery = {

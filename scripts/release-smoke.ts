@@ -1166,11 +1166,8 @@ export function assertMacSigningFailsClosed(workflow: string): void {
 const RELEASE_GATE_NEEDS = [
   "preflight",
   "build",
-  "gate8_fresh_packaged_user",
-  "plugin_gate7_release_database",
   "windows_acceptance",
-  "plugin_gate9_release",
-  "plugin_parity_final",
+  "build_server_tarball",
 ] as const;
 
 function readWorkflowDocument(workflow: string): Record<string, unknown> {
@@ -1556,18 +1553,7 @@ function verifyReleaseWorkflowSafety(): void {
     "Expected release publication to mint a repository-scoped public-repository token.",
   );
   const workflowDocument = readWorkflowDocument(workflow);
-  for (const jobName of [
-    "preflight",
-    "signed_codex_exact_56",
-    "build",
-    "gate8_linux_packaged_user",
-    "gate8_windows_packaged_user",
-    "gate8_fresh_packaged_user",
-    "windows_acceptance",
-    "plugin_formal_candidate_56",
-    "plugin_accessibility_release",
-    "release",
-  ]) {
+  for (const jobName of ["preflight", "build", "windows_acceptance", "release"]) {
     const job = readWorkflowJobFromDocument(workflowDocument, jobName);
     const permissions = job.permissions;
     if (

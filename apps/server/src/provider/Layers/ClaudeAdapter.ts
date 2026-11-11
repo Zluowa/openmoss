@@ -125,6 +125,8 @@ import {
   shouldAllowMossComputerProviderTool,
 } from "../../agentGateway/computerToolPermission.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
+import { makeClaudeMcpAppMethods } from "../../mcpApps/claudeAdapterMcpApps.ts";
+import { McpAppService } from "../../mcpApps/Services/McpAppService.ts";
 import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
 import {
   acquireAgentGatewaySessionLease,
@@ -434,6 +436,8 @@ interface ClaudeSessionContext {
   readonly artifactsEnabled: boolean;
   // Tool names from Claude's `init` message, once the first turn has produced it.
   initToolNames?: ReadonlySet<string>;
+  // `system/init.capabilities`: feature detection for interactive connectors (MCP Apps).
+  cliCapabilities?: ReadonlySet<string>;
   readonly commandDiscoveryKey: string;
   readonly accountDiscoveryKey: string;
   readonly messageStream?: AsyncIterable<SDKMessage>;
@@ -628,6 +632,9 @@ interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
   readonly supportedModels: () => Promise<ModelInfo[]>;
   readonly supportedAgents: () => Promise<AgentInfo[]>;
   readonly close: () => void;
+  // Interactive connectors (absent on test doubles and older SDKs; feature-detected).
+  readonly mcpServerStatus?: () => Promise<ReadonlyArray<unknown>>;
+  readonly readMcpResource?: (serverName: string, uri: string) => Promise<unknown>;
 }
 
 function cancellableClaudeMessageStream(
@@ -2401,6 +2408,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
     );
+    const mcpApps = Option.getOrUndefined(yield* Effect.serviceOption(McpAppService));
     const nativeEventLogger =
       options?.nativeEventLogger ??
       (options?.nativeEventLogPath !== undefined
@@ -4497,6 +4505,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
           const [index, tool] = toolEntry;
           const itemStatus = toolResult.isError ? "failed" : "completed";
+          mcpAppMethods.captureToolResult(context, tool, toolResult);
           const isSubagentLaunch = tool.toolName === "Task" || tool.toolName === "Agent";
           // A user-stopped task returns an error-shaped tool_result; the settled
           // status stamps a per-agent state so the row reads "Stopped" (or
@@ -5606,6 +5615,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             if (Array.isArray(message.tools)) {
               context.initToolNames = new Set(message.tools);
             }
+            if (Array.isArray(message.capabilities)) {
+              context.cliCapabilities = new Set(message.capabilities);
+            }
+            mcpAppMethods.refreshToolDefinitions(context);
             context.lastFastModeSignature = claudeFastModeSignature(message);
             yield* offerRuntimeEvent(context, {
               ...base,
@@ -6519,6 +6532,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       }
       return Effect.succeed(context);
     };
+
+    // Interactive connectors: Agent SDK back-end (mcpApps/claudeAdapterMcpApps.ts).
+    const mcpAppMethods = makeClaudeMcpAppMethods({ requireSession, mcpApps });
 
     const awaitCancelledCompactionPublication = (context: ClaudeSessionContext) =>
       context.pendingCompactionPublication
@@ -9119,6 +9135,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       listSessions,
       hasSession,
       stopAll,
+      readMcpAppResource: mcpAppMethods.readMcpAppResource,
+      listMcpAppTools: mcpAppMethods.listMcpAppTools,
+      callMcpAppTool: mcpAppMethods.callMcpAppTool,
+      readMcpResourceContents: mcpAppMethods.readMcpResourceContents,
       getComposerCapabilities,
       listCommands,
       listSkills,

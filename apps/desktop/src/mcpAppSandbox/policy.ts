@@ -2,11 +2,13 @@
 // Purpose: Pure admission and security decisions for an isolated MCP App guest.
 
 import {
-  MCP_APP_SANDBOX_CONTENT_PATH,
+  MCP_APP_SANDBOX_PATH,
   MCP_APP_SANDBOX_SCHEME,
-  type McpAppResourceCsp,
   type McpAppSandboxDescriptor,
 } from "@moss/contracts";
+
+import type { McpAppSandboxEffectivePolicy } from "./csp";
+import { isMcpAppSandboxAssetUrl } from "./protocol";
 
 export const MCP_APP_SANDBOX_WEB_PREFERENCES = {
   allowRunningInsecureContent: false,
@@ -42,13 +44,17 @@ export function isExactMcpAppSandboxUrl(
   if (typeof url !== "string" || url !== descriptor.src) return false;
   try {
     const parsed = new URL(url);
+    const keys = [...parsed.searchParams.keys()];
     return (
       parsed.protocol === `${MCP_APP_SANDBOX_SCHEME}:` &&
       `${parsed.protocol}//${parsed.host}` === descriptor.origin &&
       parsed.hostname === descriptor.sandboxId &&
-      parsed.pathname === "/ui" &&
+      parsed.pathname === MCP_APP_SANDBOX_PATH &&
+      keys.length === 2 &&
+      keys[0] === "generation" &&
+      keys[1] === "route" &&
       parsed.searchParams.get("generation") === String(descriptor.generation) &&
-      parsed.searchParams.has("init") === false &&
+      /^[0-9a-f]{16}$/u.test(parsed.searchParams.get("route") ?? "") &&
       parsed.hash === `#init=${encodeURIComponent(descriptor.initId)}` &&
       parsed.username === "" &&
       parsed.password === "" &&
@@ -59,51 +65,7 @@ export function isExactMcpAppSandboxUrl(
   }
 }
 
-/** Build the only same-origin subframe URL Moss may install for an App. */
-export function mcpAppSandboxContentUrl(
-  descriptor: Pick<McpAppSandboxDescriptor, "generation" | "initId" | "origin">,
-): string {
-  return `${descriptor.origin}${MCP_APP_SANDBOX_CONTENT_PATH}?generation=${encodeURIComponent(String(descriptor.generation))}&init=${encodeURIComponent(descriptor.initId)}`;
-}
-
-/**
- * The fixed inner route is a second authority, not a general custom-scheme
- * allowance. Keep this check string-exact so duplicate, reordered, or
- * differently encoded query fields cannot alias the current document.
- */
-export function isExactMcpAppSandboxContentUrl(
-  url: unknown,
-  descriptor: Pick<McpAppSandboxDescriptor, "generation" | "initId" | "origin" | "sandboxId">,
-): boolean {
-  const expected = mcpAppSandboxContentUrl(descriptor);
-  if (typeof url !== "string" || url !== expected) return false;
-  try {
-    const parsed = new URL(url);
-    const keys = [...parsed.searchParams.keys()];
-    return (
-      parsed.protocol === `${MCP_APP_SANDBOX_SCHEME}:` &&
-      `${parsed.protocol}//${parsed.host}` === descriptor.origin &&
-      parsed.hostname === descriptor.sandboxId &&
-      parsed.pathname === MCP_APP_SANDBOX_CONTENT_PATH &&
-      parsed.username === "" &&
-      parsed.password === "" &&
-      parsed.port === "" &&
-      parsed.hash === "" &&
-      keys.length === 2 &&
-      keys[0] === "generation" &&
-      keys[1] === "init" &&
-      parsed.searchParams.getAll("generation").length === 1 &&
-      parsed.searchParams.getAll("init").length === 1 &&
-      parsed.searchParams.get("generation") === String(descriptor.generation) &&
-      parsed.searchParams.get("init") === descriptor.initId
-    );
-  } catch {
-    return false;
-  }
-}
-
 function domainMatches(url: URL, source: string): boolean {
-  if (source === "blob:" || source === "data:") return url.protocol === source.slice(0, -1) + ":";
   try {
     const allowed = new URL(source);
     if (allowed.protocol !== url.protocol) return false;
@@ -120,13 +82,17 @@ function domainMatches(url: URL, source: string): boolean {
   }
 }
 
-export type McpAppCspDirective = "base-uri" | "connect-src" | "frame-src" | "resource";
+export type McpAppCspDirective = "connect-src" | "frame-src" | "resource";
 
+/**
+ * Main-process mirror of the proxy page's CSP for requests that reach the
+ * network stack. `data:`/`blob:`/`about:` never get here; the sandbox origin
+ * itself is never a widget destination (only its exact asset URLs are).
+ */
 export function isAllowedMcpAppNetworkUrl(
   value: unknown,
   directive: McpAppCspDirective,
-  csp: McpAppResourceCsp,
-  sandboxOrigin: string,
+  policy: Pick<McpAppSandboxEffectivePolicy, "connectDomains" | "frameDomains" | "resourceDomains">,
 ): boolean {
   if (typeof value !== "string") return false;
   let url: URL;
@@ -135,18 +101,30 @@ export function isAllowedMcpAppNetworkUrl(
   } catch {
     return false;
   }
-  // The dedicated shell is admitted separately as the main frame. A guest
-  // subframe must never navigate back to the privileged shell origin.
-  if (url.origin === sandboxOrigin && url.protocol === `${MCP_APP_SANDBOX_SCHEME}:`) return false;
+  if (url.protocol === `${MCP_APP_SANDBOX_SCHEME}:`) {
+    return directive === "resource" && isMcpAppSandboxAssetUrl(value);
+  }
   const sources =
-    directive === "base-uri"
-      ? csp.baseUriDomains
-      : directive === "connect-src"
-        ? [...new Set([...csp.connectDomains, ...csp.resourceDomains])]
-        : directive === "frame-src"
-          ? csp.frameDomains
-          : csp.resourceDomains;
+    directive === "connect-src"
+      ? policy.connectDomains
+      : directive === "frame-src"
+        ? policy.frameDomains
+        : policy.resourceDomains;
   return sources.some((source) => domainMatches(url, source));
+}
+
+/**
+ * Sub-frame navigations a widget may make: its own srcdoc, blank/data/blob
+ * documents (they inherit the proxy's policy), and the allowed frame sites.
+ */
+export function isAllowedMcpAppSubframeUrl(
+  value: unknown,
+  policy: Pick<McpAppSandboxEffectivePolicy, "connectDomains" | "frameDomains" | "resourceDomains">,
+): boolean {
+  if (typeof value !== "string") return false;
+  if (value === "about:blank" || value === "about:srcdoc") return true;
+  if (/^(?:data|blob):/iu.test(value)) return true;
+  return isAllowedMcpAppNetworkUrl(value, "frame-src", policy);
 }
 
 export function normalizeMcpAppUserAgent(userAgent: unknown): string {

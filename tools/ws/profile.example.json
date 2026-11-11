@@ -1,0 +1,17 @@
+{
+  "machine": "a short label for this computer",
+  "primaryCheckout": "/path/to/the/coordinator/checkout",
+  "githubRepo": "owner/repo",
+  "defaultBase": "origin/main",
+  "worktreeRoot": "/path/on/the/drive/with/space/moss-wt",
+  "legacyRoots": [],
+  "scratchRoot": "/path/on/the/drive/with/space/moss-scratch",
+  "protectedPaths": [],
+  "keep": [],
+  "disk": { "floorGB": 6, "drives": ["/path/on/each/drive/to/watch"] },
+  "ports": { "offsetFirst": 100, "offsetLast": 990, "offsetStep": 10 },
+  "lock": { "staleHours": 3, "pollSeconds": 10 },
+  "limits": { "leaseMaxAgeDays": 7, "maxWorktrees": 40 },
+  "tools": { "git": "git", "gh": "gh", "bun": "bun" },
+  "prCacheMinutes": 10
+}

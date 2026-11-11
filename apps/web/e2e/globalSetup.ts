@@ -12,6 +12,7 @@ const MCP_APP_TRUSTED_PRELOAD_OUTPUT_PATH = resolve(OUTPUT_DIR, "mcpAppSandboxTr
 const MCP_APP_GUEST_PRELOAD_OUTPUT_PATH = resolve(OUTPUT_DIR, "mcpAppSandboxGuestPreload.cjs");
 const MCP_APP_RENDERER_OUTPUT_PATH = resolve(OUTPUT_DIR, "mcpAppSandboxRenderer.js");
 const MCP_APP_GUEST_OUTPUT_PATH = resolve(OUTPUT_DIR, "mcpAppSandboxGuest.iife.js");
+const MCP_APP_PROXY_HOST_OUTPUT_PATH = resolve(OUTPUT_DIR, "mcpAppProxyHost.iife.js");
 const PRODUCTION_CSS_OUTPUT_DIR = resolve(OUTPUT_DIR, "production-css");
 
 function buildProductionCss(): string {
@@ -101,18 +102,18 @@ export default function globalSetup(): () => void {
     ],
     { cwd: WEB_DIR, stdio: "inherit" },
   );
+  // The production renderer graph imports Vite `?url` assets, which `bun build`
+  // cannot resolve; the helper bundles with a plugin that inlines them.
   execFileSync(
     "bun",
     [
-      "build",
+      "e2e/buildBrowserFixture.ts",
       "e2e/fixtures/mcpAppSandboxRenderer.ts",
-      "--target=browser",
-      "--format=iife",
-      `--outdir=${OUTPUT_DIR}`,
-      "--define",
-      'import.meta.env={"VITE_WS_URL":"","DEV":false,"APP_VERSION":"0.7.6"}',
-      "--define",
-      'import.meta.url="http://127.0.0.1/mcpAppSandboxRenderer.js"',
+      OUTPUT_DIR,
+      JSON.stringify({
+        "import.meta.env": '{"VITE_WS_URL":"","DEV":false,"APP_VERSION":"0.7.6"}',
+        "import.meta.url": '"http://127.0.0.1/mcpAppSandboxRenderer.js"',
+      }),
     ],
     { cwd: WEB_DIR, stdio: "inherit" },
   );
@@ -129,7 +130,19 @@ export default function globalSetup(): () => void {
     ],
     { cwd: WEB_DIR, stdio: "inherit" },
   );
+  execFileSync(
+    "bun",
+    [
+      "build",
+      "e2e/fixtures/mcpAppProxyHost.ts",
+      "--target=browser",
+      "--format=iife",
+      `--outfile=${MCP_APP_PROXY_HOST_OUTPUT_PATH}`,
+    ],
+    { cwd: WEB_DIR, stdio: "inherit" },
+  );
   process.env.MOSS_E2E_ELECTRON_MAIN = OUTPUT_PATH;
+  process.env.MOSS_E2E_MCP_APP_PROXY_HOST = MCP_APP_PROXY_HOST_OUTPUT_PATH;
   process.env.MOSS_E2E_BROWSER_ANNOTATION_PRELOAD = ANNOTATION_PRELOAD_OUTPUT_PATH;
   process.env.MOSS_E2E_MCP_APP_MAIN = MCP_APP_MAIN_OUTPUT_PATH;
   process.env.MOSS_E2E_MCP_APP_TRUSTED_PRELOAD = MCP_APP_TRUSTED_PRELOAD_OUTPUT_PATH;

@@ -76,11 +76,7 @@ import type {
   ExternalMcpRefreshPairingInput,
   ExternalMcpRevokeIntegrationInput,
 } from "./externalMcp";
-import type {
-  McpAppSandboxDescriptor,
-  McpAppSandboxRegisterInput,
-  McpAppSandboxUnregisterInput,
-} from "./mcpAppSandbox";
+import type { McpAppSandboxDesktopBridge } from "./mcpAppSandbox";
 import type {
   McpConnector,
   McpConnectorConnectInput,
@@ -1726,10 +1722,7 @@ export interface DesktopBridge {
     onBrowserCopyLink: (listener: (event: BrowserCopyLinkEvent) => void) => () => void;
   };
   /** Narrow host registration surface for isolated MCP App guests. */
-  mcpApps?: {
-    register: (input: McpAppSandboxRegisterInput) => Promise<McpAppSandboxDescriptor | null>;
-    unregister: (input: McpAppSandboxUnregisterInput) => Promise<boolean>;
-  };
+  mcpApps?: McpAppSandboxDesktopBridge;
 }
 
 export interface NativeApi {

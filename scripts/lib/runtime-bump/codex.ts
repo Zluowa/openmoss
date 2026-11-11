@@ -76,12 +76,10 @@ export const CODEX_VERSION_LITERAL_FILES = [
   "packages/shared/src/codexRuntime.ts",
   "packages/shared/src/codexRuntime.test.ts",
   "scripts/desktop-stage-lock/package.json",
-  "scripts/fixtures/fake-codex-runtime-boundary.mjs",
   "scripts/lib/bundled-codex-final-release-set.test.ts",
   "scripts/lib/bundled-codex-release-compliance.test.ts",
   "scripts/lib/bundled-codex-runtime.test.ts",
   "scripts/lib/windows-native-payload-audit.test.mjs",
-  "scripts/moss-plugin-runtime-boundary-smoke.test.ts",
 ] as const;
 
 export const CODEX_BUNDLE_PARENT = Path.join("third_party", "openai-codex");

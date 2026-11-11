@@ -235,7 +235,7 @@ describe("resolvePreferredComposerModelSelection", () => {
     expect(resolved).toEqual({
       provider: "claudeAgent",
       instanceId: "claudeAgent",
-      model: "claude-sonnet-5",
+      model: "claude-opus-5-5",
     });
   });
 });

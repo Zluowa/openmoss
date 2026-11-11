@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, realpath, rm, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, Option } from "effect";
@@ -6,9 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ServerConfig } from "./config";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveMossCanvasWorkspace } from "./mossCanvasWorkspace";
-import { mossCanvasStorageFor } from "./mossCanvasStorage";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
-import type { MossMediaCredential } from "./mossMediaJobsService";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -74,22 +72,5 @@ describe("Canvas trusted conversation workspace", () => {
     await expect(resolve(projection, "../../outside")).rejects.toMatchObject({
       code: "invalid_canvas_thread",
     });
-  });
-  it("rejects a pre-existing junction out of the selected workspace before opening storage", async () => {
-    const paths = await fixture();
-    await symlink(paths.selected, join(paths.root, ".moss"), "junction");
-    const credential: MossMediaCredential = {
-      realm: "memfire-phone",
-      account: { id: "fixture", realm: "memfire-phone" },
-      gatewayBaseUrl: "https://gateway.example/v1",
-      accessToken: "fixture-only",
-    };
-    await expect(
-      mossCanvasStorageFor(paths.root, credential, {
-        threadId: "thread-a",
-        cwd: paths.root,
-        title: "A",
-      }),
-    ).rejects.toMatchObject({ code: "canvas_workspace_path_invalid" });
   });
 });

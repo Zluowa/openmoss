@@ -1,6 +1,8 @@
 // FILE: bundledCodex.live.test.ts
 // Purpose: Proves the pinned public Codex runtime works without a global Codex installation.
 // Layer: Desktop packaged-runtime integration test
+// The app-server case reaches the network, so it runs only when asked:
+//   MOSS_LIVE_BUNDLED_CODEX=1 bun run --cwd apps/desktop test src/bundledCodex.live.test.ts
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
@@ -282,7 +284,11 @@ describe("pinned public Codex runtime", () => {
     expect(installedPackageJson.version).toBe(MOSS_BUNDLED_CODEX_VERSION);
   });
 
-  it("starts app-server without Codex on PATH and with a fresh profile", async () => {
+  it("starts app-server without Codex on PATH and with a fresh profile", async ({ skip }) => {
+    skip(
+      process.env.MOSS_LIVE_BUNDLED_CODEX !== "1",
+      "needs the network: MOSS_LIVE_BUNDLED_CODEX=1",
+    );
     const root = makeTemporaryDirectory("moss-bundled-codex-live-");
     const runtime = resolveInstalledCodexRuntime();
     const env = isolatedEnvironment(root);

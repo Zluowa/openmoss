@@ -27,6 +27,8 @@ import { formatElapsedSpan } from "~/lib/relativeTime";
 import { formatTimeAgo } from "~/lib/timeFormat";
 import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
+import { Badge } from "~/components/ui/badge";
+import { ELEVATED_HOVER_SURFACE_CLASS_NAME } from "../../surfaceStyles";
 import { KANBAN_ATTENTION_LABELS, KANBAN_COLUMN_V2_LABELS } from "@moss/shared/kanban";
 import { KanbanStatusIcon } from "./KanbanStatusIcon";
 import { kanbanThreadCardId, refineAttentionFlagsForLivePr, type KanbanCard } from "./kanban.logic";
@@ -57,14 +59,14 @@ export interface KanbanCardViewProps {
 function KanbanCardColumnLabel({ card }: { card: KanbanCard }) {
   if (card.isTerminal) {
     return (
-      <span className="flex shrink-0 items-center gap-1 text-ui-sm leading-snug text-muted-foreground/80">
+      <span className="flex shrink-0 items-center gap-1 text-ui-xs text-muted-foreground">
         <TerminalIcon className="size-3 shrink-0" aria-hidden />
         Terminal
       </span>
     );
   }
   return (
-    <span className="flex shrink-0 items-center gap-1 text-ui-sm leading-snug text-muted-foreground/80">
+    <span className="flex shrink-0 items-center gap-1 text-ui-xs text-muted-foreground">
       <KanbanStatusIcon column={card.column} className="size-3" />
       {KANBAN_COLUMN_V2_LABELS[card.column]}
     </span>
@@ -121,20 +123,17 @@ function KanbanCardAttentionPill({
   // Tone follows what the pill actually renders — a refined-out needs-review can
   // never hide a failed/stuck flag behind a red pill (M1). Up to two labels.
   const visibleFlags = refinedFlags.slice(0, 2);
-  const tone = visibleFlags.some((flag) => flag === "failed" || flag === "stuck")
-    ? "text-red-600 dark:text-red-300/90"
-    : "text-amber-600 dark:text-amber-300/90";
-  const pillClassName = cn(
-    "shrink-0 rounded-full px-2 py-0.5 text-ui-xs font-medium ring-1 ring-inset",
-    "bg-red-500/[0.07] ring-red-500/30",
-    tone,
-  );
+  // The standard's badge: colour 8% under the same colour's text; red for failed or stuck,
+  // amber for what waits on the person.
+  const variant = visibleFlags.some((flag) => flag === "failed" || flag === "stuck")
+    ? "error"
+    : "warning";
   return (
     <>
       {visibleFlags.map((flag) => (
-        <span key={flag} className={pillClassName}>
+        <Badge key={flag} variant={variant}>
           {KANBAN_ATTENTION_LABELS[flag]}
-        </span>
+        </Badge>
       ))}
     </>
   );
@@ -195,14 +194,15 @@ function KanbanCardViewComponent({
       className={cn(
         // Moss destination cards are panels: hairline border on the card fill, no grey wash
         // or glass. Hover tints with ink; a dragged card lifts with the overlay shadow.
-        "flex w-full cursor-pointer flex-col gap-1.5 rounded-panel border border-border bg-card px-3 py-2.5 text-left transition-colors",
-        "hover:border-[color-mix(in_srgb,var(--color-text-foreground)_16%,transparent)] focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
+        "flex w-full cursor-pointer flex-col gap-ui-gap-xs rounded-card border border-border bg-card p-ui-pad-md text-left",
+        ELEVATED_HOVER_SURFACE_CLASS_NAME,
+        "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
         isOverlay && "shadow-xl",
         isDragSource && "opacity-40",
       )}
     >
-      <span className="flex min-w-0 items-start gap-1.5">
-        <span className="line-clamp-2 min-w-0 flex-1 text-ui leading-snug font-medium text-foreground">
+      <span className="flex min-w-0 items-start gap-ui-gap-xs">
+        <span className="line-clamp-2 min-w-0 flex-1 text-ui font-medium text-foreground">
           {card.title}
         </span>
         {card.thread?.isPinned ? (
@@ -212,11 +212,9 @@ function KanbanCardViewComponent({
         ) : null}
       </span>
       {showDraftPreview ? (
-        <span className="line-clamp-2 text-ui leading-snug text-muted-foreground">
-          {card.draftPrompt}
-        </span>
+        <span className="line-clamp-2 text-ui-sm text-muted-foreground">{card.draftPrompt}</span>
       ) : null}
-      <span className="flex min-w-0 items-center gap-2 pt-0.5">
+      <span className="flex min-w-0 items-center gap-ui-gap-xs">
         {card.isTerminal ? null : (
           <ProviderIcon
             provider={card.provider}
@@ -227,7 +225,7 @@ function KanbanCardViewComponent({
           />
         )}
         {card.branch ? (
-          <span className="flex min-w-0 items-center gap-1 text-ui-sm leading-snug text-muted-foreground/70">
+          <span className="flex min-w-0 items-center gap-1 text-ui-xs text-muted-foreground">
             <GitBranchIcon className="size-3 shrink-0" aria-hidden />
             <span className="max-w-32 truncate">{card.branch}</span>
           </span>
@@ -239,27 +237,24 @@ function KanbanCardViewComponent({
         ) : null}
         {isForked ? (
           <span title="Forked thread" className="flex shrink-0 items-center">
-            <GitBranchIcon
-              className="size-3 text-emerald-600 dark:text-emerald-300/90"
-              aria-hidden
-            />
+            <GitBranchIcon className="size-3 text-success" aria-hidden />
           </span>
         ) : null}
         {pr ? <PrStateChip pr={pr} /> : null}
         {card.draftHasAttachments ? (
           <PaperclipIcon className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />
         ) : null}
-        <span className="ml-auto flex min-w-0 shrink-0 items-center gap-2">
+        <span className="ml-auto flex min-w-0 shrink-0 items-center gap-ui-gap-xs">
           {card.isOptimisticDispatch ? (
             // Optimistically In Progress — the thread's real status (Draft/Completed)
             // would contradict the column until the first runtime signal arrives.
             <>
-              <span className="flex shrink-0 items-center gap-1.5 text-ui-sm leading-snug text-sky-600 dark:text-sky-300/90">
+              <span className="flex shrink-0 items-center gap-1 text-ui-xs text-info-foreground">
                 <LoaderIcon className="size-3 shrink-0 animate-spin" aria-hidden />
                 Starting…
               </span>
               {activeWorkElapsed ? (
-                <span className="shrink-0 text-ui-sm leading-snug text-muted-foreground/70">
+                <span className="shrink-0 text-ui-xs text-muted-foreground">
                   Worked for {activeWorkElapsed}
                 </span>
               ) : null}
@@ -271,11 +266,11 @@ function KanbanCardViewComponent({
                 <KanbanCardAttentionPill card={card} pr={pr} />
               ) : null}
               {activeWorkElapsed ? (
-                <span className="shrink-0 text-ui-sm leading-snug text-muted-foreground/70">
+                <span className="shrink-0 text-ui-xs text-muted-foreground">
                   Worked for {activeWorkElapsed}
                 </span>
               ) : card.timestamp ? (
-                <span className="shrink-0 text-ui-sm leading-snug text-muted-foreground/70">
+                <span className="shrink-0 text-ui-xs text-muted-foreground">
                   {formatTimeAgo(card.timestamp, { locale, now: nowMs })}
                 </span>
               ) : null}

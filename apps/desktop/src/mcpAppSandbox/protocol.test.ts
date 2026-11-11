@@ -9,8 +9,8 @@ import { describe, expect, it } from "vitest";
 import desktopBuildConfig from "../../tsdown.config.mts";
 import { McpAppSandboxRegistry } from "./registry";
 import {
-  MCP_APP_SANDBOX_CONTENT_HTML,
-  MCP_APP_SANDBOX_SHELL_HTML,
+  buildMcpAppSandboxShellHtml,
+  isMcpAppSandboxAssetUrl,
   resolveMcpAppSandboxProtocolRequest,
 } from "./protocol";
 import {
@@ -40,57 +40,125 @@ const registrationInput = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+function counter(prefix: string, width = 0) {
+  let count = 0;
+  return () => {
+    count += 1;
+    return width > 0 ? count.toString(16).padStart(width, "0") : `${prefix}${count}`;
+  };
+}
+
+function shellScript(html: string): string {
+  const match = /<script>([\s\S]*)<\/script>\s*<\/body>/u.exec(html);
+  if (!match?.[1]) throw new Error("proxy page has no script");
+  return match[1];
+}
+
 describe("MCP App sandbox protocol routing", () => {
-  it("serves the exact full route and keeps the partition route scoped", () => {
+  it("serves the proxy page at /mcp_apps for the exact registration", () => {
     const registry = new McpAppSandboxRegistry({
-      createInitId: (() => {
-        let count = 0;
-        return () => `init-${++count}`;
-      })(),
+      createInitId: counter("init-"),
+      createRouteId: counter("", 16),
     });
     const descriptor = registry.register(1, registrationInput());
+    expect(descriptor.src).toBe(
+      `moss-mcp-sandbox://${descriptor.sandboxId}/mcp_apps?generation=0&route=0000000000000001#init=init-1`,
+    );
 
     const response = resolveMcpAppSandboxProtocolRequest(
       descriptor.src,
       registry,
       descriptor.partition,
     );
-    expect(response?.statusCode).toBe(200);
-    expect(response?.mimeType).toBe("text/html");
-    expect(response?.headers["Content-Security-Policy"]).toContain("default-src 'none'");
-    expect(MCP_APP_SANDBOX_SHELL_HTML).toContain("ui/notifications/sandbox-proxy-ready");
-    expect(MCP_APP_SANDBOX_SHELL_HTML).not.toContain("ui/notifications/proxy-ready");
-    expect(MCP_APP_SANDBOX_SHELL_HTML).toContain(
-      '<html lang="en" style="width:100%;height:100%;margin:0;overflow:hidden">',
+    if (response?.kind !== "shell") throw new Error("expected the proxy page");
+    expect(response.statusCode).toBe(200);
+    expect(response.mimeType).toBe("text/html");
+    expect(response.headers["Content-Security-Policy"]).toContain("default-src 'self'");
+    expect(response.headers["Content-Security-Policy"]).toContain(
+      "connect-src 'self' blob: data: https://api.example.test",
     );
-    expect(MCP_APP_SANDBOX_SHELL_HTML).toContain(
-      '<body style="width:100%;height:100%;margin:0;overflow:hidden;background:transparent">',
-    );
-    expect(MCP_APP_SANDBOX_SHELL_HTML).toContain(
-      'style="display:block;width:100%;height:100%;margin:0;border:0;overflow:hidden"',
-    );
-    expect(MCP_APP_SANDBOX_SHELL_HTML).toContain(
-      'sandbox="allow-scripts allow-same-origin allow-forms"',
-    );
-    expect(MCP_APP_SANDBOX_SHELL_HTML).toContain("/content?generation=");
-    expect(MCP_APP_SANDBOX_SHELL_HTML).not.toContain("srcdoc");
-    expect(MCP_APP_SANDBOX_SHELL_HTML).not.toContain("contentDocument.write");
-    expect(MCP_APP_SANDBOX_SHELL_HTML).not.toContain("history.length");
-    expect(MCP_APP_SANDBOX_SHELL_HTML).toContain("mcp-app-navigation");
-    expect(MCP_APP_SANDBOX_CONTENT_HTML).toContain("document.open()");
-    expect(MCP_APP_SANDBOX_CONTENT_HTML).toContain("document.write(data.html)");
-    expect(MCP_APP_SANDBOX_CONTENT_HTML).toContain("moss_desktop:mcp-app-content-ready");
-    expect(MCP_APP_SANDBOX_CONTENT_HTML).not.toContain("safe fixture");
+    expect(response.headers["Content-Type"]).toBe("text/html; charset=utf-8");
+    expect(response.data).toContain("ui/notifications/sandbox-proxy-ready");
+    expect(response.data).toContain('"variant":"isolated"');
+    expect(response.data).toContain('"innerSandbox":"allow-scripts allow-forms"');
     expect(
       resolveMcpAppSandboxProtocolRequest(descriptor.src, registry, "moss-mcp-other"),
     ).toBeNull();
     expect(
       resolveMcpAppSandboxProtocolRequest(
-        descriptor.src.replace("/ui?", "/other?"),
+        descriptor.src.replace("/mcp_apps?", "/ui?"),
         registry,
         descriptor.partition,
       ),
     ).toBeNull();
+    expect(
+      resolveMcpAppSandboxProtocolRequest(descriptor.src, registry, descriptor.partition, "POST"),
+    ).toBeNull();
+  });
+
+  it("bakes the variant and delegable permissions into the page", () => {
+    const registry = new McpAppSandboxRegistry({ createInitId: counter("init-") });
+    const stable = registry.register(
+      1,
+      registrationInput({
+        stableOrigin: true,
+        connectorUrl: "https://connector.example.com/mcp",
+        permissions: { camera: {}, microphone: false },
+      }),
+    );
+    const response = resolveMcpAppSandboxProtocolRequest(stable.src, registry, stable.partition);
+    if (response?.kind !== "shell") throw new Error("expected the proxy page");
+    expect(response.data).toContain('"variant":"stable"');
+    expect(response.data).toContain('"innerSandbox":"allow-scripts allow-same-origin allow-forms"');
+    expect(response.data).toContain('"permissions":{"camera":true}');
+    expect(response.headers["Permissions-Policy"]).toContain("camera=*");
+    expect(response.headers["Permissions-Policy"]).toContain("microphone=()");
+  });
+
+  it("produces a proxy script that parses, inlines the receiver safely and uses Moss names", () => {
+    for (const variant of ["isolated", "stable"] as const) {
+      const html = buildMcpAppSandboxShellHtml({
+        variant,
+        permissions: { geolocation: true },
+        allowFullscreen: true,
+      });
+      const script = shellScript(html);
+      expect(() => new Function(script)).not.toThrow();
+      // Exactly one script element: the receiver's markup is escaped inside the config.
+      expect(html.match(/<script>/gu)).toHaveLength(1);
+      expect(html.match(/<\/script>/gu)).toHaveLength(1);
+      expect(script).toContain("moss:print-theme");
+      expect(script).toContain("createMossJsonHealer");
+      expect(script).not.toMatch(/anthropic|claude/iu);
+      expect(html).toContain("<title>Moss widget</title>");
+    }
+  });
+
+  it("serves the font asset from the fixed asset origin only", () => {
+    const registry = new McpAppSandboxRegistry();
+    const font = resolveMcpAppSandboxProtocolRequest(
+      "moss-mcp-sandbox://assets/fonts/inter-latin.woff2",
+      registry,
+      "moss-mcp-anything",
+    );
+    expect(font?.kind).toBe("font");
+    expect(font?.headers).toMatchObject({
+      "Access-Control-Allow-Origin": "*",
+      "Content-Type": "font/woff2",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+    });
+    expect(isMcpAppSandboxAssetUrl("moss-mcp-sandbox://assets/fonts/inter-latin.woff2")).toBe(true);
+    for (const invalid of [
+      "moss-mcp-sandbox://assets/fonts/inter-latin.woff2?v=1",
+      "moss-mcp-sandbox://assets/mcp_apps",
+      "moss-mcp-sandbox://0123456789abcdef0123456789abcdef/fonts/inter-latin.woff2",
+      "https://assets/fonts/inter-latin.woff2",
+    ]) {
+      expect(isMcpAppSandboxAssetUrl(invalid), invalid).toBe(false);
+      expect(resolveMcpAppSandboxProtocolRequest(invalid, registry, "moss-mcp-x")?.kind).not.toBe(
+        "font",
+      );
+    }
   });
 
   it("keeps the trusted preload decoder dependency-free and contract-aligned", () => {
@@ -132,31 +200,30 @@ describe("MCP App sandbox protocol routing", () => {
     expect(preloadConfig.noExternal("node:fs", undefined)).toBe(false);
   });
 
-  it("shares a fragmentless route only for equivalent normalized CSP", () => {
-    const registry = new McpAppSandboxRegistry({
-      createInitId: (() => {
-        let count = 0;
-        return () => `init-${++count}`;
-      })(),
-    });
+  it("keeps fragmentless routes unique per registration in a shared partition", () => {
+    const registry = new McpAppSandboxRegistry({ createInitId: counter("init-") });
     const first = registry.register(1, registrationInput());
-    const samePolicy = registry.register(2, registrationInput());
-    const base = first.src.split("#", 1)[0]!;
-    expect(samePolicy.partition).toBe(first.partition);
-    expect(resolveMcpAppSandboxProtocolRequest(base, registry, first.partition)?.statusCode).toBe(
-      200,
-    );
-
-    registry.register(
-      3,
+    const narrower = registry.register(
+      1,
       registrationInput({
-        csp: {
-          ...registrationInput().csp,
-          connectDomains: [],
-        },
+        callId: "call-2",
+        csp: { ...registrationInput().csp, connectDomains: [] },
       }),
     );
-    expect(resolveMcpAppSandboxProtocolRequest(base, registry, first.partition)).toBeNull();
+    expect(narrower.partition).toBe(first.partition);
+    const firstBase = first.src.split("#", 1)[0]!;
+    const narrowerBase = narrower.src.split("#", 1)[0]!;
+    expect(firstBase).not.toBe(narrowerBase);
+    const firstResponse = resolveMcpAppSandboxProtocolRequest(firstBase, registry, first.partition);
+    const narrowerResponse = resolveMcpAppSandboxProtocolRequest(
+      narrowerBase,
+      registry,
+      first.partition,
+    );
+    expect(firstResponse?.headers["Content-Security-Policy"]).toContain("https://api.example.test");
+    expect(narrowerResponse?.headers["Content-Security-Policy"]).not.toContain(
+      "https://api.example.test",
+    );
   });
 
   it("keeps a consumed exact authority routable without making stale fragments valid", () => {
@@ -183,34 +250,5 @@ describe("MCP App sandbox protocol routing", () => {
         descriptor.partition,
       ),
     ).toBeNull();
-  });
-
-  it("serves the exact inner content installer only in the registered partition", () => {
-    const registry = new McpAppSandboxRegistry({ createInitId: () => "init-1" });
-    const descriptor = registry.register(1, registrationInput());
-    const contentUrl =
-      "moss-mcp-sandbox://" + descriptor.sandboxId + "/content?generation=0&init=init-1";
-    const response = resolveMcpAppSandboxProtocolRequest(
-      contentUrl,
-      registry,
-      descriptor.partition,
-    );
-    expect(response?.statusCode).toBe(200);
-    expect(response?.headers["Content-Security-Policy"]).toContain("frame-ancestors 'self'");
-    expect(response?.headers["Content-Security-Policy"]).toContain("frame-src 'self'");
-    expect(response?.data).toBe(MCP_APP_SANDBOX_CONTENT_HTML);
-    expect(resolveMcpAppSandboxProtocolRequest(contentUrl, registry, "moss-mcp-other")).toBeNull();
-    for (const invalid of [
-      `${contentUrl}&extra=1`,
-      contentUrl.replace("?generation=0&init=init-1", "?init=init-1&generation=0"),
-      contentUrl.replace("init=init-1", "init=stale"),
-      contentUrl.replace("&init=init-1", "&init=init-1&init=duplicate"),
-      `${contentUrl}#fragment`,
-      contentUrl.replace(descriptor.sandboxId, "other-sandbox"),
-    ]) {
-      expect(
-        resolveMcpAppSandboxProtocolRequest(invalid, registry, descriptor.partition),
-      ).toBeNull();
-    }
   });
 });

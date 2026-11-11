@@ -14,6 +14,8 @@ const electronMocks = vi.hoisted(() => ({
     protocol: { handle: vi.fn(), unhandle: vi.fn() },
     setPermissionCheckHandler: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
+    setDevicePermissionHandler: vi.fn(),
+    setDisplayMediaRequestHandler: vi.fn(),
     setUserAgent: vi.fn(),
     webRequest: { onBeforeRequest: vi.fn() },
     on: vi.fn(),
@@ -23,8 +25,12 @@ const electronMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("electron", () => ({
+  app: { getPath: () => "/downloads" },
+  BrowserWindow: { fromWebContents: () => null },
+  dialog: { showSaveDialog: vi.fn() },
   ipcMain: electronMocks.ipcMain,
   session: { fromPartition: electronMocks.fromPartition },
+  shell: { openExternal: vi.fn() },
 }));
 
 import {
@@ -33,8 +39,8 @@ import {
   MCP_APP_SANDBOX_SCHEME,
   type McpAppSandboxDescriptor,
 } from "@moss/contracts";
+
 import { McpAppSandboxRuntime } from "./runtime";
-import { mcpAppSandboxContentUrl } from "./policy";
 
 const baseInput = (overrides: Record<string, unknown> = {}) => ({
   callId: "call-runtime-1",
@@ -74,6 +80,7 @@ type GuestMock = EventEmitter & {
   isDestroyed: () => boolean;
   postMessage: ReturnType<typeof vi.fn>;
   setWindowOpenHandler: ReturnType<typeof vi.fn>;
+  setWebRTCIPHandlingPolicy: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
   session: typeof electronMocks.partitionSession;
 };
@@ -88,6 +95,7 @@ function guest(url: string, guestSession = electronMocks.partitionSession): Gues
   value.isDestroyed = () => false;
   value.postMessage = vi.fn();
   value.setWindowOpenHandler = vi.fn();
+  value.setWebRTCIPHandlingPolicy = vi.fn();
   value.close = vi.fn();
   value.session = guestSession;
   return value;
@@ -328,7 +336,7 @@ describe("MCP App sandbox runtime authority lifecycle", () => {
     expect(duplicateClose).toHaveBeenCalledTimes(3);
   });
 
-  it("requires the ordered bridge/navigation port names and admits only the exact inner route", () => {
+  it("requires the ordered bridge/navigation port names and admits only widget sub-frames", () => {
     const runtime = new McpAppSandboxRuntime();
     const trustedOwner = owner(1);
     runtime.attachOwner(trustedOwner);
@@ -355,20 +363,22 @@ describe("MCP App sandbox runtime authority lifecycle", () => {
     );
     expect(close).toHaveBeenCalledTimes(3);
 
-    const navigationDetails = {
-      url: mcpAppSandboxContentUrl(descriptor),
-      isMainFrame: false,
-      preventDefault: vi.fn(),
-    };
-    candidate.emit("will-frame-navigate", navigationDetails);
-    expect(navigationDetails.preventDefault).not.toHaveBeenCalled();
-    const foreignDetails = {
-      url: `${descriptor.origin}/content?generation=0&init=stale`,
-      isMainFrame: false,
-      preventDefault: vi.fn(),
-    };
-    candidate.emit("will-frame-navigate", foreignDetails);
-    expect(foreignDetails.preventDefault).toHaveBeenCalledOnce();
+    for (const url of ["about:srcdoc", "about:blank", "data:text/html,x"]) {
+      const details = { url, isMainFrame: false, preventDefault: vi.fn() };
+      candidate.emit("will-frame-navigate", details);
+      expect(details.preventDefault, url).not.toHaveBeenCalled();
+    }
+    for (const url of [
+      descriptor.src,
+      `${descriptor.origin}/mcp_apps?generation=0&route=0000000000000000`,
+      "https://evil.example.test/",
+      "file:///C:/Windows/win.ini",
+    ]) {
+      const details = { url, isMainFrame: false, preventDefault: vi.fn() };
+      candidate.emit("will-frame-navigate", details);
+      expect(details.preventDefault, url).toHaveBeenCalledOnce();
+    }
+    expect(candidate.setWebRTCIPHandlingPolicy).toHaveBeenCalledWith("disable_non_proxied_udp");
   });
 
   it("rejects a complete stale guest envelope after a same-card retry", () => {

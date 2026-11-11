@@ -12,6 +12,7 @@ import { memo, useMemo, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { PlusIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { SIDEBAR_ROW_HEIGHT_CLASS_NAME } from "../../sidebarRowStyles";
 import { KanbanCardView, type KanbanCardPrLookup } from "./KanbanCardView";
 import { KanbanStatusIcon } from "./KanbanStatusIcon";
 import { KANBAN_COLUMN_V2_LABELS } from "@moss/shared/kanban";
@@ -168,22 +169,25 @@ function KanbanColumnComponent({
 
   return (
     <section className="flex min-h-0 w-full min-w-0 flex-col @min-[52rem]/kanban-project:min-w-64 @min-[52rem]/kanban-project:flex-1">
-      <header className="flex h-8 shrink-0 items-center gap-2 px-2 pb-1">
+      <header
+        className={cn(
+          "flex shrink-0 items-center gap-ui-gap-xs px-ui-pad-sm",
+          SIDEBAR_ROW_HEIGHT_CLASS_NAME,
+        )}
+      >
         <h3 className="text-ui font-medium text-foreground">
           {KANBAN_COLUMN_V2_LABELS[columnKey]}
         </h3>
-        <span className="text-ui-sm leading-snug text-muted-foreground">{cards.length}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        <span className="text-ui-xs text-muted-foreground tabular-nums">{cards.length}</span>
+        <span className="ml-auto flex shrink-0 items-center gap-ui-gap-xs">
           {dispatchTarget ? (
-            <span className="text-ui-sm leading-snug text-sky-600 dark:text-sky-300/90">
-              Drop to send
-            </span>
+            <span className="text-ui-xs text-info-foreground">Drop to send</span>
           ) : null}
           {onNewCard ? (
             <Button
               size="icon-xs"
               variant="ghost"
-              className="shrink-0 text-muted-foreground/70 hover:text-foreground"
+              className="shrink-0"
               aria-label="New task"
               title="New task"
               onClick={onNewCard}
@@ -197,9 +201,9 @@ function KanbanColumnComponent({
       <ul
         ref={setNodeRef}
         className={cn(
-          "flex min-h-24 flex-1 flex-col gap-1.5 overflow-y-auto rounded-panel p-1 transition-colors",
-          dispatchTarget && "bg-sky-500/5 ring-1 ring-sky-400/30",
-          dispatchTarget && isOver && "bg-sky-500/10 ring-sky-400/60",
+          "flex min-h-24 flex-1 flex-col gap-ui-gap-xs overflow-y-auto rounded-panel p-1 transition-colors",
+          dispatchTarget && "bg-info/5 ring-1 ring-info/30",
+          dispatchTarget && isOver && "bg-info/10 ring-info/60",
         )}
       >
         {sortable ? (
@@ -210,19 +214,15 @@ function KanbanColumnComponent({
           cardElements
         )}
         {cards.length === 0 ? (
-          <li className="list-none rounded-panel border border-dashed border-border px-3 py-4 text-center text-ui-sm leading-snug text-muted-foreground">
+          <li className="list-none rounded-card border border-dashed border-border p-ui-pad-lg text-center text-ui-sm text-muted-foreground">
             No cards
           </li>
         ) : null}
         {hiddenCount > 0 ? (
           <li className="list-none">
-            <button
-              type="button"
-              onClick={() => setShowAll(true)}
-              className="w-full rounded-control px-3 py-1.5 text-center text-ui-sm leading-snug text-muted-foreground transition-colors hover:bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,transparent)] hover:text-foreground"
-            >
+            <Button size="sm" variant="ghost" className="w-full" onClick={() => setShowAll(true)}>
               Show {hiddenCount} more
-            </button>
+            </Button>
           </li>
         ) : null}
       </ul>

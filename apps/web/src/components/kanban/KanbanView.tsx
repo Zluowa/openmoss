@@ -153,9 +153,10 @@ export default function KanbanView({ projectId }: { projectId: string | null }) 
           filter={<KanbanFilterMenu />}
           onNewTask={handleNewTaskInProjectBoard}
           newTaskDisabled={newTaskProjectOptions.length === 0}
+          className="px-ui-pad-lg"
         />
 
-        <div className="min-h-0 min-w-0 flex-1 pt-2">
+        <div className="min-h-0 min-w-0 flex-1">
           {projectBoard ? (
             <KanbanProjectBoardView
               board={projectBoard}

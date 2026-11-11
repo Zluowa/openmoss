@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vitest/config";
@@ -13,8 +12,6 @@ const srcPath = fileURLToPath(new URL("./src", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim();
 const browserCacheDir = process.env.MOSS_BROWSER_VITE_CACHE_DIR?.trim();
-const accessibilityOutput = process.env.MOSS_PLUGIN_A11Y_OUTPUT?.trim() ?? "";
-const accessibilityWriteEnabled = accessibilityOutput.length > 0;
 const appThumbnailProbes = new WeakMap<
   object,
   {
@@ -22,24 +19,6 @@ const appThumbnailProbes = new WeakMap<
     readonly stop: () => Promise<void>;
   }
 >();
-
-function accessibilityOutputPath(): { absolutePath: string; repoRelativePath: string } {
-  if (!accessibilityOutput || isAbsolute(accessibilityOutput)) {
-    throw new Error("MOSS_PLUGIN_A11Y_OUTPUT must be a repository-relative evidence path.");
-  }
-  const evidenceRoot = resolve(repoRoot, ".moss/plugin-page-parity/evidence");
-  const absolutePath = resolve(repoRoot, accessibilityOutput);
-  if (absolutePath !== evidenceRoot && !absolutePath.startsWith(`${evidenceRoot}${sep}`)) {
-    throw new Error("MOSS_PLUGIN_A11Y_OUTPUT must stay under Gate 5's evidence directory.");
-  }
-  if (!absolutePath.endsWith(".json")) {
-    throw new Error("MOSS_PLUGIN_A11Y_OUTPUT must name a JSON report.");
-  }
-  return {
-    absolutePath,
-    repoRelativePath: relative(repoRoot, absolutePath).split(sep).join("/"),
-  };
-}
 
 export const browserViteConfig = {
   ...viteConfig,
@@ -53,20 +32,6 @@ export default mergeConfig(
     server: { watch: { ignored: ["**/.vitest-attachments/**", "**/__screenshots__/**"] } },
     // Prebundle direct hook dependencies so restored caches cannot reload tests mid-run.
     optimizeDeps: { include: ["react-dom/client", "zustand/vanilla", "zustand/vanilla/shallow"] },
-    define: {
-      MOSS_PLUGIN_A11Y_WRITE_ENABLED: JSON.stringify(accessibilityWriteEnabled),
-      MOSS_PLUGIN_A11Y_PROGRAM: JSON.stringify(
-        process.env.MOSS_PLUGIN_A11Y_PROGRAM ?? "moss-plugin-page-codex-perfect-parity",
-      ),
-      MOSS_PLUGIN_A11Y_COMMIT: JSON.stringify(process.env.MOSS_PLUGIN_A11Y_COMMIT ?? ""),
-      MOSS_PLUGIN_A11Y_ARTIFACT_SHA256: JSON.stringify(
-        process.env.MOSS_PLUGIN_A11Y_ARTIFACT_SHA256 ?? "",
-      ),
-      MOSS_PLUGIN_A11Y_CAPTURE_SHA256: JSON.stringify(
-        process.env.MOSS_PLUGIN_A11Y_CAPTURE_SHA256 ?? "",
-      ),
-      MOSS_PLUGIN_A11Y_CREATED_AT: JSON.stringify(process.env.MOSS_PLUGIN_A11Y_CREATED_AT ?? ""),
-    },
     resolve: {
       alias: {
         "~": srcPath,
@@ -294,24 +259,6 @@ export default mergeConfig(
             };
             await context.page.mouse.move(target.x, target.y, { steps: 8 });
             return { target };
-          },
-          writeMossPluginAccessibilityEvidence(_context, json: string) {
-            if (!accessibilityWriteEnabled) {
-              throw new Error("Gate 5 evidence writing is disabled for this browser run.");
-            }
-            if (typeof json !== "string" || json.length === 0 || json.length > 5_000_000) {
-              throw new Error("Gate 5 evidence must be a non-empty JSON string under 5 MB.");
-            }
-            JSON.parse(json);
-            const { absolutePath, repoRelativePath } = accessibilityOutputPath();
-            mkdirSync(dirname(absolutePath), { recursive: true });
-            const temporaryPath = `${absolutePath}.tmp-${process.pid}`;
-            writeFileSync(temporaryPath, json, { encoding: "utf8", mode: 0o600 });
-            renameSync(temporaryPath, absolutePath);
-            return {
-              path: repoRelativePath,
-              sha256: createHash("sha256").update(json).digest("hex"),
-            };
           },
         },
         api: {

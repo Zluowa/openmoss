@@ -67,7 +67,7 @@ describe("CheckpointStoreLive", () => {
       if (args === "rev-parse --verify HEAD") {
         return Effect.succeed({ code: 1, stdout: "", stderr: "" });
       }
-      if (args === "add -A -- .") {
+      if (args === "add -A -- . :(exclude).moss/canvas") {
         return Effect.promise(() => addGate).pipe(Effect.as({ code: 0, stdout: "", stderr: "" }));
       }
       if (args === "write-tree") {
@@ -97,13 +97,19 @@ describe("CheckpointStoreLive", () => {
 
         const first = yield* store.captureCheckpoint(input).pipe(Effect.forkChild);
         yield* Effect.promise(() =>
-          waitFor(() => execute.mock.calls.some(([call]) => call.args.join(" ") === "add -A -- .")),
+          waitFor(() =>
+            execute.mock.calls.some(
+              ([call]) => call.args.join(" ") === "add -A -- . :(exclude).moss/canvas",
+            ),
+          ),
         );
         const second = yield* store.captureCheckpoint(input).pipe(Effect.forkChild);
         yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
 
         expect(
-          execute.mock.calls.filter(([call]) => call.args.join(" ") === "add -A -- ."),
+          execute.mock.calls.filter(
+            ([call]) => call.args.join(" ") === "add -A -- . :(exclude).moss/canvas",
+          ),
         ).toHaveLength(1);
 
         releaseAdd?.();
@@ -133,7 +139,7 @@ describe("CheckpointStoreLive", () => {
         utimesSync(captureIndexPath, refreshTime, refreshTime);
         return Effect.succeed({ code: 1, stdout: "", stderr: "README.md: needs update\n" });
       }
-      if (args === "add -A -- .") {
+      if (args === "add -A -- . :(exclude).moss/canvas") {
         const captureIndexPath = input.env?.GIT_INDEX_FILE ?? "";
         capturedSeed = readFileSync(captureIndexPath, "utf8");
         capturedIndexMtimeMs = statSync(captureIndexPath).mtimeMs;
@@ -208,7 +214,10 @@ describe("CheckpointStoreLive", () => {
       if (args === "rev-parse --is-inside-work-tree --git-path index") {
         return Effect.succeed({ code: 0, stdout: `true\n${workingIndexPath}\n`, stderr: "" });
       }
-      if (args === "update-index --really-refresh" || args === "add -A -- .") {
+      if (
+        args === "update-index --really-refresh" ||
+        args === "add -A -- . :(exclude).moss/canvas"
+      ) {
         expect(readFileSync(input.env?.GIT_INDEX_FILE ?? "", "utf8")).toBe("working-index");
         return Effect.succeed({ code: 0, stdout: "", stderr: "" });
       }
@@ -470,7 +479,7 @@ describe("CheckpointStoreLive", () => {
       if (args === "rev-parse --verify HEAD") {
         return Effect.succeed({ code: 1, stdout: "", stderr: "" });
       }
-      if (args === "add -A -- .") {
+      if (args === "add -A -- . :(exclude).moss/canvas") {
         addCalls += 1;
         if (addCalls === 1) {
           return Effect.never;
@@ -543,7 +552,7 @@ describe("CheckpointStoreLive", () => {
       if (args === "rev-parse --verify HEAD") {
         return Effect.succeed({ code: 1, stdout: "", stderr: "" });
       }
-      if (args === "add -A -- .") {
+      if (args === "add -A -- . :(exclude).moss/canvas") {
         return Effect.succeed({ code: 0, stdout: "", stderr: "" });
       }
       if (args === "write-tree") {
@@ -574,14 +583,14 @@ describe("CheckpointStoreLive", () => {
           checkpointRef: CheckpointRef.makeUnsafe(existingRef),
           skipIfExists: true,
         });
-        expect(captureArgs("add -A -- .")).toHaveLength(0);
+        expect(captureArgs("add -A -- . :(exclude).moss/canvas")).toHaveLength(0);
 
         yield* store.captureCheckpoint({
           cwd: "/repo",
           checkpointRef: CheckpointRef.makeUnsafe(missingRef),
           skipIfExists: true,
         });
-        expect(captureArgs("add -A -- .")).toHaveLength(1);
+        expect(captureArgs("add -A -- . :(exclude).moss/canvas")).toHaveLength(1);
         expect(captureArgs(`update-ref ${missingRef} commit-oid`)).toHaveLength(1);
       }),
     );

@@ -109,6 +109,7 @@ describe("ComputerServiceLive", () => {
           expect(service.availability).toEqual({
             kind: "backend-unavailable",
             message: "Moss's computer control is not running yet. Restart Moss, then refresh.",
+            reason: "host-not-running",
           });
           const state = yield* Effect.promise(() =>
             service.manager.getThreadState("thread-windows"),

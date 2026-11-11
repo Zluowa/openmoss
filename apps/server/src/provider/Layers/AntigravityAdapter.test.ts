@@ -1025,6 +1025,95 @@ process.stdin.on("end", () => {
     }
   });
 
+  it("runs the model set in Antigravity unless the thread picks one", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "moss-antigravity-cli-default-"));
+    const spawned: Array<{ args: readonly string[]; child: ChildProcess }> = [];
+    const spawnProcess = ((_command: string, args: readonly string[]) => {
+      const child = new EventEmitter() as ChildProcess;
+      Object.assign(child, {
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        killed: false,
+        kill: () => true,
+      });
+      spawned.push({ args, child });
+      return child;
+    }) as NonNullable<AntigravityAdapterDependencies["spawnProcess"]>;
+
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const adapter = yield* AntigravityAdapter;
+          const runTurn = (
+            threadId: ThreadId,
+            modelSelection?: { provider: "antigravity"; model: string },
+          ) =>
+            Effect.gen(function* () {
+              const turnStarted = yield* adapter.streamEvents.pipe(
+                Stream.filter(
+                  (event) => event.type === "turn.started" && event.threadId === threadId,
+                ),
+                Stream.take(1),
+                Stream.runCollect,
+                Effect.forkChild,
+              );
+              const turnCompleted = yield* adapter.streamEvents.pipe(
+                Stream.filter(
+                  (event) => event.type === "turn.completed" && event.threadId === threadId,
+                ),
+                Stream.take(1),
+                Stream.runCollect,
+                Effect.forkChild,
+              );
+              yield* adapter.startSession({
+                provider: "antigravity",
+                threadId,
+                runtimeMode: "full-access",
+                cwd: root,
+                ...(modelSelection ? { modelSelection } : {}),
+                providerOptions: { antigravity: { binaryPath: "/fake/agy" } },
+              });
+              yield* adapter.sendTurn({ threadId, input: "hello", attachments: [] });
+              const started = Array.from(
+                yield* Fiber.join(turnStarted).pipe(Effect.timeout("2 seconds")),
+              );
+              const turn = spawned.at(-1)!;
+              turn.child.emit("close", 0, null);
+              yield* Fiber.join(turnCompleted).pipe(Effect.timeout("2 seconds"));
+              yield* adapter.stopSession(threadId);
+              return { args: turn.args, started: started[0] };
+            });
+
+          const cliDefault = yield* runTurn(ThreadId.makeUnsafe("thread-antigravity-cli-default"));
+          expect(cliDefault.args).not.toContain("--model");
+          expect(cliDefault.started?.payload).toEqual({});
+
+          const picked = yield* runTurn(ThreadId.makeUnsafe("thread-antigravity-picked-model"), {
+            provider: "antigravity",
+            model: "Gemini 3.8 Flash",
+          });
+          const modelFlag = picked.args.indexOf("--model");
+          expect(picked.args[modelFlag + 1]).toBe("Gemini 3.8 Flash (High)");
+          expect(picked.started?.payload).toEqual({ model: "Gemini 3.8 Flash" });
+        }).pipe(
+          Effect.provide(
+            makeAntigravityAdapterLive({
+              ensurePlugin: async () => undefined,
+              spawnProcess,
+            }).pipe(
+              Layer.provideMerge(
+                ServerConfig.layerTest(root, { prefix: "antigravity-cli-default-" }),
+              ),
+              Layer.provideMerge(NodeServices.layer),
+            ),
+          ),
+        ),
+      );
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("dedupes hook and transcript copies without collapsing repeated tool names", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "moss-antigravity-tool-dedup-"));
     const transcriptDir = path.join(

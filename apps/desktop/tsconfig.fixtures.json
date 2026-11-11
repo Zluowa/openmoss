@@ -5,6 +5,6 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/cuaFixtures/**/*.ts"],
+  "include": ["src/cuaFixtures/**/*.ts", "scripts/browser-task-eval/**/*.ts"],
   "exclude": []
 }

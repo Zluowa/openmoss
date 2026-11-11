@@ -1105,6 +1105,14 @@ export function resolveReviewFoldToggleLabel(hasRevealed: boolean, hiddenCount: 
 const OVERVIEW_RENDER_CAP = 20;
 
 /**
+ * Flex weight of a project column on the overview: one per visible card, capped at four card
+ * widths, so a busy project spreads its cards across the page and a small one stays narrow.
+ */
+export function overviewColumnWeight(visibleCardCount: number): number {
+  return Math.min(Math.max(visibleCardCount, 1), 4);
+}
+
+/**
  * The capped card list an overview project column actually renders, plus the count folded
  * behind its "Show more" affordance. Shared with the board root so per-card data (PR
  * badges) is fetched for exactly the rendered set. The cap applies PER COLUMN before

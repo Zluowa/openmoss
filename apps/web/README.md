@@ -12,7 +12,7 @@ specific to this package.
   never the default `bun run dev` next to another Moss.
 - Unit tests: `bun run --cwd apps/web test <files>`.
 - Browser tests: `bun run --cwd apps/web test:browser <file>`. Known flaky or
-  machine-specific browser tests are listed in `BROWSER_TEST_QUARANTINE.md`.
+  machine-specific tests are listed in `test-quarantine.json` at the repository root.
 - `bun run lint` includes `design:check`, which fails when a file gains hard-coded
   colours, size-named radii, one-off sizes, extra bold weights or bare `<button>`s
   over `scripts/design-check-baseline.json`.

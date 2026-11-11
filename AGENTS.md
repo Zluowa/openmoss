@@ -52,17 +52,20 @@ ones still planned.
 ## Commands
 
 ```
+bun run check                           the quick gate: format, lint, checks, types and
+                                        tests for what your change affects (about a minute)
 bun x oxfmt --check <files>             format, on the files you changed
-bun run lint                            oxlint, then the design, sync-fs and brand checks
-bun run --cwd <package> typecheck       types, for each package you changed
-bun run --cwd <package> test <files>    the tests your change affects (Vitest)
+bun run lint                            oxlint, then the design, sync-fs, brand and skills checks
+bun run --cwd <package> typecheck       types, for one package
+bun run --cwd <package> test <files>    some tests (Vitest)
 bun run test                            every workspace's tests: a heavy lane
 ```
 
 Never run `bun test`: it is a different runner. Always `bun run test`.
 
-The first four are the quick gate. Run it before every push; the `open-pr` skill
-has the details, and a single command for it is planned (`docs/handbook/quality.md`).
+`bun run check` is the quick gate. Run it before every push; the `open-pr` skill
+has the details and `tools/check/README.md` says what it selects. The other lines
+are its parts, for running one of them alone.
 Do not run full lanes or build installers unless your brief says so: the
 coordinator runs them, one at a time per machine.
 

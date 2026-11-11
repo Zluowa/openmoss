@@ -41,6 +41,7 @@ export function makeComputerServiceLayer(options: ComputerServiceLiveOptions = {
             ? {
                 kind: "backend-unavailable",
                 message: "Moss's computer control is not running yet. Restart Moss, then refresh.",
+                reason: "host-not-running",
               }
             : { kind: "unsupported-platform", platform };
       // macOS runs the bundled host the desktop app provisions; on other

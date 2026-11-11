@@ -5,7 +5,7 @@
 import { ipcRenderer } from "electron";
 
 const MCP_APP_SANDBOX_SCHEME = "moss-mcp-sandbox";
-const MCP_APP_SANDBOX_PATH = "/ui";
+const MCP_APP_SANDBOX_PATH = "/mcp_apps";
 const MCP_APP_SANDBOX_PORT_NAME = "mcp-app-host";
 const MCP_APP_SANDBOX_NAVIGATION_PORT_NAME = "mcp-app-navigation";
 const MCP_APP_SANDBOX_INIT_TYPE = "init";

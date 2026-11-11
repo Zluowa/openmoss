@@ -1,22 +1,36 @@
 import type { Session } from "electron";
 
+import { GuardedRequestTracker, type GuardedRequestSet } from "./guardedRequests";
+
 export interface BetterwrightNetworkGuardLease {
   readonly closed: boolean;
   /** The caller must drain its old transports before replacing the worker proxy. */
   replace(proxyUrl: string, signal?: AbortSignal): Promise<void>;
   release(): Promise<void>;
+  /**
+   * After release: resolves once the requests the session sent through this
+   * lease's proxy have finished (any tab), `maxMs` passes, or the signal
+   * aborts. The worker serving the proxy must stay up until then.
+   */
+  drainGuardedRequests(maxMs: number, signal?: AbortSignal): Promise<void>;
+  /** After release: how many of those requests are still in flight. */
+  readonly guardedRequestCount: number;
 }
 
 interface ProxyOwnership {
   failed: boolean;
   restoring?: Promise<void> | undefined;
+  guarded?: GuardedRequestSet | undefined;
 }
 
 export class BetterwrightNetworkGuard {
   private owner: ProxyOwnership | undefined;
   private nextTurn = Promise.resolve();
+  private readonly requests: GuardedRequestTracker;
 
-  constructor(private readonly browserSession: Session) {}
+  constructor(private readonly browserSession: Session) {
+    this.requests = new GuardedRequestTracker(browserSession);
+  }
 
   async attach(proxyUrl: string, signal?: AbortSignal): Promise<BetterwrightNetworkGuardLease> {
     signal?.throwIfAborted();
@@ -43,6 +57,10 @@ export class BetterwrightNetworkGuard {
           // recover it before changing proxies or vending a transport.
           void restoring.then(finishTurn, finishTurn);
           return restoring;
+        },
+        drainGuardedRequests: (maxMs, signal) => lease.drainGuardedRequests(maxMs, signal),
+        get guardedRequestCount() {
+          return lease.guardedRequestCount;
         },
       };
     } catch (error) {
@@ -98,6 +116,11 @@ export class BetterwrightNetworkGuard {
           });
         return releasing;
       },
+      drainGuardedRequests: (maxMs, signal) =>
+        owner.guarded?.drained(maxMs, signal) ?? Promise.resolve(),
+      get guardedRequestCount() {
+        return owner.guarded?.size ?? 0;
+      },
     };
   }
 
@@ -107,6 +130,9 @@ export class BetterwrightNetworkGuard {
     signal?: AbortSignal,
   ): Promise<void> {
     try {
+      // Record from before the switch: a request sent around it is waited for
+      // needlessly at worst, never missed.
+      this.requests.begin();
       await this.browserSession.setProxy({
         mode: "fixed_servers",
         proxyRules: proxyUrl,
@@ -139,6 +165,9 @@ export class BetterwrightNetworkGuard {
         // all temporary proxy configuration is owned by this guard.
         await this.browserSession.setProxy({ mode: "system" });
         await this.browserSession.closeAllConnections();
+        // New requests now connect directly; the ones already flowing through
+        // the guard keep it until they finish (see drainGuardedRequests).
+        owner.guarded = this.requests.end();
         this.owner = undefined;
       } catch (error) {
         owner.failed = true;

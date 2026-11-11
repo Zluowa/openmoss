@@ -93,6 +93,7 @@ import { ProjectAgentRepository } from "./persistence/Services/ProjectAgentRepos
 import { resolveCachedEditorIcon } from "./editorAppIcons";
 import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalPreviewFile } from "./localImageFiles.ts";
 import { libraryImageEffectRouteLayer } from "./library/libraryImageRoute.ts";
+import { mcpAppsRouteLayer } from "./mcpApps/routes";
 import {
   LOCAL_HTML_PREVIEW_PREFIX,
   localHtmlPreviewHeaders,
@@ -311,6 +312,10 @@ export function makeEffectHttpRouteLayer(
     libraryImageEffectRouteLayer,
     localHtmlPreviewEffectRouteLayer,
     inlineVisualizationEffectRouteLayer,
+    // Interactive connectors (MCP Apps): resource read, tool result, widget RPC, model context,
+    // downloads. Lost once in a 2026-10-02 upstream merge; guarded by
+    // mcpAppResourceRoute.mount.test.ts.
+    mcpAppsRouteLayer,
     binaryUploadEffectRouteLayer,
     attachmentsEffectRouteLayer,
     canvasStaticEffectRouteLayer,
@@ -2192,6 +2197,29 @@ export const canvasStaticEffectRouteLayer = HttpRouter.add(
   }),
 );
 
+const DEV_CENTRAL_ICON_PATH =
+  /^\/(central-icons-reversed|central-icons-fill)\/([a-z0-9][a-z0-9-]*\.svg)$/u;
+/** The web app's public folder in a source checkout; only read when a dev URL is set. */
+const DEV_WEB_PUBLIC_DIR = nodePath.resolve(import.meta.dirname, "../../web/public");
+
+/** In dev, the web app's own copy of a Central icon the page editor asked this origin for. */
+export function devCentralIconFile(
+  pathname: string,
+  publicDir: string = DEV_WEB_PUBLIC_DIR,
+): string | null {
+  const match = DEV_CENTRAL_ICON_PATH.exec(pathname);
+  return match ? nodePath.join(publicDir, match[1]!, match[2]!) : null;
+}
+
+/** Where a GET this server does not route is sent in dev: the same path and query on Vite. */
+export function devServerRedirectUrl(devUrl: URL, requestUrl: URL): string {
+  // Set the parts, never resolve the path: `//host/x` must not become another origin.
+  const target = new URL(devUrl.href);
+  target.pathname = requestUrl.pathname;
+  target.search = requestUrl.search;
+  return target.toString();
+}
+
 export const staticAndDevEffectRouteLayer = HttpRouter.add(
   "GET",
   "*",
@@ -2201,7 +2229,25 @@ export const staticAndDevEffectRouteLayer = HttpRouter.add(
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
     const config = yield* ServerConfig;
     if (config.devUrl) {
-      return HttpServerResponse.redirect(config.devUrl.toString(), { status: 302 });
+      // The page editor (served from this origin) draws its glyphs as CSS masks from
+      // /central-icons-*/. A mask is a CORS fetch, and after a cross-origin redirect the
+      // browser sends `Origin: null`, which Vite refuses, so in dev these come from here.
+      const icon = devCentralIconFile(url.pathname);
+      if (icon) {
+        const bytes = yield* Effect.tryPromise(() => fs.readFile(icon)).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        if (bytes) {
+          return HttpServerResponse.uint8Array(bytes, {
+            contentType: "image/svg+xml",
+            headers: { "cache-control": "no-cache" },
+          });
+        }
+      }
+      // Everything else: the same path on the dev server, never its bare root.
+      return HttpServerResponse.redirect(devServerRedirectUrl(config.devUrl, url), {
+        status: 302,
+      });
     }
 
     if (!config.staticDir) {

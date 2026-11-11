@@ -16,6 +16,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig, type Plugin, type PluginOption } from "vite";
 import pkg from "./package.json" with { type: "json" };
 import { listFiles, pruneProductionIcons } from "./scripts/production-assets";
+import { testQuarantine } from "../../tools/test-quarantine/vitest";
 
 const port = Number(process.env.PORT ?? 5733);
 const sourcemapEnv = process.env.MOSS_WEB_SOURCEMAP?.trim().toLowerCase();
@@ -257,6 +258,9 @@ export default defineConfig({
     // exported object preserves config identity for unit/browser consumers;
     // Vite filters the plugin before dev-server hooks run.
     ...sentryPlugins,
+    // Vitest-only (it has just a configureVitest hook): applies test-quarantine.json to the web
+    // unit lane and, through the configs that extend this one, to every browser lane.
+    testQuarantine(),
   ],
   optimizeDeps: {
     // Let the dev server serve the HTML and transform the app while Rolldown

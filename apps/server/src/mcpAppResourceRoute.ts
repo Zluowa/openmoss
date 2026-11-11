@@ -1,5 +1,6 @@
 // FILE: mcpAppResourceRoute.ts
-// Purpose: Authenticated HTTP transport for on-demand MCP App resource reads.
+// Purpose: Authenticated HTTP transport for on-demand MCP App resource reads, and the shared
+// auth / trusted-origin CORS / body-cap helpers every interactive-connector route uses.
 // HTML is returned only for the active request and is never persisted here.
 
 import { McpAppResourceReadInput, McpAppResourceReadResult } from "@moss/contracts";
@@ -16,6 +17,8 @@ import {
   ProviderValidationError,
   ProviderSessionNotFoundError,
 } from "./provider/Errors";
+import { McpAppRequestError, readMcpAppResourceOperation } from "./mcpApps/operations";
+import { McpAppService } from "./mcpApps/Services/McpAppService";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { isLoopbackHost } from "./startupAccess";
 import {
@@ -31,7 +34,7 @@ const MCP_APP_RESOURCE_RESPONSE_HEADERS = {
   "X-Content-Type-Options": "nosniff",
 } as const;
 
-function isLegacyTokenAuthorized(input: {
+export function isLegacyTokenAuthorized(input: {
   readonly config: ServerConfigShape;
   readonly url: URL;
 }): boolean {
@@ -40,7 +43,7 @@ function isLegacyTokenAuthorized(input: {
   return !input.config.authToken || legacyToken === input.config.authToken;
 }
 
-function trustedMutationCorsHeaders(input: {
+export function trustedMutationCorsHeaders(input: {
   readonly request: HttpServerRequest.HttpServerRequest;
   readonly url: URL;
   readonly config: ServerConfigShape;
@@ -61,7 +64,7 @@ function trustedMutationCorsHeaders(input: {
   };
 }
 
-const requireAuthenticatedMutationRequest = Effect.gen(function* () {
+export const requireAuthenticatedMutationRequest = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const url = HttpServerRequest.toURL(request);
   if (!url) return yield* Effect.fail({ message: "Bad Request", status: 400 as const });
@@ -97,21 +100,19 @@ function isBodyCapacityError(cause: unknown): boolean {
   );
 }
 
-const readJsonBody = (
+export const readJsonBody = (
   request: HttpServerRequest.HttpServerRequest,
+  maxBytes: number = MCP_APP_RESOURCE_JSON_BODY_MAX_BYTES,
 ): Effect.Effect<
   unknown,
   { readonly status: 400 | 413; readonly message: string; readonly cause?: unknown }
 > => {
   const declaredLength = Number(request.headers["content-length"] ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > MCP_APP_RESOURCE_JSON_BODY_MAX_BYTES) {
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
     return Effect.fail({ status: 413 as const, message: "Request body too large." });
   }
   return request.json.pipe(
-    Effect.provideService(
-      HttpServerRequest.MaxBodySize,
-      FileSystem.Size(MCP_APP_RESOURCE_JSON_BODY_MAX_BYTES),
-    ),
+    Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(maxBytes)),
     Effect.mapError((cause) =>
       isBodyCapacityError(cause)
         ? { status: 413 as const, message: "Request body too large.", cause }
@@ -120,11 +121,11 @@ const readJsonBody = (
   );
 };
 
-function responseHeaders(corsHeaders: Record<string, string>): Record<string, string> {
+export function responseHeaders(corsHeaders: Record<string, string>): Record<string, string> {
   return { ...MCP_APP_RESOURCE_RESPONSE_HEADERS, ...corsHeaders };
 }
 
-function safeProviderError(error: unknown): {
+export function safeProviderError(error: unknown): {
   readonly status: 400 | 404 | 409 | 502;
   readonly message: string;
 } {
@@ -143,7 +144,7 @@ function safeProviderError(error: unknown): {
   return { status: 502, message: "MCP App resource provider read failed." };
 }
 
-function safeRouteErrorMessage(error: unknown): string {
+export function safeRouteErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message.trim().slice(0, MCP_APP_RESOURCE_ERROR_MAX_CHARS);
   }
@@ -186,14 +187,22 @@ export const mcpAppResourceEffectRouteLayer = HttpRouter.add(
         message: "Invalid MCP App resource request.",
       })),
     );
+    // Interactive connectors: Moss connectors and the gateway are read by Moss itself; CLI-own
+    // servers still go to the provider runtime.
+    const mcpApps = yield* Effect.serviceOption(McpAppService);
     const providerService = yield* ProviderService;
-    if (typeof providerService.readMcpAppResource !== "function") {
+    if (mcpApps._tag === "None" && typeof providerService.readMcpAppResource !== "function") {
       return HttpServerResponse.jsonUnsafe(
         { error: "MCP App resource reads are unavailable." },
         { status: 409, headers: responseHeaders(corsHeaders) },
       );
     }
-    const result = yield* providerService.readMcpAppResource(payload);
+    const result =
+      mcpApps._tag === "Some"
+        ? yield* readMcpAppResourceOperation(payload).pipe(
+            Effect.provideService(McpAppService, mcpApps.value),
+          )
+        : yield* providerService.readMcpAppResource!(payload);
     const safeResult = yield* Schema.decodeUnknownEffect(McpAppResourceReadResult)(result);
     return HttpServerResponse.jsonUnsafe(safeResult, {
       status: 200,
@@ -210,6 +219,12 @@ export const mcpAppResourceEffectRouteLayer = HttpRouter.add(
           return HttpServerResponse.setHeaders(
             authErrorResponse(error),
             responseHeaders(corsHeaders),
+          );
+        }
+        if (error instanceof McpAppRequestError) {
+          return HttpServerResponse.jsonUnsafe(
+            { error: error.message },
+            { status: error.status, headers: responseHeaders(corsHeaders) },
           );
         }
         const providerError = safeProviderError(error);

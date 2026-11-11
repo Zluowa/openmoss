@@ -40,14 +40,24 @@ import {
 } from "~/sidebarRowStyles";
 
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
+import { SidebarGlyph } from "../sidebarGlyphs";
 import { SidebarIconButton } from "../SidebarIconButton";
+import { SidebarLeadingIcon } from "../SidebarLeadingIcon";
+import { SidebarPrimaryAction } from "../SidebarPrimaryAction";
 import { SidebarPanelTitle } from "../SidebarPanelTitle";
 import { SpaceIcon, SPACE_ICON_OPTIONS } from "../SpaceIcon";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
+import { SidebarMenu, SidebarMenuItem } from "../ui/sidebar";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { SpaceCreateMenu, type SpaceCreateAction } from "./SpaceCreateMenu";
 import { SpaceSyncMenuItem } from "./SpaceSyncMenuItem";
-import type { SpaceItem, SpaceKindSection, SpaceSection } from "./spaceItems";
+import {
+  formatRelativeTime,
+  spaceItemDisplayTitle,
+  type SpaceItem,
+  type SpaceKindSection,
+  type SpaceSection,
+} from "./spaceItems";
 import { spaceItemMeta } from "./spaceKinds";
 
 const KIND_ROWS: ReadonlyArray<{ kind: SpaceKindSection; label: string; icon: LucideIcon }> = [
@@ -101,6 +111,7 @@ export function SpaceSidebar(props: {
     const nextSeen = new Set([...seen, page.id]);
     const open = expanded.has(page.id);
     const active = props.openKey === `page:${page.id}`;
+    const pageTitle = spaceItemDisplayTitle({ title: page.title, kind: "page" });
     return (
       <div key={page.id} className={cn("flex flex-col", SIDEBAR_NESTED_LIST_GAP_CLASS_NAME)}>
         <div
@@ -117,7 +128,7 @@ export function SpaceSidebar(props: {
           <button
             type="button"
             className="flex size-5 shrink-0 items-center justify-center rounded-inline text-muted-foreground hover:text-foreground disabled:opacity-0"
-            aria-label={`${open ? "收起" : "展开"} ${page.title}`}
+            aria-label={`${open ? "收起" : "展开"} ${pageTitle}`}
             aria-expanded={children.length ? open : undefined}
             disabled={children.length === 0}
             onClick={() => toggle(page.id)}
@@ -133,12 +144,12 @@ export function SpaceSidebar(props: {
             aria-current={active ? "page" : undefined}
             onClick={() => props.onOpenPage(page.id)}
           >
-            {page.title}
+            {pageTitle}
           </button>
           <span className="pe-1 opacity-0 group-hover/space-row:opacity-100 group-focus-within/space-row:opacity-100">
             <SidebarIconButton
               icon={AddPlusIcon}
-              label={`在 ${page.title} 下新建子页面`}
+              label={`在 ${pageTitle} 下新建子页面`}
               onClick={() => props.onCreateSubpage(page)}
             />
           </span>
@@ -168,40 +179,47 @@ export function SpaceSidebar(props: {
           onClick={props.onClose}
         />
       </SidebarPanelTitle>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <nav className={cn("flex flex-col", SIDEBAR_NESTED_LIST_GAP_CLASS_NAME)} aria-label="条目">
-          <SpaceCreateMenu
-            onCreate={props.onCreate}
-            trigger={
-              <button
-                type="button"
-                className={cn(
-                  SIDEBAR_HEADER_ROW_CLASS_NAME,
-                  SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
-                  SIDEBAR_ROW_HOVER_CLASS_NAME,
-                )}
-                data-space-create-trigger
-              >
-                <AddPlusIcon aria-hidden className="size-4 shrink-0" />
-                创建
-              </button>
-            }
-          />
-          <NavRow
-            icon={LayoutGridIcon}
-            label="全部"
-            active={isSection({ type: "all" })}
-            onClick={() => props.onSection({ type: "all" })}
-          />
-          {KIND_ROWS.map((row) => (
+      {/* Same insets, rows and glyphs as the main sidebar's panels (SidebarPrimaryAction). */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pt-1 pb-1.5">
+        <nav aria-label="条目">
+          <SidebarMenu className="gap-0.5">
+            <SidebarMenuItem>
+              <SpaceCreateMenu
+                onCreate={props.onCreate}
+                trigger={
+                  <button
+                    type="button"
+                    className={cn(
+                      SIDEBAR_HEADER_ROW_CLASS_NAME,
+                      SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
+                      SIDEBAR_ROW_HOVER_CLASS_NAME,
+                    )}
+                    data-space-create-trigger
+                  >
+                    <SidebarLeadingIcon size="sm" tone="text-inherit">
+                      <SidebarGlyph icon={AddPlusIcon} variant="leading" />
+                    </SidebarLeadingIcon>
+                    <span className="truncate">创建</span>
+                  </button>
+                }
+              />
+            </SidebarMenuItem>
             <NavRow
-              key={row.kind}
-              icon={row.icon}
-              label={row.label}
-              active={isSection({ type: "kind", kind: row.kind })}
-              onClick={() => props.onSection({ type: "kind", kind: row.kind })}
+              icon={LayoutGridIcon}
+              label="全部"
+              active={isSection({ type: "all" })}
+              onClick={() => props.onSection({ type: "all" })}
             />
-          ))}
+            {KIND_ROWS.map((row) => (
+              <NavRow
+                key={row.kind}
+                icon={row.icon}
+                label={row.label}
+                active={isSection({ type: "kind", kind: row.kind })}
+                onClick={() => props.onSection({ type: "kind", kind: row.kind })}
+              />
+            ))}
+          </SidebarMenu>
         </nav>
 
         {props.recent.length ? (
@@ -209,20 +227,23 @@ export function SpaceSidebar(props: {
             <h3 className={cn("flex h-7 items-center px-2.5", SIDEBAR_SECTION_LABEL_CLASS_NAME)}>
               最近
             </h3>
-            <div className={cn("flex flex-col", SIDEBAR_NESTED_LIST_GAP_CLASS_NAME)}>
+            <SidebarMenu className="gap-0.5">
               {props.recent.map((item) => {
                 const meta = spaceItemMeta(item);
+                const untitled = item.title.trim() === "";
                 return (
                   <NavRow
                     key={item.key}
                     icon={meta.icon}
-                    label={item.title}
+                    label={spaceItemDisplayTitle(item)}
+                    // An untitled row also says when it was made, so two of them differ.
+                    detail={untitled ? formatRelativeTime(item.updatedAt, Date.now()) : undefined}
                     active={props.openKey === item.key}
                     onClick={() => props.onOpen(item)}
                   />
                 );
               })}
-            </div>
+            </SidebarMenu>
           </section>
         ) : null}
 
@@ -312,35 +333,37 @@ export function SpaceSidebar(props: {
           </div>
         </section>
       </div>
-      <div className="border-t border-[color:var(--app-rail-inset-border,var(--border))] p-2">
-        <NavRow
-          icon={TrashCanIcon}
-          label="回收站"
-          active={isSection({ type: "trash" })}
-          onClick={() => props.onSection({ type: "trash" })}
-        />
+      <div className="border-t border-[color:var(--app-rail-inset-border,var(--border))] px-1.5 py-1.5">
+        <SidebarMenu>
+          <NavRow
+            icon={TrashCanIcon}
+            label="回收站"
+            active={isSection({ type: "trash" })}
+            onClick={() => props.onSection({ type: "trash" })}
+          />
+        </SidebarMenu>
       </div>
     </aside>
   );
 }
 
-function NavRow(props: { icon: LucideIcon; label: string; active: boolean; onClick: () => void }) {
-  const Icon = props.icon;
+/** One 资料空间 nav row: the main sidebar's primary action row, so both panels match. */
+function NavRow(props: {
+  icon: LucideIcon;
+  label: string;
+  /** Quiet text at the row's end (an untitled item's time). */
+  detail?: string | undefined;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
-    <button
-      type="button"
-      className={cn(
-        SIDEBAR_HEADER_ROW_CLASS_NAME,
-        props.active
-          ? SIDEBAR_ROW_ACTIVE_CLASS_NAME
-          : cn(SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME, SIDEBAR_ROW_HOVER_CLASS_NAME),
-      )}
-      aria-current={props.active ? "page" : undefined}
+    <SidebarPrimaryAction
+      icon={props.icon}
+      label={props.label}
+      detail={props.detail}
+      active={props.active}
       onClick={props.onClick}
-    >
-      <Icon aria-hidden className="size-4 shrink-0" />
-      <span className="min-w-0 truncate">{props.label}</span>
-    </button>
+    />
   );
 }
 

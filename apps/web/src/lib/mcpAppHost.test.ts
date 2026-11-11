@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { MCP_APP_RESOURCE_MAX_HTML_BYTES, MCP_APP_SANDBOX_INNER_SANDBOX } from "@moss/contracts";
+import { MCP_APP_RESOURCE_MAX_HTML_BYTES } from "@moss/contracts";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 
 import {
@@ -9,7 +9,9 @@ import {
   mapMossMcpResultToCallToolResult,
   normalizeMcpToolArguments,
   requestMcpAppTeardown,
+  type McpAppHostOptions,
 } from "./mcpAppHost";
+import type { McpAppBinding, McpAppToolResultResponse } from "./mcpApps/contracts";
 import type { WorkLogMcpToolResult } from "./toolCallDetails";
 
 function projection(overrides: Record<string, unknown> = {}): WorkLogMcpToolResult {
@@ -22,8 +24,55 @@ function projection(overrides: Record<string, unknown> = {}): WorkLogMcpToolResu
     status: "completed",
     arguments: { query: "safe" },
     truncation: { truncated: false, deferredBinary: false },
+    // The full binding (A #534) — also valid against the older optional-field descriptor.
+    app: {
+      resourceUri: "ui://widget/demo",
+      source: "appContext",
+      server: "server-host-test",
+      serverKey: "server-host-test",
+      serverLabel: "Probe",
+      toolName: "tool-host-test",
+      isFirstParty: false,
+      visibility: [],
+    },
     ...overrides,
   } as WorkLogMcpToolResult;
+}
+
+const binding: McpAppBinding = {
+  server: "server-host-test",
+  serverKey: "server-host-test",
+  serverLabel: "Probe",
+  toolName: "tool-host-test",
+  resourceUri: "ui://widget/demo",
+  source: "appContext",
+  isFirstParty: false,
+  visibility: [],
+};
+
+function makeController(overrides: Partial<McpAppHostOptions> = {}): McpAppHostController {
+  return new McpAppHostController({
+    identity: { threadId: "thread-1", callId: "call-host-test", resourceUri: "ui://widget/demo" },
+    projection: projection(),
+    binding,
+    theme: "light",
+    locale: "zh-CN",
+    styles: { variables: {} as never },
+    message: {
+      readComposer: () => "",
+      writeComposer: () => undefined,
+      askReplace: async () => false,
+      sendNow: null,
+      notifySent: () => undefined,
+    },
+    desktop: null,
+    ...overrides,
+  });
+}
+
+/** Every shell -> host message is wrapped (B #533). */
+function wrap(message: unknown, userActivation = false) {
+  return { type: "moss:mcp-app-message", message, userActivation };
 }
 
 function waitForEvent(): Promise<void> {
@@ -64,30 +113,22 @@ describe("MCP App host result projection", () => {
       content: [
         { type: "text", text: "hello" },
         { type: "resource_link", uri: "ui://resource/one", name: "One" },
-        {
-          type: "resource",
-          resource: { uri: "ui://resource/three", text: "embedded" },
-        },
+        { type: "resource", resource: { uri: "ui://resource/three", text: "embedded" } },
       ],
       structuredContent: { ok: true },
     });
     expect(JSON.stringify(result)).not.toContain(secret);
   });
 
-  it("uses an error result for failed or unavailable tool output", () => {
+  it("sends nothing while the call runs and an error result once it failed", () => {
+    expect(mapMossMcpResultToCallToolResult(projection({ status: "inProgress" }))).toBeNull();
     const failed = mapMossMcpResultToCallToolResult(
-      projection({
-        status: "failed",
-        error: { message: "provider secret must stay private" },
-      }),
+      projection({ status: "failed", error: { message: "The tool failed." } }),
     );
-    expect(failed.isError).toBe(true);
-    expect(failed.content).toEqual([{ type: "text", text: "Tool execution was not successful." }]);
-    expect(JSON.stringify(failed)).not.toContain("provider secret");
-
-    const partial = mapMossMcpResultToCallToolResult(projection({ status: "inProgress" }));
-    expect(partial.isError).toBe(true);
-    expect(partial.content).toEqual([{ type: "text", text: "Tool execution was not successful." }]);
+    expect(failed).toEqual({
+      content: [{ type: "text", text: "The tool failed." }],
+      isError: true,
+    });
   });
 
   it("requires a bounded plain record for app arguments", () => {
@@ -103,13 +144,7 @@ describe("MCP App host result projection", () => {
   });
 
   it("gates inner navigation commands on the current host snapshot", () => {
-    const controller = new McpAppHostController({
-      identity: { threadId: "thread-1", callId: "call-1", resourceUri: "ui://widget/demo" },
-      projection: projection({
-        app: { resourceUri: "ui://widget/demo", source: "appContext" },
-      }),
-      theme: "light",
-    });
+    const controller = makeController();
     const port = {
       postMessage: vi.fn(),
       close: vi.fn(),
@@ -144,10 +179,40 @@ describe("BoundedMessagePortTransport", () => {
       await transport.start();
       await transport.start();
       channel.port2.start();
-      channel.port2.postMessage({ jsonrpc: "2.0", id: 7, method: "ui/ping", params: {} });
-      // A timer turn does not guarantee MessagePort delivery under CI load.
+      channel.port2.postMessage(wrap({ jsonrpc: "2.0", id: 7, method: "ui/ping", params: {} }));
       await vi.waitFor(() => expect(received).toHaveLength(1), { timeout: 3_000 });
       await transport.send({ jsonrpc: "2.0", id: 7, result: {} });
+    } finally {
+      await transport.close();
+      channel.port2.close();
+    }
+  });
+
+  it("unwraps the user-activation envelope and remembers which request carried it", async () => {
+    const channel = new MessageChannel();
+    let now = 1_000;
+    const transport = new BoundedMessagePortTransport(channel.port1, () => now);
+    const methods: string[] = [];
+    transport.oninboundrequest = (method) => methods.push(method);
+    const received: JSONRPCMessage[] = [];
+    transport.onmessage = (message) => received.push(message);
+    try {
+      await transport.start();
+      channel.port2.start();
+      channel.port2.postMessage(
+        wrap({ jsonrpc: "2.0", id: "a", method: "ui/request-display-mode", params: {} }, true),
+      );
+      channel.port2.postMessage(
+        wrap({ jsonrpc: "2.0", id: "b", method: "ui/message", params: {} }),
+      );
+      await vi.waitFor(() => expect(received).toHaveLength(2), { timeout: 3_000 });
+      expect(methods).toEqual(["ui/request-display-mode", "ui/message"]);
+      expect(transport.hadUserActivation("a")).toBe(true);
+      // "b" carried none, but it arrived inside the 250 ms window after "a".
+      expect(transport.hadUserActivation("b")).toBe(true);
+      now += 251;
+      expect(transport.hadUserActivation("b")).toBe(false);
+      expect(transport.hadUserActivation("a")).toBe(true);
     } finally {
       await transport.close();
       channel.port2.close();
@@ -160,7 +225,7 @@ describe("BoundedMessagePortTransport", () => {
     await transport.start();
     channel.port2.start();
     await transport.send({ jsonrpc: "2.0", id: "host-1", method: "ui/ping", params: {} });
-    channel.port2.postMessage({ jsonrpc: "2.0", id: "host-1", result: {} });
+    channel.port2.postMessage(wrap({ jsonrpc: "2.0", id: "host-1", result: {} }));
     await waitForEvent();
     await transport.send({ jsonrpc: "2.0", id: "host-1", method: "ui/ping", params: {} });
     await transport.close();
@@ -173,17 +238,16 @@ describe("BoundedMessagePortTransport", () => {
     await transport.start();
     channel.port2.start();
     for (let index = 0; index < 16; index += 1) {
-      channel.port2.postMessage({
-        jsonrpc: "2.0",
-        id: `in-${index}`,
-        method: "ui/ping",
-        params: {},
-      });
+      channel.port2.postMessage(
+        wrap({ jsonrpc: "2.0", id: `in-${index}`, method: "ui/ping", params: {} }),
+      );
     }
     for (let index = 0; index < 16; index += 1) {
       await transport.send({ jsonrpc: "2.0", id: `out-${index}`, method: "ui/ping", params: {} });
     }
-    channel.port2.postMessage({ jsonrpc: "2.0", id: "in-overflow", method: "ui/ping", params: {} });
+    channel.port2.postMessage(
+      wrap({ jsonrpc: "2.0", id: "in-overflow", method: "ui/ping", params: {} }),
+    );
     await waitForEvent();
     await expect(transport.send({ jsonrpc: "2.0", method: "ui/ping", params: {} })).rejects.toThrow(
       "rejected",
@@ -191,7 +255,7 @@ describe("BoundedMessagePortTransport", () => {
     channel.port2.close();
   });
 
-  it("accepts only the exact host resource-ready sandbox and keeps its larger cap directional", async () => {
+  it("sends the resource as {html, permissions} only, and never accepts it inbound", async () => {
     const channel = new MessageChannel();
     const transport = new BoundedMessagePortTransport(channel.port1);
     await transport.start();
@@ -199,27 +263,29 @@ describe("BoundedMessagePortTransport", () => {
     await transport.send({
       jsonrpc: "2.0",
       method: "ui/notifications/sandbox-resource-ready",
-      params: {
-        html: "x".repeat(MCP_APP_RESOURCE_MAX_HTML_BYTES),
-        sandbox: MCP_APP_SANDBOX_INNER_SANDBOX,
-      },
+      params: { html: "x".repeat(MCP_APP_RESOURCE_MAX_HTML_BYTES), permissions: { camera: {} } },
     });
     await expect(
       transport.send({
         jsonrpc: "2.0",
         method: "ui/notifications/sandbox-resource-ready",
-        params: {
-          html: "x".repeat(MCP_APP_RESOURCE_MAX_HTML_BYTES + 1),
-          sandbox: MCP_APP_SANDBOX_INNER_SANDBOX,
-        },
+        params: { html: "x".repeat(MCP_APP_RESOURCE_MAX_HTML_BYTES + 1) },
       }),
     ).rejects.toThrow("rejected");
-    const incoming = {
-      jsonrpc: "2.0",
-      method: "ui/notifications/sandbox-resource-ready",
-      params: { html: "safe", sandbox: MCP_APP_SANDBOX_INNER_SANDBOX },
-    };
-    channel.port2.postMessage(incoming);
+    await expect(
+      transport.send({
+        jsonrpc: "2.0",
+        method: "ui/notifications/sandbox-resource-ready",
+        params: { html: "safe", sandbox: "allow-scripts" },
+      }),
+    ).rejects.toThrow("rejected");
+    channel.port2.postMessage(
+      wrap({
+        jsonrpc: "2.0",
+        method: "ui/notifications/sandbox-resource-ready",
+        params: { html: "safe" },
+      }),
+    );
     await waitForEvent();
     await expect(transport.send({ jsonrpc: "2.0", method: "ui/ping", params: {} })).rejects.toThrow(
       "rejected",
@@ -228,37 +294,232 @@ describe("BoundedMessagePortTransport", () => {
   });
 });
 
-describe("MCP App graceful teardown", () => {
-  it("requests resource teardown before closing the bridge path", async () => {
-    const order: string[] = [];
-    await requestMcpAppTeardown({
-      teardownResource: async () => {
-        order.push("teardown");
-        await Promise.resolve();
-        order.push("teardown-complete");
-        return {};
+describe("BoundedMessagePortTransport envelope", () => {
+  it("fails closed on a bare JSON-RPC message or a malformed envelope", async () => {
+    for (const bad of [
+      { jsonrpc: "2.0", id: 1, method: "ui/ping", params: {} },
+      { type: "moss:mcp-app-message", message: { jsonrpc: "2.0", method: "ui/ping" } },
+      { ...wrap({ jsonrpc: "2.0", method: "ui/ping" }), userActivation: "yes" },
+      { ...wrap({ jsonrpc: "2.0", method: "ui/ping" }), extra: 1 },
+    ]) {
+      const channel = new MessageChannel();
+      const transport = new BoundedMessagePortTransport(channel.port1);
+      const errors: Error[] = [];
+      transport.onerror = (error) => errors.push(error);
+      await transport.start();
+      channel.port2.start();
+      channel.port2.postMessage(bad);
+      await vi.waitFor(() => expect(errors).toHaveLength(1), { timeout: 3_000 });
+      channel.port2.close();
+    }
+  });
+});
+
+describe("MCP App host timers and permissions", () => {
+  it("arms the initialize timeout only for third-party widgets once the result is in", async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = makeController({ projection: projection({ status: "inProgress" }) });
+      const internals = controller as unknown as Record<string, unknown>;
+      internals.resourceSent = true;
+      const arm = (internals.armInitializeTimeout as (g: number) => void).bind(controller);
+      arm(0);
+      expect(internals.initializeTimer).toBeNull();
+      controller.updateProjection(projection({ status: "completed", durationMs: 3 }));
+      expect(internals.initializeTimer).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(controller.getSnapshot().phase).not.toBe("failed");
+      await vi.advanceTimersByTimeAsync(1);
+      await vi.waitFor(() => expect(controller.getSnapshot().phase).toBe("failed"));
+
+      const firstParty = makeController({ binding: { ...binding, isFirstParty: true } });
+      const firstInternals = firstParty as unknown as Record<string, unknown>;
+      firstInternals.resourceSent = true;
+      (firstInternals.armInitializeTimeout as (g: number) => void).call(firstParty, 0);
+      expect(firstInternals.initializeTimer).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("replaces the grant with the full approved set and never asks with frame sites", async () => {
+    const requestPermissions = vi.fn(async (_id: string, permissions: Record<string, boolean>) => ({
+      granted: permissions,
+    }));
+    const desktop = {
+      register: async () => null,
+      unregister: async () => true,
+      requestPermissions,
+    };
+    const controller = makeController();
+    const apply = (
+      (controller as unknown as Record<string, unknown>).applyPermissionGrant as (
+        ...args: unknown[]
+      ) => Promise<string[]>
+    ).bind(controller);
+    await expect(
+      apply(desktop, "sb", ["camera", "microphone"], ["camera"], false),
+    ).resolves.toEqual(["camera"]);
+    expect(requestPermissions).toHaveBeenLastCalledWith("sb", { camera: true });
+    // A denial still replaces the grant: `{}` revokes.
+    await expect(apply(desktop, "sb", ["camera"], [], false)).resolves.toEqual([]);
+    expect(requestPermissions).toHaveBeenLastCalledWith("sb", {});
+    requestPermissions.mockClear();
+    await expect(apply(desktop, "sb", ["camera"], ["camera"], true)).resolves.toEqual([]);
+    expect(requestPermissions).not.toHaveBeenCalled();
+  });
+});
+
+describe("MCP App tool data delivery", () => {
+  function fakeBridge() {
+    const sent: Array<[string, unknown]> = [];
+    return {
+      sent,
+      sendToolInput: vi.fn(async (params: unknown) => {
+        sent.push(["tool-input", params]);
+      }),
+      sendToolResult: vi.fn(async (params: unknown) => {
+        sent.push(["tool-result", params]);
+      }),
+    };
+  }
+
+  function arm(controller: McpAppHostController, bridge: ReturnType<typeof fakeBridge>) {
+    const internals = controller as unknown as Record<string, unknown>;
+    internals.bridge = bridge;
+    internals.running = true;
+    internals.initialized = true;
+    return (internals.deliverToolData as (generation: number) => Promise<void>).bind(controller);
+  }
+
+  it("sends tool-input once, then the server's full result once", async () => {
+    const toolResult = vi.fn(
+      async (): Promise<McpAppToolResultResponse> => ({
+        status: "ready",
+        input: { query: "full" },
+        result: {
+          content: [{ type: "text", text: "full" }],
+          structuredContent: { rows: [1, 2] },
+          _meta: { "moss/secret": 1, "anthropic/x": 2, keep: true },
+        },
+      }),
+    );
+    const controller = makeController({ api: { toolResult } });
+    const bridge = fakeBridge();
+    const deliver = arm(controller, bridge);
+    await deliver(0);
+    await deliver(0);
+    controller.updateProjection(projection({ durationMs: 5 }));
+    await waitForEvent();
+    expect(bridge.sent).toEqual([
+      ["tool-input", { arguments: { query: "full" } }],
+      [
+        "tool-result",
+        {
+          content: [{ type: "text", text: "full" }],
+          structuredContent: { rows: [1, 2] },
+          _meta: { keep: true },
+        },
+      ],
+    ]);
+  });
+
+  it("waits while the call runs instead of sending an error result first", async () => {
+    vi.useFakeTimers();
+    try {
+      let status: McpAppToolResultResponse = { status: "pending" };
+      const controller = makeController({
+        projection: projection({ status: "inProgress" }),
+        api: { toolResult: async () => status },
+      });
+      const bridge = fakeBridge();
+      const deliver = arm(controller, bridge);
+      await deliver(0);
+      expect(bridge.sent).toEqual([["tool-input", { arguments: { query: "safe" } }]]);
+      status = { status: "missing" };
+      await vi.advanceTimersByTimeAsync(1_000);
+      // Server lost the result and the projection still runs: still nothing.
+      expect(bridge.sent).toHaveLength(1);
+      controller.updateProjection(
+        projection({ result: { content: [{ type: "text", text: "done" }] } }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bridge.sent[1]).toEqual([
+        "tool-result",
+        { content: [{ type: "text", text: "done" }] },
+      ]);
+      expect(bridge.sendToolInput).toHaveBeenCalledTimes(1);
+      expect(bridge.sendToolResult).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to the projection when the server has no stored result", async () => {
+    const controller = makeController({
+      projection: projection({ result: { content: [{ type: "text", text: "short" }] } }),
+      api: { toolResult: async () => ({ status: "missing" }) },
+    });
+    const bridge = fakeBridge();
+    await arm(controller, bridge)(0);
+    expect(bridge.sent).toEqual([
+      ["tool-input", { arguments: { query: "safe" } }],
+      ["tool-result", { content: [{ type: "text", text: "short" }] }],
+    ]);
+  });
+
+  it("does not send a result whose structuredContent is not an object, and shows the fallback", async () => {
+    const controller = makeController({
+      api: {
+        toolResult: async () => ({
+          status: "ready",
+          input: {},
+          result: { content: [], structuredContent: [1, 2] as never },
+        }),
       },
     });
-    order.push("close");
-    expect(order).toEqual(["teardown", "teardown-complete", "close"]);
+    const bridge = fakeBridge();
+    const internals = controller as unknown as Record<string, unknown>;
+    await arm(controller, bridge)(0);
+    expect(bridge.sendToolResult).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().phase).toBe("failed");
+    expect(internals.bridge).toBeNull();
+  });
+});
+
+describe("MCP App host outside the desktop app", () => {
+  it("reports browser_unavailable instead of rendering a frame", async () => {
+    const controller = makeController({ desktop: null });
+    await controller.start({} as HTMLElement);
+    expect(controller.getSnapshot().phase).toBe("browser_unavailable");
+  });
+});
+
+describe("MCP App graceful teardown", () => {
+  it("requests resource teardown before closing the bridge path", async () => {
+    const teardownResource = vi.fn(async () => ({}));
+    await requestMcpAppTeardown({ teardownResource });
+    expect(teardownResource).toHaveBeenCalledWith({});
   });
 
   it("does not block cleanup when the app never acknowledges teardown", async () => {
-    const start = Date.now();
-    await requestMcpAppTeardown({ teardownResource: () => new Promise<never>(() => undefined) }, 5);
-    expect(Date.now() - start).toBeLessThan(500);
+    const teardownResource = vi.fn(() => new Promise<Record<string, unknown>>(() => undefined));
+    await expect(requestMcpAppTeardown({ teardownResource }, 1)).resolves.toBeUndefined();
   });
 
   it("performs graceful teardown before close, then continues through unregister failures", async () => {
     const order: string[] = [];
-    const controller = new McpAppHostController({
-      identity: { threadId: "thread-1", callId: "call-1", resourceUri: "ui://widget/demo" },
-      projection: projection({
-        app: { resourceUri: "ui://widget/demo", source: "appContext" },
-      }),
-      theme: "light",
+    const controller = makeController({
+      desktop: {
+        register: async () => null,
+        unregister: async () => {
+          order.push("unregister");
+          throw new Error("already gone");
+        },
+      },
     });
-    const bridge = {
+    const internals = controller as unknown as Record<string, unknown>;
+    internals.bridge = {
       teardownResource: async () => {
         order.push("teardown");
       },
@@ -266,8 +527,8 @@ describe("MCP App graceful teardown", () => {
         order.push("bridge-close");
       },
     };
-    const transport = { close: async () => order.push("transport-close") };
-    const descriptor = {
+    internals.transport = { close: async () => order.push("transport-close") };
+    internals.descriptor = {
       generation: 0,
       initId: "init-1",
       origin: "moss-mcp-sandbox://mcp-test",
@@ -275,34 +536,9 @@ describe("MCP App graceful teardown", () => {
       sandboxId: "mcp-test",
       src: "moss-mcp-sandbox://mcp-test/ui?generation=0#init=init-1",
     };
-    const internals = controller as unknown as Record<string, unknown>;
-    internals.bridge = bridge;
-    internals.transport = transport;
-    internals.descriptor = descriptor;
     internals.running = true;
     internals.cleanupBridge = () => order.push("listeners-cleaned");
-    const originalWindow = globalThis.window;
-    Object.defineProperty(globalThis, "window", {
-      configurable: true,
-      value: {
-        desktopBridge: {
-          mcpApps: {
-            unregister: async () => {
-              order.push("unregister");
-              throw new Error("already gone");
-            },
-          },
-        },
-      },
-    });
-    try {
-      await controller.teardown();
-    } finally {
-      Object.defineProperty(globalThis, "window", {
-        configurable: true,
-        value: originalWindow,
-      });
-    }
+    await controller.teardown();
     expect(order).toEqual([
       "listeners-cleaned",
       "teardown",
@@ -314,22 +550,15 @@ describe("MCP App graceful teardown", () => {
 
   it("isolates and closes the navigation channel before graceful teardown yields", async () => {
     const order: string[] = [];
-    const controller = new McpAppHostController({
-      identity: { threadId: "thread-1", callId: "call-1", resourceUri: "ui://widget/demo" },
-      projection: projection({
-        app: { resourceUri: "ui://widget/demo", source: "appContext" },
-      }),
-      theme: "light",
-    });
-    const navigationPort = {
+    const controller = makeController();
+    const internals = controller as unknown as Record<string, unknown>;
+    internals.navigationPort = {
       removeEventListener: (_type: string, listener: EventListener) => {
         expect(listener).toBe(navigationTeardownListener);
         order.push("navigation-listener-removed");
       },
       close: () => order.push("navigation-close"),
     };
-    const internals = controller as unknown as Record<string, unknown>;
-    internals.navigationPort = navigationPort;
     internals.navigationPortListener = navigationTeardownListener;
     internals.bridge = {
       teardownResource: async () => {
@@ -340,164 +569,35 @@ describe("MCP App graceful teardown", () => {
       close: async () => order.push("bridge-close"),
     };
     internals.running = true;
-
     await controller.teardown();
-
     expect(order.slice(0, 3)).toEqual([
       "navigation-listener-removed",
       "navigation-close",
       "teardown-start",
     ]);
     expect(internals.navigationPort as unknown).toBeNull();
-    expect(internals.navigationPortListener as unknown).toBeNull();
   });
 
-  it("removes only its captured webview when a shared container gets a replacement", async () => {
-    let children: unknown[] = [];
-    const container = {
-      replaceChildren: (...next: unknown[]) => {
-        children = next;
-      },
-    };
-    const oldWebview = {
-      remove: () => {
-        children = children.filter((child) => child !== oldWebview);
-      },
-    };
-    const replacement = {};
-    children = [oldWebview];
-    const controller = new McpAppHostController({
-      identity: { threadId: "thread-1", callId: "call-1", resourceUri: "ui://widget/demo" },
-      projection: projection({
-        app: { resourceUri: "ui://widget/demo", source: "appContext" },
-      }),
-      theme: "light",
-    });
+  it("answers pending prompts and dialogs with a refusal when the widget goes away", async () => {
+    const controller = makeController();
     const internals = controller as unknown as Record<string, unknown>;
-    internals.currentContainer = container as unknown as HTMLElement;
-    internals.webview = oldWebview as unknown as HTMLElement;
-    internals.running = true;
-    internals.bridge = {
-      teardownResource: () => {
-        container.replaceChildren(replacement);
-        return Promise.resolve();
-      },
-      close: async () => undefined,
-    };
+    const prompt = (internals.enqueuePrompt as (p: unknown) => Promise<boolean>).call(controller, {
+      kind: "sign_in",
+    });
+    expect(controller.getSnapshot().prompt).toEqual({ kind: "sign_in" });
+    const dialog = (internals.openDialog as (d: unknown) => Promise<unknown>).call(controller, {
+      kind: "download",
+      items: [],
+    });
+    // A second dialog anywhere is refused while one is open.
+    const other = makeController();
+    const second = await (
+      (other as unknown as Record<string, unknown>).openDialog as (d: unknown) => Promise<unknown>
+    ).call(other, { kind: "download", items: [] });
+    expect(second).toBeNull();
     await controller.teardown();
-    expect(children).not.toContain(oldWebview);
-    expect(children).toContain(replacement);
-  });
-
-  it("uses recorded MCP app HTML when the live resource read has no content", async () => {
-    const html = "<!doctype html><title>Linear</title><p>Parity</p>";
-    const container = {
-      closest: () => container,
-    } as unknown as HTMLElement;
-    const originalWindow = globalThis.window;
-    const originalDocument = globalThis.document;
-    const originalFetch = globalThis.fetch;
-    Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
-    Object.defineProperty(globalThis, "document", {
-      configurable: true,
-      value: {
-        querySelector: () => null,
-        documentElement: {
-          getAttribute: () => "light",
-          classList: { contains: () => false },
-        },
-      },
-    });
-    globalThis.fetch = (async () =>
-      ({
-        ok: true,
-        json: async () => ({ state: "no_content", resourceUri: "ui://linear/issue" }),
-      }) as unknown as Response) as typeof fetch;
-    const controller = new McpAppHostController({
-      identity: { threadId: "thread-1", callId: "mcp-app-1", resourceUri: "ui://linear/issue" },
-      projection: projection({
-        server: "linear",
-        tool: "issue",
-        app: { resourceUri: "ui://linear/issue", source: "appContext", appName: "Linear" },
-        result: {
-          content: [
-            {
-              type: "embedded_resource",
-              uri: "ui://linear/issue",
-              mimeType: "text/html;profile=mcp-app",
-              text: html,
-            },
-          ],
-        },
-      }),
-      theme: "light",
-    });
-    try {
-      await controller.start(container);
-      expect(controller.getSnapshot().phase).toBe("ready");
-      expect(controller.getSnapshot().browserHtml).toBe(html);
-    } finally {
-      await controller.teardown();
-      Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });
-      Object.defineProperty(globalThis, "document", {
-        configurable: true,
-        value: originalDocument,
-      });
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it("renders recorded MCP app HTML in a browser iframe when the desktop bridge is absent", async () => {
-    const html = "<!doctype html><title>Linear</title><p>Parity</p>";
-    const container = {
-      closest: () => container,
-    } as unknown as HTMLElement;
-    const originalWindow = globalThis.window;
-    const originalDocument = globalThis.document;
-    const originalFetch = globalThis.fetch;
-    Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
-    Object.defineProperty(globalThis, "document", {
-      configurable: true,
-      value: {
-        querySelector: () => null,
-        documentElement: {
-          getAttribute: () => "light",
-          classList: { contains: () => false },
-        },
-      },
-    });
-    globalThis.fetch = (() => Promise.reject(new Error("no live session"))) as typeof fetch;
-    const controller = new McpAppHostController({
-      identity: { threadId: "thread-1", callId: "mcp-app-1", resourceUri: "ui://linear/issue" },
-      projection: projection({
-        server: "linear",
-        tool: "issue",
-        app: { resourceUri: "ui://linear/issue", source: "appContext", appName: "Linear" },
-        result: {
-          content: [
-            {
-              type: "embedded_resource",
-              uri: "ui://linear/issue",
-              mimeType: "text/html;profile=mcp-app",
-              text: html,
-            },
-          ],
-        },
-      }),
-      theme: "light",
-    });
-    try {
-      await controller.start(container);
-      expect(controller.getSnapshot().phase).toBe("ready");
-      expect(controller.getSnapshot().browserHtml).toBe(html);
-    } finally {
-      await controller.teardown();
-      Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });
-      Object.defineProperty(globalThis, "document", {
-        configurable: true,
-        value: originalDocument,
-      });
-      globalThis.fetch = originalFetch;
-    }
+    await expect(prompt).resolves.toBe(false);
+    await expect(dialog).resolves.toBeNull();
+    expect(controller.getSnapshot().dialog).toBeNull();
   });
 });

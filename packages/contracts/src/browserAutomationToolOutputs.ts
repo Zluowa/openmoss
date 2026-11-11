@@ -71,11 +71,30 @@ const BrowserNavigationOutputFields = {
   ...optionalDialogFields,
 };
 
+/**
+ * A compact outline of the page an action left behind: roles and accessible
+ * names an agent passes to page.getByRole, plus viewport coordinates for
+ * controls inside closed shadow roots. Untrusted page data.
+ */
+export const BrowserPageOutline = closedStruct({
+  url: BoundedUrl,
+  title: BoundedTitle,
+  outline: BoundedUtf8String(6_000),
+  truncated: Schema.Boolean,
+});
+const optionalPageOutlineFields = {
+  page: Schema.optional(BrowserPageOutline),
+};
+
 export const BrowserOpenOutput = closedStruct({
   ...BrowserNavigationOutputFields,
+  ...optionalPageOutlineFields,
   disposition: Schema.Literals(["created", "reused"]),
 });
-export const BrowserNavigateOutput = closedStruct(BrowserNavigationOutputFields);
+export const BrowserNavigateOutput = closedStruct({
+  ...BrowserNavigationOutputFields,
+  ...optionalPageOutlineFields,
+});
 export const BrowserBackOutput = BrowserNavigateOutput;
 export const BrowserForwardOutput = BrowserNavigateOutput;
 export const BrowserReloadOutput = BrowserNavigateOutput;
@@ -385,6 +404,7 @@ export const BrowserEvaluateOutput = closedStruct(BrowserEvaluationOutputFields)
 export const BrowserRunOutput = closedStruct({
   ...BrowserEvaluationOutputFields,
   ...BrowserPopupCorrelationOutputFields,
+  ...optionalPageOutlineFields,
 });
 export const BrowserCloseOutput = closedStruct({
   closedTabId: BrowserTabId,
@@ -394,6 +414,7 @@ export const BrowserCloseOutput = closedStruct({
 
 export type BrowserStatusOutput = typeof BrowserStatusOutput.Type;
 export type BrowserTabsOutput = typeof BrowserTabsOutput.Type;
+export type BrowserPageOutline = typeof BrowserPageOutline.Type;
 export type BrowserOpenOutput = typeof BrowserOpenOutput.Type;
 export type BrowserNavigateOutput = typeof BrowserNavigateOutput.Type;
 export type BrowserBackOutput = typeof BrowserBackOutput.Type;

@@ -165,7 +165,7 @@ export const BrowserAutomationErrorMessages = Object.freeze({
   BrowserPopupOpenerUnsupported: "The popup opener relationship is unsupported.",
   BrowserDownloadApprovalRequired: "The browser download requires explicit approval.",
   BrowserEvaluationFailed:
-    "Browser evaluation failed before a confirmed result was available. Inspect the current page and isolate the failing operation in a focused call; do not repeat unchanged calls. This error does not establish that input or sign-in buttons are blocked.",
+    "Browser evaluation failed before a confirmed result was available. detail, when present, quotes the runtime error (untrusted; may include page text): fix the cause it names. Otherwise inspect the page and isolate the failing operation. Earlier actions may have completed; do not repeat unchanged calls. This error does not establish that input or sign-in buttons are blocked.",
   BrowserScriptApiUnavailable:
     "The script used an unavailable browser API/global. Use page.getByRole(...), page.getByLabel(...), page.url(), and page.evaluate(() => ...) for document/window access. Use global snapshot(), not page.snapshot(). Wait with locator.waitFor or page.waitForURL, not bare waitForTimeout. Earlier actions may have completed; inspect their result before correcting the script. This is not a password-access error.",
   BrowserEvaluationResultTooLarge: "The browser evaluation result exceeds the safe response limit.",
@@ -216,6 +216,11 @@ const BrowserAutomationErrorFields = Schema.Struct({
   operationId: Schema.optional(BrowserOperationId),
   tabId: Schema.optional(BrowserTabId),
   effectMayHaveCommitted: Schema.Boolean,
+  /**
+   * Bounded runtime diagnostic for script failures, such as which locator
+   * timed out. Untrusted: it can quote page text. `message` stays fixed.
+   */
+  detail: Schema.optional(BoundedUtf8String(1_024, 1)),
 });
 
 export const BrowserAutomationError = BrowserAutomationErrorFields.check(
@@ -243,6 +248,8 @@ export type BrowserMcpToolErrorEnvelope = typeof BrowserMcpToolErrorEnvelope.Typ
 export interface BrowserAutomationErrorCorrelation {
   readonly operationId?: BrowserOperationId;
   readonly tabId?: BrowserTabId;
+  /** Raw runtime text; normalized and bounded when the error is made. */
+  readonly detail?: string;
 }
 
 type BrowserContextualAutomationErrorCode = Exclude<

@@ -1,8 +1,8 @@
 // FILE: KanbanStatusIcon.tsx
-// Purpose: Linear-style column status glyph — dashed circle (Draft), half-filled
-//          yellow pie (In Progress), filled indigo check (Done), raised hand
-//          (Awaiting you, attention-colored). Shared by board column headers
-//          and card status labels.
+// Purpose: Column status glyph — dashed circle (Draft), half-filled pie (In Progress, the
+//          accent blue of live work), filled check (Done, success green), raised hand
+//          (Awaiting you, attention amber). Colours are the theme's meaning colours.
+//          Shared by board column headers and card status labels.
 // Layer: Kanban UI component
 // Exports: KanbanStatusIcon
 
@@ -21,7 +21,7 @@ export function KanbanStatusIcon({
     return (
       <svg
         viewBox="0 0 14 14"
-        className={cn("size-4 shrink-0 text-[#5e6ad2]", className)}
+        className={cn("size-4 shrink-0 text-success", className)}
         aria-hidden
       >
         <circle cx="7" cy="7" r="7" fill="currentColor" />
@@ -38,11 +38,7 @@ export function KanbanStatusIcon({
   }
   if (column === "inProgress") {
     return (
-      <svg
-        viewBox="0 0 14 14"
-        className={cn("size-4 shrink-0 text-[#f2c94c]", className)}
-        aria-hidden
-      >
+      <svg viewBox="0 0 14 14" className={cn("size-4 shrink-0 text-info", className)} aria-hidden>
         <circle cx="7" cy="7" r="6" fill="none" stroke="currentColor" strokeWidth="1.7" />
         <path d="M7 3.5 A3.5 3.5 0 0 1 7 10.5 Z" fill="currentColor" />
       </svg>
@@ -55,7 +51,7 @@ export function KanbanStatusIcon({
     return (
       <svg
         viewBox="0 0 14 14"
-        className={cn("size-4 shrink-0 text-amber-600 dark:text-amber-300/90", className)}
+        className={cn("size-4 shrink-0 text-warning", className)}
         aria-hidden
       >
         <path

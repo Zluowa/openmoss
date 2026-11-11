@@ -171,9 +171,31 @@ describe("browser automation catalogue projection", () => {
     expect(
       providerCatalogue.reduce((sum, tool) => sum + tool.description.length, 0),
     ).toBeLessThanOrEqual(11_000);
+    // browser_run carries the settle/outline/closed-shadow contract the other
+    // tools rely on; the catalogue-wide budget above is the context guard.
     expect(BROWSER_TOOL_DEFINITIONS_BY_NAME.browser_run.description.length).toBeLessThanOrEqual(
-      2_900,
+      3_100,
     );
+  });
+
+  it("tells agents to act on returned page outlines instead of re-snapshotting", () => {
+    for (const name of [
+      "browser_open",
+      "browser_navigate",
+      "browser_back",
+      "browser_forward",
+      "browser_reload",
+    ] as const) {
+      const description = BROWSER_TOOL_DEFINITIONS_BY_NAME[name].description;
+      expect(description).toContain("outlines the loaded page");
+      expect(description).not.toContain("fresh semantic snapshot");
+      expect(description).not.toContain("snapshot again after success");
+    }
+    const run = BROWSER_TOOL_DEFINITIONS_BY_NAME.browser_run.description;
+    expect(run).toContain("Each call is a full model turn");
+    expect(run).toContain("observe:true");
+    expect(run).toContain("page.mouse.click(x,y)");
+    expect(run).toContain("Failures carry detail");
   });
 
   it("rejects undefined and non-finite JSON values", () => {

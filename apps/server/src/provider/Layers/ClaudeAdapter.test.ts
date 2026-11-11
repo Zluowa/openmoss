@@ -207,6 +207,15 @@ class FakeClaudeQuery implements AsyncIterable<SDKMessage> {
   readonly supportedModels = async (): Promise<Array<ModelInfo>> => {
     return [
       {
+        value: "claude-opus-5-5",
+        displayName: "Claude Opus 5.5",
+        description: "Default Claude model",
+        supportsEffort: true,
+        supportsAdaptiveThinking: true,
+        supportsFastMode: true,
+        supportsAutoMode: true,
+      },
+      {
         value: "claude-sonnet-5",
         displayName: "Claude Sonnet 5",
         description: "Default supported test model",
@@ -1755,7 +1764,7 @@ describe("ClaudeAdapterLive", () => {
     }).pipe(Effect.provideService(Random.Random, makeDeterministicRandomService())),
   );
 
-  it.effect("forwards Sonnet 5 ultracode as xhigh plus the Claude Code setting", () => {
+  it.effect("forwards Sonnet 5.5 ultracode as xhigh plus the Claude Code setting", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const adapter = yield* ClaudeAdapter;
@@ -1764,7 +1773,7 @@ describe("ClaudeAdapterLive", () => {
         provider: "claudeAgent",
         modelSelection: {
           provider: "claudeAgent",
-          model: "claude-sonnet-5",
+          model: "claude-sonnet-5-5",
           options: {
             effort: "ultracode",
           },
@@ -1773,7 +1782,7 @@ describe("ClaudeAdapterLive", () => {
       });
 
       const createInput = harness.getLastCreateQueryInput();
-      assert.equal(createInput?.options.model, "claude-sonnet-5");
+      assert.equal(createInput?.options.model, "claude-sonnet-5-5");
       assert.equal(createInput?.options.effort, undefined);
       assert.deepEqual(createInput?.options.settings, {
         autoCompactEnabled: true,

@@ -706,6 +706,9 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Moss needs your permission to use other apps": "需要你允许 Moss 使用其他应用",
   "Moss can't see the screen yet": "Moss 还看不到屏幕",
   "Computer use isn't working right now": "电脑操控暂时无法使用",
+  "Moss is missing its computer control part. Restart or reinstall Moss":
+    "缺少电脑操控组件，请重启或重新安装 Moss",
+  "Computer control didn't start. Restart Moss": "电脑操控没有启动，请重启 Moss",
   "Reconnecting…": "正在重新连接…",
   "Allow access": "允许访问",
   "Show Moss the window in front": "把最前面的窗口给 Moss 看",

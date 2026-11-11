@@ -4,6 +4,7 @@ import { ComputerAvailability, ComputerScreenshot, ComputerState } from "@moss/c
 import { Effect, Schema } from "effect";
 import {
   CuaTransportError,
+  CUA_DRIVER_MISSING_CODE,
   CUA_SETUP_TIMEOUT_MS,
   type cuaRequest,
 } from "@moss/shared/cuaDriverProtocol";
@@ -4219,6 +4220,31 @@ describe("driver browser surface", () => {
 describe("host-reported platform and native revision", () => {
   const hostReply = (reply: Record<string, unknown>) =>
     (async () => ({ ok: true, ...reply })) as unknown as typeof cuaRequest;
+
+  it("names a missing driver as a reason the status page can say plainly", async () => {
+    const error = "Cua Driver is not staged in this checkout.";
+    const backend = new CuaComputerBackend({
+      endpoint: "/fixture-only",
+      request: hostReply({ ok: false, error, code: CUA_DRIVER_MISSING_CODE }),
+    });
+    const missing = { kind: "backend-unavailable", message: error, reason: "component-missing" };
+    expect(await backend.probeAvailability()).toEqual(missing);
+    expect(await backend.availability()).toEqual(missing);
+    // Any other host code is not a missing part.
+    const other = new CuaComputerBackend({
+      endpoint: "/fixture-only",
+      request: hostReply({ ok: false, error, code: "something_else" }),
+    });
+    expect(await other.probeAvailability()).toEqual({
+      kind: "backend-unavailable",
+      message: error,
+    });
+    // No desktop host at all: the computer control never started.
+    expect(await new CuaComputerBackend({ endpoint: "" }).probeAvailability()).toMatchObject({
+      kind: "backend-unavailable",
+      reason: "host-not-running",
+    });
+  });
 
   // The web app translates this status by exact text, and it is read by people.
   it("reports a host failure in the host's own words, without the error name or replay note", async () => {

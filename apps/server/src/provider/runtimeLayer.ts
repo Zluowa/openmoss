@@ -30,6 +30,7 @@ import {
 import { ProviderAdapterRegistryLive } from "./Layers/ProviderAdapterRegistry";
 import { ProviderDiscoveryServiceLive } from "./Layers/ProviderDiscoveryService";
 import { ProviderHealthLive } from "./Layers/ProviderHealth";
+import { McpAppServiceLive } from "../mcpApps/Layers/McpAppService";
 import { makeDurableProviderServiceLive } from "./Layers/ProviderService";
 import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layers/ProjectionSnapshotQuery";
 import { ProviderSessionDirectoryLive } from "./Layers/ProviderSessionDirectory";
@@ -64,12 +65,13 @@ export function makeServerProviderLayer(
     // the same MCP catalog/dispatcher through its native custom-tool API.
     const agentGatewayCredentialsLayer =
       options.agentGatewayCredentialsLayer ?? AgentGatewayCredentialsWithSecretsLive;
+    // One interactive-connectors runtime for adapters, ProviderService and the HTTP routes.
     const codexAdapterLayer = makeCodexAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
-    ).pipe(Layer.provide(agentGatewayCredentialsLayer));
+    ).pipe(Layer.provide(agentGatewayCredentialsLayer), Layer.provide(McpAppServiceLive));
     const claudeAdapterLayer = makeClaudeAdapterLive(
       nativeEventLogger ? { nativeEventLogger } : undefined,
-    ).pipe(Layer.provide(agentGatewayCredentialsLayer));
+    ).pipe(Layer.provide(agentGatewayCredentialsLayer), Layer.provide(McpAppServiceLive));
     const openCodeAdapterLayer = makeOpenCodeAdapterLive({
       ...(nativeEventLogger ? { nativeEventLogger } : {}),
       resolveServerPassword: resolveProviderServerPassword,
@@ -146,6 +148,7 @@ export function makeServerProviderLayer(
       // Provider sessions resolve persisted provider-instance settings before launch.
       Layer.provide(Layer.succeed(ServerSettingsService, serverSettings)),
       Layer.provide(ServerSecretStoreLive),
+      Layer.provide(McpAppServiceLive),
     );
     const providerDiscoveryLayer = ProviderDiscoveryServiceLive.pipe(
       Layer.provide(adapterRegistryLayer),
@@ -155,6 +158,7 @@ export function makeServerProviderLayer(
     );
     return Layer.mergeAll(
       providerServiceLayer,
+      McpAppServiceLive,
       providerDiscoveryLayer,
       adapterRegistryLayer,
       providerSessionDirectoryLayer,

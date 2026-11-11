@@ -6,7 +6,7 @@
 //      Space lists them as one set of items (`space/spaceItems.ts`) so people find a thing
 //      where they expect it, whichever store holds it.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -21,6 +21,7 @@ import {
 } from "@moss/contracts";
 
 import { ensureNativeApi } from "~/nativeApi";
+import { cn } from "~/lib/utils";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
 import { pagesQueryKeys } from "~/lib/pagesReactQuery";
 import { isPageMutationRejected, PageMutationIntent } from "~/lib/pageMutationIntent";
@@ -60,7 +61,17 @@ import { SpaceTypedItemView } from "./spaceTypes/SpaceTypedItemView";
 import { TemplatePickerDialog } from "./spaceTypes/templates/TemplatePickerDialog";
 import { MossSitesView } from "./pages/sites/MossSitesView";
 import { Button } from "./ui/button";
-import { Dialog, DialogPopup, DialogTitle } from "./ui/dialog";
+import {
+  Dialog,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+  dialogFieldLabelClassName,
+  PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
 
 type LibraryProps = Parameters<typeof MossLibraryDestination>[0];
 type Props = LibraryProps & {
@@ -77,8 +88,19 @@ type Open =
 /** Kinds stored as page rows whose editor is the rich page editor. */
 const PAGE_EDITOR_KINDS = new Set(["page"]);
 
-const INPUT =
-  "h-8 w-full rounded-control border border-border bg-transparent px-2.5 text-ui outline-none focus:ring-2 focus:ring-ring";
+/**
+ * What opening a stored page shows: the rich editor for plain pages, the typed view
+ * (幻灯片, 表格, …) for the rest. Every "open what was just made" path goes through here,
+ * so a page made from a template opens in the editor, not the 即将推出 placeholder.
+ */
+function openPageState(page: {
+  readonly id: PageId;
+  readonly kind?: string | null | undefined;
+}): Open {
+  return PAGE_EDITOR_KINDS.has(page.kind ?? "page")
+    ? { type: "page", pageId: page.id }
+    : { type: "item", key: `page:${page.id}` };
+}
 
 export { SPACE_PAGE_HASH_PREFIX };
 
@@ -111,6 +133,7 @@ function DataSpaceWorkspace({
   const navigate = useNavigate();
   const [section, setSection] = useState<SpaceSection>({ type: "all" });
   const [open, setOpen] = useState<Open | null>(null);
+  const dialogNameInputId = useId();
   const [createIntent] = useState(
     () =>
       new PageMutationIntent(
@@ -164,7 +187,7 @@ function DataSpaceWorkspace({
       if (prompt) queueDeckGeneration(created.page.id, prompt);
       setNewDeck(false);
       await refresh();
-      setOpen({ type: "item", key: `page:${created.page.id}` });
+      setOpen(openPageState(created.page));
     });
   const leaveGuard = useRef<(() => Promise<boolean>) | null>(null);
   const { onCanvasLeaveGuardChange } = libraryProps;
@@ -192,11 +215,7 @@ function DataSpaceWorkspace({
         .catch(() => "page");
       if (!isCurrent()) return;
       await refresh();
-      setOpen(
-        PAGE_EDITOR_KINDS.has(kind)
-          ? { type: "page", pageId }
-          : { type: "item", key: `page:${id}` },
-      );
+      setOpen(openPageState({ id: pageId, kind }));
     })();
   };
   useEffect(() => {
@@ -262,12 +281,7 @@ function DataSpaceWorkspace({
   const openItem = async (item: SpaceItem) => {
     if (!(await leave())) return;
     if (item.source.type === "page") {
-      const kind = item.source.page.kind ?? "page";
-      setOpen(
-        PAGE_EDITOR_KINDS.has(kind)
-          ? { type: "page", pageId: item.source.page.id }
-          : { type: "item", key: item.key },
-      );
+      setOpen(openPageState(item.source.page));
       return;
     }
     setOpen({ type: "item", key: item.key });
@@ -431,7 +445,7 @@ function DataSpaceWorkspace({
           spaceId,
         });
         await refresh();
-        setOpen({ type: "item", key: `page:${created.page.id}` });
+        setOpen(openPageState(created.page));
       });
       return;
     }
@@ -657,7 +671,7 @@ function DataSpaceWorkspace({
                 void run("转换", async () => {
                   const { item, skipped } = await convertSpaceFile({ scopeSpaceId, ...file });
                   await refresh();
-                  setOpen({ type: "item", key: `page:${item.page.id}` });
+                  setOpen(openPageState(item.page));
                   if (skipped) setNotice(`已转换。${skipped} 个图表、表格或组合未能转换。`);
                 })
               }
@@ -783,7 +797,7 @@ function DataSpaceWorkspace({
             });
             setNewDeck(false);
             await refresh();
-            setOpen({ type: "item", key: `page:${item.page.id}` });
+            setOpen(openPageState(item.page));
             if (skipped) setNotice(`已导入。${skipped} 个对象无法转换为可编辑元素，已跳过。`);
           });
         }}
@@ -800,7 +814,7 @@ function DataSpaceWorkspace({
         {...(templatePicker?.kind ? { initialKind: templatePicker.kind } : {})}
         onCreated={(item) => {
           void refresh();
-          setOpen({ type: "item", key: `page:${item.page.id}` });
+          setOpen(openPageState(item.page));
         }}
         createAppPage={async (template) => {
           const app = await createAppPageFromTemplate({
@@ -818,52 +832,51 @@ function DataSpaceWorkspace({
           if (!next && !busy) setDialog(null);
         }}
       >
-        <DialogPopup>
-          <DialogTitle>
-            {dialog?.mode === "space"
-              ? "新建资料空间"
-              : dialog?.mode === "rename"
-                ? "重命名资料空间"
-                : dialog?.mode === "page" && dialog.parent
-                  ? "新建子页面"
-                  : "新建页面"}
-          </DialogTitle>
+        <DialogPopup className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {dialog?.mode === "space"
+                ? "新建资料空间"
+                : dialog?.mode === "rename"
+                  ? "重命名资料空间"
+                  : dialog?.mode === "page" && dialog.parent
+                    ? "新建子页面"
+                    : "新建页面"}
+            </DialogTitle>
+          </DialogHeader>
           <form
-            className="mt-4 flex flex-col gap-4"
+            className="contents"
             onSubmit={(event) => {
               event.preventDefault();
               void submitDialog();
             }}
           >
-            <label className="flex flex-col gap-1.5 text-ui">
-              {dialog?.mode === "page" ? "页面名称" : "资料空间名称"}
-              <input
+            <DialogPanel className="flex flex-col gap-2">
+              <label htmlFor={dialogNameInputId} className={cn("mt-2", dialogFieldLabelClassName)}>
+                {dialog?.mode === "page" ? "页面名称" : "资料空间名称"}
+              </label>
+              <Input
+                id={dialogNameInputId}
                 autoFocus
-                className={INPUT}
+                className={PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME}
                 maxLength={256}
                 placeholder={dialog?.mode === "page" ? "未命名页面" : "为话题或小组起个名字"}
                 value={name}
                 disabled={busy || (dialog?.mode !== "rename" && createIntent.pending !== null)}
-                onChange={(event) => setName(event.target.value)}
+                onChange={(event) => setName(event.currentTarget.value)}
               />
-            </label>
-            {error || createIntent.error ? (
-              <p role="alert" className="text-ui-sm text-destructive">
-                {error ?? createIntent.error}
-                {dialog?.mode === "rename" ? "" : " 重试会核对同一次创建。"}
-              </p>
-            ) : null}
-            <div className="flex justify-end gap-2">
-              <Button
-                size="sm"
-                variant="ghost"
-                type="button"
-                disabled={busy}
-                onClick={() => setDialog(null)}
-              >
+              {error || createIntent.error ? (
+                <p role="alert" className="text-ui-sm text-destructive">
+                  {error ?? createIntent.error}
+                  {dialog?.mode === "rename" ? "" : " 重试会核对同一次创建。"}
+                </p>
+              ) : null}
+            </DialogPanel>
+            <DialogFooter>
+              <Button variant="ghost" type="button" disabled={busy} onClick={() => setDialog(null)}>
                 取消
               </Button>
-              <Button size="sm" type="submit" disabled={busy || !name.trim()}>
+              <Button type="submit" disabled={busy || !name.trim()}>
                 {busy
                   ? "正在保存…"
                   : dialog?.mode === "rename"
@@ -872,7 +885,7 @@ function DataSpaceWorkspace({
                       ? "核对创建结果"
                       : "创建"}
               </Button>
-            </div>
+            </DialogFooter>
           </form>
         </DialogPopup>
       </Dialog>

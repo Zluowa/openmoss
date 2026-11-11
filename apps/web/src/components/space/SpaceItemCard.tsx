@@ -14,7 +14,7 @@ import { LocalImagePreview } from "../LocalImagePreview";
 import { SidebarIconButton } from "../SidebarIconButton";
 import { SlidesCardPreview } from "../spaceTypes/slides/SlidesCardPreview";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
-import { formatRelativeTime, type SpaceItem } from "./spaceItems";
+import { formatRelativeTime, spaceItemDisplayTitle, type SpaceItem } from "./spaceItems";
 import { isHtmlOutput, spaceItemMeta } from "./spaceKinds";
 
 export interface SpaceItemActions {
@@ -54,7 +54,7 @@ export function SpaceItemCard(
           onClick={() => props.onOpen(item)}
         >
           <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate text-ui">{item.title}</span>
+          <span className="min-w-0 flex-1 truncate text-ui">{spaceItemDisplayTitle(item)}</span>
           {item.pinned ? (
             <PinFilledIcon aria-label="已收藏" className="size-3 shrink-0 text-muted-foreground" />
           ) : null}
@@ -95,7 +95,9 @@ export function SpaceItemCard(
         <span className="flex min-w-0 flex-col gap-1 px-3 pt-2.5 pb-3">
           <span className="flex min-w-0 items-center gap-1.5">
             <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate text-ui font-medium">{item.title}</span>
+            <span className="min-w-0 flex-1 truncate text-ui font-medium">
+              {spaceItemDisplayTitle(item)}
+            </span>
             {item.pinned ? (
               <PinFilledIcon
                 aria-label="已收藏"
@@ -126,7 +128,7 @@ function SpaceItemPreview({ item }: { item: SpaceItem }) {
         <LocalImagePreview
           src={output.path}
           cwd={output.workspaceRoot}
-          alt={item.title}
+          alt={spaceItemDisplayTitle(item)}
           className="h-36"
           imageClassName="h-36 w-full object-cover"
           onPreviewError={() => setFailed(true)}
@@ -141,7 +143,7 @@ function SpaceItemPreview({ item }: { item: SpaceItem }) {
         <LocalImagePreview
           src={entry.previewPath ?? entry.path!}
           cwd={null}
-          alt={item.title}
+          alt={spaceItemDisplayTitle(item)}
           className="h-36"
           imageClassName="h-36 w-full object-cover"
           onPreviewError={() => setFailed(true)}
@@ -174,7 +176,7 @@ function SpaceItemMenu(props: SpaceItemActions & { item: SpaceItem }) {
       <SidebarIconButton
         render={<MenuTrigger />}
         icon={EllipsisIcon}
-        label={`${item.title} 的操作`}
+        label={`${spaceItemDisplayTitle(item)} 的操作`}
         size="lg"
       />
       <ComposerPickerMenuPopup align="end" className="w-48 min-w-48">

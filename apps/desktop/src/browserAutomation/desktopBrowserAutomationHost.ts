@@ -7,6 +7,7 @@ import {
   type BrowserLogsInput,
   type BrowserNavigateOutput,
   type BrowserOpenOutput,
+  type BrowserPageOutline,
   type BrowserReloadInput,
   type BrowserResizeInput,
   type BrowserResizeOutput,
@@ -50,11 +51,19 @@ import {
   type BrowserNavigationMark,
   type BrowserNavigationObservation,
 } from "./navigationTracker";
-import { runBetterwright } from "./betterwrightRuntime";
+import { closeLingeringBrowserWorkers, runBetterwright } from "./betterwrightRuntime";
+import { collectPageOutline } from "./pageOutline";
+import { NAVIGATION_SETTLE_MAX_MS, SCRIPT_SETTLE_MAX_MS, settlePageSince } from "./pageSettle";
 import type { BrowserVault } from "./browserVault";
 import type { BrowserVaultCapture } from "./browserVaultCapture";
 
 const MAX_IDEMPOTENCY_ENTRIES = 512;
+/** Time kept back from a browser_run script for settling and observing. */
+const POST_SCRIPT_RESERVE_MS = 2_500;
+/** Time an outline read plus the reply needs before the operation deadline. */
+const OBSERVATION_RESERVE_MS = 400;
+/** Used when an operation has no recorded deadline (direct host callers). */
+const UNKNOWN_DEADLINE_BUDGET_MS = 5_000;
 const IDEMPOTENCY_TTL_MS = 15 * 60_000;
 const MAX_IDEMPOTENCY_TOMBSTONES = 4_096;
 const IDEMPOTENCY_TOMBSTONE_TTL_MS = 24 * 60 * 60_000;
@@ -295,6 +304,8 @@ export class DesktopBrowserAutomationHost {
   private readonly lockTails = new Map<string, Promise<void>>();
   private readonly activeOperations = new Set<Promise<unknown>>();
   private readonly diagnostics = new BrowserDiagnosticsStore();
+  /** Absolute deadline of each executeTool operation, keyed by its signal. */
+  private readonly operationDeadlines = new WeakMap<AbortSignal, number>();
   private readonly requestOpenPanel: ((threadId: ThreadId) => void | Promise<void>) | undefined;
   private disposed = false;
   private disposal: Promise<void> | null = null;
@@ -311,6 +322,7 @@ export class DesktopBrowserAutomationHost {
     this.disposed = true;
     this.disposal = (async () => {
       await Promise.allSettled([...this.activeOperations]);
+      await closeLingeringBrowserWorkers();
     })();
     return this.disposal;
   }
@@ -378,6 +390,7 @@ export class DesktopBrowserAutomationHost {
       effectMayHaveCommitted: !definition.annotations.readOnlyHint,
     });
     const controller = new AbortController();
+    this.operationDeadlines.set(controller.signal, performance.now() + timeoutMs);
     let actionStarted = false;
     const abortForTimeout = () =>
       controller.abort(actionStarted ? runtimeTimeoutError : queuedTimeoutError);
@@ -1037,14 +1050,18 @@ export class DesktopBrowserAutomationHost {
     if (historyDirection) {
       const runtime = await this.resolveAutomationRuntime(affinity, targetTabId, signal, true);
       return uncorrelatedExecution(
-        await this.withDialogs(runtime, signal, () =>
-          navigateBrowserHistory(
+        await this.withDialogs(runtime, signal, async () => {
+          const tracker = await getBrowserNavigationTracker(runtime, signal);
+          const mark = tracker.mark();
+          const navigated = await navigateBrowserHistory(
             runtime,
             historyDirection,
             input as BrowserBackInput | BrowserForwardInput | BrowserReloadInput,
             signal,
-          ),
-        ),
+          );
+          const page = await this.observeSettledPage(runtime, tracker, mark, signal);
+          return page ? { ...navigated, page } : navigated;
+        }),
       );
     }
 
@@ -1098,15 +1115,44 @@ export class DesktopBrowserAutomationHost {
             signal,
           );
         case "browser_run": {
+          const runInput = input as BrowserRunInput;
+          const budget = this.remainingMs(signal);
+          // The operation deadline covers the script and what follows it, so
+          // the script gets the budget minus room to settle and observe.
+          const reserve = Math.min(POST_SCRIPT_RESERVE_MS, Math.floor(budget * 0.2));
+          // Settling is an aid: without a tracker the script still runs.
+          const tracker = await getBrowserNavigationTracker(runtime, signal).catch(() => {
+            throwIfAborted(signal);
+            return undefined;
+          });
+          const mark = tracker?.mark();
+          let navigated = false;
           let value: unknown;
           try {
             value = await runBetterwright({
               home: join(app.getPath("userData"), "browser-engine"),
               contents: runtime.webContents,
               expectAgentInput: runtime.expectAgentInput,
-              code: (input as BrowserRunInput).code,
-              timeoutMs: (input.timeoutMs as number | undefined) ?? 15_000,
+              code: runInput.code,
+              timeoutMs: Math.max(100, budget - reserve),
               signal,
+              ...(tracker && mark
+                ? {
+                    afterScript: async () => {
+                      const settleBudget = Math.min(
+                        SCRIPT_SETTLE_MAX_MS,
+                        this.remainingMs(signal) - OBSERVATION_RESERVE_MS,
+                      );
+                      ({ navigated } = await settlePageSince(
+                        runtime,
+                        tracker,
+                        mark,
+                        settleBudget,
+                        signal,
+                      ));
+                    },
+                  }
+                : {}),
               ...(this.options.vault
                 ? { vault: this.options.vault.agentAdapter(runtime.webContents, signal) }
                 : {}),
@@ -1129,7 +1175,13 @@ export class DesktopBrowserAutomationHost {
           );
           openedTabId = correlation.openedTabId;
           oauthPopup = correlation.oauthPopup;
-          return browserEvaluationOutput(runtime.tabId, value);
+          const output = browserEvaluationOutput(runtime.tabId, value);
+          // A script that navigated leaves a page the agent has not seen yet.
+          const page =
+            (navigated || runInput.observe === true) && !openedTabId
+              ? await this.observePage(runtime, signal)
+              : undefined;
+          return page ? { ...output, page } : output;
         }
         default:
           browserHostError({ code: "BrowserInputUnsupported" });
@@ -1316,6 +1368,8 @@ export class DesktopBrowserAutomationHost {
                     false,
                   );
                   return this.withDialogs(runtime, signal, async () => {
+                    const tracker = await getBrowserNavigationTracker(runtime, signal);
+                    const mark = tracker.mark();
                     const loaded = await this.navigateOrObserve(
                       runtime,
                       url,
@@ -1323,6 +1377,7 @@ export class DesktopBrowserAutomationHost {
                       input.timeoutMs ?? 15_000,
                       signal,
                     );
+                    const page = await this.observeSettledPage(runtime, tracker, mark, signal);
                     return {
                       tabId: selected as BrowserTabId,
                       finalUrl: validateWebUrl(loaded.url, true),
@@ -1330,6 +1385,7 @@ export class DesktopBrowserAutomationHost {
                         .map((redirect) => validateWebUrl(redirect, true))
                         .slice(0, 20),
                       loadState: loaded.state,
+                      ...(page ? { page } : {}),
                       disposition,
                     };
                   });
@@ -1351,6 +1407,8 @@ export class DesktopBrowserAutomationHost {
     signal: AbortSignal,
   ): Promise<BrowserNavigateOutput> {
     throwIfAborted(signal);
+    const tracker = await getBrowserNavigationTracker(runtime, signal);
+    const mark = tracker.mark();
     const loaded = await this.navigateOrObserve(
       runtime,
       url,
@@ -1358,12 +1416,49 @@ export class DesktopBrowserAutomationHost {
       input.timeoutMs ?? 15_000,
       signal,
     );
+    const page = await this.observeSettledPage(runtime, tracker, mark, signal);
     return {
       tabId: runtime.tabId as BrowserTabId,
       finalUrl: validateWebUrl(loaded.url, true),
       redirects: loaded.redirects.map((redirect) => validateWebUrl(redirect, true)).slice(0, 20),
       loadState: loaded.state,
+      ...(page ? { page } : {}),
     };
+  }
+
+  /** Milliseconds left before this operation's deadline. */
+  private remainingMs(signal: AbortSignal): number {
+    const deadline = this.operationDeadlines.get(signal);
+    return deadline === undefined
+      ? UNKNOWN_DEADLINE_BUDGET_MS
+      : Math.max(0, deadline - performance.now());
+  }
+
+  /** An outline of the current page, or nothing when the deadline is too close. */
+  private async observePage(
+    runtime: BrowserAutomationVisibleRuntime,
+    signal: AbortSignal,
+  ): Promise<BrowserPageOutline | undefined> {
+    if (this.remainingMs(signal) < OBSERVATION_RESERVE_MS / 2) return undefined;
+    return collectPageOutline(runtime, signal);
+  }
+
+  /**
+   * Lets a page the agent just loaded finish its first requests, then outlines
+   * it, so the agent can act on the result without a separate snapshot call.
+   */
+  private async observeSettledPage(
+    runtime: BrowserAutomationVisibleRuntime,
+    tracker: Awaited<ReturnType<typeof getBrowserNavigationTracker>>,
+    mark: BrowserNavigationMark,
+    signal: AbortSignal,
+  ): Promise<BrowserPageOutline | undefined> {
+    const budget = Math.min(
+      NAVIGATION_SETTLE_MAX_MS,
+      this.remainingMs(signal) - OBSERVATION_RESERVE_MS,
+    );
+    if (budget > 0) await settlePageSince(runtime, tracker, mark, budget, signal);
+    return this.observePage(runtime, signal);
   }
 
   private async navigateOrObserve(
