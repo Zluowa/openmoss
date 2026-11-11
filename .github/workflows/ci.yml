@@ -23,8 +23,6 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
       - parallel:
-          - name: Verify Moss identity
-            run: bun run brand:check
           - name: Verify Windows runtime boundary
             run: bun run windows-runtime:check
           - name: Format
@@ -41,7 +39,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
       - name: Typecheck
-        run: bun run typecheck --concurrency=1
+        run: bun run typecheck
   unit_tests:
     name: Unit Tests (${{ matrix.lane }})
     runs-on: ubuntu-24.04
@@ -73,8 +71,10 @@ jobs:
         if: ${{ startsWith(matrix.lane, 'server-') }}
         run: node scripts/node-pty-smoke.mjs
       - name: Install visual parity runtime
+        if: ${{ matrix.lane == 'shared' }}
         run: sudo apt-get update && sudo apt-get install -y ffmpeg imagemagick x11-xserver-utils
       - name: Install browser test runtime
+        if: ${{ matrix.lane == 'shared' }}
         run: cd apps/web && ./node_modules/.bin/playwright install chromium
       - name: Test
         env:
@@ -198,13 +198,14 @@ jobs:
           MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
         run: node scripts/ci-browser-disk.ts release-stable
       - name: Browser test (compiled transcript render scope)
+        if: ${{ matrix.project == 'components' && matrix.lane == '1/2' }}
         timeout-minutes: 5
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           MOSS_BROWSER_VITE_CACHE_DIR: ${{ env.MOSS_BROWSER_COMPILER_CACHE_DIR }}
         run: bun run --cwd apps/web test:browser:compiler
       - name: Release completed compiler browser phase cache
-        if: ${{ success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        if: ${{ success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' && matrix.lane == '1/2' }}
         env:
           MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}

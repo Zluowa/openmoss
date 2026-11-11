@@ -1,90 +1,80 @@
-# AGENTS.md
+# Moss
 
-## Task Completion Requirements
+Moss is a desktop home for AI agents: one app where people work with any coding or
+general agent, with chat, files, browser, canvas, pages and apps around it. It ships
+to ordinary users in China and worldwide. It is built and run by AI agents.
 
-- Do not run `bun fmt`, `bun lint`, or `bun typecheck` unless the user explicitly asks for them in the current conversation.
-- All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed.
-- Treat `bun fmt`, `bun lint`, and `bun typecheck` as heavyweight workspace checks: bundle them into one final verification pass per task whenever possible, and avoid rerunning the full set repeatedly during iteration.
-- If a user asks for a small follow-up right after a recent full verification pass, prefer no rerun or the smallest reasonable re-check unless the user explicitly asks for full validation again.
-- If the user asks to focus on code only, do not run `bun fmt`, `bun lint`, or `bun typecheck` automatically. In that mode, make the code changes first and only run verification if the user explicitly asks for it.
-- NEVER run `bun test`. Always use `bun run test` (runs Vitest).
+You are one of those agents. Read this page, then the pages it sends you to for
+your task. Do not start work without a brief.
 
-## Project Snapshot
+## The law, in short
 
-Moss is a minimal web GUI for using coding agents like Codex and Claude.
+The full text is `docs/handbook/constitution.md`. It overrides everything else.
 
-This repository is a VERY EARLY WIP. Proposing sweeping changes that improve long-term maintainability is encouraged.
+1. Tell the truth about what you verified.
+2. Secrets never appear anywhere.
+3. One task, one brief, one worktree, one branch, one PR.
+4. Stay inside your brief's scope.
+5. The author never merges. Only the coordinator merges.
+6. Reuse before you build, delete before you add.
+7. Return everything you create.
+8. The repository holds only what is true today.
+9. Isolate every run from the owner's real data.
+10. One product, one voice: Moss, the design standard, the user's language.
 
-## Core Priorities
+Money, identity, publishing, production and the owner's own things need the
+owner's direct yes for that action. Stop and report when you reach one.
 
-1. Performance first.
-2. Reliability first.
-3. Keep behavior predictable under load and during failures (session restarts, reconnects, partial streams).
+## Where to look
 
-If a tradeoff is required, choose correctness and robustness over short-term convenience.
+| You are about to…                        | Read                                                    | Use skill       |
+| ---------------------------------------- | ------------------------------------------------------- | --------------- |
+| Start any task                           | `docs/handbook/coordination.md`                         | `start-task`    |
+| Write or change code                     | `docs/handbook/engineering.md`, the area's `README.md`  |                 |
+| Change anything a user can see           | `docs/design/moss-design-standard.md`                   | `design-review` |
+| Write or change user-facing text         | `docs/zh-CN-product-glossary.md`, the design standard   | `design-review` |
+| Open or update a PR                      | `docs/handbook/quality.md`                              | `open-pr`       |
+| Review someone's PR                      | `docs/handbook/roles.md` (Reviewer)                     | `review-pr`     |
+| Run or start Moss to try a change        | `docs/handbook/quality.md` (Isolation)                  | `run-isolated`  |
+| Test as a user                           | `docs/handbook/quality.md`                              | `run-isolated`  |
+| Merge, coordinate, plan a round          | `docs/handbook/roles.md` (Coordinator)                  |                 |
+| Clean up a machine                       | `docs/handbook/resources.md`                            | `reclaim`       |
+| Build, release or change production      | `docs/release.md` ("Unsigned feed release")             |                 |
+| Understand how the system fits together  | `docs/core-concepts.md`, `docs/handbook/engineering.md` |                 |
+| Learn how another product does something | `docs/research/`                                        |                 |
 
-## Transcript Performance Guardrails
+`docs/design/`, `docs/release.md`, `docs/core-concepts.md` and `docs/research/` are
+kept in the private repository; the public mirror does not include them.
 
-- Treat transcript auto-scroll as a live-output feature, not a generic "working" feature. Buffering, reconnecting, pending approvals, and tool-only activity must not be wired as if assistant text is actively streaming.
-- When wiring scroll-follow logic, count real transcript messages only. Tool/work rows must not retrigger the same "new content arrived" auto-stick path.
-- Prefer the simpler fork-style transcript path for the common case. Small and medium transcripts should avoid virtualization churn unless there is a clear measured need.
-- If virtualization is used, never couple `rowVirtualizer.measure()` directly to another bottom-stick or height-follow cycle. Height-follow for live output should stay one-way to avoid measure/scroll feedback loops.
-- Preserve these behaviors with focused transcript tests when changing chat scrolling, timeline measurement, or sidebar-driven transcript updates.
+Skills live in `.agents/skills/`; `docs/handbook/skills.md` lists them and the
+ones still planned.
 
-## Brand
+## Commands
 
-The product is Moss everywhere people can see it: UI copy, icons, file names, docs, the website and the README. The mark is the coral pinwheel (`apps/web/public/moss-logo-coral.png`, or `MossLogoMark` where that file is not served). Never add upstream product names or marks. Look at new or merged-in UI as well as reading it, because a Moss-named file can still hold an old drawing. `bun lint` runs `bun run brand:check`; do not widen its exceptions for anything a user can see.
+```
+bun x oxfmt --check <files>             format, on the files you changed
+bun run lint                            oxlint, then the design, sync-fs and brand checks
+bun run --cwd <package> typecheck       types, for each package you changed
+bun run --cwd <package> test <files>    the tests your change affects (Vitest)
+bun run test                            every workspace's tests: a heavy lane
+```
 
-## Maintainability
+Never run `bun test`: it is a different runner. Always `bun run test`.
 
-Long term maintainability is a core priority. If you add new functionality, first check if there is shared logic that can be extracted to a separate module. Duplicate logic across multiple files is a code smell and should be avoided. Don't be afraid to change existing code. Don't take shortcuts by just adding local logic to solve a problem.
+The first four are the quick gate. Run it before every push; the `open-pr` skill
+has the details, and a single command for it is planned (`docs/handbook/quality.md`).
+Do not run full lanes or build installers unless your brief says so: the
+coordinator runs them, one at a time per machine.
 
-## UI Conventions
+## The codebase
 
-### Open/close (toggle) animations — single source
+- `apps/desktop` — the Electron shell.
+- `apps/web` — the React interface.
+- `apps/server` — the local server: agent runtimes, sessions, tools.
+- `packages/contracts` — shared schemas and types. No runtime logic.
+- `packages/shared` — shared runtime utilities, by explicit subpath.
 
-Any UI element with an open/close toggle (expand/collapse, show/hide, disclosure) MUST reuse the shared disclosure motion in `apps/web/src/lib/disclosureMotion.ts`. Never write bespoke height/opacity transitions or one-off `@keyframes` for a toggle — use the same logic and the same functions everywhere so every toggle feels identical (220ms `ease-out`, with `motion-reduce` fallbacks).
-
-- Shell + content (used by open/close project, sidebar sections, composer suggestions): `disclosureShellClassName(open)` on the grid shell, `DISCLOSURE_INNER_CLASS` on the inner wrapper, `disclosureContentClassName(open)` on the content — or the ready-made `DisclosureRegion` component (`apps/web/src/components/ui/DisclosureRegion.tsx`).
-- Base UI `<Collapsible>` panels: wrap with `CollapsiblePanel` (`apps/web/src/components/ui/collapsible.tsx`), which applies `DISCLOSURE_COLLAPSIBLE_PANEL_CLASS`.
-- Rotating chevron affordance: `DisclosureChevron` / `disclosureChevronClassName(open)`.
-
-Reference usage: opening/closing a project and the sidebar sections in `apps/web/src/components/Sidebar.tsx`. If you find a toggle that animates differently, migrate it to this module rather than duplicating logic.
-
-## Package Roles
-
-- `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.
-- `apps/web`: React/Vite UI. Owns session UX, conversation/event rendering, and client-side state. Connects to the server via WebSocket.
-- `packages/contracts`: Shared effect/Schema schemas and TypeScript contracts for provider events, WebSocket protocol, and model/session types. Keep this package schema-only — no runtime logic.
-- `packages/shared`: Shared runtime utilities consumed by both server and web. Uses explicit subpath exports (e.g. `@moss/shared/git`) — no barrel index.
-
-## Local Dev Instance Isolation
-
-- Never start the default `bun run dev` while another Moss instance is running unless the user explicitly wants shared ports/state.
-- Use an isolated home dir and non-default ports when running alongside the user's own Moss instance, for example: `env -u T3CODE_AUTH_TOKEN T3CODE_PORT_OFFSET=3158 T3CODE_NO_BROWSER=1 bun run dev -- --home-dir ./.moss-pr84 --port 58090`.
-- Always dry-run first when avoiding conflicts: `env -u T3CODE_AUTH_TOKEN T3CODE_PORT_OFFSET=3158 bun run dev -- --home-dir ./.moss-pr84 --port 58090 --dry-run`.
-- Unset `T3CODE_AUTH_TOKEN` for browser dev instances unless the web app is also configured to connect with that token. If auth is accidentally inherited, the browser WebSocket can be rejected and the UI will show no threads even though SQLite has projects/threads.
-- Check both server and web ports with `lsof -nP -iTCP:<port> -sTCP:LISTEN`. A desktop app can bind `127.0.0.1:<port>` while the dev server binds IPv6 `*:<port>`, and `localhost` may still hit the wrong process.
-- If the UI shows no threads, verify the server path before changing SQL: inspect the isolated `state.sqlite`, then probe `orchestration.getSnapshot` over WebSocket. A healthy snapshot with projects/threads means the issue is client connection/hydration, not empty history.
-
-## Codex App Server (Important)
-
-Moss is currently Codex-first. The server starts `codex app-server` (JSON-RPC over stdio) per provider session, then streams structured events to the browser through WebSocket push messages.
-
-How we use it in this codebase:
-
-- Session startup/resume and turn lifecycle are brokered in `apps/server/src/codexAppServerManager.ts`.
-- Provider dispatch and thread event logging are coordinated in `apps/server/src/providerManager.ts`.
-- WebSocket server routes NativeApi methods in `apps/server/src/wsServer.ts`.
-- Web app consumes orchestration domain events via WebSocket push on channel `orchestration.domainEvent` (provider runtime activity is projected into orchestration events server-side).
-
-Docs:
-
-- Codex App Server docs: https://developers.openai.com/codex/sdk/#app-server
-
-## Reference Repos
-
-- Open-source Codex repo: https://github.com/openai/codex
-- Codex-Monitor (Tauri, feature-complete, strong reference implementation): https://github.com/Dimillian/CodexMonitor
-
-Use these as implementation references when designing protocol handling, UX flows, and operational safeguards.
+Priorities, in order: correct, reliable under failure, fast, simple. Conventions
+that cross areas are in `docs/handbook/engineering.md`. Conventions for one area
+live next to the code they govern, in that area's `README.md` (so far
+`apps/web/README.md`).

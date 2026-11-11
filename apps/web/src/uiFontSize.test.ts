@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 // UI text follows the size chosen in Settings: use the `text-ui*` / `text-chat*`
-// tokens from index.css, never fixed Tailwind sizes (see AGENTS.md). Titles,
+// tokens from index.css, never fixed Tailwind sizes (see apps/web/README.md). Titles,
 // headings, and exported/static surfaces (ShareCard, SplashScreen) are the only
 // exceptions, so the number of fixed sizes may shrink but must not grow.
 // (Moss merge baseline: 43 heading/title `text-base` usages remained when this
