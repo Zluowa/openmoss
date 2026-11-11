@@ -238,6 +238,10 @@ describe("project import in zh-CN", () => {
       ["Not found: Cursor, Gemini.", "没有找到：Cursor, Gemini。"],
       ["No conversations yet: Devin.", "还没有对话：Devin。"],
       [
+        "Not turned on: ZCode (70). Turn it on in the agents list to import these conversations.",
+        "未启用：ZCode (70)。在智能体列表里勾选后，就能导入这些对话。",
+      ],
+      [
         "Not found: Cursor · 2 can't be copied (Antigravity).",
         "没有找到：Cursor · 2 个无法复制（Antigravity）。",
       ],

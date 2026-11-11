@@ -23,7 +23,18 @@ describe("theme names", () => {
     expect(codeThemeLabel("vercel")).toBe("Monochrome");
     expect(codeThemeLabel("vercel", "zh-CN")).toBe("黑白");
     expect(codeThemeLabel("codex", "zh-CN")).toBe("经典");
-    expect(codeThemeLabel("dracula", "zh-CN")).toBe("Dracula");
+    expect(codeThemeLabel("dracula", "zh-CN")).toBe("樱夜");
+    expect(codeThemeLabel("dracula")).toBe("Dracula");
     expect(codeThemeLabel("unknown-theme", "zh-CN")).toBe("unknown-theme");
+  });
+
+  it("gives every theme its own Chinese name, so the zh list never mixes in English", () => {
+    const zhLabels = CODE_THEME_OPTIONS.map((option) => codeThemeLabel(option.id, "zh-CN"));
+    for (const [index, label] of zhLabels.entries()) {
+      // Moss is the product's own name and stays as written.
+      if (CODE_THEME_OPTIONS[index]?.id === "moss") continue;
+      expect(label).toMatch(/^\p{Script=Han}+$/u);
+    }
+    expect(new Set(zhLabels).size).toBe(zhLabels.length);
   });
 });

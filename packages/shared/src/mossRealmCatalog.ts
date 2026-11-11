@@ -452,6 +452,33 @@ export function mossCatalogModelDisplayName(slug: string | null | undefined): st
   return DEFINITION_BY_ID.get(id)?.displayName ?? null;
 }
 
+const CATALOG_INDEX_BY_ID: ReadonlyMap<string, number> = new Map(
+  MOSS_MANAGED_MODEL_DEFINITIONS.map((definition, index) => [definition.id, index] as const),
+);
+
+/**
+ * Orders a Moss lane's models the one way every CLI's picker shows them: catalog order, so the
+ * same position (and the same Ctrl shortcut) is the same model in Codex, Claude, Grok, Pi... .
+ * Rows that are not catalog models keep their relative order after the catalog ones. Each
+ * lane's default model is chosen separately; it no longer moves to the top of the list.
+ */
+export function sortByMossCatalogOrder<T extends { readonly slug: string }>(
+  options: ReadonlyArray<T>,
+): T[] {
+  const indexOf = (slug: string) => {
+    const trimmed = slug.trim();
+    return CATALOG_INDEX_BY_ID.get(trimmed.slice(trimmed.lastIndexOf("/") + 1).toLowerCase());
+  };
+  return options
+    .map((option, position) => ({ option, position, index: indexOf(option.slug) }))
+    .toSorted((left, right) => {
+      const leftIndex = left.index ?? Number.POSITIVE_INFINITY;
+      const rightIndex = right.index ?? Number.POSITIVE_INFINITY;
+      return leftIndex === rightIndex ? left.position - right.position : leftIndex - rightIndex;
+    })
+    .map((entry) => entry.option);
+}
+
 /** Binding of one Moss model on one upstream provider, or `null` when absent. */
 export function mossUpstreamBinding(
   id: string,

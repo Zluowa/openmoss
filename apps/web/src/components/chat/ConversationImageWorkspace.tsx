@@ -510,6 +510,7 @@ export function ConversationImageWorkspace(props: {
               {...(props.imageFocus ? { image: props.imageFocus } : {})}
               onSelectionChange={onSelection}
               onImageOpen={onImageOpen}
+              occludedBy={props.fullWidth ? target : null}
               onImportStateChange={setImportState}
               onComposeContextChange={setComposeContext}
               onLeaveGuardChange={setFlush}
@@ -525,7 +526,9 @@ export function ConversationImageWorkspace(props: {
         className={
           props.fullWidth
             ? canvas
-              ? "z-40 flex shrink-0 flex-col items-end gap-2 px-4 pb-3"
+              ? // Canvas fills the whole pane; the composer floats over its
+                // bottom-right corner instead of sitting on a separate strip.
+                "pointer-events-none absolute inset-x-0 bottom-0 z-40 flex flex-col items-end gap-2 px-4 pb-3"
               : "pointer-events-none absolute inset-x-0 bottom-3 z-40 flex flex-col items-center px-4"
             : "z-40 flex shrink-0 flex-col items-center gap-2 p-2"
         }

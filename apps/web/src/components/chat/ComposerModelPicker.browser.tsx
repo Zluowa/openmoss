@@ -842,9 +842,10 @@ describe("ComposerModelPicker", () => {
       const closedWidth = trigger.element().getBoundingClientRect().width;
       await trigger.click();
 
-      // The covered label keeps sizing the pill; a resize under the cursor would make
-      // Base UI cancel the open on mouseup.
-      await expect.element(page.getByText("Select effort")).toBeVisible();
+      // The frozen copy keeps sizing the pill (a resize under the cursor would make Base UI
+      // cancel the open on mouseup), while the trigger keeps showing the current choice.
+      expect(page.getByText("Select effort").elements()).toHaveLength(0);
+      await expect.element(trigger).toHaveTextContent(/Medium/u);
       const slider = page.getByRole("slider", { name: "Reasoning effort" });
       await expect.element(slider).toBeVisible();
       expect(trigger.element().getBoundingClientRect().width).toBeCloseTo(closedWidth, 1);
@@ -856,6 +857,8 @@ describe("ComposerModelPicker", () => {
         .element()
         .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
       await expect.element(slider).toHaveAttribute("aria-valuetext", "High");
+      // The live choice shows through while the frozen copy holds the size.
+      await expect.element(trigger).toHaveTextContent(/High/u);
       slider
         .element()
         .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));

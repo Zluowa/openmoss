@@ -101,6 +101,10 @@ export const translateZhCnProjectImportCopyText = phraseTranslator(PROJECT_IMPOR
   [/^Not found: (.+) · (\d+) can't be copied \((.+)\)\.$/, "没有找到：$1 · $2 个无法复制（$3）。"],
   [/^Not found: (.+)\.$/, "没有找到：$1。"],
   [/^No conversations yet: (.+)\.$/, "还没有对话：$1。"],
+  [
+    /^Not turned on: (.+)\. Turn (?:it|them) on in the agents list to import these conversations\.$/,
+    "未启用：$1。在智能体列表里勾选后，就能导入这些对话。",
+  ],
   [/^(\d+) can't be copied \((.+)\)\.$/, "$1 个无法复制（$2）。"],
   [
     /^Found (\d+) (.+?) conversations? that can't be copied: (.+) keeps them encrypted\.$/,

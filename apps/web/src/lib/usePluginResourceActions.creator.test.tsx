@@ -11,6 +11,14 @@ const dispatchDraftThread = vi.hoisted(() => vi.fn());
 const ensureHomeChatProject = vi.hoisted(() => vi.fn());
 const handleNewThread = vi.hoisted(() => vi.fn());
 const settings = vi.hoisted(() => ({ enableAssistantStreaming: false }));
+const DEFAULT_INSTANCES = [{ instanceId: "codex", provider: "codex" }];
+const providerInstances = vi.hoisted(() => ({
+  current: [{ instanceId: "codex", provider: "codex" }] as Array<{
+    instanceId: string;
+    provider: string;
+    newChatDefault?: true;
+  }>,
+}));
 
 vi.mock("./draftThreadDispatch", () => ({
   dispatchDraftThread,
@@ -22,7 +30,13 @@ vi.mock("~/hooks/useHandleNewThread", () => ({
   useHandleNewThread: () => ({ handleNewThread }),
 }));
 vi.mock("~/appSettings", () => ({
-  getProviderInstanceOptions: () => [{ instanceId: "codex", provider: "codex" }],
+  getProviderInstanceOptions: () => providerInstances.current,
+  newChatProviderInstanceIdFrom: (
+    instances: ReadonlyArray<{ instanceId: string; provider: string; newChatDefault?: true }>,
+    provider: string,
+  ) =>
+    instances.find((instance) => instance.provider === provider && instance.newChatDefault)
+      ?.instanceId,
   getProviderStartOptions: vi.fn(() => ({ codex: { binaryPath: "codex" } })),
   resolveAssistantDeliveryMode: (value: { enableAssistantStreaming: boolean }) =>
     value.enableAssistantStreaming ? "streaming" : "buffered",
@@ -45,6 +59,37 @@ afterEach(() => {
   handleNewThread.mockReset();
   localStorage.removeItem("moss-has-opened-plugin-creator-prefill-v1");
   localStorage.removeItem("moss-has-opened-skill-creator-prefill-v1");
+  providerInstances.current = DEFAULT_INSTANCES;
+});
+
+describe("Account a request-only chat opens on", () => {
+  it("keeps New chat's account (Moss while signed in), not the library's discovery login", async () => {
+    // Settings' Plugins page discovers with the local Codex login; New chat uses Moss.
+    providerInstances.current = [
+      { instanceId: "codex", provider: "codex" },
+      { instanceId: "codex_moss", provider: "codex", newChatDefault: true },
+    ];
+    ensureHomeChatProject.mockResolvedValue(ProjectId.makeUnsafe("home-chat"));
+    registerDraftOnNewThread(ThreadId.makeUnsafe("lane-thread"));
+    const { result } = renderHook(() =>
+      usePluginResourceActions({
+        activeProjectId: null,
+        provider: "codex",
+        instanceId: "codex",
+        cwd: null,
+      }),
+    );
+    await act(async () => {
+      await result.current.createViaCreator("plugin", CREATOR, { prompt: "帮我创建一个插件" });
+    });
+    await act(async () => {
+      await result.current.startChatWithPrompt("帮我做一个记账小应用");
+    });
+    expect(handleNewThread.mock.calls.map((call) => call[1])).toEqual([
+      { provider: "codex", providerInstanceId: "codex_moss", fresh: true },
+      { provider: "codex", providerInstanceId: "codex_moss", fresh: true },
+    ]);
+  });
 });
 
 function registerDraftOnNewThread(threadId: ThreadId) {

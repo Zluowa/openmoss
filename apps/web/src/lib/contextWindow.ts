@@ -399,6 +399,21 @@ export function inferContextWindowSelectionValue(
   return bestMatch.relativeDistance <= 0.2 ? bestMatch.value : null;
 }
 
+/**
+ * Claude reports its usable budget (the auto-compact threshold, e.g. 167k of a 200k model or
+ * 967k of 1M) as the window. The composer names the model's window ("(200k)"); this gives the
+ * popover the same nominal size, or null when the reported budget is not just under one.
+ */
+export function nominalClaudeContextWindowTokens(
+  maxTokens: number | null | undefined,
+): number | null {
+  const value = inferContextWindowSelectionValue(maxTokens);
+  const nominal = value
+    ? KNOWN_CONTEXT_WINDOW_MAX_TOKENS[value as keyof typeof KNOWN_CONTEXT_WINDOW_MAX_TOKENS]
+    : undefined;
+  return nominal !== undefined && maxTokens != null && nominal >= maxTokens ? nominal : null;
+}
+
 export function deriveContextWindowSelectionStatus(input: {
   activeSnapshot: ContextWindowSnapshot | null;
   appliedValue?: string | null;
@@ -480,5 +495,5 @@ export function formatContextWindowTokens(value: number | null | undefined): str
   if (value < 1_000_000) {
     return `${Math.round(value / 1_000)}k`;
   }
-  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}m`;
+  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }

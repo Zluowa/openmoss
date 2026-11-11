@@ -23,6 +23,10 @@ import {
 } from "@moss/shared/kanban";
 import { isPendingThreadWorktree } from "@moss/shared/threadEnvironment";
 import { composerDraftHasAttachments } from "../../composerDraftDomain";
+import { normalizeAssistantSelectionText } from "../../lib/assistantSelections";
+import { formatBrowserAnnotationLabel } from "../../lib/browserAnnotations";
+import { pastedTextTitle } from "../../lib/composerPastedText";
+import { formatTerminalContextLabel } from "../../lib/terminalContext";
 import type { ComposerThreadDraftState } from "../../composerDraftStore";
 import {
   canSessionAnswerPendingRequests,
@@ -44,11 +48,19 @@ export type KanbanClassicColumnKey = "draft" | "inProgress" | "done";
 
 export const KANBAN_FALLBACK_DRAFT_TITLE = "New thread";
 
+/** Title of a draft that holds attachments but nothing readable to name it by (zh-CN 草稿). */
+export const KANBAN_ATTACHMENT_DRAFT_TITLE = "Draft";
+
 /** Pending composer content for one thread, projected from the composer draft store. */
 export interface KanbanComposerDraftSnapshot {
   prompt: string;
   /** Files, images, terminal contexts, or references attached to the composer draft. */
   hasAttachments: boolean;
+  /**
+   * Words that name an attachment-only draft on its card: the first line of a quoted reply,
+   * a file comment or pasted text, a picked page element, a terminal range or a file name.
+   */
+  attachmentTitle?: string | null;
   providerInstanceId: ProviderInstanceId | null;
   provider: ProviderKind | null;
 }
@@ -80,11 +92,61 @@ export function buildKanbanComposerDraftSnapshot(
     hasAttachments:
       composerDraftHasAttachments(draft) ||
       draft.pastedTexts.some((pasted) => pasted.text.trim().length > 0),
+    attachmentTitle: resolveDraftAttachmentTitle(draft),
     providerInstanceId: draft.activeProvider,
     provider: draft.activeProvider
       ? (draft.modelSelectionByProvider[draft.activeProvider]?.provider ?? null)
       : null,
   };
+}
+
+function firstTextLine(text: string): string {
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return "";
+}
+
+/**
+ * What an attachment-only draft is about, in the attachment's own words, so the board never
+ * shows a row of identical "Attached references" cards. Quotes and notes come first (they say
+ * what the task is), then a picked page element, terminal lines and file names.
+ */
+function resolveDraftAttachmentTitle(draft: KanbanComposerDraftSource): string | null {
+  const candidates: Array<() => string> = [
+    () =>
+      firstTextLine(
+        draft.assistantSelections
+          .map((selection) => normalizeAssistantSelectionText(selection.text))
+          .find((text) => text.length > 0) ?? "",
+      ),
+    () => firstTextLine(draft.fileComments.find((comment) => comment.text.trim())?.text ?? ""),
+    () => {
+      const pasted = draft.pastedTexts.find((entry) => entry.text.trim().length > 0);
+      return pasted ? pastedTextTitle(pasted.text) : "";
+    },
+    () => {
+      const annotation = draft.browserAnnotations?.[0];
+      return annotation ? formatBrowserAnnotationLabel(annotation) : "";
+    },
+    () => {
+      const context = draft.terminalContexts.find((entry) => entry.text.trim().length > 0);
+      return context ? formatTerminalContextLabel(context) : "";
+    },
+    () =>
+      (
+        draft.files[0]?.name ??
+        draft.images[0]?.name ??
+        draft.persistedAttachments[0]?.name ??
+        ""
+      ).trim(),
+  ];
+  for (const candidate of candidates) {
+    const title = candidate();
+    if (title.length > 0) return title;
+  }
+  return null;
 }
 
 /**
@@ -126,6 +188,7 @@ export function areKanbanComposerDraftSnapshotsEqual(
       !rightSnapshot ||
       leftSnapshot.prompt !== rightSnapshot.prompt ||
       leftSnapshot.hasAttachments !== rightSnapshot.hasAttachments ||
+      (leftSnapshot.attachmentTitle ?? null) !== (rightSnapshot.attachmentTitle ?? null) ||
       leftSnapshot.providerInstanceId !== rightSnapshot.providerInstanceId ||
       leftSnapshot.provider !== rightSnapshot.provider
     ) {
@@ -455,6 +518,7 @@ function resolveComposerDraft(
 ): {
   prompt: string;
   hasAttachments: boolean;
+  attachmentTitle: string | null;
   provider: ProviderKind | null;
   providerInstanceId: ProviderInstanceId | null;
 } {
@@ -462,6 +526,7 @@ function resolveComposerDraft(
   return {
     prompt: snapshot?.prompt.trim() ?? "",
     hasAttachments: snapshot?.hasAttachments ?? false,
+    attachmentTitle: snapshot?.attachmentTitle?.trim() || null,
     provider: snapshot?.provider ?? null,
     providerInstanceId: snapshot?.providerInstanceId ?? null,
   };
@@ -543,7 +608,10 @@ function buildUnsentPromptCard(
   if (composerDraft.prompt.length === 0 && !composerDraft.hasAttachments) {
     return null;
   }
-  const titleSeed = composerDraft.prompt.length > 0 ? composerDraft.prompt : "Attached references";
+  const titleSeed =
+    composerDraft.prompt.length > 0
+      ? composerDraft.prompt
+      : (composerDraft.attachmentTitle ?? KANBAN_ATTACHMENT_DRAFT_TITLE);
   const threadProvider = isTerminal
     ? null
     : (thread.session?.provider ?? thread.modelSelection.provider);
@@ -589,7 +657,9 @@ function buildLocalDraftCard(
       composerDraft.prompt.length > 0
         ? buildPromptThreadTitleFallback(composerDraft.prompt)
         : composerDraft.hasAttachments
-          ? "Attached references"
+          ? buildPromptThreadTitleFallback(
+              composerDraft.attachmentTitle ?? KANBAN_ATTACHMENT_DRAFT_TITLE,
+            )
           : KANBAN_FALLBACK_DRAFT_TITLE,
     provider: composerDraft.provider,
     providerInstanceId: composerDraft.providerInstanceId,

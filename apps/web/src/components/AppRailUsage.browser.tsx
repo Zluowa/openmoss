@@ -139,7 +139,7 @@ describe("AppRailUsage", () => {
       const consoleError = vi.spyOn(console, "error");
       try {
         const { client } = await renderAccounts(snapshots, claudeSettings, true);
-        const personal = page.getByRole("button", { name: /^Claude · Default account usage:/ });
+        const personal = page.getByRole("button", { name: /^Claude · Local account usage:/ });
         const work = page.getByRole("button", { name: /^Claude · Work usage:/ });
         await expect.element(personal).toBeVisible();
         await expect.element(work).toBeVisible();
@@ -199,7 +199,7 @@ describe("AppRailUsage", () => {
     settings.railUsageInstanceIds = [];
     const { rerender } = await renderAccounts(claudeSnapshots, claudeSettings, true);
     const personalSwitch = page.getByRole("switch", {
-      name: "Show Claude · Default account usage at the bottom of the sidebar",
+      name: "Show Claude · Local account usage at the bottom of the sidebar",
     });
     const workSwitch = page.getByRole("switch", {
       name: "Show Claude · Work usage at the bottom of the sidebar",
@@ -222,7 +222,7 @@ describe("AppRailUsage", () => {
       )
       .toBeEnabled();
 
-    const personal = page.getByRole("button", { name: /^Claude · Default account usage:/ });
+    const personal = page.getByRole("button", { name: /^Claude · Local account usage:/ });
     const work = page.getByRole("button", { name: /^Claude · Work usage:/ });
     await expect.element(personal).toBeVisible();
     await expect.element(work).toBeVisible();
@@ -338,7 +338,7 @@ describe("AppRailUsage", () => {
       ...claudeSettings,
       providerInstances: { claude_work: { driver: "claudeAgent", displayName: "Work" } },
     });
-    const personal = page.getByRole("button", { name: /^Claude · Default account usage:/ });
+    const personal = page.getByRole("button", { name: /^Claude · Local account usage:/ });
     const work = page.getByRole("button", { name: /^Claude · Work usage:/ });
     expect(personal.element().querySelector('span[aria-hidden="true"]')).toBeNull();
     expect(work.element().querySelector('span[aria-hidden="true"]')).not.toBeNull();

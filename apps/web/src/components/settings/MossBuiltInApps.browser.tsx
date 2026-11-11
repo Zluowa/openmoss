@@ -61,6 +61,32 @@ async function shot(name: string) {
 }
 
 describe("Moss built-in apps on the Apps tab", () => {
+  it("other apps that fail to load take one quiet line under Moss's own apps", async () => {
+    const onRetryApps = vi.fn();
+    const screen = await renderZh(
+      <PluginManagementPanel
+        {...panelProps()}
+        appsError={new Error("app/list timed out")}
+        onRetryApps={onRetryApps}
+      />,
+    );
+    try {
+      await expect.element(page.getByTestId("plugin-manage-moss-app-row").first()).toBeVisible();
+      await expect
+        .element(page.getByTestId("plugin-manage-other-apps-unavailable"))
+        .toHaveTextContent("其他应用暂时没加载出来。");
+      expect(document.body.textContent).not.toContain("无法加载应用");
+      expect(document.body.textContent).not.toContain("app/list");
+      await page
+        .getByTestId("plugin-manage-other-apps-unavailable")
+        .getByRole("button", { name: "重试" })
+        .click();
+      expect(onRetryApps).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("lists every built-in app with its one line, a switch and 创建应用", async () => {
     await page.viewport(1000, 860);
     const props = panelProps(["moss.todos"]);

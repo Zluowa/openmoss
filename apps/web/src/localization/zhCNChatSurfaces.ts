@@ -40,6 +40,12 @@ const CHAT_SURFACE_COPY: Readonly<Record<string, string>> = {
   "The session's auto-compact target can be lower than the model's supported window.":
     "会话的自动压缩目标可能低于模型支持的上下文窗口。",
   "Starting compaction...": "正在开始压缩…",
+  "Checking Claude's available commands...": "正在检查 Claude 可用的命令…",
+  "Compaction is unavailable for this Claude session.": "这个 Claude 会话无法压缩。",
+  "Wait for Claude and its background tasks to finish.": "请等 Claude 和它的后台任务完成。",
+  "Resolve the pending request before compacting.": "请先处理待处理的请求，再压缩。",
+  "Choose how to resume the held message above.": "请先选择如何继续上方被暂存的消息。",
+  "Wait for Claude to finish before compacting.": "请等 Claude 完成后再压缩。",
   "Compact now": "立即压缩",
   "Compaction processes this conversation and consumes usage. Later turns use its summary.":
     "压缩会处理这个对话并消耗用量。之后的回合会使用它的摘要。",

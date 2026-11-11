@@ -90,10 +90,19 @@ const tools: WorkspaceImportProbeResult = {
   requiresSourceChoice: false,
 };
 
-async function renderPanel() {
+// Hermes starts switched off; this person turned it on in the agents list.
+const HERMES_ON_SETTINGS = {
+  ...DEFAULT_SERVER_SETTINGS_VIEW,
+  providers: {
+    ...DEFAULT_SERVER_SETTINGS_VIEW.providers,
+    hermes: { ...DEFAULT_SERVER_SETTINGS_VIEW.providers.hermes, enabled: true },
+  },
+};
+
+async function renderPanel(serverSettings = HERMES_ON_SETTINGS) {
   localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  queryClient.setQueryData(serverQueryKeys.settings(), DEFAULT_SERVER_SETTINGS_VIEW);
+  queryClient.setQueryData(serverQueryKeys.settings(), serverSettings);
   return render(
     <QueryClientProvider client={queryClient}>
       <MossLocalizationProvider>
@@ -127,6 +136,20 @@ describe("Settings → Import", () => {
     await expect.element(page.getByText("3 个技能 · 1 项设置")).toBeVisible();
     expect(api.probeWorkspaceImport).toHaveBeenCalledWith({ scope: "tools" });
     expect(document.body.textContent).not.toContain("个最近对话");
+  });
+
+  it("does not offer an agent switched off in the agents list, and says it has conversations", async () => {
+    api.listProjectImports.mockResolvedValue(catalog);
+    api.probeWorkspaceImport.mockResolvedValue(tools);
+    api.getShellSnapshot.mockResolvedValue({});
+
+    await renderPanel(DEFAULT_SERVER_SETTINGS_VIEW);
+
+    await expect.element(page.getByText("Pi", { exact: true }).first()).toBeVisible();
+    await expect
+      .element(page.getByText(/^(Not turned on: Hermes \(1\)\.|未启用：Hermes \(1\)。)/u))
+      .toBeVisible();
+    await expect.element(page.getByText("Hermes", { exact: true })).not.toBeInTheDocument();
   });
 
   it("names what was not read: settings in one section, conversations in the other", async () => {

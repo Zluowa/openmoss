@@ -26,6 +26,7 @@ import { CheckIcon } from "~/lib/icons";
 import { findProviderStatus, resolveAgentReadiness } from "~/lib/providerAvailability";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
+import { useStore } from "~/store";
 import { codeThemeLabel } from "~/theme/theme.logic";
 import { ONBOARDING_INSET_CLASS_NAME } from "./layout";
 import {
@@ -86,6 +87,7 @@ function OnboardingFlow(props: {
   const providerDetection = useProviderDetection();
   const { activeTheme } = useTheme();
   const { locale } = useTranslation();
+  const existingProjectCount = useStore((store) => store.projects.length);
 
   const goBack = () => setStep(previousOnboardingStep(step));
   const goNext = () => setStep(nextOnboardingStep(step));
@@ -114,6 +116,7 @@ function OnboardingFlow(props: {
     agents: describeOnboardingAgentSummary(providerSummary, locale),
     themeLabel: codeThemeLabel(activeTheme.codeThemeId, locale),
     projectsAdded: projectResults.length,
+    existingProjects: existingProjectCount,
     locale,
   });
 

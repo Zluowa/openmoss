@@ -1,4 +1,5 @@
 import type { ProviderKind } from "@moss/contracts";
+import { sortByMossCatalogOrder } from "@moss/shared/mossRealmCatalog";
 import type { ProviderModelOption } from "../../providerModelOptions";
 import { KIMI_CHANNEL_MODEL, KIMI_CHANNEL_MODEL_LABEL } from "../../lib/ccSwitchChannels";
 
@@ -20,6 +21,8 @@ export function curateProviderModelOptions(input: {
   activeModel?: string | null | undefined;
   activeModelName?: string | null | undefined;
   favoriteModels?: ReadonlySet<string> | undefined;
+  /** The account is a Moss lane: list its models in the one Moss catalog order. */
+  mossCatalogOrder?: boolean | undefined;
 }): ProviderModelOption[] {
   const activeModel = input.activeModel?.trim();
   const result: ProviderModelOption[] = [];
@@ -32,7 +35,8 @@ export function curateProviderModelOptions(input: {
     result.push(option);
   };
 
-  for (const option of input.options) {
+  const options = input.mossCatalogOrder ? sortByMossCatalogOrder(input.options) : input.options;
+  for (const option of options) {
     append(
       input.provider === "claudeAgent" &&
         normalizedSlug(option.slug) === normalizedSlug(KIMI_CHANNEL_MODEL)

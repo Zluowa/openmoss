@@ -149,8 +149,6 @@ import { closeSettings, openSettings, type PluginSettingsTab } from "~/settingsD
 import type { MossBuiltInAppId } from "@moss/shared/mossBuiltInApps";
 import { openMossBuiltInAppPanel } from "~/lib/mossBuiltInAppPanels";
 import { mossBuiltInAppViews } from "./settings/mossBuiltInAppsPresentation";
-import { resolveServerChatWorkspaceRoot } from "~/lib/serverWorkspacePaths";
-import { useWorkspacePathsStore } from "~/workspacePathsStore";
 import { SidebarHeaderNavigationControls } from "./SidebarHeaderNavigationControls";
 import {
   useDesktopTopBarTrafficLightGutterClassName,
@@ -1660,18 +1658,17 @@ export function PluginLibrary({
         serverCwd: serverConfigQuery.data?.cwd ?? null,
       });
 
-  // Where "Import" writes (`<cwd>/.moss`): the focused project, or else the Moss home
-  // folder that Home chats run in. Never the server's working folder, which is the source
-  // checkout in dev and the install folder when packaged.
-  const homeChatHomeDir = useWorkspacePathsStore((state) => state.homeDir);
-  const homeChatWorkspaceRoot = useWorkspacePathsStore((state) => state.chatWorkspaceRoot);
-  const importCwd =
-    focusedProject?.kind === "project" && focusedProject.cwd.trim()
-      ? focusedProject.cwd
-      : resolveServerChatWorkspaceRoot({
-          homeDir: homeChatHomeDir,
-          chatWorkspaceRoot: homeChatWorkspaceRoot,
-        });
+  // Where a per-item import writes (`<cwd>/.moss`): the focused project, which the server
+  // accepts only by its registered id. Never a bare folder: the Home chat folder and the
+  // server's own folder are not registered projects, so the server refuses them. Skills
+  // need no project: Settings imports them user-wide (see MossDetectedResourcesSettingsList).
+  const importWorkspace = useMemo(
+    () =>
+      focusedProject?.kind === "project" && focusedProject.cwd.trim()
+        ? { cwd: focusedProject.cwd, workspaceId: focusedProject.id }
+        : null,
+    [focusedProject?.cwd, focusedProject?.id, focusedProject?.kind],
+  );
 
   useEffect(() => {
     setRetainedPluginAuthSession(null);
@@ -1751,12 +1748,14 @@ export function PluginLibrary({
       instanceId: selectedProviderInstanceId,
       cwd: discoveryCwd,
       threadId: providerThreadId,
+      // Only Codex lists apps (app/list); asking another agent only waits for an error.
       enabled:
         (showManagement ||
           pluginAuthSetup !== null ||
           connectTarget !== null ||
           installingPluginKeys.size > 0) &&
-        canListPlugins,
+        canListPlugins &&
+        selectedProvider === "codex",
     }),
   );
 
@@ -2841,10 +2840,21 @@ export function PluginLibrary({
     showSettingsManagement,
   ]);
 
+  // The focused chat or the project's own default account chose this agent's account; any
+  // other discovery account is a fallback that request-only chats don't inherit.
+  const providerInstanceIsExplicit =
+    (activeThread !== null &&
+      activeThread !== undefined &&
+      inferLegacyProviderKindFromModelSelection(activeThread.modelSelection) ===
+        selectedProvider) ||
+    (activeProject?.defaultModelSelection?.instanceId !== undefined &&
+      inferLegacyProviderKindFromModelSelection(activeProject.defaultModelSelection) ===
+        selectedProvider);
   const resourceActions = usePluginResourceActions({
     activeProjectId: activeProject?.id ?? null,
     provider: selectedProvider,
     instanceId: selectedProviderInstanceId,
+    instanceIsExplicit: providerInstanceIsExplicit,
     cwd: discoveryCwd,
   });
 
@@ -2923,7 +2933,8 @@ export function PluginLibrary({
           ? { prompt: t("plugins.create.creatorPrompt") }
           : kind === "app"
             ? { prompt: t("plugins.create.appCreatorPrompt") }
-            : { firstUsePrompt: t("plugins.create.skillCreatorPrompt") },
+            : // Every time, like Create plugin: a chip alone gives the person nothing to send.
+              { prompt: t("plugins.create.skillCreatorPrompt") },
       )
       .then((started) => {
         // Like Codex: the new chat with the creator attached is where the user goes next,
@@ -3971,12 +3982,15 @@ export function PluginLibrary({
                     handleCopyPath(t("plugins.detail.label.path"), path)
                   }
                   mcpServers={mcpServers}
+                  mcpLoading={mcpQuery.isLoading || mcpQuery.isPlaceholderData}
+                  skillsLoading={skillsLoading}
                   renderTabLead={(tab, query) =>
                     tab === "mcps" || tab === "skills" ? (
                       <MossDetectedResourcesSettingsList
-                        cwd={importCwd}
+                        workspace={importWorkspace}
                         search={query}
                         kind={tab === "mcps" ? "mcp" : "skill"}
+                        onImported={() => void skillsQuery.refetch()}
                       />
                     ) : null
                   }
@@ -4269,7 +4283,10 @@ export function PluginLibrary({
                           />
                         ) : (
                           <div className="flex flex-col gap-8">
-                            <MossDetectedResourcesSection cwd={importCwd} search={searchValue} />
+                            <MossDetectedResourcesSection
+                              workspace={importWorkspace}
+                              search={searchValue}
+                            />
                             <SkillsGrid
                               canListSkills={canListSkills}
                               providerLabel={providerLabel}

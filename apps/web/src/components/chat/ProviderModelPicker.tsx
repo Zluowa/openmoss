@@ -91,6 +91,7 @@ import { useTranslation } from "../../localization";
 import { isProtectedGenericSettingsProviderInstance } from "../../genericProviderSettingsProtection";
 import {
   type ComposerAccountSourceKind,
+  isMossManagedSourceInstanceId,
   mossManagedSourceInstanceIdForProvider,
   resolveComposerAccountSourceKind,
   resolveProviderInstanceIdForProviderSwitch,
@@ -1165,6 +1166,7 @@ export const ProviderModelMenuItems = function ProviderModelMenuItems(
       provider,
       options: fullProviderOptions,
       activeModel,
+      mossCatalogOrder: isMossManagedSourceInstanceId(selectedInstanceId),
       ...(favoriteModelSlugSet ? { favoriteModels: favoriteModelSlugSet } : {}),
       ...(activeModel
         ? {

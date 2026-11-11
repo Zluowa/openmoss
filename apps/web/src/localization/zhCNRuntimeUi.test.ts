@@ -254,9 +254,9 @@ describe("translateZhCnRuntimeUiText", () => {
     expect(translateZhCnRuntimeUiText("No prompts on Jul 17, 2026")).toBe(
       "Jul 17, 2026 没有 prompts",
     );
-    expect(translateZhCnRuntimeUiText("No account. Workspace data stays on this machine.")).toBe(
-      "No account. Workspace data stays on this machine.",
-    );
+    expect(
+      translateZhCnRuntimeUiText("Your projects and conversations stay on this machine."),
+    ).toBe("Your projects and conversations stay on this machine.");
     expect(translateZhCnRuntimeUiText("Implement Exact English Plan Title")).toBe(
       "实施计划：Exact English Plan Title",
     );

@@ -34,7 +34,9 @@ import {
   IMPORT_PROVIDER_LABELS,
   projectImportProviderCounts,
   projectImportProvidersNotFound,
+  isProjectImportProviderTurnedOff,
   projectImportNoConversationsNote,
+  projectImportTurnedOffNote,
   projectImportQuietNote,
   splitProjectImportNotFoundByDetection,
   projectImportUnreadableNotes,
@@ -89,6 +91,8 @@ export function ProjectImportPanel(props: {
   readonly relinkMissingFolders?: boolean;
   /** Agent detection (server provider statuses), so "not found" matches the agents list. */
   readonly providerStatuses?: readonly ServerProviderStatus[] | undefined;
+  /** Agents switched off on the agents list: not offered here, named in one quiet line. */
+  readonly disabledProviders?: readonly string[] | undefined;
 }) {
   const [providers, setProviders] = useState<readonly ProjectImportProvider[]>(
     props.initialProviders ?? IMPORT_PROVIDERS,
@@ -140,11 +144,22 @@ export function ProjectImportPanel(props: {
       .map(([key]) => key),
   );
   // Unticking an agent leaves its conversations out without forgetting their selection.
-  const projects = filterProjectImportsByProvider(catalog?.projects ?? [], providers);
-  const providerCounts = projectImportProviderCounts(catalog?.projects ?? []);
+  const turnedOff = (provider: ProjectImportProvider) =>
+    isProjectImportProviderTurnedOff(provider, props.disabledProviders);
+  const projects = filterProjectImportsByProvider(
+    catalog?.projects ?? [],
+    providers.filter((provider) => !turnedOff(provider)),
+  );
+  const allProviderCounts = projectImportProviderCounts(catalog?.projects ?? []);
+  const providerCounts = allProviderCounts.filter(({ provider }) => !turnedOff(provider));
+  const turnedOffNote = projectImportTurnedOffNote(
+    allProviderCounts.filter(({ provider }) => turnedOff(provider)),
+  );
   const missing = catalog
     ? splitProjectImportNotFoundByDetection(
-        projectImportProvidersNotFound(catalog, IMPORT_PROVIDERS),
+        projectImportProvidersNotFound(catalog, IMPORT_PROVIDERS).filter(
+          (provider) => !turnedOff(provider),
+        ),
         props.providerStatuses,
       )
     : null;
@@ -399,6 +414,9 @@ export function ProjectImportPanel(props: {
       ) : null}
       {noConversationsNote ? (
         <p className="text-ui-sm text-muted-foreground/80">{noConversationsNote}</p>
+      ) : null}
+      {turnedOffNote ? (
+        <p className="text-ui-sm text-muted-foreground/80">{turnedOffNote}</p>
       ) : null}
       {catalog && catalog.projects.length > 0 ? (
         <div className="flex min-h-0 flex-col">

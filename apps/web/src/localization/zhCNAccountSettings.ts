@@ -264,6 +264,11 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   Personal: "个人",
   "Shared skills": "共享技能",
   "No description.": "暂无描述。",
+  // Moss's creator plugin and skills (their manifests are English for every CLI).
+  "Plugin Creator": "插件创建器",
+  "Skill Creator": "技能创建器",
+  "Create and edit plugins": "创建和编辑插件",
+  "Create and validate plugins and skills": "创建并验证插件和技能",
   "Create, validate, or update a portable Codex or Claude plugin with skills, optional MCP tools, and a local marketplace entry.":
     "创建、验证或更新可供 Codex 或 Claude 使用的插件，支持技能、可选的 MCP 工具和本地插件市场条目。",
   "Create or update a skill (a SKILL.md with optional scripts, references, and assets) that Codex, Claude, and every other agent in Moss can use. Use when the user asks to make, write, or improve a skill.":

@@ -22,6 +22,7 @@ import { useCallback, useRef } from "react";
 import {
   getProviderInstanceOptions,
   getProviderStartOptions,
+  newChatProviderInstanceIdFrom,
   resolveAssistantDeliveryMode,
   useAppSettings,
 } from "~/appSettings";
@@ -185,6 +186,11 @@ export function usePluginResourceActions(input: {
   activeProjectId: ProjectId | null;
   provider: SupportedProviderKind;
   instanceId: ProviderInstanceId | null;
+  /**
+   * `instanceId` was chosen for this agent by the focused chat or the project's own default
+   * account. Otherwise it is only the library's discovery fallback.
+   */
+  instanceIsExplicit?: boolean;
   cwd: string | null;
 }) {
   const { settings } = useAppSettings();
@@ -197,6 +203,16 @@ export function usePluginResourceActions(input: {
   const singleFlightRef = useRef(createSingleFlight());
   const runExclusive = singleFlightRef.current.run;
   const creatorDispatchFlightRef = useRef<Promise<CreatorDispatchActionResult | null> | null>(null);
+
+  // A chat that only carries a request (a creator, a Moss app's prompt) keeps an account the
+  // chat or project picked; otherwise it opens on the account New chat would use for this
+  // agent: Moss while signed in, or the user's own login when they chose it. The library's
+  // fallback discovery account (often the local Codex login) moved people off Moss
+  // (acceptance 2026-11-11).
+  const laneInstanceId: ProviderInstanceId | null = input.instanceIsExplicit
+    ? input.instanceId
+    : (newChatProviderInstanceIdFrom(getProviderInstanceOptions(settings), input.provider) ??
+      input.instanceId);
 
   // Matches Codex "Try in chat": open a fresh thread and prefill the composer
   // with the resource's prompt (skills are additionally attached by reference).
@@ -255,14 +271,14 @@ export function usePluginResourceActions(input: {
         if (!projectId) return false;
         const threadId = await handleNewThread(projectId, {
           provider: input.provider,
-          ...(input.instanceId ? { providerInstanceId: input.instanceId } : {}),
+          ...(laneInstanceId ? { providerInstanceId: laneInstanceId } : {}),
           fresh: true,
         });
         if (!threadId) return false;
         useComposerDraftStore.getState().setPrompt(threadId, prompt);
         return true;
       }),
-    [runExclusive, handleNewThread, input.activeProjectId, input.provider, input.instanceId],
+    [runExclusive, handleNewThread, input.activeProjectId, input.provider, laneInstanceId],
   );
 
   const prepareCanonicalMutation = useCallback(
@@ -408,7 +424,7 @@ export function usePluginResourceActions(input: {
         const isFirstOpen = request === null && !readFirstOpenFlag(meta.firstUseKey);
         const threadId = await handleNewThread(projectId, {
           provider: input.provider,
-          ...(input.instanceId ? { providerInstanceId: input.instanceId } : {}),
+          ...(laneInstanceId ? { providerInstanceId: laneInstanceId } : {}),
           fresh: true,
         });
         if (!threadId) return false;
@@ -427,7 +443,7 @@ export function usePluginResourceActions(input: {
         if (isFirstOpen) markFirstOpen(meta.firstUseKey);
         return true;
       }),
-    [runExclusive, handleNewThread, input.activeProjectId, input.provider, input.instanceId],
+    [runExclusive, handleNewThread, input.activeProjectId, input.provider, laneInstanceId],
   );
 
   /**
@@ -454,7 +470,7 @@ export function usePluginResourceActions(input: {
         const meta = CREATOR_META[kind];
         const threadId = await handleNewThread(projectId, {
           provider: input.provider,
-          ...(input.instanceId ? { providerInstanceId: input.instanceId } : {}),
+          ...(laneInstanceId ? { providerInstanceId: laneInstanceId } : {}),
           // Creator writes must stay in the caller-owned scratch/worktree path.
           workingDirectory: taskWorkspace,
           envMode: "local",
@@ -481,7 +497,7 @@ export function usePluginResourceActions(input: {
           thread: null,
           defaultProvider: input.provider,
           assistantDeliveryMode: resolveAssistantDeliveryMode(settings),
-          providerOptions: getProviderStartOptions(settings, input.instanceId ?? input.provider),
+          providerOptions: getProviderStartOptions(settings, laneInstanceId ?? input.provider),
           providerInstances: getProviderInstanceOptions(settings),
         });
         if (dispatch.kind === "dispatched") markFirstOpen(meta.firstUseKey);
@@ -498,7 +514,7 @@ export function usePluginResourceActions(input: {
         .catch(() => undefined);
       return pending;
     },
-    [handleNewThread, input.activeProjectId, input.instanceId, input.provider, settings],
+    [handleNewThread, input.activeProjectId, input.provider, laneInstanceId, settings],
   );
 
   return {

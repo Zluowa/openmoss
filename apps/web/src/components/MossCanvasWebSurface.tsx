@@ -13,6 +13,7 @@ import { Button } from "./ui/button";
 
 import { resolveWsHttpUrl } from "../lib/wsHttpUrl";
 import type { MossCanvasImageFocus } from "../lib/mossCanvasBridge";
+import { mossCanvasOcclusionRect } from "../lib/mossCanvasOcclusion";
 import { useMossImagesAccountBoundary } from "../lib/mossImagesAccountBoundary";
 import {
   importMossCanvasLocalImages,
@@ -66,6 +67,11 @@ interface MossCanvasWebSurfaceProps {
    * Canvas hands images to Moss's viewer instead of its own preview.
    */
   readonly onImageOpen?: (open: MossCanvasImageOpen, binding: MossCanvasBinding) => void;
+  /**
+   * Host chrome floating over the Canvas (the conversation's composer). Its
+   * rectangle is sent to the Canvas so its panels stay clear of it.
+   */
+  readonly occludedBy?: HTMLElement | null;
   readonly onImportStateChange?: (state: "loading" | "ready" | "failed") => void;
 }
 
@@ -122,6 +128,7 @@ export function MossCanvasWebSurface({
   localImages,
   onSelectionChange,
   onImageOpen,
+  occludedBy,
   onImportStateChange,
 }: MossCanvasWebSurfaceProps) {
   const boundary = useMossImagesAccountBoundary();
@@ -174,6 +181,67 @@ export function MossCanvasWebSurface({
   const currentFrameKey = useRef(frameKey);
   currentFrameKey.current = frameKey;
   const [readyFrameKey, setReadyFrameKey] = useState<string | null>(null);
+  // Tell the ready Canvas where host chrome covers it, in the frame's own
+  // coordinates, whenever either moves or resizes.
+  useEffect(() => {
+    const target = frame.current;
+    if (!target || !src || readyFrameKey !== frameKey) return;
+    let sent = "";
+    const send = () => {
+      const window_ = target.contentWindow;
+      if (!window_) return;
+      const rect = mossCanvasOcclusionRect(
+        target.getBoundingClientRect(),
+        occludedBy?.getBoundingClientRect(),
+      );
+      const key = JSON.stringify(rect && Object.values(rect).map(Math.round));
+      if (key === sent) return;
+      sent = key;
+      window_.postMessage(
+        { type: "moss-canvas-host-occlusion", version: 1, rect },
+        new URL(src).origin,
+      );
+    };
+    send();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(send);
+    observer?.observe(target);
+    if (occludedBy) observer?.observe(occludedBy);
+    window.addEventListener("resize", send);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", send);
+    };
+  }, [frameKey, readyFrameKey, occludedBy, src]);
+  // Tell the ready Canvas the surface colour of the pane it sits in, so its
+  // board matches Moss (light and dark, and when the theme changes).
+  useEffect(() => {
+    const target = frame.current;
+    if (!target || !src || readyFrameKey !== frameKey) return;
+    const send = () => {
+      let surface = "";
+      for (let node = target.parentElement; node && !surface; node = node.parentElement) {
+        const color = getComputedStyle(node).backgroundColor;
+        // Skip see-through ancestors ("transparent", "rgba(…, 0)").
+        if (color && color !== "transparent" && !/,\s*0\s*\)$/u.test(color)) surface = color;
+      }
+      target.contentWindow?.postMessage(
+        {
+          type: "moss-canvas-host-surface",
+          version: 1,
+          colorScheme: document.documentElement.classList.contains("dark") ? "dark" : "light",
+          surface,
+        },
+        new URL(src).origin,
+      );
+    };
+    send();
+    const observer = typeof MutationObserver === "undefined" ? null : new MutationObserver(send);
+    observer?.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+    return () => observer?.disconnect();
+  }, [frameKey, readyFrameKey, src]);
   const binding = useRef<MossCanvasBinding | null>(null);
   const latestSelection = useRef<MossCanvasSelection | null>(null);
   const selectionCallback = useRef(onSelectionChange);

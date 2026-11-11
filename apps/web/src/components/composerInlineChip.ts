@@ -8,6 +8,7 @@
 //          background + color variants; everything else composes from those.
 
 import { cn } from "~/lib/utils";
+import { translateZhCnPresentationText } from "~/localization/zhCN";
 import {
   COMPOSER_EDITOR_LINE_HEIGHT_CLASS_NAME,
   COMPOSER_EDITOR_TEXT_CLASS_NAME,
@@ -172,9 +173,21 @@ function formatComposerInlineTokenLabel(name: string): string {
     .join(" ");
 }
 
+// Moss's own creator skills carry a translated name; every other skill keeps the label
+// made from its id. The chip lives in the composer's editable text, which the page-wide
+// translation skips, so the chip translates itself.
+const BUILT_IN_SKILL_CHIP_NAMES: ReadonlySet<string> = new Set(["skill-creator", "plugin-creator"]);
+
+function currentUiLocale(): string | undefined {
+  return typeof document === "undefined" ? undefined : document.documentElement.dataset.mossLocale;
+}
+
 // Formats raw skill ids like `check-code` into the label used by inline skill chips.
 export function formatComposerSkillChipLabel(name: string): string {
-  return formatComposerInlineTokenLabel(name);
+  const baseName = name.slice(name.lastIndexOf(":") + 1);
+  if (!BUILT_IN_SKILL_CHIP_NAMES.has(baseName)) return formatComposerInlineTokenLabel(name);
+  const label = formatComposerInlineTokenLabel(baseName);
+  return currentUiLocale() === "zh-CN" ? translateZhCnPresentationText(label) : label;
 }
 
 export function formatComposerSlashCommandChipLabel(command: string): string {

@@ -1,5 +1,7 @@
-// CLI-native skills found on this computer are adopted into the canonical Moss
-// source through the reversible resource-import plan.
+// CLI-native skills and MCP servers found on this computer are adopted into Moss: per item
+// into the open project's canonical source (which the server accepts only with the
+// project's registered id), and, in Settings, skills user-wide through the same scan and
+// import Settings > Import uses, with no project at all (acceptance 2026-11-11).
 import "../index.css";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,10 +19,17 @@ const api = vi.hoisted(() => ({
   resourceImportPlan: vi.fn(),
   resourceImportApply: vi.fn(),
 }));
+const serverApi = vi.hoisted(() => ({
+  probeWorkspaceImport: vi.fn(),
+  applyWorkspaceImport: vi.fn(),
+}));
 vi.mock("~/nativeApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../nativeApi")>()),
-  ensureNativeApi: () => ({ provider: api }),
+  ensureNativeApi: () => ({ provider: api, server: serverApi }),
 }));
+
+// A registered project: the server needs its id, not only its folder.
+const WORKSPACE = { cwd: "/work", workspaceId: "project-1" };
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -58,7 +67,9 @@ it("adopts a skill found in several CLIs into the canonical source", async () =>
   api.resourceImportPlan.mockResolvedValue({ plan });
   api.resourceImportApply.mockResolvedValue({ status: "applied" });
 
-  const screen = await renderWithQuery(<MossDetectedResourcesSection cwd="/work" search="" />);
+  const screen = await renderWithQuery(
+    <MossDetectedResourcesSection workspace={WORKSPACE} search="" />,
+  );
   await expect.element(screen.getByText("On this computer")).toBeVisible();
   await expect.element(screen.getByText("Codex", { exact: true })).toBeVisible();
   await expect.element(screen.getByText("Grok", { exact: true })).toBeVisible();
@@ -68,12 +79,17 @@ it("adopts a skill found in several CLIs into the canonical source", async () =>
     .poll(() => api.resourceImportPlan.mock.calls[0]?.[0])
     .toEqual({
       cwd: "/work",
+      workspaceId: "project-1",
       resourceIds: ["skill-0"],
       kinds: ["skill"],
     });
   await expect
     .poll(() => api.resourceImportApply.mock.calls[0]?.[0])
-    .toEqual({ cwd: "/work", plan });
+    .toEqual({ cwd: "/work", workspaceId: "project-1", plan });
+  expect(api.resourceImportInventory.mock.calls[0]?.[0]).toMatchObject({
+    cwd: "/work",
+    workspaceId: "project-1",
+  });
 });
 
 function mixedInventory() {
@@ -133,7 +149,7 @@ it("Settings lists only the tab's kind, without paths, and imports only on Impor
   api.resourceImportApply.mockResolvedValue({ status: "applied" });
 
   const screen = await renderWithQuery(
-    <MossDetectedResourcesSettingsList cwd="/work" search="" kind="mcp" />,
+    <MossDetectedResourcesSettingsList workspace={WORKSPACE} search="" kind="mcp" />,
   );
   await expect.element(screen.getByText("MCP servers on this computer")).toBeVisible();
   await expect.element(screen.getByText("linear", { exact: true })).toBeVisible();
@@ -148,22 +164,108 @@ it("Settings lists only the tab's kind, without paths, and imports only on Impor
   await screen.getByRole("button", { name: "Import linear" }).click();
   await expect
     .poll(() => api.resourceImportPlan.mock.calls[0]?.[0])
-    .toEqual({ cwd: "/work", resourceIds: ["mcp-claude"], kinds: ["mcp"] });
+    .toEqual({
+      cwd: "/work",
+      workspaceId: "project-1",
+      resourceIds: ["mcp-claude"],
+      kinds: ["mcp"],
+    });
   await expect
     .poll(() => api.resourceImportApply.mock.calls[0]?.[0])
-    .toEqual({ cwd: "/work", plan });
+    .toEqual({ cwd: "/work", workspaceId: "project-1", plan });
   await screen.unmount();
 });
 
-it("Settings shows other CLIs' skills on the Skills tab", async () => {
-  api.resourceImportInventory.mockResolvedValue(mixedInventory());
+function skillProbe() {
+  const source = (name: string, skillCount: number, present = true) => ({
+    source: name,
+    present,
+    skillCount,
+    honorAbleSettingCount: 0,
+    chatCount: 0,
+    olderChatCount: 0,
+  });
+  return {
+    requiresSourceChoice: false,
+    // The owner's machine on 2026-11-11: Claude 3, Cursor 28, Codex 20, Grok 2.
+    sources: [
+      source("claude", 3),
+      source("cursor", 28),
+      source("codex", 20),
+      source("grok", 2),
+      source("opencode", 0, false),
+    ],
+  };
+}
+
+it("Settings lists other apps' skills with no project and imports them user-wide", async () => {
+  serverApi.probeWorkspaceImport.mockResolvedValue(skillProbe());
+  serverApi.applyWorkspaceImport.mockResolvedValue({
+    skills: [
+      { name: "a", source: "claude", action: "copied" },
+      { name: "b", source: "claude", action: "copied" },
+      { name: "c", source: "claude", action: "unchanged" },
+    ],
+    settings: [],
+    clientPreferences: {},
+    chats: [],
+    connectors: [],
+    skippedOlderChatCount: 0,
+  });
+  const onImported = vi.fn();
+  const add = vi.spyOn(toastManager, "add");
   const screen = await renderWithQuery(
-    <MossDetectedResourcesSettingsList cwd="/work" search="" kind="skill" />,
+    <MossDetectedResourcesSettingsList
+      workspace={null}
+      search=""
+      kind="skill"
+      onImported={onImported}
+    />,
   );
   await expect.element(screen.getByText("Skills from your other CLIs")).toBeVisible();
-  await expect.element(screen.getByText("release-notes", { exact: true })).toBeVisible();
-  await expect.element(screen.getByText("Gemini", { exact: true })).toBeVisible();
-  expect(document.body.textContent).not.toContain("linear");
+  for (const [label, count] of [
+    ["Claude Code", 3],
+    ["Cursor", 28],
+    ["Codex", 20],
+    ["Grok", 2],
+  ] as const) {
+    await expect.element(screen.getByText(label, { exact: true })).toBeVisible();
+    await expect.element(screen.getByText(`${count} skills`, { exact: true })).toBeVisible();
+  }
+  expect(document.body.textContent).not.toContain("OpenCode");
+  // The per-project inventory is not involved.
+  expect(api.resourceImportInventory).not.toHaveBeenCalled();
+  await expect.element(screen.getByRole("button", { name: "Import all 53" })).toBeVisible();
+
+  await screen.getByRole("button", { name: "Import Claude Code" }).click();
+  await expect
+    .poll(() => serverApi.applyWorkspaceImport.mock.calls[0]?.[0])
+    .toEqual({ sources: ["claude"], categories: ["skills"] });
+  await expect.poll(() => onImported.mock.calls.length).toBe(1);
+  expect(add.mock.calls.at(-1)?.[0]).toMatchObject({
+    type: "success",
+    title: "Imported 2 skills into Moss for every agent",
+  });
+  await expect.element(screen.getByText("Imported", { exact: true })).toBeVisible();
+  await expect.element(screen.getByRole("button", { name: "Import all 50" })).toBeVisible();
+
+  await screen.getByRole("button", { name: "Import all 50" }).click();
+  await expect
+    .poll(() => serverApi.applyWorkspaceImport.mock.calls[1]?.[0])
+    .toEqual({ sources: ["cursor", "codex", "grok"], categories: ["skills"] });
+  await expect.poll(() => screen.getByText("Imported", { exact: true }).all().length).toBe(4);
+  await screen.unmount();
+  add.mockRestore();
+});
+
+it("Settings MCP tab says in one line that servers import into a project when none is open", async () => {
+  const screen = await renderWithQuery(
+    <MossDetectedResourcesSettingsList workspace={null} search="" kind="mcp" />,
+  );
+  await expect
+    .element(screen.getByTestId("moss-detected-settings-mcp-needs-project"))
+    .toHaveTextContent("Moss keeps MCP servers per project.");
+  expect(api.resourceImportInventory).not.toHaveBeenCalled();
   await screen.unmount();
 });
 
@@ -173,7 +275,7 @@ it("a failed import shows a plain line, never the raw error", async () => {
   const add = vi.spyOn(toastManager, "add");
   vi.spyOn(console, "warn").mockImplementation(() => undefined);
   const screen = await renderWithQuery(
-    <MossDetectedResourcesSettingsList cwd="/work" search="" kind="mcp" />,
+    <MossDetectedResourcesSettingsList workspace={WORKSPACE} search="" kind="mcp" />,
   );
   await screen.getByRole("button", { name: "Import linear" }).click();
   await expect.poll(() => add.mock.calls.length).toBe(1);
@@ -207,19 +309,20 @@ it("Settings imports every item at once with Import all, then marks them importe
   api.resourceImportApply.mockResolvedValue({ status: "applied" });
 
   const screen = await renderWithQuery(
-    <MossDetectedResourcesSettingsList cwd="/home/u/Documents/Moss" search="" kind="mcp" />,
+    <MossDetectedResourcesSettingsList workspace={WORKSPACE} search="" kind="mcp" />,
   );
   await screen.getByRole("button", { name: "Import all 2" }).click();
   await expect
     .poll(() => api.resourceImportPlan.mock.calls[0]?.[0])
     .toEqual({
-      cwd: "/home/u/Documents/Moss",
+      cwd: "/work",
+      workspaceId: "project-1",
       resourceIds: ["mcp-codex-github", "mcp-claude"],
       kinds: ["mcp"],
     });
   await expect
     .poll(() => api.resourceImportApply.mock.calls[0]?.[0])
-    .toEqual({ cwd: "/home/u/Documents/Moss", plan });
+    .toEqual({ cwd: "/work", workspaceId: "project-1", plan });
   await expect.element(screen.getByText("Imported", { exact: true }).first()).toBeVisible();
   expect(screen.getByRole("button", { name: "Import linear" }).query()).toBeNull();
   expect(screen.getByRole("button", { name: /Import all/u }).query()).toBeNull();
@@ -230,7 +333,7 @@ it("Settings marks an item Moss already has as imported", async () => {
   api.resourceImportInventory.mockResolvedValue(mixedInventory());
   api.resourceImportPlan.mockResolvedValue({ plan: { operations: [{ action: "skip" }] } });
   const screen = await renderWithQuery(
-    <MossDetectedResourcesSettingsList cwd="/work" search="" kind="mcp" />,
+    <MossDetectedResourcesSettingsList workspace={WORKSPACE} search="" kind="mcp" />,
   );
   await screen.getByRole("button", { name: "Import linear" }).click();
   await expect.element(screen.getByText("Imported", { exact: true })).toBeVisible();

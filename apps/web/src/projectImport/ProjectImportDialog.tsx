@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
+import { useImportTurnedOffAgents } from "~/projectImport/useImportTurnedOffAgents";
 import { ProjectImportPanel } from "./ProjectImportPanel";
 import { useProjectImportDialogStore } from "./projectImportDialogStore";
 
@@ -18,6 +19,7 @@ export function ProjectImportDialog() {
   const initialProviders = useProjectImportDialogStore((store) => store.initialProviders);
   const [busy, setBusy] = useState(false);
   const providerStatuses = useQuery(serverConfigQueryOptions()).data?.providers;
+  const turnedOffAgents = useImportTurnedOffAgents();
   return (
     <Dialog
       open={open}
@@ -37,6 +39,7 @@ export function ProjectImportDialog() {
             <ProjectImportPanel
               onBusyChange={setBusy}
               providerStatuses={providerStatuses}
+              disabledProviders={turnedOffAgents}
               {...(initialProviders ? { initialProviders } : {})}
             />
           ) : null}

@@ -732,11 +732,9 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
         hideStatusLabel={props.hideStatusLabel}
         disabled={props.disabled}
         isMenuOpen={isMenuOpen}
-        // The placeholder invites an effort pick, so only show it when the current
-        // model actually exposes the footer slider's ladder.
-        openPlaceholderLabel={
-          usesEffortSlider && currentTraitSelection.effortLevels.length > 0 ? "Select effort" : null
-        }
+        // Only the footer slider retunes effort inside the open panel, so only then does the
+        // pill hold its open-time size while still showing the current choice.
+        freezesSizeWhileOpen={usesEffortSlider && currentTraitSelection.effortLevels.length > 0}
         shortcutLabel={props.shortcutLabel}
       />
       <ComposerPickerMenuPopup
@@ -841,15 +839,6 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
                     onOpenAgentSettings={openAgentSettings}
                   />
                 </div>
-              ) : discoveryError && rows.length > 0 ? (
-                // Discovery errors are diagnostics: the panel says it plainly and keeps the
-                // detail in the tooltip.
-                <div
-                  className="px-2 py-1.5 text-ui leading-snug text-destructive"
-                  title={discoveryError}
-                >
-                  {t("chat.modelPicker.discoveryFailed")}
-                </div>
               ) : null}
               {noticeSource !== null ? null : isTabLoading ? (
                 <div className="space-y-2 px-2 py-2" aria-label="Loading models">
@@ -909,6 +898,9 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
                   key={tabAccount.instanceId}
                   provider={tabAccount.provider}
                   instanceId={tabAccount.instanceId}
+                  // With models listed, a failed discovery is one quiet footer line with a
+                  // retry (detail in its tooltip), never a second red notice above the list.
+                  failure={rows.length > 0 ? discoveryError : null}
                   onRefresh={props.onRefreshModels}
                 />
               ) : null}

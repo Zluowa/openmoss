@@ -338,6 +338,22 @@ describe("agents found on this computer", () => {
     expect(api.importProject.mock.calls.map(([input]) => input.threadKey)).toEqual(["first"]);
   });
 
+  it("leaves out an agent switched off on the agents list and names its conversations", async () => {
+    await render(<ProjectImportPanel onBusyChange={vi.fn()} disabledProviders={["claudeAgent"]} />);
+    const group = page.getByRole("group", { name: "Agents found on this computer" });
+    await expect.element(group.getByRole("checkbox", { name: "Codex" })).toBeChecked();
+    await expect
+      .element(group.getByRole("checkbox", { name: "Claude Code" }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(
+        page.getByText(
+          "Not turned on: Claude Code (1). Turn it on in the agents list to import these conversations.",
+        ),
+      )
+      .toBeVisible();
+  });
+
   it("names conversations it found but can't copy, instead of calling the agent missing", async () => {
     api.listProjectImports.mockResolvedValue({
       ...catalog,

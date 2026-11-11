@@ -30,7 +30,7 @@ export const TOUR_CARDS: ReadonlyArray<TourCard> = [
     label: "Any agent",
     title: "Run every coding agent in one workspace",
     description:
-      "Moss sits around the agent runtimes you already trust: Claude Code, Codex, Cursor, Devin, Antigravity, Grok, Factory Droid, OpenCode, and Pi. The provider keeps its account, models, and limits. Moss owns the durable task, environment, transcript, and delivery workflow around it.",
+      "Moss sits around the agent runtimes you already trust: Codex, Claude Code, Grok, OpenCode, Pi, Hermes, Devin, Cursor, Gemini, Antigravity, Kimi Code, MiniMax Code, and ZCode. The provider keeps its account, models, and limits. Moss owns the durable task, environment, transcript, and delivery workflow around it.",
     highlights: [
       "Switch models mid-thread",
       "Hand a thread to another provider",

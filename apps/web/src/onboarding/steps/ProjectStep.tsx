@@ -25,6 +25,7 @@ import { expandProjectHomePath } from "~/lib/projectPaths";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
+import { useImportTurnedOffAgents } from "~/projectImport/useImportTurnedOffAgents";
 import { useStore } from "~/store";
 import { useWorkspacePathsStore } from "~/workspacePathsStore";
 
@@ -45,6 +46,7 @@ export function ProjectStep(props: {
   onImportActionChange?: (action: ProjectImportPrimaryAction | null) => void;
 }) {
   const { settings } = useAppSettings();
+  const turnedOffAgents = useImportTurnedOffAgents();
   // The same detection the agents step shows, so both steps agree on what is installed.
   const providerStatuses = useQuery(serverConfigQueryOptions()).data?.providers;
   const homeDir = useWorkspacePathsStore((store) => store.homeDir);
@@ -130,6 +132,7 @@ export function ProjectStep(props: {
         <ProjectImportPanel
           onBusyChange={setImportBusy}
           providerStatuses={providerStatuses}
+          disabledProviders={turnedOffAgents}
           // A new user isn't asked to find moved folders: those conversations import as history.
           relinkMissingFolders={false}
           {...(props.onImportActionChange

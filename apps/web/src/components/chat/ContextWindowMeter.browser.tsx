@@ -68,6 +68,9 @@ it("shows Auto as applied with the 967k runtime threshold and no pending Auto", 
   );
   await page.getByRole("button", { name: "Context window 52% used" }).click();
   await expect.element(page.getByText("Auto-compact target: Auto")).toBeVisible();
-  await expect.element(page.getByText("Model window: 967k tokens")).toBeVisible();
+  // Claude's 967k is its auto-compact threshold: the popover names the 1M window like the
+  // composer does, and says where it compacts.
+  await expect.element(page.getByText("Model window: 1M tokens")).toBeVisible();
+  await expect.element(page.getByText("Compacts automatically at 967k tokens")).toBeVisible();
   await expect.element(page.getByText("Next turn:", { exact: false })).not.toBeInTheDocument();
 });

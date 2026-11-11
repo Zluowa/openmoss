@@ -1,13 +1,14 @@
 import "../../index.css";
 
 import { ThreadId } from "@moss/contracts";
-import { useEffect, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 
 import { useConversationImageComposer } from "~/lib/conversationImageComposer";
+import { mossCanvasOcclusionRect } from "~/lib/mossCanvasOcclusion";
 import { ComposerPromptEditor } from "../ComposerPromptEditor";
 import { TooltipProvider } from "../ui/tooltip";
 import type { MossCanvasWebSurface } from "../MossCanvasWebSurface";
@@ -25,14 +26,43 @@ vi.mock("~/lib/mossImagesAccountBoundary", () => ({
 }));
 // Keep the real preview, flex layout, registered portal and composer controls.
 // The inert frame isolates network/save operations while retaining browser geometry.
+// Like the real Canvas (open-hoola-canvas mossHostBottomInset), it lifts its
+// full-width bottom control above the area `occludedBy` covers.
 vi.mock("../MossCanvasWebSurface", () => ({
   MossCanvasWebSurface: (props: ComponentProps<typeof MossCanvasWebSurface>) => {
+    const frame = useRef<HTMLIFrameElement>(null);
+    const { occludedBy, onImportStateChange } = props;
     useEffect(() => {
-      props.onImportStateChange?.("ready");
-    }, [props.onImportStateChange]);
+      onImportStateChange?.("ready");
+    }, [onImportStateChange]);
+    useEffect(() => {
+      const target = frame.current;
+      if (!target) return;
+      const lift = () => {
+        const control = target.contentDocument?.querySelector("button");
+        if (!control) return;
+        const frameRect = target.getBoundingClientRect();
+        const cover = mossCanvasOcclusionRect(frameRect, occludedBy?.getBoundingClientRect());
+        const inset =
+          cover && cover.top < frameRect.height
+            ? Math.ceil(frameRect.height - Math.max(0, cover.top)) + 8
+            : 0;
+        control.style.bottom = `${inset}px`;
+      };
+      lift();
+      const observer = new ResizeObserver(lift);
+      observer.observe(target);
+      if (occludedBy) observer.observe(occludedBy);
+      target.addEventListener("load", lift);
+      return () => {
+        observer.disconnect();
+        target.removeEventListener("load", lift);
+      };
+    }, [occludedBy]);
     return (
       <div className="relative flex min-h-0 flex-1">
         <iframe
+          ref={frame}
           title="Layout Canvas"
           className="absolute inset-0 h-full w-full"
           srcDoc={
@@ -122,24 +152,30 @@ function Harness() {
 afterEach(cleanup);
 
 describe("full-width Canvas composer layout", () => {
-  it("keeps original bottom controls reachable as the registered composer grows and the viewport changes", async () => {
+  it("floats the composer over a full-bleed Canvas and keeps its bottom controls reachable as the composer grows and the viewport changes", async () => {
     await page.viewport(1280, 900);
     await render(<Harness />);
     const frame = page.getByTitle("Layout Canvas");
     await expect.element(page.getByTestId("composer-editor")).toBeVisible();
     const frameElement = frame.element() as HTMLIFrameElement;
     const composer = document.querySelector<HTMLFormElement>("[data-chat-composer-form]")!;
-    const assertSeparate = async () => {
+    const bottomControl = () => frameElement.contentDocument?.querySelector("button") ?? null;
+    await vi.waitFor(() => expect(bottomControl()).not.toBeNull());
+    // The Canvas runs under the composer, and its bottom controls sit above it.
+    const assertReachable = async () => {
       await vi.waitFor(() => {
         const canvasRect = frameElement.getBoundingClientRect();
         const composerRect = composer.getBoundingClientRect();
+        const control = bottomControl()!.getBoundingClientRect();
         expect(canvasRect.height).toBeGreaterThan(40);
-        expect(canvasRect.bottom).toBeLessThanOrEqual(composerRect.top + 1);
+        expect(canvasRect.bottom).toBeGreaterThanOrEqual(composerRect.bottom - 1);
+        expect(canvasRect.top + control.bottom).toBeLessThanOrEqual(composerRect.top + 1);
+        expect(control.top).toBeGreaterThanOrEqual(0);
       });
     };
-    await assertSeparate();
+    await assertReachable();
     const initialHeight = composer.getBoundingClientRect().height;
-    const initialCanvasHeight = frameElement.getBoundingClientRect().height;
+    const initialControlBottom = bottomControl()!.getBoundingClientRect().bottom;
     await page
       .getByTestId("composer-editor")
       .fill("First line\nSecond line\nThird line\nFourth line");
@@ -147,17 +183,16 @@ describe("full-width Canvas composer layout", () => {
     await vi.waitFor(() =>
       expect(composer.getBoundingClientRect().height).toBeGreaterThan(initialHeight),
     );
-    await assertSeparate();
-    expect(frameElement.getBoundingClientRect().height).toBeLessThan(initialCanvasHeight);
-    await vi.waitFor(() =>
-      expect(frameElement.contentDocument?.querySelector("button")).not.toBeNull(),
-    );
-    const rect = frameElement.getBoundingClientRect();
-    await userEvent.click(frameElement, { position: { x: rect.width - 24, y: rect.height - 20 } });
+    await assertReachable();
+    expect(bottomControl()!.getBoundingClientRect().bottom).toBeLessThan(initialControlBottom);
+    const control = bottomControl()!.getBoundingClientRect();
+    await userEvent.click(frameElement, {
+      position: { x: control.right - 24, y: control.top + control.height / 2 },
+    });
     await expect.element(page.getByTestId("canvas-bottom-clicks")).toHaveTextContent("1");
     await page.viewport(760, 640);
-    await assertSeparate();
+    await assertReachable();
     await page.getByTestId("composer-editor").fill("Short prompt");
-    await assertSeparate();
+    await assertReachable();
   });
 });

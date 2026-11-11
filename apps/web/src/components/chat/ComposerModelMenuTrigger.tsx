@@ -48,15 +48,14 @@ export function ComposerModelMenuTrigger(props: {
   hideStatusLabel?: boolean | undefined;
   disabled?: boolean | undefined;
   isMenuOpen: boolean;
-  /** Laid over the model/effort text while the menu is open. The text underneath stays in
-   *  place, invisible and frozen at its open-time value, so it keeps sizing the pill:
-   *  tuning effort in the open panel cannot resize the trigger and drag the popup sideways. */
-  openPlaceholderLabel?: string | null | undefined;
+  /** While the menu is open, the pill keeps its open-time size: an invisible copy of the
+   *  label frozen at that value sizes it, and the live label (the current model and effort)
+   *  is laid over it. Tuning effort in the open panel cannot resize the trigger and drag
+   *  the popup sideways, and the trigger still shows the current choice. */
+  freezesSizeWhileOpen?: boolean | undefined;
   shortcutLabel?: string | null | undefined;
 }) {
-  const freezesLabel = props.isMenuOpen && Boolean(props.openPlaceholderLabel);
-  // A compact (icon-only) trigger has no room for the placeholder; it only freezes.
-  const showsPlaceholder = freezesLabel && !props.hideModelLabel;
+  const freezesLabel = props.isMenuOpen && Boolean(props.freezesSizeWhileOpen);
   // Opening must not move the trigger at all: Base UI opens on mousedown and cancels the
   // open when the matching mouseup lands outside the trigger, so a resize under the cursor
   // eats the first click.
@@ -69,10 +68,7 @@ export function ComposerModelMenuTrigger(props: {
   const [frozenLabel, setFrozenLabel] = useState<typeof liveLabel | null>(null);
   if (freezesLabel && frozenLabel === null) setFrozenLabel(liveLabel);
   if (!freezesLabel && frozenLabel !== null) setFrozenLabel(null);
-  const label = freezesLabel && frozenLabel !== null ? frozenLabel : liveLabel;
-  // The label only plays its entry once it has actually been covered, never on mount.
-  const [hasShownPlaceholder, setHasShownPlaceholder] = useState(false);
-  if (showsPlaceholder && !hasShownPlaceholder) setHasShownPlaceholder(true);
+  const sizingLabel = freezesLabel && frozenLabel !== null ? frozenLabel : null;
   const ProviderIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[props.provider];
   const hiddenTriggerTitle = [
     props.accountLabel,
@@ -98,83 +94,82 @@ export function ComposerModelMenuTrigger(props: {
     />
   );
 
+  const renderLabel = (label: typeof liveLabel) => (
+    <>
+      <ProviderIcon
+        aria-hidden="true"
+        className={cn(
+          // opacity-100 opts out of the Button base's [&_svg]:opacity-80 dimming.
+          "size-4 shrink-0 opacity-100",
+          getProviderIconClassName(props.provider, "text-[var(--color-text-foreground)]"),
+        )}
+      />
+      <ProviderAccountDot
+        accentColor={props.accountAccentColor}
+        className="-ms-1 size-1.5 shrink-0 self-start ring-0"
+      />
+      {props.accountName ? (
+        props.hideModelLabel ? (
+          <span className="sr-only">{props.accountLabel}</span>
+        ) : (
+          <span className={cn("max-w-24 shrink-0 truncate", COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME)}>
+            {props.accountName}
+          </span>
+        )
+      ) : null}
+      {props.hideModelLabel ? (
+        <span className="sr-only">{label.modelLabel}</span>
+      ) : (
+        <span className="min-w-0 truncate text-[var(--color-text-foreground)]">
+          {label.modelLabel}
+        </span>
+      )}
+      {label.showsFastBadge ? (
+        <FastModeBadgeIcon
+          notice={props.fastModeNotice}
+          className="size-4 shrink-0 text-[var(--color-text-foreground)] opacity-100"
+        />
+      ) : null}
+      {label.statusLabel ? (
+        props.hideStatusLabel ? (
+          <>
+            <SettingsIcon
+              aria-hidden="true"
+              className={cn(
+                "size-4 shrink-0 dark:text-muted-foreground/45",
+                COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME,
+              )}
+            />
+            <span className="sr-only">{label.statusLabel}</span>
+          </>
+        ) : (
+          <span className={TRIGGER_TRAIT_LABEL_CLASS_NAME}>{label.statusLabel}</span>
+        )
+      ) : null}
+      {label.contextWindowLabel ? (
+        <span className={props.hideStatusLabel ? "sr-only" : TRIGGER_TRAIT_LABEL_CLASS_NAME}>
+          {label.contextWindowLabel}
+        </span>
+      ) : null}
+    </>
+  );
+
+  const labelRowClassName = "flex min-w-0 items-center gap-1.5 overflow-hidden";
   const triggerContent = (
     <span className="flex min-w-0 items-center gap-1.5">
       <span className="relative flex min-w-0 items-center">
-        <span
-          className={cn(
-            "flex min-w-0 items-center gap-1.5 overflow-hidden",
-            showsPlaceholder ? "invisible" : hasShownPlaceholder && "composer-trigger-label-enter",
-          )}
-        >
-          <ProviderIcon
-            aria-hidden="true"
-            className={cn(
-              // opacity-100 opts out of the Button base's [&_svg]:opacity-80 dimming.
-              "size-4 shrink-0 opacity-100",
-              getProviderIconClassName(props.provider, "text-[var(--color-text-foreground)]"),
-            )}
-          />
-          <ProviderAccountDot
-            accentColor={props.accountAccentColor}
-            className="-ms-1 size-1.5 shrink-0 self-start ring-0"
-          />
-          {props.accountName ? (
-            props.hideModelLabel ? (
-              <span className="sr-only">{props.accountLabel}</span>
-            ) : (
-              <span
-                className={cn("max-w-24 shrink-0 truncate", COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME)}
-              >
-                {props.accountName}
-              </span>
-            )
-          ) : null}
-          {props.hideModelLabel ? (
-            <span className="sr-only">{label.modelLabel}</span>
-          ) : (
-            <span className="min-w-0 truncate text-[var(--color-text-foreground)]">
-              {label.modelLabel}
+        {sizingLabel ? (
+          <>
+            <span aria-hidden="true" className={cn(labelRowClassName, "invisible")}>
+              {renderLabel(sizingLabel)}
             </span>
-          )}
-          {label.showsFastBadge ? (
-            <FastModeBadgeIcon
-              notice={props.fastModeNotice}
-              className="size-4 shrink-0 text-[var(--color-text-foreground)] opacity-100"
-            />
-          ) : null}
-          {label.statusLabel ? (
-            props.hideStatusLabel ? (
-              <>
-                <SettingsIcon
-                  aria-hidden="true"
-                  className={cn(
-                    "size-4 shrink-0 dark:text-muted-foreground/45",
-                    COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME,
-                  )}
-                />
-                <span className="sr-only">{label.statusLabel}</span>
-              </>
-            ) : (
-              <span className={TRIGGER_TRAIT_LABEL_CLASS_NAME}>{label.statusLabel}</span>
-            )
-          ) : null}
-          {label.contextWindowLabel ? (
-            <span className={props.hideStatusLabel ? "sr-only" : TRIGGER_TRAIT_LABEL_CLASS_NAME}>
-              {label.contextWindowLabel}
+            <span className={cn(labelRowClassName, "absolute inset-0")}>
+              {renderLabel(liveLabel)}
             </span>
-          ) : null}
-        </span>
-        {showsPlaceholder ? (
-          <span
-            className={cn(
-              "composer-trigger-label-enter absolute inset-0 truncate text-center",
-              COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME,
-            )}
-          >
-            {props.openPlaceholderLabel}
-          </span>
-        ) : null}
+          </>
+        ) : (
+          <span className={labelRowClassName}>{renderLabel(liveLabel)}</span>
+        )}
       </span>
       <ChevronDownIcon aria-hidden="true" className="ms-0.5 size-3 shrink-0 opacity-60" />
     </span>

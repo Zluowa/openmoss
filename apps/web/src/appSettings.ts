@@ -89,6 +89,7 @@ import {
   normalizeChatWidthMode as normalizeChatWidthModeValue,
 } from "./lib/chatWidth";
 
+import { migrateRailUsageSelection } from "./components/AppRailUsage.logic";
 import {
   APP_SETTINGS_STORAGE_KEY,
   DEFAULT_LOCALE_OVERRIDE,
@@ -510,6 +511,8 @@ export const AppSettingsSchema = Schema.Struct({
   railUsageInstanceIds: Schema.NullOr(PersistedProviderInstanceIdList).pipe(
     withDefaults(() => null),
   ),
+  // Set once the rail selection moved from the old Codex + Claude default to the Moss ring.
+  railUsageMossDefaultApplied: Schema.Boolean.pipe(withDefaults(() => false)),
   railUsageWindow: RailUsageWindow.pipe(withDefaults(() => DEFAULT_RAIL_USAGE_WINDOW)),
   // Usage popovers (rail rings, chat header, branch toolbar) open on the limit rows only;
   // reset credits, credits, and token totals sit behind a "Details" toggle. The toggle
@@ -1700,7 +1703,10 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
       legacyComposerPredictionModel !== undefined
         ? legacyComposerPredictionModel !== "off"
         : settings.composerPredictionsEnabled,
-    railUsageInstanceIds: settings.railUsageInstanceIds ?? settings.railUsageProviders,
+    railUsageInstanceIds: settings.railUsageMossDefaultApplied
+      ? (settings.railUsageInstanceIds ?? settings.railUsageProviders)
+      : migrateRailUsageSelection(settings.railUsageInstanceIds ?? settings.railUsageProviders),
+    railUsageMossDefaultApplied: true,
     enableAppSnap: settings.enableAppSnap || legacyEnableAppshots === true,
     // Read the legacy Studio key once: it defaults to true, so only an explicit
     // `false` carries over onto the renamed Groups section.

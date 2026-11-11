@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
+import { useImportTurnedOffAgents } from "~/projectImport/useImportTurnedOffAgents";
 
 import { useTranslation } from "../../localization";
 import { ProjectImportPanel } from "../../projectImport/ProjectImportPanel";
@@ -19,6 +20,7 @@ export function ImportSettingsPanel() {
   // The panel reports when an import is running; Settings has nothing to lock meanwhile.
   const [, setConversationImportBusy] = useState(false);
   const providerStatuses = useQuery(serverConfigQueryOptions()).data?.providers;
+  const turnedOffAgents = useImportTurnedOffAgents();
   return (
     <div className="space-y-8">
       <SettingsSectionShell title={t("import.conversations.title")}>
@@ -28,6 +30,7 @@ export function ImportSettingsPanel() {
         <ProjectImportPanel
           onBusyChange={setConversationImportBusy}
           providerStatuses={providerStatuses}
+          disabledProviders={turnedOffAgents}
         />
       </SettingsSectionShell>
       <WorkspaceImportFlow variant="panel" includeConversations={false} />

@@ -5,7 +5,10 @@ import { describe, expect, it } from "vitest";
 import { deriveProviderUsageDisplayRows } from "~/lib/providerUsageDisplay";
 
 import {
+  DEFAULT_RAIL_USAGE_IDS,
   getRailUsageAccounts,
+  migrateRailUsageSelection,
+  MOSS_RAIL_USAGE_ID,
   railUsageRingTone,
   selectRailUsageRows,
   resolveRailUsageAccounts,
@@ -48,7 +51,7 @@ describe("rail usage accounts", () => {
   it("allows two accounts of the same provider and distinguishes their names", () => {
     const selected = resolveRailUsageAccounts(["claudeAgent", "claude_work"], accounts);
     expect(selected.map((account) => account.label)).toEqual([
-      "Claude · Default account",
+      "Claude · Local account",
       "Claude · Work",
     ]);
     expect(selected.map((account) => account.instance.instanceId)).toEqual([
@@ -144,5 +147,41 @@ describe("railUsageRingTone", () => {
     [0, "critical"],
   ] as const)("%i%% left is %s", (remaining, tone) => {
     expect(railUsageRingTone(remaining)).toBe(tone);
+  });
+});
+
+describe("Moss ring", () => {
+  it("lists no per-agent Moss accounts: their quota is the one Moss ring", () => {
+    const accounts = getRailUsageAccounts(
+      deriveProviderInstances({
+        ...DEFAULT_SERVER_SETTINGS_VIEW,
+        providerInstances: {
+          codex_moss: { driver: "codex", displayName: "Moss" },
+          claude_moss: { driver: "claudeAgent", displayName: "Moss Claude" },
+          claude_work: { driver: "claudeAgent", displayName: "Work" },
+        },
+      }),
+      [],
+      "本机账号",
+    );
+    const ids = accounts.map((account) => account.instance.instanceId);
+    expect(ids).not.toContain("codex_moss");
+    expect(ids).not.toContain("claude_moss");
+    expect(accounts.find((account) => account.instance.instanceId === "claudeAgent")?.label).toBe(
+      "Claude · 本机账号",
+    );
+  });
+
+  it("moves the untouched Codex + Claude default to the Moss ring once, and keeps real choices", () => {
+    expect(DEFAULT_RAIL_USAGE_IDS).toEqual([MOSS_RAIL_USAGE_ID]);
+    expect(migrateRailUsageSelection(["codex", "claudeAgent"])).toEqual([MOSS_RAIL_USAGE_ID]);
+    expect(migrateRailUsageSelection(["claudeAgent", "codex"])).toEqual([MOSS_RAIL_USAGE_ID]);
+    expect(migrateRailUsageSelection(["codex"])).toEqual(["codex"]);
+    expect(migrateRailUsageSelection(["codex", "claudeAgent", "grok"])).toEqual([
+      "codex",
+      "claudeAgent",
+      "grok",
+    ]);
+    expect(migrateRailUsageSelection([])).toEqual([]);
   });
 });

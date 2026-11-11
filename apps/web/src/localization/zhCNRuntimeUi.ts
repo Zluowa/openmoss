@@ -264,7 +264,6 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Referenced selections": "已引用的所选内容",
   "Referenced assistant selection": "已引用助手所选内容",
   "Referenced assistant selections": "已引用助手所选内容",
-  "Attached references": "已附加引用",
   "Untitled thread": "未命名对话",
   "Finished working.": "工作已完成。",
   "User input requested.": "需要用户输入。",
@@ -596,7 +595,7 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
 
   // Profile summaries keep the localized date/unit values emitted by their formatters.
   // Keep the units explicit: an open noun also rewrote ordinary sentences such as
-  // "No account. Workspace data stays on this machine."
+  // "No account. Workspace data stays on this machine." (the old welcome tile)
   [/^No (tokens?|prompts?) on ([^\r\n]+)$/, (match) => `${match[2]} 没有 ${match[1]}`],
 
   // Runtime-generated agent activity retains only a numeric count.

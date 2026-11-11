@@ -151,6 +151,28 @@ export function splitProjectImportNotFoundByDetection(
   };
 }
 
+/**
+ * Agents switched off on the agents step are not offered for import (their conversations
+ * could not be continued), and are not called "not found" either: one line names those that
+ * have conversations so the person knows to turn them on.
+ */
+export function isProjectImportProviderTurnedOff(
+  provider: ProjectImportProvider,
+  disabledProviders: readonly string[] | null | undefined,
+): boolean {
+  return disabledProviders?.includes(provider) ?? false;
+}
+
+export function projectImportTurnedOffNote(
+  counts: ReadonlyArray<{ readonly provider: ProjectImportProvider; readonly count: number }>,
+): string | null {
+  if (counts.length === 0) return null;
+  const listed = counts
+    .map(({ provider, count }) => `${IMPORT_PROVIDER_LABELS[provider]} (${count})`)
+    .join(", ");
+  return `Not turned on: ${listed}. Turn ${counts.length === 1 ? "it" : "them"} on in the agents list to import these conversations.`;
+}
+
 /** One quiet line for detected agents that have nothing to import yet. */
 export function projectImportNoConversationsNote(
   providers: readonly ProjectImportProvider[],

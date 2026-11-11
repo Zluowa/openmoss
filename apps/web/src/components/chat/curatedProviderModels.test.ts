@@ -88,3 +88,21 @@ describe("curateProviderModelOptions", () => {
     ).toEqual(["gpt-5.5", "gpt-5.4"]);
   });
 });
+
+describe("Moss lane model order", () => {
+  it("orders a Moss lane's models by the catalog, and leaves other accounts as reported", () => {
+    const options = [
+      option("moss/kimi-k3"),
+      option("moss/deepseek-v4-pro"),
+      option("moss/glm-5.3"),
+    ];
+    expect(
+      curateProviderModelOptions({ provider: "grok", options, mossCatalogOrder: true }).map(
+        (entry) => entry.slug,
+      ),
+    ).toEqual(["moss/deepseek-v4-pro", "moss/glm-5.3", "moss/kimi-k3"]);
+    expect(
+      curateProviderModelOptions({ provider: "grok", options }).map((entry) => entry.slug),
+    ).toEqual(["moss/kimi-k3", "moss/deepseek-v4-pro", "moss/glm-5.3"]);
+  });
+});

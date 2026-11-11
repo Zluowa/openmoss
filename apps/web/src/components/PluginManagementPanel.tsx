@@ -22,6 +22,7 @@ import {
 } from "react";
 
 import { Button } from "./ui/button";
+import { Spinner } from "./ui/spinner";
 import { Switch } from "./ui/switch";
 import {
   AddPlusIcon,
@@ -141,12 +142,15 @@ interface ManageTabItem {
   readonly id: PluginLibraryManageTab;
   readonly label: string;
   readonly count: number;
+  /** Still reading this tab's list: a spinner stands in for a count that would read 0. */
+  readonly loading?: boolean;
 }
 
 function SubTabButton({
   id,
   label,
   count,
+  loading,
   active,
   onKeyDown,
   onClick,
@@ -154,6 +158,7 @@ function SubTabButton({
   id: PluginLibraryManageTab;
   label: string;
   count: number;
+  loading?: boolean | undefined;
   active: boolean;
   onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void;
   onClick: () => void;
@@ -177,7 +182,15 @@ function SubTabButton({
       )}
     >
       {label}
-      <span className="ml-0.5 text-muted-foreground">{count}</span>
+      {loading && count === 0 ? (
+        <Spinner
+          data-testid={`plugin-manage-tab-${id}-loading`}
+          aria-hidden="true"
+          className="ml-0.5 size-3 text-muted-foreground"
+        />
+      ) : (
+        <span className="ml-0.5 text-muted-foreground">{count}</span>
+      )}
     </button>
   );
 }
@@ -338,17 +351,23 @@ function pluginArtwork(
 function CenterState({
   title,
   description,
+  loading,
   retrying,
   onRetry,
 }: {
   readonly title: string;
   readonly description?: string | undefined;
+  readonly loading?: boolean | undefined;
   readonly retrying?: boolean | undefined;
   readonly onRetry?: (() => void) | undefined;
 }) {
   const { t } = useTranslation();
   return (
-    <div className="flex min-h-40 flex-col items-center justify-center gap-3 px-5 py-8 text-center">
+    <div
+      className="flex min-h-40 flex-col items-center justify-center gap-3 px-5 py-8 text-center"
+      {...(loading ? { role: "status" } : {})}
+    >
+      {loading ? <Spinner aria-hidden="true" className="size-4 text-muted-foreground" /> : null}
       <div>
         <p className="text-ui-lg font-medium text-foreground">{title}</p>
         {description ? (
@@ -467,6 +486,9 @@ export interface PluginManagementPanelProps extends PluginManagementPanelTabData
   readonly onOpenAppUrl?: ((url: string) => Promise<boolean>) | undefined;
   readonly onOpenAppTools?: ((app: ProviderAppInfo) => void) | undefined;
   readonly mcpServers: ReadonlyArray<ProviderMcpServerDescriptor>;
+  /** The MCP and Skills lists are still being read (first load only). */
+  readonly mcpLoading?: boolean | undefined;
+  readonly skillsLoading?: boolean | undefined;
   readonly onTogglePlugin: (entry: ManagedPlugin, enabled: boolean) => void;
   readonly onToggleMcp: (server: ProviderMcpServerDescriptor, enabled: boolean) => void;
   readonly onOpenPlugin?: ((entry: ManagedPlugin, trigger: HTMLButtonElement) => void) | undefined;
@@ -653,14 +675,30 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
   // Marketplaces join them once they have rows.
   const tabItems = useMemo<ManageTabItem[]>(() => {
     const items: ManageTabItem[] = [
-      { id: "plugins", label: t("plugins.manage.tab.plugins"), count: pluginRows.length },
+      {
+        id: "plugins",
+        label: t("plugins.manage.tab.plugins"),
+        count: pluginRows.length,
+        loading: Boolean(props.marketplacesLoading),
+      },
       {
         id: "apps",
         label: t("plugins.manage.tab.apps"),
         count: accessibleApps.length + mossAppRows.length + builtInAppRows.length,
+        loading: Boolean(props.appsLoading),
       },
-      { id: "mcps", label: t("plugins.manage.tab.mcps"), count: mcpRows.length },
-      { id: "skills", label: t("plugins.manage.tab.skills"), count: skillRows.length },
+      {
+        id: "mcps",
+        label: t("plugins.manage.tab.mcps"),
+        count: mcpRows.length,
+        loading: Boolean(props.mcpLoading),
+      },
+      {
+        id: "skills",
+        label: t("plugins.manage.tab.skills"),
+        count: skillRows.length,
+        loading: Boolean(props.skillsLoading),
+      },
       {
         id: "marketplaces",
         label: t("plugins.manage.tab.marketplace"),
@@ -669,6 +707,10 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
     ];
     return items.filter((item) => ALWAYS_SHOWN_MANAGE_TABS.has(item.id) || item.count > 0);
   }, [
+    props.appsLoading,
+    props.marketplacesLoading,
+    props.mcpLoading,
+    props.skillsLoading,
     accessibleApps.length,
     builtInAppRows.length,
     marketplaceRows.length,
@@ -737,7 +779,7 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
   if (tab === "apps") {
     content =
       props.appsLoading && accessibleApps.length === 0 && mossAppRows.length === 0 ? (
-        <CenterState title={t("plugins.manage.loadingApps")} />
+        <CenterState title={t("plugins.manage.loadingApps")} loading />
       ) : props.appsError && accessibleApps.length === 0 && mossAppRows.length === 0 ? (
         <CenterState
           title={t("plugins.manage.appsUnavailable")}
@@ -794,15 +836,48 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
         </div>
       );
   } else {
+    const tabLoading =
+      tab === "mcps"
+        ? Boolean(props.mcpLoading)
+        : tab === "skills"
+          ? Boolean(props.skillsLoading)
+          : Boolean(props.marketplacesLoading);
+    // MCP servers from another CLI's own config (Codex's config.toml, ...) are that CLI's
+    // to switch; say so once instead of leaving dimmed switches unexplained.
+    const externalMcpOrigins =
+      tab === "mcps"
+        ? [
+            ...new Set(
+              props.mcpServers
+                .filter((server) => !isMossCanonicalMcp(server))
+                .map((server) => originLabel(server.origin)),
+            ),
+          ]
+        : [];
     content =
       rows.length === 0 ? (
-        <CenterState title={t("plugins.manage.empty")} />
+        <CenterState
+          title={tabLoading ? t("plugins.manage.loading") : t("plugins.manage.empty")}
+          loading={tabLoading}
+        />
       ) : (
-        <ManageList>
-          {rows.map((row) => (
-            <Row key={row.key} row={row} />
-          ))}
-        </ManageList>
+        <div className="flex flex-col gap-2">
+          <ManageList>
+            {rows.map((row) => (
+              <Row key={row.key} row={row} />
+            ))}
+          </ManageList>
+          {externalMcpOrigins.length > 0 ? (
+            <p
+              data-testid="plugin-manage-mcp-external-hint"
+              className="px-1 text-ui-sm text-muted-foreground"
+            >
+              {format("plugins.manage.mcpExternalHint", {
+                sources: externalMcpOrigins.join(" / "),
+              })}
+            </p>
+          ) : null}
+        </div>
       );
   }
 
@@ -856,6 +931,13 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
     !props.appsError &&
     visibleApps.length === 0 &&
     visibleMossApps.length === 0;
+  // Moss's own apps work without the agent's app list, so when that list can't be read
+  // and there is nothing else to show, the other-apps section says so in one quiet line.
+  const otherAppsUnavailable =
+    Boolean(props.appsError) &&
+    !props.appsLoading &&
+    accessibleApps.length === 0 &&
+    mossAppRows.length === 0;
   const builtInSection =
     tab === "apps" &&
     builtInAppRows.length > 0 &&
@@ -875,7 +957,26 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
           <h2 className="px-1 text-ui leading-5 font-medium text-muted-foreground">
             {t("mossApps.section.other")}
           </h2>
-          {content}
+          {otherAppsUnavailable ? (
+            <div
+              data-testid="plugin-manage-other-apps-unavailable"
+              className="flex items-center justify-between gap-3 px-1 text-ui-sm text-muted-foreground"
+            >
+              <span>{t("plugins.manage.otherAppsUnavailable")}</span>
+              {props.onRetryApps ? (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  disabled={props.appsRetrying}
+                  onClick={props.onRetryApps}
+                >
+                  {t("plugins.action.retry")}
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            content
+          )}
         </section>
       )}
     </div>

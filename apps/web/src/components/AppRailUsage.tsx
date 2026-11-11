@@ -8,6 +8,7 @@
 import { DEFAULT_SERVER_SETTINGS_VIEW, type ServerProviderUsageSnapshot } from "@moss/contracts";
 import { deriveProviderInstances } from "@moss/shared/providerInstances";
 import { useQuery } from "@tanstack/react-query";
+import type { ComponentPropsWithoutRef } from "react";
 
 import { useAppSettings, type RailUsageWindow } from "~/appSettings";
 import { providerUsageSnapshotInstanceId } from "~/lib/providerUsageSnapshot";
@@ -18,7 +19,11 @@ import {
 import { cn } from "~/lib/utils";
 
 import { appRailButtonClassName } from "./AppRail";
+import { useTranslation } from "~/localization";
+import { useMossQuotaSummary } from "./auth/useMossQuotaSummary";
+import { MossLogo } from "./MossLogo";
 import {
+  MOSS_RAIL_USAGE_ID,
   railUsageRingTone,
   getRailUsageAccounts,
   resolveRailUsageAccounts,
@@ -83,6 +88,30 @@ const COMPACT_DOUBLE_RING = {
 /** Up to this many accounts keep the full-size rings. */
 export const RAIL_USAGE_FULL_SIZE_RINGS = 2;
 
+/** The rail button a ring sits in; the hover card's trigger renders through it. */
+function RailUsageRingButton({
+  ariaLabel,
+  compact,
+  ...rest
+}: Omit<ComponentPropsWithoutRef<"button">, "aria-label" | "className" | "type"> & {
+  ariaLabel: string;
+  compact: boolean;
+  "data-rail-usage-moss"?: string;
+}) {
+  return (
+    <button
+      {...rest}
+      type="button"
+      aria-label={ariaLabel}
+      className={cn(
+        appRailButtonClassName(false),
+        "relative flex shrink-0 items-center justify-center",
+        compact && "size-7",
+      )}
+    />
+  );
+}
+
 function AppRailUsageRing({
   account,
   snapshot,
@@ -135,14 +164,9 @@ function AppRailUsageRing({
       <PreviewCardTrigger
         {...SIDEBAR_HOVER_CARD_TRIGGER_PROPS}
         render={
-          <button
-            type="button"
-            aria-label={`${summary.ariaLabel}. Open usage settings`}
-            className={cn(
-              appRailButtonClassName(false),
-              "relative flex shrink-0 items-center justify-center",
-              compact && "size-7",
-            )}
+          <RailUsageRingButton
+            ariaLabel={`${summary.ariaLabel}. Open usage settings`}
+            compact={compact}
             onClick={onOpenUsageSettings}
           />
         }
@@ -241,27 +265,116 @@ function AppRailUsageRing({
   );
 }
 
+/** The Moss quota, shared by every agent's Moss account: one ring with the Moss mark. */
+function AppRailMossUsageRing({
+  compact,
+  onOpenUsageSettings,
+}: {
+  compact: boolean;
+  onOpenUsageSettings: () => void;
+}) {
+  const quota = useMossQuotaSummary();
+  if (!quota.signedIn || (quota.remainingPercent === null && !quota.unlimited)) return null;
+  const remainingPercent = quota.unlimited ? 100 : (quota.remainingPercent ?? 0);
+  const tone = RING_TONE_CLASS_NAME[railUsageRingTone(remainingPercent)];
+  const ring = compact ? COMPACT_SINGLE_RING : SINGLE_RING;
+  const radius = (ring.size - ring.stroke) / 2;
+  const label = quota.status ? `Moss, ${quota.status}` : "Moss";
+  return (
+    <PreviewCard>
+      <PreviewCardTrigger
+        {...SIDEBAR_HOVER_CARD_TRIGGER_PROPS}
+        render={
+          <RailUsageRingButton
+            ariaLabel={`${label}. Open usage settings`}
+            compact={compact}
+            onClick={onOpenUsageSettings}
+            data-rail-usage-moss=""
+          />
+        }
+      >
+        <svg
+          viewBox={`0 0 ${ring.size} ${ring.size}`}
+          className={cn("-rotate-90", ring.svgClassName)}
+          fill="none"
+          aria-hidden
+        >
+          <circle
+            cx={ring.size / 2}
+            cy={ring.size / 2}
+            r={radius}
+            strokeWidth={ring.stroke}
+            className="stroke-current opacity-15"
+          />
+          {remainingPercent > 0 ? (
+            <circle
+              cx={ring.size / 2}
+              cy={ring.size / 2}
+              r={radius}
+              strokeWidth={ring.stroke}
+              strokeLinecap="round"
+              pathLength={100}
+              strokeDasharray={`${remainingPercent} 100`}
+              className={cn(
+                "transition-[stroke-dasharray] duration-500 motion-reduce:transition-none",
+                tone.stroke,
+              )}
+            />
+          ) : null}
+        </svg>
+        <span className={cn("absolute flex", ring.iconClassName)}>
+          <MossLogo className="size-full" />
+        </span>
+      </PreviewCardTrigger>
+      <PreviewCardPopup
+        {...SIDEBAR_HOVER_CARD_POPUP_PROPS}
+        align="end"
+        sideOffset={6}
+        className={SIDEBAR_HOVER_CARD_SURFACE_CLASS_NAME}
+      >
+        <div className="flex items-center justify-between gap-3 p-2.5">
+          <span className="truncate text-ui font-medium text-foreground">Moss</span>
+          {quota.status ? (
+            <span className="shrink-0 text-ui-sm text-muted-foreground">{quota.status}</span>
+          ) : null}
+        </div>
+      </PreviewCardPopup>
+    </PreviewCard>
+  );
+}
+
 /** Sits above Help: a ring per selected account, with the windows chosen in Settings → Usage. */
 export function AppRailUsage({ onOpenUsageSettings }: { onOpenUsageSettings: () => void }) {
+  const { t } = useTranslation();
   const { settings } = useAppSettings();
   const settingsQuery = useQuery(serverSettingsQueryOptions());
+  const selected = settings.railUsageInstanceIds ?? settings.railUsageProviders;
+  const showsMoss = selected.includes(MOSS_RAIL_USAGE_ID);
   const accounts = resolveRailUsageAccounts(
-    settings.railUsageInstanceIds ?? settings.railUsageProviders,
+    selected,
     getRailUsageAccounts(
       deriveProviderInstances(settingsQuery.data ?? DEFAULT_SERVER_SETTINGS_VIEW),
       settings.disabledProviders,
+      t("chat.modelPicker.source.local"),
     ),
   );
   const usageQuery = useQuery(serverAllProviderUsageQueryOptions({ enabled: accounts.length > 0 }));
 
-  if (accounts.length === 0) {
+  if (accounts.length === 0 && !showsMoss) {
     return null;
   }
 
   // Any number of accounts can be chosen. Past two the rings shrink and the stack scrolls
   // (about four compact rings tall), so it never grows over the controls below it.
-  const compact = accounts.length > RAIL_USAGE_FULL_SIZE_RINGS;
-  const rings = accounts.map((account) => (
+  const compact = accounts.length + (showsMoss ? 1 : 0) > RAIL_USAGE_FULL_SIZE_RINGS;
+  const mossRing = showsMoss ? (
+    <AppRailMossUsageRing
+      key={MOSS_RAIL_USAGE_ID}
+      compact={compact}
+      onOpenUsageSettings={onOpenUsageSettings}
+    />
+  ) : null;
+  const accountRings = accounts.map((account) => (
     <AppRailUsageRing
       key={account.instance.instanceId}
       account={account}
@@ -275,8 +388,14 @@ export function AppRailUsage({ onOpenUsageSettings }: { onOpenUsageSettings: () 
       onOpenUsageSettings={onOpenUsageSettings}
     />
   ));
+  const rings = (
+    <>
+      {mossRing}
+      {accountRings}
+    </>
+  );
   if (!compact) {
-    return <>{rings}</>;
+    return rings;
   }
   return (
     <div

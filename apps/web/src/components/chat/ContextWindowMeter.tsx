@@ -5,6 +5,7 @@ import {
   deriveContextWindowMeterDisplay,
   formatContextWindowTokens,
   formatCostUsd,
+  nominalClaudeContextWindowTokens,
 } from "~/lib/contextWindow";
 import { useTranslation } from "~/localization";
 import { useState } from "react";
@@ -31,6 +32,10 @@ export function ContextWindowMeter(props: {
   const [open, setOpen] = useState(false);
   const nowMs = useNowMs(open && usage.claudeCache != null, 10_000);
   const display = deriveContextWindowMeterDisplay(usage);
+  // Claude: name the model's window like the composer does, and say where it compacts.
+  const nominalWindowTokens = props.showClaudeCache
+    ? nominalClaudeContextWindowTokens(usage.maxTokens)
+    : null;
   // Never an empty dial once anything is used: a sliver keeps "some" distinct from "none".
   const sectorPath = contextWindowMeterSectorPath(
     display.normalizedPercentage > 0 ? Math.max(display.normalizedPercentage, 4) : 0,
@@ -133,6 +138,13 @@ export function ContextWindowMeter(props: {
           {usage.maxTokens !== null ? (
             <div className="text-ui leading-snug text-muted-foreground">
               {format("chat.contextWindow.modelWindow", {
+                tokens: formatContextWindowTokens(nominalWindowTokens ?? usage.maxTokens),
+              })}
+            </div>
+          ) : null}
+          {nominalWindowTokens !== null && nominalWindowTokens !== usage.maxTokens ? (
+            <div className="text-ui leading-snug text-muted-foreground">
+              {format("chat.contextWindow.compactsAt", {
                 tokens: formatContextWindowTokens(usage.maxTokens),
               })}
             </div>

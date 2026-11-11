@@ -392,6 +392,61 @@ describe("complete Canvas host boundaries", () => {
     );
   });
 
+  it("tells the ready Canvas where the floating composer covers it, in frame coordinates", async () => {
+    const composer = document.createElement("div");
+    document.body.append(composer);
+    const box = (left: number, top: number, width: number, height: number) =>
+      ({
+        left,
+        top,
+        width,
+        height,
+        right: left + width,
+        bottom: top + height,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    composer.getBoundingClientRect = () => box(800, 690, 560, 190);
+    const host = await mount({ occludedBy: composer });
+    host.iframe.getBoundingClientRect = () => box(330, 44, 1060, 850);
+    await host.ready();
+    const sent = host.post.mock.calls
+      .map(([message]) => message as Record<string, unknown>)
+      .filter((message) => message.type === "moss-canvas-host-occlusion");
+    expect(sent.at(-1)).toEqual({
+      type: "moss-canvas-host-occlusion",
+      version: 1,
+      rect: { left: 470, top: 646, right: 1030, bottom: 836 },
+    });
+    composer.remove();
+  });
+
+  it("tells the ready Canvas the surface colour of its pane and the theme", async () => {
+    const host = await mount();
+    // A see-through wrapper is skipped for the pane behind it.
+    const wrapper = host.iframe.parentElement as HTMLElement;
+    wrapper.style.backgroundColor = "rgba(0, 0, 0, 0)";
+    (wrapper.parentElement as HTMLElement).style.backgroundColor = "rgb(252, 252, 251)";
+    await host.ready();
+    const surfaces = () =>
+      host.post.mock.calls
+        .map(([message]) => message as Record<string, unknown>)
+        .filter((message) => message.type === "moss-canvas-host-surface");
+    expect(surfaces().at(-1)).toEqual({
+      type: "moss-canvas-host-surface",
+      version: 1,
+      colorScheme: "light",
+      surface: "rgb(252, 252, 251)",
+    });
+    await act(async () => {
+      document.documentElement.classList.add("dark");
+      await Promise.resolve();
+    });
+    expect(surfaces().at(-1)).toMatchObject({ colorScheme: "dark" });
+    document.documentElement.classList.remove("dark");
+  });
+
   it("advertises nothing when the host does not open images itself", async () => {
     const host = await mount();
     await host.emit({ type: "moss-canvas-bootstrap-ready" });

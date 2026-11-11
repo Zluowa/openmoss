@@ -244,7 +244,7 @@ describe("ProviderUsageSettingsPanel", () => {
 
     expect(markup).toContain("Work account");
     expect(markup).toContain("Research account");
-    expect(markup).toContain("Show Claude · Default account usage at the bottom of the sidebar");
+    expect(markup).toContain("Show Claude · Local account usage at the bottom of the sidebar");
     expect(markup).toContain("Show Claude · Research account usage at the bottom of the sidebar");
     expect(markup.indexOf("Work account")).toBeLessThan(markup.indexOf("Research account"));
     expect(markup.match(/Personal allowance/g)).toHaveLength(1);

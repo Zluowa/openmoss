@@ -560,4 +560,60 @@ describe("PluginManagementPanel authoritative tabs", () => {
       await screen.unmount();
     }
   });
+
+  it("shows a spinner, not 0, on tabs whose lists are still loading (acceptance 2026-11-11)", async () => {
+    const screen = await renderZh(
+      <PluginManagementPanel
+        {...commonProps()}
+        apps={[]}
+        appsLoading
+        marketplaces={[]}
+        marketplacesLoading
+        mcpLoading
+        skillsLoading
+      />,
+    );
+    try {
+      for (const tab of ["plugins", "apps", "mcps", "skills"]) {
+        await expect
+          .element(page.getByTestId(`plugin-manage-tab-${tab}-loading`))
+          .toBeInTheDocument();
+        expect(page.getByTestId(`plugin-manage-tab-${tab}`).element().textContent).not.toMatch(
+          /0/u,
+        );
+      }
+      await expect.element(page.getByText("正在加载…", { exact: true })).toBeVisible();
+      expect(document.body.textContent).not.toContain("此分类下还没有已安装项。");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("says once why another CLI's MCP switches can't be used here", async () => {
+    const server = (name: string, origin: string) => ({
+      name,
+      transport: "stdio" as const,
+      origin,
+      enabled: true,
+      command: `/bin/${name}`,
+    });
+    const screen = await renderZh(
+      <PluginManagementPanel
+        {...commonProps()}
+        apps={[]}
+        marketplaces={[]}
+        viewState={{ initialTab: "mcps", search: "", scrollTop: 0, focusAnchor: null }}
+        mcpServers={[server("ghidra", "codex"), server("rea", "codex"), server("notes", "moss")]}
+      />,
+    );
+    try {
+      await expect.element(page.getByText("ghidra", { exact: true })).toBeVisible();
+      await expect
+        .element(page.getByTestId("plugin-manage-mcp-external-hint"))
+        .toHaveTextContent("这些服务来自 Codex 自己的设置，要在 Codex 里开关。");
+      expect(page.getByTestId("plugin-manage-mcp-external-hint").all()).toHaveLength(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
 });

@@ -20,17 +20,8 @@ import {
 } from "~/components/ProviderUsageMenuControl";
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { MossLogo } from "~/components/MossLogo";
-import {
-  isMossPayQuotaUnlimited,
-  resolveMossPayQuotaAccountIdentity,
-} from "~/components/auth/MossPayPanel";
-import {
-  serverMossAccountSessionQueryOptions,
-  serverMossCloudAccountStateQueryOptions,
-  serverMossPayQuotaQueryOptions,
-} from "~/components/auth/mossServerReactQuery";
+import { useMossQuotaSummary } from "~/components/auth/useMossQuotaSummary";
 import { isMossManagedSourceInstanceId } from "~/components/chat/providerAccountSources";
-import { mossQuotaRemainingPercent } from "~/components/settings/MossBillingSettingsPanel";
 import { useTranslation } from "~/localization";
 import { openSettings } from "~/settingsDialogStore";
 import { MenuTrigger } from "~/components/ui/menu";
@@ -125,25 +116,7 @@ function EnvironmentUsageAccountRow({
  * (a signed-out local row would read as if the chat needed a sign-in).
  */
 function EnvironmentMossUsageRow() {
-  const { format, t } = useTranslation();
-  const phoneQuery = useQuery(serverMossAccountSessionQueryOptions());
-  const accountQuery = useQuery(serverMossCloudAccountStateQueryOptions());
-  const accountIdentity = resolveMossPayQuotaAccountIdentity(phoneQuery.data, accountQuery.data);
-  const quotaQuery = useQuery(
-    serverMossPayQuotaQueryOptions({ enabled: accountIdentity !== null, accountIdentity }),
-  );
-  const quota = quotaQuery.data;
-  const quotaWindow = quota?.usageLimits.find((limit) => limit.limit !== null);
-  const remaining = quotaWindow
-    ? mossQuotaRemainingPercent(quotaWindow.used, quotaWindow.limit)
-    : null;
-  const status = quota
-    ? isMossPayQuotaUnlimited(quota)
-      ? t("mossPay.quota.unlimited")
-      : remaining !== null
-        ? format("mossPay.quota.remaining", { value: `${remaining}%` })
-        : null
-    : null;
+  const { status } = useMossQuotaSummary();
   return (
     <EnvironmentRow
       aria-label={status ? `Moss, ${status}` : "Moss"}

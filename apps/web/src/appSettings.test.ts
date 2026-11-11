@@ -2410,10 +2410,19 @@ describe("AppSettingsSchema", () => {
 
   it("migrates sidebar provider selections to their default account ids", () => {
     const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
-    expect(normalizeStoredAppSettings(decode("{}")).railUsageInstanceIds).toEqual([
-      "codex",
-      "claudeAgent",
-    ]);
+    // A fresh install shows the Moss quota ring, not Codex and Claude's own accounts.
+    expect(normalizeStoredAppSettings(decode("{}")).railUsageInstanceIds).toEqual(["moss"]);
+    // The move happens once: after it, Codex + Claude chosen again stays chosen.
+    expect(
+      normalizeStoredAppSettings(
+        decode(
+          JSON.stringify({
+            railUsageInstanceIds: ["codex", "claudeAgent"],
+            railUsageMossDefaultApplied: true,
+          }),
+        ),
+      ).railUsageInstanceIds,
+    ).toEqual(["codex", "claudeAgent"]);
     // Gemini stays a Moss provider, so its rail selection is kept rather than
     // moved to Antigravity as upstream Synara does.
     expect(

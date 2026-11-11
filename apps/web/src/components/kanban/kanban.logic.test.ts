@@ -396,10 +396,54 @@ describe("buildKanbanBoard", () => {
     );
 
     const draftCard = board.projects[0]!.draft[0]!;
-    expect(draftCard.title).toBe("Attached references");
+    // Nothing readable to name it by: a plain "Draft" (草稿), and the card shows its time.
+    expect(draftCard.title).toBe("Draft");
     expect(draftCard.draftHasAttachments).toBe(true);
     expect(draftCard.provider).toBe("cursor");
     expect(resolveDraftDropAction(draftCard)).toBe("dispatch");
+  });
+
+  it("titles quote-only drafts by the quote's first words, not a shared placeholder", () => {
+    const quoteOnly = ThreadId.makeUnsafe("thread-quote-only");
+    const zhQuoteOnly = ThreadId.makeUnsafe("thread-zh-quote-only");
+    const settled = ThreadId.makeUnsafe("thread-settled-quote");
+    const board = buildKanbanBoard(
+      makeBoardInput({
+        threads: [makeSidebarThreadSummary({ id: settled, latestTurn: makeLatestTurn() })],
+        draftThreads: [makeDraftThread(quoteOnly), makeDraftThread(zhQuoteOnly)],
+        composerDraftByThreadId: {
+          [quoteOnly]: {
+            prompt: "",
+            hasAttachments: true,
+            attachmentTitle: "Move the retry into the upload worker",
+            providerInstanceId: null,
+            provider: null,
+          },
+          [zhQuoteOnly]: {
+            prompt: "",
+            hasAttachments: true,
+            attachmentTitle: "把重试逻辑移到上传线程里",
+            providerInstanceId: null,
+            provider: null,
+          },
+          [settled]: {
+            prompt: "",
+            hasAttachments: true,
+            attachmentTitle: "Check the flaky login test",
+            providerInstanceId: null,
+            provider: null,
+          },
+        },
+      }),
+    );
+
+    const titles = board.projects[0]!.draft.map((card) => [card.threadId, card.title]);
+    expect(Object.fromEntries(titles)).toEqual({
+      // Same word cap as prompt titles: the first words of the quote.
+      [quoteOnly]: "Move the retry into the upload",
+      [zhQuoteOnly]: "把重试逻辑移到上传线程里",
+      [settled]: "Check the flaky login test",
+    });
   });
 
   it("applies the persisted manual draft order ahead of recency", () => {
@@ -736,6 +780,7 @@ describe("resolveOptimisticDispatchOutcome", () => {
 const makeComposerSnapshot = (prompt: string) => ({
   prompt,
   hasAttachments: false,
+  attachmentTitle: null,
   providerInstanceId: null,
   provider: null,
 });
@@ -795,6 +840,44 @@ describe("buildKanbanComposerDraftSnapshot", () => {
     );
 
     expect(snapshot?.hasAttachments).toBe(true);
+    expect(snapshot?.attachmentTitle).toBe("notes.txt");
+  });
+
+  it("names a quote-only draft by the first line of the quote, ahead of files", () => {
+    const quote = (text: string) =>
+      ({ type: "assistant-selection", id: "sel-1", assistantMessageId: "msg-1", text }) as never;
+    const file = {
+      type: "file",
+      id: "file-1",
+      name: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      file: new File(["hello"], "notes.txt", { type: "text/plain" }),
+    } as never;
+
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({
+          assistantSelections: [quote("\n  Retry the upload twice\nthen give up.")],
+          files: [file],
+        }),
+      ),
+    ).toMatchObject({ hasAttachments: true, attachmentTitle: "Retry the upload twice" });
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({ assistantSelections: [quote("先把登录页的跳转修好")] }),
+      )?.attachmentTitle,
+    ).toBe("先把登录页的跳转修好");
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({
+          pastedTexts: [
+            { id: "p-1", createdAt: T0, text: "\nError: ENOENT\n", lineCount: 1, charCount: 13 },
+          ],
+        }),
+      )?.attachmentTitle,
+    ).toBe("Error: ENOENT");
+    expect(buildKanbanComposerDraftSnapshot(makeDraftSource())?.attachmentTitle).toBeNull();
   });
 });
 
@@ -821,6 +904,11 @@ describe("areKanbanComposerDraftSnapshotsEqual", () => {
     {
       left: { "thread-1": snapshot("hello") },
       right: { "thread-1": { ...snapshot("hello"), provider: "cursor" } },
+      equal: false,
+    },
+    {
+      left: { "thread-1": { ...snapshot(""), attachmentTitle: "First quote" } },
+      right: { "thread-1": { ...snapshot(""), attachmentTitle: "Second quote" } },
       equal: false,
     },
     {

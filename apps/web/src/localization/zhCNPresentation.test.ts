@@ -32,9 +32,9 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
   });
 
   it("translates the welcome-tour local-first tile as a whole sentence", () => {
-    expect(translateZhCnPresentationText("No account. Workspace data stays on this machine.")).toBe(
-      "不需要账号。工作区数据留在这台电脑上。",
-    );
+    expect(
+      translateZhCnPresentationText("Your projects and conversations stay on this machine."),
+    ).toBe("你的项目和对话都留在这台电脑上。");
   });
 
   it("keeps the date in empty activity-heatmap days", () => {
@@ -151,9 +151,9 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
     );
     expect(translateZhCnPresentationText("Open welcome tour")).toBe("打开欢迎导览");
     expect(translateZhCnPresentationText("Welcome to Moss")).toBe("欢迎使用 Moss");
-    expect(translateZhCnPresentationText("No account. Workspace data stays on this machine.")).toBe(
-      "不需要账号。工作区数据留在这台电脑上。",
-    );
+    expect(
+      translateZhCnPresentationText("Your projects and conversations stay on this machine."),
+    ).toBe("你的项目和对话都留在这台电脑上。");
     expect(translateZhCnPresentationText("Skip setup")).toBe("跳过设置");
     expect(translateZhCnPresentationText("Replay feature tour")).toBe("重播功能导览");
     expect(translateZhCnPresentationText("Activity scope")).toBe("活动范围");

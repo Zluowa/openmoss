@@ -12,11 +12,17 @@ export function ModelCatalogRefresh(props: {
   provider: ProviderKind;
   instanceId: ProviderInstanceId;
   onRefresh: ProviderModelCatalog["refreshModels"];
+  /** The server's last discovery error for this account, if any. */
+  failure?: string | null | undefined;
 }) {
   const { provider, instanceId, onRefresh } = props;
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
+  // A refresh that worked here outranks an older server error until the next one arrives.
+  const [recoveredFrom, setRecoveredFrom] = useState<string | null>(null);
   const requestId = useRef(0);
+  const failureRef = useRef<string | null>(props.failure ?? null);
+  failureRef.current = props.failure ?? null;
   const inFlight = useRef(false);
   const refresh = useCallback(
     async (mode: "if-stale" | "now") => {
@@ -26,7 +32,10 @@ export function ModelCatalogRefresh(props: {
       setPending(true);
       try {
         await onRefresh(provider, instanceId, mode);
-        if (requestId.current === currentRequest) setFailed(false);
+        if (requestId.current === currentRequest) {
+          setFailed(false);
+          setRecoveredFrom(failureRef.current);
+        }
       } catch {
         if (requestId.current === currentRequest) setFailed(true);
       } finally {
@@ -48,11 +57,16 @@ export function ModelCatalogRefresh(props: {
     };
   }, [provider, instanceId]);
 
-  if (!failed) return null;
+  const serverFailure = props.failure && props.failure !== recoveredFrom ? props.failure : null;
+  if (!failed && serverFailure === null) return null;
 
   return (
     <div className="flex items-center justify-end gap-2 border-t border-border px-2 py-1">
-      <span role="status" className="mr-auto text-ui-xs text-muted-foreground">
+      <span
+        role="status"
+        className="mr-auto text-ui-xs text-muted-foreground"
+        title={serverFailure ?? undefined}
+      >
         {pending ? "Checking for models…" : "Couldn’t update models."}
       </span>
       <Button

@@ -16,6 +16,8 @@ import {
   shortenImportPath,
   projectImportNoConversationsNote,
   splitProjectImportNotFoundByDetection,
+  isProjectImportProviderTurnedOff,
+  projectImportTurnedOffNote,
 } from "./logic";
 
 const project: ProjectImportProject = {
@@ -317,5 +319,17 @@ describe("agents found on this computer", () => {
       workspaceRoots: {},
     });
     expect(queue.map((item) => item.input.threadKey)).toEqual(["codex:one"]);
+  });
+});
+
+describe("agents switched off on the agents step", () => {
+  it("are not offered, and one line names those with conversations", () => {
+    expect(isProjectImportProviderTurnedOff("zcode", ["zcode", "cursor"])).toBe(true);
+    expect(isProjectImportProviderTurnedOff("codex", ["zcode"])).toBe(false);
+    expect(isProjectImportProviderTurnedOff("codex", undefined)).toBe(false);
+    expect(projectImportTurnedOffNote([{ provider: "zcode", count: 70 }])).toBe(
+      "Not turned on: ZCode (70). Turn it on in the agents list to import these conversations.",
+    );
+    expect(projectImportTurnedOffNote([])).toBeNull();
   });
 });

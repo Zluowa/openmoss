@@ -210,16 +210,23 @@ export function describeOnboardingDoneSummary(input: {
   readonly agents: string;
   readonly themeLabel: string;
   readonly projectsAdded: number;
+  /** Projects Moss already had before this tour (a replayed tour, an earlier import). */
+  readonly existingProjects?: number;
   readonly locale?: string;
 }): string {
   const zh = (input.locale ?? "en").toLowerCase().startsWith("zh");
+  const existing = input.existingProjects ?? 0;
   const projects = zh
     ? input.projectsAdded > 0
       ? `已添加 ${input.projectsAdded} 个项目`
-      : "还没有项目"
+      : existing > 0
+        ? `${existing} 个项目`
+        : "还没有项目"
     : input.projectsAdded > 0
       ? `${input.projectsAdded} project${input.projectsAdded === 1 ? "" : "s"} added`
-      : "No project yet";
+      : existing > 0
+        ? `${existing} project${existing === 1 ? "" : "s"}`
+        : "No project yet";
   const theme = zh ? `${input.themeLabel} 主题` : `${input.themeLabel} theme`;
   return [input.agents, theme, projects].join(" · ");
 }

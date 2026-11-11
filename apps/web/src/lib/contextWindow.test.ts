@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { EventId, type OrchestrationThreadActivity, TurnId } from "@moss/contracts";
 
 import {
+  nominalClaudeContextWindowTokens,
   deriveContextWindowSelectionStatus,
   deriveComposerContextWindowLabel,
   deriveAppliedContextWindowSelection,
@@ -217,6 +218,8 @@ describe("contextWindow", () => {
     expect(formatContextWindowTokens(1400)).toBe("1.4k");
     expect(formatContextWindowTokens(14_000)).toBe("14k");
     expect(formatContextWindowTokens(258_000)).toBe("258k");
+    // Millions read like the composer's window label: "1M", not "1m".
+    expect(formatContextWindowTokens(1_000_000)).toBe("1M");
   });
 
   it("invalidates old usage when Auto is applied", () => {
@@ -493,5 +496,18 @@ describe("observed Claude context budget", () => {
         }),
       ]),
     ).toEqual({ model: "claude-sonnet-5", maxTokens: 200_000 });
+  });
+});
+
+describe("nominal Claude context window", () => {
+  it("names the model window the composer shows for Claude's usable budget", () => {
+    // Claude reports its auto-compact threshold: 167k of 200k, 967k of 1M.
+    expect(nominalClaudeContextWindowTokens(167_000)).toBe(200_000);
+    expect(nominalClaudeContextWindowTokens(200_000)).toBe(200_000);
+    expect(nominalClaudeContextWindowTokens(967_000)).toBe(1_000_000);
+    // Not just under a known window: keep the reported number.
+    expect(nominalClaudeContextWindowTokens(258_000)).toBeNull();
+    expect(nominalClaudeContextWindowTokens(128_000)).toBeNull();
+    expect(nominalClaudeContextWindowTokens(null)).toBeNull();
   });
 });

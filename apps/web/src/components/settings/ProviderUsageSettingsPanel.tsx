@@ -23,6 +23,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAppSettings, type RailUsageWindow } from "~/appSettings";
 import {
   getRailUsageAccounts,
+  MOSS_RAIL_USAGE_ID,
   resolveRailUsageAccounts,
   toggleRailUsageAccount,
 } from "~/components/AppRailUsage.logic";
@@ -36,6 +37,7 @@ import {
   serverMossCloudAccountStateQueryOptions,
 } from "~/components/auth/mossServerReactQuery";
 import { MossLogo } from "~/components/MossLogo";
+import { useTranslation } from "~/localization";
 import { MossBillingSettingsPanel } from "~/components/settings/MossBillingSettingsPanel";
 import {
   SettingsCard,
@@ -396,6 +398,7 @@ function ProviderUsageCard({
 }
 
 export function ProviderUsageSettingsPanel() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { settings, updateSettings } = useAppSettings();
   const codexHomePath = settings.codexHomePath || null;
@@ -415,11 +418,13 @@ export function ProviderUsageSettingsPanel() {
   const railUsageAccounts = getRailUsageAccounts(
     [...providerInstances.values()],
     settings.disabledProviders,
+    t("chat.modelPicker.source.local"),
   );
   // Disabled accounts keep their saved choice; only deleted accounts are discarded.
   const savedRailUsageInstanceIds = (
     settings.railUsageInstanceIds ?? settings.railUsageProviders
-  ).filter((instanceId) => providerInstances.has(instanceId));
+  ).filter((instanceId) => instanceId === MOSS_RAIL_USAGE_ID || providerInstances.has(instanceId));
+  const mossRingChecked = savedRailUsageInstanceIds.includes(MOSS_RAIL_USAGE_ID);
   const railUsageInstanceIds = resolveRailUsageAccounts(
     settings.railUsageInstanceIds ?? settings.railUsageProviders,
     railUsageAccounts,
@@ -479,6 +484,31 @@ export function ProviderUsageSettingsPanel() {
         </SettingsSection>
       )}
       <SettingsSection title="Sidebar usage rings">
+        <SettingsListRow
+          title={
+            <span className="flex items-center gap-2">
+              <span className="flex size-6 items-center justify-center">
+                <MossLogo className="size-4" />
+              </span>
+              <span className="truncate">Moss</span>
+            </span>
+          }
+          actions={
+            <Switch
+              checked={mossRingChecked}
+              onCheckedChange={(next) =>
+                updateSettings({
+                  railUsageInstanceIds: toggleRailUsageAccount(
+                    savedRailUsageInstanceIds,
+                    MOSS_RAIL_USAGE_ID,
+                    Boolean(next),
+                  ),
+                })
+              }
+              aria-label="Show Moss usage at the bottom of the sidebar"
+            />
+          }
+        />
         {railUsageAccounts.map(({ instance, label }) => {
           const checked = railUsageInstanceIds.includes(instance.instanceId);
           return (

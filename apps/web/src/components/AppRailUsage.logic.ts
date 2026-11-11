@@ -6,6 +6,7 @@ import type { ResolvedProviderInstance } from "@moss/shared/providerInstances";
 import { PROVIDER_USAGE_PROVIDERS, providerUsageDisplayName } from "@moss/shared/providerUsage";
 
 import type { RailUsageWindow } from "~/appSettings";
+import { isMossManagedSourceInstanceId } from "~/components/chat/providerAccountSources";
 import { providerAccountQualifiedLabel } from "~/lib/providerInstancePresentation";
 import type { ProviderUsageDisplayRow } from "~/lib/providerUsageDisplay";
 
@@ -15,17 +16,48 @@ export interface RailUsageAccount {
   readonly dotted: boolean;
 }
 
-/** Enabled usage-capable accounts, named consistently in Settings and the rail. */
+/**
+ * The rail's Moss ring: the one Moss quota every agent's Moss account draws on. Stored in the
+ * rail selection beside account ids; no provider instance uses this id.
+ */
+export const MOSS_RAIL_USAGE_ID = "moss" as ProviderInstanceId;
+
+/** The rail before anyone chose: the Moss quota. */
+export const DEFAULT_RAIL_USAGE_IDS: ReadonlyArray<ProviderInstanceId> = [MOSS_RAIL_USAGE_ID];
+
+/** The rail's first default, Codex and Claude's own accounts, which a Moss user rarely has. */
+const LEGACY_DEFAULT_RAIL_USAGE_IDS = new Set(["codex", "claudeAgent"]);
+
+/**
+ * One-time move of a selection nobody changed (the old Codex + Claude default) to the Moss
+ * ring. A chosen selection, an empty one included, is kept.
+ */
+export function migrateRailUsageSelection(
+  selected: ReadonlyArray<ProviderInstanceId>,
+): ReadonlyArray<ProviderInstanceId> {
+  const unique = new Set(selected);
+  const isLegacyDefault =
+    unique.size === LEGACY_DEFAULT_RAIL_USAGE_IDS.size &&
+    [...unique].every((id) => LEGACY_DEFAULT_RAIL_USAGE_IDS.has(id));
+  return isLegacyDefault ? DEFAULT_RAIL_USAGE_IDS : selected;
+}
+
+/**
+ * Enabled usage-capable accounts, named consistently in Settings and the rail. Moss accounts
+ * are not listed: they have no usage of their own, their quota is the Moss ring.
+ */
 export function getRailUsageAccounts(
   instances: ReadonlyArray<ResolvedProviderInstance>,
   disabledProviders: ReadonlyArray<ProviderKind> = [],
+  localAccountName = "Local account",
 ): ReadonlyArray<RailUsageAccount> {
   return PROVIDER_USAGE_PROVIDERS.flatMap((provider) => {
     const accounts = instances.filter(
       (instance) =>
         instance.enabled &&
         instance.driver === provider &&
-        !disabledProviders.includes(instance.driver),
+        !disabledProviders.includes(instance.driver) &&
+        !isMossManagedSourceInstanceId(instance.instanceId as ProviderInstanceId),
     );
     const providerName = providerUsageDisplayName(provider);
     return accounts.map((instance) => {
@@ -33,7 +65,7 @@ export function getRailUsageAccounts(
         !instance.isDefault || accounts.length > 1 || Boolean(instance.raw.displayName?.trim());
       const accountName =
         instance.isDefault && !instance.raw.displayName?.trim()
-          ? "Default account"
+          ? localAccountName
           : instance.displayName;
       return {
         instance,

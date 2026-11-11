@@ -14,7 +14,7 @@ const WELCOME_POINTS: ReadonlyArray<{
 }> = [
   {
     title: "Local-first",
-    description: "No account. Workspace data stays on this machine.",
+    description: "Your projects and conversations stay on this machine.",
     icon: FolderIcon,
   },
   {

@@ -1172,8 +1172,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   // First-run "what Moss can do" tour cards.
   "Any agent": "任意智能体",
   "Run every coding agent in one workspace": "在一个工作区中运行所有编码智能体",
-  "Moss sits around the agent runtimes you already trust: Claude Code, Codex, Cursor, Devin, Antigravity, Grok, Factory Droid, OpenCode, and Pi. The provider keeps its account, models, and limits. Moss owns the durable task, environment, transcript, and delivery workflow around it.":
-    "Moss 围绕你已信赖的智能体运行时构建：Claude Code、Codex、Cursor、Devin、Antigravity、Grok、Factory Droid、OpenCode 和 Pi。服务商保留其账号、模型和限额；Moss 负责其外围的持久任务、环境、对话记录和交付工作流。",
+  "Moss sits around the agent runtimes you already trust: Codex, Claude Code, Grok, OpenCode, Pi, Hermes, Devin, Cursor, Gemini, Antigravity, Kimi Code, MiniMax Code, and ZCode. The provider keeps its account, models, and limits. Moss owns the durable task, environment, transcript, and delivery workflow around it.":
+    "Moss 围绕你已信赖的智能体运行时构建：Codex、Claude Code、Grok、OpenCode、Pi、Hermes、Devin、Cursor、Gemini、Antigravity、Kimi Code、MiniMax Code 和 ZCode。服务商保留其账号、模型和限额；Moss 负责其外围的持久任务、环境、对话记录和交付工作流。",
   "Switch models mid-thread": "在对话中途切换模型",
   "Hand a thread to another provider": "将对话交给另一个服务商",
   "Usage for every provider": "查看每个服务商的用量",
@@ -1223,7 +1223,7 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Could not open the folder picker.": "无法打开文件夹选择器。",
   "Diff, terminal, browser and PR stay in one loop.": "差异、终端、浏览器和 PR 都在同一闭环中。",
   "Drives the CLIs, accounts and keys already set up here.": "驱动已在此设置好的 CLI、账号和密钥。",
-  "No account. Workspace data stays on this machine.": "不需要账号。工作区数据留在这台电脑上。",
+  "Your projects and conversations stay on this machine.": "你的项目和对话都留在这台电脑上。",
   "Check for outdated dependencies, bump the safe minor and patch versions, then run the tests.":
     "检查过时的依赖，升级安全的次版本和补丁版本，然后运行测试。",
   "Local folders unavailable": "本地文件夹不可用",
