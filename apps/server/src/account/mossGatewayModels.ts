@@ -111,6 +111,18 @@ export const fetchMossGatewayModelIds: FetchMossGatewayModelIds = (input) =>
     }
   }).pipe(Effect.orElseSucceed(() => null));
 
+/**
+ * Whether a catalog answer lets Moss set up (or keep) its managed lanes. `/v1/models` is an
+ * entitlement hint, and lanes are always provisioned with the product lineup. "auth-denied"
+ * and "no-entitlement" are answers about the account and stop provisioning. An unreachable
+ * gateway ("transport-degraded": timeout, network, a Cloudflare 5xx) is not: skipping there
+ * left a signed-in account with every Moss lane torn down after a token refresh, which looks
+ * exactly like being signed out. With lanes in place, a chat reports the outage instead.
+ */
+export function mossGatewayCatalogAllowsProvisioning(catalog: MossGatewayModelCatalog): boolean {
+  return catalog.status === "ready" || catalog.status === "transport-degraded";
+}
+
 /** Normalize legacy test doubles without making them look production-ready. */
 export function normalizeMossGatewayModelCatalog(
   result: MossGatewayModelCatalog | ReadonlyArray<string> | null,

@@ -607,4 +607,38 @@ describe("buildProjectImportCatalog", () => {
       paths.projectImportKey("codex", path.join(home, "codex"), projects[0]!.threads[0]!.id),
     );
   });
+
+  it("offers a conversation once when two accounts of one agent read it from different homes", async () => {
+    // The Moss-lane Codex account has its own home, but CODEX_SQLITE_HOME pointed it at the
+    // default account's threads: each conversation came back twice (297 shown as 594).
+    const home = await fixtureDirectory();
+    const root = path.join(home, "repo");
+    await fs.mkdir(root, { recursive: true });
+    const chats = [session("019A-ONE", root), session("019a-two", root)];
+    const defaultAccount = {
+      ...source("codex", path.join(home, "default"), chats),
+      providerInstanceId: "codex" as never,
+    };
+    const mossLane = {
+      ...source("codex", path.join(home, "moss-lane"), [
+        session("019a-one", root),
+        session("019a-two", root),
+        session("019a-lane-only", root),
+      ]),
+      providerInstanceId: "codex_moss" as never,
+    };
+
+    const projects = await buildProjectImportCatalog([defaultAccount, mossLane], []);
+    const threads = projects.flatMap((project) => project.threads);
+
+    expect(threads.map((thread) => thread.id).toSorted()).toEqual([
+      "019A-ONE",
+      "019a-lane-only",
+      "019a-two",
+    ]);
+    // The default account keeps the shared conversations; the lane keeps only its own.
+    expect(
+      threads.filter((thread) => thread.providerInstanceId === "codex_moss").map((t) => t.id),
+    ).toEqual(["019a-lane-only"]);
+  });
 });

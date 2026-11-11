@@ -172,7 +172,63 @@ export interface ProviderDiscoveryServiceLiveOptions {
   readonly pluginApprovalService?: MossPluginProductionApprovalService;
   /** Resolves the same connection/workspace-scoped authority used by ProviderService. */
   readonly projectionAuthorityFactory?: MossProjectionAuthorityFactory;
+  /** How long an agent's own plugin or skill listing may take; then Moss's catalog is served alone. */
+  readonly nativeListingTimeoutMs?: number;
+  /** How long preparing an account's discovery options (its Codex/Claude home) may take. */
+  readonly discoveryPrepareTimeoutMs?: number;
 }
+
+/**
+ * A listing can wait on an agent process that never starts (acceptance 2026-11-11:
+ * Settings › Plugins stayed loading for minutes after a cold start and the server log said
+ * nothing). These limits make every listing answer, and say in the log what was slow.
+ */
+export const PROVIDER_NATIVE_LISTING_TIMEOUT_MS = 30_000;
+export const PROVIDER_DISCOVERY_PREPARE_TIMEOUT_MS = 15_000;
+const PROVIDER_DISCOVERY_SLOW_LOG_MS = 5_000;
+
+class ProviderDiscoveryTimeoutError extends Error {
+  override readonly name = "ProviderDiscoveryTimeoutError";
+}
+
+/** Fails with a timeout error the existing fallbacks already handle, and logs it once. */
+const withDiscoveryDeadline =
+  (input: {
+    readonly operation: string;
+    readonly provider: string;
+    readonly instanceId: string;
+    readonly timeoutMs: number;
+  }) =>
+  <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, E | ProviderDiscoveryTimeoutError, R> =>
+    Effect.gen(function* () {
+      const startedAt = Date.now();
+      const outcome = yield* effect.pipe(Effect.timeoutOption(input.timeoutMs));
+      const durationMs = Date.now() - startedAt;
+      if (Option.isNone(outcome)) {
+        yield* Effect.logWarning("provider discovery timed out", {
+          operation: input.operation,
+          provider: input.provider,
+          instanceId: input.instanceId,
+          timeoutMs: input.timeoutMs,
+        });
+        return yield* Effect.fail(
+          new ProviderDiscoveryTimeoutError(
+            `${input.operation} did not answer within ${Math.ceil(input.timeoutMs / 1000)} s.`,
+          ),
+        );
+      }
+      if (durationMs >= PROVIDER_DISCOVERY_SLOW_LOG_MS) {
+        yield* Effect.logInfo("provider discovery was slow", {
+          operation: input.operation,
+          provider: input.provider,
+          instanceId: input.instanceId,
+          durationMs,
+        });
+      }
+      return outcome.value;
+    });
 
 const mcpCatalogReadAdmission = Semaphore.makeUnsafe(1);
 
@@ -245,6 +301,10 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
     const registry = yield* ProviderAdapterRegistry;
     const serverConfig = yield* ServerConfig;
     const serverSettings = yield* ServerSettingsService;
+    const nativeListingTimeoutMs =
+      options.nativeListingTimeoutMs ?? PROVIDER_NATIVE_LISTING_TIMEOUT_MS;
+    const discoveryPrepareTimeoutMs =
+      options.discoveryPrepareTimeoutMs ?? PROVIDER_DISCOVERY_PREPARE_TIMEOUT_MS;
     const selectCodexState = yield* makeCodexStateBindingSelection({
       stateDir: serverConfig.stateDir,
       runtimeHomePath: serverConfig.baseDir,
@@ -471,7 +531,23 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
               issue: cause instanceof Error ? cause.message : "历史与账户目录无法验证。",
               cause,
             }),
-        });
+        }).pipe(
+          withDiscoveryDeadline({
+            operation: "account preparation",
+            provider: instance.driver,
+            instanceId: instance.instanceId,
+            timeoutMs: discoveryPrepareTimeoutMs,
+          }),
+          Effect.mapError((error) =>
+            error instanceof ProviderDiscoveryTimeoutError
+              ? new ProviderValidationError({
+                  operation: "ProviderDiscoveryService.resolveDiscoveryInput",
+                  issue: "账户准备超时，请稍后重试。",
+                  cause: error,
+                })
+              : error,
+          ),
+        );
         return applyProviderStartOptions(
           resolved,
           providerOptions,
@@ -522,16 +598,20 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
         }
         const adapter = yield* registry.getByProvider(resolved.provider);
         const nativeResult: ProviderListSkillsResult | null = adapter.listSkills
-          ? yield* adapter
-              .listSkills(resolved)
-              .pipe(
-                Effect.catch((error) =>
-                  Effect.logWarning(
-                    "provider-native skill discovery failed; serving the Moss skills catalog only",
-                    { provider: resolved.provider, error },
-                  ).pipe(Effect.as(null)),
-                ),
-              )
+          ? yield* adapter.listSkills(resolved).pipe(
+              withDiscoveryDeadline({
+                operation: "skill listing",
+                provider: resolved.provider,
+                instanceId: resolved.instanceId,
+                timeoutMs: nativeListingTimeoutMs,
+              }),
+              Effect.catch((error) =>
+                Effect.logWarning(
+                  "provider-native skill discovery failed; serving the Moss skills catalog only",
+                  { provider: resolved.provider, error },
+                ).pipe(Effect.as(null)),
+              ),
+            )
           : null;
         const catalogSkills = yield* Effect.tryPromise(() =>
           discoverSkillsCatalog({
@@ -624,6 +704,12 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
         const adapter = yield* registry.getByProvider(resolved.provider);
         const nativeResult: ProviderListPluginsResult = adapter.listPlugins
           ? yield* adapter.listPlugins(resolved).pipe(
+              withDiscoveryDeadline({
+                operation: "plugin listing",
+                provider: resolved.provider,
+                instanceId: resolved.instanceId,
+                timeoutMs: nativeListingTimeoutMs,
+              }),
               Effect.catch((error) =>
                 Effect.logWarning(
                   "provider-native plugin discovery failed; serving the Moss plugin catalog only",

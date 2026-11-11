@@ -52,7 +52,11 @@ import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts"
 import { ProviderDiscoveryService } from "../Services/ProviderDiscoveryService.ts";
 import { ProviderHealth } from "../Services/ProviderHealth.ts";
 import { clearSkillsCatalogCacheForTests } from "../skillsCatalog.ts";
-import { ProviderDiscoveryServiceLive } from "./ProviderDiscoveryService.ts";
+import {
+  makeProviderDiscoveryServiceLive,
+  ProviderDiscoveryServiceLive,
+  type ProviderDiscoveryServiceLiveOptions,
+} from "./ProviderDiscoveryService.ts";
 
 let root: string;
 let homeDir: string;
@@ -168,6 +172,7 @@ const runDiscovery = <A>(input: {
   adapter: Partial<ProviderAdapterShape<ProviderAdapterError>>;
   settings?: Parameters<typeof ServerSettingsService.layerTest>[0];
   stateBindingSecrets?: boolean;
+  options?: ProviderDiscoveryServiceLiveOptions;
   effect: Effect.Effect<A, unknown, ProviderDiscoveryService>;
 }) => {
   const baseLayer = Layer.mergeAll(
@@ -178,7 +183,9 @@ const runDiscovery = <A>(input: {
     ServerSettingsService.layerTest(input.settings),
     makeRegistryLayer(input.adapter),
   ).pipe(Layer.provideMerge(NodeServices.layer));
-  const testLayer = ProviderDiscoveryServiceLive.pipe(Layer.provideMerge(baseLayer));
+  const testLayer = (
+    input.options ? makeProviderDiscoveryServiceLive(input.options) : ProviderDiscoveryServiceLive
+  ).pipe(Layer.provideMerge(baseLayer));
   return Effect.runPromise(input.effect.pipe(Effect.provide(testLayer)) as Effect.Effect<A, never>);
 };
 
@@ -608,6 +615,44 @@ describe("ProviderDiscoveryService provider instances", () => {
       },
     ]);
     expect(result.source).toBe("error");
+  });
+
+  // Acceptance 2026-11-11: after a cold start Settings › Plugins stayed loading for
+  // minutes because the agent's own listing never answered.
+  it("answers with Moss's catalog and a load error when the agent's plugin listing never answers", async () => {
+    const startedAt = Date.now();
+    const result = await runDiscovery({
+      adapter: { listPlugins: () => Effect.never },
+      options: { nativeListingTimeoutMs: 50 },
+      effect: Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        return yield* discovery.listPlugins({ provider: "codex" });
+      }),
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(result.source).toBe("error");
+    expect(result.marketplaceLoadErrors).toEqual([
+      {
+        marketplacePath: "codex-native",
+        message: "plugin listing did not answer within 1 s.",
+      },
+    ]);
+  });
+
+  it("serves Moss's skills when the agent's skill listing never answers", async () => {
+    await writeSkill(path.join(baseDir, "skills", "portable"), "portable");
+    const result = await runDiscovery({
+      adapter: { listSkills: () => Effect.never },
+      options: { nativeListingTimeoutMs: 50 },
+      effect: Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        return yield* discovery.listSkills({ provider: "codex", cwd });
+      }),
+    });
+
+    expect(result.skills.map((skill) => skill.name)).toEqual(["portable"]);
+    expect(result.source).toBe("moss.catalog");
   });
 
   it.each([

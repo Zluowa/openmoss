@@ -11,6 +11,7 @@ import type { WorkspaceImportSkillCopy, WorkspaceImportSourceKind } from "@moss/
 import { normalizeWorkspaceImportSource } from "@moss/contracts";
 import { mossSkillsDir } from "../provider/skillsCatalog";
 import { isSafeSkillName, skillRootsForSource } from "./paths";
+import { createImportIoLimiter, type ImportIoLimiter } from "./ioLimit";
 import { readRegularFileNoFollow, writeNewFileNoFollow } from "./safeFile";
 
 const MAX_IMPORTED_SKILLS = 500;
@@ -21,70 +22,69 @@ export interface DiscoveredImportSkill {
   readonly path: string;
 }
 
-async function hasSkillMarkdown(dir: string): Promise<boolean> {
+/** Lists a folder once; the listing answers both "is this a skill" and "what is inside". */
+async function listSkillFolder(
+  dir: string,
+  io: ImportIoLimiter,
+): Promise<import("node:fs").Dirent[] | null> {
   try {
-    const directoryStat = await fs.lstat(dir);
-    if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) return false;
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    return entries.some((entry) => entry.isFile() && entry.name.toLowerCase() === "skill.md");
+    return await io(() => fs.readdir(dir, { withFileTypes: true }));
   } catch {
-    return false;
+    return null;
   }
 }
 
+function listingHasSkillMarkdown(entries: readonly import("node:fs").Dirent[]): boolean {
+  return entries.some((entry) => entry.isFile() && entry.name.toLowerCase() === "skill.md");
+}
+
+/** Safe, non-link child folders, in listing order. A link is never followed into a skill. */
+function childSkillFolders(entries: readonly import("node:fs").Dirent[]): string[] {
+  return entries
+    .filter(
+      (entry) => entry.isDirectory() && !entry.isSymbolicLink() && isSafeSkillName(entry.name),
+    )
+    .map((entry) => entry.name);
+}
+
+/**
+ * Skill folders directly under `root`, or one level further down for grouped skills. Each
+ * folder is listed once and the folders are read in parallel through the source limiter;
+ * the result keeps the listing order, so the first `MAX_IMPORTED_SKILLS` are the same ones
+ * a folder-by-folder read finds.
+ */
 async function collectSkillsFromRoot(
   root: string,
   source: WorkspaceImportSourceKind,
+  io: ImportIoLimiter,
 ): Promise<DiscoveredImportSkill[]> {
-  const skills: DiscoveredImportSkill[] = [];
   try {
-    const rootStat = await fs.lstat(root);
-    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return skills;
+    const rootStat = await io(() => fs.lstat(root));
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return [];
   } catch {
-    return skills;
+    return [];
   }
-  let entries: import("node:fs").Dirent[];
-  try {
-    entries = await fs.readdir(root, { withFileTypes: true });
-  } catch {
-    return skills;
-  }
-
-  for (const entry of entries) {
-    if (skills.length >= MAX_IMPORTED_SKILLS) break;
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    if (!isSafeSkillName(entry.name)) {
-      continue;
-    }
-    const childPath = nodePath.join(root, entry.name);
-    if (await hasSkillMarkdown(childPath)) {
-      skills.push({ name: entry.name, source, path: childPath });
-      continue;
-    }
-    let nested: import("node:fs").Dirent[];
-    try {
-      nested = await fs.readdir(childPath, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const nestedEntry of nested) {
-      if (skills.length >= MAX_IMPORTED_SKILLS) break;
-      if (!nestedEntry.isDirectory()) {
-        continue;
-      }
-      if (!isSafeSkillName(nestedEntry.name)) {
-        continue;
-      }
-      const nestedPath = nodePath.join(childPath, nestedEntry.name);
-      if (await hasSkillMarkdown(nestedPath)) {
-        skills.push({ name: nestedEntry.name, source, path: nestedPath });
-      }
-    }
-  }
-
-  return skills;
+  const entries = await listSkillFolder(root, io);
+  if (!entries) return [];
+  const perChild = await Promise.all(
+    childSkillFolders(entries).map(async (name): Promise<DiscoveredImportSkill[]> => {
+      const childPath = nodePath.join(root, name);
+      const childEntries = await listSkillFolder(childPath, io);
+      if (!childEntries) return [];
+      if (listingHasSkillMarkdown(childEntries)) return [{ name, source, path: childPath }];
+      const nested = await Promise.all(
+        childSkillFolders(childEntries).map(async (nestedName) => {
+          const nestedPath = nodePath.join(childPath, nestedName);
+          const nestedEntries = await listSkillFolder(nestedPath, io);
+          return nestedEntries && listingHasSkillMarkdown(nestedEntries)
+            ? [{ name: nestedName, source, path: nestedPath }]
+            : [];
+        }),
+      );
+      return nested.flat();
+    }),
+  );
+  return perChild.flat().slice(0, MAX_IMPORTED_SKILLS);
 }
 
 export async function discoverImportSkills(input: {
@@ -92,32 +92,35 @@ export async function discoverImportSkills(input: {
   readonly homeDir: string;
   readonly platform?: NodeJS.Platform;
   readonly env?: NodeJS.ProcessEnv | undefined;
+  /** The source's filesystem limiter, shared with its other probe steps. */
+  readonly io?: ImportIoLimiter | undefined;
 }): Promise<DiscoveredImportSkill[]> {
-  const discovered: DiscoveredImportSkill[] = [];
-  const seen = new Set<string>();
+  const io = input.io ?? createImportIoLimiter();
   const pathInput = {
     source: input.source,
     homeDir: input.homeDir,
     env: input.env,
     ...(input.platform ? { platform: input.platform } : {}),
   };
-  for (const root of skillRootsForSource(input.source, pathInput)) {
+  const roots = skillRootsForSource(input.source, pathInput);
+  const perRoot = await Promise.all(
+    roots.map(async (root) => {
+      const skills = await collectSkillsFromRoot(root, input.source, io);
+      const realPaths = await Promise.all(
+        skills.map((skill) => io(() => fs.realpath(skill.path)).catch(() => null)),
+      );
+      return skills.map((skill, index) => ({ skill, realPath: realPaths[index] ?? null }));
+    }),
+  );
+  const discovered: DiscoveredImportSkill[] = [];
+  const seen = new Set<string>();
+  for (const { skill, realPath } of perRoot.flat()) {
     if (discovered.length >= MAX_IMPORTED_SKILLS) break;
-    for (const skill of await collectSkillsFromRoot(root, input.source)) {
-      if (discovered.length >= MAX_IMPORTED_SKILLS) break;
-      let realPath: string;
-      try {
-        realPath = await fs.realpath(skill.path);
-      } catch {
-        continue;
-      }
-      const key = `${normalizeWorkspaceImportSource(skill.source)}:${realPath}`;
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      discovered.push(skill);
-    }
+    if (realPath === null) continue;
+    const key = `${normalizeWorkspaceImportSource(skill.source)}:${realPath}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    discovered.push(skill);
   }
   return discovered;
 }

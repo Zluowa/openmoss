@@ -125,6 +125,29 @@ export function resolveComposerModelPickerProviderTabs(input: {
   lockedInstanceId?: ProviderInstanceId | null | undefined;
   // Locks only this provider's sibling accounts; other providers stay pickable.
   lockedInstanceProvider?: ProviderKind | null | undefined;
+  /** Signed in, but Moss's gateway can't be reached: Moss rows say so, never "sign in". */
+  mossGatewayUnreachable?: boolean | undefined;
+}): ComposerModelPickerProviderTab[] {
+  const tabs = resolveComposerModelPickerProviderTabsReachable(input);
+  if (!input.mossGatewayUnreachable) return tabs;
+  return tabs.map((tab) =>
+    isMossManagedSourceInstanceId(tab.instanceId)
+      ? { ...tab, readiness: MOSS_GATEWAY_UNREACHABLE_READINESS, mossSignIn: false }
+      : tab,
+  );
+}
+
+const MOSS_GATEWAY_UNREACHABLE_READINESS: AgentReadiness = {
+  state: "error",
+  reason: "moss-gateway-unreachable",
+};
+
+function resolveComposerModelPickerProviderTabsReachable(input: {
+  options: ReadonlyArray<{ value: ProviderKind; label: string }>;
+  providers: ReadonlyArray<ServerProviderStatus> | undefined;
+  providerInstances?: ReadonlyArray<ProviderModelPickerInstance> | undefined;
+  lockedInstanceId?: ProviderInstanceId | null | undefined;
+  lockedInstanceProvider?: ProviderKind | null | undefined;
 }): ComposerModelPickerProviderTab[] {
   const signedInToMoss = (input.providerInstances ?? []).some(
     (instance) => instance.enabled && isMossManagedSourceInstanceId(instance.instanceId),
@@ -616,7 +639,9 @@ export function ComposerModelPickerSourceNotice(props: {
         <DownloadIcon aria-hidden="true" className="size-3.5" />
         {t("provider.readiness.installAction")}
       </Button>
-    ) : isRestartRequiredReadiness(source.readiness) ? (
+    ) : source.readiness.reason === "moss-gateway-unreachable" ? null : isRestartRequiredReadiness(
+        source.readiness,
+      ) ? (
       <Button
         type="button"
         size="xs"

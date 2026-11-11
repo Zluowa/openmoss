@@ -489,6 +489,10 @@ export interface PluginManagementPanelProps extends PluginManagementPanelTabData
   /** The MCP and Skills lists are still being read (first load only). */
   readonly mcpLoading?: boolean | undefined;
   readonly skillsLoading?: boolean | undefined;
+  /** The skills list failed or timed out; the Skills tab offers Retry. */
+  readonly skillsError?: unknown;
+  readonly skillsRetrying?: boolean | undefined;
+  readonly onRetrySkills?: (() => void) | undefined;
   readonly onTogglePlugin: (entry: ManagedPlugin, enabled: boolean) => void;
   readonly onToggleMcp: (server: ProviderMcpServerDescriptor, enabled: boolean) => void;
   readonly onOpenPlugin?: ((entry: ManagedPlugin, trigger: HTMLButtonElement) => void) | undefined;
@@ -854,12 +858,33 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
             ),
           ]
         : [];
+    // A list that failed or timed out says so and offers Retry; an empty tab must never
+    // stay on 「正在加载…」 once nothing is on its way (acceptance 2026-11-11).
+    const tabFailed =
+      !tabLoading &&
+      (tab === "skills"
+        ? Boolean(props.skillsError)
+        : tab === "plugins"
+          ? Boolean(props.marketplacesError)
+          : false);
     content =
       rows.length === 0 ? (
-        <CenterState
-          title={tabLoading ? t("plugins.manage.loading") : t("plugins.manage.empty")}
-          loading={tabLoading}
-        />
+        tabFailed ? (
+          <CenterState
+            title={t(
+              tab === "skills"
+                ? "plugins.manage.skillsUnavailable"
+                : "plugins.manage.pluginsUnavailable",
+            )}
+            retrying={tab === "skills" ? props.skillsRetrying : props.marketplacesRetrying}
+            onRetry={tab === "skills" ? props.onRetrySkills : props.onRetryMarketplaces}
+          />
+        ) : (
+          <CenterState
+            title={tabLoading ? t("plugins.manage.loading") : t("plugins.manage.empty")}
+            loading={tabLoading}
+          />
+        )
       ) : (
         <div className="flex flex-col gap-2">
           <ManageList>

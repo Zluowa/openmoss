@@ -13,6 +13,11 @@ import type {
 import { queryOptions } from "@tanstack/react-query";
 import { ensureNativeApi } from "~/nativeApi";
 import {
+  COMPOSER_CAPABILITIES_REQUEST_TIMEOUT_MS,
+  SKILL_LIST_REQUEST_TIMEOUT_MS,
+  withRequestTimeout,
+} from "./requestTimeout";
+import {
   expensiveReadErrorRefetchInterval,
   isRpcCapacityExceededError,
 } from "./expensiveReadRetry";
@@ -397,10 +402,14 @@ export function providerComposerCapabilitiesQueryOptions(
     queryKey: providerDiscoveryQueryKeys.composerCapabilities(provider, keyInstanceId),
     queryFn: async () => {
       const api = ensureNativeApi();
-      return api.provider.getComposerCapabilities({
-        provider: requireRuntimeProviderKind(provider),
-        ...(instanceId ? { instanceId } : {}),
-      });
+      return withRequestTimeout(
+        api.provider.getComposerCapabilities({
+          provider: requireRuntimeProviderKind(provider),
+          ...(instanceId ? { instanceId } : {}),
+        }),
+        COMPOSER_CAPABILITIES_REQUEST_TIMEOUT_MS,
+        `${provider} capabilities`,
+      );
     },
     staleTime: Infinity,
   });
@@ -428,14 +437,18 @@ export function providerSkillsQueryOptions(input: {
       if (!input.cwd) {
         throw new Error("Skill discovery is unavailable.");
       }
-      return api.provider.listSkills({
-        provider: requireRuntimeProviderKind(input.provider),
-        ...(input.instanceId ? { instanceId: input.instanceId } : {}),
-        cwd: input.cwd,
-        ...(input.threadId ? { threadId: input.threadId } : {}),
-        ...(input.agentDir ? { agentDir: input.agentDir } : {}),
-        ...(input.includeDisabled ? { includeDisabled: true } : {}),
-      });
+      return withRequestTimeout(
+        api.provider.listSkills({
+          provider: requireRuntimeProviderKind(input.provider),
+          ...(input.instanceId ? { instanceId: input.instanceId } : {}),
+          cwd: input.cwd,
+          ...(input.threadId ? { threadId: input.threadId } : {}),
+          ...(input.agentDir ? { agentDir: input.agentDir } : {}),
+          ...(input.includeDisabled ? { includeDisabled: true } : {}),
+        }),
+        SKILL_LIST_REQUEST_TIMEOUT_MS,
+        `${input.provider} skill list`,
+      );
     },
     enabled: (input.enabled ?? true) && input.cwd !== null,
     staleTime: 30_000,

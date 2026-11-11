@@ -1854,6 +1854,11 @@ const EN_TRANSLATIONS = {
     "The {provider} built into Moss is damaged. Reinstall Moss.",
   "provider.readiness.reason.moss-unavailable":
     "Moss is temporarily unavailable. Try again shortly.",
+  "provider.readiness.reason.moss-gateway-unreachable":
+    "Moss can't reach its service right now. It reconnects on its own.",
+  "chat.mossGatewayUnreachable.title": "Moss can't be reached",
+  "chat.mossGatewayUnreachable.description":
+    "Moss can't reach its service right now. It reconnects on its own; you're still signed in.",
   "provider.readiness.reason.restart-required":
     "{provider} was updated. Restart Moss to use it; your accounts and chats stay as they are.",
   "provider.readiness.reason.home-unavailable":
@@ -2348,6 +2353,8 @@ const EN_TRANSLATIONS = {
   "plugins.manage.mcpExternalHint":
     "These come from {sources}'s own settings, so they are switched on or off there.",
   "plugins.manage.otherAppsUnavailable": "Other apps didn't load.",
+  "plugins.manage.pluginsUnavailable": "The plugin list didn't load.",
+  "plugins.manage.skillsUnavailable": "The skill list didn't load.",
   "plugins.manage.toggleAria": "Toggle {name}",
   "plugins.manage.badge.personal": "personal",
   "plugins.manage.badge.workspace": "workspace",
@@ -5917,6 +5924,9 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "provider.readiness.reason.moss-runtime-damaged":
     "Moss 自带的 {provider} 已损坏，请重新安装 Moss。",
   "provider.readiness.reason.moss-unavailable": "Moss 暂时不可用，请稍后再试。",
+  "provider.readiness.reason.moss-gateway-unreachable": "Moss 服务暂时连不上，稍后会自动恢复。",
+  "chat.mossGatewayUnreachable.title": "Moss 服务暂时连不上",
+  "chat.mossGatewayUnreachable.description": "稍后会自动恢复，你的登录状态不受影响。",
   "provider.readiness.reason.restart-required":
     "{provider} 已更新，重启 Moss 后就能用，账号和对话都会保留。",
   "provider.readiness.reason.home-unavailable":
@@ -6379,6 +6389,8 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "plugins.manage.loading": "正在加载…",
   "plugins.manage.mcpExternalHint": "这些服务来自 {sources} 自己的设置，要在 {sources} 里开关。",
   "plugins.manage.otherAppsUnavailable": "其他应用暂时没加载出来。",
+  "plugins.manage.pluginsUnavailable": "插件列表没加载出来。",
+  "plugins.manage.skillsUnavailable": "技能列表没加载出来。",
   "plugins.manage.toggleAria": "切换 {name}",
   "plugins.manage.badge.personal": "个人",
   "plugins.manage.badge.workspace": "工作区",

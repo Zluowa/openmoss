@@ -289,6 +289,7 @@ import {
 } from "~/lib/pluginExternalLink";
 import { usePluginAuthCallbackRecovery } from "./usePluginAuthCallbackRecovery";
 import "./PluginLibrary.css";
+import { PLUGIN_LIST_REQUEST_TIMEOUT_MS, withRequestTimeout } from "~/lib/requestTimeout";
 
 // ---------------------------------------------------------------------------
 // Plugin discovery query options. These Moss-era discovery reads (apps, MCP,
@@ -371,6 +372,14 @@ const pluginLibraryDiscoveryQueryKeys = {
     ] as const,
 };
 
+/** This page's capability reads retry once, so a stalled read reaches Retry in time. */
+function pluginLibraryCapabilitiesQueryOptions(
+  provider: ProviderKind,
+  instanceId?: ProviderInstanceId | null,
+) {
+  return { ...providerComposerCapabilitiesQueryOptions(provider, instanceId), retry: 1 };
+}
+
 function requireSupportedProvider(provider: ProviderKind): SupportedProviderKind {
   if (!isSupportedProviderKind(provider)) {
     throw new Error(`Provider ${provider} is no longer supported.`);
@@ -417,6 +426,7 @@ function providerPluginsQueryOptions(input: {
   forceReload?: boolean;
   enabled?: boolean;
   staleTime?: number;
+  retry?: number;
 }) {
   const marketplaceKinds = input.marketplaceKinds ?? null;
   const forceRemoteSync = input.forceRemoteSync === true;
@@ -433,18 +443,25 @@ function providerPluginsQueryOptions(input: {
     ),
     queryFn: async () => {
       const api = ensureNativeApi();
-      return api.provider.listPlugins({
-        provider: requireSupportedProvider(input.provider),
-        ...(input.instanceId ? { instanceId: input.instanceId } : {}),
-        ...(input.cwd ? { cwd: input.cwd } : {}),
-        ...(input.threadId ? { threadId: input.threadId } : {}),
-        ...(marketplaceKinds ? { marketplaceKinds: [...marketplaceKinds] } : {}),
-        ...(forceRemoteSync ? { forceRemoteSync: true } : {}),
-        ...(forceReload ? { forceReload: true } : {}),
-      });
+      // A listing that waits on a CLI that never starts must still end (acceptance
+      // 2026-11-11: Settings › Plugins stayed loading for minutes after a cold start).
+      return withRequestTimeout(
+        api.provider.listPlugins({
+          provider: requireSupportedProvider(input.provider),
+          ...(input.instanceId ? { instanceId: input.instanceId } : {}),
+          ...(input.cwd ? { cwd: input.cwd } : {}),
+          ...(input.threadId ? { threadId: input.threadId } : {}),
+          ...(marketplaceKinds ? { marketplaceKinds: [...marketplaceKinds] } : {}),
+          ...(forceRemoteSync ? { forceRemoteSync: true } : {}),
+          ...(forceReload ? { forceReload: true } : {}),
+        }),
+        PLUGIN_LIST_REQUEST_TIMEOUT_MS,
+        `${input.provider} plugin list`,
+      );
     },
     enabled: input.enabled ?? true,
     staleTime: input.staleTime ?? 30_000,
+    ...(input.retry !== undefined ? { retry: input.retry } : {}),
     placeholderData: (previous) => previous ?? PLUGIN_LIBRARY_EMPTY_PLUGINS_RESULT,
   });
 }
@@ -1475,55 +1492,55 @@ export function PluginLibrary({
       null,
   });
   const codexCapabilitiesQuery = useQuery(
-    providerComposerCapabilitiesQueryOptions(
+    pluginLibraryCapabilitiesQueryOptions(
       "codex",
       selectedProvider === "codex" ? selectedProviderInstanceId : null,
     ),
   );
   const claudeCapabilitiesQuery = useQuery(
-    providerComposerCapabilitiesQueryOptions(
+    pluginLibraryCapabilitiesQueryOptions(
       "claudeAgent",
       selectedProvider === "claudeAgent" ? selectedProviderInstanceId : null,
     ),
   );
   const cursorCapabilitiesQuery = useQuery(
-    providerComposerCapabilitiesQueryOptions(
+    pluginLibraryCapabilitiesQueryOptions(
       "cursor",
       selectedProvider === "cursor" ? selectedProviderInstanceId : null,
     ),
   );
   const geminiCapabilitiesQuery = useQuery(
-    providerComposerCapabilitiesQueryOptions(
+    pluginLibraryCapabilitiesQueryOptions(
       "gemini",
       selectedProvider === "gemini" ? selectedProviderInstanceId : null,
     ),
   );
   const antigravityCapabilitiesQuery = useQuery(
-    providerComposerCapabilitiesQueryOptions(
+    pluginLibraryCapabilitiesQueryOptions(
       "antigravity",
       selectedProvider === "antigravity" ? selectedProviderInstanceId : null,
     ),
   );
   const grokCapabilitiesQuery = useQuery(
-    providerComposerCapabilitiesQueryOptions(
+    pluginLibraryCapabilitiesQueryOptions(
       "grok",
       selectedProvider === "grok" ? selectedProviderInstanceId : null,
     ),
   );
   const devinCapabilitiesQuery = useQuery(
-    providerComposerCapabilitiesQueryOptions(
+    pluginLibraryCapabilitiesQueryOptions(
       "devin",
       selectedProvider === "devin" ? selectedProviderInstanceId : null,
     ),
   );
   const openCodeCapabilitiesQuery = useQuery(
-    providerComposerCapabilitiesQueryOptions(
+    pluginLibraryCapabilitiesQueryOptions(
       "opencode",
       selectedProvider === "opencode" ? selectedProviderInstanceId : null,
     ),
   );
   const piCapabilitiesQuery = useQuery(
-    providerComposerCapabilitiesQueryOptions(
+    pluginLibraryCapabilitiesQueryOptions(
       "pi",
       selectedProvider === "pi" ? selectedProviderInstanceId : null,
     ),
@@ -1696,6 +1713,7 @@ export function PluginLibrary({
       forceRemoteSync: canListOptionalPluginDirectories,
       forceReload: true,
       enabled: canListPlugins,
+      retry: 1,
     }),
   );
   const workspacePluginsQuery = useQuery(
@@ -1868,8 +1886,8 @@ export function PluginLibrary({
     }),
   );
 
-  const skillsQuery = useQuery(
-    providerSkillsQueryOptions({
+  const skillsQuery = useQuery({
+    ...providerSkillsQueryOptions({
       provider: selectedProvider,
       instanceId: selectedProviderInstanceId,
       cwd: discoveryCwd,
@@ -1877,7 +1895,8 @@ export function PluginLibrary({
       enabled: canListSkills && discoveryCwd !== null,
       includeDisabled: true,
     }),
-  );
+    retry: 1,
+  });
 
   const mcpServers = useMemo(() => mcpQuery.data?.servers ?? [], [mcpQuery.data?.servers]);
 
@@ -2000,7 +2019,21 @@ export function PluginLibrary({
   );
   // Optional directory shards can be slow or unavailable for an account. They
   // must not hold the authoritative local catalog in a skeleton state.
-  const pluginsLoading = primaryPluginsQuery.isLoading || primaryPluginsQuery.isPlaceholderData;
+  //
+  // "Loading" means a read is actually on its way. A listing that is switched off (its
+  // agent's capabilities never answered) keeps its empty placeholder forever; showing
+  // that as loading left Settings › Plugins on 「正在加载…」 for minutes (acceptance
+  // 2026-11-11). Until capabilities answer, their own read is what is loading.
+  const capabilitiesLoading =
+    awaitingSelectedCapabilities && selectedCapabilitiesQuery?.isFetching === true;
+  const capabilitiesError =
+    awaitingSelectedCapabilities && !capabilitiesLoading
+      ? (selectedCapabilitiesQuery?.error ?? null)
+      : null;
+  const pluginsLoading = canListPlugins
+    ? primaryPluginsQuery.isLoading ||
+      (primaryPluginsQuery.isPlaceholderData && primaryPluginsQuery.isFetching)
+    : capabilitiesLoading;
   // Moss's own sections can be on screen before the CLI's listing answers (a
   // cold start) or after it fails; the rest of the page then says so calmly.
   const nativeListingSettled = !pluginsLoading && !primaryPluginsQuery.error;
@@ -2019,7 +2052,7 @@ export function PluginLibrary({
   // Only the local/vertical shard is authoritative for native plugin
   // mutations. Optional directory shards commonly require separate auth; a
   // failure there must not replace a usable primary catalog with a fatal page.
-  const pluginsError = primaryPluginsQuery.error;
+  const pluginsError = primaryPluginsQuery.error ?? capabilitiesError;
   const pluginLoadErrors = [
     ...(primaryPluginsQuery.data?.marketplaceLoadErrors ?? []),
     ...(workspacePluginsData?.marketplaceLoadErrors ?? []),
@@ -2356,7 +2389,15 @@ export function PluginLibrary({
   // fill it have answered, an empty Public only means "still loading".
   // The skills query seeds an empty placeholder; until its first answer that is
   // "loading", not "no skills".
-  const skillsLoading = skillsQuery.isLoading || skillsQuery.isPlaceholderData;
+  // As with plugins: only a read on its way is "loading", never a switched-off one.
+  const skillsQueryEnabled = canListSkills && discoveryCwd !== null;
+  const skillsLoading = skillsQueryEnabled
+    ? skillsQuery.isLoading || (skillsQuery.isPlaceholderData && skillsQuery.isFetching)
+    : capabilitiesLoading;
+  const skillsError = skillsQuery.error ?? capabilitiesError;
+  // The skills list has answered, so a missing creator really is missing.
+  const skillsSettled =
+    skillsQueryEnabled && skillsQuery.status === "success" && !skillsQuery.isPlaceholderData;
   const bucketsSettled =
     selectedTab === "plugins"
       ? !pluginsLoading && !(directoryLaneEnabled && directoryPluginsQuery.isPlaceholderData)
@@ -2924,39 +2965,49 @@ export function PluginLibrary({
   const handleCreate = (kind: CreatorKind | "app") => {
     const creatorKind: CreatorKind = kind === "skill" ? "skill" : "plugin";
     const creator = creatorKind === "skill" ? skillCreatorSkill : pluginCreatorSkill;
-    if (!creator) return;
-    void resourceActions
-      .createViaCreator(
-        creatorKind,
-        { name: creator.name, path: creator.path },
-        kind === "plugin"
-          ? { prompt: t("plugins.create.creatorPrompt") }
-          : kind === "app"
-            ? { prompt: t("plugins.create.appCreatorPrompt") }
-            : // Every time, like Create plugin: a chip alone gives the person nothing to send.
-              { prompt: t("plugins.create.skillCreatorPrompt") },
-      )
-      .then((started) => {
-        // Like Codex: the new chat with the creator attached is where the user goes next,
-        // so Settings gets out of the way once it has opened.
-        if (started && embeddedInSettings) closeSettings();
-        if (!started) {
-          toastManager.add({
-            type: "error",
-            title: t("plugins.toast.noWorkspaceTitle"),
-            description: t("plugins.toast.noWorkspaceDescription"),
-          });
-        }
-      });
+    const prompt =
+      kind === "plugin"
+        ? t("plugins.create.creatorPrompt")
+        : kind === "app"
+          ? t("plugins.create.appCreatorPrompt")
+          : // Every time, like Create plugin: a chip alone gives the person nothing to send.
+            t("plugins.create.skillCreatorPrompt");
+    // The skills list that names the creator has not answered (still loading, timed out,
+    // or its agent is unreachable): open the chat with the request alone rather than
+    // leave Create unavailable (acceptance 2026-11-11).
+    if (!creator && skillsSettled) return;
+    void (
+      creator
+        ? resourceActions.createViaCreator(
+            creatorKind,
+            { name: creator.name, path: creator.path },
+            { prompt },
+          )
+        : resourceActions.startChatWithPrompt(prompt)
+    ).then((started) => {
+      // Like Codex: the new chat with the creator attached is where the user goes next,
+      // so Settings gets out of the way once it has opened.
+      if (started && embeddedInSettings) closeSettings();
+      if (!started) {
+        toastManager.add({
+          type: "error",
+          title: t("plugins.toast.noWorkspaceTitle"),
+          description: t("plugins.toast.noWorkspaceDescription"),
+        });
+      }
+    });
   };
+  // A creator is unavailable only once the skills list has answered without it.
+  const pluginCreatorUsable = pluginCreatorSkill !== null || !skillsSettled;
+  const skillCreatorUsable = skillCreatorSkill !== null || !skillsSettled;
   const headerCreateCallbacks = {
-    onCreatePlugin: pluginCreatorSkill ? () => handleCreate("plugin") : undefined,
-    onCreateApp: pluginCreatorSkill ? () => handleCreate("app") : undefined,
+    onCreatePlugin: pluginCreatorUsable ? () => handleCreate("plugin") : undefined,
+    onCreateApp: pluginCreatorUsable ? () => handleCreate("app") : undefined,
     offerAllCreators: embeddedInSettings,
     onAddMarketplace: () => setAddMarketplaceOpen(true),
     onUploadPluginArchive: () => openImport("plugin"),
     onAddCustomMcpServer: () => openImport("mcp"),
-    onCreateSkill: skillCreatorSkill ? () => handleCreate("skill") : undefined,
+    onCreateSkill: skillCreatorUsable ? () => handleCreate("skill") : undefined,
   };
 
   const handleTryInChat = (resource: ResourceDetail, promptOverride?: string) => {
@@ -3408,7 +3459,20 @@ export function PluginLibrary({
   };
 
   const refetchPlugins = () => {
-    void reReadPlugins();
+    // Without capabilities the listing is never asked; asking for them again is the retry.
+    if (awaitingSelectedCapabilities && selectedCapabilitiesQuery) {
+      void selectedCapabilitiesQuery.refetch();
+      return;
+    }
+    // A failed read shows on the page through the query's own error state.
+    void reReadPlugins().catch(() => undefined);
+  };
+  const refetchSkills = () => {
+    if (awaitingSelectedCapabilities && selectedCapabilitiesQuery) {
+      void selectedCapabilitiesQuery.refetch();
+      return;
+    }
+    void skillsQuery.refetch();
   };
 
   const handleLibraryRefresh = useCallback(() => {
@@ -3984,6 +4048,9 @@ export function PluginLibrary({
                   mcpServers={mcpServers}
                   mcpLoading={mcpQuery.isLoading || mcpQuery.isPlaceholderData}
                   skillsLoading={skillsLoading}
+                  skillsError={skillsError}
+                  skillsRetrying={skillsQuery.isFetching || capabilitiesLoading}
+                  onRetrySkills={refetchSkills}
                   renderTabLead={(tab, query) =>
                     tab === "mcps" || tab === "skills" ? (
                       <MossDetectedResourcesSettingsList
@@ -4291,12 +4358,10 @@ export function PluginLibrary({
                               canListSkills={canListSkills}
                               providerLabel={providerLabel}
                               isLoading={skillsLoading}
-                              error={skillsQuery.error}
+                              error={skillsError}
                               queryItemCount={discoveredSkills.length}
                               retrying={skillsQuery.isFetching}
-                              onRetry={() => {
-                                void skillsQuery.refetch();
-                              }}
+                              onRetry={refetchSkills}
                               installedSkills={filteredSkills}
                               skills={scopedSkills}
                               artworkCwd={discoveryCwd ?? undefined}

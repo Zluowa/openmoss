@@ -5,6 +5,7 @@ import {
   fetchMossGatewayModelIds,
   mossGatewayModelsUrl,
   parseMossGatewayModelIds,
+  mossGatewayCatalogAllowsProvisioning,
 } from "./mossGatewayModels";
 
 describe("mossGatewayModels", () => {
@@ -140,5 +141,21 @@ describe("mossGatewayModels", () => {
         }),
       ),
     ).resolves.toEqual({ status: "transport-degraded", models: [] });
+  });
+});
+
+describe("mossGatewayCatalogAllowsProvisioning", () => {
+  it("sets up lanes when the gateway is ready or merely unreachable, never on an account answer", () => {
+    expect(mossGatewayCatalogAllowsProvisioning({ status: "ready", models: ["kimi-k3"] })).toBe(
+      true,
+    );
+    // Cloudflare 530 / error 1033, a timeout or a network error: not an answer about the account.
+    expect(mossGatewayCatalogAllowsProvisioning({ status: "transport-degraded", models: [] })).toBe(
+      true,
+    );
+    expect(mossGatewayCatalogAllowsProvisioning({ status: "auth-denied", models: [] })).toBe(false);
+    expect(mossGatewayCatalogAllowsProvisioning({ status: "no-entitlement", models: [] })).toBe(
+      false,
+    );
   });
 });

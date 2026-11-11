@@ -464,6 +464,8 @@ import {
 } from "./chat/MessagesTimeline.logic";
 import { ProjectPicker } from "./chat/ProjectPicker";
 import { ProviderHealthBanner } from "./chat/ProviderHealthBanner";
+import { MossGatewayUnreachableBanner } from "./chat/MossGatewayUnreachableBanner";
+import { useMossGatewayUnreachable } from "./auth/useMossGatewayUnreachable";
 import { resolveProviderModelLabel } from "./chat/ProviderModelPicker";
 import {
   RateLimitBanner,
@@ -5877,6 +5879,7 @@ export default function ChatView({
       appliedContextWindowSelection,
     ],
   );
+  const mossGatewayUnreachable = useMossGatewayUnreachable();
   const observedClaudeContextBudget = useMemo(
     () => deriveObservedClaudeContextBudget(threadActivities),
     [threadActivities],
@@ -5984,6 +5987,7 @@ export default function ChatView({
       loadingModelProviders={loadingModelProviders}
       onRefreshModels={refreshModels}
       discoveryErrorsByProvider={discoveryErrorsByProvider}
+      mossGatewayUnreachable={mossGatewayUnreachable}
       defaultModelByProviderInstance={defaultModelByProviderInstance}
       modelDiscoveryPendingByProviderInstance={modelDiscoveryPendingByProviderInstance}
       hiddenProviders={settings.hiddenProviders}
@@ -8400,6 +8404,7 @@ export default function ChatView({
           status={shouldShowProviderHealthBanner ? visibleActiveProviderStatus : null}
           onDismiss={dismissActiveProviderHealthBanner}
         />
+        <MossGatewayUnreachableBanner instanceId={selectedProviderInstanceId} />
         <RateLimitBanner
           rateLimitStatus={visibleActiveRateLimitStatusForRender}
           onDismiss={dismissActiveRateLimitBanner}

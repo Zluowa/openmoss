@@ -153,6 +153,8 @@ type ComposerModelPickerProps = {
   hideModelLabel?: boolean;
   hideStatusLabel?: boolean;
   contextWindowLabel?: string | null;
+  /** Signed in, but Moss's gateway can't be reached: Moss rows say so instead of 登录. */
+  mossGatewayUnreachable?: boolean | undefined;
   // Set when the thread's provider reported that the requested fast mode is not serving.
   fastModeNotice?: FastModeNotice | null;
   disabled?: boolean;
@@ -382,6 +384,7 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
         : (props.boundProviderInstance?.instanceId ?? null),
     lockedInstanceProvider:
       lockedProvider === null ? (props.boundProviderInstance?.provider ?? null) : null,
+    mossGatewayUnreachable: props.mossGatewayUnreachable === true,
   });
   const activeProviderTab = providerTabs.find(
     (providerTab) => providerTab.instanceId === activeInstanceId,

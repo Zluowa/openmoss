@@ -147,6 +147,11 @@ export async function buildProjectImportCatalog(
   ];
   const projects = new Map<string, ResolvedImportProject>();
   const importedSessionKeys = new Set<string>();
+  // Two accounts of one agent can read the same conversations from different home folders:
+  // the Moss-lane Codex account keeps its own home but lists the default account's threads,
+  // which doubled the Codex count (297 shown as 594). A session id names one conversation, so
+  // it is offered once, from the first source; sources come default account first.
+  const offeredSessionIds = new Set<string>();
 
   const derivedWorkspace = cachedLookup(async (cwd: string): Promise<string> => {
     const git = await gitWorkspace(cwd);
@@ -237,7 +242,8 @@ export async function buildProjectImportCatalog(
       if (++sessionCount % 128 === 0) await setImmediate();
       if (!session.id.trim() || !isAbsoluteDirectory(session.cwd)) continue;
       const key = projectImportKey(provider, sourceHome, session.id);
-      if (importedSessionKeys.has(key)) continue;
+      const sessionIdentity = `${provider}:${session.id.trim().toLowerCase()}`;
+      if (importedSessionKeys.has(key) || offeredSessionIds.has(sessionIdentity)) continue;
       const cwd = await availableImportEntry(() => canonical(session.cwd));
       if (!cwd) continue;
       const sourceProject =
@@ -274,6 +280,7 @@ export async function buildProjectImportCatalog(
         sourceHome,
       });
       importedSessionKeys.add(key);
+      offeredSessionIds.add(sessionIdentity);
     }
   }
 

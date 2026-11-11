@@ -14,6 +14,7 @@ import type {
 import { collectImportChats, inspectCodexChatInventory, readSourceSettings } from "./chats";
 import { readWorkspaceImportHistory, readWorkspaceImportSync } from "./history";
 import { canonicalWorkspaceImportSources, workspaceImportProviderForSource } from "./providers";
+import { createImportIoLimiter } from "./ioLimit";
 import { countImportProjects, discoverImportResources, emptyCounts } from "./resources";
 import { absorbHonorAbleSettings } from "./settingsAbsorb";
 import { discoverImportSkills } from "./skills";
@@ -130,8 +131,11 @@ async function probeSource(
     (outcome.kind === "timedOut" ? timedOutSteps : failedSteps).push(step);
     return fallback;
   };
+  // One cap on this source's filesystem calls, shared by its skills and resources reads:
+  // they run in parallel, but one large folder cannot flood a cold disk for the others.
+  const io = createImportIoLimiter();
   const [skillsStep, settingsStep, chatsStep, resourcesStep, projectsStep] = await Promise.all([
-    runStep(() => discoverImportSkills({ source, ...pathInput }), timeoutMs),
+    runStep(() => discoverImportSkills({ source, ...pathInput, io }), timeoutMs),
     runStep(() => readSourceSettings({ source, ...pathInput }), timeoutMs),
     runStep(
       async () =>
@@ -148,7 +152,10 @@ async function probeSource(
               }),
       timeoutMs,
     ),
-    runStep(() => discoverImportResources({ source, ...pathInput, countOnly: true }), timeoutMs),
+    runStep(
+      () => discoverImportResources({ source, ...pathInput, countOnly: true, io }),
+      timeoutMs,
+    ),
     runStep(
       async () =>
         context.toolsOnly

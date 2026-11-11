@@ -38,6 +38,7 @@ import {
   type FetchMossGatewayModelIds,
   type MossGatewayModelCatalogStatus,
   fetchMossGatewayModelIds,
+  mossGatewayCatalogAllowsProvisioning,
   normalizeMossGatewayModelCatalog,
 } from "../mossGatewayModels";
 
@@ -750,7 +751,14 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
               modelGatewayStatus = status;
             }).pipe(
               Effect.andThen(
-                catalog.status === "ready"
+                catalog.status === "transport-degraded"
+                  ? Effect.logWarning(
+                      "Moss model gateway unreachable; provisioning the Moss lanes with the product lineup",
+                    )
+                  : Effect.void,
+              ),
+              Effect.andThen(
+                mossGatewayCatalogAllowsProvisioning(catalog)
                   ? provisionManagedProvider({
                       accessToken: stored.accessToken,
                       gatewayBaseUrl,
@@ -788,7 +796,20 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
         Effect.flatMap((state) => {
           switch (state) {
             case "current":
-              return Effect.sync(() => (activeRealm = "cn")).pipe(Effect.as(modelGatewayStatus));
+              return Effect.sync(() => (activeRealm = "cn")).pipe(
+                // Lanes set up while the gateway was unreachable keep asking it, so the
+                // "can't reach Moss" state clears on its own once the gateway is back.
+                Effect.andThen(
+                  modelGatewayStatus === "transport-degraded"
+                    ? fetchGatewayModels({ gatewayBaseUrl, accessToken: stored.accessToken }).pipe(
+                        Effect.map((rawCatalog) => {
+                          modelGatewayStatus = normalizeMossGatewayModelCatalog(rawCatalog).status;
+                          return modelGatewayStatus;
+                        }),
+                      )
+                    : Effect.succeed(modelGatewayStatus),
+                ),
+              );
             case "owned-by-other":
               return Effect.sync(() => (activeRealm = null)).pipe(Effect.as(modelGatewayStatus));
             case "same-authority-busy":

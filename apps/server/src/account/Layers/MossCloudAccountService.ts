@@ -46,6 +46,7 @@ import {
   type FetchMossGatewayModelIds,
   type MossGatewayModelCatalogStatus,
   fetchMossGatewayModelIds,
+  mossGatewayCatalogAllowsProvisioning,
   normalizeMossGatewayModelCatalog,
 } from "../mossGatewayModels";
 
@@ -949,7 +950,14 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
             modelGatewayStatus = status;
           }).pipe(
             Effect.andThen(
-              catalog.status === "ready"
+              catalog.status === "transport-degraded"
+                ? Effect.logWarning(
+                    "Moss model gateway unreachable; provisioning the Moss lanes with the product lineup",
+                  )
+                : Effect.void,
+            ),
+            Effect.andThen(
+              mossGatewayCatalogAllowsProvisioning(catalog)
                 ? provisionManagedProvider({
                     accessToken: session.accessToken,
                     gatewayBaseUrl,
@@ -991,6 +999,21 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
             switch (state) {
               case "current":
                 return Effect.sync(() => (activeRealm = "global")).pipe(
+                  // Lanes set up while the gateway was unreachable keep asking it, so the
+                  // "can't reach Moss" state clears on its own once the gateway is back.
+                  Effect.andThen(
+                    modelGatewayStatus === "transport-degraded"
+                      ? fetchGatewayModels({
+                          gatewayBaseUrl,
+                          accessToken: session.accessToken,
+                        }).pipe(
+                          Effect.map((rawCatalog) => {
+                            modelGatewayStatus =
+                              normalizeMossGatewayModelCatalog(rawCatalog).status;
+                          }),
+                        )
+                      : Effect.void,
+                  ),
                   Effect.as("ready" as const),
                 );
               case "owned-by-other":

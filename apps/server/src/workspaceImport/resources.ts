@@ -21,6 +21,7 @@ import {
   resourceRootsForSource,
   settingsPathsForSource,
 } from "./paths";
+import { createImportIoLimiter, type ImportIoLimiter } from "./ioLimit";
 import { hashRegularFileNoFollow, readRegularFileNoFollow, writeNewFileNoFollow } from "./safeFile";
 
 const INVENTORY_CATEGORIES = [
@@ -104,7 +105,6 @@ async function walkResourceRoot(
   root: string,
   source: WorkspaceImportSourceKind,
   category: WorkspaceImportCategoryKind,
-  countOnly = false,
 ): Promise<DiscoveredImportResource[]> {
   const resources: DiscoveredImportResource[] = [];
   try {
@@ -139,9 +139,7 @@ async function walkResourceRoot(
       } catch {
         continue;
       }
-      // Counting (the probe) never imports, so it skips the content scan that
-      // decides whether a resource is safe to activate.
-      const sensitive = countOnly ? false : await resourceContainsSecret(next);
+      const sensitive = await resourceContainsSecret(next);
       resources.push({
         name: entry.name,
         source,
@@ -154,6 +152,75 @@ async function walkResourceRoot(
   };
   await visit(root, "", 0);
   return resources;
+}
+
+/** Orders paths the way the depth-first walk above meets them: by name, folder by folder. */
+function compareWalkOrder(left: string, right: string): number {
+  const leftParts = left.split(nodePath.sep);
+  const rightParts = right.split(nodePath.sep);
+  for (let index = 0; index < Math.min(leftParts.length, rightParts.length); index += 1) {
+    const order = leftParts[index]!.localeCompare(rightParts[index]!);
+    if (order !== 0) return order;
+  }
+  return leftParts.length - rightParts.length;
+}
+
+/**
+ * The probe's count of one resource root: the same files `walkResourceRoot` finds for the import,
+ * without its call-by-call walk or its secret scan. Folders are listed in parallel through the source's limiter, and the
+ * file type comes from the listing instead of one `lstat` per file. On a cold disk the walk
+ * was hundreds of calls in a row (Codex's `plugins` and `memories`: 569 calls, 15 s on a USB
+ * hard disk). Two things differ from the walk, and neither changes the number shown:
+ * - Files over the import size limit are counted; the import itself still skips them.
+ * - Past `MAX_RESOURCE_FILES` the files kept are whichever were listed first. The count is
+ *   the cap either way.
+ */
+async function countResourceRoot(
+  root: string,
+  source: WorkspaceImportSourceKind,
+  category: WorkspaceImportCategoryKind,
+  io: ImportIoLimiter,
+): Promise<DiscoveredImportResource[]> {
+  try {
+    const rootStat = await io(() => fs.lstat(root));
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return [];
+  } catch {
+    return [];
+  }
+  const resources: DiscoveredImportResource[] = [];
+  const visit = async (current: string, relative: string, depth: number): Promise<void> => {
+    if (depth > 5 || resources.length >= MAX_RESOURCE_FILES) return;
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await io(() => fs.readdir(current, { withFileTypes: true }));
+    } catch {
+      return;
+    }
+    const folders: Array<readonly [string, string]> = [];
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") && entry.name !== ".well-known") continue;
+      const next = nodePath.join(current, entry.name);
+      const nextRelative = relative ? nodePath.join(relative, entry.name) : entry.name;
+      if (entry.isDirectory()) {
+        folders.push([next, nextRelative]);
+        continue;
+      }
+      if (!entry.isFile() || !isSafeFileName(entry.name)) continue;
+      if (resources.length >= MAX_RESOURCE_FILES) return;
+      resources.push({
+        name: entry.name,
+        source,
+        category,
+        path: next,
+        relativePath: nextRelative,
+      });
+    }
+    await Promise.all(folders.map(([next, nextRelative]) => visit(next, nextRelative, depth + 1)));
+  };
+  await visit(root, "", 0);
+  return resources
+    .toSorted((left, right) => compareWalkOrder(left.relativePath, right.relativePath))
+    .slice(0, MAX_RESOURCE_FILES);
 }
 
 /**
@@ -192,20 +259,38 @@ export async function discoverImportResources(input: {
   readonly env?: NodeJS.ProcessEnv | undefined;
   /** Count files only: `sensitive` is left unset because no file is read. */
   readonly countOnly?: boolean | undefined;
+  /** The source's filesystem limiter, shared with its other probe steps. */
+  readonly io?: ImportIoLimiter | undefined;
 }): Promise<ImportResourceInventory> {
   const source = normalizeWorkspaceImportSource(input.source);
   const resources: DiscoveredImportResource[] = [];
   const seen = new Set<string>();
+  if (input.countOnly === true) {
+    // Every root is listed at once; merging in the fixed category and root order below
+    // keeps the counts, the de-duplication and the overall cap as the walk had them.
+    const io = input.io ?? createImportIoLimiter();
+    const roots = INVENTORY_CATEGORIES.flatMap((category) =>
+      resourceRootsForSource(source, category, input).map((root) => ({ category, root })),
+    );
+    const found = await Promise.all(
+      roots.map(({ category, root }) => countResourceRoot(root, source, category, io)),
+    );
+    for (const resource of found.flat()) {
+      if (resources.length >= MAX_TOTAL_RESOURCE_FILES) break;
+      const key = `${resource.category}:${nodePath.resolve(resource.path)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      resources.push(resource);
+    }
+    const counts = emptyCounts();
+    for (const resource of resources) counts[resource.category] += 1;
+    return { resources, counts };
+  }
   for (const category of INVENTORY_CATEGORIES) {
     if (resources.length >= MAX_TOTAL_RESOURCE_FILES) break;
     for (const root of resourceRootsForSource(source, category, input)) {
       if (resources.length >= MAX_TOTAL_RESOURCE_FILES) break;
-      for (const resource of await walkResourceRoot(
-        root,
-        source,
-        category,
-        input.countOnly === true,
-      )) {
+      for (const resource of await walkResourceRoot(root, source, category)) {
         if (resources.length >= MAX_TOTAL_RESOURCE_FILES) break;
         const key = `${category}:${nodePath.resolve(resource.path)}`;
         if (seen.has(key)) continue;

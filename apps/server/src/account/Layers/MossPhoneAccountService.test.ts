@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 
 // The gateway catalog is exercised by mossGatewayModels.test.ts; these service
 // tests stay offline and inject a representative authoritative lineup.
-vi.mock("../mossGatewayModels", async () => {
+vi.mock("../mossGatewayModels", async (importOriginal) => {
   const { Effect } = await import("effect");
+  const actual = await importOriginal<typeof import("../mossGatewayModels")>();
   const { mossManagedCodexModelsForLane } = await import("./MossManagedProvider");
   return {
+    mossGatewayCatalogAllowsProvisioning: actual.mossGatewayCatalogAllowsProvisioning,
     fetchMossGatewayModelIds: () =>
       Effect.succeed({
         status: "ready",
@@ -1280,6 +1282,62 @@ describe("MossPhoneAccountService", () => {
     expect(secrets.values.has("moss.phone.session")).toBe(true);
   });
 
+  it("still sets up the Moss lanes when the model gateway is unreachable, so the account never looks signed out", async () => {
+    const now = 1_800_000_000_000;
+    const auth = availableAuth(
+      makeClient({
+        sendPhoneOtp: async () => ({ accepted: true }),
+        verifyPhoneOtp: async () => phoneSession(),
+        getUser: async () => phoneSession().user,
+      }),
+    );
+    const secrets = makeSecretStore();
+    const dependencies = makePhoneServiceDependencies(secrets.service);
+    let gatewayStatus: "transport-degraded" | "ready" = "transport-degraded";
+    const fetchGatewayModels = vi.fn(() =>
+      Effect.succeed(
+        gatewayStatus === "ready"
+          ? ({ status: "ready", models: [...expectedManagedProvisionModels] } as const)
+          : ({ status: "transport-degraded", models: [] } as const),
+      ),
+    );
+
+    const { state, recovered } = await Effect.gen(function* () {
+      const service = yield* makeMossPhoneAccountService({
+        auth,
+        now: () => now,
+        fetchGatewayModels,
+      });
+      const challenge = yield* service.startPhoneLogin({ phoneNumber: "13800138000" });
+      const state = yield* service.verifyPhoneLogin({
+        challengeId: challenge.challengeId,
+        phoneNumber: challenge.phoneNumber,
+        code: "123456",
+      });
+      // The gateway comes back: maintenance asks it again and the unreachable state clears.
+      gatewayStatus = "ready";
+      yield* service.maintainSession!();
+      const recovered = yield* service.getSession();
+      return { state, recovered };
+    }).pipe(Effect.provide(dependencies.layer), Effect.runPromise);
+
+    expect(state).toMatchObject({
+      authenticated: true,
+      modelGatewayStatus: "transport-degraded",
+      session: { user: { id: "user-1" } },
+    });
+    // A Cloudflare 530 or a timeout says nothing about the account: the lanes are set up with
+    // the product lineup and a chat reports the outage, instead of every lane reading 登录.
+    expect(recovered).toMatchObject({ authenticated: true, modelGatewayStatus: "ready" });
+    expect(dependencies.provision).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        authority: "memfire-phone",
+        models: expectedManagedProvisionModels,
+      }),
+    );
+    expect(secrets.values.has("moss.phone.session")).toBe(true);
+  });
+
   it("exposes and explicitly re-selects the persisted CN active realm", async () => {
     const now = 1_800_000_000_000;
     const auth = availableAuth(
@@ -1432,6 +1490,68 @@ describe("MossPhoneAccountService", () => {
       models: expectedManagedProvisionModels,
       selectionPolicy: "preserve",
     });
+    expect(dependencies.disable).toHaveBeenCalledOnce();
+    expect(dependencies.getActiveManagedAccessToken()).toBe("rotated-access");
+    expect(secrets.values.has("moss.phone.logout_pending")).toBe(false);
+  });
+
+  it("re-provisions the Moss lanes after a token refresh even while the model gateway is unreachable", async () => {
+    const now = 1_800_000_000_000;
+    const secrets = makeSecretStore();
+    const dependencies = makePhoneServiceDependencies(secrets.service);
+    const initialAuth = availableAuth(
+      makeClient({
+        sendPhoneOtp: async () => ({ accepted: true }),
+        verifyPhoneOtp: async () =>
+          phoneSession({ accessToken: "expired-access", expiresAt: now + 1_000 }),
+      }),
+    );
+
+    await Effect.gen(function* () {
+      const service = yield* makeMossPhoneAccountService({ auth: initialAuth, now: () => now });
+      const challenge = yield* service.startPhoneLogin({ phoneNumber: "13800138000" });
+      yield* service.verifyPhoneLogin({
+        challengeId: challenge.challengeId,
+        phoneNumber: challenge.phoneNumber,
+        code: "123456",
+      });
+    }).pipe(Effect.provide(dependencies.layer), Effect.runPromise);
+
+    const refresh = vi.fn(async () =>
+      phoneSession({
+        accessToken: "rotated-access",
+        refreshToken: "rotated-refresh",
+        expiresAt: now + 3_600_000,
+      }),
+    );
+    const getUser = vi.fn(async () => phoneSession().user);
+    const accessToken = await Effect.gen(function* () {
+      const service = yield* makeMossPhoneAccountService({
+        auth: availableAuth(makeClient({ refresh, getUser })),
+        now: () => now + 2_000,
+        // The CN gateway's Cloudflare tunnel is down (HTTP 530 / error 1033).
+        fetchGatewayModels: () =>
+          Effect.succeed({ status: "transport-degraded", models: [] } as const),
+      });
+      return yield* service.getAccessToken();
+    }).pipe(Effect.provide(dependencies.layer), Effect.runPromise);
+
+    expect(accessToken).toBe("rotated-access");
+    expect(refresh).toHaveBeenCalledWith("moss-refresh-token");
+    expect(getUser).toHaveBeenCalledWith("rotated-access");
+    expect(
+      [...secrets.values.values()].map((value) => new TextDecoder().decode(value)).join(""),
+    ).toContain("rotated-refresh");
+    expect(dependencies.provision).toHaveBeenLastCalledWith({
+      authority: "memfire-phone",
+      accessToken: "rotated-access",
+      gatewayBaseUrl: "https://moss.example.cn/functions/v1/moss-model-gateway",
+      models: expectedManagedProvisionModels,
+      selectionPolicy: "preserve",
+    });
+    // The refresh retires the old generation (one teardown) and must bring the lanes back
+    // with the new bearer: before, an unreachable gateway left them torn down for good, which
+    // wrote codex_moss/claude_moss enabled=false and made the account look signed out.
     expect(dependencies.disable).toHaveBeenCalledOnce();
     expect(dependencies.getActiveManagedAccessToken()).toBe("rotated-access");
     expect(secrets.values.has("moss.phone.logout_pending")).toBe(false);

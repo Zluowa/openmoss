@@ -4,10 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 
 // The gateway catalog is exercised by mossGatewayModels.test.ts; these service
 // tests stay offline and inject a representative authoritative lineup.
-vi.mock("../mossGatewayModels", async () => {
+vi.mock("../mossGatewayModels", async (importOriginal) => {
   const { Effect } = await import("effect");
+  const actual = await importOriginal<typeof import("../mossGatewayModels")>();
   const { mossManagedCodexModelsForLane } = await import("./MossManagedProvider");
   return {
+    mossGatewayCatalogAllowsProvisioning: actual.mossGatewayCatalogAllowsProvisioning,
     fetchMossGatewayModelIds: () =>
       Effect.succeed({
         status: "ready",

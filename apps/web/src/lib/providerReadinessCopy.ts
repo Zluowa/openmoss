@@ -28,6 +28,7 @@ const READINESS_REASON_KEYS: Readonly<Record<string, TranslationKey>> = {
   "version-unsupported": "provider.readiness.reason.version-unsupported",
   "moss-runtime-damaged": "provider.readiness.reason.moss-runtime-damaged",
   "moss-unavailable": "provider.readiness.reason.moss-unavailable",
+  "moss-gateway-unreachable": "provider.readiness.reason.moss-gateway-unreachable",
   "restart-required": "provider.readiness.reason.restart-required",
   "home-unavailable": "provider.readiness.reason.home-unavailable",
   "needs-git-bash": "provider.readiness.reason.needs-git-bash",
