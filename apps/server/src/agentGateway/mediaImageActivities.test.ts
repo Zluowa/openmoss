@@ -52,7 +52,7 @@ describe("conversation image activities", () => {
     expect(requestedImageAspectRatio(undefined)).toBeUndefined();
   });
 
-  it("replays one stable pending command per job, independent of polling revision or billing", () => {
+  it("replays one stable pending command per job stage, independent of polling revision or billing", () => {
     const pending = conversationImageActivityCommands(observation);
     expect(pending).toHaveLength(1);
     expect(pending[0]).toMatchObject({
@@ -64,17 +64,32 @@ describe("conversation image activities", () => {
         payload: { itemType: "image_generation", status: "inProgress" },
       },
     });
+    expect(pending[0]).toMatchObject({
+      activity: { payload: { data: { stage: "queued", modelId: "seedream-5-0" } } },
+    });
+    expect(
+      conversationImageActivityCommands({
+        ...observation,
+        snapshot: { ...observation.snapshot, revision: 12, billingStatus: "unknown" },
+      }),
+    ).toEqual(pending);
+    // Starting to run is one more command (the placeholder says so), not one per poll.
+    const running = conversationImageActivityCommands({
+      ...observation,
+      snapshot: { ...observation.snapshot, status: "running", revision: 13 },
+    });
+    expect(running[0]).toMatchObject({ activity: { payload: { data: { stage: "running" } } } });
     expect(
       conversationImageActivityCommands({
         ...observation,
         snapshot: {
           ...observation.snapshot,
           status: "running",
-          revision: 12,
+          revision: 20,
           billingStatus: "unknown",
         },
       }),
-    ).toEqual(pending);
+    ).toEqual(running);
   });
 
   it("emits one local-file artifact per output and keeps complete replay commands identical", () => {

@@ -77,6 +77,11 @@ export const PageDraft = Schema.Struct({
   resolvedAt: Schema.NullOr(IsoDateTime),
   /** The page revision that contains an accepted draft. */
   resolvedRevision: Schema.NullOr(PositiveInt),
+  /**
+   * Set when listed: the person changed every block this draft touches after its base
+   * revision, so nothing of it can apply any more. The page does not show it.
+   */
+  outdated: Schema.optional(Schema.Boolean),
 });
 export type PageDraft = typeof PageDraft.Type;
 

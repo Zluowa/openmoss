@@ -67,6 +67,12 @@ export type LibraryFolder = typeof LibraryFolder.Type;
 
 export const LibraryListInput = Schema.Struct({
   includeTrashed: Schema.optional(Schema.Boolean).pipe(Schema.withDecodingDefault(() => false)),
+  /**
+   * Only what reached the person: a Codex-made image only when a chat showed it as a generated
+   * image (not a screenshot a tool took on the way), and no agent-internal edit backups.
+   * 资料空间 lists this; the 资料库 keeps everything.
+   */
+  deliveredOnly: Schema.optional(Schema.Boolean),
 });
 export type LibraryListInput = typeof LibraryListInput.Type;
 

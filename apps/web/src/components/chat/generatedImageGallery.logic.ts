@@ -22,6 +22,11 @@ export interface GeneratedImageGallery {
   pendingMedia?: "video";
   /** Moss jobs still pending, which a reopened chat asks Moss about. */
   pendingJobIds?: readonly string[];
+  /** The first pending Moss job's stage and model, for the placeholder's words. */
+  pendingStage?: "queued" | "running";
+  pendingModelId?: string;
+  /** Nothing was made: the Moss job failed. The card says so and offers to try again. */
+  failed?: { readonly media?: "video" };
 }
 
 function generatedImageGalleriesEqual(
@@ -34,6 +39,10 @@ function generatedImageGalleriesEqual(
     previous.pendingImageCount !== next.pendingImageCount ||
     previous.pendingAspectRatio !== next.pendingAspectRatio ||
     previous.pendingMedia !== next.pendingMedia ||
+    previous.pendingStage !== next.pendingStage ||
+    previous.pendingModelId !== next.pendingModelId ||
+    previous.failed?.media !== next.failed?.media ||
+    (previous.failed === undefined) !== (next.failed === undefined) ||
     (previous.pendingJobIds ?? []).join() !== (next.pendingJobIds ?? []).join() ||
     previous.images.length !== next.images.length
   ) {
@@ -73,6 +82,9 @@ type MutableGeneratedImageGallery = {
   pendingAspectRatios: Map<string, number>;
   pendingVideos: Set<string>;
   pendingJobIds: Map<string, string>;
+  pendingDetails: Map<string, { stage?: "queued" | "running"; modelId?: string }>;
+  failedVideos: Set<string>;
+  failedMoss: Set<string>;
 };
 
 export function generatedImageTurnKey(turnId: TurnId | string | null | undefined): string | null {
@@ -102,7 +114,8 @@ export function isTypedGeneratedImageEntry(entry: WorkLogEntry): boolean {
   return (
     entry.itemType === "image_generation" &&
     entry.generatedImage != null &&
-    entry.generatedImage.state !== "failed"
+    // A failed Moss job is drawn by its card (with 重试); other failures stay tool rows.
+    (entry.generatedImage.state !== "failed" || entry.generatedImage.jobId !== undefined)
   );
 }
 
@@ -132,6 +145,9 @@ export function groupGeneratedImagesByTurn(
             pendingAspectRatios: new Map(),
             pendingVideos: new Set(),
             pendingJobIds: new Map(),
+            pendingDetails: new Map(),
+            failedVideos: new Set(),
+            failedMoss: new Set(),
           };
           groups.set(key, created);
           return created;
@@ -140,6 +156,8 @@ export function groupGeneratedImagesByTurn(
       if (image.state === "failed") {
         group.pendingIds.delete(identity);
         group.failedIds.add(identity);
+        if (image.jobId) group.failedMoss.add(identity);
+        if (image.media === "video") group.failedVideos.add(identity);
         continue;
       }
       if (image.state === "completed") {
@@ -157,13 +175,20 @@ export function groupGeneratedImagesByTurn(
           group.pendingAspectRatios.set(identity, image.aspectRatio);
         if (image.media === "video") group.pendingVideos.add(identity);
         if (image.jobId) group.pendingJobIds.set(identity, image.jobId);
+        group.pendingDetails.set(identity, {
+          ...(image.stage ? { stage: image.stage } : {}),
+          ...(image.modelId ? { modelId: image.modelId } : {}),
+        });
       }
     }
   }
 
   return new Map(
     [...groups].flatMap(([key, group]) => {
-      if (group.images.size === 0 && group.pendingIds.size === 0) return [];
+      // A Moss job that made nothing still has its card: it says so and offers to try again.
+      const failedMoss = [...group.failedMoss].find((id) => !group.images.has(id));
+      if (group.images.size === 0 && group.pendingIds.size === 0 && failedMoss === undefined)
+        return [];
       const firstPending = group.pendingIds.values().next().value;
       const pendingAspectRatio =
         firstPending === undefined ? undefined : group.pendingAspectRatios.get(firstPending);
@@ -184,6 +209,17 @@ export function groupGeneratedImagesByTurn(
               ? { pendingMedia: "video" as const }
               : {}),
             ...(pendingJobIds.length ? { pendingJobIds } : {}),
+            ...(firstPending !== undefined && group.pendingDetails.get(firstPending)?.stage
+              ? { pendingStage: group.pendingDetails.get(firstPending)!.stage! }
+              : {}),
+            ...(firstPending !== undefined && group.pendingDetails.get(firstPending)?.modelId
+              ? { pendingModelId: group.pendingDetails.get(firstPending)!.modelId! }
+              : {}),
+            ...(group.images.size === 0 && group.pendingIds.size === 0 && failedMoss !== undefined
+              ? {
+                  failed: group.failedVideos.has(failedMoss) ? { media: "video" as const } : {},
+                }
+              : {}),
           },
         ] as const,
       ];
@@ -229,7 +265,9 @@ function encodeMarkdownCompatibilityPath(path: string): string {
 export function hasGeneratedImageGalleryContent(
   gallery: GeneratedImageGallery | null | undefined,
 ): boolean {
-  return Boolean(gallery && (gallery.images.length > 0 || gallery.pendingImageCount > 0));
+  return Boolean(
+    gallery && (gallery.images.length > 0 || gallery.pendingImageCount > 0 || gallery.failed),
+  );
 }
 
 /**

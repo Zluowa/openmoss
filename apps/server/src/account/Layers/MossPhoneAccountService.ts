@@ -27,7 +27,9 @@ import {
   type MemFirePhoneAuthAvailability,
   type SupabaseMossAuthSession,
 } from "../supabaseMossAuth";
+import { mossBearerRefreshLeadMs } from "../managedCredentialFreshness";
 import { describeMossErrorCauses, MossAccountServiceError } from "../mossAccountErrors";
+import { mossCnModelGatewayEntries, type MossServiceEntryRouter } from "../mossServiceEntries";
 import {
   MossPhoneAccountService,
   type MossPhoneAccountServiceShape,
@@ -48,8 +50,6 @@ const CHALLENGES_SECRET_NAME = "moss.phone.challenges";
 const CHALLENGE_GENERATION_SECRET_NAME = "moss.phone.challenge_generation";
 const OTP_TTL_MS = 10 * 60_000;
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000;
-// Background refresh leaves room for a deferred rotation before the bearer lapses.
-const MAINTENANCE_REFRESH_SKEW_MS = 5 * 60_000;
 const SESSION_MAINTENANCE_INTERVAL = Duration.minutes(1);
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -188,6 +188,8 @@ export interface MakeMossPhoneAccountServiceOptions {
    * readiness and never silently treated as an entitled realm catalog.
    */
   readonly fetchGatewayModels?: FetchMossGatewayModelIds;
+  /** The CN model gateway entries; by default the configured primary and its fallbacks. */
+  readonly modelGatewayEntries?: MossServiceEntryRouter;
 }
 
 function normalizeMainlandPhone(raw: string): {
@@ -497,6 +499,32 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
   const now = options.now ?? Date.now;
   const fetchGatewayModels = options.fetchGatewayModels ?? fetchMossGatewayModelIds;
   const challenges = new Map<string, PendingChallenge>();
+  const gatewayEntries = auth.available
+    ? (options.modelGatewayEntries ??
+      mossCnModelGatewayEntries(process.env, auth.config.modelGatewayUrl))
+    : null;
+  /** The gateway entry the lanes and every gateway call use now. */
+  const currentGatewayBaseUrl = () => gatewayEntries?.current() ?? "";
+  /**
+   * The catalog from the entry in use. When the request fails below HTTP the entries are
+   * checked again, and a working other entry answers instead and becomes the one in use.
+   */
+  const fetchCatalogWithFailover = (gatewayBaseUrl: string, accessToken: string) =>
+    fetchGatewayModels({ gatewayBaseUrl, accessToken }).pipe(
+      Effect.flatMap((rawCatalog) =>
+        rawCatalog !== null || !gatewayEntries
+          ? Effect.succeed({ rawCatalog, gatewayBaseUrl })
+          : Effect.promise(() => gatewayEntries.reportConnectionFailure(gatewayBaseUrl)).pipe(
+              Effect.flatMap((next) =>
+                next === gatewayBaseUrl
+                  ? Effect.succeed({ rawCatalog, gatewayBaseUrl })
+                  : fetchGatewayModels({ gatewayBaseUrl: next, accessToken }).pipe(
+                      Effect.map((retried) => ({ rawCatalog: retried, gatewayBaseUrl: next })),
+                    ),
+              ),
+            ),
+      ),
+    );
   let managedBinding: MossManagedBinding | null = null;
   let modelGatewayStatus: MossGatewayModelCatalogStatus | undefined;
   let activeRealm: "cn" | null = null;
@@ -740,11 +768,21 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
   const synchronizeManagedProvider = (
     stored: StoredPhoneSessionV3,
     selectionPolicy: "select" | "preserve",
+  ): Effect.Effect<MossGatewayModelCatalogStatus | undefined, MossAccountServiceError> =>
+    Effect.promise(async () => (gatewayEntries ? gatewayEntries.ensure() : undefined)).pipe(
+      Effect.flatMap((gatewayBaseUrl) =>
+        synchronizeManagedProviderVia(stored, selectionPolicy, gatewayBaseUrl),
+      ),
+    );
+
+  const synchronizeManagedProviderVia = (
+    stored: StoredPhoneSessionV3,
+    selectionPolicy: "select" | "preserve",
+    gatewayBaseUrl: string | undefined,
   ): Effect.Effect<MossGatewayModelCatalogStatus | undefined, MossAccountServiceError> => {
-    const gatewayBaseUrl = auth.available ? auth.config.modelGatewayUrl : undefined;
     const reconcile = gatewayBaseUrl
-      ? fetchGatewayModels({ gatewayBaseUrl, accessToken: stored.accessToken }).pipe(
-          Effect.flatMap((rawCatalog) => {
+      ? fetchCatalogWithFailover(gatewayBaseUrl, stored.accessToken).pipe(
+          Effect.flatMap(({ rawCatalog, gatewayBaseUrl }) => {
             const catalog = normalizeMossGatewayModelCatalog(rawCatalog);
             const status = catalog.status;
             return Effect.sync(() => {
@@ -801,8 +839,8 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
                 // "can't reach Moss" state clears on its own once the gateway is back.
                 Effect.andThen(
                   modelGatewayStatus === "transport-degraded"
-                    ? fetchGatewayModels({ gatewayBaseUrl, accessToken: stored.accessToken }).pipe(
-                        Effect.map((rawCatalog) => {
+                    ? fetchCatalogWithFailover(gatewayBaseUrl, stored.accessToken).pipe(
+                        Effect.map(({ rawCatalog }) => {
                           modelGatewayStatus = normalizeMossGatewayModelCatalog(rawCatalog).status;
                           return modelGatewayStatus;
                         }),
@@ -1231,11 +1269,11 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
         if (!auth.available) return;
         const stored = yield* readStoredSession();
         if (!stored) return;
-        if (
-          stored.version !== 3 ||
-          stored.accessTokenExpiresAt <= now() + MAINTENANCE_REFRESH_SKEW_MS
-        ) {
-          yield* resolveSession("synchronize", MAINTENANCE_REFRESH_SKEW_MS);
+        // Refresh early enough that every live process keeps a bearer that can
+        // outlast a long turn (see MOSS_BEARER_REFRESH_LEAD_MS).
+        const refreshLeadMs = mossBearerRefreshLeadMs(stored.accessToken);
+        if (stored.version !== 3 || stored.accessTokenExpiresAt <= now() + refreshLeadMs) {
+          yield* resolveSession("synchronize", refreshLeadMs);
           return;
         }
         yield* synchronizeManagedProvider(stored, "preserve");
@@ -1268,7 +1306,7 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
           stored.session.user.id === current.session.user.id
             ? {
                 realm: "memfire-phone" as const,
-                gatewayBaseUrl: auth.config.modelGatewayUrl,
+                gatewayBaseUrl: currentGatewayBaseUrl(),
                 account: { id: current.session.user.id, realm: "memfire-phone" as const },
                 displayName: current.session.user.displayName,
                 phoneNumber: current.session.user.phoneNumber,
@@ -1348,7 +1386,7 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
             realm: "memfire-phone" as const,
             issuer: auth.config.issuer,
             accessToken: resolved.stored.accessToken,
-            gatewayBaseUrl: auth.config.modelGatewayUrl,
+            gatewayBaseUrl: currentGatewayBaseUrl(),
             realtimeRelayUrl: auth.config.realtimeRelayUrl,
           });
         }),

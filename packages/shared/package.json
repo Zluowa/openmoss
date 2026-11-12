@@ -533,6 +533,10 @@
       "types": "./src/computerGrants.ts",
       "import": "./src/computerGrants.ts"
     },
+    "./computerAppPolicy": {
+      "types": "./src/computerAppPolicy.ts",
+      "import": "./src/computerAppPolicy.ts"
+    },
     "./lengthPrefixedRecords": {
       "types": "./src/lengthPrefixedRecords.ts",
       "import": "./src/lengthPrefixedRecords.ts"
@@ -712,6 +716,10 @@
     "./mossRealmCatalog": {
       "types": "./src/mossRealmCatalog.ts",
       "import": "./src/mossRealmCatalog.ts"
+    },
+    "./mossManagedSession": {
+      "types": "./src/mossManagedSession.ts",
+      "import": "./src/mossManagedSession.ts"
     },
     "./mossManagedModelCatalog": {
       "types": "./src/mossManagedModelCatalog.ts",

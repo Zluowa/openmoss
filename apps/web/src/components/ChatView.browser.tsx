@@ -81,6 +81,7 @@ import {
 import { cleanup, render } from "vitest-browser-react";
 
 import { type ComposerImageAttachment, useComposerDraftStore } from "../composerDraftStore";
+import { createPastedTextDraft } from "../lib/composerPastedText";
 import { createEmptyThreadDraft } from "../composerDraftDomain";
 import { setFeatureFlagEnabled } from "../featureFlags";
 import {
@@ -12802,7 +12803,7 @@ describe("ChatView transcript geometry (full app)", () => {
     );
   };
 
-  it("quotes a selected passage into the composer; Enter in the popover doesn't send", async () => {
+  it("quotes a selected passage into the composer; Enter in the pill and the card doesn't send", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const snapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-selection-reply" as MessageId,
@@ -12836,9 +12837,19 @@ describe("ChatView transcript geometry (full app)", () => {
       // that fell through would send this draft.
       expect(document.activeElement).toBe(composerEditor);
 
-      // One Enter on the popover, held long enough to repeat into the composer.
+      // One Enter on the pill, held long enough to repeat: it opens the Reply card.
       await userEvent.keyboard("{Enter>6}");
-      expect(document.activeElement).toBe(composerEditor);
+      const replyField = page.getByRole("textbox", { name: "Your reply" });
+      await expect.element(replyField).toHaveFocus();
+      expect(
+        useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.assistantSelections ?? [],
+      ).toHaveLength(0);
+      await userEvent.keyboard("{/Enter}");
+
+      // Enter in the card, held too, adds the quote and hands focus back to the composer.
+      await userEvent.keyboard("{Enter>6}");
+      await vi.waitFor(() => expect(document.activeElement).toBe(composerEditor));
+      await userEvent.keyboard("{/Enter}");
 
       await vi.waitFor(() => {
         const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
@@ -12849,8 +12860,8 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect
         .element(page.getByRole("toolbar", { name: "Selection actions" }))
         .not.toBeInTheDocument();
-      expect(page.getByText("1 selection", { exact: true }).elements()).toHaveLength(1);
-      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.querySelectorAll("[data-composer-quote-row]")).toHaveLength(1);
+      expect(document.querySelector('[data-transcript-reply-card="true"]')).toBeNull();
       await new Promise<void>((resolve) => window.setTimeout(resolve, 600));
       expect(turnStarts()).toHaveLength(0);
       expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
@@ -12908,7 +12919,10 @@ describe("ChatView transcript geometry (full app)", () => {
       wsRequests.length = 0;
       const userRowsBefore = document.querySelectorAll('[data-message-role="user"]').length;
 
-      // Enter on the popover quotes; a second, separate Enter in the empty composer.
+      // Enter on the pill opens the card, Enter in the card quotes; then separate Enters
+      // in the empty composer.
+      await userEvent.keyboard("{Enter}");
+      await expect.element(page.getByRole("textbox", { name: "Your reply" })).toHaveFocus();
       await userEvent.keyboard("{Enter}");
       await vi.waitFor(() =>
         expect(
@@ -12924,7 +12938,7 @@ describe("ChatView transcript geometry (full app)", () => {
       expect(document.querySelectorAll('[data-message-role="user"]').length).toBe(userRowsBefore);
       const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
       expect(draft?.assistantSelections).toHaveLength(1);
-      expect(page.getByText("1 selection", { exact: true }).elements()).toHaveLength(1);
+      expect(document.querySelectorAll("[data-composer-quote-row]")).toHaveLength(1);
       expect((await waitForSendButton()).disabled).toBe(true);
 
       // The reader's words make it a message: one send with the quote and the text.
@@ -12949,7 +12963,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("quotes into the composer from the Reply button and keeps the current draft", async () => {
+  it("quotes into the composer from Reply, the card's reply and Add to prompt, keeping the draft", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const snapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-selection-reply-button" as MessageId,
@@ -12975,18 +12989,129 @@ describe("ChatView transcript geometry (full app)", () => {
       await selectAssistantFiller();
       wsRequests.length = 0;
       await page.getByRole("button", { name: "Reply", exact: true }).click();
+      // Reply opens the card on the passage; the composer draft is untouched so far.
+      const replyField = page.getByRole("textbox", { name: "Your reply" });
+      await expect.element(replyField).toHaveFocus();
+      // Ctrl+Enter is not offered while the composer holds a draft: it would send it too.
+      await userEvent.keyboard("Shorter please");
+      await page.getByRole("button", { name: "Add to prompt" }).click();
       await vi.waitFor(() => expect(document.activeElement).toBe(composerEditor));
       const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
       expect(draft?.prompt).toBe("Keep the current draft");
-      expect(draft?.assistantSelections.map((selection) => selection.text)).toEqual([
-        "assistant filler 21",
-      ]);
+      expect(
+        draft?.assistantSelections.map((selection) => [selection.text, selection.comment]),
+      ).toEqual([["assistant filler 21", "Shorter please"]]);
+      await expect.element(page.getByText("With reply", { exact: true })).toBeVisible();
       await new Promise<void>((resolve) => window.setTimeout(resolve, 400));
       expect(
         wsRequests
           .map(readDispatchedCommand)
           .some((command) => command?.type === "thread.turn.start"),
       ).toBe(false);
+    } finally {
+      window.getSelection()?.removeAllRanges();
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("keeps the one-line composer under a strip of quotes, like desktop chat", async () => {
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-quote-strip" as MessageId,
+      targetText: "Quote strip test",
+    });
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      await waitForComposerEditor();
+      const form = () => document.querySelector<HTMLElement>('[data-chat-composer-form="true"]')!;
+      await vi.waitFor(() => expect(queryComposerShell().dataset.composerLayout).toBe("row"));
+      useComposerDraftStore.getState().addAssistantSelection(THREAD_ID, {
+        type: "assistant-selection",
+        id: "quote-strip-1",
+        assistantMessageId: "msg-assistant-filler-1",
+        text: "A passage quoted from the reply",
+      });
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll("[data-composer-quote-row]")).toHaveLength(1);
+      });
+      // Still one line: the strip spans the composer and the line sits below it.
+      expect(queryComposerShell().dataset.composerLayout).toBe("row");
+      const strip = document.querySelector<HTMLElement>('[data-composer-quote-strip="true"]')!;
+      const editor = form().querySelector<HTMLElement>('[data-testid="composer-editor"]')!;
+      const surface = form().querySelector<HTMLElement>("[data-chat-composer-surface]")!;
+      expect(strip.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        editor.getBoundingClientRect().top + 1,
+      );
+      expect(strip.getBoundingClientRect().width).toBeGreaterThan(
+        surface.getBoundingClientRect().width - 20,
+      );
+      const leading = form().querySelector<HTMLElement>('[data-chat-composer-leading="true"]')!;
+      expect(
+        Math.abs(leading.getBoundingClientRect().top - editor.getBoundingClientRect().top),
+      ).toBeLessThan(12);
+
+      // Any other attachment (here pasted text) still opens the full block, quotes included in it.
+      useComposerDraftStore.getState().addPastedTexts(THREAD_ID, [
+        createPastedTextDraft({
+          id: "pasted-1",
+          createdAt: new Date().toISOString(),
+          text: Array.from({ length: 12 }, (_, i) => "pasted line " + i).join("\n"),
+        }),
+      ]);
+      await vi.waitFor(() => expect(queryComposerShell().dataset.composerLayout).toBeUndefined());
+      expect(document.querySelector('[data-composer-quote-strip="true"]')).toBeNull();
+      expect(document.querySelectorAll("[data-composer-quote-row]")).toHaveLength(1);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("sends the quote with the card's reply on Ctrl+Enter when the composer is empty", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-selection-send-reply" as MessageId,
+      targetText: "Selection send reply test",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          messages: thread.messages.slice(-2),
+        })),
+      },
+    });
+    const turnStarts = () =>
+      wsRequests
+        .map(readDispatchedCommand)
+        .filter((command) => command?.type === "thread.turn.start");
+    try {
+      await waitForComposerEditor();
+      await waitForLayout();
+      await selectAssistantFiller();
+      wsRequests.length = 0;
+      await page.getByRole("button", { name: "Reply", exact: true }).click();
+      await expect.element(page.getByRole("textbox", { name: "Your reply" })).toHaveFocus();
+      await userEvent.keyboard("Why this one?");
+      await userEvent.keyboard("{Control>}{Enter}{/Control}");
+      await vi.waitFor(
+        () => {
+          const sends = turnStarts();
+          expect(sends).toHaveLength(1);
+          const text = String((sends[0]?.message as { text?: string } | undefined)?.text ?? "");
+          expect(text).toContain("<assistant_selection>");
+          expect(text).toContain("assistant filler 21");
+          expect(text).toContain("- reply to the selection above:\n  Why this one?");
+        },
+        { timeout: 15_000 },
+      );
+      expect(document.querySelector('[data-transcript-reply-card="true"]')).toBeNull();
+      await vi.waitFor(() =>
+        expect(
+          useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.assistantSelections ?? [],
+        ).toHaveLength(0),
+      );
     } finally {
       window.getSelection()?.removeAllRanges();
       await mounted.cleanup();

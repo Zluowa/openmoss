@@ -491,6 +491,7 @@ describe("wsNativeApi", () => {
         providerInstances: {},
         skills: { disabled: [] },
         apps: { disabled: [] },
+        computer: { blockedApps: [], alwaysAllowedApps: [] },
       },
     } as const;
     emitPush(WS_CHANNELS.serverSettingsUpdated, payload);

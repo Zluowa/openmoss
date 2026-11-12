@@ -309,10 +309,16 @@ export type WorkLogGeneratedImage =
       media?: "video";
       /** The Moss job, so a reopened chat can ask for it after a restart. */
       jobId?: string;
+      /** Where a Moss job stands: waiting for the supplier, or being made. */
+      stage?: "queued" | "running";
+      /** The Moss model making it, for the placeholder's label. */
+      modelId?: string;
     }
   | {
       state: "failed";
       callId: string;
+      media?: "video";
+      jobId?: string;
     };
 
 export type ModelReroutedReason = "highRiskCyberActivity";
@@ -1182,6 +1188,10 @@ function isRenderableGeneratedImageEntry(
   if (entry.generatedImage?.state !== "pending") {
     return true;
   }
+  // A Moss job outlives its turn: Moss follows it and settles the placeholder (the finished
+  // image or video, or a failure), so it keeps showing after the turn has ended, after a
+  // reopen and after a restart.
+  if (entry.generatedImage.jobId) return true;
   // Pending image UI is intentionally ephemeral. A hydrated/replayed activity
   // is not enough to keep a spinner alive: only the currently running turn may
   // expose an image with no artifact path yet.
@@ -4801,8 +4811,21 @@ export function parseWorkLogGeneratedImage(
     extractToolCallId(payload) ??
     undefined;
   if (activity.kind === "tool.completed") {
-    if (data?.kind === MOSS_IMAGE_GENERATION_FAILURE_KIND && payload?.status === "failed" && callId)
-      return { state: "failed", callId };
+    if (
+      data?.kind === MOSS_IMAGE_GENERATION_FAILURE_KIND &&
+      payload?.status === "failed" &&
+      callId
+    ) {
+      const failedJobId = asTrimmedString(data?.jobId);
+      return {
+        state: "failed",
+        callId,
+        ...(data?.media === "video" ? { media: "video" as const } : {}),
+        ...(failedJobId && /^moss_[A-Za-z0-9_-]{1,128}$/u.test(failedJobId)
+          ? { jobId: failedJobId }
+          : {}),
+      };
+    }
     if (data?.kind === MOSS_GENERATED_VIDEO_ARTIFACT_KIND && path !== null)
       return { state: "completed", path, media: "video", ...(callId ? { callId } : {}) };
     if (
@@ -4834,6 +4857,12 @@ export function parseWorkLogGeneratedImage(
       ...(callId ? { callId } : {}),
       ...(data?.media === "video" ? { media: "video" as const } : {}),
       ...(jobId && /^moss_[A-Za-z0-9_-]{1,128}$/u.test(jobId) ? { jobId } : {}),
+      ...(data?.stage === "queued" || data?.stage === "running"
+        ? { stage: data.stage as "queued" | "running" }
+        : {}),
+      ...(typeof data?.modelId === "string" && /^[A-Za-z0-9._-]{1,128}$/u.test(data.modelId)
+        ? { modelId: data.modelId }
+        : {}),
       ...(typeof aspectRatio === "number" &&
       Number.isFinite(aspectRatio) &&
       aspectRatio >= 0.25 &&
@@ -5485,8 +5514,22 @@ export function deriveTimelineEntries(
         ];
   });
   type SystemErrorTimelineEntry = Extract<TimelineEntry, { kind: "system-error" }>;
+  // A failed turn already shows its cause in the 「任务中断」 banner (its turnFailure entry); a
+  // plain system-error row for the same turn would repeat it, untranslated, right below.
+  const turnsWithFailureBanner = new Set(
+    visibleWorkEntries.flatMap((entry) =>
+      entry.turnFailure && entry.turnId !== undefined ? [entry.turnId] : [],
+    ),
+  );
   const systemErrorRows: SystemErrorTimelineEntry[] = visibleWorkEntries.flatMap((entry) => {
     if (!entry.systemError) {
+      return [];
+    }
+    if (
+      entry.systemError.errorInfo === undefined &&
+      entry.turnId !== undefined &&
+      turnsWithFailureBanner.has(entry.turnId)
+    ) {
       return [];
     }
     return [

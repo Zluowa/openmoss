@@ -10,6 +10,9 @@ export const COMPUTER_WS_METHODS = {
   // the desktop or answers for one thread.
   getStatus: "computer.getStatus",
   getAuditHistory: "computer.getAuditHistory",
+  // The apps agents have driven, for Settings › Computer use's per-app rows.
+  // Read-only and side-effect-free: it never starts the backend.
+  listUsedApps: "computer.listUsedApps",
   // Installs or compiles whatever this desktop is missing, on the user's
   // explicit request from the settings panel. Separate from `getStatus`
   // because reading status must never be the thing that compiles a helper.
@@ -764,6 +767,28 @@ export const ComputerListAppsResult = Schema.Struct({
   availability: ComputerAvailability,
 });
 export type ComputerListAppsResult = typeof ComputerListAppsResult.Type;
+
+export const COMPUTER_USED_APPS_MAX = 50;
+
+/** One app an agent has driven, as Settings › Computer use lists it. */
+export const ComputerUsedApp = Schema.Struct({
+  /** The name the desktop reported, which is also the per-app policy key. */
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+  bundleId: Schema.optional(Schema.String.check(Schema.isMaxLength(512))),
+  /** The app's executable or bundle path when known; the desktop reads its icon from it. */
+  iconPath: Schema.optional(Schema.String.check(Schema.isMaxLength(4_096))),
+  lastUsedAt: Schema.optional(IsoDateTime),
+});
+export type ComputerUsedApp = typeof ComputerUsedApp.Type;
+
+export const ComputerListUsedAppsInput = Schema.Struct({});
+export type ComputerListUsedAppsInput = typeof ComputerListUsedAppsInput.Type;
+
+export const ComputerListUsedAppsResult = Schema.Struct({
+  /** Most recently used first. */
+  apps: Schema.Array(ComputerUsedApp).check(Schema.isMaxLength(COMPUTER_USED_APPS_MAX)),
+});
+export type ComputerListUsedAppsResult = typeof ComputerListUsedAppsResult.Type;
 
 /**
  * The driver's tri-state answer to a verify_state predicate set. `unknown`

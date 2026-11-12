@@ -87,6 +87,7 @@ import {
   MOSS_CN_MODEL_GATEWAY_HOST,
   isTrustedMossManagedGatewayUrl,
   isTrustedMossManagedGatewayUrlForAuthority,
+  mossManagedGatewayEntriesForAuthority,
   type MossManagedGatewayAuthority,
 } from "../../provider/mossManagedGatewayTrust";
 import {
@@ -154,7 +155,8 @@ export const MOSS_MANAGED_CLAUDE_MODEL_ENV_KEY = "MOSS_MODEL_GATEWAY_CLAUDE_MODE
 // Luna remains explicitly selectable in realms whose current catalog serves it.
 const MOSS_MANAGED_QUARANTINED_CODEX_MODEL = "gpt-5.6-luna";
 
-// Historical cleanup only; this is deliberately not a launch-trust alias.
+// Historical cleanup only; this is deliberately not a launch-trust alias. It is trusted
+// again only when the release lists it as a CN entry (the fallback since 2026-11-13).
 const PREVIOUS_CN_MANAGED_GATEWAY =
   "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
 const DIRECT_CN_MANAGED_GATEWAY = `https://${MOSS_CN_MODEL_GATEWAY_HOST}/functions/v1/moss-model-gateway/v1`;
@@ -2106,10 +2108,14 @@ export const MossManagedProviderLive = Layer.effect(
         message: "A reserved Moss provider conflicts with an existing user-managed account.",
       });
 
+    // The previous CN entry is historical only while it is not a configured entry. Since
+    // 2026-11-13 releases list it again as the CN fallback, and lanes on it are current.
     const requiresPreviousCnGatewayCleanup = (settings: ServerSettings): boolean =>
       asConfigRecord(settings.providerInstances[MOSS_MANAGED_PROVIDER_INSTANCE_ID]?.config)
         .gatewayBaseUrl === PREVIOUS_CN_MANAGED_GATEWAY &&
-      process.env[MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY] !== PREVIOUS_CN_MANAGED_GATEWAY;
+      !mossManagedGatewayEntriesForAuthority("memfire-phone", process.env).includes(
+        PREVIOUS_CN_MANAGED_GATEWAY,
+      );
 
     // undefined: ordinary current-route inspection; null: a historical
     // generation whose ownership cannot be proved. Never publish this local

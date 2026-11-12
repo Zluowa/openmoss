@@ -20,7 +20,7 @@ import { type PastedTextDraft } from "../../lib/composerPastedText";
 import { type FileCommentDraft } from "../../lib/fileComments";
 import { type PullRequestContextDraft } from "../../lib/pullRequestContext";
 import { type ChatAssistantSelectionAttachment } from "../../types";
-import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
+import { ComposerQuoteRows } from "./ComposerQuoteRows";
 import { ComposerImageAttachmentChip } from "./ComposerImageAttachmentChip";
 import { FileAttachmentChip } from "./FileAttachmentChip";
 import { ComposerPastedTextCard } from "./PastedTextChip";
@@ -44,6 +44,8 @@ interface ComposerReferenceAttachmentsProps {
   /** Swaps an image for its marked copy; images get Mark up in their preview when set. */
   onReplaceImage?: (imageId: string, file: File) => void | Promise<void>;
   onRemoveAssistantSelections: () => void;
+  /** Removes one quote row; without it a row's remove clears every quote. */
+  onRemoveAssistantSelection?: (selectionId: string) => void;
   onRemoveBrowserAnnotation?: (annotationId: string) => void;
   onRemoveFileComments: () => void;
   onRemovePastedText?: (pastedTextId: string) => void;
@@ -64,6 +66,7 @@ export function ComposerReferenceAttachments({
   nonPersistedImageIdSet,
   onReplaceImage,
   onRemoveAssistantSelections,
+  onRemoveAssistantSelection,
   onRemoveBrowserAnnotation,
   onRemoveFileComments,
   onRemovePastedText,
@@ -126,66 +129,83 @@ export function ComposerReferenceAttachments({
     return null;
   }
 
+  const hasOtherAttachments =
+    browserAnnotations.length > 0 ||
+    fileComments.length > 0 ||
+    pastedTexts.length > 0 ||
+    pullRequestContexts.length > 0 ||
+    files.length > 0 ||
+    images.length > 0;
+
   return (
-    <div className="-mx-1.5 -mt-1 mb-2 flex flex-wrap items-start gap-1.5">
-      <AssistantSelectionsSummaryChip
+    <div className="-mx-1.5 -mt-1 mb-2 flex flex-col gap-2">
+      {/* Quoted passages sit above everything else, one full-width row each (desktop chat). */}
+      <ComposerQuoteRows
         selections={assistantSelections}
-        onRemove={assistantSelections.length > 0 ? onRemoveAssistantSelections : undefined}
+        onRemove={(selectionId) =>
+          onRemoveAssistantSelection
+            ? onRemoveAssistantSelection(selectionId)
+            : onRemoveAssistantSelections()
+        }
       />
-      <BrowserAnnotationStrip
-        annotations={browserAnnotations}
-        onRemove={onRemoveBrowserAnnotation}
-      />
-      <FileCommentsSummaryChip
-        comments={fileComments}
-        onRemove={fileComments.length > 0 ? onRemoveFileComments : undefined}
-      />
-      {pastedTexts.map((pasted) => (
-        <ComposerPastedTextCard
-          key={pasted.id}
-          text={pasted.text}
-          metrics={{ lineCount: pasted.lineCount, charCount: pasted.charCount }}
-          onShowInTextField={() => onShowPastedTextInField?.(pasted.id)}
-          onRemove={() => onRemovePastedText?.(pasted.id)}
-        />
-      ))}
-      {pullRequestContexts.map((context) => (
-        <ComposerPullRequestContextCard
-          key={context.id}
-          scope={context.scope}
-          itemKind={context.itemKind}
-          title={context.title}
-          subtitle={context.subtitle}
-          onRemove={() => onRemovePullRequestContext?.(context.id)}
-        />
-      ))}
-      {files.map((file) => (
-        <FileAttachmentChip
-          key={file.id}
-          file={file}
-          variant="card"
-          onRemove={onRemoveFile}
-          onOpen={() => setPreviewed({ kind: "file", id: file.id })}
-        />
-      ))}
-      {images.map((image) => (
-        <ComposerImageAttachmentChip
-          key={image.id}
-          image={image}
-          images={images}
-          nonPersisted={nonPersistedImageIdSet.has(image.id)}
-          onOpenPreview={(imageId) => setPreviewed({ kind: "image", id: imageId })}
-          onRemoveImage={onRemoveImage}
-        />
-      ))}
-      <ComposerAttachmentPreview
-        target={previewTarget}
-        images={images}
-        onShowImage={(imageId) => setPreviewed({ kind: "image", id: imageId })}
-        onClose={() => setPreviewed(null)}
-        onReplaceImage={onReplaceImage}
-        markupRequestKey={markupRequestKey}
-      />
+      {hasOtherAttachments ? (
+        <div className="flex flex-wrap items-start gap-1.5">
+          <BrowserAnnotationStrip
+            annotations={browserAnnotations}
+            onRemove={onRemoveBrowserAnnotation}
+          />
+          <FileCommentsSummaryChip
+            comments={fileComments}
+            onRemove={fileComments.length > 0 ? onRemoveFileComments : undefined}
+          />
+          {pastedTexts.map((pasted) => (
+            <ComposerPastedTextCard
+              key={pasted.id}
+              text={pasted.text}
+              metrics={{ lineCount: pasted.lineCount, charCount: pasted.charCount }}
+              onShowInTextField={() => onShowPastedTextInField?.(pasted.id)}
+              onRemove={() => onRemovePastedText?.(pasted.id)}
+            />
+          ))}
+          {pullRequestContexts.map((context) => (
+            <ComposerPullRequestContextCard
+              key={context.id}
+              scope={context.scope}
+              itemKind={context.itemKind}
+              title={context.title}
+              subtitle={context.subtitle}
+              onRemove={() => onRemovePullRequestContext?.(context.id)}
+            />
+          ))}
+          {files.map((file) => (
+            <FileAttachmentChip
+              key={file.id}
+              file={file}
+              variant="card"
+              onRemove={onRemoveFile}
+              onOpen={() => setPreviewed({ kind: "file", id: file.id })}
+            />
+          ))}
+          {images.map((image) => (
+            <ComposerImageAttachmentChip
+              key={image.id}
+              image={image}
+              images={images}
+              nonPersisted={nonPersistedImageIdSet.has(image.id)}
+              onOpenPreview={(imageId) => setPreviewed({ kind: "image", id: imageId })}
+              onRemoveImage={onRemoveImage}
+            />
+          ))}
+          <ComposerAttachmentPreview
+            target={previewTarget}
+            images={images}
+            onShowImage={(imageId) => setPreviewed({ kind: "image", id: imageId })}
+            onClose={() => setPreviewed(null)}
+            onReplaceImage={onReplaceImage}
+            markupRequestKey={markupRequestKey}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

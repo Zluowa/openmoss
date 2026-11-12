@@ -1872,6 +1872,8 @@ export function deriveComposerSendState(options: {
   imageCount: number;
   fileCount: number;
   assistantSelectionCount: number;
+  /** Quotes that carry the reader's own reply ("With reply"): those are a message. */
+  assistantSelectionReplyCount?: number;
   browserAnnotationCount: number;
   fileCommentCount: number;
   terminalContexts: ReadonlyArray<TerminalContextDraft>;
@@ -1900,6 +1902,7 @@ export function deriveComposerSendState(options: {
   const sendablePullRequestContexts = normalizePullRequestContexts(options.pullRequestContexts);
   const hasSendableContent =
     trimmedPrompt.length > 0 ||
+    (options.assistantSelectionReplyCount ?? 0) > 0 ||
     options.imageCount > 0 ||
     options.fileCount > 0 ||
     options.browserAnnotationCount > 0 ||

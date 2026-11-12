@@ -30,6 +30,7 @@ export const DESKTOP_IPC_CHANNELS = {
   setUiLocale: "desktop:set-ui-locale",
   setDockIconPreference: "desktop:set-dock-icon-preference",
   getAppIcon: "desktop:get-app-icon",
+  getAppFileIcon: "desktop:get-app-file-icon",
   setAppIcon: "desktop:set-app-icon",
   contextMenu: "desktop:context-menu",
   applicationMenu: "desktop:application-menu",

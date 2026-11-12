@@ -35,21 +35,17 @@ describe("page AI prompts", () => {
     expect(prompt).not.toContain("moss_pages_draft");
   });
 
-  it("names the visualization card the agent should fill", () => {
-    expect(pageAiPrompt("visualize", "画一张进度图", document, "viz-1").context).toContain(
-      "块 id: viz-1",
-    );
-  });
-
-  it("asks for an interactive 应用页 first and keeps the static fallback for a failed publish", () => {
-    const context = pageAiPrompt("visualize", "把三条建议做成对比表", document, "viz-1").context;
-    // The owner's run asked for a 对比表 and got a static Markdown table: the old prompt
-    // offered the table as an equal alternative.
-    expect(context).toContain("moss_app_guide");
-    expect(context).toContain("moss_app_publish");
-    expect(context).toContain("用户说“表格”时也做成可交互的应用页");
-    expect(context.indexOf("moss_app_publish")).toBeLessThan(context.indexOf("Markdown 表格"));
-    expect(context).toContain("只有 moss_app_publish 不可用或发布失败时");
+  it("asks for one moss_app_visualize call naming the page and the card to fill", () => {
+    const context = pageAiPrompt("visualize", "柱状图：甲3 乙5 丙2", document, "viz-1").context;
+    expect(context).toContain('blockId: "viz-1"');
+    expect(context).toContain('pageId: "page-1"');
+    expect(context).toContain("只调用一次 moss_app_visualize");
+    // Round 10: the model fought the nested JSON of moss_pages_draft and spawned sub-agents.
+    expect(context).toContain("不要调用 moss_app_guide、moss_app_publish 或 moss_pages_draft");
+    expect(context).toContain("不要启动子智能体");
+    expect(context).toContain("用户说“表格”时也做成可交互的");
+    expect(context).not.toContain("Markdown 表格");
+    expect(context).toContain("用简体中文，语气简洁");
   });
 
   it("reads 助手说明 blocks and strips a wrapping fence from generated text", () => {

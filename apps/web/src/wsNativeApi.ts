@@ -1012,6 +1012,7 @@ export function createWsNativeApi(): WsNativeApi {
       getProfileTokenStats: (input) =>
         transport.request(WS_METHODS.statsGetProfileTokenStats, input),
       getRecap: (input) => transport.request(WS_METHODS.statsGetRecap, input),
+      getUsageAnalytics: (input) => transport.request(WS_METHODS.statsGetUsageAnalytics, input),
     },
     realtimeVoice: {
       listVoices: () => transport.request(WS_METHODS.realtimeVoiceListVoices),
@@ -1358,6 +1359,7 @@ export function createWsNativeApi(): WsNativeApi {
     computer: {
       getStatus: (input) => transport.request(COMPUTER_WS_METHODS.getStatus, input),
       getAuditHistory: (input) => transport.request(COMPUTER_WS_METHODS.getAuditHistory, input),
+      listUsedApps: (input) => transport.request(COMPUTER_WS_METHODS.listUsedApps, input),
       getState: (input) => transport.request(COMPUTER_WS_METHODS.getState, input),
       provision: (input) =>
         transport.request(COMPUTER_WS_METHODS.provision, input, { timeoutMs: null }),

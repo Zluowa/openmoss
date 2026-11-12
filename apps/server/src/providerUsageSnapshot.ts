@@ -256,7 +256,7 @@ async function safeLstat(path: string): Promise<Stats | null> {
   }
 }
 
-async function mapWithConcurrency<T, R>(
+export async function mapWithConcurrency<T, R>(
   items: ReadonlyArray<T>,
   concurrency: number,
   mapper: (item: T) => Promise<R>,
@@ -1242,7 +1242,7 @@ function readClaudeToolResultSample(input: {
 // Claude Code stores transcripts under `<CLAUDE_CONFIG_DIR>/projects`, defaulting to
 // `~/.claude/projects`. Honor the override so the Profile reads the SAME transcripts
 // the active Claude provider does (the adapter inherits `process.env`).
-function resolveClaudeProjectsRoot(input: { homeDir: string; homePath?: string }): string {
+export function resolveClaudeProjectsRoot(input: { homeDir: string; homePath?: string }): string {
   const configuredHome = input.homePath?.trim();
   if (configuredHome) {
     // The legacy Claude provider setting is an account HOME (the same value

@@ -378,6 +378,8 @@ import type {
   ComputerEvent,
   ComputerGetStateInput,
   ComputerGetStatusInput,
+  ComputerListUsedAppsInput,
+  ComputerListUsedAppsResult,
   ComputerInputClickInput,
   ComputerInputKeyInput,
   ComputerInputScrollInput,
@@ -631,6 +633,8 @@ import type {
   StatsGetProfileTokenStatsResult,
   StatsGetRecapInput,
   StatsGetRecapResult,
+  StatsGetUsageAnalyticsInput,
+  StatsGetUsageAnalyticsResult,
 } from "./stats";
 import type { BrowserAnnotationMethods } from "./browserAnnotations";
 import { type KeybindingCommand, MAX_KEYBINDING_VALUE_LENGTH } from "./keybindings";
@@ -1500,6 +1504,11 @@ export interface DesktopBridge {
   /** macOS only; resolves false when the adjustable blur is unavailable. */
   setWindowMaterial?: (input: DesktopWindowMaterial) => Promise<boolean>;
   getAppIcon?: () => Promise<DesktopAppIcon>;
+  /**
+   * The system icon of another app's executable or bundle, as a PNG data URL,
+   * or null when it cannot be read. Settings › Computer use draws app rows with it.
+   */
+  getAppFileIcon?: (path: string) => Promise<string | null>;
   setAppIcon: (icon: DesktopAppIcon) => Promise<void>;
   showContextMenu: <T extends string>(
     items: readonly ContextMenuItem<T>[],
@@ -2042,6 +2051,9 @@ export interface NativeApi {
       input: StatsGetProfileTokenStatsInput,
     ) => Promise<StatsGetProfileTokenStatsResult>;
     getRecap: (input: StatsGetRecapInput) => Promise<StatsGetRecapResult>;
+    getUsageAnalytics: (
+      input: StatsGetUsageAnalyticsInput,
+    ) => Promise<StatsGetUsageAnalyticsResult>;
   };
   computerHistory?: {
     getState: (input?: ComputerHistoryGetStateInput) => Promise<ComputerHistoryState>;
@@ -2360,6 +2372,8 @@ export interface NativeApi {
     getAuditHistory: (
       input: ComputerGetAuditHistoryInput,
     ) => Promise<ComputerGetAuditHistoryResult>;
+    /** The apps agents have driven, for Settings › Computer use. Never starts the backend. */
+    listUsedApps: (input: ComputerListUsedAppsInput) => Promise<ComputerListUsedAppsResult>;
     provision: (input: ComputerProvisionInput) => Promise<ComputerProvisionResult>;
     setControlEnabled: (
       input: ComputerSetControlEnabledInput,

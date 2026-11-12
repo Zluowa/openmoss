@@ -28,6 +28,7 @@ import {
   type MossCloudAccountServiceShape,
 } from "../Services/MossCloudAccountService";
 import { MossManagedProvider } from "../Services/MossManagedProvider";
+import { mossBearerRefreshLeadMs } from "../managedCredentialFreshness";
 import { describeMossErrorCauses } from "../mossAccountErrors";
 import { MossCloudAccountServiceError } from "../mossCloudAccountErrors";
 import {
@@ -53,7 +54,10 @@ import {
 
 const SESSION_SECRET_PREFIX = "moss.cloud.session";
 const PKCE_SECRET_PREFIX = "moss.cloud.pkce";
-const SESSION_REFRESH_SKEW_MS = 5 * 60_000;
+// Refresh early enough that every live process keeps a bearer that can outlast
+// a long turn (see MOSS_BEARER_REFRESH_LEAD_MS).
+const sessionRefreshLeadMs = (stored: { readonly accessToken: string }) =>
+  mossBearerRefreshLeadMs(stored.accessToken);
 const SESSION_MAINTENANCE_INTERVAL = Duration.minutes(1);
 const PKCE_TTL_MS = 60 * 60 * 1_000;
 const EXCHANGE_IDEMPOTENCY_TTL_MS = 60_000;
@@ -1437,7 +1441,7 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
             }),
           );
         }
-        if (!force && stored.expiresAt > now() + SESSION_REFRESH_SKEW_MS) {
+        if (!force && stored.expiresAt > now() + sessionRefreshLeadMs(stored)) {
           return { selected, stored };
         }
         const refreshed = yield* Effect.tryPromise({
@@ -1657,7 +1661,7 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
         }
 
         const previouslySelected = yield* loadSelectedBinding();
-        if (stored.expiresAt <= now() + SESSION_REFRESH_SKEW_MS) {
+        if (stored.expiresAt <= now() + sessionRefreshLeadMs(stored)) {
           const refreshed = yield* Effect.tryPromise({
             try: () => client.refresh(stored.refreshToken),
             catch: mapSupabaseMossAuthError,
@@ -1953,7 +1957,7 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
             yield* clearSelectedSession();
             return;
           }
-          if (stored.expiresAt <= now() + SESSION_REFRESH_SKEW_MS) {
+          if (stored.expiresAt <= now() + sessionRefreshLeadMs(stored)) {
             yield* refreshSelected(true).pipe(
               Effect.catch((error) =>
                 error.code === "session_expired" || error.code === "authentication_required"
@@ -2031,7 +2035,7 @@ export const makeMossCloudAccountService = (options: MakeMossCloudAccountService
             yield* clearSelectedSession();
             return accountState(null, null);
           }
-          if (stored.expiresAt <= now() + SESSION_REFRESH_SKEW_MS) {
+          if (stored.expiresAt <= now() + sessionRefreshLeadMs(stored)) {
             const refreshed = yield* refreshSelected(true).pipe(
               Effect.catch((error) =>
                 error.code === "session_expired" || error.code === "authentication_required"

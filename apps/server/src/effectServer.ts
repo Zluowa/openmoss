@@ -45,6 +45,7 @@ import {
   maintainMossPhoneAccountSession,
   startMossPhoneAccountSessionMaintenance,
 } from "./account/Layers/MossPhoneAccountService";
+import { startMossServiceEntryMaintenance } from "./account/mossServiceEntries";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -700,6 +701,25 @@ export const createEffectServer = Effect.fn(function* (
   );
   yield* Scope.provide(
     startMossPhoneAccountSessionMaintenance(mossPhoneAccount),
+    subscriptionsScope,
+  );
+  // When the CN gateway entry in use changes, lanes provisioned with the old entry are
+  // re-provisioned on the new one through the same-authority path.
+  yield* Scope.provide(
+    startMossServiceEntryMaintenance({
+      onCnModelGatewayChange: maintainMossPhoneAccountSession(mossPhoneAccount).pipe(
+        Effect.andThen(
+          mossEnterpriseKey.restore().pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("failed to move the Moss enterprise key to the new gateway entry", {
+                code: error.code,
+                message: error.message,
+              }),
+            ),
+          ),
+        ),
+      ),
+    }),
     subscriptionsScope,
   );
   yield* Scope.provide(

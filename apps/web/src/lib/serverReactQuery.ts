@@ -7,6 +7,7 @@ import type {
   ServerProviderStatus,
   ServerStopLocalServerInput,
   StatsGetRecapInput,
+  StatsGetUsageAnalyticsInput,
   ThreadId,
 } from "@moss/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
@@ -45,10 +46,13 @@ export const serverQueryKeys = {
     ["server", "profileTokenStats", utcOffsetMinutes] as const,
   recap: (input: StatsGetRecapInput) =>
     ["server", "recap", input.from, input.to, input.slotBoundaries.join(",")] as const,
+  usageAnalytics: (input: StatsGetUsageAnalyticsInput) =>
+    ["server", "usageAnalytics", input.from, input.to, input.scope ?? "moss"] as const,
   studioThreadOutputs: (threadId: ThreadId | null) =>
     ["server", "studioThreadOutputs", threadId] as const,
   computerStatus: () => ["server", "computerStatus"] as const,
   computerAuditHistory: () => ["server", "computerAuditHistory"] as const,
+  computerUsedApps: () => ["server", "computerUsedApps"] as const,
 };
 
 export const serverMutationKeys = {
@@ -529,6 +533,24 @@ export function serverRecapQueryOptions(
     refetchOnWindowFocus: false,
     retry: false,
     queryFn: async () => ensureNativeApi().stats.getRecap(input),
+  });
+}
+
+// Usage analytics for Settings → Usage → Analytics. A window that ends in the past
+// never changes; the current one refreshes while the tab is open.
+export function serverUsageAnalyticsQueryOptions(
+  input: StatsGetUsageAnalyticsInput,
+  options: { enabled?: boolean } = {},
+) {
+  return queryOptions({
+    queryKey: serverQueryKeys.usageAnalytics(input),
+    enabled: options.enabled ?? true,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+    retry: false,
+    queryFn: async () => ensureNativeApi().stats.getUsageAnalytics(input),
   });
 }
 

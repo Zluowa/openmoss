@@ -242,6 +242,8 @@ import {
   ComputerGetScreenSizeResult,
   ComputerGetStateInput,
   ComputerGetStatusInput,
+  ComputerListUsedAppsInput,
+  ComputerListUsedAppsResult,
   ComputerHotkeyInput,
   ComputerInputClickInput,
   ComputerInputKeyInput,
@@ -630,6 +632,8 @@ import {
   StatsGetProfileTokenStatsResult,
   StatsGetRecapInput,
   StatsGetRecapResult,
+  StatsGetUsageAnalyticsInput,
+  StatsGetUsageAnalyticsResult,
 } from "./stats";
 import { WS_METHODS } from "./ws";
 import {
@@ -1201,6 +1205,12 @@ export const WsComputerGetAuditHistoryRpc = Rpc.make(COMPUTER_WS_METHODS.getAudi
   error: WsRpcError,
 });
 
+export const WsComputerListUsedAppsRpc = Rpc.make(COMPUTER_WS_METHODS.listUsedApps, {
+  payload: ComputerListUsedAppsInput,
+  success: ComputerListUsedAppsResult,
+  error: WsRpcError,
+});
+
 export const WsComputerProvisionRpc = Rpc.make(COMPUTER_WS_METHODS.provision, {
   payload: ComputerProvisionInput,
   success: ComputerProvisionResult,
@@ -1344,6 +1354,7 @@ export const WsSubscribeComputerEventsRpc = Rpc.make(COMPUTER_WS_METHODS.subscri
 export const WsComputerRpcGroup = RpcGroup.make(
   WsComputerGetStatusRpc,
   WsComputerGetAuditHistoryRpc,
+  WsComputerListUsedAppsRpc,
   WsComputerProvisionRpc,
   WsComputerListWindowsRpc,
   WsComputerGetStateRpc,
@@ -1966,6 +1977,12 @@ export const WsStatsGetProfileTokenStatsRpc = Rpc.make(WS_METHODS.statsGetProfil
 export const WsStatsGetRecapRpc = Rpc.make(WS_METHODS.statsGetRecap, {
   payload: StatsGetRecapInput,
   success: StatsGetRecapResult,
+  error: WsRpcError,
+});
+
+export const WsStatsGetUsageAnalyticsRpc = Rpc.make(WS_METHODS.statsGetUsageAnalytics, {
+  payload: StatsGetUsageAnalyticsInput,
+  success: StatsGetUsageAnalyticsResult,
   error: WsRpcError,
 });
 
@@ -3366,6 +3383,7 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsStatsGetProfileStatsRpc,
   WsStatsGetProfileTokenStatsRpc,
   WsStatsGetRecapRpc,
+  WsStatsGetUsageAnalyticsRpc,
   WsServerGetDiagnosticsRpc,
   WsServerPrepareDevsReportRpc,
   WsServerSubmitDevsReportRpc,

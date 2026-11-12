@@ -24,6 +24,7 @@ import {
   TurnId,
 } from "@moss/contracts";
 import { assert, describe, it } from "@effect/vitest";
+import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
 import { assessClaudeCache } from "@moss/shared/claudeCache";
 import { resetLocalAgentPathLookupCache } from "@moss/shared/localAgentExecutable";
 import {
@@ -59,6 +60,7 @@ import {
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import {
   buildEmbeddedClaudeSystemPromptAppend,
+  claudeAssistantErrorMessage,
   claudeHomeEnvironment,
   makeClaudeAdapterLive as makeClaudeAdapterLiveBase,
   type ClaudeAdapterLiveOptions,
@@ -5885,6 +5887,17 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
+    );
+  });
+
+  it("tells a Moss Claude lane to send again instead of running claude login", () => {
+    assert.equal(
+      claudeAssistantErrorMessage("authentication_failed", "claude_moss"),
+      MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
+    );
+    assert.match(
+      claudeAssistantErrorMessage("authentication_failed", "claudeAgent"),
+      /claude auth login --claudeai/i,
     );
   });
 

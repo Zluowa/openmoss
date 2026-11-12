@@ -3,6 +3,8 @@
 //          page's language, matching the page editor's own copy.
 // Layer: Page AI (web)
 
+import { isMossManagedSessionRejected } from "~/components/chat/threadErrorPresentation";
+
 export type PageAiLocale = "zh-CN" | "en";
 
 /** Follows the UI language the localization provider publishes on <html data-moss-locale>. */
@@ -121,7 +123,6 @@ const zh = {
   resolveFailed: "没能记录这次审阅",
   uploadFailed: "上传失败",
   uploadNoPreview: "文件已放进资料库，但无法在页面里显示。",
-  appPageSoon: "应用页即将上线",
   starting: "正在交给智能体…",
   running: "智能体正在处理…",
   drafted: "已写好，等你审阅",
@@ -129,6 +130,7 @@ const zh = {
   failed: "没有完成",
   failedAgentOff: "这个智能体在设置里关掉了。打开它，或换一个智能体再试。",
   failedSignIn: "智能体需要先登录。登录后再试。",
+  failedMossSession: "Moss 刚更新了登录状态，请再试一次。",
   failedSlow: "智能体启动太久，没有响应。稍后再试，或查看对话里的详情。",
   failedOther: "智能体没能完成。查看对话里的详情，或再试一次。",
   openChat: "查看对话",
@@ -229,7 +231,6 @@ const en: Text = {
   resolveFailed: "Could not record this review",
   uploadFailed: "Upload failed",
   uploadNoPreview: "The file is in your library but cannot be shown in the page.",
-  appPageSoon: "App pages are coming soon",
   starting: "Handing it to the agent…",
   running: "The agent is working…",
   drafted: "Written; ready for your review",
@@ -238,6 +239,7 @@ const en: Text = {
   failedAgentOff:
     "This agent is turned off in Settings. Turn it on, or pick another agent, and try again.",
   failedSignIn: "The agent needs you to sign in first. Sign in, then try again.",
+  failedMossSession: "Moss just renewed its sign-in. Try again.",
   failedSlow:
     "The agent took too long to start. Try again in a moment, or see the chat for details.",
   failedOther: "The agent couldn't finish. See the chat for details, or try again.",
@@ -251,8 +253,16 @@ export const pageAiText = (locale: PageAiLocale): Text => (locale === "en" ? en 
  * pass through; an agent's or provider's technical error becomes a plain sentence that says
  * what to do (its full text stays in the chat).
  */
-export function pageAiErrorText(raw: string | undefined, text: Text): string {
+export function pageAiErrorText(
+  raw: string | undefined,
+  text: Text,
+  /** Only a Moss account that really is signed out is told to sign in. */
+  moss: { readonly signedOut?: boolean } = {},
+): string {
   const message = raw?.trim() ?? "";
+  if (isMossManagedSessionRejected(message)) {
+    return moss.signedOut ? text.failedSignIn : text.failedMossSession;
+  }
   const technical =
     !message ||
     /^\w*Error\b|\bat <anonymous>|Provider|adapter|validation|thread\.|RPC|ECONN|\{/u.test(

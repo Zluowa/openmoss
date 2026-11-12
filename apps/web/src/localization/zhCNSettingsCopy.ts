@@ -696,6 +696,16 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Control apps": "控制",
   "Any app": "任意应用",
   "Let Moss use the apps on your computer": "允许 Moss 使用你电脑上的应用",
+  "Apps Moss uses will show up here": "Moss 用过的应用会显示在这里",
+  "Off while Any app is off": "任意应用关闭时不可用",
+  "Moss won't use this app": "Moss 不会使用这个应用",
+  "Moss uses it without asking": "使用时不再询问",
+  "Moss asks before using it": "使用前会先询问你",
+  "Always allowed apps": "始终允许的应用",
+  "Add an always allowed app": "添加始终允许的应用",
+  Add: "添加",
+  "No apps yet": "暂无",
+  Remove: "移除",
   "While Moss works": "Moss 操控时",
   "Pointer color": "指针颜色",
   "Looks like a normal pointer by default": "默认和普通指针一样",
@@ -802,6 +812,8 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
 
 const SETTINGS_COPY_PATTERNS: ReadonlyArray<readonly [RegExp, (match: RegExpExecArray) => string]> =
   [
+    [/^Let Moss use (.+)$/, (match) => `允许 Moss 使用 ${match[1]}`],
+    [/^Stop always allowing (.+)$/, (match) => `不再始终允许 ${match[1]}`],
     [
       /^(.+) is not authenticated\. Run `([^`]+)` and try again\.$/,
       (match) => `${match[1]} 尚未登录。请运行 \`${match[2]}\` 后重试。`,

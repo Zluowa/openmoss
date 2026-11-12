@@ -1262,6 +1262,8 @@ describe("MessagesTimeline generated-image browser parity", () => {
       pendingImageCount: 1,
       pendingMedia: "video" as const,
       pendingJobIds: ["moss_video_job"],
+      pendingStage: "running" as const,
+      pendingModelId: "doubao-seedance-2.0-fast",
     };
     const screen = await render(<GeneratedImageGallery gallery={pendingGallery} cwd="/tmp" />, {
       container: host,
@@ -1275,10 +1277,10 @@ describe("MessagesTimeline generated-image browser parity", () => {
       );
       await expect
         .element(page.getByTestId("generated-video-pending-caption"))
-        .toHaveTextContent("正在生成视频，通常需要几分钟");
+        .toHaveTextContent("正在生成视频 · 即梦 Seedance 2.0 Fast");
       await expect
         .element(page.getByTestId("generated-video-waited"))
-        .toHaveTextContent(/已等待 5 分 5\d 秒/u);
+        .toHaveTextContent(/通常需要几分钟 · 已等待 5 分 5\d 秒/u);
       // A 16:9 placeholder, wider than tall, so the player replaces it without a jump.
       const box = pending
         .element()
@@ -1321,6 +1323,127 @@ describe("MessagesTimeline generated-image browser parity", () => {
       host.remove();
     }
   });
+
+  it("says a queued video is waiting to start, and a failed one offers 重试", async () => {
+    localizationTestState.locale = "zh-CN";
+    const host = createHost(720, 620);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => Response.json({}, { status: 404 }));
+    const retried: string[] = [];
+    const base = { turnId: TURN_ID, createdAt: new Date().toISOString(), images: [] };
+    const screen = await render(
+      <GeneratedImageGallery
+        gallery={{
+          ...base,
+          pendingImageCount: 1,
+          pendingMedia: "video",
+          pendingJobIds: ["moss_queued_job"],
+          pendingStage: "queued",
+        }}
+        cwd="/tmp"
+        onRetry={(media) => retried.push(media)}
+      />,
+      { container: host },
+    );
+    try {
+      await expect
+        .element(page.getByTestId("generated-video-waited"))
+        .toHaveTextContent(/^排队中 · 已等待 0 分 \d 秒$/u);
+      expect(page.getByTestId("generated-video-pending-caption").element().textContent).toContain(
+        "正在生成视频",
+      );
+      await screen.rerender(
+        <GeneratedImageGallery
+          gallery={{ ...base, pendingImageCount: 0, failed: { media: "video" } }}
+          cwd="/tmp"
+          onRetry={(media) => retried.push(media)}
+        />,
+      );
+      const failed = page.getByTestId("generated-media-failed");
+      await expect.element(failed).toHaveTextContent("视频没有生成出来");
+      const box = failed.element().getBoundingClientRect();
+      expect(box.width / box.height).toBeGreaterThan(1.5);
+      await page.screenshot({ path: `${RECEIPT_DIR}/video-failed-zh.png` });
+      await page.getByTestId("generated-media-retry").click();
+      expect(retried).toEqual(["video"]);
+      // Without a way to send a new turn (a shared viewer), there is no 重试 button.
+      await screen.rerender(
+        <GeneratedImageGallery
+          gallery={{ ...base, pendingImageCount: 0, failed: {} }}
+          cwd="/tmp"
+        />,
+      );
+      await expect
+        .element(page.getByTestId("generated-media-failed"))
+        .toHaveTextContent("图片没有生成出来");
+      expect(host.querySelector('[data-testid="generated-media-retry"]')).toBeNull();
+    } finally {
+      fetchSpy.mockRestore();
+      localizationTestState.locale = "en";
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it.each([
+    ["zh-CN", "light"],
+    ["zh-CN", "dark"],
+    ["en", "light"],
+    ["en", "dark"],
+  ] as const)(
+    "draws the waiting and failed media cards quietly (%s, %s)",
+    async (locale, theme) => {
+      localizationTestState.locale = locale;
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockImplementation(async () => Response.json({}, { status: 404 }));
+      const host = createHost(720, 760);
+      const base = { turnId: TURN_ID, images: [] };
+      const screen = await render(
+        <div className="flex flex-col gap-4 p-4">
+          <GeneratedImageGallery
+            gallery={{
+              ...base,
+              createdAt: new Date(Date.now() - 185_000).toISOString(),
+              pendingImageCount: 1,
+              pendingMedia: "video",
+              pendingJobIds: ["moss_design_job"],
+              pendingStage: "running",
+              pendingModelId: "doubao-seedance-2.0-fast",
+            }}
+            cwd="/tmp"
+          />
+          <GeneratedImageGallery
+            gallery={{
+              ...base,
+              createdAt: new Date().toISOString(),
+              pendingImageCount: 0,
+              failed: { media: "video" },
+            }}
+            cwd="/tmp"
+            onRetry={() => undefined}
+          />
+        </div>,
+        { container: host },
+      );
+      try {
+        await expect.element(page.getByTestId("generated-media-failed")).toBeVisible();
+        await expect.element(page.getByTestId("generated-video-waited")).toBeVisible();
+        const failed = page.getByTestId("generated-media-failed").element();
+        // No frame around a reply's card: only the quiet fill the placeholder uses.
+        expect(getComputedStyle(failed).borderTopWidth).toBe("0px");
+        await page.screenshot({ path: `${RECEIPT_DIR}/media-cards-${locale}-${theme}.png` });
+      } finally {
+        fetchSpy.mockRestore();
+        document.documentElement.classList.remove("dark");
+        localizationTestState.locale = "en";
+        await screen.unmount();
+        host.remove();
+      }
+    },
+  );
 
   it("preserves the selected identity as pending results complete and reorder", async () => {
     await page.viewport(720, 620);

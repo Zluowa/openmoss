@@ -20,6 +20,7 @@ export interface ExtractedAssistantSelections {
 export interface ParsedAssistantSelectionEntry {
   assistantMessageId: string;
   text: string;
+  comment?: string;
 }
 
 export type AssistantSelectionValidationError = "empty" | "too-long";
@@ -45,24 +46,37 @@ export function getAssistantSelectionValidationError(
   return null;
 }
 
+type AssistantSelectionContent = Pick<
+  ChatAssistantSelectionAttachment,
+  "assistantMessageId" | "text" | "comment"
+>;
+
+/** The reader's reply to a quote, trimmed; empty means the quote has no reply. */
+export function normalizeAssistantSelectionComment(comment: string | undefined): string {
+  return (comment ?? "").replace(/\r\n/g, "\n").trim();
+}
+
 export function normalizeAssistantSelectionAttachment(
-  selection: Pick<ChatAssistantSelectionAttachment, "assistantMessageId" | "text">,
-): Pick<ChatAssistantSelectionAttachment, "assistantMessageId" | "text"> | null {
+  selection: AssistantSelectionContent,
+): AssistantSelectionContent | null {
   const validationError = getAssistantSelectionValidationError(selection);
   if (validationError) {
     return null;
   }
   const assistantMessageId = selection.assistantMessageId.trim();
   const text = normalizeAssistantSelectionText(selection.text);
+  const comment = normalizeAssistantSelectionComment(selection.comment);
   return {
     assistantMessageId,
     text,
+    ...(comment.length > 0 ? { comment } : {}),
   };
 }
 
 export function createAssistantSelectionAttachment(input: {
   assistantMessageId: string;
   text: string;
+  comment?: string;
 }): ChatAssistantSelectionAttachment | null {
   const normalized = normalizeAssistantSelectionAttachment(input);
   if (!normalized) {
@@ -74,8 +88,12 @@ export function createAssistantSelectionAttachment(input: {
     id: randomUUID(),
     assistantMessageId: normalized.assistantMessageId,
     text: normalized.text,
+    ...(normalized.comment ? { comment: normalized.comment } : {}),
   };
 }
+
+/** Header line that starts the reader's reply to the quote above it in the prompt block. */
+const ASSISTANT_SELECTION_REPLY_HEADER = "- reply to the selection above:";
 
 export function formatAssistantSelectionQueuePreview(selectionCount: number): string {
   return selectionCount === 1 ? "1 referenced selection" : "Referenced selections";
@@ -88,16 +106,11 @@ export function formatAssistantSelectionTitleSeed(selectionCount: number): strin
 }
 
 export function buildAssistantSelectionsPromptBlock(
-  selections: ReadonlyArray<Pick<ChatAssistantSelectionAttachment, "assistantMessageId" | "text">>,
+  selections: ReadonlyArray<AssistantSelectionContent>,
 ): string {
   const normalizedSelections = selections
     .map((selection) => normalizeAssistantSelectionAttachment(selection))
-    .filter(
-      (
-        selection,
-      ): selection is Pick<ChatAssistantSelectionAttachment, "assistantMessageId" | "text"> =>
-        selection !== null,
-    );
+    .filter((selection): selection is AssistantSelectionContent => selection !== null);
   if (normalizedSelections.length === 0) {
     return "";
   }
@@ -108,13 +121,19 @@ export function buildAssistantSelectionsPromptBlock(
     for (const line of selection.text.split("\n")) {
       lines.push(`  ${line}`);
     }
+    if (selection.comment) {
+      lines.push(ASSISTANT_SELECTION_REPLY_HEADER);
+      for (const line of selection.comment.split("\n")) {
+        lines.push(`  ${line}`);
+      }
+    }
   }
   return ["<assistant_selection>", ...lines, "</assistant_selection>"].join("\n");
 }
 
 export function appendAssistantSelectionsToPrompt(
   prompt: string,
-  selections: ReadonlyArray<Pick<ChatAssistantSelectionAttachment, "assistantMessageId" | "text">>,
+  selections: ReadonlyArray<AssistantSelectionContent>,
 ): string {
   const trimmedPrompt = prompt.trim();
   const block = buildAssistantSelectionsPromptBlock(selections);
@@ -145,15 +164,21 @@ export function stripEmbeddedAssistantSelections(prompt: string): string {
 
 function parseAssistantSelectionEntries(block: string): ParsedAssistantSelectionEntry[] {
   const entries: ParsedAssistantSelectionEntry[] = [];
-  let current: { assistantMessageId: string; lines: string[] } | null = null;
+  let current: {
+    assistantMessageId: string;
+    lines: string[];
+    commentLines: string[] | null;
+  } | null = null;
 
   const commitCurrent = () => {
     if (!current) return;
     const text = current.lines.join("\n").trimEnd();
+    const comment = current.commentLines?.join("\n").trim() ?? "";
     if (text.length > 0) {
       entries.push({
         assistantMessageId: current.assistantMessageId,
         text,
+        ...(comment.length > 0 ? { comment } : {}),
       });
     }
     current = null;
@@ -166,18 +191,24 @@ function parseAssistantSelectionEntries(block: string): ParsedAssistantSelection
       current = {
         assistantMessageId: headerMatch[1]!.trim(),
         lines: [],
+        commentLines: null,
       };
       continue;
     }
     if (!current) {
       continue;
     }
+    if (rawLine === ASSISTANT_SELECTION_REPLY_HEADER) {
+      current.commentLines = [];
+      continue;
+    }
+    const target = current.commentLines ?? current.lines;
     if (rawLine.startsWith("  ")) {
-      current.lines.push(rawLine.slice(2));
+      target.push(rawLine.slice(2));
       continue;
     }
     if (rawLine.length === 0) {
-      current.lines.push("");
+      target.push("");
     }
   }
 

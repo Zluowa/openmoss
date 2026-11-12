@@ -159,6 +159,10 @@ import {
   resolvePreTurnBaselineTimeoutMs,
 } from "./ProviderCommandReactor.ts";
 import * as groupsBetaGate from "../../projectAgent/groupsBetaGate.ts";
+import {
+  MossManagedTurnPreflight,
+  type MossManagedTurnPreflightShape,
+} from "../../account/Services/MossManagedTurnPreflight.ts";
 import { ProjectAgentService } from "../../projectAgent/Services/ProjectAgentService.ts";
 import { ProjectAgentRepository } from "../../persistence/Services/ProjectAgentRepository.ts";
 import {
@@ -553,6 +557,7 @@ describe("ProviderCommandReactor", () => {
     readonly generateThreadTitle?: TextGenerationShape["generateThreadTitle"];
     readonly computerService?: ComputerServiceShape;
     readonly gatewaySessions?: AgentGatewaySessionRegistryShape;
+    readonly managedTurnPreflight?: MossManagedTurnPreflightShape;
     readonly getClaudeCacheObservation?: NonNullable<
       ProviderServiceShape["getClaudeCacheObservation"]
     >;
@@ -1013,9 +1018,14 @@ describe("ProviderCommandReactor", () => {
           : Layer.empty,
       ),
       Layer.provideMerge(
-        input?.gatewaySessions
-          ? Layer.succeed(AgentGatewaySessionRegistry, input.gatewaySessions)
-          : Layer.empty,
+        Layer.mergeAll(
+          input?.gatewaySessions
+            ? Layer.succeed(AgentGatewaySessionRegistry, input.gatewaySessions)
+            : Layer.empty,
+          input?.managedTurnPreflight
+            ? Layer.succeed(MossManagedTurnPreflight, input.managedTurnPreflight)
+            : Layer.empty,
+        ),
       ),
       Layer.provideMerge(
         Layer.succeed(ProviderHealth, {
@@ -1488,6 +1498,40 @@ describe("ProviderCommandReactor", () => {
     expect(sentInput.input?.indexOf("MARKER-PACKET-42") ?? -1).toBeLessThan(
       sentInput.input?.indexOf("What happened?") ?? Number.POSITIVE_INFINITY,
     );
+  });
+
+  it("checks the lane's bearer before the turn's provider session starts", async () => {
+    const checks: Array<{ instanceId: string; sessionStartsBefore: number }> = [];
+    let sessionStarts = () => 0;
+    const harness = await createHarness({
+      managedTurnPreflight: {
+        beforeTurn: (input) =>
+          Effect.sync(() => {
+            checks.push({ instanceId: input.instanceId, sessionStartsBefore: sessionStarts() });
+          }),
+      },
+    });
+    sessionStarts = () =>
+      harness.startSession.mock.calls.length + harness.startSessionWithOutcome.mock.calls.length;
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        commandId: CommandId.makeUnsafe("preflight-send"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: MessageId.makeUnsafe("preflight-message"),
+          role: "user",
+          text: "hello",
+          attachments: [],
+        },
+        createdAt: new Date().toISOString(),
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(checks).toEqual([{ instanceId: "codex", sessionStartsBefore: 0 }]);
+    expect(sessionStarts()).toBeGreaterThan(0);
   });
 
   describe("multi-folder projects", () => {

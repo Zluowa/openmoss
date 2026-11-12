@@ -3,6 +3,10 @@
 // Layer: Chat status presentation
 // Exports: resolveThreadErrorPresentation, ThreadErrorPresentation
 
+import {
+  MOSS_GATEWAY_SESSION_REJECTED_MESSAGE,
+  MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
+} from "@moss/shared/mossManagedSession";
 import { isProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 
 import type { MossLocaleCode } from "~/appSettings";
@@ -91,7 +95,8 @@ const KNOWN_FAILURE_SENTENCES = [
   "The model response could not be safely accounted for.",
   "Account quota verification is temporarily unavailable.",
   "Account verification is temporarily unavailable.",
-  "The Moss account session is invalid or expired.",
+  MOSS_GATEWAY_SESSION_REJECTED_MESSAGE,
+  MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
   "A valid Moss account session is required.",
   "This request id is already in use.",
   MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING,
@@ -141,6 +146,14 @@ export function isExplainedProviderFailure(error: string): boolean {
     MOSS_MANAGED_RUNTIME_MISSING_PATTERN.test(error) ||
     PI_MODEL_SIGN_IN_MISSING_PATTERN.test(error) ||
     KNOWN_FAILURE_SENTENCES.some((sentence) => error.includes(sentence))
+  );
+}
+
+/** A Moss lane's turn ended on a bearer the Moss gateway no longer accepts. */
+export function isMossManagedSessionRejected(error: string): boolean {
+  return (
+    error.includes(MOSS_MANAGED_SESSION_RENEWED_MESSAGE) ||
+    error.includes(MOSS_GATEWAY_SESSION_REJECTED_MESSAGE)
   );
 }
 
@@ -285,6 +298,11 @@ export function resolveThreadErrorPresentation(
     safeText = missingWorkingDirectory;
   } else if (isProviderDeliveryBlockDetail(raw)) {
     safeText = deliveryBlockError(locale);
+  } else if (isMossManagedSessionRejected(raw)) {
+    // A Moss lane whose bearer lapsed mid-task. Moss renews it on its own and the next send
+    // starts on the renewed one, so the fix is to send again, never to sign in to the CLI.
+    safeText = localizeProviderRuntimeMessage(MOSS_MANAGED_SESSION_RENEWED_MESSAGE, locale);
+    retryable = true;
   } else if (PROVIDER_START_TIMEOUT_PATTERN.test(raw)) {
     safeText = codexDataFolderSlowError(raw, locale) ?? providerStartTimeoutError(locale);
     recoveryAction = "manage-providers";

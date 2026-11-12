@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { WsRpcError } from "@moss/contracts";
+import { type StatsUsageAnalyticsScope, WsRpcError } from "@moss/contracts";
 import { CurrentWsSessionRole } from "./wsConnectionSessions";
 
 /** The authenticated connection supplies this role; request payloads cannot grant it. */
@@ -10,6 +10,13 @@ export const requireWsOwnerSession = Effect.gen(function* () {
     );
   }
 });
+
+/** Provider session files can include activity outside the paired Moss workspace. */
+export function requireUsageAnalyticsAccess(
+  scope: StatsUsageAnalyticsScope | undefined,
+): Effect.Effect<void, WsRpcError> {
+  return scope === "computer" ? requireWsOwnerSession : Effect.void;
+}
 
 export const ownerRoleRequired = requireWsOwnerSession.pipe(
   Effect.mapError(

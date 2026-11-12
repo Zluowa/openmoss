@@ -751,6 +751,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   // entire component (silently, since `panicThreshold` is unset), which would drop
   // memoization for the whole transcript. See MessagesTimeline.compiler.test.ts.
   const { locale, t, format } = useTranslation();
+  // A failed Moss image or video offers 重试: a new turn asking the agent to make it again.
+  const retryMedia = onSendPromptTurn
+    ? (media: "image" | "video") => {
+        void onSendPromptTurn(
+          t(
+            media === "video"
+              ? "chat.generatedMedia.retryVideoPrompt"
+              : "chat.generatedMedia.retryImagePrompt",
+          ),
+        );
+      }
+    : undefined;
   // moss_wrap_up never shows as a tool row: it draws the turn-end box instead.
   const wrapUpPlan = useMemo(() => resolveWrapUpPlan(rawTimelineEntries), [rawTimelineEntries]);
   const timelineEntries = useMemo(
@@ -2199,6 +2211,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     gallery={row.generatedImageGallery}
                     cwd={markdownCwd}
                     onImageExpand={onImageExpand}
+                    onRetry={retryMedia}
                   />
                 </div>
               ) : null}
@@ -3367,6 +3380,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       gallery={row.generatedImageGallery}
                       cwd={markdownCwd}
                       onImageExpand={onImageExpand}
+                      onRetry={retryMedia}
                     />
                   </div>
                 ) : null}
@@ -3766,6 +3780,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     markdownCwd,
     workspaceRoot,
     onImageExpand,
+    onRetryMedia: retryMedia,
     resolvedTheme,
     timestampFormat,
     nowIso,

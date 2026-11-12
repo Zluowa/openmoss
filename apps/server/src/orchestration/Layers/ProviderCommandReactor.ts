@@ -147,6 +147,7 @@ import {
 import { ProviderHealth } from "../../provider/Services/ProviderHealth.ts";
 import { isServerGroupsEnabled } from "../../projectAgent/groupsBetaGate.ts";
 import { ProjectAgentService } from "../../projectAgent/Services/ProjectAgentService.ts";
+import { MossManagedTurnPreflight } from "../../account/Services/MossManagedTurnPreflight.ts";
 import { ProjectAgentRepository } from "../../persistence/Services/ProjectAgentRepository.ts";
 import { resolveProviderDispatchAttachments } from "../../provider/providerAttachmentPaths.ts";
 import { OrchestrationEventDeliveryRepositoryLive } from "../../persistence/Layers/OrchestrationEventDeliveries.ts";
@@ -1088,6 +1089,7 @@ const make = Effect.gen(function* () {
   // layer environment, so per-turn serviceOption lookups would see an empty
   // context.
   const projectAgentService = yield* Effect.serviceOption(ProjectAgentService);
+  const managedTurnPreflight = yield* Effect.serviceOption(MossManagedTurnPreflight);
   const providerHealth = yield* ProviderHealth;
   const pendingInteractions = yield* ProjectionPendingInteractionRepository;
   const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
@@ -3401,6 +3403,17 @@ const make = Effect.gen(function* () {
     const thread = yield* resolveThread(input.threadId);
     if (!thread) {
       return;
+    }
+    // Before the turn's CLI starts or is reused: a Moss lane whose live bearer could
+    // lapse mid-turn is rotated first. A steer joins the turn already running.
+    if (Option.isSome(managedTurnPreflight) && (input.dispatchMode ?? "queue") !== "steer") {
+      yield* managedTurnPreflight.value.beforeTurn({
+        instanceId: resolveModelSelectionInstanceId(
+          input.modelSelection ??
+            threadSessionModelSelections.get(input.threadId) ??
+            thread.modelSelection,
+        ),
+      });
     }
     const projectContextPacket = yield* (
       Option.isSome(projectAgentService)

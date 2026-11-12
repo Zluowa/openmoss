@@ -823,7 +823,12 @@ export class HoolaCanvasBridgeBroker {
   async retrySavedOutput(jobId: string): Promise<HoolaCanvasJobSnapshot> {
     const record = this.#jobs.get(jobId);
     if (!record) throw new Error("job_not_found");
-    if (record.running) return record.running;
+    if (record.running) {
+      // The job's own run may still be saving a failed download when this asks (a slow disk).
+      // Handing back that run would answer with the failure; wait for it, then look again.
+      await record.running.catch(() => undefined);
+      if (record.running) return record.running;
+    }
     const urls = record.outputUrls ?? (record.outputAssetUrl ? [record.outputAssetUrl] : []);
     if (
       record.status !== "succeeded" ||

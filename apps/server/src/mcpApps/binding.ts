@@ -6,7 +6,11 @@
 // Layer: Server MCP Apps runtime (pure)
 // Exports: parseQualifiedToolName, buildMcpAppBinding, enrichMcpToolRow, McpAppRowContext
 
-import type { CodexMcpAppDescriptor, ProviderRuntimeEvent } from "@moss/contracts";
+import {
+  MCP_APP_DEFAULT_CALL_FAILED_MESSAGE,
+  type CodexMcpAppDescriptor,
+  type ProviderRuntimeEvent,
+} from "@moss/contracts";
 
 import { projectCodexMcpToolCall } from "../provider/Layers/CodexAdapter.ts";
 import type { McpAppServerIdentity } from "./Services/McpAppService.ts";
@@ -189,7 +193,7 @@ function errorMessageFromRaw(data: Record<string, unknown>): string {
   }
   const state = asRecord(data.state);
   const stateError = nonEmpty(state?.error, 2_000);
-  return stateError ?? "The tool call failed.";
+  return stateError ?? MCP_APP_DEFAULT_CALL_FAILED_MESSAGE;
 }
 
 /**
@@ -241,7 +245,10 @@ export function bindMcpToolRow(
       binding,
       state,
       ...(state === "failed"
-        ? { error: nonEmpty(asRecord(data.error)?.message, 2_000) ?? "The tool call failed." }
+        ? {
+            error:
+              nonEmpty(asRecord(data.error)?.message, 2_000) ?? MCP_APP_DEFAULT_CALL_FAILED_MESSAGE,
+          }
         : {}),
       input: captured?.input ?? args,
       ...(captured?.result ? { result: captured.result } : {}),

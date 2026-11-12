@@ -298,6 +298,25 @@ const makeLibraryRepository = Effect.gen(function* () {
       ),
     );
 
+  const listShownCodexImagePaths: LibraryRepositoryShape["listShownCodexImagePaths"] = () =>
+    sql<{ path: string | null }>`
+      SELECT json_extract(payload_json, '$.data.path') AS path
+      FROM projection_thread_activities
+      WHERE kind = 'tool.completed'
+        AND payload_json LIKE '%codex.generated_image%'
+        AND json_extract(payload_json, '$.data.kind') = 'codex.generated_image'
+    `.pipe(
+      Effect.map((rows) =>
+        rows.flatMap((row) => (typeof row.path === "string" && row.path ? [row.path] : [])),
+      ),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "LibraryRepository.listShownCodexImagePaths:query",
+          "LibraryRepository.listShownCodexImagePaths:decodeRows",
+        ),
+      ),
+    );
+
   const listFolders: LibraryRepositoryShape["listFolders"] = () =>
     listFolderRows().pipe(
       Effect.mapError(
@@ -350,6 +369,7 @@ const makeLibraryRepository = Effect.gen(function* () {
 
   return {
     listDeletedMediaIds,
+    listShownCodexImagePaths,
     listItems,
     listExpiredTrash,
     getItemById,

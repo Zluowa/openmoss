@@ -44,6 +44,12 @@ import {
 } from "../libraryScan.ts";
 import { LibraryService, type LibraryServiceShape } from "../Services/LibraryService.ts";
 
+/** One spelling per file for comparing paths (Windows paths ignore case and slash style). */
+function comparableLibraryPath(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
 /** Codex 回收站 keeps files for 30 days before permanent deletion (§2.6). */
 export const LIBRARY_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -280,7 +286,22 @@ export const makeLibraryServiceShape = (options: MakeLibraryServiceOptions) =>
           repository.listItems({ includeTrashed }),
           repository.listFolders(),
         ]);
-        const result: LibraryListResult = { items: [...items], folders: [...folders] };
+        if (!input.deliveredOnly) return { items: [...items], folders: [...folders] };
+        // Codex keeps every image of a session in generated_images, including screenshots a
+        // tool took along the way (exec-<id>.png). Only the ones a chat showed reached the
+        // person; agent-internal edit backups never did.
+        const shown = new Set(
+          (yield* repository.listShownCodexImagePaths()).map(comparableLibraryPath),
+        );
+        const result: LibraryListResult = {
+          items: items.filter(
+            (item) =>
+              item.source !== "claude:file-history" &&
+              (item.source !== "codex:generated" ||
+                (item.path !== null && shown.has(comparableLibraryPath(item.path)))),
+          ),
+          folders: [...folders],
+        };
         return result;
       }).pipe(Effect.mapError(toServiceError("Failed to list library items.")));
 

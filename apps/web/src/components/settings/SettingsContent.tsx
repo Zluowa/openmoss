@@ -75,7 +75,7 @@ import {
   KeyboardShortcutsSettingsPanel,
 } from "./KeyboardShortcutsSettingsPanel";
 import { ProfileSettingsPanel } from "./ProfileSettingsPanel";
-import { ProviderUsageSettingsPanel } from "./ProviderUsageSettingsPanel";
+import { UsageSettingsPanel } from "./UsageSettingsPanel";
 import {
   SettingResetButton,
   SettingsSegmentedControl,
@@ -1692,7 +1692,7 @@ export function SettingsContent({
       case "profile":
         return <ProfileSettingsPanel />;
       case "usage":
-        return <ProviderUsageSettingsPanel />;
+        return <UsageSettingsPanel />;
       default:
         return null;
     }

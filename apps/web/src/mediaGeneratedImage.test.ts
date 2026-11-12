@@ -81,22 +81,78 @@ describe("official media transcript lifecycle", () => {
     );
   });
 
-  it("removes the spinner and retains a visible error for terminal or uncertain outcomes", () => {
+  it("turns a failed Moss job into its card's failed state, with no spinner left", () => {
     const entries = deriveWorkLogEntries([pending, failed], undefined, live);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
-      generatedImage: { state: "failed", callId: "job:0" },
+      generatedImage: { state: "failed", callId: "job:0", jobId: "moss_image_job" },
       toolStatus: "failed",
     });
-    expect(groupGeneratedImagesByTurn(deriveTimelineEntries([], [], entries)).size).toBe(0);
-    expect(omitGeneratedImageWorkEntries(entries)).toEqual(entries);
+    const gallery = groupGeneratedImagesByTurn(deriveTimelineEntries([], [], entries)).get(
+      "turn-image",
+    );
+    expect(gallery).toMatchObject({ images: [], pendingImageCount: 0, failed: {} });
+    // The card draws it (with 重试), so the raw tool row is not shown beside it.
+    expect(omitGeneratedImageWorkEntries(entries)).toEqual([]);
     // Pagination/replay can hand the timeline independent lifecycle records.
     const unmerged = [
       ...deriveWorkLogEntries([pending], undefined, live),
       ...deriveWorkLogEntries([failed], undefined, live),
       ...deriveWorkLogEntries([pending], undefined, live),
     ];
-    expect(groupGeneratedImagesByTurn(deriveTimelineEntries([], [], unmerged)).size).toBe(0);
+    expect(
+      groupGeneratedImagesByTurn(deriveTimelineEntries([], [], unmerged)).get("turn-image"),
+    ).toMatchObject({ pendingImageCount: 0, failed: {} });
+  });
+
+  it("keeps a Moss job's placeholder after its turn has ended, with its stage and model", () => {
+    const waiting = (id: string, sequence: number, data: { readonly [key: string]: string }) =>
+      makeActivity({
+        id,
+        kind: "tool.started",
+        turnId: "turn-ended",
+        sequence,
+        payload: { itemType: "image_generation", status: "inProgress", data },
+      });
+    const queued = waiting("moss-wait-start", 1, {
+      jobId: "moss_wait_job",
+      stage: "queued",
+      modelId: "seedream-5-0",
+      callId: "w:0",
+    });
+    const running = waiting("moss-wait-running", 2, {
+      jobId: "moss_wait_job",
+      stage: "running",
+      modelId: "seedream-5-0",
+      callId: "w:0",
+    });
+    // The turn is over (no live turn): a Moss job still shows, because Moss settles it.
+    const entries = deriveWorkLogEntries([queued, running], undefined, {
+      activeTurnId: null,
+      latestTurnState: "completed",
+    });
+    expect(entries.at(-1)?.generatedImage).toMatchObject({
+      state: "pending",
+      jobId: "moss_wait_job",
+      stage: "running",
+      modelId: "seedream-5-0",
+    });
+    expect(
+      groupGeneratedImagesByTurn(deriveTimelineEntries([], [], entries)).get("turn-ended"),
+    ).toMatchObject({
+      pendingImageCount: 1,
+      pendingStage: "running",
+      pendingModelId: "seedream-5-0",
+      pendingJobIds: ["moss_wait_job"],
+    });
+    // A pending item that is not a Moss job stays tied to its live turn, as before.
+    const codex = waiting("codex-start", 3, { callId: "c:0" });
+    expect(
+      deriveWorkLogEntries([codex], undefined, {
+        activeTurnId: null,
+        latestTurnState: "completed",
+      }),
+    ).toEqual([]);
   });
 
   it("replaces a recoverable missing-file failure when the same saved job becomes available", () => {

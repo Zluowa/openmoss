@@ -20,6 +20,11 @@ export interface PublicJsonPolicy {
   readonly allowedOrigins: ReadonlyArray<string>;
   readonly timeoutMs: number;
   readonly maxRedirects?: number;
+  /** Body cap, enforced while the body streams in; 1 MiB by default. */
+  readonly maxResponseBytes?: number;
+  /** Parsed-JSON caps; 32 levels and 100,000 values by default. */
+  readonly maxJsonDepth?: number;
+  readonly maxJsonNodes?: number;
 }
 
 export interface PublicJsonRequest {
@@ -55,7 +60,7 @@ export const requestPublicJson: RequestPublicJson = async (policy, request) => {
       allowedOrigins: policy.allowedOrigins,
       timeoutMs: policy.timeoutMs,
       maxRequestBytes: 0,
-      maxResponseBytes: 1024 * 1024,
+      maxResponseBytes: policy.maxResponseBytes ?? 1024 * 1024,
       maxRedirects: policy.maxRedirects ?? 0,
       maxConcurrent: 4,
       maxQueued: 16,
@@ -71,5 +76,8 @@ export const requestPublicJson: RequestPublicJson = async (policy, request) => {
   if (response.status < 200 || response.status >= 300) {
     throw new PublicJsonHttpError(policy.service, response.status);
   }
-  return decodeOutboundJson(response, { maxDepth: 32, maxNodes: 100_000 });
+  return decodeOutboundJson(response, {
+    maxDepth: policy.maxJsonDepth ?? 32,
+    maxNodes: policy.maxJsonNodes ?? 100_000,
+  });
 };

@@ -12,6 +12,8 @@ import {
   type ComputerGetStateInput,
   type ComputerGetAuditHistoryInput,
   type ComputerGetAuditHistoryResult,
+  type ComputerListUsedAppsInput,
+  type ComputerListUsedAppsResult,
   type ComputerGetStatusInput,
   type ComputerHotkeyInput,
   type ComputerInputClickInput,
@@ -81,6 +83,9 @@ export interface WsComputerHandlers {
   readonly [COMPUTER_WS_METHODS.getAuditHistory]: (
     input: ComputerGetAuditHistoryInput,
   ) => Effect.Effect<ComputerGetAuditHistoryResult, WsRpcError>;
+  readonly [COMPUTER_WS_METHODS.listUsedApps]: (
+    input: ComputerListUsedAppsInput,
+  ) => Effect.Effect<ComputerListUsedAppsResult, WsRpcError>;
   readonly [COMPUTER_WS_METHODS.provision]: (
     input: ComputerProvisionInput,
   ) => Effect.Effect<ComputerProvisionResult, WsRpcError>;
@@ -194,6 +199,13 @@ export function makeWsComputerHandlers(
               "Failed to read Computer activity history",
             )
           : Effect.succeed({ entries: [], nextCursor: null, truncated: false, status: "disabled" }),
+      [COMPUTER_WS_METHODS.listUsedApps]: () =>
+        computerService
+          ? attempt(
+              async () => ({ apps: [...(await computerService.manager.listUsedApps())] }),
+              "Failed to read the apps Moss has used",
+            )
+          : Effect.succeed({ apps: [] }),
       [COMPUTER_WS_METHODS.provision]: () => unsupported(),
       [COMPUTER_WS_METHODS.listWindows]: () => unsupported(),
       [COMPUTER_WS_METHODS.getState]: () => unsupported(),
@@ -234,6 +246,11 @@ export function makeWsComputerHandlers(
       attempt(() => manager.getStatus(), "Failed to read computer status"),
     [COMPUTER_WS_METHODS.getAuditHistory]: (input) =>
       attempt(() => manager.getAuditHistory(input), "Failed to read Computer activity history"),
+    [COMPUTER_WS_METHODS.listUsedApps]: () =>
+      attempt(
+        async () => ({ apps: [...(await manager.listUsedApps())] }),
+        "Failed to read the apps Moss has used",
+      ),
     [COMPUTER_WS_METHODS.provision]: () =>
       attempt(() => manager.provision(), "Failed to set up computer control"),
     [COMPUTER_WS_METHODS.listWindows]: () =>

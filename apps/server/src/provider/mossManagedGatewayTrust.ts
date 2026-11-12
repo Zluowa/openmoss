@@ -1,3 +1,4 @@
+import { splitMossServiceUrlList } from "@moss/shared/mossProductionPublicConfig";
 import {
   MOSS_ACCESS_LANE_SPECS,
   mossAccessLaneForAuthority,
@@ -9,6 +10,9 @@ export const MOSS_MODEL_GATEWAY_URL_ENV_KEY = "MOSS_MODEL_GATEWAY_URL";
 export const MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY = "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL";
 export const MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL_ENV_KEY =
   "MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL";
+/** Other entries to the CN gateway, in order; each is trusted exactly as listed. */
+export const MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS_ENV_KEY =
+  "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS";
 export const MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS_ENV_KEY = "MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS";
 
 /** Canonical CN model gateway used by the phone/MemFire authority. */
@@ -90,18 +94,54 @@ function trustedOrigin(value: string | undefined): string | undefined {
   }
 }
 
-function configuredGatewayForAuthority(
+/**
+ * The authority's configured gateway entries, primary first. Only the CN realm has fallbacks,
+ * and they count only while a valid primary is configured.
+ */
+function configuredGatewayEntriesForAuthority(
   authority: MossManagedGatewayAuthority,
   env: Readonly<Record<string, string | undefined>>,
-): NormalizedGateway | undefined {
+): ReadonlyArray<{ readonly configured: string; readonly gateway: NormalizedGateway }> {
   const realm = MOSS_ACCESS_LANE_SPECS[mossAccessLaneForAuthority(authority)].realm;
-  const key =
+  const values =
     realm === "cn"
-      ? MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY
-      : MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL_ENV_KEY;
-  return normalizedGateway(env[key], {
-    allowLoopbackHttp: false,
-  });
+      ? [
+          env[MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY],
+          ...splitMossServiceUrlList(env[MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS_ENV_KEY]),
+        ]
+      : [env[MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL_ENV_KEY]];
+  const entries: Array<{ readonly configured: string; readonly gateway: NormalizedGateway }> = [];
+  for (const [index, value] of values.entries()) {
+    const gateway = normalizedGateway(value, { allowLoopbackHttp: false });
+    if (!gateway) {
+      if (index === 0) return [];
+      continue;
+    }
+    if (entries.some((entry) => entry.gateway.url === gateway.url)) continue;
+    entries.push({ configured: value!.trim(), gateway });
+  }
+  return entries;
+}
+
+/**
+ * The model gateway base URLs a credential of this authority may be sent to, in failover
+ * order, as configured. Empty when the authority has no valid primary.
+ */
+export function mossManagedGatewayEntriesForAuthority(
+  authority: MossManagedGatewayAuthority,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): ReadonlyArray<string> {
+  return configuredGatewayEntriesForAuthority(authority, env).map((entry) => entry.configured);
+}
+
+function isConfiguredGatewayForAuthority(
+  candidate: NormalizedGateway,
+  authority: MossManagedGatewayAuthority,
+  env: Readonly<Record<string, string | undefined>>,
+): boolean {
+  return configuredGatewayEntriesForAuthority(authority, env).some(
+    (entry) => entry.gateway.url === candidate.url,
+  );
 }
 
 function isExplicitlyTrustedLoopback(
@@ -129,8 +169,9 @@ function explicitlyTrustedOrigins(
 
 /**
  * A Moss account token may only be forwarded to the exact Edge gateway path
- * configured by one of the two v2 account-authority routes. The only override
- * is an exact 127.0.0.1 origin explicitly enabled for local development.
+ * configured by one of the two v2 account-authority routes, or one of the CN
+ * route's listed fallback entries. The only override is an exact 127.0.0.1
+ * origin explicitly enabled for local development.
  */
 export function isTrustedMossManagedGatewayUrl(
   value: string | undefined,
@@ -140,8 +181,7 @@ export function isTrustedMossManagedGatewayUrl(
   if (!candidate) return false;
 
   for (const authority of MOSS_MANAGED_GATEWAY_AUTHORITIES) {
-    const configuredGateway = configuredGatewayForAuthority(authority, env);
-    if (configuredGateway?.url === candidate.url) return true;
+    if (isConfiguredGatewayForAuthority(candidate, authority, env)) return true;
   }
 
   return isExplicitlyTrustedLoopback(candidate, env);
@@ -159,7 +199,6 @@ export function isTrustedMossManagedGatewayUrlForAuthority(
 ): boolean {
   const candidate = normalizedGateway(value, { allowLoopbackHttp: true });
   if (!candidate) return false;
-  const configuredGateway = configuredGatewayForAuthority(authority, env);
-  if (configuredGateway?.url === candidate.url) return true;
+  if (isConfiguredGatewayForAuthority(candidate, authority, env)) return true;
   return isExplicitlyTrustedLoopback(candidate, env);
 }

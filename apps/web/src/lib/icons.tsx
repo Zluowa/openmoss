@@ -73,6 +73,8 @@ export const AppsIcon: LucideIcon = centralIconWrapper("apps");
 export const BackgroundTrayIcon: LucideIcon = centralIconWrapper("arrow-down-wall");
 export const ContextCompactionIcon: LucideIcon = centralIconWrapper("arrows-hide");
 export const BackToParentIcon: LucideIcon = centralIconWrapper("arrow-share-left");
+/** A quoted passage the reader is replying to (composer quote rows). */
+export const QuoteReplyIcon: LucideIcon = centralIconWrapper("arrow-share-left");
 export const WorkflowIcon: LucideIcon = centralIconWrapper("agents");
 export const ComposerSendArrowIcon: LucideIcon = centralIconWrapper("arrow-up");
 export const SkillCubeIcon: LucideIcon = centralIconWrapper("building-blocks");

@@ -270,6 +270,7 @@ const desktopBridge = {
   setUiLocale: (locale) => ipcRenderer.invoke(IPC.setUiLocale, locale),
   setDockIconPreference: (preference) => ipcRenderer.invoke(IPC.setDockIconPreference, preference),
   getAppIcon: () => ipcRenderer.invoke(IPC.getAppIcon),
+  getAppFileIcon: (path) => ipcRenderer.invoke(IPC.getAppFileIcon, path),
   setAppIcon: (icon) => ipcRenderer.invoke(IPC.setAppIcon, icon),
   showContextMenu: (items, position) => ipcRenderer.invoke(IPC.contextMenu, items, position),
   showApplicationMenu: (menu, position) => ipcRenderer.invoke(IPC.applicationMenu, menu, position),

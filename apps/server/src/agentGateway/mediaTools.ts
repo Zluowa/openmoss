@@ -43,6 +43,18 @@ export const MOSS_IMAGE_WAIT_SLICE_MS = 50_000;
 const MOSS_IMAGE_WAIT_POLL_MS = 1_000;
 /** After this long the agent stops waiting; the image still arrives in place. */
 export const MOSS_IMAGE_WAIT_TOTAL_MS = 5 * 60_000;
+/**
+ * A video waits the same way, for longer: the turn stays open while the chat shows the video's
+ * placeholder, and the player lands in place before the agent answers.
+ */
+export const MOSS_VIDEO_WAIT_TOTAL_MS = 25 * 60_000;
+/**
+ * Codex and Claude get Moss's own 65-minute client timeout for Moss tools (mcpInjection), so
+ * one call may wait longer. It stays under Codex's 15-minute turn watchdog, which counts a
+ * tool that is waiting as silence.
+ */
+export const MOSS_MEDIA_LONG_WAIT_SLICE_MS = 8 * 60_000;
+const MOSS_MEDIA_LONG_WAIT_PROVIDERS: ReadonlySet<string> = new Set(["codex", "claudeAgent"]);
 const GENERATE_KEYS = new Set([
   "modelId",
   "prompt",
@@ -193,7 +205,8 @@ function isImageJobSettled(job: HoolaCanvasJobSnapshot): boolean {
 
 function waitedTooLong(job: HoolaCanvasJobSnapshot, now: number): boolean {
   const startedAt = Date.parse(job.createdAt);
-  return Number.isFinite(startedAt) && now - startedAt >= MOSS_IMAGE_WAIT_TOTAL_MS;
+  const ceiling = isImageJob(job) ? MOSS_IMAGE_WAIT_TOTAL_MS : MOSS_VIDEO_WAIT_TOTAL_MS;
+  return Number.isFinite(startedAt) && now - startedAt >= ceiling;
 }
 
 /**
@@ -202,7 +215,7 @@ function waitedTooLong(job: HoolaCanvasJobSnapshot, now: number): boolean {
  * delivery, and must not paste the image again.
  */
 function imageChatGuidance(job: HoolaCanvasJobSnapshot, now: number) {
-  if (!isImageJob(job)) return videoChatGuidance(job);
+  if (!isImageJob(job)) return videoChatGuidance(job, now);
   if (job.status === "succeeded" && job.persistenceStatus === "ready")
     return {
       image: "shown",
@@ -220,22 +233,23 @@ function imageChatGuidance(job: HoolaCanvasJobSnapshot, now: number) {
       };
 }
 
-/**
- * A video takes minutes. The chat shows a placeholder that says a video is being made and
- * how long it usually takes, and the player replaces it by itself when the video is ready,
- * even after the turn has ended. So the agent never waits for it.
- */
-function videoChatGuidance(job: HoolaCanvasJobSnapshot) {
+/** What the agent should tell the person about a video job; it waits like an image does. */
+function videoChatGuidance(job: HoolaCanvasJobSnapshot, now: number) {
   if (job.status === "succeeded" && job.persistenceStatus === "ready")
     return {
       video: "shown",
-      note: "The finished video is already shown to the person in this chat as a player, where the placeholder was. Do not paste, link, download or describe its file. Reply with at most one short sentence.",
+      note: "The finished video is already shown to the person in this chat as a player, where the placeholder was. Do not say it was submitted, queued or will appear later, and do not paste, link, download or describe its file. Reply with at most one short sentence.",
     };
   if (job.status !== "queued" && job.status !== "running") return undefined;
-  return {
-    video: "generating",
-    note: "The person sees a placeholder in this chat that says a video is being made and how long it usually takes (a few minutes); the player replaces it by itself when the video is ready. Reply now in one short sentence that the video is being made and will appear here in a few minutes, then finish the turn. Do not call moss_media_get to wait, do not sleep, and do not report the video as done.",
-  };
+  return waitedTooLong(job, now)
+    ? {
+        video: "generating",
+        note: "Still generating after a long time. The person still sees the video's placeholder with how long it has been going, and the player will replace it by itself. Say truthfully in one short sentence that the video is still being made and will appear here when it is ready, then finish. Do not call moss_media_get again, and do not say it is done.",
+      }
+    : {
+        video: "generating",
+        note: "Still generating; the person sees the video's placeholder in this chat, with how long it has been going. Call moss_media_get with this jobId now to keep waiting. Do not tell the person it was submitted, and do not finish the turn yet.",
+      };
 }
 
 function failure(error: unknown): McpToolCallResult {
@@ -290,7 +304,12 @@ export interface AgentGatewayMediaToolsInput {
     context: ToolContext,
   ) => Effect.Effect<void, unknown>;
   /** Test seam for the image wait; production uses the constants above. */
-  readonly imageWait?: { readonly sliceMs: number; readonly pollMs: number };
+  readonly imageWait?: {
+    readonly sliceMs: number;
+    readonly pollMs: number;
+    /** One call's wait for Codex and Claude, which allow Moss tools 65 minutes. */
+    readonly longSliceMs?: number;
+  };
 }
 
 export function makeAgentGatewayMediaTools(
@@ -337,17 +356,20 @@ export function makeAgentGatewayMediaTools(
   // Observe the caller's own image job from local state only. The broker run
   // that create() started does the supplier work, so waiting never submits,
   // reconciles or bills anything. A stopped turn ends the wait at once.
+  const longWaitSliceMs = input.imageWait?.longSliceMs ?? MOSS_MEDIA_LONG_WAIT_SLICE_MS;
   const waitForImage = (job: HoolaCanvasJobSnapshot, context: ToolContext) =>
     Effect.gen(function* () {
       const { service } = input;
-      if (
-        !service.readOwnedJob ||
-        !isImageJob(job) ||
-        isImageJobSettled(job) ||
-        waitedTooLong(job, Date.now())
-      )
+      if (!service.readOwnedJob || isImageJobSettled(job) || waitedTooLong(job, Date.now()))
         return job;
-      const deadline = Date.now() + waitSliceMs;
+      // Never past the job's own ceiling, so the agent hears "still generating" in time.
+      const ceiling =
+        Date.parse(job.createdAt) +
+        (isImageJob(job) ? MOSS_IMAGE_WAIT_TOTAL_MS : MOSS_VIDEO_WAIT_TOTAL_MS);
+      const slice = MOSS_MEDIA_LONG_WAIT_PROVIDERS.has(String(context.callerProvider))
+        ? longWaitSliceMs
+        : waitSliceMs;
+      const deadline = Math.min(Date.now() + slice, Number.isFinite(ceiling) ? ceiling : Infinity);
       let current = job;
       while (!isImageJobSettled(current) && Date.now() < deadline) {
         yield* Effect.sleep(Math.max(0, Math.min(waitPollMs, deadline - Date.now())));
@@ -518,7 +540,7 @@ export function makeAgentGatewayMediaTools(
       definition: {
         name: "moss_media_generate",
         description:
-          "Generate or edit an image/video with an installed official model using the current Moss account's shared package allowance at actual supplier cost. Generate through Moss for a request routed to the person's Moss account. In a personal Codex session, use this for images only if the person explicitly chose Moss; prefer an available native Codex image tool for an ordinary request. If a Moss model is not known, moss_media_list can show the available models. Supply a unique idempotencyKey for each intended generation. Unknown outcomes must be observed through the existing job and records; never automatically submit another generation. For an image, this call waits while Moss generates it: the person sees a placeholder in this chat that turns into the finished image in place. If the result says the image is still generating, call moss_media_get with its jobId to keep waiting. Once the result says the image is shown, it is already in the chat: never say it was submitted, queued or will appear later, and reply with at most one short sentence. Do not sleep or run shell commands to wait. For a video, do not wait: the person sees a placeholder that says a video is being made and turns into the player by itself when it is ready (usually a few minutes), so reply in one short sentence and finish the turn. Only if the person asks to see or edit it on Canvas, call moss_canvas_open with the jobId. Completed images appear automatically in the conversation; do not emit duplicate Markdown images or download/copy the outputs again. Charged to the person's Moss credits. Reply to the person in their own language. For edits pass the selected original HTTPS output URL in referenceImages, or local image files inside the caller workspace in referencePaths (no base64 needed). Never request, print, or pass an API key. Account changes during a turn require a new user turn.",
+          "Generate or edit an image/video with an installed official model using the current Moss account's shared package allowance at actual supplier cost. Generate through Moss for a request routed to the person's Moss account. In a personal Codex session, use this for images only if the person explicitly chose Moss; prefer an available native Codex image tool for an ordinary request. If a Moss model is not known, moss_media_list can show the available models. Supply a unique idempotencyKey for each intended generation. Unknown outcomes must be observed through the existing job and records; never automatically submit another generation. For an image, this call waits while Moss generates it: the person sees a placeholder in this chat that turns into the finished image in place. If the result says the image is still generating, call moss_media_get with its jobId to keep waiting. Once the result says the image is shown, it is already in the chat: never say it was submitted, queued or will appear later, and reply with at most one short sentence. Do not sleep or run shell commands to wait. A video waits the same way, for longer (usually a few minutes): the person sees the video's placeholder with how long it has been going, and the player replaces it in place; if the result says it is still generating, call moss_media_get again. Only if the person asks to see or edit it on Canvas, call moss_canvas_open with the jobId. Completed images appear automatically in the conversation; do not emit duplicate Markdown images or download/copy the outputs again. Charged to the person's Moss credits. Reply to the person in their own language. For edits pass the selected original HTTPS output URL in referenceImages, or local image files inside the caller workspace in referencePaths (no base64 needed). Never request, print, or pass an API key. Account changes during a turn require a new user turn.",
         inputSchema: {
           type: "object",
           properties: {
@@ -736,7 +758,7 @@ export function makeAgentGatewayMediaTools(
       definition: {
         name: "moss_media_get",
         description:
-          "Read/resume a persisted media job created in this caller thread. For an image that is still generating it waits up to about 50 seconds for the result. Use it with a previously returned jobId; jobs from other threads are not accessible. Do not submit another generation just because a task is slow. Reconciliation means the provider outcome or billing is still unknown, not that credits were refunded.",
+          "Read/resume a persisted media job created in this caller thread. For an image or video that is still generating it waits for the result (up to several minutes) while the person sees its placeholder; call it again if it is still generating. Use it with a previously returned jobId; jobs from other threads are not accessible. Do not submit another generation just because a task is slow. Reconciliation means the provider outcome or billing is still unknown, not that credits were refunded.",
         inputSchema: {
           type: "object",
           properties: {

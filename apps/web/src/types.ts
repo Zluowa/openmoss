@@ -71,6 +71,11 @@ export interface ChatAssistantSelectionAttachment {
   id: string;
   assistantMessageId: string;
   text: string;
+  /**
+   * The reader's own reply to this quote, typed in the selection Reply card (desktop chat
+   * "With reply"). Sent inside the quote's prompt block; never part of the server attachment.
+   */
+  comment?: string;
 }
 
 export type ChatAttachment =

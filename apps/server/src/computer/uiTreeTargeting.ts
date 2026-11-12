@@ -55,7 +55,9 @@ export type ComputerTargetErrorCode =
    * security UI — and the access was refused before it could dispatch or
    * disclose anything. There is no override in this build.
    */
-  | "computer_denylist_refused";
+  | "computer_denylist_refused"
+  /** The user turned this app off in Settings › Computer use; nothing was sent. */
+  | "computer_app_blocked";
 
 /** How many near-misses to name; a whole desktop of labels is noise, not help. */
 const MAX_REPORTED_CANDIDATES = 16;

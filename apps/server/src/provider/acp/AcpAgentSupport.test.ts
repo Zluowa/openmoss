@@ -1,3 +1,4 @@
+import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
 import type * as Acp from "@agentclientprotocol/sdk";
 import { Effect, Layer } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -619,6 +620,21 @@ describe("acpAgentFailureDetail", () => {
       acpAgentFailureDetail(
         MINIMAX_ACP_AGENT_SPEC,
         new AcpRequestError({ code: -32603, errorMessage: "Internal error", data: "boom" }),
+      ),
+    ).toBe("Internal error boom (JSON-RPC -32603)");
+  });
+
+  it("never tells a Moss lane to run the agent's own login", () => {
+    const rejected = new AcpRequestError({ code: -32000, errorMessage: "Authentication required" });
+    expect(acpAgentFailureDetail(KIMI_ACP_AGENT_SPEC, rejected, { mossManaged: true })).toBe(
+      MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
+    );
+    // Other failures on a Moss lane keep the agent's wording.
+    expect(
+      acpAgentFailureDetail(
+        MINIMAX_ACP_AGENT_SPEC,
+        new AcpRequestError({ code: -32603, errorMessage: "Internal error", data: "boom" }),
+        { mossManaged: true },
       ),
     ).toBe("Internal error boom (JSON-RPC -32603)");
   });

@@ -96,7 +96,10 @@ it.effect("appends upstream cursor invalidation without reusing Moss migration 9
       165,
       "PageRoomPrivateStores",
     ]);
-    assert.deepStrictEqual(migrationEntries.at(-1)?.slice(0, 2), [166, "Mossbot"]);
+    assert.deepStrictEqual(migrationEntries.at(-1)?.slice(0, 2), [
+      167,
+      "UsageAnalyticsDeletedTokens",
+    ]);
     assert.equal(new Set(migrationEntries.map(([id]) => id)).size, migrationEntries.length);
   }),
 );

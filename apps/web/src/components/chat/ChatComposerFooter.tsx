@@ -113,7 +113,7 @@ export function ChatComposerFooter({
         className={cn(
           "flex items-center",
           row
-            ? "col-start-1 row-start-1 shrink-0 gap-0.5"
+            ? "col-start-1 row-start-[var(--composer-row-line,1)] shrink-0 gap-0.5"
             : voiceActive
               ? "min-w-0 shrink-0 gap-1"
               : isComposerFooterCompact
@@ -176,8 +176,8 @@ export function ChatComposerFooter({
           "flex items-center gap-2",
           row
             ? voiceActive
-              ? "col-start-2 col-end-4 row-start-1 min-w-0"
-              : "col-start-3 row-start-1 shrink-0"
+              ? "col-start-2 col-end-4 row-start-[var(--composer-row-line,1)] min-w-0"
+              : "col-start-3 row-start-[var(--composer-row-line,1)] shrink-0"
             : voiceActive
               ? "min-w-0 flex-1"
               : "shrink-0",

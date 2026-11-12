@@ -45,6 +45,7 @@ import { ServerSecretStoreLive } from "./auth/Layers/ServerSecretStore";
 import { SessionCredentialServiceLive } from "./auth/Layers/SessionCredentialService";
 import { ProfileStatsQueryLive } from "./profileStats";
 import { RecapStatsQueryLive } from "./recapStats";
+import { UsageAnalyticsQueryLive } from "./usageAnalyticsStats";
 import { ThreadSearchQueryLive } from "./threadSearch";
 import { ProfileStatsArchiveLive } from "./profileStatsArchive";
 import { ServerEventLoopMonitorLive } from "./eventLoopMonitor";
@@ -96,6 +97,7 @@ import { MossEnterpriseKeyAccountLive } from "./account/Layers/MossEnterpriseKey
 import { MossCloudAccountServiceLive } from "./account/Layers/MossCloudAccountService";
 import { MossManagedProviderLive } from "./account/Layers/MossManagedProvider";
 import { MossPayServiceLive } from "./account/Layers/MossPayService";
+import { MossManagedTurnPreflightLive } from "./account/Layers/MossManagedTurnPreflight";
 import { MossPhoneAccountServiceLive } from "./account/Layers/MossPhoneAccountService";
 import { RealtimeVoiceServiceLive } from "./realtimeVoice/Layers/RealtimeVoiceService";
 import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/OrchestrationEventDeliveries";
@@ -180,6 +182,10 @@ export function makeServerRuntimeServicesLayer(
     Layer.provide(MossManagedProviderLive),
     Layer.provide(ServerSecretStoreLive),
   );
+  const mossManagedTurnPreflightLayer = MossManagedTurnPreflightLive.pipe(
+    Layer.provide(mossCloudAccountLayer),
+    Layer.provide(mossPhoneAccountLayer),
+  );
   const mossPayLayer = MossPayServiceLive.pipe(
     Layer.provide(mossCloudAccountLayer),
     Layer.provide(mossPhoneAccountLayer),
@@ -216,6 +222,7 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(serverSettingsLayer),
     Layer.provideMerge(AgentGatewayOperationRepositoryLive),
     Layer.provideMerge(mossPayLayer),
+    Layer.provideMerge(mossManagedTurnPreflightLayer),
     Layer.provideMerge(projectAgentServiceLayer),
     // Persistence-level only: the reactor must recognize coordinator threads to
     // pre-approve Moss group tools — the same first lookup the project agent
@@ -501,6 +508,7 @@ export function makeServerRuntimeServicesLayer(
     ServerEnvironmentLive,
     ProfileStatsQueryLive,
     RecapStatsQueryLive,
+    UsageAnalyticsQueryLive,
     mossEnterpriseKeyLayer,
     mossPhoneAccountLayer,
     mossCloudAccountLayer,

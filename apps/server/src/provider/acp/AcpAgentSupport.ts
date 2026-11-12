@@ -3,6 +3,7 @@
 //          configuration, and model discovery driven by an AcpAgentSpec.
 // Layer: Provider ACP support
 
+import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
 import type {
   ProviderInteractionMode,
   ProviderListModelsResult,
@@ -202,9 +203,18 @@ export function classifyAcpAgentFailure(
  * Startup and prompt failures are the only signal the user gets, so keep the
  * agent's own wording (JSON-RPC data included) behind the classified summary.
  */
-export function acpAgentFailureDetail(spec: AcpAgentSpec, error: AcpErrors.AcpError): string {
+export function acpAgentFailureDetail(
+  spec: AcpAgentSpec,
+  error: AcpErrors.AcpError,
+  options: { readonly mossManaged?: boolean } = {},
+): string {
   const classified = classifyAcpAgentFailure(spec, error);
   const text = acpAgentErrorText(error).trim();
+  // Moss owns a Moss lane's credential, so "not signed in, run <cli> login" is never the fix
+  // there: the gateway rejected a bearer Moss has since renewed.
+  if (options.mossManaged && classified?.reason === "credentials_missing") {
+    return MOSS_MANAGED_SESSION_RENEWED_MESSAGE;
+  }
   if (classified) {
     // Moss's own typed failures already say it all; only append agent wording.
     const primary = (error._tag === "AcpRequestError" ? error.errorMessage : text).trim();

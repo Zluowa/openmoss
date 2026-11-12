@@ -49,6 +49,9 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
   const composerMentions = composerDraft.mentions;
   const queuedComposerTurns = composerDraft.queuedTurns;
   const restoredSourceProposedPlan = composerDraft.restoredSourceProposedPlan;
+  const composerAssistantSelectionReplyCount = composerAssistantSelections.filter(
+    (selection) => (selection.comment ?? "").trim().length > 0,
+  ).length;
   const composerSendState = useMemo(
     () =>
       deriveComposerSendState({
@@ -56,6 +59,7 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
         imageCount: composerImages.length,
         fileCount: composerFiles.length,
         assistantSelectionCount: composerAssistantSelections.length,
+        assistantSelectionReplyCount: composerAssistantSelectionReplyCount,
         browserAnnotationCount: composerBrowserAnnotations.length,
         fileCommentCount: composerFileComments.length,
         terminalContexts: composerTerminalContexts,
@@ -64,6 +68,7 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
       }),
     [
       composerAssistantSelections.length,
+      composerAssistantSelectionReplyCount,
       composerBrowserAnnotations.length,
       composerFileComments.length,
       composerFiles.length,
@@ -117,6 +122,9 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
   );
   const clearComposerDraftAssistantSelections = useComposerDraftStore(
     (store) => store.clearAssistantSelections,
+  );
+  const removeComposerDraftAssistantSelection = useComposerDraftStore(
+    (store) => store.removeAssistantSelection,
   );
   const addComposerDraftFileComment = useComposerDraftStore((store) => store.addFileComment);
   const clearComposerDraftFileComments = useComposerDraftStore((store) => store.clearFileComments);
@@ -301,6 +309,17 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
     discardPromptHistoryNavigationForComposerMutation,
     threadId,
   ]);
+  const removeComposerAssistantSelectionFromDraft = useCallback(
+    (selectionId: string) => {
+      discardPromptHistoryNavigationForComposerMutation();
+      removeComposerDraftAssistantSelection(threadId, selectionId);
+    },
+    [
+      discardPromptHistoryNavigationForComposerMutation,
+      removeComposerDraftAssistantSelection,
+      threadId,
+    ],
+  );
   const clearComposerFileCommentsFromDraft = useCallback(() => {
     discardPromptHistoryNavigationForComposerMutation();
     clearComposerDraftFileComments(threadId);
@@ -533,6 +552,7 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
     addComposerFileCommentToDraft,
     removeComposerImageFromDraft,
     clearComposerAssistantSelectionsFromDraft,
+    removeComposerAssistantSelectionFromDraft,
     clearComposerFileCommentsFromDraft,
     removeComposerTerminalContextFromDraft,
     removeComposerPastedTextFromDraft,

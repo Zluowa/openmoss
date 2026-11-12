@@ -68,6 +68,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type CSSProperties,
 } from "react";
 import { useCopyThreadIdToClipboard } from "~/hooks/useCopyToClipboard";
 import {
@@ -438,6 +439,7 @@ import {
   deriveModelComposerPrediction,
 } from "./chat/composerPrediction";
 import { ComposerImageModelNotice } from "./chat/ComposerImageModelNotice";
+import { ComposerQuoteRows } from "./chat/ComposerQuoteRows";
 import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachments";
 import { ComposerSlashStatusDialog } from "./chat/ComposerSlashStatusDialog";
 import {
@@ -928,6 +930,7 @@ export default function ChatView({
     addComposerFileCommentToDraft,
     removeComposerImageFromDraft,
     clearComposerAssistantSelectionsFromDraft,
+    removeComposerAssistantSelectionFromDraft,
     clearComposerFileCommentsFromDraft,
     removeComposerTerminalContextFromDraft,
     removeComposerPastedTextFromDraft,
@@ -3447,6 +3450,14 @@ export default function ChatView({
   const [predictionTriggerTracker] = useState(createPredictionTriggerTracker);
   const modelPredictionKey =
     activeThreadId && activeLatestTurnId ? `${activeThreadId}:${activeLatestTurnId}` : null;
+  // While the latest turn's Moss image or video is still being made, the conversation is
+  // not over: no suggested reply (a "thank you") until it lands or fails.
+  const latestTurnMediaPending = agentActivityTimelineState.timelineWorkEntries.some(
+    (entry) =>
+      entry.turnId === activeLatestTurnId &&
+      entry.generatedImage?.state === "pending" &&
+      entry.generatedImage.jobId !== undefined,
+  );
   // Live completion, mount catch-up, and window-focus recovery all share the
   // same request path. Domain events supply the turn-completed signal; the key
   // guard still coalesces duplicate delivery.
@@ -3486,9 +3497,11 @@ export default function ChatView({
     }
     const ineligibleReason = !latestTurnSettled
       ? "turn-active"
-      : interactionMode === "plan"
-        ? "plan-mode"
-        : null;
+      : latestTurnMediaPending
+        ? "media-pending"
+        : interactionMode === "plan"
+          ? "plan-mode"
+          : null;
     if (ineligibleReason !== null) {
       modelPredictionRequestKeyRef.current = null;
       if (ineligibleReason === "turn-active") {
@@ -3562,6 +3575,7 @@ export default function ChatView({
     activeLatestTurnId,
     activeThreadId,
     interactionMode,
+    latestTurnMediaPending,
     latestTurnSettled,
     modelPredictionKey,
     predictionRefreshNonce,
@@ -4013,6 +4027,7 @@ export default function ChatView({
   const {
     pendingTranscriptSelectionAction,
     commitTranscriptAssistantSelection,
+    openTranscriptReplyCard,
     dismissTranscriptSelectionAction,
     onMessagesClickCapture,
     onMessagesMouseUp,
@@ -4145,7 +4160,8 @@ export default function ChatView({
       !(pendingAutomationConversation && pendingAutomationConversation.threadId === threadId) &&
       !(serverThread?.snoozedUntil != null && serverThread.archivedAt == null) &&
       !isPreparingComposerImages &&
-      composerAssistantSelections.length === 0 &&
+      // Quoted passages keep the one-line composer: they show in a strip above the line,
+      // as desktop chat does. Every other attachment still opens the full block.
       composerBrowserAnnotations.length === 0 &&
       composerFileComments.length === 0 &&
       composerPastedTexts.length === 0 &&
@@ -4153,6 +4169,8 @@ export default function ChatView({
       composerFiles.length === 0 &&
       composerImages.length === 0,
   });
+
+  const composerQuoteStrip = composerSingleRow && composerAssistantSelections.length > 0;
 
   useEffect(() => {
     // Capture the carried sidebar-open intent synchronously (ref reads/writes stay
@@ -5864,6 +5882,27 @@ export default function ChatView({
     },
     [activeLatestTurnId, claudeSwitchKey, submitComposerTurn, threadId],
   );
+  // Reply card "Send reply" (Ctrl/⌘+Enter): the quote and the reader's reply go out as one
+  // message. It is offered only while the composer holds nothing else, so the reader's own
+  // draft is never sent along with it. The quote is staged first and sent on the render that
+  // shows it in the composer, so the send reads the same draft the reader sees.
+  const pendingQuoteReplySendIdRef = useRef<string | null>(null);
+  const sendTranscriptSelectionReply = useCallback(
+    (comment: string) => {
+      const selectionId = commitTranscriptAssistantSelection(comment);
+      if (selectionId === null) return false;
+      pendingQuoteReplySendIdRef.current = selectionId;
+      return true;
+    },
+    [commitTranscriptAssistantSelection],
+  );
+  useEffect(() => {
+    const selectionId = pendingQuoteReplySendIdRef.current;
+    if (selectionId === null) return;
+    if (!composerAssistantSelections.some((selection) => selection.id === selectionId)) return;
+    pendingQuoteReplySendIdRef.current = null;
+    void onSend();
+  }, [composerAssistantSelections, onSend]);
   const showClaudeModelSwitchNote =
     claudeSwitchKey !== null &&
     claudeSwitchKey !== dismissedClaudeSwitchKey &&
@@ -7825,6 +7864,9 @@ export default function ChatView({
                   composerSingleRow && COMPOSER_SINGLE_ROW_SURFACE_CLASS_NAME,
                   composerOverlayOpen && !isComposerApprovalState && "overflow-visible",
                 )}
+                style={
+                  composerQuoteStrip ? ({ "--composer-row-line": 2 } as CSSProperties) : undefined
+                }
               >
                 <ComposerInputBanners
                   roundedTopReset={false}
@@ -7862,6 +7904,17 @@ export default function ChatView({
                       : null
                   }
                 />
+                {composerQuoteStrip ? (
+                  <div
+                    data-composer-quote-strip="true"
+                    className="col-span-full row-start-1 pe-0.5 pt-0.5 pb-1"
+                  >
+                    <ComposerQuoteRows
+                      selections={composerAssistantSelections}
+                      onRemove={removeComposerAssistantSelectionFromDraft}
+                    />
+                  </div>
+                ) : null}
                 <div
                   className={cn(
                     composerSingleRow
@@ -7931,6 +7984,7 @@ export default function ChatView({
                     )}
                   {!isComposerApprovalState &&
                     pendingUserInputs.length === 0 &&
+                    !composerQuoteStrip &&
                     (composerAssistantSelections.length > 0 ||
                       composerBrowserAnnotations.length > 0 ||
                       composerFileComments.length > 0 ||
@@ -7949,6 +8003,7 @@ export default function ChatView({
                         nonPersistedImageIdSet={nonPersistedComposerImageIdSet}
                         onReplaceImage={replaceComposerImage}
                         onRemoveAssistantSelections={clearComposerAssistantSelectionsFromDraft}
+                        onRemoveAssistantSelection={removeComposerAssistantSelectionFromDraft}
                         onRemoveBrowserAnnotation={removeComposerBrowserAnnotationFromDraft}
                         onRemoveFileComments={clearComposerFileCommentsFromDraft}
                         onRemovePastedText={removeComposerPastedTextFromDraft}
@@ -8996,7 +9051,11 @@ export default function ChatView({
                 runtimeMode,
               })
             }
-            onQuoteToComposer={commitTranscriptAssistantSelection}
+            onOpenReply={openTranscriptReplyCard}
+            onQuoteToComposer={(comment) => commitTranscriptAssistantSelection(comment) !== null}
+            onSendReply={
+              composerSendState.hasDraftContent ? undefined : sendTranscriptSelectionReply
+            }
           />
         ) : null}
         <ExpandedImageOverlay

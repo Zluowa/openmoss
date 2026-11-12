@@ -7,7 +7,7 @@
 
 import { type ReactNode, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { type ProfileStats, type ProfileTokenStats, type ProviderKind } from "@moss/contracts";
+import { type ProfileStats, type ProfileTokenStats } from "@moss/contracts";
 import {
   serverProfileStatsQueryOptions,
   serverProfileTokenStatsQueryOptions,
@@ -30,6 +30,7 @@ import { useProfileName } from "../profile/useProfileName";
 import { useProfileAvatarColor } from "../profile/useProfileAvatarColor";
 import { useProfileAvatarImage } from "../profile/useProfileAvatarImage";
 import { ProfileAvatar } from "../profile/ProfileAvatar";
+import { InsightRow, ModelUsageRow, StatTile } from "../profile/ProfileStatRows";
 import {
   formatCompact,
   formatDays,
@@ -298,7 +299,13 @@ export function ProfileContent({
             {modelUsage.entries.slice(0, 8).map((entry) => (
               <ModelUsageRow
                 key={`${entry.instanceId}:${entry.model}`}
-                provider={entry.provider}
+                icon={
+                  entry.provider !== "unknown" ? (
+                    <ProviderIcon provider={entry.provider} className="size-4 shrink-0" />
+                  ) : (
+                    <CentralIcon name="chart-2" className="size-4 shrink-0 text-muted-foreground" />
+                  )
+                }
                 model={entry.model}
                 percent={entry.percent}
               />
@@ -372,32 +379,6 @@ function ActivityViewButton({
   );
 }
 
-function StatTile({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div className="flex flex-col items-center gap-0.5 px-3 py-3">
-      {value === null ? (
-        <Skeleton className="h-4 w-12" />
-      ) : (
-        <span className="text-ui-lg leading-snug font-normal tabular-nums text-foreground">
-          {value}
-        </span>
-      )}
-      <span className="text-ui leading-snug font-normal text-muted-foreground">{label}</span>
-    </div>
-  );
-}
-
-function InsightRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3">
-      <dt className="shrink-0 text-ui leading-snug text-muted-foreground">{label}</dt>
-      <dd className="truncate text-ui leading-snug font-normal tabular-nums" title={value}>
-        {value}
-      </dd>
-    </div>
-  );
-}
-
 function formatHour(hour: number): string {
   const normalized = ((hour % 24) + 24) % 24;
   if (normalized === 0) return "12 AM";
@@ -415,38 +396,6 @@ function formatMostWorkedProjectLabel(project: ProfileStats["mostWorkedProject"]
   }
   const promptLabel = project.promptCount === 1 ? "prompt" : "prompts";
   return `${project.title} · ${formatNumber(project.promptCount)} ${promptLabel}`;
-}
-
-function ModelUsageRow({
-  provider,
-  model,
-  percent,
-}: {
-  provider: ProviderKind | "unknown";
-  model: string;
-  percent: number;
-}) {
-  return (
-    <li className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between gap-3 text-ui leading-snug">
-        <span className="flex min-w-0 items-center gap-2">
-          {provider !== "unknown" ? (
-            <ProviderIcon provider={provider} className="size-4 shrink-0" />
-          ) : (
-            <CentralIcon name="chart-2" className="size-4 shrink-0 text-muted-foreground" />
-          )}
-          <span className="truncate">{model}</span>
-        </span>
-        <span className="shrink-0 tabular-nums text-muted-foreground">{percent}%</span>
-      </div>
-      <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-[var(--info)]"
-          style={{ width: `${Math.min(100, Math.max(2, percent))}%` }}
-        />
-      </div>
-    </li>
-  );
 }
 
 function ProfileSkeleton() {

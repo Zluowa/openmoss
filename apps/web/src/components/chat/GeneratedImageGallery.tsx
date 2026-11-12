@@ -23,6 +23,7 @@ import {
 import { setGeneratedImageDragData } from "~/lib/generatedImageDrag";
 import { scheduleMossCanvasPrewarm } from "~/lib/mossCanvasPrewarm";
 import { loadMossImageJob } from "~/lib/mossImagesClient";
+import { MOSS_MEDIA_MODEL_NAMES } from "@moss/shared/mossMediaPlugins";
 import { useIsSharedViewer } from "~/lib/sharedViewer";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "../../localization";
@@ -145,6 +146,8 @@ export interface GeneratedImageGalleryProps {
   gallery: GeneratedImageGalleryModel;
   cwd: string | undefined;
   onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
+  /** Asks the agent to make a failed image or video again (a new turn; never automatic). */
+  onRetry?: ((media: "image" | "video") => void) | undefined;
   className?: string | undefined;
 }
 
@@ -207,6 +210,7 @@ export function GeneratedImageGallery({
   gallery,
   cwd,
   onImageExpand,
+  onRetry,
   className,
 }: GeneratedImageGalleryProps) {
   const { t, format, locale } = useTranslation();
@@ -237,7 +241,8 @@ export function GeneratedImageGallery({
   const videoRatio = 16 / 9;
   const selectedAspectRatio = selectedImage
     ? (imageAspectRatios[selectedImage.id] ?? (selectedImage.media === "video" ? videoRatio : 1))
-    : (gallery.pendingAspectRatio ?? (gallery.pendingMedia === "video" ? videoRatio : 1));
+    : (gallery.pendingAspectRatio ??
+      (gallery.pendingMedia === "video" || gallery.failed?.media === "video" ? videoRatio : 1));
   usePendingMossJobsResume(sharedViewer ? undefined : gallery.pendingJobIds);
   const imageWidthClassName =
     selectedAspectRatio >= 2
@@ -377,7 +382,7 @@ export function GeneratedImageGallery({
       data-gallery-layout={showThumbnails ? "thumbnails" : "natural"}
       data-selected-image-id={selectedImage?.id}
     >
-      {gallery.pendingImageCount > 0 ? (
+      {gallery.pendingImageCount > 0 || gallery.failed ? (
         <style>{GENERATED_IMAGE_PENDING_DOT_FIELD_CSS}</style>
       ) : null}
       <div
@@ -430,8 +435,17 @@ export function GeneratedImageGallery({
               heightPx={layout.heightPx}
               startedAt={gallery.createdAt}
               media={gallery.pendingMedia}
+              stage={gallery.pendingStage}
+              modelLabel={mossMediaModelLabel(gallery.pendingModelId, locale)}
             />
           </div>
+        ) : gallery.failed ? (
+          <GeneratedMediaFailedCard
+            media={gallery.failed.media ?? "image"}
+            widthPx={layout.itemWidthsPx[0] ?? layout.heightPx}
+            heightPx={layout.heightPx}
+            onRetry={onRetry && !sharedViewer ? onRetry : undefined}
+          />
         ) : null}
       </div>
       {showThumbnails ? (
@@ -640,7 +654,20 @@ export function generatedVideoWaited(startedAt: string, nowMs: number) {
 
 // A video takes minutes. The caption says a video is being made, how long that usually
 // takes, and how long this one has been going, so a long wait never looks stuck or done.
-function GeneratedVideoPendingCaption(props: { startedAt: string }) {
+/** The Moss model's name in the reader's language, or undefined for an unknown id. */
+export function mossMediaModelLabel(
+  modelId: string | undefined,
+  locale: string,
+): string | undefined {
+  const names = modelId ? MOSS_MEDIA_MODEL_NAMES[modelId] : undefined;
+  return names ? (locale.startsWith("zh") ? names.zhCN : names.en) : undefined;
+}
+
+function GeneratedVideoPendingCaption(props: {
+  startedAt: string;
+  stage?: "queued" | "running" | undefined;
+  modelLabel?: string | undefined;
+}) {
   const { t, format } = useTranslation();
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -650,13 +677,56 @@ function GeneratedVideoPendingCaption(props: { startedAt: string }) {
   return (
     <span
       data-testid="generated-video-pending-caption"
+      data-stage={props.stage ?? "running"}
       className="pointer-events-none absolute top-3 left-4 z-10 flex select-none flex-col gap-0.5 text-ui-sm text-muted-foreground"
     >
-      <span>{t("chat.generatedVideo.pending")}</span>
+      <span>
+        {t("chat.generatedVideo.making")}
+        {props.modelLabel ? ` · ${props.modelLabel}` : ""}
+      </span>
       <span className="tabular-nums" data-testid="generated-video-waited">
+        {t(props.stage === "queued" ? "chat.generatedVideo.queued" : "chat.generatedVideo.usually")}
+        {" · "}
         {format("chat.generatedVideo.waited", generatedVideoWaited(props.startedAt, now))}
       </span>
     </span>
+  );
+}
+
+/** A Moss job that made nothing: the card says so in place and offers to try again. */
+function GeneratedMediaFailedCard(props: {
+  media: "image" | "video";
+  widthPx: number;
+  heightPx: number;
+  onRetry?: ((media: "image" | "video") => void) | undefined;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div
+      data-testid="generated-media-failed"
+      data-media={props.media}
+      role="status"
+      className="moss-generated-image-pending-placeholder flex flex-col items-center justify-center gap-2 rounded-card text-ui-sm text-muted-foreground"
+      style={{ height: props.heightPx, width: props.widthPx }}
+    >
+      <span>
+        {t(
+          props.media === "video"
+            ? "chat.generatedMedia.failedVideo"
+            : "chat.generatedMedia.failedImage",
+        )}
+      </span>
+      {props.onRetry ? (
+        <Button
+          variant="outline"
+          size="xs"
+          data-testid="generated-media-retry"
+          onClick={() => props.onRetry?.(props.media)}
+        >
+          {t("chat.generatedMedia.retry")}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -724,6 +794,8 @@ function GeneratedImagePendingPlaceholder(props: {
   startedAt?: string;
   /** A video says so, and how long it usually takes, instead of the image stages. */
   media?: "video" | undefined;
+  stage?: "queued" | "running" | undefined;
+  modelLabel?: string | undefined;
 }) {
   const fieldRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -960,7 +1032,11 @@ function GeneratedImagePendingPlaceholder(props: {
         <canvas ref={canvasRef} aria-hidden="true" className="block h-full w-full" />
       </div>
       {props.startedAt === undefined ? null : props.media === "video" ? (
-        <GeneratedVideoPendingCaption startedAt={props.startedAt} />
+        <GeneratedVideoPendingCaption
+          startedAt={props.startedAt}
+          stage={props.stage}
+          modelLabel={props.modelLabel}
+        />
       ) : (
         <GeneratedImagePendingCaption startedAt={props.startedAt} />
       )}

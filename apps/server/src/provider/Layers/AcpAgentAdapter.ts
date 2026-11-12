@@ -631,7 +631,9 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
                 new ProviderAdapterProcessError({
                   provider: PROVIDER,
                   threadId: input.threadId,
-                  detail: acpAgentFailureDetail(spec, cause),
+                  detail: acpAgentFailureDetail(spec, cause, {
+                    mossManaged: managed !== undefined,
+                  }),
                   cause,
                 }),
             ),
@@ -761,7 +763,7 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
                   provider: PROVIDER,
                   threadId: input.threadId,
                   reason: "startup-failed",
-                  detail: `${spec.displayName} session startup failed: ${acpAgentFailureDetail(spec, error)}`,
+                  detail: `${spec.displayName} session startup failed: ${acpAgentFailureDetail(spec, error, { mossManaged: managed !== undefined })}`,
                   cause: error,
                 });
               }),
@@ -1112,7 +1114,9 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
               new ProviderAdapterRequestError({
                 provider: PROVIDER,
                 method: "session/prompt",
-                detail: acpAgentFailureDetail(spec, error),
+                detail: acpAgentFailureDetail(spec, error, {
+                  mossManaged: ctx.managed !== undefined,
+                }),
                 cause: error,
               }),
           ),

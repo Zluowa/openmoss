@@ -8,13 +8,15 @@ import {
   type PageDraftOp,
   type SpaceId,
 } from "@moss/contracts";
-import { parsePageRichContent } from "@moss/shared/pageRichContent";
+import { parsePageRichContent, type PageRichNode } from "@moss/shared/pageRichContent";
 import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { PagesService, PagesServiceError, type PagesPrincipal } from "../../Services/PagesService";
 import { PageRealtimeService } from "../../realtime/PageRealtimeService";
 import { PageDraftsService, type PageDraftsServiceShape } from "../Services/PageDraftsService";
+import { prepareDraftOpsForPage } from "../pageDraftBlocks";
+import { pageChangesSince, rebasePageDraftOps } from "../pageDraftRebase";
 
 type DraftRow = {
   draft_id: string;
@@ -124,11 +126,55 @@ export const makePageDraftsServiceShape = (
         ),
       );
     // PagesService.read authorizes the principal for the scope and proves the page exists.
-    const currentPage = (
+    const currentDocument = (
       scopeSpaceId: SpaceId | null,
       pageId: PageDraft["pageId"],
       principal: PagesPrincipal,
-    ) => pages.read({ scopeSpaceId, pageId }, principal).pipe(Effect.map((result) => result.page));
+    ) => pages.read({ scopeSpaceId, pageId }, principal);
+    // The page's top-level blocks at one revision; null when it has no rich body to compare.
+    const nodesOf = (richContent: string | null | undefined): PageRichNode[] | null => {
+      if (typeof richContent !== "string") return null;
+      try {
+        return [...parsePageRichContent(richContent).nodes];
+      } catch {
+        return null;
+      }
+    };
+    const nodesAt = (pageId: string, revision: number) =>
+      sql<{ rich_content: string | null }>`SELECT rich_content FROM pages_versions
+        WHERE page_id = ${pageId} AND revision = ${revision}`.pipe(
+        Effect.map((rows) => nodesOf(rows[0]?.rich_content)),
+      );
+    /**
+     * Drafts as they can still be applied to the page now: changes that would touch blocks the
+     * person added, edited or removed after the draft's base revision are left out, and a draft
+     * with nothing left is marked outdated (the editor does not show it).
+     */
+    const rebased = (
+      drafts: readonly PageDraft[],
+      current: PageRichNode[] | null,
+      revision: number,
+    ) =>
+      Effect.gen(function* () {
+        if (current === null) return drafts;
+        const bases = new Map<number, PageRichNode[] | null>();
+        const result: PageDraft[] = [];
+        for (const draft of drafts) {
+          if (draft.status !== "open" || draft.baseRevision >= revision) {
+            result.push(draft);
+            continue;
+          }
+          if (!bases.has(draft.baseRevision))
+            bases.set(draft.baseRevision, yield* nodesAt(draft.pageId, draft.baseRevision));
+          const next = rebasePageDraftOps(draft.ops, bases.get(draft.baseRevision)!, current);
+          result.push(
+            next.ops.length === 0
+              ? { ...draft, ops: [], outdated: true }
+              : { ...draft, ops: next.ops },
+          );
+        }
+        return result;
+      });
     const rowsFor = (ids: readonly string[]) =>
       ids.length === 0
         ? Effect.succeed([] as DraftRow[])
@@ -138,14 +184,20 @@ export const makePageDraftsServiceShape = (
       protect(
         Effect.gen(function* () {
           const input = yield* decode(PageDraftsListInput, raw);
-          yield* currentPage(input.scopeSpaceId, input.pageId, principal);
+          const document = yield* currentDocument(input.scopeSpaceId, input.pageId, principal);
           const key = scopeKey(input.scopeSpaceId);
           const rows = input.includeResolved
             ? yield* sql<DraftRow>`SELECT * FROM pages_drafts WHERE page_id = ${input.pageId}
                 AND scope_key = ${key} ORDER BY created_at, draft_id`
             : yield* sql<DraftRow>`SELECT * FROM pages_drafts WHERE page_id = ${input.pageId}
                 AND scope_key = ${key} AND status = 'open' ORDER BY created_at, draft_id`;
-          return { drafts: rows.map(draftFromRow) };
+          return {
+            drafts: yield* rebased(
+              rows.map(draftFromRow),
+              nodesOf(document.richContent),
+              document.page.revision,
+            ),
+          };
         }),
       );
 
@@ -153,7 +205,8 @@ export const makePageDraftsServiceShape = (
       protect(
         Effect.gen(function* () {
           const input = yield* decode(PageDraftsMutateInput, raw);
-          const page = yield* currentPage(input.scopeSpaceId, input.pageId, principal);
+          const document = yield* currentDocument(input.scopeSpaceId, input.pageId, principal);
+          const page = document.page;
           const key = scopeKey(input.scopeSpaceId);
           if (input.op === "resolve") {
             if (principal.kind !== "local-user")
@@ -195,11 +248,32 @@ export const makePageDraftsServiceShape = (
                   : "Propose slides changes as deck operations",
               ),
             );
-          yield* Effect.try({
-            try: () => validatePageDraftOps(input.ops),
+          const currentNodes = nodesOf(document.richContent);
+          const ops = yield* Effect.try({
+            try: () => {
+              const prepared = deckDraft
+                ? [...input.ops]
+                : prepareDraftOpsForPage(input.ops, currentNodes ?? []);
+              validatePageDraftOps(prepared);
+              return prepared;
+            },
             catch: (cause) =>
               failure("invalid", cause instanceof Error ? cause.message : "Invalid page draft"),
           });
+          // Written against an older revision: refuse a draft whose every change would touch
+          // what the person changed since, and say what to read again.
+          if (!deckDraft && currentNodes && input.baseRevision < page.revision) {
+            const base = yield* nodesAt(page.id, input.baseRevision);
+            if (base && rebasePageDraftOps(ops, base, currentNodes).ops.length === 0) {
+              const { changed, removed } = pageChangesSince(base, currentNodes);
+              return yield* Effect.fail(
+                failure(
+                  "conflict",
+                  `The page changed after revision ${input.baseRevision} (the person edited ${[...changed, ...removed].slice(0, 8).join(", ") || "it"}). Read it again with moss_pages_read and propose your change against revision ${page.revision}.`,
+                ),
+              );
+            }
+          }
           const actorKey =
             principal.kind === "local-user" ? "local-user" : `thread:${principal.threadId}`;
           return yield* sql.withTransaction(
@@ -227,13 +301,19 @@ export const makePageDraftsServiceShape = (
               yield* sql`INSERT INTO pages_drafts (draft_id, page_id, scope_key, base_revision, kind,
                 summary, ops_json, status, author, author_thread_id, actor_key, request_id, created_at)
                 VALUES (${id}, ${page.id}, ${key}, ${input.baseRevision}, ${input.kind ?? "text"},
-                ${input.summary?.trim() || null}, ${JSON.stringify(input.ops)}, 'open',
+                ${input.summary?.trim() || null}, ${JSON.stringify(ops)}, 'open',
                 ${threadId === null ? "local-user" : "agent"}, ${threadId}, ${actorKey},
                 ${input.requestId}, ${now()})`;
               // An agent drafting a page that is open somewhere shows in that page's presence.
               if (threadId !== null && realtime._tag === "Some")
                 realtime.value.showAgent(page.id, threadId);
-              return { drafts: (yield* rowsFor([id])).map(draftFromRow) };
+              return {
+                drafts: yield* rebased(
+                  (yield* rowsFor([id])).map(draftFromRow),
+                  currentNodes,
+                  page.revision,
+                ),
+              };
             }),
           );
         }),

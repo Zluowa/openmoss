@@ -66,7 +66,7 @@ function harness(
   };
   const tools = makeAgentGatewayMediaTools({
     service,
-    imageWait: { sliceMs: 400, pollMs: 10 },
+    imageWait: { sliceMs: 400, pollMs: 10, longSliceMs: 900 },
     resolveCredential: Effect.sync(() => current),
     ...(workspace ? { resolveWorkspaceRoot: () => Effect.succeed(workspace) } : {}),
     ...(resolveWorkspaceRoot ? { resolveWorkspaceRoot } : {}),
@@ -690,24 +690,71 @@ describe("native official media tools", () => {
       expect(body.chat.note).toContain("then finish");
     });
 
-    it("does not wait for a video, tells the agent to finish, and leaves a failed image alone", async () => {
-      const video = { ...fresh(), operation: "video" as const, modelId: "wan-3" };
-      const videoService = waitingService([video]);
-      const videoResult = await harness(videoService.service).invoke("moss_media_get", {
-        jobId: video.jobId,
-      });
-      expect(videoService.reads()).toBe(0);
-      // The chat shows the video placeholder and later the player by itself.
-      expect(videoResult.body.chat).toMatchObject({ video: "generating" });
-      expect(String((videoResult.body.chat as { note: string }).note)).toContain("finish the turn");
-      const shown = waitingService([
-        { ...video, status: "succeeded" as const, persistenceStatus: "ready" as const },
-      ]);
-      const shownResult = await harness(shown.service).invoke("moss_media_get", {
-        jobId: video.jobId,
-      });
-      expect(shownResult.body.chat).toMatchObject({ video: "shown" });
+    it("keeps the call open for a video too, until the player is in place", async () => {
+      const queued = {
+        ...fresh(),
+        operation: "video" as const,
+        modelId: "doubao-seedance-2.0-fast",
+      };
+      const running = { ...queued, status: "running" as const };
+      const finished = {
+        ...queued,
+        status: "succeeded" as const,
+        persistenceStatus: "ready" as const,
+        videoUrls: ["https://assets.example/sea.mp4"],
+      };
+      const { service } = waitingService([queued, running, running, finished]);
+      const { body } = await harness(service).invoke("moss_media_generate", generateArgs);
+      expect(body.status).toBe("succeeded");
+      expect(body.chat).toMatchObject({ video: "shown" });
+      expect(body.chat.note).toContain("Do not say it was submitted");
+      expect(service.create).toHaveBeenCalledTimes(1);
+      expect(service.check).not.toHaveBeenCalled();
+    });
 
+    it("waits longer per call on Codex and Claude, whose Moss tool timeout allows it", async () => {
+      const queued = {
+        ...fresh(),
+        operation: "video" as const,
+        modelId: "doubao-seedance-2.0-fast",
+      };
+      const running = { ...queued, status: "running" as const };
+      const h = harness(waitingService([queued, running]).service);
+      const other = { ...h.context, callerProvider: "gemini" as const };
+      const short = Date.now();
+      const viaOther = await h.invoke("moss_media_get", { jobId: queued.jobId }, other);
+      const shortMs = Date.now() - short;
+      expect(viaOther.body.chat).toMatchObject({ video: "generating" });
+      expect(viaOther.body.chat.note).toContain("moss_media_get");
+      expect(viaOther.body.chat.note).toContain("do not finish the turn yet");
+      const long = Date.now();
+      await h.invoke(
+        "moss_media_get",
+        { jobId: queued.jobId },
+        { ...h.context, callerProvider: "claudeAgent" },
+      );
+      // 400 ms slices for other agents, 900 ms for Codex and Claude in this harness.
+      expect(shortMs).toBeLessThan(800);
+      expect(Date.now() - long).toBeGreaterThanOrEqual(850);
+    });
+
+    it("after its ceiling, tells the agent to say truthfully that the video is still coming", async () => {
+      const old = {
+        ...job,
+        operation: "video" as const,
+        status: "running" as const,
+        createdAt: new Date(Date.now() - 26 * 60_000).toISOString(),
+      };
+      const stale = waitingService([old]);
+      vi.mocked(stale.service.check).mockResolvedValue(old);
+      const { body } = await harness(stale.service).invoke("moss_media_get", { jobId: old.jobId });
+      expect(stale.reads()).toBe(0);
+      expect(body.chat).toMatchObject({ video: "generating" });
+      expect(body.chat.note).toContain("still being made");
+      expect(body.chat.note).toContain("Do not call moss_media_get again");
+    });
+
+    it("leaves a failed job alone", async () => {
       const failed = { ...fresh(), status: "failed_terminal" as const };
       const failedService = waitingService([failed]);
       const failedResult = await harness(failedService.service).invoke(

@@ -299,6 +299,7 @@ import {
   StatsGetProfileStatsInput,
   StatsGetProfileTokenStatsInput,
   StatsGetRecapInput,
+  StatsGetUsageAnalyticsInput,
 } from "./stats";
 import {
   ProviderAddMarketplaceInput,
@@ -497,6 +498,7 @@ export const WS_METHODS = {
   statsGetProfileStats: "stats.getProfileStats",
   statsGetProfileTokenStats: "stats.getProfileTokenStats",
   statsGetRecap: "stats.getRecap",
+  statsGetUsageAnalytics: "stats.getUsageAnalytics",
   serverGetDiagnostics: "server.getDiagnostics",
   serverWorkspaceImportProbe: "server.workspaceImport.probe",
   serverWorkspaceImportApply: "server.workspaceImport.apply",
@@ -982,6 +984,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.statsGetProfileStats, StatsGetProfileStatsInput),
   tagRequestBody(WS_METHODS.statsGetProfileTokenStats, StatsGetProfileTokenStatsInput),
   tagRequestBody(WS_METHODS.statsGetRecap, StatsGetRecapInput),
+  tagRequestBody(WS_METHODS.statsGetUsageAnalytics, StatsGetUsageAnalyticsInput),
   tagRequestBody(WS_METHODS.serverGetDiagnostics, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverPrepareDevsReport, DevsReportSubmitInput),
   tagRequestBody(WS_METHODS.serverSubmitDevsReport, DevsReportSubmitInput),

@@ -247,7 +247,8 @@ function DataSpaceWorkspace({
   });
   const libraryQuery = useQuery({
     queryKey: [...pagesQueryKeys.scope(account, scopeSpaceId), "library"],
-    queryFn: () => ensureNativeApi().library.list({ includeTrashed: true }),
+    // Only what reached the person: not a tool's screenshots or an agent's edit backups.
+    queryFn: () => ensureNativeApi().library.list({ includeTrashed: true, deliveredOnly: true }),
     refetchInterval: 15_000,
   });
   const allPages = useMemo(() => listQuery.data?.pages ?? [], [listQuery.data]);

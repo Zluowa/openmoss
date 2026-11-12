@@ -6,6 +6,7 @@ import path from "node:path";
 import { LIBRARY_RENAME_EXTENSION_ERROR_CODE } from "@moss/contracts";
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Layer } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterAll, vi } from "vitest";
 import { LibraryRepositoryLive } from "../../persistence/Layers/LibraryRepository.ts";
 import { LibraryRepository } from "../../persistence/Services/LibraryRepository.ts";
@@ -102,6 +103,48 @@ layer("LibraryService", (it) => {
       // Dotfiles and the codex index json never enter the library.
       assert.strictEqual(byTitle.has(".hidden"), false);
       assert.strictEqual(byTitle.has("pasted-text-attachments.json"), false);
+    }),
+  );
+
+  it.effect("lists for 资料空间 only what a chat delivered, not a tool's screenshots", () =>
+    Effect.gen(function* () {
+      yield* resetLibrary;
+      const shown = yield* Effect.promise(() =>
+        writeFile(".codex/generated_images/thread-vis/ig_shown.png", "png"),
+      );
+      yield* Effect.promise(async () => {
+        await writeFile(".codex/generated_images/thread-vis/exec-0f3c.png", "png");
+        await writeFile(".claude/file-history/backup.md", "md");
+        await writeFile(".claude/downloads/report.pdf", "pdf");
+      });
+      // The chat showed ig_shown.png as a generated image (a different path spelling).
+      const sql = yield* SqlClient.SqlClient;
+      const payload = JSON.stringify({
+        itemType: "image_generation",
+        status: "completed",
+        data: {
+          kind: "codex.generated_image",
+          path: shown.replaceAll("\\", "/"),
+          callId: "ig_shown",
+        },
+      });
+      yield* sql`INSERT INTO projection_thread_activities
+        (activity_id, thread_id, turn_id, tone, kind, summary, payload_json, created_at, sequence)
+        VALUES ('a-shown', 'thread-moss', 'turn-1', 'tool', 'tool.completed', 'Generated image',
+          ${payload}, '2026-11-12T00:00:00.000Z', 1)`;
+      const library = yield* LibraryService;
+      yield* library.sync();
+      const titles = (items: ReadonlyArray<{ title: string }>) =>
+        items.map((i) => i.title).toSorted();
+      const everything = yield* library.list({});
+      assert.deepStrictEqual(titles(everything.items), [
+        "backup.md",
+        "exec-0f3c.png",
+        "ig_shown.png",
+        "report.pdf",
+      ]);
+      const delivered = yield* library.list({ deliveredOnly: true });
+      assert.deepStrictEqual(titles(delivered.items), ["ig_shown.png", "report.pdf"]);
     }),
   );
 

@@ -7,7 +7,7 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ThreadId } from "@moss/contracts";
-import { Effect, Layer, Logger } from "effect";
+import { Deferred, Duration, Effect, Layer, Logger } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -29,6 +29,11 @@ import {
   MossManagedProviderLive,
   mossManagedCodexModelsForLane,
 } from "./MossManagedProvider";
+import {
+  MOSS_BEARER_SEND_ROTATION_LEAD_MS,
+  readManagedBearerExpiryMs,
+} from "../managedCredentialFreshness";
+import { makeMossManagedTurnPreflight } from "./MossManagedTurnPreflight";
 import {
   maintainMossPhoneAccountSession,
   makeMossPhoneAccountService,
@@ -440,11 +445,12 @@ describe("Moss phone session with a live managed runtime", () => {
       yield* settingsService.start;
       const service = yield* makeService();
       yield* signIn(service);
-      now = ISSUED_AT + 30 * 60_000;
+      // 31 minutes left: not yet.
+      now = ISSUED_AT + 29 * 60_000;
       yield* service.maintainSession();
       const refreshesWhileFresh = refreshed;
-      // Five minutes early, so a rotation that has to wait for a turn still has room.
-      now = ISSUED_AT + HOUR - 4 * 60_000;
+      // 30 minutes early, so a turn that delays the rotation still has a live bearer.
+      now = ISSUED_AT + 30 * 60_000;
       yield* service.maintainSession();
       return { refreshesWhileFresh, managed: yield* managedBearer };
     }).pipe(
@@ -456,7 +462,7 @@ describe("Moss phone session with a live managed runtime", () => {
     expect(refreshed).toBe(1);
     expect(result.managed).toEqual({
       enabled: true,
-      bearer: bearerJwt("access-2", ISSUED_AT + 2 * HOUR - 4 * 60_000),
+      bearer: bearerJwt("access-2", ISSUED_AT + HOUR + 30 * 60_000),
     });
   });
 
@@ -641,5 +647,181 @@ describe("Moss phone session with a live managed runtime", () => {
     expect(result.logout._tag).toBe("Failure");
     expect(result.lanes.codex).toEqual({ enabled: false, bearer: undefined });
     expect(result.lanes.claude.enabled).toBe(false);
+  });
+
+  // Rotate-before-send. The preflight runs the same maintenance pass the server loop runs.
+  const makePreflight = (
+    service: Effect.Success<ReturnType<typeof makeMossPhoneAccountService>>,
+    rotate?: Effect.Effect<void, unknown>,
+    wait?: Duration.Input,
+  ) =>
+    Effect.gen(function* () {
+      return makeMossManagedTurnPreflight({
+        settings: yield* ServerSettingsService,
+        scope: yield* Effect.scope,
+        rotate: () => rotate ?? service.maintainSession(),
+        now: () => now,
+        ...(wait !== undefined ? { wait } : {}),
+      });
+    });
+
+  it("lets a turn that starts with 25+ minutes left run through the refresh to the end", async () => {
+    const runtimes = makeProviderRuntimes();
+    const claudeThread = ThreadId.makeUnsafe("thread-long-claude-turn");
+    const result = await Effect.gen(function* () {
+      const settingsService = yield* ServerSettingsService;
+      yield* settingsService.start;
+      const service = yield* makeService();
+      yield* signIn(service);
+      const preflight = yield* makePreflight(service);
+      // Send at 32 minutes left: no rotation needed, the turn starts on access-1.
+      now = ISSUED_AT + 28 * 60_000;
+      yield* preflight.beforeTurn({ instanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID });
+      const atSend = yield* managedBearer;
+      runtimes.setSessions([
+        {
+          provider: "claudeAgent",
+          providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+          status: "running",
+          threadId: claudeThread,
+        },
+      ]);
+      // The refresh lands mid-turn and waits for the turn.
+      now = ISSUED_AT + 31 * 60_000;
+      yield* service.maintainSession();
+      // 27 minutes into the turn the old bearer is still live, so nothing is stopped.
+      now = ISSUED_AT + 55 * 60_000;
+      yield* service.maintainSession();
+      const lateInTurn = yield* managedBearer;
+      const stopsDuringTurn = runtimes.stopRuntimeSession.mock.calls.length;
+      runtimes.setSessions([
+        {
+          provider: "claudeAgent",
+          providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+          status: "ready",
+          threadId: claudeThread,
+        },
+      ]);
+      now = ISSUED_AT + 56 * 60_000;
+      yield* service.maintainSession();
+      return { atSend, lateInTurn, stopsDuringTurn, afterTurn: yield* managedBearer };
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
+      Effect.runPromise,
+    );
+
+    const firstBearer = bearerJwt("access-1", ISSUED_AT + HOUR);
+    expect(result.atSend).toEqual({ enabled: true, bearer: firstBearer });
+    expect(refreshed).toBe(1);
+    expect(result.stopsDuringTurn).toBe(0);
+    expect(result.lateInTurn).toEqual({ enabled: true, bearer: firstBearer });
+    expect(ISSUED_AT + 55 * 60_000).toBeLessThan(readManagedBearerExpiryMs(firstBearer)!);
+    expect(result.afterTurn).toEqual({
+      enabled: true,
+      bearer: bearerJwt("access-2", ISSUED_AT + 31 * 60_000 + HOUR),
+    });
+  });
+
+  it("starts a chat that is sent near expiry on a fresh bearer", async () => {
+    const runtimes = makeProviderRuntimes();
+    const result = await Effect.gen(function* () {
+      const settingsService = yield* ServerSettingsService;
+      yield* settingsService.start;
+      const service = yield* makeService();
+      yield* signIn(service);
+      const preflight = yield* makePreflight(service);
+      // No maintenance pass ran (a sleeping laptop); the send itself notices.
+      now = ISSUED_AT + 50 * 60_000;
+      yield* preflight.beforeTurn({ instanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID });
+      return yield* managedLanes;
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
+      Effect.runPromise,
+    );
+
+    expect(result).toEqual({
+      codex: { enabled: true, bearer: bearerJwt("access-2", ISSUED_AT + 50 * 60_000 + HOUR) },
+      claude: { enabled: true, cleanupState: undefined },
+    });
+  });
+
+  it("heals the next send after a turn died on an expired bearer, without a restart", async () => {
+    const runtimes = makeProviderRuntimes();
+    const claudeThread = ThreadId.makeUnsafe("thread-claude-401");
+    const result = await Effect.gen(function* () {
+      const settingsService = yield* ServerSettingsService;
+      yield* settingsService.start;
+      const service = yield* makeService();
+      yield* signIn(service);
+      const preflight = yield* makePreflight(service);
+      runtimes.setSessions([
+        {
+          provider: "claudeAgent",
+          providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+          status: "running",
+          threadId: claudeThread,
+        },
+      ]);
+      now = ISSUED_AT + 31 * 60_000;
+      yield* service.maintainSession();
+      // The turn outlived the old bearer, got the gateway's 401 and its CLI exited. The
+      // person sends again before any after-turn rotation ran.
+      runtimes.setSessions([]);
+      now = ISSUED_AT + HOUR + 60_000;
+      const beforeRetry = yield* managedBearer;
+      yield* preflight.beforeTurn({ instanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID });
+      return { beforeRetry, atRetry: yield* managedLanes };
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
+      Effect.runPromise,
+    );
+
+    expect(result.beforeRetry.bearer).toBe(bearerJwt("access-1", ISSUED_AT + HOUR));
+    // The retry runs on a bearer with a full long turn left (here a second refresh, since
+    // the first one also has under 30 minutes left by now).
+    expect(result.atRetry.codex.enabled).toBe(true);
+    expect(result.atRetry.claude).toEqual({ enabled: true, cleanupState: undefined });
+    expect(readManagedBearerExpiryMs(result.atRetry.codex.bearer)).toBeGreaterThan(
+      ISSUED_AT + HOUR + 60_000 + MOSS_BEARER_SEND_ROTATION_LEAD_MS,
+    );
+  });
+
+  it("never holds a send for a slow rotation; the rotation finishes on its own", async () => {
+    const runtimes = makeProviderRuntimes();
+    const result = await Effect.gen(function* () {
+      const settingsService = yield* ServerSettingsService;
+      yield* settingsService.start;
+      const service = yield* makeService();
+      yield* signIn(service);
+      const gate = yield* Deferred.make<void>();
+      const finished = yield* Deferred.make<void>();
+      const preflight = yield* makePreflight(
+        service,
+        Deferred.await(gate).pipe(
+          Effect.andThen(service.maintainSession()),
+          Effect.ensuring(Deferred.succeed(finished, undefined)),
+        ),
+        Duration.millis(50),
+      );
+      now = ISSUED_AT + 50 * 60_000;
+      const started = Date.now();
+      yield* preflight.beforeTurn({ instanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID });
+      const heldMs = Date.now() - started;
+      const atSend = yield* managedBearer;
+      yield* Deferred.succeed(gate, undefined);
+      yield* Deferred.await(finished);
+      return { heldMs, atSend, afterRotation: yield* managedBearer };
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
+      Effect.runPromise,
+    );
+
+    expect(result.heldMs).toBeLessThan(2_000);
+    expect(result.atSend.bearer).toBe(bearerJwt("access-1", ISSUED_AT + HOUR));
+    expect(result.afterRotation.bearer).toBe(bearerJwt("access-2", ISSUED_AT + 50 * 60_000 + HOUR));
   });
 });

@@ -64,6 +64,8 @@ export interface TranscriptCardEnv {
   markdownCwd: string | undefined;
   workspaceRoot: string | undefined;
   onImageExpand: WorkEntryRowProps["onImageExpand"];
+  /** 重试 on a failed Moss image or video card; absent where no new turn can be sent. */
+  onRetryMedia?: ((media: "image" | "video") => void) | undefined;
   resolvedTheme: "light" | "dark";
   timestampFormat: WorkEntryRowProps["timestampFormat"];
   nowIso: string | undefined;
@@ -173,6 +175,7 @@ function GeneratedImageGalleryBody(props: {
         gallery={props.row.gallery}
         cwd={props.env.markdownCwd}
         onImageExpand={props.env.onImageExpand}
+        onRetry={props.env.onRetryMedia}
       />
     </div>
   );

@@ -8,6 +8,8 @@
 
 import type { CSSProperties, ReactNode, Ref } from "react";
 
+import { MCP_APP_DEFAULT_CALL_FAILED_MESSAGE } from "@moss/contracts";
+
 import { ChevronRightIcon, ExpandArrowsIcon, EyeIcon, EyeSlashIcon, Minimize2 } from "~/lib/icons";
 import type { McpAppHostDialog, McpAppHostPhase, McpAppHostPrompt } from "~/lib/mcpAppHost";
 import { MCP_APP_HEIGHT_TRANSITION } from "~/lib/mcpApps/constants";
@@ -74,6 +76,7 @@ function McpAppFallbackResult(props: {
   readonly projection: WorkLogMcpToolResult;
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }) {
+  const { t } = useTranslation();
   const content = props.projection.result?.content ?? [];
   if (content.some((block) => block.type !== "text")) {
     return (
@@ -89,7 +92,10 @@ function McpAppFallbackResult(props: {
     block.type === "text" && block.text.trim().length > 0 ? [block.text] : [],
   );
   const structured = props.projection.result?.structuredContent;
-  const errorText = props.projection.error?.message.trim();
+  // A server's or CLI's own error is shown as written; Moss's own default is in the UI language.
+  const rawError = props.projection.error?.message.trim();
+  const errorText =
+    rawError === MCP_APP_DEFAULT_CALL_FAILED_MESSAGE ? t("mcpApp.callFailed") : rawError;
   if (texts.length === 0 && structured === undefined && errorText) {
     texts.push(errorText);
   }

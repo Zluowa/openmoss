@@ -634,6 +634,9 @@ export function useChatTurnSubmission({
         imageCount: composerImagesForSend.length,
         fileCount: composerFilesForSend.length,
         assistantSelectionCount: composerAssistantSelectionsForSend.length,
+        assistantSelectionReplyCount: composerAssistantSelectionsForSend.filter(
+          (selection) => (selection.comment ?? "").trim().length > 0,
+        ).length,
         browserAnnotationCount: composerBrowserAnnotationsForSend.length,
         fileCommentCount: composerFileCommentsForSend.length,
         terminalContexts: composerTerminalContextsForSend,

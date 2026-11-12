@@ -19,6 +19,8 @@ export const MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS = [
   "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL",
   "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL",
   "MOSS_MEMFIRE_PHONE_PAY_BASE_URL",
+  "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
+  "MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS",
   "MOSS_SUPABASE_GOOGLE_URL",
   "MOSS_SUPABASE_GOOGLE_PUBLISHABLE_KEY",
   "MOSS_SUPABASE_GOOGLE_AUTH_REDIRECT_URL",
@@ -30,6 +32,21 @@ export const MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS = [
 export const MOSS_PRODUCTION_PUBLIC_CONFIG_KEYS = MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS;
 
 export type MossProductionPublicConfigKey = (typeof MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS)[number];
+
+/** Settings a v2 release may leave out; every other v2 key is required. */
+export const MOSS_OPTIONAL_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS = [
+  "MOSS_MEMFIRE_PHONE_PAY_BASE_URL",
+  "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
+  "MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS",
+] as const satisfies ReadonlyArray<MossProductionPublicConfigKey>;
+
+/** At most this many fallback entries per service, so a bad manifest cannot fan out probes. */
+export const MOSS_MAX_SERVICE_FALLBACK_URLS = 3;
+
+/** A fallback list travels through the environment as one comma- or space-separated value. */
+export function splitMossServiceUrlList(value: string | undefined): ReadonlyArray<string> {
+  return (value ?? "").split(/[\s,]+/u).filter((entry) => entry.length > 0);
+}
 
 /**
  * The map keys Moss ships for visual replies, projected into the backend environment.
@@ -72,6 +89,13 @@ export interface MossMemFirePhonePublicRealm {
   readonly realtimeRelayUrl: string;
   /** Absent in older v2 releases; phone payments stay disabled until configured. */
   readonly payBaseUrl?: string;
+  /**
+   * Other entries to the same CN model gateway, tried in order when `modelGatewayUrl` cannot
+   * be reached. Absent in older releases.
+   */
+  readonly modelGatewayFallbackUrls?: ReadonlyArray<string>;
+  /** Other entries to the same CN payment service, tried in order after `payBaseUrl`. */
+  readonly payFallbackBaseUrls?: ReadonlyArray<string>;
 }
 
 export interface MossSupabaseGooglePublicRealm {
@@ -355,8 +379,41 @@ function requireRealtimeRelayOrigin(key: MossProductionPublicConfigKey, value: s
   return url.origin;
 }
 
-function requirePhonePaymentBaseUrl(value: string): string {
-  const key = "MOSS_MEMFIRE_PHONE_PAY_BASE_URL";
+/**
+ * An ordered fallback list for one service: each entry passes the primary's own rules, none
+ * repeats the primary or another entry, and a list without a primary is refused.
+ */
+function requireFallbackList(input: {
+  readonly key: MossProductionPublicConfigKey;
+  readonly value: string | undefined;
+  readonly primary: string | undefined;
+  readonly parse: (value: string) => string;
+}): ReadonlyArray<string> {
+  const values = splitMossServiceUrlList(input.value);
+  if (values.length === 0) return [];
+  if (!input.primary) {
+    throw new MossProductionPublicConfigError(`${input.key} needs its primary entry configured.`);
+  }
+  if (values.length > MOSS_MAX_SERVICE_FALLBACK_URLS) {
+    throw new MossProductionPublicConfigError(
+      `${input.key} lists more than ${MOSS_MAX_SERVICE_FALLBACK_URLS} entries.`,
+    );
+  }
+  const seen = new Set([input.primary]);
+  return values.map((value) => {
+    const entry = input.parse(value);
+    if (seen.has(entry)) {
+      throw new MossProductionPublicConfigError(`${input.key} repeats an entry.`);
+    }
+    seen.add(entry);
+    return entry;
+  });
+}
+
+function requirePhonePaymentBaseUrl(
+  value: string,
+  key: MossProductionPublicConfigKey = "MOSS_MEMFIRE_PHONE_PAY_BASE_URL",
+): string {
   const url = parsePublicHttpsUrl(key, value);
   const canonical = `${url.origin}/functions/v1/moss-pay`;
   if (url.port || (value !== canonical && value !== `${canonical}/`)) {
@@ -420,6 +477,25 @@ export function resolveMossProductionPublicConfig(
   const phonePayValue = input.MOSS_MEMFIRE_PHONE_PAY_BASE_URL?.trim();
   const phonePayBaseUrl = phonePayValue ? requirePhonePaymentBaseUrl(phonePayValue) : undefined;
   const maps = resolvePublicMaps(input);
+  const memFireModelGateway = (key: MossProductionPublicConfigKey, value: string) =>
+    requireModelGatewayUrl({ key, value, authority: "memfire-phone", authUrl: memFireAuthUrl });
+  const memFireModelGatewayUrl = memFireModelGateway(
+    "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL",
+    requireInputValue(input, "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL"),
+  );
+  const modelGatewayFallbackUrls = requireFallbackList({
+    key: "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
+    value: input.MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS,
+    primary: memFireModelGatewayUrl,
+    parse: (value) => memFireModelGateway("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS", value),
+  });
+  const payFallbackBaseUrls = requireFallbackList({
+    key: "MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS",
+    value: input.MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS,
+    primary: phonePayBaseUrl,
+    parse: (value) =>
+      requirePhonePaymentBaseUrl(value, "MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS"),
+  });
 
   return {
     version: MOSS_PRODUCTION_CONFIG_VERSION,
@@ -433,14 +509,11 @@ export function resolveMossProductionPublicConfig(
           "MOSS_MEMFIRE_PHONE_PUBLISHABLE_KEY",
           requireInputValue(input, "MOSS_MEMFIRE_PHONE_PUBLISHABLE_KEY"),
         ),
-        modelGatewayUrl: requireModelGatewayUrl({
-          key: "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL",
-          value: requireInputValue(input, "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL"),
-          authority: "memfire-phone",
-          authUrl: memFireAuthUrl,
-        }),
+        modelGatewayUrl: memFireModelGatewayUrl,
         realtimeRelayUrl: memFireRelayUrl,
         ...(phonePayBaseUrl ? { payBaseUrl: phonePayBaseUrl } : {}),
+        ...(modelGatewayFallbackUrls.length > 0 ? { modelGatewayFallbackUrls } : {}),
+        ...(payFallbackBaseUrls.length > 0 ? { payFallbackBaseUrls } : {}),
       },
       "supabase-google": {
         authority: "supabase-google",
@@ -510,6 +583,19 @@ function requireStringField(record: Record<string, unknown>, key: string, path: 
   return value;
 }
 
+/** An optional list of URL strings, joined into the environment shape the resolver reads. */
+function requireUrlListField(record: Record<string, unknown>, key: string): string | undefined {
+  if (!(key in record)) return undefined;
+  const value = record[key];
+  if (
+    !Array.isArray(value) ||
+    !value.every((entry) => typeof entry === "string" && entry.length > 0 && !/[\s,]/u.test(entry))
+  ) {
+    throw new MossProductionPublicConfigError(`memfire-phone.${key} must be a list of URLs.`);
+  }
+  return value.join(",");
+}
+
 export function parseMossProductionPublicConfig(rawJson: string): MossProductionPublicConfig {
   const document = parseJsonObject(rawJson);
   if (document.version !== MOSS_PRODUCTION_CONFIG_VERSION) {
@@ -544,7 +630,7 @@ export function parseMossProductionPublicConfig(rawJson: string): MossProduction
     memFire,
     ["authority", "region", "authUrl", "publishableKey", "modelGatewayUrl", "realtimeRelayUrl"],
     "Production public config authRealms.memfire-phone",
-    ["payBaseUrl"],
+    ["payBaseUrl", "modelGatewayFallbackUrls", "payFallbackBaseUrls"],
   );
   requireExactKeys(
     supabase,
@@ -592,6 +678,11 @@ export function parseMossProductionPublicConfig(rawJson: string): MossProduction
       "payBaseUrl" in memFire
         ? requireStringField(memFire, "payBaseUrl", "memfire-phone")
         : undefined,
+    MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS: requireUrlListField(
+      memFire,
+      "modelGatewayFallbackUrls",
+    ),
+    MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS: requireUrlListField(memFire, "payFallbackBaseUrls"),
     MOSS_SUPABASE_GOOGLE_URL: requireStringField(supabase, "authUrl", "supabase-google"),
     MOSS_SUPABASE_GOOGLE_PUBLISHABLE_KEY: requireStringField(
       supabase,
@@ -639,6 +730,10 @@ export function toMossProductionPublicConfigEnv(
     MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL: memFire.modelGatewayUrl,
     MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL: memFire.realtimeRelayUrl,
     MOSS_MEMFIRE_PHONE_PAY_BASE_URL: memFire.payBaseUrl ?? "",
+    MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS: (memFire.modelGatewayFallbackUrls ?? []).join(
+      ",",
+    ),
+    MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS: (memFire.payFallbackBaseUrls ?? []).join(","),
     MOSS_SUPABASE_GOOGLE_URL: supabase.authUrl,
     MOSS_SUPABASE_GOOGLE_PUBLISHABLE_KEY: supabase.publishableKey,
     MOSS_SUPABASE_GOOGLE_AUTH_REDIRECT_URL: supabase.authRedirectUrl,

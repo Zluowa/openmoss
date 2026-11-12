@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isTrustedMossManagedGatewayUrl,
   isTrustedMossManagedGatewayUrlForAuthority,
+  mossManagedGatewayEntriesForAuthority,
 } from "./mossManagedGatewayTrust";
 
 const LOOPBACK_GATEWAY = "http://127.0.0.1:54321/functions/v1/moss-model-gateway/v1";
@@ -174,6 +175,57 @@ describe("isTrustedMossManagedGatewayUrl", () => {
     );
     expect(
       isTrustedMossManagedGatewayUrlForAuthority(DOMESTIC_GATEWAY, "supabase-google", env),
+    ).toBe(false);
+  });
+
+  it("trusts exactly the listed CN fallback entries, and only for the CN lanes", () => {
+    const fallback = "https://fallback.moss.example.cn/functions/v1/moss-model-gateway/v1";
+    const globalGateway = "https://models.moss.example/functions/v1/moss-model-gateway/v1";
+    const env = {
+      MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL: DOMESTIC_GATEWAY,
+      MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS: fallback,
+      MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL: globalGateway,
+    };
+
+    expect(mossManagedGatewayEntriesForAuthority("memfire-phone", env)).toEqual([
+      DOMESTIC_GATEWAY,
+      fallback,
+    ]);
+    expect(mossManagedGatewayEntriesForAuthority("moss-enterprise-key", env)).toEqual([
+      DOMESTIC_GATEWAY,
+      fallback,
+    ]);
+    expect(mossManagedGatewayEntriesForAuthority("supabase-google", env)).toEqual([globalGateway]);
+    for (const authority of ["memfire-phone", "moss-enterprise-key"] as const) {
+      expect(isTrustedMossManagedGatewayUrlForAuthority(fallback, authority, env)).toBe(true);
+    }
+    expect(isTrustedMossManagedGatewayUrlForAuthority(fallback, "supabase-google", env)).toBe(
+      false,
+    );
+    // Nothing near the listed entry: no sibling host, parent domain, other path or scheme.
+    for (const candidate of [
+      "https://other.moss.example.cn/functions/v1/moss-model-gateway/v1",
+      "https://moss.example.cn/functions/v1/moss-model-gateway/v1",
+      "https://fallback.moss.example.cn/functions/v1/moss-pay",
+      "http://fallback.moss.example.cn/functions/v1/moss-model-gateway/v1",
+      "https://fallback.moss.example.cn:8443/functions/v1/moss-model-gateway/v1",
+    ]) {
+      expect(isTrustedMossManagedGatewayUrl(candidate, env)).toBe(false);
+    }
+  });
+
+  it("trusts no fallback without a configured primary, and never a loopback fallback", () => {
+    const fallback = "https://fallback.moss.example.cn/functions/v1/moss-model-gateway/v1";
+    expect(
+      isTrustedMossManagedGatewayUrl(fallback, {
+        MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS: fallback,
+      }),
+    ).toBe(false);
+    expect(
+      isTrustedMossManagedGatewayUrl(LOOPBACK_GATEWAY, {
+        MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL: DOMESTIC_GATEWAY,
+        MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS: LOOPBACK_GATEWAY,
+      }),
     ).toBe(false);
   });
 });

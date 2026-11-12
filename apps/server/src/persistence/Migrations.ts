@@ -226,6 +226,7 @@ import Migration0163 from "./Migrations/163_PageRealtimeCuts.ts";
 import Migration0164 from "./Migrations/164_PageAppPublications.ts";
 import Migration0165 from "./Migrations/165_PageRoomPrivateStores.ts";
 import Migration0166 from "./Migrations/166_Mossbot.ts";
+import Migration0167 from "./Migrations/167_UsageAnalyticsDeletedTokens.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -406,6 +407,7 @@ export const migrationEntries = [
   [164, "PageAppPublications", Migration0164],
   [165, "PageRoomPrivateStores", Migration0165],
   [166, "Mossbot", Migration0166],
+  [167, "UsageAnalyticsDeletedTokens", Migration0167],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

@@ -66,43 +66,62 @@ const catalog = () =>
   });
 
 describe("MossMediaJobsService", () => {
-  it("refetches an accepted job's image after a download failure without another supplier request", async () => {
-    let now = Date.now();
-    const gateway = vi.fn(async (url: string | URL | Request) => {
-      if (String(url).endsWith("/catalog")) return catalog();
-      if (String(url).endsWith("/generations")) return Response.json({ taskToken: "accepted" });
-      return Response.json({
-        pending: false,
-        billingStatus: "captured",
-        imageUrl: "https://assets.example/cat.png",
+  it.each([
+    ["a fast disk", 0],
+    // Linux CI: the run is still saving its result when the reader asks (openmoss run 43208144541).
+    ["a slow disk", 300],
+  ] as const)(
+    "refetches an accepted job's image after a download failure without another supplier request (%s)",
+    async (_disk, saveDelayMs) => {
+      const save = MossMediaHistory.prototype.save;
+      if (saveDelayMs > 0)
+        vi.spyOn(MossMediaHistory.prototype, "save").mockImplementation(async function (
+          this: MossMediaHistory,
+          ...args: Parameters<MossMediaHistory["save"]>
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, saveDelayMs));
+          return save.apply(this, args);
+        });
+      let now = Date.now();
+      const gateway = vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/catalog")) return catalog();
+        if (String(url).endsWith("/generations")) return Response.json({ taskToken: "accepted" });
+        return Response.json({
+          pending: false,
+          billingStatus: "captured",
+          imageUrl: "https://assets.example/cat.png",
+        });
       });
-    });
-    vi.mocked(outboundHttp.request).mockRejectedValueOnce(new Error("download unavailable"));
-    const service = new MossMediaJobsService({
-      stateDirectory: stateDirectory(),
-      fetchImpl: gateway,
-      brokerOptions: { pollMs: 0, now: () => now },
-    });
-    const job = await service.create(request, credential);
-    await vi.waitFor(() =>
-      expect(service.get(job.jobId, credential)).toMatchObject({
-        status: "succeeded",
-        persistenceStatus: "failed",
-        billingStatus: "captured",
-      }),
-    );
-    const requests = gateway.mock.calls.length;
-    now += 6_000;
-    const results = await Promise.all([
-      service.check(job.jobId, credential),
-      service.check(job.jobId, credential),
-    ]);
-    expect(
-      results.every((item) => item.persistenceStatus === "ready" && item.assets?.length === 1),
-    ).toBe(true);
-    expect(outboundHttp.request).toHaveBeenCalledTimes(2);
-    expect(gateway).toHaveBeenCalledTimes(requests);
-  });
+      vi.mocked(outboundHttp.request).mockRejectedValueOnce(new Error("download unavailable"));
+      const service = new MossMediaJobsService({
+        stateDirectory: stateDirectory(),
+        fetchImpl: gateway,
+        brokerOptions: { pollMs: 0, now: () => now },
+      });
+      const job = await service.create(request, credential);
+      // Several checkpoint writes come first; a loaded disk needs more than vi.waitFor's 1 s.
+      await vi.waitFor(
+        () =>
+          expect(service.get(job.jobId, credential)).toMatchObject({
+            status: "succeeded",
+            persistenceStatus: "failed",
+            billingStatus: "captured",
+          }),
+        { timeout: 10_000 },
+      );
+      const requests = gateway.mock.calls.length;
+      now += 6_000;
+      const results = await Promise.all([
+        service.check(job.jobId, credential),
+        service.check(job.jobId, credential),
+      ]);
+      expect(
+        results.every((item) => item.persistenceStatus === "ready" && item.assets?.length === 1),
+      ).toBe(true);
+      expect(outboundHttp.request).toHaveBeenCalledTimes(2);
+      expect(gateway).toHaveBeenCalledTimes(requests);
+    },
+  );
   it("delivers saved images to the original turn without polling or Markdown and replays them without billing again", async () => {
     const directory = stateDirectory();
     const workspace = { threadId: "thread-gallery", cwd: directory, title: "Gallery" };

@@ -2,6 +2,7 @@
 // Purpose: Guards typed thread-error precedence and user-facing recovery surfaces.
 // Layer: Web chat presentation tests
 
+import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
 import { formatProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 import { describe, expect, it } from "vitest";
 
@@ -259,11 +260,22 @@ describe("resolveThreadErrorPresentation", () => {
     }
   });
 
-  it("translates Claude's server error on the failure card", () => {
+  it("translates the model service's server error on the failure card, without a provider name", () => {
+    for (const raw of [
+      "The model service returned a server error. Retry in a moment.",
+      // Recorded by older builds.
+      "Claude returned a server error. Retry in a moment.",
+    ]) {
+      expect(resolveThreadErrorPresentation(raw, "zh-CN").title).toBe(
+        "模型服务返回了服务器错误，请稍后重试。",
+      );
+    }
     expect(
-      resolveThreadErrorPresentation("Claude returned a server error. Retry in a moment.", "zh-CN")
-        .title,
-    ).toBe("Claude 返回了服务器错误，请稍后重试。");
+      resolveThreadErrorPresentation(
+        "The model service is temporarily overloaded. Retry in a moment.",
+        "zh-CN",
+      ).title,
+    ).toBe("模型服务暂时过载，请稍后重试。");
   });
 
   it("shows the gateway's reason in place of each CLI's raw wrapper", () => {
@@ -617,5 +629,24 @@ describe("isQuotaOwnedThreadError", () => {
     expect(resolveQuotaOwnedThreadError(deliveryBlock, true)).toBeNull();
     expect(resolveQuotaOwnedThreadError("Provider runtime error", true)).toBeNull();
     expect(resolveQuotaOwnedThreadError("request_quota_exhausted", false)).toBeNull();
+  });
+});
+
+describe("a Moss lane whose bearer lapsed mid-task", () => {
+  it.each([
+    // Claude Code on claude_moss, after Moss's adapter wording.
+    MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
+    // Codex, OpenCode and Pi pass the gateway's own 401 sentence through.
+    "unexpected status 401 Unauthorized: The Moss account session is invalid or expired., url: https://moss.example.cn/v1/responses",
+    "Failed to authenticate. API Error: 401 The Moss account session is invalid or expired.",
+  ])("says Moss renewed the sign-in and offers a retry: %s", (raw) => {
+    expect(resolveThreadErrorPresentation(raw, "zh-CN")).toEqual({
+      title: "Moss 已在任务进行中更新登录状态，请重新发送消息继续。",
+      copyText: "Moss 已在任务进行中更新登录状态，请重新发送消息继续。",
+      retryable: true,
+    });
+    const english = resolveThreadErrorPresentation(raw, "en");
+    expect(english.title).toBe(MOSS_MANAGED_SESSION_RENEWED_MESSAGE);
+    expect(english.title).not.toMatch(/login|claude auth/iu);
   });
 });

@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 
 import {
   MOSS_LEGACY_PRODUCTION_PUBLIC_CONFIG_KEYS,
+  MOSS_OPTIONAL_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS,
   MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS,
   parseLegacyMossProductionPublicConfig,
   parseMossProductionPublicConfig,
@@ -63,6 +64,8 @@ describe("mossProductionPublicConfig v2", () => {
     assert.deepStrictEqual(toMossProductionPublicConfigEnv(expectedConfig), {
       ...validEnv,
       MOSS_MEMFIRE_PHONE_PAY_BASE_URL: "",
+      MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS: "",
+      MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS: "",
     });
   });
 
@@ -113,7 +116,8 @@ describe("mossProductionPublicConfig v2", () => {
 
   it("fails strict production when the version or either realm is incomplete", () => {
     for (const key of MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS) {
-      if (key === "MOSS_MEMFIRE_PHONE_PAY_BASE_URL") continue;
+      if ((MOSS_OPTIONAL_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS as ReadonlyArray<string>).includes(key))
+        continue;
       assert.throws(
         () => resolveMossProductionPublicConfig({ ...validEnv, [key]: "" }),
         new RegExp(key),
@@ -152,6 +156,93 @@ describe("mossProductionPublicConfig v2", () => {
       assert.deepStrictEqual(disabled, expectedConfig);
       assert.ok(!serializeMossProductionPublicConfig(disabled).includes("payBaseUrl"));
       assert.equal(toMossProductionPublicConfigEnv(disabled).MOSS_MEMFIRE_PHONE_PAY_BASE_URL, "");
+    }
+  });
+
+  it("carries ordered CN fallback entries for models and payments, and reads older manifests", () => {
+    const paymentUrl = "https://moss-pay.moss.cn/functions/v1/moss-pay";
+    const modelFallback = "https://tunnel.moss.example/functions/v1/moss-model-gateway/v1";
+    const payFallback = "https://tunnel.moss.example/functions/v1/moss-pay";
+    const config = resolveMossProductionPublicConfig({
+      ...validEnv,
+      MOSS_MEMFIRE_PHONE_PAY_BASE_URL: paymentUrl,
+      MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS: ` ${modelFallback} `,
+      MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS: `${payFallback}/`,
+    });
+    const phone = config.authRealms["memfire-phone"];
+    assert.equal(phone.modelGatewayUrl, validEnv.MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL);
+    assert.deepStrictEqual(phone.modelGatewayFallbackUrls, [modelFallback]);
+    assert.deepStrictEqual(phone.payFallbackBaseUrls, [payFallback]);
+    const parsed = parseMossProductionPublicConfig(serializeMossProductionPublicConfig(config));
+    assert.deepStrictEqual(parsed, config);
+    const env = toMossProductionPublicConfigEnv(parsed);
+    assert.equal(env.MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS, modelFallback);
+    assert.equal(env.MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS, payFallback);
+    // A manifest from before fallbacks existed still loads, with the old key as the only entry.
+    const older = parseMossProductionPublicConfig(JSON.stringify(expectedConfig));
+    assert.equal(older.authRealms["memfire-phone"].modelGatewayFallbackUrls, undefined);
+    assert.equal(
+      older.authRealms["memfire-phone"].modelGatewayUrl,
+      validEnv.MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL,
+    );
+  });
+
+  it("refuses fallback entries that break the primary's rules, repeat, or stand alone", () => {
+    const paymentUrl = "https://moss-pay.moss.cn/functions/v1/moss-pay";
+    for (const [key, value, extra] of [
+      [
+        "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
+        "http://tunnel.moss.example/functions/v1/moss-model-gateway/v1",
+        {},
+      ],
+      [
+        "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
+        "https://tunnel.moss.example/functions/v1/moss-pay",
+        {},
+      ],
+      [
+        "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
+        "https://moss-cn.baseapi.memfiredb.com/functions/v1/moss-model-gateway/v1",
+        {},
+      ],
+      [
+        "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
+        validEnv.MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL,
+        {},
+      ],
+      [
+        "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
+        "https://a.moss.example/functions/v1/moss-model-gateway/v1,https://b.moss.example/functions/v1/moss-model-gateway/v1,https://c.moss.example/functions/v1/moss-model-gateway/v1,https://d.moss.example/functions/v1/moss-model-gateway/v1",
+        {},
+      ],
+      [
+        "MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS",
+        "https://tunnel.moss.example/functions/v1/moss-pay",
+        {},
+      ],
+      [
+        "MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS",
+        "https://tunnel.moss.example/functions/v1/moss-model-gateway/v1",
+        { MOSS_MEMFIRE_PHONE_PAY_BASE_URL: paymentUrl },
+      ],
+      [
+        "MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS",
+        paymentUrl,
+        { MOSS_MEMFIRE_PHONE_PAY_BASE_URL: paymentUrl },
+      ],
+    ] as const) {
+      assert.throws(
+        () => resolveMossProductionPublicConfig({ ...validEnv, ...extra, [key]: value }),
+        new RegExp(key),
+      );
+    }
+    for (const value of ["one-url", [1], ["a b"], [""]]) {
+      const document = structuredClone(expectedConfig);
+      Object.assign(document.authRealms["memfire-phone"], { modelGatewayFallbackUrls: value });
+      assert.throws(
+        () => parseMossProductionPublicConfig(JSON.stringify(document)),
+        /modelGatewayFallbackUrls must be a list of URLs/,
+      );
     }
   });
 

@@ -90,6 +90,7 @@ import { isCompactionCommandText } from "@moss/shared/contextCompaction";
 import { approvalSessionGrantWidensSessionPolicy } from "@moss/shared/approvalSessionGrant";
 import { approvalRequestKindFromRequestType } from "@moss/shared/threadSummary";
 import { nonEmptyTrimmed } from "@moss/shared/text";
+import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
 import {
   claudeCacheContextTokens,
   claudeCacheFromRequest,
@@ -187,6 +188,7 @@ import {
 } from "../claudeWorkflowRuntime.ts";
 import {
   buildClaudeInstanceProcessEnv,
+  MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
   resolveClaudeCodeExecutablePath,
 } from "../claudeEnvironment.ts";
 import {
@@ -1889,10 +1891,17 @@ function normalizeClaudeUserVisibleErrorMessage(
   return sanitized;
 }
 
-function claudeAssistantErrorMessage(error: SDKAssistantMessageError): string {
+export function claudeAssistantErrorMessage(
+  error: SDKAssistantMessageError,
+  providerInstanceId: string | undefined,
+): string {
   switch (error) {
     case "authentication_failed":
-      return "Claude is not authenticated. Run `claude auth login --claudeai`, then retry.";
+      // Moss owns this lane's credential: there is no Claude login to run, and the
+      // next send starts a fresh process on Moss's renewed bearer.
+      return providerInstanceId === MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID
+        ? MOSS_MANAGED_SESSION_RENEWED_MESSAGE
+        : "Claude is not authenticated. Run `claude auth login --claudeai`, then retry.";
     case "oauth_org_not_allowed":
       return "Claude authentication succeeded, but this organization does not allow Claude Code.";
     case "account_on_hold":
@@ -1904,13 +1913,15 @@ function claudeAssistantErrorMessage(error: SDKAssistantMessageError): string {
     case "rate_limit":
       return "Claude rate limit reached. Wait briefly, then retry.";
     case "overloaded":
-      return "Claude is temporarily overloaded. Retry in a moment.";
+      // The model API, not Claude Code, failed: say so without a provider name (Moss lanes
+      // reach other models through it too).
+      return "The model service is temporarily overloaded. Retry in a moment.";
     case "invalid_request":
       return "Claude rejected the request as invalid.";
     case "model_not_found":
       return "The selected Claude model is unavailable for this account.";
     case "server_error":
-      return "Claude returned a server error. Retry in a moment.";
+      return "The model service returned a server error. Retry in a moment.";
     case "max_output_tokens":
       return "Claude reached the maximum output length before completing the turn.";
     case "unknown":
@@ -4978,7 +4989,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             ...context.turnState,
             assistantError: {
               code: message.error,
-              message: claudeAssistantErrorMessage(message.error),
+              message: claudeAssistantErrorMessage(
+                message.error,
+                context.session.providerInstanceId,
+              ),
             },
           };
         }

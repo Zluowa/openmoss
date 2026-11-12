@@ -84,6 +84,7 @@ import {
 import { withDesktopDeliveryMode } from "../computer/DesktopOperationQueue.ts";
 import { CuaActionError } from "../computer/CuaComputerBackend.ts";
 import { ComputerApprovalExpiredError } from "../computer/ComputerApprovalGate.ts";
+import { ComputerAppBlockedError } from "../computer/computerAppPolicy.ts";
 import { cuaCaptureReuseEnabled } from "../computer/computerCallContext.ts";
 import { withModelDesktopObservation } from "../computer/modelDesktopObservation.ts";
 import { withComputerTask } from "../computer/computerTaskContext.ts";
@@ -383,6 +384,12 @@ export interface AgentGatewayComputerToolsOptions {
     args: Record<string, unknown>,
     context: ToolContext,
     signal: AbortSignal,
+    /**
+     * Settings › Computer use: set when every target this call names is an app
+     * the user marked "always allowed". The approval path may then skip its
+     * prompt for this one call; it never becomes a turn-wide grant.
+     */
+    consent?: { readonly alwaysAllowedApp?: string },
   ) => Promise<boolean>;
   /**
    * Called when a tool call failed because the OS is withholding a privacy
@@ -1977,6 +1984,31 @@ export function makeAgentGatewayComputerTools(
               };
             }
           }
+          // Settings › Computer use per-app choices, resolved from what the
+          // call names before any prompt: a turned-off app is refused without
+          // asking the user to approve something that cannot run, and an
+          // always-allowed app may skip the prompt. `computer_run` names its
+          // targets per step, so it keeps the ordinary approval (the manager
+          // still refuses blocked apps inside it).
+          const appPolicy =
+            computerToolRequiresApproval(name) && name !== "computer_run"
+              ? manager.appPolicyForCall({
+                  app: readStringArg(args, "app"),
+                  windowIds: [
+                    readWindowIdArg(args),
+                    typeof args.ref === "number"
+                      ? (elementRefTables.get(context.callerThreadId)?.entries.get(args.ref)
+                          ?.windowId ?? undefined)
+                      : undefined,
+                  ],
+                  pid: readNumberArg(args, "pid"),
+                })
+              : undefined;
+          if (appPolicy?.kind === "blocked") {
+            const refusal = new ComputerAppBlockedError(appPolicy.app);
+            audit({ effect: "refused", code: refusal.code });
+            return { result: targetErrorResult(refusal), signal: undefined };
+          }
           if (
             computerToolRequiresApproval(name) &&
             (options.authorizeAction !== undefined ||
@@ -1992,16 +2024,19 @@ export function makeAgentGatewayComputerTools(
                 signal: undefined,
               };
             }
-            if (
-              !(await options.authorizeAction(
-                name,
-                name === "computer_activate_window" || name === "computer_invoke_menu"
-                  ? { ...args, delivery_mode: "foreground" }
-                  : args,
-                context,
-                abortSignal,
-              ))
-            ) {
+            const approvalArgs =
+              name === "computer_activate_window" || name === "computer_invoke_menu"
+                ? { ...args, delivery_mode: "foreground" }
+                : args;
+            // The always-allowed hint rides only when it applies, so every
+            // other call reaches the approval path exactly as before.
+            const approved =
+              appPolicy?.kind === "always-allowed"
+                ? await options.authorizeAction(name, approvalArgs, context, abortSignal, {
+                    alwaysAllowedApp: appPolicy.app,
+                  })
+                : await options.authorizeAction(name, approvalArgs, context, abortSignal);
+            if (!approved) {
               audit({ effect: "refused", code: "approval_denied" });
               return {
                 result: mcpToolResultError(

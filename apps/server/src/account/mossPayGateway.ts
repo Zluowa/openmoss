@@ -1,5 +1,10 @@
 import { Data } from "effect";
 import type { MossManagedGatewayAuthority } from "../provider/mossManagedGatewayTrust";
+import {
+  isMossConnectionLevelFailure,
+  mossCnPayEntries,
+  type MossServiceEntryRouter,
+} from "./mossServiceEntries";
 
 // Moss 会员/积分支付的网关客户端。moss server 不直接碰微信支付或 Stripe，
 // 而是把请求转发到该账号区域的 /moss-pay/* 路由，用 gateway access token 鉴权。
@@ -26,36 +31,21 @@ export interface MossPayGatewayOrder {
   readonly codeUrl?: string;
 }
 
-const MOSS_MEMFIRE_PHONE_PAY_BASE_URL_ENV_KEY = "MOSS_MEMFIRE_PHONE_PAY_BASE_URL";
-
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function cnPhonePayOverride(env: Readonly<Record<string, string | undefined>>): string | undefined {
-  const candidate = env[MOSS_MEMFIRE_PHONE_PAY_BASE_URL_ENV_KEY]?.trim();
-  if (!candidate) return undefined;
-  try {
-    const url = new URL(candidate);
-    const loopbackHttp = url.protocol === "http:" && url.hostname === "127.0.0.1";
-    if (
-      (url.protocol !== "https:" && !loopbackHttp) ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash
-    ) {
-      return undefined;
-    }
-    return trimTrailingSlash(url.toString());
-  } catch {
-    return undefined;
-  }
-}
+const phonePayNotConfigured = () =>
+  new MossPayError({
+    code: "not_configured",
+    realm: "memfire-phone",
+    message: "微信支付暂不可用，请稍后重试。",
+  });
 
 /**
  * Route using the validated credential realm, never a model hostname heuristic.
- * Phone payments require their own explicit endpoint. A model gateway migration
+ * Phone payments require their own explicit endpoint (and use only the entries
+ * listed for payments, in their failover order). A model gateway migration
  * cannot silently move the WeChat endpoint or capture Google account tokens.
  */
 export function resolveMossPayBaseUrl(
@@ -63,13 +53,9 @@ export function resolveMossPayBaseUrl(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
   if (input.realm === "memfire-phone") {
-    const override = cnPhonePayOverride(env);
-    if (override) return override;
-    throw new MossPayError({
-      code: "not_configured",
-      realm: "memfire-phone",
-      message: "微信支付暂不可用，请稍后重试。",
-    });
+    const entries = mossCnPayEntries(env);
+    if (entries) return entries.current();
+    throw phonePayNotConfigured();
   }
   if (input.realm !== "supabase-google") {
     throw new MossPayError({
@@ -104,14 +90,22 @@ export async function mossPayFetch(input: {
   readonly method: "GET" | "POST";
   readonly path: string;
   readonly body?: Record<string, unknown>;
+  /** The CN payment entries; tests pass their own. */
+  readonly phonePayEntries?: MossServiceEntryRouter | null;
 }): Promise<Record<string, unknown>> {
-  const base = resolveMossPayBaseUrl(input);
+  const phoneEntries =
+    input.realm === "memfire-phone"
+      ? input.phonePayEntries === undefined
+        ? mossCnPayEntries()
+        : input.phonePayEntries
+      : null;
+  if (input.realm === "memfire-phone" && !phoneEntries) throw phonePayNotConfigured();
+  const base = phoneEntries ? await phoneEntries.ensure() : resolveMossPayBaseUrl(input);
   const headers: Record<string, string> = { Accept: "application/json" };
   if (input.accessToken) headers.Authorization = `Bearer ${input.accessToken}`;
   if (input.body) headers["Content-Type"] = "application/json";
-  let resp: Response;
-  try {
-    resp = await fetch(`${base}${input.path}`, {
+  const send = (entry: string) =>
+    fetch(`${entry}${input.path}`, {
       method: input.method,
       headers,
       ...(input.body ? { body: JSON.stringify(input.body) } : {}),
@@ -119,11 +113,25 @@ export async function mossPayFetch(input: {
       redirect: "error",
       signal: AbortSignal.timeout(8_000),
     });
-  } catch (cause) {
-    throw new MossPayError({
+  const unreachable = (cause: unknown) =>
+    new MossPayError({
       code: "gateway_unavailable",
       message: "The Moss payment service is unreachable right now.",
       cause,
+    });
+  let resp: Response;
+  try {
+    resp = await send(base);
+  } catch (cause) {
+    // Below HTTP only: re-check the entries. A read moves to the next working entry at once;
+    // an order is never sent twice, so it reports the outage and the next attempt uses it.
+    const next =
+      phoneEntries && isMossConnectionLevelFailure(cause)
+        ? await phoneEntries.reportConnectionFailure(base)
+        : base;
+    if (input.method !== "GET" || next === base) throw unreachable(cause);
+    resp = await send(next).catch((retryCause: unknown) => {
+      throw unreachable(retryCause);
     });
   }
   const json = await parseJson(resp);

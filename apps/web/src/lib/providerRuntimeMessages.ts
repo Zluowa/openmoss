@@ -3,6 +3,7 @@
 // Layer: Web presentation helper
 // Exports: narrow provider runtime-message normalization and localization
 
+import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
 import type { MossLocaleCode } from "../appSettings";
 
 export const PERSONAL_CODEX_USAGE_LIMIT_MESSAGE =
@@ -63,8 +64,13 @@ const ZH_CN_EXACT_MESSAGES: Readonly<Record<string, string>> = {
   "The connection was interrupted before this message was accepted. Please send it again.":
     "消息还没被接收，连接就中断了。请再发一次。",
   // Why a Claude turn failed (ClaudeAdapter), and the rows shown while a provider retries.
-  "Claude returned a server error. Retry in a moment.": "Claude 返回了服务器错误，请稍后重试。",
-  "Claude is temporarily overloaded. Retry in a moment.": "Claude 暂时过载，请稍后重试。",
+  "The model service returned a server error. Retry in a moment.":
+    "模型服务返回了服务器错误，请稍后重试。",
+  "The model service is temporarily overloaded. Retry in a moment.":
+    "模型服务暂时过载，请稍后重试。",
+  // Older turns recorded these with the provider's name; they read the same as above.
+  "Claude returned a server error. Retry in a moment.": "模型服务返回了服务器错误，请稍后重试。",
+  "Claude is temporarily overloaded. Retry in a moment.": "模型服务暂时过载，请稍后重试。",
   "Claude rate limit reached. Wait briefly, then retry.": "Claude 已达到速率限制，请稍等后重试。",
   "Claude rejected the request as invalid.": "Claude 认为这次请求无效，已拒绝。",
   "The selected Claude model is unavailable for this account.":
@@ -102,6 +108,7 @@ const ZH_CN_EXACT_MESSAGES: Readonly<Record<string, string>> = {
   "Account quota verification is temporarily unavailable.": "暂时无法核对账号额度，请稍后重试。",
   "Account verification is temporarily unavailable.": "暂时无法验证账号，请稍后重试。",
   "The Moss account session is invalid or expired.": "Moss 登录已失效，请重新登录。",
+  [MOSS_MANAGED_SESSION_RENEWED_MESSAGE]: "Moss 已在任务进行中更新登录状态，请重新发送消息继续。",
   "A valid Moss account session is required.": "需要有效的 Moss 登录，请重新登录。",
   "This request id is already in use.": "这个请求 ID 正在使用中，请重试。",
   "An identical request is still running. Retry when it finishes.":

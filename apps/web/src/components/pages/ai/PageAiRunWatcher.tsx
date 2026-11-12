@@ -11,6 +11,7 @@ import { generatedMarkdown } from "~/lib/pageAi/pageAiPrompts";
 import { pageRunProgress } from "~/lib/pageAi/pageAssistantThread";
 import { isActiveRun, pageAiSession, type PageAiRun } from "~/lib/pageAi/pageAiSession";
 import { ensureNativeApi } from "~/nativeApi";
+import { useMossAccountGatewayState } from "~/components/auth/useMossGatewayUnreachable";
 import { pageAiErrorText, pageAiLocale, pageAiText } from "./pageAiText";
 import { retainThreadDetailSubscription } from "~/threadDetailSubscriptionRetention";
 import { useStore } from "~/store";
@@ -42,6 +43,7 @@ function RunWatcher(props: {
   const failure = useStore(
     (state) => getThreadFromState(state, props.run.threadId)?.session?.lastError ?? undefined,
   );
+  const mossSignedOut = useMossAccountGatewayState() === "signed-out";
   const split = progress.indexOf("|");
   const state = progress.slice(0, split);
   const reply = progress.slice(split + 1);
@@ -57,7 +59,9 @@ function RunWatcher(props: {
       pageAiSession.updateRun(pageKey, run.id, {
         finishedAt: Date.now(),
         status: "failed",
-        error: pageAiErrorText(failure, pageAiText(pageAiLocale())),
+        error: pageAiErrorText(failure, pageAiText(pageAiLocale()), {
+          signedOut: mossSignedOut,
+        }),
       });
       return;
     }

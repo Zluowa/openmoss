@@ -142,7 +142,11 @@ export function usePageAiBridge(
     ? `${PROVIDER_DISPLAY_NAMES[agent.modelSelection.provider] ?? agent.modelSelection.provider} · ${agent.modelSelection.model}`
     : null;
 
-  const draftList: readonly PageDraft[] = drafts.data?.drafts ?? [];
+  // An outdated draft touched only blocks the person changed since; nothing of it applies.
+  const draftList: readonly PageDraft[] = useMemo(
+    () => (drafts.data?.drafts ?? []).filter((draft) => !draft.outdated),
+    [drafts.data],
+  );
   const threadIds = useMemo(
     () => [
       ...new Set([
@@ -298,6 +302,13 @@ export function usePageAiBridge(
     });
   }, [client]);
 
+  // A save of the page re-reads its drafts at once, so a suggestion never lingers over blocks
+  // the person just changed (the server leaves those changes out).
+  const savedRevision = options?.document.page.revision;
+  useEffect(() => {
+    if (savedRevision !== undefined) void refreshDrafts();
+  }, [refreshDrafts, savedRevision]);
+
   const startRun = useCallback(
     async (input: { mode: PageAiRunMode; prompt: string; anchorBlockId: string | null }) => {
       const current = latest.current;
@@ -431,11 +442,14 @@ export function usePageAiBridge(
               .then(() => navigate({ to: "/$threadId", params: { threadId: event.id } }));
           else if (event.kind === "page") current.openPage(event.id as PageId);
           else if (event.kind === "file") current.openFiles();
-          else toastManager.add({ type: "info", title: text.appPageSoon });
+          else
+            void current
+              .flush()
+              .then(() => navigate({ to: "/apps/$appId", params: { appId: event.id } }));
           return;
       }
     },
-    [key, navigate, prepare, resolveDrafts, startRun, text.appPageSoon, upload],
+    [key, navigate, prepare, resolveDrafts, startRun, upload],
   );
   useEffect(() => {
     channel.onAiEvent = handleEvent;

@@ -181,6 +181,20 @@ export const AppsServerSettings = Schema.Struct({
 });
 export type AppsServerSettings = typeof AppsServerSettings.Type;
 
+// Settings › Computer use per-app choices. Apps are stored by the name (or
+// bundle id) the desktop reports; matching is case-insensitive on the server.
+// `blockedApps` are refused for every agent action; `alwaysAllowedApps` skip
+// the per-turn Computer approval only for calls that provably target them.
+export const COMPUTER_APP_POLICY_MAX_APPS = 200;
+const ComputerAppPolicyList = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).check(
+  Schema.isMaxLength(COMPUTER_APP_POLICY_MAX_APPS),
+);
+export const ComputerServerSettings = Schema.Struct({
+  blockedApps: ComputerAppPolicyList.pipe(Schema.withDecodingDefault(() => [])),
+  alwaysAllowedApps: ComputerAppPolicyList.pipe(Schema.withDecodingDefault(() => [])),
+});
+export type ComputerServerSettings = typeof ComputerServerSettings.Type;
+
 // Keep-awake behaviour for macOS `caffeinate`. "agent" keeps the machine awake
 // only while at least one agent turn is running.
 export const KeepAwakeMode = Schema.Literals(["always", "agent", "off"]);
@@ -231,6 +245,7 @@ export const ServerSettings = Schema.Struct({
   providerInstances: ProviderInstanceConfigMap.pipe(Schema.withDecodingDefault(() => ({}))),
   skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   apps: AppsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+  computer: ComputerServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   // When the first-run welcome tour was completed or skipped. Server-backed so a
   // browser-storage reset does not replay setup on an already configured install.
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
@@ -392,6 +407,12 @@ export const ServerSettingsPatch = Schema.Struct({
   skills: Schema.optionalKey(
     Schema.Struct({
       disabled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(256)))),
+    }),
+  ),
+  computer: Schema.optionalKey(
+    Schema.Struct({
+      blockedApps: Schema.optionalKey(ComputerAppPolicyList),
+      alwaysAllowedApps: Schema.optionalKey(ComputerAppPolicyList),
     }),
   ),
   apps: Schema.optionalKey(

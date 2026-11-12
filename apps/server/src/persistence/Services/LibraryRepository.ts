@@ -55,6 +55,11 @@ export interface LibraryRepositoryShape {
   ) => Effect.Effect<void, LibraryRepositoryError>;
   /** Includes media ids and namespaced scanned-source keys in the existing deletion ledger. */
   readonly listDeletedMediaIds: () => Effect.Effect<ReadonlyArray<string>, LibraryRepositoryError>;
+  /** File paths of every Codex-generated image a chat showed (its generated-image artifact). */
+  readonly listShownCodexImagePaths: () => Effect.Effect<
+    ReadonlyArray<string>,
+    LibraryRepositoryError
+  >;
   readonly listFolders: () => Effect.Effect<ReadonlyArray<LibraryFolder>, LibraryRepositoryError>;
   readonly insertFolder: (folder: LibraryFolder) => Effect.Effect<void, LibraryRepositoryError>;
   readonly saveFolder: (folder: LibraryFolder) => Effect.Effect<void, LibraryRepositoryError>;

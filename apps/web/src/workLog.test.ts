@@ -6980,3 +6980,40 @@ describe("deriveWorkLogEntries MCP App rows (real-data acceptance)", () => {
     expect(search.toolTitle).toBe("Loaded tools");
   });
 });
+
+describe("deriveTimelineEntries failed turn (real-data acceptance)", () => {
+  it("shows a provider's failed turn once: the banner, not a second raw line", () => {
+    const turnId = TurnId.makeUnsafe("turn-claude-server-error");
+    const cause = "Claude returned a server error. Retry in a moment.";
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "claude-error",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          sequence: 1,
+          kind: "runtime.error",
+          summary: "Provider runtime error",
+          tone: "error",
+          turnId,
+          payload: { message: cause, class: "provider_error" },
+        }),
+        makeActivity({
+          id: "claude-error-complete",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          sequence: 2,
+          kind: "turn.completed",
+          summary: "Turn failed",
+          tone: "error",
+          turnId,
+          payload: { state: "failed", errorMessage: cause, provider: "claudeAgent" },
+        }),
+      ],
+      turnId,
+    );
+    expect(entries.some((entry) => entry.turnFailure?.cause === cause)).toBe(true);
+    // The turn's own failure record is there too; it is the timeline that shows it once.
+    expect(entries.some((entry) => entry.systemError !== undefined)).toBe(true);
+    const timeline = deriveTimelineEntries([], [], entries);
+    expect(timeline.some((entry) => entry.kind === "system-error")).toBe(false);
+  });
+});

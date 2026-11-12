@@ -18,6 +18,7 @@ describe("wsRequestClass", () => {
     });
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.dispatchCommand)).toBe("control");
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.replayEvents)).toBe("expensive-read");
+    expect(classifyWsRequest(WS_METHODS.statsGetUsageAnalytics)).toBe("expensive-read");
     expect(classifyWsRequest(WS_METHODS.gitListBranches)).toBe("standard");
   });
 

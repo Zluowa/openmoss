@@ -106,6 +106,15 @@ the desktop app, with a sandbox and a content security policy that blocks networ
 loads. The separate OpenUI and T3 `html_render` path is unchanged and can reach the
 network.
 
+## Synara usage analytics (absorbed)
+
+The usage analytics query, API price estimates, Claude Code and Codex session-file
+reader, and the Settings → Usage → Analytics panel, charts and view logic are adapted
+from Synara PR #2109 (https://github.com/Emanuele-web04/synara/pull/2109, MIT). Moss
+names the scopes "In Moss" and "This computer", draws the series in its own theme
+colors, and keeps every string in its zh-CN and en localization. Synara's Billing tab
+is not included.
+
 ## OpenUI Lang and open-intelligent-ui components (absorbed)
 
 Moss uses OpenUI Lang and selected browser-only components adapted from

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react"
 import { basenameOfPath } from "~/file-icons";
 import { buildLocalImageUrl } from "~/lib/localImageUrls";
 import type { PdfPreviewAnnotation } from "~/lib/pdf/pdfAnnotations";
-import { useContainerSize } from "~/lib/pdf/useContainerSize";
+import { useContainerSize } from "~/hooks/useContainerSize";
 import { usePdfDocument } from "~/lib/pdf/usePdfDocument";
 import { usePdfPageNavigation } from "~/lib/pdf/usePdfPageNavigation";
 import { usePdfZoomController } from "~/lib/pdf/usePdfZoomController";

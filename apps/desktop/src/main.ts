@@ -104,6 +104,7 @@ import {
 import { MOSS_ERROR_REPORTS_ENABLED_ENV } from "@moss/shared/observability";
 import { NetService } from "@moss/shared/Net";
 import { applyShellEnvironmentHydrationMarker } from "@moss/shared/shell";
+import { readAppFileIconDataUrl } from "./appFileIcon";
 import { RotatingFileSink } from "@moss/shared/logging";
 import {
   MIGRATION_DIVERGENCE_CONSENT_ENV,
@@ -7477,6 +7478,12 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.getAppIcon);
   registerIpcHandle(IPC.getAppIcon, () => readDesktopAppIcon());
+
+  // Settings › Computer use draws each app row with that app's own icon.
+  ipcMain.removeHandler(IPC.getAppFileIcon);
+  registerIpcHandle(IPC.getAppFileIcon, (_event, rawPath: unknown) =>
+    readAppFileIconDataUrl(rawPath, (path) => app.getFileIcon(path, { size: "normal" })),
+  );
 
   ipcMain.removeHandler(IPC.setAppIcon);
   const enqueueDesktopAppIconApply = createExclusiveApplyQueue(async (icon: DesktopAppIcon) => {

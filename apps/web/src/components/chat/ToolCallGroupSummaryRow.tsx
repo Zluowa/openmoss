@@ -192,7 +192,8 @@ export function ToolCallGroupSummaryRow(
           ) : null}
           <span className="min-w-0 truncate" data-tool-group-live={liveEntry ? "true" : undefined}>
             {liveEntry ? (
-              (liveMultiFileLabel ?? renderWorkEntrySentence(workEntryDisplayParts(liveEntry)))
+              (liveMultiFileLabel ??
+              renderWorkEntrySentence(workEntryDisplayParts(liveEntry, locale)))
             ) : !summary ? (
               props.label
             ) : (

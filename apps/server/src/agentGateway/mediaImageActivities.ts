@@ -147,6 +147,10 @@ export function conversationImageActivityCommands(
   return [
     command(0, "inProgress", `Generating ${noun}`, {
       jobId: snapshot.jobId,
+      // What is being made and where it stands, for the placeholder. One command per stage,
+      // never per poll.
+      ...(/^[A-Za-z0-9._-]{1,128}$/u.test(snapshot.modelId) ? { modelId: snapshot.modelId } : {}),
+      stage: snapshot.status === "queued" ? "queued" : "running",
       ...(aspectRatio !== undefined ? { aspectRatio } : {}),
     }),
   ];

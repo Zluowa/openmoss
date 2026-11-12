@@ -60,14 +60,31 @@ export function pageAiPrompt(
       request: ask,
       context: `请为${pageContext(document)}写一段要插入的内容，满足用户的要求。\n只输出要插入页面的正文（Markdown），不要开场白、不要解释、不要调用任何工具；用户会审阅后再决定是否接受。${instructionsSection(document)}\n\n页面现有内容（供参考，不要重复）：\n${excerpt(document)}`,
     };
+  if (mode === "visualize") {
+    const { page } = document;
+    const target = [
+      `pageId: "${page.id}"`,
+      ...(anchorBlockId ? [`blockId: "${anchorBlockId}"`] : []),
+      ...(page.scopeSpaceId === null ? [] : [`scopeSpaceId: "${page.scopeSpaceId}"`]),
+    ].join("，");
+    // One tool call with plain strings: a weaker model failed to hand-escape code inside the
+    // nested JSON of moss_pages_draft and started sub-agents to retry (acceptance round 10).
+    return {
+      request: ask,
+      context: [
+        `你正在处理${pageContext(document)}。为这个页面做一个可交互的可视化（图表、示意图或小工具）。用户说“表格”时也做成可交互的（例如可排序、可筛选的表格）。`,
+        `只调用一次 moss_app_visualize 完成全部工作：${target}，title 用用户的语言写一个简短标题，html 放完整的 HTML（数据直接写进代码，样式和脚本内联；也可以把 CSS、JS 分别放进 css、js 字段）。它会发布应用页，并把页面里的可视化块作为修改建议交给用户审阅。`,
+        `不需要先读页面，不要调用 moss_app_guide、moss_app_publish 或 moss_pages_draft，不要写本地文件，不要启动子智能体或后台任务。调用失败时按返回的提示改正，再调用一次 moss_app_visualize。${instructionsSection(document)}`,
+        "完成后用一句话告诉用户做好了什么。",
+      ].join("\n"),
+    };
+  }
   const task =
-    mode === "visualize"
-      ? `为这个页面做一个可交互的可视化（图表、示意图或小工具），做成应用页。页面里已经放了一个可视化占位块${anchorBlockId ? `（块 id: ${anchorBlockId}）` : ""}。先用 moss_app_guide 了解应用页的写法，再用 moss_app_publish 发布，然后用 moss_pages_draft 的 replace 把这个占位块换成带该 appPageId 的 moss_visualization 块。用户说“表格”时也做成可交互的应用页（例如可排序、可筛选的表格）。只有 moss_app_publish 不可用或发布失败时，才用 replace 换成 Markdown 表格或 Mermaid 图，并在回复里说明原因。`
-      : mode === "image"
-        ? "为这个页面生成一张图像。图片必须有可长期访问的 https 地址才能放进页面；拿不到这样的地址时，说明原因，不要提交无效的图片。"
-        : mode === "prompt"
-          ? "这是页面里读者点击“运行”的提示，请按提示完成工作。"
-          : "按用户的要求处理这个页面。";
+    mode === "image"
+      ? "为这个页面生成一张图像。图片必须有可长期访问的 https 地址才能放进页面；拿不到这样的地址时，说明原因，不要提交无效的图片。"
+      : mode === "prompt"
+        ? "这是页面里读者点击“运行”的提示，请按提示完成工作。"
+        : "按用户的要求处理这个页面。";
   return {
     request: ask,
     context: `你正在处理${pageContext(document)}。${task}\n先用 moss_pages_read 读取最新内容。修改正文时只用 moss_pages_draft 提交修改建议（锚定到块 id），用户会在页面里审阅后接受或放弃；不要用其他方式改写页面。${instructionsSection(document)}\n完成后用一两句话告诉用户你提交了什么。`,

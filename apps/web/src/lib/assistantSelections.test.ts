@@ -133,4 +133,40 @@ describe("assistantSelections", () => {
       }),
     ).toBeNull();
   });
+
+  it("carries the reader's reply with its quote through the prompt block", () => {
+    const selection = createAssistantSelectionAttachment({
+      assistantMessageId: "msg-1",
+      text: "selected line",
+      comment: "  keep this\nbut shorter  ",
+    });
+    expect(selection?.comment).toBe("keep this\nbut shorter");
+    const prompt = appendAssistantSelectionsToPrompt("", [
+      selection!,
+      { assistantMessageId: "msg-2", text: "no reply here" },
+    ]);
+    expect(prompt).toBe(
+      [
+        "<assistant_selection>",
+        "- assistant message msg-1:",
+        "  selected line",
+        "- reply to the selection above:",
+        "  keep this",
+        "  but shorter",
+        "- assistant message msg-2:",
+        "  no reply here",
+        "</assistant_selection>",
+      ].join("\n"),
+    );
+    expect(extractTrailingAssistantSelections(prompt).selections).toEqual([
+      { assistantMessageId: "msg-1", text: "selected line", comment: "keep this\nbut shorter" },
+      { assistantMessageId: "msg-2", text: "no reply here" },
+    ]);
+  });
+
+  it("drops a blank reply", () => {
+    expect(
+      createAssistantSelectionAttachment({ assistantMessageId: "msg-1", text: "a", comment: "  " }),
+    ).not.toHaveProperty("comment");
+  });
 });

@@ -41,6 +41,11 @@ export const MCP_APP_SANDBOX_PRINT_THEME_TYPE = "moss:print-theme" as const;
 export const MCP_APP_SANDBOX_WHEEL_TYPE = "moss:wheel" as const;
 /** Largest wheel delta (per axis, per frame) the proxy and the host pass on. */
 export const MCP_APP_SANDBOX_WHEEL_MAX_DELTA = 1_000 as const;
+/**
+ * What Moss records for a failed widget call that came with no error text of its own. Hosts
+ * show it in the UI language; a message from the server or the agent CLI is shown as written.
+ */
+export const MCP_APP_DEFAULT_CALL_FAILED_MESSAGE = "The tool call failed." as const;
 /** Marker of every shell -> host bridge envelope. */
 export const MCP_APP_SANDBOX_BRIDGE_MESSAGE_TYPE = "moss:mcp-app-message" as const;
 export const MCP_APP_SANDBOX_MAIN_TO_TRUSTED_CHANNEL =

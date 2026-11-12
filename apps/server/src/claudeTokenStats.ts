@@ -167,20 +167,30 @@ export function claudeTokenActivityCtes(sql: SqlClient.SqlClient, scope?: TokenS
                 AND json_extract(usage, '$.outputTokens') >= 0
                 THEN json_extract(usage, '$.outputTokens') ELSE 0 END
           END AS INTEGER
-        ) AS tokens
+        ) AS tokens,
+        CAST(
+          CASE WHEN json_type(usage, '$.cacheReadInputTokens') IN ('integer', 'real')
+            AND json_extract(usage, '$.cacheReadInputTokens') >= 0
+            THEN json_extract(usage, '$.cacheReadInputTokens') ELSE 0 END AS INTEGER
+        ) AS cache_tokens
       FROM claude_model_usage_entries
     ),
     claude_model_token_rows AS (
-      SELECT activity_id, thread_id, turn_id, created_at, dispatch_origin, model, tokens
+      SELECT activity_id, thread_id, turn_id, created_at, dispatch_origin, model, tokens,
+        MIN(tokens, cache_tokens) AS cache_tokens
       FROM claude_model_token_candidates
       WHERE tokens > 0
     ),
+    -- cache_tokens is the part of tokens read from the prompt cache. A main
+    -- loop total without a per-model split has no known cache part, so it
+    -- counts none rather than guessing one.
     claude_token_rows AS (
-      SELECT thread_id, turn_id, created_at, dispatch_origin, model, tokens
+      SELECT thread_id, turn_id, created_at, dispatch_origin, model, tokens, cache_tokens
       FROM claude_model_token_rows
       UNION ALL
       SELECT c.thread_id, c.turn_id, c.created_at, c.dispatch_origin, c.model,
-        CAST(c.main_tokens AS INTEGER) AS tokens
+        CAST(c.main_tokens AS INTEGER) AS tokens,
+        0 AS cache_tokens
       FROM claude_completed c
       WHERE c.main_tokens > 0
         AND NOT EXISTS (

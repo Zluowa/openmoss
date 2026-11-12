@@ -171,6 +171,8 @@
   --radius-panel: calc(0.75rem * var(--app-ui-scale, 1));
   /* The composer, user message bubbles, dialogs and sheets. */
   --radius-composer: calc(0.875rem * var(--app-ui-scale, 1));
+  /* Rows set inside the composer (quoted passages): composer corner minus its 4px inset. */
+  --radius-composer-inset: calc(var(--radius-composer) - 0.25rem);
   --radius-dialog: calc(0.75rem * var(--app-ui-scale, 1));
   --radius-bubble: calc(0.75rem * var(--app-ui-scale, 1));
   /* ─── Motion ─────────────────────────────────────────────────────────────
@@ -6614,4 +6616,11 @@ body[data-moss-theme-skin-drag="patternOpacity"] .moss-theme-skin-slider-handle 
     transition: none;
     animation: none;
   }
+}
+
+/* The transcript passage a Reply card is answering stays painted as selected while focus is
+   in the card's field (desktop chat), without holding the document selection. */
+::highlight(moss-reply-selection) {
+  background-color: Highlight;
+  color: HighlightText;
 }

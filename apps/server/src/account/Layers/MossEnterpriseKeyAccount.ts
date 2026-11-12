@@ -28,6 +28,7 @@ import {
   type MossGatewayModelCatalogStatus,
   normalizeMossGatewayModelCatalog,
 } from "../mossGatewayModels";
+import { mossCnModelGatewayEntries, type MossServiceEntryRouter } from "../mossServiceEntries";
 import {
   MossEnterpriseKeyAccount,
   type MossEnterpriseKeyAccountShape,
@@ -113,6 +114,8 @@ export interface MakeMossEnterpriseKeyAccountOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly fetchGatewayModels?: FetchMossGatewayModelIds;
   readonly now?: () => number;
+  /** The CN model gateway entries; by default the configured primary and its fallbacks. */
+  readonly modelGatewayEntries?: MossServiceEntryRouter;
 }
 
 export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
@@ -131,13 +134,21 @@ export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
   const serialize = <A>(effect: Effect.Effect<A, MossEnterpriseKeyError>) =>
     semaphore.withPermits(1)(effect);
 
-  /** The enterprise lane shares the mainland gateway of the phone realm. */
-  const gatewayBaseUrl = (): string | null => {
+  /** The enterprise lane shares the mainland gateway entries of the phone realm. */
+  const gatewayEntries = (): MossServiceEntryRouter | null => {
     const configured = env[MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY]?.trim();
     return configured && isTrustedMossManagedGatewayUrlForAuthority(configured, AUTHORITY, env)
-      ? configured
+      ? (options.modelGatewayEntries ?? mossCnModelGatewayEntries(env))
       : null;
   };
+  /** The entry in use now. */
+  const gatewayBaseUrl = (): string | null => gatewayEntries()?.current() ?? null;
+  /** The entry to use, checking the entries first when they were never checked. */
+  const ensureGatewayBaseUrl = () =>
+    Effect.promise(async () => {
+      const entries = gatewayEntries();
+      return entries ? entries.ensure() : null;
+    });
 
   const readStored = () =>
     secretStore.get(MOSS_ENTERPRISE_KEY_SECRET_NAME).pipe(
@@ -170,17 +181,19 @@ export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
       };
     });
 
-  const requireGateway = () => {
-    const url = gatewayBaseUrl();
-    return url
-      ? Effect.succeed(url)
-      : Effect.fail(
-          new MossEnterpriseKeyError({
-            code: "not_configured",
-            message: "这个版本的 Moss 没有配置企业模型服务。",
-          }),
-        );
-  };
+  const requireGateway = () =>
+    ensureGatewayBaseUrl().pipe(
+      Effect.flatMap((url) =>
+        url
+          ? Effect.succeed(url)
+          : Effect.fail(
+              new MossEnterpriseKeyError({
+                code: "not_configured",
+                message: "这个版本的 Moss 没有配置企业模型服务。",
+              }),
+            ),
+      ),
+    );
 
   /** Ask the gateway which models the key may use; only a ready catalog admits it. */
   const verify = (apiKey: string, url: string) =>
@@ -322,7 +335,7 @@ export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
     serialize(
       Effect.gen(function* () {
         const stored = yield* readStored();
-        const url = gatewayBaseUrl();
+        const url = stored ? yield* ensureGatewayBaseUrl() : null;
         if (!stored || !url) return;
         const reconcile = yield* coordinator
           .getReconcileState({

@@ -9,6 +9,7 @@
 //   updateMcpAppModelContext, downloadMcpAppResource, refreshConnectorToolList
 
 import {
+  MCP_APP_DEFAULT_CALL_FAILED_MESSAGE,
   ThreadId,
   type McpAppModelContextInput,
   type McpAppModelContextResult,
@@ -368,7 +369,7 @@ export const readMcpAppToolResult = (input: McpAppToolResultInput) =>
     if (record.state === "failed") {
       return {
         status: "failed",
-        message: record.error ?? "The tool call failed.",
+        message: record.error ?? MCP_APP_DEFAULT_CALL_FAILED_MESSAGE,
       } satisfies McpAppToolResultResult;
     }
     if (!record.result) return { status: "missing" } as const;

@@ -1,5 +1,6 @@
 // FILE: ComputerSettingsPanel.tsx
-// Purpose: Settings › Computer use (Codex's 电脑操控 page): the "any app" switch, one plain
+// Purpose: Settings › Computer use (Codex's 电脑操控 page): the "any app" switch, one row
+//          per app Moss has used with its own switch, the "always allowed" list, one plain
 //          status line with one action when computer use can't work, the pointer and
 //          preview preferences, and the recent-actions log.
 // Layer: Settings UI components
@@ -51,6 +52,11 @@ import { useAgentCursorDesktopSync } from "./agentCursorDesktopSync";
 import { SettingResetButton, SettingsSegmentedControl } from "./SettingControls";
 import { SettingsCard, SettingsRow, SettingsSectionShell } from "./SettingsPanelPrimitives";
 import { ComputerAuditHistorySection } from "./ComputerAuditHistorySection";
+import {
+  ComputerAlwaysAllowedSection,
+  ComputerAppRows,
+  useComputerAppControls,
+} from "./ComputerAppControls";
 
 /** Stable identity, so the provision hook's toast copy is not rebuilt every render. */
 const EMPTY_PERMISSIONS: readonly ComputerPermission[] = [];
@@ -224,6 +230,7 @@ export function ComputerSettingsPanel({
   // what happened. This surface keeps that account inline rather than as a
   // toast, because it has room for it and is where the user is already looking.
   const setup = useProvisionComputer({ missing: missingPermissions });
+  const appControls = useComputerAppControls(active);
 
   if (!active) return null;
 
@@ -335,8 +342,11 @@ export function ComputerSettingsPanel({
               {statusAction}
             </div>
           ) : null}
+          <ComputerAppRows controls={appControls} masterEnabled={settings.computerControlEnabled} />
         </SettingsCard>
       </SettingsSectionShell>
+
+      <ComputerAlwaysAllowedSection controls={appControls} />
 
       {showMacPermissionChecklist && appSnapState ? (
         // macOS asks for each grant separately; the checklist names the missing ones.
@@ -452,7 +462,7 @@ function ComputerUseAppTile() {
   return (
     <span
       aria-hidden
-      className="flex size-9 items-center justify-center rounded-[10px] border border-[color:var(--color-border)] bg-[var(--color-background-control)] text-foreground"
+      className="flex size-9 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-[var(--color-background-control)] text-foreground"
     >
       <CentralIcon name="cursor-3" className="size-5" />
     </span>

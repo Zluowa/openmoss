@@ -1,19 +1,30 @@
 // FILE: TranscriptSelectionAction.tsx
-// Purpose: Renders the floating toolbar for assistant transcript selections.
+// Purpose: The floating pill for a text selection: desktop chat's "Start a side chat | Reply"
+//          on assistant replies, "Add to Chat" on file and diff selections. Ghost buttons in
+//          one rounded popover pill, split by hairlines that fade while a button is hovered.
 // Layer: Chat transcript interaction UI
 
-import { useEffect } from "react";
+import { Fragment, useEffect, useRef } from "react";
 
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
-import { ELEVATED_HOVER_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 import { TRANSCRIPT_SELECTION_ACTION_WIDTH_PX } from "./chatSelectionActions";
+import { useSelectionAnchor } from "./transcriptSelectionAnchor";
+
+/** Pinned to the selected text itself (assistant replies). */
+interface RangeAnchor {
+  range: Range;
+  /** The transcript scroller: the pill stays inside it. */
+  boundary: HTMLElement | null;
+}
 
 interface TranscriptSelectionActionProps {
-  left: number;
-  top: number;
-  placement: "top" | "bottom";
-  /** Quotes the selection into the composer (desktop chat "Reply", also Enter). */
+  /** Anchors the pill to the selection; without it the pill sits at `left`/`top`. */
+  anchor?: RangeAnchor | undefined;
+  left?: number | undefined;
+  top?: number | undefined;
+  placement?: "top" | "bottom" | undefined;
+  /** Opens the Reply card for the selection (desktop chat "Reply", also Enter). */
   onReply?: (() => void) | undefined;
   /** File and diff selections attach to the composer instead of replying. */
   onAddToChat?: (() => void) | undefined;
@@ -22,50 +33,97 @@ interface TranscriptSelectionActionProps {
   sideChatStarted?: boolean | undefined;
   sideDisabled?: boolean | undefined;
   disabled?: boolean | undefined;
+  /** The anchored text is gone (re-rendered or scrolled away). */
+  onLost?: (() => void) | undefined;
 }
 
-function TranscriptSelectionToolbarButton({
-  label,
-  onClick,
-  disabled,
-}: {
+/** Popover surface shared by the pill and the Reply card. */
+export const SELECTION_POPOVER_SURFACE_CLASS_NAME =
+  "rounded-popover border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] text-[var(--color-text-foreground)] shadow-lg";
+
+interface PillAction {
+  key: string;
   label: string;
-  onClick: () => void;
+  onSelect: () => void;
   disabled?: boolean | undefined;
-}) {
+}
+
+function SelectionPill({ actions }: { actions: ReadonlyArray<PillAction> }) {
+  if (actions.length === 0) return null;
   return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
+    <div
       className={cn(
-        "pointer-events-auto inline-flex h-7 flex-none items-center justify-center whitespace-nowrap px-2.5 text-ui leading-snug text-[var(--color-text-foreground)] outline-none focus-visible:bg-[var(--color-background-elevated-secondary)] disabled:pointer-events-none disabled:opacity-40",
-        ELEVATED_HOVER_SURFACE_CLASS_NAME,
+        SELECTION_POPOVER_SURFACE_CLASS_NAME,
+        // Desktop chat squares the pill to the control radius (8), not the popover's 12.
+        "group/split pointer-events-auto flex w-max max-w-[calc(100vw-16px)] overflow-hidden rounded-control",
       )}
-      onMouseDown={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-      }}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onClick();
-      }}
     >
-      <span>{label}</span>
-    </button>
+      {actions.map((action, index) => (
+        <Fragment key={action.key}>
+          {index > 0 ? (
+            <span
+              aria-hidden="true"
+              className="my-[7px] w-px shrink-0 bg-[var(--color-border)] transition-opacity motion-reduce:transition-none group-focus-within/split:opacity-0 group-hover/split:opacity-0"
+            />
+          ) : null}
+          <button
+            type="button"
+            title={action.label}
+            disabled={action.disabled}
+            className="inline-flex h-7 flex-none items-center justify-center whitespace-nowrap px-3 text-ui leading-snug text-[var(--color-text-foreground)] outline-none transition-colors hover:bg-[var(--color-background-elevated-secondary)] focus-visible:bg-[var(--color-background-elevated-secondary)] disabled:pointer-events-none disabled:opacity-40"
+            onMouseDown={(event) => {
+              // Keep the selection: a press on the pill must not collapse it.
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              action.onSelect();
+            }}
+          >
+            {action.label}
+          </button>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+function AnchoredPill(props: {
+  anchor: RangeAnchor;
+  onLost?: (() => void) | undefined;
+  actions: PillAction[];
+}) {
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  useSelectionAnchor({
+    surfaceRef,
+    range: props.anchor.range,
+    boundary: props.anchor.boundary,
+    onLost: props.onLost,
+  });
+  return (
+    <div
+      ref={surfaceRef}
+      data-transcript-selection-action="true"
+      role="toolbar"
+      aria-label="Selection actions"
+      className="pointer-events-none fixed top-0 left-0 z-50 will-change-transform"
+      style={{ visibility: "hidden" }}
+    >
+      <SelectionPill actions={props.actions} />
+    </div>
   );
 }
 
 export function TranscriptSelectionAction(props: TranscriptSelectionActionProps) {
   const { t } = useTranslation();
   const { onReply, disabled } = props;
-  // Enter replies while the toolbar is up, unless the reader is typing in a field. The
+  // Enter replies while the pill is up, unless the reader is typing in a field. The
   // composer keeps focus while transcript text is selected, so a focused editor whose
-  // text does not hold the selection is not typing. That Enter belongs to the toolbar:
-  // it stops here, and until the key comes up no Enter reaches the composer that Reply
-  // focuses, so neither this press nor a held key can send the draft or the fresh quote.
+  // text does not hold the selection is not typing. That Enter belongs to the pill:
+  // it stops here, and until the key comes up no Enter reaches the field that Reply
+  // focuses, so neither this press nor a held key can send anything.
   useEffect(() => {
     if (!onReply) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -80,43 +138,51 @@ export function TranscriptSelectionAction(props: TranscriptSelectionActionProps)
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [disabled, onReply]);
+
+  const actions: PillAction[] = [];
+  if (props.onAddToSide) {
+    actions.push({
+      key: "side-chat",
+      label: props.sideChatStarted
+        ? t("transcript.selection.sendToSideChat")
+        : t("transcript.selection.startSideChat"),
+      onSelect: props.onAddToSide,
+      disabled: props.disabled || props.sideDisabled,
+    });
+  }
+  if (props.onReply) {
+    actions.push({
+      key: "reply",
+      label: t("transcript.selection.reply"),
+      onSelect: props.onReply,
+      disabled: props.disabled,
+    });
+  }
+  if (props.onAddToChat) {
+    actions.push({
+      key: "add-to-chat",
+      label: "Add to Chat",
+      onSelect: props.onAddToChat,
+      disabled: props.disabled,
+    });
+  }
+
+  if (props.anchor) {
+    return <AnchoredPill anchor={props.anchor} onLost={props.onLost} actions={actions} />;
+  }
   return (
     <div
       data-transcript-selection-action="true"
       className="pointer-events-none fixed z-50 flex justify-center"
-      style={{ left: props.left, top: props.top, width: TRANSCRIPT_SELECTION_ACTION_WIDTH_PX }}
+      style={{
+        left: props.left ?? 0,
+        top: props.top ?? 0,
+        width: TRANSCRIPT_SELECTION_ACTION_WIDTH_PX,
+      }}
       role="toolbar"
       aria-label="Selection actions"
     >
-      {/* Sized to its labels and centered in the layout's slot, so labels never clip
-          regardless of font size or which actions are present. */}
-      <div className="pointer-events-auto inline-flex w-max max-w-[calc(100vw-16px)] shrink-0 items-center divide-x divide-[var(--color-border)] overflow-hidden rounded-card border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] shadow-md">
-        {props.onAddToSide ? (
-          <TranscriptSelectionToolbarButton
-            label={
-              props.sideChatStarted
-                ? t("transcript.selection.sendToSideChat")
-                : t("transcript.selection.startSideChat")
-            }
-            onClick={props.onAddToSide}
-            disabled={props.disabled || props.sideDisabled}
-          />
-        ) : null}
-        {props.onReply ? (
-          <TranscriptSelectionToolbarButton
-            label={t("transcript.selection.reply")}
-            onClick={props.onReply}
-            disabled={props.disabled}
-          />
-        ) : null}
-        {props.onAddToChat ? (
-          <TranscriptSelectionToolbarButton
-            label="Add to Chat"
-            onClick={props.onAddToChat}
-            disabled={props.disabled}
-          />
-        ) : null}
-      </div>
+      <SelectionPill actions={actions} />
     </div>
   );
 }
@@ -138,7 +204,7 @@ function swallowEnter(event: KeyboardEvent): void {
 
 // Swallows Enter keydowns (a held key's repeats) until Enter is released or the window
 // loses focus.
-function holdEnterUntilRelease(): void {
+export function holdEnterUntilRelease(): void {
   const release = (event: Event) => {
     if (event instanceof KeyboardEvent && event.key !== "Enter") return;
     window.removeEventListener("keydown", swallowEnter, true);

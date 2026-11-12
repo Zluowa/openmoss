@@ -369,3 +369,23 @@ export function shouldAllowMossComputerProviderTool(input: {
     computerToolNameFromProviderPermission(input.permission) !== undefined
   );
 }
+
+/**
+ * Settings › Computer use "always allowed": whether one Moss-gated computer
+ * call may run without the per-turn approval prompt. Only a turn-scoped
+ * desktop call whose every named target the tool layer resolved to an
+ * always-allowed app qualifies. Device tools and clipboard reads keep their
+ * own prompts, and nothing here grants the rest of the turn.
+ */
+export function alwaysAllowedAppSkipsComputerPrompt(input: {
+  readonly name: string;
+  readonly callerTurnId: string | null;
+  readonly consent: { readonly alwaysAllowedApp?: string } | undefined;
+}): boolean {
+  return (
+    input.consent?.alwaysAllowedApp !== undefined &&
+    input.callerTurnId !== null &&
+    input.name !== "computer_read_clipboard" &&
+    !input.name.startsWith("device_")
+  );
+}

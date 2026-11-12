@@ -33,6 +33,7 @@ import {
   TurnId,
   type ComputerBuildSignature,
   type ComputerPermission,
+  type ComputerServerSettings,
   type ComputerSetupRequiredPayload,
   type ModelSelection,
   type OrchestrationCommand,
@@ -44,7 +45,7 @@ import {
 } from "@moss/contracts";
 import { runtimeModeEscalatesPrivilege } from "@moss/shared/runtimeMode";
 import { deriveProviderInstances, isProviderKind } from "@moss/shared/providerInstances";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Stream } from "effect";
 
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { GitManager } from "../../git/Services/GitManager.ts";
@@ -139,7 +140,10 @@ import {
   makeAgentGatewayComputerTools,
   type AgentGatewayComputerToolsOptions,
 } from "../computerTools.ts";
-import { isMossComputerToolFamilyName } from "../computerToolPermission.ts";
+import {
+  alwaysAllowedAppSkipsComputerPrompt,
+  isMossComputerToolFamilyName,
+} from "../computerToolPermission.ts";
 import { ComputerService } from "../../computer/Services/ComputerService.ts";
 import { computerApprovalGate } from "../../computer/ComputerApprovalGate.ts";
 import { makeComputerForegroundConsent } from "../computerForegroundConsent.ts";
@@ -154,6 +158,7 @@ import { PageAppsService } from "../../pages/apps/PageAppsService";
 import { PagesService } from "../../pages/Services/PagesService";
 import { PageDraftsService } from "../../pages/drafts/Services/PageDraftsService";
 import { makePageDraftTools } from "../pageDraftTools";
+import { makePageVisualizeTool } from "../pageVisualizeTool";
 import { makeSlidesTools } from "../slidesTools";
 import { isServerGroupsEnabled } from "../../projectAgent/groupsBetaGate.ts";
 import { isServerBetaFeatureEnabled } from "../../betaFeatureGate.ts";
@@ -474,6 +479,23 @@ export const makeAgentGateway = Effect.gen(function* () {
       ),
     ),
   );
+
+  // Settings › Computer use per-app choices reach the manager here, where the
+  // agent tools that obey them are built: subscribed before the first read so
+  // a change landing in between is not lost, and owned by the layer's scope.
+  if (computerService !== undefined) {
+    const manager = computerService.manager;
+    const applyComputerAppPolicy = (settings: { readonly computer: ComputerServerSettings }) =>
+      Effect.sync(() => manager.setAppPolicy(settings.computer));
+    const settingsChanges = yield* serverSettings.subscribeChanges;
+    yield* serverSettings.getSettings.pipe(
+      Effect.flatMap(applyComputerAppPolicy),
+      Effect.catch((error) =>
+        Effect.logWarning("computer app choices could not be read", { error }),
+      ),
+    );
+    yield* settingsChanges.pipe(Stream.runForEach(applyComputerAppPolicy), Effect.forkScoped);
+  }
 
   const requireThreadShell = (threadId: string) =>
     snapshotQuery.getThreadShellById(ThreadId.makeUnsafe(threadId)).pipe(
@@ -1616,7 +1638,7 @@ export const makeAgentGateway = Effect.gen(function* () {
    */
   const authorizeComputerAction: NonNullable<
     AgentGatewayComputerToolsOptions["authorizeAction"]
-  > = async (name, args, context, signal) => {
+  > = async (name, args, context, signal, consent) => {
     await Effect.runPromise(context.assertCallerTurnActive(), { signal });
     const caller = await Effect.runPromise(
       snapshotQuery.getThreadShellById(ThreadId.makeUnsafe(context.callerThreadId)),
@@ -1637,6 +1659,19 @@ export const makeAgentGateway = Effect.gen(function* () {
       return true;
     }
     const taskConsent = name !== "computer_read_clipboard" && context.callerTurnId !== null;
+    // Settings › Computer use "always allowed": every target this call names
+    // is an app the user pre-approved, so this one call runs without the turn
+    // prompt. Nothing is granted to the turn — the next call to any other app
+    // still asks — and the control disclosure is surfaced as usual.
+    if (
+      alwaysAllowedAppSkipsComputerPrompt({ name, callerTurnId: context.callerTurnId, consent })
+    ) {
+      await Effect.runPromise(
+        surfaceComputerControlDisclosure(context.callerThreadId, context.callerTurnId),
+        { signal },
+      ).catch(() => undefined);
+      return true;
+    }
     const requestApproval = taskConsent
       ? computerApprovalGate.requestTask.bind(computerApprovalGate)
       : computerApprovalGate.request.bind(computerApprovalGate);
@@ -1852,8 +1887,19 @@ export const makeAgentGateway = Effect.gen(function* () {
   const catalog: ReadonlyArray<ToolEntry> = [
     ...(roomRuntime ? makeMossbotRoomTools(roomRuntime) : []),
     ...(pagesService ? makePageTools({ pages: pagesService, drafts: pageDraftsService }) : []),
-    ...(pageDraftsService ? makePageDraftTools({ drafts: pageDraftsService }) : []),
+    ...(pageDraftsService
+      ? makePageDraftTools({ drafts: pageDraftsService, pages: pagesService })
+      : []),
     ...(pageAppsService ? makePageAppTools({ apps: pageAppsService }) : []),
+    ...(pagesService && pageAppsService && pageDraftsService
+      ? [
+          makePageVisualizeTool({
+            pages: pagesService,
+            apps: pageAppsService,
+            drafts: pageDraftsService,
+          }),
+        ]
+      : []),
     ...(pageTypesService
       ? makePageTypeTools({
           types: pageTypesService,

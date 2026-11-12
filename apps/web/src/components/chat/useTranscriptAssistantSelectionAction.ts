@@ -31,6 +31,12 @@ export interface PendingTranscriptSelectionAction {
   left: number;
   top: number;
   placement: "top" | "bottom";
+  /** The selected text, kept so the pill and the Reply card stay on it. */
+  range: Range | null;
+  /** The transcript scroller the selection lives in. */
+  boundary: HTMLElement | null;
+  /** "pill" while choosing an action, "reply" once Reply opened the card. */
+  mode: "pill" | "reply";
 }
 
 interface UseTranscriptAssistantSelectionActionOptions {
@@ -105,21 +111,28 @@ export function useTranscriptAssistantSelectionAction(
   const dismissTranscriptSelectionAction = useCallback(() => {
     setPendingTranscriptSelectionAction(null);
   }, [setPendingTranscriptSelectionAction]);
+  // The Reply card follows its text while the transcript scrolls and decides for itself
+  // when a press outside closes it; only the pill closes on transcript input.
+  const replyCardOpenRef = useRef(false);
+  replyCardOpenRef.current = pendingTranscriptSelectionAction?.mode === "reply";
+  const dismissPill = useCallback(() => {
+    if (!replyCardOpenRef.current) setPendingTranscriptSelectionAction(null);
+  }, [setPendingTranscriptSelectionAction]);
 
   const onMessagesClickCapture: MouseEventHandler<HTMLDivElement> = useCallback(
     (event) => {
-      dismissTranscriptSelectionAction();
+      dismissPill();
       onMessagesClickCaptureBase(event);
     },
-    [dismissTranscriptSelectionAction, onMessagesClickCaptureBase],
+    [dismissPill, onMessagesClickCaptureBase],
   );
 
   const onMessagesPointerDown: PointerEventHandler<HTMLDivElement> = useCallback(
     (event) => {
-      dismissTranscriptSelectionAction();
+      dismissPill();
       onMessagesPointerDownBase(event);
     },
-    [dismissTranscriptSelectionAction, onMessagesPointerDownBase],
+    [dismissPill, onMessagesPointerDownBase],
   );
 
   const onMessagesPointerUp: PointerEventHandler<HTMLDivElement> = useCallback(
@@ -131,39 +144,39 @@ export function useTranscriptAssistantSelectionAction(
 
   const onMessagesPointerCancel: PointerEventHandler<HTMLDivElement> = useCallback(
     (event) => {
-      dismissTranscriptSelectionAction();
+      dismissPill();
       onMessagesPointerCancelBase(event);
     },
-    [dismissTranscriptSelectionAction, onMessagesPointerCancelBase],
+    [dismissPill, onMessagesPointerCancelBase],
   );
 
   const onMessagesScroll = useCallback(() => {
-    dismissTranscriptSelectionAction();
+    dismissPill();
     onMessagesScrollBase();
-  }, [dismissTranscriptSelectionAction, onMessagesScrollBase]);
+  }, [dismissPill, onMessagesScrollBase]);
 
   const onMessagesWheel: WheelEventHandler<HTMLDivElement> = useCallback(
     (event) => {
-      dismissTranscriptSelectionAction();
+      dismissPill();
       onMessagesWheelBase(event);
     },
-    [dismissTranscriptSelectionAction, onMessagesWheelBase],
+    [dismissPill, onMessagesWheelBase],
   );
 
   const onMessagesTouchStart: TouchEventHandler<HTMLDivElement> = useCallback(
     (event) => {
-      dismissTranscriptSelectionAction();
+      dismissPill();
       onMessagesTouchStartBase(event);
     },
-    [dismissTranscriptSelectionAction, onMessagesTouchStartBase],
+    [dismissPill, onMessagesTouchStartBase],
   );
 
   const onMessagesTouchMove: TouchEventHandler<HTMLDivElement> = useCallback(
     (event) => {
-      dismissTranscriptSelectionAction();
+      dismissPill();
       onMessagesTouchMoveBase(event);
     },
-    [dismissTranscriptSelectionAction, onMessagesTouchMoveBase],
+    [dismissPill, onMessagesTouchMoveBase],
   );
 
   const onMessagesTouchEnd: TouchEventHandler<HTMLDivElement> = useCallback(
@@ -179,6 +192,8 @@ export function useTranscriptAssistantSelectionAction(
       const clientX = event.clientX;
       const clientY = event.clientY;
       window.requestAnimationFrame(() => {
+        // A release while the Reply card is open is not a new selection.
+        if (replyCardOpenRef.current) return;
         if (!enabled || !container) {
           setPendingTranscriptSelectionAction(null);
           return;
@@ -198,77 +213,112 @@ export function useTranscriptAssistantSelectionAction(
           selectionRect: selectionState.selectionRect,
           pointer: { x: clientX, y: clientY },
         });
+        const liveSelection = window.getSelection();
         setPendingTranscriptSelectionAction({
           selection: selectionState.selection,
           left: layout.left,
           top: layout.top,
           placement: layout.placement,
+          range:
+            liveSelection && liveSelection.rangeCount > 0
+              ? liveSelection.getRangeAt(0).cloneRange()
+              : null,
+          boundary: container,
+          mode: "pill",
         });
       });
     },
     [canReferenceAssistantSelection, enabled, setPendingTranscriptSelectionAction],
   );
 
-  const commitTranscriptAssistantSelection = useCallback(() => {
-    const pendingSelection = pendingTranscriptSelectionAction;
-    if (!pendingSelection) {
-      return;
-    }
+  /**
+   * Adds the selection to the composer as a quote, with the reader's reply if any. Returns
+   * the new quote's id, or null when nothing was added.
+   */
+  const commitTranscriptAssistantSelection = useCallback(
+    (comment = ""): string | null => {
+      const pendingSelection = pendingTranscriptSelectionAction;
+      if (!pendingSelection) {
+        return null;
+      }
 
-    if (
-      canReferenceAssistantSelection &&
-      !canReferenceAssistantSelection(pendingSelection.selection)
-    ) {
-      setPendingTranscriptSelectionAction(null);
-      window.getSelection()?.removeAllRanges();
-      return;
-    }
+      if (
+        canReferenceAssistantSelection &&
+        !canReferenceAssistantSelection(pendingSelection.selection)
+      ) {
+        setPendingTranscriptSelectionAction(null);
+        window.getSelection()?.removeAllRanges();
+        return null;
+      }
 
-    if (
-      composerImagesRef.current.length +
-        composerFilesRef.current.length +
-        composerAssistantSelectionsRef.current.length >=
-      PROVIDER_SEND_TURN_MAX_ATTACHMENTS
-    ) {
-      setPendingTranscriptSelectionAction(null);
-      toastManager.add({
-        type: "warning",
-        title: `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} references per message.`,
-      });
-      return;
-    }
-
-    const nextSelection = createAssistantSelectionAttachment(pendingSelection.selection);
-    if (!nextSelection) {
-      setPendingTranscriptSelectionAction(null);
-      if (getAssistantSelectionValidationError(pendingSelection.selection) === "too-long") {
+      if (
+        composerImagesRef.current.length +
+          composerFilesRef.current.length +
+          composerAssistantSelectionsRef.current.length >=
+        PROVIDER_SEND_TURN_MAX_ATTACHMENTS
+      ) {
+        setPendingTranscriptSelectionAction(null);
         toastManager.add({
           type: "warning",
-          title: "Selections can be up to 4,000 characters.",
+          title: `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} references per message.`,
         });
+        return null;
       }
+
+      const nextSelection = createAssistantSelectionAttachment({
+        ...pendingSelection.selection,
+        comment,
+      });
+      if (!nextSelection) {
+        setPendingTranscriptSelectionAction(null);
+        if (getAssistantSelectionValidationError(pendingSelection.selection) === "too-long") {
+          toastManager.add({
+            type: "warning",
+            title: "Selections can be up to 4,000 characters.",
+          });
+        }
+        return null;
+      }
+
+      const inserted = addComposerAssistantSelectionToDraft(nextSelection);
+      setPendingTranscriptSelectionAction(null);
+      if (inserted) {
+        window.getSelection()?.removeAllRanges();
+        scheduleComposerFocus();
+      }
+      return inserted ? nextSelection.id : null;
+    },
+    [
+      addComposerAssistantSelectionToDraft,
+      canReferenceAssistantSelection,
+      composerAssistantSelectionsRef,
+      composerFilesRef,
+      composerImagesRef,
+      pendingTranscriptSelectionAction,
+      scheduleComposerFocus,
+      setPendingTranscriptSelectionAction,
+    ],
+  );
+  const commitRef = useRef(commitTranscriptAssistantSelection);
+  commitRef.current = commitTranscriptAssistantSelection;
+
+  /** Reply: swaps the pill for the Reply card on the same text. */
+  const openTranscriptReplyCard = useCallback(() => {
+    const pendingSelection = pendingTranscriptSelectionAction;
+    if (!pendingSelection) return;
+    if (!pendingSelection.range) {
+      // Nothing to pin a card to: add the quote straight away.
+      commitRef.current("");
       return;
     }
-
-    const inserted = addComposerAssistantSelectionToDraft(nextSelection);
-    setPendingTranscriptSelectionAction(null);
-    if (inserted) {
-      window.getSelection()?.removeAllRanges();
-      scheduleComposerFocus();
-    }
-  }, [
-    addComposerAssistantSelectionToDraft,
-    canReferenceAssistantSelection,
-    composerAssistantSelectionsRef,
-    composerFilesRef,
-    composerImagesRef,
-    pendingTranscriptSelectionAction,
-    scheduleComposerFocus,
-    setPendingTranscriptSelectionAction,
-  ]);
+    setPendingTranscriptSelectionAction({ ...pendingSelection, mode: "reply" });
+    // The card paints the passage as selected itself; focus moves into its field.
+    window.getSelection()?.removeAllRanges();
+  }, [pendingTranscriptSelectionAction, setPendingTranscriptSelectionAction]);
 
   useEffect(() => {
-    if (!pendingTranscriptSelectionAction) {
+    // The Reply card owns its own closing (Escape, a press outside while empty).
+    if (!pendingTranscriptSelectionAction || pendingTranscriptSelectionAction.mode === "reply") {
       return;
     }
 
@@ -311,6 +361,7 @@ export function useTranscriptAssistantSelectionAction(
   return {
     pendingTranscriptSelectionAction,
     commitTranscriptAssistantSelection,
+    openTranscriptReplyCard,
     dismissTranscriptSelectionAction,
     onMessagesClickCapture,
     onMessagesMouseUp,

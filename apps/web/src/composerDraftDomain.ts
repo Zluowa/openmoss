@@ -622,23 +622,29 @@ export function terminalContextDedupKey(context: TerminalContextDraft): string {
 }
 
 export function assistantSelectionDedupKey(
-  selection: Pick<ComposerAssistantSelectionAttachment, "assistantMessageId" | "text">,
+  selection: Pick<ComposerAssistantSelectionAttachment, "assistantMessageId" | "text" | "comment">,
 ): string {
-  return `${selection.assistantMessageId}\u0000${selection.text}`;
+  // A reply makes it a different quote: the same passage may be quoted again with new words.
+  return `${selection.assistantMessageId}\u0000${selection.text}\u0000${selection.comment ?? ""}`;
 }
 
 export function normalizeAssistantSelection(
-  selection: Pick<ComposerAssistantSelectionAttachment, "id" | "assistantMessageId" | "text">,
+  selection: Pick<
+    ComposerAssistantSelectionAttachment,
+    "id" | "assistantMessageId" | "text" | "comment"
+  >,
 ): ComposerAssistantSelectionAttachment | null {
   const normalized = normalizeAssistantSelectionAttachment(selection);
   if (!normalized) {
     return null;
   }
+  const { comment: _rawComment, ...rest } = selection;
   return {
     type: "assistant-selection",
-    ...selection,
+    ...rest,
     assistantMessageId: normalized.assistantMessageId,
     text: normalized.text,
+    ...(normalized.comment ? { comment: normalized.comment } : {}),
   };
 }
 

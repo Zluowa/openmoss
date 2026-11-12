@@ -50,7 +50,10 @@ it.layer(NodeSqliteClient.layerMemory())(
         const executed = yield* runMigrations();
         assert.deepStrictEqual(
           executed.map(([id, name]) => [id, name]),
-          [[166, "Mossbot"]],
+          [
+            [166, "Mossbot"],
+            [167, "UsageAnalyticsDeletedTokens"],
+          ],
         );
         const after = yield* snapshot;
         assert.deepStrictEqual(
@@ -61,8 +64,9 @@ it.layer(NodeSqliteClient.layerMemory())(
         assert.deepStrictEqual(after.threads, before.threads);
         assert.deepStrictEqual(after.messages, before.messages);
         assert.deepStrictEqual(
-          yield* sql`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id DESC LIMIT 2`,
+          yield* sql`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id DESC LIMIT 3`,
           [
+            { migration_id: 167, name: "UsageAnalyticsDeletedTokens" },
             { migration_id: 166, name: "Mossbot" },
             { migration_id: 165, name: "PageRoomPrivateStores" },
           ],
@@ -85,11 +89,12 @@ it.layer(NodeSqliteClient.layerMemory())(
           const sql = yield* SqlClient.SqlClient;
           yield* sql`UPDATE project_agent_configs SET agent_kind = 'mossbot' WHERE project_id = 'existing-hub'`;
           const before = yield* snapshot;
-          yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 166`;
+          // 166 was the tip when its row was lost; later rows never landed either.
+          yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 166`;
           const executed = yield* runMigrations();
           assert.deepStrictEqual(
             executed.map(([id]) => id),
-            [166],
+            [166, 167],
           );
           assert.deepStrictEqual(yield* snapshot, before);
           assert.deepStrictEqual(

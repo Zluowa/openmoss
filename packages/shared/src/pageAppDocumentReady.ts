@@ -1,10 +1,11 @@
 // FILE: pageAppDocumentReady.ts
 // Purpose: Makes an agent-written 应用页 run against a ready document. Agents often put their
-//          code in <head> and reach for `document.getElementById("root")` at once, which finds
-//          nothing there and leaves a blank page. Serving moves those scripts, in order, to the
-//          end of <body>; a page that still fails and shows nothing gets a plain message
-//          instead of a blank frame. Applied every time a page is served, so saved pages are
-//          covered too.
+//          code before the markup it fills (in <head>, at the top of <body>, or in a document
+//          with no <head>/<body> tags at all) and reach for `document.getElementById("root")`
+//          at once, which finds nothing and leaves a blank page. Serving moves every script that
+//          would run at once, in order, to the end of the document; a page that still fails
+//          and shows nothing gets a plain message instead of a blank frame. Applied every time
+//          a page is served, so saved pages are covered too.
 // Layer: Shared (string building only)
 
 import { blankHtmlNonMarkup } from "./htmlMarkup";
@@ -31,24 +32,42 @@ const runsImmediately = (attributes: string) => {
 };
 
 /**
- * Moves the scripts in <head> that would run before <body> exists into <body>, keeping their
- * order: just before the body's own first script (which may use them), else at the end. Modules, deferred and async scripts, import maps and data blocks stay where they
- * are. A document with no <head> scripts comes back unchanged.
+ * Moss's own module bootstrap (localModuleLibraries.ts) installs the import map and must stay
+ * before the page's module scripts; it touches no page markup.
+ */
+const movable = (attributes: string) =>
+  runsImmediately(attributes) && attribute(attributes, "data-moss-local-modules") === null;
+
+/**
+ * Moves every script the browser would run where it stands (classic, not deferred or async)
+ * to the end of <body>, keeping their order, so each one runs after all of the page's markup
+ * exists. Modules, deferred and async scripts, import maps and data blocks stay where they
+ * are; they already run late or not at all. A page whose scripts all sit after its markup
+ * comes back unchanged.
  */
 export function runPageScriptsAfterBody(html: string): string {
   const scan = blankHtmlNonMarkup(html);
   const scripts = blankHtmlNonMarkup(html, ["script"]);
-  const bodyStart = /<body(?=[\s/>])/iu.exec(scan)?.index;
-  const headEnd = /<\/head\s*>/iu.exec(scan)?.index;
-  const end = Math.min(headEnd ?? Infinity, bodyStart ?? Infinity);
-  if (end === Infinity) return html;
   const moved: Array<{ start: number; end: number }> = [];
-  for (const match of scripts.slice(0, end).matchAll(SCRIPT_ELEMENT)) {
-    if (runsImmediately(match[1] ?? "")) {
+  for (const match of scripts.matchAll(SCRIPT_ELEMENT)) {
+    if (movable(match[1] ?? "")) {
       moved.push({ start: match.index, end: match.index + match[0].length });
     }
   }
   if (moved.length === 0) return html;
+  const closing = [...scan.matchAll(/<\/body\s*>|<\/html\s*>/giu)];
+  const target =
+    closing.find((match) => /^<\/body/iu.test(match[0]))?.index ?? closing[0]?.index ?? html.length;
+  // Only markup that follows a script makes moving it matter; whitespace and closing tags don't.
+  const markupAfter = (from: number, to: number) =>
+    /<[a-z!]/iu.test(scan.slice(from, to).replace(/<\/[a-z][^>]*>/giu, ""));
+  if (
+    moved.every(
+      (range, index) =>
+        !markupAfter(range.end, moved[index + 1]?.start ?? Math.max(range.end, target)),
+    )
+  )
+    return html;
   const kept: string[] = [];
   let at = 0;
   for (const range of moved) {
@@ -58,17 +77,9 @@ export function runPageScriptsAfterBody(html: string): string {
   kept.push(html.slice(at));
   const rest = kept.join("");
   const block = moved.map((range) => html.slice(range.start, range.end)).join("\n");
-  const removed = moved.reduce((total, range) => total + range.end - range.start, 0);
-  // Before the body's own first script, so they still run before it, else at the end of <body>.
-  let target: number | undefined;
-  for (const match of scripts.slice(end).matchAll(SCRIPT_ELEMENT)) {
-    if (runsImmediately(match[1] ?? "")) {
-      target = end + match.index;
-      break;
-    }
-  }
-  target ??= [...scan.matchAll(/<\/body\s*>/giu)].at(-1)?.index;
-  if (target === undefined) return `${rest}\n${block}`;
+  const removed = moved
+    .filter((range) => range.end <= target)
+    .reduce((total, range) => total + range.end - range.start, 0);
   const insertAt = target - removed;
   return `${rest.slice(0, insertAt)}${block}\n${rest.slice(insertAt)}`;
 }

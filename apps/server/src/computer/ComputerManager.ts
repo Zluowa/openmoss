@@ -25,6 +25,7 @@ import {
   type ComputerEvent,
   type ComputerGetAuditHistoryInput,
   type ComputerGetAuditHistoryResult,
+  type ComputerUsedApp,
   type ComputerHealth,
   type ComputerInputModifier,
   type ComputerRect,
@@ -99,6 +100,19 @@ import {
 } from "./uiTreeTargeting.ts";
 import { ComputerAuditLog, type ComputerAuditEntry } from "./computerAuditLog.ts";
 import { ComputerDenylistError, computerDenylistMatch } from "./computerDenylist.ts";
+import {
+  ComputerAppBlockedError,
+  ComputerUsedAppsStore,
+  EMPTY_COMPUTER_APP_POLICY,
+  type ComputerAppIdentity,
+  type ComputerAppPolicy,
+} from "./computerAppPolicy.ts";
+import {
+  computerAppAllowKeys,
+  computerAppIdentityKeys,
+  computerAppIsSharedHost,
+  computerAppPolicyMatch,
+} from "@moss/shared/computerAppPolicy";
 import { CuaActionError } from "./CuaComputerBackend.ts";
 import {
   COMPUTER_FOREGROUND_NOT_REQUESTED_CODE,
@@ -532,6 +546,9 @@ export class ComputerManager {
   private readonly disabledThreads = new Set<string>();
   private readonly controlState: ComputerControlState;
   private readonly auditLog: ComputerAuditLog;
+  /** Settings › Computer use per-app choices, pushed by the gateway from server settings. */
+  private appPolicy: ComputerAppPolicy = EMPTY_COMPUTER_APP_POLICY;
+  private readonly usedApps: ComputerUsedAppsStore;
   /**
    * The running-app inventory the denylist's pid resolution reuses; see
    * `COMPUTER_DENYLIST_APP_CACHE_MS` for the bound.
@@ -624,19 +641,167 @@ export class ComputerManager {
    * only against the last cached inventory rather than paying for a fresh
    * one inside the serialized operation queue.
    */
-  private assertDrivenAppAllowed(app: string): void {
+  private assertDrivenAppAllowed(app: string, threadId: string | undefined): void {
     const direct = computerDenylistMatch({ name: app });
     if (direct) throw new ComputerDenylistError(direct.app, direct.matched);
     const pidMatch = /^pid ([1-9]\d*)$/.exec(app.trim().toLowerCase());
-    if (pidMatch === null) return;
-    const pid = Number(pidMatch[1]);
-    const owner = this.deniedAppsCache?.apps.find((candidate) => candidate.pid === pid);
-    if (owner === undefined) return;
-    const resolved = computerDenylistMatch({
-      name: owner.name,
-      bundleId: owner.bundleId,
-    });
-    if (resolved) throw new ComputerDenylistError(resolved.app, resolved.matched);
+    const owner =
+      pidMatch === null
+        ? undefined
+        : this.deniedAppsCache?.apps.find((candidate) => candidate.pid === Number(pidMatch[1]));
+    if (owner !== undefined) {
+      const resolved = computerDenylistMatch({
+        name: owner.name,
+        bundleId: owner.bundleId,
+      });
+      if (resolved) throw new ComputerDenylistError(resolved.app, resolved.matched);
+    }
+    this.assertAppNotBlocked(
+      threadId,
+      owner !== undefined
+        ? { name: owner.name, bundleId: owner.bundleId, path: owner.launchPath }
+        : pidMatch === null
+          ? { name: app }
+          : {},
+    );
+  }
+
+  /**
+   * Settings › Computer use: refuse an agent's access to an app the user
+   * turned off. The person at the keyboard is exempt, like the denylist and
+   * the lease. Agents are recognized by the explicit thread id the mutation
+   * paths carry, or by the gateway's task scope for the read paths that take
+   * none.
+   */
+  private assertAppNotBlocked(threadId: string | undefined, identity: ComputerAppIdentity): void {
+    if (this.appPolicy.blockedApps.length === 0) return;
+    if ((agentThreadId(threadId) ?? currentComputerTask()?.threadId) === undefined) return;
+    const blocked = computerAppPolicyMatch(
+      this.appPolicy.blockedApps,
+      this.expandAppKeys(identity),
+    );
+    if (blocked !== undefined) throw new ComputerAppBlockedError(identity.name ?? blocked);
+  }
+
+  /**
+   * Every spelling the desktop has used for the app an identity names: the
+   * running-app inventory (name, bundle id, executable) and the used-apps
+   * record, so a choice made on "Google Chrome" also holds for `chrome.exe`.
+   */
+  private expandAppKeys(identity: ComputerAppIdentity): ReadonlySet<string> {
+    const keys = new Set(this.usedApps.expandKeys(identity));
+    if (identity.processName !== undefined) {
+      for (const key of computerAppIdentityKeys({ name: identity.processName })) keys.add(key);
+    }
+    for (const app of this.deniedAppsCache?.apps ?? []) {
+      const appKeys = this.usedApps.expandKeys({
+        name: app.name,
+        bundleId: app.bundleId,
+        path: app.launchPath,
+      });
+      if ([...appKeys].some((key) => keys.has(key))) for (const key of appKeys) keys.add(key);
+    }
+    return keys;
+  }
+
+  /** The identity a listed window's owning app answers to, inventory included. */
+  private windowAppIdentity(window: ComputerWindow): ComputerAppIdentity {
+    const owner =
+      window.pid === undefined
+        ? undefined
+        : this.deniedAppsCache?.apps.find((candidate) => candidate.pid === window.pid);
+    // A shared host (ApplicationFrameHost, explorer, …) shows windows of many
+    // apps: its path and bundle id say nothing about this window's app.
+    const sharedHost = owner !== undefined && computerAppIsSharedHost(owner.name);
+    return {
+      name: window.appName ?? owner?.name,
+      bundleId: sharedHost ? undefined : owner?.bundleId,
+      path: sharedHost ? undefined : owner?.launchPath,
+      // For blocking only: a window of a shared host process is also that host.
+      processName: owner?.name,
+    };
+  }
+
+  /** Replace the per-app choices. Called on boot and on every settings change. */
+  setAppPolicy(policy: ComputerAppPolicy): void {
+    this.appPolicy = {
+      blockedApps: [...policy.blockedApps],
+      alwaysAllowedApps: [...policy.alwaysAllowedApps],
+    };
+  }
+
+  /**
+   * How the per-app choices apply to one tool call, decided before the
+   * approval prompt from what the call provably names: an `app` argument, a
+   * window id the desktop already listed, a pid in the cached inventory.
+   * Every named target counts: any blocked one makes the call "blocked", and
+   * "always allowed" needs every named target resolved and allowed, so an
+   * allowed `app` cannot carry another app's `window_id` past the prompt. A
+   * call that names nothing resolvable is `undefined` and keeps the ordinary
+   * approval. This never enumerates the desktop: an unknown window is not
+   * assumed to be anything.
+   */
+  appPolicyForCall(target: {
+    readonly app?: string | undefined;
+    readonly windowIds?: readonly (string | undefined)[];
+    readonly pid?: number | undefined;
+  }): { readonly kind: "blocked" | "always-allowed"; readonly app: string } | undefined {
+    const identities: Array<ComputerAppIdentity | undefined> = [];
+    if (target.app !== undefined && target.app.trim().length > 0) {
+      identities.push({ name: target.app });
+    }
+    for (const windowId of new Set(target.windowIds ?? [])) {
+      if (windowId === undefined) continue;
+      const window = this.lastKnownWindows.get(windowId);
+      identities.push(window === undefined ? undefined : this.windowAppIdentity(window));
+    }
+    if (target.pid !== undefined) {
+      const owner = this.deniedAppsCache?.apps.find((candidate) => candidate.pid === target.pid);
+      identities.push(
+        owner === undefined
+          ? undefined
+          : { name: owner.name, bundleId: owner.bundleId, path: owner.launchPath },
+      );
+    }
+    if (identities.length === 0) return undefined;
+    let allowedApp: string | undefined;
+    let everyTargetAllowed = true;
+    for (const identity of identities) {
+      if (identity === undefined) {
+        everyTargetAllowed = false;
+        continue;
+      }
+      // Blocking over-matches on purpose: every spelling the desktop has used
+      // for the app, executable paths included.
+      const blocked = computerAppPolicyMatch(
+        this.appPolicy.blockedApps,
+        this.expandAppKeys(identity),
+      );
+      if (blocked !== undefined) return { kind: "blocked", app: identity.name ?? blocked };
+      // Skipping the prompt never does: only the target's own name or bundle
+      // id, never a path argument, an alias or a sibling of a shared host
+      // process, and never Windows Settings / Control Panel.
+      const allowed = computerAppPolicyMatch(
+        this.appPolicy.alwaysAllowedApps,
+        computerAppAllowKeys(identity),
+      );
+      if (allowed === undefined) everyTargetAllowed = false;
+      else allowedApp ??= identity.name ?? allowed;
+    }
+    return everyTargetAllowed && allowedApp !== undefined
+      ? { kind: "always-allowed", app: allowedApp }
+      : undefined;
+  }
+
+  /** The apps agents have driven, newest first. Never starts the backend. */
+  listUsedApps(): Promise<readonly ComputerUsedApp[]> {
+    return this.usedApps.list();
+  }
+
+  /** Note an app an agent was admitted to drive. Agents only; never throws. */
+  private noteDrivenApp(threadId: string | undefined, identity: ComputerAppIdentity): void {
+    if ((agentThreadId(threadId) ?? currentComputerTask()?.threadId) === undefined) return;
+    this.usedApps.record(identity);
   }
 
   /**
@@ -676,6 +841,38 @@ export class ComputerManager {
       name: owner.name,
       bundleId: owner.bundleId,
     });
+  }
+
+  /**
+   * What a launch target names, for the used-apps list: the inventory row its
+   * pid or spelling matches, else the bare name a path or bundle reduces to.
+   */
+  private launchedAppIdentity(app: string, pid: number | undefined): ComputerAppIdentity {
+    const keys = this.usedApps.expandKeys({ name: app });
+    const owner = this.deniedAppsCache?.apps.find(
+      (candidate) =>
+        (pid !== undefined && candidate.pid === pid) ||
+        [
+          ...this.usedApps.expandKeys({
+            name: candidate.name,
+            bundleId: candidate.bundleId,
+            path: candidate.launchPath,
+          }),
+        ].some((key) => keys.has(key)),
+    );
+    if (owner !== undefined)
+      return { name: owner.name, bundleId: owner.bundleId, path: owner.launchPath };
+    const looksLikePath = /[\\/]/.test(app);
+    const base = app.trim().split(/[\\/]/).pop() ?? app;
+    return looksLikePath
+      ? { name: base.replace(/\.(app|exe)$/i, ""), path: app.trim() }
+      : { name: app.trim() };
+  }
+
+  /** The identity a pid-grain target answers to, from the cached inventory. */
+  private pidAppIdentity(pid: number, name: string | undefined): ComputerAppIdentity {
+    const owner = this.deniedAppsCache?.apps.find((candidate) => candidate.pid === pid);
+    return { name: name ?? owner?.name, bundleId: owner?.bundleId, path: owner?.launchPath };
   }
 
   /** How a pid-grain target's owning app matches the denylist, or nothing. */
@@ -722,6 +919,10 @@ export class ComputerManager {
     if (agentThreadId(threadId) === undefined) return;
     const match = await this.deniedMatchForWindow(window);
     if (match) throw new ComputerDenylistError(match.app, match.matched);
+    // `deniedMatchForWindow` refreshed the inventory a pid resolves through.
+    const identity = this.windowAppIdentity(window);
+    this.assertAppNotBlocked(threadId, identity);
+    this.noteDrivenApp(threadId, identity);
     await this.spaceBroker.assertWindowAllowed(
       { threadId: threadId!, turnId: currentComputerTask()?.turnId ?? null },
       window,
@@ -751,6 +952,8 @@ export class ComputerManager {
     if (window === undefined) return;
     const match = await this.deniedMatchForWindow(window);
     if (match) throw new ComputerDenylistError(match.app, match.matched);
+    // A turned-off app's window is not read for an agent either (the pane is exempt).
+    this.assertAppNotBlocked(undefined, this.windowAppIdentity(window));
   }
 
   /**
@@ -1098,6 +1301,12 @@ export class ComputerManager {
     this.controlState = new ComputerControlState(options.controlStatePath);
     // Beside the control state file: same directory, same local-only lifetime.
     this.auditLog = new ComputerAuditLog(options.auditLogPath);
+    this.usedApps = new ComputerUsedAppsStore(
+      options.controlStatePath === undefined
+        ? undefined
+        : join(dirname(options.controlStatePath), "computer-used-apps.json"),
+    );
+    this.usedApps.warm();
     // Beside the control state: same directory, same atomicity expectations.
     this.scrollGearingFile = new ScrollGearingFile(
       options.controlStatePath === undefined
@@ -1835,11 +2044,12 @@ export class ComputerManager {
     return this.withBackgroundAppControl(threadId, app, async () => {
       markComputerCall("computer_launch_app");
       assertDesktopOperationActive();
-      this.assertDrivenAppAllowed(app);
+      this.assertDrivenAppAllowed(app, threadId);
       this.spaceBroker.assertNativeLaunchAllowed(agentThreadId(threadId));
       const result = await timedComputerLeg("dispatch", () =>
         this.backend.launchApp(app, args, options),
       );
+      this.noteDrivenApp(threadId, this.launchedAppIdentity(app, result.pid));
       const owner = agentThreadId(threadId);
       if (
         result.focusChangedDuringLaunch === true &&
@@ -1904,7 +2114,7 @@ export class ComputerManager {
     threadId: string | undefined,
     target: ComputerWindow,
   ): Promise<void> {
-    this.assertDrivenAppAllowed(target.appName ?? target.id);
+    this.assertDrivenAppAllowed(target.appName ?? target.id, threadId);
     await this.assertWindowInputAllowedWindow(threadId, target);
   }
 
@@ -1985,10 +2195,13 @@ export class ComputerManager {
             this.resolveMenuAppTarget(target),
           );
           const consentKey = "app" in target ? target.app : (resolved.name ?? `pid ${target.pid}`);
-          this.assertDrivenAppAllowed(consentKey);
+          this.assertDrivenAppAllowed(consentKey, threadId);
           if (agentThreadId(threadId) !== undefined) {
             const denied = await this.deniedMatchForPid(resolved.pid, resolved.name);
             if (denied) throw new ComputerDenylistError(denied.app, denied.matched);
+            const identity = this.pidAppIdentity(resolved.pid, resolved.name);
+            this.assertAppNotBlocked(threadId, identity);
+            this.noteDrivenApp(threadId, identity);
           }
           await this.assertSpaceAppMutationAllowed(threadId, resolved.pid);
           const result = await timedComputerLeg("dispatch", () =>
@@ -2091,10 +2304,13 @@ export class ComputerManager {
         const apps = await listApps().catch(() => undefined);
         return apps?.find((app) => app.pid === pid && app.running)?.name;
       });
-      this.assertDrivenAppAllowed(named ?? `pid ${pid}`);
+      this.assertDrivenAppAllowed(named ?? `pid ${pid}`, threadId);
       if (agentThreadId(threadId) !== undefined) {
         const denied = await this.deniedMatchForPid(pid, named);
         if (denied) throw new ComputerDenylistError(denied.app, denied.matched);
+        const identity = this.pidAppIdentity(pid, named);
+        this.assertAppNotBlocked(threadId, identity);
+        this.noteDrivenApp(threadId, identity);
       }
       await this.assertSpaceAppMutationAllowed(threadId, pid);
       const result = await timedComputerLeg("dispatch", () => setter(pid, hidden));
@@ -2451,7 +2667,7 @@ export class ComputerManager {
         }
         const previousId =
           windows.find((candidate) => candidate.visible && !candidate.minimized)?.id ?? null;
-        this.assertDrivenAppAllowed(target.appName ?? windowId);
+        this.assertDrivenAppAllowed(target.appName ?? windowId, threadId);
         await this.assertWindowInputAllowedWindow(threadId, target);
         if (target.pid !== undefined)
           await this.assertSpaceAppMutationAllowed(threadId, target.pid);
@@ -3857,7 +4073,7 @@ export class ComputerManager {
     return this.withBackgroundResourceControl(
       threadId,
       async () => {
-        this.assertDrivenAppAllowed(app);
+        this.assertDrivenAppAllowed(app, threadId);
         const apps = await this.backend.listApps?.();
         const spelling = app.trim().toLowerCase();
         const matches =
@@ -4469,6 +4685,7 @@ export class ComputerManager {
     this.disposed = true;
     this.spaceBroker.dispose();
     this.cursorActivity.dispose();
+    await this.usedApps.flush();
     // Teardown cannot depend on the host still answering: an unreachable
     // endpoint means the input path it owned is already gone, so the wait is
     // bounded like every other teardown leg.
@@ -4778,6 +4995,26 @@ export class ComputerManager {
   }
 
   /**
+   * Settings › Computer use for keystrokes that name no window: they land in
+   * the agent seat's pinned window (`focused`) or, with none, the desktop's
+   * own front window (`keyboardFocused`, else `active`). Every window that is
+   * any of these is checked, so a turned-off app there refuses the keystroke.
+   * When the desktop reports none of them, nothing can be checked and the
+   * keystroke goes ahead (said under "Not covered" in the PR).
+   */
+  private async assertFrontWindowNotBlocked(threadId: string | undefined): Promise<void> {
+    if (this.appPolicy.blockedApps.length === 0 || agentThreadId(threadId) === undefined) return;
+    const windows = await this.readWindows();
+    const front = windows.filter(
+      (window) => window.focused || window.keyboardFocused === true || window.active === true,
+    );
+    if (front.length === 0) return;
+    // Refresh the inventory a window's pid resolves through before matching.
+    await this.runningAppsForDenylist();
+    for (const window of front) this.assertAppNotBlocked(threadId, this.windowAppIdentity(window));
+  }
+
+  /**
    * Points the agent seat's keyboard at a window before a keystroke, or leaves
    * focus alone when the caller named none.
    *
@@ -4792,7 +5029,10 @@ export class ComputerManager {
     threadId: string | undefined,
   ): Promise<void> {
     this.spaceBroker.assertTargetBound(agentThreadId(threadId), windowId);
-    if (windowId === undefined) return;
+    if (windowId === undefined) {
+      await this.assertFrontWindowNotBlocked(threadId);
+      return;
+    }
     const windows = await this.readWindows();
     const window = windows.find((candidate) => candidate.id === windowId);
     if (window === undefined) {
