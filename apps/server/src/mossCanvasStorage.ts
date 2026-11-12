@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { dirname, join, resolve, toNamespacedPath } from "node:path";
 import { pathToFileURL } from "node:url";
 import { outboundHttp } from "@moss/shared/outboundHttp";
+import { RUNTIME_RESIDENCY_POLICIES } from "@moss/shared/runtimeResidency";
 import {
   mediaAccountScope,
   MossMediaJobsError,
@@ -12,6 +13,7 @@ import {
   type MossMediaIdentity,
 } from "./mossMediaJobsService";
 import type { MossCanvasWorkspace } from "./mossCanvasWorkspace";
+import { createIdleResourcePool } from "./idleResourcePool";
 
 interface CanvasStorage {
   request(method: string, input?: Record<string, unknown>): Promise<unknown>;
@@ -42,7 +44,13 @@ export async function promoteMossCanvasAsset(
     credential,
   );
 }
-const stores = new Map<string, Promise<CanvasStorage>>();
+// A conversation's store opens on its first request and closes when unused, under the shared
+// residency policy (idleResourcePool.ts): no request for five minutes, or more than eight open.
+const stores = createIdleResourcePool<CanvasStorage>(RUNTIME_RESIDENCY_POLICIES.conversationStore);
+/** Open conversation Canvas stores right now (diagnostics and tests). */
+export const mossCanvasOpenStoreCount = () => stores.openCount();
+/** Release every Canvas store and its folder's writer lease, e.g. on shutdown. */
+export const closeMossCanvasStores = () => stores.closeAll();
 
 export async function resolveMossCanvasBundleRoot(): Promise<string> {
   const candidates = [
@@ -169,7 +177,7 @@ export async function mossCanvasStorageExists(
   workspace?: MossCanvasWorkspace | null,
 ): Promise<boolean> {
   const directory = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
-  if (stores.has(directory)) return true;
+  if (stores.isOpen(directory)) return true;
   if (await isRealDirectory(directory)) return true;
   return workspace ? (await realLegacyDirectory(credential, workspace)) !== null : false;
 }
@@ -180,40 +188,40 @@ export function mossCanvasStorageFor(
   workspace?: MossCanvasWorkspace | null,
 ): Promise<CanvasStorage> {
   const target = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
-  let pending = stores.get(target);
-  if (!pending) {
-    pending = (async () => {
-      let directory = target;
-      if (workspace && !(await isRealDirectory(target))) {
-        // A Canvas made before 2026-11-11 lives in the project; bring it over once.
-        const legacy = await realLegacyDirectory(credential, workspace);
-        if (legacy) directory = await moveLegacyCanvas(legacy, target);
-      }
-      await mkdir(directory, { recursive: true, mode: 0o700 });
-      const root = await resolveMossCanvasBundleRoot();
-      const moduleUrl = pathToFileURL(
-        join(root, "apps/codex-canvas/server/hosted-storage.mjs"),
-      ).href;
-      const upstream = (await import(moduleUrl)) as {
-        createMossCanvasHostedStorage(input: {
-          stateDirectory: string;
-          conversation?: { threadId: string; title: string };
-        }): Promise<CanvasStorage>;
-      };
-      return upstream.createMossCanvasHostedStorage({
-        // SQLite opens the folder through the Windows long-path namespace.
-        stateDirectory: toNamespacedPath(directory),
-        ...(workspace
-          ? { conversation: { threadId: workspace.threadId, title: workspace.title } }
-          : {}),
-      });
-    })().catch((error: unknown) => {
-      stores.delete(target);
-      throw error;
+  const handle = stores.handle(target, async () => {
+    let directory = target;
+    if (workspace && !(await isRealDirectory(target))) {
+      // A Canvas made before 2026-11-11 lives in the project; bring it over once.
+      const legacy = await realLegacyDirectory(credential, workspace);
+      if (legacy) directory = await moveLegacyCanvas(legacy, target);
+    }
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    const root = await resolveMossCanvasBundleRoot();
+    const moduleUrl = pathToFileURL(join(root, "apps/codex-canvas/server/hosted-storage.mjs")).href;
+    const upstream = (await import(moduleUrl)) as {
+      createMossCanvasHostedStorage(input: {
+        stateDirectory: string;
+        conversation?: { threadId: string; title: string };
+      }): Promise<CanvasStorage>;
+    };
+    return upstream.createMossCanvasHostedStorage({
+      // SQLite opens the folder through the Windows long-path namespace.
+      stateDirectory: toNamespacedPath(directory),
+      ...(workspace
+        ? { conversation: { threadId: workspace.threadId, title: workspace.title } }
+        : {}),
     });
-    stores.set(target, pending);
-  }
-  return pending;
+  });
+  // Callers may keep this object: every call goes through the pool, which reopens a store that
+  // was closed while idle. Opening now keeps the contract that a store which cannot open (missing
+  // bundle, unsafe folder) rejects here.
+  const facade: CanvasStorage = {
+    request: (method, input) => handle.use((store) => store.request(method, input)),
+    readAsset: (name) => handle.use((store) => store.readAsset(name)),
+    readKnowledgeAsset: (name) => handle.use((store) => store.readKnowledgeAsset(name)),
+    close: () => void handle.close(),
+  };
+  return handle.use(() => facade);
 }
 
 export async function cacheMossCanvasRemoteAsset(

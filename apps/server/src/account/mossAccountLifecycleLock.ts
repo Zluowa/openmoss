@@ -128,7 +128,7 @@ type StoredBinding = {
 
 type MossManagedProvisionInput = Omit<
   Parameters<MossManagedProviderShape["provision"]>[0],
-  "cleanupAccessTokenHash" | "recoverStalePairedGeneration"
+  "cleanupAccessTokenHash" | "recoverStalePairedGeneration" | "sameAuthorityRotation"
 >;
 type MossManagedBindingExpectation = {
   readonly authority: MossManagedGatewayAuthority;
@@ -299,6 +299,11 @@ function makeCoordinator(
           previousAccessTokenHash && previousAccessTokenHash !== incomingAccessTokenHash
             ? previousAccessTokenHash
             : undefined;
+        // A background refresh or restore of the realm that already owns the
+        // surfaces. Sign-in and realm switches select, and a cross-realm claim
+        // has a different previous owner, so neither is ever a rotation.
+        const sameAuthorityRotation =
+          input.selectionPolicy === "preserve" && previousOwner?.authority === input.authority;
         const provisioned = yield* managedProvider
           .provision({
             authority: input.authority,
@@ -307,6 +312,7 @@ function makeCoordinator(
             ...(input.models ? { models: input.models } : {}),
             ...(cleanupAccessTokenHash ? { cleanupAccessTokenHash } : {}),
             ...(recoverStalePairedGeneration ? { recoverStalePairedGeneration: true } : {}),
+            ...(sameAuthorityRotation ? { sameAuthorityRotation: true } : {}),
             selectionPolicy: input.selectionPolicy,
           })
           .pipe(

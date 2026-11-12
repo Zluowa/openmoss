@@ -327,3 +327,35 @@ describe("TimelineWorkEntryRow Grok visual and tool-search labels", () => {
     expect(untitledMarkup).not.toMatch(/(?:preview-empty\.json|moss__html_preview)/u);
   });
 });
+
+describe("TimelineWorkEntryRow MCP tool names", () => {
+  it("labels a failed MCP call like Claude, with no raw id or empty arguments", () => {
+    const markup = renderToStaticMarkup(
+      <TimelineWorkEntryRow
+        workEntry={{
+          id: "mcp-failed",
+          createdAt: "2026-08-12T12:00:00.000Z",
+          label: "MCP tool call",
+          toolTitle: "fixture: fixture bad structured",
+          toolName: "mcp__fixture__fixture_bad_structured",
+          detail: "mcp__fixture__fixture_bad_structured: {}",
+          itemType: "mcp_tool_call",
+          tone: "error",
+          toolStatus: "failed",
+          activityKind: "tool.completed",
+        }}
+        chatMetaFontSizePx={12}
+        textFontSizePx={13}
+        density="compact"
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        timestampFormat="24-hour"
+      />,
+    );
+
+    expect(markup).toContain("fixture: fixture bad structured");
+    expect(markup).not.toContain("mcp__");
+    expect(markup).not.toContain("{}");
+    expect(markup).not.toContain("Fixture:");
+  });
+});

@@ -1361,6 +1361,30 @@ describe("buildKanbanBoard v2 mode", () => {
     expect(card.attention).toContain("failed");
   });
 
+  it("files a send that never started as failed, not as a draft (M5)", () => {
+    // A Codex start that timed out: the message was sent, no turn began, and the
+    // session's error was later cleared to a plain stop.
+    const neverStarted = makeSidebarThreadSummary({
+      id: ThreadId.makeUnsafe("thread-never-started"),
+      latestUserMessageAt: "2026-03-09T10:00:02.000Z",
+      session: makeSession({
+        status: "closed",
+        orchestrationStatus: "stopped",
+        updatedAt: FROZEN_NOW_ISO,
+      }),
+    });
+    const neverSent = makeSidebarThreadSummary({ id: ThreadId.makeUnsafe("thread-never-sent") });
+    const project = buildKanbanBoard(
+      makeBoardInput({ threads: [neverStarted, neverSent] }),
+      v2Options(),
+    ).projects[0]!;
+    expect(project.awaitingYou.map((card) => card.threadId)).toEqual(["thread-never-started"]);
+    expect(project.awaitingYou[0]!.attention).toEqual(["failed"]);
+    expect(project.awaitingYou[0]!.timestamp).toBe("2026-03-09T10:00:02.000Z");
+    expect(project.draft.map((card) => card.threadId)).toEqual(["thread-never-sent"]);
+    expect(project.totalCount).toBe(2);
+  });
+
   it("applies the needs-review filter in v2 mode", () => {
     const noReview = makeSidebarThreadSummary({
       id: ThreadId.makeUnsafe("thread-noreview"),

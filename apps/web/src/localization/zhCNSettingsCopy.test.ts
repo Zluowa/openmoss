@@ -39,7 +39,7 @@ describe("settings copy in zh-CN", () => {
     ["Codex · 100% of turns", "Codex · 占回合的 100%"],
     ["Disabled providers (7)", "已停用的服务商（7）"],
     ["Auto-compact", "自动压缩"],
-    ["Auto (Claude Code)", "自动（由 Claude Code 决定）"],
+    ["Auto (Moss decides)", "自动（由 Moss 决定）"],
     [
       ". Percentages reflect tracked tokens only. Their turns still count toward activity totals.",
       "。百分比只按已统计的 token 计算，这些服务商的回合仍计入活动总数。",

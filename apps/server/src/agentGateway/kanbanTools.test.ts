@@ -361,6 +361,29 @@ describe("moss_read_kanban_card", () => {
     expect(result.asOf).toBe(NOW_ISO);
     expect(result.callerThreadId).toBe("thread-caller");
   });
+
+  it("reads a send that never started as failed, like the board (M5)", async () => {
+    const { tools } = makeTools({
+      threads: [
+        makeSessionShell("thread-never-started", "project-a", {
+          latestTurn: null,
+          latestUserMessageAt: NOW_ISO,
+          session: {
+            ...makeSessionShell("thread-never-started").session!,
+            status: "stopped",
+          },
+        }),
+      ],
+    });
+
+    const result = jsonText(
+      await runHandler(toolById(tools, "moss_read_kanban_card"), {
+        threadId: "thread-never-started",
+      }),
+    ) as { card: { column: string; attention: string[] } };
+    expect(result.card.column).toBe("awaitingYou");
+    expect(result.card.attention).toEqual(["failed"]);
+  });
 });
 
 describe("moss_create_kanban_task", () => {

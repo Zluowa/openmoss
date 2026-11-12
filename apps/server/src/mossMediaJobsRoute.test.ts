@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -64,6 +64,7 @@ function harness(
 ) {
   const state = {
     accountId: "account-a",
+    signedOut: false,
     submissions: 0,
     textSubmissions: 0,
     accountReads: 0,
@@ -151,11 +152,13 @@ function harness(
           if (options.sessionGate) yield* Effect.promise(() => options.sessionGate!(read));
           return {
             activeRealm: "cn",
-            identity: {
-              realm: "memfire-phone",
-              gatewayBaseUrl: gateway,
-              account: { id: state.accountId, realm: "memfire-phone" },
-            },
+            identity: state.signedOut
+              ? null
+              : {
+                  realm: "memfire-phone",
+                  gatewayBaseUrl: gateway,
+                  account: { id: state.accountId, realm: "memfire-phone" },
+                },
           };
         }),
       getSession: () =>
@@ -163,9 +166,9 @@ function harness(
           const read = ++state.accountReads;
           if (options.sessionGate) yield* Effect.promise(() => options.sessionGate!(read));
           return {
-            authenticated: true,
+            authenticated: !state.signedOut,
             activeRealm: "cn",
-            session: { user: { id: state.accountId } },
+            session: state.signedOut ? null : { user: { id: state.accountId } },
           };
         }),
       getAuthorityCredential: () =>
@@ -262,7 +265,7 @@ function harness(
       headers: { "content-type": "application/json", ...headers },
       body: JSON.stringify(body),
     });
-  return { state, fetchMock, request, create };
+  return { state, fetchMock, request, create, directory };
 }
 
 describe("Moss media HTTP route", () => {
@@ -968,6 +971,113 @@ describe("Moss media HTTP route", () => {
     expect((await app.request(`/${created.jobId}`)).status).toBe(404);
     expect(await (await app.request()).json()).toMatchObject({ jobs: [] });
     expect(app.state.submissions).toBe(1);
+  });
+
+  it("keeps showing outputs saved on this computer after sign-out, and only under their own account", async () => {
+    const app = harness();
+    const created = (await (await app.create({ origin: "http://127.0.0.1:3773" })).json()) as {
+      jobId: string;
+    };
+    await vi.waitFor(async () =>
+      expect(await (await app.request(`/${created.jobId}`)).json()).toMatchObject({
+        status: "succeeded",
+        persistenceStatus: "ready",
+      }),
+    );
+    const scopeOf = (id: string) =>
+      mediaAccountScope({
+        account: { id, realm: "memfire-phone" },
+        realm: "memfire-phone",
+        gatewayBaseUrl: gateway,
+      });
+    const assetPath = `/api/moss/media/assets/${created.jobId}/0`;
+    const scopedPath = `${assetPath}?accountScope=${scopeOf("account-a")}`;
+    const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+    // Signed in, saved here.
+    const signedIn = await app.request(scopedPath);
+    expect(signedIn.status).toBe(200);
+    expect(new Uint8Array(await signedIn.arrayBuffer())).toEqual(png);
+    const fetchesBefore = app.fetchMock.mock.calls.length;
+
+    app.state.signedOut = true;
+    // Signed out, saved here: the old chat's link still shows it.
+    const signedOut = await app.request(scopedPath);
+    expect(signedOut.status).toBe(200);
+    expect(signedOut.headers.get("content-type")).toBe("image/png");
+    expect(signedOut.headers.get("content-disposition")).toMatch(/^inline;/u);
+    expect(signedOut.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(new Uint8Array(await signedOut.arrayBuffer())).toEqual(png);
+    expect(
+      (await app.request(`${scopedPath}&download=1`)).headers.get("content-disposition"),
+    ).toMatch(/^attachment;/u);
+    // The local server's own request authentication is unchanged.
+    expect(
+      (await app.request(scopedPath, { headers: { authorization: "Bearer wrong" } })).status,
+    ).toBe(401);
+    // Another account's link, a link with no account, an unknown or malformed job,
+    // and a duplicated scope are not served without a sign-in.
+    for (const path of [
+      `${assetPath}?accountScope=${scopeOf("account-b")}`,
+      `${assetPath}?accountScope=${"0".repeat(64)}`,
+      `${assetPath}?accountScope=not-a-scope`,
+      assetPath,
+      `${scopedPath}&accountScope=${scopeOf("account-a")}`,
+      `/api/moss/media/assets/moss_unknown/0?accountScope=${scopeOf("account-a")}`,
+      `/api/moss/media/assets/${created.jobId}/7?accountScope=${scopeOf("account-a")}`,
+    ]) {
+      const denied = await app.request(path);
+      expect(denied.status, path).toBe(401);
+      expect(await denied.json()).toMatchObject({ error: { code: "authentication_required" } });
+    }
+    // Not on this computer any more: it needs a sign-in, as before.
+    const scopeDirectory = join(app.directory, "media-assets", scopeOf("account-a"));
+    for (const name of readdirSync(scopeDirectory)) rmSync(join(scopeDirectory, name));
+    expect((await app.request(scopedPath)).status).toBe(401);
+    // Nothing above reached the gateway.
+    expect(app.fetchMock.mock.calls.length).toBe(fetchesBefore);
+
+    // Signed in to a different account, the first account's link stays withheld.
+    app.state.signedOut = false;
+    app.state.accountId = "account-b";
+    expect((await app.request(scopedPath)).status).toBe(404);
+    expect(app.state.submissions).toBe(1);
+  });
+
+  it("withholds a signed-out saved output when another account signs in during the read", async () => {
+    let read = 0;
+    let signedOutRead = Number.POSITIVE_INFINITY;
+    let app!: ReturnType<typeof harness>;
+    app = harness({
+      sessionGate: async () => {
+        read += 1;
+        // The second identity read of the signed-out asset request sees account B.
+        if (app.state.signedOut && read === signedOutRead + 2) {
+          app.state.signedOut = false;
+          app.state.accountId = "account-b";
+        }
+      },
+    });
+    const created = (await (await app.create({ origin: "http://127.0.0.1:3773" })).json()) as {
+      jobId: string;
+    };
+    await vi.waitFor(async () =>
+      expect(await (await app.request(`/${created.jobId}`)).json()).toMatchObject({
+        status: "succeeded",
+        persistenceStatus: "ready",
+      }),
+    );
+    const scope = mediaAccountScope({
+      account: { id: "account-a", realm: "memfire-phone" },
+      realm: "memfire-phone",
+      gatewayBaseUrl: gateway,
+    });
+    app.state.signedOut = true;
+    signedOutRead = read;
+    const response = await app.request(
+      `/api/moss/media/assets/${created.jobId}/0?accountScope=${scope}`,
+    );
+    expect(response.status).toBe(401);
+    expect(app.state.accountId).toBe("account-b");
   });
 
   it("prevents a stale account from submitting after the asynchronous catalog check", async () => {

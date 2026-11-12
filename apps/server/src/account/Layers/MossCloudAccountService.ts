@@ -28,6 +28,7 @@ import {
   type MossCloudAccountServiceShape,
 } from "../Services/MossCloudAccountService";
 import { MossManagedProvider } from "../Services/MossManagedProvider";
+import { describeMossErrorCauses } from "../mossAccountErrors";
 import { MossCloudAccountServiceError } from "../mossCloudAccountErrors";
 import {
   createSupabaseGoogleAuth,
@@ -2619,6 +2620,7 @@ export const maintainMossCloudAccountSession = (
       Effect.logWarning("failed to maintain Moss cloud account session", {
         code: error.code,
         message: error.message,
+        cause: describeMossErrorCauses(error),
       }),
     ),
   );

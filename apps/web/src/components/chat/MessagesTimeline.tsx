@@ -22,6 +22,7 @@ import { parseGuestMessageAttribution } from "@moss/shared/guestShareAttribution
 import { transcriptFollowThreshold } from "./transcriptScroll";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -44,6 +45,7 @@ import {
   deriveTimelineEntries,
   formatClockDuration,
   isFileChangeWorkLogEntry,
+  localizeCodexDurationUnits,
   type WorkLogEntry,
 } from "../../session-logic";
 import {
@@ -939,6 +941,33 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       [groupKey]: open,
     }));
   }, []);
+  // A folded run of tool calls still shows its widgets, right after the fold and as soon as
+  // each call's result is in (Claude: tool row, then the widget). Rows inside the fold draw
+  // none of their own, so an opened fold never shows a widget twice.
+  const renderFoldWidgets = (
+    entries: ReadonlyArray<WorkLogEntry>,
+    liveEntry?: WorkLogEntry | null,
+  ) => {
+    if (!threadId) return null;
+    const seen = new Set<string>();
+    const projections = [...entries, ...(liveEntry ? [liveEntry] : [])].flatMap((entry) => {
+      const projection = entry.mcpToolResult;
+      if (!projection?.app || seen.has(projection.callId)) return [];
+      seen.add(projection.callId);
+      return [projection];
+    });
+    if (projections.length === 0) return null;
+    return (
+      <div className="pt-2">
+        <McpAppTurnWidgets
+          projections={projections}
+          threadId={threadId}
+          theme={resolvedTheme}
+          onImageExpand={onImageExpand}
+        />
+      </div>
+    );
+  };
   const [expandedFileChangesByTurnId, setExpandedFileChangesByTurnId] = useState<
     Record<string, boolean>
   >({});
@@ -2014,21 +2043,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     if (!fold) return chunk.entries.map(renderEntryRow);
                     const summaryKey = `${groupId}:${chunk.id}${fold.keySuffix}`;
                     return (
-                      <ToolCallGroupSummaryRow
-                        key={`tool-summary:${groupId}:${chunk.id}`}
-                        summary={fold.summary}
-                        liveEntry={chunk.liveEntry}
-                        open={toolGroupSummaryOverrides[summaryKey] ?? false}
-                        onToggle={(open) => setToolGroupSummaryOpen(summaryKey, open)}
-                        fontSizePx={normalizedChatFontSizePx}
-                        diffEntries={fold.entries}
-                        onViewChanges={viewTurnChangesFor(fold.entries)}
-                        renderChildren={() => (
-                          <div className="space-y-0.5 pt-0.5">
-                            {fold.entries.map(renderEntryRow)}
-                          </div>
-                        )}
-                      />
+                      <Fragment key={`tool-summary:${groupId}:${chunk.id}`}>
+                        <ToolCallGroupSummaryRow
+                          summary={fold.summary}
+                          liveEntry={chunk.liveEntry}
+                          open={toolGroupSummaryOverrides[summaryKey] ?? false}
+                          onToggle={(open) => setToolGroupSummaryOpen(summaryKey, open)}
+                          fontSizePx={normalizedChatFontSizePx}
+                          diffEntries={fold.entries}
+                          onViewChanges={viewTurnChangesFor(fold.entries)}
+                          renderChildren={() => (
+                            <McpAppRowPlacementContext.Provider value="outside">
+                              <div className="space-y-0.5 pt-0.5">
+                                {fold.entries.map(renderEntryRow)}
+                              </div>
+                            </McpAppRowPlacementContext.Provider>
+                          )}
+                        />
+                        {renderFoldWidgets(fold.entries, chunk.liveEntry)}
+                      </Fragment>
                     );
                   })}
                 </div>
@@ -2815,21 +2848,27 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           const summaryRowKey = `${placement}:${row.message.id}:${chunk.id}`;
                           const summaryOverrideKey = `${summaryRowKey}${fold.keySuffix}`;
                           return (
-                            <ToolCallGroupSummaryRow
-                              key={`inline-tool-summary:${summaryRowKey}`}
-                              summary={fold.summary}
-                              liveEntry={chunk.liveEntry}
-                              open={toolGroupSummaryOverrides[summaryOverrideKey] ?? false}
-                              onToggle={(open) => setToolGroupSummaryOpen(summaryOverrideKey, open)}
-                              fontSizePx={normalizedChatFontSizePx}
-                              diffEntries={fold.entries}
-                              onViewChanges={viewTurnChangesFor(fold.entries)}
-                              renderChildren={() => (
-                                <div className="space-y-px pt-0.5">
-                                  {fold.entries.map(renderInlineToolRow)}
-                                </div>
-                              )}
-                            />
+                            <Fragment key={`inline-tool-summary:${summaryRowKey}`}>
+                              <ToolCallGroupSummaryRow
+                                summary={fold.summary}
+                                liveEntry={chunk.liveEntry}
+                                open={toolGroupSummaryOverrides[summaryOverrideKey] ?? false}
+                                onToggle={(open) =>
+                                  setToolGroupSummaryOpen(summaryOverrideKey, open)
+                                }
+                                fontSizePx={normalizedChatFontSizePx}
+                                diffEntries={fold.entries}
+                                onViewChanges={viewTurnChangesFor(fold.entries)}
+                                renderChildren={() => (
+                                  <McpAppRowPlacementContext.Provider value="outside">
+                                    <div className="space-y-px pt-0.5">
+                                      {fold.entries.map(renderInlineToolRow)}
+                                    </div>
+                                  </McpAppRowPlacementContext.Provider>
+                                )}
+                              />
+                              {renderFoldWidgets(fold.entries, chunk.liveEntry)}
+                            </Fragment>
                           );
                         })}
                       </div>
@@ -3815,7 +3854,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               ) : (
                 <CircleAlertIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-300/90" />
               )}
-              {formatTurnHeaderLabel({ ...row.turnEndMarker, resumedBy: null })}
+              {formatTurnHeaderLabel({
+                ...row.turnEndMarker,
+                elapsed: row.turnEndMarker.elapsed
+                  ? localizeCodexDurationUnits(row.turnEndMarker.elapsed, locale)
+                  : row.turnEndMarker.elapsed,
+                resumedBy: null,
+              })}
             </span>
             <div aria-hidden className="h-px flex-1 bg-border" />
           </div>

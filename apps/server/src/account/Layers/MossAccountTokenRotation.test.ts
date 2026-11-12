@@ -7,7 +7,7 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ThreadId } from "@moss/contracts";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -15,6 +15,7 @@ import {
   type ServerSecretStoreShape,
 } from "../../auth/Services/ServerSecretStore";
 import { ServerConfig } from "../../config";
+import { ProviderValidationError } from "../../provider/Errors";
 import {
   ProviderService,
   type ProviderServiceShape,
@@ -28,7 +29,10 @@ import {
   MossManagedProviderLive,
   mossManagedCodexModelsForLane,
 } from "./MossManagedProvider";
-import { makeMossPhoneAccountService } from "./MossPhoneAccountService";
+import {
+  maintainMossPhoneAccountSession,
+  makeMossPhoneAccountService,
+} from "./MossPhoneAccountService";
 
 const GATEWAY_URL = "https://moss.example.cn/functions/v1/moss-model-gateway/v1";
 const PHONE = "+8613800138000";
@@ -92,18 +96,30 @@ const toProviderSession = (session: FakeSession) => ({
   updatedAt: "2026-11-01T00:00:00.000Z",
 });
 
+/** What ProviderService fails with when a thread's lifecycle stays busy past Stop's wait. */
+const lifecycleBusyStop = () =>
+  new ProviderValidationError({
+    operation: "ProviderService.stopRuntimeSession",
+    issue: "The provider lifecycle is busy; Stop could not acquire its observed runtime.",
+    reason: "stale-interaction",
+  });
+
 const makeProviderRuntimes = () => {
   let sessions: FakeSession[] = [];
+  let refuseStops = false;
   const stopCodexAccountRuntimes = vi.fn(
     (): Effect.Effect<void, unknown> =>
       Effect.sync(() => {
         sessions = sessions.filter((session) => session.provider !== "codex");
       }),
   );
-  const stopRuntimeSession = vi.fn((input: { readonly threadId: ThreadId }) =>
-    Effect.sync(() => {
-      sessions = sessions.filter((session) => session.threadId !== input.threadId);
-    }),
+  const stopRuntimeSession = vi.fn(
+    (input: { readonly threadId: ThreadId }): Effect.Effect<void, unknown> =>
+      refuseStops
+        ? Effect.fail(lifecycleBusyStop())
+        : Effect.sync(() => {
+            sessions = sessions.filter((session) => session.threadId !== input.threadId);
+          }),
   );
   const service = {
     listSessions: () => Effect.sync(() => sessions.map(toProviderSession)),
@@ -126,6 +142,10 @@ const makeProviderRuntimes = () => {
     stopRuntimeSession,
     setSessions: (next: FakeSession[]) => {
       sessions = next;
+    },
+    /** Every exact-session Stop fails, the way a wedged thread lifecycle refuses it. */
+    refuseStops: (refuse: boolean) => {
+      refuseStops = refuse;
     },
   };
 };
@@ -157,6 +177,19 @@ const managedBearer = Effect.gen(function* () {
     enabled: instance?.enabled,
     bearer: instance?.environment?.find((entry) => entry.name === MOSS_MANAGED_PROVIDER_ENV_KEY)
       ?.value,
+  };
+});
+
+const managedLanes = Effect.gen(function* () {
+  const codex = yield* managedBearer;
+  const settings = yield* (yield* ServerSettingsService).getSettings;
+  const claude = settings.providerInstances[MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID];
+  return {
+    codex,
+    claude: {
+      enabled: claude?.enabled,
+      cleanupState: (claude?.config as Record<string, unknown> | undefined)?.managedCleanupState,
+    },
   };
 });
 
@@ -455,5 +488,158 @@ describe("Moss phone session with a live managed runtime", () => {
       enabled: true,
       bearer: bearerJwt("access-2", ISSUED_AT + 2 * HOUR - 30_000),
     });
+  });
+
+  // 2026-11-12: a Moss Claude turn finished right after a refresh, the deferred
+  // rotation could not stop that chat's runtime, and every later pass failed the
+  // same way. Both Moss lanes stayed disabled under a signed-in account until a
+  // restart.
+  it("keeps Moss models usable when a deferred rotation cannot stop the old chat", async () => {
+    const runtimes = makeProviderRuntimes();
+    const claudeThread = ThreadId.makeUnsafe("thread-claude-turn-ending");
+    const result = await Effect.gen(function* () {
+      const settingsService = yield* ServerSettingsService;
+      yield* settingsService.start;
+      const service = yield* makeService();
+      yield* signIn(service);
+      runtimes.setSessions([
+        {
+          provider: "claudeAgent",
+          providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+          status: "running",
+          threadId: claudeThread,
+        },
+      ]);
+      now = ISSUED_AT + HOUR - 4 * 60_000;
+      yield* service.maintainSession();
+      const duringTurn = yield* managedLanes;
+
+      // The turn ends; the runtime it ran in now refuses to stop.
+      runtimes.setSessions([
+        {
+          provider: "claudeAgent",
+          providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+          status: "ready",
+          threadId: claudeThread,
+        },
+      ]);
+      runtimes.refuseStops(true);
+      now += 3_000;
+      const afterTurn = yield* service.maintainSession().pipe(Effect.result);
+      const lanesAfterTurn = yield* managedLanes;
+      now += 60_000;
+      const nextPass = yield* service.maintainSession().pipe(Effect.result);
+      const session = yield* service.getSession();
+      return { duringTurn, afterTurn, lanesAfterTurn, nextPass, session };
+    }).pipe(
+      Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
+      Effect.runPromise,
+    );
+
+    const rotatedBearer = bearerJwt("access-2", ISSUED_AT + 2 * HOUR - 4 * 60_000);
+    expect(result.duringTurn.codex).toEqual({
+      enabled: true,
+      bearer: bearerJwt("access-1", ISSUED_AT + HOUR),
+    });
+    expect(runtimes.stopRuntimeSession).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: claudeThread }),
+    );
+    expect(result.afterTurn._tag).toBe("Success");
+    expect(result.lanesAfterTurn).toEqual({
+      codex: { enabled: true, bearer: rotatedBearer },
+      claude: { enabled: true, cleanupState: undefined },
+    });
+    expect(result.nextPass._tag).toBe("Success");
+    expect(result.session.authenticated).toBe(true);
+  });
+
+  it("says what failed, and the next maintenance pass brings Moss models back", async () => {
+    const runtimes = makeProviderRuntimes();
+    const logged: unknown[] = [];
+    const logger = Logger.make(({ message }) => {
+      logged.push(...(Array.isArray(message) ? message : [message]));
+    });
+    const result = await Effect.gen(function* () {
+      const settingsService = yield* ServerSettingsService;
+      yield* settingsService.start;
+      const service = yield* makeService();
+      yield* signIn(service);
+      runtimes.setSessions([
+        {
+          provider: "claudeAgent",
+          providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+          status: "ready",
+          threadId: ThreadId.makeUnsafe("thread-idle-claude-refusing-stop"),
+        },
+      ]);
+      runtimes.refuseStops(true);
+      // Idle at refresh time, so the old generation is disabled before the new
+      // one is provisioned. That disable is the strict sign-out primitive.
+      now = ISSUED_AT + HOUR - 4 * 60_000;
+      yield* maintainMossPhoneAccountSession(service);
+      const afterFailedPass = yield* managedLanes;
+      const warningsAfterFailedPass = logged.length;
+      now += 60_000;
+      yield* maintainMossPhoneAccountSession(service);
+      return { afterFailedPass, warningsAfterFailedPass, afterNextPass: yield* managedLanes };
+    }).pipe(
+      Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
+      Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
+      Effect.runPromise,
+    );
+
+    const failure = logged[logged.indexOf("failed to maintain Moss phone account session") + 1];
+    expect(failure).toMatchObject({
+      code: "persistence_failed",
+      message: "无法配置 Moss 模型服务。",
+    });
+    const cause = (failure as { cause?: unknown }).cause;
+    expect(cause).toContain("ProviderValidationError[ProviderService.stopRuntimeSession");
+    expect(cause).toContain("stale-interaction");
+    expect(cause).toContain("The provider lifecycle is busy");
+    const everything = JSON.stringify(logged);
+    expect(everything).not.toContain(bearerJwt("access-1", ISSUED_AT + HOUR));
+    expect(everything).not.toContain("13800138000");
+
+    expect(result.afterFailedPass.codex.enabled).toBe(false);
+    expect(result.warningsAfterFailedPass).toBeGreaterThan(0);
+    expect(result.afterNextPass).toEqual({
+      codex: {
+        enabled: true,
+        bearer: bearerJwt("access-2", ISSUED_AT + 2 * HOUR - 4 * 60_000),
+      },
+      claude: { enabled: true, cleanupState: undefined },
+    });
+    expect(logged).toContain(
+      "Moss token rotation continued while a previous Moss runtime did not stop",
+    );
+  });
+
+  it("still leaves Moss models off when signing out cannot stop an open chat", async () => {
+    const runtimes = makeProviderRuntimes();
+    const result = await Effect.gen(function* () {
+      const settingsService = yield* ServerSettingsService;
+      yield* settingsService.start;
+      const service = yield* makeService();
+      yield* signIn(service);
+      runtimes.setSessions([
+        {
+          provider: "claudeAgent",
+          providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+          status: "ready",
+          threadId: ThreadId.makeUnsafe("thread-claude-sign-out"),
+        },
+      ]);
+      runtimes.refuseStops(true);
+      const logout = yield* service.logout().pipe(Effect.result);
+      return { logout, lanes: yield* managedLanes };
+    }).pipe(
+      Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
+      Effect.runPromise,
+    );
+
+    expect(result.logout._tag).toBe("Failure");
+    expect(result.lanes.codex).toEqual({ enabled: false, bearer: undefined });
+    expect(result.lanes.claude.enabled).toBe(false);
   });
 });

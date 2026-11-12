@@ -1,4 +1,5 @@
 import { resetThreadDetailResumeCursors } from "../threadDetailResumeCursors";
+import { resetEmbeddedBundleChecks } from "~/lib/embeddedBundleCheck";
 import { FEATURE_TOUR_STORAGE_KEY } from "../featureTour/store";
 import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "../localization/zhCN";
 import { translateMoss } from "../localization";
@@ -4008,6 +4009,16 @@ function installProviderRefreshNativeApi(
   };
 }
 
+/**
+ * The image pane the side panel is showing. A closed side panel keeps its image and Canvas panes
+ * mounted but inert (the residency policy decides when they unload), so "closed" means this is
+ * null, not that the node is gone.
+ */
+function shownGeneratedImagePreviewPane(): HTMLElement | null {
+  const pane = document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]');
+  return pane && !pane.closest("[inert]") ? pane : null;
+}
+
 describe("ChatView transcript geometry (full app)", () => {
   it("serves valid provider discovery responses without disabling composer features", async () => {
     const mounted = await mountChatView({
@@ -4146,6 +4157,8 @@ describe("ChatView transcript geometry (full app)", () => {
     // Mark before setup so a setup failure still receives teardown. Cases
     // assigned to another CI worker skip before entering this suite hook.
     initializedFixtures.add(context.task);
+    // Every case starts without a remembered Canvas bundle (a session checks it once).
+    resetEmbeddedBundleChecks();
     // Reset the shared fixture snapshot to a neutral, low-sequence shell before
     // disposing the old transport. Any in-flight getShellSnapshot that resolves
     // after this point will then return sequence 0, which the next test's real
@@ -21536,7 +21549,7 @@ describe("ChatView transcript geometry (full app)", () => {
         .getByTestId("chat-header-right-dock-toggle")
         .click();
       await vi.waitFor(() => {
-        expect(document.querySelector('[data-testid="generated-image-preview-pane"]')).toBeNull();
+        expect(shownGeneratedImagePreviewPane()).toBeNull();
       });
       await mounted.setViewport(narrowViewport);
       await openGeneratedImageEditorFromGallery();
@@ -21951,9 +21964,7 @@ describe("ChatView transcript geometry (full app)", () => {
       await expectCanvasUnavailable("turn-generated-image-preview:generated-preview-two");
 
       useRightDockStore.getState().setDockOpen(THREAD_ID, false);
-      await vi.waitFor(() =>
-        expect(document.querySelector('[data-testid="generated-image-preview-pane"]')).toBeNull(),
-      );
+      await vi.waitFor(() => expect(shownGeneratedImagePreviewPane()).toBeNull());
       useRightDockStore.getState().setDockOpen(THREAD_ID, true);
       const reopenedPane = await waitForElement(
         () => document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]'),

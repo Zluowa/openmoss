@@ -263,12 +263,14 @@ function mcpAppResourceMetadata(metadata: unknown): {
     csp: mcpAppResourceCspFromMetadata(record),
     ...(openaiHeight !== undefined ? { heightHint: openaiHeight } : {}),
     ...(openaiMinHeight !== undefined ? { minFrameHeight: openaiMinHeight } : {}),
+    // Claude's Code tab draws the card unless the widget says `prefersBorder: false`, so a
+    // widget that declares nothing gets the 1 px border (light and dark alike).
     prefersBorder:
       typeof openaiPrefersBorder === "boolean"
         ? openaiPrefersBorder
         : typeof uiPrefersBorder === "boolean"
           ? uiPrefersBorder
-          : false,
+          : true,
     isCollapsible: record["openai/widgetShowCodexWidgetInline"] !== true,
     widgetDomain,
   };

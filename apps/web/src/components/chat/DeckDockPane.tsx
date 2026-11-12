@@ -11,6 +11,7 @@ import { slidesDeckFromActivity, type SlidesDeckArtifact } from "@moss/shared/ch
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useResidentRuntime } from "~/lib/dockRuntimeResidency";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
 import { readNativeApi } from "~/nativeApi";
 import type { RightDockDeckReference } from "~/rightDockStore.logic";
@@ -32,7 +33,12 @@ function useThreadDeckEvents(threadId: string, listener: (deck: SlidesDeckArtifa
   }, [threadId, listener]);
 }
 
-export function DeckDockPane(props: { threadId: ThreadId; deck: RightDockDeckReference }) {
+export function DeckDockPane(props: {
+  threadId: ThreadId;
+  deck: RightDockDeckReference;
+  /** The pane's residency key and whether it is shown (the side panel's shared policy). */
+  residency?: { readonly key: string; readonly visible: boolean };
+}) {
   const boundary = useMossImagesAccountBoundary();
   const client = useQueryClient();
   const [epoch, setEpoch] = useState(0);
@@ -59,8 +65,23 @@ export function DeckDockPane(props: { threadId: ThreadId; deck: RightDockDeckRef
     [client],
   );
   useThreadDeckEvents(props.threadId, onDeckEvent);
+  // The editor saves pending edits as it closes, so unloading it while hidden loses nothing.
+  const runtime = useResidentRuntime({
+    active: props.residency !== undefined,
+    key: props.residency?.key ?? "",
+    owner: props.threadId,
+    runtimeClass: "dockFrame",
+    visible: props.residency?.visible ?? true,
+    suspend: async () => true,
+  });
 
   if (boundary.transitioning) return <PanelStateMessage>正在切换账号…</PanelStateMessage>;
+  if (!runtime.loaded) {
+    // Unloaded while out of sight; it loads again when shown.
+    return (
+      <div className="h-full w-full" data-deck-dock-pane={pageId} data-suspended aria-hidden />
+    );
+  }
   return (
     <div className="flex h-full min-h-0 flex-col" data-deck-dock-pane={pageId}>
       <SpaceTypedItemView

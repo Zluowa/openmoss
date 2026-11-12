@@ -152,6 +152,27 @@ describe("resource parsing", () => {
     });
   });
 
+  it("draws the card border unless the widget declines it (Claude's Code tab)", () => {
+    const read = (metaValue: Record<string, unknown> | undefined) =>
+      parseMcpAppResourceReadResponse({
+        response: {
+          contents: [
+            {
+              uri: "ui://a",
+              mimeType: "text/html;profile=mcp-app",
+              text: "x",
+              ...(metaValue ? { _meta: metaValue } : {}),
+            },
+          ],
+        },
+        resourceUri: "ui://a",
+      });
+    expect(read(undefined)).toMatchObject({ state: "ready", prefersBorder: true });
+    expect(read({ ui: {} })).toMatchObject({ prefersBorder: true });
+    expect(read({ ui: { prefersBorder: false } })).toMatchObject({ prefersBorder: false });
+    expect(read({ "openai/widgetPrefersBorder": false })).toMatchObject({ prefersBorder: false });
+  });
+
   it("opts into the stable origin only for eligible servers that declare ui.domain", () => {
     const response = {
       contents: [{ uri: "ui://a", mimeType: "text/html;profile=mcp-app", text: "x", _meta: meta }],

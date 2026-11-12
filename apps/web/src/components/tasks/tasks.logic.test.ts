@@ -124,6 +124,32 @@ describe("deriveTaskStatus", () => {
     });
   });
 
+  it("calls a delegated chat whose first send never started failed, not starting", () => {
+    const sentAt = "2026-09-27T10:00:02.000Z";
+    const status = (session: SidebarThreadSummary["session"]) =>
+      deriveTaskStatus({
+        todo: delegated,
+        thread: thread({ latestTurn: null, latestUserMessageAt: sentAt, session }),
+        hasDraftThread: false,
+      });
+    const base = thread().session!;
+    expect(
+      status({ ...base, status: "error", orchestrationStatus: "error", lastError: "Timed out" }),
+    ).toMatchObject({ kind: "stopped", label: "Failed", detail: "Timed out" });
+    // Its error was cleared afterwards; it still never ran.
+    expect(status({ ...base, status: "closed", orchestrationStatus: "stopped" })).toMatchObject({
+      kind: "stopped",
+      label: "Failed",
+      detail: "The agent stopped with an error",
+    });
+    expect(status({ ...base, status: "connecting", orchestrationStatus: "starting" }).kind).toBe(
+      "starting",
+    );
+    expect(status({ ...base, status: "ready", orchestrationStatus: "ready" }).kind).toBe(
+      "starting",
+    );
+  });
+
   it("doesn't call a linked chat missing before the chat list has loaded", () => {
     expect(
       deriveTaskStatus({

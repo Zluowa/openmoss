@@ -349,6 +349,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Cancel add project": "取消添加项目",
   "Edit project": "编辑项目",
   "Open in Finder": "在 Finder 中打开",
+  "Open in Explorer": "在文件资源管理器中打开",
+  "Show in folder": "在文件夹中显示",
   "Open in Kanban": "在看板中打开",
   "Start dev": "启动开发",
   "Edit name": "编辑名称",
@@ -1801,18 +1803,18 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "(next turn)": "（下一轮）",
   "Ask for approval": "需要批准",
   "Approve for me": "自动批准",
-  "Claude asks before editing files, running commands, or using the web":
-    "Claude 在编辑文件、运行命令或使用网络前会询问",
-  "Claude Code's auto mode: a classifier approves or blocks each action and asks you when unsure":
-    "Claude Code 的自动模式：分类器会批准或阻止每个操作，不确定时再询问你",
-  "Claude runs every action without asking, with full access to your computer":
-    "Claude 不询问就执行每个操作，并完全访问你的电脑",
-  "Read-only sandbox: Codex asks before editing files or running commands":
-    "只读沙箱：Codex 在编辑文件或运行命令前会询问",
-  "Codex edits inside the project; its reviewer decides on anything that needs more access":
-    "Codex 在项目内编辑；需要更多权限的操作由审查器决定",
-  "No sandbox: Codex runs everything without asking, with full access to your computer":
-    "无沙箱：Codex 不询问就执行所有操作，并完全访问你的电脑",
+  "Moss asks before editing files, running commands, or using the web":
+    "Moss 在编辑文件、运行命令或使用网络前会询问",
+  "Auto mode: a classifier approves or blocks each action and asks you when unsure":
+    "自动模式：分类器会批准或阻止每个操作，不确定时再询问你",
+  "Moss runs every action without asking, with full access to your computer":
+    "Moss 不询问就执行每个操作，并完全访问你的电脑",
+  "Read-only sandbox: Moss asks before editing files or running commands":
+    "只读沙箱：Moss 在编辑文件或运行命令前会询问",
+  "Moss edits inside the project; a reviewer decides on anything that needs more access":
+    "Moss 在项目内编辑；需要更多权限的操作由审查器决定",
+  "No sandbox: Moss runs everything without asking, with full access to your computer":
+    "无沙箱：Moss 不询问就执行所有操作，并完全访问你的电脑",
   "Click to change permissions.": "点击更改权限。",
   "Chat background": "对话背景",
   "ASCII background": "ASCII 背景",

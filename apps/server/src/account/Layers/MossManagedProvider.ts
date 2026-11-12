@@ -121,6 +121,7 @@ import {
   matchesMossManagedRelayInstances,
 } from "../managedRelayProviders";
 import { removeMossCodexAccountOverlay } from "../mossCodexAccountCleanup";
+import { describeMossErrorCauses } from "../mossAccountErrors";
 import { MossCloudAccountServiceError } from "../mossCloudAccountErrors";
 import {
   MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME,
@@ -3060,6 +3061,7 @@ export const MossManagedProviderLive = Layer.effect(
       readonly models?: ReadonlyArray<string>;
       readonly cleanupAccessTokenHash?: string;
       readonly recoverStalePairedGeneration?: true;
+      readonly sameAuthorityRotation?: true;
       readonly selectionPolicy: "select" | "preserve";
     }) =>
       Effect.gen(function* () {
@@ -3181,6 +3183,27 @@ export const MossManagedProviderLive = Layer.effect(
           // generation is exposed, including selection-preserving token
           // refreshes. Revoke both launch surfaces in settings first so a
           // failed shutdown cannot leave reusable secrets.
+          //
+          // A same-authority rotation still requires that settings fence, but
+          // not that every old runtime stops: such a runtime holds only this
+          // account's previous bearer, which a running turn may already keep
+          // (see same-authority-busy). Failing here instead left a signed-in
+          // account with every Moss lane disabled on each retry until restart.
+          let retirementFailure: MossCloudAccountServiceError | undefined;
+          const retireOldRuntimes = (
+            step: () => Effect.Effect<void, MossCloudAccountServiceError>,
+          ): Effect.Effect<void, MossCloudAccountServiceError> =>
+            input.sameAuthorityRotation !== true
+              ? step()
+              : retirementFailure !== undefined
+                ? Effect.void
+                : step().pipe(
+                    Effect.catch((error) =>
+                      Effect.sync(() => {
+                        retirementFailure = error;
+                      }),
+                    ),
+                  );
           if (!cleanupAlreadyComplete && !migratedLegacyCleanup) {
             yield* runMossManagedDisableSteps({
               disableProviderSettings: () =>
@@ -3197,24 +3220,44 @@ export const MossManagedProviderLive = Layer.effect(
                     : {}),
                 }),
               stopRuntimes: () =>
-                stopVerifiedManagedRuntimesAndWait({
-                  stopCodex:
-                    currentInstance !== undefined && !managedSurfaces.hasLifecycleHomeCollision,
-                  runtimeGeneration: runtimeGenerationFromConfig(currentInstance?.config),
-                  checkClaude: currentClaudeInstance !== undefined,
-                  checkOpenCode: currentOpenCodeInstance !== undefined,
-                  checkPi: currentPiInstance !== undefined,
-                  relayInstanceIds: Object.keys(currentRelayInstances),
-                }).pipe(
-                  Effect.mapError((cause) =>
-                    cause instanceof MossCloudAccountServiceError ? cause : toProviderError(cause),
+                retireOldRuntimes(() =>
+                  stopVerifiedManagedRuntimesAndWait({
+                    stopCodex:
+                      currentInstance !== undefined && !managedSurfaces.hasLifecycleHomeCollision,
+                    runtimeGeneration: runtimeGenerationFromConfig(currentInstance?.config),
+                    checkClaude: currentClaudeInstance !== undefined,
+                    checkOpenCode: currentOpenCodeInstance !== undefined,
+                    checkPi: currentPiInstance !== undefined,
+                    relayInstanceIds: Object.keys(currentRelayInstances),
+                  }).pipe(
+                    Effect.mapError((cause) =>
+                      cause instanceof MossCloudAccountServiceError
+                        ? cause
+                        : toProviderError(cause),
+                    ),
                   ),
                 ),
+              // Skipped after a failed stop, as before: a live Codex runtime may
+              // still read the overlay.
               removeAccountOverlay: () =>
-                currentInstance && managedReservation && !managedSurfaces.hasLifecycleHomeCollision
-                  ? removeVerifiedManagedAccountOverlayIfPresent(managedReservation)
-                  : Effect.void,
+                retireOldRuntimes(() =>
+                  currentInstance &&
+                  managedReservation &&
+                  !managedSurfaces.hasLifecycleHomeCollision
+                    ? removeVerifiedManagedAccountOverlayIfPresent(managedReservation)
+                    : Effect.void,
+                ),
             });
+          }
+          if (retirementFailure !== undefined) {
+            yield* Effect.logWarning(
+              "Moss token rotation continued while a previous Moss runtime did not stop",
+              {
+                code: retirementFailure.code,
+                message: retirementFailure.message,
+                cause: describeMossErrorCauses(retirementFailure),
+              },
+            );
           }
           if (managedSurfaces.hasCollision) return yield* Effect.fail(reservationConflict());
           if (!cleanupAlreadyComplete && !migratedLegacyCleanup) {

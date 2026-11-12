@@ -575,6 +575,66 @@ test.describe.serial("desktop widget sandbox (interactive connectors)", () => {
     await fixture.host("unmount", descriptor.initId);
   });
 
+  test("the widget's page fills its card: flex webview, guest viewport = slot height", async () => {
+    for (const height of [400, 883]) {
+      const descriptor = await fixture.mountWidget(
+        {
+          threadId: `t-fill-${height}`,
+          containerDimensions: { height, width: 600 },
+          csp: emptyCsp,
+        },
+        widgetHtml(),
+      );
+      // With display:block Electron leaves every guest 150 px tall whatever the slot is.
+      await expect
+        .poll(() => fixture.widget<number>(descriptor.initId, "window.innerHeight"), {
+          timeout: 5_000,
+        })
+        .toBe(height);
+      expect(await fixture.widget<number>(descriptor.initId, "window.innerWidth")).toBe(600);
+      const display = await fixture.page.evaluate(
+        (src) =>
+          getComputedStyle(document.querySelector(`webview[src="${src}"]`) as HTMLElement).display,
+        descriptor.src,
+      );
+      expect(display).toBe("flex");
+    }
+  });
+
+  test("wheel the widget cannot use reaches the host once per frame as moss:wheel", async () => {
+    const descriptor = await fixture.mountWidget(
+      { threadId: "t-wheel", containerDimensions: { height: 400, width: 600 }, csp: emptyCsp },
+      widgetHtml(
+        `<div id="list" style="height:200px;overflow:auto"><div style="height:600px"></div></div>
+<div style="height:150px"></div>`,
+        "<style>html,body{margin:0}</style>",
+      ),
+    );
+    const wheels = async () =>
+      (await fixture.received(descriptor.initId))
+        .map((item) => item.message)
+        .filter((message) => message.type === "moss:wheel");
+    const wheel = (selector: string, deltaY: number) =>
+      fixture.widget(
+        descriptor.initId,
+        `(() => { const target = document.querySelector(${JSON.stringify(selector)});
+          for (let i = 0; i < 3; i += 1) target.dispatchEvent(new WheelEvent("wheel", { deltaY: ${deltaY}, bubbles: true, cancelable: true }));
+          return true; })()`,
+      );
+    // The page fits its 400 px card, so wheel over plain content goes to the transcript,
+    // three events in one frame arriving as one message.
+    await wheel("body", 40);
+    await expect.poll(wheels).toEqual([{ type: "moss:wheel", deltaX: 0, deltaY: 120 }]);
+    // An inner scroller that can still move keeps the wheel.
+    await wheel("#list", 40);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await wheels()).toHaveLength(1);
+    // Once it is at its end, the rest carries on.
+    await fixture.widget(descriptor.initId, `document.getElementById("list").scrollTop = 400`);
+    await wheel("#list", 40);
+    await expect.poll(async () => (await wheels()).length).toBe(2);
+  });
+
   test("buffers host traffic until the widget runs: first load, first message, 5 s timeout", async () => {
     // (a) Flush on the widget's first load: sent before the srcdoc document exists.
     const loaded = await fixture.mount({ threadId: "t-buffer-load", server: "srv" });

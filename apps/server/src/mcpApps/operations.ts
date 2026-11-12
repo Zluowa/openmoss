@@ -21,7 +21,7 @@ import {
   type McpAppToolResultInput,
   type McpAppToolResultResult,
 } from "@moss/contracts";
-import { Duration, Effect, Exit, Option } from "effect";
+import { Duration, Effect, Exit, Option, Semaphore } from "effect";
 
 import { McpConnectors } from "../mcpConnectors/Services/McpConnectors.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -245,7 +245,11 @@ export const readMcpAppResourceOperation = (input: McpAppResourceReadInput) =>
     const cached = () => Effect.promise(() => service.resources.get(cacheKey));
     if (!(yield* providerSessionLive(providerService, input.threadId))) {
       const stored = yield* cached();
-      if (stored) return stored;
+      if (stored) {
+        // The widget is about to make calls: bring its session back now, not on the first one.
+        yield* warmProviderSession(input.threadId, input.server);
+        return stored;
+      }
     }
     if (typeof providerService.readMcpAppResource !== "function") {
       return yield* Effect.fail(
@@ -291,6 +295,65 @@ const providerSessionLive = (
         Effect.catch(() => Effect.succeed(false)),
       )
     : Effect.succeed(false);
+
+/** How long a widget's call waits for its thread's agent session to come back (after a restart). */
+export const MCP_APP_SESSION_RESUME_WAIT_MS = 90_000;
+
+// One resume per thread: while a thread's agent session is not live, widget calls go through
+// this gate one at a time, so the first one resumes the session (ProviderService recovers it)
+// and the rest wait for it instead of each starting, and stopping, a session of their own.
+const resumeGates = new Map<string, Semaphore.Semaphore>();
+const resumeGate = (threadId: string) => {
+  let gate = resumeGates.get(threadId);
+  if (!gate) {
+    if (resumeGates.size >= 256) resumeGates.clear();
+    gate = Semaphore.makeUnsafe(1);
+    resumeGates.set(threadId, gate);
+  }
+  return gate;
+};
+
+/**
+ * Runs a provider-routed widget operation. A live session runs it at once; otherwise it waits
+ * its turn behind the thread's resume (up to 90 s) and runs once the session is back.
+ */
+export const whenProviderSessionResumed = <A, E, R>(
+  threadId: string,
+  run: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | McpAppRpcFailure, R | ProviderService> =>
+  Effect.gen(function* () {
+    const providerService = yield* ProviderService;
+    if (yield* providerSessionLive(providerService, threadId)) return yield* run;
+    return yield* resumeGate(threadId)
+      .withPermits(1)(run)
+      .pipe(
+        Effect.timeoutOrElse({
+          duration: Duration.millis(MCP_APP_SESSION_RESUME_WAIT_MS),
+          onTimeout: () =>
+            Effect.fail(
+              new McpAppRpcFailure(
+                -32001,
+                "The agent session for this conversation did not come back within 90 seconds.",
+              ),
+            ),
+        }),
+      );
+  });
+
+/**
+ * Starts resuming a thread's agent session in the background when one of its widgets is shown
+ * and the session is not live (after a restart), so the widget's first call finds it ready.
+ */
+const warmProviderSession = (threadId: string, server: string) =>
+  Effect.gen(function* () {
+    const providerService = yield* ProviderService;
+    if (typeof providerService.listMcpAppTools !== "function") return;
+    if (yield* providerSessionLive(providerService, threadId)) return;
+    yield* whenProviderSessionResumed(
+      threadId,
+      providerService.listMcpAppTools({ threadId: ThreadId.makeUnsafe(threadId), server }),
+    ).pipe(Effect.ignore, Effect.forkDetach);
+  }).pipe(Effect.ignore);
 
 // ── full tool result ──────────────────────────────────────────────────────────────────────────
 
@@ -464,13 +527,16 @@ const callTool = (
         ),
       );
     }
-    return yield* providerService.callMcpAppTool({
-      threadId: ThreadId.makeUnsafe(threadId),
-      server: identity.server,
-      toolName: name,
-      arguments: args,
-      ...(meta ? { meta } : {}),
-    });
+    return yield* whenProviderSessionResumed(
+      threadId,
+      providerService.callMcpAppTool({
+        threadId: ThreadId.makeUnsafe(threadId),
+        server: identity.server,
+        toolName: name,
+        arguments: args,
+        ...(meta ? { meta } : {}),
+      }),
+    );
   });
 };
 

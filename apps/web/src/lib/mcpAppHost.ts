@@ -65,6 +65,12 @@ import {
 import { McpAppFrameTracker } from "./mcpApps/frameTracker";
 import { mcpAppResourceCacheKey, readMcpAppResourceOnce } from "./mcpApps/resourceCache";
 import {
+  chainMcpAppWheel,
+  decodeMcpAppWheelMessage,
+  type McpAppWheelDelta,
+} from "./mcpApps/wheelChain";
+import { MCP_APP_WEBVIEW_DISPLAY, styleMcpAppWebview } from "./mcpApps/webviewStyle";
+import {
   buildMcpAppHostContext,
   MCP_APP_HOST_INFO_NAME,
   McpAppHostContextChannel,
@@ -92,6 +98,7 @@ import {
 import {
   mcpAppHeightKey,
   readRememberedMcpAppHeight,
+  createMcpAppFirstSizeSettler,
   rememberMcpAppHeight,
   resolveMcpAppReportedHeight,
 } from "./mcpApps/sizing";
@@ -341,6 +348,8 @@ export class BoundedMessagePortTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
   /** Sees every accepted inbound request method before the protocol handles it. */
   oninboundrequest?: (method: string) => void;
+  /** Wheel the widget did not use (the proxy's `moss:wheel`); never reaches the protocol. */
+  onwheel?: (delta: McpAppWheelDelta) => void;
   sessionId?: string;
   setProtocolVersion?: (version: string) => void;
 
@@ -352,6 +361,14 @@ export class BoundedMessagePortTransport implements Transport {
       if (this.closed) return;
       // Every shell -> host message arrives in B's envelope; anything else fails closed.
       const envelope = decodeMcpAppSandboxBridgeEnvelope(event.data);
+      const wheel =
+        envelope && !envelope.userActivation && !event.ports?.length
+          ? decodeMcpAppWheelMessage(envelope.message)
+          : null;
+      if (wheel) {
+        this.onwheel?.(wheel);
+        return;
+      }
       const data: unknown = envelope?.message;
       const userActivation = envelope?.userActivation === true;
       if (!envelope || !boundedMessage(data)) {
@@ -1032,10 +1049,7 @@ export class McpAppHostController {
     webview.dataset.mcpAppSandbox = "true";
     // Displayed from the start (the wrapper is parked, fully clipped, until `initialized`): a
     // guest that is not displayed does not lay out, so the widget could not measure itself.
-    webview.style.display = "block";
-    webview.style.width = "100%";
-    webview.style.height = "100%";
-    webview.style.border = "0";
+    styleMcpAppWebview(webview);
     webview.setAttribute("partition", registered.partition);
     webview.setAttribute(
       "webpreferences",
@@ -1216,7 +1230,7 @@ export class McpAppHostController {
       this.setSnapshot({ fullscreenDeclined });
       if (fullscreenDeclined) this.updateContext({ availableDisplayModes: ["inline"] });
       channel.markInitialized();
-      webview.style.display = "block";
+      webview.style.display = MCP_APP_WEBVIEW_DISPLAY;
       this.running = true;
       this.setSnapshot({ phase: "ready" });
       const slot = this.inlineContainer;
@@ -1224,19 +1238,27 @@ export class McpAppHostController {
       else this.tracker?.setVisible(false);
       void this.deliverToolData(generation);
     };
+    // The card opens once, at the height the widget settles on, not in start-up steps.
+    const firstSize = createMcpAppFirstSizeSettler({
+      apply: (height) => {
+        if (stale() || this.snapshot.displayMode === "fullscreen") return;
+        rememberMcpAppHeight(this.heightKey, height);
+        this.setSnapshot({ height, sized: true });
+      },
+    });
     const sizeChanged = (event: { readonly width?: number; readonly height?: number }) => {
       if (stale() || this.snapshot.displayMode === "fullscreen") return;
       const restoring = !this.snapshot.sized && this.snapshot.height > 0;
       const height = resolveMcpAppReportedHeight(event.height, restoring);
       if (height === null) return;
-      rememberMcpAppHeight(this.heightKey, height);
-      this.setSnapshot({ height, sized: true });
+      firstSize.report(height);
     };
     bridge.addEventListener("sandboxready", sandboxReady);
     bridge.addEventListener("initialized", initialized);
     bridge.addEventListener("sizechange", sizeChanged);
     this.cleanupBridge = () => {
       clearInitializedTimeout();
+      firstSize.cancel();
       bridge.removeEventListener("sandboxready", sandboxReady);
       bridge.removeEventListener("initialized", initialized);
       bridge.removeEventListener("sizechange", sizeChanged);
@@ -1310,6 +1332,11 @@ export class McpAppHostController {
       const transport = new BoundedMessagePortTransport(ports.bridgePort);
       transport.oninboundrequest = (method) => {
         if (method === "ui/initialize") channel.markInitializeAnswered();
+      };
+      // Only an inline widget chains to the transcript; the side panel has nothing to scroll.
+      transport.onwheel = (delta) => {
+        if (stale() || this.snapshot.displayMode !== "inline") return;
+        chainMcpAppWheel(this.inlineContainer, delta);
       };
       this.transport = transport;
       await bridge.connect(transport);
@@ -1404,6 +1431,18 @@ export class McpAppHostController {
       this.toolResultTimer = null;
       if (generation === this.generation && this.running) void this.deliverToolData(generation);
     }, MCP_APP_TOOL_RESULT_POLL_MS);
+  }
+
+  /**
+   * Unload the app while it is out of sight (the side panel's residency policy): the app is told
+   * first, as on any teardown, and the host returns to idle. The next attach starts it again from
+   * its tool result. A new generation keeps late callbacks of the unloaded one out.
+   */
+  async suspend(): Promise<void> {
+    if (this.snapshot.phase === "idle") return;
+    this.generation = Math.min(this.generation + 1, 1_000_000);
+    await this.teardown();
+    this.setSnapshot({ phase: "idle" });
   }
 
   async retry(container = this.currentContainer): Promise<void> {

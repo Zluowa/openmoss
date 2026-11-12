@@ -431,7 +431,7 @@ const CURSOR_GPT_5_6_CAPABILITIES = cursorCapabilities({
 // generations, so declare them once and let each model entry override only the
 // fields that genuinely differ (mirrors the CODEX_GPT_5_* pattern above).
 const CLAUDE_AUTO_COMPACT_WINDOWS: readonly ContextWindowOption[] = [
-  { value: "auto", label: "Auto (Claude Code)", isDefault: true },
+  { value: "auto", label: "Auto (Moss decides)", isDefault: true },
   { value: "200k", label: "200k" },
   { value: "1m", label: "1M" },
 ];

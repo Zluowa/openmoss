@@ -4353,3 +4353,82 @@ describe("MessagesTimeline", () => {
     expect(markup.match(/<button/g)?.length).toBeGreaterThanOrEqual(3);
   });
 });
+
+describe("MessagesTimeline widgets mid-turn", () => {
+  it("draws each widget as soon as its call's result is in, even inside a folded run", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const turnId = TurnId.makeUnsafe("widget-turn");
+    const startedAt = "2026-03-17T19:12:00.000Z";
+    const widgetEntry = (server: string, at: string) => ({
+      id: `widget-${server}`,
+      kind: "work" as const,
+      createdAt: at,
+      entry: {
+        id: `widget-${server}`,
+        createdAt: at,
+        turnId,
+        tone: "tool" as const,
+        label: `${server}: show`,
+        toolTitle: `${server}: show`,
+        itemType: "mcp_tool_call" as const,
+        activityKind: "tool.completed" as const,
+        toolStatus: "completed" as const,
+        toolName: `mcp__${server}__show`,
+        mcpToolResult: {
+          kind: "codex.mcp_tool_call" as const,
+          version: 1 as const,
+          callId: `call-${server}`,
+          server,
+          tool: "show",
+          status: "completed" as const,
+          arguments: {},
+          result: { content: [{ type: "text" as const, text: "ok" }] },
+          truncation: { truncated: false, deferredBinary: false },
+          app: {
+            resourceUri: `ui://${server}/w`,
+            source: "toolDefinition" as const,
+            server,
+            serverKey: server,
+            serverLabel: server,
+            toolName: "show",
+            isFirstParty: false,
+            visibility: [],
+          },
+        },
+      },
+    });
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        {...makeTimelineBaseProps("2026-03-17T19:12:10.000Z")}
+        isWorking
+        activeTurnInProgress
+        activeTurnId={turnId}
+        activeTurnStartedAt={startedAt}
+        threadId="thread-widgets"
+        timelineEntries={[
+          {
+            id: "ask",
+            kind: "message",
+            createdAt: startedAt,
+            message: {
+              id: MessageId.makeUnsafe("ask"),
+              role: "user",
+              text: "Show three widgets",
+              createdAt: startedAt,
+              streaming: false,
+              turnId,
+            },
+          },
+          widgetEntry("sysmon", "2026-03-17T19:12:02.000Z"),
+          widgetEntry("budget", "2026-03-17T19:12:03.000Z"),
+          widgetEntry("debug", "2026-03-17T19:12:04.000Z"),
+        ]}
+      />,
+    );
+    // The turn is still running; every widget is already drawn, once.
+    expect(markup.match(/data-mcp-app-card="true"/g)).toHaveLength(3);
+    for (const server of ["sysmon", "budget", "debug"]) {
+      expect(markup).toContain(server);
+    }
+  });
+});

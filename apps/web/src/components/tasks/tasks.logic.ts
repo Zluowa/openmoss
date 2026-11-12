@@ -15,6 +15,7 @@ import {
   type TodoStreamEvent,
   type TodoUpdateInput,
 } from "@moss/contracts";
+import { hasKanbanUnstartedSend } from "@moss/shared/kanban";
 
 import { formatRelativeTime } from "~/lib/relativeTime";
 import { canSessionAnswerPendingRequests, deriveActiveWorkStartedAt } from "../../session-logic";
@@ -123,6 +124,25 @@ export function deriveTaskStatus(input: {
     };
   }
   const latestTurn = thread.latestTurn;
+  // A send that ended before any turn began is failed, not still starting, even once
+  // its error has been cleared; the board reads it the same way.
+  if (
+    latestTurn === null &&
+    (session?.status === "error" ||
+      hasKanbanUnstartedSend({
+        latestTurn,
+        session: session ? { status: session.orchestrationStatus } : null,
+        createdAt: thread.createdAt,
+        latestUserMessageAt: thread.latestUserMessageAt,
+      }))
+  ) {
+    return {
+      ...TODO_STATUS,
+      kind: "stopped",
+      label: "Failed",
+      detail: session?.lastError?.trim() || "The agent stopped with an error",
+    };
+  }
   if (
     session?.status === "connecting" ||
     latestTurn === null ||

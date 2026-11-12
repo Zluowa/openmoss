@@ -31,6 +31,13 @@ export interface MossManagedProviderShape {
      * revalidate the exact paired managed tombstone before using this fence.
      */
     readonly recoverStalePairedGeneration?: true;
+    /**
+     * Coordinator-owned: the previous generation belongs to this authority and
+     * this is a background refresh or restore, not a sign-in or realm switch.
+     * Its credentials are still fenced first, but a previous runtime that will
+     * not stop no longer keeps the signed-in account's Moss models disabled.
+     */
+    readonly sameAuthorityRotation?: true;
     /** Explicit login selects Moss; restore/refresh preserves the user's current Codex account. */
     readonly selectionPolicy: MossManagedSelectionPolicy;
   }) => Effect.Effect<void, MossCloudAccountServiceError>;

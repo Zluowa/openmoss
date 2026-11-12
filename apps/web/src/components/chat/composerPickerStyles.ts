@@ -94,12 +94,14 @@ export const CHAT_BACKGROUND_CLASS_NAME = "app-content-surface";
  *  - `relative z-[15]` stacks the card above the sidebar shell but below the content-seam
  *    rail (`z-[25]`), so on collapse the sidebar slides *under* the card (the
  *    movement goes "over") rather than the card shifting sideways with it.
- *  - `overflow-hidden` keeps route content inside the shared surface.
+ *  - `overflow-clip` keeps route content inside the shared surface. Clip, not hidden: a
+ *    hidden box is still a scroll container, so `scrollIntoView` or focus moving into a
+ *    widget could scroll the whole card up under the title bar.
  *
  *  Apply this to the OPAQUE content surface (e.g. the chat wrapper, or a
  *  SidebarInset `surfaceClassName`) — never to a transparent, full-width
  *  `SidebarInset` shell, or its raised z-index would cover and block the sidebar. */
-export const CHAT_CONTENT_CARD_CLASS_NAME = "chat-content-card relative z-[15] overflow-hidden";
+export const CHAT_CONTENT_CARD_CLASS_NAME = "chat-content-card relative z-[15] overflow-clip";
 
 /** Opaque chat surface that floats as a card over the sidebar: column background + card chrome.
  *  Apply to the element that should read as the raised card (the chat content wrapper, or a

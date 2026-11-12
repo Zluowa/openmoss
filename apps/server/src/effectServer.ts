@@ -34,6 +34,7 @@ import {
 } from "./account/Services/MossPhoneAccountService";
 import { MossCloudAccountService } from "./account/Services/MossCloudAccountService";
 import { MossEnterpriseKeyAccount } from "./account/Services/MossEnterpriseKeyAccount";
+import { describeMossErrorCauses } from "./account/mossAccountErrors";
 import { retireMossByokSettings } from "./account/retiredMossByokCleanup";
 import type { MossCloudAccountServiceShape } from "./account/Services/MossCloudAccountService";
 import {
@@ -84,6 +85,7 @@ import { KeepAwakeService } from "./keepAwake";
 import { ServerSettingsService } from "./serverSettings";
 import { makeServerReadiness } from "./server/readiness";
 import { makeServerShutdownController, type ServerShutdownController } from "./serverShutdown";
+import { closeMossCanvasStores } from "./mossCanvasStorage";
 import { makeBoundedNodeHttpServer } from "./nodeHttpServer";
 import { websocketRpcRouteLayer } from "./wsRpc";
 import { recoverGitHandoffOperations } from "./gitHandoffOperations";
@@ -644,6 +646,9 @@ export const createEffectServer = Effect.fn(function* (
     ),
   );
   yield* Effect.addFinalizer(() => clearPersistedServerRuntimeState(config.serverRuntimeStatePath));
+  // Hand back every conversation Canvas folder's writer lease instead of leaving it for the next
+  // start to reclaim from a dead process.
+  yield* Effect.addFinalizer(() => Effect.promise(() => closeMossCanvasStores()));
   yield* readiness.markHttpListening;
 
   // The health route is now listening before account recovery can time out, so
@@ -674,6 +679,7 @@ export const createEffectServer = Effect.fn(function* (
       Effect.logWarning("failed to restore the Moss enterprise key", {
         code: error.code,
         message: error.message,
+        cause: describeMossErrorCauses(error),
       }),
     ),
     Effect.forkScoped,

@@ -4,6 +4,7 @@
 // Boundary: Only known UI chrome is translated. User text, prompts sent to providers,
 //           paths, diagnostics, and unknown runtime values are returned unchanged.
 
+import { localizeCodexDurationUnits } from "../lib/timeFormat";
 import { nameSlotRule } from "./zhCNNameSlot";
 import { lookupPhrase } from "./zhCNPhraseTable";
 
@@ -537,13 +538,15 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
     (match) => `已运行 ${match[1]}`,
   ],
   [
-    /^Stopped by you after ((?:\d+(?:\.\d+)?(?:ms|s|m|h|d|毫秒|秒|分钟|小时|天) ?)+)$/,
-    (match) => `你已停止，用时 ${match[1]}`,
+    /^Stopped by you after ((?:\d+(?:\.\d+)? ?(?:ms|s|m|h|d|毫秒|秒|分钟|小时|天) ?)+)$/,
+    (match) => `你已停止，用时 ${localizeCodexDurationUnits(match[1]!.trim(), "zh-CN")}`,
   ],
   [
-    /^Interrupted(?: after ((?:\d+(?:\.\d+)?(?:ms|s|m|h|d|毫秒|秒|分钟|小时|天) ?)+))?(?: · ([^\r\n]+))?$/,
+    /^Interrupted(?: after ((?:\d+(?:\.\d+)? ?(?:ms|s|m|h|d|毫秒|秒|分钟|小时|天) ?)+))?(?: · ([^\r\n]+))?$/,
     (match) => {
-      const base = match[1] ? `已中断，用时 ${match[1]}` : "已中断";
+      const base = match[1]
+        ? `已中断，用时 ${localizeCodexDurationUnits(match[1].trim(), "zh-CN")}`
+        : "已中断";
       const reasons: Readonly<Record<string, string>> = {
         "usage limit reached": "已达到用量上限",
         "model at capacity": "模型当前繁忙",

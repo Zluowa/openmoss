@@ -27,6 +27,13 @@ second surface needs the same shape as an existing one, extract the shared piece
 and switch both to it, as `src/components/AnnouncementSheet.tsx` does for one-time
 announcements.
 
+## Heavy surfaces: one residency policy
+
+Anything heavy the side panel or a conversation shows (an editor frame, a preview, an app)
+registers with `src/lib/dockRuntimeResidency.ts` (`useResidentRuntime`) instead of deciding on its
+own when to unload. The policy and its numbers are shared with the browser and the backend; see
+`docs/side-panel-residency.md`.
+
 ## Open and close motion: one source
 
 Every element that opens and closes (expand and collapse, show and hide,

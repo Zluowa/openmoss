@@ -12,6 +12,7 @@ import { ChevronRightIcon, ExpandArrowsIcon, EyeIcon, EyeSlashIcon, Minimize2 } 
 import type { McpAppHostDialog, McpAppHostPhase, McpAppHostPrompt } from "~/lib/mcpAppHost";
 import { MCP_APP_HEIGHT_TRANSITION } from "~/lib/mcpApps/constants";
 import type { McpAppBinding } from "~/lib/mcpApps/contracts";
+import { mcpToolTitleFromName } from "~/lib/toolCallLabel";
 import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
@@ -66,7 +67,8 @@ export interface McpAppBlockViewProps {
 
 /**
  * The widget's result as plain text: text blocks as written, otherwise the structured data
- * pretty-printed with no technical label. Results with media keep the generic result view.
+ * pretty-printed with no technical label, otherwise the error the call failed with. Results
+ * with media keep the generic result view.
  */
 function McpAppFallbackResult(props: {
   readonly projection: WorkLogMcpToolResult;
@@ -87,9 +89,16 @@ function McpAppFallbackResult(props: {
     block.type === "text" && block.text.trim().length > 0 ? [block.text] : [],
   );
   const structured = props.projection.result?.structuredContent;
+  const errorText = props.projection.error?.message.trim();
+  if (texts.length === 0 && structured === undefined && errorText) {
+    texts.push(errorText);
+  }
   if (texts.length > 0) {
     return (
-      <div className="flex min-w-0 flex-col gap-1 text-ui text-foreground">
+      <div
+        className="flex min-w-0 flex-col gap-1 text-ui text-foreground"
+        data-mcp-app-fallback-text="true"
+      >
         {texts.map((text, index) => (
           <p key={`${index}:${text.slice(0, 16)}`} className="whitespace-pre-wrap break-words">
             {text}
@@ -120,6 +129,12 @@ export function McpAppBlockView(props: McpAppBlockViewProps) {
     : binding.isFirstParty
       ? t("mcpApp.title.firstParty")
       : format("mcpApp.title.widgetFrom", { server: serverName });
+
+  // Claude's header names the tool by its declared title, else by its name as words
+  // ("display_pdf" → "Display pdf"). Some agent CLIs pass no titles at all.
+  const toolTitle =
+    binding.toolTitle ||
+    (binding.isFirstParty ? undefined : mcpToolTitleFromName(binding.toolName) || undefined);
 
   const showCard = open && !fallback && !docked;
   const cardHeight = showCard ? props.height : 0;
@@ -156,15 +171,23 @@ export function McpAppBlockView(props: McpAppBlockViewProps) {
           <ConversationShimmer active={initializing} className="shrink-0">
             {title}
           </ConversationShimmer>
-          {binding.toolTitle ? (
-            <span className={cn("min-w-0 truncate", open && "text-foreground")}>
-              {binding.toolTitle}
+          {toolTitle ? (
+            // The server's own words, never machine-translated: a show-map title stays as written.
+            <span
+              className={cn("min-w-0 truncate", open && "text-foreground")}
+              data-translation-skip="true"
+              translate="no"
+            >
+              {toolTitle}
             </span>
           ) : null}
+          {/* Claude's caret is 14 px. Central glyphs are scaled 1.14 (index.css), so the box is
+              14 / 1.14 px and the painted caret measures 14 px. */}
           <ChevronRightIcon
             aria-hidden="true"
+            data-mcp-app-chevron="true"
             className={cn(
-              "size-3.5 shrink-0 transition-transform duration-[60ms]",
+              "size-[calc(14px/1.14)] shrink-0 transition-transform duration-[60ms]",
               open && "rotate-90",
               props.reducedMotion && "transition-none",
             )}

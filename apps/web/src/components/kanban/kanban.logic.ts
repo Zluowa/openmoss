@@ -423,6 +423,8 @@ function toKanbanThreadDerivationInput(
     hasPendingApprovals: thread.hasPendingApprovals,
     hasPendingUserInput: thread.hasPendingUserInput,
     hasLiveTailWork: thread.hasLiveTailWork,
+    createdAt: thread.createdAt,
+    latestUserMessageAt: thread.latestUserMessageAt,
   };
 }
 

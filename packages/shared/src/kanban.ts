@@ -57,6 +57,10 @@ export interface KanbanThreadDerivationInput {
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
   hasLiveTailWork?: boolean;
+  /** When the chat was created; with `latestUserMessageAt`, tells a send from a copied transcript. */
+  createdAt?: string | null;
+  /** The latest user message, whether sent in this chat or copied in by a fork or import. */
+  latestUserMessageAt?: string | null;
 }
 
 /** Default warn threshold for a stale session heartbeat (20 min). */
@@ -90,6 +94,37 @@ function canSessionAnswerPendingRequests(session: KanbanThreadDerivationInput["s
     return true;
   }
   return !SESSION_ANSWER_UNANSWERABLE.has(session.status);
+}
+
+/**
+ * Session statuses that end a chat's attempt to start its first turn. `ready` and
+ * `idle` are left out: a provider reports `ready` between starting and accepting the
+ * turn. `error` is read directly by the failed rule.
+ */
+const SESSION_ENDED_WITHOUT_TURN: ReadonlySet<OrchestrationSessionStatus> = new Set([
+  "stopped",
+  "interrupted",
+]);
+
+/**
+ * A message was sent in this chat, no turn ever began, and the session has ended: the
+ * provider failed or refused before accepting it. Exit events and delivery recovery can
+ * clear the session's error afterwards, so this does not rely on `lastError`. Copied
+ * transcripts are not sends: a fork's or import's messages predate the chat, or the chat
+ * has no session until something is sent in it.
+ */
+export function hasKanbanUnstartedSend(t: {
+  latestTurn: KanbanThreadDerivationInput["latestTurn"];
+  session: Pick<NonNullable<KanbanThreadDerivationInput["session"]>, "status"> | null;
+  createdAt?: string | null;
+  latestUserMessageAt?: string | null;
+}): boolean {
+  if (t.latestTurn !== null || !t.session || !SESSION_ENDED_WITHOUT_TURN.has(t.session.status)) {
+    return false;
+  }
+  const sentAt = Date.parse(t.latestUserMessageAt ?? "");
+  const createdAt = Date.parse(t.createdAt ?? "");
+  return Number.isFinite(sentAt) && Number.isFinite(createdAt) && sentAt >= createdAt;
 }
 
 /** Settled = terminal outcome: interrupted/error, or completed with a non-running session. */
@@ -207,6 +242,9 @@ export function deriveKanbanAwaitingYouReason(
   if (t.session?.status === "error" || (t.session?.lastError ?? null) != null) {
     return "failed";
   }
+  if (hasKanbanUnstartedSend(t)) {
+    return "failed";
+  }
   const canAnswerPending = canSessionAnswerPendingRequests(t.session);
   if (canAnswerPending) {
     if (t.hasPendingApprovals === true) {
@@ -223,8 +261,9 @@ export function deriveKanbanAwaitingYouReason(
 }
 
 /**
- * Column classification: awaitingYou wins over live work; then inProgress,
- * draft (never ran a turn), done (settled).
+ * Column classification: awaitingYou wins over live work (a send that never
+ * started is failed, not a draft); then inProgress, draft (never ran a turn),
+ * done (settled).
  */
 export function deriveKanbanColumnV2(
   t: KanbanThreadDerivationInput,

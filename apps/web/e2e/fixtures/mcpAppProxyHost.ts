@@ -15,6 +15,8 @@ import {
   type McpAppSandboxRegisterInput,
 } from "@moss/contracts";
 
+import { styleMcpAppWebview } from "../../src/lib/mcpApps/webviewStyle";
+
 type Received = { readonly at: number; readonly envelope: McpAppSandboxBridgeEnvelope };
 
 interface Mounted {
@@ -61,6 +63,11 @@ function isEnvelope(value: unknown): value is McpAppSandboxBridgeEnvelope {
   if (!value || typeof value !== "object") return false;
   return decodeMcpAppSandboxBridgeEnvelope(value) !== null;
 }
+
+const descriptorWidth = (overrides: Partial<McpAppSandboxRegisterInput>) =>
+  overrides.containerDimensions?.width ?? 600;
+const descriptorHeight = (overrides: Partial<McpAppSandboxRegisterInput>) =>
+  overrides.containerDimensions?.height ?? 400;
 
 async function mount(overrides: Partial<McpAppSandboxRegisterInput>) {
   const descriptor = await bridge().register(baseInput(overrides));
@@ -115,8 +122,12 @@ async function mount(overrides: Partial<McpAppSandboxRegisterInput>) {
     "webpreferences",
     "nodeIntegration=no,contextIsolation=yes,sandbox=yes,webSecurity=yes,disableDialogs=yes,plugins=no,allowRunningInsecureContent=no",
   );
-  webview.style.cssText = "display:block;width:600px;height:400px;border:0";
-  document.body.append(webview);
+  // The product's webview style inside a slot the size of the registered container.
+  const slot = document.createElement("div");
+  slot.style.cssText = `width:${descriptorWidth(overrides)}px;height:${descriptorHeight(overrides)}px`;
+  styleMcpAppWebview(webview);
+  slot.append(webview);
+  document.body.append(slot);
   webview.setAttribute("src", descriptor.src);
   await handoff;
   return descriptor;
@@ -157,7 +168,7 @@ const host = {
     if (!entry) return false;
     mounted.delete(initId);
     entry.bridgePort?.close();
-    entry.webview.remove();
+    (entry.webview.parentElement ?? entry.webview).remove();
     return bridge().unregister({
       sandboxId: entry.descriptor.sandboxId,
       initId: entry.descriptor.initId,

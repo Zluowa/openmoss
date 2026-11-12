@@ -674,7 +674,7 @@ describe("provider option descriptor helpers", () => {
       type: "select",
       currentValue: "auto",
       options: [
-        { id: "auto", label: "Auto (Claude Code)", isDefault: true },
+        { id: "auto", label: "Auto (Moss decides)", isDefault: true },
         { id: "200k", label: "200k" },
         { id: "1m", label: "1M" },
       ],

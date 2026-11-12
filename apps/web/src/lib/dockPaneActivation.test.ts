@@ -187,6 +187,27 @@ describe("dockPaneActivation", () => {
       expect(result.has("file")).toBe(true);
     });
 
+    it("keeps side-panel editors and previews mounted across tab switches", () => {
+      // Their memory is bounded by the residency policy, not by unmounting on every switch.
+      const framePanes = [
+        { id: "canvas", kind: "canvas" as const },
+        { id: "image", kind: "imagePreview" as const },
+        { id: "deck", kind: "deck" as const },
+        { id: "page", kind: "htmlRender" as const },
+        { id: "diff", kind: "diff" as const },
+      ];
+      let kept: ReadonlySet<string> = new Set();
+      for (const pane of framePanes) {
+        kept = reconcileKeepMountedPaneIds({
+          previous: kept,
+          panes: framePanes,
+          activePaneId: pane.id,
+          activePaneKind: pane.kind,
+        });
+      }
+      expect([...kept].toSorted()).toEqual(["canvas", "deck", "image", "page"]);
+    });
+
     it("drops kept ids that no longer exist (closed pane or thread switch)", () => {
       const result = reconcileKeepMountedPaneIds({
         previous: new Set(["term", "stale"]),

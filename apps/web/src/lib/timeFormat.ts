@@ -4,7 +4,8 @@
 //          so code review, the Tasks board and the chat timeline never mix "4h" with
 //          "4 小时" or "30秒" with "59 秒".
 // Layer: Web UI utility
-// Exports: currentUiLocale, isChineseLocale, formatDurationUnit, formatTimeAgo
+// Exports: currentUiLocale, isChineseLocale, formatDurationUnit, localizeCodexDurationUnits,
+//          formatTimeAgo
 
 /** zh-CN duration units, written with the standard space after the number ("59 秒"). */
 const ZH_DURATION_UNIT = {
@@ -49,6 +50,24 @@ export function formatDurationUnit(value: number, unit: DurationUnit, locale: st
       .join("");
   }
   return formatter.format(value);
+}
+
+const ZH_CLOCK_UNIT: Record<string, string> = {
+  ms: "毫秒",
+  d: "天",
+  h: "小时",
+  m: "分钟",
+  s: "秒",
+};
+
+// Settled headers are formatted in English compact units first. zh-CN swaps
+// the units so `1m 23s` reads `1 分钟 23 秒`, the same spacing as every other duration.
+export function localizeCodexDurationUnits(label: string, locale: string): string {
+  if (!locale.toLowerCase().startsWith("zh")) return label;
+  return label.replace(
+    /(\d+(?:\.\d+)?)(ms|d|h|m|s)\b/g,
+    (_match, amount: string, unit: string) => `${amount} ${ZH_CLOCK_UNIT[unit] ?? unit}`,
+  );
 }
 
 /**

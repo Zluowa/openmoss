@@ -1,10 +1,15 @@
 // FILE: proxyScripts.ts
 // Purpose: Plain-JS sources inlined into the Moss proxy page: the streamed
-// tool-input healer and the print receiver appended to every widget document.
+// tool-input healer, the wheel coalescer, and the print receiver and wheel
+// relay appended to every widget document.
 // Layer: Electron main-process support. Kept as source strings so that the
 // unit tests evaluate exactly the text the proxy page ships.
 
-import { MCP_APP_SANDBOX_PRINT_THEME_TYPE } from "@moss/contracts";
+import {
+  MCP_APP_SANDBOX_PRINT_THEME_TYPE,
+  MCP_APP_SANDBOX_WHEEL_MAX_DELTA,
+  MCP_APP_SANDBOX_WHEEL_TYPE,
+} from "@moss/contracts";
 
 /**
  * `createMossJsonHealer()` returns `{write(text), healed(), reset(), complete()}`.
@@ -256,5 +261,117 @@ export const MCP_APP_PRINT_RECEIVER_SOURCE = String.raw`(function () {
   });
 })();`;
 
-/** The receiver as markup appended after the widget HTML. */
-export const MCP_APP_PRINT_RECEIVER_HTML = `\n<script>${MCP_APP_PRINT_RECEIVER_SOURCE}</script>`;
+/**
+ * Appended to every widget document. A widget is its own page in Moss, so wheel it does not
+ * use would stop at its edge; in Claude the frame sits in the page and the scroll carries on.
+ * This reports that leftover wheel to the proxy as `moss:wheel`: per axis, only when nothing
+ * between the target and the page could scroll that way, and only if the widget did not
+ * cancel the event. Pinch-zoom (ctrl+wheel) is left alone. Lines and pages become pixels.
+ * The report goes out in the next task (a MessageChannel message), not the next animation
+ * frame: a covered or background widget runs no frames, and its wheel must not wait for one.
+ */
+export const MCP_APP_WHEEL_RELAY_SOURCE = String.raw`(function () {
+  var TYPE = "${MCP_APP_SANDBOX_WHEEL_TYPE}";
+  var scrollable = function (value) { return value === "auto" || value === "scroll" || value === "overlay"; };
+  var rootOf = function () { return document.scrollingElement || document.documentElement; };
+  var canScroll = function (element, axis, delta) {
+    var style;
+    try { style = window.getComputedStyle(element); } catch (error) { return false; }
+    var overflow = axis === "y" ? style.overflowY : style.overflowX;
+    var isRoot = element === rootOf();
+    if (isRoot ? overflow === "hidden" : !scrollable(overflow)) return false;
+    var position = axis === "y" ? element.scrollTop : element.scrollLeft;
+    var size = axis === "y" ? element.scrollHeight - element.clientHeight : element.scrollWidth - element.clientWidth;
+    if (!(size > 1)) return false;
+    return delta < 0 ? position > 0 : position < size - 1;
+  };
+  var used = function (target, axis, delta) {
+    if (delta === 0) return true;
+    var root = rootOf();
+    for (var element = target; element && element.nodeType === 1; element = element.parentElement) {
+      if (canScroll(element, axis, delta)) return true;
+      if (element === root) return false;
+    }
+    return root ? canScroll(root, axis, delta) : false;
+  };
+  var pending = [];
+  var nextTask = null;
+  try {
+    var channel = new MessageChannel();
+    nextTask = function () { channel.port2.postMessage(0); };
+    channel.port1.onmessage = function () { flush(); };
+  } catch (error) {
+    nextTask = function () { setTimeout(flush, 0); };
+  }
+  var flush = function () {
+    var deltaX = 0;
+    var deltaY = 0;
+    for (var index = 0; index < pending.length; index += 1) {
+      if (pending[index].event.defaultPrevented) continue;
+      deltaX += pending[index].x;
+      deltaY += pending[index].y;
+    }
+    pending = [];
+    if (deltaX === 0 && deltaY === 0) return;
+    try { window.parent.postMessage({ type: TYPE, deltaX: deltaX, deltaY: deltaY }, "*"); } catch (error) {}
+  };
+  window.addEventListener("wheel", function (event) {
+    if (event.ctrlKey || window.parent === window) return;
+    var x = event.deltaX;
+    var y = event.deltaY;
+    if (event.deltaMode === 1) { x *= 16; y *= 16; }
+    if (event.deltaMode === 2) { x *= window.innerWidth; y *= window.innerHeight; }
+    if (!isFinite(x) || !isFinite(y)) return;
+    var target = event.target && event.target.nodeType === 1 ? event.target : rootOf();
+    if (used(target, "x", x)) x = 0;
+    if (used(target, "y", y)) y = 0;
+    if (x === 0 && y === 0) return;
+    // defaultPrevented is read in the next task, once every listener has run.
+    if (pending.length === 0) nextTask();
+    pending.push({ event: event, x: x, y: y });
+  }, { passive: true });
+})();`;
+
+/**
+ * The proxy's side: `createMossWheelCoalescer(post, schedule)` returns `push(data)`. For a
+ * widget's `moss:wheel` message it keeps finite numbers only and adds them up; `schedule`
+ * (the next task) sends the sum once with `post(deltaX, deltaY)`. Nothing is lost: a sum over
+ * the per-message limit goes out in limit-sized pieces. It returns true for wheel messages
+ * (malformed ones are dropped) and false for anything else.
+ */
+export const MCP_APP_WHEEL_COALESCER_SOURCE = String.raw`function createMossWheelCoalescer(post, schedule) {
+  var TYPE = "${MCP_APP_SANDBOX_WHEEL_TYPE}";
+  var MAX = ${MCP_APP_SANDBOX_WHEEL_MAX_DELTA};
+  var deltaX = 0;
+  var deltaY = 0;
+  var scheduled = false;
+  var clamp = function (value) { return Math.max(-MAX, Math.min(MAX, value)); };
+  var flush = function () {
+    scheduled = false;
+    var x = clamp(deltaX);
+    var y = clamp(deltaY);
+    deltaX -= x;
+    deltaY -= y;
+    if (x !== 0 || y !== 0) post(x, y);
+    if (deltaX !== 0 || deltaY !== 0) {
+      scheduled = true;
+      schedule(flush);
+    }
+  };
+  return function push(data) {
+    if (!data || typeof data !== "object" || data.type !== TYPE) return false;
+    if (Object.keys(data).length !== 3 || typeof data.deltaX !== "number" || typeof data.deltaY !== "number" ||
+        !isFinite(data.deltaX) || !isFinite(data.deltaY)) return true;
+    // One message is clamped on its own; it carries at most a few wheel ticks.
+    deltaX += clamp(data.deltaX);
+    deltaY += clamp(data.deltaY);
+    if (!scheduled) {
+      scheduled = true;
+      schedule(flush);
+    }
+    return true;
+  };
+}`;
+
+/** The print receiver and the wheel relay, as markup appended after the widget HTML. */
+export const MCP_APP_PRINT_RECEIVER_HTML = `\n<script>${MCP_APP_PRINT_RECEIVER_SOURCE}</script>\n<script>${MCP_APP_WHEEL_RELAY_SOURCE}</script>`;

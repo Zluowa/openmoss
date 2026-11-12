@@ -426,6 +426,8 @@ describe("MossPhoneAccountService", () => {
         accessToken: "moss-access-token",
         gatewayBaseUrl: "https://moss.example.cn/functions/v1/moss-model-gateway",
         models: expectedManagedProvisionModels,
+        // The phone realm already owns the binding, so this is its own rotation.
+        sameAuthorityRotation: true,
         selectionPolicy: "preserve",
       });
       expect(dependencies.provision).toHaveBeenCalledTimes(2);

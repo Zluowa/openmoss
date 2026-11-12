@@ -3,6 +3,7 @@
 // Purpose: Prove the exported SingleChatSurface owns the real right-dock host contract.
 
 import "../../index.css";
+import { resetEmbeddedBundleChecks } from "~/lib/embeddedBundleCheck";
 
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -24,7 +25,7 @@ import {
   createRootRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
@@ -536,6 +537,8 @@ afterEach(() => {
 });
 
 describe("SingleChatSurface right-dock host contract", () => {
+  // Every case starts without a remembered Canvas bundle (a session checks it once).
+  beforeEach(() => resetEmbeddedBundleChecks());
   it("keeps the dock open when a newer fullscreen request supersedes a pending close", async () => {
     const mounted = await mountSurface({ width: 390, height: 720, openImageDock: false });
     const inline = document.createElement("div");
@@ -651,7 +654,9 @@ describe("SingleChatSurface right-dock host contract", () => {
           '[data-testid="generated-image-preview-pane"]',
         );
         expect(main?.getAttribute("data-app-shell-right-panel-full-width")).toBe("false");
-        expect(currentPane).toBeNull();
+        // A closed side panel keeps its image and Canvas panes mounted but inert (the residency
+        // policy, not closing, decides when they unload), so reopening does not reload them.
+        expect(currentPane?.closest("[inert]")).not.toBeNull();
         expect(getComputedStyle(main!).overflow).toBe("visible");
         const closedContract = readContract(host);
         expect({
@@ -776,17 +781,23 @@ describe("SingleChatSurface right-dock host contract", () => {
       }
 
       useRightDockStore.getState().setDockOpen(THREAD_ID, false);
-      await vi.waitFor(() =>
-        expect(host.querySelector('[data-testid="generated-image-preview-pane"]')).toBeNull(),
-      );
+      // Closing hides the pane (inert) without unmounting it; reopening shows the same one.
+      const kept = await vi.waitFor(() => {
+        const current = host.querySelector<HTMLElement>(
+          '[data-testid="generated-image-preview-pane"]',
+        );
+        expect(current?.closest("[inert]")).not.toBeNull();
+        return current!;
+      });
       useRightDockStore.getState().setDockOpen(THREAD_ID, true);
       const reopened = await vi.waitFor(() => {
         const current = host.querySelector<HTMLElement>(
           '[data-testid="generated-image-preview-pane"]',
         );
-        expect(current).not.toBeNull();
+        expect(current?.closest("[inert]")).toBeNull();
         return current!;
       });
+      expect(reopened).toBe(kept);
       await vi.waitFor(() =>
         expect(reopened.getAttribute("data-generated-image-preview-view")).toBe("playground"),
       );
@@ -967,6 +978,8 @@ describe("SingleChatSurface right-dock host contract", () => {
 });
 
 describe("SingleChatSurface widget side panel", () => {
+  // Every case starts without a remembered Canvas bundle (a session checks it once).
+  beforeEach(() => resetEmbeddedBundleChecks());
   it("moves a live connector widget into the right dock and back", async () => {
     const mounted = await mountSurface({ width: 1_200, height: 720, openImageDock: false });
     const sandbox = installMcpAppFakeSandbox();

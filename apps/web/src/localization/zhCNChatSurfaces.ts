@@ -39,7 +39,7 @@ const CHAT_SURFACE_COPY: Readonly<Record<string, string>> = {
   "Auto-compact target:": "自动压缩目标：",
   // Claude's window picker in the composer model menu.
   "Auto-compact": "自动压缩",
-  "Auto (Claude Code)": "自动（由 Claude Code 决定）",
+  "Auto (Moss decides)": "自动（由 Moss 决定）",
   "The session's auto-compact target can be lower than the model's supported window.":
     "会话的自动压缩目标可能低于模型支持的上下文窗口。",
   "Starting compaction...": "正在开始压缩…",

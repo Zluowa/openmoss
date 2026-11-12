@@ -155,7 +155,9 @@ import {
 import { RailAccountMenu } from "./SidebarAccountMenu";
 import { formatRelativeTime } from "../lib/relativeTime";
 import {
+  getNavigatorPlatform,
   isMacNavigatorPlatform,
+  isWindowsPlatform,
   newCommandId,
   newMessageId,
   newProjectId,
@@ -7341,7 +7343,14 @@ export default function Sidebar() {
                 }
               >
                 <ProjectContextMenuIcon icon={FolderOpenIcon} />
-                <span>Open in Finder</span>
+                <span>
+                  {/* The platform's own file manager: Finder, File Explorer, or a folder. */}
+                  {isMacNavigatorPlatform()
+                    ? "Open in Finder"
+                    : isWindowsPlatform(getNavigatorPlatform())
+                      ? "Open in Explorer"
+                      : "Show in folder"}
+                </span>
               </MenuItem>
               <MenuItem
                 className={PROJECT_CONTEXT_MENU_ITEM_CLASS_NAME}

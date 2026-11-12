@@ -5,6 +5,10 @@
   "license": "MIT",
   "type": "module",
   "exports": {
+    "./runtimeResidency": {
+      "types": "./src/runtimeResidency.ts",
+      "import": "./src/runtimeResidency.ts"
+    },
     "./processTreeController": {
       "types": "./src/processTreeController.ts",
       "import": "./src/processTreeController.ts"

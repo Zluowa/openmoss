@@ -385,8 +385,10 @@ it("shows each agent's state with one plain line and one action, no setup guides
   expect(page.getByRole("link", { name: /setup guide/u }).elements()).toHaveLength(0);
 });
 
-it("says an agent is connected through Moss, with no sign-in, while its Moss lane works", async () => {
-  // The owner's own Claude login is signed out, but Claude over Moss is up.
+it("says an agent works through Moss and still offers its own account's sign-in", async () => {
+  // The owner's own Claude login is signed out, but Claude over Moss is up. The picker
+  // lists only Moss then, so Settings is where the own account is reached.
+  harness.api.server.startProviderLogin.mockClear();
   harness.statuses = [
     ...harness.statuses,
     {
@@ -401,12 +403,58 @@ it("says an agent is connected through Moss, with no sign-in, while its Moss lan
   ];
   await render(<ProvidersSettingsPanel {...props} />);
   await vi.waitFor(() =>
-    expect(activityRow("Claude").textContent).toContain("Connected through Moss"),
+    expect(activityRow("Claude").textContent).toContain(
+      "Connected through Moss · Local account · Not signed in",
+    ),
   );
+  // Calm: no "sign in to use it" sentence, no setup guide, and an outline button.
   expect(activityRow("Claude").textContent).not.toContain("Sign in to your Claude account");
+  expect(activityRow("Claude").querySelector('[data-agent-readiness="moss"]')).not.toBeNull();
+  const signIn = page.getByRole("button", { name: "Sign in for Claude", exact: true });
+  await expect.element(signIn).toBeVisible();
+  expect(signIn.element().textContent).toBe("Sign in");
+  expect(signIn.element().className).not.toContain("bg-[var(--color-background-primary-solid)]");
   expect(
-    page.getByRole("button", { name: "Sign in for Claude", exact: true }).elements(),
+    page
+      .elementLocator(activityRow("Claude"))
+      .getByRole("button", { name: /setup guide/iu })
+      .elements(),
   ).toHaveLength(0);
+  await signIn.click();
+  expect(harness.api.server.startProviderLogin).toHaveBeenCalledWith({
+    provider: "claudeAgent",
+    instanceId: "claudeAgent",
+  });
+});
+
+it("says 已通过 Moss 连接 · 本机账号 · 未登录 in Chinese", async () => {
+  localizationTestState.locale = "zh-CN";
+  try {
+    harness.statuses = [
+      ...harness.statuses,
+      {
+        provider: "claudeAgent",
+        instanceId: "claude_moss",
+        driver: "claudeAgent",
+        status: "ready",
+        available: true,
+        authStatus: "authenticated",
+        checkedAt: "2026-09-16T21:46:18.000Z",
+      },
+    ];
+    await render(<ProvidersSettingsPanel {...props} />);
+    const row = () =>
+      page
+        .getByRole("switch", { name: "Disable Claude", exact: true })
+        .element()
+        .closest('[data-slot="settings-row"]')!;
+    await vi.waitFor(() =>
+      expect(row().textContent).toContain("已通过 Moss 连接 · 本机账号 · 未登录"),
+    );
+    expect(row().textContent).toContain("登录");
+  } finally {
+    localizationTestState.locale = "en";
+  }
 });
 
 it("signs an agent in through the browser and lets the person cancel", async () => {

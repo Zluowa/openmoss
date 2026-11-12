@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import React, { type ComponentProps } from "react";
+import { resetEmbeddedBundleChecks } from "~/lib/embeddedBundleCheck";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { importMossCanvasLocalImages, MossCanvasBinding } from "~/lib/mossCanvasClient";
@@ -98,6 +99,7 @@ const tick = () =>
   });
 
 beforeEach(() => {
+  resetEmbeddedBundleChecks();
   vi.useFakeTimers();
   mocks.key = "account-a";
   mocks.current = true;
@@ -182,6 +184,41 @@ describe("Canvas conversation preparation", () => {
     await host.ready();
     expect(screen.queryByRole("status")).toBeNull();
   });
+  it("starts a reopened Canvas's frame on the first commit, probing alongside it", async () => {
+    const { view } = await mount();
+    expect(fetch).toHaveBeenCalledOnce();
+    view.unmount();
+    // Reopening (another conversation shares the bundle) does not wait for the probe.
+    let reopened!: ReturnType<typeof render>;
+    act(() => {
+      reopened = render(
+        <MossCanvasWebSurface threadId="thread-b" onClose={vi.fn()} localImages={local(1)} />,
+      );
+    });
+    expect(reopened.getByTitle("Moss Canvas")).toBeTruthy();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the failure when a bundle it had seen is gone", async () => {
+    const { view } = await mount();
+    view.unmount();
+    vi.mocked(fetch).mockResolvedValue(new Response("missing", { status: 503 }));
+    await act(async () => {
+      render(<MossCanvasWebSurface threadId="thread-b" onClose={vi.fn()} />);
+    });
+    expect(screen.getByText("画布工作区暂不可用")).toBeTruthy();
+    expect(screen.queryByTitle("Moss Canvas")).toBeNull();
+  });
+
+  it("still refuses to show a frame for a missing bundle", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response("missing", { status: 503 }));
+    await act(async () => {
+      render(<MossCanvasWebSurface threadId="thread-a" onClose={vi.fn()} />);
+    });
+    expect(screen.getByText("画布工作区暂不可用")).toBeTruthy();
+    expect(screen.queryByTitle("Moss Canvas")).toBeNull();
+  });
+
   it("does not open an unbound Canvas when no conversation folder can be prepared", async () => {
     const prepareThread = vi.fn(async () => null);
     await act(async () => {

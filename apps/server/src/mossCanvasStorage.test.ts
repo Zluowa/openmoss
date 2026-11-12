@@ -130,11 +130,16 @@ describe("where a conversation's Canvas lives", () => {
     const root = await mkdtemp(join(tmpdir(), "moss-canvas-home-"));
     const bundle = join(root, "bundle");
     await mkdir(join(bundle, "apps/codex-canvas/server"), { recursive: true });
-    // The fake Canvas store reports which folder it was given.
+    // The fake Canvas store reports which folder it was given. Callers reach a store only
+    // through its methods (the pool opens and closes the real one underneath), so it answers
+    // through request().
     await writeFile(
       join(bundle, "apps/codex-canvas/server/hosted-storage.mjs"),
       `export function createMossCanvasHostedStorage({ stateDirectory }) {
-         return { stateDirectory, request: async () => ({}), close() {} };
+         return {
+           request: async (method) => (method === "test.stateDirectory" ? stateDirectory : {}),
+           close() {},
+         };
        }`,
     );
     vi.stubEnv("MOSS_CANVAS_BUNDLE_DIR", bundle);
@@ -143,14 +148,14 @@ describe("where a conversation's Canvas lives", () => {
     await mkdir(cwd, { recursive: true });
     return { root, state, cwd };
   }
-  const opened = async (state: string, cwd: string, threadId: string) =>
-    (await mossCanvasStorageFor(state, identity, {
+  const opened = async (state: string, cwd: string, threadId: string) => {
+    const store = await mossCanvasStorageFor(state, identity, {
       cwd,
       threadId,
       title: "Canvas",
-    })) as unknown as {
-      stateDirectory: string;
-    };
+    });
+    return { stateDirectory: (await store.request("test.stateDirectory")) as string };
+  };
   afterEach(() => vi.unstubAllEnvs());
 
   it("keeps it in Moss's own state, never inside the project", async () => {

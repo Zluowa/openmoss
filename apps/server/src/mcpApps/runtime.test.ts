@@ -257,6 +257,14 @@ describe("model context", () => {
     });
     expect(store.readSnapshot("t", "a").content.at(-1)).toEqual({ type: "text", text: "2" });
     expect(store.readSnapshot("t", "missing").isError).toBe(true);
+    // The model may name the tool the way its agent CLI does.
+    for (const name of ["mcp__srv__a", "mcp__my_server__a", "srv__a", "srv:a", " a "]) {
+      expect(store.readSnapshot("t", name).content.at(-1), name).toEqual({
+        type: "text",
+        text: "2",
+      });
+    }
+    expect(store.readSnapshot("t", "mcp__srv__b").isError).toBe(true);
     expect(
       store.update({
         threadId: "t",

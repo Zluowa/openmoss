@@ -108,6 +108,8 @@ const ZH_CN_TOOL_HEADINGS: Readonly<Record<string, string>> = {
   "Found place photos": "已找到地点照片",
   "Couldn't find place photos": "无法查找地点照片",
   "Search tools:": "搜索工具：",
+  "Loading tools": "正在加载工具",
+  "Loaded tools": "已加载工具",
   "Running code": "正在运行代码",
   "Ran code": "已运行代码",
   ...Object.fromEntries(
@@ -117,6 +119,15 @@ const ZH_CN_TOOL_HEADINGS: Readonly<Record<string, string>> = {
     ]),
   ),
 };
+
+/** Claude's `ToolSearch` (deferred tools loaded on demand) reads like Claude: "Loaded tools". */
+export function deriveToolSearchTitle(
+  toolName: string | null | undefined,
+  isRunning: boolean,
+): string | null {
+  if (toolName?.trim() !== "ToolSearch") return null;
+  return isRunning ? "Loading tools" : "Loaded tools";
+}
 
 export function localizeToolHeading(value: string, locale: MossLocaleCode): string {
   return locale === "zh-CN"
@@ -224,28 +235,59 @@ function humanizeMcpToolIdentifier(value: string): string | null {
     return null;
   }
 
-  const [, server, tool, ...rest] = trimmed.split("__");
-  const normalizedServer = humanizeMcpToken(server);
-  const normalizedTool =
-    mossAppsToolLabel(server, [tool, ...rest].join("__")) ??
-    [tool, ...rest]
-      .map((part) => humanizeMcpToken(part))
-      .filter((part) => part.length > 0)
-      .join(" ");
-
-  if (!normalizedServer || !normalizedTool) {
-    return null;
-  }
-  return `${normalizedServer}: ${normalizedTool}`;
+  const [, server, ...rest] = trimmed.split("__");
+  return humanizeMcpServerTool(server ?? "", rest.join("__"));
 }
 
+/**
+ * Claude's Code-tab label for an MCP call: "{server}: {tool}". The server keeps the name it
+ * was configured with (the widget header says the same); the tool name becomes words,
+ * underscores to spaces, lower-case first unless the first word is cased on purpose.
+ */
 function humanizeMcpServerTool(server: string, tool: string): string | null {
-  const normalizedServer = humanizeMcpToken(server);
-  const normalizedTool = mossAppsToolLabel(server, tool) ?? humanizeMcpToken(tool);
-  if (!normalizedServer || !normalizedTool) {
+  const serverLabel = mcpServerLabel(server);
+  const toolLabel = mossAppsToolLabel(server, tool) ?? mcpToolWords(tool);
+  if (!serverLabel || !toolLabel) {
     return null;
   }
-  return `${normalizedServer}: ${normalizedTool}`;
+  return `${serverLabel}: ${toolLabel}`;
+}
+
+function mcpServerLabel(server: string): string {
+  const trimmed = server.trim();
+  if (isMossAppsServer(trimmed)) return MOSS_APPS_DISPLAY_NAME;
+  if (trimmed.toLowerCase() === "moss") return "Moss";
+  // Built-in ids like `codex_apps` or `computer-use` read as words; a configured name stays.
+  return /[_-]/u.test(trimmed) ? humanizeMcpToken(trimmed) : trimmed;
+}
+
+/** A word cased on purpose ("GitHub", "iOS"): an upper-case letter after the first. */
+const casedOnPurpose = (word: string) => /\p{Lu}/u.test(word.slice(1));
+
+/**
+ * A tool name as words, the way Claude writes a tool title it has no declared title for:
+ * `display_pdf`, `show-map`, `getIssue` and `GET_ISSUE` all split into words (`_ . -`, space,
+ * else camel case), each word lower-case unless cased on purpose, the first letter capital
+ * ("Display pdf"). A name that already has spaces is a title and stays as it is.
+ */
+export function mcpToolTitleFromName(tool: string): string {
+  const name = tool.trim();
+  if (!name || /\s/u.test(name)) return name;
+  const source = /\p{Ll}/u.test(name) ? name : name.toLowerCase();
+  const words = (/[_.:-]/u.test(source) ? source : source.replace(/([a-z0-9])([A-Z])/gu, "$1 $2"))
+    .split(/[_.:\s-]+/u)
+    .filter((word) => word !== "");
+  const [first] = words;
+  if (first === undefined) return name;
+  const joined = words.map((word) => (casedOnPurpose(word) ? word : word.toLowerCase())).join(" ");
+  return casedOnPurpose(first) ? joined : `${joined.charAt(0).toUpperCase()}${joined.slice(1)}`;
+}
+
+/** The tool part of a row label: the same words, lower-case first mid-sentence ("map: show map"). */
+function mcpToolWords(tool: string): string {
+  const title = mcpToolTitleFromName(tool);
+  if (/\s/u.test(tool.trim()) || casedOnPurpose(title.split(" ")[0] ?? "")) return title;
+  return `${title.charAt(0).toLowerCase()}${title.slice(1)}`;
 }
 
 export interface ReadableToolTitleInput {
@@ -628,6 +670,7 @@ const MOSS_MCP_TOOL_PRESENTATIONS = {
   ),
   moss_media_generate: presentMossTool("starting a generation", "started a generation"),
   moss_media_get: presentMossTool("checking a generation", "checked a generation"),
+  moss_read_widget_context: presentMossTool("reading widget state", "read widget state"),
   html_render: {
     running: "Rendering an HTML page",
     completed: "Rendered an HTML page",
@@ -712,6 +755,7 @@ const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
   moss_media_list: ["正在查看图像和视频模型", "已查看图像和视频模型", "无法查看图像和视频模型"],
   moss_media_generate: ["正在提交生成", "已提交生成", "无法提交生成"],
   moss_media_get: ["正在查询生成进度", "已查询生成进度", "无法查询生成进度"],
+  moss_read_widget_context: ["正在读取小组件状态", "已读取小组件状态", "无法读取小组件状态"],
 };
 
 const ZH_CN_MOSS_TOOL_HEADINGS: Readonly<Record<string, string>> = Object.fromEntries(
@@ -1152,7 +1196,9 @@ function normalizeToolDescriptor(value: string | null): string | null {
   if (lowerCollapsed === "search" || lowerCollapsed === "find" || lowerCollapsed === "searched") {
     return "Search";
   }
-  const readable = /[_-]/.test(value) ? humanizeMcpToken(collapsed) : collapsed;
+  // `_`/`-` names here are tools that arrive without their server (OpenCode joins MCP tools
+  // as `server_tool`): Claude's words for a tool with no title (`show-map` → Show map).
+  const readable = /[_-]/.test(value) ? mcpToolTitleFromName(dedupedTokens.join("_")) : collapsed;
   return readable.length > 64 ? `${readable.slice(0, 61).trimEnd()}...` : readable;
 }
 

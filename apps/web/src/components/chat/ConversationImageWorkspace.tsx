@@ -31,7 +31,7 @@ import type {
 } from "~/lib/mossCanvasSelection";
 import { requestComposerImagePreview } from "~/lib/composerImagePreviewRequest";
 import { buildLocalImageUrl } from "~/lib/localImageUrls";
-import { useMossCanvasRuntimeLifecycle } from "~/lib/mossCanvasLifecycle";
+import { useResidentRuntime } from "~/lib/dockRuntimeResidency";
 import {
   isMossImagesAccountIdentityChange,
   useMossImagesAccountBoundary,
@@ -480,11 +480,15 @@ export function ConversationImageWorkspace(props: {
         : undefined,
     [preview?.images, preview?.cwd, preview?.activeImageId, action, canvasLaunchAsset],
   );
-  // A Canvas nobody is looking at is saved and unloaded after a short while,
-  // and loads the same conversation's document again when shown.
-  const canvasRuntime = useMossCanvasRuntimeLifecycle({
-    visible: props.visible && canvas,
-    save: () => flushRef.current?.() ?? Promise.resolve(true),
+  // A Canvas nobody is looking at is saved and unloaded under the side panel's shared residency
+  // policy (dockRuntimeResidency.ts), and loads the same conversation's document again when shown.
+  const canvasRuntime = useResidentRuntime({
+    active: canvas,
+    key: `canvas:${props.threadId}:${props.pane.id}`,
+    owner: props.threadId,
+    runtimeClass: "dockFrame",
+    visible: props.visible,
+    suspend: () => flushRef.current?.() ?? Promise.resolve(true),
   });
   const switchView = (view: RightDockImagePreviewView) => {
     void beforeLeave().then((saved) => {

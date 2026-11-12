@@ -1065,6 +1065,8 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   [nameSlotRule("Preview"), (match) => `预览 ${match[1]}`],
   [/^(\d+) lines$/, (match) => `${match[1]} 行`],
   [/^Comment on line (\d+)$/, (match) => `评论第 ${match[1]} 行`],
+  // An untitled tab is the placeholder "New thread", which reads 「新建对话」 everywhere else.
+  [/^Close New thread$/u, () => "关闭 新建对话"],
   [nameSlotRule("Close"), (match) => `关闭 ${match[1]}`],
 
   // Workspace, recent-view, and sidebar values are not interpreted.

@@ -34,6 +34,13 @@ export const MCP_APP_SANDBOX_TOOL_INPUT_PARTIAL_METHOD =
 export const MCP_APP_SANDBOX_TOOL_INPUT_METHOD = "ui/notifications/tool-input" as const;
 /** Proxy -> widget print sidecar (`{type, phase: "before" | "after", theme?}`). */
 export const MCP_APP_SANDBOX_PRINT_THEME_TYPE = "moss:print-theme" as const;
+/**
+ * Widget -> proxy -> host wheel sidecar (`{type, deltaX, deltaY}`, CSS pixels): wheel the
+ * widget did not use, so the host scrolls the transcript the way an in-page frame would.
+ */
+export const MCP_APP_SANDBOX_WHEEL_TYPE = "moss:wheel" as const;
+/** Largest wheel delta (per axis, per frame) the proxy and the host pass on. */
+export const MCP_APP_SANDBOX_WHEEL_MAX_DELTA = 1_000 as const;
 /** Marker of every shell -> host bridge envelope. */
 export const MCP_APP_SANDBOX_BRIDGE_MESSAGE_TYPE = "moss:mcp-app-message" as const;
 export const MCP_APP_SANDBOX_MAIN_TO_TRUSTED_CHANNEL =

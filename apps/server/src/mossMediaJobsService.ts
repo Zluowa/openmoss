@@ -870,12 +870,37 @@ export class MossMediaJobsService {
   async readAsset(jobId: string, index: number, credential: MossMediaIdentity) {
     // Import legacy local checkpoints without running/reconciling a supplier job.
     await this.#ready(credential);
-    const job = await this.readOwnedJob(jobId, credential);
+    return this.#readStoredAsset(
+      mediaAccountScope(credential),
+      await this.readOwnedJob(jobId, credential),
+      jobId,
+      index,
+    );
+  }
+
+  /**
+   * Signed out: an output already saved on this computer, under the account scope its
+   * chat link names. Local history and files only; no import, reconcile or gateway call.
+   */
+  async readSavedAsset(scope: string, jobId: string, index: number) {
+    if (!/^[a-f0-9]{64}$/u.test(scope) || !/^moss_[A-Za-z0-9_-]{1,128}$/u.test(jobId))
+      throw new MossMediaJobsError("asset_not_found", 404);
+    const job =
+      this.#brokers.get(scope)?.get(jobId) ?? (await this.#history.get(scope, jobId))?.snapshot;
+    return this.#readStoredAsset(scope, job, jobId, index);
+  }
+
+  async #readStoredAsset(
+    scope: string,
+    job: HoolaCanvasJobSnapshot | undefined,
+    jobId: string,
+    index: number,
+  ) {
     const asset = job?.assets?.find((item) => item.index === index);
     if (!asset || !validMossMediaAsset(asset, jobId))
       throw new MossMediaJobsError("asset_not_found", 404);
     try {
-      return { asset, bytes: await this.#assets.read(mediaAccountScope(credential), asset) };
+      return { asset, bytes: await this.#assets.read(scope, asset) };
     } catch {
       throw new MossMediaJobsError("asset_not_found", 404);
     }

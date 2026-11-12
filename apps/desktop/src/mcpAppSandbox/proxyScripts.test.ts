@@ -4,6 +4,8 @@ import {
   MCP_APP_JSON_HEALER_SOURCE,
   MCP_APP_PRINT_RECEIVER_HTML,
   MCP_APP_PRINT_RECEIVER_SOURCE,
+  MCP_APP_WHEEL_COALESCER_SOURCE,
+  MCP_APP_WHEEL_RELAY_SOURCE,
 } from "./proxyScripts";
 
 interface Healer {
@@ -120,7 +122,7 @@ describe("MCP App print receiver", () => {
     expect(() => new Function(MCP_APP_PRINT_RECEIVER_SOURCE)).not.toThrow();
     expect(MCP_APP_PRINT_RECEIVER_SOURCE).toContain('"moss:print-theme"');
     expect(MCP_APP_PRINT_RECEIVER_SOURCE).toContain("moss-print-force-light");
-    expect(MCP_APP_PRINT_RECEIVER_HTML.match(/<script>/gu)).toHaveLength(1);
+    expect(MCP_APP_PRINT_RECEIVER_HTML.match(/<script>/gu)).toHaveLength(2);
     expect(MCP_APP_PRINT_RECEIVER_SOURCE).not.toMatch(/<\/script/iu);
   });
 
@@ -192,5 +194,192 @@ describe("MCP App print receiver", () => {
     send({ type: "moss:print-theme", phase: "after", theme: "dark" });
     expect(attributes.has("data-mode")).toBe(false);
     expect(root.style.colorScheme).toBe("");
+  });
+});
+
+interface FakeElement {
+  nodeType: 1;
+  parentElement: FakeElement | null;
+  overflowY: string;
+  overflowX: string;
+  scrollTop: number;
+  scrollLeft: number;
+  scrollHeight: number;
+  clientHeight: number;
+  scrollWidth: number;
+  clientWidth: number;
+}
+
+function fakeElement(
+  parent: FakeElement | null,
+  overrides: Partial<FakeElement> = {},
+): FakeElement {
+  return {
+    nodeType: 1,
+    parentElement: parent,
+    overflowY: "visible",
+    overflowX: "visible",
+    scrollTop: 0,
+    scrollLeft: 0,
+    scrollHeight: 100,
+    clientHeight: 100,
+    scrollWidth: 100,
+    clientWidth: 100,
+    ...overrides,
+  };
+}
+
+/** Runs the relay against a fake widget page; returns a wheel dispatcher and what it posted. */
+function loadWheelRelay(root: FakeElement) {
+  const posted: unknown[] = [];
+  const frames: Array<() => void> = [];
+  let wheel: ((event: Record<string, unknown>) => void) | null = null;
+  let options: unknown = null;
+  const parent = { postMessage: (data: unknown) => posted.push(data) };
+  const fakeWindow = {
+    parent,
+    innerWidth: 400,
+    innerHeight: 300,
+    getComputedStyle: (element: FakeElement) => ({
+      overflowY: element.overflowY,
+      overflowX: element.overflowX,
+    }),
+    addEventListener: (type: string, listener: typeof wheel, listenerOptions: unknown) => {
+      if (type === "wheel") {
+        wheel = listener;
+        options = listenerOptions;
+      }
+    },
+  };
+  // The relay's "next task" is a MessageChannel message; this one queues it for frame().
+  class FakeMessageChannel {
+    readonly port1: { onmessage: (() => void) | null } = { onmessage: null };
+    readonly port2 = { postMessage: () => frames.push(() => this.port1.onmessage?.()) };
+  }
+  new Function("window", "document", "MessageChannel", MCP_APP_WHEEL_RELAY_SOURCE)(
+    fakeWindow,
+    { scrollingElement: root, documentElement: root },
+    FakeMessageChannel,
+  );
+  const dispatch = (event: Record<string, unknown>) => {
+    const full = {
+      deltaMode: 0,
+      deltaX: 0,
+      deltaY: 0,
+      ctrlKey: false,
+      defaultPrevented: false,
+      ...event,
+    };
+    wheel?.(full);
+    return full;
+  };
+  const frame = () => {
+    for (const callback of frames.splice(0)) callback();
+  };
+  return { dispatch, frame, posted, options: () => options };
+}
+
+describe("MCP App wheel relay", () => {
+  it("is plain JS, passive, and posts only the Moss wheel type", () => {
+    expect(() => new Function(MCP_APP_WHEEL_RELAY_SOURCE)).not.toThrow();
+    expect(MCP_APP_WHEEL_RELAY_SOURCE).toContain('"moss:wheel"');
+    expect(MCP_APP_WHEEL_RELAY_SOURCE).not.toMatch(/<\/script/iu);
+    expect(MCP_APP_PRINT_RECEIVER_HTML).toContain(MCP_APP_WHEEL_RELAY_SOURCE);
+    const relay = loadWheelRelay(fakeElement(null));
+    expect(relay.options()).toEqual({ passive: true });
+  });
+
+  it("reports wheel a page that cannot scroll leaves, once per frame", () => {
+    const root = fakeElement(null);
+    const target = fakeElement(root);
+    const relay = loadWheelRelay(root);
+    relay.dispatch({ target, deltaY: 40 });
+    relay.dispatch({ target, deltaY: 60, deltaX: 5 });
+    expect(relay.posted).toEqual([]);
+    relay.frame();
+    expect(relay.posted).toEqual([{ type: "moss:wheel", deltaX: 5, deltaY: 100 }]);
+  });
+
+  it("keeps wheel an inner scroller or the page still uses, and passes it on at the edge", () => {
+    const root = fakeElement(null, { scrollHeight: 500, clientHeight: 200, scrollTop: 0 });
+    const list = fakeElement(root, { overflowY: "auto", scrollHeight: 300, clientHeight: 100 });
+    const item = fakeElement(list);
+    const relay = loadWheelRelay(root);
+    relay.dispatch({ target: item, deltaY: 30 });
+    relay.frame();
+    expect(relay.posted).toEqual([]);
+    // The list is at its bottom but the page can still go down.
+    list.scrollTop = 200;
+    relay.dispatch({ target: item, deltaY: 30 });
+    relay.frame();
+    expect(relay.posted).toEqual([]);
+    // Both at the bottom: the rest carries on to the transcript.
+    root.scrollTop = 300;
+    relay.dispatch({ target: item, deltaY: 30 });
+    relay.frame();
+    expect(relay.posted).toEqual([{ type: "moss:wheel", deltaX: 0, deltaY: 30 }]);
+    // Going up is still the list's.
+    relay.dispatch({ target: item, deltaY: -30 });
+    relay.frame();
+    expect(relay.posted).toHaveLength(1);
+  });
+
+  it("skips cancelled and pinch-zoom wheel and turns lines and pages into pixels", () => {
+    const root = fakeElement(null);
+    const relay = loadWheelRelay(root);
+    const cancelled = relay.dispatch({ target: root, deltaY: 50 });
+    cancelled.defaultPrevented = true;
+    relay.dispatch({ target: root, deltaY: 50, ctrlKey: true });
+    relay.frame();
+    expect(relay.posted).toEqual([]);
+    relay.dispatch({ target: root, deltaY: 3, deltaMode: 1 });
+    relay.frame();
+    relay.dispatch({ target: root, deltaY: 1, deltaMode: 2 });
+    relay.frame();
+    relay.dispatch({ target: root, deltaY: Number.NaN });
+    relay.frame();
+    expect(relay.posted).toEqual([
+      { type: "moss:wheel", deltaX: 0, deltaY: 48 },
+      { type: "moss:wheel", deltaX: 0, deltaY: 300 },
+    ]);
+  });
+});
+
+describe("MCP App proxy wheel coalescer", () => {
+  it("adds wheel up per task, never loses any, and drops anything that is not numbers", () => {
+    const frames: Array<() => void> = [];
+    const posts: Array<[number, number]> = [];
+    const push = new Function(
+      `${MCP_APP_WHEEL_COALESCER_SOURCE}; return createMossWheelCoalescer;`,
+    )()(
+      (x: number, y: number) => posts.push([x, y]),
+      (task: () => void) => frames.push(task),
+    ) as (data: unknown) => boolean;
+
+    expect(push({ jsonrpc: "2.0", method: "ui/notifications/size-changed" })).toBe(false);
+    expect(push(null)).toBe(false);
+    expect(push({ type: "moss:wheel", deltaX: 0, deltaY: 120 })).toBe(true);
+    expect(push({ type: "moss:wheel", deltaX: 2, deltaY: 30 })).toBe(true);
+    expect(push({ type: "moss:wheel", deltaX: "1", deltaY: 30 })).toBe(true);
+    expect(push({ type: "moss:wheel", deltaX: 0, deltaY: Number.POSITIVE_INFINITY })).toBe(true);
+    expect(push({ type: "moss:wheel", deltaX: 0, deltaY: 30, extra: 1 })).toBe(true);
+    expect(frames).toHaveLength(1);
+    frames.splice(0)[0]!();
+    expect(posts).toEqual([[2, 150]]);
+    // One message is capped at 1000 px; a sum above that goes out in pieces, none lost.
+    push({ type: "moss:wheel", deltaX: 0, deltaY: 1e9 });
+    push({ type: "moss:wheel", deltaX: 0, deltaY: 900 });
+    push({ type: "moss:wheel", deltaX: -300, deltaY: 0 });
+    while (frames.length > 0) frames.shift()!();
+    expect(posts.slice(1)).toEqual([
+      [-300, 1000],
+      [0, 900],
+    ]);
+    // N px in, N px out, exactly once.
+    posts.length = 0;
+    for (let tick = 0; tick < 3; tick += 1) push({ type: "moss:wheel", deltaX: 0, deltaY: 300 });
+    while (frames.length > 0) frames.shift()!();
+    expect(posts.reduce((sum, [, y]) => sum + y, 0)).toBe(900);
+    expect(posts).toHaveLength(1);
   });
 });

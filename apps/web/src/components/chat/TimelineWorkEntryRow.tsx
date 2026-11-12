@@ -319,7 +319,11 @@ function workEntryPreview(
     // Failed calls keep their detail inline: it may carry the error text (e.g.
     // an MCP error serialized as `McpError: {json}`), and on a failure more
     // information beats a tidy row.
-    if (toolWorkEntryStatus(workEntry) !== "failed" && isPrefixedToolArgumentSummary(trimmedDetail))
+    // A raw MCP id (`mcp__server__tool: {…}`) is never error text.
+    if (
+      isPrefixedToolArgumentSummary(trimmedDetail) &&
+      (toolWorkEntryStatus(workEntry) !== "failed" || trimmedDetail.startsWith("mcp__"))
+    )
       return null;
 
     const readLinesMatch = /^Read\s+(\d+\s+lines?)$/i.exec(trimmedDetail);
@@ -516,7 +520,8 @@ export function prefersCompactWorkEntryRow(workEntry: TimelineWorkEntry): boolea
 
 function capitalizePhrase(value: string): string {
   const trimmed = value.trim();
-  if (trimmed.length === 0) {
+  // "{server}: {tool}" keeps the server's own name, as Claude does.
+  if (trimmed.length === 0 || /^[^\s:]+: /u.test(trimmed)) {
     return value;
   }
   return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;

@@ -70,6 +70,8 @@ function toKanbanThreadDerivationInput(
     lastActivityTimestampMs: Number.isFinite(updatedAtMs) ? updatedAtMs : null,
     hasPendingApprovals: thread.hasPendingApprovals ?? false,
     hasPendingUserInput: thread.hasPendingUserInput ?? false,
+    createdAt: thread.createdAt,
+    latestUserMessageAt: thread.latestUserMessageAt ?? null,
   };
 }
 

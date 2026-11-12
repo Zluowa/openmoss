@@ -1255,7 +1255,14 @@ export function SingleChatSurface(props: {
         );
       case "htmlRender":
         return pane.htmlDocument ? (
-          <HtmlRenderPreviewPane threadId={props.threadId} document={pane.htmlDocument} />
+          <HtmlRenderPreviewPane
+            threadId={props.threadId}
+            document={pane.htmlDocument}
+            residency={{
+              key: `htmlRender:${props.threadId}:${pane.id}`,
+              visible: context.isVisible,
+            }}
+          />
         ) : (
           <RightDockPanePlaceholder kind="htmlRender" />
         );
@@ -1287,7 +1294,11 @@ export function SingleChatSurface(props: {
         );
       case "deck":
         return pane.deck ? (
-          <DeckDockPane threadId={props.threadId} deck={pane.deck} />
+          <DeckDockPane
+            threadId={props.threadId}
+            deck={pane.deck}
+            residency={{ key: `deck:${props.threadId}:${pane.id}`, visible: context.isVisible }}
+          />
         ) : (
           <RightDockPanePlaceholder kind="deck" />
         );

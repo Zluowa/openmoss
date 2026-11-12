@@ -23,6 +23,7 @@ import { useComposerDraftStore } from "../../composerDraftStore";
 import { selectRightDockState, useRightDockStore } from "../../rightDockStore";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { useTheme } from "~/hooks/useTheme";
+import { useResidentRuntime } from "~/lib/dockRuntimeResidency";
 import { McpAppHostController, type McpAppHostSnapshot } from "~/lib/mcpAppHost";
 import {
   hasMcpAppDockHost,
@@ -257,13 +258,31 @@ function McpAppBlock(props: McpAppCardProps & { readonly binding: McpAppBinding 
     (dockEntry.displayMode === "fullscreen" || dockEntry.requestedDisplayMode === "fullscreen");
   const dockShowing = docked && dockState.open && dockEntry?.selected === true;
 
-  // Lend this row's slot to the live widget (it starts there the first time).
+  // The side panel's shared residency policy (lib/dockRuntimeResidency.ts): an app collapsed out
+  // of sight is told and unloaded after a while, or when the window holds too many, and starts
+  // again from its tool result when it is shown. An app in the side panel, or one asking the
+  // person something, counts as in use and stays.
+  const residency = useResidentRuntime({
+    active: started && controller !== null,
+    key: `app:${entryId}`,
+    owner: threadId,
+    runtimeClass: "appWidget",
+    visible: docked ? dockShowing : open,
+    pinned: docked || snapshot.prompt !== null || snapshot.dialog !== null,
+    suspend: async () => {
+      await controller?.suspend();
+      return true;
+    },
+  });
+
+  // Lend this row's slot to the live widget (it starts there the first time, and again after
+  // the residency policy unloaded it).
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
-    if (!controller || !slot || !started) return;
+    if (!controller || !slot || !started || !residency.loaded) return;
     controller.attachInline(slot);
     return () => controller.detachInline(slot);
-  }, [controller, slot, started]);
+  }, [controller, slot, started, residency.loaded]);
 
   useEffect(() => {
     controller?.updateProjection(projection);

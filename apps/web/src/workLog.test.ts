@@ -2838,12 +2838,12 @@ describe("deriveWorkLogEntries", () => {
       {
         id: "codex-mcp-item",
         toolName: "get_app_state",
-        toolTitle: "Computer Use: Get App State",
+        toolTitle: "Computer Use: get app state",
       },
       {
         id: "codex-mcp-invocation",
         toolName: "screenshot",
-        toolTitle: "Computer Use: Screenshot",
+        toolTitle: "Computer Use: screenshot",
       },
     ]);
   });
@@ -4468,7 +4468,7 @@ describe("deriveWorkLogEntries", () => {
     expect(entry).toMatchObject({
       id: "mcp-progress",
       itemType: "mcp_tool_call",
-      toolTitle: "Codex Apps: Github Fetch Pr",
+      toolTitle: "Codex Apps: github fetch pr",
       detail: "Fetching PR details",
     });
   });
@@ -6898,5 +6898,85 @@ describe("secret request cards", () => {
       visibleTurnIds: new Set([TurnId.makeUnsafe("other-turn")]),
     });
     expect(entries.map((entry) => entry.secretRequest?.requestId)).toEqual([requestId]);
+  });
+});
+
+describe("deriveWorkLogEntries MCP App rows (real-data acceptance)", () => {
+  const entryFor = (payload: NonNullable<Parameters<typeof makeActivity>[0]["payload"]>) =>
+    deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: `row-${JSON.stringify(payload).length}`,
+          createdAt: "2026-02-23T00:00:01.000Z",
+          kind: "tool.completed",
+          summary: "MCP tool call",
+          payload,
+        }),
+      ],
+      undefined,
+    )[0]!;
+
+  it("keeps Moss's own words for a projected gateway call, failures included", () => {
+    const entry = entryFor({
+      itemType: "mcp_tool_call",
+      title: "MCP tool call",
+      status: "failed",
+      data: {
+        kind: "codex.mcp_tool_call",
+        version: 1,
+        callId: "c-moss",
+        server: "moss",
+        tool: "moss_read_widget_context",
+        status: "failed",
+        arguments: { tool_name: "mcp__debug__debug-tool" },
+        error: { message: "not shared" },
+        truncation: { truncated: false, deferredBinary: false },
+      },
+    });
+    expect(entry.toolTitle).toBe("Moss couldn't finish reading widget state");
+    expect(entry.label).toBe("Moss couldn't finish reading widget state");
+  });
+
+  it("keeps a Claude gateway call's own name when its argument names another tool", () => {
+    const entry = entryFor({
+      itemType: "mcp_tool_call",
+      title: "MCP tool call",
+      status: "failed",
+      detail: 'mcp__moss__moss_read_widget_context: {"tool_name":"mcp__debug__debug-tool"}',
+      data: {
+        toolCallId: "c-read",
+        toolName: "mcp__moss__moss_read_widget_context",
+        input: { tool_name: "mcp__debug__debug-tool" },
+      },
+    });
+    expect(entry.toolName).toBe("mcp__moss__moss_read_widget_context");
+    expect(entry.toolTitle).toBe("Moss couldn't finish reading widget state");
+  });
+
+  it("names hyphenated widget tools in Claude's words and ToolSearch as loaded tools", () => {
+    const map = entryFor({
+      itemType: "mcp_tool_call",
+      title: "MCP tool call",
+      status: "completed",
+      data: {
+        kind: "codex.mcp_tool_call",
+        version: 1,
+        callId: "c-map",
+        server: "map",
+        tool: "show-map",
+        status: "completed",
+        arguments: {},
+        result: { content: [] },
+        truncation: { truncated: false, deferredBinary: false },
+      },
+    });
+    expect(map.toolTitle).toBe("map: show map");
+    const search = entryFor({
+      itemType: "dynamic_tool_call",
+      title: "ToolSearch",
+      status: "completed",
+      data: { toolCallId: "c-search", toolName: "ToolSearch" },
+    });
+    expect(search.toolTitle).toBe("Loaded tools");
   });
 });

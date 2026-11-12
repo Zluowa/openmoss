@@ -140,6 +140,23 @@ export function appendWidgetContextHint(
   return `${input}\n\n${widgetContextHint(toolNames)}`;
 }
 
+/**
+ * The names a model may pass for one widget tool: the bare name, Claude's
+ * `mcp__{server}__{tool}`, `{server}__{tool}`, or `{server}:{tool}` / `{server}/{tool}`.
+ * Returns the bare-name candidates to look up, most specific first.
+ */
+function widgetToolNameCandidates(toolName: string): ReadonlyArray<string> {
+  const name = toolName.trim();
+  const candidates = [name];
+  const qualified = /^mcp__[^_](?:.*?[^_])?__(.+)$/u.exec(name)?.[1];
+  if (qualified) candidates.push(qualified);
+  const doubleUnderscore = name.indexOf("__");
+  if (doubleUnderscore > 0) candidates.push(name.slice(doubleUnderscore + 2));
+  const separator = /^[^:/\s]+[:/](.+)$/u.exec(name)?.[1];
+  if (separator) candidates.push(separator);
+  return [...new Set(candidates.filter((candidate) => candidate.length > 0))];
+}
+
 /** Per-thread `ui/update-model-context` state plus the last-send snapshots. */
 export class McpAppModelContextStore {
   private readonly live = new Map<string, Map<string, StoredEntry>>();
@@ -234,7 +251,10 @@ export class McpAppModelContextStore {
         ],
       };
     }
-    const entry = snapshot.get(toolName);
+    // Matched by tool name within this thread, whatever form the model used for it.
+    const entry = widgetToolNameCandidates(toolName)
+      .map((candidate) => snapshot.get(candidate))
+      .find((found) => found !== undefined);
     if (!entry) {
       return {
         content: [

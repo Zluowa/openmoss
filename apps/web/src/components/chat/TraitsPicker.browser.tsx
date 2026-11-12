@@ -318,7 +318,7 @@ describe("TraitsPicker (Claude)", () => {
       await using _ = await mountClaudePicker({ model });
       await page.getByRole("button").click();
       await expect
-        .element(page.getByRole("menuitemradio", { name: "Auto (Claude Code)" }))
+        .element(page.getByRole("menuitemradio", { name: "Auto (Moss decides)" }))
         .toHaveAttribute("aria-checked", "true");
       await page.getByRole("menuitemradio", { name: "200k" }).click();
       await page.getByRole("button").click();
@@ -330,10 +330,10 @@ describe("TraitsPicker (Claude)", () => {
       await expect
         .element(page.getByRole("menuitemradio", { name: "1M" }))
         .toHaveAttribute("aria-checked", "true");
-      await page.getByRole("menuitemradio", { name: "Auto (Claude Code)" }).click();
+      await page.getByRole("menuitemradio", { name: "Auto (Moss decides)" }).click();
       await page.getByRole("button").click();
       await expect
-        .element(page.getByRole("menuitemradio", { name: "Auto (Claude Code)" }))
+        .element(page.getByRole("menuitemradio", { name: "Auto (Moss decides)" }))
         .toHaveAttribute("aria-checked", "true");
     },
   );

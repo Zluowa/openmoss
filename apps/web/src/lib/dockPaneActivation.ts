@@ -107,10 +107,19 @@ const DEFERRED_RUNTIME_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set<Righ
 // re-list flash and preserves the tree's DOM scroll position on tab switches.
 // File panes keep their reading scroll position in the DOM, so unmounting on a
 // tab switch resets the reader to the top when the file is selected again.
+// Side-panel editors and previews (Canvas, image views, slides, HTML renders) stay mounted for
+// the same reason a browser tab does: switching tabs must not reload them, which costs about a
+// second each time. What they hold while hidden is bounded by the shared residency policy
+// (lib/dockRuntimeResidency.ts), which saves and unloads a hidden one after a while or when the
+// window holds too many, and loads it again when it is shown.
 const KEEP_MOUNTED_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set<RightDockPaneKind>([
   "terminal",
   "explorer",
   "file",
+  "canvas",
+  "imagePreview",
+  "deck",
+  "htmlRender",
 ]);
 
 export function dockPaneActivationKey(input: {

@@ -8,6 +8,7 @@ import {
 } from "@moss/contracts";
 import { VISIBLE_PROVIDER_DESCRIPTORS } from "./betaFeatures";
 import { formatDurationUnit } from "./lib/timeFormat";
+export { localizeCodexDurationUnits } from "./lib/timeFormat";
 
 import { orderedActivities, parseTaskListTasks } from "./workLog";
 
@@ -128,24 +129,6 @@ export function formatClockDuration(durationMs: number, locale = "en"): string {
   return seconds > 0
     ? `${formatClockUnit(minutes, "minute", locale)} ${formatClockUnit(seconds, "second", locale)}`
     : formatClockUnit(minutes, "minute", locale);
-}
-
-const ZH_CLOCK_UNIT: Record<string, string> = {
-  ms: "毫秒",
-  d: "天",
-  h: "小时",
-  m: "分钟",
-  s: "秒",
-};
-
-// Settled headers are formatted in English compact units first. zh-CN swaps
-// the units so `1m 23s` reads `1 分钟 23 秒`, the same spacing as every other duration.
-export function localizeCodexDurationUnits(label: string, locale: string): string {
-  if (!locale.toLowerCase().startsWith("zh")) return label;
-  return label.replace(
-    /(\d+(?:\.\d+)?)(ms|d|h|m|s)\b/g,
-    (_match, amount: string, unit: string) => `${amount} ${ZH_CLOCK_UNIT[unit] ?? unit}`,
-  );
 }
 
 export function formatClockElapsed(

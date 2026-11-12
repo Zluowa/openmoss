@@ -58,6 +58,7 @@ import { chatArtifactFromActivity, type ChatArtifact } from "./lib/chatArtifacts
 import {
   deriveReadableToolTitle,
   deriveMossMcpToolTitle,
+  deriveToolSearchTitle,
   codexMcpInvocationTitle,
   isHtmlPageToolCall,
   extractMcpServerName,
@@ -2486,8 +2487,19 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     // Promote the typed MCP identity (and, for js, its concise invocation title)
     // into both public title fields so all consumers agree with the native UI.
     const invocationTitle = codexMcpInvocationTitle(mcpToolResult.tool, mcpToolResult.arguments);
+    // Moss's own gateway tools keep their own words on every provider, failures included.
+    const mossTitle = deriveMossMcpToolTitle({
+      toolName: entry.toolName,
+      status:
+        mcpToolResult.status === "failed"
+          ? "failed"
+          : mcpToolResult.status === "inProgress"
+            ? "running"
+            : "completed",
+    });
     const sourceTitle =
       invocationTitle ??
+      mossTitle ??
       deriveReadableToolTitle({
         fallbackLabel: "",
         itemType: "mcp_tool_call",
@@ -2609,6 +2621,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       (mcpToolResult
         ? (codexMcpInvocationTitle(mcpToolResult.tool, mcpToolResult.arguments) ?? entry.toolTitle)
         : null) ??
+      deriveToolSearchTitle(toolName, activity.kind !== "tool.completed") ??
       deriveMossMcpToolTitle({
         toolName,
         title: commandActionDisplay?.title ?? title,
@@ -4449,9 +4462,14 @@ function extractToolName(payload: Record<string, unknown> | null): string | null
     dataRawInput?.tool_name,
     dataRawInput?.toolName,
   ];
-  for (const candidate of nestedToolNames) {
-    const normalized = asTrimmedString(candidate);
-    if (normalized) return normalized;
+  // A call that already names an MCP tool (`mcp__server__tool`) is not a wrapper: its own
+  // `tool_name` argument is data (moss_read_widget_context takes one), not its identity.
+  const ownName = asTrimmedString(payload?.toolName ?? data?.toolName);
+  if (!ownName?.startsWith("mcp__")) {
+    for (const candidate of nestedToolNames) {
+      const normalized = asTrimmedString(candidate);
+      if (normalized) return normalized;
+    }
   }
   const candidates = [
     payload?.toolName,

@@ -176,8 +176,8 @@ export function resolveProviderInstanceIdForProviderSwitch(input: {
 
 /**
  * Agents a working Moss lane runs right now. Their own signed-out login is then nothing
- * to ask about: Settings, the welcome tour and the model picker say connected instead
- * of 登录.
+ * to ask about: the welcome tour and the model picker say connected instead of 登录.
+ * Settings says connected through Moss and still offers the own account's 登录.
  */
 export function providersServedByMoss(
   statuses: ReadonlyArray<ServerProviderStatus>,

@@ -41,6 +41,11 @@ import type {
 } from "@moss/contracts";
 import { isBrowserCopyLinkChord } from "@moss/shared/browserShortcuts";
 import {
+  RUNTIME_RESIDENCY_POLICIES,
+  selectRuntimesOverBudget,
+  type ResidentRuntimeState,
+} from "@moss/shared/runtimeResidency";
+import {
   BROWSER_BLANK_URL as ABOUT_BLANK_URL,
   BROWSER_AUTOMATION_VIEWPORT_HEIGHT,
   BROWSER_AUTOMATION_VIEWPORT_WIDTH,
@@ -70,12 +75,15 @@ export { BROWSER_SESSION_PARTITION } from "./browserSessionPolicy";
 // Switching tabs must never cost the page: an inactive tab keeps its DOM, scroll,
 // form input and history for minutes, not seconds. Memory is bounded by the
 // per-thread warm limit and the app-wide live-runtime budget below instead.
-const BROWSER_INACTIVE_TAB_SUSPEND_DELAY_MS = 10 * 60_000;
-const BROWSER_INACTIVE_TAB_SUSPEND_DELAY_PRESSURED_MS = 60_000;
-const BROWSER_MAX_WARM_INACTIVE_RUNTIMES_PER_THREAD = 5;
+// The numbers live in the shared residency table, which the side panel's editors and apps use
+// too (packages/shared/src/runtimeResidency.ts).
+const BROWSER_RESIDENCY = RUNTIME_RESIDENCY_POLICIES.browserTab;
+const BROWSER_INACTIVE_TAB_SUSPEND_DELAY_MS = BROWSER_RESIDENCY.hiddenSuspendMs;
+const BROWSER_INACTIVE_TAB_SUSPEND_DELAY_PRESSURED_MS = BROWSER_RESIDENCY.pressuredHiddenSuspendMs;
+const BROWSER_MAX_WARM_INACTIVE_RUNTIMES_PER_THREAD = BROWSER_RESIDENCY.maxHiddenPerOwner;
 // App-wide cap on browser-owned page runtimes. Past it, the least recently used
 // hidden page is suspended and reloads from its URL when shown again.
-const BROWSER_MAX_LIVE_TAB_RUNTIMES = 12;
+const BROWSER_MAX_LIVE_TAB_RUNTIMES = BROWSER_RESIDENCY.maxLoaded;
 const BROWSER_MAX_BACKGROUND_AUTOMATION_RUNTIMES = 4;
 // Browser tools have a published maximum 30 second deadline. Keep a newly
 // acquired runtime out of the eviction pool until that action has drained.
@@ -2599,40 +2607,41 @@ export class DesktopBrowserManager {
    */
   private enforceLiveTabRuntimeBudget(): void {
     const ownedRuntimes = [...this.runtimes.values()].filter((runtime) => runtime.ownsWebContents);
-    let excess = ownedRuntimes.length - BROWSER_MAX_LIVE_TAB_RUNTIMES;
-    if (excess <= 0) return;
+    if (ownedRuntimes.length <= BROWSER_MAX_LIVE_TAB_RUNTIMES) return;
 
     const now = Date.now();
     const popupOwnerRuntimeKeys = new Set(
       [...this.popupRuntimes.values()].map((popup) => buildRuntimeKey(popup.threadId, popup.tabId)),
     );
-    const evictionCandidates = ownedRuntimes
-      .filter(
-        (runtime) =>
-          runtime.key !== this.attachedRuntimeKey &&
-          !(
-            runtime.threadId === this.activeThreadId &&
-            this.states.get(runtime.threadId)?.activeTabId === runtime.tabId
-          ) &&
-          !this.isEmbeddedPopupFamily(runtime.threadId, runtime.tabId) &&
-          !popupOwnerRuntimeKeys.has(runtime.key) &&
-          (this.automationRuntimeProtectedUntilByKey.get(runtime.key) ?? 0) <= now,
-      )
-      .toSorted(
-        (left, right) =>
-          (this.runtimeLastActiveAtByKey.get(left.key) ?? 0) -
-          (this.runtimeLastActiveAtByKey.get(right.key) ?? 0),
-      );
+    const byKey = new Map(ownedRuntimes.map((runtime) => [runtime.key, runtime]));
+    const evict = selectRuntimesOverBudget({
+      runtimes: ownedRuntimes.map(
+        (runtime): ResidentRuntimeState => ({
+          key: runtime.key,
+          owner: runtime.threadId,
+          visible:
+            runtime.key === this.attachedRuntimeKey ||
+            (runtime.threadId === this.activeThreadId &&
+              this.states.get(runtime.threadId)?.activeTabId === runtime.tabId),
+          pinned:
+            this.isEmbeddedPopupFamily(runtime.threadId, runtime.tabId) ||
+            popupOwnerRuntimeKeys.has(runtime.key) ||
+            (this.automationRuntimeProtectedUntilByKey.get(runtime.key) ?? 0) > now,
+          lastActiveAt: this.runtimeLastActiveAtByKey.get(runtime.key) ?? 0,
+          hiddenSince: null,
+        }),
+      ),
+      maxLoaded: BROWSER_MAX_LIVE_TAB_RUNTIMES,
+    });
     const changedThreadIds = new Set<ThreadId>();
-    for (const runtime of evictionCandidates) {
-      if (excess <= 0) break;
+    for (const key of evict) {
+      const runtime = byKey.get(key)!;
       const state = this.states.get(runtime.threadId);
       const tab = state ? this.getTab(state, runtime.tabId) : null;
       this.destroyRuntime(runtime.threadId, runtime.tabId);
       if (state && tab && (suspendTabState(tab) || syncThreadLastError(state))) {
         changedThreadIds.add(runtime.threadId);
       }
-      excess -= 1;
       this.perfCounters.inactiveTabBudgetEvictions += 1;
     }
     for (const threadId of changedThreadIds) {
@@ -2666,17 +2675,24 @@ export class DesktopBrowserManager {
     if (excess <= 0) return;
 
     const now = Date.now();
-    const evictionCandidates = backgroundRuntimes
-      .filter((runtime) => (this.automationRuntimeProtectedUntilByKey.get(runtime.key) ?? 0) <= now)
-      .toSorted(
-        (left, right) =>
-          (this.runtimeLastActiveAtByKey.get(left.key) ?? 0) -
-          (this.runtimeLastActiveAtByKey.get(right.key) ?? 0),
-      );
+    const byKey = new Map(backgroundRuntimes.map((runtime) => [runtime.key, runtime]));
+    const evictionCandidates = selectRuntimesOverBudget({
+      runtimes: backgroundRuntimes.map(
+        (runtime): ResidentRuntimeState => ({
+          key: runtime.key,
+          owner: runtime.threadId,
+          visible: false,
+          // An agent's action still draining keeps its page.
+          pinned: (this.automationRuntimeProtectedUntilByKey.get(runtime.key) ?? 0) > now,
+          lastActiveAt: this.runtimeLastActiveAtByKey.get(runtime.key) ?? 0,
+          hiddenSince: null,
+        }),
+      ),
+      maxLoaded: BROWSER_MAX_BACKGROUND_AUTOMATION_RUNTIMES,
+    }).map((key) => byKey.get(key)!);
     const changedThreadIds = new Set<ThreadId>();
 
     for (const runtime of evictionCandidates) {
-      if (excess <= 0) break;
       const state = this.states.get(runtime.threadId);
       const tab = state ? this.getTab(state, runtime.tabId) : null;
       this.destroyRuntime(runtime.threadId, runtime.tabId);
@@ -2719,21 +2735,28 @@ export class DesktopBrowserManager {
     }
 
     let didChange = false;
-    const inactiveRuntimeTabIds = state.tabs
+    // The thread keeps its most recently used inactive pages warm (the shared per-owner limit);
+    // the rest are suspended now.
+    const inactiveRuntimeTabs = state.tabs
       .filter((tab) => tab.id !== activeTabId)
-      .filter((tab) => this.runtimes.has(buildRuntimeKey(threadId, tab.id)))
-      .sort((left, right) => {
-        const leftKey = buildRuntimeKey(threadId, left.id);
-        const rightKey = buildRuntimeKey(threadId, right.id);
-        return (
-          (this.runtimeLastActiveAtByKey.get(rightKey) ?? 0) -
-          (this.runtimeLastActiveAtByKey.get(leftKey) ?? 0)
-        );
-      });
+      .filter((tab) => this.runtimes.has(buildRuntimeKey(threadId, tab.id)));
+    const overBudgetTabIds = new Set(
+      selectRuntimesOverBudget({
+        runtimes: inactiveRuntimeTabs.map(
+          (tab): ResidentRuntimeState => ({
+            key: tab.id,
+            owner: threadId,
+            visible: false,
+            pinned: false,
+            lastActiveAt: this.runtimeLastActiveAtByKey.get(buildRuntimeKey(threadId, tab.id)) ?? 0,
+            hiddenSince: null,
+          }),
+        ),
+        maxHiddenPerOwner: BROWSER_MAX_WARM_INACTIVE_RUNTIMES_PER_THREAD,
+      }),
+    );
     const warmRuntimeTabIds = new Set(
-      inactiveRuntimeTabIds
-        .slice(0, BROWSER_MAX_WARM_INACTIVE_RUNTIMES_PER_THREAD)
-        .map((tab) => tab.id),
+      inactiveRuntimeTabs.filter((tab) => !overBudgetTabIds.has(tab.id)).map((tab) => tab.id),
     );
 
     for (const tab of state.tabs) {

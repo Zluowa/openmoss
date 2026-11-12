@@ -3,7 +3,7 @@
 //          while a remembered height holds, and remember heights per widget on this device.
 // Layer: Web MCP App host presentation
 // Exports: resolveMcpAppReportedHeight, readRememberedMcpAppHeight, rememberMcpAppHeight,
-//          MCP_APP_WIDGET_HEIGHTS_STORAGE_KEY
+//          createMcpAppFirstSizeSettler, MCP_APP_WIDGET_HEIGHTS_STORAGE_KEY
 
 import {
   MCP_APP_EMPTY_HEIGHT_THRESHOLD,
@@ -77,4 +77,53 @@ export function rememberMcpAppHeight(key: string, height: number): void {
   } catch {
     // A full or blocked store only costs the reserved row height next time.
   }
+}
+
+/** A widget's first heights arrive in a burst while it lays out; this long a pause ends it. */
+export const MCP_APP_FIRST_SIZE_QUIET_MS = 80;
+/** The first height is shown at most this long after the first report, burst or not. */
+export const MCP_APP_FIRST_SIZE_MAX_MS = 300;
+
+/**
+ * Shows a widget's first height once its burst of start-up reports settles (a quiet gap, or
+ * 300 ms at most), so the card opens once at the right height instead of growing in steps.
+ * Every later report applies at once. `cancel` drops a pending first height.
+ */
+export function createMcpAppFirstSizeSettler(input: {
+  readonly apply: (height: number) => void;
+  readonly now?: () => number;
+  readonly setTimer?: (callback: () => void, ms: number) => unknown;
+  readonly clearTimer?: (timer: unknown) => void;
+}): { report(height: number): void; cancel(): void } {
+  const now = input.now ?? (() => performance.now());
+  const setTimer = input.setTimer ?? ((callback, ms) => setTimeout(callback, ms));
+  const clearTimer =
+    input.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
+  let firstAt: number | null = null;
+  let settled = false;
+  let pending = 0;
+  let timer: unknown = null;
+  const flush = () => {
+    timer = null;
+    settled = true;
+    input.apply(pending);
+  };
+  return {
+    report(height) {
+      if (settled) {
+        input.apply(height);
+        return;
+      }
+      const at = now();
+      firstAt ??= at;
+      pending = height;
+      if (timer !== null) clearTimer(timer);
+      const left = firstAt + MCP_APP_FIRST_SIZE_MAX_MS - at;
+      timer = setTimer(flush, Math.max(0, Math.min(MCP_APP_FIRST_SIZE_QUIET_MS, left)));
+    },
+    cancel() {
+      if (timer !== null) clearTimer(timer);
+      timer = null;
+    },
+  };
 }

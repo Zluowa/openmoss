@@ -14,6 +14,7 @@ import { Button } from "./ui/button";
 import { resolveWsHttpUrl } from "../lib/wsHttpUrl";
 import type { MossCanvasImageFocus } from "../lib/mossCanvasBridge";
 import { mossCanvasOcclusionRect } from "../lib/mossCanvasOcclusion";
+import { isEmbeddedBundleVerified, verifyEmbeddedBundle } from "../lib/embeddedBundleCheck";
 import { useMossImagesAccountBoundary } from "../lib/mossImagesAccountBoundary";
 import {
   importMossCanvasLocalImages,
@@ -281,7 +282,11 @@ export function MossCanvasWebSurface({
   } | null>(null);
   const contextFlight = useRef<ReturnType<MossCanvasComposeContextReader> | null>(null);
   const leaving = useRef<Promise<boolean> | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "unavailable">("loading");
+  // Once this session has seen the bundle served, the frame starts on the first commit instead of
+  // after the probe's round trip (lib/embeddedBundleCheck.ts).
+  const [state, setState] = useState<"loading" | "ready" | "unavailable">(() =>
+    src && isEmbeddedBundleVerified(src) ? "ready" : "loading",
+  );
   // Signed out, the editor's storage can never answer: show what to do instead
   // of an empty editor with placeholders. Re-asked whenever the account changes.
   const [signedOutKey, setSignedOutKey] = useState<string | null>(null);
@@ -493,17 +498,14 @@ export function MossCanvasWebSurface({
       setState("unavailable");
       return;
     }
+    // Known to be served: the frame is already loading; the probe runs alongside it.
+    if (isEmbeddedBundleVerified(src)) setState("ready");
     let cancelled = false;
     // A missing bundle is a visible release failure; never silently substitute
     // the former partial editor for the complete Canvas workspace.
-    fetch(src, { method: "GET", credentials: "omit" })
-      .then((response) => {
-        if (cancelled) return;
-        setState(response.ok ? "ready" : "unavailable");
-      })
-      .catch(() => {
-        if (!cancelled) setState("unavailable");
-      });
+    void verifyEmbeddedBundle(src).then((ok) => {
+      if (!cancelled) setState(ok ? "ready" : "unavailable");
+    });
     return () => {
       cancelled = true;
     };

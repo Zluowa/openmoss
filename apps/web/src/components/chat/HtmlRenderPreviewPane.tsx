@@ -10,6 +10,7 @@ import { htmlRenderFileName } from "@moss/shared/htmlRender";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
+import { useResidentRuntime } from "~/lib/dockRuntimeResidency";
 import { htmlDocumentSourceUrlResolver } from "~/lib/htmlDocumentSource";
 import { resolveHtmlRenderFrameUrl } from "~/lib/htmlRenderFrameUrl";
 import { resolveInlineVisualizationFrameUrl } from "~/lib/inlineVisualizationFrameUrl";
@@ -59,6 +60,12 @@ export function HtmlRenderPreviewPane(props: {
   readonly document: RightDockHtmlDocument;
   /** Controls the surrounding surface adds at the header's end (the guest page's close). */
   readonly headerEnd?: ReactNode;
+  /**
+   * In the side panel: the pane's residency key and whether it is shown. The page then follows
+   * the side panel's shared residency policy (unloaded while hidden long enough, loaded again
+   * when shown). Without it the page stays loaded for as long as the pane is mounted.
+   */
+  readonly residency?: { readonly key: string; readonly visible: boolean };
 }) {
   const { format, t } = useTranslation();
   const [src, setSrc] = useState<string | null | undefined>(undefined);
@@ -81,6 +88,17 @@ export function HtmlRenderPreviewPane(props: {
   const comments = usePageComments(pageKey);
   const hasUnreadComments = comments.some((comment) => !comment.read);
   const [commentMode, setCommentMode] = useState(false);
+  // The page is reloaded from its attachment, so nothing needs saving first. While the reader is
+  // commenting it counts as in use and stays loaded.
+  const runtime = useResidentRuntime({
+    active: props.residency !== undefined,
+    key: props.residency?.key ?? "",
+    owner: props.threadId,
+    runtimeClass: "dockFrame",
+    visible: props.residency?.visible ?? true,
+    pinned: commentMode,
+    suspend: async () => true,
+  });
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [commentMarkersVisible, setCommentMarkersVisible] = useState(true);
   const [commentsMenuOpen, setCommentsMenuOpen] = useState(false);
@@ -106,7 +124,10 @@ export function HtmlRenderPreviewPane(props: {
 
   // A pane only ever changes document to a newer page of its surface, which keeps the
   // reader's zoom and shows the older page until the newer one's URL resolves.
+  // Unloaded while hidden: mint a fresh URL when it is shown again (the old one may have expired).
+  const loaded = runtime.loaded;
   useEffect(() => {
+    if (!loaded) return;
     let active = true;
     setSource(null);
     setShowSource(false);
@@ -122,7 +143,7 @@ export function HtmlRenderPreviewPane(props: {
     return () => {
       active = false;
     };
-  }, [resolveUrl]);
+  }, [resolveUrl, loaded]);
 
   // The document's own bytes: the frame's URL for the owner, the share's `file` route for a guest.
   const resolveSourceUrl = useCallback(async () => {
@@ -332,7 +353,7 @@ export function HtmlRenderPreviewPane(props: {
         <p className="flex min-h-0 flex-1 items-center justify-center p-4 text-center text-ui-xs text-muted-foreground">
           {format("chat.htmlRender.unavailable", { title })}
         </p>
-      ) : src === undefined ? (
+      ) : src === undefined || !loaded ? (
         <div
           className="min-h-0 flex-1 animate-pulse bg-muted/20"
           data-html-render-preview-loading

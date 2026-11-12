@@ -140,6 +140,13 @@ describe("translateZhCnRuntimeUiText", () => {
     expect(translateZhCnRuntimeUiText("You can attach up to 8 references per message.")).toBe(
       "每条消息最多可附加 8 个引用。",
     );
+    expect(translateZhCnRuntimeUiText("Interrupted after 10m 44s")).toBe(
+      "已中断，用时 10 分钟 44 秒",
+    );
+    expect(translateZhCnRuntimeUiText("Interrupted after 10 分钟 44 秒")).toBe(
+      "已中断，用时 10 分钟 44 秒",
+    );
+    expect(translateZhCnRuntimeUiText("Stopped by you after 5.5s")).toBe("你已停止，用时 5.5 秒");
     expect(translateZhCnRuntimeUiText("5d")).toBe("5 天");
     expect(translateZhCnRuntimeUiText("1 day")).toBe("1 天");
     expect(translateZhCnRuntimeUiText("4,934 days")).toBe("4,934 天");

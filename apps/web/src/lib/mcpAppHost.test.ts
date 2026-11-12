@@ -219,6 +219,35 @@ describe("BoundedMessagePortTransport", () => {
     }
   });
 
+  it("hands the proxy's wheel to onwheel and never to the protocol", async () => {
+    const channel = new MessageChannel();
+    const transport = new BoundedMessagePortTransport(channel.port1);
+    const wheels: unknown[] = [];
+    transport.onwheel = (delta) => wheels.push(delta);
+    const received: JSONRPCMessage[] = [];
+    transport.onmessage = (message) => received.push(message);
+    let closed = false;
+    transport.onclose = () => {
+      closed = true;
+    };
+    try {
+      await transport.start();
+      channel.port2.start();
+      channel.port2.postMessage(wrap({ type: "moss:wheel", deltaX: 0, deltaY: 120 }));
+      channel.port2.postMessage(wrap({ type: "moss:wheel", deltaX: 0, deltaY: 1e9 }));
+      channel.port2.postMessage(wrap({ jsonrpc: "2.0", id: 1, method: "ui/ping", params: {} }));
+      await vi.waitFor(() => expect(received).toHaveLength(1), { timeout: 3_000 });
+      expect(wheels).toEqual([
+        { deltaX: 0, deltaY: 120 },
+        { deltaX: 0, deltaY: 1000 },
+      ]);
+      expect(closed).toBe(false);
+    } finally {
+      await transport.close();
+      channel.port2.close();
+    }
+  });
+
   it("releases an outbound request only when its response arrives", async () => {
     const channel = new MessageChannel();
     const transport = new BoundedMessagePortTransport(channel.port1);
@@ -537,6 +566,35 @@ describe("MCP App host outside the desktop app", () => {
     const controller = makeController({ desktop: null });
     await controller.start({} as HTMLElement);
     expect(controller.getSnapshot().phase).toBe("browser_unavailable");
+  });
+});
+
+describe("MCP App suspension (side-panel residency)", () => {
+  it("tells the app, unloads it, returns to idle in a new generation, and starts again", async () => {
+    const controller = makeController({ desktop: null });
+    const internals = controller as unknown as Record<string, unknown>;
+    const teardownResource = vi.fn(async () => ({}));
+    const close = vi.fn(async () => undefined);
+    internals.bridge = { teardownResource, close };
+    internals.running = true;
+    (internals.setSnapshot as (partial: object) => void).call(controller, { phase: "ready" });
+    const generation = internals.generation as number;
+
+    await controller.suspend();
+
+    expect(teardownResource).toHaveBeenCalledWith({});
+    expect(close).toHaveBeenCalledOnce();
+    expect(controller.getSnapshot().phase).toBe("idle");
+    expect(internals.generation).toBe(generation + 1);
+    // Shown again: the next start runs the app from the beginning (here: no desktop bridge).
+    await controller.start({} as HTMLElement);
+    expect(controller.getSnapshot().phase).toBe("browser_unavailable");
+  });
+
+  it("does nothing for an app that never started", async () => {
+    const controller = makeController();
+    await controller.suspend();
+    expect(controller.getSnapshot().phase).toBe("idle");
   });
 });
 

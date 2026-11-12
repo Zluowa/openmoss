@@ -28,6 +28,7 @@ import {
   MCP_APP_SANDBOX_PORT_NAME,
   MCP_APP_SANDBOX_PORT_NAMES,
   MCP_APP_SANDBOX_PRINT_THEME_TYPE,
+  MCP_APP_SANDBOX_WHEEL_TYPE,
   MCP_APP_SANDBOX_PROXY_READY_METHOD,
   MCP_APP_SANDBOX_READY_FLUSH_TIMEOUT_MS,
   MCP_APP_SANDBOX_RESOURCE_READY_METHOD,
@@ -41,7 +42,11 @@ import {
 
 import { buildMcpAppSandboxCsp } from "./csp";
 import type { McpAppSandboxVariant } from "./origin";
-import { MCP_APP_JSON_HEALER_SOURCE, MCP_APP_PRINT_RECEIVER_HTML } from "./proxyScripts";
+import {
+  MCP_APP_JSON_HEALER_SOURCE,
+  MCP_APP_PRINT_RECEIVER_HTML,
+  MCP_APP_WHEEL_COALESCER_SOURCE,
+} from "./proxyScripts";
 import type { McpAppSandboxRegistry } from "./registry";
 
 export interface McpAppSandboxShellConfig {
@@ -77,6 +82,7 @@ function proxyScript(config: McpAppSandboxShellConfig): string {
     maxMessageBytes: MCP_APP_SANDBOX_MAX_MESSAGE_BYTES,
     flushTimeoutMs: MCP_APP_SANDBOX_READY_FLUSH_TIMEOUT_MS,
     printThemeType: MCP_APP_SANDBOX_PRINT_THEME_TYPE,
+    wheelType: MCP_APP_SANDBOX_WHEEL_TYPE,
     receiverHtml: MCP_APP_PRINT_RECEIVER_HTML,
     scheme: `${MCP_APP_SANDBOX_SCHEME}:`,
     path: MCP_APP_SANDBOX_PATH,
@@ -97,6 +103,7 @@ function proxyScript(config: McpAppSandboxShellConfig): string {
 "use strict";
 const config = ${scriptJson(settings)};
 ${MCP_APP_JSON_HEALER_SOURCE}
+${MCP_APP_WHEEL_COALESCER_SOURCE}
 
 // Captured before any widget runs. A stable-origin widget shares this realm's
 // origin and could patch prototypes later; bound originals keep the ports and
@@ -274,6 +281,24 @@ const injectStable = (html, allow) => {
 
 // ---- streamed tool input --------------------------------------------------
 const healer = createMossJsonHealer();
+// Wheel the widget did not use goes to the host in the next task, so the transcript scrolls.
+// Not the next frame: a covered window runs no frames, and the wheel must not wait for one.
+const wheelChannel = new MessageChannel();
+let wheelTask = null;
+wheelChannel.port1.onmessage = () => {
+  const task = wheelTask;
+  wheelTask = null;
+  if (task) task();
+};
+const pushWheel = createMossWheelCoalescer(
+  (deltaX, deltaY) => {
+    if (acknowledged) postToHost({ type: config.wheelType, deltaX, deltaY }, false);
+  },
+  (task) => {
+    wheelTask = task;
+    try { portPost(wheelChannel.port2, 0); } catch {}
+  },
+);
 const handleDelta = (params) => {
   const delta = params && params.delta;
   if (typeof delta !== "string" || delta.length === 0) return;
@@ -509,6 +534,7 @@ window.addEventListener("message", (event) => {
     failClosed();
     return;
   }
+  if (pushWheel(data)) return;
   let active = false;
   try {
     const stamped = eventActivation ? eventActivation(event) : null;

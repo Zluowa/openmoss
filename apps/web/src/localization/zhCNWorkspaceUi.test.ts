@@ -66,6 +66,8 @@ describe("translateZhCnWorkspaceUiText", () => {
   });
 
   it("translates anchored dynamic chrome while preserving branch, path, id, and error slots", () => {
+    expect(translateZhCnWorkspaceUiText("Close New thread")).toBe("关闭 新建对话");
+    expect(translateZhCnWorkspaceUiText("Close Weekly report")).toBe("关闭 Weekly report");
     expect(translateZhCnWorkspaceUiText("Updated feature/zh-cn from origin/main")).toBe(
       "已从 origin/main 更新 feature/zh-cn",
     );

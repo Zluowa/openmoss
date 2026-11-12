@@ -6,8 +6,11 @@ import {
   resolveMossAccountGatewayState,
 } from "../auth/useMossGatewayUnreachable";
 import { providerReadinessDescriptionKey } from "~/lib/providerReadinessCopy";
+import { translateMoss } from "~/localization";
 import {
   composerAccountName,
+  composerSourceListsModels,
+  composerSourceTitle,
   resolveComposerModelPickerProviderTabs,
 } from "./ComposerModelPickerTabs";
 import { providersServedByMoss } from "./providerAccountSources";
@@ -176,6 +179,51 @@ describe("Claude over Moss", () => {
     expect(tabs[0]?.name).toBe("Moss");
     expect(tabs[0]?.label).not.toContain("Moss Claude");
     expect(providersServedByMoss(providers).has("claudeAgent")).toBe(true);
+  });
+
+  // The four cases of 本机账号 next to Moss: the picker lists what can run now, plus the
+  // Moss sign-in while signed out of Moss. Signing in to the own account is in Settings.
+  const rows = (providerStatuses: ReturnType<typeof status>[], signedInToMoss: boolean) =>
+    resolveComposerModelPickerProviderTabs({
+      options: claudeOptions,
+      providers: providerStatuses,
+      providerInstances: signedInToMoss ? instances : instances.slice(0, 1),
+    }).map((tab) => [tab.instanceId, tab.name, tab.readiness.state, tab.mossSignIn]);
+
+  it("lists Moss and 本机账号 once the own Claude account is signed in too", () => {
+    expect(rows([status("claudeAgent", true), status("claude_moss", true)], true)).toEqual([
+      ["claude_moss", "Moss", "ready", false],
+      ["claudeAgent", "Claude", "ready", false],
+    ]);
+    // The provider rows read Moss, then 本机账号, and both list models.
+    const tabs = resolveComposerModelPickerProviderTabs({
+      options: claudeOptions,
+      providers: [status("claudeAgent", true), status("claude_moss", true)],
+      providerInstances: instances,
+    });
+    const localAccount = translateMoss("zh-CN", "chat.modelPicker.source.local");
+    expect(tabs.map((tab) => composerSourceTitle(tab, localAccount))).toEqual(["Moss", "本机账号"]);
+    expect(tabs.every(composerSourceListsModels)).toBe(true);
+  });
+
+  it("lists only Moss while the own account is signed out and Moss runs Claude", () => {
+    expect(rows([status("claudeAgent", false), status("claude_moss", true)], true)).toEqual([
+      ["claude_moss", "Moss", "ready", false],
+    ]);
+  });
+
+  it("lists the own account next to Moss's sign-in when only the own account is signed in", () => {
+    expect(rows([status("claudeAgent", true)], false)).toEqual([
+      ["claude_moss", "Moss", "needsLogin", true],
+      ["claudeAgent", null, "ready", false],
+    ]);
+  });
+
+  it("keeps both sign-ins when neither Moss nor the own account is signed in", () => {
+    expect(rows([status("claudeAgent", false)], false)).toEqual([
+      ["claude_moss", "Moss", "needsLogin", true],
+      ["claudeAgent", null, "needsLogin", false],
+    ]);
   });
 
   it("keeps the local login listed while the chat runs on it", () => {

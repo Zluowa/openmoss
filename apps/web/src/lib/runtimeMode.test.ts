@@ -92,6 +92,14 @@ describe("runtimeModePresentation", () => {
     );
   });
 
+  it("names Moss, not the provider, in every mode description", () => {
+    for (const provider of ["claudeAgent", "codex"] as const) {
+      for (const mode of ["approval-required", "auto", "full-access"] as const) {
+        expect(runtimeModePresentation(mode, provider).description).not.toMatch(/Claude|Codex/u);
+      }
+    }
+  });
+
   it("keeps the generic wording for other providers", () => {
     expect(runtimeModePresentation("full-access", "cursor")).toEqual(
       RUNTIME_MODE_PRESENTATION["full-access"],

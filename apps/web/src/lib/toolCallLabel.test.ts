@@ -7,11 +7,13 @@ import {
   deriveReadableCommandDisplay,
   deriveReadableToolTitle,
   deriveMossMcpToolTitle,
+  deriveToolSearchTitle,
   isHtmlPageToolCall,
   isHtmlRenderToolCall,
   humanizeToolCallIdentifier,
   localizeMossAppsToolAction,
   localizeToolHeading,
+  mcpToolTitleFromName,
   extractMcpServerName,
   resolveMcpApprovalTool,
   extractWebFetchUrl,
@@ -330,7 +332,64 @@ describe("deriveReadableToolTitle", () => {
         fallbackLabel: "get_app_state",
         itemType: "mcp_tool_call",
       }),
-    ).toBe("Get App State");
+    ).toBe("Get app state");
+  });
+
+  it("writes a tool name with no title the way Claude does", () => {
+    expect(mcpToolTitleFromName("display_pdf")).toBe("Display pdf");
+    expect(mcpToolTitleFromName("debug-tool")).toBe("Debug tool");
+    expect(mcpToolTitleFromName("get-first-degree-links")).toBe("Get first degree links");
+    expect(mcpToolTitleFromName("getIssue")).toBe("Get issue");
+    expect(mcpToolTitleFromName("COMPOSIO_SEARCH_TOOLS")).toBe("Composio search tools");
+    expect(mcpToolTitleFromName("iOS_build")).toBe("iOS build");
+    expect(mcpToolTitleFromName("Display PDF")).toBe("Display PDF");
+  });
+
+  it("labels Claude's ToolSearch like Claude", () => {
+    expect(deriveToolSearchTitle("ToolSearch", true)).toBe("Loading tools");
+    expect(deriveToolSearchTitle("ToolSearch", false)).toBe("Loaded tools");
+    expect(deriveToolSearchTitle("search_tools", false)).toBeNull();
+    expect(localizeToolHeading("Loaded tools", "zh-CN")).toBe("已加载工具");
+  });
+
+  it("labels MCP calls like Claude's Code tab for every provider", () => {
+    const title = (payload: Record<string, unknown>) =>
+      deriveReadableToolTitle({
+        title: "MCP tool call",
+        fallbackLabel: "MCP tool call",
+        itemType: "mcp_tool_call",
+        payload,
+      });
+    // Claude: `mcp__server__tool`.
+    expect(title({ data: { toolName: "mcp__fixture__fixture_show_widget" } })).toBe(
+      "fixture: fixture show widget",
+    );
+    // Codex: `{ server, tool }`.
+    expect(title({ data: { item: { server: "fixture", tool: "fixture_show_widget" } } })).toBe(
+      "fixture: fixture show widget",
+    );
+    // Hyphens and camel case split like Claude's; a word cased on purpose keeps its case.
+    expect(title({ data: { toolName: "mcp__linear__GetIssue" } })).toBe("linear: get issue");
+    expect(title({ data: { toolName: "mcp__map__show-map" } })).toBe("map: show map");
+    expect(title({ data: { toolName: "mcp__gh__list_GitHub_repos" } })).toBe(
+      "gh: list GitHub repos",
+    );
+    // OpenCode: `server_tool`, server unknown.
+    expect(
+      deriveReadableToolTitle({
+        title: "fixture_fixture_show_widget",
+        fallbackLabel: "",
+        itemType: "dynamic_tool_call",
+      }),
+    ).toBe("Fixture show widget");
+    // Moss's widget-state tool has its own words.
+    expect(
+      deriveMossMcpToolTitle({
+        toolName: "mcp__moss__moss_read_widget_context",
+        status: "completed",
+      }),
+    ).toBe("Moss read widget state");
+    expect(localizeToolHeading("Moss read widget state", "zh-CN")).toBe("已读取小组件状态");
   });
 });
 
@@ -780,7 +839,7 @@ describe("deriveReadableToolTitle", () => {
           },
         },
       }),
-    ).toBe("Xcodebuildmcp: List Sims");
+    ).toBe("xcodebuildmcp: list sims");
   });
 
   it("formats MCP identifiers into readable tool names", () => {
@@ -795,7 +854,7 @@ describe("deriveReadableToolTitle", () => {
           },
         },
       }),
-    ).toBe("Codex Apps: Github Fetch Pr");
+    ).toBe("Codex Apps: github fetch pr");
   });
 
   it("formats structured MCP server/tool payloads into readable tool names", () => {
@@ -814,7 +873,7 @@ describe("deriveReadableToolTitle", () => {
           },
         },
       }),
-    ).toBe("Computer Use: Get App State");
+    ).toBe("Computer Use: get app state");
   });
 });
 

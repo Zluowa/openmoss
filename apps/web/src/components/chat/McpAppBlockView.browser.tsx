@@ -10,6 +10,8 @@ import type { McpAppHostDialog, McpAppHostPrompt } from "~/lib/mcpAppHost";
 import type { McpAppBinding } from "~/lib/mcpApps/contracts";
 import { mcpAppStylesForThemePacks } from "~/lib/mcpApps/hostStyles";
 import { classifyMcpAppLink } from "~/lib/mcpApps/openLink";
+import { chainMcpAppWheel } from "~/lib/mcpApps/wheelChain";
+import { CHAT_CONTENT_CARD_CLASS_NAME } from "./composerPickerStyles";
 import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
 import { MossLocaleScope } from "~/localization";
 import { DEFAULT_THEME_STATE, resolveThemePack } from "~/theme/theme.logic";
@@ -257,7 +259,117 @@ for (const theme of ["light", "dark"] as const) {
   });
 }
 
+const failedProjection = {
+  ...projection,
+  status: "failed",
+  result: undefined,
+  error: { message: "fixture_bad_structured 返回的结果不符合格式要求，未能交给小组件。" },
+} as WorkLogMcpToolResult;
+const structuredProjection = {
+  ...projection,
+  result: { content: [], structuredContent: { city: "上海", days: [{ day: "今天", temp: 22 }] } },
+} as WorkLogMcpToolResult;
+
+for (const theme of ["light", "dark"] as const) {
+  describe(`connector widget block, Claude parity (${theme})`, () => {
+    it("shows a failed call's text above the footnote", async () => {
+      await page.viewport(WIDTH + 80, 600);
+      await switchAppTheme(theme);
+      const screen = await render(
+        <Harness>
+          <McpAppBlockView {...view({ phase: "failed", projection: failedProjection })} />
+        </Harness>,
+      );
+      const fallback = document.querySelector<HTMLElement>('[data-mcp-app-fallback="true"]')!;
+      const text = fallback.querySelector<HTMLElement>('[data-mcp-app-fallback-text="true"]')!;
+      const note = fallback.querySelector<HTMLElement>('[data-mcp-app-footnote="true"]')!;
+      expect(text.textContent).toContain("返回的结果不符合格式要求");
+      expect(note.textContent).toBe("小组件加载失败，已改为显示文字结果。");
+      expect(text.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        note.getBoundingClientRect().top,
+      );
+      expect(fallback.textContent).not.toMatch(/json/iu);
+      await shot("parity-01-failed-call-text", theme);
+      await screen.unmount();
+
+      const structured = await render(
+        <Harness>
+          <McpAppBlockView {...view({ phase: "failed", projection: structuredProjection })} />
+        </Harness>,
+      );
+      const structuredText = document.querySelector('[data-mcp-app-fallback="true"]')!.textContent;
+      expect(structuredText).toContain("上海");
+      expect(structuredText).not.toMatch(/json/iu);
+      await shot("parity-02-failed-structured", theme);
+      await structured.unmount();
+    });
+
+    it("draws the header caret at 14 px", async () => {
+      await page.viewport(WIDTH + 80, 400);
+      await switchAppTheme(theme);
+      const screen = await render(
+        <Harness>
+          <McpAppBlockView {...view({ open: false, canOpenPane: false })} />
+        </Harness>,
+      );
+      const caret = document.querySelector<HTMLElement>('[data-mcp-app-chevron="true"]')!;
+      const box = caret.getBoundingClientRect();
+      expect(Math.abs(box.width - 14)).toBeLessThan(0.1);
+      expect(Math.abs(box.height - 14)).toBeLessThan(0.1);
+      expect(getComputedStyle(caret).scale).toBe("1.14");
+      await shot("parity-03-caret-14px", theme);
+      await screen.unmount();
+    });
+  });
+}
+
 describe("connector widget block behaviour", () => {
+  it("keeps the chat card itself from scrolling when something inside scrolls into view", async () => {
+    await page.viewport(WIDTH + 80, 400);
+    const screen = await render(
+      <div className={CHAT_CONTENT_CARD_CLASS_NAME} style={{ height: 300 }}>
+        <div style={{ height: 1000 }} />
+        <div data-testid="below">widget slot</div>
+      </div>,
+    );
+    const card = document.querySelector<HTMLElement>(".chat-content-card")!;
+    expect(getComputedStyle(card).overflowY).toBe("clip");
+    document.querySelector('[data-testid="below"]')!.scrollIntoView();
+    expect(card.scrollTop).toBe(0);
+    await screen.unmount();
+  });
+
+  it("names a widget tool without a declared title by its name, like Claude", async () => {
+    await page.viewport(WIDTH + 80, 300);
+    const screen = await render(
+      <Harness>
+        <McpAppBlockView
+          {...view({ binding: { ...binding, toolTitle: undefined, toolName: "display_pdf" } })}
+        />
+      </Harness>,
+    );
+    await expect.element(page.getByText("Display pdf")).toBeInTheDocument();
+    await screen.unmount();
+  });
+
+  it("scrolls a real transcript by the wheel the widget did not use", async () => {
+    await page.viewport(WIDTH + 80, 400);
+    const screen = await render(
+      <div data-chat-scroll-container="true" style={{ height: 300, overflowY: "auto" }}>
+        <div style={{ height: 2000 }}>
+          <div data-testid="widget-slot" style={{ height: 200 }} />
+        </div>
+      </div>,
+    );
+    const scroller = document.querySelector<HTMLElement>('[data-chat-scroll-container="true"]')!;
+    const slot = document.querySelector('[data-testid="widget-slot"]');
+    expect(chainMcpAppWheel(slot, { deltaX: 0, deltaY: 240 })).toBe(true);
+    expect(scroller.scrollTop).toBe(240);
+    chainMcpAppWheel(slot, { deltaX: 0, deltaY: -100 });
+    expect(scroller.scrollTop).toBe(140);
+    await screen.unmount();
+  });
+
   it("keeps the link button disarmed for 400 ms with Cancel focused, then answers", async () => {
     await page.viewport(WIDTH + 80, 640);
     if (linkPlan.action !== "confirm") throw new Error("expected a confirm plan");

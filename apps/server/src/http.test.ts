@@ -444,6 +444,10 @@ describe("production Effect HTTP routes", () => {
       path.join(canvasDir, "assets", "editor-Ab12Cd34.js"),
       "globalThis.editor = true;",
     );
+    writeFileSync(
+      path.join(canvasDir, "assets", "editor-Ab12Cd34.js.gz"),
+      zlib.gzipSync("globalThis.editor = true;"),
+    );
     vi.stubEnv("MOSS_CANVAS_STATIC_DIR", canvasDir);
 
     await withEffectServer(makeConfig(), { kind: "canvas" }, async (origin) => {
@@ -452,7 +456,14 @@ describe("production Effect HTTP routes", () => {
       expect(asset.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
       const assetTag = asset.headers.get("etag");
       expect(assetTag).toMatch(/^W\//u);
-      await asset.text();
+      // The app's static serving: a precompressed copy when accepted, and the CORS Vary kept
+      // beside the encoding Vary.
+      expect(asset.headers.get("content-encoding")).toBe("gzip");
+      expect(asset.headers.get("vary")).toBe("Accept-Encoding, Origin");
+      expect(asset.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(await asset.text()).toBe("globalThis.editor = true;");
+      // A sidecar is never served by its own name.
+      expect((await fetch(`${origin}/canvas/assets/editor-Ab12Cd34.js.gz`)).status).toBe(404);
 
       const page = await fetch(`${origin}/canvas/`);
       expect(page.headers.get("cache-control")).toBe("no-cache");
@@ -522,7 +533,7 @@ describe("production Effect HTTP routes", () => {
         const response = await fetch(`${origin}${route}`, { headers: { Origin: "moss://app" } });
         expect(response.status).toBe(200);
         expect(response.headers.get("access-control-allow-origin")).toBe("moss://app");
-        expect(response.headers.get("vary")).toBe("Origin");
+        expect(response.headers.get("vary")).toBe("Accept-Encoding, Origin");
         expect(await response.text()).toContain(
           route.endsWith(".js") ? "globalThis.canvas" : "Complete Canvas",
         );

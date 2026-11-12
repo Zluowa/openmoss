@@ -27,7 +27,7 @@ import {
   type MemFirePhoneAuthAvailability,
   type SupabaseMossAuthSession,
 } from "../supabaseMossAuth";
-import { MossAccountServiceError } from "../mossAccountErrors";
+import { describeMossErrorCauses, MossAccountServiceError } from "../mossAccountErrors";
 import {
   MossPhoneAccountService,
   type MossPhoneAccountServiceShape,
@@ -1588,6 +1588,7 @@ export const maintainMossPhoneAccountSession = (
       Effect.logWarning("failed to maintain Moss phone account session", {
         code: error.code,
         message: error.message,
+        cause: describeMossErrorCauses(error),
       }),
     ),
   );

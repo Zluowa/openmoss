@@ -19,6 +19,8 @@ export function AgentSignInButton(props: {
   providerLabel: string;
   /** The agent's provider status: the sign-in the server is running shows here. */
   status: Pick<ServerProviderStatus, "loginState"> | undefined;
+  /** Outline while the agent already works through Moss: the sign-in is optional then. */
+  variant?: "default" | "outline" | undefined;
 }) {
   const { t, format } = useTranslation();
   const signIn = useAgentSignIn({
@@ -59,6 +61,7 @@ export function AgentSignInButton(props: {
       <Button
         type="button"
         size="xs"
+        variant={props.variant ?? "default"}
         aria-label={format("chat.modelSource.signInFor", { provider: props.providerLabel })}
         onClick={() => void signIn.start()}
       >

@@ -197,6 +197,57 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
       ? null
       : yield* Effect.result(resolveMossMediaCredential);
     const result = cloudResult ?? (yield* Effect.result(resolveMossMediaIdentity));
+    const assetMatch = url.pathname.match(
+      /^\/api\/moss\/media\/assets\/(moss_[A-Za-z0-9_-]{1,128})\/([0-9]{1,2})$/u,
+    );
+    const assetResponse = (
+      saved: { asset: { assetId: string; contentType: string }; bytes: Uint8Array },
+      inline: boolean,
+    ) =>
+      HttpServerResponse.uint8Array(saved.bytes, {
+        status: 200,
+        contentType: saved.asset.contentType,
+        headers: {
+          ...headers,
+          "Content-Disposition": `${inline && url.searchParams.get("download") !== "1" ? "inline" : "attachment"}; filename="${saved.asset.assetId}.${saved.asset.contentType.split("/")[1]}"`,
+        },
+      });
+    const savedScope = url.searchParams.get("accountScope");
+    if (
+      result._tag === "Failure" &&
+      result.failure instanceof MossMediaJobsError &&
+      result.failure.code === "authentication_required" &&
+      assetMatch &&
+      request.method === "GET" &&
+      savedScope !== null &&
+      url.searchParams.getAll("accountScope").length === 1
+    ) {
+      // Signed out, an old chat still shows what is already on this computer. Its link
+      // names the account scope that saved it, so only that account's output can be
+      // read; one that is not saved here still needs a sign-in below.
+      const saved = yield* Effect.result(
+        Effect.tryPromise({
+          try: () =>
+            mossMediaJobsServiceFor(config.stateDir).readSavedAsset(
+              savedScope,
+              assetMatch[1]!,
+              Number(assetMatch[2]),
+            ),
+          catch: (error) => error,
+        }),
+      );
+      if (saved._tag === "Success") {
+        // Served only while still signed out or signed in to that same account.
+        const now = yield* Effect.result(resolveMossMediaIdentity);
+        if (
+          now._tag === "Failure"
+            ? now.failure instanceof MossMediaJobsError &&
+              now.failure.code === "authentication_required"
+            : mediaAccountScope(now.success) === savedScope
+        )
+          return assetResponse(saved.success, true);
+      }
+    }
     if (result._tag === "Failure") {
       if (localCanvasRequest)
         canvasLog.warn("local identity unavailable", {
@@ -833,26 +884,15 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           return json(409, { error: { code: "account_changed" } });
         return json(200, job);
       }
-      const assetMatch = url.pathname.match(
-        /^\/api\/moss\/media\/assets\/(moss_[A-Za-z0-9_-]{1,128})\/([0-9]{1,2})$/u,
-      );
       if (assetMatch && request.method === "GET") {
-        const expectedScope = url.searchParams.get("accountScope");
-        if (expectedScope !== null && expectedScope !== mediaAccountScope(credential))
+        if (savedScope !== null && savedScope !== mediaAccountScope(credential))
           return json(404, { error: { code: "asset_not_found" } });
         const result = yield* Effect.tryPromise({
           try: () => service.readAsset(assetMatch[1]!, Number(assetMatch[2]), credential),
           catch: (error) => error,
         });
         yield* currentAccount();
-        return HttpServerResponse.uint8Array(result.bytes, {
-          status: 200,
-          contentType: result.asset.contentType,
-          headers: {
-            ...headers,
-            "Content-Disposition": `${expectedScope && url.searchParams.get("download") !== "1" ? "inline" : "attachment"}; filename="${result.asset.assetId}.${result.asset.contentType.split("/")[1]}"`,
-          },
-        });
+        return assetResponse(result, !!savedScope);
       }
       return json(404, { error: { code: "route_not_found" } });
     }).pipe(

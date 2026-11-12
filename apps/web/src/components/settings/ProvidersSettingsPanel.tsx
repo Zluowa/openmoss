@@ -2361,18 +2361,17 @@ export function ProvidersSettingsPanel({
         : null;
     // One plain line from the server's readiness, never the CLI's own diagnostic, and one
     // action: 登录 runs the agent's sign-in in the browser, 安装 installs it in place.
-    // The agent's own login is signed out, but its Moss lane runs it: nothing to sign in to.
+    // The agent's own login is signed out, but its Moss lane runs it: the row says it works
+    // through Moss and still offers the own account's sign-in, calmly. The model picker
+    // lists only what can run, so this is where a person reaches their own account.
     const servedByMoss =
       readiness?.state === "needsLogin" && servedByMossProviders.has(option.provider);
     const descriptionKey = readiness ? providerReadinessDescriptionKey(readiness) : null;
     const canSignIn =
-      !servedByMoss &&
-      readiness?.state === "needsLogin" &&
-      supportsAgentSignIn(option.provider, providerStatus);
+      readiness?.state === "needsLogin" && supportsAgentSignIn(option.provider, providerStatus);
     // Only what Moss cannot fix by itself keeps the agent's own help page.
     const showGuide =
-      readiness?.state === "error" ||
-      (readiness?.state === "needsLogin" && !canSignIn && !servedByMoss);
+      readiness?.state === "error" || (readiness?.state === "needsLogin" && !canSignIn);
     return (
       <SettingsListRow
         key={option.provider}
@@ -2389,7 +2388,11 @@ export function ProvidersSettingsPanel({
             data-agent-readiness={servedByMoss ? "moss" : (readiness?.state ?? "unknown")}
           >
             {servedByMoss
-              ? t("settings.providers.accounts.connectedViaMoss")
+              ? [
+                  t("settings.providers.accounts.connectedViaMoss"),
+                  t("chat.modelPicker.source.local"),
+                  t("settings.usage.status.notSignedIn"),
+                ].join(" · ")
               : readiness
                 ? descriptionKey
                   ? format(descriptionKey, { provider: option.title })
@@ -2429,6 +2432,7 @@ export function ProvidersSettingsPanel({
                 provider={option.provider}
                 providerLabel={option.title}
                 status={providerStatus}
+                {...(servedByMoss ? { variant: "outline" as const } : {})}
               />
             ) : null}
             {showGuide ? (

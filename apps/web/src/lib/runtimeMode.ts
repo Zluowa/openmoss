@@ -48,7 +48,7 @@ export const RUNTIME_MODE_PRESENTATION: Record<
 };
 
 /**
- * Where a mode maps onto a provider's own mechanism, say what that provider does. Claude and
+ * Where a mode maps onto a provider's own mechanism, say what happens there, in Moss's name. Claude and
  * Codex implement the three modes differently (Claude Code's permission modes vs Codex's
  * sandbox + approval policy); every other provider keeps the generic wording above.
  */
@@ -56,15 +56,15 @@ const PROVIDER_RUNTIME_MODE_DESCRIPTIONS: Partial<
   Record<ProviderKind, Record<RuntimeMode, string>>
 > = {
   claudeAgent: {
-    "approval-required": "Claude asks before editing files, running commands, or using the web",
-    auto: "Claude Code's auto mode: a classifier approves or blocks each action and asks you when unsure",
-    "full-access": "Claude runs every action without asking, with full access to your computer",
+    "approval-required": "Moss asks before editing files, running commands, or using the web",
+    auto: "Auto mode: a classifier approves or blocks each action and asks you when unsure",
+    "full-access": "Moss runs every action without asking, with full access to your computer",
   },
   codex: {
-    "approval-required": "Read-only sandbox: Codex asks before editing files or running commands",
-    auto: "Codex edits inside the project; its reviewer decides on anything that needs more access",
+    "approval-required": "Read-only sandbox: Moss asks before editing files or running commands",
+    auto: "Moss edits inside the project; a reviewer decides on anything that needs more access",
     "full-access":
-      "No sandbox: Codex runs everything without asking, with full access to your computer",
+      "No sandbox: Moss runs everything without asking, with full access to your computer",
   },
 };
 
