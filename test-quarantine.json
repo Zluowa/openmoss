@@ -135,15 +135,6 @@
     "evidence": "Failed in verify-full fbb0202b4 (11-11, 6 sessions testing) and 6 earlier local runs; ci-audit C12."
   },
   {
-    "id": "server:apps/server/src/account/Layers/MossManagedProvider.test.ts > MossManagedProvider > reuses an unchanged active generation without waiting for runtime drain",
-    "platform": "win32",
-    "reason": "Load flake: timing-bound runtime-drain case; passes alone.",
-    "owner": "server",
-    "added": "2026-11-11",
-    "expires": "2026-11-25",
-    "evidence": "Failed in verify-full 2d115cfe9 (11-10), c080f51ef and 3 pr runs; passed alone after c080f51ef (merge log 11-06); ci-audit C12."
-  },
-  {
     "id": "server:apps/server/src/codexAppServerManager.test.ts > thread checkpoint control > forks a provider thread with an explicitly selected Standard tier",
     "platform": "win32",
     "reason": "Load flake: the fork cases time out when the PC is busy.",
@@ -160,15 +151,6 @@
     "added": "2026-11-11",
     "expires": "2026-11-25",
     "evidence": "Failed once in the coordinator's verify-quick 26544fb02 (11-12, 4 workers); passed alone 2/2 the same night."
-  },
-  {
-    "id": "scripts:scripts/release-workflow-recovery.test.ts",
-    "platform": "win32",
-    "reason": "Machine-only: 46 of 78 tests fail on the shared Windows PC (POSIX shell recovery scripts).",
-    "owner": "release",
-    "added": "2026-11-11",
-    "expires": "2026-11-25",
-    "evidence": "Fails in 28/29 local scripts runs 11-03..11-11 (verify-full 459a2e649, fbb0202b4)."
   },
   {
     "id": "scripts:scripts/lib/cua-benchmark.test.ts",
