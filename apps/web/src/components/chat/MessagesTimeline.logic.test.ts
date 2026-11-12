@@ -1604,6 +1604,22 @@ describe("deriveMessagesTimelineRows", () => {
     },
   );
 
+  it("keeps the working row, without the live header, while a finished turn's mark comes to rest", () => {
+    const finished = {
+      ...baseInput,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      timelineEntries: [
+        userEntry("request", "2026-01-01T00:00:00Z", "done-turn"),
+        assistantEntry("reply", "2026-01-01T00:00:02Z", { turnId: "done-turn" }),
+      ],
+    };
+    const lingering = deriveMessagesTimelineRows({ ...finished, workingIndicatorLingering: true });
+    expect(lingering.at(-1)?.kind).toBe("working");
+    expect(lingering.some((row) => row.kind === "working-header")).toBe(false);
+    expect(deriveMessagesTimelineRows(finished).some((row) => row.kind === "working")).toBe(false);
+  });
+
   it("omits the Thinking row while a command approval owns the live turn", () => {
     const rows = deriveMessagesTimelineRows({
       ...baseInput,

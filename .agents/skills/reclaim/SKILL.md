@@ -1,60 +1,47 @@
 ---
 name: reclaim
-description: Use when a task's PR is merged or closed, at the end of every round, or when disk or memory runs low - return worktrees, branches, scratch, builds and processes safely and report what is left.
+description: Use within an hour of a task's PR merging or when it closes, at the end of every round, or when disk or memory runs low - return worktrees, branches, scratch, builds and processes safely and report what is left.
 ---
 
 # Reclaim
 
 ## When to use
 
-- As a worker: when your PR merges or closes, return what your task created.
+- As a worker: within an hour of your PR merging, or when it closes, return what
+  your task created.
 - As steward or coordinator: after every round, and whenever disk or memory is
   low, sweep the machine (`docs/handbook/resources.md`, "The reclaim sweep").
 
 ## Inputs
 
-From the machine profile: the integration checkout, the worktree, run and
-scratch roots, the builds root, and the list of things that are never reaped
-(rollback sources, the owner's own dev checkout, the latest acceptance evidence).
+The machine profile (`tools/ws/README.md`, "The machine profile"): roots, the
+keep list and the protected paths. Things that are never reaped (rollback
+sources, the owner's own dev checkout, the latest acceptance evidence) are on the
+keep or protected list.
 
 ## Steps
 
-1. **Measure.** `df -h` for every drive. Note the numbers for the report.
-2. **List worktrees.**
-   `git -C <integration checkout> worktree list --porcelain`.
-   For each one with a branch, find its PR:
-   `gh pr list -R <repo> --head <branch> --state all --json number,state`.
-3. **Classify each worktree.** It may be reclaimed only if all hold:
-   - its PR is `MERGED` or `CLOSED`, or it has no PR and you created it;
-   - `git -C <worktree> status --short` is empty;
-   - nothing is unpushed: `git -C <worktree> log --oneline @{u}..` is empty (for
-     a detached worktree, its commit is on `origin/main` or in a merged PR);
-   - it is not on the never-reap list.
-
-   Anything else goes on the "could not classify" list for the coordinator.
-
-4. **Stop its processes first.** Find processes whose command line contains the
-   worktree or run-folder path, for example in PowerShell:
-   `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*<path>*' }`.
-   Stop only those.
-5. **Remove the folder** with a command that does not follow junctions. From
-   PowerShell: `cmd /c rmdir /s /q <folder>`. From Git Bash:
-   `cmd //c "rmdir /s /q <folder>"`. Then
-   `git -C <integration checkout> worktree prune`.
-6. **Delete the local branch** of a reclaimed worktree:
-   `git -C <integration checkout> branch -D <branch>`. Remote branches are deleted
-   on merge; leave other remote branches to the coordinator.
-7. **Scratch and run folders.** Remove your own task folders, with the same
-   junction-safe command. As steward, only folders whose task is merged or closed.
-8. **Builds.** Keep the current release, the previous release and the latest
-   candidate; remove superseded candidates.
-9. **Measure again** and write the report.
+1. **Measure.** `bun run ws doctor --no-fail`. Note free space per drive.
+2. **As a worker, release your own lease:** `bun run ws release <name> --dry-run`,
+   then without `--dry-run`. It refuses uncommitted or unpushed work; push it or
+   say why it can go before using `--force`. It stops the tree's processes,
+   removes links as links, the folder, the scratch folder and the ports, and
+   deletes the local branch when its PR merged at that commit.
+3. **As steward, sweep:** `bun run ws reap` (a dry run). Read every row: RELEASE
+   rows are clean, unused and finished; KEEP rows say why they stay. Then
+   `bun run ws reap --apply`, which checks each row again first.
+4. **Classify what reap keeps.** A tree kept for "open PR", "uncommitted" or
+   "commits not in origin/main and no PR" belongs to someone: list it for the
+   coordinator with its path and size. Never release it yourself.
+5. **Builds.** Keep the current release, the previous release and the latest
+   candidate; remove superseded candidates with `cmd //c "rmdir /s /q <folder>"`
+   (Git Bash) or `cmd /c rmdir /s /q <folder>` (PowerShell).
+6. **Measure again** with `bun run ws doctor --no-fail` and write the report.
 
 ## Checks
 
-- `git -C <integration checkout> worktree list` no longer shows what you removed,
-  and shows no `prunable` entries you created.
-- `df -h` after is not lower than before.
+- `bun run ws list` no longer shows what you released.
+- Free space after is not lower than before.
 - The integration checkout still has its dependencies:
   `<integration checkout>/node_modules` is not empty.
 
@@ -71,7 +58,8 @@ Unclassified items you could not classify, with path and size
 
 - `node_modules` in worktrees are junctions into the shared install. A recursive
   delete (`rm -rf`, `Remove-Item -Recurse`) or `robocopy /MOVE` follows them and
-  empties the real install; this has happened. Only `rmdir /s /q` is safe.
+  empties the real install; this has happened. Only `ws release`, `ws reap` and
+  `rmdir /s /q` are safe.
 - To move a worktree, do not. Make a new one and reclaim the old one.
 - "prunable" in `git worktree list` means the folder is already gone; prune it,
   do not recreate it.

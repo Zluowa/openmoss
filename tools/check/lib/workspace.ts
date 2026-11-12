@@ -19,6 +19,8 @@ export interface WorkspacePackage {
 
 const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
 
+const trimSlashes = (dir: string) => dir.replace(/^\.\//, "").replace(/\/+$/, "");
+
 function expandWorkspaceGlob(repoRoot: string, pattern: string): string[] {
   if (!pattern.endsWith("/*")) return [pattern];
   const parent = pattern.slice(0, -2);
@@ -36,8 +38,18 @@ export function readWorkspace(repoRoot: string): WorkspacePackage[] {
   const patterns = Array.isArray(root.workspaces)
     ? root.workspaces
     : (root.workspaces?.packages ?? []);
+  // "!apps/mobile" leaves a folder out, whatever order the patterns come in.
+  const excluded = new Set(
+    patterns
+      .filter((pattern) => pattern.startsWith("!"))
+      .flatMap((pattern) => expandWorkspaceGlob(repoRoot, pattern.slice(1)))
+      .map(trimSlashes),
+  );
   const manifests = patterns
+    .filter((pattern) => !pattern.startsWith("!"))
     .flatMap((pattern) => expandWorkspaceGlob(repoRoot, pattern))
+    .map(trimSlashes)
+    .filter((dir) => !excluded.has(dir))
     .filter((dir) => existsSync(join(repoRoot, dir, "package.json")))
     .map((dir) => ({
       dir,

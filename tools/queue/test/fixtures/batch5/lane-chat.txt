@@ -1,0 +1,11 @@
+ RUN  v4.1.10 /repo/apps/web
+23:53:53 [vite] [33m[2m(client)[22m[39m [2m[console.warn] [22m[transcript] replacing longer completed local message with snapshot text {"messageId":"sidec
+00:03:22 [vite] [31m[2m(client)[22m[39m [31m[Unhandled error] [1mError[22m: ResizeObserver loop completed with undelivered notifications.
+00:03:25 [vite] [31m[2m(client)[22m[39m [31m[Unhandled error] [1mError[22m: ResizeObserver loop completed with undelivered notifications.
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |chat (chromium)| src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > covers B2.2a reduced-motion coachmark and transition behavior
+AssertionError: expected 'playground' to be 'single' // Object.is equality
+ Test Files  1 failed (1)
+      Tests  1 failed | 277 passed | 14 skipped (292)
+   Start at  23:51:55
+   Duration  906.58s (transform 0ms, setup 61ms, import 17.25s, tests 865.53s, environment 0ms)

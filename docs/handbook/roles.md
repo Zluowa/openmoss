@@ -18,9 +18,13 @@ review, taste) and the efficient one on volume (implementation, sweeps, reading)
 - Decides what gets deleted. Guards the tree against pollution.
 - Talks to the owner. Is the only role that brings gate requests to them.
 - Runs the reclaim sweep after every round (see `resources.md`).
+- Watches the account's usage and says so before it runs out.
+- Keeps one incident note per production finding, outside the repository: what
+  was seen, the evidence, what is not known, the options. Tells the owner at once.
 
-**Never:** writes bulk code itself when a worker could; merges on a red gate; opens
-a gate on the owner's behalf; lets two heavy lanes run on one machine.
+**Never:** writes bulk code itself when a worker could; merges on a red gate;
+opens a gate on the owner's behalf, such as changing production, paying or
+publishing without the owner's yes for that action; lets two heavy lanes run on one machine.
 
 **Hands over:** a current board, a clean machine, and a handbook that is still true.
 

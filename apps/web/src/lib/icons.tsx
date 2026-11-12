@@ -333,10 +333,7 @@ export const FastModeOutlineIcon: LucideIcon = ZapIcon;
 // glyph that stands for a file tree, Home, Inbox, Code review, Tasks, Worktrees, Editor
 // view, Computer use, the one terminal glyph, open-outside-the-app, and the schedule clock
 // that doubles as the automation glyph everywhere it appears.
-export const ThinkingIcon: LucideIcon = BrainIcon;
 export const WorkingIcon: LucideIcon = HammerIcon;
-export const ActivityLoadingIcon: LucideIcon = Loader2Icon;
-export const MessageDeliveryCheckIcon: LucideIcon = centralIconWrapper("bubble-check");
 export const WorkDetailsIcon: LucideIcon = centralIconWrapper("book");
 export const BookIcon: LucideIcon = WorkDetailsIcon;
 export const TasksIcon: LucideIcon = centralIconWrapper("square-checklist");

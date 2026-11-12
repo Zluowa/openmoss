@@ -1,0 +1,5 @@
+ RUN  v4.1.10 /repo/packages/contracts
+ Test Files  39 passed (39)
+      Tests  286 passed (286)
+   Start at  23:40:31
+   Duration  10.00s (transform 4.67s, setup 1.25s, import 21.72s, tests 890ms, environment 4ms)

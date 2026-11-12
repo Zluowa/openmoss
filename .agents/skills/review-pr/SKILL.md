@@ -25,7 +25,9 @@ or helped write; say so and stop.
    Fetch it: `git fetch origin pull/<n>/head`, then check
    `git rev-parse FETCH_HEAD` equals `headRefOid`. Base:
    `git merge-base origin/main <head>`. Review that head only. If the author
-   pushes again, start over at the new head.
+   pushes again, the new head keeps your verdict only if merging it gives the
+   identical tree (`git merge-tree --write-tree origin/main <head>` prints the
+   same tree for both heads); otherwise start over at the new head.
 2. **Read the whole change once.** `git diff --stat <base>...<head>`, then
    `git diff <base>...<head>`, and `git log --oneline <base>..<head>`.
 3. **Standards axis.** Check the change against `docs/handbook/constitution.md`,
@@ -38,7 +40,11 @@ or helped write; say so and stop.
    - repository hygiene: no status reports, dated files, evidence, screenshots,
      scratch scripts, secrets, or owner or machine details;
    - user-facing text outside `apps/web/src/localization.tsx`, or without both
-     zh-CN and en.
+     zh-CN and en;
+   - code written on Linux (cloud sessions) without Windows proof of its paths,
+     processes and timing, and path logic not tested with both path flavours;
+   - a tool description that promises the model something (a library, a format)
+     the runtime it produces for does not have.
 
    Report each finding with `file:line`, the rule it breaks, why it matters, and a
    concrete fix. Do not repeat what a tool already enforces.
@@ -53,7 +59,8 @@ or helped write; say so and stop.
    test, an HTTP 200 or a healthy browser page does not prove the desktop path.
 6. **Risk.** If the change is high risk (`docs/handbook/quality.md`, "Risk"),
    say so: the coordinator must read the diff and a second reviewer is needed.
-7. **Verdict.** Approve, or a numbered list of required changes.
+7. **Verdict.** Approve, or a numbered list of required changes. If the author's session cannot be reached, post the findings as a PR
+   comment with the command that reproduces each one, and tell the coordinator.
 
 ## Checks
 
@@ -82,5 +89,8 @@ Optional   at most three suggestions, marked optional
 - Do not approve what you could not verify without saying exactly what is
   unverified.
 - Review the frozen head. Findings against an older head mislead the author.
+- A red quick gate under load is not a finding. Rerun the failing files alone
+  first, and say which of "failed under load, passes alone" or "fails alone" you
+  saw.
 - When a diagram would shorten the review (a call path, a state machine), draw
   the smallest one, from cited code only, and mark unknown edges as unknown.

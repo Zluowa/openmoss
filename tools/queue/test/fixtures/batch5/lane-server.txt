@@ -1,0 +1,21 @@
+ RUN  v4.1.10 /repo/apps/server
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/computerHistory/service.test.ts > ComputerHistoryService > clamps queries to 200 entries and disables without deleting ciphertext
+Error: Test timed out in 90000ms.
+ FAIL  src/git/Layers/GitManager.test.ts > GitManager > commits and pushes selected files beyond status and argument capture limits
+Error: Test timed out in 90000ms.
+ FAIL  src/git/Layers/GitManager.test.ts > GitManager > rejects push/pr actions from detached HEAD
+ FAIL  src/orchestration/Layers/CheckpointReactor.test.ts > CheckpointReactor > keeps unrelated workspace checkpoints flowing behind 'a full bounded provider publication b…'
+AssertionError: expected false to be true // Object.is equality
+ FAIL  src/orchestration/Layers/CheckpointReactor.test.ts > CheckpointReactor > keeps domain ACK behind a stuck workspace when a peer revert claim completes
+AssertionError: expected false to be true // Object.is equality
+ FAIL  src/orchestration/Layers/ProviderCommandReactor.test.ts > ProviderCommandReactor > releases a timed-out promoted turn when its live provider turn settles
+Error: Timed out waiting for expectation.
+ FAIL  src/provider/Layers/GeminiAdapter.test.ts > GeminiAdapter Moss MCP injection (SY9) > retires an owned native Gemini startup when its bootstrap is interrupted
+Error: Owned native Gemini process record was not written
+ FAIL  src/provider/Layers/ProviderService.test.ts > ProviderServiceLive keeps Claude shared refs across renewal and exact managed cleanup
+Error: Test timed out in 90000ms.
+ Test Files  7 failed | 916 passed | 14 skipped (937)
+      Tests  10 failed | 12793 passed | 346 skipped (13149)
+   Start at  00:07:34
+   Duration  1416.55s (transform 101.10s, setup 15.24s, import 666.45s, tests 4788.03s, environment 82ms)

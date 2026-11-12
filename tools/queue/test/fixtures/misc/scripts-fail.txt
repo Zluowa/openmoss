@@ -1,0 +1,18 @@
+ RUN  v4.1.10 /repo
+ FAIL  scripts/moss-managed-plugin-smoke-cleanup.test.ts > waits for a real Windows file lock to release before publishing success
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > requires the actual packaged artifact and matching digest before candidate driver action
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects kind, source target, and driver target mismatches before capture
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects acceptance replacement during a capture run
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects an acceptance file reached through a symbolic ancestor before capture
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects packaged artifact replacement during a candidate capture run
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects UTF-16LE BOM DOM bytes before creating the canonical run
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects private snapshot data before publishing any artifact
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects a non-canonical source before calling the live driver
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects exact-matrix capture before the first cell when appsFeed provenance is absent
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects exact-matrix capture before the first cell when mcpCatalog provenance is absent
+ FAIL  scripts/moss-plugin-formal-visual-capture.test.ts > formal capture drivers > rejects a staged-runtime bootstrap that is not bound to the verified frozen source
+ ❯ scripts/lib/cua-benchmark.test.ts:13:20
+ Test Files  6 failed | 202 passed | 5 skipped (213)
+      Tests  89 failed | 2327 passed | 180 skipped (2596)
+   Start at  08:29:59
+   Duration  74.77s (transform 7.15s, setup 0ms, import 23.78s, tests 240.74s, environment 16ms)

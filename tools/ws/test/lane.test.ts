@@ -92,6 +92,22 @@ describe("ws lane", () => {
     expect(fs.existsSync(path.join(base, "state", "locks", "heavy"))).toBe(false);
   });
 
+  it("tells the command it runs which lane it is in", async () => {
+    const base = tempDir("lane");
+    dirs.push(base);
+    const marker = path.join(base, "lane.txt");
+    const r = await runCli(profileAt(base, 0), [
+      "lane",
+      "batch",
+      "--",
+      process.execPath,
+      "-e",
+      `require('fs').writeFileSync(${JSON.stringify(marker)},process.env.MOSS_WS_LANE||'')`,
+    ]);
+    expect(r.code).toBe(0);
+    expect(fs.readFileSync(marker, "utf8")).toBe("batch");
+  });
+
   it("refuses with a clear message when free space is under the floor", async () => {
     const base = tempDir("lane");
     dirs.push(base);

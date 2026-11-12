@@ -1,10 +1,17 @@
 // Machine-wide locks as atomic directories (mkdir either creates or fails, on every file system).
 // The lock directory holds owner.json {pid, childPid, owner, lane, sha, started}. A lock is stale when
 // neither its pid nor its child pid is alive, or it is older than the stale limit. Waiters take a
-// ticket in <name>.queue and only the oldest live ticket tries to take the lock, so waiting is fair.
+// ticket in <name>.queue and only the oldest live tickets try to take the lock, so waiting is fair.
+// A lock with several slots (`bun run check` allows two at once) is the directories <name>-1 to
+// <name>-N sharing one queue.
 import fs from "node:fs";
 import path from "node:path";
 import { isAlive } from "./proc.ts";
+
+/** The heavy-lane lock under <stateDir>/locks. */
+export const HEAVY_LOCK = "heavy";
+/** Set to the lane's name for the command `ws lane` runs. */
+export const LANE_ENV = "MOSS_WS_LANE";
 
 export interface LockOwner {
   pid: number;
@@ -25,6 +32,10 @@ export interface LockOptions {
   readonly now?: () => number;
   /** Give up after this long (tests); default wait forever. */
   readonly timeoutMs?: number;
+  /** How many may hold the lock at once (default 1). */
+  readonly slots?: number;
+  /** Prefix of the lines it logs (default "ws lane"). */
+  readonly label?: string;
 }
 
 export interface HeldLock {
@@ -37,6 +48,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function lockPath(dir: string, name: string): string {
   return path.join(dir, name);
+}
+
+/** The lock directories of a lock with `slots` slots. */
+export function slotPaths(dir: string, name: string, slots = 1): string[] {
+  return slots <= 1
+    ? [lockPath(dir, name)]
+    : Array.from({ length: slots }, (_, index) => lockPath(dir, `${name}-${index + 1}`));
+}
+
+/** The owner of a held, live lock, or undefined when it is free or stale. */
+export function liveOwner(
+  lockDir: string,
+  staleMs: number,
+  now = Date.now(),
+): LockOwner | undefined {
+  if (!fs.existsSync(lockDir) || staleReason(lockDir, staleMs, now)) return undefined;
+  return readOwner(lockDir);
 }
 
 export function readOwner(lockDir: string): LockOwner | undefined {
@@ -148,9 +176,11 @@ function liveTicketsBefore(queueDir: string, mine: string): Ticket[] {
 export async function acquireLock(options: LockOptions): Promise<HeldLock> {
   const now = options.now ?? Date.now;
   const log = options.log ?? (() => {});
+  const label = options.label ?? "ws lane";
+  const slots = Math.max(1, options.slots ?? 1);
   fs.mkdirSync(options.dir, { recursive: true });
-  const lockDir = lockPath(options.dir, options.name);
-  const queueDir = `${lockDir}.queue`;
+  const lockDirs = slotPaths(options.dir, options.name, slots);
+  const queueDir = `${lockPath(options.dir, options.name)}.queue`;
   fs.mkdirSync(queueDir, { recursive: true });
   const pid = options.owner.pid ?? process.pid;
   const ticketName = `${String(now()).padStart(15, "0")}-${pid}-${Math.random().toString(36).slice(2, 8)}.json`;
@@ -171,9 +201,10 @@ export async function acquireLock(options: LockOptions): Promise<HeldLock> {
   try {
     for (;;) {
       const ahead = liveTicketsBefore(queueDir, ticketName);
-      if (ahead.length === 0) {
+      if (ahead.length < slots) {
         const owner: LockOwner = { ...options.owner, pid, started: new Date(now()).toISOString() };
-        if (tryCreate(lockDir, owner)) {
+        const lockDir = lockDirs.find((candidate) => tryCreate(candidate, owner));
+        if (lockDir) {
           dropTicket();
           let held = owner;
           return {
@@ -189,28 +220,36 @@ export async function acquireLock(options: LockOptions): Promise<HeldLock> {
             },
           };
         }
-        const holder = readOwner(lockDir);
-        const stale = staleReason(lockDir, options.staleMs, now());
-        if (stale) {
+        let broke = false;
+        for (const candidate of lockDirs) {
+          const holder = readOwner(candidate);
+          const stale = staleReason(candidate, options.staleMs, now());
+          if (!stale) continue;
           log(
-            `ws lane: breaking stale lock (${stale}; was ${holder?.owner ?? "?"} / ${holder?.lane ?? "?"})`,
+            `${label}: breaking stale lock (${stale}; was ${holder?.owner ?? "?"} / ${holder?.lane ?? "?"})`,
           );
-          breakStale(lockDir, holder);
-          continue;
+          breakStale(candidate, holder);
+          broke = true;
         }
+        if (broke) continue;
       }
-      const holder = readOwner(lockDir);
+      const holders = lockDirs
+        .filter((candidate) => fs.existsSync(candidate))
+        .map((candidate) => {
+          const holder = readOwner(candidate);
+          return holder
+            ? `${holder.owner} (${holder.lane}, pid ${holder.pid}, since ${holder.started})`
+            : "a starting run";
+        });
       const message =
-        `ws lane: waiting, position ${ahead.length + 1} in queue; held by ` +
-        (holder
-          ? `${holder.owner} (${holder.lane}, pid ${holder.pid}, since ${holder.started})`
-          : "a starting run");
+        `${label}: waiting, position ${ahead.length + 1} in queue; ` +
+        (holders.length ? `held by ${holders.join(", ")}` : "the runs ahead are starting");
       if (message !== lastMessage) {
         log(message);
         lastMessage = message;
       }
       if (options.timeoutMs !== undefined && now() - startedWaiting > options.timeoutMs) {
-        throw new Error("ws lane: gave up waiting for the lock");
+        throw new Error(`${label}: gave up waiting for the lock`);
       }
       await sleep(options.pollMs);
     }

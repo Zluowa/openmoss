@@ -1,6 +1,6 @@
 ---
 name: open-pr
-description: Use before pushing and when opening or updating a PR - run the quick gate, commit, push without credential prompts, and write the standard report.
+description: Use before pushing and when opening or updating a PR - run the quick gate, commit, push without credential prompts, write the standard report, and hand over a still head.
 ---
 
 # Open or update a PR
@@ -34,8 +34,15 @@ opens the PR; the author never merges it.
    - Browser files: it runs up to 20 selected component files and never
      `ChatView.browser.tsx`; anything more is left to the coordinator's lane. Say
      which in the report.
-   - Quote its output (steps, times, counts) in the report. `--json` gives the
-     same as one JSON object.
+   - It waits for one of the machine's two quick-gate slots, and holds its
+     tests while another owner's heavy lane runs (`--no-wait` overrides, for a
+     reason you state). Never start a second gate to get around the wait.
+   - It reruns each failing test file alone before it reports. Report what it
+     says: "failed under load, passes alone" or "fails alone", never just
+     "red". Only "fails alone" fails the gate.
+   - Quote its output (steps, times, counts, and the last line, which says
+     whether it waited for or overlapped a heavy lane) in the report. `--json`
+     gives the same as one JSON object.
    - No full lanes, no `bun run test` across the repository, no installer builds,
      unless the brief says so.
 3. **Visible changes.** Run the `design-review` skill. Take screenshots in light
@@ -52,7 +59,11 @@ opens the PR; the author never merges it.
    `gh pr create -R <repo> --base main --head <branch> --title "<type>(<area>): <what>" --body-file <file>`.
    To update it later, push again and edit the body with
    `gh pr edit <number> -R <repo> --body-file <file>`.
-8. **Record the head:** `git rev-parse HEAD` gives the full SHA for the report.
+8. **Hand over** (`docs/handbook/coordination.md`, "Handover"): merge `main`
+   into the branch (`git fetch origin main && git merge origin/main`, never a
+   rebase), run the quick gate again, push, and send the PR number and full head
+   SHA (`git rev-parse HEAD`) to the coordinator, or to your lead in a program.
+   Then hold the branch still: no more pushes unless asked.
 
 ## Checks
 
@@ -81,12 +92,16 @@ Released     worktree, branch, ports, processes, scratch: returned or still held
 - "Already failing on main" needs a control run: make a second worktree at
   `git merge-base origin/main HEAD` (`git worktree add --detach ...`), run the
   same test there, and show both results.
-- A test that passes on retry is flaky, not passing. Rerun a failure alone before
-  calling it a flake; if it fails alone, run it on the base.
+- A test that passes on retry is flaky, not passing. A file that failed under
+  load and passed alone is reported as that; if it fails alone, run it on the
+  base.
 - Never print, echo or log a token, and never put one in a URL, a file or the PR.
   Do not run `gh auth token`.
 - Keep unrelated formatter changes out of logic commits. If some are needed, put
   them in their own format-only commit.
 - Never merge, push to `main`, publish or deploy, even when a check is green.
+  Cloud sessions too: they open PRs.
+- Code written on Linux needs its Windows proof in the report: paths, process
+  handling, timing (`docs/handbook/quality.md`).
 - A PR over about 800 changed lines of product code is split unless the brief
   agreed to its size (`docs/handbook/quality.md`, "Risk").

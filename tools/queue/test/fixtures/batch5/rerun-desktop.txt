@@ -1,0 +1,5 @@
+ RUN  v4.1.10 /repo/apps/desktop
+ Test Files  2 passed (2)
+      Tests  213 passed (213)
+   Start at  00:40:57
+   Duration  53.41s (transform 1.38s, setup 132ms, import 2.01s, tests 57.90s, environment 0ms)

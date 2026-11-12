@@ -39,14 +39,14 @@ not restate them. A skill over about 150 lines is two skills.
 
 ## The core set
 
-| Skill           | For                                                                       |
-| --------------- | ------------------------------------------------------------------------- |
-| `start-task`    | Read the brief, take a worktree, confirm scope, set up isolation          |
-| `open-pr`       | Quick gate, standard report, screenshots for visible changes, open the PR |
-| `review-pr`     | Two-axis review (standards, intent), verdict in the fixed format          |
-| `design-review` | Check a visible change against the design standard in a real render       |
-| `run-isolated`  | Start a dev or packaged Moss that cannot touch the owner's data           |
-| `reclaim`       | The reclaim sweep: return worktrees, scratch and processes, report space  |
+| Skill           | For                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------ |
+| `start-task`    | Read the brief, take a worktree, confirm scope, set up isolation                     |
+| `open-pr`       | Quick gate, standard report, screenshots for visible changes, open the PR, hand over |
+| `review-pr`     | Two-axis review (standards, intent), verdict in the fixed format                     |
+| `design-review` | Check a visible change against the design standard in a real render                  |
+| `run-isolated`  | Start a dev or packaged Moss that cannot touch the owner's data                      |
+| `reclaim`       | The reclaim sweep: return worktrees, scratch and processes, report space             |
 
 ### Planned
 

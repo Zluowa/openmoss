@@ -12,7 +12,7 @@ port offsets, scratch folders and the heavy-lane lock. The rules it enforces are
 | `ws list [--json] [--no-size] [--all-sizes] [--fresh] [--size-budget <s>]`        | Every lease and every git worktree: owner or `unregistered`/`outside`, branch, PR state, age, size (links never followed), dirty count, ports.                                                                                                                                                                |
 | `ws release <name> [--dry-run] [--force]`                                         | Refuses uncommitted or unpushed work unless `--force`. Lists, then stops processes whose command line is inside the tree; removes links as links, then the folder; `git worktree prune`; frees ports and scratch; deletes the local branch when its PR merged at that commit.                                 |
 | `ws reap [--apply] [--json]`                                                      | Dry run unless `--apply`. Releases leases and unregistered worktrees that are clean, unused and finished (PR merged at HEAD, PR closed with every commit pushed, or HEAD in `origin/main` and no git activity for `limits.recentHours`). Prints every other tree with the reason it was kept.                 |
-| `ws lane <name> [--owner <session>] [--shell] -- <command…>`                      | Checks the disk floor on the profile's drives (exit 9 when below), waits for the machine-wide heavy lock (prints its queue position), runs the command, releases the lock. The exit code is the command's.                                                                                                    |
+| `ws lane <name> [--owner <session>] [--shell] -- <command…>`                      | Checks the disk floor on the profile's drives (exit 9 when below), waits for the machine-wide heavy lock (prints its queue position), runs the command with `MOSS_WS_LANE=<name>`, releases the lock. The exit code is the command's.                                                                         |
 | `ws doctor [--no-fail]`                                                           | Free disk and memory, lock holder and queue, orphaned dev/test processes (listed only), unregistered worktrees, leases over the age limit, worktree count over the limit. Exits 1 when anything is over a limit.                                                                                              |
 
 The owner of a lease or lane comes from `--owner`, else `MOSS_WS_OWNER`, else `CLAUDE_SESSION_NAME`.
@@ -56,7 +56,9 @@ whose location is `$MOSS_WS_PROFILE`, by default `~/.moss-ws/profile.json`. Copy
 | `tools`                               | `git`, `gh`, `bun` executables.                                                                                                 |
 
 The lease registry is `<stateDir>/leases.json`; the heavy lock is the directory
-`<stateDir>/locks/heavy` with an `owner.json` {pid, childPid, owner, lane, sha, started}.
+`<stateDir>/locks/heavy` with an `owner.json` {pid, childPid, owner, lane, sha, started}. The
+same lock code, with two slots (`locks/check-1`, `locks/check-2`, queue `locks/check.queue`),
+limits `bun run check` (`tools/check/README.md`, "Load").
 
 ## Differences from the operator's `mkwt.mjs`
 

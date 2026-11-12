@@ -1,0 +1,11 @@
+ RUN  v4.1.10 /repo/packages/shared
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/mossProjectionMaterializer.test.ts > materializeMossProjection > is idempotent: second run reports zero created/updated/conflict and leaves bytes unchanged
+Error: Test timed out in 5000ms.
+ FAIL  src/mossProjectionMaterializer.test.ts > removeMossProjectionResource > keeps managed skill projections and manifest entries when CAS cleanup is unavailable (A6)
+Error: Test timed out in 5000ms.
+ FAIL  src/mossProjectionMaterializer.test.ts > removeMossProjectionResource > keeps managed skill projections and manifest entries when CAS cleanup is unavailable (A6)
+ Test Files  1 failed | 176 passed (177)
+      Tests  2 failed | 1962 passed | 18 skipped (1982)
+   Start at  23:40:43
+   Duration  69.14s (transform 41.77s, setup 11.68s, import 96.51s, tests 74.01s, environment 18ms)

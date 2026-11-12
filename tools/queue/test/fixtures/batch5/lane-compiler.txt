@@ -1,0 +1,10 @@
+ RUN  v4.1.10 /repo/apps/web
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |chromium| src/components/chat/MessagesTimeline.renderScope.browser.tsx > MessagesTimeline streaming render scope > re-renders only the streaming row on a text-only flush in 'a main thread'
+ FAIL  |chromium| src/components/chat/MessagesTimeline.renderScope.browser.tsx > MessagesTimeline streaming render scope > re-renders only the streaming row on a text-only flush in 'a main thread with generated-image hi…'
+ FAIL  |chromium| src/components/chat/MessagesTimeline.renderScope.browser.tsx > MessagesTimeline streaming render scope > re-renders only the streaming row on a text-only flush in 'a subagent thread'
+AssertionError: expected [ 'renderRowContent' ] to deeply equal []
+ Test Files  1 failed | 1 passed (2)
+      Tests  3 failed | 10 passed (13)
+   Start at  00:07:04
+   Duration  28.55s (transform 0ms, setup 36ms, import 8.75s, tests 11.98s, environment 0ms)

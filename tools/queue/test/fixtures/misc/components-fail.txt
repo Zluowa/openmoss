@@ -1,0 +1,8 @@
+ RUN  v4.1.10 /repo/apps/web
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |components (chromium)| src/components/settings/ImportSettingsPanel.browser.tsx > Settings → Import > lists conversations from the same agents as onboarding and probes only tools
+VitestBrowserElementError: Cannot find element with locator: getByText('Hermes', { exact: true }).first()
+ Test Files  1 failed | 358 passed | 2 skipped (361)
+      Tests  1 failed | 2161 passed | 20 skipped (2182)
+   Start at  07:50:59
+   Duration  948.35s (transform 0ms, setup 3.89s, import 201.57s, tests 702.63s, environment 0ms)

@@ -1,0 +1,11 @@
+ RUN  v4.1.10 /repo/apps/desktop
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  src/appSnapManager.test.ts > AppSnap window picker requests > removes a capture whose request times out while durable persistence is in flight
+ FAIL  src/appSnapManager.test.ts > AppSnap permission guide > writes close and SIGTERMs the guide when hidden
+Error: Test timed out in 5000ms.
+ FAIL  src/cuaDriverHost.test.ts > physical Escape interrupt > keeps Escape browser recovery separate from native reads and rejects an interrupted browser snapshot
+AssertionError: expected { ok: true, result: { …(1) }, …(5) } to match object { result: { …(1) } }
+ Test Files  2 failed | 181 passed | 5 skipped (188)
+      Tests  3 failed | 2281 passed | 25 skipped (2309)
+   Start at  23:41:54
+   Duration  96.68s (transform 14.92s, setup 4.22s, import 78.29s, tests 188.35s, environment 26ms)

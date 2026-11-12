@@ -8597,6 +8597,9 @@ export default function ChatView({
                           suppressWorkingIndicator={
                             activePendingApproval?.requestKind === "command"
                           }
+                          awaitingUser={
+                            activePendingApproval !== null || pendingUserInputs.length > 0
+                          }
                           workingLabel={resolveWorkingLabel({
                             isSettlingTurnDispatch,
                             isSendBusy,

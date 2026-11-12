@@ -84,6 +84,7 @@ interface ChatTranscriptPaneProps {
   isProjectImport?: boolean;
   isWorking: boolean;
   suppressWorkingIndicator?: boolean;
+  awaitingUser?: boolean;
   workingLabel?: ComponentProps<typeof MessagesTimeline>["workingLabel"];
   followLiveOutput: boolean;
   animateTailAnchorSlide?: ComponentProps<typeof MessagesTimeline>["animateTailAnchorSlide"];
@@ -202,6 +203,7 @@ export function ChatTranscriptPane({
   isProjectImport,
   isWorking,
   suppressWorkingIndicator,
+  awaitingUser,
   workingLabel,
   followLiveOutput,
   animateTailAnchorSlide,
@@ -491,6 +493,7 @@ export function ChatTranscriptPane({
               hasMessages={hasMessages}
               isWorking={isWorking}
               suppressWorkingIndicator={suppressWorkingIndicator === true}
+              awaitingUser={awaitingUser === true}
               {...(workingLabel ? { workingLabel } : {})}
               worktreeSetup={worktreeSetup}
               worktreeSetupPendingAction={worktreeSetupPendingAction ?? null}

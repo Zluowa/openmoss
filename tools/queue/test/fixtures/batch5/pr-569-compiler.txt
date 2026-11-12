@@ -1,0 +1,5 @@
+ RUN  v4.1.10 /repo/apps/web
+ Test Files  2 passed (2)
+      Tests  13 passed (13)
+   Start at  00:54:52
+   Duration  38.55s (transform 0ms, setup 53ms, import 11.33s, tests 11.29s, environment 0ms)

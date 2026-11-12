@@ -62,9 +62,11 @@ import {
   type SubagentThreadPresentation,
 } from "./SubagentThreadIntro";
 import type { WorkingLabel } from "../ChatView.logic";
+import { useFinishedTurnLinger } from "./transcript/useFinishedTurnLinger";
+import { WorkingMarkContext } from "./transcript/workingMarkContext";
+import { workingMarkSignal } from "./transcript/workingStatus";
 import { InlineLinkChip } from "../InlineLinkChip";
 import {
-  ActivityLoadingIcon,
   BotIcon,
   ChangesIcon,
   CircleAlertIcon,
@@ -72,16 +74,15 @@ import {
   GitForkIcon,
   GoalIcon,
   LoaderIcon,
-  MessageDeliveryCheckIcon,
   type LucideIcon,
   NewThreadIcon,
   PinIcon,
   SteerIcon,
   StopIcon,
-  ThinkingIcon,
   Undo2Icon,
   UsersIcon,
 } from "~/lib/icons";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { mapsEqual, setsEqual, useStableValue } from "~/hooks/useStableValue";
 import { Button } from "../ui/button";
@@ -432,6 +433,8 @@ interface MessagesTimelineProps {
   hasMessages: boolean;
   heightCacheScope?: string;
   suppressWorkingIndicator?: boolean;
+  /** An approval or a question is waiting on the person. */
+  awaitingUser?: boolean;
   onEmbeddedScrollIntent?: ((upward: boolean) => void) | undefined;
   onSendVisualChoice?: ((message: string) => void) | undefined;
   hasOlderHistory?: boolean;
@@ -643,6 +646,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   hasMessages,
   heightCacheScope,
   suppressWorkingIndicator,
+  awaitingUser,
   hasOlderHistory: hasOlderHistoryProp,
   isLoadingOlderHistory: isLoadingOlderHistoryProp,
   onLoadOlderHistory,
@@ -781,12 +785,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     return null;
   }, [rawTimelineEntries]);
   const workingLabel = workingLabelProp ?? "Thinking";
-  const workingIcon =
-    workingLabel === "Thinking"
-      ? ThinkingIcon
-      : workingLabel === "Checking message delivery…"
-        ? MessageDeliveryCheckIcon
-        : ActivityLoadingIcon;
   const worktreeSetup = worktreeSetupProp ?? null;
   const worktreeSetupPendingAction = worktreeSetupPendingActionProp ?? null;
   const followLiveOutput = followLiveOutputProp ?? false;
@@ -1079,6 +1077,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   });
 
   const presentedWorktreeSetup = useWorktreeSetupPresentation(worktreeSetup);
+  // A turn that ended in an error has its own row; the mark does not take a bow over it.
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const lastTimelineEntryKind = timelineEntries.at(-1)?.kind;
+  const workingIndicatorLingering = useFinishedTurnLinger(
+    isWorking,
+    !prefersReducedMotion &&
+      lastTimelineEntryKind !== "turn-error" &&
+      lastTimelineEntryKind !== "system-error",
+  );
+  const workingMark = useMemo(
+    () =>
+      workingMarkSignal({
+        label: workingLabel,
+        entries: timelineEntries,
+        awaitingUser: awaitingUser === true,
+        finished: workingIndicatorLingering,
+      }),
+    [workingLabel, timelineEntries, awaitingUser, workingIndicatorLingering],
+  );
   const conversationOnly = conversationOnlyProp === true;
   const rawRows = useMemo(
     () =>
@@ -1086,6 +1103,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         timelineEntries,
         isWorking,
         suppressWorkingIndicator: suppressWorkingIndicator === true,
+        workingIndicatorLingering,
         worktreeSetup: presentedWorktreeSetup?.snapshot ?? null,
         worktreeSetupOpen: presentedWorktreeSetup?.open ?? false,
         activeTurnInProgress,
@@ -1103,6 +1121,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       timelineEntries,
       isWorking,
       suppressWorkingIndicator,
+      workingIndicatorLingering,
       presentedWorktreeSetup,
       activeTurnInProgress,
       subagentsRunning,
@@ -3804,7 +3823,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     inlineVisualActions,
     onEmbeddedScrollIntent: handleEmbeddedScrollIntent,
     workingLabel,
-    workingIcon,
     worktreeSetupPendingAction,
     onResolveWorktreeSetup,
     renderConversationBody: renderConversationCardBody,
@@ -3967,77 +3985,79 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   return (
     <BackgroundTaskStopContext.Provider value={onStopBackgroundTask ?? null}>
-      <div
-        ref={timelineRootRef}
-        className="contents"
-        data-messages-timeline-root="true"
-        onContextMenuCapture={handleGeneratedImageContextMenu}
-      >
-        <LegendList<MessagesTimelineRow>
-          recycleItems={false}
-          ref={resolvedListRef}
-          data={rows}
-          keyExtractor={(row) => row.id}
-          renderItem={({ item }) => renderRowContent(item)}
-          estimatedItemSize={90}
-          getEstimatedItemSize={rowHeightHints.getEstimatedItemSize}
-          onItemSizeChanged={rowHeightHints.onItemSizeChanged}
-          // LegendList caches rendered rows, so every local expansion map that changes row content
-          // has to be surfaced through extraData.
-          extraData={timelineExtraData}
-          // Deliberately keyed off the *inherited* anchor rather than
-          // `tailAnchorSlideInFlight`: LegendList re-targets the end on every data
-          // change while this is true, which would yank a live post-send anchor
-          // out of its hold. A remount that inherits an already-settled anchor has
-          // no slide to preserve, so bootstrapping at the end is what we want.
-          initialScrollAtEnd={tailAnchorMessageId === null || hasInheritedTailAnchor}
-          {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
-          maintainScrollAtEnd={followLiveOutput && !tailAnchorSlideInFlight}
-          maintainScrollAtEndThreshold={
-            followLiveOutput && !tailAnchorSlideInFlight ? Number.POSITIVE_INFINITY : 0.1
-          }
-          {...(tailAnchorMessageId !== null
-            ? { maintainVisibleContentPosition: false }
-            : !followLiveOutput
-              ? { maintainVisibleContentPosition: true }
+      <WorkingMarkContext.Provider value={workingMark}>
+        <div
+          ref={timelineRootRef}
+          className="contents"
+          data-messages-timeline-root="true"
+          onContextMenuCapture={handleGeneratedImageContextMenu}
+        >
+          <LegendList<MessagesTimelineRow>
+            recycleItems={false}
+            ref={resolvedListRef}
+            data={rows}
+            keyExtractor={(row) => row.id}
+            renderItem={({ item }) => renderRowContent(item)}
+            estimatedItemSize={90}
+            getEstimatedItemSize={rowHeightHints.getEstimatedItemSize}
+            onItemSizeChanged={rowHeightHints.onItemSizeChanged}
+            // LegendList caches rendered rows, so every local expansion map that changes row content
+            // has to be surfaced through extraData.
+            extraData={timelineExtraData}
+            // Deliberately keyed off the *inherited* anchor rather than
+            // `tailAnchorSlideInFlight`: LegendList re-targets the end on every data
+            // change while this is true, which would yank a live post-send anchor
+            // out of its hold. A remount that inherits an already-settled anchor has
+            // no slide to preserve, so bootstrapping at the end is what we want.
+            initialScrollAtEnd={tailAnchorMessageId === null || hasInheritedTailAnchor}
+            {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
+            maintainScrollAtEnd={followLiveOutput && !tailAnchorSlideInFlight}
+            maintainScrollAtEndThreshold={
+              followLiveOutput && !tailAnchorSlideInFlight ? Number.POSITIVE_INFINITY : 0.1
+            }
+            {...(tailAnchorMessageId !== null
+              ? { maintainVisibleContentPosition: false }
+              : !followLiveOutput
+                ? { maintainVisibleContentPosition: true }
+                : {})}
+            onClickCapture={onMessagesClickCapture}
+            onMouseUp={onMessagesMouseUp}
+            onPointerCancel={handleMessagesPointerCancel}
+            onPointerDown={handleMessagesPointerDown}
+            onPointerUp={onMessagesPointerUp}
+            onScroll={handleListScroll}
+            {...(onTrailHighlightsChange
+              ? {
+                  onViewableItemsChanged: handleViewableItemsChanged,
+                  viewabilityConfig: TRAIL_VIEWABILITY_CONFIG,
+                }
               : {})}
-          onClickCapture={onMessagesClickCapture}
-          onMouseUp={onMessagesMouseUp}
-          onPointerCancel={handleMessagesPointerCancel}
-          onPointerDown={handleMessagesPointerDown}
-          onPointerUp={onMessagesPointerUp}
-          onScroll={handleListScroll}
-          {...(onTrailHighlightsChange
-            ? {
-                onViewableItemsChanged: handleViewableItemsChanged,
-                viewabilityConfig: TRAIL_VIEWABILITY_CONFIG,
-              }
-            : {})}
-          onTouchEnd={onMessagesTouchEnd}
-          onTouchMove={handleMessagesTouchMove}
-          onTouchStart={handleMessagesTouchStart}
-          onWheel={handleMessagesWheel}
-          data-chat-scroll-container="true"
-          // LegendList sets overflow inline, so a CSS class cannot keep this
-          // vertical transcript from gaining a horizontal scrollbar.
-          showsHorizontalScrollIndicator={false}
-          ListFooterComponent={listFooter}
-          ListHeaderComponent={historyHeader}
-          // `scroll-edge-fade` (index.css) dissolves rows under the chat header and toward
-          // the composer instead of cutting them. It is scroll-aware via
-          // `animation-timeline: scroll()` and paint-only, so each edge clears once nothing
-          // is scrolled past it (a pinned or non-scrollable transcript stays crisp) without
-          // feeding back into auto-follow or list measurement. With the floating composer,
-          // `listScrollStyle` moves the bottom fade up to the composer's top edge and
-          // intersects the footer-controls dissolve.
-          className={cn(
-            "scroll-edge-fade h-full overscroll-y-contain py-3 [scrollbar-gutter:stable] sm:py-4",
-            ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
-            CHAT_COLUMN_GUTTER_CLASS_NAME,
-          )}
-          {...(listScrollStyle ? { style: listScrollStyle } : {})}
-        />
-      </div>
+            onTouchEnd={onMessagesTouchEnd}
+            onTouchMove={handleMessagesTouchMove}
+            onTouchStart={handleMessagesTouchStart}
+            onWheel={handleMessagesWheel}
+            data-chat-scroll-container="true"
+            // LegendList sets overflow inline, so a CSS class cannot keep this
+            // vertical transcript from gaining a horizontal scrollbar.
+            showsHorizontalScrollIndicator={false}
+            ListFooterComponent={listFooter}
+            ListHeaderComponent={historyHeader}
+            // `scroll-edge-fade` (index.css) dissolves rows under the chat header and toward
+            // the composer instead of cutting them. It is scroll-aware via
+            // `animation-timeline: scroll()` and paint-only, so each edge clears once nothing
+            // is scrolled past it (a pinned or non-scrollable transcript stays crisp) without
+            // feeding back into auto-follow or list measurement. With the floating composer,
+            // `listScrollStyle` moves the bottom fade up to the composer's top edge and
+            // intersects the footer-controls dissolve.
+            className={cn(
+              "scroll-edge-fade h-full overscroll-y-contain py-3 [scrollbar-gutter:stable] sm:py-4",
+              ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
+              CHAT_COLUMN_GUTTER_CLASS_NAME,
+            )}
+            {...(listScrollStyle ? { style: listScrollStyle } : {})}
+          />
+        </div>
+      </WorkingMarkContext.Provider>
     </BackgroundTaskStopContext.Provider>
   );
 });

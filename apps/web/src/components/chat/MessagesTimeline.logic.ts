@@ -1502,6 +1502,8 @@ export function deriveMessagesTimelineRows(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   isWorking: boolean;
   suppressWorkingIndicator?: boolean;
+  /** The turn just ended and its working line stays a moment while the mark comes to rest. */
+  workingIndicatorLingering?: boolean;
   worktreeSetup: WorktreeSetupSnapshot | null;
   worktreeSetupOpen: boolean;
   activeTurnInProgress?: boolean;
@@ -2073,7 +2075,7 @@ export function deriveMessagesTimelineRows(input: {
   // second generic shimmer for the same live activity.
   const hasActiveReasoning = nextRows.some((row) => row.kind === "reasoning" && row.active);
   if (
-    input.isWorking &&
+    (input.isWorking || input.workingIndicatorLingering === true) &&
     !input.suppressWorkingIndicator &&
     !hasActiveReasoning &&
     !(input.worktreeSetup && input.worktreeSetupOpen)

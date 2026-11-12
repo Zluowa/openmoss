@@ -81,7 +81,6 @@ describe("working line while a provider starts", () => {
       const Working = TRANSCRIPT_CARDS.working.Body;
       const env = {
         workingLabel: "Starting Codex…",
-        workingIcon: () => null,
         typography: { chatPx: 14 },
       } as unknown as Parameters<typeof Working>[0]["env"];
       const row = { kind: "working", id: "working-indicator-row" } as Parameters<

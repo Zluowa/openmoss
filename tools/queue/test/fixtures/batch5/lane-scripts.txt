@@ -1,0 +1,5 @@
+ RUN  v4.1.10 /repo
+ Test Files  139 passed | 4 skipped (143)
+      Tests  1556 passed | 92 skipped (1648)
+   Start at  00:31:12
+   Duration  86.07s (transform 14.52s, setup 2.77s, import 33.14s, tests 215.56s, environment 12ms)

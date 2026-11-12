@@ -213,7 +213,7 @@ async function settleFrames(count: number): Promise<void> {
 }
 
 describe("MessagesTimeline tail anchor", () => {
-  it("shimmers the typing icon and label together on the shared animation cadence", async () => {
+  it("turns the Moss mark and shimmers the label beside it", async () => {
     const handleRef: { current: HarnessHandle | null } = { current: null };
     const screen = await render(<TailAnchorTimeline handleRef={handleRef} />);
 
@@ -226,14 +226,18 @@ describe("MessagesTimeline tail anchor", () => {
           timeout: 5_000,
         })
         .toContain("Thinking");
-      const icon = document.querySelector(
-        '[data-timeline-row-kind="working"] [data-slot="central-icon"]',
+      const mark = document.querySelector<SVGSVGElement>(
+        '[data-timeline-row-kind="working"] svg[data-activity="thinking"]',
       )!;
-      const indicator = icon.parentElement!.parentElement!;
+      const indicator = mark.nextElementSibling as HTMLElement;
       expect(indicator.textContent).toBe("Thinking…");
+      // The mark keeps its own colours: only the words sit under the shimmer mask.
+      expect(getComputedStyle(mark).maskImage).toBe("none");
+      const turned = () => Number.parseFloat(mark.style.rotate || "0");
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         expect(getComputedStyle(indicator).maskImage).toBe("none");
         expect(indicator.getAnimations()).toHaveLength(0);
+        expect(turned()).toBe(0);
       } else {
         expect(getComputedStyle(indicator).maskImage).toContain("linear-gradient");
         const animation = indicator.getAnimations()[0]!;
@@ -245,6 +249,11 @@ describe("MessagesTimeline tail anchor", () => {
         const initialMaskPosition = getComputedStyle(indicator).maskPosition;
         animation.currentTime = 1000;
         expect(getComputedStyle(indicator).maskPosition).not.toBe(initialMaskPosition);
+        // A gust turns the mark a quarter, counter-clockwise, and it rests on the still logo.
+        await expect.poll(turned, { timeout: 5_000 }).toBeLessThan(0);
+        await expect
+          .poll(() => turned() % 90 === 0 && turned() <= -90, { timeout: 5_000 })
+          .toBe(true);
       }
     } finally {
       await screen.unmount();

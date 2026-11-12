@@ -10,7 +10,7 @@ import { belowFloor, floorMessage, formatGB, freeSpace } from "./disk.ts";
 import { fetchPullRequests, matchPullRequest, type PullRequest } from "./gh.ts";
 import { branchExists, branchTip, listWorktrees, readTreeState, type GitWorktree } from "./git.ts";
 import { linkDependencies } from "./linkDeps.ts";
-import { acquireLock, lockPath, readOwner, staleReason } from "./lock.ts";
+import { acquireLock, HEAVY_LOCK, LANE_ENV, lockPath, readOwner, staleReason } from "./lock.ts";
 import { isInsideOrEqual, isStrictlyInside, normalize, pathKey, samePath } from "./paths.ts";
 import {
   listProcesses,
@@ -721,7 +721,7 @@ export async function cmdLane(
   const sha = shaRun.code === 0 ? shaRun.stdout.trim() : "";
   const lock = await acquireLock({
     dir: path.join(profile.stateDir, "locks"),
-    name: "heavy",
+    name: HEAVY_LOCK,
     staleMs: profile.lock.staleHours * 3600_000,
     pollMs: profile.lock.pollSeconds * 1000,
     owner: { owner: ownerFrom(args), lane, sha },
@@ -741,6 +741,8 @@ export async function cmdLane(
     const started = Date.now();
     const code = await new Promise<number>((resolve) => {
       const child = spawn(command[0]!, command.slice(1), {
+        // `bun run check` inside a lane must not wait for the lane it runs in.
+        env: { ...process.env, [LANE_ENV]: lane },
         stdio: "inherit",
         shell: args.flags.has("shell"),
         windowsHide: false,
@@ -791,7 +793,7 @@ export async function cmdDoctor(profile: Profile, args: ParsedArgs, io: Io): Pro
     `memory ${(os.freemem() / 1024 ** 3).toFixed(1)} GB free of ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB`,
   );
 
-  const lockDir = lockPath(path.join(profile.stateDir, "locks"), "heavy");
+  const lockDir = lockPath(path.join(profile.stateDir, "locks"), HEAVY_LOCK);
   if (fs.existsSync(lockDir)) {
     const owner = readOwner(lockDir);
     const stale = staleReason(lockDir, profile.lock.staleHours * 3600_000);

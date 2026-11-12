@@ -13,6 +13,7 @@ import React, {
   type ComponentProps,
   type CSSProperties,
   type ReactNode,
+  useContext,
   useEffect,
   useState,
 } from "react";
@@ -23,6 +24,7 @@ import { cn } from "~/lib/utils";
 import { syncAnimationsToTimelineOrigin } from "~/lib/animationTimelineSync";
 import { useTranslation } from "../../../../localization";
 import { formatClockElapsed } from "../../../../session-logic";
+import { MossLogoMark } from "../../../MossLogoMark";
 import { DisclosureRegion } from "../../../ui/DisclosureRegion";
 import { Alert, AlertAction, AlertDescription } from "../../../ui/alert";
 import { Button } from "../../../ui/button";
@@ -34,13 +36,14 @@ import { ProposedPlanCard } from "../../ProposedPlanCard";
 import { TimelineReasoningRow } from "../../TimelineReasoningRow";
 import { TimelineSystemErrorRow } from "../../TimelineSystemErrorRow";
 import { TimelineTodoPlanRow } from "../../TimelineTodoPlanRow";
-import { renderWorkEntryIcon, type TimelineWorkEntryRow } from "../../TimelineWorkEntryRow";
+import type { TimelineWorkEntryRow } from "../../TimelineWorkEntryRow";
 import { TurnHeaderLine } from "../../TurnHeaderLine";
 import {
   SLOW_PROVIDER_START_NOTICE_MS,
   startingProviderName,
   workingStatusKey,
 } from "../workingStatus";
+import { WorkingMarkContext } from "../workingMarkContext";
 import {
   ContextCompactionLine,
   ModelChangedTimelineRow,
@@ -90,7 +93,6 @@ export interface TranscriptCardEnv {
   inlineVisualActions: InlineVisualProps["actions"];
   onEmbeddedScrollIntent: InlineVisualProps["onScrollIntent"];
   workingLabel: string;
-  workingIcon: Parameters<typeof renderWorkEntryIcon>[0];
   worktreeSetupPendingAction: WorktreeSetupProps["pendingAction"];
   onResolveWorktreeSetup: WorktreeSetupProps["onResolve"];
   /** Messages and tool runs: drawn by the timeline, which owns their many inputs. */
@@ -134,28 +136,38 @@ function WorkingBody(props: { row: RowOf<"working">; env: TranscriptCardEnv }) {
       ? Math.max(0, (Date.parse(env.nowIso) - Date.parse(row.createdAt)) / 1000)
       : 0;
   const key = workingStatusKey(env.workingLabel, elapsedSeconds);
+  // The mark keeps its own colour and motion; only the words shimmer. A finished turn keeps
+  // just the mark while it comes to rest.
+  // Read from context, not env: the signal changes on every streamed character.
+  const workingMark = useContext(WorkingMarkContext);
+  const finished = workingMark.activity === "done";
   return (
     <div
-      ref={syncAnimationsToTimelineOrigin}
       className={cn(
-        "shimmer-group flex w-fit items-center gap-1.5 pt-0.5 font-system-ui",
+        "flex w-fit items-center gap-1.5 pt-0.5 font-system-ui",
         MUTED_LABEL_TEXT_CLASS_NAME,
       )}
       style={{ fontSize: `${env.typography.chatPx}px` }}
     >
-      <span aria-hidden="true" className="flex shrink-0">
-        {renderWorkEntryIcon(env.workingIcon, MESSAGE_ACTION_ICON_CLASS_NAME)}
-      </span>
-      <span>
-        {startingProvider
-          ? format(
-              startingSlowly ? "transcript.working.startingSlowly" : "transcript.working.starting",
-              { provider: startingProvider },
-            )
-          : key
-            ? t(key)
-            : env.workingLabel}
-      </span>
+      <MossLogoMark
+        activity={workingMark.activity}
+        progress={workingMark.progress}
+        className={MESSAGE_ACTION_ICON_CLASS_NAME}
+      />
+      {finished ? null : (
+        <span ref={syncAnimationsToTimelineOrigin} className="shimmer-group">
+          {startingProvider
+            ? format(
+                startingSlowly
+                  ? "transcript.working.startingSlowly"
+                  : "transcript.working.starting",
+                { provider: startingProvider },
+              )
+            : key
+              ? t(key)
+              : env.workingLabel}
+        </span>
+      )}
     </div>
   );
 }

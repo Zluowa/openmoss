@@ -1,0 +1,5 @@
+ RUN  v4.1.10 /repo/apps/server
+ Test Files  6 passed (6)
+      Tests  1017 passed | 4 skipped (1021)
+   Start at  00:41:51
+   Duration  389.13s (transform 9.52s, setup 162ms, import 17.39s, tests 742.38s, environment 1ms)

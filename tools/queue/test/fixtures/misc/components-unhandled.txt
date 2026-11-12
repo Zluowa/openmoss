@@ -1,0 +1,15 @@
+ RUN  v4.1.10 /repo/apps/web
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |components (chromium)| src/components/EventRouter.browser.tsx > EventRouter scoped orchestration sync > snapshot ordering against queued and buffered events > resyncs instead of applying buffered events after the pre-snapshot buffer overflowed
+AssertionError: expected 1 to be greater than 1
+ FAIL  |components (chromium)| src/lib/contextMenuFallback.browser.ts > showContextMenuFallback submenus > keeps the submenu open when the pointer crosses a sibling row on its way in
+TimeoutError: locator.hover: Timeout 89464ms exceeded.
+ FAIL  |components (chromium)| src/components/settings/ProvidersSettingsPanel.browser.tsx > restores provider options and saved configuration after re-enabling
+TimeoutError: locator.click: Timeout 89415ms exceeded.
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+Vitest caught 1 unhandled error during the test run.
+ Test Files  3 failed | 363 passed | 2 skipped (368)
+      Tests  3 failed | 2190 passed | 24 skipped (2217)
+     Errors  1 error
+   Start at  16:41:06
+   Duration  2601.03s (transform 0ms, setup 55.63s, import 1023.17s, tests 1344.33s, environment 0ms)

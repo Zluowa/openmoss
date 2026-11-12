@@ -24,11 +24,34 @@ unit tests that import one, chosen from the import graph. It runs at most 20
 selected component browser files and never `ChatView.browser.tsx`; more than that
 is left to the coordinator's lane. A change to root configuration prints "full run
 required" and fails. Each step prints its time and, on failure, the exact command
-to reproduce it.
+to reproduce it. It reruns failing test files alone before it reports, and keeps
+to the machine's load limits (`resources.md`, "Load").
 
 The other lanes are the target. Until they land, the coordinator runs the full
-lanes locally on the combined result of each batch. `.github/CI.md` (kept in the
+lanes locally on each batch ("Judging a batch"). `.github/CI.md` (kept in the
 private repository) says what runs in CI today.
+
+## Judging a batch
+
+1. The candidate is the batch's PR heads merged in order onto `main`.
+2. Every lane runs on the candidate.
+3. Every failure is rerun alone on the candidate. What passes alone was load.
+4. What still fails is run on plain `main`. A failure on both is not the batch's:
+   it goes to its owner, fixed or quarantined, with both results shown.
+5. What fails on the candidate and passes on `main` is real. Find the PR by
+   running that lane on `main` plus each suspect PR alone. Eject it and verify
+   the rest again.
+6. Merge one PR at a time, pinned to its verified head SHA, and check that the
+   resulting tree equals the verified candidate's.
+
+Every batch passes these lanes too; they are the ones most often forgotten:
+
+- the compiler browser lane, `bun run --cwd apps/web test:browser:compiler`
+  (`MessagesTimeline.renderScope`: a text-only streaming flush re-renders only
+  the streaming row);
+- the public-mirror export guard, `node scripts/public-mirror/cli.ts export --clean`
+  (a new icon needs an entry in `scripts/public-mirror/open-icon-aliases.json`);
+- the test quarantine check, `bun run test-quarantine:check`.
 
 ## How the speed is kept
 
@@ -61,7 +84,19 @@ A check that fails for reasons other than the change teaches agents to ignore it
   `backendShutdown.windows.integration` is never quarantined: it finds real regressions.
 - Nobody says "that was already failing" without a control run on the base commit,
   with both results shown.
-- Nobody reruns until green. A test that passes on retry is flaky and is quarantined.
+- Nobody reruns until green. A file that failed under load and passed alone is
+  reported as exactly that. A test that fails alone and then passes on retry is
+  flaky and is quarantined.
+
+## Other platforms and the model
+
+- Code written on Linux (cloud sessions) is proven on Windows before it merges:
+  paths (case, separators, drive letters), process handling, timing. Path logic
+  takes the path flavour as a parameter and is tested with both flavours on every
+  platform.
+- A tool description is part of the product. What a tool tells the model (the
+  libraries it can use, the formats it accepts) is true in the runtime it
+  produces for.
 
 ## Done
 
@@ -75,6 +110,13 @@ A change is done when all of these hold:
 5. Documents and skills that describe the changed thing are updated in the same PR.
 6. An independent reviewer approved it.
 7. The standard report is on the PR and the task's resources are released.
+
+## Release gate
+
+A version is published only from the verified commit, and only when the fixes
+for its blockers were accepted in a real window, the installer smoke passes, and
+the mainland reachability probe passes from a mainland network without a proxy.
+`docs/release.md` has the commands.
 
 ## Risk
 

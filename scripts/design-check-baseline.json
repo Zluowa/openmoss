@@ -1,7 +1,4 @@
 {
-  "apps/web/src/assets/mossLogoPath.ts": {
-    "hex-color": 1
-  },
   "apps/web/src/authSignedOut.ts": {
     "hex-color": 9
   },

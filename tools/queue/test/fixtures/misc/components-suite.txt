@@ -1,0 +1,27 @@
+ RUN  v4.1.10 /repo/apps/web
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |components (chromium)| src/components/SidebarGroupsSurface.browser.tsx [ src/components/SidebarGroupsSurface.browser.tsx ]
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > keeps account B from skill discovery in the fresh creator draft when account A is default
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'GitHub', exact: true }).first()
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > keeps account B from skill discovery in the fresh try-now draft when account A is default
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'GitHub', exact: true }).first()
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > rejects an explicitly disabled account B before registering a Creator draft
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > rejects an explicitly removed account B before registering a Creator draft
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'GitHub', exact: true }).first()
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > rejects a disabled default account B when every Codex account is disabled
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'GitHub', exact: true }).first()
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > rolls back account B if it becomes disabled while draft navigation is settling
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'GitHub', exact: true }).first()
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > does not prefill account B into account A's coalesced project draft
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'GitHub', exact: true }).first()
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > opens a fresh chat with the namespaced skill and Codex's request every time, keeping its reference through composer edits
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'GitHub', exact: true }).first()
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > does not offer an unavailable creator as a working action
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'GitHub', exact: true }).first()
+ FAIL  |components (chromium)| src/components/PluginLibrary.creator.browser.tsx > bundled Plugin Creator entry > does not offer a disabled creator as a working action
+VitestBrowserElementError: Cannot find element with locator: getByRole('button', { name: 'GitHub', exact: true }).first()
+ Test Files  2 failed | 351 passed | 2 skipped (355)
+      Tests  10 failed | 2098 passed | 20 skipped (2128)
+   Start at  04:58:17
+   Duration  1669.77s (transform 0ms, setup 886ms, import 157.03s, tests 1477.53s, environment 0ms)

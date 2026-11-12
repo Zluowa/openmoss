@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { acquireLock, lockPath, readOwner, staleReason } from "../lib/lock.ts";
+import { acquireLock, lockPath, readOwner, slotPaths, staleReason } from "../lib/lock.ts";
 import { cleanup, tempDir } from "./helpers.ts";
 
 const dirs: string[] = [];
@@ -70,6 +70,37 @@ describe("heavy-lane lock", () => {
     expect(secondGot).toBeGreaterThanOrEqual(releasedAt);
     expect(log.join("\n")).toMatch(/position 1 in queue; held by test \(first/);
     held.release();
+  });
+
+  it("hands out every slot of a lock with several before anyone waits", async () => {
+    const dir = tempDir("lock");
+    dirs.push(dir);
+    const take = (lane: string, log?: (line: string) => void) =>
+      acquireLock({
+        dir,
+        name: "check",
+        slots: 2,
+        label: "check",
+        staleMs: 3600_000,
+        pollMs: 20,
+        owner: owner(lane),
+        ...(log ? { log } : {}),
+      });
+    const a = await take("a");
+    const b = await take("b");
+    expect([a.path, b.path].toSorted()).toEqual(slotPaths(dir, "check", 2));
+    const log: string[] = [];
+    const c = take("c", (line) => log.push(line));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(log[0]).toMatch(
+      /^check: waiting, position 1 in queue; held by test \(a, .*\), test \(b,/,
+    );
+    a.release();
+    const held = await c;
+    expect(held.path).toBe(slotPaths(dir, "check", 2)[0]);
+    held.release();
+    b.release();
+    expect(slotPaths(dir, "check", 2).some((p) => fs.existsSync(p))).toBe(false);
   });
 
   it("treats a lock whose pid is gone as stale and takes it", async () => {

@@ -5,17 +5,21 @@ change touches. The lane it implements is described in `docs/handbook/quality.md
 
 ```
 bun run check [--base <ref>] [--json] [--no-tests] [--allow-root] [--dry-run]
+              [--no-wait] [--max-wait <minutes>]
 ```
 
-| Flag           | Does                                                                           |
-| -------------- | ------------------------------------------------------------------------------ |
-| `--base <ref>` | Compare with the merge base of `HEAD` and `<ref>` (default `origin/main`).     |
-| `--json`       | Print one JSON object: changed files, the selection, every step with its time. |
-| `--no-tests`   | Format, lint, checks and types only.                                           |
-| `--allow-root` | Run the selection even though root configuration changed (see below).          |
-| `--dry-run`    | Print the steps and their commands without running them.                       |
+| Flag                   | Does                                                                           |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `--base <ref>`         | Compare with the merge base of `HEAD` and `<ref>` (default `origin/main`).     |
+| `--json`               | Print one JSON object: changed files, the selection, every step with its time. |
+| `--no-tests`           | Format, lint, checks and types only.                                           |
+| `--allow-root`         | Run the selection even though root configuration changed (see below).          |
+| `--dry-run`            | Print the steps and their commands without running them.                       |
+| `--no-wait`            | Run the tests even while another owner's heavy lane runs (see Load).           |
+| `--max-wait <minutes>` | Wait at most this long for a heavy lane, then test anyway (default 45).        |
 
-Exit code 0 when every step passed, 1 when one failed, 2 when a full run is required.
+Exit code 0 when every step passed (a test file that failed under load and passed alone counts as
+passed, and is named), 1 when one failed, 2 when a full run is required.
 
 ## What runs
 
@@ -46,7 +50,35 @@ unstaged edits, untracked files, deletions.
    lease.
 
 Each step prints one line with its time; a failed step prints the exact command that
-reproduces it and the end of its output. The last line is the total.
+reproduces it and the end of its output. The last line is the total, the verdict and the load
+(below).
+
+## Failing test files are rerun alone
+
+Each test step writes a Vitest JSON report beside its normal output. When a step fails, the files
+its report marks failed are rerun after the other steps, one at a time, each alone with one
+worker, at most 20 (more are named, not rerun, and count as failed). The summary separates
+"failed under load, passed alone" from "failed alone". Only "failed alone" (or a failure the
+report cannot pin on a file) makes the exit code non-zero; "passed alone" is reported, never
+hidden.
+
+## Load
+
+A machine allows at most two runs at once and no tests during another owner's heavy lane
+(`docs/handbook/resources.md`, "Load"). The locks are the workspace tool's
+(`tools/ws/lib/lock.ts`), in the machine profile's state folder (`~/.moss-ws/locks` by default):
+
+- **Slots.** A run takes `check-1` or `check-2` before its first step. A third waits in
+  `check.queue` and prints one line naming the runs it waits for. A slot whose process is gone is
+  broken like a stale heavy lock.
+- **Heavy lane.** While `locks/heavy` is held by another owner, the static steps and types run
+  at once and the tests wait for the lane to end (one line says whose lane). `--no-wait` runs them
+  anyway; after `--max-wait` minutes (45 by default) they run anyway and the summary says so. The
+  reruns wait the same way. A command started by `ws lane` (it sets `MOSS_WS_LANE`) never waits
+  for its own lane; the owner comes from `MOSS_WS_OWNER`, else `CLAUDE_SESSION_NAME`, else the
+  checkout's folder name.
+- The last line says whether the run waited for a slot or a heavy lane, and whether its steps
+  overlapped one, for example `load: tests waited 3.0 min for heavy lane batch7 (coordinator)`.
 
 ## How tests are chosen
 
@@ -68,6 +100,8 @@ changes reach it.
 
 ## Tests
 
-`bun run test:check`: file-to-package mapping, dependents through import chains, root-config
-detection, the static checks, test selection and grouping, import parsing and resolution, and
-the git side against a temporary repository.
+`bun run test:check`: file-to-package mapping, workspace patterns with `!` exclusions,
+dependents through import chains, root-config detection, the static checks, test selection and
+grouping, import parsing and resolution, the git side against a temporary repository, the slots
+and the heavy-lane wait against temporary locks, and the rerun-alone classification (report
+paths in both Windows and POSIX form).

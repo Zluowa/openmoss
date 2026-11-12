@@ -110,6 +110,7 @@ function generatedImageWorkEntry(input: {
   path?: string;
   pending?: boolean;
   callId?: string;
+  jobId?: string;
   turnId?: TurnId;
 }): WorkLogEntry {
   const callId = input.callId ?? input.id;
@@ -123,13 +124,19 @@ function generatedImageWorkEntry(input: {
     itemType: "image_generation",
     ...(input.turnId ? { turnId: input.turnId } : {}),
     generatedImage: pending
-      ? { state: "pending", callId }
+      ? { state: "pending", callId, ...(input.jobId ? { jobId: input.jobId } : {}) }
       : { state: "completed", path: input.path ?? `/tmp/${input.id}.png`, callId },
   };
 }
 
 function timelineEntries(input: {
-  images: ReadonlyArray<{ id: string; path?: string; pending?: boolean; callId?: string }>;
+  images: ReadonlyArray<{
+    id: string;
+    path?: string;
+    pending?: boolean;
+    callId?: string;
+    jobId?: string;
+  }>;
   assistantText?: string;
   assistant?: boolean;
   user?: boolean;
@@ -158,6 +165,7 @@ function timelineEntries(input: {
       ...(image.path ? { path: image.path } : {}),
       ...(image.pending !== undefined ? { pending: image.pending } : {}),
       ...(image.callId ? { callId: image.callId } : {}),
+      ...(image.jobId ? { jobId: image.jobId } : {}),
       turnId,
     }),
   );
@@ -250,6 +258,7 @@ function setDarkBrowserTheme(): void {
 
 function GeneratedImageTimeline(props: {
   entries: TimelineEntry[];
+  isWorking?: boolean;
   activeTurnInProgress?: boolean;
   activeTurnId?: TurnId;
   onImageExpand?: (preview: unknown) => void;
@@ -264,7 +273,7 @@ function GeneratedImageTimeline(props: {
     <QueryClientProvider client={queryClient}>
       <MessagesTimeline
         hasMessages
-        isWorking={false}
+        isWorking={props.isWorking ?? false}
         activeTurnInProgress={props.activeTurnInProgress ?? false}
         {...(props.activeTurnId ? { activeTurnId: props.activeTurnId } : {})}
         activeTurnStartedAt={props.activeTurnInProgress ? "2026-08-28T00:00:00.000Z" : null}
@@ -1531,6 +1540,51 @@ describe("MessagesTimeline generated-image browser parity", () => {
       const screenshotPath = await page.screenshot({ path: `${RECEIPT_DIR}/pending-reduced.png` });
       expect(screenshotPath).toContain("pending-reduced.png");
     } finally {
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
+  it("keeps a Moss image still being made when its turn ends; the working line rests after it, then leaves", async () => {
+    const host = createHost(720, 620);
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () =>
+        Response.json({ error: { code: "job_not_found" } }, { status: 404 }),
+      );
+    const entries = timelineEntries({
+      images: [{ id: "moss-job-image", pending: true, jobId: "moss_image_job" }],
+    });
+    const rowKinds = () =>
+      [...document.querySelectorAll<HTMLElement>("[data-timeline-row-kind]")].map(
+        (row) => row.dataset.timelineRowKind,
+      );
+    const screen = await render(
+      <GeneratedImageTimeline entries={entries} isWorking activeTurnInProgress />,
+      { container: host },
+    );
+    try {
+      await expect.element(page.getByTestId("generated-image-pending")).toBeVisible();
+      await expect.poll(() => rowKinds().at(-1)).toBe("working");
+
+      await screen.rerender(<GeneratedImageTimeline entries={entries} />);
+      // The turn has ended: the mark comes to rest below the card that is still being made.
+      expect(rowKinds().at(-1)).toBe("working");
+      const card = document.querySelector('[data-testid="generated-image-pending"]');
+      const workingRow = document.querySelector('[data-timeline-row-kind="working"]');
+      expect(card).not.toBeNull();
+      expect(
+        card!.compareDocumentPosition(workingRow!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+      const mark = document.querySelector('[data-timeline-row-kind="working"] svg');
+      expect(mark).not.toBeNull();
+      expect(document.querySelector('[data-timeline-row-kind="working"]')?.textContent).toBe("");
+
+      // Then the working line leaves; the card keeps waiting for the image.
+      await expect.poll(() => rowKinds().includes("working"), { timeout: 3_000 }).toBe(false);
+      await expect.element(page.getByTestId("generated-image-pending")).toBeVisible();
+    } finally {
+      fetchSpy.mockRestore();
       await screen.unmount();
       host.remove();
     }

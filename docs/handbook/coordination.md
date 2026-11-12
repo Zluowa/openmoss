@@ -44,17 +44,36 @@ coordinator's call, never the worker's.
 
 1. **Claim.** The coordinator assigns the brief. Two workers never own the same path.
 2. **Lease.** The worker takes a worktree, a port offset and a scratch folder
-   through the workspace tool (see `resources.md`). Never by hand. Until that
-   tool lands, follow the `start-task` skill.
+   through the workspace tool (`bun run ws new`, see `resources.md`). Never by hand.
 3. **Build.** Small commits. The quick gate runs locally before every push.
-4. **Report.** The PR description is updated to the standard report (below).
+4. **Report and hand over.** The PR description is updated to the standard
+   report (below), and the PR is handed over (below).
 5. **Review.** An independent reviewer returns approve or a list of required changes.
 6. **Queue.** The coordinator adds approved PRs to the merge queue. The queue tests
    the combined result once and merges on green, one at a time. Until the queue
-   exists, the coordinator combines the approved heads locally, runs the full
-   lanes once on the result, and merges one PR at a time, pinned to its full
-   head SHA.
-7. **Release.** The worker returns its leases. The session is archived.
+   exists, the coordinator judges each batch as `quality.md` says ("Judging a
+   batch").
+7. **Release.** The worker returns its leases within an hour of the merge. The
+   session is archived.
+
+Cloud sessions follow the same path: they open PRs and never push to `main`.
+
+## Handover
+
+1. Merge `main` into the branch (merge, not rebase).
+2. Run the quick gate.
+3. Send the PR number and full head SHA.
+4. Hold the branch still.
+
+A head that changes after it was verified is accepted without verifying again
+only if merging it gives the identical tree. Otherwise it is verified again.
+
+## Programs
+
+Work that spans several PRs (a feature family, a parity effort) has one lead
+session. Workers report to the lead, not to the coordinator. The lead reviews
+their work against one design standard and hands the coordinator one combined
+PR. The coordinator does not queue the workers' PRs.
 
 A PR that sits without progress for three days is closed or reassigned. Stale
 work is a cost, not an asset.
@@ -104,12 +123,17 @@ that hits a gate reports to the coordinator, unless the owner is in its session.
 - Look before you delete or overwrite. Prefer moving to deleting.
 - Run everything through the isolation profile (see `quality.md`). The owner's
   real profiles, accounts and running apps are not part of your environment.
+- The owner's real-mode window is booked through the coordinator, one session at
+  a time. Isolated instances need no booking.
 
 ## When things go wrong
 
 - **You broke main:** say so on the coordinator log at once, revert first, fix second.
 - **Your worktree or session died:** the next agent resumes from the branch;
   commit work in progress before any risky step so there is something to resume.
+- **The session that owns a PR cannot be reached:** post the findings on the PR
+  as a comment, with the command that reproduces them. The coordinator assigns a
+  new worker.
 - **Two agents changed the same thing:** stop both, the coordinator decides whose
   change stands. Nobody force-pushes over another agent's work.
 - **You are stuck:** after three failed attempts at the same step, stop and report

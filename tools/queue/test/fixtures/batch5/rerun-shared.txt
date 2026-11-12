@@ -1,0 +1,5 @@
+ RUN  v4.1.10 /repo/packages/shared
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+   Start at  00:40:53
+   Duration  3.77s (transform 1.15s, setup 63ms, import 1.92s, tests 1.47s, environment 0ms)
