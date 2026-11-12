@@ -7,6 +7,8 @@ export interface GeneratedImageGalleryImage {
   id: string;
   path: string;
   callId?: string;
+  /** A Moss video, drawn as a player. */
+  media?: "video";
 }
 
 export interface GeneratedImageGallery {
@@ -16,6 +18,10 @@ export interface GeneratedImageGallery {
   pendingImageCount: number;
   /** Requested width / height of the first pending image, when the request named one. */
   pendingAspectRatio?: number;
+  /** The first pending item is a Moss video (it takes minutes, and says so). */
+  pendingMedia?: "video";
+  /** Moss jobs still pending, which a reopened chat asks Moss about. */
+  pendingJobIds?: readonly string[];
 }
 
 function generatedImageGalleriesEqual(
@@ -27,6 +33,8 @@ function generatedImageGalleriesEqual(
     previous.createdAt !== next.createdAt ||
     previous.pendingImageCount !== next.pendingImageCount ||
     previous.pendingAspectRatio !== next.pendingAspectRatio ||
+    previous.pendingMedia !== next.pendingMedia ||
+    (previous.pendingJobIds ?? []).join() !== (next.pendingJobIds ?? []).join() ||
     previous.images.length !== next.images.length
   ) {
     return false;
@@ -37,7 +45,8 @@ function generatedImageGalleriesEqual(
       nextImage !== undefined &&
       image.id === nextImage.id &&
       image.path === nextImage.path &&
-      image.callId === nextImage.callId
+      image.callId === nextImage.callId &&
+      image.media === nextImage.media
     );
   });
 }
@@ -62,6 +71,8 @@ type MutableGeneratedImageGallery = {
   pendingIds: Set<string>;
   failedIds: Set<string>;
   pendingAspectRatios: Map<string, number>;
+  pendingVideos: Set<string>;
+  pendingJobIds: Map<string, string>;
 };
 
 export function generatedImageTurnKey(turnId: TurnId | string | null | undefined): string | null {
@@ -119,6 +130,8 @@ export function groupGeneratedImagesByTurn(
             pendingIds: new Set(),
             failedIds: new Set(),
             pendingAspectRatios: new Map(),
+            pendingVideos: new Set(),
+            pendingJobIds: new Map(),
           };
           groups.set(key, created);
           return created;
@@ -134,6 +147,7 @@ export function groupGeneratedImagesByTurn(
           id: identity,
           path: image.path,
           ...(image.callId ? { callId: image.callId } : {}),
+          ...(image.media ? { media: image.media } : {}),
         });
         group.pendingIds.delete(identity);
         group.failedIds.delete(identity);
@@ -141,6 +155,8 @@ export function groupGeneratedImagesByTurn(
         group.pendingIds.add(identity);
         if (image.aspectRatio !== undefined)
           group.pendingAspectRatios.set(identity, image.aspectRatio);
+        if (image.media === "video") group.pendingVideos.add(identity);
+        if (image.jobId) group.pendingJobIds.set(identity, image.jobId);
       }
     }
   }
@@ -151,6 +167,10 @@ export function groupGeneratedImagesByTurn(
       const firstPending = group.pendingIds.values().next().value;
       const pendingAspectRatio =
         firstPending === undefined ? undefined : group.pendingAspectRatios.get(firstPending);
+      const pendingJobIds = [...group.pendingIds].flatMap((id) => {
+        const jobId = group.pendingJobIds.get(id);
+        return jobId ? [jobId] : [];
+      });
       return [
         [
           key,
@@ -160,6 +180,10 @@ export function groupGeneratedImagesByTurn(
             images: [...group.images.values()],
             pendingImageCount: group.pendingIds.size,
             ...(pendingAspectRatio !== undefined ? { pendingAspectRatio } : {}),
+            ...(firstPending !== undefined && group.pendingVideos.has(firstPending)
+              ? { pendingMedia: "video" as const }
+              : {}),
+            ...(pendingJobIds.length ? { pendingJobIds } : {}),
           },
         ] as const,
       ];

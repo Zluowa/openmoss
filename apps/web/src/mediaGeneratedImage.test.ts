@@ -7,7 +7,10 @@ import {
   groupGeneratedImagesByTurn,
   omitGeneratedImageWorkEntries,
 } from "./components/chat/MessagesTimeline.logic";
-import { generatedImagePendingStage } from "./components/chat/GeneratedImageGallery";
+import {
+  generatedImagePendingStage,
+  generatedVideoWaited,
+} from "./components/chat/GeneratedImageGallery";
 import { isMossMediaJobToolCall, isMossMediaToolSearch } from "./lib/toolCallLabel";
 import { parseImageGenerationCompletionActivity } from "./components/chat/imageGenerationLimit.logic";
 
@@ -362,5 +365,96 @@ describe("official media transcript lifecycle", () => {
       ]);
       expect(generatedImagePendingStage("not a date", at(60))).toBe(0);
     });
+  });
+});
+
+describe("official video transcript lifecycle", () => {
+  const videoTurn = {
+    activeTurnId: TurnId.makeUnsafe("turn-video"),
+    latestTurnState: "running" as const,
+  };
+  const videoPending = makeActivity({
+    id: "moss-video-start",
+    kind: "tool.started",
+    turnId: "turn-video",
+    sequence: 1,
+    payload: {
+      itemType: "image_generation",
+      status: "inProgress",
+      data: {
+        jobId: "moss_video_job",
+        media: "video",
+        aspectRatio: 1.7778,
+        callId: "moss-image:v:0",
+      },
+    },
+  });
+  const videoPath = `/api/moss/media/assets/moss_video_job/0?accountScope=${"a".repeat(64)}`;
+  const videoDone = makeActivity({
+    id: "moss-video-done",
+    kind: "tool.completed",
+    turnId: "turn-video",
+    sequence: 9,
+    payload: {
+      itemType: "image_generation",
+      status: "completed",
+      data: {
+        kind: "moss.generated_video",
+        media: "video",
+        path: videoPath,
+        callId: "moss-image:v:0",
+        jobId: "moss_video_job",
+        outputIndex: 0,
+      },
+    },
+  });
+
+  it("shows a video placeholder that knows its job, then the video in its place", () => {
+    const waiting = deriveWorkLogEntries([videoPending], undefined, videoTurn);
+    expect(waiting[0]?.generatedImage).toEqual({
+      state: "pending",
+      callId: "moss-image:v:0",
+      aspectRatio: 1.7778,
+      media: "video",
+      jobId: "moss_video_job",
+    });
+    expect(
+      groupGeneratedImagesByTurn(deriveTimelineEntries([], [], waiting)).get("turn-video"),
+    ).toMatchObject({
+      images: [],
+      pendingImageCount: 1,
+      pendingMedia: "video",
+      pendingJobIds: ["moss_video_job"],
+    });
+    // The video lands minutes later, after the turn's answer: same turn, same item.
+    const done = deriveWorkLogEntries([videoPending, videoDone], undefined);
+    expect(done).toHaveLength(1);
+    expect(done[0]?.generatedImage).toEqual({
+      state: "completed",
+      path: videoPath,
+      callId: "moss-image:v:0",
+      media: "video",
+    });
+    const gallery = groupGeneratedImagesByTurn(deriveTimelineEntries([], [], done)).get(
+      "turn-video",
+    );
+    expect(gallery).toMatchObject({
+      pendingImageCount: 0,
+      images: [{ id: "moss-image:v:0", path: videoPath, media: "video" }],
+    });
+    expect(gallery?.pendingJobIds).toBeUndefined();
+  });
+
+  it("counts the wait in minutes and seconds", () => {
+    const start = "2026-11-12T12:20:00.000Z";
+    expect(generatedVideoWaited(start, Date.parse(start) + 358_400)).toEqual({
+      minutes: 5,
+      seconds: 58,
+    });
+    expect(generatedVideoWaited(start, Date.parse(start) - 5_000)).toEqual({
+      minutes: 0,
+      seconds: 0,
+    });
+    expect(generatedVideoWaited("not a time", 0)).toEqual({ minutes: 0, seconds: 0 });
   });
 });

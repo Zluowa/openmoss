@@ -28,7 +28,7 @@ export async function readMossMediaLibraryItems(
           asset.contentType === "image/jpeg" ? "jpg" : asset.contentType.split("/")[1];
         items.push({
           id: `${MOSS_MEDIA_LIBRARY_PREFIX}${scope}:${job.jobId}:${asset.index}`,
-          title: `${job.prompt.slice(0, 100) || "图像"}.${extension}`,
+          title: `${job.prompt.slice(0, 100) || (asset.kind === "video" ? "视频" : "图像")}.${extension}`,
           kind: asset.kind,
           source: "user:legacy",
           sourceCli: "moss",

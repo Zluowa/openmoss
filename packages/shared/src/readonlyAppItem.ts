@@ -3,6 +3,7 @@
 // Layer: Shared; source identities only, no grants or relay transport
 
 import { injectHtmlHeadMarkup } from "./htmlMarkup";
+import { PAGE_APP_ERROR_SCREEN_SCRIPT, runPageScriptsAfterBody } from "./pageAppDocumentReady";
 import { pageAppMetaContentSecurityPolicy } from "./pageAppContentPolicy";
 import { buildPageAppFrameRuntime } from "./pageAppFrameRuntime";
 import { buildGuestReadonlyPermissionRuntime } from "./guestReadonlyPermissionRuntime";
@@ -92,7 +93,7 @@ export function prepareReadonlyAppItemHtml(
       )
     : buildPageAppFrameRuntime({ parentOrigin: "null", plugins: [] });
   return injectHtmlHeadMarkup(
-    html,
-    `<meta http-equiv="Content-Security-Policy" content="${csp}"><script>${runtime}</script>`,
+    runPageScriptsAfterBody(html),
+    `<meta http-equiv="Content-Security-Policy" content="${csp}"><script>${runtime}</script><script>${PAGE_APP_ERROR_SCREEN_SCRIPT}</script>`,
   );
 }

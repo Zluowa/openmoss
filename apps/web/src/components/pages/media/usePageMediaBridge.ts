@@ -2,13 +2,14 @@
 // Purpose: Runs a page's image and video cards (the Canvas's own cards, drawn by the page editor).
 //          The editor builds the same media job the hosted Canvas sends; Moss holds the account,
 //          so it posts that job to its media API, follows it, and hands the finished file back to
-//          the page: an image is kept in the library like an upload, a video by its saved media
-//          address. No agent chat is involved.
+//          the page by its saved media address (/api/moss/media/assets/<job>/<i>), image and video
+//          alike; 资料空间 lists it from Moss's media records. The page editor's frame has no Moss
+//          credential, so when the page shows such a file, Moss reads it and hands the bytes over.
+//          No agent chat is involved.
 // Layer: Pages (web)
 
 import { useEffect, useRef } from "react";
 
-import { ensureNativeApi } from "~/nativeApi";
 import {
   describeMossImagesError,
   loadMossImageJob,
@@ -17,11 +18,12 @@ import {
   waitForMossImageJob,
   type MossImageJob,
 } from "~/lib/mossImagesClient";
-import type {
-  PageEditorMediaEvent,
-  PageMediaCatalog,
-  PageMediaJobUpdate,
-  PageRichEditorChannel,
+import {
+  PAGE_MEDIA_ASSET_PATH,
+  type PageEditorMediaEvent,
+  type PageMediaCatalog,
+  type PageMediaJobUpdate,
+  type PageRichEditorChannel,
 } from "~/lib/pageRichEditorChannel";
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
 
@@ -35,9 +37,17 @@ export interface PageMediaBridgeDeps {
   readonly requestJob: typeof requestMossMediaJob;
   readonly loadJob: typeof loadMossImageJob;
   readonly waitForJob: typeof waitForMossImageJob;
-  /** Keeps a finished image in the library and returns its page address. */
-  readonly saveImage: (job: MossImageJob, signal: AbortSignal) => Promise<string | null>;
+  /** Reads a saved Moss media file for the page frame, or null when it cannot be read. */
+  readonly readAsset: (path: string, signal: AbortSignal) => Promise<PageMediaAssetFile | null>;
 }
+
+export interface PageMediaAssetFile {
+  readonly contentType: string;
+  readonly bytes: ArrayBuffer;
+}
+
+/** The largest file handed to the page frame (a short generated video is a few MB). */
+export const PAGE_MEDIA_ASSET_MAX_BYTES = 64 * 1024 * 1024;
 
 const statusOf = (job: MossImageJob): PageMediaJobUpdate["status"] =>
   job.status === "queued" ? "queued" : "running";
@@ -51,36 +61,23 @@ function outputPath(job: MossImageJob, kind: "image" | "video"): string | null {
     : null;
 }
 
-async function saveImageInLibrary(job: MossImageJob, signal: AbortSignal): Promise<string | null> {
-  const path = outputPath(job, "image");
-  if (!path) return null;
+/** Reads one saved Moss media file with this window's own credential (the frame has none). */
+async function readMediaAsset(
+  path: string,
+  signal: AbortSignal,
+): Promise<PageMediaAssetFile | null> {
+  if (!PAGE_MEDIA_ASSET_PATH.test(path)) return null;
   const response = await fetch(resolveWsHttpUrl(path), {
     credentials: "include",
-    signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+    signal: AbortSignal.any([signal, AbortSignal.timeout(120_000)]),
   });
-  if (!response.ok) return null;
-  const blob = await response.blob();
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 8192)
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-  const extension =
-    blob.type === "image/jpeg" ? "jpg" : blob.type === "image/webp" ? "webp" : "png";
-  const result = await ensureNativeApi().library.importFiles({
-    files: [
-      {
-        name: `${
-          job.prompt
-            .trim()
-            .slice(0, 40)
-            .replace(/[\\/:*?"<>|]/gu, " ") || "image"
-        }.${extension}`,
-        ...(blob.type ? { mimeType: blob.type } : {}),
-        dataBase64: btoa(binary),
-      },
-    ],
-  });
-  return result.items[0]?.previewPath ?? null;
+  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
+  if (!response.ok || !/^(?:image|video)\/[a-z0-9.+-]{1,64}$/u.test(contentType)) return null;
+  if (Number(response.headers.get("content-length") ?? 0) > PAGE_MEDIA_ASSET_MAX_BYTES) return null;
+  const bytes = await response.arrayBuffer();
+  return bytes.byteLength > 0 && bytes.byteLength <= PAGE_MEDIA_ASSET_MAX_BYTES
+    ? { contentType, bytes }
+    : null;
 }
 
 const defaultDeps: PageMediaBridgeDeps = {
@@ -88,12 +85,15 @@ const defaultDeps: PageMediaBridgeDeps = {
   requestJob: requestMossMediaJob,
   loadJob: loadMossImageJob,
   waitForJob: waitForMossImageJob,
-  saveImage: saveImageInLibrary,
+  readAsset: readMediaAsset,
 };
 
 /** One page editor's media jobs; exported for tests. */
 export function createPageMediaRunner(
-  channel: Pick<PageRichEditorChannel, "mediaJob" | "mediaResult" | "setMediaCatalog">,
+  channel: Pick<
+    PageRichEditorChannel,
+    "mediaJob" | "mediaResult" | "setMediaCatalog" | "mediaAsset"
+  >,
   deps: PageMediaBridgeDeps = defaultDeps,
 ) {
   const controller = new AbortController();
@@ -127,11 +127,8 @@ export function createPageMediaRunner(
       fail(ids, new Error(job.errorMessage || "生成没有完成，请在生成记录中核对。"));
       return;
     }
-    const url =
-      kind === "image"
-        ? ((await deps.saveImage(job, controller.signal).catch(() => null)) ??
-          outputPath(job, "image"))
-        : outputPath(job, "video");
+    // The saved media address is durable, and what the 资料空间 lists the result under.
+    const url = outputPath(job, kind);
     if (!url) {
       fail(ids, new Error("生成完成了，但没能取到结果文件，请在生成记录中查看。"));
       return;
@@ -145,7 +142,23 @@ export function createPageMediaRunner(
       name: job.prompt.trim().slice(0, 80) || (kind === "image" ? "图片" : "视频"),
     });
   };
+  const reading = new Set<string>();
+  const sendAsset = (url: string) => {
+    if (reading.has(url)) return;
+    reading.add(url);
+    void deps
+      .readAsset(url, controller.signal)
+      .catch(() => null)
+      .then((file) => {
+        reading.delete(url);
+        if (!controller.signal.aborted) channel.mediaAsset(url, file);
+      });
+  };
   const handle = (event: PageEditorMediaEvent) => {
+    if (event.event === "media-asset-request") {
+      sendAsset(event.url);
+      return;
+    }
     const base = { blockId: event.blockId, requestId: event.requestId };
     const known = running.get(event.requestId);
     if (known) {

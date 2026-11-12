@@ -217,12 +217,17 @@ export class MossMediaJobsService {
     );
     if (!workspace) return;
     const origin = workspace.imageOrigin;
-    if (origin && job.snapshot.operation !== "video") {
+    const video = job.snapshot.operation === "video";
+    if (origin) {
       // The chat owns this artifact. The authenticated media cache is durable
       // even when a workspace is unavailable, moved, or has no Canvas board.
       const scope = mediaAccountScope(credential);
       const outputs = (job.snapshot.assets ?? [])
-        .filter((asset) => asset.kind === "image" && validMossMediaAsset(asset, job.snapshot.jobId))
+        .filter(
+          (asset) =>
+            asset.kind === (video ? "video" : "image") &&
+            validMossMediaAsset(asset, job.snapshot.jobId),
+        )
         .map((asset) => ({
           index: asset.index,
           path: `/api/moss/media/assets/${job.snapshot.jobId}/${asset.index}?accountScope=${scope}`,
@@ -250,7 +255,8 @@ export class MossMediaJobsService {
           errorCode: "media_activity_save_failed",
         });
       }
-      return;
+      // A conversation's video is also kept on its Canvas, as before; an image is not.
+      if (!video) return;
     }
     if (workspace.cwd !== null) {
       await this.#writeCanvasProjection(job.snapshot, job.revision, credential, {
@@ -821,6 +827,14 @@ export class MossMediaJobsService {
       );
     } else if (canvasWorkspace) {
       await this.#bindCanvasWorkspace(scope, job.jobId, canvasWorkspace, imageOrigin);
+    } else if (imageOrigin) {
+      // A chat video with no Canvas workspace still belongs to its chat.
+      await this.#bindCanvasWorkspace(
+        scope,
+        job.jobId,
+        { threadId: imageOrigin.threadId, cwd: null, title: "" },
+        imageOrigin,
+      );
     }
     await broker.saveHistory(job.jobId);
     await authorize?.();

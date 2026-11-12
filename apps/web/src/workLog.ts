@@ -11,6 +11,7 @@ import {
   isToolLifecycleItemType,
   CODEX_GENERATED_IMAGE_ARTIFACT_KIND,
   MOSS_GENERATED_IMAGE_ARTIFACT_KIND,
+  MOSS_GENERATED_VIDEO_ARTIFACT_KIND,
   MOSS_IMAGE_GENERATION_FAILURE_KIND,
   type ModelSelection,
   STUDIO_OUTPUTS_ACTIVITY_KIND,
@@ -295,12 +296,18 @@ export type WorkLogGeneratedImage =
       state: "completed";
       path: string;
       callId?: string;
+      /** A Moss video: drawn as a player instead of an image. */
+      media?: "video";
     }
   | {
       state: "pending";
       callId?: string;
       /** Width / height the request asked for; the placeholder takes this shape. */
       aspectRatio?: number;
+      /** A Moss video: the placeholder says a video is being made, which takes minutes. */
+      media?: "video";
+      /** The Moss job, so a reopened chat can ask for it after a restart. */
+      jobId?: string;
     }
   | {
       state: "failed";
@@ -4778,6 +4785,8 @@ export function parseWorkLogGeneratedImage(
   if (activity.kind === "tool.completed") {
     if (data?.kind === MOSS_IMAGE_GENERATION_FAILURE_KIND && payload?.status === "failed" && callId)
       return { state: "failed", callId };
+    if (data?.kind === MOSS_GENERATED_VIDEO_ARTIFACT_KIND && path !== null)
+      return { state: "completed", path, media: "video", ...(callId ? { callId } : {}) };
     if (
       (data?.kind !== CODEX_GENERATED_IMAGE_ARTIFACT_KIND &&
         data?.kind !== MOSS_GENERATED_IMAGE_ARTIFACT_KIND) ||
@@ -4801,9 +4810,12 @@ export function parseWorkLogGeneratedImage(
   // completed representation accepted above is the exact artifact kind.
   if ((isStarted || activity.kind === "tool.updated") && path === null && isInProgress) {
     const aspectRatio = data?.aspectRatio;
+    const jobId = asTrimmedString(data?.jobId);
     return {
       state: "pending",
       ...(callId ? { callId } : {}),
+      ...(data?.media === "video" ? { media: "video" as const } : {}),
+      ...(jobId && /^moss_[A-Za-z0-9_-]{1,128}$/u.test(jobId) ? { jobId } : {}),
       ...(typeof aspectRatio === "number" &&
       Number.isFinite(aspectRatio) &&
       aspectRatio >= 0.25 &&

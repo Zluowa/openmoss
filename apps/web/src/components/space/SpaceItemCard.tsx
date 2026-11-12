@@ -8,13 +8,19 @@ import { useState } from "react";
 
 import { EllipsisIcon, PinFilledIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
 
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import { LocalImagePreview } from "../LocalImagePreview";
 import { SidebarIconButton } from "../SidebarIconButton";
 import { SlidesCardPreview } from "../spaceTypes/slides/SlidesCardPreview";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
-import { formatRelativeTime, spaceItemDisplayTitle, type SpaceItem } from "./spaceItems";
+import {
+  formatRelativeTime,
+  spaceItemDisplayTitle,
+  spaceMossMediaPath,
+  type SpaceItem,
+} from "./spaceItems";
 import { isHtmlOutput, spaceItemMeta } from "./spaceKinds";
 
 export interface SpaceItemActions {
@@ -133,6 +139,37 @@ function SpaceItemPreview({ item }: { item: SpaceItem }) {
           imageClassName="h-36 w-full object-cover"
           onPreviewError={() => setFailed(true)}
         />
+      </span>
+    );
+  }
+  const mediaPath =
+    item.source.type === "library" && !item.source.item.path
+      ? spaceMossMediaPath(item.source.item)
+      : null;
+  if (mediaPath && item.source.type === "library") {
+    // An image or video made in a chat, read from Moss's media cache.
+    const url = resolveWsHttpUrl(mediaPath);
+    return (
+      <span className="block h-36 overflow-hidden rounded-t-panel border-b border-border bg-muted/40">
+        {item.source.item.kind === "video" ? (
+          <video
+            src={url}
+            muted
+            playsInline
+            preload="metadata"
+            aria-hidden
+            data-space-card-video
+            className="h-36 w-full object-cover"
+            onError={() => setFailed(true)}
+          />
+        ) : (
+          <img
+            src={url}
+            alt={spaceItemDisplayTitle(item)}
+            className="h-36 w-full object-cover"
+            onError={() => setFailed(true)}
+          />
+        )}
       </span>
     );
   }

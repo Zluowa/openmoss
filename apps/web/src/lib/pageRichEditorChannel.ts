@@ -53,12 +53,21 @@ export type PageEditorAiEvent =
       request: Record<string, unknown>;
     }
   /** After a reload: a card asks about a job it already submitted; never a new submission. */
-  | { event: "media-resume"; blockId: string; requestId: string; jobId: string };
+  | { event: "media-resume"; blockId: string; requestId: string; jobId: string }
+  /**
+   * The page shows a saved Moss media file. The editor frame has no Moss credential, so Moss
+   * reads the file and hands its bytes over (`mediaAsset`).
+   */
+  | { event: "media-asset-request"; url: string };
 
 export type PageEditorMediaEvent = Extract<
   PageEditorAiEvent,
-  { event: "media-generate" } | { event: "media-resume" }
+  { event: "media-generate" } | { event: "media-resume" } | { event: "media-asset-request" }
 >;
+
+/** A saved Moss media address a page may show; the only kind Moss reads for the frame. */
+export const PAGE_MEDIA_ASSET_PATH =
+  /^\/api\/moss\/media\/assets\/moss_[A-Za-z0-9_-]{1,128}\/\d{1,2}$/u;
 
 /** Moss's media catalog for the page's image and video cards. */
 export interface PageMediaCatalog {
@@ -181,6 +190,10 @@ export function parsePageEditorAiEvent(value: Message): PageEditorAiEvent | null
         value.requestId !== "" &&
         typeof value.jobId === "string" &&
         /^moss_[A-Za-z0-9_-]{1,128}$/u.test(value.jobId)
+        ? (value as unknown as PageEditorAiEvent)
+        : null;
+    case "media-asset-request":
+      return typeof value.url === "string" && PAGE_MEDIA_ASSET_PATH.test(value.url)
         ? (value as unknown as PageEditorAiEvent)
         : null;
     default:
@@ -360,6 +373,15 @@ export class PageRichEditorChannel {
     if (this.ready && this.loaded && this.mediaCardsSupported && !this.disposed)
       this.post("media-result", { result });
   };
+  /** Whether the editor loads Moss media through Moss (its frame has no Moss credential). */
+  get hostMediaAssetsSupported() {
+    return this.capabilities.includes("host-media-assets");
+  }
+  /** The bytes of a saved Moss media file the page shows, or null when Moss cannot read it. */
+  mediaAsset = (url: string, file: { contentType: string; bytes: ArrayBuffer } | null) => {
+    if (this.ready && this.hostMediaAssetsSupported && !this.disposed)
+      this.post("media-asset", { url, file });
+  };
   reset = () => {
     this.onUnavailable(false);
     this.ready = false;
@@ -507,9 +529,14 @@ export class PageRichEditorChannel {
         if (
           !this.document.readOnly ||
           aiEvent.event === "open-ref" ||
-          aiEvent.event === "media-resume"
+          aiEvent.event === "media-resume" ||
+          aiEvent.event === "media-asset-request"
         )
-          if (aiEvent.event === "media-generate" || aiEvent.event === "media-resume")
+          if (
+            aiEvent.event === "media-generate" ||
+            aiEvent.event === "media-resume" ||
+            aiEvent.event === "media-asset-request"
+          )
             this.onMediaEvent(aiEvent);
           else this.onAiEvent(aiEvent);
         return true;

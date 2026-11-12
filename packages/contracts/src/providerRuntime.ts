@@ -1057,6 +1057,9 @@ export const MossGeneratedImageArtifact = Schema.Struct({
   outputIndex: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).check(Schema.isLessThan(32)),
 });
 export type MossGeneratedImageArtifact = typeof MossGeneratedImageArtifact.Type;
+// A finished Moss video takes the same lifecycle (pending → completed or failed) and is
+// drawn as a player in place of its placeholder.
+export const MOSS_GENERATED_VIDEO_ARTIFACT_KIND = "moss.generated_video" as const;
 
 const ContentDeltaPayload = Schema.Struct({
   streamKind: RuntimeContentStreamKind,

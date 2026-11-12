@@ -7,6 +7,7 @@
 
 import { PAGE_APP_PROTOCOL, PAGE_APP_USE_TIMEOUT_MS } from "@moss/contracts";
 import { injectHtmlHeadMarkup } from "./htmlMarkup";
+import { PAGE_APP_ERROR_SCREEN_SCRIPT, runPageScriptsAfterBody } from "./pageAppDocumentReady";
 
 import type { PageAppFramePlugin } from "./pageAppCapabilityPlugin";
 import { aiFramePlugin } from "./pageAppFramePlugins/ai";
@@ -203,7 +204,13 @@ else startResize();
   );
 }
 
-/** Inserts the runtime as the first script the page runs. */
+/**
+ * Inserts the runtime as the first script the page runs, and makes the page's own scripts run
+ * against a ready document (see pageAppDocumentReady).
+ */
 export function injectPageAppFrameRuntime(html: string, runtime: string): string {
-  return injectHtmlHeadMarkup(html, `<script>${runtime}</script>`);
+  return injectHtmlHeadMarkup(
+    runPageScriptsAfterBody(html),
+    `<script>${runtime}</script><script>${PAGE_APP_ERROR_SCREEN_SCRIPT}</script>`,
+  );
 }

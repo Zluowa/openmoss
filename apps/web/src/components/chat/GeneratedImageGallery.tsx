@@ -22,6 +22,7 @@ import {
 } from "~/lib/localImageUrls";
 import { setGeneratedImageDragData } from "~/lib/generatedImageDrag";
 import { scheduleMossCanvasPrewarm } from "~/lib/mossCanvasPrewarm";
+import { loadMossImageJob } from "~/lib/mossImagesClient";
 import { useIsSharedViewer } from "~/lib/sharedViewer";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "../../localization";
@@ -233,9 +234,11 @@ export function GeneratedImageGallery({
   const showThumbnails = gallery.images.length + gallery.pendingImageCount > 1;
   // A lone pending image takes the shape and size the finished image will
   // have, so the result replaces the placeholder in place without a jump.
+  const videoRatio = 16 / 9;
   const selectedAspectRatio = selectedImage
-    ? (imageAspectRatios[selectedImage.id] ?? 1)
-    : (gallery.pendingAspectRatio ?? 1);
+    ? (imageAspectRatios[selectedImage.id] ?? (selectedImage.media === "video" ? videoRatio : 1))
+    : (gallery.pendingAspectRatio ?? (gallery.pendingMedia === "video" ? videoRatio : 1));
+  usePendingMossJobsResume(sharedViewer ? undefined : gallery.pendingJobIds);
   const imageWidthClassName =
     selectedAspectRatio >= 2
       ? "max-w-full"
@@ -385,7 +388,17 @@ export function GeneratedImageGallery({
         )}
         style={{ height: layout.heightPx }}
       >
-        {selectedImage ? (
+        {selectedImage?.media === "video" ? (
+          <GeneratedVideoTile
+            key={selectedImage.id}
+            video={selectedImage}
+            alt={format("chat.generatedVideo.alt", { videoNumber: selectedImageIndex + 1 })}
+            cwd={cwd}
+            widthPx={layout.itemWidthsPx[0] ?? 0}
+            heightPx={layout.heightPx}
+            onAspectRatioChange={onAspectRatioChange}
+          />
+        ) : selectedImage ? (
           <GeneratedImageGalleryTile
             key={selectedImage.id}
             image={selectedImage}
@@ -403,12 +416,20 @@ export function GeneratedImageGallery({
             }
           />
         ) : gallery.pendingImageCount > 0 ? (
-          <div data-testid="generated-image-pending">
+          <div
+            data-testid="generated-image-pending"
+            data-pending-media={gallery.pendingMedia ?? "image"}
+          >
             <GeneratedImagePendingPlaceholder
-              label={t("chat.generatedImage.loadingLabel")}
+              label={t(
+                gallery.pendingMedia === "video"
+                  ? "chat.generatedVideo.loadingLabel"
+                  : "chat.generatedImage.loadingLabel",
+              )}
               widthPx={layout.itemWidthsPx[0] ?? layout.heightPx}
               heightPx={layout.heightPx}
               startedAt={gallery.createdAt}
+              media={gallery.pendingMedia}
             />
           </div>
         ) : null}
@@ -610,12 +631,99 @@ function GeneratedImagePendingCaption(props: { startedAt: string }) {
   );
 }
 
+/** Whole minutes and seconds since a wait began, never negative. */
+export function generatedVideoWaited(startedAt: string, nowMs: number) {
+  const start = Date.parse(startedAt);
+  const seconds = Number.isFinite(start) ? Math.max(0, Math.floor((nowMs - start) / 1000)) : 0;
+  return { minutes: Math.floor(seconds / 60), seconds: seconds % 60 };
+}
+
+// A video takes minutes. The caption says a video is being made, how long that usually
+// takes, and how long this one has been going, so a long wait never looks stuck or done.
+function GeneratedVideoPendingCaption(props: { startedAt: string }) {
+  const { t, format } = useTranslation();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return (
+    <span
+      data-testid="generated-video-pending-caption"
+      className="pointer-events-none absolute top-3 left-4 z-10 flex select-none flex-col gap-0.5 text-ui-sm text-muted-foreground"
+    >
+      <span>{t("chat.generatedVideo.pending")}</span>
+      <span className="tabular-nums" data-testid="generated-video-waited">
+        {format("chat.generatedVideo.waited", generatedVideoWaited(props.startedAt, now))}
+      </span>
+    </span>
+  );
+}
+
+/** How often a reopened chat asks Moss about a job it still shows as pending. */
+export const PENDING_MOSS_JOB_RESUME_MS = 20_000;
+
+/**
+ * A pending Moss image or video asks Moss about its job: once when the chat opens, then now
+ * and then. Asking resumes a job that a restart left unobserved (Moss follows it and the
+ * finished result replaces the placeholder). It reads the saved job; it never submits one.
+ */
+function usePendingMossJobsResume(jobIds: readonly string[] | undefined) {
+  const key = jobIds?.join(",") ?? "";
+  useEffect(() => {
+    if (!key) return;
+    const controller = new AbortController();
+    const ask = () => {
+      for (const jobId of key.split(","))
+        void loadMossImageJob(jobId, controller.signal).catch(() => undefined);
+    };
+    ask();
+    const timer = window.setInterval(ask, PENDING_MOSS_JOB_RESUME_MS);
+    return () => {
+      window.clearInterval(timer);
+      controller.abort();
+    };
+  }, [key]);
+}
+
+function GeneratedVideoTile(props: {
+  video: GeneratedImageGalleryImage;
+  alt: string;
+  cwd: string | undefined;
+  widthPx: number;
+  heightPx: number;
+  onAspectRatioChange: (id: string, ratio: number) => void;
+}) {
+  const { video, onAspectRatioChange } = props;
+  return (
+    <div className="relative shrink-0" style={{ height: props.heightPx, width: props.widthPx }}>
+      <video
+        src={buildLocalImageUrl({ src: video.path, cwd: props.cwd })}
+        controls
+        playsInline
+        preload="metadata"
+        aria-label={props.alt}
+        data-testid="generated-video"
+        data-video-id={video.id}
+        className="block h-full w-full rounded-card bg-black object-contain"
+        onLoadedMetadata={(event) => {
+          const target = event.currentTarget;
+          if (target.videoWidth > 0 && target.videoHeight > 0)
+            onAspectRatioChange(video.id, target.videoWidth / target.videoHeight);
+        }}
+      />
+    </div>
+  );
+}
+
 function GeneratedImagePendingPlaceholder(props: {
   label: string;
   widthPx: number;
   heightPx: number;
   /** When set, the placeholder shows the staged caption for a wait that began then. */
   startedAt?: string;
+  /** A video says so, and how long it usually takes, instead of the image stages. */
+  media?: "video" | undefined;
 }) {
   const fieldRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -851,9 +959,11 @@ function GeneratedImagePendingPlaceholder(props: {
       >
         <canvas ref={canvasRef} aria-hidden="true" className="block h-full w-full" />
       </div>
-      {props.startedAt !== undefined ? (
+      {props.startedAt === undefined ? null : props.media === "video" ? (
+        <GeneratedVideoPendingCaption startedAt={props.startedAt} />
+      ) : (
         <GeneratedImagePendingCaption startedAt={props.startedAt} />
-      ) : null}
+      )}
     </div>
   );
 }

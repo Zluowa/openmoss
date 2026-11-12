@@ -5,6 +5,7 @@ import {
   CommandId,
   EventId,
   MOSS_GENERATED_IMAGE_ARTIFACT_KIND,
+  MOSS_GENERATED_VIDEO_ARTIFACT_KIND,
   MOSS_IMAGE_GENERATION_FAILURE_KIND,
   ThreadId,
   TurnId,
@@ -35,8 +36,11 @@ export function conversationImageActivityCommands(
   observation: MossConversationImageObservation,
 ): readonly OrchestrationCommand[] {
   const { origin, snapshot, outputs, accountScope } = observation;
+  // A video takes the image's lifecycle too; its placeholder says it is a video, which
+  // takes minutes, and its result is drawn as a player.
+  const video = snapshot.operation === "video";
+  const noun = video ? "video" : "image";
   if (
-    snapshot.operation === "video" ||
     snapshot.projectId !== `thread:${origin.threadId}` ||
     !/^[A-Za-z0-9_-]{1,128}$/u.test(origin.threadId) ||
     !/^[A-Za-z0-9_-]{1,128}$/u.test(origin.turnId) ||
@@ -58,7 +62,7 @@ export function conversationImageActivityCommands(
     const payload = {
       itemType: "image_generation",
       status,
-      data: { ...data, callId: callId(index) },
+      data: { ...data, ...(video ? { media: "video" } : {}), callId: callId(index) },
     };
     const digest = stableGatewayDigest([identity, origin.turnId, index, payload], 64);
     const id = `moss-image:${digest}`;
@@ -95,8 +99,8 @@ export function conversationImageActivityCommands(
       : [];
   if (images.length) {
     const completed = images.map((image) =>
-      command(image.index, "completed", "Generated image", {
-        kind: MOSS_GENERATED_IMAGE_ARTIFACT_KIND,
+      command(image.index, "completed", video ? "Generated video" : "Generated image", {
+        kind: video ? MOSS_GENERATED_VIDEO_ARTIFACT_KIND : MOSS_GENERATED_IMAGE_ARTIFACT_KIND,
         path: image.path,
         jobId: snapshot.jobId,
         outputIndex: image.index,
@@ -106,7 +110,7 @@ export function conversationImageActivityCommands(
     // spinning alongside later valid outputs.
     if (!images.some((image) => image.index === 0))
       completed.push(
-        command(0, "failed", "Image output unavailable", {
+        command(0, "failed", `${video ? "Video" : "Image"} output unavailable`, {
           kind: MOSS_IMAGE_GENERATION_FAILURE_KIND,
           jobId: snapshot.jobId,
           errorCode: "media_output_missing",
@@ -122,21 +126,26 @@ export function conversationImageActivityCommands(
   ) {
     const unknown = snapshot.status === "reconciliation_required";
     return [
-      command(0, "failed", unknown ? "Image outcome needs review" : "Image output unavailable", {
-        kind: MOSS_IMAGE_GENERATION_FAILURE_KIND,
-        jobId: snapshot.jobId,
-        jobStatus: snapshot.status,
-        errorCode: unknown
-          ? "media_outcome_unknown"
-          : observation.projectionFailed || snapshot.status === "succeeded"
-            ? "media_output_save_pending"
-            : "media_generation_failed",
-      }),
+      command(
+        0,
+        "failed",
+        `${video ? "Video" : "Image"} ${unknown ? "outcome needs review" : "output unavailable"}`,
+        {
+          kind: MOSS_IMAGE_GENERATION_FAILURE_KIND,
+          jobId: snapshot.jobId,
+          jobStatus: snapshot.status,
+          errorCode: unknown
+            ? "media_outcome_unknown"
+            : observation.projectionFailed || snapshot.status === "succeeded"
+              ? "media_output_save_pending"
+              : "media_generation_failed",
+        },
+      ),
     ];
   }
   const aspectRatio = requestedImageAspectRatio(observation.requestedShape);
   return [
-    command(0, "inProgress", "Generating image", {
+    command(0, "inProgress", `Generating ${noun}`, {
       jobId: snapshot.jobId,
       ...(aspectRatio !== undefined ? { aspectRatio } : {}),
     }),

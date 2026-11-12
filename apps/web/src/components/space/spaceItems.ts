@@ -97,6 +97,22 @@ export function libraryItem(item: LibraryItem): SpaceItem {
   };
 }
 
+/**
+ * The saved Moss media address of an image or video made in a chat, or null for other rows.
+ * These rows have no local file; their bytes stay in Moss's media cache.
+ */
+export function spaceMossMediaPath(item: LibraryItem): string | null {
+  const index = item.mediaImageIndex;
+  return item.mediaJobId &&
+    /^moss_[A-Za-z0-9_-]{1,128}$/u.test(item.mediaJobId) &&
+    index !== undefined &&
+    Number.isSafeInteger(index) &&
+    index >= 0 &&
+    index <= 31
+    ? `/api/moss/media/assets/${item.mediaJobId}/${index}`
+    : null;
+}
+
 /** Every item from every source, newest first; `itemsForSection` decides what is listed. */
 export function buildSpaceItems(input: {
   pages: readonly Page[];
@@ -108,8 +124,11 @@ export function buildSpaceItems(input: {
     ...input.pages.map(pageItem),
     ...input.apps.map(appItem),
     ...input.outputs.map(outputItem),
-    // Metadata-only legacy rows have no local file to open.
-    ...(input.library ?? []).filter((item) => item.path !== null).map(libraryItem),
+    // Metadata-only legacy rows have no local file to open. Images and videos made in a
+    // chat have none either, but open from Moss's media cache.
+    ...(input.library ?? [])
+      .filter((item) => item.path !== null || spaceMossMediaPath(item) !== null)
+      .map(libraryItem),
   ];
   return items.toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }

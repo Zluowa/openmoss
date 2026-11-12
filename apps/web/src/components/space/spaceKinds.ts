@@ -11,6 +11,7 @@ import {
   GlobeIcon,
   ImagesIcon,
   PageTextIcon,
+  PlayIcon,
   SketchPenIcon,
   SlidesIcon,
   TableIcon,
@@ -49,6 +50,7 @@ export function spaceItemMeta(item: SpaceItem): SpaceKindMeta {
   if (extension === "html" || extension === "htm") return { label: "网页", icon: GlobeIcon };
   if (extension === "pdf") return { label: "PDF", icon: FilePdfIcon };
   if (extension === "zip") return { label: "压缩包", icon: FileZipIcon };
+  if (["mp4", "webm", "mov"].includes(extension)) return { label: "视频", icon: PlayIcon };
   if (["csv", "tsv", "xls", "xlsx"].includes(extension))
     return { label: "表格文件", icon: FileChartIcon };
   if (["ppt", "pptx"].includes(extension)) return { label: "演示文稿", icon: SlidesIcon };

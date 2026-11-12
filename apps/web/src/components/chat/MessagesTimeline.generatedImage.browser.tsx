@@ -1245,6 +1245,83 @@ describe("MessagesTimeline generated-image browser parity", () => {
     }
   });
 
+  it("says a video is being made and for how long, asks Moss about its job, then plays it in place", async () => {
+    localizationTestState.locale = "zh-CN";
+    const host = createHost(720, 620);
+    const asked: string[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      asked.push(String(input instanceof Request ? input.url : input));
+      return Response.json({ error: { code: "job_not_found" } }, { status: 404 });
+    });
+    const startedAt = new Date(Date.now() - 358_000).toISOString();
+    const path = `/api/moss/media/assets/moss_video_job/0?accountScope=${"a".repeat(64)}`;
+    const pendingGallery = {
+      turnId: TURN_ID,
+      createdAt: startedAt,
+      images: [],
+      pendingImageCount: 1,
+      pendingMedia: "video" as const,
+      pendingJobIds: ["moss_video_job"],
+    };
+    const screen = await render(<GeneratedImageGallery gallery={pendingGallery} cwd="/tmp" />, {
+      container: host,
+    });
+    try {
+      const pending = page.getByTestId("generated-image-pending");
+      await expect.element(pending).toBeVisible();
+      expect(pending.element().getAttribute("data-pending-media")).toBe("video");
+      expect(pending.element().querySelector("[aria-busy=true]")?.getAttribute("aria-label")).toBe(
+        "正在生成视频…",
+      );
+      await expect
+        .element(page.getByTestId("generated-video-pending-caption"))
+        .toHaveTextContent("正在生成视频，通常需要几分钟");
+      await expect
+        .element(page.getByTestId("generated-video-waited"))
+        .toHaveTextContent(/已等待 5 分 5\d 秒/u);
+      // A 16:9 placeholder, wider than tall, so the player replaces it without a jump.
+      const box = pending
+        .element()
+        .querySelector<HTMLElement>("[aria-busy=true]")!
+        .getBoundingClientRect();
+      expect(box.width / box.height).toBeGreaterThan(1.5);
+      // The reopened chat asks Moss about the job (this resumes it after a restart).
+      await expect
+        .poll(() => asked.some((url) => url.includes("/api/moss/media/jobs/moss_video_job")))
+        .toBe(true);
+      await page.screenshot({ path: `${RECEIPT_DIR}/video-pending-zh.png` });
+
+      await screen.rerender(
+        <GeneratedImageGallery
+          gallery={{
+            turnId: TURN_ID,
+            createdAt: startedAt,
+            images: [{ id: "moss-image:v:0", path, media: "video" }],
+            pendingImageCount: 0,
+          }}
+          cwd="/tmp"
+        />,
+      );
+      const video = page.getByTestId("generated-video");
+      await expect.element(video).toBeInTheDocument();
+      const element = video.element() as HTMLVideoElement;
+      expect(element.controls).toBe(true);
+      expect(new URL(element.src).pathname).toBe("/api/moss/media/assets/moss_video_job/0");
+      expect(new URL(element.src).searchParams.get("accountScope")).toBe("a".repeat(64));
+      expect(element.getAttribute("aria-label")).toBe("生成的视频 1");
+      expect(host.querySelector('[data-testid="generated-image-pending"]')).toBeNull();
+      // Nothing is pending any more, so Moss is not asked again.
+      const count = asked.length;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(asked.length).toBe(count);
+    } finally {
+      fetchSpy.mockRestore();
+      localizationTestState.locale = "en";
+      await screen.unmount();
+      host.remove();
+    }
+  });
+
   it("preserves the selected identity as pending results complete and reorder", async () => {
     await page.viewport(720, 620);
     const host = createHost(720, 620);

@@ -18,13 +18,14 @@ import {
   WindowAppIcon,
 } from "~/lib/icons";
 import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
+import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
 
 import { AppPageFrame } from "../pageApps/AppPageFrame";
 import { PageChromeButton } from "../pages/chrome/PageChromeButton";
 import { Button } from "../ui/button";
 import { WorkspaceFilePreview } from "../WorkspaceFilePreview";
 import { FILE_CONVERSION_LABELS, fileConversionFor } from "../spaceTypes/spaceFileConversion";
-import type { SpaceItem } from "./spaceItems";
+import { spaceMossMediaPath, type SpaceItem } from "./spaceItems";
 import { isHtmlOutput, spaceItemMeta, spaceKindMeta } from "./spaceKinds";
 
 /** Reads a chat output's text (HTML for 保存为应用页). */
@@ -83,6 +84,55 @@ export function SpaceOutputViewer(props: {
             origin: `资料库 · ${props.item.source.item.path}`,
           }
         : null;
+  const mediaPath =
+    props.item.source.type === "library" && !props.item.source.item.path
+      ? spaceMossMediaPath(props.item.source.item)
+      : null;
+  if (!file && mediaPath && props.item.source.type === "library") {
+    // An image or video made in a chat: shown from Moss's media cache.
+    const url = resolveWsHttpUrl(mediaPath);
+    const video = props.item.source.item.kind === "video";
+    return (
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-space-media-viewer>
+        <ViewerHeader item={props.item}>
+          {props.item.sourceThreadId ? (
+            <PageChromeButton
+              icon={ChatBubbleIcon}
+              label="在对话中继续"
+              onClick={() => props.onContinueInChat(props.item)}
+            />
+          ) : null}
+          {props.item.trashedAt ? null : (
+            <PageChromeButton
+              icon={TrashCanIcon}
+              label="移到回收站"
+              iconOnly
+              onClick={() => props.onTrash(props.item)}
+            />
+          )}
+        </ViewerHeader>
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/40 p-6">
+          {video ? (
+            <video
+              src={url}
+              controls
+              playsInline
+              preload="metadata"
+              aria-label={props.item.title}
+              data-space-media-video
+              className="max-h-full max-w-full rounded-card bg-black"
+            />
+          ) : (
+            <img
+              src={url}
+              alt={props.item.title}
+              className="max-h-full max-w-full rounded-card object-contain"
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
   if (!file) return null;
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-space-output-viewer>

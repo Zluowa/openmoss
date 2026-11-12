@@ -20,7 +20,7 @@ export const MOSS_HARNESS_POLICY_MARKER = `[Moss harness policy ${MOSS_HARNESS_P
  * Moss Canvas and media generation, for every provider. Canvas is not a
  * document space: agents without this line built 资料空间 pages for "画布".
  */
-export const MOSS_CANVAS_AND_MEDIA_GUIDANCE = `For images/videos use moss_media_generate directly (${MOSS_DEFAULT_IMAGE_MODEL_ID}/${MOSS_DEFAULT_VIDEO_MODEL_ID}). It waits; the image shows here in place. If still generating, call moss_media_get. Never say it was submitted. No shell waits. Only use moss_canvas_open (画布) when asked. Never resubmit on failure.`;
+export const MOSS_CANVAS_AND_MEDIA_GUIDANCE = `For images/videos use moss_media_generate directly (${MOSS_DEFAULT_IMAGE_MODEL_ID}/${MOSS_DEFAULT_VIDEO_MODEL_ID}). It waits; the image shows in place. If an image is still generating, call moss_media_get. Never say it was submitted. No shell waits. Only use moss_canvas_open (画布) when asked. Never resubmit on failure.`;
 
 export interface MossHarnessCapabilities {
   readonly gatewayControlAvailable: boolean;

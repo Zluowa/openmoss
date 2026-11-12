@@ -690,14 +690,23 @@ describe("native official media tools", () => {
       expect(body.chat.note).toContain("then finish");
     });
 
-    it("does not wait for a video or change a failed image", async () => {
+    it("does not wait for a video, tells the agent to finish, and leaves a failed image alone", async () => {
       const video = { ...fresh(), operation: "video" as const, modelId: "wan-3" };
       const videoService = waitingService([video]);
       const videoResult = await harness(videoService.service).invoke("moss_media_get", {
         jobId: video.jobId,
       });
       expect(videoService.reads()).toBe(0);
-      expect(videoResult.body.chat).toBeUndefined();
+      // The chat shows the video placeholder and later the player by itself.
+      expect(videoResult.body.chat).toMatchObject({ video: "generating" });
+      expect(String((videoResult.body.chat as { note: string }).note)).toContain("finish the turn");
+      const shown = waitingService([
+        { ...video, status: "succeeded" as const, persistenceStatus: "ready" as const },
+      ]);
+      const shownResult = await harness(shown.service).invoke("moss_media_get", {
+        jobId: video.jobId,
+      });
+      expect(shownResult.body.chat).toMatchObject({ video: "shown" });
 
       const failed = { ...fresh(), status: "failed_terminal" as const };
       const failedService = waitingService([failed]);

@@ -226,6 +226,184 @@ describe("MossMediaJobsService", () => {
     expect(noNetwork).not.toHaveBeenCalled();
   });
 
+  describe("a chat video", () => {
+    const videoModel = "doubao-seedance-2.0-fast";
+    const videoCredential = { ...credential, installedModelIds: [videoModel] };
+    const videoRequest = {
+      projectId: "thread:thread-video",
+      prompt: "海浪轻轻拍打沙滩",
+      modelId: videoModel,
+      idempotencyKey: "video-operation-1",
+      duration: 5,
+      resolution: "720p",
+      aspectRatio: "16:9",
+    };
+    const origin = { threadId: "thread-video", turnId: "turn-video" };
+    const mp4 = Buffer.concat([
+      Buffer.from([0, 0, 0, 24]),
+      Buffer.from("ftypisom"),
+      Buffer.alloc(16),
+    ]);
+    // A stub gateway whose task stays pending until `finish` is called.
+    const slowGateway = () => {
+      const state = { finished: false, generations: 0 };
+      const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/catalog"))
+          return Response.json({
+            models: [{ id: videoModel, label: "Seedance", kind: "video", available: true }],
+          });
+        if (String(url).endsWith("/generations")) {
+          state.generations += 1;
+          return Response.json({ taskToken: "video-task", pending: true }, { status: 202 });
+        }
+        return Response.json(
+          state.finished
+            ? {
+                pending: false,
+                billingStatus: "captured",
+                videoUrl: "https://assets.example/sea.mp4",
+              }
+            : { pending: true, status: "running" },
+        );
+      });
+      return { state, fetchImpl };
+    };
+    beforeEach(() => {
+      vi.mocked(outboundHttp.request).mockImplementation(async (input) => ({
+        status: 200,
+        body: Uint8Array.from(mp4),
+        headers: new Headers({ "content-type": "video/mp4" }),
+        url: String(input.url),
+      }));
+    });
+
+    it("reaches its chat as a placeholder, then as the video when it finishes long after the turn", async () => {
+      const directory = stateDirectory();
+      const { state, fetchImpl } = slowGateway();
+      const service = new MossMediaJobsService({
+        stateDirectory: directory,
+        fetchImpl,
+        brokerOptions: { pollMs: 5 },
+      });
+      // No Canvas workspace resolver: the chat still owns the video.
+      const observations: MossConversationImageObservation[] = [];
+      service.setConversationImageObserver(async (value) => {
+        observations.push(value);
+      });
+      const created = await service.create(
+        videoRequest,
+        videoCredential,
+        undefined,
+        undefined,
+        origin,
+      );
+      await vi.waitFor(() => expect(observations.length).toBeGreaterThan(0));
+      const [pending] = conversationImageActivityCommands(observations[0]!);
+      expect(pending).toMatchObject({
+        threadId: "thread-video",
+        activity: {
+          kind: "tool.started",
+          turnId: "turn-video",
+          payload: { status: "inProgress", data: { jobId: created.jobId, media: "video" } },
+        },
+      });
+      // The supplier keeps answering "still running"; the chat keeps its placeholder.
+      await vi.waitFor(() =>
+        expect(
+          fetchImpl.mock.calls.filter(([url]) => String(url).endsWith("/query")).length,
+        ).toBeGreaterThan(3),
+      );
+      expect(observations.every((item) => item.outputs.length === 0)).toBe(true);
+      // Minutes later (the turn has long ended) the supplier finishes. Nobody calls check:
+      // the background job publishes the video to the original turn itself.
+      state.finished = true;
+      await vi.waitFor(() =>
+        expect(observations.some((item) => item.outputs.length === 1)).toBe(true),
+      );
+      const finished = observations.find((item) => item.outputs.length === 1)!;
+      expect(finished.origin).toEqual(origin);
+      expect(finished.outputs[0]!.path).toBe(
+        `/api/moss/media/assets/${created.jobId}/0?accountScope=${mediaAccountScope(videoCredential)}`,
+      );
+      const [player] = conversationImageActivityCommands(finished);
+      expect(player).toMatchObject({
+        activity: {
+          kind: "tool.completed",
+          turnId: "turn-video",
+          payload: {
+            status: "completed",
+            data: {
+              kind: "moss.generated_video",
+              media: "video",
+              jobId: created.jobId,
+              outputIndex: 0,
+            },
+          },
+        },
+      });
+      expect((await service.readAsset(created.jobId, 0, videoCredential)).asset).toMatchObject({
+        kind: "video",
+        contentType: "video/mp4",
+      });
+      expect(state.generations).toBe(1);
+      // 资料空间 lists it as a chat-made video.
+      const [item] = await readMossMediaLibraryItems(directory, videoCredential);
+      expect(item).toMatchObject({
+        kind: "video",
+        title: "海浪轻轻拍打沙滩.mp4",
+        originationThreadId: "thread-video",
+        mediaJobId: created.jobId,
+      });
+    });
+
+    it("is delivered after a restart when the reopened chat asks for its job, without a second generation", async () => {
+      const directory = stateDirectory();
+      const before = slowGateway();
+      const service = new MossMediaJobsService({
+        stateDirectory: directory,
+        fetchImpl: before.fetchImpl,
+        // The first process stops polling (it "quits") after its first answer.
+        brokerOptions: { pollMs: 3_600_000 },
+      });
+      const firstRun: MossConversationImageObservation[] = [];
+      service.setConversationImageObserver(async (value) => {
+        firstRun.push(value);
+      });
+      const created = await service.create(
+        videoRequest,
+        videoCredential,
+        undefined,
+        undefined,
+        origin,
+      );
+      await vi.waitFor(() => expect(firstRun.length).toBeGreaterThan(0));
+      expect(firstRun.every((item) => item.outputs.length === 0)).toBe(true);
+
+      // Moss restarts. The supplier finished meanwhile.
+      const after = slowGateway();
+      after.state.finished = true;
+      const restored = new MossMediaJobsService({
+        stateDirectory: directory,
+        fetchImpl: after.fetchImpl,
+        brokerOptions: { pollMs: 5 },
+      });
+      const replay: MossConversationImageObservation[] = [];
+      restored.setConversationImageObserver(async (value) => {
+        replay.push(value);
+      });
+      // Reopening the chat asks for the pending job (GET /api/moss/media/jobs/<id>).
+      await restored.check(created.jobId, videoCredential);
+      await vi.waitFor(() => expect(replay.some((item) => item.outputs.length === 1)).toBe(true));
+      const delivered = replay.find((item) => item.outputs.length === 1)!;
+      expect(delivered.origin).toEqual(origin);
+      expect(conversationImageActivityCommands(delivered)[0]).toMatchObject({
+        activity: { payload: { data: { kind: "moss.generated_video" } } },
+      });
+      expect(after.state.generations).toBe(0);
+      expect(before.state.generations).toBe(1);
+    });
+  });
+
   it("rejects an inconsistent server conversation origin before catalog or generation", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     const service = new MossMediaJobsService({ stateDirectory: stateDirectory(), fetchImpl });

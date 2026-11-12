@@ -202,7 +202,7 @@ function waitedTooLong(job: HoolaCanvasJobSnapshot, now: number): boolean {
  * delivery, and must not paste the image again.
  */
 function imageChatGuidance(job: HoolaCanvasJobSnapshot, now: number) {
-  if (!isImageJob(job)) return undefined;
+  if (!isImageJob(job)) return videoChatGuidance(job);
   if (job.status === "succeeded" && job.persistenceStatus === "ready")
     return {
       image: "shown",
@@ -218,6 +218,24 @@ function imageChatGuidance(job: HoolaCanvasJobSnapshot, now: number) {
         image: "generating",
         note: "Still generating; the person sees a placeholder in this chat. Call moss_media_get with this jobId now to keep waiting. Do not tell the person it was submitted.",
       };
+}
+
+/**
+ * A video takes minutes. The chat shows a placeholder that says a video is being made and
+ * how long it usually takes, and the player replaces it by itself when the video is ready,
+ * even after the turn has ended. So the agent never waits for it.
+ */
+function videoChatGuidance(job: HoolaCanvasJobSnapshot) {
+  if (job.status === "succeeded" && job.persistenceStatus === "ready")
+    return {
+      video: "shown",
+      note: "The finished video is already shown to the person in this chat as a player, where the placeholder was. Do not paste, link, download or describe its file. Reply with at most one short sentence.",
+    };
+  if (job.status !== "queued" && job.status !== "running") return undefined;
+  return {
+    video: "generating",
+    note: "The person sees a placeholder in this chat that says a video is being made and how long it usually takes (a few minutes); the player replaces it by itself when the video is ready. Reply now in one short sentence that the video is being made and will appear here in a few minutes, then finish the turn. Do not call moss_media_get to wait, do not sleep, and do not report the video as done.",
+  };
 }
 
 function failure(error: unknown): McpToolCallResult {
@@ -500,7 +518,7 @@ export function makeAgentGatewayMediaTools(
       definition: {
         name: "moss_media_generate",
         description:
-          "Generate or edit an image/video with an installed official model using the current Moss account's shared package allowance at actual supplier cost. Generate through Moss for a request routed to the person's Moss account. In a personal Codex session, use this for images only if the person explicitly chose Moss; prefer an available native Codex image tool for an ordinary request. If a Moss model is not known, moss_media_list can show the available models. Supply a unique idempotencyKey for each intended generation. Unknown outcomes must be observed through the existing job and records; never automatically submit another generation. For an image, this call waits while Moss generates it: the person sees a placeholder in this chat that turns into the finished image in place. If the result says the image is still generating, call moss_media_get with its jobId to keep waiting. Once the result says the image is shown, it is already in the chat: never say it was submitted, queued or will appear later, and reply with at most one short sentence. Do not sleep or run shell commands to wait. For video, follow the job with moss_media_get. Only if the person asks to see or edit it on Canvas, call moss_canvas_open with the jobId. Completed images appear automatically in the conversation; do not emit duplicate Markdown images or download/copy the outputs again. Charged to the person's Moss credits. Reply to the person in their own language. For edits pass the selected original HTTPS output URL in referenceImages, or local image files inside the caller workspace in referencePaths (no base64 needed). Never request, print, or pass an API key. Account changes during a turn require a new user turn.",
+          "Generate or edit an image/video with an installed official model using the current Moss account's shared package allowance at actual supplier cost. Generate through Moss for a request routed to the person's Moss account. In a personal Codex session, use this for images only if the person explicitly chose Moss; prefer an available native Codex image tool for an ordinary request. If a Moss model is not known, moss_media_list can show the available models. Supply a unique idempotencyKey for each intended generation. Unknown outcomes must be observed through the existing job and records; never automatically submit another generation. For an image, this call waits while Moss generates it: the person sees a placeholder in this chat that turns into the finished image in place. If the result says the image is still generating, call moss_media_get with its jobId to keep waiting. Once the result says the image is shown, it is already in the chat: never say it was submitted, queued or will appear later, and reply with at most one short sentence. Do not sleep or run shell commands to wait. For a video, do not wait: the person sees a placeholder that says a video is being made and turns into the player by itself when it is ready (usually a few minutes), so reply in one short sentence and finish the turn. Only if the person asks to see or edit it on Canvas, call moss_canvas_open with the jobId. Completed images appear automatically in the conversation; do not emit duplicate Markdown images or download/copy the outputs again. Charged to the person's Moss credits. Reply to the person in their own language. For edits pass the selected original HTTPS output URL in referenceImages, or local image files inside the caller workspace in referencePaths (no base64 needed). Never request, print, or pass an API key. Account changes during a turn require a new user turn.",
         inputSchema: {
           type: "object",
           properties: {

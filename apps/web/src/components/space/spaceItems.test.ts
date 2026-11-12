@@ -15,6 +15,7 @@ import {
   recentItems,
   trashDaysLeft,
   spaceItemDisplayTitle,
+  spaceMossMediaPath,
 } from "./spaceItems";
 import type { SpacePageApp } from "~/lib/spacePageApps";
 
@@ -188,5 +189,55 @@ describe("spaceItemDisplayTitle", () => {
     expect(spaceItemDisplayTitle({ title: "会议纪要", kind: "page" })).toBe("会议纪要");
     expect(spaceItemDisplayTitle({ title: "  ", kind: "page" })).toBe("未命名页面");
     expect(spaceItemDisplayTitle({ title: "", kind: "slides" })).toBe("未命名");
+  });
+});
+
+describe("资料空间 lists images and videos made in a chat", () => {
+  const media = (id: string, kind: "image" | "video", title: string): LibraryItem => ({
+    id: `moss-media:${"a".repeat(64)}:moss_${id}:0`,
+    title,
+    kind,
+    source: "user:legacy",
+    sourceCli: "moss",
+    path: null,
+    mimeType: kind === "video" ? "video/mp4" : "image/png",
+    size: 10,
+    favorite: false,
+    folderId: null,
+    trashedAt: null,
+    originationThreadId: "thread-media",
+    createdAt: at(7),
+    updatedAt: at(7),
+    mediaJobId: `moss_${id}`,
+    mediaImageIndex: 0,
+    previewPath: `/api/moss/media/assets/moss_${id}/0`,
+  });
+  const legacy: LibraryItem = { ...library, id: "legacy", path: null };
+  const listed = buildSpaceItems({
+    pages: [],
+    apps: [],
+    outputs: [],
+    library: [media("img", "image", "小狐狸.png"), media("vid", "video", "海浪.mp4"), legacy],
+  });
+
+  it("keeps chat media (no local file, saved in Moss) and still drops legacy rows", () => {
+    expect(keys(itemsForSection(listed, { type: "all" }, all)).toSorted()).toEqual(
+      [
+        `library:moss-media:${"a".repeat(64)}:moss_img:0`,
+        `library:moss-media:${"a".repeat(64)}:moss_vid:0`,
+      ].toSorted(),
+    );
+    expect(listed.map((item) => item.sourceThreadId)).toEqual(["thread-media", "thread-media"]);
+    expect(listed.map((item) => item.kind).toSorted()).toEqual(["file", "image"]);
+  });
+
+  it("opens them from their saved Moss address", () => {
+    expect(spaceMossMediaPath(media("vid", "video", "海浪.mp4"))).toBe(
+      "/api/moss/media/assets/moss_vid/0",
+    );
+    expect(spaceMossMediaPath(legacy)).toBeNull();
+    expect(
+      spaceMossMediaPath({ ...media("x", "image", "x.png"), mediaJobId: "../escape" }),
+    ).toBeNull();
   });
 });
