@@ -43,6 +43,8 @@ describe("page AI prompts", () => {
     // Round 10: the model fought the nested JSON of moss_pages_draft and spawned sub-agents.
     expect(context).toContain("不要调用 moss_app_guide、moss_app_publish 或 moss_pages_draft");
     expect(context).toContain("不要启动子智能体");
+    // Round 11: the model drew with Chart.js, which the 应用页 frame does not provide.
+    expect(context).toContain("不要用图表库（Chart.js");
     expect(context).toContain("用户说“表格”时也做成可交互的");
     expect(context).not.toContain("Markdown 表格");
     expect(context).toContain("用简体中文，语气简洁");

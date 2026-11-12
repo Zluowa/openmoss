@@ -22,7 +22,67 @@ import { errorText, ToolInputError } from "./toolInput";
 import { WRITE_TOOL_ANNOTATIONS, type ToolEntry } from "./toolRuntime";
 
 const RETRY =
-  "Fix it and call moss_app_visualize once more with the same arguments; do not switch to another tool or start a sub-agent.";
+  "Fix it and call moss_app_visualize once more with the corrected arguments; do not switch to another tool or start a sub-agent.";
+
+const SELF_CONTAINED =
+  "Resend the same visualization drawn with plain SVG or Canvas and vanilla JavaScript; no libraries, no external scripts.";
+
+/** Globals of libraries the 应用页 frame does not provide (acceptance round 11: `new Chart(`). */
+const LIBRARY_GLOBALS: ReadonlyArray<{
+  readonly name: string;
+  readonly label: string;
+  readonly use: RegExp;
+}> = [
+  { name: "Chart", label: "Chart.js", use: /(?<![\w$.])(?:new\s+Chart\s*\(|Chart\.\w)/u },
+  { name: "d3", label: "D3", use: /(?<![\w$.])d3\.\w/u },
+  { name: "echarts", label: "ECharts", use: /(?<![\w$.])echarts\.\w/u },
+  { name: "Plotly", label: "Plotly", use: /(?<![\w$.])Plotly\.\w/u },
+  { name: "Highcharts", label: "Highcharts", use: /(?<![\w$.])Highcharts\.\w/u },
+  { name: "ApexCharts", label: "ApexCharts", use: /(?<![\w$.])ApexCharts\b/u },
+  { name: "google", label: "Google Charts", use: /(?<![\w$.])google\.charts\b/u },
+  { name: "vegaEmbed", label: "Vega-Embed", use: /(?<![\w$.])vegaEmbed\s*\(/u },
+  { name: "React", label: "React", use: /(?<![\w$.])React\.\w/u },
+  { name: "ReactDOM", label: "React", use: /(?<![\w$.])ReactDOM\.\w/u },
+  { name: "Vue", label: "Vue", use: /(?<![\w$.])Vue\.\w/u },
+  { name: "$", label: "jQuery", use: /(?<![\w$.])\$\s*\(/u },
+  { name: "jQuery", label: "jQuery", use: /(?<![\w$.])jQuery\s*[(.]/u },
+];
+
+const EXTERNAL_RESOURCES: ReadonlyArray<{ readonly what: string; readonly use: RegExp }> = [
+  { what: "a script", use: /<script\b[^>]*\ssrc\s*=/iu },
+  {
+    what: "a stylesheet or font",
+    use: /<link\b(?=[^>]*\brel\s*=\s*["']?stylesheet)(?=[^>]*\bhref\s*=\s*["']?(?:https?:)?\/\/)[^>]*>/iu,
+  },
+  { what: "a stylesheet or font", use: /@import\s+(?:url\(\s*)?["']?(?:https?:)?\/\//iu },
+  {
+    what: "a module",
+    use: /\bimport\s*(?:[\w$*{},\s]+\bfrom\s*)?["'`](?:https?:)?\/\/|\bimport\s*\(\s*["'`](?:https?:)?\/\//u,
+  },
+];
+
+const escapeRegExp = (value: string) => value.replace(/[$()*+.?[\\\]^{|}]/gu, "\\$&");
+
+/**
+ * Why the code cannot run in the 应用页 frame, or null: the frame loads nothing from outside and
+ * provides no libraries, so external resources and library globals the code never defines
+ * itself would leave the 应用页 blank.
+ */
+export function unavailableCodeReason(source: string): string | null {
+  for (const resource of EXTERNAL_RESOURCES)
+    if (resource.use.test(source))
+      return `This visualization loads ${resource.what} from outside the page, which is not available: the 应用页 runs with no network. Put every style and script inline. ${SELF_CONTAINED}`;
+  for (const library of LIBRARY_GLOBALS) {
+    if (!library.use.test(source)) continue;
+    const defined = new RegExp(
+      `(?:\\bfunction\\s*\\*?\\s*|\\bclass\\s+|\\b(?:const|let|var)\\s+)${escapeRegExp(library.name)}(?![\\w$])`,
+      "u",
+    );
+    if (!defined.test(source))
+      return `This visualization uses ${library.label}, which is not available. ${SELF_CONTAINED}`;
+  }
+  return null;
+}
 
 /**
  * Code as the model meant it: without a Markdown fence, a wrapping tag of its own kind, or one
@@ -159,7 +219,7 @@ export function makePageVisualizeTool({
     definition: {
       name: "moss_app_visualize",
       description:
-        "Make the chart, diagram or small interactive tool for a page's 可视化 block in ONE call: send its code as plain strings and Moss publishes it as an 应用页 and proposes the filled 可视化 block for the person to accept. Put the data straight into the code. html is either one complete <!doctype html> document or just the body markup; css and js are optional extra strings (no <style>/<script> tags needed). The code runs in a sandbox with no network; inline code works best (Chart.js 4.5.1 and D3 7.9.0 from cdn.jsdelivr.net also work offline). Do not read moss_app_guide first, do not call moss_pages_draft or moss_app_publish for this, do not write local files, and do not start sub-agents. When it succeeds, tell the person in one short sentence in their language.",
+        "Make the chart, diagram or small interactive tool for a page's 可视化 block in ONE call: send its code as plain strings and Moss publishes it as an 应用页 and proposes the filled 可视化 block for the person to accept. Put the data straight into the code. html is either one complete <!doctype html> document or just the body markup; css and js are optional extra strings (no <style>/<script> tags needed). The page must be self-contained: it runs in a sandbox with no network and no libraries, so use no external scripts, stylesheets, fonts or network requests and no chart libraries (Chart.js, D3, ECharts, Plotly, Highcharts and the like); draw with plain HTML/CSS/SVG or Canvas and vanilla JavaScript. Code that loads or uses a library is refused. Do not read moss_app_guide first, do not call moss_pages_draft or moss_app_publish for this, do not write local files, and do not start sub-agents. When it succeeds, tell the person in one short sentence in their language.",
       inputSchema: {
         type: "object",
         properties: {
@@ -214,6 +274,9 @@ export function makePageVisualizeTool({
               `html is required: the chart as one HTML document or its body markup, as a plain string. ${RETRY}`,
             ),
           );
+        // Checked before anything is read, published or drafted, so the corrected call is new.
+        const unavailable = unavailableCodeReason([html, css, js].join("\n"));
+        if (unavailable) return yield* Effect.fail(new ToolInputError(`${unavailable} ${RETRY}`));
         const principal = {
           kind: "agent" as const,
           threadId: ThreadId.makeUnsafe(context.callerThreadId),

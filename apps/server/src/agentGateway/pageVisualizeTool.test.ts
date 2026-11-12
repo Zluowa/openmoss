@@ -16,6 +16,7 @@ import {
   assembleVisualizationHtml,
   makePageVisualizeTool,
   normalizeCodeText,
+  unavailableCodeReason,
 } from "./pageVisualizeTool";
 import type { ToolContext } from "./toolRuntime";
 
@@ -165,6 +166,38 @@ tests("moss_app_visualize", (it) => {
     }),
   );
 
+  it.effect("refuses a Chart.js chart without publishing, then publishes the corrected one", () =>
+    Effect.gen(function* () {
+      const { pages, apps, drafts, page, context } = yield* harness;
+      const tool = makePageVisualizeTool({ pages, apps, drafts });
+      const args = { pageId: page.id, blockId: "viz", title: "柱状图", html: '<canvas id="c">' };
+      const refused = yield* tool.handler(
+        { ...args, js: 'new Chart(document.getElementById("c"), {type:"bar"});' },
+        context,
+      );
+      assert.isTrue(refused.isError);
+      assert.include(
+        JSON.stringify(refused),
+        "uses Chart.js, which is not available. Resend the same visualization drawn with plain SVG or Canvas and vanilla JavaScript; no libraries, no external scripts.",
+      );
+      assert.strictEqual(
+        (yield* drafts.list({ scopeSpaceId: null, pageId: page.id }, user)).drafts.length,
+        0,
+      );
+      const fixed = json(
+        yield* tool.handler(
+          { ...args, js: 'document.getElementById("c").getContext("2d").fillRect(0,0,30,50);' },
+          context,
+        ),
+      );
+      assert.match(fixed.link, /^\/apps\//u);
+      assert.strictEqual(
+        (yield* drafts.list({ scopeSpaceId: null, pageId: page.id }, user)).drafts.length,
+        1,
+      );
+    }),
+  );
+
   it.effect("moss_pages_draft turns round-10 style input into a 可视化 block, never text", () =>
     Effect.gen(function* () {
       const { pages, apps, drafts, page, context } = yield* harness;
@@ -293,6 +326,52 @@ describe("visualization code", () => {
       '<div class="a">\n<b>1</b>\n</div>',
     );
     expect(normalizeCodeText(JSON.stringify("<p>x</p>"))).toBe("<p>x</p>");
+  });
+
+  it("refuses external resources and library globals the code never defines", () => {
+    const external =
+      /loads .* from outside the page, which is not available.*Resend the same visualization drawn with plain SVG or Canvas and vanilla JavaScript; no libraries, no external scripts\./u;
+    for (const source of [
+      '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js"></script>',
+      "<script defer src=chart.js></script>",
+      '<link href="https://fonts.googleapis.com/css2?family=Inter" rel="stylesheet">',
+      "@import url('https://fonts.googleapis.com/css2?family=Inter');",
+      'import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7.9.0/+esm";',
+      'import "https://esm.sh/three";',
+      'const m = await import("https://esm.sh/three");',
+    ])
+      expect(unavailableCodeReason(source), source).toMatch(external);
+    for (const [source, label] of [
+      ["new Chart(ctx, {})", "Chart.js"],
+      ["Chart.defaults.color = 'red'", "Chart.js"],
+      ["d3.select('#a')", "D3"],
+      ["echarts.init(el)", "ECharts"],
+      ["Plotly.newPlot(el, [])", "Plotly"],
+      ["Highcharts.chart('a', {})", "Highcharts"],
+      ["new ApexCharts(el, {})", "ApexCharts"],
+      ["google.charts.load('current')", "Google Charts"],
+      ["vegaEmbed('#a', spec)", "Vega-Embed"],
+      ["React.createElement('div')", "React"],
+      ["ReactDOM.createRoot(el)", "React"],
+      ["Vue.createApp({})", "Vue"],
+      ["$('#a').hide()", "jQuery"],
+      ["jQuery('#a')", "jQuery"],
+    ] as const)
+      expect(unavailableCodeReason(source), source).toBe(
+        `This visualization uses ${label}, which is not available. Resend the same visualization drawn with plain SVG or Canvas and vanilla JavaScript; no libraries, no external scripts.`,
+      );
+  });
+
+  it("accepts plain SVG and Canvas code and libraries the code defines itself", () => {
+    for (const source of [
+      '<svg viewBox="0 0 100 60"><rect x="0" y="10" width="20" height="50"/></svg><p>Chart</p>',
+      'const ctx = document.querySelector("canvas").getContext("2d"); const myChart = {}; myChart.update = () => ctx.fillRect(0, 0, 10, 10); const total = `${1 + 2}`;',
+      "class Chart { constructor(el) { this.el = el; } } new Chart(document.body); Chart.prototype.draw = () => {};",
+      "const $ = (s) => document.querySelector(s); $('#a').textContent = '3';",
+      "function d3() {} d3.select = () => null;",
+      '<a href="https://example.com">source</a><link rel="icon" href="data:,">',
+    ])
+      expect(unavailableCodeReason(source), source).toBeNull();
   });
 
   it("builds one document around a fragment and adds css/js to a full one", () => {
