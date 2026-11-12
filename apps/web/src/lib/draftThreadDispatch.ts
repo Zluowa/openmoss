@@ -3,16 +3,19 @@
 //          promotes the draft to a durable thread when needed. Shared by the Tasks view
 //          (delegating a to-do) and Kanban (dropping a Draft card on In Progress).
 // Layer: Web orchestration helper
-// Exports: dispatchDraftThread, DraftThreadDispatchHooks, DraftThreadDispatchResult,
-//          DraftThreadOpenReason
+// Exports: dispatchDraftThread, createDraftThreadWithoutTurn, DraftThreadDispatchHooks,
+//          DraftThreadDispatchResult, DraftThreadOpenReason
 
 import type {
   AssistantDeliveryMode,
   ModelSelection,
+  NativeApi,
   ProjectId,
   ProviderInstanceId,
+  ProviderInteractionMode,
   ProviderKind,
   ProviderStartOptions,
+  RuntimeMode,
   ThreadEnvironmentMode,
   ThreadId,
   TurnId,
@@ -111,6 +114,8 @@ interface DraftThreadDispatchInput {
   hooks?: DraftThreadDispatchHooks | undefined;
   sendAsGoal?: boolean;
   promptAsFile?: boolean;
+  /** Names a chat this dispatch creates; by default the prompt names it. */
+  title?: string;
 }
 
 export type DraftDispatchProviderInstance = Pick<
@@ -235,6 +240,97 @@ export function dispatchDraftThread(
   return dispatchPromise;
 }
 
+// Creates the durable thread for a local draft, with the workspace resolution the
+// terminal-first promotion path uses.
+function promoteDraftThread(args: {
+  api: NativeApi;
+  input: Pick<
+    DraftThreadDispatchInput,
+    "threadId" | "projectId" | "defaultProvider" | "providerInstances"
+  >;
+  project: { readonly defaultModelSelection?: ModelSelection | null } | null;
+  title: string;
+  modelSelection: ModelSelection;
+  runtimeMode: RuntimeMode;
+  interactionMode: ProviderInteractionMode;
+  createdAt: string;
+}) {
+  const { api, input } = args;
+  const composerStore = useComposerDraftStore.getState();
+  const creationState = resolveTerminalThreadCreationState({
+    activeDraftThread: null,
+    activeThread: null,
+    defaultProvider: input.defaultProvider,
+    draftComposerState: composerStore.draftsByThreadId[input.threadId] ?? null,
+    draftThread: composerStore.getDraftThread(input.threadId),
+    options: undefined,
+    projectDefaultModelSelection: args.project?.defaultModelSelection ?? null,
+    projectId: input.projectId,
+    resolveProviderForInstanceId: (instanceId) =>
+      resolveProviderForInstanceId(input.providerInstances, instanceId),
+    defaultInstanceIdForProvider: (provider) =>
+      newChatProviderInstanceIdFrom(input.providerInstances, provider),
+  });
+  return promoteThreadCreate(
+    {
+      type: "thread.create",
+      commandId: newCommandId(),
+      threadId: input.threadId,
+      projectId: input.projectId,
+      title: args.title,
+      modelSelection: args.modelSelection,
+      runtimeMode: args.runtimeMode,
+      interactionMode: args.interactionMode,
+      envMode: creationState.envMode,
+      branch: creationState.branch,
+      worktreePath: creationState.worktreePath,
+      workingDirectory: creationState.workingDirectory,
+      lastKnownPr: creationState.lastKnownPr,
+      // A local draft's createdAt is the time its composer opened. The durable
+      // thread is created by this dispatch, so use the same send timestamp as
+      // the first turn instead of carrying the draft's idle time into sorting.
+      createdAt: args.createdAt,
+    },
+    api,
+  );
+}
+
+/**
+ * Creates the durable thread for a local draft without sending anything, so its
+ * agent can start before the first message. Resolves to false when Moss could not
+ * create it; the draft then stays local and a later dispatch creates it as usual.
+ */
+export async function createDraftThreadWithoutTurn(input: {
+  threadId: ThreadId;
+  projectId: ProjectId;
+  title: string;
+  defaultProvider: ProviderKind;
+  providerInstances?: ReadonlyArray<DraftDispatchProviderInstance> | undefined;
+}): Promise<boolean> {
+  const api = readNativeApi();
+  if (!api) return false;
+  const composerStore = useComposerDraftStore.getState();
+  const draftComposerState = composerStore.draftsByThreadId[input.threadId] ?? null;
+  const draftThread = composerStore.getDraftThread(input.threadId);
+  const project =
+    useStore.getState().projects.find((candidate) => candidate.id === input.projectId) ?? null;
+  const promotion = await promoteDraftThread({
+    api,
+    input,
+    project,
+    title: input.title,
+    modelSelection: resolveDraftThreadDispatchTarget({ ...input, thread: null }).modelSelection,
+    runtimeMode:
+      draftComposerState?.runtimeMode ?? draftThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+    interactionMode:
+      draftComposerState?.interactionMode ??
+      draftThread?.interactionMode ??
+      DEFAULT_INTERACTION_MODE,
+    createdAt: new Date().toISOString(),
+  });
+  return promotion !== "unavailable";
+}
+
 async function dispatchDraftThreadOnce(
   input: DraftThreadDispatchInput,
 ): Promise<DraftThreadDispatchResult> {
@@ -330,7 +426,7 @@ async function dispatchDraftThreadOnce(
       ? formatFileCommentTitleSeed(composerFileComments.length)
       : "") ||
     "New task";
-  const fallbackTitle = buildPromptThreadTitleFallback(titleSeed);
+  const fallbackTitle = input.title ?? buildPromptThreadTitleFallback(titleSeed);
   const messageId = newMessageId();
   // Browser annotations serialize outermost so display extraction can validate
   // their message-bound transport before unwrapping the remaining context blocks.
@@ -399,44 +495,17 @@ async function dispatchDraftThreadOnce(
   markPendingTurnDispatch(threadId);
   try {
     if (thread === null) {
-      // Local-only draft thread: create the durable thread first, reusing the same
-      // workspace resolution the terminal-first promotion path uses.
-      const creationState = resolveTerminalThreadCreationState({
-        activeDraftThread: null,
-        activeThread: null,
-        defaultProvider: input.defaultProvider,
-        draftComposerState,
-        draftThread,
-        options: undefined,
-        projectDefaultModelSelection: project?.defaultModelSelection ?? null,
-        projectId,
-        resolveProviderForInstanceId: (instanceId) =>
-          resolveProviderForInstanceId(input.providerInstances, instanceId),
-        defaultInstanceIdForProvider: (provider) =>
-          newChatProviderInstanceIdFrom(input.providerInstances, provider),
-      });
-      const promotion = await promoteThreadCreate(
-        {
-          type: "thread.create",
-          commandId: newCommandId(),
-          threadId,
-          projectId,
-          title: fallbackTitle,
-          modelSelection,
-          runtimeMode,
-          interactionMode,
-          envMode: creationState.envMode,
-          branch: creationState.branch,
-          worktreePath: creationState.worktreePath,
-          workingDirectory: creationState.workingDirectory,
-          lastKnownPr: creationState.lastKnownPr,
-          // A local draft's createdAt is the time its composer opened. The durable
-          // thread is created by this dispatch, so use the same send timestamp as
-          // the first turn instead of carrying the draft's idle time into sorting.
-          createdAt,
-        },
+      // Local-only draft thread: create the durable thread first.
+      const promotion = await promoteDraftThread({
         api,
-      );
+        input,
+        project,
+        title: fallbackTitle,
+        modelSelection,
+        runtimeMode,
+        interactionMode,
+        createdAt,
+      });
       if (promotion === "unavailable") {
         await turnAttachmentsPromise.then(
           (staged) => staged.cleanup(),

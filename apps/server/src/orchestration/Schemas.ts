@@ -50,6 +50,7 @@ import {
   ThreadConversationRollbackRequestedPayload as ContractsThreadConversationRollbackRequestedPayloadSchema,
   ThreadMessageEditResendRequestedPayload as ContractsThreadMessageEditResendRequestedPayloadSchema,
   ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
+  ThreadSessionWarmRequestedPayload as ContractsThreadSessionWarmRequestedPayloadSchema,
   ThreadSidechatActivityRecordedPayload as ContractsThreadSidechatActivityRecordedPayloadSchema,
   ThreadSidechatExpiredPayload as ContractsThreadSidechatExpiredPayloadSchema,
 } from "@moss/contracts";
@@ -136,6 +137,7 @@ export const ThreadConversationRolledBackPayload =
 export const ThreadMessageEditResendRequestedPayload =
   ContractsThreadMessageEditResendRequestedPayloadSchema;
 export const ThreadSessionStopRequestedPayload = ContractsThreadSessionStopRequestedPayloadSchema;
+export const ThreadSessionWarmRequestedPayload = ContractsThreadSessionWarmRequestedPayloadSchema;
 export const ThreadSidechatActivityRecordedPayload =
   ContractsThreadSidechatActivityRecordedPayloadSchema;
 export const ThreadSidechatExpiredPayload = ContractsThreadSidechatExpiredPayloadSchema;

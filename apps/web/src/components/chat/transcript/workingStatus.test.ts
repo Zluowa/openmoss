@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { thinkingStatusKey, workingStatusKey } from "./workingStatus";
+import {
+  SLOW_PROVIDER_START_NOTICE_MS,
+  startingProviderName,
+  thinkingStatusKey,
+  workingStatusKey,
+} from "./workingStatus";
 
 describe("thinkingStatusKey", () => {
   it("steps the words up at 15, 30, 45 and 60 seconds", () => {
@@ -20,5 +25,19 @@ describe("workingStatusKey", () => {
     expect(workingStatusKey("Loading", 0)).toBe("transcript.working.sending");
     expect(workingStatusKey("Starting Codex…", 0)).toBeNull();
     expect(workingStatusKey("Retrying: connection lost (1/5)", 0)).toBeNull();
+  });
+});
+
+describe("startingProviderName", () => {
+  it("reads the provider from a start line and nothing else", () => {
+    expect(startingProviderName("Starting Codex…")).toBe("Codex");
+    expect(startingProviderName("Starting Claude Code…")).toBe("Claude Code");
+    expect(startingProviderName("Thinking")).toBeNull();
+    expect(startingProviderName("Retrying: connection lost (1/5)")).toBeNull();
+    expect(workingStatusKey("Starting Codex…", 30)).toBeNull();
+  });
+
+  it("calls a start slow within seconds, well before the start deadline", () => {
+    expect(SLOW_PROVIDER_START_NOTICE_MS).toBeLessThanOrEqual(10_000);
   });
 });

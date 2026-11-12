@@ -22,6 +22,11 @@ import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { ensureNativeApi } from "~/nativeApi";
 import { pageAiPrompt } from "~/lib/pageAi/pageAiPrompts";
 import {
+  createPageAssistantKeeper,
+  pageAssistantThreads,
+  type PageAssistantKeeper,
+} from "~/lib/pageAi/pageAssistantThread";
+import {
   isActiveRun,
   pageAiKey,
   pageAiSession,
@@ -38,7 +43,7 @@ import type {
 import { newCommandId } from "~/lib/utils";
 import { useStore } from "~/store";
 import { toastManager } from "../../ui/toast";
-import { pageAiText, pageAiLocale } from "./pageAiText";
+import { pageAiErrorText, pageAiText, pageAiLocale } from "./pageAiText";
 
 export interface PageAiHostOptions {
   readonly account: string;
@@ -236,6 +241,55 @@ export function usePageAiBridge(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel, contextJson]);
 
+  // The page's assistant chat keeps its agent started while the page is in use, and stops
+  // it after a quiet spell or when the page closes (never under a running turn).
+  const keeper = useRef<PageAssistantKeeper | null>(null);
+  useEffect(() => {
+    if (!key) return;
+    const next = createPageAssistantKeeper({
+      warm: (threadId) => threadsRef.current.warmPageAssistant(threadId),
+      release: (threadId) => threadsRef.current.releasePageAssistant(threadId),
+      isBusy: (threadId) => {
+        const summary = useStore.getState().sidebarThreadSummaryById[threadId];
+        return (
+          summary?.session?.orchestrationStatus === "starting" ||
+          summary?.session?.orchestrationStatus === "running" ||
+          summary?.latestTurn?.state === "running" ||
+          pageAiSession.get(key).runs.some((run) => run.threadId === threadId && isActiveRun(run))
+        );
+      },
+    });
+    keeper.current = next;
+    return () => {
+      next.dispose();
+      if (keeper.current === next) keeper.current = null;
+    };
+  }, [key]);
+  const preparing = useRef(false);
+  const prepare = useCallback(() => {
+    const current = latest.current;
+    if (!current || !key || preparing.current) return;
+    const known = pageAssistantThreads.get(key);
+    if (known && useStore.getState().sidebarThreadSummaryById[known]) {
+      keeper.current?.warm(known);
+      return;
+    }
+    preparing.current = true;
+    void threadsRef.current
+      .preparePageAssistant(
+        current.document,
+        current.isCurrent,
+        key,
+        text.pageChatTitle(current.document.page.title),
+      )
+      .then((threadId) => {
+        if (threadId) keeper.current?.warm(threadId);
+      })
+      .finally(() => {
+        preparing.current = false;
+      });
+  }, [key, text]);
+
   const refreshDrafts = useCallback(() => {
     const current = latest.current;
     if (!current) return Promise.resolve();
@@ -263,23 +317,27 @@ export function usePageAiBridge(
         // The agent reads the saved page, so unsaved edits are saved first.
         if (!(await current.flush())) throw new Error(text.saveFirst);
         const saved = latest.current?.document ?? current.document;
-        const threadId = await threadsRef.current.startPageAiTurn(
+        const { threadId, baselineTurnId } = await threadsRef.current.startPageAssistantTurn(
           saved,
           pageAiPrompt(input.mode, input.prompt, saved, input.anchorBlockId),
           current.isCurrent,
+          key,
+          text.pageChatTitle(saved.page.title),
         );
+        keeper.current?.touch(threadId);
         pageAiSession.updateRun(key, id, {
           threadId,
+          baselineTurnId,
           status: "running",
           baseRevision: saved.page.revision,
         });
       } catch (cause) {
-        const message = cause instanceof Error ? cause.message : text.runFailed;
+        const message = pageAiErrorText(cause instanceof Error ? cause.message : undefined, text);
         pageAiSession.updateRun(key, id, { status: "failed", error: message });
         toastManager.add({ type: "error", title: text.runFailed, description: message });
       }
     },
-    [key, text.runFailed, text.saveFirst],
+    [key, text],
   );
 
   const resolveDrafts = useCallback(
@@ -364,6 +422,7 @@ export function usePageAiBridge(
           return;
         case "ai-input-changed":
           if (key) pageAiSession.setOpenCard(key, event.mode);
+          if (event.mode) prepare();
           return;
         case "open-ref":
           if (event.kind === "thread" || event.kind === "chat")
@@ -376,7 +435,7 @@ export function usePageAiBridge(
           return;
       }
     },
-    [key, navigate, resolveDrafts, startRun, text.appPageSoon, upload],
+    [key, navigate, prepare, resolveDrafts, startRun, text.appPageSoon, upload],
   );
   useEffect(() => {
     channel.onAiEvent = handleEvent;
@@ -395,11 +454,11 @@ export function usePageAiBridge(
       focusEditor();
       channel.runInsertItem(value);
     };
-    pageAiSession.registerEditor(key, { openAiInput, runInsertItem, startRun });
+    pageAiSession.registerEditor(key, { openAiInput, runInsertItem, startRun, prepare });
     return () => pageAiSession.registerEditor(key, null);
     // focusEditor reads a ref; it does not need to re-register the commands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel, key, startRun]);
+  }, [channel, key, prepare, startRun]);
 
   return { key, runs: session.runs, refreshDrafts };
 }

@@ -17,7 +17,7 @@ import { McpAppApprovalTokens } from "../approvalTokens.ts";
 import { bindMcpToolRow, normalizeClaudeServerName, type McpAppRowContext } from "../binding.ts";
 import { McpAppConnectorClient, type McpAppConnectorForward } from "../connectorClient.ts";
 import { McpAppModelContextStore } from "../modelContext.ts";
-import { McpAppResultStore } from "../resultStore.ts";
+import { McpAppResourceCache, McpAppResultStore } from "../resultStore.ts";
 import {
   McpAppService,
   type McpAppCapturedCall,
@@ -59,6 +59,8 @@ const callKey = (threadId: string, callId: string) => `${threadId}\0${callId}`;
 
 export function makeMcpAppServiceState(options: {
   readonly resultsDirectory: string;
+  /** Defaults to a `resources` folder beside `resultsDirectory`. */
+  readonly resourcesDirectory?: string;
   readonly clientVersion?: string;
   readonly now?: () => number;
   readonly logWarning?: (message: string, fields?: Record<string, unknown>) => void;
@@ -68,6 +70,10 @@ export function makeMcpAppServiceState(options: {
     now,
     ...(options.logWarning ? { logWarning: options.logWarning } : {}),
   });
+  const resources = new McpAppResourceCache(
+    options.resourcesDirectory ?? path.join(path.dirname(options.resultsDirectory), "resources"),
+    { now, ...(options.logWarning ? { logWarning: options.logWarning } : {}) },
+  );
   const modelContext = new McpAppModelContextStore(now);
   const approvals = new McpAppApprovalTokens(now);
 
@@ -233,6 +239,7 @@ export function makeMcpAppServiceState(options: {
         state: row.state,
         input: row.input,
         ...(row.result ? { result: row.result } : {}),
+        ...(row.error ? { error: row.error } : {}),
         updatedAt: now(),
       });
     }
@@ -300,6 +307,7 @@ export function makeMcpAppServiceState(options: {
 
   return {
     results,
+    resources,
     modelContext,
     approvals,
     refreshConnectorTools,
@@ -307,7 +315,7 @@ export function makeMcpAppServiceState(options: {
       shutdown.abort();
       for (const client of connectorClients.values()) void client.close();
       connectorClients.clear();
-      await results.flush();
+      await Promise.all([results.flush(), resources.flush()]);
     },
     enrichRuntimeEvent,
     captureCall: (call) => lruSet(captures, call.callId, call, MAX_CAPTURED_CALLS),
@@ -344,10 +352,18 @@ export function makeMcpAppServiceState(options: {
       });
       if (proxyCaptures.length > MAX_PROXY_CAPTURES) proxyCaptures.shift();
     },
-    recordProviderTools: (threadId, server, tools) => {
+    recordProviderTools: (threadId, server, tools, provider) => {
       const thread = providerTools.get(threadId) ?? new Map<string, McpAppToolDefinition[]>();
       thread.set(server, record(server, tools));
       lruSet(providerTools, threadId, thread, MAX_THREADS_WITH_TOOLS);
+      if (provider !== undefined) {
+        const rawTools = tools.flatMap((tool) =>
+          tool !== null && typeof tool === "object" && !Array.isArray(tool)
+            ? [tool as Record<string, unknown>]
+            : [],
+        );
+        void resources.putTools({ provider, threadId, server }, rawTools);
+      }
     },
     recordConnectorTools: (connectorId, tools) => {
       connectorTools.set(connectorId, { defs: record(connectorId, tools), fetchedAt: now() });

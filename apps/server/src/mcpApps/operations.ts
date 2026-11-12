@@ -21,11 +21,14 @@ import {
   type McpAppToolResultInput,
   type McpAppToolResultResult,
 } from "@moss/contracts";
-import { Duration, Effect, Option } from "effect";
+import { Duration, Effect, Exit, Option } from "effect";
 
 import { McpConnectors } from "../mcpConnectors/Services/McpConnectors.ts";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
-import { ProviderService } from "../provider/Services/ProviderService.ts";
+import {
+  ProviderService,
+  type ProviderServiceShape,
+} from "../provider/Services/ProviderService.ts";
 import { McpAppRpcFailure, type McpAppConnectorForward } from "./connectorClient.ts";
 import { normalizeModelContextBlocks } from "./modelContext.ts";
 import { parseMcpAppResourceReadResponse } from "./resourceContent.ts";
@@ -229,15 +232,65 @@ export const readMcpAppResourceOperation = (input: McpAppResourceReadInput) =>
         stableOriginEligible: true,
       });
     }
+    // A CLI-own server is read through the CLI's live session. The last good read is kept so a
+    // widget re-created while that session is not running (after a restart) still loads; the next
+    // live read refreshes it.
     const providerService = yield* ProviderService;
+    const cacheKey = {
+      provider: yield* threadProvider(input.threadId),
+      threadId: input.threadId,
+      server: input.server,
+      resourceUri: input.resourceUri,
+    };
+    const cached = () => Effect.promise(() => service.resources.get(cacheKey));
+    if (!(yield* providerSessionLive(providerService, input.threadId))) {
+      const stored = yield* cached();
+      if (stored) return stored;
+    }
     if (typeof providerService.readMcpAppResource !== "function") {
       return yield* Effect.fail(
         new McpAppRequestError(409, "Widget resources are unavailable for this provider."),
       );
     }
-    const result: McpAppResourceReadResult = yield* providerService.readMcpAppResource(input);
-    return result.state === "ready" ? { ...result, stableOrigin: false } : result;
+    const read = yield* Effect.exit(providerService.readMcpAppResource(input));
+    if (Exit.isFailure(read)) {
+      const stored = yield* cached();
+      if (stored) return stored;
+      return yield* Effect.failCause(read.cause);
+    }
+    const result: McpAppResourceReadResult =
+      read.value.state === "ready" ? { ...read.value, stableOrigin: false } : read.value;
+    if (result.state === "ready") void service.resources.put(cacheKey, result);
+    return result;
   });
+
+/** The thread's provider (the cache key keeps a provider switch from serving another's copy). */
+const threadProvider = (threadId: string) =>
+  Effect.gen(function* () {
+    const snapshotQuery = yield* Effect.serviceOption(ProjectionSnapshotQuery);
+    if (Option.isNone(snapshotQuery)) return "unknown";
+    const shell = yield* snapshotQuery.value
+      .getThreadShellById(ThreadId.makeUnsafe(threadId))
+      .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+    if (Option.isNone(shell)) return "unknown";
+    return String(shell.value.session?.providerName ?? shell.value.modelSelection.provider);
+  });
+
+/** Whether a provider runtime is running for the thread right now (no recovery is started). */
+const providerSessionLive = (
+  providerService: { readonly listSessions?: ProviderServiceShape["listSessions"] },
+  threadId: string,
+) =>
+  typeof providerService.listSessions === "function"
+    ? providerService.listSessions().pipe(
+        Effect.map((sessions) =>
+          sessions.some(
+            (session) => String(session.threadId) === threadId && session.status !== "closed",
+          ),
+        ),
+        Effect.catch(() => Effect.succeed(false)),
+      )
+    : Effect.succeed(false);
 
 // ── full tool result ──────────────────────────────────────────────────────────────────────────
 
@@ -248,7 +301,19 @@ export const readMcpAppToolResult = (input: McpAppToolResultInput) =>
     const record = yield* service.callRecord(input.threadId, input.callId);
     if (!record) return { status: "missing" } as const;
     if (record.state === "pending") return { status: "pending" } as const;
-    if (record.state !== "ready" || !record.result) return { status: "missing" } as const;
+    // A failed call never reaches a widget; the host shows the text fallback (SPEC §3, §10).
+    if (record.state === "failed") {
+      return {
+        status: "failed",
+        message: record.error ?? "The tool call failed.",
+      } satisfies McpAppToolResultResult;
+    }
+    if (!record.result) return { status: "missing" } as const;
+    const toolName = record.binding.toolName ?? "tool";
+    const check = checkStructuredContent(toolName, record.result.structuredContent);
+    if (!check.ok) {
+      return { status: "failed", message: check.message } satisfies McpAppToolResultResult;
+    }
     return {
       status: "ready",
       input: record.input ?? {},
@@ -287,26 +352,57 @@ const currentTools = (
       const raw = yield* refreshConnectorToolList(identity.connectorId);
       return { raw, defs: service.connectorTools(identity.connectorId) ?? [] };
     }
+    // A CLI-own server: the CLI's own listing while it runs; the last listing kept on disk while
+    // it does not (after a restart the session is not live, and a resumed CLI may list only its
+    // discovery cache, which leaves widget-only tools out); a resume to list when neither exists.
     const providerService = yield* ProviderService;
-    const cached = service.providerTools(threadId, identity.server);
-    if (!options.fresh && cached)
-      return { raw: cached.map((definition) => definition.raw), defs: cached };
-    if (typeof providerService.listMcpAppTools !== "function") {
-      return { raw: [], defs: cached ?? [] };
-    }
-    const servers = yield* providerService.listMcpAppTools({
-      threadId: ThreadId.makeUnsafe(threadId),
-      server: identity.server,
-    });
-    for (const entry of servers) service.recordProviderTools(threadId, entry.server, entry.tools);
-    const raw = servers.find((entry) => entry.server === identity.server)?.tools ?? [];
-    return {
+    const provider = yield* threadProvider(threadId);
+    const toolsKey = { provider, threadId, server: identity.server };
+    const toList = (raw: ReadonlyArray<Record<string, unknown>>) => ({
       raw,
       defs: raw.flatMap((tool) => {
         const definition = toolDefinitionFromMcp(tool);
         return definition ? [definition] : [];
       }),
-    };
+    });
+    const cached = service.providerTools(threadId, identity.server);
+    if (!options.fresh && cached) {
+      const raw = cached.map((definition) => definition.raw);
+      void service.resources.putTools(toolsKey, raw);
+      return { raw, defs: cached };
+    }
+    const stored = yield* Effect.promise(() => service.resources.getTools(toolsKey));
+    if (!options.fresh && stored && !(yield* providerSessionLive(providerService, threadId))) {
+      service.recordProviderTools(threadId, identity.server, stored);
+      return toList(stored);
+    }
+    if (typeof providerService.listMcpAppTools !== "function") {
+      return toList(stored ?? []);
+    }
+    const listed = yield* Effect.exit(
+      providerService.listMcpAppTools({
+        threadId: ThreadId.makeUnsafe(threadId),
+        server: identity.server,
+      }),
+    );
+    if (Exit.isFailure(listed)) {
+      if (stored) return toList(stored);
+      return yield* Effect.failCause(listed.cause);
+    }
+    const raw = listed.value.find((entry) => entry.server === identity.server)?.tools ?? [];
+    // A listing that lost tools the stored one had (a resumed CLI's discovery cache) does not
+    // replace it; a listing that names every stored tool does.
+    const storedNames = new Set(stored?.map((tool) => String(tool.name)));
+    const listedNames = new Set(raw.map((tool) => String(tool.name)));
+    const complete = [...storedNames].every((name) => listedNames.has(name));
+    const effective = complete || !stored ? raw : stored;
+    for (const entry of listed.value) {
+      if (entry.server !== identity.server) {
+        service.recordProviderTools(threadId, entry.server, entry.tools, provider);
+      }
+    }
+    service.recordProviderTools(threadId, identity.server, effective, provider);
+    return toList(effective);
   });
 
 /** Moss's approval policy for a model call, applied to the widget's call (SPEC §6). */
@@ -457,13 +553,24 @@ const forwardOther = (
     return yield* Effect.fail(
       new McpAppRpcFailure(
         JSON_RPC_METHOD_NOT_FOUND,
-        `This host cannot forward ${method} to this server.`,
+        `Method not found: ${method} is not available for this server, because its agent CLI gives a host no way to reach it.`,
       ),
     );
   });
 };
 
+/** A provider adapter wraps the JSON-RPC refusal it means in its request error's `cause`. */
+function rpcFailureOf(error: unknown): McpAppRpcFailure | undefined {
+  if (error instanceof McpAppRpcFailure) return error;
+  const cause = (error as { readonly cause?: unknown } | null)?.cause;
+  return cause instanceof McpAppRpcFailure ? cause : undefined;
+}
+
 function failureToRpc(error: unknown, identity?: McpAppServerIdentity): McpAppRpcResult {
+  const failure = rpcFailureOf(error);
+  if (failure) {
+    error = failure;
+  }
   if (error instanceof McpAppRpcFailure) {
     // A connector that needs a new sign-in: the host shows its sign-in card, then retries once.
     const authRequired =
@@ -645,7 +752,9 @@ export const downloadMcpAppResource = (input: McpAppResourceDownloadInput) =>
           : { error: { message: "The server sent no file contents." } };
       }),
       Effect.catch((error) =>
-        Effect.succeed<McpAppResourceDownloadResult>({ error: { message: errorText(error) } }),
+        Effect.succeed<McpAppResourceDownloadResult>({
+          error: { message: errorText(rpcFailureOf(error) ?? error) },
+        }),
       ),
     );
   });

@@ -64,6 +64,50 @@ export interface McpAppBlockViewProps {
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }
 
+/**
+ * The widget's result as plain text: text blocks as written, otherwise the structured data
+ * pretty-printed with no technical label. Results with media keep the generic result view.
+ */
+function McpAppFallbackResult(props: {
+  readonly projection: WorkLogMcpToolResult;
+  readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
+}) {
+  const content = props.projection.result?.content ?? [];
+  if (content.some((block) => block.type !== "text")) {
+    return (
+      <div className="min-w-0 max-w-full">
+        <McpToolResultDetails
+          result={props.projection}
+          {...(props.onImageExpand ? { onImageExpand: props.onImageExpand } : {})}
+        />
+      </div>
+    );
+  }
+  const texts = content.flatMap((block) =>
+    block.type === "text" && block.text.trim().length > 0 ? [block.text] : [],
+  );
+  const structured = props.projection.result?.structuredContent;
+  if (texts.length > 0) {
+    return (
+      <div className="flex min-w-0 flex-col gap-1 text-ui text-foreground">
+        {texts.map((text, index) => (
+          <p key={`${index}:${text.slice(0, 16)}`} className="whitespace-pre-wrap break-words">
+            {text}
+          </p>
+        ))}
+      </div>
+    );
+  }
+  if (structured !== undefined) {
+    return (
+      <pre className="max-h-60 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-row bg-[var(--color-background-elevated-secondary)] px-3 py-2 font-mono text-ui-sm text-foreground">
+        {JSON.stringify(structured, null, 2)}
+      </pre>
+    );
+  }
+  return null;
+}
+
 export function McpAppBlockView(props: McpAppBlockViewProps) {
   const { t, format } = useTranslation();
   const { binding, phase, open, hidden, docked } = props;
@@ -212,12 +256,7 @@ export function McpAppBlockView(props: McpAppBlockViewProps) {
 
       {open && fallback ? (
         <div className="flex min-w-0 flex-col gap-1" data-mcp-app-fallback="true">
-          <div className="min-w-0 max-w-full">
-            <McpToolResultDetails
-              result={props.projection}
-              {...(props.onImageExpand ? { onImageExpand: props.onImageExpand } : {})}
-            />
-          </div>
+          <McpAppFallbackResult projection={props.projection} onImageExpand={props.onImageExpand} />
           <p className="block ps-1 text-ui-sm text-muted-foreground" data-mcp-app-footnote="true">
             {phase === "browser_unavailable" ? t("mcpApp.desktopOnly") : t("mcpApp.fallbackNote")}
           </p>

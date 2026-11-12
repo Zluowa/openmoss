@@ -2428,6 +2428,17 @@ const ThreadSessionStopCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+/**
+ * Start the thread's provider session ahead of its next turn (a page's assistant chat warms
+ * while the person is still typing). A no-op when a session is already live or a turn runs.
+ */
+const ThreadSessionWarmCommand = Schema.Struct({
+  type: Schema.Literal("thread.session.warm"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 const ThreadActivityAppendCommand = Schema.Struct({
   requireUnarchived: Schema.optional(Schema.Boolean),
   type: Schema.Literal("thread.activity.append"),
@@ -2517,6 +2528,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
+  ThreadSessionWarmCommand,
   ThreadMarkerAddCommand,
   ThreadMarkerRemoveCommand,
   ThreadMarkerDoneSetCommand,
@@ -2571,6 +2583,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadMessageEditAndResendCommand,
   ThreadActivityAppendCommand,
   ThreadSessionStopCommand,
+  ThreadSessionWarmCommand,
   ThreadMarkerAddCommand,
   ThreadMarkerRemoveCommand,
   ThreadMarkerDoneSetCommand,
@@ -2797,6 +2810,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.conversation-rolled-back",
   "thread.message-edit-resend-requested",
   "thread.session-stop-requested",
+  "thread.session-warm-requested",
   "thread.session-set",
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
@@ -3369,6 +3383,11 @@ export const ThreadSessionStopRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const ThreadSessionWarmRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+
 export const ThreadSessionSetPayload = Schema.Struct({
   threadId: ThreadId,
   session: OrchestrationSession,
@@ -3664,6 +3683,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.session-stop-requested"),
     payload: ThreadSessionStopRequestedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.session-warm-requested"),
+    payload: ThreadSessionWarmRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,

@@ -7647,6 +7647,90 @@ describe("ProviderCommandReactor", () => {
     expect(harness.startSession).toHaveBeenCalledTimes(2);
   });
 
+  describe("page assistant warm-up", () => {
+    const warm = (harness: Awaited<ReturnType<typeof createHarness>>, commandId: string) =>
+      Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.session.warm",
+          commandId: CommandId.makeUnsafe(commandId),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          createdAt: new Date().toISOString(),
+        }),
+      );
+
+    it("starts the session before the first send, and the send reuses it", async () => {
+      const harness = await createHarness();
+      await warm(harness, "warm-1");
+      await harness.drain();
+      expect(harness.startSession).toHaveBeenCalledTimes(1);
+      expect(harness.sendTurn).not.toHaveBeenCalled();
+
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "warm-first-message",
+        text: "Make this a table",
+        createdAt: new Date().toISOString(),
+      });
+      await harness.drain();
+      expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+      expect(harness.startSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("leaves a live session alone", async () => {
+      const harness = await createHarness();
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "warm-live-message",
+        text: "First",
+        createdAt: new Date().toISOString(),
+      });
+      await harness.drain();
+      expect(harness.startSession).toHaveBeenCalledTimes(1);
+
+      await warm(harness, "warm-live");
+      await harness.drain();
+      expect(harness.startSession).toHaveBeenCalledTimes(1);
+      expect(harness.stopSession).not.toHaveBeenCalled();
+    });
+
+    it("fails quietly, and the next send starts the session itself", async () => {
+      const harness = await createHarness();
+      const threadId = ThreadId.makeUnsafe("thread-1");
+      harness.startSession.mockImplementationOnce(() =>
+        Effect.fail(
+          new ProviderAdapterProcessError({
+            provider: "codex",
+            threadId,
+            reason: "startup-failed",
+            detail: "Codex stdout closed during initialization.",
+          }),
+        ),
+      );
+      await warm(harness, "warm-failed");
+      await harness.drain();
+      const blockers = await Effect.runPromise(
+        harness.deliveryRepository.listBlockingDeliveries({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          threadId,
+          limit: 10,
+        }),
+      );
+      expect(blockers).toEqual([]);
+      expect((await readHarnessThread(harness))?.session?.status).not.toBe("error");
+
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "warm-fallback-message",
+        text: "Make this a table",
+        createdAt: new Date().toISOString(),
+      });
+      await harness.drain();
+      expect(harness.startSession).toHaveBeenCalledTimes(2);
+      expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+      expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+        threadId,
+        input: "Make this a table",
+      });
+    });
+  });
+
   // The ambiguous command here is a conversation rollback whose provider
   // interrupt cannot prove it landed. A bare `thread.turn.interrupt` never
   // quarantines a thread on purpose: it escalates to a full session stop, so

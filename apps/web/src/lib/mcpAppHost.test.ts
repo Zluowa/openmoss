@@ -455,6 +455,51 @@ describe("MCP App tool data delivery", () => {
     }
   });
 
+  it("stops waiting when the server keeps answering pending after the call ended", async () => {
+    vi.useFakeTimers();
+    try {
+      const toolResult = vi.fn(
+        async (): Promise<McpAppToolResultResponse> => ({ status: "pending" }),
+      );
+      const controller = makeController({
+        projection: projection({ result: { content: [{ type: "text", text: "done" }] } }),
+        api: { toolResult },
+      });
+      const bridge = fakeBridge();
+      await arm(controller, bridge)(0);
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(bridge.sent.at(-1)).toEqual([
+        "tool-result",
+        { content: [{ type: "text", text: "done" }] },
+      ]);
+      expect(toolResult.mock.calls.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the text fallback when the server answers that the call failed", async () => {
+    const controller = makeController({
+      api: { toolResult: async () => ({ status: "failed", message: "schema validation" }) },
+    });
+    const bridge = fakeBridge();
+    await arm(controller, bridge)(0);
+    expect(bridge.sendToolInput).not.toHaveBeenCalled();
+    expect(bridge.sendToolResult).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().phase).toBe("failed");
+  });
+
+  it("shows the text fallback when a failed call left no usable result", async () => {
+    const controller = makeController({
+      projection: projection({ status: "failed", error: { message: "bad structuredContent" } }),
+      api: { toolResult: async () => ({ status: "missing" }) },
+    });
+    const bridge = fakeBridge();
+    await arm(controller, bridge)(0);
+    expect(bridge.sendToolResult).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().phase).toBe("failed");
+  });
+
   it("falls back to the projection when the server has no stored result", async () => {
     const controller = makeController({
       projection: projection({ result: { content: [{ type: "text", text: "short" }] } }),
@@ -578,6 +623,27 @@ describe("MCP App graceful teardown", () => {
     expect(internals.navigationPort as unknown).toBeNull();
   });
 
+  it("asks for device access again when the widget went away before an answer", async () => {
+    const controller = makeController({ binding: { ...binding, serverKey: "perm-cancel" } });
+    const internals = controller as unknown as Record<string, unknown>;
+    const asked = (internals.resolvePermissions as (r: unknown) => Promise<string[]>).call(
+      controller,
+      {
+        state: "ready",
+        permissions: { clipboardWrite: {} },
+        csp: { frameDomains: [] },
+      },
+    );
+    expect(controller.getSnapshot().prompt).toEqual({
+      kind: "permission",
+      permissions: ["clipboardWrite"],
+    });
+    await controller.teardown();
+    await expect(asked).resolves.toEqual([]);
+    const { readMcpAppPermissionDecision } = await import("./mcpApps/preferences");
+    expect(readMcpAppPermissionDecision("perm-cancel")).toBeNull();
+  });
+
   it("answers pending prompts and dialogs with a refusal when the widget goes away", async () => {
     const controller = makeController();
     const internals = controller as unknown as Record<string, unknown>;
@@ -596,7 +662,7 @@ describe("MCP App graceful teardown", () => {
     ).call(other, { kind: "download", items: [] });
     expect(second).toBeNull();
     await controller.teardown();
-    await expect(prompt).resolves.toBe(false);
+    await expect(prompt).resolves.toBeNull();
     await expect(dialog).resolves.toBeNull();
     expect(controller.getSnapshot().dialog).toBeNull();
   });

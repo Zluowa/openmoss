@@ -168,6 +168,12 @@ export async function fetchMcpAppToolResult(
   const body = await postJson(MCP_APP_TOOL_RESULT_ROUTE_PATH, input, options);
   if (body.status === "pending") return { status: "pending" };
   if (body.status === "missing") return { status: "missing" };
+  if (body.status === "failed") {
+    return {
+      status: "failed",
+      ...(typeof body.message === "string" ? { message: body.message } : {}),
+    };
+  }
   if (body.status === "ready" && isRecord(body.result) && Array.isArray(body.result.content)) {
     return {
       status: "ready",

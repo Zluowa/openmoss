@@ -278,6 +278,8 @@ it.effect("refuses widget calls with a plain error when the CLI lacks the capabi
       session_id: SESSION,
       uuid: "init-old",
       tools: [],
+      // An older CLI says what it supports, and widget calls are not in it.
+      capabilities: ["interrupt_receipt_v1"],
     });
     yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 50)));
     const failure = yield* adapter.callMcpAppTool!({
@@ -288,5 +290,39 @@ it.effect("refuses widget calls with a plain error when the CLI lacks the capabi
     }).pipe(Effect.flip);
     assert.include(String(failure.message), "mcp_call_result_not_for_model_v1");
     assert.deepEqual(query.requests, []);
+  }).pipe(Effect.provide(makeLayer(query)));
+});
+
+it.effect("tries widget calls and reads before init, and refuses non-ui reads clearly", () => {
+  const query = new ReplayQuery();
+  return Effect.gen(function* () {
+    const adapter = yield* ClaudeAdapter;
+    const threadId = ThreadId.makeUnsafe("thread-claude-resumed");
+    // A resumed session that has not run a turn has sent no system/init yet.
+    yield* adapter.startSession({ threadId, provider: "claudeAgent", runtimeMode: "full-access" });
+    const result = yield* adapter.callMcpAppTool!({
+      threadId,
+      server: "fixture",
+      toolName: "fixture_app_increment",
+      arguments: { count: 3 },
+    });
+    assert.deepEqual(result.structuredContent, { count: 4 });
+    const resource = yield* adapter.readMcpAppResource!({
+      threadId,
+      callId: TOOL_USE_ID,
+      server: "fixture",
+      resourceUri: "ui://fixture/widget.html",
+      source: "toolDefinition",
+    });
+    assert.equal(resource.state, "ready");
+    const refused = yield* adapter.readMcpResourceContents!({
+      threadId,
+      server: "fixture",
+      uri: "fixture://files/report.txt",
+    }).pipe(Effect.flip);
+    const cause = (refused as { cause?: { code?: number; message?: string } }).cause;
+    assert.equal(cause?.code, -32602);
+    assert.include(String(cause?.message), "can read only ui:// resources");
+    assert.deepEqual(query.resourceReads, [{ server: "fixture", uri: "ui://fixture/widget.html" }]);
   }).pipe(Effect.provide(makeLayer(query)));
 });

@@ -262,6 +262,13 @@ export interface ProviderAdapterShape<TError> {
   ) => boolean;
 
   /**
+   * One plain sentence on what a session start still pending for this thread is
+   * waiting on (for example the CLI loading its data folder), or undefined. Read
+   * when the start deadline expires, before the start is retired.
+   */
+  readonly describePendingStartup?: (threadId: ThreadId) => string | undefined;
+
+  /**
    * Send a turn to an active provider session.
    */
   readonly sendTurn: (

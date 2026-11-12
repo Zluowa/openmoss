@@ -67,7 +67,8 @@ import { newCommandId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { promoteCanvasDraftThread } from "../lib/canvasDraftThread";
 import { createDraftThread } from "../lib/draftThreadCreate";
-import { dispatchDraftThread } from "../lib/draftThreadDispatch";
+import { createDraftThreadWithoutTurn, dispatchDraftThread } from "../lib/draftThreadDispatch";
+import { pageAssistantThreads, sendPageAssistantTurn } from "../lib/pageAi/pageAssistantThread";
 import {
   mossImagesComposerAttachments,
   mossImagesConversationPrompt,
@@ -296,19 +297,21 @@ export function useHandleNewThread() {
    * Sends one turn from a page to the selected agent without leaving the page. The new
    * conversation keeps the work, and the page links to it from drafts and attribution.
    */
-  const startPageAiTurn = async (
+  const startPageAiTurn = (
     document: PagesReadResult,
     prompt: { readonly request: string; readonly context: string },
     isCurrent: () => boolean,
+  ): Promise<ThreadId> => startPageChat(document, prompt, isCurrent);
+
+  // Starts a new chat for a page turn. The request names it unless a title is given;
+  // the page context travels as an attached text block.
+  const startPageChat = async (
+    document: PagesReadResult,
+    prompt: { readonly request: string; readonly context: string },
+    isCurrent: () => boolean,
+    title?: string,
   ): Promise<ThreadId> => {
-    if (!isCurrent()) throw new LocalizedError("newThread.error.accountChangedPage");
-    const { project, creation } = resolveNewConversationContext(
-      document.page.sourceThreadId ?? undefined,
-    );
-    if ((project.spaceId ?? null) !== document.page.scopeSpaceId)
-      throw new LocalizedError("newThread.error.pageWorkspaceMismatch");
-    const selection = pageAgentSelection();
-    // The request names the chat; the page context travels as an attached text block.
+    const { project, creation, selection } = resolvePageChatContext(document, isCurrent);
     const threadId = createDraftThread({
       projectId: project.id,
       prompt: prompt.request,
@@ -341,6 +344,7 @@ export function useHandleNewThread() {
         selection.instanceId ?? selection.provider,
       ),
       providerInstances,
+      ...(title ? { title } : {}),
     });
     if (dispatch.kind === "error") throw new Error(dispatch.message);
     if (dispatch.kind === "unavailable")
@@ -348,6 +352,152 @@ export function useHandleNewThread() {
     if (dispatch.kind === "open-thread")
       throw new LocalizedError("newThread.error.folderNotReadySend");
     return threadId;
+  };
+
+  const resolvePageChatContext = (document: PagesReadResult, isCurrent: () => boolean) => {
+    if (!isCurrent()) throw new LocalizedError("newThread.error.accountChangedPage");
+    const { project, creation } = resolveNewConversationContext(
+      document.page.sourceThreadId ?? undefined,
+    );
+    if ((project.spaceId ?? null) !== document.page.scopeSpaceId)
+      throw new LocalizedError("newThread.error.pageWorkspaceMismatch");
+    return { project, creation, selection: pageAgentSelection() };
+  };
+
+  /** The page's assistant chat when it can take another turn, else null. */
+  const reusablePageAssistantThread = (pageKey: string, projectId: ProjectId) => {
+    const threadId = pageAssistantThreads.get(pageKey);
+    if (!threadId) return null;
+    const state = useStore.getState();
+    const summary = state.sidebarThreadSummaryById[threadId];
+    if (!summary) {
+      // Not loaded yet is not gone: only forget a chat once threads are hydrated.
+      if (state.threadsHydrated) pageAssistantThreads.forget(pageKey, threadId);
+      return null;
+    }
+    if (summary.archivedAt || summary.projectId !== projectId) {
+      pageAssistantThreads.forget(pageKey, threadId);
+      return null;
+    }
+    // Something the person typed in that chat stays theirs; this turn goes to a new chat.
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    if (draft && composerDraftHasUnsentContent(draft)) return null;
+    if (hasActiveComposerSend(threadId)) return null;
+    return summary;
+  };
+
+  /**
+   * Makes sure the page has its assistant chat, named after the page, without sending
+   * anything, so its agent can start while the person is still typing. Resolves to the
+   * chat, or null when it could not be made; the first send then makes it as usual.
+   */
+  const preparePageAssistant = async (
+    document: PagesReadResult,
+    isCurrent: () => boolean,
+    pageKey: string,
+    title: string,
+  ): Promise<ThreadId | null> => {
+    try {
+      const { project, creation, selection } = resolvePageChatContext(document, isCurrent);
+      const existing = reusablePageAssistantThread(pageKey, project.id);
+      if (existing) return existing.id;
+      // A remembered chat that can't take a turn right now is still the page's chat.
+      if (pageAssistantThreads.get(pageKey)) return null;
+      const threadId = createDraftThread({
+        projectId: project.id,
+        prompt: "",
+        modelSelection: selection,
+        runtimeMode: creation.runtimeMode,
+        interactionMode: creation.interactionMode,
+        envMode: creation.envMode,
+        workingDirectory: creation.workingDirectory,
+      });
+      useComposerDraftStore.getState().setDraftThreadContext(threadId, {
+        branch: creation.branch,
+        worktreePath: creation.worktreePath,
+      });
+      const created = await createDraftThreadWithoutTurn({
+        threadId,
+        projectId: project.id,
+        title,
+        defaultProvider: selection.provider,
+        providerInstances,
+      });
+      if (!created) return null;
+      pageAssistantThreads.set(pageKey, threadId);
+      return threadId;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Sends a page turn to the page's assistant chat, making that chat (named after the
+   * page) on first use. Falls back to a new chat when the assistant chat can't take it,
+   * so a page action works whatever state that chat is in.
+   */
+  const startPageAssistantTurn = async (
+    document: PagesReadResult,
+    prompt: { readonly request: string; readonly context: string },
+    isCurrent: () => boolean,
+    pageKey: string,
+    title: string,
+  ) => {
+    const { project, selection } = resolvePageChatContext(document, isCurrent);
+    return sendPageAssistantTurn({
+      pageKey,
+      reusable: () => reusablePageAssistantThread(pageKey, project.id),
+      sendToExisting: (summary) => {
+        const draftStore = useComposerDraftStore.getState();
+        draftStore.setPrompt(summary.id, prompt.request);
+        draftStore.setModelSelection(summary.id, selection);
+        draftStore.addPastedTexts(summary.id, [
+          createPastedTextDraft({
+            id: `page-ai:${document.page.id}`,
+            createdAt: new Date().toISOString(),
+            text: prompt.context,
+          }),
+        ]);
+        return dispatchDraftThread({
+          threadId: summary.id,
+          projectId: project.id,
+          thread: summary,
+          defaultProvider: selection.provider,
+          assistantDeliveryMode: resolveAssistantDeliveryMode(settings),
+          providerOptions: getProviderStartOptions(
+            settings,
+            selection.instanceId ?? selection.provider,
+          ),
+          providerInstances,
+        });
+      },
+      discardUnsent: (threadId) => useComposerDraftStore.getState().clearComposerContent(threadId),
+      startNewChat: () => startPageChat(document, prompt, isCurrent, title),
+    });
+  };
+
+  /** Starts the agent of a page's assistant chat ahead of a send. */
+  const warmPageAssistant = async (threadId: ThreadId) => {
+    const api = readNativeApi();
+    if (!api) return;
+    await api.orchestration.dispatchCommand({
+      type: "thread.session.warm",
+      commandId: newCommandId(),
+      threadId,
+      createdAt: new Date().toISOString(),
+    });
+  };
+
+  /** Stops the agent of a page's assistant chat; the chat itself stays. */
+  const releasePageAssistant = async (threadId: ThreadId) => {
+    const api = readNativeApi();
+    if (!api) return;
+    await api.orchestration.dispatchCommand({
+      type: "thread.session.stop",
+      commandId: newCommandId(),
+      threadId,
+      createdAt: new Date().toISOString(),
+    });
   };
 
   const startImagesConversation = (
@@ -945,6 +1095,10 @@ export function useHandleNewThread() {
   return {
     startPageConversation,
     startPageAiTurn,
+    startPageAssistantTurn,
+    preparePageAssistant,
+    warmPageAssistant,
+    releasePageAssistant,
     describePageAgent,
     startImagesConversation,
     startLibraryConversation,

@@ -12,6 +12,7 @@ import {
   createElement,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useMemo,
@@ -132,6 +133,7 @@ import { resolveSubagentPresentation } from "../../lib/subagentPresentation";
 import { TimelineSubagentActivityGroup } from "./TimelineSubagentActivityGroup";
 import { TimelineStreamErrorRow } from "./TimelineStreamErrorRow";
 import { McpAppCard } from "./McpAppCard";
+import { McpAppRowPlacementContext } from "./mcpAppPlacement";
 import { WebMcpActivity } from "./WebMcpActivity";
 import { deriveToolFailureSummary } from "../../lib/toolCallDetails";
 
@@ -877,6 +879,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   timestampFormat: TimestampFormat;
 }) {
   const { locale, t } = useTranslation();
+  const mcpAppPlacement = useContext(McpAppRowPlacementContext);
   // Defaults are applied in the body (not in the destructuring pattern): a default
   // value inside a destructuring pattern makes React Compiler bail out on the whole
   // component, silently dropping memoization for every tool-call row.
@@ -1539,7 +1542,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
               </ToolDetailsDisclosure>
             );
             // A widget is its own block under the normal tool row (SPEC §3, surface B).
-            if (workEntry.mcpToolResult?.app && threadId) {
+            if (workEntry.mcpToolResult?.app && threadId && mcpAppPlacement === "inline") {
               return (
                 <div className="flex min-w-0 flex-col gap-1" data-mcp-app-parent="true">
                   {parentRow}

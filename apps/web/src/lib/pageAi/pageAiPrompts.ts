@@ -62,7 +62,7 @@ export function pageAiPrompt(
     };
   const task =
     mode === "visualize"
-      ? `为这个页面做一个可视化（图表、示意图或小工具）。页面里已经放了一个可视化占位块${anchorBlockId ? `（块 id: ${anchorBlockId}）` : ""}。如果有创建应用页的工具，创建后用 moss_pages_draft 的 replace 把这个块换成带 appPageId 的 moss_visualization 块；否则用 replace 把它换成 Markdown 表格或 Mermaid 图。`
+      ? `为这个页面做一个可交互的可视化（图表、示意图或小工具），做成应用页。页面里已经放了一个可视化占位块${anchorBlockId ? `（块 id: ${anchorBlockId}）` : ""}。先用 moss_app_guide 了解应用页的写法，再用 moss_app_publish 发布，然后用 moss_pages_draft 的 replace 把这个占位块换成带该 appPageId 的 moss_visualization 块。用户说“表格”时也做成可交互的应用页（例如可排序、可筛选的表格）。只有 moss_app_publish 不可用或发布失败时，才用 replace 换成 Markdown 表格或 Mermaid 图，并在回复里说明原因。`
       : mode === "image"
         ? "为这个页面生成一张图像。图片必须有可长期访问的 https 地址才能放进页面；拿不到这样的地址时，说明原因，不要提交无效的图片。"
         : mode === "prompt"

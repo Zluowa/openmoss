@@ -16,7 +16,7 @@ import type { Effect } from "effect";
 import type { McpAppApprovalTokens } from "../approvalTokens.ts";
 import type { McpAppConnectorClient, McpAppConnectorForward } from "../connectorClient.ts";
 import type { McpAppModelContextStore } from "../modelContext.ts";
-import type { McpAppCallRecord, McpAppResultStore } from "../resultStore.ts";
+import type { McpAppCallRecord, McpAppResourceCache, McpAppResultStore } from "../resultStore.ts";
 import type { McpAppToolDefinition } from "../toolUi.ts";
 
 /** Where a server named by a tool row lives, as far as Moss can tell. */
@@ -84,6 +84,8 @@ export interface McpAppConnectorDirectoryEntry {
 
 export interface McpAppServiceShape {
   readonly results: McpAppResultStore;
+  /** Last successful read of each CLI-own widget resource, for reads while the CLI is not running. */
+  readonly resources: McpAppResourceCache;
   readonly modelContext: McpAppModelContextStore;
   readonly approvals: McpAppApprovalTokens;
 
@@ -103,11 +105,15 @@ export interface McpAppServiceShape {
     readonly result: Record<string, unknown>;
   }) => void;
 
-  /** Tool definitions a provider CLI reported for one of its servers on a thread. */
+  /**
+   * Tool definitions a provider CLI reported for one of its servers on a thread. With `provider`,
+   * the list is also kept on disk for when that CLI is not running (after a restart).
+   */
   readonly recordProviderTools: (
     threadId: string,
     server: string,
     tools: ReadonlyArray<unknown>,
+    provider?: string,
   ) => void;
   /** Tool definitions seen for a connector (proxy-observed or Moss's own listing). */
   readonly recordConnectorTools: (connectorId: string, tools: ReadonlyArray<unknown>) => void;

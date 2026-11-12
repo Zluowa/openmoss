@@ -165,6 +165,27 @@ describe("binding MCP rows", () => {
     expect(data.app).toMatchObject({ server: "my.server", toolName: "show", visibility: [] });
   });
 
+  it("records a failed Claude row as failed with its reason", () => {
+    const service = makeMcpAppServiceState({ resultsDirectory: tmp("bind-failed-") });
+    service.recordProviderTools("thread-1", "fixture", [uiTool("bad")]);
+    service.enrichRuntimeEvent(
+      event("item.completed", {
+        itemType: "mcp_tool_call",
+        status: "failed",
+        data: {
+          toolCallId: "toolu_bad",
+          toolName: "mcp__fixture__bad",
+          input: {},
+          result: { type: "tool_result", content: "returned a malformed result", is_error: true },
+        },
+      }),
+    );
+    expect(service.results.peek("thread-1", "toolu_bad")).toMatchObject({
+      state: "failed",
+      error: "returned a malformed result",
+    });
+  });
+
   it("binds gateway tools as first-party and never matches unknown names", () => {
     const service = makeMcpAppServiceState({ resultsDirectory: tmp("bind-gw-") });
     service.registerGateway({

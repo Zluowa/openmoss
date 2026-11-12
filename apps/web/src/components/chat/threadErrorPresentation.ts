@@ -40,6 +40,10 @@ const SAFE_HUMANIZED_PERIOD_QUOTA_PATTERN =
 // also run out of time on the `codex --version` probe before the app-server.
 const PROVIDER_START_TIMEOUT_PATTERN =
   /(?:\bprovider\b[^\r\n]*\bdid not finish starting within\s+\d+ms\b|\bprovider turn start failed\b[\s\S]*\btimeout\b|\b(?:thread|turn)\/start\b[\s\S]*\btimeout\b|\btimed out waiting for (?:thread\/(?:start|resume|fork)|turn\/start)\b|\bCodex CLI version check timed out\b)/iu;
+// The start deadline names what Codex was still doing when the start had to stop:
+// reading its own data folder, the usual sign of a busy or slow disk under it.
+const CODEX_DATA_FOLDER_SLOW_PATTERN =
+  /\bCodex was still (?:loading|opening the conversation in) its data folder(?: \(([^()\r\n]{1,260})\))? after \d+ s\./u;
 // Provider startup wraps these product-owned errors in an Effect/adapter prefix.
 // Keep the line-end anchor so arbitrary trailing diagnostics cannot be exposed.
 const WORKING_DIRECTORY_NOT_FOUND_PATTERN =
@@ -222,6 +226,16 @@ function providerStartTimeoutError(locale: MossLocaleCode): string {
     : "The provider took too long to start, so the chat didn't begin. Try again; if it keeps happening, check the provider in settings or switch providers.";
 }
 
+function codexDataFolderSlowError(raw: string, locale: MossLocaleCode): string | null {
+  const match = CODEX_DATA_FOLDER_SLOW_PATTERN.exec(raw);
+  if (!match) return null;
+  const folder = match[1]?.trim();
+  if (locale === "zh-CN") {
+    return `Codex 读取它的数据文件夹${folder ? `（${folder}）` : ""}太慢，对话没能开始。通常是这个文件夹所在的磁盘正忙或很慢，比如正在大范围搜索文件、杀毒扫描，或者另一个 Codex 应用在大量读写。等磁盘空闲后再试；如果经常这样，可以把 Codex 的数据文件夹放到更快的磁盘上。`;
+  }
+  return `Codex took too long to read its data folder${folder ? ` (${folder})` : ""}, so the chat didn't begin. The disk holding it is usually busy or slow, for example with a large file search, a virus scan, or another Codex app reading and writing a lot. Try again when the disk is quieter; if it keeps happening, move Codex's data folder to a faster disk.`;
+}
+
 function workingDirectoryNotFoundError(raw: string, locale: MossLocaleCode): string | null {
   const captured = WORKING_DIRECTORY_NOT_FOUND_PATTERN.exec(raw)?.[1];
   const cwd = captured?.replace(CODEX_WORKING_DIRECTORY_RELOCATE_SUFFIX, "").trim();
@@ -272,7 +286,7 @@ export function resolveThreadErrorPresentation(
   } else if (isProviderDeliveryBlockDetail(raw)) {
     safeText = deliveryBlockError(locale);
   } else if (PROVIDER_START_TIMEOUT_PATTERN.test(raw)) {
-    safeText = providerStartTimeoutError(locale);
+    safeText = codexDataFolderSlowError(raw, locale) ?? providerStartTimeoutError(locale);
     recoveryAction = "manage-providers";
     retryable = true;
   } else if (raw.includes(MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING)) {

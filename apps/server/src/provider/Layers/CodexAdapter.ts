@@ -82,6 +82,7 @@ import {
   CODEX_MANUAL_COMPACTION_MARKER,
   CodexAppServerManager,
   CodexSessionAuthInvalidatedError,
+  formatCodexPendingStartup,
   parseCodexUserInputQuestions,
   readResumeCursorThreadId,
   type CodexAppServerSendTurnInput,
@@ -5050,6 +5051,10 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           requestedThreadId !== undefined &&
           readResumeCursorThreadId(session.resumeCursor) === requestedThreadId
         );
+      },
+      describePendingStartup: (threadId) => {
+        const pending = manager.describePendingStartup(threadId);
+        return pending ? formatCodexPendingStartup(pending) : undefined;
       },
       sendTurn,
       steerTurn,

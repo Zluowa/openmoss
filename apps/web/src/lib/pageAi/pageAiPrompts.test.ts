@@ -41,6 +41,17 @@ describe("page AI prompts", () => {
     );
   });
 
+  it("asks for an interactive 应用页 first and keeps the static fallback for a failed publish", () => {
+    const context = pageAiPrompt("visualize", "把三条建议做成对比表", document, "viz-1").context;
+    // The owner's run asked for a 对比表 and got a static Markdown table: the old prompt
+    // offered the table as an equal alternative.
+    expect(context).toContain("moss_app_guide");
+    expect(context).toContain("moss_app_publish");
+    expect(context).toContain("用户说“表格”时也做成可交互的应用页");
+    expect(context.indexOf("moss_app_publish")).toBeLessThan(context.indexOf("Markdown 表格"));
+    expect(context).toContain("只有 moss_app_publish 不可用或发布失败时");
+  });
+
   it("reads 助手说明 blocks and strips a wrapping fence from generated text", () => {
     expect(pageInstructions(document)).toEqual(["用简体中文，语气简洁"]);
     expect(generatedMarkdown("```markdown\n- 一\n- 二\n```")).toBe("- 一\n- 二");

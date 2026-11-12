@@ -9,7 +9,13 @@
 //          transcriptCardSpacingClassName, TranscriptCardBoundary
 
 import { ThreadId } from "@moss/contracts";
-import React, { type ComponentProps, type CSSProperties, type ReactNode } from "react";
+import React, {
+  type ComponentProps,
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useState,
+} from "react";
 
 import { TriangleAlertIcon } from "~/lib/icons";
 import { MUTED_LABEL_TEXT_CLASS_NAME } from "~/surfaceStyles";
@@ -30,7 +36,11 @@ import { TimelineSystemErrorRow } from "../../TimelineSystemErrorRow";
 import { TimelineTodoPlanRow } from "../../TimelineTodoPlanRow";
 import { renderWorkEntryIcon, type TimelineWorkEntryRow } from "../../TimelineWorkEntryRow";
 import { TurnHeaderLine } from "../../TurnHeaderLine";
-import { workingStatusKey } from "../workingStatus";
+import {
+  SLOW_PROVIDER_START_NOTICE_MS,
+  startingProviderName,
+  workingStatusKey,
+} from "../workingStatus";
 import {
   ContextCompactionLine,
   ModelChangedTimelineRow,
@@ -100,9 +110,23 @@ function ConversationBody(props: { row: MessagesTimelineRow; env: TranscriptCard
   return <>{props.env.renderConversationBody(props.row)}</>;
 }
 
+/** True once `key` has stayed the same, non-null value for `ms`. */
+function useUnchangedFor(key: string | null, ms: number): boolean {
+  const [settledKey, setSettledKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (key === null) return;
+    const timer = setTimeout(() => setSettledKey(key), ms);
+    return () => clearTimeout(timer);
+  }, [key, ms]);
+  return key !== null && settledKey === key;
+}
+
 function WorkingBody(props: { row: RowOf<"working">; env: TranscriptCardEnv }) {
-  const { t } = useTranslation();
+  const { t, format } = useTranslation();
   const { row, env } = props;
+  const startingProvider = startingProviderName(env.workingLabel);
+  // A start the person is waiting on gets words within seconds, not only after it fails.
+  const startingSlowly = useUnchangedFor(startingProvider, SLOW_PROVIDER_START_NOTICE_MS);
   const elapsedSeconds =
     row.createdAt && env.nowIso
       ? Math.max(0, (Date.parse(env.nowIso) - Date.parse(row.createdAt)) / 1000)
@@ -120,7 +144,16 @@ function WorkingBody(props: { row: RowOf<"working">; env: TranscriptCardEnv }) {
       <span aria-hidden="true" className="flex shrink-0">
         {renderWorkEntryIcon(env.workingIcon, MESSAGE_ACTION_ICON_CLASS_NAME)}
       </span>
-      <span>{key ? t(key) : env.workingLabel}</span>
+      <span>
+        {startingProvider
+          ? format(
+              startingSlowly ? "transcript.working.startingSlowly" : "transcript.working.starting",
+              { provider: startingProvider },
+            )
+          : key
+            ? t(key)
+            : env.workingLabel}
+      </span>
     </div>
   );
 }

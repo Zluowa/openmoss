@@ -3,7 +3,9 @@
 //          at fixed points (15/30/45/60 s) so a quiet wait still reads as progress;
 //          a send in flight reads "Sending…".
 // Layer: Chat transcript presentation logic (pure)
-// Exports: THINKING_TIER_SECONDS, thinkingStatusKey, workingStatusKey
+//          A provider start that runs past a few seconds says so, and that Moss keeps waiting.
+// Exports: THINKING_TIER_SECONDS, SLOW_PROVIDER_START_NOTICE_MS, startingProviderName,
+//          thinkingStatusKey, workingStatusKey
 
 import type { TranslationKey } from "~/localization";
 
@@ -34,4 +36,14 @@ export function workingStatusKey(label: string, elapsedSeconds: number): Transla
   if (label === "Thinking") return thinkingStatusKey(elapsedSeconds);
   if (label === "Loading") return "transcript.working.sending";
   return null;
+}
+
+/** A provider start still running after this long reads as slow on the working line. */
+export const SLOW_PROVIDER_START_NOTICE_MS = 8_000;
+
+const STARTING_PROVIDER_LABEL = /^Starting (.+)…$/u;
+
+/** The provider named by a "Starting <provider>…" working label, or null. */
+export function startingProviderName(label: string): string | null {
+  return STARTING_PROVIDER_LABEL.exec(label)?.[1] ?? null;
 }

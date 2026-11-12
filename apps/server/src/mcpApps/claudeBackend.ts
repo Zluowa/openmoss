@@ -9,6 +9,7 @@
 //   readClaudeMcpResource, callClaudeMcpTool, claudeToolResultToCallToolResult
 
 import type { ProviderMcpAppServerTools } from "../provider/Services/ProviderAdapter.ts";
+import { McpAppRpcFailure } from "./connectorClient.ts";
 import { claudeBlockToMcp, normalizeClaudeServerName } from "./toolUi.ts";
 
 export const CLAUDE_MCP_APP_CAPABILITIES = {
@@ -35,12 +36,17 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
+/**
+ * Refuses only when the CLI said what it supports (`system/init.capabilities`) and this is not in
+ * it. A session resumed without a turn has sent no `init` yet; the call is then tried and the CLI
+ * answers for itself.
+ */
 function requireCapability(
   capabilities: ReadonlySet<string> | undefined,
   capability: string,
   what: string,
 ): void {
-  if (!capabilities?.has(capability)) {
+  if (capabilities !== undefined && !capabilities.has(capability)) {
     throw new ClaudeMcpAppUnsupportedError(
       `This agent CLI version cannot ${what} (it does not advertise ${capability}). Update the CLI to use interactive connectors here.`,
     );
@@ -88,6 +94,14 @@ export async function readClaudeMcpResource(input: {
   );
   if (typeof input.query.readMcpResource !== "function") {
     throw new ClaudeMcpAppUnsupportedError("This agent session cannot read resources.");
+  }
+  // The Agent SDK reads only `ui://` resources for a host (`mcp_read_resource`); every other
+  // resource of a CLI-own server is reachable only by the model's own tools.
+  if (!input.uri.startsWith("ui://")) {
+    throw new McpAppRpcFailure(
+      -32602,
+      `This host can read only ui:// resources from this server, because its agent CLI gives a host no other resource reads. The resource "${input.uri.slice(0, 200)}" was not read.`,
+    );
   }
   const response = asRecord(await input.query.readMcpResource(input.server, input.uri));
   if (!response || !Array.isArray(response.contents)) {

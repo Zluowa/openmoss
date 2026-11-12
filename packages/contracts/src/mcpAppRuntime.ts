@@ -29,6 +29,8 @@ export type McpAppToolResultInput = typeof McpAppToolResultInput.Type;
 /**
  * `ready`: the full `CallToolResult` as the server returned it (reserved `_meta` keys removed).
  * `pending`: the call is still running. `missing`: nothing stored; show the bounded projection.
+ * `failed`: the call failed, or its result cannot go to a widget (structuredContent that is not a
+ * plain object); never send a result, show the text fallback. `message` says why (not for display).
  */
 export const McpAppToolResultResult = Schema.Union([
   Schema.Struct({
@@ -38,6 +40,7 @@ export const McpAppToolResultResult = Schema.Union([
   }),
   Schema.Struct({ status: Schema.Literal("pending") }),
   Schema.Struct({ status: Schema.Literal("missing") }),
+  Schema.Struct({ status: Schema.Literal("failed"), message: Schema.String }),
 ]);
 export type McpAppToolResultResult = typeof McpAppToolResultResult.Type;
 

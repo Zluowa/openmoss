@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { MessagesTimelineRow } from "../../MessagesTimeline.logic";
+import { SLOW_PROVIDER_START_NOTICE_MS } from "../workingStatus";
 import {
   TRANSCRIPT_CARDS,
   TranscriptCardBoundary,
@@ -70,5 +71,32 @@ describe("TranscriptCardBoundary", () => {
     expect(view.getByText("Recovered row")).toBeTruthy();
     expect(view.queryByRole("alert")).toBeNull();
     consoleError.mockRestore();
+  });
+});
+
+describe("working line while a provider starts", () => {
+  it("says the start is slow, and that Moss keeps waiting, after a few seconds", () => {
+    vi.useFakeTimers();
+    try {
+      const Working = TRANSCRIPT_CARDS.working.Body;
+      const env = {
+        workingLabel: "Starting Codex…",
+        workingIcon: () => null,
+        typography: { chatPx: 14 },
+      } as unknown as Parameters<typeof Working>[0]["env"];
+      const row = { kind: "working", id: "working-indicator-row" } as Parameters<
+        typeof Working
+      >[0]["row"];
+      const view = render(<Working row={row} env={env} />);
+      expect(view.container.textContent).toBe("Starting Codex…");
+      act(() => {
+        vi.advanceTimersByTime(SLOW_PROVIDER_START_NOTICE_MS);
+      });
+      expect(view.container.textContent).toBe(
+        "Codex is taking longer than usual to start. Moss keeps waiting (up to about two minutes) and sends your message as soon as it's ready.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

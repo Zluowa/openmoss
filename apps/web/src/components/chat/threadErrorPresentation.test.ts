@@ -539,6 +539,29 @@ describe("resolveThreadErrorPresentation", () => {
     ).toBeUndefined();
   });
 
+  it("tells the person Codex was slow to read its data folder, and what to do", () => {
+    const raw =
+      "Error: Provider validation failed in ProviderService.startSession: Provider 'codex' did not finish starting within 100000ms for thread 'a2ad9cbf-2107-47af-a0e2-3b384705ac38'. Codex was still loading its data folder (E:\\Codex\\home) after 99 s.\n    at stack";
+    expect(resolveThreadErrorPresentation(raw, "zh-CN")).toMatchObject({
+      title:
+        "Codex 读取它的数据文件夹（E:\\Codex\\home）太慢，对话没能开始。通常是这个文件夹所在的磁盘正忙或很慢，比如正在大范围搜索文件、杀毒扫描，或者另一个 Codex 应用在大量读写。等磁盘空闲后再试；如果经常这样，可以把 Codex 的数据文件夹放到更快的磁盘上。",
+      retryable: true,
+      recoveryAction: "manage-providers",
+    });
+    const opening =
+      "Provider 'codex' did not finish starting within 100000ms for thread 't'. Codex was still opening the conversation in its data folder after 61 s.";
+    expect(resolveThreadErrorPresentation(opening, "en").title).toBe(
+      "Codex took too long to read its data folder, so the chat didn't begin. The disk holding it is usually busy or slow, for example with a large file search, a virus scan, or another Codex app reading and writing a lot. Try again when the disk is quieter; if it keeps happening, move Codex's data folder to a faster disk.",
+    );
+    // Without the sentence, the plain start timeout stays.
+    expect(
+      resolveThreadErrorPresentation(
+        "Provider 'codex' did not finish starting within 100000ms for thread 't'.",
+        "en",
+      ).title,
+    ).toMatch(/^The provider took too long to start/);
+  });
+
   it("marks provider-start timeout recovery as history-only", () => {
     expect(
       resolveThreadErrorPresentation(

@@ -4,30 +4,24 @@
 //          runs only need to know when the agent finished so the page re-reads its drafts.
 // Layer: Page AI (web)
 
-import type { PageDraftsMutateInput, SpaceId, ThreadId } from "@moss/contracts";
+import type { PageDraftsMutateInput, SpaceId, ThreadId, TurnId } from "@moss/contracts";
 import { useEffect } from "react";
 
 import { generatedMarkdown } from "~/lib/pageAi/pageAiPrompts";
+import { pageRunProgress } from "~/lib/pageAi/pageAssistantThread";
 import { isActiveRun, pageAiSession, type PageAiRun } from "~/lib/pageAi/pageAiSession";
 import { ensureNativeApi } from "~/nativeApi";
+import { pageAiErrorText, pageAiLocale, pageAiText } from "./pageAiText";
 import { retainThreadDetailSubscription } from "~/threadDetailSubscriptionRetention";
 import { useStore } from "~/store";
 import { getThreadFromState } from "~/threadDerivation";
 
-function useRunProgress(threadId: ThreadId) {
+function useRunProgress(threadId: ThreadId, baselineTurnId: TurnId | null, startedAt: number) {
   return useStore((state) => {
     const thread = getThreadFromState(state, threadId);
     if (!thread) return "missing|";
-    const reply = thread.messages
-      .filter((message) => message.role === "assistant")
-      .map((message) => message.text)
-      .join("\n\n");
-    // An agent that never started leaves no turn behind, only a failed session.
-    const turn =
-      thread.latestTurn?.state ??
-      (thread.session?.status === "error" && !thread.session.activeTurnId ? "error" : "pending");
-    const streaming = thread.messages.some((message) => message.streaming);
-    return `${streaming ? "running" : turn}|${reply}`;
+    const progress = pageRunProgress(thread, baselineTurnId, startedAt);
+    return `${progress.state}|${progress.reply}`;
   });
 }
 
@@ -40,7 +34,11 @@ function RunWatcher(props: {
 }) {
   // A background chat's messages only stream into the store while someone holds its detail.
   useEffect(() => retainThreadDetailSubscription(props.run.threadId), [props.run.threadId]);
-  const progress = useRunProgress(props.run.threadId);
+  const progress = useRunProgress(
+    props.run.threadId,
+    props.run.baselineTurnId ?? null,
+    props.run.startedAt,
+  );
   const failure = useStore(
     (state) => getThreadFromState(state, props.run.threadId)?.session?.lastError ?? undefined,
   );
@@ -59,7 +57,7 @@ function RunWatcher(props: {
       pageAiSession.updateRun(pageKey, run.id, {
         finishedAt: Date.now(),
         status: "failed",
-        ...(failure ? { error: failure.slice(0, 200) } : {}),
+        error: pageAiErrorText(failure, pageAiText(pageAiLocale())),
       });
       return;
     }

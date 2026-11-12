@@ -79,7 +79,9 @@ export type McpAppToolResultResponse =
       readonly result: CallToolResult;
     }
   | { readonly status: "pending" }
-  | { readonly status: "missing" };
+  | { readonly status: "missing" }
+  /** The call failed (A, fix/ic-server-acceptance-20261112): show the plain result. */
+  | { readonly status: "failed"; readonly message?: string };
 
 export type McpAppRpcMethod =
   | "tools/call"

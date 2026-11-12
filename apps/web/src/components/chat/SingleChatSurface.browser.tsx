@@ -16,6 +16,7 @@ import {
   TurnId,
 } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { StrictMode } from "react";
 import {
   RouterProvider,
   createMemoryHistory,
@@ -39,6 +40,12 @@ import {
   resetMcpAppDockRegistryForTests,
 } from "../../lib/mcpAppDockRegistry";
 import { SidebarProvider } from "../ui/sidebar";
+import { installMcpAppFakeSandbox } from "../../test/mcpAppFakeSandbox";
+import { resetMcpAppLiveWidgetsForTests } from "../../lib/mcpApps/liveWidgets";
+import { resetMcpAppResourceCacheForTests } from "../../lib/mcpApps/resourceCache";
+import type { WorkLogMcpToolResult } from "../../lib/toolCallDetails";
+import { McpAppCard } from "./McpAppCard";
+import { MossLocaleScope } from "../../localization";
 import { RealtimeVoiceControllerProvider } from "./RealtimeVoiceControllerProvider";
 import { SingleChatSurface } from "./SingleChatSurface";
 
@@ -955,6 +962,104 @@ describe("SingleChatSurface right-dock host contract", () => {
       } else {
         Reflect.deleteProperty(window, "desktopBridge");
       }
+    }
+  });
+});
+
+describe("SingleChatSurface widget side panel", () => {
+  it("moves a live connector widget into the right dock and back", async () => {
+    const mounted = await mountSurface({ width: 1_200, height: 720, openImageDock: false });
+    const sandbox = installMcpAppFakeSandbox();
+    const slotHost = document.createElement("div");
+    slotHost.style.cssText = "position:absolute;left:24px;top:80px;width:560px";
+    mounted.host.querySelector("[data-right-dock-main-content]")!.append(slotHost);
+    const widgetProjection = {
+      kind: "codex.mcp_tool_call",
+      version: 1,
+      callId: "surface-widget-call",
+      server: "fixture",
+      tool: "fixture_show_widget",
+      status: "completed",
+      arguments: {},
+      result: { content: [{ type: "text", text: "ok" }] },
+      truncation: { truncated: false, deferredBinary: false },
+      app: {
+        resourceUri: "ui://fixture/widget",
+        source: "toolDefinition",
+        server: "fixture",
+        serverKey: "fixture",
+        serverLabel: "fixture",
+        toolName: "fixture_show_widget",
+        isFirstParty: false,
+        visibility: [],
+      },
+    } as unknown as WorkLogMcpToolResult;
+    const cardRoute = createRootRoute({
+      component: () => (
+        <MossLocaleScope locale="zh-CN">
+          <McpAppCard projection={widgetProjection} threadId={THREAD_ID} theme="light" />
+        </MossLocaleScope>
+      ),
+    });
+    const cardRouter = createRouter({
+      routeTree: cardRoute,
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
+    await cardRouter.load();
+    // StrictMode like the app's root (dev double-mounts effects and memos).
+    const card = await render(
+      <StrictMode>
+        <RouterProvider router={cardRouter} />
+      </StrictMode>,
+      { container: slotHost },
+    );
+    const docked = () => slotHost.querySelector('[data-mcp-app-docked-row="true"]');
+    const button = (label: string) =>
+      [...slotHost.querySelectorAll<HTMLButtonElement>("button")].find(
+        (element) => element.getAttribute("aria-label") === label || element.textContent === label,
+      );
+    try {
+      await vi.waitFor(() => expect(sandbox.widgets).toHaveLength(1));
+      const widget = sandbox.widgets[0]!;
+      await widget.initialized;
+      const answer = await widget.request("ui/request-display-mode", { mode: "fullscreen" }, true);
+      expect(answer.result).toEqual({ mode: "fullscreen" });
+      await vi.waitFor(() => {
+        expect(useRightDockStore.getState().dockStateByThreadId[THREAD_ID]?.open).toBe(true);
+        expect(docked()?.textContent).toContain("正在侧边面板中显示");
+        const side = document.querySelector<HTMLElement>(
+          '[data-mcp-app-side-panel-frame-container="true"]',
+        );
+        const frame = document.querySelector<HTMLElement>('[data-mcp-app-frame-wrapper="true"]');
+        expect(frame?.style.position).toBe("fixed");
+        expect(
+          Math.abs(frame!.getBoundingClientRect().left - side!.getBoundingClientRect().left),
+        ).toBeLessThan(1);
+      });
+      await vi.waitFor(() =>
+        expect(
+          widget.received.some(
+            (message) =>
+              message.method === "ui/notifications/host-context-changed" &&
+              (message.params as { displayMode?: string }).displayMode === "fullscreen",
+          ),
+        ).toBe(true),
+      );
+      await vi.waitFor(() => expect(button("移回这里")).toBeDefined());
+      button("移回这里")!.click();
+      await vi.waitFor(() => expect(docked()).toBeNull());
+      await vi.waitFor(() =>
+        expect(button("在侧边面板中打开")?.className).not.toContain("invisible"),
+      );
+      button("在侧边面板中打开")!.click();
+      await vi.waitFor(() => expect(docked()).not.toBeNull());
+      expect(useRightDockStore.getState().dockStateByThreadId[THREAD_ID]?.open).toBe(true);
+    } finally {
+      await card.unmount();
+      sandbox.restore();
+      resetMcpAppLiveWidgetsForTests();
+      resetMcpAppResourceCacheForTests();
+      await mounted.cleanup();
     }
   });
 });

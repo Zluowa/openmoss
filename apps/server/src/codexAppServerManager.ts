@@ -791,6 +791,15 @@ const CODEX_INITIALIZE_TIMEOUT_MS = 90_000;
  * outlasted the generic 20s budget and the chat failed before its first turn.
  */
 export const CODEX_THREAD_OPEN_TIMEOUT_MS = 90_000;
+/**
+ * Requests a session start can do without: the Moss skills root, the account's
+ * plan, the connector name check and the one-time image skill upgrade. Each has
+ * a quiet fallback, so a Codex slow to answer them (a large home on a busy disk)
+ * gets this long, not the generic 20 s, before the start goes on without it.
+ */
+export const CODEX_STARTUP_OPTIONAL_REQUEST_TIMEOUT_MS = 8_000;
+/** A start step at least this slow is written to the server log with its duration. */
+const CODEX_STARTUP_SLOW_STEP_LOG_MS = 5_000;
 const CODEX_VERSION_CHECK_MAX_OUTPUT_BYTES = 1024 * 1024;
 /**
  * How long a successful `codex --version` verdict stays valid. Session start and
@@ -1982,6 +1991,35 @@ function codexAuthFingerprintForOptions(
   );
 }
 
+/** The step a Codex session start is on, in order. */
+export type CodexStartupStep =
+  | "version-check"
+  | "launch"
+  | "initialize"
+  | "skills-root"
+  | "account"
+  | "connectors"
+  | "thread-open";
+
+export interface CodexPendingStartup {
+  readonly step: CodexStartupStep;
+  readonly elapsedMs: number;
+  /** The Codex data folder (CODEX_HOME) this start reads, when known. */
+  readonly homePath?: string;
+}
+
+/**
+ * One sentence for the start deadline's error: what Codex was still doing. The
+ * chat recognizes "its data folder (<path>)" and tells the person what to do.
+ */
+export function formatCodexPendingStartup(pending: CodexPendingStartup): string {
+  const folder = pending.homePath ? `its data folder (${pending.homePath})` : "its data folder";
+  const seconds = Math.round(pending.elapsedMs / 1000);
+  return pending.step === "thread-open"
+    ? `Codex was still opening the conversation in ${folder} after ${seconds} s.`
+    : `Codex was still loading ${folder} after ${seconds} s.`;
+}
+
 interface PendingAppServerStartup {
   readonly threadId: ThreadId | undefined;
   readonly controller: AbortController;
@@ -1989,6 +2027,10 @@ interface PendingAppServerStartup {
   readonly cancel: () => Promise<void>;
   readonly assertCurrent: () => void;
   readonly finish: () => void;
+  readonly startedAt: number;
+  step?: CodexStartupStep | undefined;
+  stepStartedAt?: number | undefined;
+  homePath?: string | undefined;
 }
 
 export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEvents> {
@@ -2034,6 +2076,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
     | undefined;
   private readonly skillsCache = new Map<string, ProviderListSkillsResult>();
+  /** Background image skill upgrades by managed home; see startManagedImageSkillUpgrade. */
+  private readonly managedImageSkillUpgrades = new Map<string, Promise<void>>();
   private readonly pluginsCache = new Map<string, ProviderListPluginsResult>();
   private readonly pluginDetailCache = new Map<string, ProviderReadPluginResult>();
 
@@ -2053,6 +2097,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private readonly taskCompleteFallbackGraceMs: number;
   private readonly discoverySessionIdleMs: number;
   private readonly authRevalidationTimeoutMs: number;
+  private readonly startupOptionalRequestTimeoutMs: number;
   private readonly managedCodexHomePath: string | undefined;
   /** Moss's plugin catalog marketplace; its plugins' files arrive on first use. */
   private readonly mossPluginCatalogRoot: string | undefined;
@@ -2087,10 +2132,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     let configured: Record<string, unknown>;
     try {
       const response = this.readObject(
-        await this.sendRequest(context, "config/read", {
-          includeLayers: false,
-          cwd: context.session.cwd,
-        }),
+        await this.sendRequest(
+          context,
+          "config/read",
+          { includeLayers: false, cwd: context.session.cwd },
+          this.startupOptionalRequestTimeoutMs,
+        ),
       );
       const config = this.readObject(response, "config");
       if (!config) throw new Error("Missing Codex configuration.");
@@ -2134,6 +2181,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       readonly taskCompleteFallbackGraceMs?: number;
       readonly discoverySessionIdleMs?: number;
       readonly authRevalidationTimeoutMs?: number;
+      readonly startupOptionalRequestTimeoutMs?: number;
     },
   ) {
     super();
@@ -2163,6 +2211,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       options?.discoverySessionIdleMs ?? CODEX_DISCOVERY_SESSION_IDLE_MS,
     );
     this.authRevalidationTimeoutMs = Math.max(1, options?.authRevalidationTimeoutMs ?? 5_000);
+    this.startupOptionalRequestTimeoutMs = Math.max(
+      1,
+      options?.startupOptionalRequestTimeoutMs ?? CODEX_STARTUP_OPTIONAL_REQUEST_TIMEOUT_MS,
+    );
   }
 
   private processEnvInputForOptions(
@@ -2229,9 +2281,51 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         signal?.removeEventListener("abort", abort);
         this.pendingAppServerStartups.delete(pending);
       },
+      startedAt: Date.now(),
     };
     this.pendingAppServerStartups.add(pending);
     return pending;
+  }
+
+  /**
+   * Records the step a session start is on, and logs the one it leaves when it was
+   * slow, so a start that runs out of time says which step held it.
+   */
+  private markStartupStep(startup: PendingAppServerStartup, step: CodexStartupStep | "ready") {
+    const now = Date.now();
+    if (startup.step !== undefined && startup.stepStartedAt !== undefined) {
+      const durationMs = now - startup.stepStartedAt;
+      if (durationMs >= CODEX_STARTUP_SLOW_STEP_LOG_MS) {
+        void this.runPromise(
+          Effect.logWarning("codex app-server startup step was slow", {
+            threadId: startup.threadId ?? null,
+            step: startup.step,
+            durationMs,
+            ...(startup.homePath ? { homePath: startup.homePath } : {}),
+          }),
+        ).catch(() => undefined);
+      }
+    }
+    if (step === "ready") {
+      startup.step = undefined;
+      startup.stepStartedAt = undefined;
+      return;
+    }
+    startup.step = step;
+    startup.stepStartedAt = now;
+  }
+
+  /** What a session start still pending for this thread is waiting on. */
+  describePendingStartup(threadId: ThreadId): CodexPendingStartup | undefined {
+    for (const pending of this.pendingAppServerStartups) {
+      if (pending.threadId !== threadId || pending.step === undefined) continue;
+      return {
+        step: pending.step,
+        elapsedMs: Date.now() - pending.startedAt,
+        ...(pending.homePath ? { homePath: pending.homePath } : {}),
+      };
+    }
+    return undefined;
   }
 
   private assertDiscoveryGeneration(generation: number): void {
@@ -2288,7 +2382,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   /** The JSON-RPC handshake shared by session, fork and discovery app-servers. */
-  private async initializeAppServer(context: CodexSessionContext): Promise<void> {
+  private async initializeAppServer(
+    context: CodexSessionContext,
+    startup?: PendingAppServerStartup,
+  ): Promise<void> {
+    if (startup) this.markStartupStep(startup, "initialize");
     const initializeResponse = await this.sendRequest(
       context,
       "initialize",
@@ -2301,6 +2399,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     );
     if (appServerVersion) context.appServerVersion = appServerVersion;
     await this.writeMessage(context, { method: "initialized" });
+    if (startup) this.markStartupStep(startup, "skills-root");
     await this.registerMossSkillsRoot(context);
     await this.bootstrapManagedPlugins(context, initializeResponse);
   }
@@ -2314,9 +2413,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       return;
     }
     try {
-      await this.sendRequest(context, "skills/extraRoots/set", {
-        extraRoots: [this.mossSkillsDir],
-      });
+      await this.sendRequest(
+        context,
+        "skills/extraRoots/set",
+        { extraRoots: [this.mossSkillsDir] },
+        this.startupOptionalRequestTimeoutMs,
+      );
     } catch (error) {
       if (!this.isContextRoutable(context)) throw error;
       // Older codex builds (< extra-roots support) keep working; Moss-only
@@ -2390,27 +2492,55 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
       log.warn("Moss default plugin install deferred to the next session", { error });
     }
+    this.startManagedImageSkillUpgrade(context, managedHome, runtimeHome);
+  }
+
+  // Refreshing old copies of the bundled image skills reads plugins and reloads the skill
+  // list, which can take seconds on a slow disk. Nothing in this session needs it first, so
+  // it runs beside the session start, once per managed home per process. A failed or
+  // interrupted upgrade (the session stopped, the account changed) runs again next session.
+  private startManagedImageSkillUpgrade(
+    context: CodexSessionContext,
+    managedHome: string,
+    runtimeHome: string,
+  ): void {
+    if (this.managedImageSkillUpgrades.has(managedHome)) return;
     const cwd = context.session.cwd ?? managedHome;
-    const changed = await upgradeManagedImageSkills({
+    const upgrade = upgradeManagedImageSkills({
       managedHomePath: managedHome,
       runtimeHomePath: runtimeHome,
       assertCurrent: () => this.assertContextAuthCurrent(context),
       readPlugin: async (selector) =>
-        parseCodexPluginReadResponse(await this.sendRequest(context, "plugin/read", selector)),
+        parseCodexPluginReadResponse(
+          await this.sendRequest(
+            context,
+            "plugin/read",
+            selector,
+            this.startupOptionalRequestTimeoutMs,
+          ),
+        ),
       listSkills: async () =>
         parseCodexSkillsListResponse(
-          await this.sendRequest(context, "skills/list", { cwds: [cwd], forceReload: true }),
+          await this.sendRequest(
+            context,
+            "skills/list",
+            { cwds: [cwd], forceReload: true },
+            this.startupOptionalRequestTimeoutMs,
+          ),
           cwd,
         ),
-    }).catch((error) => {
-      this.assertContextAuthCurrent(context);
-      log.warn("Managed image skill upgrade deferred", { error });
-      return false;
-    });
-    if (changed) {
-      this.skillsCache.clear();
-      this.pluginDetailCache.clear();
-    }
+    }).then(
+      (changed) => {
+        if (!changed) return;
+        this.skillsCache.clear();
+        this.pluginDetailCache.clear();
+      },
+      (error: unknown) => {
+        this.managedImageSkillUpgrades.delete(managedHome);
+        log.warn("Managed image skill upgrade deferred", { error });
+      },
+    );
+    this.managedImageSkillUpgrades.set(managedHome, upgrade);
   }
 
   private async mutatePluginConfig<T>(
@@ -3868,6 +3998,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const codexShadowHomePath = codexOptions.shadowHomePath;
       const codexAccountId = codexOptions.accountId;
       const codexEnvironment = codexOptions.environment;
+      this.markStartupStep(startup, "version-check");
       await this.assertSupportedCodexCliVersion({
         ...(codexOptions.credentialFence
           ? {
@@ -3898,11 +4029,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           : {}),
       });
       this.assertAccountRuntimeGenerationActive(normalizedCodexOptions);
+      this.markStartupStep(startup, "launch");
       const processLaunch = await this.buildSessionProcessEnv(
         normalizedCodexOptions,
         input.expectedCodexContinuationGeneration,
       );
       const launchAuthFingerprint = processLaunch.authFingerprint;
+      startup.homePath = processLaunch.env.CODEX_HOME ?? codexHomePath;
       const mossMcpArgs = await this.deriveMossMcpAppServerArgs(resolvedCwd);
       this.assertAccountRuntimeGenerationActive(normalizedCodexOptions);
       const lowerPriority = (await this.runPromise(providerProcessPriorityEnabled)) as boolean;
@@ -3986,12 +4119,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       this.emitLifecycleEvent(context, "session/connecting", "Starting codex app-server");
 
-      await this.initializeAppServer(context);
+      await this.initializeAppServer(context, startup);
       // Model discovery is lazy and cached by ProviderDiscoveryService. Keeping model/list
       // out of this serial cold-start path avoids an otherwise unused request
       // with its own 20-second deadline.
+      this.markStartupStep(startup, "account");
       try {
-        const accountReadResponse = await this.sendRequest(context, "account/read", {});
+        const accountReadResponse = await this.sendRequest(
+          context,
+          "account/read",
+          {},
+          this.startupOptionalRequestTimeoutMs,
+        );
         log.info("account/read response", { accountReadResponse });
         context.account = readCodexAccountSnapshot(accountReadResponse);
         log.info("subscription status", {
@@ -4008,6 +4147,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         normalizeCodexModelSlug(input.model),
         context.account,
       );
+      this.markStartupStep(startup, "connectors");
       const threadConfig = gatewaySessionLease
         ? await this.gatewayThreadConfig(context, gatewaySessionLease.connection)
         : withMossCodexWebSearchMode(undefined, {
@@ -4074,6 +4214,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       let threadOpenMethod = threadOpenRequest.method;
       let threadOpenResponse: unknown;
+      this.markStartupStep(startup, "thread-open");
       try {
         threadOpenResponse = await this.sendThreadOpenRequest(
           context,
@@ -4145,6 +4286,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
       const providerThreadId = threadIdRaw;
 
+      this.markStartupStep(startup, "ready");
       this.markSessionReadyAfterThreadOpen(context, {
         threadOpenMethod,
         providerThreadId,

@@ -124,6 +124,9 @@ const EN_TRANSLATIONS = {
   "transcript.working.thinkingSomeMore": "Thinking some more…",
   "transcript.working.almostDone": "Almost done thinking…",
   "transcript.working.sending": "Sending…",
+  "transcript.working.starting": "Starting {provider}…",
+  "transcript.working.startingSlowly":
+    "{provider} is taking longer than usual to start. Moss keeps waiting (up to about two minutes) and sends your message as soon as it's ready.",
   "transcript.readAloud.start": "Read aloud",
   "transcript.readAloud.pause": "Pause",
   "transcript.readAloud.resume": "Resume",
@@ -4363,6 +4366,9 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "transcript.working.thinkingSomeMore": "再想一会儿…",
   "transcript.working.almostDone": "快想好了…",
   "transcript.working.sending": "发送中…",
+  "transcript.working.starting": "正在启动 {provider}…",
+  "transcript.working.startingSlowly":
+    "{provider} 启动得比平常慢。Moss 会继续等待（最多约两分钟），准备好后马上发出你的消息。",
   "transcript.readAloud.start": "朗读",
   "transcript.readAloud.pause": "暂停",
   "transcript.readAloud.resume": "继续",

@@ -50,8 +50,9 @@ export function makeClaudeMcpAppMethods<Context extends ClaudeMcpAppContext>(inp
   const { mcpApps } = input;
 
   const record = (threadId: ThreadId, servers: ReadonlyArray<ProviderMcpAppServerTools>) => {
-    for (const server of servers)
-      mcpApps?.recordProviderTools(threadId, server.server, server.tools);
+    for (const server of servers) {
+      mcpApps?.recordProviderTools(threadId, server.server, server.tools, PROVIDER);
+    }
   };
 
   /** After `init`: learn which tools declare widgets, so rows can be bound as they stream. */

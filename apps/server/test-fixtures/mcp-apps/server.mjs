@@ -46,7 +46,9 @@ let cachedWidget;
 export function widgetHtml() {
   cachedWidget ??= readFileSync(join(here, "widget.html"), "utf8").replace(
     "<!--MOSS_EXT_APPS_SDK-->",
-    `<script type="text/plain" id="ext-apps-sdk">${appSdkSource()}</script>`,
+    // A replacer function: the SDK source contains `$&` and `` $` ``, which a replacement
+    // string would expand.
+    () => `<script type="text/plain" id="ext-apps-sdk">${appSdkSource()}</script>`,
   );
   return cachedWidget;
 }

@@ -62,6 +62,8 @@ import {
   type McpAppSandboxPermissions,
   type McpAppToolResultResponse,
 } from "./mcpApps/contracts";
+import { McpAppFrameTracker } from "./mcpApps/frameTracker";
+import { mcpAppResourceCacheKey, readMcpAppResourceOnce } from "./mcpApps/resourceCache";
 import {
   buildMcpAppHostContext,
   MCP_APP_HOST_INFO_NAME,
@@ -102,6 +104,8 @@ const MAX_RESOURCE_MESSAGE_BYTES = MCP_APP_RESOURCE_MAX_HTML_BYTES + 4_096;
 const SANDBOX_RESOURCE_READY_METHOD = "ui/notifications/sandbox-resource-ready";
 const MCP_APP_TEARDOWN_TIMEOUT_MS = 1_000;
 const MCP_APP_PORTAL_TARGET_SELECTOR = '[data-mcp-app-portal-target="true"]';
+/** Polls of `/tool-result` still answering "pending" after the call ended, before falling back. */
+const MCP_APP_PENDING_AFTER_END_POLLS = 3;
 const PERMISSION_NAMES: readonly McpAppPermissionName[] = [
   "camera",
   "microphone",
@@ -488,11 +492,6 @@ function resolveMcpAppPortalTarget(container: HTMLElement): HTMLElement | null {
   );
 }
 
-function currentCssZoom(element: HTMLElement): number {
-  const zoom = (element as HTMLElement & { readonly currentCSSZoom?: unknown }).currentCSSZoom;
-  return typeof zoom === "number" && Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
-}
-
 function boundedDimension(value: number): number {
   return Number.isFinite(value)
     ? Math.min(Math.max(Math.round(value), 0), MCP_APP_SANDBOX_MAX_DIMENSION)
@@ -551,7 +550,8 @@ function toolDefinition(binding: McpAppBinding): Tool {
   };
 }
 
-type PromptAnswer = boolean;
+/** `null`: the widget went away before the person answered; nothing is remembered. */
+type PromptAnswer = boolean | null;
 
 export class McpAppHostController {
   private snapshot: McpAppHostSnapshot;
@@ -566,14 +566,9 @@ export class McpAppHostController {
   private navigationPortalTarget: HTMLDivElement | null = null;
   private portalTarget: HTMLElement | null = null;
   private geometryTarget: HTMLElement | null = null;
-  private resizeObserver: ResizeObserver | null = null;
-  private geometryMutationObserver: MutationObserver | null = null;
-  private geometryOffsetParent: HTMLElement | null = null;
-  private geometryScrollTarget: HTMLElement | null = null;
-  private geometryScrollListener: (() => void) | null = null;
-  private geometryWindowResizeListener: (() => void) | null = null;
-  private geometryFollowFrame: number | null = null;
-  private resizeFrame: number | null = null;
+  private tracker: McpAppFrameTracker | null = null;
+  /** The transcript slot the frame returns to; it changes when the row remounts. */
+  private inlineContainer: HTMLElement | null = null;
   private cleanupBridge: (() => void) | null = null;
   private currentContainer: HTMLElement | null = null;
   private replyPort: MessagePort | null = null;
@@ -590,6 +585,8 @@ export class McpAppHostController {
   private inputSent = false;
   private resultSent = false;
   private deliveringToolData = false;
+  /** `/tool-result` answers "pending" after the call already ended (bounded, then fallback). */
+  private pendingAfterEnd = 0;
   private frameVisible = true;
   private projection: WorkLogMcpToolResult;
   private theme: "light" | "dark";
@@ -651,6 +648,13 @@ export class McpAppHostController {
     if (projection.callId !== this.options.identity.callId || projection === this.projection)
       return;
     this.projection = projection;
+    // A failed call shows its plain result, whatever the server stored (SPEC §3).
+    if (projection.status === "failed") {
+      if (this.snapshot.phase !== "failed" && this.snapshot.phase !== "browser_unavailable") {
+        void this.fail();
+      }
+      return;
+    }
     if (this.running && this.initialized) void this.deliverToolData(this.generation);
     else this.armInitializeTimeout(this.generation);
   }
@@ -732,16 +736,44 @@ export class McpAppHostController {
 
   setFrameVisibility(visible: boolean): void {
     this.frameVisible = visible;
+    if (this.tracker) {
+      this.tracker.setVisible(visible);
+      return;
+    }
     const wrapper = this.frameWrapper;
     if (!wrapper) return;
     wrapper.style.visibility = visible ? "visible" : "hidden";
     wrapper.style.pointerEvents = visible ? "auto" : "none";
-    if (!visible) {
-      wrapper.style.display = "none";
+    wrapper.style.display = visible ? "block" : "none";
+  }
+
+  /** The slot this widget's row currently renders; the frame follows it while inline. */
+  getInlineContainer(): HTMLElement | null {
+    return this.inlineContainer;
+  }
+
+  /**
+   * A (re)mounted row hands its slot over. Starts the widget the first time; afterwards the
+   * live frame just moves to the new slot (rows remount when a turn folds or the list
+   * virtualises), so the widget keeps its state.
+   */
+  attachInline(container: HTMLElement): void {
+    this.inlineContainer = container;
+    this.currentContainer = container;
+    if (this.snapshot.phase === "idle") {
+      void this.start(container).catch(() => undefined);
       return;
     }
-    wrapper.style.display = "block";
-    if (this.running) this.scheduleGeometry();
+    if (this.running && this.snapshot.displayMode === "inline") {
+      this.layoutFrameTo(container, "inline");
+    }
+  }
+
+  /** The row unmounted; keep the widget but hide its frame until a slot comes back. */
+  detachInline(container: HTMLElement): void {
+    if (this.inlineContainer !== container) return;
+    this.inlineContainer = null;
+    if (this.snapshot.displayMode === "inline") this.tracker?.setVisible(false);
   }
 
   /**
@@ -749,13 +781,11 @@ export class McpAppHostController {
    * stable portal target for its whole generation; moving a webview would destroy its guest.
    */
   layoutFrameTo(container: HTMLElement, displayMode: McpAppDisplayMode): boolean {
-    if (!this.frameWrapper || !this.portalTarget || !this.bridge || !this.running) return false;
+    if (!this.frameWrapper || !this.tracker || !this.bridge || !this.running) return false;
     this.geometryTarget = container;
-    this.setUpGeometryObservers();
-    if (!this.applyFrameGeometry(container, displayMode)) return false;
-    this.setUpGeometryObservers();
+    if (!this.tracker.follow(container, displayMode)) return false;
+    this.tracker.setVisible(this.frameVisible);
     this.setSnapshot({ displayMode });
-    this.followGeometryUntilSettled();
     return true;
   }
 
@@ -768,6 +798,7 @@ export class McpAppHostController {
 
   private async run(container: HTMLElement): Promise<void> {
     await this.teardown();
+    this.inlineContainer = container;
     this.frameVisible = true;
     this.currentContainer = container;
     this.geometryTarget = container;
@@ -776,6 +807,10 @@ export class McpAppHostController {
       this.options.desktop === undefined ? readMcpAppDesktopBridge() : this.options.desktop;
     if (!desktop) {
       this.setSnapshot({ phase: "browser_unavailable" });
+      return;
+    }
+    if (this.projection.status === "failed") {
+      this.setSnapshot({ phase: "failed" });
       return;
     }
     this.portalTarget = resolveMcpAppPortalTarget(container);
@@ -787,6 +822,7 @@ export class McpAppHostController {
     const remembered = readRememberedMcpAppHeight(this.heightKey);
     this.inputSent = false;
     this.resultSent = false;
+    this.pendingAfterEnd = 0;
     this.initialized = false;
     this.resourceSent = false;
     this.setSnapshot({
@@ -802,17 +838,23 @@ export class McpAppHostController {
 
     let resource: McpAppResourceRead;
     try {
-      resource = await this.api.readResource(
-        {
+      // One read per widget resource for the page lifetime (remounts reuse it).
+      resource = await readMcpAppResourceOnce(
+        mcpAppResourceCacheKey({
           threadId: this.options.identity.threadId,
-          callId: this.options.identity.callId,
-          server: binding.server,
+          serverKey: binding.serverKey,
           resourceUri: binding.resourceUri,
-          source: binding.source,
-          toolName: binding.toolName,
-          ...(binding.connectorId ? { connectorId: binding.connectorId } : {}),
-        },
-        { signal: abortController.signal },
+        }),
+        () =>
+          this.api.readResource({
+            threadId: this.options.identity.threadId,
+            callId: this.options.identity.callId,
+            server: binding.server,
+            resourceUri: binding.resourceUri,
+            source: binding.source,
+            toolName: binding.toolName,
+            ...(binding.connectorId ? { connectorId: binding.connectorId } : {}),
+          }),
       );
     } catch {
       if (!stale()) this.setSnapshot({ phase: "failed" });
@@ -907,11 +949,13 @@ export class McpAppHostController {
     if (decision === "denied") return [];
     if (decision && requested.every((name) => decision[name] !== undefined)) return requested;
     const allowed = await this.enqueuePrompt({ kind: "permission", permissions: requested });
+    // Unanswered (the widget went away): ask again on the next mount.
+    if (allowed === null) return [];
     writeMcpAppPermissionDecision(serverKey, allowed ? permissionsOf(requested) : "denied");
     return allowed ? requested : [];
   }
 
-  private enqueuePrompt(prompt: McpAppHostPrompt): Promise<boolean> {
+  private enqueuePrompt(prompt: McpAppHostPrompt): Promise<PromptAnswer> {
     return new Promise((resolve) => {
       this.promptQueue.push({ prompt, resolve });
       if (this.promptQueue.length === 1) this.setSnapshot({ prompt });
@@ -949,8 +993,8 @@ export class McpAppHostController {
           toolName: request.toolName,
           serverLabel: request.serverLabel,
           reason: request.reason,
-        }),
-      askSignIn: () => this.enqueuePrompt({ kind: "sign_in" }),
+        }).then((answer) => answer === true),
+      askSignIn: () => this.enqueuePrompt({ kind: "sign_in" }).then((answer) => answer === true),
       confirmLink: (plan) =>
         this.openDialog<{ dontAskAgain: boolean }>({ kind: "open_link", plan }).then((answer) =>
           answer && typeof answer === "object" ? answer : null,
@@ -986,7 +1030,9 @@ export class McpAppHostController {
       !abortController || abortController.signal.aborted || generation !== this.generation;
     const webview = webviewElement();
     webview.dataset.mcpAppSandbox = "true";
-    webview.style.display = "none";
+    // Displayed from the start (the wrapper is parked, fully clipped, until `initialized`): a
+    // guest that is not displayed does not lay out, so the widget could not measure itself.
+    webview.style.display = "block";
     webview.style.width = "100%";
     webview.style.height = "100%";
     webview.style.border = "0";
@@ -1173,7 +1219,9 @@ export class McpAppHostController {
       webview.style.display = "block";
       this.running = true;
       this.setSnapshot({ phase: "ready" });
-      this.layoutFrameTo(container, "inline");
+      const slot = this.inlineContainer;
+      if (slot) this.layoutFrameTo(slot, "inline");
+      else this.tracker?.setVisible(false);
       void this.deliverToolData(generation);
     };
     const sizeChanged = (event: { readonly width?: number; readonly height?: number }) => {
@@ -1189,10 +1237,6 @@ export class McpAppHostController {
     bridge.addEventListener("sizechange", sizeChanged);
     this.cleanupBridge = () => {
       clearInitializedTimeout();
-      if (this.resizeFrame !== null) {
-        window.cancelAnimationFrame(this.resizeFrame);
-        this.resizeFrame = null;
-      }
       bridge.removeEventListener("sandboxready", sandboxReady);
       bridge.removeEventListener("initialized", initialized);
       bridge.removeEventListener("sizechange", sizeChanged);
@@ -1202,6 +1246,26 @@ export class McpAppHostController {
       rejectHandoff = null;
     };
     this.portalTarget?.append(frameWrapper);
+    if (this.portalTarget) {
+      this.tracker = new McpAppFrameTracker(frameWrapper, this.portalTarget, {
+        zIndexFor: (mode) => (mode === "fullscreen" ? fullscreenFrameZIndex() : "1"),
+        onDimensions: (dimensions, mode) =>
+          this.updateContext({
+            displayMode: mode,
+            containerDimensions:
+              mode === "fullscreen"
+                ? {
+                    width: boundedDimension(dimensions.width),
+                    height: boundedDimension(dimensions.height),
+                  }
+                : { width: boundedDimension(dimensions.width), maxHeight: 5_000 },
+          }),
+      });
+      if (this.inlineContainer) {
+        this.tracker.setVisible(false);
+        this.tracker.follow(this.inlineContainer, "inline");
+      }
+    }
     // A webview's first navigation is reliable only once it is connected to the DOM.
     webview.setAttribute("src", registered.src);
     this.proxyReadyTimer = setTimeout(() => {
@@ -1254,7 +1318,6 @@ export class McpAppHostController {
       await this.fail();
       return;
     }
-    this.setUpGeometryObservers();
   }
 
   private updateContext(partial: Partial<McpUiHostContext>): void {
@@ -1284,6 +1347,11 @@ export class McpAppHostController {
         server = { status: "missing" };
       }
       if (generation !== this.generation || this.bridge !== bridge) return;
+      if (server.status === "failed") {
+        // The server says the call failed: the plain result, not a live widget.
+        await this.fail();
+        return;
+      }
       if (!this.inputSent) {
         const args =
           server.status === "ready"
@@ -1293,11 +1361,21 @@ export class McpAppHostController {
         await bridge.sendToolInput({ arguments: args });
       }
       let result: CallToolResult | null = null;
+      const ended = this.projection.status !== "inProgress";
+      if (server.status === "pending") this.pendingAfterEnd += ended ? 1 : 0;
       if (server.status === "ready") {
         result = server.result;
-      } else if (server.status === "pending" || this.projection.status === "inProgress") {
+      } else if (
+        !ended ||
+        (server.status === "pending" && this.pendingAfterEnd < MCP_APP_PENDING_AFTER_END_POLLS)
+      ) {
         // Still running: send nothing yet. Ask again shortly; a projection update also retries.
         this.scheduleToolResultCheck(generation);
+        return;
+      } else if (this.projection.status === "failed") {
+        // The call failed and the server kept no result the widget could use (for example
+        // structuredContent that is not an object): show the plain result instead.
+        await this.fail();
         return;
       } else {
         result = mapMossMcpResultToCallToolResult(this.projection);
@@ -1341,24 +1419,8 @@ export class McpAppHostController {
     if (this.toolResultTimer !== null) clearTimeout(this.toolResultTimer);
     this.toolResultTimer = null;
     this.clearTimers();
-    if (this.geometryFollowFrame !== null && typeof window !== "undefined") {
-      window.cancelAnimationFrame(this.geometryFollowFrame);
-    }
-    this.geometryFollowFrame = null;
-    this.resizeObserver?.disconnect();
-    this.resizeObserver = null;
-    this.geometryMutationObserver?.disconnect();
-    this.geometryMutationObserver = null;
-    this.geometryOffsetParent = null;
-    if (this.geometryScrollTarget && this.geometryScrollListener) {
-      this.geometryScrollTarget.removeEventListener("scroll", this.geometryScrollListener);
-    }
-    if (this.geometryWindowResizeListener) {
-      window.removeEventListener("resize", this.geometryWindowResizeListener);
-    }
-    this.geometryScrollTarget = null;
-    this.geometryScrollListener = null;
-    this.geometryWindowResizeListener = null;
+    this.tracker?.dispose();
+    this.tracker = null;
     try {
       this.cleanupBridge?.();
     } catch {
@@ -1366,7 +1428,7 @@ export class McpAppHostController {
     }
     this.cleanupBridge = null;
     // Pending prompts and dialogs belong to this generation.
-    while (this.promptQueue.length > 0) this.promptQueue.shift()?.resolve(false);
+    while (this.promptQueue.length > 0) this.promptQueue.shift()?.resolve(null);
     if (this.dialogResolver) this.respondDialog(null);
     const bridge = this.bridge;
     const transport = this.transport;
@@ -1448,131 +1510,6 @@ export class McpAppHostController {
     if (this.snapshot.phase === "failed") return;
     await this.teardown();
     this.setSnapshot({ phase: "failed" });
-  }
-
-  // ── geometry ──
-
-  private applyFrameGeometry(target: HTMLElement, displayMode: McpAppDisplayMode): boolean {
-    const wrapper = this.frameWrapper;
-    const portal = this.portalTarget;
-    if (!wrapper || !portal || !this.bridge || !this.running) return false;
-    if (!target.isConnected || !portal.isConnected) {
-      wrapper.style.display = "none";
-      return false;
-    }
-    const isFullscreen = displayMode === "fullscreen";
-    wrapper.style.position = isFullscreen ? "fixed" : "absolute";
-    // Expose the wrapper while measuring so fixed geometry still uses its offset parent.
-    wrapper.style.display = "block";
-    const targetRect = target.getBoundingClientRect();
-    const portalRect = portal.getBoundingClientRect();
-    const zoom = currentCssZoom(portal);
-    const offsetParentRect = wrapper.offsetParent?.getBoundingClientRect() ?? { left: 0, top: 0 };
-    const left = isFullscreen
-      ? (targetRect.left - offsetParentRect.left) / zoom
-      : (targetRect.left - portalRect.left + portal.scrollLeft) / zoom;
-    const top = isFullscreen
-      ? (targetRect.top - offsetParentRect.top) / zoom
-      : (targetRect.top - portalRect.top + portal.scrollTop) / zoom;
-    const width = targetRect.width / zoom;
-    const height = targetRect.height / zoom;
-    wrapper.style.left = `${left}px`;
-    wrapper.style.top = `${top}px`;
-    wrapper.style.width = `${width}px`;
-    wrapper.style.height = `${height}px`;
-    wrapper.style.removeProperty("right");
-    wrapper.style.removeProperty("bottom");
-    wrapper.style.zIndex = isFullscreen ? fullscreenFrameZIndex() : "1";
-    wrapper.style.visibility = this.frameVisible ? "visible" : "hidden";
-    wrapper.style.pointerEvents = this.frameVisible ? "auto" : "none";
-    wrapper.style.display = this.frameVisible ? "block" : "none";
-    try {
-      this.updateContext({
-        displayMode,
-        containerDimensions: isFullscreen
-          ? { width: boundedDimension(width), height: boundedDimension(height) }
-          : { width: boundedDimension(width), maxHeight: 5_000 },
-      });
-    } catch {
-      return false;
-    }
-    return true;
-  }
-
-  private scheduleGeometry(): void {
-    if (this.resizeFrame !== null || typeof window === "undefined") return;
-    this.resizeFrame = window.requestAnimationFrame(() => {
-      this.resizeFrame = null;
-      const target = this.geometryTarget;
-      if (!target || !this.bridge || !this.running) return;
-      this.applyFrameGeometry(target, this.snapshot.displayMode);
-      this.followGeometryUntilSettled();
-    });
-  }
-
-  // The dock anchor can keep moving after layout (slide transitions move it without changing
-  // its size, so ResizeObserver stays silent). Track it per frame until it holds still.
-  private followGeometryUntilSettled(): void {
-    if (this.geometryFollowFrame !== null || typeof window === "undefined") return;
-    const deadline = Date.now() + 1_500;
-    let lastRectKey = "";
-    let stableFrames = 0;
-    const step = () => {
-      this.geometryFollowFrame = null;
-      const target = this.geometryTarget;
-      if (!target || !this.bridge || !this.running) return;
-      const rect = target.getBoundingClientRect();
-      const rectKey = `${rect.left},${rect.top},${rect.width},${rect.height}`;
-      if (rectKey !== lastRectKey) {
-        lastRectKey = rectKey;
-        stableFrames = 0;
-        this.applyFrameGeometry(target, this.snapshot.displayMode);
-      } else {
-        stableFrames += 1;
-      }
-      if (stableFrames >= 3 || Date.now() > deadline) return;
-      this.geometryFollowFrame = window.requestAnimationFrame(step);
-    };
-    this.geometryFollowFrame = window.requestAnimationFrame(step);
-  }
-
-  private setUpGeometryObservers(): void {
-    const portal = this.portalTarget;
-    const target = this.geometryTarget;
-    if (!portal || !target) return;
-    if (typeof ResizeObserver !== "undefined") {
-      this.resizeObserver ??= new ResizeObserver(() => this.scheduleGeometry());
-      this.resizeObserver.disconnect();
-      this.resizeObserver.observe(portal);
-      this.resizeObserver.observe(target);
-    }
-    if (typeof MutationObserver !== "undefined") {
-      const offsetParent =
-        (this.frameWrapper?.offsetParent as HTMLElement | null | undefined) ?? null;
-      if (this.geometryOffsetParent !== offsetParent) {
-        this.geometryMutationObserver?.disconnect();
-        this.geometryOffsetParent = offsetParent;
-        if (offsetParent) {
-          this.geometryMutationObserver ??= new MutationObserver(() => this.scheduleGeometry());
-          this.geometryMutationObserver.observe(offsetParent, {
-            attributes: true,
-            attributeFilter: ["class", "style"],
-          });
-        }
-      }
-    }
-    if (this.geometryScrollTarget !== portal) {
-      if (this.geometryScrollTarget && this.geometryScrollListener) {
-        this.geometryScrollTarget.removeEventListener("scroll", this.geometryScrollListener);
-      }
-      this.geometryScrollListener = () => this.scheduleGeometry();
-      portal.addEventListener("scroll", this.geometryScrollListener, { passive: true });
-      this.geometryScrollTarget = portal;
-    }
-    if (!this.geometryWindowResizeListener) {
-      this.geometryWindowResizeListener = () => this.scheduleGeometry();
-      window.addEventListener("resize", this.geometryWindowResizeListener);
-    }
   }
 
   private setSnapshot(partial: Partial<McpAppHostSnapshot>): void {

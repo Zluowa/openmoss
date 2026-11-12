@@ -84,6 +84,7 @@ export function BottomComposer({ context }: PageChromeSlotProps) {
           placeholder={placeholder}
           title={status ?? undefined}
           disabled={!editor}
+          onFocus={() => editor?.prepare()}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.nativeEvent.isComposing) {

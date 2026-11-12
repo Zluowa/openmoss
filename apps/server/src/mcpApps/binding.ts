@@ -114,6 +114,8 @@ export interface McpAppRowBinding {
   readonly state: "pending" | "ready" | "failed";
   readonly input: Record<string, unknown>;
   readonly result?: Record<string, unknown>;
+  /** The failure the row reports, for a failed call. */
+  readonly error?: string;
 }
 
 type ItemLifecycle = "item.started" | "item.updated" | "item.completed";
@@ -238,6 +240,9 @@ export function bindMcpToolRow(
       callId,
       binding,
       state,
+      ...(state === "failed"
+        ? { error: nonEmpty(asRecord(data.error)?.message, 2_000) ?? "The tool call failed." }
+        : {}),
       input: captured?.input ?? args,
       ...(captured?.result ? { result: captured.result } : {}),
     };
@@ -303,6 +308,7 @@ export function bindMcpToolRow(
     callId,
     binding,
     state: failed ? "failed" : completed ? "ready" : "pending",
+    ...(failed ? { error: errorMessageFromRaw(data) } : {}),
     input: captured?.input ?? input,
     ...(result ? { result } : {}),
   };

@@ -4,7 +4,7 @@
 //          page editor host. Holds the AI runs started from a page and how to reach its editor.
 // Layer: Web lib (page AI)
 
-import type { PageDraftOp, ThreadId } from "@moss/contracts";
+import type { PageDraftOp, ThreadId, TurnId } from "@moss/contracts";
 import { useSyncExternalStore } from "react";
 
 export type PageAiRunMode = "compose" | "generate" | "visualize" | "image" | "prompt";
@@ -13,6 +13,11 @@ export interface PageAiRun {
   readonly mode: PageAiRunMode;
   readonly prompt: string;
   readonly threadId: ThreadId | null;
+  /**
+   * The chat's latest turn before this run was sent. The page's assistant chat is reused,
+   * so this run's turn and reply are the ones after it.
+   */
+  readonly baselineTurnId?: TurnId | null;
   /** Where a 生成 result lands: after this block, or at the end. */
   readonly anchorBlockId: string | null;
   readonly baseRevision: number;
@@ -29,6 +34,8 @@ export interface PageAiEditorCommands {
   /** "insert" opens the page's insert menu on a new line (the top bar's ＋). */
   readonly openAiInput: (mode: "generate" | "visualize" | "image" | "insert") => void;
   readonly runInsertItem: (value: string) => void;
+  /** The person is about to ask the page's assistant: start its agent. */
+  readonly prepare: () => void;
   readonly startRun: (input: {
     mode: PageAiRunMode;
     prompt: string;

@@ -142,6 +142,8 @@ import {
   prefersCompactWorkEntryRow,
   TimelineWorkEntryRow,
 } from "./TimelineWorkEntryRow";
+import { McpAppTurnWidgets } from "./McpAppCard";
+import { McpAppRowPlacementContext } from "./mcpAppPlacement";
 import { TimelineReasoningRow } from "./TimelineReasoningRow";
 import { TimelineTodoPlanRow } from "./TimelineTodoPlanRow";
 import { TimelineSystemErrorRow } from "./TimelineSystemErrorRow";
@@ -3086,9 +3088,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     open={settledCollapseTransition.open}
                     contentClassName="space-y-1.5 pb-2.5"
                   >
-                    {chunkCollapsedTurnItems(
-                      mergeAdjacentSubagentRunItems(settledCollapseTransition.items),
-                    ).map((chunk) => renderCollapsedTurnChunk(chunk, "settling-turn-close"))}
+                    <McpAppRowPlacementContext.Provider value="outside">
+                      {chunkCollapsedTurnItems(
+                        mergeAdjacentSubagentRunItems(settledCollapseTransition.items),
+                      ).map((chunk) => renderCollapsedTurnChunk(chunk, "settling-turn-close"))}
+                    </McpAppRowPlacementContext.Provider>
                   </DisclosureRegion>
                 </div>
               )}
@@ -3132,9 +3136,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                               "mb-2.5 space-y-1.5",
                             )}
                           >
-                            {chunkCollapsedTurnItems(
-                              mergeAdjacentSubagentRunItems(collapsedTurnItems!),
-                            ).map((chunk) => renderCollapsedTurnChunk(chunk, "collapsed-panel"))}
+                            <McpAppRowPlacementContext.Provider value="outside">
+                              {chunkCollapsedTurnItems(
+                                mergeAdjacentSubagentRunItems(collapsedTurnItems!),
+                              ).map((chunk) => renderCollapsedTurnChunk(chunk, "collapsed-panel"))}
+                            </McpAppRowPlacementContext.Provider>
                           </div>
                         </CollapsiblePanel>
                         <div className="h-px w-full bg-border" />
@@ -3179,6 +3185,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     ) : null}
                   </div>
                 )}
+              {hasCollapsedWork && !conversationOnly && threadId ? (
+                <McpAppTurnWidgets
+                  projections={collapsedTurnItems!.flatMap((item) =>
+                    item.kind === "work" && item.entry.mcpToolResult?.app
+                      ? [item.entry.mcpToolResult]
+                      : [],
+                  )}
+                  threadId={threadId}
+                  theme={resolvedTheme}
+                  onImageExpand={onImageExpand}
+                />
+              ) : null}
               {row.message.codexReplay &&
                 !isCollapsedWorkExpanded &&
                 collapsedTurnItems?.some(

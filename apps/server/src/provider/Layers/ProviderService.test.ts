@@ -11835,3 +11835,37 @@ stoppedOpenCodeDisabledRouting.layer("ProviderServiceLive OpenCode disabled prov
       }),
   );
 });
+
+const startDeadline = makeProviderServiceLayer();
+startDeadline.layer("provider start deadline", (it) => {
+  it.effect("names what the CLI was still doing when its start runs out of time", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-start-deadline-pending");
+      const describePendingStartup = vi.fn(() =>
+        threadId === "thread-start-deadline-pending"
+          ? "Codex was still loading its data folder (E:\Codex\home) after 99 s."
+          : undefined,
+      );
+      Object.assign(startDeadline.codex.adapter, { describePendingStartup });
+      startDeadline.codex.startSession.mockImplementationOnce(() => Effect.never);
+      const stops = startDeadline.codex.stopSession.mock.calls.length;
+      const start = yield* provider
+        .startSession(threadId, { provider: "codex", threadId, runtimeMode: "full-access" })
+        .pipe(Effect.exit, Effect.forkChild);
+      yield* waitUntil(() => startDeadline.codex.startSession.mock.calls.length > 0);
+      yield* TestClock.adjust("101 seconds");
+      const exit = yield* Fiber.join(start);
+      assert.isTrue(Exit.isFailure(exit));
+      const failure = Exit.isFailure(exit) ? Cause.pretty(exit.cause) : "";
+      assert.include(failure, "did not finish starting within 100000ms");
+      assert.include(
+        failure,
+        "Codex was still loading its data folder (E:\Codex\home) after 99 s.",
+      );
+      assert.equal(describePendingStartup.mock.calls.length, 1);
+      // The half-started session is still retired after its description is read.
+      assert.isAbove(startDeadline.codex.stopSession.mock.calls.length, stops);
+    }),
+  );
+});

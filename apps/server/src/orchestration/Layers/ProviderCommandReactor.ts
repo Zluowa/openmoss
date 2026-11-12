@@ -7985,6 +7985,47 @@ const make = Effect.gen(function* () {
       });
     });
 
+  // A page assistant asks for its session before the person sends anything, so
+  // the first page action does not wait for a cold agent start. Warming is best
+  // effort: it never touches a live session or turn, and a failed or slow start
+  // is only logged, so the next turn takes today's path and starts the session
+  // itself.
+  const processSessionWarmRequested = (
+    event: Extract<ProviderIntentEvent, { type: "thread.session-warm-requested" }>,
+  ) =>
+    Effect.gen(function* () {
+      const threadId = event.payload.threadId;
+      const thread = yield* resolveThreadShell(threadId);
+      if (!thread || thread.archivedAt != null) {
+        return;
+      }
+      const sessions = yield* providerService.listSessions();
+      if (sessions.some((session) => session.threadId === threadId)) {
+        return;
+      }
+      if (yield* hasLiveProviderTurn(threadId)) {
+        return;
+      }
+      const outcome = yield* runBoundedProviderCall({
+        label: "The page assistant warm-up",
+        timeout: Duration.millis(Duration.toMillis(commandEventTimeout) * 0.9),
+        call: ensureSessionForThread(threadId, event.payload.createdAt),
+      });
+      if (outcome._tag !== "ok") {
+        yield* Effect.logWarning("page assistant warm-up did not start a session", {
+          threadId,
+          outcome: outcome._tag,
+        });
+      }
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("page assistant warm-up failed", {
+          threadId: event.payload.threadId,
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
+
   const surfaceTimedOutTurnStart = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
     detail: string,
@@ -8313,6 +8354,9 @@ const make = Effect.gen(function* () {
           return;
         case "thread.session-stop-requested":
           yield* processSessionStopRequested(event);
+          return;
+        case "thread.session-warm-requested":
+          yield* processSessionWarmRequested(event);
           return;
       }
     }).pipe(

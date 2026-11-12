@@ -343,6 +343,19 @@ type InteractionResponse =
  */
 export const PROVIDER_START_SESSION_TIMEOUT = Duration.seconds(100);
 const PROVIDER_STOP_SESSION_TIMEOUT = Duration.seconds(10);
+
+/** An adapter's own account of a pending start; a broken one never changes the outcome. */
+function readPendingStartup(
+  adapter: { readonly describePendingStartup?: (threadId: ThreadId) => string | undefined },
+  threadId: ThreadId,
+): string | undefined {
+  try {
+    const text = adapter.describePendingStartup?.(threadId)?.trim();
+    return text ? text.slice(0, 400) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 const PRIOR_TRANSCRIPT_BOOTSTRAP_PENDING = "priorTranscriptBootstrapPending";
 
 function toValidationError(
@@ -4946,11 +4959,15 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                   ),
                 );
                 if (Option.isNone(started)) {
+                  // Read before the start is retired: what the CLI was still doing,
+                  // so the person is told why and what to do, not only "too slow".
+                  const pendingStartup = readPendingStartup(adapter, threadId);
                   yield* Effect.logError("provider session start exceeded its deadline", {
                     threadId,
                     provider: input.provider,
                     timeoutMs: Duration.toMillis(PROVIDER_START_SESSION_TIMEOUT),
                     startup: startupLifecycle.snapshot(),
+                    ...(pendingStartup ? { pendingStartup } : {}),
                   });
                   yield* adapter.stopSession(threadId).pipe(
                     Effect.timeoutOption(PROVIDER_STOP_SESSION_TIMEOUT),
@@ -4966,7 +4983,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                     "ProviderService.startSession",
                     `Provider '${input.provider}' did not finish starting within ${Duration.toMillis(
                       PROVIDER_START_SESSION_TIMEOUT,
-                    )}ms for thread '${threadId}'.`,
+                    )}ms for thread '${threadId}'.${pendingStartup ? ` ${pendingStartup}` : ""}`,
                   );
                 }
                 const { session, staleSessionFallbackOccurred } = started.value;

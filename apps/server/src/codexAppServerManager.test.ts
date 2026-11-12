@@ -70,6 +70,7 @@ import {
   CodexAppServerManager,
   classifyCodexStderrLine,
   classifyCodexStderrLines,
+  formatCodexPendingStartup,
   formatCodexThreadResumeError,
   isRecoverableThreadResumeError,
   isUnsupportedCodexMethodError,
@@ -114,6 +115,8 @@ function createSyntheticCodexAppServer(options?: {
   readonly projectMcpServers?: Record<string, unknown>;
   readonly forceFullHistoryResponse?: boolean;
   readonly pluginListFrameBytes?: number;
+  /** Methods this app-server receives but never answers, like a Codex stuck on a busy disk. */
+  readonly unanswered?: ReadonlySet<string>;
   readonly gatewayRenewal?:
     | "supported"
     | "unsupported"
@@ -183,6 +186,7 @@ function createSyntheticCodexAppServer(options?: {
         const request = JSON.parse(line) as SyntheticCodexRequest;
         requests.push(request);
         if (request.id === undefined) continue;
+        if (options?.unanswered?.has(request.method)) continue;
 
         const respond = (result: unknown) => {
           queueMicrotask(() => stdout.write(`${JSON.stringify({ id: request.id, result })}\n`));
@@ -386,6 +390,10 @@ function createSyntheticCodexManager(
   fake: ReturnType<typeof createSyntheticCodexAppServer>,
   services?: ConstructorParameters<typeof CodexAppServerManager>[0],
   gateway?: NonNullable<ConstructorParameters<typeof CodexAppServerManager>[1]>["agentGatewayMcp"],
+  managerOptions?: Pick<
+    NonNullable<ConstructorParameters<typeof CodexAppServerManager>[1]>,
+    "mossSkillsDir" | "startupOptionalRequestTimeoutMs"
+  >,
 ) {
   const teardownProcessTree = vi.fn<typeof supervisedTeardown.teardownProviderProcessTree>(
     async () => ({ escalated: false, signalErrors: [] }),
@@ -394,6 +402,7 @@ function createSyntheticCodexManager(
     spawnAppServer: fake.spawnAppServer,
     teardownProcessTree,
     ...(gateway ? { agentGatewayMcp: gateway } : {}),
+    ...managerOptions,
   });
   const internals = manager as unknown as {
     assertSupportedCodexCliVersion: () => Promise<void>;
@@ -3805,6 +3814,94 @@ describe("startSession", () => {
       versionCheck.mockRestore();
       await manager.stopAll();
     }
+  });
+});
+
+describe("startup that a slow Codex holds", () => {
+  const start = (manager: CodexAppServerManager, threadId: string, cwd: string) =>
+    manager.startSession({
+      threadId: asThreadId(threadId),
+      provider: "codex",
+      runtimeMode: "full-access",
+      cwd,
+      agentGatewayCapabilityInput: AGENT_GATEWAY_NO_CAPABILITIES,
+    });
+
+  it("opens the thread when requests the start can do without never answer", async () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-codex-optional-start-"));
+    const fake = createSyntheticCodexAppServer({
+      unanswered: new Set(["skills/extraRoots/set", "account/read"]),
+    });
+    const { manager } = createSyntheticCodexManager(fake, undefined, undefined, {
+      mossSkillsDir: path.join(cwd, "skills"),
+      startupOptionalRequestTimeoutMs: 40,
+    });
+    try {
+      const startedAt = Date.now();
+      const session = await start(manager, "optional-unanswered", cwd);
+      expect(Date.now() - startedAt).toBeLessThan(5_000);
+      expect(session.resumeCursor).toEqual({ threadId: "fresh-provider-thread" });
+      expect(fake.requests.map((request) => request.method)).toEqual(
+        expect.arrayContaining(["skills/extraRoots/set", "account/read", "thread/start"]),
+      );
+      expect(manager.describePendingStartup(asThreadId("optional-unanswered"))).toBeUndefined();
+    } finally {
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("says a start is still loading the Codex data folder while initialize has no answer", async () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-codex-pending-start-"));
+    const fake = createSyntheticCodexAppServer({ unanswered: new Set(["initialize"]) });
+    const { manager, teardownProcessTree } = createSyntheticCodexManager(fake);
+    const internals = manager as unknown as { buildSessionProcessEnv: () => Promise<unknown> };
+    const authTracking = prepareCodexAuthTracking({ env: {}, homePath: cwd });
+    vi.mocked(internals.buildSessionProcessEnv).mockResolvedValueOnce({
+      env: { CODEX_HOME: "E:\Codex\home" },
+      authTracking,
+      authFingerprint: readCodexPreparedAuthTrackingFingerprint(authTracking),
+    });
+    teardownProcessTree.mockImplementation(async ({ rootPid }) => {
+      const child = fake.children.find((candidate) => candidate.pid === rootPid)!;
+      child.exitCode = 1;
+      child.emit("exit", 1, null);
+      child.stdout.end();
+      child.stderr.end();
+      child.emit("close", 1, null);
+      return { escalated: false, signalErrors: [] };
+    });
+    const threadId = asThreadId("initialize-unanswered");
+    const started = start(manager, threadId, cwd).then(
+      () => "started",
+      (error: unknown) => error,
+    );
+    try {
+      await vi.waitFor(() =>
+        expect(fake.requests.some((request) => request.method === "initialize")).toBe(true),
+      );
+      const pending = manager.describePendingStartup(threadId);
+      expect(pending).toMatchObject({ step: "initialize", homePath: "E:\Codex\home" });
+      expect(formatCodexPendingStartup(pending!)).toMatch(
+        /^Codex was still loading its data folder \(E:\Codex\home\) after \d+ s\.$/,
+      );
+      expect(fake.requests.some((request) => request.method === "thread/start")).toBe(false);
+      await manager.stopSession(threadId);
+      expect(await started).toBeInstanceOf(Error);
+      expect(manager.describePendingStartup(threadId)).toBeUndefined();
+    } finally {
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("words a pending thread open apart from loading", () => {
+    expect(formatCodexPendingStartup({ step: "thread-open", elapsedMs: 61_400 })).toBe(
+      "Codex was still opening the conversation in its data folder after 61 s.",
+    );
+    expect(
+      formatCodexPendingStartup({ step: "launch", elapsedMs: 2_000, homePath: "/home/a/.codex" }),
+    ).toBe("Codex was still loading its data folder (/home/a/.codex) after 2 s.");
   });
 });
 

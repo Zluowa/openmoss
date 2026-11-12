@@ -1,20 +1,21 @@
 // FILE: resultStore.ts
-// Purpose: Runtime store of MCP App calls keyed (threadId, callId): the widget binding, the call's
-//   input and its full `CallToolResult`. Lives on disk under the server state dir (never in the
-//   event journal), bounded per record and LRU-evicted in total (SPEC §3), so a widget re-created
-//   after a restart gets the same input and result it got live.
+// Purpose: Runtime stores for interactive connectors, on disk under the server state dir (never in
+//   the event journal), bounded per entry and LRU-evicted in total:
+//   - calls keyed (threadId, callId): the widget binding, the call's input and its full
+//     `CallToolResult` (SPEC §3), so a widget re-created after a restart gets what it got live;
+//   - the last widget resource read successfully, keyed (provider, threadId, server, uri), and
+//     the last tool list of each CLI-own server, keyed (provider, threadId, server), both served
+//     when the provider session that would answer is not running (e.g. after a restart).
 // Layer: Server MCP Apps runtime (async fs, promise-based)
-// Exports: McpAppResultStore, McpAppCallRecord, MCP_APP_RESULT_STORE_*
+// Exports: McpAppResultStore, McpAppCallRecord, McpAppResourceCache, MCP_APP_*_STORE_*
 
-import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import path from "node:path";
+import type { CodexMcpAppDescriptor, McpAppResourceReadyResult } from "@moss/contracts";
 
-import type { CodexMcpAppDescriptor } from "@moss/contracts";
+import { BoundedJsonDiskStore, diskStoreKey } from "./diskStore.ts";
 
 export const MCP_APP_RESULT_STORE_MAX_RECORD_BYTES = 2 * 1024 * 1024;
 export const MCP_APP_RESULT_STORE_MAX_TOTAL_BYTES = 500 * 1024 * 1024;
-const HOT_CACHE_ENTRIES = 256;
+export const MCP_APP_RESOURCE_CACHE_MAX_TOTAL_BYTES = 200 * 1024 * 1024;
 
 export type McpAppCallState = "pending" | "ready" | "failed";
 
@@ -27,16 +28,9 @@ export interface McpAppCallRecord {
   /** Full result; absent while pending, after a failure, or when it exceeded the record cap. */
   readonly result?: Record<string, unknown>;
   readonly resultOmitted?: "too_large";
+  /** Why the call failed (`state: "failed"`), as the provider reported it. */
+  readonly error?: string;
   readonly updatedAt: number;
-}
-
-interface IndexEntry {
-  bytes: number;
-  touchedAt: number;
-}
-
-function recordKey(threadId: string, callId: string): string {
-  return createHash("sha256").update(`${threadId}\0${callId}`).digest("hex").slice(0, 40);
 }
 
 function isRecordShape(value: unknown): value is McpAppCallRecord {
@@ -52,56 +46,42 @@ function isRecordShape(value: unknown): value is McpAppCallRecord {
 }
 
 export class McpAppResultStore {
-  private readonly hot = new Map<string, McpAppCallRecord>();
-  private index: Map<string, IndexEntry> | null = null;
-  private indexLoading: Promise<Map<string, IndexEntry>> | null = null;
-  private totalBytes = 0;
-  private writes: Promise<void> = Promise.resolve();
-  private readonly pendingWrites = new Set<Promise<void>>();
+  private readonly store: BoundedJsonDiskStore<McpAppCallRecord>;
 
   constructor(
-    private readonly directory: string,
+    directory: string,
     private readonly options: {
       readonly maxRecordBytes?: number;
       readonly maxTotalBytes?: number;
       readonly now?: () => number;
       readonly logWarning?: (message: string, fields?: Record<string, unknown>) => void;
     } = {},
-  ) {}
-
-  private get now(): () => number {
-    return this.options.now ?? Date.now;
+  ) {
+    this.store = new BoundedJsonDiskStore(directory, {
+      maxTotalBytes: options.maxTotalBytes ?? MCP_APP_RESULT_STORE_MAX_TOTAL_BYTES,
+      hotEntries: 256,
+      isValue: isRecordShape,
+      ...(options.now ? { now: options.now } : {}),
+      onWriteError: (error) =>
+        options.logWarning?.("Could not save an interactive connector result.", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    });
   }
 
   /** Memory first, then disk. Never throws: an unreadable record reads as absent. */
   async get(threadId: string, callId: string): Promise<McpAppCallRecord | undefined> {
-    const key = recordKey(threadId, callId);
-    const cached = this.hot.get(key);
-    if (cached) {
-      this.touchHot(key, cached);
-      return cached;
-    }
-    try {
-      const raw = await readFile(path.join(this.directory, `${key}.json`), "utf8");
-      const parsed: unknown = JSON.parse(raw);
-      if (!isRecordShape(parsed) || parsed.threadId !== threadId || parsed.callId !== callId) {
-        return undefined;
-      }
-      this.touchHot(key, parsed);
-      return parsed;
-    } catch {
-      return undefined;
-    }
+    const record = await this.store.get(diskStoreKey(threadId, callId));
+    return record?.threadId === threadId && record.callId === callId ? record : undefined;
   }
 
   /** Synchronous view of a record written or read in this process, for the event hot path. */
   peek(threadId: string, callId: string): McpAppCallRecord | undefined {
-    return this.hot.get(recordKey(threadId, callId));
+    return this.store.peek(diskStoreKey(threadId, callId));
   }
 
   /** Records (or replaces) one call. The disk write is serialized and runs in the background. */
   put(record: McpAppCallRecord): Promise<void> {
-    const key = recordKey(record.threadId, record.callId);
     let stored = record;
     let body = JSON.stringify(stored);
     const maxRecordBytes = this.options.maxRecordBytes ?? MCP_APP_RESULT_STORE_MAX_RECORD_BYTES;
@@ -110,95 +90,147 @@ export class McpAppResultStore {
       stored = { ...rest, resultOmitted: "too_large" };
       body = JSON.stringify(stored);
     }
-    this.touchHot(key, stored);
-    const write = this.writes.then(() => this.writeRecord(key, body));
-    this.writes = write.catch(() => undefined);
-    this.pendingWrites.add(write);
-    void write.finally(() => this.pendingWrites.delete(write)).catch(() => undefined);
-    return write.catch((error: unknown) => {
-      this.options.logWarning?.("Could not save an interactive connector result.", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+    return this.store.put(diskStoreKey(record.threadId, record.callId), stored, body);
   }
 
   /** Waits for queued writes (server shutdown). */
-  async flush(): Promise<void> {
-    await Promise.allSettled(this.pendingWrites);
+  flush(): Promise<void> {
+    return this.store.flush();
+  }
+}
+
+export interface McpAppResourceCacheKey {
+  readonly provider: string;
+  readonly threadId: string;
+  readonly server: string;
+  readonly resourceUri: string;
+}
+
+export type McpAppToolListCacheKey = Omit<McpAppResourceCacheKey, "resourceUri">;
+
+interface CachedResource extends McpAppResourceCacheKey {
+  readonly result: McpAppResourceReadyResult;
+  readonly savedAt: number;
+}
+
+interface CachedToolList extends McpAppToolListCacheKey {
+  readonly kind: "tools";
+  readonly tools: ReadonlyArray<Record<string, unknown>>;
+  readonly savedAt: number;
+}
+
+type CachedEntry = CachedResource | CachedToolList;
+
+function isCachedEntry(value: unknown): value is CachedEntry {
+  if (value === null || typeof value !== "object") return false;
+  const entry = value as Record<string, unknown>;
+  if (
+    typeof entry.provider !== "string" ||
+    typeof entry.threadId !== "string" ||
+    typeof entry.server !== "string"
+  ) {
+    return false;
+  }
+  if (entry.kind === "tools") return Array.isArray(entry.tools);
+  const result = entry.result as Record<string, unknown> | null | undefined;
+  return (
+    typeof entry.resourceUri === "string" &&
+    typeof result === "object" &&
+    result !== null &&
+    result.state === "ready" &&
+    typeof result.html === "string"
+  );
+}
+
+/**
+ * The last successful read of each CLI-own widget resource (HTML + its normalized `_meta.ui`) and
+ * the last tool list of each CLI-own server (with `_meta.ui`, widget-only tools included).
+ */
+export class McpAppResourceCache {
+  private readonly store: BoundedJsonDiskStore<CachedEntry>;
+
+  constructor(
+    directory: string,
+    options: {
+      readonly maxTotalBytes?: number;
+      readonly now?: () => number;
+      readonly logWarning?: (message: string, fields?: Record<string, unknown>) => void;
+    } = {},
+  ) {
+    this.store = new BoundedJsonDiskStore(directory, {
+      maxTotalBytes: options.maxTotalBytes ?? MCP_APP_RESOURCE_CACHE_MAX_TOTAL_BYTES,
+      // Entries hold whole HTML documents: keep few in memory.
+      hotEntries: 16,
+      isValue: isCachedEntry,
+      ...(options.now ? { now: options.now } : {}),
+      onWriteError: (error) =>
+        options.logWarning?.("Could not save an interactive connector resource.", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    });
+    this.now = options.now ?? Date.now;
   }
 
-  private touchHot(key: string, record: McpAppCallRecord): void {
-    this.hot.delete(key);
-    this.hot.set(key, record);
-    while (this.hot.size > HOT_CACHE_ENTRIES) {
-      const oldest = this.hot.keys().next().value;
-      if (oldest === undefined) break;
-      this.hot.delete(oldest);
+  private readonly now: () => number;
+
+  private static key(key: McpAppResourceCacheKey): string {
+    return diskStoreKey(key.provider, key.threadId, key.server, key.resourceUri);
+  }
+
+  async get(key: McpAppResourceCacheKey): Promise<McpAppResourceReadyResult | undefined> {
+    const entry = await this.store.get(McpAppResourceCache.key(key));
+    if (
+      !entry ||
+      "kind" in entry ||
+      entry.provider !== key.provider ||
+      entry.threadId !== key.threadId ||
+      entry.server !== key.server ||
+      entry.resourceUri !== key.resourceUri
+    ) {
+      return undefined;
     }
+    return entry.result;
   }
 
-  private async writeRecord(key: string, body: string): Promise<void> {
-    const index = await this.loadIndex();
-    await mkdir(this.directory, { recursive: true });
-    const target = path.join(this.directory, `${key}.json`);
-    const temp = `${target}.${process.pid}.tmp`;
-    await writeFile(temp, body, "utf8");
-    await rename(temp, target);
-    const bytes = Buffer.byteLength(body, "utf8");
-    const previous = index.get(key);
-    if (previous) this.totalBytes -= previous.bytes;
-    index.set(key, { bytes, touchedAt: this.now() });
-    this.totalBytes += bytes;
-    await this.evict(index, key);
+  put(key: McpAppResourceCacheKey, result: McpAppResourceReadyResult): Promise<void> {
+    return this.store.put(McpAppResourceCache.key(key), { ...key, result, savedAt: this.now() });
   }
 
-  private async evict(index: Map<string, IndexEntry>, keep: string): Promise<void> {
-    const maxTotalBytes = this.options.maxTotalBytes ?? MCP_APP_RESULT_STORE_MAX_TOTAL_BYTES;
-    if (this.totalBytes <= maxTotalBytes) return;
-    const oldestFirst = [...index.entries()]
-      .filter(([key]) => key !== keep)
-      .toSorted(([, left], [, right]) => left.touchedAt - right.touchedAt);
-    for (const [key, entry] of oldestFirst) {
-      if (this.totalBytes <= maxTotalBytes) break;
-      await rm(path.join(this.directory, `${key}.json`), { force: true });
-      index.delete(key);
-      this.hot.delete(key);
-      this.totalBytes -= entry.bytes;
+  private static toolsKey(key: McpAppToolListCacheKey): string {
+    return diskStoreKey("tools", key.provider, key.threadId, key.server);
+  }
+
+  async getTools(
+    key: McpAppToolListCacheKey,
+  ): Promise<ReadonlyArray<Record<string, unknown>> | undefined> {
+    const entry = await this.store.get(McpAppResourceCache.toolsKey(key));
+    if (
+      !entry ||
+      !("kind" in entry) ||
+      entry.provider !== key.provider ||
+      entry.threadId !== key.threadId ||
+      entry.server !== key.server
+    ) {
+      return undefined;
     }
+    return entry.tools;
   }
 
-  private loadIndex(): Promise<Map<string, IndexEntry>> {
-    if (this.index) return Promise.resolve(this.index);
-    this.indexLoading ??= (async () => {
-      const index = new Map<string, IndexEntry>();
-      let names: string[] = [];
-      try {
-        names = await readdir(this.directory);
-      } catch {
-        names = [];
-      }
-      for (const name of names) {
-        if (!name.endsWith(".json")) {
-          // A temp file left by a crash mid-write.
-          if (name.endsWith(".tmp")) {
-            await rm(path.join(this.directory, name), { force: true }).catch(() => undefined);
-          }
-          continue;
-        }
-        try {
-          const info = await stat(path.join(this.directory, name));
-          index.set(name.slice(0, -".json".length), {
-            bytes: info.size,
-            touchedAt: info.mtimeMs,
-          });
-          this.totalBytes += info.size;
-        } catch {
-          // Removed meanwhile.
-        }
-      }
-      this.index = index;
-      return index;
-    })();
-    return this.indexLoading;
+  /** Stores a non-empty tool list; an unchanged list is not written again. */
+  putTools(
+    key: McpAppToolListCacheKey,
+    tools: ReadonlyArray<Record<string, unknown>>,
+  ): Promise<void> {
+    if (tools.length === 0) return Promise.resolve();
+    const storeKey = McpAppResourceCache.toolsKey(key);
+    const current = this.store.peek(storeKey);
+    if (current && "kind" in current && JSON.stringify(current.tools) === JSON.stringify(tools)) {
+      return Promise.resolve();
+    }
+    return this.store.put(storeKey, { kind: "tools", ...key, tools, savedAt: this.now() });
+  }
+
+  flush(): Promise<void> {
+    return this.store.flush();
   }
 }
