@@ -173,20 +173,23 @@ describe("Settings › Computer use: per-call policy", () => {
     const manager = new ComputerManager({ backend: fixture(), actionSettleMs: 0 });
     try {
       await manager.listWindows();
+      // A bare name proves nothing until Moss has seen the app it names.
       manager.setAppPolicy({ blockedApps: [], alwaysAllowedApps: ["Google Chrome"] });
-      expect(manager.appPolicyForCall({ app: "google chrome" })).toEqual({
+      expect(await manager.appPolicyForCall({ app: "google chrome" })).toBeUndefined();
+      await manager.typeText(THREAD, "x", CHROME_WINDOW.id);
+      expect(await manager.appPolicyForCall({ app: "google chrome" })).toEqual({
         kind: "always-allowed",
         app: "google chrome",
       });
-      expect(manager.appPolicyForCall({ windowIds: [CHROME_WINDOW.id] })).toMatchObject({
+      expect(await manager.appPolicyForCall({ windowIds: [CHROME_WINDOW.id] })).toMatchObject({
         kind: "always-allowed",
       });
-      expect(manager.appPolicyForCall({ windowIds: [NOTEPAD_WINDOW.id] })).toBeUndefined();
+      expect(await manager.appPolicyForCall({ windowIds: [NOTEPAD_WINDOW.id] })).toBeUndefined();
       manager.setAppPolicy({
         blockedApps: ["Google Chrome"],
         alwaysAllowedApps: ["Google Chrome"],
       });
-      expect(manager.appPolicyForCall({ windowIds: [CHROME_WINDOW.id] })).toMatchObject({
+      expect(await manager.appPolicyForCall({ windowIds: [CHROME_WINDOW.id] })).toMatchObject({
         kind: "blocked",
       });
     } finally {
@@ -199,14 +202,14 @@ describe("Settings › Computer use: per-call policy", () => {
     try {
       // Nothing listed yet: the window id is not assumed to be anything.
       manager.setAppPolicy({ blockedApps: [], alwaysAllowedApps: ["Google Chrome"] });
-      expect(manager.appPolicyForCall({ windowIds: [CHROME_WINDOW.id] })).toBeUndefined();
+      expect(await manager.appPolicyForCall({ windowIds: [CHROME_WINDOW.id] })).toBeUndefined();
       await manager.listWindows();
       // An allowed `app` cannot carry another app's window past the prompt.
       expect(
-        manager.appPolicyForCall({ app: "Google Chrome", windowIds: [NOTEPAD_WINDOW.id] }),
+        await manager.appPolicyForCall({ app: "Google Chrome", windowIds: [NOTEPAD_WINDOW.id] }),
       ).toBeUndefined();
-      expect(manager.appPolicyForCall({ windowIds: ["no-such-window"] })).toBeUndefined();
-      expect(manager.appPolicyForCall({})).toBeUndefined();
+      expect(await manager.appPolicyForCall({ windowIds: ["no-such-window"] })).toBeUndefined();
+      expect(await manager.appPolicyForCall({})).toBeUndefined();
     } finally {
       await manager.dispose();
     }
@@ -414,9 +417,9 @@ describe("Settings › Computer use: always allowed never over-matches", () => {
     const manager = await hostManager();
     try {
       manager.setAppPolicy({ blockedApps: [], alwaysAllowedApps: ["Notepad"] });
-      expect(manager.appPolicyForCall({ app: "Notepad" })?.kind).toBe("always-allowed");
-      expect(manager.appPolicyForCall({ app: DOWNLOADS_NOTEPAD })).toBeUndefined();
-      expect(manager.appPolicyForCall({ app: "/tmp/Notepad.app" })).toBeUndefined();
+      expect((await manager.appPolicyForCall({ app: "Notepad" }))?.kind).toBe("always-allowed");
+      expect(await manager.appPolicyForCall({ app: DOWNLOADS_NOTEPAD })).toBeUndefined();
+      expect(await manager.appPolicyForCall({ app: "/tmp/Notepad.app" })).toBeUndefined();
     } finally {
       await manager.dispose();
     }
@@ -426,11 +429,12 @@ describe("Settings › Computer use: always allowed never over-matches", () => {
     const manager = await hostManager();
     try {
       manager.setAppPolicy({ blockedApps: [], alwaysAllowedApps: ["Calculator", "File Explorer"] });
-      // Calculator's own window keeps the user's choice; its host siblings don't.
-      expect(manager.appPolicyForCall({ windowIds: [CALCULATOR.id] })?.kind).toBe("always-allowed");
-      expect(manager.appPolicyForCall({ windowIds: [SETTINGS.id] })).toBeUndefined();
-      expect(manager.appPolicyForCall({ windowIds: [CONTROL_PANEL.id] })).toBeUndefined();
-      expect(manager.appPolicyForCall({ pid: HOST_PID })).toBeUndefined();
+      // A UWP app's window is owned by ApplicationFrameHost, a protected shared
+      // host, so neither Calculator nor any of its siblings can skip the prompt.
+      expect(await manager.appPolicyForCall({ windowIds: [CALCULATOR.id] })).toBeUndefined();
+      expect(await manager.appPolicyForCall({ windowIds: [SETTINGS.id] })).toBeUndefined();
+      expect(await manager.appPolicyForCall({ windowIds: [CONTROL_PANEL.id] })).toBeUndefined();
+      expect(await manager.appPolicyForCall({ pid: HOST_PID })).toBeUndefined();
     } finally {
       await manager.dispose();
     }
@@ -451,7 +455,7 @@ describe("Settings › Computer use: always allowed never over-matches", () => {
         { app: "SystemSettings.exe" },
         { pid: EXPLORER_PID },
       ]) {
-        expect(manager.appPolicyForCall(target), JSON.stringify(target)).toBeUndefined();
+        expect(await manager.appPolicyForCall(target), JSON.stringify(target)).toBeUndefined();
       }
     } finally {
       await manager.dispose();
@@ -466,8 +470,10 @@ describe("Settings › Computer use: always allowed never over-matches", () => {
         expect(names).toContain(name);
       // Blocking Calculator does not block Settings, which shares its host.
       manager.setAppPolicy({ blockedApps: ["Calculator"], alwaysAllowedApps: [] });
-      expect(manager.appPolicyForCall({ windowIds: [CALCULATOR.id] })?.kind).toBe("blocked");
-      expect(manager.appPolicyForCall({ windowIds: [SETTINGS.id] })).toBeUndefined();
+      expect((await manager.appPolicyForCall({ windowIds: [CALCULATOR.id] }))?.kind).toBe(
+        "blocked",
+      );
+      expect(await manager.appPolicyForCall({ windowIds: [SETTINGS.id] })).toBeUndefined();
     } finally {
       await manager.dispose();
     }
@@ -477,14 +483,16 @@ describe("Settings › Computer use: always allowed never over-matches", () => {
     const manager = await hostManager();
     try {
       manager.setAppPolicy({ blockedApps: ["Notepad"], alwaysAllowedApps: [] });
-      expect(manager.appPolicyForCall({ app: DOWNLOADS_NOTEPAD })?.kind).toBe("blocked");
+      expect((await manager.appPolicyForCall({ app: DOWNLOADS_NOTEPAD }))?.kind).toBe("blocked");
       await expect(manager.launchApp(THREAD, DOWNLOADS_NOTEPAD)).rejects.toMatchObject({
         code: "computer_app_blocked",
       });
       // Blocking the host blocks every window it owns.
       manager.setAppPolicy({ blockedApps: ["ApplicationFrameHost"], alwaysAllowedApps: [] });
-      expect(manager.appPolicyForCall({ windowIds: [CALCULATOR.id] })?.kind).toBe("blocked");
-      expect(manager.appPolicyForCall({ windowIds: [SETTINGS.id] })?.kind).toBe("blocked");
+      expect((await manager.appPolicyForCall({ windowIds: [CALCULATOR.id] }))?.kind).toBe(
+        "blocked",
+      );
+      expect((await manager.appPolicyForCall({ windowIds: [SETTINGS.id] }))?.kind).toBe("blocked");
     } finally {
       await manager.dispose();
     }
@@ -509,6 +517,111 @@ describe("Settings › Computer use: keystrokes that name no window", () => {
       await expect(manager.typeText(undefined, "mine")).resolves.toBeDefined();
       manager.setAppPolicy({ blockedApps: ["Notepad"], alwaysAllowedApps: [] });
       await expect(manager.typeText(THREAD, "ok")).resolves.toBeDefined();
+    } finally {
+      await manager.dispose();
+    }
+  });
+});
+
+describe("Settings › Computer use: always allowed is decided by identity, in any language", () => {
+  // A Chinese Windows reports 「设置」 for SystemSettings.exe and 「记事本」 for notepad.exe;
+  // a German one reports "Einstellungen", which no name list knows.
+  const SETTINGS_PID = 6_001;
+  const GERMAN_SETTINGS_PID = 6_002;
+  const NOTEPAD_ZH_PID = 6_003;
+  const localWindow = (id: string, appName: string, pid: number): ComputerWindow => ({
+    id,
+    title: appName,
+    appName,
+    pid,
+    bounds: { x: 0, y: 0, width: 400, height: 300 },
+    focused: false,
+    minimized: false,
+    visible: true,
+  });
+  const ZH_SETTINGS = localWindow("win-zh-settings", "设置", SETTINGS_PID);
+  const DE_SETTINGS = localWindow("win-de-settings", "Einstellungen", GERMAN_SETTINGS_PID);
+  const ZH_NOTEPAD = localWindow("win-zh-notepad", "记事本", NOTEPAD_ZH_PID);
+  const LOCAL_APPS: ComputerApp[] = [
+    {
+      pid: SETTINGS_PID,
+      name: "SystemSettings",
+      launchPath: String.raw`C:\Windows\ImmersiveControlPanel\SystemSettings.exe`,
+      running: true,
+      active: false,
+    },
+    {
+      pid: GERMAN_SETTINGS_PID,
+      name: "SystemSettings",
+      launchPath: String.raw`C:\Windows\ImmersiveControlPanel\SystemSettings.exe`,
+      running: true,
+      active: false,
+    },
+    {
+      pid: NOTEPAD_ZH_PID,
+      name: "notepad",
+      launchPath: String.raw`C:\Windows\System32\notepad.exe`,
+      running: true,
+      active: false,
+    },
+  ];
+
+  async function localManager() {
+    const manager = new ComputerManager({
+      backend: new FakeComputerBackend({
+        windows: [ZH_SETTINGS, DE_SETTINGS, ZH_NOTEPAD],
+        apps: LOCAL_APPS,
+      }),
+      actionSettleMs: 0,
+    });
+    await manager.listWindows();
+    return manager;
+  }
+
+  it("ignores a saved choice for a protected program shown under a localized name", async () => {
+    const manager = await localManager();
+    try {
+      manager.setAppPolicy({ blockedApps: [], alwaysAllowedApps: ["设置", "Einstellungen"] });
+      for (const target of [
+        { windowIds: [ZH_SETTINGS.id] },
+        { windowIds: [DE_SETTINGS.id] },
+        { app: "设置" },
+        { app: "Einstellungen" },
+        { pid: SETTINGS_PID },
+      ]) {
+        expect(await manager.appPolicyForCall(target), JSON.stringify(target)).toBeUndefined();
+      }
+      // Recorded as used, the identity travels with the row, so it stays protected.
+      await manager.typeText(THREAD, "x", DE_SETTINGS.id);
+      const recorded = (await manager.listUsedApps()).find((app) => app.name === "Einstellungen");
+      expect(recorded).toMatchObject({ processName: "SystemSettings" });
+      expect(await manager.appPolicyForCall({ app: "Einstellungen" })).toBeUndefined();
+    } finally {
+      await manager.dispose();
+    }
+  });
+
+  it("never allows a name nothing resolves", async () => {
+    const manager = new ComputerManager({ backend: fixture(), actionSettleMs: 0 });
+    try {
+      manager.setAppPolicy({ blockedApps: [], alwaysAllowedApps: ["记事本", "Photoshop"] });
+      expect(await manager.appPolicyForCall({ app: "记事本" })).toBeUndefined();
+      expect(await manager.appPolicyForCall({ app: "Photoshop" })).toBeUndefined();
+    } finally {
+      await manager.dispose();
+    }
+  });
+
+  it("still lets an ordinary app with a Chinese name skip the prompt", async () => {
+    const manager = await localManager();
+    try {
+      manager.setAppPolicy({ blockedApps: [], alwaysAllowedApps: ["记事本"] });
+      expect(await manager.appPolicyForCall({ windowIds: [ZH_NOTEPAD.id] })).toEqual({
+        kind: "always-allowed",
+        app: "记事本",
+      });
+      await manager.typeText(THREAD, "x", ZH_NOTEPAD.id);
+      expect((await manager.appPolicyForCall({ app: "记事本" }))?.kind).toBe("always-allowed");
     } finally {
       await manager.dispose();
     }

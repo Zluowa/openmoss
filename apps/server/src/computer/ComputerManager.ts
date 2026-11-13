@@ -111,7 +111,9 @@ import {
   computerAppAllowKeys,
   computerAppIdentityKeys,
   computerAppIsSharedHost,
+  computerAppPolicyKey,
   computerAppPolicyMatch,
+  type ComputerAppAllowIdentity,
 } from "@moss/shared/computerAppPolicy";
 import { CuaActionError } from "./CuaComputerBackend.ts";
 import {
@@ -733,64 +735,124 @@ export class ComputerManager {
   /**
    * How the per-app choices apply to one tool call, decided before the
    * approval prompt from what the call provably names: an `app` argument, a
-   * window id the desktop already listed, a pid in the cached inventory.
+   * window id the desktop already listed, a pid in the running-app inventory.
    * Every named target counts: any blocked one makes the call "blocked", and
    * "always allowed" needs every named target resolved and allowed, so an
    * allowed `app` cannot carry another app's `window_id` past the prompt. A
    * call that names nothing resolvable is `undefined` and keeps the ordinary
-   * approval. This never enumerates the desktop: an unknown window is not
-   * assumed to be anything.
+   * approval. Windows are looked up in the last listing (an unknown window is
+   * not assumed to be anything); the inventory is the briefly cached one the
+   * denylist reads.
    */
-  appPolicyForCall(target: {
+  async appPolicyForCall(target: {
     readonly app?: string | undefined;
     readonly windowIds?: readonly (string | undefined)[];
     readonly pid?: number | undefined;
-  }): { readonly kind: "blocked" | "always-allowed"; readonly app: string } | undefined {
-    const identities: Array<ComputerAppIdentity | undefined> = [];
+  }): Promise<{ readonly kind: "blocked" | "always-allowed"; readonly app: string } | undefined> {
+    const inventory = await this.runningAppsForDenylist();
+    const targets: Array<
+      | {
+          readonly block: ComputerAppIdentity;
+          readonly allow: ComputerAppAllowIdentity | undefined;
+        }
+      | undefined
+    > = [];
     if (target.app !== undefined && target.app.trim().length > 0) {
-      identities.push({ name: target.app });
+      targets.push({
+        block: { name: target.app },
+        allow: this.namedAppAllowIdentity(target.app, inventory),
+      });
     }
     for (const windowId of new Set(target.windowIds ?? [])) {
       if (windowId === undefined) continue;
       const window = this.lastKnownWindows.get(windowId);
-      identities.push(window === undefined ? undefined : this.windowAppIdentity(window));
-    }
-    if (target.pid !== undefined) {
-      const owner = this.deniedAppsCache?.apps.find((candidate) => candidate.pid === target.pid);
-      identities.push(
-        owner === undefined
+      targets.push(
+        window === undefined
           ? undefined
-          : { name: owner.name, bundleId: owner.bundleId, path: owner.launchPath },
+          : { block: this.windowAppIdentity(window), allow: this.windowAllowIdentity(window) },
       );
     }
-    if (identities.length === 0) return undefined;
+    if (target.pid !== undefined) {
+      const owner = inventory.find((candidate) => candidate.pid === target.pid);
+      targets.push(
+        owner === undefined
+          ? undefined
+          : {
+              block: { name: owner.name, bundleId: owner.bundleId, path: owner.launchPath },
+              allow: inventoryAllowIdentity(owner.name, owner),
+            },
+      );
+    }
+    if (targets.length === 0) return undefined;
     let allowedApp: string | undefined;
     let everyTargetAllowed = true;
-    for (const identity of identities) {
-      if (identity === undefined) {
+    for (const entry of targets) {
+      if (entry === undefined) {
         everyTargetAllowed = false;
         continue;
       }
       // Blocking over-matches on purpose: every spelling the desktop has used
-      // for the app, executable paths included.
+      // for the app, executable paths and the owning process included.
       const blocked = computerAppPolicyMatch(
         this.appPolicy.blockedApps,
-        this.expandAppKeys(identity),
+        this.expandAppKeys(entry.block),
       );
-      if (blocked !== undefined) return { kind: "blocked", app: identity.name ?? blocked };
-      // Skipping the prompt never does: only the target's own name or bundle
-      // id, never a path argument, an alias or a sibling of a shared host
-      // process, and never Windows Settings / Control Panel.
-      const allowed = computerAppPolicyMatch(
-        this.appPolicy.alwaysAllowedApps,
-        computerAppAllowKeys(identity),
-      );
+      if (blocked !== undefined) return { kind: "blocked", app: entry.block.name ?? blocked };
+      // Skipping the prompt never over-matches: it needs the target's resolved
+      // identity (process, executable or bundle id), never a protected program
+      // in any language, and then only the target's own name or bundle id.
+      const allowed =
+        entry.allow === undefined
+          ? undefined
+          : computerAppPolicyMatch(
+              this.appPolicy.alwaysAllowedApps,
+              computerAppAllowKeys(entry.allow),
+            );
       if (allowed === undefined) everyTargetAllowed = false;
-      else allowedApp ??= identity.name ?? allowed;
+      else allowedApp ??= entry.allow?.name ?? allowed;
     }
     return everyTargetAllowed && allowedApp !== undefined
       ? { kind: "always-allowed", app: allowedApp }
       : undefined;
+  }
+
+  /**
+   * The identity an `app` argument resolves to for "always allowed": the
+   * running app it names (process name or bundle id), else the identity
+   * recorded when Moss last used an app of that name. A path, or a name
+   * nothing resolves, has none, so it always prompts.
+   */
+  private namedAppAllowIdentity(
+    app: string,
+    inventory: readonly ComputerApp[],
+  ): ComputerAppAllowIdentity | undefined {
+    if (/[\\/]/.test(app)) return undefined;
+    const key = computerAppPolicyKey(app);
+    const running = inventory.find(
+      (candidate) =>
+        computerAppPolicyKey(candidate.name) === key ||
+        (candidate.bundleId !== undefined && computerAppPolicyKey(candidate.bundleId) === key),
+    );
+    if (running !== undefined) return inventoryAllowIdentity(app, running);
+    const recorded = this.usedApps.identityForName(app);
+    return recorded === undefined ? undefined : { ...recorded, name: app };
+  }
+
+  /**
+   * The identity a listed window answers to for "always allowed": the name it
+   * shows plus its owning process from the inventory, else the identity Moss
+   * recorded for that name. A window nothing resolves has none.
+   */
+  private windowAllowIdentity(window: ComputerWindow): ComputerAppAllowIdentity | undefined {
+    const owner =
+      window.pid === undefined
+        ? undefined
+        : this.deniedAppsCache?.apps.find((candidate) => candidate.pid === window.pid);
+    const name = window.appName ?? owner?.name;
+    if (owner !== undefined) return inventoryAllowIdentity(name ?? owner.name, owner);
+    if (name === undefined) return undefined;
+    const recorded = this.usedApps.identityForName(name);
+    return recorded === undefined ? undefined : { ...recorded, name };
   }
 
   /** The apps agents have driven, newest first. Never starts the backend. */
@@ -861,7 +923,12 @@ export class ComputerManager {
         ].some((key) => keys.has(key)),
     );
     if (owner !== undefined)
-      return { name: owner.name, bundleId: owner.bundleId, path: owner.launchPath };
+      return {
+        name: owner.name,
+        bundleId: owner.bundleId,
+        path: owner.launchPath,
+        processName: owner.name,
+      };
     const looksLikePath = /[\\/]/.test(app);
     const base = app.trim().split(/[\\/]/).pop() ?? app;
     return looksLikePath
@@ -872,7 +939,12 @@ export class ComputerManager {
   /** The identity a pid-grain target answers to, from the cached inventory. */
   private pidAppIdentity(pid: number, name: string | undefined): ComputerAppIdentity {
     const owner = this.deniedAppsCache?.apps.find((candidate) => candidate.pid === pid);
-    return { name: name ?? owner?.name, bundleId: owner?.bundleId, path: owner?.launchPath };
+    return {
+      name: name ?? owner?.name,
+      bundleId: owner?.bundleId,
+      path: owner?.launchPath,
+      processName: owner?.name,
+    };
   }
 
   /** How a pid-grain target's owning app matches the denylist, or nothing. */
@@ -5639,6 +5711,20 @@ function rectsOverlap(first: ComputerRect, second: ComputerRect): boolean {
     first.y < second.y + second.height &&
     second.y < first.y + first.height
   );
+}
+
+/**
+ * A running app's identity for "always allowed", under the name the target
+ * shows. A shared host's bundle id says nothing about the app a window names,
+ * so it is dropped (the host process itself is protected anyway).
+ */
+function inventoryAllowIdentity(name: string, owner: ComputerApp): ComputerAppAllowIdentity {
+  return {
+    name,
+    processName: owner.name,
+    path: owner.launchPath,
+    bundleId: computerAppIsSharedHost(owner.name) ? undefined : owner.bundleId,
+  };
 }
 
 function agentThreadId(threadId: string | undefined): string | undefined {

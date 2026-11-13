@@ -64,6 +64,7 @@ interface StoredUsedApp {
   readonly name: string;
   readonly bundleId?: string;
   readonly iconPath?: string;
+  readonly processName?: string;
   readonly lastUsedAt: string;
 }
 
@@ -83,6 +84,9 @@ function parseStoredUsedApps(raw: unknown): StoredUsedApp[] {
       name,
       ...(typeof record.bundleId === "string" ? { bundleId: record.bundleId.slice(0, 512) } : {}),
       ...(typeof record.iconPath === "string" ? { iconPath: record.iconPath.slice(0, 4_096) } : {}),
+      ...(typeof record.processName === "string"
+        ? { processName: record.processName.slice(0, 256) }
+        : {}),
       lastUsedAt: new Date(record.lastUsedAt).toISOString(),
     });
     if (out.length >= COMPUTER_USED_APPS_MAX) break;
@@ -151,11 +155,14 @@ export class ComputerUsedAppsStore {
     );
     const bundleId = identity.bundleId ?? previous?.bundleId;
     const iconPath = identity.path ?? previous?.iconPath;
+    // Identity metadata only, never a merge key: a shared host would merge rows.
+    const processName = identity.processName ?? previous?.processName;
     const next: StoredUsedApp = {
       // The first spelling seen stays the row's name and policy key.
       name: previous?.name ?? name.slice(0, 256),
       ...(bundleId ? { bundleId: bundleId.slice(0, 512) } : {}),
       ...(iconPath ? { iconPath: iconPath.slice(0, 4_096) } : {}),
+      ...(processName ? { processName: processName.slice(0, 256) } : {}),
       lastUsedAt: this.now().toISOString(),
     };
     this.apps = [next, ...this.apps.filter((app) => app !== previous)].slice(
@@ -186,8 +193,26 @@ export class ComputerUsedAppsStore {
       name: app.name,
       ...(app.bundleId !== undefined ? { bundleId: app.bundleId } : {}),
       ...(app.iconPath !== undefined ? { iconPath: app.iconPath } : {}),
+      ...(app.processName !== undefined ? { processName: app.processName } : {}),
       lastUsedAt: app.lastUsedAt,
     }));
+  }
+
+  /**
+   * The identity recorded for the app a display name names, for deciding
+   * "always allowed" when the call itself carries only that name.
+   */
+  identityForName(name: string): ComputerAppIdentity | undefined {
+    const key = computerAppPolicyKey(name);
+    const app = this.apps.find((candidate) => computerAppPolicyKey(candidate.name) === key);
+    return app === undefined
+      ? undefined
+      : {
+          name: app.name,
+          bundleId: app.bundleId,
+          path: app.iconPath,
+          processName: app.processName,
+        };
   }
 
   async flush(): Promise<void> {

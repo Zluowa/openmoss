@@ -6,8 +6,10 @@
 
 import type { ComputerServerSettings, ComputerUsedApp } from "@moss/contracts";
 import {
+  computerAppAllowKeys,
   computerAppCanBeAlwaysAllowed,
   computerAppIdentityKeys,
+  type ComputerAppAllowIdentity,
   computerAppPolicyKey,
   computerAppPolicyMatch,
   withComputerApp,
@@ -21,6 +23,12 @@ export interface ComputerAppRow {
   readonly iconPath?: string | undefined;
   readonly blocked: boolean;
   readonly alwaysAllowed: boolean;
+  /**
+   * Whether this app may be always allowed at all: Moss knows its identity
+   * (process, executable or bundle id) and it is not a protected program
+   * such as Windows Settings, Control Panel or a shell, in any language.
+   */
+  readonly allowable: boolean;
 }
 
 /**
@@ -34,31 +42,44 @@ export function buildComputerAppRows(
 ): ComputerAppRow[] {
   const rows: ComputerAppRow[] = [];
   const seen = new Set<string>();
-  const push = (name: string, iconPath: string | undefined, keys: ReadonlySet<string>) => {
+  const push = (identity: ComputerAppAllowIdentity & { readonly name: string }) => {
+    const { name } = identity;
+    const keys = computerAppIdentityKeys({
+      name,
+      bundleId: identity.bundleId,
+      path: identity.path,
+    });
     const key = computerAppPolicyKey(name);
     if (key.length === 0 || seen.has(key)) return;
     for (const alias of keys) seen.add(alias);
     seen.add(key);
+    // Same rule and same keys the server uses at call time, so the page never
+    // says an app skips the prompt when the server would still ask.
+    const allowable = computerAppCanBeAlwaysAllowed(identity);
     rows.push({
       key,
       name,
-      iconPath,
+      iconPath: identity.path,
       blocked: computerAppPolicyMatch(policy.blockedApps, keys) !== undefined,
-      // The server never skips the prompt for these, so the page never says it does.
       alwaysAllowed:
-        computerAppCanBeAlwaysAllowed(name) &&
-        computerAppPolicyMatch(policy.alwaysAllowedApps, keys) !== undefined,
+        allowable &&
+        computerAppPolicyMatch(policy.alwaysAllowedApps, computerAppAllowKeys(identity)) !==
+          undefined,
+      allowable,
     });
   };
   for (const app of usedApps) {
-    push(
-      app.name,
-      app.iconPath,
-      computerAppIdentityKeys({ name: app.name, bundleId: app.bundleId, path: app.iconPath }),
-    );
+    push({
+      name: app.name,
+      bundleId: app.bundleId,
+      path: app.iconPath,
+      processName: app.processName,
+    });
   }
+  // A choice for an app Moss no longer lists has no identity: it stays visible
+  // and can be turned off, but is never shown as skipping the prompt.
   for (const name of [...policy.blockedApps, ...policy.alwaysAllowedApps]) {
-    push(name, undefined, computerAppIdentityKeys({ name }));
+    push({ name });
   }
   return rows;
 }
@@ -101,7 +122,5 @@ export function nextComputerAppPolicy(
  * allowed to skip the prompt at all (never Windows Settings or Control Panel).
  */
 export function alwaysAllowCandidates(rows: readonly ComputerAppRow[]): ComputerAppRow[] {
-  return rows.filter(
-    (row) => !row.blocked && !row.alwaysAllowed && computerAppCanBeAlwaysAllowed(row.name),
-  );
+  return rows.filter((row) => !row.blocked && !row.alwaysAllowed && row.allowable);
 }

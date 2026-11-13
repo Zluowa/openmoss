@@ -1992,7 +1992,7 @@ export function makeAgentGatewayComputerTools(
           // still refuses blocked apps inside it).
           const appPolicy =
             computerToolRequiresApproval(name) && name !== "computer_run"
-              ? manager.appPolicyForCall({
+              ? await manager.appPolicyForCall({
                   app: readStringArg(args, "app"),
                   windowIds: [
                     readWindowIdArg(args),

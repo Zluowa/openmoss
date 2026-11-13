@@ -777,6 +777,12 @@ export const ComputerUsedApp = Schema.Struct({
   bundleId: Schema.optional(Schema.String.check(Schema.isMaxLength(512))),
   /** The app's executable or bundle path when known; the desktop reads its icon from it. */
   iconPath: Schema.optional(Schema.String.check(Schema.isMaxLength(4_096))),
+  /**
+   * The process that owned the app's window or launch (Windows), e.g. `notepad`
+   * for 「记事本」. With `bundleId` and `iconPath`, this is the identity "always
+   * allowed" is decided by; the display name alone never is.
+   */
+  processName: Schema.optional(Schema.String.check(Schema.isMaxLength(256))),
   lastUsedAt: Schema.optional(IsoDateTime),
 });
 export type ComputerUsedApp = typeof ComputerUsedApp.Type;

@@ -277,6 +277,8 @@ const CHROME_LABELS: Readonly<Record<string, string>> = {
   "Import conversations": "导入对话",
   "Opening the folder picker…": "正在打开文件夹选择器…",
   "Drop a folder here, or": "把文件夹拖到这里，或",
+  // The underlined link that ends the sentence above (onboarding step 5).
+  browse: "选择文件夹",
   Added: "已添加",
   "Already linked": "已关联",
   Guide: "指南",
