@@ -85,6 +85,7 @@ import {
   MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL_ENV_KEY,
   MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS_ENV_KEY,
   MOSS_CN_MODEL_GATEWAY_HOST,
+  MOSS_PREVIOUS_CN_MODEL_GATEWAY_HOST,
   isTrustedMossManagedGatewayUrl,
   isTrustedMossManagedGatewayUrlForAuthority,
   mossManagedGatewayEntriesForAuthority,
@@ -156,10 +157,17 @@ export const MOSS_MANAGED_CLAUDE_MODEL_ENV_KEY = "MOSS_MODEL_GATEWAY_CLAUDE_MODE
 const MOSS_MANAGED_QUARANTINED_CODEX_MODEL = "gpt-5.6-luna";
 
 // Historical cleanup only; this is deliberately not a launch-trust alias. It is trusted
-// again only when the release lists it as a CN entry (the fallback since 2026-11-13).
+// again only when the release lists it as a CN entry (a fallback since 2026-11-13).
 const PREVIOUS_CN_MANAGED_GATEWAY =
   "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
-const DIRECT_CN_MANAGED_GATEWAY = `https://${MOSS_CN_MODEL_GATEWAY_HOST}/functions/v1/moss-model-gateway/v1`;
+// The first CN entries official releases have shipped since the tunnel entry above stopped
+// being first: comiction.cn (up to 1.0.3) and mossbotai.com. The historical cleanup runs only
+// under one of them, so a development or self-hosted gateway never adopts an old generation.
+const OFFICIAL_CN_MANAGED_GATEWAYS: ReadonlySet<string> = new Set(
+  [MOSS_CN_MODEL_GATEWAY_HOST, MOSS_PREVIOUS_CN_MODEL_GATEWAY_HOST].map(
+    (host) => `https://${host}/functions/v1/moss-model-gateway/v1`,
+  ),
+);
 
 function requireManagedDefaultModel(
   model: string | null,
@@ -2178,7 +2186,9 @@ export const MossManagedProviderLive = Layer.effect(
       const codex = settings.providerInstances[MOSS_MANAGED_PROVIDER_INSTANCE_ID];
       const codexConfig = asConfigRecord(codex?.config);
       if (
-        process.env[MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY] !== DIRECT_CN_MANAGED_GATEWAY ||
+        !OFFICIAL_CN_MANAGED_GATEWAYS.has(
+          process.env[MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY] ?? "",
+        ) ||
         !reservation?.ownershipNonce ||
         reservation.provisioning ||
         codex?.displayName !== "Moss" ||

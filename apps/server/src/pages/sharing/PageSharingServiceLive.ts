@@ -210,7 +210,12 @@ const make = Effect.gen(function* () {
     store,
     signingKey,
     transport,
-    accountSources: { phoneAccount, cloudAccount, env: transport.env },
+    accountSources: {
+      phoneAccount,
+      cloudAccount,
+      env: transport.env,
+      ...(transport.relayRouters ? { routers: transport.relayRouters } : {}),
+    },
     handle: (request) =>
       run(handlePageGuestRequest(guestOperations, request), { signal: request.signal }),
   });

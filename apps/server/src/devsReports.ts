@@ -12,6 +12,7 @@ import {
   DEVS_ATTACHMENT_LIMITS,
   DEVS_CONSENT_REQUIRED_MESSAGE,
   DEVS_DEFAULT_INSTALL_DAILY_LIMIT,
+  MOSS_DEVS_FALLBACK_REPORT_URL,
   MOSS_DEVS_PUBLIC_REPORT_URL,
   MOSS_DEVS_REPORTS_ENABLED,
   devsAttachmentBytesMatch,
@@ -22,6 +23,7 @@ import {
   type DevsAttachmentManifestEntry,
 } from "@moss/shared/devsReport";
 import { Effect } from "effect";
+import { isMossConnectionLevelFailure } from "./account/mossServiceEntries";
 import { writeFileStringAtomically } from "./atomicWrite";
 
 const MAX_REPORTS = 200;
@@ -175,6 +177,8 @@ export class DevsReports {
   private chain = Promise.resolve();
   private readonly timer: ReturnType<typeof setInterval>;
   private readonly endpoint: URL | null;
+  /** The public queue's older hostname; null for a configured queue. */
+  private readonly fallbackEndpoint: URL | null;
   private readonly token: string | undefined;
   private readonly file: string;
   private readonly defaultEngine: "claude" | "codex";
@@ -195,6 +199,10 @@ export class DevsReports {
     this.endpoint = devsEndpoint(
       env.MOSS_DEVS_REPORT_URL ?? (MOSS_DEVS_REPORTS_ENABLED ? MOSS_DEVS_PUBLIC_REPORT_URL : ""),
     );
+    this.fallbackEndpoint =
+      env.MOSS_DEVS_REPORT_URL === undefined && this.endpoint !== null
+        ? devsEndpoint(MOSS_DEVS_FALLBACK_REPORT_URL)
+        : null;
     this.token = env.MOSS_DEVS_REPORT_TOKEN;
     this.defaultEngine = env.MOSS_DEVS_DEFAULT_ENGINE === "claude" ? "claude" : "codex";
     this.file = path.join(stateDir, "devs-reports.json");
@@ -252,6 +260,23 @@ export class DevsReports {
         contents: JSON.stringify(this.reports),
       }),
     );
+  }
+  /**
+   * One request to the queue at `endpoint`, built by `request`. When it fails below HTTP and
+   * the public queue is in use, it is sent once more to the queue's older hostname. Every such
+   * request names its report ID, which the queue deduplicates, so a repeat changes nothing.
+   */
+  private async fetchQueue(
+    request: (endpoint: URL) => { readonly url: URL; readonly init: RequestInit },
+  ): Promise<Response> {
+    const first = request(this.endpoint!);
+    try {
+      return await this.fetcher(first.url, first.init);
+    } catch (cause) {
+      if (this.fallbackEndpoint === null || !isMossConnectionLevelFailure(cause)) throw cause;
+      const again = request(this.fallbackEndpoint);
+      return this.fetcher(again.url, again.init);
+    }
   }
   get configured() {
     return this.endpoint !== null;
@@ -482,34 +507,40 @@ export class DevsReports {
         )
           continue;
         try {
-          const url = new URL(this.endpoint);
-          url.pathname = `${url.pathname.replace(/\/$/, "")}/${entry.state.id}`;
-          const response = await this.fetcher(entry.delivered ? url : this.endpoint, {
-            method: entry.delivered ? "GET" : "POST",
-            redirect: "error",
-            headers: {
-              authorization: `Bearer ${this.token ?? entry.readToken}`,
-              "content-type": "application/json",
-            },
-            ...(entry.delivered
-              ? {}
-              : {
-                  body: JSON.stringify({
-                    id: entry.state.id,
-                    engine: entry.state.engine,
-                    description: entry.state.description,
-                    context: entry.context,
-                    install: await this.install(),
-                    ...(entry.attachments?.length
-                      ? {
-                          attachments: entry.attachments.map(
-                            ({ uploaded: _uploaded, ...manifest }) => manifest,
-                          ),
-                        }
-                      : {}),
-                  }),
-                }),
-            signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+          const install = entry.delivered ? undefined : await this.install();
+          const response = await this.fetchQueue((endpoint) => {
+            const url = new URL(endpoint);
+            url.pathname = `${url.pathname.replace(/\/$/, "")}/${entry.state.id}`;
+            return {
+              url: entry.delivered ? url : endpoint,
+              init: {
+                method: entry.delivered ? "GET" : "POST",
+                redirect: "error",
+                headers: {
+                  authorization: `Bearer ${this.token ?? entry.readToken}`,
+                  "content-type": "application/json",
+                },
+                ...(entry.delivered
+                  ? {}
+                  : {
+                      body: JSON.stringify({
+                        id: entry.state.id,
+                        engine: entry.state.engine,
+                        description: entry.state.description,
+                        context: entry.context,
+                        install,
+                        ...(entry.attachments?.length
+                          ? {
+                              attachments: entry.attachments.map(
+                                ({ uploaded: _uploaded, ...manifest }) => manifest,
+                              ),
+                            }
+                          : {}),
+                      }),
+                    }),
+                signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+              },
+            };
           });
           if (!response.ok) {
             await response.body?.cancel();
@@ -611,17 +642,22 @@ export class DevsReports {
         entry.attachmentsMissed = true;
         return;
       }
-      const url = new URL(this.endpoint);
-      url.pathname = `${url.pathname.replace(/\/$/, "")}/${entry.state.id}/attachments/${index}`;
-      const response = await this.fetcher(url, {
-        method: "PUT",
-        redirect: "error",
-        headers: {
-          authorization: `Bearer ${this.token ?? entry.readToken}`,
-          "content-type": attachment.mimeType,
-        },
-        body: new Uint8Array(bytes),
-        signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS * 3),
+      const response = await this.fetchQueue((endpoint) => {
+        const url = new URL(endpoint);
+        url.pathname = `${url.pathname.replace(/\/$/, "")}/${entry.state.id}/attachments/${index}`;
+        return {
+          url,
+          init: {
+            method: "PUT",
+            redirect: "error",
+            headers: {
+              authorization: `Bearer ${this.token ?? entry.readToken}`,
+              "content-type": attachment.mimeType,
+            },
+            body: new Uint8Array(bytes),
+            signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS * 3),
+          },
+        };
       });
       await response.body?.cancel();
       // An older queue without attachment routes: ask again on the next poll.

@@ -101,6 +101,7 @@ import { CUA_HOST_SOCKET_ENV } from "@moss/shared/cuaDriverProtocol";
 import { resolveMossDownloadChannel } from "@moss/shared/mossDownloadChannel";
 import {
   MOSS_PRODUCTION_PUBLIC_CONFIG_FILE,
+  splitMossServiceUrlList,
   type MossProductionPublicConfig,
 } from "@moss/shared/mossProductionPublicConfig";
 import { MOSS_ERROR_REPORTS_ENABLED_ENV } from "@moss/shared/observability";
@@ -9131,11 +9132,16 @@ function configureMediaPermissions(): void {
 
 function configureRealtimeVoiceMediaRequests(): void {
   const productionPublicConfig = desktopProductionPublicConfig();
+  const cnRealm = productionPublicConfig?.authRealms["memfire-phone"];
   const realtimeRelayUrl = app.isPackaged
-    ? productionPublicConfig?.authRealms["memfire-phone"].realtimeRelayUrl
+    ? cnRealm?.realtimeRelayUrl
     : process.env.MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL;
+  const realtimeRelayFallbackUrls = app.isPackaged
+    ? (cnRealm?.realtimeRelayFallbackUrls ?? [])
+    : splitMossServiceUrlList(process.env.MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS);
   const policy = createRealtimeVoiceMediaRequestPolicy({
     realtimeRelayUrl,
+    realtimeRelayFallbackUrls,
     trustedRendererUrl: resolveRendererAppEntryUrl(),
   });
   if (policy === null) {
