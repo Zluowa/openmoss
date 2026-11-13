@@ -21,11 +21,13 @@ export const MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS = [
   "MOSS_MEMFIRE_PHONE_PAY_BASE_URL",
   "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
   "MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS",
+  "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS",
   "MOSS_SUPABASE_GOOGLE_URL",
   "MOSS_SUPABASE_GOOGLE_PUBLISHABLE_KEY",
   "MOSS_SUPABASE_GOOGLE_AUTH_REDIRECT_URL",
   "MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL",
   "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL",
+  "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS",
 ] as const;
 
 /** @deprecated Prefer MOSS_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS for the v2 environment projection. */
@@ -38,6 +40,8 @@ export const MOSS_OPTIONAL_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS = [
   "MOSS_MEMFIRE_PHONE_PAY_BASE_URL",
   "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS",
   "MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS",
+  "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS",
+  "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS",
 ] as const satisfies ReadonlyArray<MossProductionPublicConfigKey>;
 
 /** At most this many fallback entries per service, so a bad manifest cannot fan out probes. */
@@ -96,6 +100,11 @@ export interface MossMemFirePhonePublicRealm {
   readonly modelGatewayFallbackUrls?: ReadonlyArray<string>;
   /** Other entries to the same CN payment service, tried in order after `payBaseUrl`. */
   readonly payFallbackBaseUrls?: ReadonlyArray<string>;
+  /**
+   * Other entries to the same CN realtime relay, tried in order after `realtimeRelayUrl`.
+   * Absent in older releases.
+   */
+  readonly realtimeRelayFallbackUrls?: ReadonlyArray<string>;
 }
 
 export interface MossSupabaseGooglePublicRealm {
@@ -106,6 +115,8 @@ export interface MossSupabaseGooglePublicRealm {
   readonly authRedirectUrl: "moss://auth/callback";
   readonly modelGatewayUrl: string;
   readonly realtimeRelayUrl: string;
+  /** Other entries to the same global realtime relay. Absent in older releases. */
+  readonly realtimeRelayFallbackUrls?: ReadonlyArray<string>;
 }
 
 /** Map keys for visual replies; each may be empty. */
@@ -461,7 +472,25 @@ export function resolveMossProductionPublicConfig(
     "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL",
     requireInputValue(input, "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL"),
   );
-  if (memFireRelayUrl === supabaseRelayUrl) {
+  const memFireRelayFallbackUrls = requireFallbackList({
+    key: "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS",
+    value: input.MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS,
+    primary: memFireRelayUrl,
+    parse: (value) =>
+      requireRealtimeRelayOrigin("MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS", value),
+  });
+  const supabaseRelayFallbackUrls = requireFallbackList({
+    key: "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS",
+    value: input.MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS,
+    primary: supabaseRelayUrl,
+    parse: (value) =>
+      requireRealtimeRelayOrigin("MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS", value),
+  });
+  // A realm's bearer goes to its own relay entries only, so no entry may serve both realms.
+  const supabaseRelayEntries = new Set([supabaseRelayUrl, ...supabaseRelayFallbackUrls]);
+  if (
+    [memFireRelayUrl, ...memFireRelayFallbackUrls].some((entry) => supabaseRelayEntries.has(entry))
+  ) {
     throw new MossProductionPublicConfigError(
       "MemFire phone and Supabase Google must use distinct relay origins.",
     );
@@ -514,6 +543,9 @@ export function resolveMossProductionPublicConfig(
         ...(phonePayBaseUrl ? { payBaseUrl: phonePayBaseUrl } : {}),
         ...(modelGatewayFallbackUrls.length > 0 ? { modelGatewayFallbackUrls } : {}),
         ...(payFallbackBaseUrls.length > 0 ? { payFallbackBaseUrls } : {}),
+        ...(memFireRelayFallbackUrls.length > 0
+          ? { realtimeRelayFallbackUrls: memFireRelayFallbackUrls }
+          : {}),
       },
       "supabase-google": {
         authority: "supabase-google",
@@ -531,6 +563,9 @@ export function resolveMossProductionPublicConfig(
           authUrl: supabaseAuthUrl,
         }),
         realtimeRelayUrl: supabaseRelayUrl,
+        ...(supabaseRelayFallbackUrls.length > 0
+          ? { realtimeRelayFallbackUrls: supabaseRelayFallbackUrls }
+          : {}),
       },
     },
   };
@@ -584,14 +619,18 @@ function requireStringField(record: Record<string, unknown>, key: string, path: 
 }
 
 /** An optional list of URL strings, joined into the environment shape the resolver reads. */
-function requireUrlListField(record: Record<string, unknown>, key: string): string | undefined {
+function requireUrlListField(
+  record: Record<string, unknown>,
+  key: string,
+  path = "memfire-phone",
+): string | undefined {
   if (!(key in record)) return undefined;
   const value = record[key];
   if (
     !Array.isArray(value) ||
     !value.every((entry) => typeof entry === "string" && entry.length > 0 && !/[\s,]/u.test(entry))
   ) {
-    throw new MossProductionPublicConfigError(`memfire-phone.${key} must be a list of URLs.`);
+    throw new MossProductionPublicConfigError(`${path}.${key} must be a list of URLs.`);
   }
   return value.join(",");
 }
@@ -630,7 +669,7 @@ export function parseMossProductionPublicConfig(rawJson: string): MossProduction
     memFire,
     ["authority", "region", "authUrl", "publishableKey", "modelGatewayUrl", "realtimeRelayUrl"],
     "Production public config authRealms.memfire-phone",
-    ["payBaseUrl", "modelGatewayFallbackUrls", "payFallbackBaseUrls"],
+    ["payBaseUrl", "modelGatewayFallbackUrls", "payFallbackBaseUrls", "realtimeRelayFallbackUrls"],
   );
   requireExactKeys(
     supabase,
@@ -644,6 +683,7 @@ export function parseMossProductionPublicConfig(rawJson: string): MossProduction
       "realtimeRelayUrl",
     ],
     "Production public config authRealms.supabase-google",
+    ["realtimeRelayFallbackUrls"],
   );
   if (memFire.authority !== "memfire-phone" || memFire.region !== "cn") {
     throw new MossProductionPublicConfigError(
@@ -683,6 +723,10 @@ export function parseMossProductionPublicConfig(rawJson: string): MossProduction
       "modelGatewayFallbackUrls",
     ),
     MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS: requireUrlListField(memFire, "payFallbackBaseUrls"),
+    MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS: requireUrlListField(
+      memFire,
+      "realtimeRelayFallbackUrls",
+    ),
     MOSS_SUPABASE_GOOGLE_URL: requireStringField(supabase, "authUrl", "supabase-google"),
     MOSS_SUPABASE_GOOGLE_PUBLISHABLE_KEY: requireStringField(
       supabase,
@@ -702,6 +746,11 @@ export function parseMossProductionPublicConfig(rawJson: string): MossProduction
     MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL: requireStringField(
       supabase,
       "realtimeRelayUrl",
+      "supabase-google",
+    ),
+    MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS: requireUrlListField(
+      supabase,
+      "realtimeRelayFallbackUrls",
       "supabase-google",
     ),
     [MOSS_PUBLIC_MAPS_ENV.googleApiKey]: mapKey("googleApiKey"),
@@ -734,11 +783,17 @@ export function toMossProductionPublicConfigEnv(
       ",",
     ),
     MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS: (memFire.payFallbackBaseUrls ?? []).join(","),
+    MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS: (memFire.realtimeRelayFallbackUrls ?? []).join(
+      ",",
+    ),
     MOSS_SUPABASE_GOOGLE_URL: supabase.authUrl,
     MOSS_SUPABASE_GOOGLE_PUBLISHABLE_KEY: supabase.publishableKey,
     MOSS_SUPABASE_GOOGLE_AUTH_REDIRECT_URL: supabase.authRedirectUrl,
     MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL: supabase.modelGatewayUrl,
     MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL: supabase.realtimeRelayUrl,
+    MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS: (
+      supabase.realtimeRelayFallbackUrls ?? []
+    ).join(","),
     // Only a release that ships map keys projects them, so older releases project as before.
     ...(validated.maps
       ? {

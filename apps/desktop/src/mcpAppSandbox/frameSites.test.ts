@@ -53,6 +53,12 @@ describe("MCP App frame site rules", () => {
       "https://moss-share.comiction.cn",
       "https://moss-devs.inkcomicai.com",
       "https://*.inkcomicai.com",
+      "https://mossbotai.com",
+      "https://share.mossbotai.com",
+      "https://api.mossbotai.com",
+      "https://*.mossbotai.com",
+      "https://tishilabs.com",
+      "https://www.tishilabs.com",
       "https://moss-global.supabase.co",
       "https://moss-cn.baseapi.memfiredb.com",
     ]) {
@@ -62,6 +68,10 @@ describe("MCP App frame site rules", () => {
     expect(parseMcpAppFrameSite("https://notclaude.ai")?.host).toBe("notclaude.ai");
     expect(parseMcpAppFrameSite("https://comiction.cn.example.com")?.host).toBe(
       "comiction.cn.example.com",
+    );
+    expect(parseMcpAppFrameSite("https://notmossbotai.com")?.host).toBe("notmossbotai.com");
+    expect(parseMcpAppFrameSite("https://mossbotai.com.example.com")?.host).toBe(
+      "mossbotai.com.example.com",
     );
   });
 

@@ -80,7 +80,7 @@ export type GuestShareRelayStatus = typeof GuestShareRelayStatus.Type;
 export const ThreadGuestShare = Schema.Struct({
   id: GuestShareId,
   threadId: ThreadId,
-  /** The relay origin the link points at, e.g. `https://moss-share.comiction.cn`. */
+  /** The relay entry the link points at, e.g. `https://share.mossbotai.com`. */
   relayOrigin: TrimmedNonEmptyString,
   /** The invite link while it is unused; null once the guest joined (links work once). */
   inviteUrl: Schema.NullOr(TrimmedNonEmptyString),

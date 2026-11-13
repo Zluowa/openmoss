@@ -1,7 +1,9 @@
 /**
  * Registers and deletes shares on the Moss share relay (`POST /v1/shares`,
  * `DELETE /v1/shares/<id>`). Registration carries the owner's account bearer and the host key
- * hash; deletion proves the host key.
+ * hash; deletion proves the host key. With the relay's entry router, each call goes to its
+ * entry in use and a failure below HTTP is reported to it; a registration is never sent to a
+ * second entry within one call, a deletion (asking twice changes nothing) may be.
  */
 import {
   SHARE_RELAY_HOST_KEY_HEADER,
@@ -12,6 +14,10 @@ import {
 } from "@moss/contracts";
 import { Effect, Schema } from "effect";
 
+import {
+  fetchViaMossServiceEntries,
+  type MossServiceEntryRouter,
+} from "../account/mossServiceEntries.ts";
 import { guestShareOwnerError, type GuestShareOwnerError } from "./Errors.ts";
 
 const REGISTER_TIMEOUT_MS = 15_000;
@@ -46,24 +52,45 @@ const relayStatusError = (response: Response): GuestShareOwnerError =>
           new Error(`Share relay answered ${response.status}.`),
         );
 
+export interface ShareRelayRegistration {
+  readonly receipt: ShareRelayRegisterResponse;
+  /** The entry the share was registered through. */
+  readonly origin: string;
+}
+
+/**
+ * Registers `request` on the relay of `origin`: through the router's entry in use when
+ * `origin` is one of its entries, else on `origin` itself. The caller has checked that the
+ * bearer belongs to that relay; the router never leaves its own entries.
+ */
 export function registerShareWithRelay(input: {
   readonly fetch: ShareRelayFetch;
   readonly origin: string;
   readonly bearer: string;
   readonly request: ShareRelayRegisterRequest;
-}): Effect.Effect<ShareRelayRegisterResponse, GuestShareOwnerError> {
+  readonly router?: MossServiceEntryRouter | null;
+}): Effect.Effect<ShareRelayRegistration, GuestShareOwnerError> {
   return Effect.gen(function* () {
+    let used = input.origin;
     const response = yield* Effect.tryPromise({
       try: () =>
-        input.fetch(`${input.origin}${SHARE_RELAY_PATHS.register}`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${input.bearer}`,
-            "content-type": "application/json",
-            accept: "application/json",
+        fetchViaMossServiceEntries({
+          entry: input.origin,
+          router: input.router ?? null,
+          retryOnNextEntry: false,
+          send: (entry) => {
+            used = entry;
+            return input.fetch(`${entry}${SHARE_RELAY_PATHS.register}`, {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${input.bearer}`,
+                "content-type": "application/json",
+                accept: "application/json",
+              },
+              body: JSON.stringify(input.request),
+              signal: AbortSignal.timeout(REGISTER_TIMEOUT_MS),
+            });
           },
-          body: JSON.stringify(input.request),
-          signal: AbortSignal.timeout(REGISTER_TIMEOUT_MS),
         }),
       catch: (cause) => guestShareOwnerError("guest_share.relay_unavailable", cause),
     });
@@ -75,7 +102,7 @@ export function registerShareWithRelay(input: {
         new Error("Share relay returned an unexpected registration."),
       );
     }
-    return body.value;
+    return { receipt: body.value, origin: used };
   });
 }
 
@@ -85,17 +112,21 @@ export function deleteShareFromRelay(input: {
   readonly origin: string;
   readonly shareId: GuestShareId;
   readonly hostKey: string;
+  readonly router?: MossServiceEntryRouter | null;
 }): Effect.Effect<boolean> {
   return Effect.tryPromise({
     try: async () => {
-      const response = await input.fetch(
-        `${input.origin}${SHARE_RELAY_PATHS.share(input.shareId)}`,
-        {
-          method: "DELETE",
-          headers: { [SHARE_RELAY_HOST_KEY_HEADER]: input.hostKey },
-          signal: AbortSignal.timeout(DELETE_TIMEOUT_MS),
-        },
-      );
+      const response = await fetchViaMossServiceEntries({
+        entry: input.origin,
+        router: input.router ?? null,
+        retryOnNextEntry: true,
+        send: (entry) =>
+          input.fetch(`${entry}${SHARE_RELAY_PATHS.share(input.shareId)}`, {
+            method: "DELETE",
+            headers: { [SHARE_RELAY_HOST_KEY_HEADER]: input.hostKey },
+            signal: AbortSignal.timeout(DELETE_TIMEOUT_MS),
+          }),
+      });
       await response.body?.cancel().catch(() => undefined);
       return response.ok || response.status === 404;
     },

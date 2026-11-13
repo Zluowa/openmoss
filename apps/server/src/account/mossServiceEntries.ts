@@ -12,7 +12,10 @@
 // and flapped between entries, re-provisioning the Moss lanes on every change.
 
 import type { ProviderRuntimeEvent } from "@moss/contracts";
-import { splitMossServiceUrlList } from "@moss/shared/mossProductionPublicConfig";
+import {
+  splitMossServiceUrlList,
+  type MossCloudRegion,
+} from "@moss/shared/mossProductionPublicConfig";
 import { Duration, Effect, Schedule, Stream } from "effect";
 
 import { mossManagedGatewayEntriesForAuthority } from "../provider/mossManagedGatewayTrust";
@@ -420,6 +423,18 @@ function cachedRouter(key: string, build: () => MossServiceEntryRouter): MossSer
   return router;
 }
 
+/**
+ * The one router of a service's entries that every caller shares, built at its first call.
+ * Maintenance checks it again only once someone has used it, so building it sends nothing.
+ */
+export function sharedMossServiceEntryRouter(
+  input: Parameters<typeof makeMossServiceEntryRouter>[0],
+): MossServiceEntryRouter {
+  return cachedRouter(`${input.service}:${input.entries.join(" ")}`, () =>
+    makeMossServiceEntryRouter(input),
+  );
+}
+
 /** Forgets every router's state. Tests only. */
 export function resetMossServiceEntryRoutersForTest(): void {
   routers.clear();
@@ -562,6 +577,84 @@ export function mossCnPayEntries(
   return cachedRouter(`pay:${entries.join(" ")}`, () =>
     makeMossServiceEntryRouter({ service: "CN payment", entries, healthUrl: mossPayHealthUrl }),
   );
+}
+
+/** Where each realm's realtime relay entries are configured (the release config's projection). */
+export const MOSS_REALTIME_RELAY_ENTRY_ENV_KEYS = {
+  cn: {
+    primary: "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL",
+    fallbacks: "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS",
+  },
+  global: {
+    primary: "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL",
+    fallbacks: "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS",
+  },
+} as const satisfies Record<MossCloudRegion, { primary: string; fallbacks: string }>;
+
+/** A realtime relay entry: an HTTPS origin without path, query or credentials, else undefined. */
+export function parseMossRealtimeRelayEntry(value: string | undefined): string | undefined {
+  const candidate = value?.trim();
+  if (!candidate) return undefined;
+  try {
+    const url = new URL(candidate);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The relay's unauthenticated health check, at the origin root. */
+export function mossRealtimeRelayHealthUrl(entry: string): string {
+  return `${new URL(entry).origin}/healthz`;
+}
+
+/**
+ * A realm's realtime relay entries: the configured relay, then its listed fallbacks (the same
+ * Worker under other hostnames). Null when the realm has no valid relay. A realm's entries
+ * never include the other realm's: a bearer stays on its own realm's relay.
+ */
+export function mossRealtimeRelayEntries(
+  region: MossCloudRegion,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): MossServiceEntryRouter | null {
+  const keys = MOSS_REALTIME_RELAY_ENTRY_ENV_KEYS[region];
+  const primary = parseMossRealtimeRelayEntry(env[keys.primary]);
+  if (!primary) return null;
+  const other = MOSS_REALTIME_RELAY_ENTRY_ENV_KEYS[region === "cn" ? "global" : "cn"];
+  const otherRealm = new Set(
+    [env[other.primary], ...splitMossServiceUrlList(env[other.fallbacks])]
+      .map(parseMossRealtimeRelayEntry)
+      .filter((entry): entry is string => entry !== undefined),
+  );
+  const fallbacks = splitMossServiceUrlList(env[keys.fallbacks])
+    .map(parseMossRealtimeRelayEntry)
+    .filter((entry): entry is string => entry !== undefined && !otherRealm.has(entry));
+  return sharedMossServiceEntryRouter({
+    service: region === "cn" ? "CN realtime relay" : "global realtime relay",
+    entries: [primary, ...fallbacks],
+    healthUrl: mossRealtimeRelayHealthUrl,
+  });
+}
+
+/** Whether `value` names one of the realm's realtime relay entries exactly (as an origin). */
+export function isMossRealtimeRelayEntry(
+  region: MossCloudRegion,
+  value: string | undefined,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  const entry = parseMossRealtimeRelayEntry(value);
+  const router = mossRealtimeRelayEntries(region, env);
+  return entry !== undefined && router !== null && router.entries.includes(entry);
 }
 
 /**

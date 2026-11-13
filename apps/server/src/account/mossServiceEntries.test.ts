@@ -1,4 +1,10 @@
+import { readFileSync } from "node:fs";
+
 import type { ProviderRuntimeEvent } from "@moss/contracts";
+import {
+  parseMossProductionPublicConfig,
+  toMossProductionPublicConfigEnv,
+} from "@moss/shared/mossProductionPublicConfig";
 import { Effect, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +12,7 @@ import { mossPayFetch, resolveMossPayBaseUrl } from "./mossPayGateway";
 import {
   describeMossServiceEntryChange,
   isMossConnectionLevelFailure,
+  isMossRealtimeRelayEntry,
   fetchViaMossServiceEntries,
   makeMossServiceEntryRouter,
   mossServiceEntryRouterFor,
@@ -15,6 +22,8 @@ import {
   mossCnPayEntries,
   mossModelGatewayHealthUrl,
   mossPayHealthUrl,
+  mossRealtimeRelayEntries,
+  mossRealtimeRelayHealthUrl,
   resetMossServiceEntryRoutersForTest,
   subscribeMossServiceEntryChanges,
   type MossServiceEntryChange,
@@ -439,6 +448,157 @@ describe("the configured CN entries", () => {
       mossCnPayEntries({ MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS: PAY_FALLBACK }),
     ).toBeNull();
     expect(mossPayHealthUrl(PAY_FALLBACK)).toBe(`${PAY_FALLBACK}/healthz`);
+  });
+});
+
+describe("the shipped release's CN entries", () => {
+  const shippedEnv = toMossProductionPublicConfigEnv(
+    parseMossProductionPublicConfig(
+      readFileSync(
+        new URL("../../../desktop/resources/moss-production-public-config.json", import.meta.url),
+        "utf8",
+      ),
+    ),
+  );
+  const NEW = "https://api.mossbotai.com/functions/v1/moss-model-gateway/v1";
+  const NEW_PAY = "https://pay.mossbotai.com/functions/v1/moss-pay";
+  const OLD_PAY = "https://moss-pay.comiction.cn/functions/v1/moss-pay";
+
+  it("puts the mossbotai.com entries first and keeps the old ones after them, in order", () => {
+    expect(mossCnModelGatewayEntries(shippedEnv).entries).toEqual([NEW, FALLBACK, PRIMARY]);
+    expect(mossCnPayEntries(shippedEnv)?.entries).toEqual([NEW_PAY, PAY_FALLBACK, OLD_PAY]);
+  });
+
+  const shippedRouter = (
+    reachable: Set<string>,
+    probe: (healthUrl: string, signal: AbortSignal) => Promise<boolean> = probeFrom(reachable),
+    probeTimeoutMs?: number,
+  ) =>
+    makeMossServiceEntryRouter({
+      service: "CN model gateway",
+      entries: mossCnModelGatewayEntries(shippedEnv).entries,
+      healthUrl: mossModelGatewayHealthUrl,
+      probe,
+      ...(probeTimeoutMs === undefined ? {} : { probeTimeoutMs }),
+    });
+
+  it("uses the new entry while it answers", async () => {
+    const router = shippedRouter(new Set(["api.mossbotai.com", FALLBACK_HOST, PRIMARY_HOST]));
+    await expect(router.ensure()).resolves.toBe(NEW);
+  });
+
+  it("falls to the old entries, in order, when the new one fails below HTTP", async () => {
+    await expect(shippedRouter(new Set([FALLBACK_HOST, PRIMARY_HOST])).ensure()).resolves.toBe(
+      FALLBACK,
+    );
+    await expect(shippedRouter(new Set([PRIMARY_HOST])).ensure()).resolves.toBe(PRIMARY);
+  });
+
+  it("moves a session on the new entry to the tunnel entry when the new one resets requests", async () => {
+    const reachable = new Set(["api.mossbotai.com", FALLBACK_HOST, PRIMARY_HOST]);
+    const router = shippedRouter(reachable);
+    await router.ensure();
+    reachable.delete("api.mossbotai.com");
+    await expect(router.reportConnectionFailure(NEW)).resolves.toBe(FALLBACK);
+  });
+
+  it("costs at most one health-check timeout at first use when the new name never answers", async () => {
+    // A network that drops packets to mossbotai.com: its checks hang until the timeout aborts
+    // them, while the old entries answer at once.
+    const probe = vi.fn(
+      (healthUrl: string, signal: AbortSignal) =>
+        new Promise<boolean>((resolve) => {
+          if (new URL(healthUrl).host !== "api.mossbotai.com") resolve(true);
+          else signal.addEventListener("abort", () => resolve(false));
+        }),
+    );
+    const router = shippedRouter(new Set(), probe, 200);
+    const started = performance.now();
+    await expect(router.ensure()).resolves.toBe(FALLBACK);
+    const waited = performance.now() - started;
+    expect(waited).toBeGreaterThanOrEqual(150);
+    expect(waited).toBeLessThan(2_000);
+  });
+});
+
+describe("the realtime relay entries", () => {
+  const shippedEnv = toMossProductionPublicConfigEnv(
+    parseMossProductionPublicConfig(
+      readFileSync(
+        new URL("../../../desktop/resources/moss-production-public-config.json", import.meta.url),
+        "utf8",
+      ),
+    ),
+  );
+  const CN_NEW = "https://rt.mossbotai.com";
+  const CN_OLD = "https://moss-cn-realtime-edge.inkcomicai.com";
+  const GLOBAL_NEW = "https://rt-global.mossbotai.com";
+  const GLOBAL_OLD = "https://moss-global-realtime.inkcomicai.com";
+
+  it("lists each realm's new entry first and its old one after it", () => {
+    expect(mossRealtimeRelayEntries("cn", shippedEnv)?.entries).toEqual([CN_NEW, CN_OLD]);
+    expect(mossRealtimeRelayEntries("global", shippedEnv)?.entries).toEqual([
+      GLOBAL_NEW,
+      GLOBAL_OLD,
+    ]);
+    expect(mossRealtimeRelayHealthUrl(CN_NEW)).toBe(`${CN_NEW}/healthz`);
+  });
+
+  it("keeps a build with the single old relay URL on that one entry", () => {
+    const env = { MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL: CN_OLD };
+    expect(mossRealtimeRelayEntries("cn", env)?.entries).toEqual([CN_OLD]);
+    expect(mossRealtimeRelayEntries("global", env)).toBeNull();
+  });
+
+  it("never lists another realm's entry, or a fallback without a relay", () => {
+    expect(
+      mossRealtimeRelayEntries("cn", {
+        ...shippedEnv,
+        MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS: `${CN_OLD},${GLOBAL_NEW},http://x.example`,
+      })?.entries,
+    ).toEqual([CN_NEW, CN_OLD]);
+    expect(
+      mossRealtimeRelayEntries("cn", { MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS: CN_OLD }),
+    ).toBeNull();
+  });
+
+  it("accepts a credential bound to any entry of its realm, and nothing else", () => {
+    for (const entry of [CN_NEW, CN_OLD, `${CN_OLD}/`]) {
+      expect(isMossRealtimeRelayEntry("cn", entry, shippedEnv)).toBe(true);
+    }
+    for (const entry of [
+      GLOBAL_NEW,
+      GLOBAL_OLD,
+      "https://rt.mossbotai.com.evil.example",
+      "https://evil-mossbotai.com",
+      "http://rt.mossbotai.com",
+      "https://rt.mossbotai.com/v1",
+      "https://share.mossbotai.com",
+      undefined,
+    ]) {
+      expect(isMossRealtimeRelayEntry("cn", entry, shippedEnv)).toBe(false);
+    }
+    expect(isMossRealtimeRelayEntry("global", GLOBAL_OLD, shippedEnv)).toBe(true);
+    expect(isMossRealtimeRelayEntry("global", CN_NEW, shippedEnv)).toBe(false);
+  });
+
+  const realtimeRouter = (reachable: Set<string>) =>
+    makeMossServiceEntryRouter({
+      service: "CN realtime relay",
+      entries: mossRealtimeRelayEntries("cn", shippedEnv)!.entries,
+      healthUrl: mossRealtimeRelayHealthUrl,
+      probe: probeFrom(reachable),
+    });
+
+  it("uses the new entry while it answers, and the old one when it fails below HTTP", async () => {
+    await expect(
+      realtimeRouter(
+        new Set(["rt.mossbotai.com", "moss-cn-realtime-edge.inkcomicai.com"]),
+      ).ensure(),
+    ).resolves.toBe(CN_NEW);
+    await expect(
+      realtimeRouter(new Set(["moss-cn-realtime-edge.inkcomicai.com"])).ensure(),
+    ).resolves.toBe(CN_OLD);
   });
 });
 

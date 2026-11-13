@@ -20,9 +20,19 @@ describe("renderer bootstrap ordering", () => {
   });
 
   it("allows only the signed production Realtime Voice websocket origins", () => {
-    expect(INDEX_SOURCE).toContain("wss://moss-cn-realtime-edge.inkcomicai.com");
-    expect(INDEX_SOURCE).toContain("wss://moss-global-realtime.inkcomicai.com");
+    const connectSrc = /connect-src ([^;]*);/u.exec(INDEX_SOURCE)?.[1]?.split(/\s+/u) ?? [];
+    expect(
+      connectSrc.filter(
+        (source) => source.startsWith("wss://") && !/localhost|127\.0\.0\.1/u.test(source),
+      ),
+    ).toEqual([
+      "wss://rt.mossbotai.com",
+      "wss://rt-global.mossbotai.com",
+      "wss://moss-cn-realtime-edge.inkcomicai.com",
+      "wss://moss-global-realtime.inkcomicai.com",
+    ]);
     expect(INDEX_SOURCE).not.toContain("wss://*.inkcomicai.com");
+    expect(INDEX_SOURCE).not.toContain("wss://*.mossbotai.com");
   });
 
   it("allows only loopback media sources for local MCP playback", () => {

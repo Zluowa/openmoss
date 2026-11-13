@@ -1,5 +1,6 @@
 import {
   DEVS_CONSENT_REQUIRED_MESSAGE,
+  MOSS_DEVS_FALLBACK_REPORT_URL,
   MOSS_DEVS_PUBLIC_REPORT_URL,
 } from "@moss/shared/devsReport";
 import * as fs from "node:fs/promises";
@@ -225,6 +226,47 @@ describe("durable developer reporting", () => {
     });
     await client.poll();
     expect(urls).toEqual([MOSS_DEVS_PUBLIC_REPORT_URL]);
+  });
+  it("sends a report once more to the queue's older hostname after a reset, never elsewhere", async () => {
+    const urls: string[] = [];
+    const fetcher = vi.fn<DevsFetch>(async (url, options) => {
+      urls.push(String(url));
+      if (new URL(String(url)).host === "devs.mossbotai.com") {
+        throw Object.assign(new TypeError("fetch failed"), {
+          cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+        });
+      }
+      const input = JSON.parse(String(options!.body));
+      return Response.json({ id: input.id, status: "queued", message: "ok", pullRequestUrl: null });
+    });
+    const client = new DevsReports(await temporary(), fetcher, {});
+    cleanup.push(() => client.close());
+    await send(client, {
+      id: randomUUID(),
+      threadId: ThreadId.makeUnsafe("chat"),
+      text: "@devs broken",
+    });
+    await client.poll();
+    expect(urls).toEqual([MOSS_DEVS_PUBLIC_REPORT_URL, MOSS_DEVS_FALLBACK_REPORT_URL]);
+    expect((await client.list("chat")).reports[0]?.status).toBe("queued");
+    // A configured queue has no second address, and an HTTP answer is never sent again.
+    const configuredUrls: string[] = [];
+    const configured = new DevsReports(
+      await temporary(),
+      async (url) => {
+        configuredUrls.push(String(url));
+        return new Response("busy", { status: 503 });
+      },
+      PUBLIC_QUEUE_ENV,
+    );
+    cleanup.push(() => configured.close());
+    await send(configured, {
+      id: randomUUID(),
+      threadId: ThreadId.makeUnsafe("chat"),
+      text: "@devs broken",
+    });
+    await configured.poll();
+    expect(configuredUrls).toEqual([MOSS_DEVS_PUBLIC_REPORT_URL]);
   });
   it("sends exactly what the user confirmed, and nothing without a confirmation", async () => {
     const bodies: Record<string, unknown>[] = [];

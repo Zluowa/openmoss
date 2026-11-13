@@ -20,6 +20,7 @@ import {
   parseMossPayOrder,
   paymentMethodsForRealm,
   resolveMossPayAuthorityCredential,
+  boundRealtimeRelayOrigin,
 } from "./MossPayService";
 
 describe("independent media wallet payment contracts", () => {
@@ -1385,5 +1386,55 @@ describe("MossPayServiceLive authority routing", () => {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
     }
+  });
+});
+
+describe("the realtime relay a pay credential is bound to", () => {
+  const env = {
+    MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL: "https://rt.mossbotai.com",
+    MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS: "https://moss-cn-realtime-edge.inkcomicai.com",
+    MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL: "https://rt-global.mossbotai.com",
+    MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS:
+      "https://moss-global-realtime.inkcomicai.com",
+  };
+
+  it("accepts any entry of the credential's own realm", () => {
+    for (const relay of [
+      "https://rt.mossbotai.com",
+      "https://moss-cn-realtime-edge.inkcomicai.com",
+    ]) {
+      expect(
+        boundRealtimeRelayOrigin({ realm: "memfire-phone", realtimeRelayUrl: relay }, env),
+      ).toBe(relay);
+    }
+    expect(
+      boundRealtimeRelayOrigin(
+        {
+          realm: "supabase-google",
+          realtimeRelayUrl: "https://moss-global-realtime.inkcomicai.com/",
+        },
+        env,
+      ),
+    ).toBe("https://moss-global-realtime.inkcomicai.com");
+  });
+
+  it("refuses the other realm's entries and anything unlisted", () => {
+    for (const relay of [
+      "https://rt-global.mossbotai.com",
+      "https://moss-global-realtime.inkcomicai.com",
+      "https://rt.mossbotai.com.evil.example",
+      "http://rt.mossbotai.com",
+      "",
+    ]) {
+      expect(
+        boundRealtimeRelayOrigin({ realm: "memfire-phone", realtimeRelayUrl: relay }, env),
+      ).toBeNull();
+    }
+    expect(
+      boundRealtimeRelayOrigin(
+        { realm: "supabase-google", realtimeRelayUrl: "https://rt.mossbotai.com" },
+        env,
+      ),
+    ).toBeNull();
   });
 });
