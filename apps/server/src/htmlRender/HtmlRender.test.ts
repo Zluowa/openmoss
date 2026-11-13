@@ -25,6 +25,7 @@ import {
   dedicatedHeadlessShellExecutable,
   HTML_PREVIEW_BROWSER_INSTALL_PROGRESS_MESSAGE,
   installDedicatedHeadlessShell,
+  makeDedicatedHeadlessShell,
   makeSharedPreviewBrowserInstaller,
   playwrightHeadlessShellManifestEntry,
   resolveBundledPlaywrightPaths,
@@ -155,6 +156,17 @@ describe("HtmlRender", () => {
     expect(installs).toBe(1);
     releaseInstall?.();
     await expect(Promise.all([first, second])).resolves.toEqual([undefined, undefined]);
+  });
+
+  it("gives HTML previews and the server browser one shell, and so one installer, per base dir", () => {
+    // HtmlRender and ServerBrowserService each ask for the shell; the same
+    // instance means the same `waitForInstall`, so a first preview and a first
+    // server-browser launch cannot extract into one folder at once.
+    const preview = makeDedicatedHeadlessShell("/moss-test-base-a");
+    const serverBrowser = makeDedicatedHeadlessShell("/moss-test-base-a");
+    expect(serverBrowser).toBe(preview);
+    expect(serverBrowser.waitForInstall).toBe(preview.waitForInstall);
+    expect(makeDedicatedHeadlessShell("/moss-test-base-b")).not.toBe(preview);
   });
 
   it("reports bounded install progress while keeping the shared download alive", async () => {

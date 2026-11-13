@@ -35,6 +35,19 @@ type BootstrapExchangeResult = {
 const AUTHORIZATION_PREFIX = "Bearer ";
 const WEBSOCKET_TOKEN_QUERY_PARAM = "wsToken";
 
+/** The startup link that establishes the first owner session; never listed. */
+const OWNER_BOOTSTRAP_PAIRING_SUBJECT = "owner-bootstrap";
+/** A listed, revocable code that pairs another device of the owner. */
+export const OWNER_DEVICE_PAIRING_SUBJECT = "owner-device";
+
+/** Paired clients and the owner's paired phones; never the primary owner session. */
+function isRevocablePairedSession(session: {
+  readonly role: string;
+  readonly subject: string;
+}): boolean {
+  return session.role === "client" || session.subject === OWNER_DEVICE_PAIRING_SUBJECT;
+}
+
 export function toBootstrapExchangeAuthError(cause: BootstrapCredentialError): AuthError {
   if (cause.status === 500) {
     return new AuthError({
@@ -220,11 +233,19 @@ export const makeServerAuth = Effect.gen(function* () {
         ),
       );
 
-  const issuePairingCredential: ServerAuthShape["issuePairingCredential"] = (input) =>
-    authControlPlane
+  const issuePairingCredential: ServerAuthShape["issuePairingCredential"] = (input) => {
+    // A code for the owner's own phone grants owner access but stays listed and
+    // revocable, unlike the hidden startup bootstrap link.
+    const ownerDevice = input?.access === "ownerDevice";
+    const role = ownerDevice ? "owner" : (input?.role ?? "client");
+    return authControlPlane
       .createPairingLink({
-        role: input?.role ?? "client",
-        subject: input?.role === "owner" ? "owner-bootstrap" : "one-time-token",
+        role,
+        subject: ownerDevice
+          ? OWNER_DEVICE_PAIRING_SUBJECT
+          : role === "owner"
+            ? OWNER_BOOTSTRAP_PAIRING_SUBJECT
+            : "one-time-token",
         ...(input?.label ? { label: input.label } : {}),
       })
       .pipe(
@@ -246,12 +267,12 @@ export const makeServerAuth = Effect.gen(function* () {
             }) satisfies AuthPairingCredentialResult,
         ),
       );
+  };
 
   const listPairingLinks: ServerAuthShape["listPairingLinks"] = () =>
     authControlPlane
       .listPairingLinks({
-        role: "client",
-        excludeSubjects: ["owner-bootstrap"],
+        excludeSubjects: [OWNER_BOOTSTRAP_PAIRING_SUBJECT],
       })
       .pipe(
         Effect.mapError(
@@ -318,7 +339,7 @@ export const makeServerAuth = Effect.gen(function* () {
         ),
       )).find((session) => session.sessionId === targetSessionId);
       if (!target) return false;
-      if (target.role !== "client") {
+      if (!isRevocablePairedSession(target)) {
         return yield* new AuthError({
           message: "Owner sessions cannot be revoked as paired clients.",
           status: 403,
@@ -336,6 +357,32 @@ export const makeServerAuth = Effect.gen(function* () {
       );
     });
 
+  const revokeOwnerDeviceAccess: ServerAuthShape["revokeOwnerDeviceAccess"] = () =>
+    Effect.gen(function* () {
+      const links = yield* authControlPlane.listPairingLinks();
+      yield* Effect.forEach(
+        links.filter((link) => link.subject === OWNER_DEVICE_PAIRING_SUBJECT),
+        (link) => authControlPlane.revokePairingLink(link.id),
+        { concurrency: 1, discard: true },
+      );
+      const active = yield* authControlPlane.listSessions();
+      const revoked = yield* Effect.forEach(
+        active.filter((session) => session.subject === OWNER_DEVICE_PAIRING_SUBJECT),
+        (session) => authControlPlane.revokeSession(session.sessionId),
+        { concurrency: 1 },
+      );
+      return revoked.filter(Boolean).length;
+    }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new AuthError({
+            message: "Failed to sign out paired phones.",
+            status: 500,
+            cause,
+          }),
+      ),
+    );
+
   const revokeOtherClientSessions: ServerAuthShape["revokeOtherClientSessions"] = (
     currentSessionId,
   ) =>
@@ -343,7 +390,8 @@ export const makeServerAuth = Effect.gen(function* () {
       Effect.flatMap((active) =>
         Effect.forEach(
           active.filter(
-            (session) => session.role === "client" && session.sessionId !== currentSessionId,
+            (session) =>
+              isRevocablePairedSession(session) && session.sessionId !== currentSessionId,
           ),
           (session) => authControlPlane.revokeSession(session.sessionId),
           { concurrency: 1 },
@@ -439,6 +487,7 @@ export const makeServerAuth = Effect.gen(function* () {
     listClientSessions,
     revokeClientSession,
     revokeOtherClientSessions,
+    revokeOwnerDeviceAccess,
     logoutSession,
     authenticateHttpRequest: authenticateRequest,
     authenticateWebSocketUpgrade,

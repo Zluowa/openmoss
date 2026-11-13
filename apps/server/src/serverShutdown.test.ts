@@ -75,6 +75,24 @@ describe("desktop shutdown authorization", () => {
     },
   );
 
+  it("stays available to the desktop itself while phones may connect", () => {
+    const config = { ...desktopConfig, host: "0.0.0.0", desktopPhoneAccess: true };
+    const authorization = `Bearer ${SHUTDOWN_TOKEN}`;
+    expect(
+      authorizeDesktopShutdown({ config, remoteAddress: "127.0.0.1", headers: {}, authorization }),
+    ).toEqual({ authorized: true });
+    for (const [remoteAddress, headers] of [
+      ["192.168.1.23", {}],
+      ["127.0.0.1", { "x-forwarded-for": "100.64.0.9" }],
+    ] as const) {
+      expect(authorizeDesktopShutdown({ config, remoteAddress, headers, authorization })).toEqual({
+        authorized: false,
+        reason: "unavailable",
+        status: 404,
+      });
+    }
+  });
+
   it.each([undefined, "127.0.0.2", "::ffff:192.168.1.50"])(
     "keeps the endpoint unavailable to peer %s",
     (remoteAddress) => {

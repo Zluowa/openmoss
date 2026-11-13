@@ -11,6 +11,7 @@ describe("connections navigation", () => {
   it("restores explicit tabs and the selection made earlier", () => {
     expect(connectionTabFromSearch({ connectionTab: "ssh" }, "devices")).toBe("ssh");
     expect(connectionTabFromSearch({ connectionTab: "pairing" })).toBe("pairing");
+    expect(connectionTabFromSearch({ connectionTab: "phone" })).toBe("phone");
     expect(connectionTabFromSearch({ connectionTab: "invalid" }, "ssh")).toBe("ssh");
     // The old "this computer" tab is no longer a Connections tab.
     expect(connectionTabFromSearch({ connectionTab: "this" }, "this")).toBe("devices");

@@ -1172,3 +1172,62 @@ describe("McpConnectorRuntime region gate", () => {
     expect(mocks.forward).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("McpConnectorRuntime.listTools", () => {
+  it("asks the server in one session, signed in like an agent's call", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue({ kind: "open" });
+    const { connector } = await harness.runtime.connect({
+      url: "https://mcp.example.com/mcp",
+      name: "Tides",
+      apiKey: "secret-key",
+    });
+    mocks.forward.mockImplementation(async (request): Promise<McpConnectorProxyResult> => {
+      if (request.method === "DELETE")
+        return { status: 200, sessionId: null, body: { kind: "empty" } };
+      const method = (request.body as { method: string }).method;
+      if (method === "initialize") {
+        return {
+          ...ok({ jsonrpc: "2.0", id: 0, result: { protocolVersion: "2025-03-26" } }),
+          sessionId: "session-1",
+        };
+      }
+      if (method === "notifications/initialized") {
+        return { status: 202, sessionId: null, body: { kind: "empty" } };
+      }
+      return ok({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { tools: [{ name: "next_high_tide", description: "When the tide is high." }] },
+      });
+    });
+
+    await expect(harness.runtime.listTools(connector!.connectorId)).resolves.toEqual({
+      tools: [{ name: "next_high_tide", description: "When the tide is high." }],
+      truncated: false,
+    });
+    const sent = mocks.forward.mock.calls.map(([request]) => request);
+    expect(sent.map((request) => request.method)).toEqual(["POST", "POST", "POST", "DELETE"]);
+    expect(sent.every((request) => request.accessToken === "secret-key")).toBe(true);
+    expect(sent.slice(1).every((request) => request.sessionId === "session-1")).toBe(true);
+    expect(sent.slice(1).every((request) => request.protocolVersion === "2025-03-26")).toBe(true);
+  });
+
+  it("says so in the server's words when the listing is refused", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue({ kind: "open" });
+    const { connector } = await harness.runtime.connect({ presetId: "huggingface" });
+    mocks.forward.mockResolvedValue(
+      ok({ jsonrpc: "2.0", id: 0, error: { code: -32000, message: "Maintenance window." } }),
+    );
+
+    await expect(harness.runtime.listTools(connector!.connectorId)).rejects.toThrow(
+      "Maintenance window.",
+    );
+    await expect(harness.runtime.listTools("mcp_conn_missing")).rejects.toBeInstanceOf(
+      McpConnectorFailure,
+    );
+  });
+});

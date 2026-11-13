@@ -18,6 +18,7 @@ import {
 import { Skeleton } from "~/components/ui/skeleton";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useIsMobile } from "~/hooks/useMediaQuery";
+import { useEdgeSwipeOpen } from "~/hooks/useEdgeSwipeOpen";
 import { getLocalStorageItem, setLocalStorageItem } from "~/hooks/useLocalStorage";
 import { Schema } from "effect";
 
@@ -115,11 +116,14 @@ function SidebarProvider({
   mobileOpen: mobileOpenProp,
   onMobileOpenChange: setMobileOpenProp,
   mobileSheet = true,
+  edgeSwipeToOpen = false,
   className,
   style,
   children,
   ...props
 }: React.ComponentProps<"div"> & {
+  /** The app's main left sidebar: swiping in from the screen edge opens its phone sheet. */
+  edgeSwipeToOpen?: boolean;
   defaultOpen?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -163,6 +167,12 @@ function SidebarProvider({
     },
     [setMobileOpenProp, openMobile],
   );
+
+  const openMobileFromEdge = React.useCallback(() => setOpenMobile(true), [setOpenMobile]);
+  useEdgeSwipeOpen({
+    enabled: edgeSwipeToOpen && isMobile && !openMobile,
+    onOpen: openMobileFromEdge,
+  });
 
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {

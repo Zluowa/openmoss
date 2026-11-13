@@ -5,7 +5,7 @@
 import type { MossPayOrder, MossPayQuota } from "@moss/contracts";
 import { isMossPayOrderSettled } from "@moss/contracts";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import QRCode from "qrcode";
+import { QrCode as SharedQrCode } from "~/components/ui/qr-code";
 import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
@@ -125,47 +125,15 @@ function quotaPercent(used: number, limit: number | null): number | null {
   return Math.min(100, Math.round((used / limit) * 100));
 }
 
-// ---------- 二维码（qrcode 库，带正确纠错码，微信可扫） ----------
+// 二维码（qrcode 库，带正确纠错码，微信可扫）
 export function QrCode({ value, size = 180 }: { value: string; size?: number }) {
   const { t } = useTranslation();
-  const [dataUrl, setDataUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let cancelled = false;
-    setFailed(false);
-    QRCode.toDataURL(value, { errorCorrectionLevel: "M", margin: 2, width: size })
-      .then((url) => {
-        if (!cancelled) setDataUrl(url);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [value, size]);
-  if (failed) {
-    return (
-      <p className="rounded-card border border-dashed p-4 text-center text-ui-sm text-muted-foreground">
-        {t("mossPay.qr.failed")}
-      </p>
-    );
-  }
-  if (!dataUrl) {
-    return (
-      <div
-        className="animate-pulse rounded-control border bg-muted"
-        style={{ width: size, height: size }}
-      />
-    );
-  }
   return (
-    <img
+    <SharedQrCode
       alt={t("mossPay.qr.alt")}
-      className="rounded-control border bg-white"
-      height={size}
-      src={dataUrl}
-      width={size}
+      failedLabel={t("mossPay.qr.failed")}
+      size={size}
+      value={value}
     />
   );
 }

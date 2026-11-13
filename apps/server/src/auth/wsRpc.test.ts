@@ -42,7 +42,20 @@ const AuthGroup = RpcGroup.make(
 const metadata = { deviceType: "desktop" as const, label: "Synthetic remote computer" };
 const startupToken = "synthetic-startup-owner";
 
-async function fixture() {
+/** The desktop with "Allow phone connections" on: every interface, plain HTTP accepted. */
+const PHONE_ACCESS_ON = {
+  host: "0.0.0.0",
+  allowInsecureRemote: true,
+  desktopPhoneAccess: true,
+} as const;
+
+async function fixture(
+  overrides: Partial<{
+    host: string;
+    allowInsecureRemote: boolean;
+    desktopPhoneAccess: boolean;
+  }> = {},
+) {
   const configLayer = ServerConfig.layerTest(
     process.cwd(),
     { prefix: "moss-auth-ws-" },
@@ -50,6 +63,7 @@ async function fixture() {
       host: "127.0.0.1",
       authToken: startupToken,
       mode: "desktop",
+      ...overrides,
     },
   ).pipe(Layer.provide(NodeServices.layer));
   const sessionLayer = SessionCredentialServiceLive.pipe(Layer.provide(ServerSecretStoreLive));
@@ -72,7 +86,7 @@ async function fixture() {
   const connectionSessions = await Effect.runPromise(makeWsConnectionSessions);
   const handlerLayer = AuthGroup.toLayer(
     Effect.gen(function* () {
-      return makeAuthWsRpcHandlers(yield* ServerAuth);
+      return makeAuthWsRpcHandlers(yield* ServerAuth, yield* ServerConfig);
     }),
   );
   const source = Effect.gen(function* () {
@@ -345,6 +359,79 @@ describe("network pairing over the authenticated WebSocket", () => {
         authenticated: true,
         role: "owner",
       });
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("refuses to make a phone pairing code while Allow phone connections is off", async () => {
+    const f = await fixture();
+    try {
+      const socket = await f.owner();
+      const denied = await request(socket, WS_METHODS.serverCreateAuthPairingToken, {
+        label: "Phone",
+        access: "ownerDevice",
+      });
+      expect(denied._tag).toBe("Failure");
+      expect(JSON.stringify(denied)).toContain("AUTH_FORBIDDEN");
+      expect(
+        (await Effect.runPromise(f.auth.listPairingLinks())).some(
+          (entry) => entry.subject === "owner-device",
+        ),
+      ).toBe(false);
+    } finally {
+      await f.close();
+    }
+  });
+
+  it("lets only this computer make phone codes, never a phone that is already paired", async () => {
+    const f = await fixture(PHONE_ACCESS_ON);
+    try {
+      const desktop = await f.owner();
+      const code = await success(desktop, WS_METHODS.serverCreateAuthPairingToken, {
+        label: "Phone",
+        access: "ownerDevice",
+      });
+      const links = (await success(
+        desktop,
+        WS_METHODS.serverListAuthPairingLinks,
+      )) as unknown as Array<{ id: string; role: string; subject: string }>;
+      expect(links.find((entry) => entry.id === code.id)).toMatchObject({
+        role: "owner",
+        subject: "owner-device",
+      });
+      const phone = await Effect.runPromise(
+        f.auth.exchangeBootstrapCredentialForBearerSession(String(code.credential), {
+          deviceType: "mobile",
+          label: "Phone",
+        }),
+      );
+      expect(phone.role).toBe("owner");
+
+      // The phone is an owner, so it may list and revoke, but it may not mint another phone.
+      const fromPhone = await f.connect({ Authorization: `Bearer ${phone.sessionToken}` });
+      expect(await success(fromPhone, WS_METHODS.serverGetAuthSession)).toMatchObject({
+        role: "owner",
+      });
+      const denied = await request(fromPhone, WS_METHODS.serverCreateAuthPairingToken, {
+        access: "ownerDevice",
+      });
+      expect(denied._tag).toBe("Failure");
+      expect(JSON.stringify(denied)).toContain("AUTH_FORBIDDEN");
+
+      // Relayed by a proxy on this computer, the same phone is still not this computer.
+      const relayed = await f.connect({
+        Authorization: `Bearer ${phone.sessionToken}`,
+        "X-Forwarded-For": "192.168.1.23",
+      });
+      const relayedDenied = await request(relayed, WS_METHODS.serverCreateAuthPairingToken, {
+        access: "ownerDevice",
+      });
+      expect(JSON.stringify(relayedDenied)).toContain("AUTH_FORBIDDEN");
+      // And the desktop's startup token is worth nothing once relayed from elsewhere.
+      await expect(
+        f.connect({ Authorization: `Bearer ${startupToken}`, "X-Forwarded-For": "192.168.1.23" }),
+      ).rejects.toThrow(/Upgrade rejected/);
     } finally {
       await f.close();
     }

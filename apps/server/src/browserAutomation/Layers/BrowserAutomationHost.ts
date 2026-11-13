@@ -1,5 +1,12 @@
+import { WS_SERVER_HOSTED_BROWSER_CAPABILITY } from "@moss/contracts";
 import { Effect, Layer } from "effect";
 
+import { advertiseWsRuntimeCapability } from "../../wsCompatibility.ts";
+import {
+  ServerBrowserService,
+  ServerBrowserServiceLive,
+  type ServerBrowserServiceShape,
+} from "../../serverBrowser/ServerBrowserService.ts";
 import {
   BrowserAutomationHost,
   type BrowserAutomationHostShape,
@@ -11,6 +18,7 @@ import {
   resolveBrowserHostPipePath,
 } from "../browserHostRpcClient.ts";
 
+/** The desktop app's visible browser, reached over its private pipe. */
 export function makeBrowserAutomationHost(
   env: NodeJS.ProcessEnv = process.env,
 ): BrowserAutomationHostShape {
@@ -44,6 +52,46 @@ export function makeBrowserAutomationHost(
   };
 }
 
-export const BrowserAutomationHostLive = Layer.sync(BrowserAutomationHost, () =>
-  makeBrowserAutomationHost(),
-);
+/**
+ * The headless browser on this server, for sessions no desktop app hosts: a
+ * server reached over SSH, the web client, a phone. Viewers watch and take
+ * control of it through the server browser stream.
+ */
+export function makeServerBrowserAutomationHost(
+  server: ServerBrowserServiceShape,
+): BrowserAutomationHostShape {
+  return {
+    available: server.enabled,
+    execute: (input) =>
+      Effect.tryPromise({
+        try: (signal) =>
+          server.runtime.execute({
+            threadId: input.threadId,
+            name: input.name,
+            arguments: input.arguments,
+            ...(input.workspaceRoot ? { workspaceRoot: input.workspaceRoot } : {}),
+            timeoutMs: input.timeoutMs,
+            signal,
+          }),
+        catch: (error) =>
+          error instanceof BrowserHostRpcError
+            ? error
+            : new BrowserHostRpcError("transport", String(error)),
+      }),
+    consumeNotice: (threadId) => server.runtime.consumeHandoffNotice(threadId),
+  };
+}
+
+/** The desktop browser when a desktop app hosts this server, else the server browser. */
+export const BrowserAutomationHostLive = Layer.effect(
+  BrowserAutomationHost,
+  Effect.gen(function* () {
+    const desktop = makeBrowserAutomationHost();
+    if (desktop.available || process.env.MOSS_MODE === "desktop") return desktop;
+    const server = yield* ServerBrowserService;
+    if (!server.enabled) return desktop;
+    // Clients show the server-browser panel only when the agents really use it.
+    advertiseWsRuntimeCapability(WS_SERVER_HOSTED_BROWSER_CAPABILITY);
+    return makeServerBrowserAutomationHost(server);
+  }),
+).pipe(Layer.provide(ServerBrowserServiceLive));

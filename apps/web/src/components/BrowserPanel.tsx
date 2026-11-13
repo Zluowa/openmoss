@@ -74,6 +74,8 @@ import {
   useBrowserViewportStore,
 } from "./browser/browserPanelNavigation";
 import { BrowserServersMenu } from "./browser/BrowserServersMenu";
+import { ServerBrowserPanel } from "./browser/ServerBrowserPanel";
+import { useServerHostedBrowser } from "./browser/useServerHostedBrowser";
 import { LaunchServersPage } from "./browser/LaunchServerList";
 import { useProjectLaunchServers } from "./browser/useProjectLaunchServers";
 import {
@@ -528,7 +530,34 @@ function BrowserRuntimeError(props: { message: string; onReload: () => void }) {
   );
 }
 
-export function BrowserPanel({
+/**
+ * The thread's browser, following the browser the server's agents really use
+ * (`BrowserAutomationHostLive`, reported as `useServerHostedBrowser`):
+ * - The server's headless browser, streamed, with take-over control, when the
+ *   connected server says it hosts one: the web client, a phone, and the
+ *   desktop app's SSH or paired remote-workspace window. That window loads
+ *   with a preload that exposes only `mossRemoteWorkspace`
+ *   (`apps/desktop/src/sshWorkspacePreload.ts`), so `isElectron` is false
+ *   there, and the remote server runs with `MOSS_MODE=web`.
+ * - Otherwise the native panel: always in the desktop app's own window, whose
+ *   server drives this window's webview, and wherever no server browser is in
+ *   play.
+ */
+export function BrowserPanel(props: BrowserPanelProps) {
+  const serverHosted = useServerHostedBrowser();
+  return serverHosted ? (
+    <ServerBrowserPanel
+      mode={props.mode}
+      threadId={props.threadId}
+      onClosePanel={props.onClosePanel}
+      layout={props.layout}
+    />
+  ) : (
+    <DesktopBrowserPanel {...props} />
+  );
+}
+
+function DesktopBrowserPanel({
   mode,
   threadId,
   onClosePanel,
@@ -2026,7 +2055,7 @@ export function BrowserPanel({
             }}
             placeholder={t("browser.address.placeholder")}
             className={cn(
-              "h-7 w-full min-w-0 rounded-control border border-[color:var(--color-border)] bg-transparent px-3 text-ui text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 hover:border-[color:var(--color-border-heavy)] focus:border-[color:var(--color-border-focus)] focus:bg-[var(--color-background-surface)]",
+              "font-system-ui h-7 w-full min-w-0 rounded-control border border-[color:var(--color-border)] bg-transparent px-3 text-ui text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 hover:border-[color:var(--color-border-heavy)] focus:border-[color:var(--color-border-focus)] focus:bg-[var(--color-background-surface)]",
               showAddressOverlay ? "text-transparent caret-transparent" : "text-left",
             )}
           />

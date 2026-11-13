@@ -59,6 +59,7 @@ const TRANSIENT_ADMISSION_CODES = new Set([
   "desktop_input_paused",
   "input_admission_closed",
   "input_monitor_unavailable",
+  "user_input_active",
   "computer_control_revoked",
   "computer_stopped",
   "computer_permission_required",

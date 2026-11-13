@@ -18,6 +18,14 @@ import { version as serverBuild } from "../package.json" with { type: "json" };
 
 const serverInstanceId = randomUUID();
 
+/** Capabilities that depend on how this server runs, not on its build. */
+const runtimeCapabilities = new Set<string>();
+
+/** Advertise a capability that holds for this server process from now on. */
+export function advertiseWsRuntimeCapability(capability: string): void {
+  runtimeCapabilities.add(capability);
+}
+
 function incompatibility(
   action: WsCompatibilityAction,
   message: string,
@@ -81,7 +89,7 @@ export function negotiateWsCompatibility(
     negotiatedRevision,
     serverBuild,
     serverInstanceId,
-    capabilities: [...WS_SERVER_CAPABILITIES],
+    capabilities: [...WS_SERVER_CAPABILITIES, ...runtimeCapabilities],
   });
 }
 

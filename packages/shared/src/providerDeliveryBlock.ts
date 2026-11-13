@@ -1,10 +1,12 @@
 // FILE: providerDeliveryBlock.ts
 // Purpose: Single source for the provider-delivery messages the server writes and the web app
-//          matches: the quarantine block, an unconfirmed turn start, and a slow turn start.
+//          matches: the quarantine block, an unconfirmed turn start, a slow turn start and
+//          a silent running turn.
 // Layer: Shared runtime utilities
 // Exports: PROVIDER_DELIVERY_BLOCK_SUMMARY, formatProviderDeliveryBlockDetail,
 //          isProviderDeliveryBlockDetail, UNCONFIRMED_TURN_START_DETAIL,
-//          isUnconfirmedTurnStartDetail, PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND
+//          isUnconfirmedTurnStartDetail, PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
+//          PROVIDER_TURN_SILENT_ACTIVITY_KIND
 
 /**
  * Written when Moss stopped waiting for a turn start whose effect on the provider it could
@@ -19,6 +21,13 @@ export function isUnconfirmedTurnStartDetail(detail: string | null | undefined):
 
 /** Activity kind for a sent message its provider has not taken up yet ("still starting"). */
 export const PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND = "provider.turn.start.delayed";
+
+/**
+ * Activity kind for a running turn whose provider has sent nothing for a long stretch.
+ * `payload.state` is "silent" when the notice starts and "cleared" when the provider speaks
+ * again or the turn ends; the chat shows the notice in the working row, never as a log row.
+ */
+export const PROVIDER_TURN_SILENT_ACTIVITY_KIND = "provider.turn.silent";
 
 /**
  * Summary the provider command reactor records when it refuses to run a command

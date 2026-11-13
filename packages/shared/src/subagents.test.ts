@@ -7,6 +7,7 @@ import {
   decodeSubagentReceiverAgents,
   decodeSubagentReceiverThreadIds,
   extractSubagentIdentityHints,
+  isUnshownSubagentRole,
   isWorkerTierSubagentRole,
   resolveSubagentIdentityFromDirectory,
 } from "./subagents";
@@ -338,6 +339,31 @@ describe("extractSubagentIdentityHints", () => {
       status: "completed",
       statusLabel: "Finished review",
     });
+  });
+});
+
+describe("isUnshownSubagentRole", () => {
+  it.each(["worker-low", "claude", "Claude Code", "general-purpose", "codex", "agent"])(
+    "never shows %s as a role",
+    (role) => {
+      expect(isUnshownSubagentRole(role)).toBe(true);
+    },
+  );
+  it.each(["explore", "review", "claude-docs-researcher", null])("keeps %s", (role) => {
+    expect(isUnshownSubagentRole(role)).toBe(false);
+  });
+
+  it("drops a provider-named agent type from role hints", () => {
+    const hints = extractSubagentIdentityHints({
+      receiverAgents: [
+        { threadId: "child-claude", agentNickname: "Submit viz block draft", agentType: "claude" },
+      ],
+    });
+    const identity = resolveSubagentIdentityFromDirectory(buildSubagentIdentityDirectory(hints), {
+      providerThreadId: "child-claude",
+    });
+    expect(identity?.nickname).toBe("Submit viz block draft");
+    expect(identity?.role).toBeUndefined();
   });
 });
 

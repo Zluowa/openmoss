@@ -304,6 +304,11 @@ const ServerProviderStatuses = Schema.Array(ServerProviderStatus);
 export const ServerConfig = Schema.Struct({
   /** Explicitly configured secure address; a loopback listener is not shareable. */
   shareableOrigin: Schema.optional(TrimmedNonEmptyString),
+  /**
+   * Plain-HTTP origins a device on the same network can open, present only while
+   * the server listens beyond loopback (for example `--host 0.0.0.0`).
+   */
+  lanOrigins: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   cwd: TrimmedNonEmptyString,
   homeDir: Schema.optional(TrimmedNonEmptyString),
   chatWorkspaceRoot: Schema.optional(TrimmedNonEmptyString),

@@ -89,6 +89,7 @@ import {
   UNCONFIRMED_TURN_START_DETAIL,
 } from "@moss/shared/providerDeliveryBlock";
 import { buildStalePendingRequestFailureDetail } from "@moss/shared/threadSummary";
+import { activeTimeStepMs } from "../activeTime.ts";
 import { resolveThreadWorkspaceState } from "@moss/shared/threadEnvironment";
 import {
   buildProjectFoldersPreamble,
@@ -1071,15 +1072,7 @@ export interface TurnStartBounds {
   readonly now: () => number;
 }
 
-/**
- * The part of the time since the last tick that counts towards a deadline. A tick that
- * arrives late, because the event loop stalled or the machine slept, counts as at most
- * two ticks: nothing in this process could progress during that gap, so a deadline
- * measured this way cannot expire on a turn that is starting, only on one that is stuck.
- */
-export function activeTimeStepMs(lastTickAt: number, now: number, tickMs: number): number {
-  return Math.min(Math.max(0, now - lastTickAt), 2 * tickMs);
-}
+export { activeTimeStepMs };
 
 interface ProviderCommandReactorConfigShape {
   readonly commandEventTimeout: Duration.Duration;

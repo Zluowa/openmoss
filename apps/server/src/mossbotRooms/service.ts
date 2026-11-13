@@ -5,6 +5,8 @@ import { ProjectAgentService } from "../projectAgent/Services/ProjectAgentServic
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery";
 import { MossbotRoomError } from "@moss/shared/mossbotRoom";
+import { ManagedAttachmentRepository } from "../persistence/Services/ManagedAttachments";
+import { makeRoomAttachmentStore } from "./attachments";
 import { MossbotRoomRuntime } from "./runtime";
 
 export class MossbotRooms extends ServiceMap.Service<MossbotRooms, MossbotRoomRuntime>()(
@@ -17,8 +19,13 @@ export const MossbotRoomsLive = Layer.effect(
     const projectAgent = yield* ProjectAgentService;
     const engine = yield* OrchestrationEngineService;
     const snapshots = yield* ProjectionSnapshotQuery;
+    const managedAttachments = yield* ManagedAttachmentRepository;
     const runtime = new MossbotRoomRuntime({
       directory: path.join(config.stateDir, "mossbot-rooms"),
+      attachments: makeRoomAttachmentStore({
+        repository: managedAttachments,
+        attachmentsDir: config.attachmentsDir,
+      }),
       dispatch: (command) => Effect.runPromise(engine.dispatch(command)),
       // The client-linked read: each user message carries the turn it started, so a room job
       // can follow exactly its own turn in the member thread.

@@ -38,6 +38,7 @@ import {
   LengthPrefixedRecordParser,
 } from "@moss/shared/lengthPrefixedRecords";
 import {
+  guardChildStdio,
   JsonRpcStdioFramer,
   JsonRpcStdioRequestRegistry,
   JsonRpcStdioTransportError,
@@ -220,6 +221,9 @@ export class HelperClient {
     });
     this.process = child;
     this.exited = false;
+    // The writer below hears stdin; a broken stdout or stderr pipe ends with
+    // the child's exit, which reports the failure.
+    guardChildStdio(child);
     this.stdoutFramer = new JsonRpcStdioFramer(MAX_CONTROL_LINE_BYTES, (error) =>
       this.handleControlLineError(error),
     );

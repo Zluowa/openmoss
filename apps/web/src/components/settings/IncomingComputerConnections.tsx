@@ -21,6 +21,7 @@ import { useTranslation } from "~/localization";
 import { ensureNativeApi } from "~/nativeApi";
 import { SettingsCard } from "./SettingsPanelPrimitives";
 import { pairingExpiryLabel } from "./remoteComputerSettingsModel";
+import { isPhonePairingLink } from "./phonePairingModel";
 
 type RevokeTarget =
   | { readonly kind: "code"; readonly id: string; readonly label: string }
@@ -78,7 +79,8 @@ export function IncomingComputerConnections({ active }: { readonly active: boole
       ]);
       if (!mounted.current || !activeRef.current || request !== sequence.current) return;
       setOrigin(config.shareableOrigin);
-      setLinks(nextLinks);
+      // Phone codes have their own tab; this list is for other computers.
+      setLinks(nextLinks.filter((link) => !isPhonePairingLink(link)));
       setClients(nextClients.filter((client) => client.role === "client" && !client.current));
       setLoadError(false);
       return nextLinks;

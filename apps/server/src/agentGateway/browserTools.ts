@@ -299,9 +299,14 @@ export function makeAgentGatewayBrowserTools(
         },
       },
       handler: (rawArguments, context) => {
-        const guidance = guidanceCadence.shouldRefresh(context.callerThreadId)
+        const refresh = guidanceCadence.shouldRefresh(context.callerThreadId)
           ? BROWSER_TOOL_REFRESH_GUIDANCE
           : undefined;
+        // A person handing browser control back is news the agent must see on
+        // its very next browser call, not after it polls for it.
+        const notice = host.consumeNotice?.(context.callerThreadId);
+        const guidance =
+          notice === undefined ? refresh : refresh === undefined ? notice : `${notice}\n${refresh}`;
         if (!host.available && name === "browser_status")
           return Effect.succeed(
             guidance === undefined

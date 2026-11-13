@@ -8,16 +8,18 @@ import {
 } from "@moss/contracts";
 import { DateTime, Effect } from "effect";
 import { CurrentManagedAttachmentPrincipal } from "../managedAttachmentPrincipal";
+import type { LocalAccessConfig } from "../startupAccess";
 import { CurrentWsAuthenticatedSession, CurrentWsSessionRole } from "../wsConnectionSessions";
 import { ownerRoleRequired } from "../wsOwnerAuthorization";
+import { requireOwnerDeviceCodeAccess } from "./ownerDeviceAccess";
 import type { AuthError, ServerAuthShape } from "./Services/ServerAuth";
 
 /** Operate on the identity admitted by the existing socket, never a renderer-supplied session id. */
-export function makeAuthWsRpcHandlers(auth: ServerAuthShape) {
+export function makeAuthWsRpcHandlers(auth: ServerAuthShape, config: LocalAccessConfig) {
   const currentSessionId = Effect.gen(function* () {
     return (yield* CurrentWsAuthenticatedSession)?.sessionId;
   });
-  const owner = <A>(operation: () => Effect.Effect<A, AuthError>) =>
+  const owner = <A>(operation: () => Effect.Effect<A, AuthError | WsRpcError>) =>
     ownerRoleRequired.pipe(
       Effect.andThen(Effect.suspend(operation)),
       Effect.mapError((error) =>
@@ -53,10 +55,14 @@ export function makeAuthWsRpcHandlers(auth: ServerAuthShape) {
       }),
     [WS_METHODS.serverCreateAuthPairingToken]: (input: AuthCreatePairingCredentialInput) =>
       owner(() =>
-        auth.issuePairingCredential({
-          role: "client",
-          ...(input.label ? { label: input.label } : {}),
-        }),
+        (input.access === "ownerDevice" ? requireOwnerDeviceCodeAccess(config) : Effect.void).pipe(
+          Effect.andThen(
+            auth.issuePairingCredential({
+              ...(input.label ? { label: input.label } : {}),
+              ...(input.access ? { access: input.access } : {}),
+            }),
+          ),
+        ),
       ),
     [WS_METHODS.serverListAuthPairingLinks]: () => owner(() => auth.listPairingLinks()),
     [WS_METHODS.serverRevokeAuthPairingLink]: (input: AuthRevokePairingLinkInput) =>

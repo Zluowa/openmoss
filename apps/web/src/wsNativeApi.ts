@@ -151,9 +151,13 @@ export function readWsServerCapabilities(): ReadonlyArray<string> | null {
 
 export function onWsServerCapabilitiesChange(
   listener: (capabilities: ReadonlyArray<string> | null) => void,
-  options?: { readonly replayCurrent?: boolean },
+  options?: {
+    readonly replayCurrent?: boolean;
+    /** Only listen to a connection that exists; never open one to listen. */
+    readonly attachOnly?: boolean;
+  },
 ): () => void {
-  if (!instance) createWsNativeApi();
+  if (!instance && options?.attachOnly !== true) createWsNativeApi();
   const transport = instance?.transport;
   if (!transport) {
     if (options?.replayCurrent) listener(null);

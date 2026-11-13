@@ -95,6 +95,7 @@ function makeServerAuth(sideEffects: { count: number }): ServerAuthShape {
     listClientSessions: () => Effect.succeed([]),
     revokeClientSession: () => mutate(true),
     revokeOtherClientSessions: () => mutate(1),
+    revokeOwnerDeviceAccess: () => Effect.succeed(0),
     logoutSession: () => mutate(true),
     authenticateHttpRequest: (request) => {
       const bearer = request.headers.authorization === "Bearer bearer-token";

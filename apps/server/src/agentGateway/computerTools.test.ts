@@ -1246,6 +1246,40 @@ describe("agent gateway computer tools", () => {
     expect(backend.callsFor("captureScreenshot")).toHaveLength(0);
   });
 
+  it("refuses session shortcuts before dispatch, alone or inside a batch", async () => {
+    const { backend, call, manager } = await setup();
+    try {
+      // The fake backend speaks the Linux dialect, where Super-L locks the screen.
+      const locked = await call("computer_press_key", {
+        key: "meta+l",
+        window_id: "fake-calculator",
+      });
+      expect(locked.isError).toBe(true);
+      expect(JSON.stringify(locked.content)).toContain("lock the screen");
+
+      const batch = await call("computer_run", {
+        steps: [
+          { type: "press_key", key: "tab", window_id: "fake-calculator" },
+          { type: "press_key", key: "ctrl+alt+f2", window_id: "fake-calculator" },
+        ],
+      });
+      expect(batch.isError).toBe(true);
+      expect(JSON.stringify(batch.content)).toContain("switch virtual terminal");
+
+      expect(backend.callsFor("pressKey")).toHaveLength(0);
+      expect(backend.callsFor("hotkey")).toHaveLength(0);
+
+      const ordinary = await call("computer_press_key", {
+        key: "ctrl+l",
+        window_id: "fake-calculator",
+      });
+      expect(ordinary.isError).not.toBe(true);
+      expect(backend.callsFor("hotkey")).toHaveLength(1);
+    } finally {
+      await manager.dispose();
+    }
+  });
+
   it("focuses a named window before keyboard input and zooms the result to it", async () => {
     const { backend, call } = await setup();
 
@@ -4716,6 +4750,45 @@ describe("computer_paste", () => {
         "agent text",
         "user text",
       ]);
+    } finally {
+      await manager.dispose();
+    }
+  });
+});
+
+describe("post-action observation", () => {
+  it("answers with element changes instead of a screenshot once the window was read", async () => {
+    const { backend, manager, call } = await setup();
+    try {
+      // No baseline yet: the screenshot is the only observation there is.
+      const first = await call("computer_click", {
+        label: "Calculate",
+        window_id: "fake-calculator",
+      });
+      expect(first.isError).not.toBe(true);
+      expect(first.content.map((entry) => entry.type)).toContain("image");
+
+      await call("computer_get_state", { window_id: "fake-calculator" });
+      const captures = backend.callsFor("captureScreenshot").length;
+      const textOnly = await call("computer_click", {
+        label: "Calculate",
+        window_id: "fake-calculator",
+      });
+      expect(textOnly.isError).not.toBe(true);
+      expect(textOnly.content.map((entry) => entry.type)).toEqual(["text"]);
+      expect(resultJson(textOnly)).toMatchObject({ observation: "elements" });
+      expect(backend.callsFor("captureScreenshot")).toHaveLength(captures);
+
+      // A different action: repeating the same click would trip the progress guard.
+      const visual = await call("computer_press_key", {
+        key: "enter",
+        window_id: "fake-calculator",
+        include_screenshot: true,
+      });
+      expect(visual.isError).not.toBe(true);
+      // Captured even with element changes in hand; an unchanged frame is
+      // answered by id rather than resent.
+      expect(backend.callsFor("captureScreenshot")).toHaveLength(captures + 1);
     } finally {
       await manager.dispose();
     }

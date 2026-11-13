@@ -8,7 +8,7 @@ import type { MossCloudAccountService } from "./account/Services/MossCloudAccoun
 import type { MossEnterpriseKeyAccount } from "./account/Services/MossEnterpriseKeyAccount";
 import { MossPayService } from "./account/Services/MossPayService";
 import { ServerConfig } from "./config";
-import { isLoopbackHost } from "./startupAccess";
+import { isLocalOnlyAccess, requestPeer } from "./startupAccess";
 import {
   mediaAccountScope,
   MossMediaJobsError,
@@ -127,8 +127,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
     const supplied = Buffer.from(url.searchParams.get("token") ?? startupBearer ?? "");
     const configured = Buffer.from(config.authToken ?? "");
     const desktopTokenAuthorized =
-      isLoopbackHost(config.host) &&
-      !config.publicUrl &&
+      isLocalOnlyAccess(config, requestPeer(request)) &&
       configured.length > 0 &&
       supplied.length === configured.length &&
       timingSafeEqual(supplied, configured);

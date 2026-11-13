@@ -802,6 +802,7 @@ function ChatRouteLayout() {
   return (
     <SidebarProvider
       defaultOpen
+      edgeSwipeToOpen
       open={resolvedSidebarOpen}
       onOpenChange={handleSidebarOpenChange}
       className="h-svh overflow-hidden bg-[var(--app-rail-shell-background)]"

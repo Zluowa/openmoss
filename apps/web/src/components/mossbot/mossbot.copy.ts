@@ -132,6 +132,8 @@ const ERROR_COPY: Record<string, string> = {
     "有几位助手同名，请从成员列表中选择。",
   "The group is unavailable right now. Please retry.": "群聊暂时不可用，请重试。",
   "This assistant could not reply. Please retry.": "这位助手没能回复，请重试。",
+  "An attachment could not be used. Attach it again and retry.":
+    "有附件无法使用，请重新添加后再试。",
   "Could not create this assistant.": "无法创建这个助手，请重试。",
   Failed: "失败",
 };
@@ -157,6 +159,7 @@ const CODE_COPY: Readonly<Record<MossbotRoomErrorCode, string>> = {
   ambiguous_name: "Several assistants share this name. Choose one from the member list.",
   unavailable: "The group is unavailable right now. Please retry.",
   member_turn_failed: "This assistant could not reply. Please retry.",
+  attachment_unavailable: "An attachment could not be used. Attach it again and retry.",
 };
 
 function errorCodeOf(cause: unknown): MossbotRoomErrorCode | null {

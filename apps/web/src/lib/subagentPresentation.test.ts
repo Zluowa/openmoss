@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatSubagentModelLabel,
   normalizeSubagentStatusKind,
+  localizeSubagentRole,
   resolveSubagentPresentation,
   resolveSubagentPresentationForThread,
   resolveSubagentThreadStatusKind,
@@ -30,6 +31,24 @@ describe("resolveSubagentPresentation", () => {
     expect(presentation.nickname).toBe("Harvey");
     expect(presentation.role).toBe("worker");
     expect(presentation.primaryLabel).toBe("Harvey");
+  });
+
+  it("hides provider-named agent types, also in titles older builds persisted", () => {
+    for (const input of [
+      { nickname: "Submit viz block replacement draft", role: "claude", title: null },
+      { title: "Submit viz block replacement draft [claude]" },
+    ]) {
+      const presentation = resolveSubagentPresentation(input);
+      expect(presentation.role).toBeNull();
+      expect(presentation.fullLabel).toBe("Submit viz block replacement draft");
+    }
+  });
+
+  it("shows Moss's own roles in Chinese in zh-CN and other roles as written", () => {
+    expect(localizeSubagentRole("explore", "zh-CN")).toBe("探索");
+    expect(localizeSubagentRole("Review", "zh-CN")).toBe("审阅");
+    expect(localizeSubagentRole("explore", "en")).toBe("explore");
+    expect(localizeSubagentRole("db-migrator", "zh-CN")).toBe("db-migrator");
   });
 
   it("hides worker-tier agent types passed as explicit roles", () => {

@@ -94,6 +94,7 @@ async function fixture(
     startupTimeoutMs?: number;
     deathFlag?: string;
     ownPids?: () => ReadonlySet<number>;
+    systemIdleSeconds?: () => number;
     cursorStyle?: () => { fill?: string; rim?: string; shadow?: string } | null | undefined;
     checkPermissions?: (options?: { readonly force: boolean }) => Promise<{
       accessibility: boolean;
@@ -257,6 +258,7 @@ process.stdin.resume(); process.stdin.on('end',retire);
     ...(options.checkPermissions ? { checkPermissions: options.checkPermissions } : {}),
     ...(options.releaseHeldInput ? { releaseHeldInput: options.releaseHeldInput } : {}),
     ...(options.inputMonitorState ? { inputMonitorState: options.inputMonitorState } : {}),
+    ...(options.systemIdleSeconds ? { systemIdleSeconds: options.systemIdleSeconds } : {}),
     ...(options.activateInputMonitor ? { activateInputMonitor: options.activateInputMonitor } : {}),
     ...(options.onInputMonitorArmedChange
       ? { onInputMonitorArmedChange: options.onInputMonitorArmedChange }
@@ -2751,6 +2753,71 @@ describe("physical Escape interrupt", () => {
       cuaRequest(f.endpoint, { method: "call", name: "press_key", args, task }),
     ).resolves.toMatchObject({ ok: true, result: {} });
     expect((await f.events()).filter((event) => event.event === "interrupt")).toHaveLength(0);
+    expect((await f.events()).filter((event) => event.event === "key")).toHaveLength(2);
+  });
+
+  it("refuses foreground input while the listener reports someone using the computer", async () => {
+    const f = await fixture(capability, {
+      inputMonitorState: () => ({ ready: true }),
+      ownPids: () => new Set([4242]),
+    });
+    const task = { threadId: "user-active", turnId: "turn" };
+    const foreground = () =>
+      cuaRequest(f.endpoint, {
+        method: "call",
+        name: "press_key",
+        args: { pid: 700, window_id: 900, delivery_mode: "foreground", key: "enter" },
+        task,
+      });
+    // Input landing in this app's own window is the person answering Moss.
+    f.host.physicalInput({ type: "physical-input", kind: "pointer", pid: 4242 });
+    await expect(foreground()).resolves.toMatchObject({ ok: true, result: {} });
+
+    f.host.physicalInput({ type: "physical-input", kind: "keyboard", pid: 701 });
+    await expect(foreground()).resolves.toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: { effect: "refused", code: "user_input_active" },
+      },
+    });
+    // Background delivery shares the desktop and is not held back.
+    await expect(
+      cuaRequest(f.endpoint, {
+        method: "call",
+        name: "press_key",
+        args: { pid: 700, window_id: 900, key: "enter" },
+        task,
+      }),
+    ).resolves.toMatchObject({ ok: true, result: {} });
+    expect((await f.events()).filter((event) => event.event === "key")).toHaveLength(2);
+
+    elapseInputCooldown();
+    elapseInputCooldown();
+    await expect(foreground()).resolves.toMatchObject({ ok: true, result: {} });
+    expect((await f.events()).filter((event) => event.event === "key")).toHaveLength(3);
+  });
+
+  it("falls back to the system idle clock when no input listener is wired", async () => {
+    let idleSeconds = 0;
+    const f = await fixture(capability, { systemIdleSeconds: () => idleSeconds });
+    const task = { threadId: "idle-clock", turnId: "turn" };
+    const foreground = () =>
+      cuaRequest(f.endpoint, {
+        method: "call",
+        name: "press_key",
+        args: { pid: 700, window_id: 900, delivery_mode: "foreground", key: "enter" },
+        task,
+      });
+    await expect(foreground()).resolves.toMatchObject({
+      result: { structuredContent: { code: "user_input_active" } },
+    });
+    expect((await f.events()).filter((event) => event.event === "key")).toHaveLength(0);
+
+    idleSeconds = 10;
+    await expect(foreground()).resolves.toMatchObject({ ok: true, result: {} });
+    // The agent's own key just reset the idle clock: that input is the agent's.
+    idleSeconds = 0;
+    await expect(foreground()).resolves.toMatchObject({ ok: true, result: {} });
     expect((await f.events()).filter((event) => event.event === "key")).toHaveLength(2);
   });
 

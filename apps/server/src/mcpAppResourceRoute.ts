@@ -20,7 +20,7 @@ import {
 import { McpAppRequestError, readMcpAppResourceOperation } from "./mcpApps/operations";
 import { McpAppService } from "./mcpApps/Services/McpAppService";
 import { ProviderService } from "./provider/Services/ProviderService";
-import { isLoopbackHost } from "./startupAccess";
+import { isLocalOnlyAccess, requestPeer } from "./startupAccess";
 import {
   isTrustedAppOrigin,
   normalizeCorsOrigin,
@@ -37,8 +37,9 @@ const MCP_APP_RESOURCE_RESPONSE_HEADERS = {
 export function isLegacyTokenAuthorized(input: {
   readonly config: ServerConfigShape;
   readonly url: URL;
+  readonly request: Parameters<typeof requestPeer>[0];
 }): boolean {
-  if (!isLoopbackHost(input.config.host) || input.config.publicUrl) return false;
+  if (!isLocalOnlyAccess(input.config, requestPeer(input.request))) return false;
   const legacyToken = input.url.searchParams.get("token");
   return !input.config.authToken || legacyToken === input.config.authToken;
 }
@@ -177,7 +178,7 @@ export const mcpAppResourceEffectRouteLayer = HttpRouter.add(
       });
     }
 
-    if (!isLegacyTokenAuthorized({ config, url })) {
+    if (!isLegacyTokenAuthorized({ config, url, request })) {
       yield* requireAuthenticatedMutationRequest;
     }
     const rawPayload = yield* readJsonBody(request);

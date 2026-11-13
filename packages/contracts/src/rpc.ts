@@ -173,6 +173,8 @@ import {
   McpConnectorConnectResult,
   McpConnectorDisconnectInput,
   McpConnectorDisconnectResult,
+  McpConnectorListToolsInput,
+  McpConnectorListToolsResult,
   McpConnectorSetup,
   MossServicePluginSetInstalledInput,
   MossServicePluginsState,
@@ -1869,6 +1871,13 @@ export const WsServerGetMcpConnectorSetupRpc = Rpc.make(WS_METHODS.serverGetMcpC
   error: WsRpcError,
 });
 
+/** What a connected server offers agents, asked of the server itself. */
+export const WsServerListMcpConnectorToolsRpc = Rpc.make(WS_METHODS.serverListMcpConnectorTools, {
+  payload: McpConnectorListToolsInput,
+  success: McpConnectorListToolsResult,
+  error: WsRpcError,
+});
+
 export const WsServerListMossServicePluginsRpc = Rpc.make(WS_METHODS.serverListMossServicePlugins, {
   payload: Schema.Struct({}),
   success: MossServicePluginsState,
@@ -3365,6 +3374,7 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsServerConnectMcpConnectorRpc,
   WsServerDisconnectMcpConnectorRpc,
   WsServerGetMcpConnectorSetupRpc,
+  WsServerListMcpConnectorToolsRpc,
   WsServerListMossServicePluginsRpc,
   WsServerSetMossServicePluginInstalledRpc,
   WsServerGetHtmlRenderMapConfigRpc,

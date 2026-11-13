@@ -185,8 +185,18 @@ describe("Moss harness policy", () => {
 
   it("keeps the gateway policy below its prompt budget", () => {
     // Includes the T3-compatible visual-reply workflow, including html_preview
-    // and the openui_reference catalog pointer, and the Canvas/media line.
-    assert.isAtMost(renderMossHarnessPolicy({ gatewayControlAvailable: true }).length, 6_700);
+    // and the openui_reference catalog pointer, the Canvas/media line, and the
+    // reply-language line (+150 chars, 2026-11-13).
+    assert.isAtMost(renderMossHarnessPolicy({ gatewayControlAvailable: true }).length, 6_850);
+  });
+
+  it("asks every provider to write all user-visible text in the user's language", () => {
+    for (const gatewayControlAvailable of [true, false]) {
+      assert.include(
+        renderMossHarnessPolicy({ gatewayControlAvailable }),
+        "in the language the user writes in: notes between tool calls, task and subagent descriptions",
+      );
+    }
   });
 
   it("withholds device guidance from sessions with no gateway control", () => {

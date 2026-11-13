@@ -265,7 +265,15 @@ export function MossbotRoomConversation({ roomId }: { roomId: string }) {
                         renderInlineVisualizations
                       />
                     ) : (
-                      entry.text
+                      <>
+                        {entry.text}
+                        {/* Sent from the phone with files: name them, so the post is not blank. */}
+                        {entry.attachments.length > 0 && (
+                          <span className="block text-ui-sm text-muted-foreground">
+                            {entry.attachments.map((attachment) => attachment.name).join(" · ")}
+                          </span>
+                        )}
+                      </>
                     )}
                   </RoomBubble>
                 );
@@ -383,6 +391,7 @@ function roomEntries(data: MossbotRoomView) {
       at: line.createdAt,
       member: member(line.senderId),
       streaming: false,
+      attachments: line.attachments ?? [],
     })),
     ...data.replies.map((r) => ({
       id: r.message.id,
@@ -390,6 +399,7 @@ function roomEntries(data: MossbotRoomView) {
       at: r.message.createdAt,
       member: member(r.memberId),
       streaming: r.message.streaming,
+      attachments: [],
     })),
   ].toSorted((a, b) => a.at.localeCompare(b.at));
 }

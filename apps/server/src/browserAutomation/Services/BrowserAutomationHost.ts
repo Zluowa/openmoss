@@ -19,6 +19,11 @@ export interface BrowserAutomationHostShape {
   readonly execute: (
     input: BrowserAutomationHostCall,
   ) => Effect.Effect<unknown, BrowserHostRpcError>;
+  /**
+   * A one-time note for this thread's agent, such as a person handing browser
+   * control back. Hosts without such events omit it.
+   */
+  readonly consumeNotice?: (threadId: string) => string | undefined;
 }
 
 export class BrowserAutomationHost extends ServiceMap.Service<

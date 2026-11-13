@@ -515,3 +515,48 @@ it.effect(
       assert.equal(authenticateWebSocketUpgrade.mock.calls.length, 1);
     }),
 );
+
+it.effect("a phone-reachable desktop keeps its own renderer on the startup token", () =>
+  Effect.gen(function* () {
+    const phoneSession = {
+      sessionId: "phone-session" as never,
+      subject: "owner-device",
+      method: "bearer-session-token" as const,
+      role: "owner" as const,
+    };
+    const authenticateWebSocketUpgrade = vi.fn(() => Effect.succeed(phoneSession));
+    const config = {
+      mode: "desktop" as const,
+      host: "0.0.0.0",
+      authToken: "desktop-secret",
+      publicUrl: undefined,
+      desktopPhoneAccess: true,
+    };
+    const request = {
+      headers: {},
+      cookies: {},
+      url: new URL("http://127.0.0.1:3773/ws?token=desktop-secret"),
+    };
+
+    const renderer = yield* authenticateRpcWebSocketUpgrade({
+      config,
+      legacyToken: "desktop-secret",
+      request,
+      peer: { remoteAddress: "127.0.0.1", headers: {} },
+      serverAuth: { authenticateWebSocketUpgrade },
+    });
+    assert.equal(renderer, null);
+    assert.equal(authenticateWebSocketUpgrade.mock.calls.length, 0);
+
+    // The same token from another device is worth nothing: it must hold a session.
+    const phone = yield* authenticateRpcWebSocketUpgrade({
+      config,
+      legacyToken: "desktop-secret",
+      request,
+      peer: { remoteAddress: "192.168.1.23", headers: {} },
+      serverAuth: { authenticateWebSocketUpgrade },
+    });
+    assert.equal(phone, phoneSession);
+    assert.equal(authenticateWebSocketUpgrade.mock.calls.length, 1);
+  }),
+);

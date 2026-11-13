@@ -73,7 +73,7 @@ export function PillTabs<TId extends string>({
             onClick={() => onSelect(tab.id)}
             onKeyDown={(event) => handleKeyDown(index, event)}
             className={cn(
-              "inline-flex min-h-9 shrink-0 items-center rounded-full px-4 py-1.5 text-ui-lg leading-normal outline-none transition-colors motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring",
+              "inline-flex min-h-9 shrink-0 items-center rounded-full px-3 py-1.5 text-ui-lg sm:px-4 leading-normal outline-none transition-colors motion-reduce:transition-none focus-visible:ring-2 focus-visible:ring-ring",
               active
                 ? "bg-foreground/[0.06] text-foreground"
                 : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",

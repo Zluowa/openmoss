@@ -135,6 +135,7 @@ function makeFakeServerAuth(): ServerAuthShape {
         expiresAt,
         sessionToken: "bearer-session-token",
       }),
+    revokeOwnerDeviceAccess: () => Effect.succeed(0),
     issuePairingCredential: () =>
       Effect.succeed({ id: "pairing-id", credential: "PAIRINGTOKEN", expiresAt }),
     listPairingLinks: () => Effect.succeed([]),

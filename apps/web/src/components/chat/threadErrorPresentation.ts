@@ -71,6 +71,23 @@ const MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING =
 const STREAM_DROPPED_PATTERN =
   /\bstream disconnected before completion\b|\bupstream error: terminated\b/iu;
 const STREAM_DROPPED_MESSAGE = "The connection to the model service dropped. Try again.";
+// An agent process that exited or was killed mid-turn, in each adapter's own words: Claude
+// Code (the SDK's text), the Codex app-server, Gemini ACP, OpenCode-style servers, Pi,
+// Antigravity, and every ACP agent (Kimi, MiniMax, ZCode and others), whose pending prompt
+// fails with the SDK's connection-closed error. Raw exit codes such as 4294967295 mean nothing
+// to a person; the copyable details keep them.
+const AGENT_PROCESS_EXIT_PATTERN = new RegExp(
+  [
+    String.raw`\bClaude Code process (?:exited with code -?\d+|terminated by signal \w+)`,
+    String.raw`\bcodex app-server exited \(code=`,
+    String.raw`\bGemini ACP session exited\b`,
+    String.raw`\bserver exited unexpectedly \(`,
+    String.raw`\bPi exited \(`,
+    String.raw`\bAntigravity CLI exited (?:with code|without a complete result)`,
+    String.raw`\b(?:ACP|agent) connection closed\b`,
+  ].join("|"),
+  "iu",
+);
 // Codex refuses a Moss-owned account that arrives without the runtime Moss issues
 // at sign-in, or whose runtime a Moss sign-out has since revoked. These are
 // internal invariant sentences; signing in to Moss again issues a fresh runtime.
@@ -233,6 +250,12 @@ function deliveryBlockError(locale: MossLocaleCode): string {
     : "Moss couldn't confirm the last message reached the provider, so this chat is paused to avoid running it twice. Choose Unblock thread to continue.";
 }
 
+function agentProcessExitError(locale: MossLocaleCode): string {
+  return locale === "zh-CN"
+    ? "智能体进程意外退出，这一轮没有完成。可以继续任务。"
+    : "The agent process quit unexpectedly, so this turn didn't finish. You can continue the task.";
+}
+
 function unconfirmedTurnStartError(locale: MossLocaleCode): string {
   return locale === "zh-CN"
     ? "Moss 没能确认服务商是否处理了这条消息，已停止等待，也没有重复发送。可以重试。"
@@ -329,6 +352,8 @@ export function resolveThreadErrorPresentation(
     safeText = repeatRequestRefusedError(locale);
   } else if (STREAM_DROPPED_PATTERN.test(raw)) {
     safeText = localizeProviderRuntimeMessage(STREAM_DROPPED_MESSAGE, locale);
+  } else if (AGENT_PROCESS_EXIT_PATTERN.test(raw)) {
+    safeText = agentProcessExitError(locale);
   } else if (MOSS_MANAGED_RUNTIME_MISSING_PATTERN.test(raw)) {
     safeText = localizeProviderRuntimeMessage(MOSS_MANAGED_RUNTIME_MISSING_MESSAGE, locale);
   } else if (normalizeProviderRuntimeMessage(raw) === PERSONAL_CODEX_USAGE_LIMIT_MESSAGE) {

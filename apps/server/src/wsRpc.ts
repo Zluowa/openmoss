@@ -231,6 +231,7 @@ import { makeDeviceFrameRouteLayer } from "./device/deviceFrameRoute";
 import { ComputerService } from "./computer/Services/ComputerService";
 import { makeWsComputerHandlers } from "./computer/wsComputerHandlers";
 import { makeComputerFrameRouteLayer } from "./computer/computerFrameRoute";
+import { makeServerBrowserStreamRouteLayer } from "./serverBrowser/serverBrowserStreamRoute";
 import { ComputerEventInterests } from "./computer/computerEventInterests";
 import { GitCore } from "./git/Services/GitCore";
 import { GitHubCli } from "./git/Services/GitHubCli";
@@ -320,7 +321,13 @@ import {
   type ServerSettingsShape,
 } from "./serverSettings";
 import { protectReservedSettingsPatch } from "./reservedSettingsBoundary";
-import { isLoopbackHost, isLoopbackStartupBearer } from "./startupAccess";
+import {
+  isLocalOnlyAccess,
+  isLoopbackStartupBearer,
+  requestPeer,
+  type LocalAccessConfig,
+  type RequestPeer,
+} from "./startupAccess";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { TerminalThreadTitleTracker } from "./terminal/terminalThreadTitleTracker";
 import { resolveOutOfRootFileReference } from "./workspace/outOfRootFileReference";
@@ -345,6 +352,7 @@ import { requireUsageAnalyticsAccess, requireWsOwnerSession } from "./wsOwnerAut
 import { makeWsRequestAdmission } from "./wsRequestAdmission";
 import { voiceUploadAdmissionGate } from "./voiceUploadAdmission";
 import {
+  CurrentWsLocalAccess,
   CurrentWsSessionRole,
   provideWsConnectionSession,
   WS_CONNECTION_SESSION_HEADER,
@@ -441,6 +449,7 @@ import {
 } from "./computerHistory/shared";
 import { CUA_HOST_SOCKET_ENV } from "@moss/shared/cuaDriverProtocol";
 import { resolveBrowserHostCapability } from "./browserAutomation/browserHostRpcClient";
+import { resolveLanOrigins } from "./lanOrigins";
 
 export function canManageExternalMcp(role: "owner" | "client"): boolean {
   return role === "owner";
@@ -474,6 +483,14 @@ export function resolveMossResourceImportStateDir(
     });
   }
   return nodePath.join(nodePath.resolve(stateDir), MOSS_RESOURCE_IMPORT_STATE_DIR_NAME);
+}
+
+/** Same-network addresses for pairing a phone; absent while Moss listens on loopback only. */
+function lanOriginsField(config: { readonly host: string | undefined; readonly port: number }): {
+  readonly lanOrigins?: ReadonlyArray<string>;
+} {
+  const lanOrigins = resolveLanOrigins({ host: config.host, port: config.port });
+  return lanOrigins.length > 0 ? { lanOrigins } : {};
 }
 
 function resolveMossResourceImportStateDirEffect(
@@ -1745,6 +1762,7 @@ const makeWsRpcHandlersLayer = () =>
         yield* Effect.promise(() => refreshWindowsInstalledApps({ waitMs: 1_500 }));
         return {
           ...(config.publicUrl ? { shareableOrigin: config.publicUrl.origin } : {}),
+          ...lanOriginsField(config),
           cwd: config.cwd,
           homeDir: config.homeDir,
           chatWorkspaceRoot: config.chatWorkspaceRoot,
@@ -2070,7 +2088,9 @@ const makeWsRpcHandlersLayer = () =>
       const requireLoopbackOwner = (message: string) =>
         Effect.gen(function* () {
           yield* requireWsOwnerSession;
-          if (!isLoopbackHost(config.host) || config.publicUrl !== undefined) {
+          // A phone paired with this desktop is an owner too, but it is not this computer.
+          const localAccess = yield* CurrentWsLocalAccess;
+          if (!(localAccess ?? isLocalOnlyAccess(config, undefined))) {
             return yield* Effect.fail(new WsRpcError({ message }));
           }
         });
@@ -2131,7 +2151,7 @@ const makeWsRpcHandlersLayer = () =>
         );
 
       const sessionCredentialService = yield* SessionCredentialService;
-      const authHandlers = makeAuthWsRpcHandlers(yield* ServerAuth);
+      const authHandlers = makeAuthWsRpcHandlers(yield* ServerAuth, config);
       const projectionAuthorityFactory = yield* MossProjectionAuthorityFactoryService;
       const resourceImportWorkspaceAuthorizationRegistry =
         yield* MossResourceImportWorkspaceAuthorizationRegistry;
@@ -3724,6 +3744,8 @@ const makeWsRpcHandlersLayer = () =>
           connectorRpc(mcpConnectors.connect(input), "Failed to connect"),
         [WS_METHODS.serverGetMcpConnectorSetup]: () =>
           connectorRpc(mcpConnectors.setup(), "Failed to read connector setup"),
+        [WS_METHODS.serverListMcpConnectorTools]: (input) =>
+          connectorRpc(mcpConnectors.listTools(input.connectorId), "Failed to list tools"),
         // Keys reach only the live page in the app; they are never logged or stored in a page.
         [WS_METHODS.serverGetHtmlRenderMapConfig]: () =>
           accountLane(mossPhoneAccountService).pipe(
@@ -4266,9 +4288,13 @@ const makeWsRpcHandlersLayer = () =>
             return roomRuntime.get(input.roomId);
           }),
         [WS_METHODS.mossbotRoomSend]: (input) =>
-          roomEffect(async () => {
-            if (!roomRuntime) throw new Error("Mossbot groups are unavailable");
-            return roomRuntime.send(input);
+          // The session that uploaded a post's attachments is the one that may attach them.
+          Effect.gen(function* () {
+            const uploader = yield* CurrentManagedAttachmentPrincipal;
+            return yield* roomEffect(async () => {
+              if (!roomRuntime) throw new Error("Mossbot groups are unavailable");
+              return roomRuntime.send(input, undefined, uploader);
+            });
           }),
         [WS_METHODS.mossbotRoomDelete]: (input) =>
           roomEffect(async () => {
@@ -5646,22 +5672,21 @@ function trustedWebSocketRequestUrl(
 }
 
 export function authenticateRpcWebSocketUpgrade(input: {
-  readonly config: Omit<
-    Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">,
-    "publicUrl"
-  > & {
-    readonly publicUrl: string | URL | undefined;
-  };
+  readonly config: LocalAccessConfig & Pick<ServerConfigShape, "authToken">;
   readonly legacyToken: string | null;
   readonly request: AuthRequest;
+  /** Where the upgrade came from; without it only a loopback-only server is local. */
+  readonly peer?: RequestPeer | undefined;
   readonly serverAuth: Pick<ServerAuthShape, "authenticateWebSocketUpgrade">;
 }): Effect.Effect<AuthenticatedSession | null, AuthError> {
   if (
     !requiresWebSocketAuthentication(input.config) ||
-    (isLoopbackHost(input.config.host) &&
-      !input.config.publicUrl &&
-      input.legacyToken === input.config.authToken) ||
-    isLoopbackStartupBearer({ ...input.config, authorization: input.request.headers.authorization })
+    (isLocalOnlyAccess(input.config, input.peer) && input.legacyToken === input.config.authToken) ||
+    isLoopbackStartupBearer({
+      ...input.config,
+      authorization: input.request.headers.authorization,
+      peer: input.peer,
+    })
   ) {
     return Effect.succeed(null);
   }
@@ -5675,14 +5700,10 @@ export function authenticateRpcWebSocketUpgrade(input: {
  * the RPC socket rather than calling ServerAuth directly.
  */
 export function authorizeDeviceFrameWebSocketUpgrade(input: {
-  readonly config: Omit<
-    Pick<ServerConfigShape, "authToken" | "host" | "publicUrl">,
-    "publicUrl"
-  > & {
-    readonly publicUrl: string | URL | undefined;
-  };
+  readonly config: LocalAccessConfig & Pick<ServerConfigShape, "authToken">;
   readonly legacyToken: string | null;
   readonly request: AuthRequest;
+  readonly peer?: RequestPeer | undefined;
   readonly serverAuth: Pick<ServerAuthShape, "authenticateWebSocketUpgrade">;
 }): Effect.Effect<boolean> {
   return authenticateRpcWebSocketUpgrade(input).pipe(
@@ -5755,12 +5776,15 @@ export function makeWebsocketRpcRouteLayer<R>(
             config,
             legacyToken,
             request: makeEffectAuthRequest(request),
+            peer: requestPeer(request),
             serverAuth,
           });
+          const localAccess = isLocalOnlyAccess(config, requestPeer(request));
 
           if (!authenticatedSession) {
             return yield* runWithConnectionSession(request, {
               role: "owner",
+              localAccess,
               attachmentPrincipal: LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL,
             });
           }
@@ -5769,6 +5793,7 @@ export function makeWebsocketRpcRouteLayer<R>(
             authenticatedSession.sessionId,
             runWithConnectionSession(request, {
               role: authenticatedSession.role,
+              localAccess,
               authenticatedSession,
               attachmentPrincipal: attachmentPrincipalForSession(authenticatedSession.sessionId),
             }),
@@ -5899,6 +5924,7 @@ const deviceFrameRouteLayer = makeDeviceFrameRouteLayer({
         config,
         legacyToken: url.searchParams.get("token"),
         request: makeEffectAuthRequest(request),
+        peer: requestPeer(request),
         serverAuth,
       });
     }),
@@ -5912,6 +5938,24 @@ const computerFrameRouteLayer = makeComputerFrameRouteLayer({
       const url = trustedWebSocketRequestUrl(request, config);
       if (url === null) return false;
       return yield* authorizeComputerFrameWebSocketUpgrade({
+        config,
+        legacyToken: url.searchParams.get("token"),
+        request: makeEffectAuthRequest(request),
+        peer: requestPeer(request),
+        serverAuth,
+      });
+    }),
+});
+
+/** Server browser viewers and downloads are admitted exactly like the RPC upgrade. */
+const serverBrowserStreamRouteLayer = makeServerBrowserStreamRouteLayer({
+  authorize: (request) =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig;
+      const serverAuth = yield* ServerAuth;
+      const url = trustedWebSocketRequestUrl(request, config);
+      if (url === null) return false;
+      return yield* authorizeDeviceFrameWebSocketUpgrade({
         config,
         legacyToken: url.searchParams.get("token"),
         request: makeEffectAuthRequest(request),
@@ -5932,6 +5976,7 @@ const pageRealtimeRouteLayer = makePageRealtimeRouteLayer({
         config,
         legacyToken: url.searchParams.get("token"),
         request: makeEffectAuthRequest(request),
+        peer: requestPeer(request),
         serverAuth,
       });
     }),
@@ -5941,6 +5986,7 @@ export const websocketRpcRouteLayer = Layer.mergeAll(
   deviceFrameRouteLayer,
   pageRealtimeRouteLayer,
   computerFrameRouteLayer,
+  serverBrowserStreamRouteLayer,
   makeWebsocketNegotiationRouteLayer(),
   // The registry must be provided here so the upgrade route and the RPC
   // middleware (built from the same source effect) share one instance.

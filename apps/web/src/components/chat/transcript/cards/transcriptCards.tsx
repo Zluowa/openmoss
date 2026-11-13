@@ -8,7 +8,7 @@
 // Exports: TranscriptCardEnv, TRANSCRIPT_CARDS, renderTranscriptCard,
 //          transcriptCardSpacingClassName, TranscriptCardBoundary
 
-import { ThreadId } from "@moss/contracts";
+import { ThreadId, type TurnId } from "@moss/contracts";
 import React, {
   type ComponentProps,
   type CSSProperties,
@@ -21,6 +21,8 @@ import React, {
 import { TriangleAlertIcon } from "~/lib/icons";
 import { MUTED_LABEL_TEXT_CLASS_NAME } from "~/surfaceStyles";
 import { cn } from "~/lib/utils";
+import { useStore } from "~/store";
+import { getThreadFromState } from "~/threadDerivation";
 import { syncAnimationsToTimelineOrigin } from "~/lib/animationTimelineSync";
 import { useTranslation } from "../../../../localization";
 import { formatClockElapsed } from "../../../../session-logic";
@@ -44,6 +46,7 @@ import {
   workingStatusKey,
 } from "../workingStatus";
 import { WorkingMarkContext } from "../workingMarkContext";
+import { resolveSilentTurnNotice } from "../../silentTurnNotice";
 import {
   ContextCompactionLine,
   ModelChangedTimelineRow,
@@ -93,6 +96,8 @@ export interface TranscriptCardEnv {
   inlineVisualActions: InlineVisualProps["actions"];
   onEmbeddedScrollIntent: InlineVisualProps["onScrollIntent"];
   workingLabel: string;
+  /** "Stop and retry" on a silent turn's notice; absent where no new turn can be sent. */
+  onStopAndRetryTurn?: ((turnId: TurnId) => Promise<boolean>) | undefined;
   worktreeSetupPendingAction: WorktreeSetupProps["pendingAction"];
   onResolveWorktreeSetup: WorktreeSetupProps["onResolve"];
   /** Messages and tool runs: drawn by the timeline, which owns their many inputs. */
@@ -141,6 +146,76 @@ function WorkingBody(props: { row: RowOf<"working">; env: TranscriptCardEnv }) {
   // Read from context, not env: the signal changes on every streamed character.
   const workingMark = useContext(WorkingMarkContext);
   const finished = workingMark.activity === "done";
+  // The server says when the running turn has sent nothing for a long while (active time),
+  // and clears it the moment the agent speaks. A primitive key keeps the selector stable.
+  const silentKey = useStore((state) => {
+    const thread = env.threadId
+      ? getThreadFromState(state, ThreadId.makeUnsafe(env.threadId))
+      : undefined;
+    const notice = thread ? resolveSilentTurnNotice(thread) : null;
+    return notice
+      ? `${notice.id}|${notice.turnId}|${notice.openToolCall ? 1 : 0}|${notice.silentForMs}`
+      : null;
+  });
+  const [dismissedSilentId, setDismissedSilentId] = useState<string | null>(null);
+  const [retryingSilentTurn, setRetryingSilentTurn] = useState(false);
+  const silent = (() => {
+    if (!silentKey || finished) return null;
+    const [id, turnId, openTool, silentForMs] = silentKey.split("|");
+    if (!id || !turnId || id === dismissedSilentId) return null;
+    return {
+      id,
+      turnId: turnId as TurnId,
+      openToolCall: openTool === "1",
+      minutes: String(Math.max(1, Math.floor(Number(silentForMs) / 60_000))),
+    };
+  })();
+  if (silent) {
+    const onStopAndRetry = env.onStopAndRetryTurn;
+    return (
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-x-1.5 gap-y-1 pt-0.5 font-system-ui",
+          MUTED_LABEL_TEXT_CLASS_NAME,
+        )}
+        style={{ fontSize: `${env.typography.chatPx}px` }}
+        data-silent-turn-notice={silent.turnId}
+      >
+        <MossLogoMark
+          activity={workingMark.activity}
+          progress={workingMark.progress}
+          className={MESSAGE_ACTION_ICON_CLASS_NAME}
+        />
+        <span role="status">
+          {format(
+            silent.openToolCall ? "transcript.silent.noticeOpenTool" : "transcript.silent.notice",
+            { minutes: silent.minutes },
+          )}
+        </span>
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={retryingSilentTurn}
+          onClick={() => setDismissedSilentId(silent.id)}
+        >
+          {t("transcript.silent.keepWaiting")}
+        </Button>
+        {onStopAndRetry ? (
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={retryingSilentTurn}
+            onClick={() => {
+              setRetryingSilentTurn(true);
+              void onStopAndRetry(silent.turnId).finally(() => setRetryingSilentTurn(false));
+            }}
+          >
+            {t("transcript.silent.stopAndRetry")}
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div
       className={cn(

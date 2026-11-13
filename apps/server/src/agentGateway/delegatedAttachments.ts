@@ -26,7 +26,10 @@ import type {
 import { resolveRealPathWithinRoot } from "../workspace/realPathContainment.ts";
 
 interface CloneInput {
-  readonly sourceMessages: readonly HubWorkSourceMessage[];
+  readonly sourceMessages: readonly Pick<
+    HubWorkSourceMessage,
+    "threadId" | "messageId" | "attachments"
+  >[];
   readonly targetThreadId: string;
   readonly targetMessageId: string;
   readonly dispatchKey: string;

@@ -5,7 +5,7 @@
 import {
   buildSubagentIdentityDirectory,
   extractSubagentIdentityHints as extractParsedSubagentIdentityHints,
-  isWorkerTierSubagentRole,
+  isUnshownSubagentRole,
   resolveSubagentIdentityFromDirectory,
 } from "@moss/shared/subagents";
 import { formatModelDisplayName } from "@moss/shared/model";
@@ -131,7 +131,20 @@ function normalizeRole(role: string | null | undefined): string | null {
 // Worker-tier agent types are internal effort carriers; never surface them as a
 // role even when persisted thread metadata or titles still contain them.
 function suppressWorkerTierRole(role: string | null): string | null {
-  return role !== null && isWorkerTierSubagentRole(role) ? null : role;
+  return role !== null && isUnshownSubagentRole(role) ? null : role;
+}
+
+// Moss's own subagent definitions (agentMentions) by role, in Simplified Chinese.
+const ZH_CN_SUBAGENT_ROLES: Readonly<Record<string, string>> = {
+  explore: "探索",
+  review: "审阅",
+  build: "构建",
+  plan: "规划",
+};
+
+/** A subagent role as shown: Moss's own roles in the UI language, others as written. */
+export function localizeSubagentRole(role: string, locale: string): string {
+  return locale === "zh-CN" ? (ZH_CN_SUBAGENT_ROLES[role.trim().toLowerCase()] ?? role) : role;
 }
 
 // Placeholders the server persists before identity arrives: "Subagent",

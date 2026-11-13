@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatHostForUrl,
+  isDirectLoopbackRequest,
+  isLocalOnlyAccess,
   isLoopbackHost,
   isLoopbackStartupBearer,
   isWildcardHost,
@@ -28,6 +30,57 @@ describe("startupAccess", () => {
       expect(isLoopbackStartupBearer({ ...base, ...change })).toBe(false);
     }
   });
+  describe("a desktop that lets phones connect", () => {
+    const here = { remoteAddress: "127.0.0.1", headers: {} };
+    const phone = { remoteAddress: "192.168.1.23", headers: {} };
+    const lan = {
+      mode: "desktop" as const,
+      host: "0.0.0.0",
+      publicUrl: undefined,
+      desktopPhoneAccess: true,
+    };
+    const tailnet = {
+      mode: "desktop" as const,
+      host: "127.0.0.1",
+      publicUrl: "https://mac.tail1234.ts.net",
+      desktopPhoneAccess: true,
+    };
+
+    it("keeps this computer's own requests local and never a phone's", () => {
+      expect(isLocalOnlyAccess(lan, here)).toBe(true);
+      expect(isLocalOnlyAccess(lan, { ...here, remoteAddress: "::ffff:127.0.0.1" })).toBe(true);
+      expect(isLocalOnlyAccess(lan, phone)).toBe(false);
+      expect(isLocalOnlyAccess(lan, undefined)).toBe(false);
+    });
+
+    it("treats a request relayed by a proxy on this computer as remote", () => {
+      expect(isLocalOnlyAccess(tailnet, here)).toBe(true);
+      for (const name of ["x-forwarded-for", "forwarded", "tailscale-user-login", "x-real-ip"]) {
+        const relayed = { remoteAddress: "127.0.0.1", headers: { [name]: "100.64.0.9" } };
+        expect(isDirectLoopbackRequest(relayed)).toBe(false);
+        expect(isLocalOnlyAccess(tailnet, relayed)).toBe(false);
+        expect(isLocalOnlyAccess(lan, relayed)).toBe(false);
+      }
+    });
+
+    it("needs the desktop's explicit setting", () => {
+      expect(isLocalOnlyAccess({ ...lan, desktopPhoneAccess: false }, here)).toBe(false);
+      expect(isLocalOnlyAccess({ ...lan, mode: "web" }, here)).toBe(false);
+      expect(isLocalOnlyAccess({ ...lan, host: "192.168.1.5" }, here)).toBe(false);
+      expect(isLocalOnlyAccess({ ...tailnet, desktopPhoneAccess: false }, here)).toBe(false);
+    });
+
+    it("accepts the startup bearer only from this computer", () => {
+      const bearer = { ...lan, authToken: "fixture", authorization: "Bearer fixture" };
+      expect(isLoopbackStartupBearer({ ...bearer, peer: here })).toBe(true);
+      expect(isLoopbackStartupBearer({ ...bearer, peer: phone })).toBe(false);
+      expect(isLoopbackStartupBearer(bearer)).toBe(false);
+      expect(
+        isLoopbackStartupBearer({ ...bearer, peer: here, authorization: "Bearer wrong" }),
+      ).toBe(false);
+    });
+  });
+
   it("detects wildcard hosts", () => {
     expect(isWildcardHost("0.0.0.0")).toBe(true);
     expect(isWildcardHost("::")).toBe(true);

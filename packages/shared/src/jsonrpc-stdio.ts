@@ -1,3 +1,4 @@
+import type { EventEmitter } from "node:events";
 import type { Writable } from "node:stream";
 
 import { ByteAccumulator } from "./byteAccumulator";
@@ -200,6 +201,51 @@ export class JsonRpcStdioFramer {
   }
 }
 
+/**
+ * Error codes that mean the peer's end of a pipe is gone. Windows reports a
+ * child that exited mid-write as `EOF`, POSIX as `EPIPE`.
+ */
+const BROKEN_PIPE_CODES: ReadonlySet<string> = new Set([
+  "EPIPE",
+  "EOF",
+  "ECONNRESET",
+  "ERR_STREAM_DESTROYED",
+  "ERR_STREAM_WRITE_AFTER_END",
+  "ERR_STREAM_PREMATURE_CLOSE",
+]);
+
+/** Whether an error says a pipe's other end closed, not that the data was bad. */
+export function isBrokenPipeError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  return typeof code === "string" && BROKEN_PIPE_CODES.has(code);
+}
+
+export type ChildStdioStreamName = "stdin" | "stdout" | "stderr";
+
+type ChildStdioStreams = {
+  readonly stdin?: EventEmitter | null;
+  readonly stdout?: EventEmitter | null;
+  readonly stderr?: EventEmitter | null;
+};
+
+/**
+ * Gives each of a child's pipes an `error` listener for as long as the pipe lives.
+ *
+ * A pipe with no `error` listener turns a broken pipe into an uncaught exception,
+ * and that ends the whole process that spawned the child, so an agent CLI dying
+ * at start would take every other chat with it. Call this right after spawning.
+ * The child's `exit` stays the way its owner learns that it is gone; `onError`
+ * only adds detail and may be called more than once.
+ */
+export function guardChildStdio(
+  child: ChildStdioStreams,
+  onError: (error: Error, stream: ChildStdioStreamName) => void = () => undefined,
+): void {
+  for (const name of ["stdin", "stdout", "stderr"] as const) {
+    child[name]?.on("error", (error: Error) => onError(error, name));
+  }
+}
+
 type PendingWrite = {
   readonly frame: Buffer;
   readonly resolve: () => void;
@@ -227,6 +273,10 @@ export class JsonRpcStdioWriter {
     ) {
       throw new RangeError("JSON-RPC stdio budgets must be positive and queue >= frame");
     }
+    // Never removed: the error for a frame that already settled, or for the
+    // pipe breaking while idle, arrives on a later tick, and without a listener
+    // it is an uncaught exception that ends the server.
+    writable.on("error", (error: Error) => this.close(this.writeFailure(error, this.queuedBytes)));
   }
 
   write(message: unknown): Promise<void> {
@@ -302,6 +352,13 @@ export class JsonRpcStdioWriter {
     });
   }
 
+  /** A peer that went away reads as the ordinary closed outcome, with its cause kept. */
+  private writeFailure(cause: unknown, observedBytes: number): Error {
+    if (cause instanceof JsonRpcStdioTransportError) return cause;
+    if (isBrokenPipeError(cause)) return this.closedError(observedBytes, cause);
+    return cause instanceof Error ? cause : new Error(String(cause));
+  }
+
   protected serializationError(cause?: unknown): Error {
     if (cause instanceof Error) return cause;
     if (cause !== undefined) return new Error(String(cause));
@@ -335,7 +392,7 @@ export class JsonRpcStdioWriter {
           );
           next.resolve();
         } catch (cause) {
-          const error = cause instanceof Error ? cause : new Error(String(cause));
+          const error = this.writeFailure(cause, next.frame.length);
           next.reject(error);
           this.close(error);
         } finally {

@@ -951,8 +951,11 @@ describe("websocketRpcRouteLayer connection lifecycle", () => {
       const sessionKey = server.observedConnectionSessionKeys[0]!;
       // The verified session itself also travels with the connection, so owner-only
       // handlers (incoming pairing management) act on exactly this session.
+      // The test config names no host, so it is not a loopback-only server and the
+      // connection does not get this computer's local standing (see isLocalOnlyAccess).
       expect(server.connectionSessions.lookup(sessionKey)).toEqual({
         role: "owner",
+        localAccess: false,
         attachmentPrincipal: { ownerKind: "session", ownerId: issued.sessionId },
         authenticatedSession: expect.objectContaining({
           sessionId: issued.sessionId,

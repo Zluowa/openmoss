@@ -5,6 +5,7 @@
 import { type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 
+import { guardChildStdio } from "@moss/shared/jsonrpc-stdio";
 import { spawnProcess } from "@moss/shared/processRuntime";
 import { resolveWindowsSystemRoot } from "@moss/shared/platformEnvironment";
 
@@ -314,6 +315,9 @@ class PowerShellProcessSnapshotWorker implements ProcessChildrenSnapshotWorker {
     this.child = (options.spawnProcess ?? spawnPowerShellSnapshotProcess)(
       windowsProcessSnapshotScript(options.prepareCim === true),
     );
+    // A request written after PowerShell died fails through its write callback
+    // and `close`; the pipe's own error event must not escape.
+    guardChildStdio(this.child);
     this.child.stdout.setEncoding("utf8");
     this.child.stdout.on("data", (chunk: string) => {
       this.consumeStdout(chunk);

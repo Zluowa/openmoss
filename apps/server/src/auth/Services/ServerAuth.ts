@@ -75,6 +75,11 @@ export interface ServerAuthShape {
   readonly revokeOtherClientSessions: (
     currentSessionId?: AuthSessionId,
   ) => Effect.Effect<number, AuthError>;
+  /**
+   * Signs out every paired phone (owner-device sessions) and withdraws any phone
+   * pairing code still open. Used when "Allow phone connections" is off.
+   */
+  readonly revokeOwnerDeviceAccess: () => Effect.Effect<number, AuthError>;
   readonly logoutSession: (sessionId: AuthSessionId) => Effect.Effect<boolean, AuthError>;
   readonly authenticateHttpRequest: (
     request: AuthRequest,

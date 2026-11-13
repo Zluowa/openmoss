@@ -18,7 +18,7 @@ import {
   HoolaCanvasSegmentsBridgeError,
 } from "./hoolaCanvasSegmentsBridge";
 import { isTrustedMossManagedGatewayUrlForAuthority } from "./provider/mossManagedGatewayTrust";
-import { isLoopbackHost } from "./startupAccess";
+import { isLocalOnlyAccess, requestPeer } from "./startupAccess";
 
 const BRIDGE_PREFIX = "/hoola-canvas-bridge/api/generation/jobs";
 const SEGMENTS_PREFIX = "/hoola-canvas-bridge/api/segments";
@@ -154,7 +154,7 @@ export const hoolaCanvasBridgeEffectRouteLayer = HttpRouter.add(
     const url = HttpServerRequest.toURL(request);
     if (!url) return json(400, { success: false, code: "invalid_request" });
     const config = yield* ServerConfig;
-    if (!isLoopbackHost(config.host) || config.publicUrl || request.headers.origin) {
+    if (!isLocalOnlyAccess(config, requestPeer(request)) || request.headers.origin) {
       return json(403, { success: false, code: "bridge_loopback_only" });
     }
     if (!bridgeAuthorized(request.headers.authorization)) {

@@ -353,6 +353,7 @@ import {
 import {
   McpConnectorConnectInput,
   McpConnectorDisconnectInput,
+  McpConnectorListToolsInput,
   MossServicePluginSetInstalledInput,
 } from "./mcpConnectors";
 import {
@@ -480,6 +481,7 @@ export const WS_METHODS = {
   serverConnectMcpConnector: "server.connectMcpConnector",
   serverDisconnectMcpConnector: "server.disconnectMcpConnector",
   serverGetMcpConnectorSetup: "server.getMcpConnectorSetup",
+  serverListMcpConnectorTools: "server.listMcpConnectorTools",
   serverListMossServicePlugins: "server.listMossServicePlugins",
   serverSetMossServicePluginInstalled: "server.setMossServicePluginInstalled",
   serverGetHtmlRenderMapConfig: "server.getHtmlRenderMapConfig",
@@ -963,6 +965,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverConnectMcpConnector, McpConnectorConnectInput),
   tagRequestBody(WS_METHODS.serverDisconnectMcpConnector, McpConnectorDisconnectInput),
   tagRequestBody(WS_METHODS.serverGetMcpConnectorSetup, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverListMcpConnectorTools, McpConnectorListToolsInput),
   tagRequestBody(WS_METHODS.serverListMossServicePlugins, Schema.Struct({})),
   tagRequestBody(
     WS_METHODS.serverSetMossServicePluginInstalled,

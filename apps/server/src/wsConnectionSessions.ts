@@ -30,8 +30,19 @@ export const CurrentWsAuthenticatedSession = ServiceMap.Reference<AuthenticatedS
   { defaultValue: () => null },
 );
 
+/**
+ * Whether this connection came straight from the computer running Moss (see
+ * `isLocalOnlyAccess`). Null outside a registered connection: the server's own
+ * configuration decides then.
+ */
+export const CurrentWsLocalAccess = ServiceMap.Reference<boolean | null>(
+  "moss/ws/CurrentLocalAccess",
+  { defaultValue: () => null },
+);
+
 export interface WsConnectionSession {
   readonly role: WsSessionRole;
+  readonly localAccess?: boolean;
   readonly attachmentPrincipal: ManagedAttachmentPrincipal;
   readonly authenticatedSession?: AuthenticatedSession;
 }
@@ -106,6 +117,7 @@ export function provideWsConnectionSession<A, E, R>(
         Effect.provideService(CurrentWsSessionRole, session.role),
         Effect.provideService(CurrentWsAuthenticatedSession, session.authenticatedSession ?? null),
         Effect.provideService(CurrentManagedAttachmentPrincipal, session.attachmentPrincipal),
+        Effect.provideService(CurrentWsLocalAccess, session.localAccess ?? null),
       )
     : effect;
 }

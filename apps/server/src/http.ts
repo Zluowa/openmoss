@@ -122,7 +122,7 @@ import {
   readInlineVisualizationLibrary,
   readInlineVisualizationRequest,
 } from "./inlineVisualizationAccess";
-import { isLoopbackHost, isLoopbackStartupBearer } from "./startupAccess";
+import { isLocalOnlyAccess, isLoopbackStartupBearer, requestPeer } from "./startupAccess";
 import {
   attachmentPrincipalForSession,
   GUEST_SHARE_ATTACHMENT_OWNER_KIND,
@@ -447,7 +447,7 @@ export const inlineVisualizationEffectRouteLayer = Layer.mergeAll(
       const url = HttpServerRequest.toURL(request);
       if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
       const config = yield* ServerConfig;
-      if (!isLegacyTokenAuthorized({ config, url })) yield* requireAuthenticatedRequest;
+      if (!isLegacyTokenAuthorized({ config, url, request })) yield* requireAuthenticatedRequest;
       const resolved = yield* readInlineVisualizationRequest({
         threadId: url.searchParams.get("threadId"),
         requestedPath: url.searchParams.get("path"),
@@ -508,7 +508,7 @@ export const inlineVisualizationEffectRouteLayer = Layer.mergeAll(
           }),
         );
         if (!valid) return HttpServerResponse.text("Forbidden", { status: 403 });
-      } else if (!isLegacyTokenAuthorized({ config, url })) {
+      } else if (!isLegacyTokenAuthorized({ config, url, request })) {
         yield* requireAuthenticatedRequest;
       }
       const document = inlineVisualizationDocument(resolved.visualization.source);
@@ -534,7 +534,7 @@ export const inlineVisualizationEffectRouteLayer = Layer.mergeAll(
       const url = HttpServerRequest.toURL(request);
       if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
       const config = yield* ServerConfig;
-      if (!isLegacyTokenAuthorized({ config, url })) yield* requireAuthenticatedRequest;
+      if (!isLegacyTokenAuthorized({ config, url, request })) yield* requireAuthenticatedRequest;
       const corsHeaders = localPreviewCorsHeaders({ config, request, url });
       const visual = yield* readInlineVisualFrameRequest(config, url);
       if (!visual) {
@@ -600,7 +600,7 @@ export const inlineVisualizationEffectRouteLayer = Layer.mergeAll(
           }),
         );
         if (!valid) return HttpServerResponse.text("Forbidden", { status: 403 });
-      } else if (!isLegacyTokenAuthorized({ config, url })) {
+      } else if (!isLegacyTokenAuthorized({ config, url, request })) {
         yield* requireAuthenticatedRequest;
       }
       const document = buildInlineVisualDocument(visual.html, {
@@ -629,6 +629,7 @@ export function makeDesktopShutdownEffectRouteLayer(shutdownController: ServerSh
       const authorization = authorizeDesktopShutdown({
         config,
         remoteAddress: request.remoteAddress,
+        headers: request.headers,
         authorization: request.headers.authorization,
       });
 
@@ -666,6 +667,7 @@ export function makeDesktopComputerEmergencyStopRouteLayer() {
       const authorization = authorizeDesktopShutdown({
         config,
         remoteAddress: request.remoteAddress,
+        headers: request.headers,
         authorization: request.headers.authorization,
       });
 
@@ -749,7 +751,15 @@ export function makeHealthEffectRouteLayer(readiness: ServerReadiness) {
 const requireAuthenticatedRequest = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const config = yield* ServerConfig;
-  if (isLoopbackStartupBearer({ ...config, authorization: request.headers.authorization })) return;
+  if (
+    isLoopbackStartupBearer({
+      ...config,
+      authorization: request.headers.authorization,
+      peer: requestPeer(request),
+    })
+  ) {
+    return;
+  }
   const serverAuth = yield* ServerAuth;
   yield* serverAuth.authenticateHttpRequest(makeEffectAuthRequest(request));
 });
@@ -799,8 +809,10 @@ function trustedMutationCorsHeaders(input: {
 export function isLegacyTokenAuthorized(input: {
   readonly config: ServerConfigShape;
   readonly url: URL;
+  /** Omitted, only a loopback-only server accepts the startup token. */
+  readonly request?: Parameters<typeof requestPeer>[0] | undefined;
 }): boolean {
-  if (!isLoopbackHost(input.config.host) || input.config.publicUrl) {
+  if (!isLocalOnlyAccess(input.config, input.request && requestPeer(input.request))) {
     return false;
   }
   const legacyToken = input.url.searchParams.get("token");
@@ -833,7 +845,8 @@ const authorizeHtmlDocumentRequest = (input: {
         }),
       );
     }
-    if (!isLegacyTokenAuthorized({ config: input.config, url: input.url })) {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    if (!isLegacyTokenAuthorized({ config: input.config, url: input.url, request })) {
       yield* requireAuthenticatedRequest;
     }
     return true;
@@ -1117,7 +1130,7 @@ export const projectFaviconEffectRouteLayer = HttpRouter.add(
     // need no token, while token-protected local instances accept the startup
     // token that resolveWsHttpUrl forwards from the WebSocket URL.
     const config = yield* ServerConfig;
-    if (!isLegacyTokenAuthorized({ config, url })) {
+    if (!isLegacyTokenAuthorized({ config, url, request })) {
       yield* requireAuthenticatedRequest;
     }
 
@@ -1179,7 +1192,7 @@ const siteFaviconEffectRouteLayer = HttpRouter.add(
     // same startup-token rule the local-image/attachments routes use so favicons
     // load in local dev without a session cookie.
     const config = yield* ServerConfig;
-    if (!isLegacyTokenAuthorized({ config, url })) {
+    if (!isLegacyTokenAuthorized({ config, url, request })) {
       yield* requireAuthenticatedRequest;
     }
 
@@ -1220,7 +1233,7 @@ export const threadOutputEffectRouteLayer = HttpRouter.add(
     const url = HttpServerRequest.toURL(request);
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
     const config = yield* ServerConfig;
-    if (!isLegacyTokenAuthorized({ config, url })) yield* requireAuthenticatedRequest;
+    if (!isLegacyTokenAuthorized({ config, url, request })) yield* requireAuthenticatedRequest;
     const cors = localPreviewCorsHeaders({ config, request, url });
     const deny = () => HttpServerResponse.text("File unavailable", { status: 404, headers: cors });
     const id = url.searchParams.get("threadId");
@@ -1271,7 +1284,7 @@ const threadExportEffectRouteLayer = HttpRouter.add(
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     const config = yield* ServerConfig;
-    if (!isLegacyTokenAuthorized({ config, url })) {
+    if (!isLegacyTokenAuthorized({ config, url, request })) {
       yield* requireAuthenticatedRequest;
     }
 
@@ -1326,7 +1339,7 @@ export const editorIconEffectRouteLayer = HttpRouter.add(
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     const config = yield* ServerConfig;
-    if (!isLegacyTokenAuthorized({ config, url })) {
+    if (!isLegacyTokenAuthorized({ config, url, request })) {
       yield* requireAuthenticatedRequest;
     }
 
@@ -1418,7 +1431,7 @@ export const localImageEffectRouteLayer = HttpRouter.add(
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
 
     const config = yield* ServerConfig;
-    if (!isLegacyTokenAuthorized({ config, url })) {
+    if (!isLegacyTokenAuthorized({ config, url, request })) {
       yield* requireAuthenticatedRequest;
     }
 
@@ -1521,7 +1534,7 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
   if (request.method !== "POST") {
     return HttpServerResponse.text("Method Not Allowed", { status: 405, headers: corsHeaders });
   }
-  const mutationSession = isLegacyTokenAuthorized({ config, url })
+  const mutationSession = isLegacyTokenAuthorized({ config, url, request })
     ? null
     : yield* requireAuthenticatedMutationRequest;
   const attachmentPrincipal =
@@ -1925,7 +1938,8 @@ const canvasSelectionEffectHandler = Effect.gen(function* () {
     return HttpServerResponse.empty({ status: 204, headers: corsHeaders });
   if (request.method !== "POST")
     return HttpServerResponse.text("Method Not Allowed", { status: 405, headers: corsHeaders });
-  if (!isLegacyTokenAuthorized({ config, url })) yield* requireAuthenticatedMutationRequest;
+  if (!isLegacyTokenAuthorized({ config, url, request }))
+    yield* requireAuthenticatedMutationRequest;
   const threadId = url.searchParams.get("threadId") ?? "";
   const body = yield* request.json.pipe(
     Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(64 * 1024)),
@@ -2001,7 +2015,7 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
       ) {
         return HttpServerResponse.text("Forbidden", { status: 403 });
       }
-    } else if (!isLegacyTokenAuthorized({ config, url })) {
+    } else if (!isLegacyTokenAuthorized({ config, url, request })) {
       // Desktop image tags cannot attach Authorization headers; preserve the same
       // startup token rule that the WebSocket route already accepts.
       yield* requireAuthenticatedRequest;

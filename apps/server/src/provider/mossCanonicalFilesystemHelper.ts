@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
+import { guardChildStdio } from "@moss/shared/jsonrpc-stdio";
 import { spawnProcess, type RuntimeSpawnOptions } from "@moss/shared/processRuntime";
 import { Buffer } from "node:buffer";
 import { createReadStream } from "node:fs";
@@ -865,6 +866,9 @@ export function makeMossCanonicalFilesystemHelper(
       } catch {
         throw protocolError("The canonical filesystem helper could not be spawned.");
       }
+      // The request listeners come off once a response settles; a late broken
+      // pipe from a killed helper must still have somewhere to go.
+      guardChildStdio(child);
       const stderr = child.stderr;
       stderr?.on("data", () => undefined);
       let requestSent = false;

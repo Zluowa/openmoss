@@ -21,7 +21,7 @@ import { AuthError, ServerAuth, type ServerAuthShape } from "./auth/Services/Ser
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { ProviderAdapterRequestError } from "./provider/Errors";
 import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService";
-import { mcpAppResourceEffectRouteLayer } from "./mcpAppResourceRoute";
+import { isLegacyTokenAuthorized, mcpAppResourceEffectRouteLayer } from "./mcpAppResourceRoute";
 import { DESKTOP_APP_CORS_ORIGINS } from "./trustedOrigins";
 
 const DESKTOP_APP_CORS_ORIGIN = [...DESKTOP_APP_CORS_ORIGINS][0]!;
@@ -77,6 +77,7 @@ function makeServerAuth(): ServerAuthShape {
         expiresAt,
         sessionToken: "bearer-token",
       }),
+    revokeOwnerDeviceAccess: () => Effect.succeed(0),
     issuePairingCredential: () =>
       Effect.succeed({ id: "pairing-id", credential: "PAIRINGTOKEN", expiresAt }),
     listPairingLinks: () => Effect.succeed([]),
@@ -524,5 +525,33 @@ describe("mcpAppResourceEffectRouteLayer", () => {
         expect(await response.json()).toEqual({ error: "MCP App resource request failed." });
       },
     );
+  });
+});
+
+describe("isLegacyTokenAuthorized", () => {
+  it("accepts the startup token only from this computer while phones may connect", () => {
+    const config = {
+      ...makeServerConfig({ host: "0.0.0.0" }),
+      mode: "desktop",
+      desktopPhoneAccess: true,
+    } as ServerConfigShape;
+    const url = new URL(`http://192.168.1.5:3773${routePath}?token=${startupToken}`);
+    const fromThisComputer = { remoteAddress: "127.0.0.1", headers: {} };
+    expect(isLegacyTokenAuthorized({ config, url, request: fromThisComputer })).toBe(true);
+    expect(
+      isLegacyTokenAuthorized({
+        config,
+        url,
+        request: { remoteAddress: "192.168.1.23", headers: {} },
+      }),
+    ).toBe(false);
+    // A proxy on this computer relaying a phone is not this computer either.
+    expect(
+      isLegacyTokenAuthorized({
+        config,
+        url,
+        request: { remoteAddress: "127.0.0.1", headers: { "x-forwarded-for": "192.168.1.23" } },
+      }),
+    ).toBe(false);
   });
 });

@@ -1,0 +1,67 @@
+/*
+ * Phone shell: what Moss needs to feel like an app on a phone, whether it is opened in
+ * the browser or installed from Share → Add to Home Screen (display-mode: standalone).
+ *
+ * index.html keeps the default status-bar style, so the installed app starts below the
+ * status bar and Dynamic Island and only the bottom and side insets need room here.
+ *
+ * The layout itself stays the responsive desktop layout (sidebar becomes a sheet below
+ * `md`); this file only covers what a touch screen adds: the notch/home-indicator safe
+ * areas (index.html sets viewport-fit=cover), iOS focus zoom, and touch feedback.
+ */
+
+@media (hover: none) and (pointer: coarse) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /*
+   * iOS Safari zooms the page into any focused field under 16px and never zooms back.
+   * Text entry is therefore 16px on touch screens, which is also the comfortable size
+   * for writing a prompt with a thumb.
+   */
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]),
+  textarea,
+  select,
+  [contenteditable="true"],
+  [contenteditable=""] {
+    font-size: max(16px, 1em);
+  }
+
+  button,
+  a,
+  [role="button"],
+  [role="menuitem"],
+  [role="tab"] {
+    touch-action: manipulation;
+  }
+}
+
+/* The left notch side in landscape and the home indicator below the composer. */
+@media (max-width: 767px), (display-mode: standalone) {
+  [data-chat-composer-form="true"] {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  [data-slot="sidebar"][data-mobile="true"] {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  [data-slot="sidebar"][data-mobile="true"][data-side="left"] {
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+}
+
+@media (display-mode: standalone) {
+  /* An installed app does not rubber-band or pull-to-refresh as a whole page. */
+  html,
+  body {
+    overscroll-behavior: none;
+  }
+}

@@ -394,6 +394,13 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
               catch: toConnectorError("Moss could not disconnect this server."),
             })
           : unavailable,
+      listTools: (connectorId) =>
+        enabled
+          ? Effect.tryPromise({
+              try: () => runtime.listTools(connectorId),
+              catch: toConnectorError("Moss could not list this server's tools."),
+            })
+          : unavailable,
       completeAuthorization: (query) =>
         enabled
           ? Effect.tryPromise(() => runtime.completeAuthorization(query)).pipe(

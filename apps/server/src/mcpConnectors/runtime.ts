@@ -18,6 +18,7 @@ import {
   type McpConnector,
   type McpConnectorConnectInput,
   type McpConnectorConnectResult,
+  type McpConnectorListToolsResult,
 } from "@moss/contracts";
 import {
   defaultMcpConnectorName,
@@ -49,6 +50,7 @@ import {
   type McpConnectorProxyResult,
   probeMcpConnector,
 } from "./proxy.ts";
+import { listMcpConnectorTools, McpConnectorToolsFailure } from "./tools.ts";
 
 export const MCP_CONNECTORS_MAX_COUNT = 30;
 const PENDING_AUTHORIZATION_TTL_MS = 10 * 60_000;
@@ -610,6 +612,22 @@ export class McpConnectorRuntime {
       });
     }
     return true;
+  }
+
+  /** Asks the server what it offers, signed in the way an agent's call would be. */
+  async listTools(connectorId: string): Promise<McpConnectorListToolsResult> {
+    const connector = this.find(connectorId);
+    if (!connector) throw new McpConnectorFailure("This connector is no longer connected.");
+    try {
+      return await listMcpConnectorTools({
+        forward: (request) => this.forward(connectorId, request),
+        displayName: connector.name,
+        clientVersion: this.deps.clientVersion,
+      });
+    } catch (error) {
+      if (error instanceof McpConnectorToolsFailure) throw new McpConnectorFailure(error.message);
+      throw error;
+    }
   }
 
   async forward(

@@ -25,6 +25,7 @@ import {
   cuaComputerTaskKey,
   CUA_DRIVER_MISSING_CODE,
 } from "@moss/shared/cuaDriverProtocol";
+import { guardChildStdio } from "@moss/shared/jsonrpc-stdio";
 import type { ComputerFrameTapHost } from "./computerFrameTap";
 import {
   computerSocketTempRoot,
@@ -358,6 +359,17 @@ export function sweepOrphanedCuaDrivers(): void {
   }
 }
 
+/**
+ * A foreground action is refused while a person used the keyboard or mouse
+ * this recently: long enough to cover a typing pause, short enough that the
+ * agent is not stalled once they step away.
+ */
+const USER_INPUT_ACTIVE_WINDOW_MS = 3_000;
+/** How long after an agent action the idle clock may still reflect its own input. */
+const AGENT_INPUT_ATTRIBUTION_SLACK_MS = 1_500;
+/** How long the app's own pid set is reused for classifying physical input. */
+const OWN_PIDS_CACHE_MS = 1_000;
+
 const DRIVER_SESSION_DEATH_CODES = new Set([
   "session_ended",
   "session-expired",
@@ -415,6 +427,11 @@ export class CuaDriverHost {
   private inputMonitorRequested = false;
   private nativeInputCleanupPending: Generation | undefined;
   private activeForegroundInput = false;
+  /** When the listener last reported physical input outside this app. */
+  private lastPhysicalInputAt: number | undefined;
+  /** When the last agent mutation finished, for idle-clock attribution. */
+  private lastAgentInputEndedAt = 0;
+  private ownPidsCache: { readonly at: number; readonly pids: ReadonlySet<number> } | undefined;
   private readonly controlledTargets = new Map<string, ControlledTarget>();
   private readonly takeoverTargets = new Map<string, ControlledTarget>();
   private readonly browserTargets = new Map<string, ControlledTarget>();
@@ -525,6 +542,15 @@ export class CuaDriverHost {
        * app that hosts it. Defaults to this process alone.
        */
       ownPids?: () => ReadonlySet<number>;
+      /**
+       * Seconds since the last system-wide keyboard or mouse input, as
+       * Electron's `powerMonitor.getSystemIdleTime()` reports it. Used only
+       * when the physical-input listener is not live, to keep foreground
+       * input out of a window a person is using right now. The idle clock
+       * also counts this app's own synthesized input, so input ending inside
+       * the agent's delivery tail is attributed to the agent, not the person.
+       */
+      systemIdleSeconds?: () => number;
       /**
        * The agent cursor's colors, read at each session open. `undefined`
        * (or a style with no usable `#rrggbb` channel) keeps the driver's
@@ -1413,6 +1439,16 @@ export class CuaDriverHost {
           if (refusal) return refusal;
         }
         if (!this.inputMonitorAvailable(name, input)) return this.inputMonitorUnavailableReply();
+        const foregroundMutation =
+          mutation &&
+          (foregroundDelivery ||
+            (args as Record<string, unknown>).delivery_mode === "foreground" ||
+            name === "bring_to_front");
+        if (foregroundMutation) {
+          const sinceUserInput = this.msSinceUserInput();
+          if (sinceUserInput !== undefined && sinceUserInput < USER_INPUT_ACTIVE_WINDOW_MS)
+            return this.userInputActiveReply(sinceUserInput);
+        }
         if (mutation || modelObservation) {
           const target = this.controlledTarget(input, task, isBrowser);
           if (target) {
@@ -1423,10 +1459,7 @@ export class CuaDriverHost {
         }
         if (mutation) {
           this.activeInputTaskKey = task ? cuaComputerTaskKey(task) : "anonymous";
-          this.activeForegroundInput =
-            foregroundDelivery ||
-            (args as Record<string, unknown>).delivery_mode === "foreground" ||
-            name === "bring_to_front";
+          this.activeForegroundInput = foregroundMutation;
         }
         dispatched = true;
         if (label) generation.liveBrowserSessions.add(label);
@@ -1650,6 +1683,7 @@ export class CuaDriverHost {
       if (mutation) {
         this.activeForegroundInput = false;
         this.activeInputTaskKey = undefined;
+        if (dispatched) this.lastAgentInputEndedAt = Date.now();
       }
       connection.removeListener("close", abort);
       this.inFlightInputInterrupts.delete(callCancel);
@@ -2044,6 +2078,9 @@ export class CuaDriverHost {
           },
         },
       );
+      // The daemon watches stdin for host liveness and may exit at any time; a
+      // broken pipe on it must not become an uncaught error in the main process.
+      guardChildStdio(child);
       // Keep a short stderr tail so a wedged or panicking daemon is diagnosable
       // after the fact; payloads may be private, so only lines are kept and only
       // surfaced on exit, never streamed.
@@ -2648,7 +2685,14 @@ export class CuaDriverHost {
    * and fresh state release the pause. Physical Escape and Stop remain the
    * ways to halt the agent. */
   physicalInput(event: PhysicalComputerInput): boolean {
-    if (this.closed || !this.generation || this.generation.retired) return false;
+    if (this.closed) return false;
+    // Input landing in this app's own windows (the consent prompt, the Moss
+    // pane) is the person answering Moss, not using the desktop the agent
+    // would take over.
+    if (typeof event.pid !== "number" || !this.cachedOwnPids().has(event.pid)) {
+      this.lastPhysicalInputAt = Date.now();
+    }
+    if (!this.generation || this.generation.retired) return false;
     if (
       !this.activeForegroundInput &&
       !this.desktopObservationRequired &&
@@ -2745,6 +2789,72 @@ export class CuaDriverHost {
     } catch {
       // Monitor plumbing must never take input admission down with it.
     }
+  }
+
+  /**
+   * Milliseconds since a person last used the keyboard or mouse, or
+   * `undefined` when unknown. The physical-input listener is authoritative
+   * while it is live: it already excludes synthesized events. Otherwise the
+   * system idle clock stands in, with input inside the agent's own delivery
+   * tail attributed to the agent.
+   */
+  private msSinceUserInput(now = Date.now()): number | undefined {
+    if (this.options.inputMonitorState?.().ready === true) {
+      return this.lastPhysicalInputAt === undefined
+        ? undefined
+        : Math.max(0, now - this.lastPhysicalInputAt);
+    }
+    let idleSeconds: number;
+    try {
+      idleSeconds = this.options.systemIdleSeconds?.() ?? Number.NaN;
+    } catch {
+      return undefined;
+    }
+    if (!Number.isFinite(idleSeconds) || idleSeconds < 0) return undefined;
+    if (this.activeForegroundInput) return undefined;
+    // The idle clock is floored to whole seconds, so the last input happened
+    // at or before this instant. Only when even that latest moment falls in
+    // the agent's delivery tail is the input the agent's own.
+    const latestInputAt = now - idleSeconds * 1000;
+    if (latestInputAt <= this.lastAgentInputEndedAt + AGENT_INPUT_ATTRIBUTION_SLACK_MS)
+      return undefined;
+    return idleSeconds * 1000;
+  }
+
+  /**
+   * Foreground input moves the real cursor and keyboard focus, so it is not
+   * sent while a person is typing or pointing: it would land in their window.
+   * Nothing was dispatched, so the call is safe to retry once they pause.
+   */
+  private userInputActiveReply(sinceMs: number): CuaReply {
+    const seconds = Math.round(sinceMs / 100) / 10;
+    const message = `Someone is using this computer (keyboard or mouse input ${seconds}s ago). Foreground input was not sent, so it cannot land in their window. Continue with background delivery, an exact element ref, a menu item or set_value; take the foreground only after they pause, and read fresh state first.`;
+    return {
+      ok: true,
+      result: {
+        isError: true,
+        content: [{ type: "text", text: message }],
+        structuredContent: {
+          effect: "refused",
+          code: "user_input_active",
+          layer: "driver-host",
+          message,
+          retry_after_ms: Math.max(0, USER_INPUT_ACTIVE_WINDOW_MS - Math.round(sinceMs)),
+        },
+      },
+    };
+  }
+
+  /**
+   * Physical input arrives per keystroke and mouse move; resolving the app's
+   * pids (renderer metrics) on each one would put work on the hot path, and
+   * the set changes only when a renderer starts or exits.
+   */
+  private cachedOwnPids(now = Date.now()): ReadonlySet<number> {
+    if (!this.ownPidsCache || now - this.ownPidsCache.at > OWN_PIDS_CACHE_MS) {
+      this.ownPidsCache = { at: now, pids: this.ownPids() };
+    }
+    return this.ownPidsCache.pids;
   }
 
   private ownPids(): ReadonlySet<number> {

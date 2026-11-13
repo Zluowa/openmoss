@@ -203,6 +203,7 @@ import {
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
+import { makeStopAndRetrySilentTurn } from "./silentTurnNotice";
 import { MUTED_LABEL_TEXT_CLASS_NAME } from "~/surfaceStyles";
 import {
   DEFAULT_CHAT_FONT_SIZE_PX,
@@ -520,7 +521,10 @@ interface MessagesTimelineProps {
   conversationOnly?: boolean;
   recoverableTurnId?: TurnId | null;
   turnRecoveryDisabled?: boolean;
-  onContinueFailedTurn?: (turnId: TurnId) => Promise<boolean>;
+  onContinueFailedTurn?: (
+    turnId: TurnId,
+    options?: { readonly afterStop?: boolean },
+  ) => Promise<boolean>;
   onChangeRecoveryModel?: () => void;
   nowIso?: string;
   expandedWorkGroups?: Record<string, boolean>;
@@ -3823,6 +3827,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     inlineVisualActions,
     onEmbeddedScrollIntent: handleEmbeddedScrollIntent,
     workingLabel,
+    onStopAndRetryTurn:
+      threadId && onContinueFailedTurn
+        ? makeStopAndRetrySilentTurn(ThreadId.makeUnsafe(threadId), (turnId) =>
+            onContinueFailedTurn(turnId, { afterStop: true }),
+          )
+        : undefined,
     worktreeSetupPendingAction,
     onResolveWorktreeSetup,
     renderConversationBody: renderConversationCardBody,

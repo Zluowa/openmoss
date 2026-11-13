@@ -106,6 +106,12 @@ export interface ServerConfigShape extends ServerDerivedPaths {
   readonly devUrl: URL | undefined;
   readonly publicUrl: URL | undefined;
   readonly allowInsecureRemote: boolean;
+  /**
+   * The desktop app turned on "Allow phone connections": this server is reachable
+   * from the network, and only requests that arrive straight from this computer
+   * keep the desktop's local standing (see `isLocalOnlyAccess`).
+   */
+  readonly desktopPhoneAccess?: boolean | undefined;
   readonly noBrowser: boolean;
   readonly authToken: string | undefined;
   readonly desktopShutdownToken?: string | undefined;

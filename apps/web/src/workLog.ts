@@ -51,7 +51,10 @@ import { isCodexDiagnosticWarningMessage } from "@moss/shared/codexDiagnostics";
 import { pluralize, stripTerminalControlSequences } from "@moss/shared/text";
 import { suppressCoordinatorCheckinMessages } from "@moss/shared/coordinatorCheckin";
 import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
-import { PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND } from "@moss/shared/providerDeliveryBlock";
+import {
+  PROVIDER_TURN_SILENT_ACTIVITY_KIND,
+  PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
+} from "@moss/shared/providerDeliveryBlock";
 import type { HtmlRenderReference } from "@moss/shared/htmlRender";
 import { HTML_RENDER_ACTIVITY_KIND, htmlRenderFromActivity } from "@moss/shared/htmlRenderActivity";
 import { placeHtmlRenders } from "./lib/htmlRenderSurfaces";
@@ -1395,6 +1398,8 @@ const PLUMBING_ACTIVITY_KINDS: ReadonlySet<string> = new Set([
   "checkpoint.capture.failed",
   "provider.event.unmapped",
   "provider.runtime.reconciled",
+  // A silent running turn is told in the working row; its records are not log rows.
+  PROVIDER_TURN_SILENT_ACTIVITY_KIND,
   // The window opens Canvas from it; the moss_canvas_open tool row already says so.
   "canvas.open.requested",
 ]);

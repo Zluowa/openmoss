@@ -60,8 +60,22 @@ export function isWorkerTierSubagentRole(role: string | null | undefined): boole
   return typeof role === "string" && WORKER_TIER_ROLE_PATTERN.test(role.trim());
 }
 
+// Agent types that only name the provider or say "a general agent" (Claude Code's `claude`,
+// `general-purpose`): they describe nothing about the task, so Moss never shows them as a
+// role, e.g. no "Submit draft [claude]".
+const GENERIC_ROLE_PATTERN =
+  /^(?:claude|claude[\s_-]?code|codex|general[\s_-]?purpose|default|agent|subagent)$/i;
+
+/** A role Moss does not show beside a subagent's name (effort tiers, provider or generic types). */
+export function isUnshownSubagentRole(role: string | null | undefined): boolean {
+  return (
+    typeof role === "string" &&
+    (WORKER_TIER_ROLE_PATTERN.test(role.trim()) || GENERIC_ROLE_PATTERN.test(role.trim()))
+  );
+}
+
 function sanitizeSubagentRole(role: string | undefined): string | undefined {
-  return role !== undefined && isWorkerTierSubagentRole(role) ? undefined : role;
+  return role !== undefined && isUnshownSubagentRole(role) ? undefined : role;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

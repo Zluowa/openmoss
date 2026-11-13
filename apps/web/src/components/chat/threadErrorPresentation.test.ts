@@ -547,6 +547,25 @@ describe("resolveThreadErrorPresentation", () => {
     });
   });
 
+  it.each([
+    ["Claude", "Claude Code process exited with code 4294967295"],
+    ["Claude signal", "Error: Claude Code process terminated by signal SIGKILL"],
+    ["Codex", "codex app-server exited (code=1, signal=null)."],
+    ["Gemini", "Gemini ACP session exited with code 1 (signal SIGTERM)."],
+    ["OpenCode", "OpenCode server exited unexpectedly (1)."],
+    ["Pi", "Pi exited (code 1): fatal error"],
+    ["Antigravity", "Antigravity CLI exited with code 1."],
+    ["ACP agents", "Provider adapter request failed (kimi) for thread t: ACP connection closed"],
+  ])("says in Moss's words that the %s agent process quit mid-turn", (_adapter, raw) => {
+    expect(resolveThreadErrorPresentation(raw, "zh-CN")).toMatchObject({
+      title: "智能体进程意外退出，这一轮没有完成。可以继续任务。",
+      copyText: "智能体进程意外退出，这一轮没有完成。可以继续任务。",
+    });
+    expect(resolveThreadErrorPresentation(raw, "en").title).toBe(
+      "The agent process quit unexpectedly, so this turn didn't finish. You can continue the task.",
+    );
+  });
+
   it("names Codex's own thread-start timeout in plain words and allows a retry", () => {
     for (const raw of [
       "Timed out waiting for thread/start.",

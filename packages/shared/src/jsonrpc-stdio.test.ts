@@ -1,9 +1,12 @@
-import { EventEmitter } from "node:events";
-import { Writable } from "node:stream";
+import { spawn } from "node:child_process";
+import { EventEmitter, once } from "node:events";
+import { PassThrough, Writable } from "node:stream";
 
 import { describe, expect, it } from "vitest";
 
 import {
+  guardChildStdio,
+  isBrokenPipeError,
   JsonRpcStdioFramer,
   JsonRpcStdioRequestRegistry,
   JsonRpcStdioTransportError,
@@ -228,5 +231,123 @@ describe("shared JSON-RPC stdio transport", () => {
     await expect(writer.write({ payload: "x".repeat(32) })).rejects.toBeInstanceOf(
       JsonRpcStdioTransportError,
     );
+  });
+
+  describe("a peer that breaks the pipe", () => {
+    const epipe = () =>
+      Object.assign(new Error("EPIPE: broken pipe, write"), { code: "EPIPE", syscall: "write" });
+
+    /**
+     * Records every `error` the stream emits while nobody listens. Node would
+     * throw it from `emit`, and from `emitErrorNT` that is an uncaught exception
+     * that ends the whole server process.
+     */
+    const recordUnheardErrors = (stream: EventEmitter): unknown[] => {
+      const unheard: unknown[] = [];
+      const emit = stream.emit.bind(stream);
+      stream.emit = ((event: string | symbol, ...args: unknown[]) => {
+        if (event === "error" && stream.listenerCount("error") === 0) {
+          unheard.push(args[0]);
+          return false;
+        }
+        return emit(event, ...args);
+      }) as typeof stream.emit;
+      return unheard;
+    };
+
+    it("keeps listening after a write settles, so a later EPIPE closes the writer", async () => {
+      const stream = new Writable({
+        write(_chunk, _encoding, callback) {
+          callback();
+        },
+      });
+      const unheard = recordUnheardErrors(stream);
+      const writer = new JsonRpcStdioWriter(stream, 64, 128);
+      await writer.write({ id: 1 });
+
+      stream.destroy(epipe());
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(unheard).toEqual([]);
+      await expect(writer.write({ id: 2 })).rejects.toMatchObject({ reason: "write-closed" });
+    });
+
+    it("reports a failed write as a closed pipe and hears the EPIPE that follows it", async () => {
+      // Node calls the write callback with the error first and emits the same
+      // error on the next tick, after the per-write listener used to be gone.
+      const stream = new Writable({
+        write(_chunk, _encoding, callback) {
+          callback(epipe());
+        },
+      });
+      const unheard = recordUnheardErrors(stream);
+      const writer = new JsonRpcStdioWriter(stream, 64, 128);
+
+      const failure = await writer.write({ id: 1 }).catch((error: unknown) => error);
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(unheard).toEqual([]);
+      expect(failure).toBeInstanceOf(JsonRpcStdioTransportError);
+      expect(failure).toMatchObject({
+        reason: "write-closed",
+        cause: expect.objectContaining({ code: "EPIPE" }),
+      });
+      await expect(writer.write({ id: 2 })).rejects.toMatchObject({ reason: "write-closed" });
+    });
+
+    it("guards every child pipe for its lifetime and names the one that broke", () => {
+      const child = { stdin: new PassThrough(), stdout: new PassThrough(), stderr: null };
+      const heard: string[] = [];
+      guardChildStdio(child, (error, stream) => heard.push(`${stream}:${error.message}`));
+
+      expect(() => child.stdin.emit("error", epipe())).not.toThrow();
+      expect(() => child.stdout.emit("error", new Error("read ECONNRESET"))).not.toThrow();
+      expect(() => child.stdin.emit("error", epipe())).not.toThrow();
+      expect(heard).toEqual([
+        "stdin:EPIPE: broken pipe, write",
+        "stdout:read ECONNRESET",
+        "stdin:EPIPE: broken pipe, write",
+      ]);
+      expect(() => guardChildStdio({ stdin: new PassThrough() })).not.toThrow();
+      expect(isBrokenPipeError(epipe())).toBe(true);
+      expect(isBrokenPipeError(Object.assign(new Error("write EOF"), { code: "EOF" }))).toBe(true);
+      expect(isBrokenPipeError(new Error("EPIPE in the message only"))).toBe(false);
+    });
+
+    it("survives a real child that exits while a frame is still in the pipe", async () => {
+      // The child never reads stdin and exits shortly after starting, like a CLI
+      // that rejects its config. A frame larger than the pipe buffer is still in
+      // flight when it goes, so the write fails with a broken pipe (EOF on
+      // Windows, EPIPE elsewhere) and Node emits that error on the next tick.
+      const child = spawn(
+        process.execPath,
+        ["-e", "process.stdout.write('ready'); setTimeout(() => process.exit(1), 200);"],
+        { stdio: ["pipe", "pipe", "ignore"] },
+      );
+      try {
+        const unheard = recordUnheardErrors(child.stdin);
+        const writer = new JsonRpcStdioWriter(child.stdin);
+        await once(child.stdout, "data");
+
+        const outcomes: unknown[] = [];
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const outcome = await writer
+            .write({ id: attempt, payload: "x".repeat(1024 * 1024) })
+            .then(
+              () => "written",
+              (error: unknown) => error,
+            );
+          outcomes.push(outcome);
+          if (outcome !== "written") break;
+        }
+        if (child.exitCode === null) await once(child, "exit");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        expect(unheard).toEqual([]);
+        expect(outcomes.at(-1)).toMatchObject({ reason: "write-closed" });
+      } finally {
+        child.kill();
+      }
+    });
   });
 });

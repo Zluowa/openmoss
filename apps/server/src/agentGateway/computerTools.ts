@@ -1,4 +1,5 @@
 import { parseCuaActionDiagnostics } from "@moss/shared/cuaActionDiagnostics";
+import { computerSessionHotkey } from "@moss/shared/computerSessionHotkeys";
 import { ComputerProgressGuard, type ComputerProgressAction } from "./computerProgressGuard.ts";
 import { boundComputerPastePayload, readComputerPastePayload } from "./computerPasteInput.ts";
 import { beginComputerTurnCall } from "../computer/computerTurnTiming.ts";
@@ -508,15 +509,28 @@ const SEMANTIC_TARGETING_NOTE = "Prefer label and role from computer_get_state o
 
 /** The short form the action tools carry. */
 const ACTION_SCREENSHOT_HINT =
-  "Returns a screenshot of the affected window unless include_screenshot:false.";
+  "Returns element changes when you read the window before, else a screenshot.";
 
 const INCLUDE_ACTION_SCREENSHOT_PROPERTY = {
   include_screenshot: {
     type: "boolean",
     description:
-      "Post-action screenshot, default true. For a short sequence, use false then verify with fresh state or a final screenshot.",
+      "true adds a screenshot to element changes; false skips observation, so verify with fresh state or a final screenshot.",
   },
 } as const;
+
+/**
+ * Actions whose outcome the affected window's element changes describe, so a
+ * text observation can stand in for the post-action screenshot.
+ */
+const TEXT_OBSERVED_ACTIONS: ReadonlySet<string> = new Set([
+  "computer_click",
+  "computer_press_key",
+  "computer_type_text",
+  "computer_paste",
+  "computer_set_value",
+  "computer_perform_action",
+]);
 
 const WINDOW_FOCUS_NOTE =
   "focused: agent target; keyboardFocused: app keyboard window; active: native activation. Absent fields mean unknown.";
@@ -1035,6 +1049,19 @@ function readClickGesture(
 }
 
 /**
+ * Lock, log out, sleep and similar session shortcuts end the task instead of
+ * advancing it, so they are refused before dispatch — in `computer_run` that
+ * refuses the whole batch, since every step is read before the first runs.
+ */
+function refuseSessionHotkey(key: string, dialect: ComputerAgentDialect): void {
+  const match = computerSessionHotkey([key], dialect);
+  if (match === undefined) return;
+  throw new ToolInputError(
+    `"${key}" would ${match.action}, which ends the task instead of advancing it; session shortcuts are never sent. Ask the user to do it themselves if it is really needed.`,
+  );
+}
+
+/**
  * The `key` argument: one key name, or one "mod+mod+key" chord. A value with
  * no "+" is a plain key; a "+"-joined value splits into the chord the
  * backend's own validation rules on. A part left empty by a stray "+" makes
@@ -1042,11 +1069,15 @@ function readClickGesture(
  * malformed "cmd++s" meets the driver's honest unknown-key refusal instead
  * of a half-parsed chord.
  */
-function readKeyOrChord(args: Record<string, unknown>): {
+function readKeyOrChord(
+  args: Record<string, unknown>,
+  dialect: ComputerAgentDialect,
+): {
   readonly key: string;
   readonly chord: readonly string[] | undefined;
 } {
   const key = readStringArg(args, "key", { required: true })!;
+  refuseSessionHotkey(key, dialect);
   if (!key.includes("+")) return { key, chord: undefined };
   const parts = key.split("+").map((part) => part.trim());
   if (parts.some((part) => part.length === 0)) return { key, chord: undefined };
@@ -1597,15 +1628,22 @@ export function makeAgentGatewayComputerTools(
     };
   };
 
+  /**
+   * The action's text observation: how the affected window's elements changed
+   * since this thread last read them. `observed` is false when there was no
+   * baseline to compare against or the read failed, which is when the caller
+   * falls back to a screenshot.
+   */
   const withActionElementChanges = async (
     result: ComputerActionResult,
     context: ToolContext,
-  ): Promise<ComputerActionResult> => {
+  ): Promise<{ readonly result: ComputerActionResult; readonly observed: boolean }> => {
+    const unobserved = { result, observed: false } as const;
     const windowId = result.windowId;
-    if (windowId === undefined) return result;
+    if (windowId === undefined) return unobserved;
     const key = digestScopeKey(context.callerThreadId, windowId, undefined);
     const before = elementDigests.get(key);
-    if (before === undefined) return result;
+    if (before === undefined) return unobserved;
     try {
       assertDesktopOperationActive();
       const { root } = await manager.getState({
@@ -1615,18 +1653,18 @@ export function makeAgentGatewayComputerTools(
         includeScreenshot: false,
       });
       assertDesktopOperationActive();
-      if (root === undefined) return result;
+      if (root === undefined) return unobserved;
       const stable = rememberDigest(
         context.callerThreadId,
         key,
         actionableElements(root, { windowId }),
       );
-      return { ...result, ...elementChangeFields(before, stable, 40) };
+      return { result: { ...result, ...elementChangeFields(before, stable, 40) }, observed: true };
     } catch {
       // The input already ran. Read failures do not change its delivery result;
       // cancellation still ends the operation instead of publishing stale state.
       assertDesktopOperationActive();
-      return result;
+      return unobserved;
     }
   };
 
@@ -2540,19 +2578,22 @@ export function makeAgentGatewayComputerTools(
         }
         const outcome = await run(args, context);
         const result = "result" in outcome ? outcome.result : outcome;
-        const observed = [
-          "computer_click",
-          "computer_press_key",
-          "computer_type_text",
-          "computer_paste",
-          "computer_set_value",
-          "computer_perform_action",
-        ].includes(name)
+        const textObservation = TEXT_OBSERVED_ACTIONS.has(name)
           ? await withActionElementChanges(result, context)
-          : result;
-        return "result" in outcome && args.wait_for_label === undefined
-          ? withObservation(context, observed, outcome.observation)
-          : observeAfterAction(args, observed, context);
+          : { result, observed: false };
+        const observed = textObservation.result;
+        if ("result" in outcome && args.wait_for_label === undefined)
+          return withObservation(context, observed, outcome.observation);
+        // The element changes already say what the action did; a screenshot
+        // costs a capture and an image the model must read, so it is taken
+        // only when asked for or when there was no text observation to give.
+        if (
+          textObservation.observed &&
+          args.wait_for_label === undefined &&
+          readBooleanArg(args, "include_screenshot") !== true
+        )
+          return { ...observed, observation: "elements" };
+        return observeAfterAction(args, observed, context);
       },
       annotations,
     );
@@ -2788,7 +2829,7 @@ export function makeAgentGatewayComputerTools(
             : manager.typeText(threadId, text, target.windowId);
       }
       case "press_key": {
-        const { key, chord } = readKeyOrChord(step);
+        const { key, chord } = readKeyOrChord(step, manager.agentDialect);
         const target = readTarget(step, context);
         const exact = target.label !== undefined || target.role !== undefined ? target : undefined;
         return () =>
@@ -4226,7 +4267,7 @@ export function makeAgentGatewayComputerTools(
         async (args, context) => {
           const target = readMenuTargetArg(args);
           const path = readMenuPathArg(args, "computer_invoke_menu");
-          return withActionElementChanges(
+          const { result } = await withActionElementChanges(
             await manager.invokeMenu(
               context.callerThreadId,
               target,
@@ -4235,6 +4276,7 @@ export function makeAgentGatewayComputerTools(
             ),
             context,
           );
+          return result;
         },
       ),
     ),
@@ -4588,7 +4630,7 @@ export function makeAgentGatewayComputerTools(
         additionalProperties: false,
       },
       async (args, context) => {
-        const { key, chord } = readKeyOrChord(args);
+        const { key, chord } = readKeyOrChord(args, manager.agentDialect);
         const target = readTarget(args, context);
         const exact = target.label !== undefined || target.role !== undefined ? target : undefined;
         return chord === undefined

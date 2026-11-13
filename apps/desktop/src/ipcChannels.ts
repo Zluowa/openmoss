@@ -63,6 +63,10 @@ export const DESKTOP_IPC_CHANNELS = {
     importAndLaunch: "desktop:beta-import-and-launch",
     leave: "desktop:beta-leave",
   },
+  phoneAccess: {
+    getState: "desktop:phone-access-state",
+    set: "desktop:phone-access-set",
+  },
   errorReports: {
     get: "desktop:error-reports-enabled",
     set: "desktop:set-error-reports-enabled",

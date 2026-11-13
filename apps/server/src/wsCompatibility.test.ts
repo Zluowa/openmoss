@@ -6,18 +6,38 @@ import {
   WS_PROTOCOL_MIN_REVISION,
   WS_PROJECT_FILE_WATCH_CAPABILITY,
   WS_SERVER_CAPABILITIES,
+  WS_SERVER_HOSTED_BROWSER_CAPABILITY,
   WS_THREAD_GOAL_VISIBLE_START_CAPABILITY,
 } from "@moss/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  advertiseWsRuntimeCapability,
   makeCurrentWsFeatureCompatibilitySearchParams,
   negotiateWsCompatibility,
   validateWsFeatureCompatibility,
 } from "./wsCompatibility";
 
 describe("WebSocket compatibility bootstrap", () => {
+  it("adds a runtime capability once this process advertises it", async () => {
+    const negotiate = () =>
+      Effect.runPromise(
+        negotiateWsCompatibility({
+          protocolEpoch: WS_PROTOCOL_EPOCH,
+          minRevision: WS_PROTOCOL_MIN_REVISION,
+          maxRevision: WS_PROTOCOL_MAX_REVISION,
+          clientBuild: "test-client",
+          requiredCapabilities: [],
+        }),
+      );
+    // Not part of the build's list: only a server whose agents use its own browser says it.
+    expect(WS_SERVER_CAPABILITIES).not.toContain(WS_SERVER_HOSTED_BROWSER_CAPABILITY);
+    expect((await negotiate()).capabilities).not.toContain(WS_SERVER_HOSTED_BROWSER_CAPABILITY);
+    advertiseWsRuntimeCapability(WS_SERVER_HOSTED_BROWSER_CAPABILITY);
+    expect((await negotiate()).capabilities).toContain(WS_SERVER_HOSTED_BROWSER_CAPABILITY);
+  });
+
   it("negotiates the stable epoch/range and returns process/build capabilities", async () => {
     const result = await Effect.runPromise(
       negotiateWsCompatibility({

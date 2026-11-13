@@ -4,6 +4,7 @@ import {
 } from "@moss/shared/macosKeychainPolicy";
 // Read only the Factory encryption key through OS utilities, never a module from Factory's home.
 import { execFile } from "node:child_process";
+import { guardChildStdio } from "@moss/shared/jsonrpc-stdio";
 import nodePath from "node:path";
 import { tmpdir } from "node:os";
 
@@ -111,6 +112,7 @@ export function readDroidSecureKey(
         resolve(error ? null : stdout.trim());
       },
     );
+    guardChildStdio(child);
     child.stdin?.end();
   });
 }

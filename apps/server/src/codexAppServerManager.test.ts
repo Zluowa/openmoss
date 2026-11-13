@@ -1635,6 +1635,79 @@ describe("Codex app-server teardown", () => {
     await vi.waitFor(() => expect(internals.sessions.has(threadId)).toBe(false));
     expect(teardownProcessTree).toHaveBeenCalledOnce();
   });
+
+  it("turns broken app-server pipes into one transport failure instead of an uncaught error", async () => {
+    // A Codex CLI that rejects its config exits at start. Its pipes then report
+    // EPIPE (EOF on Windows) on later ticks, after any write has settled; with
+    // no listener that was an uncaught exception that ended the whole server.
+    class FakeCodexChild extends EventEmitter {
+      readonly pid = 5253;
+      exitCode: number | null = null;
+      signalCode: NodeJS.Signals | null = null;
+      readonly stdin = new PassThrough();
+      readonly stdout = new PassThrough();
+      readonly stderr = new PassThrough();
+    }
+    const child = new FakeCodexChild();
+    const teardownProcessTree = vi.fn(async () => ({
+      escalated: false,
+      signalErrors: [],
+      capturedBeforeRootExit: false,
+    }));
+    const manager = new CodexAppServerManager(undefined, { teardownProcessTree });
+    const threadId = asThreadId("thread-codex-broken-pipe");
+    const events: Array<{ kind: string; method: string }> = [];
+    manager.on("event", (event) => events.push({ kind: event.kind, method: event.method }));
+    const stdinWriter = new CodexJsonlWriter(child.stdin);
+    const context = {
+      session: {
+        provider: "codex",
+        status: "ready",
+        threadId,
+        runtimeMode: "full-access",
+        createdAt: "2026-11-13T00:00:00.000Z",
+        updatedAt: "2026-11-13T00:00:00.000Z",
+      },
+      account: { type: "unknown", planType: null, sparkEnabled: true },
+      child,
+      stdoutFramer: new CodexJsonlFramer(),
+      stdinWriter,
+      pending: new Map(),
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+      collabReceiverParents: new Map(),
+      reviewTurnIds: new Set(),
+      nextRequestId: 1,
+      stopping: false,
+    };
+    const internals = manager as unknown as {
+      sessions: Map<ThreadId, unknown>;
+      attachProcessListeners: (context: unknown) => void;
+    };
+    internals.sessions.set(threadId, context);
+    internals.attachProcessListeners(context);
+    const epipe = () =>
+      Object.assign(new Error("EPIPE: broken pipe, write"), { code: "EPIPE", syscall: "write" });
+
+    await stdinWriter.write({ method: "initialized" });
+    expect(() => child.stdin.emit("error", epipe())).not.toThrow();
+    await expect(stdinWriter.write({ method: "turn/start" })).rejects.toThrow(
+      "Codex app-server stdin closed before the frame was written.",
+    );
+
+    expect(() => child.stdout.emit("error", epipe())).not.toThrow();
+    expect(() => child.stderr.emit("error", epipe())).not.toThrow();
+    expect(events.filter((event) => event.kind === "error")).toEqual([
+      { kind: "error", method: "protocol/transportError" },
+    ]);
+
+    child.exitCode = 1;
+    child.emit("exit", 1, null);
+    await vi.waitFor(() => expect(internals.sessions.has(threadId)).toBe(false));
+    expect(events.filter((event) => event.kind === "error")).toHaveLength(1);
+    expect(teardownProcessTree).toHaveBeenCalledOnce();
+  });
 });
 
 const codexJsonLogRecord = (level: string, target: string, message: string) =>

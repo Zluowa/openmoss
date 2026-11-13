@@ -13,6 +13,7 @@ import {
 import { providerProcessPriorityEnabled } from "./providerProcessPriority";
 import { resolveCodexNativeLaunch } from "@moss/shared/codexNativeLaunch";
 import { settleAgentStartupPriority } from "@moss/shared/agentStartupPriority";
+import { guardChildStdio } from "@moss/shared/jsonrpc-stdio";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -7437,6 +7438,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context.child.stderr.once("end", () => emitStderrText(stderrDecoder.end()));
 
     context.child.on("error", (error) => this.handleTransportFailure(context, error));
+    // stdin errors close the JSONL writer, which owns that pipe; a broken stdout
+    // or stderr means the transport is gone. Neither may escape as an uncaught error.
+    guardChildStdio(context.child, (error, stream) => {
+      if (stream !== "stdin") this.handleTransportFailure(context, error);
+    });
 
     context.child.on("exit", (code, signal) => {
       if (context.stopping && context.failureStopping !== true) {

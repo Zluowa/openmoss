@@ -5,6 +5,7 @@
 
 import { randomBytes } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
+import { guardChildStdio } from "@moss/shared/jsonrpc-stdio";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ComputerHistoryKeyProvider } from "./store.ts";
@@ -90,6 +91,8 @@ function powershellScript(script: string, input: string): Promise<string> {
         else resolve(stdout.trim());
       },
     );
+    // PowerShell can exit before reading its input; its exit code reports that.
+    guardChildStdio(child);
     child.stdin?.end(input);
   });
 }

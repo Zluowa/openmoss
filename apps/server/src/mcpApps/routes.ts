@@ -77,7 +77,7 @@ function makeMcpAppJsonRoute<A, I, E, R>(input: {
           headers: responseHeaders(corsHeaders),
         });
       }
-      if (!isLegacyTokenAuthorized({ config, url })) {
+      if (!isLegacyTokenAuthorized({ config, url, request })) {
         yield* requireAuthenticatedMutationRequest;
       }
       const rawPayload = yield* readJsonBody(request, input.maxBodyBytes);

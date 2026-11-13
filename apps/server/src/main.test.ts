@@ -736,6 +736,33 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
+  it.effect("keeps the desktop backend on loopback while phone access is off", () =>
+    Effect.gen(function* () {
+      yield* runCli([], { MOSS_MODE: "desktop", MOSS_AUTH_TOKEN: "desktop-secret" });
+      assert.equal(resolvedConfig?.host, "127.0.0.1");
+      assert.equal(resolvedConfig?.desktopPhoneAccess, false);
+      assert.equal(resolvedConfig?.allowInsecureRemote, false);
+      assert.equal(resolvedConfig?.publicUrl, undefined);
+    }),
+  );
+
+  it.effect("lets only the desktop app keep its own computer local while phones connect", () =>
+    Effect.gen(function* () {
+      const phoneAccess = {
+        MOSS_HOST: "0.0.0.0",
+        MOSS_AUTH_TOKEN: "desktop-secret",
+        MOSS_ALLOW_INSECURE_REMOTE: "1",
+        MOSS_DESKTOP_PHONE_ACCESS: "1",
+      };
+      yield* runCli([], { ...phoneAccess, MOSS_MODE: "desktop" });
+      assert.equal(resolvedConfig?.host, "0.0.0.0");
+      assert.equal(resolvedConfig?.desktopPhoneAccess, true);
+
+      yield* runCli([], { ...phoneAccess, MOSS_MODE: "web" });
+      assert.equal(resolvedConfig?.desktopPhoneAccess, false);
+    }),
+  );
+
   it.effect("supports the HTTPS public origin through environment configuration", () =>
     Effect.gen(function* () {
       yield* runCli([], {

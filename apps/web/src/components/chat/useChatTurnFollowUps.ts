@@ -459,15 +459,19 @@ export function useChatTurnFollowUps({
   // a pre-built chat turn so it takes the exact send path a queued turn does.
 
   const onContinueFailedTurn = useCallback(
-    async (turnId: TurnId): Promise<boolean> => {
+    async (turnId: TurnId, options?: { readonly afterStop?: boolean }): Promise<boolean> => {
       const current = getThreadFromState(useStore.getState(), threadId);
       const handlers = lateComposerSendHandlersRef.current;
+      // A silent turn the person stopped to retry settles as interrupted, not failed.
+      const continuableState =
+        current?.latestTurn?.state === "error" ||
+        (options?.afterStop === true && current?.latestTurn?.state === "interrupted");
       if (
         !handlers ||
         !isServerThread ||
         !current ||
         current.latestTurn?.turnId !== turnId ||
-        current.latestTurn.state !== "error" ||
+        !continuableState ||
         current.session?.status === "running" ||
         current.hasPendingApprovals ||
         current.hasPendingUserInput

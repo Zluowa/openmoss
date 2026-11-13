@@ -65,6 +65,7 @@ import * as Effect from "effect/Effect";
 import type {
   DesktopAppIcon,
   DesktopDockIconPreference,
+  DesktopPhoneAccessState,
   DesktopPluginDeepLinkAudit,
   DesktopRealtimeVoiceOverlayCommand,
   DesktopRealtimeVoiceOverlayHandoff,
@@ -118,6 +119,16 @@ import {
   pruneStaticSnapshotCache,
 } from "@moss/shared/staticSnapshot";
 import { isBackendReadinessAborted, waitForHttpReady } from "./backendReadiness";
+import {
+  PHONE_ACCESS_RESOLUTION_OFF,
+  parsePhoneAccessRequest,
+  phoneAccessBackendEnv,
+  readPhoneAccessPreference,
+  resolvePhoneAccessEndpoint,
+  resolvePhoneAccessState,
+  writePhoneAccessPreference,
+  type PhoneAccessResolution,
+} from "./phoneAccess";
 import { resolveBackendNodeArgs, withBackendEnvProxyOptIn } from "./backendNodeOptions";
 import { canonicalFilesystemHelperBackendEnv } from "./canonicalFilesystemHelperRuntime";
 import {
@@ -599,6 +610,8 @@ const DESKTOP_CUSTOM_TITLE_BAR_PATH = Path.join(STATE_DIR, "desktop-custom-title
 // Written by the renderer-mirrored agent cursor colors; read at each driver
 // session open so a persisted custom cursor survives app restarts.
 const AGENT_CURSOR_PREFERENCE_PATH = Path.join(STATE_DIR, "agent-cursor-colors.json");
+// "Allow phone connections": read before every backend start (see phoneAccess.ts).
+const PHONE_ACCESS_PREFERENCE_PATH = Path.join(STATE_DIR, "phone-access.json");
 const DESKTOP_SCHEME = desktopIdentity.scheme;
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const APP_DISPLAY_NAME = desktopIdentity.displayName;
@@ -775,6 +788,12 @@ const bundledMossCanvas = createBundledMossCanvas(() => ({
 }));
 let backendHttpUrl = "";
 let backendWsUrl = "";
+/** How the running (or starting) backend is exposed to phones. */
+let phoneAccessResolution: PhoneAccessResolution = PHONE_ACCESS_RESOLUTION_OFF;
+let phoneAccessApplyInFlight: Promise<DesktopPhoneAccessState> | null = null;
+// A backend stopped to apply a setting is not a crash: its exit must neither
+// count against the restart budget nor schedule a second start.
+const backendChildrenStoppedOnPurpose = new WeakSet<ChildProcess.ChildProcess>();
 let backendReadinessAbortController: AbortController | null = null;
 let backendInitialWindowOpenInFlight: Promise<void> | null = null;
 // Guards every blocking backend-lifecycle dialog (startup block, give-up) so a
@@ -1147,16 +1166,100 @@ function cancelBackendReadinessWait(): void {
   backendReadinessAbortController = null;
 }
 
+/**
+ * Decides how the next backend is exposed to phones. It never throws: a busy port
+ * narrows the exposure and is reported in Settings instead of keeping Moss from
+ * starting. Off (no phone-access.json) reads one file and probes nothing.
+ */
+async function resolvePhoneAccessForBackendStart(): Promise<void> {
+  const preference = readPhoneAccessPreference(PHONE_ACCESS_PREFERENCE_PATH);
+  try {
+    phoneAccessResolution = await resolvePhoneAccessEndpoint({
+      preference,
+      isDevelopment,
+      canListen: (port, host) =>
+        Effect.service(NetService).pipe(
+          Effect.flatMap((net) => net.canListenOnHost(port, host)),
+          Effect.provide(NetService.layer),
+          Effect.runPromise,
+        ),
+    });
+  } catch (error) {
+    safeConsoleError("[desktop] phone access could not be prepared", error);
+    phoneAccessResolution = { endpoint: { mode: "off" }, error: "port-unavailable" };
+  }
+  const { endpoint } = phoneAccessResolution;
+  if (endpoint.mode !== "off" && endpoint.port !== preference.port) {
+    try {
+      writePhoneAccessPreference(PHONE_ACCESS_PREFERENCE_PATH, {
+        ...preference,
+        port: endpoint.port,
+      });
+    } catch (error) {
+      safeConsoleError("[desktop] failed to remember the phone access port", error);
+    }
+  }
+}
+
 async function reserveBackendEndpoint(reason: string): Promise<void> {
-  backendPort = await Effect.service(NetService).pipe(
-    Effect.flatMap((net) => net.reserveLoopbackPort()),
-    Effect.provide(NetService.layer),
-    Effect.runPromise,
-  );
+  await resolvePhoneAccessForBackendStart();
+  const phoneEndpoint = phoneAccessResolution.endpoint;
+  // Phones keep one address across restarts; the desktop alone can follow a new port.
+  backendPort =
+    phoneEndpoint.mode === "off"
+      ? await Effect.service(NetService).pipe(
+          Effect.flatMap((net) => net.reserveLoopbackPort()),
+          Effect.provide(NetService.layer),
+          Effect.runPromise,
+        )
+      : phoneEndpoint.port;
   backendHttpUrl = `http://127.0.0.1:${backendPort}`;
   backendWsUrl = `ws://127.0.0.1:${backendPort}/?token=${encodeURIComponent(backendAuthToken)}`;
   process.env.MOSS_DESKTOP_WS_URL = backendWsUrl;
-  writeDesktopLogHeader(`${reason} resolved backend endpoint port=${backendPort}`);
+  writeDesktopLogHeader(
+    `${reason} resolved backend endpoint port=${backendPort} phoneAccess=${phoneEndpoint.mode}`,
+  );
+}
+
+async function getDesktopPhoneAccessState(): Promise<DesktopPhoneAccessState> {
+  return resolvePhoneAccessState({
+    preference: readPhoneAccessPreference(PHONE_ACCESS_PREFERENCE_PATH),
+    endpoint: phoneAccessResolution.endpoint,
+    error: phoneAccessResolution.error,
+    isDevelopment,
+  });
+}
+
+/**
+ * Stores the choice and restarts the backend onto its new address with the same
+ * stop and start every other deliberate restart uses. Resolves once the backend
+ * answers again, so Settings can show the result rather than a guess. A backend
+ * that starts with the setting off signs every paired phone out before it listens.
+ */
+async function applyDesktopPhoneAccessRequest(request: {
+  readonly enabled: boolean;
+}): Promise<DesktopPhoneAccessState> {
+  const current = readPhoneAccessPreference(PHONE_ACCESS_PREFERENCE_PATH);
+  const next = { ...current, enabled: request.enabled };
+  writePhoneAccessPreference(PHONE_ACCESS_PREFERENCE_PATH, next);
+  const unchanged = current.enabled === next.enabled && phoneAccessResolution.error === null;
+  if (isDevelopment || isQuitting || unchanged) return getDesktopPhoneAccessState();
+
+  writeDesktopLogHeader(`phone access setting changed enabled=${next.enabled}; restarting backend`);
+  if (backendProcess) backendChildrenStoppedOnPurpose.add(backendProcess);
+  try {
+    await stopBackendAndWaitForExit();
+  } catch (error) {
+    // The old backend is still running on its old address; say so instead of
+    // starting a second one against the same data.
+    safeConsoleError("[desktop] backend did not stop for the phone access change", error);
+    return { ...(await getDesktopPhoneAccessState()), error: "restart-failed" };
+  }
+  await restartBackendAfterCrash("phone access setting changed", "lifecycle");
+  await waitForHttpReady(backendHttpUrl, { path: "/health", timeoutMs: 120_000 }).catch(
+    () => undefined,
+  );
+  return getDesktopPhoneAccessState();
 }
 
 async function waitForBackendWindowReady(baseUrl: string): Promise<"listening" | "http"> {
@@ -5609,6 +5712,9 @@ async function startCuaHost(): Promise<void> {
       // Computer use must never bind the app hosting it: the integrated
       // browser's webviews live in this app's own renderer pids.
       ownPids: () => new Set([process.pid, ...app.getAppMetrics().map((m) => m.pid)]),
+      // No physical-input listener on Windows: the idle clock keeps foreground
+      // input out of a window someone is typing in.
+      systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
       cursorStyle: () => readAgentCursorPreference(AGENT_CURSOR_PREFERENCE_PATH),
       // Windows permissions are owned by the Cua Driver/OS. The upstream
       // check_permissions call is intentionally allowed through; setup cannot
@@ -5668,6 +5774,7 @@ async function startCuaHost(): Promise<void> {
     // Computer use must never bind the app hosting it: the integrated
     // browser's webviews live in this app's own renderer pids.
     ownPids: () => new Set([process.pid, ...app.getAppMetrics().map((m) => m.pid)]),
+    systemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
     // Stock by default: a missing preference file reads as null and the host
     // sends no style call at all.
     cursorStyle: () => readAgentCursorPreference(AGENT_CURSOR_PREFERENCE_PATH),
@@ -5792,6 +5899,7 @@ function backendEnv(): NodeJS.ProcessEnv {
         ...(commitHash ? { MOSS_COMMIT_HASH: commitHash } : {}),
         MOSS_NO_BROWSER: "1",
         MOSS_PORT: String(backendPort),
+        ...phoneAccessBackendEnv(phoneAccessResolution.endpoint),
         MOSS_HOME: BASE_DIR,
         MOSS_AUTH_TOKEN: backendAuthToken,
         MOSS_HOOLA_CANVAS_BRIDGE_TOKEN: hoolaCanvasBridgeToken,
@@ -6663,7 +6771,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
       closeBackendSession(
         `pid=${child.pid ?? "unknown"} code=${code ?? "null"} signal=${signal ?? "null"}`,
       );
-      if (isQuitting) return;
+      if (isQuitting || backendChildrenStoppedOnPurpose.has(child)) return;
       const startupBlock = startupBlockDetector.read();
       if (startupBlock) {
         handleBackendStartupBlock(startupBlock);
@@ -7726,6 +7834,27 @@ function registerIpcHandlers(): void {
   registerIpcHandle(IPC.customTitleBarRelaunch, async () => {
     app.relaunch();
     requestGracefulAppQuit("custom-title-bar-relaunch");
+  });
+
+  ipcMain.removeHandler(IPC.phoneAccess.getState);
+  registerIpcHandle(IPC.phoneAccess.getState, async () => getDesktopPhoneAccessState());
+
+  ipcMain.removeHandler(IPC.phoneAccess.set);
+  registerIpcHandle(IPC.phoneAccess.set, async (_event, rawRequest: unknown) => {
+    const request = parsePhoneAccessRequest(rawRequest);
+    if (!request) throw new Error("Invalid phone access request.");
+    // One restart at a time: a second click waits for the first, then applies.
+    const previous = phoneAccessApplyInFlight ?? Promise.resolve();
+    const apply = previous.then(
+      () => applyDesktopPhoneAccessRequest(request),
+      () => applyDesktopPhoneAccessRequest(request),
+    );
+    phoneAccessApplyInFlight = apply;
+    try {
+      return await apply;
+    } finally {
+      if (phoneAccessApplyInFlight === apply) phoneAccessApplyInFlight = null;
+    }
   });
 
   ipcMain.removeHandler(IPC.computerSetCursorStyle);

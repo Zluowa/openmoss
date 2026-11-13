@@ -12,7 +12,7 @@ import { extractBearerToken } from "../agentGateway/bearerToken.ts";
 import { makeEffectAuthRequest } from "../auth/effectHttp.ts";
 import { ServerAuth } from "../auth/Services/ServerAuth.ts";
 import { ServerConfig } from "../config.ts";
-import { isLoopbackHost } from "../startupAccess.ts";
+import { isLocalOnlyAccess, requestPeer } from "../startupAccess.ts";
 import { shouldRejectAuthMutationOrigin } from "../trustedOrigins.ts";
 import { ExternalMcpGateway } from "./Services/ExternalMcpGateway.ts";
 import { ExternalMcpService } from "./Services/ExternalMcpService.ts";
@@ -92,7 +92,8 @@ const decodeRuntimeChallenge = Schema.decodeUnknownEffect(
 
 const localExternalMcpEnabled = Effect.gen(function* () {
   const config = yield* ServerConfig;
-  return isLoopbackHost(config.host) && config.publicUrl === undefined;
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  return isLocalOnlyAccess(config, requestPeer(request));
 });
 
 const disabledResponse = () =>

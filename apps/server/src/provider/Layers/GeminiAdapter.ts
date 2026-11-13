@@ -44,6 +44,7 @@ import {
   hasEffortLevel,
   resolveGeminiApiModelId,
 } from "@moss/shared/model";
+import { guardChildStdio } from "@moss/shared/jsonrpc-stdio";
 import { spawnProcess } from "@moss/shared/processRuntime";
 import {
   completeObservedChildProcessExit,
@@ -863,13 +864,17 @@ const makeGeminiAdapter = Effect.fn("makeGeminiAdapter")(function* (
             : {}),
           beforeSpawn: () => signal.throwIfAborted(),
           spawn: () =>
-            spawnGuardedProviderChild(() =>
-              spawnProcess(binaryPath, ["--acp"], {
+            spawnGuardedProviderChild(() => {
+              const child = spawnProcess(binaryPath, ["--acp"], {
                 cwd,
                 env: env ?? process.env,
                 stdio: ["pipe", "pipe", "pipe"],
-              }),
-            ),
+              });
+              // Prompts are written straight to stdin. If the CLI dies, its exit
+              // reports the turn; a broken pipe must not end the server first.
+              guardChildStdio(child);
+              return child;
+            }),
           bind,
         }),
       catch: (cause) =>

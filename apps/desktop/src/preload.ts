@@ -307,6 +307,10 @@ const desktopBridge = {
     setPreference: (enabled) => ipcRenderer.invoke(IPC.customTitleBarSetPreference, enabled),
     relaunch: () => ipcRenderer.invoke(IPC.customTitleBarRelaunch),
   },
+  phoneAccess: {
+    getState: () => ipcRenderer.invoke(IPC.phoneAccess.getState),
+    set: (input) => ipcRenderer.invoke(IPC.phoneAccess.set, input),
+  },
   computerPreview: {
     onFrame: (listener) => {
       const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {

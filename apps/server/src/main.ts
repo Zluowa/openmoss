@@ -73,6 +73,8 @@ import { formatHostForUrl, isLoopbackHost, isWildcardHost } from "./startupAcces
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { startRetentionArchiveRestore } from "./legacyThreadRetention";
 import { startManagedWorktreeMaintenanceJob } from "./managedWorktreeMaintenance";
+import { resolveLanOrigins } from "./lanOrigins";
+import { signOutPhonesWhilePhoneAccessOff } from "./auth/ownerDeviceAccess";
 import {
   discoverServerRuntime,
   pairExternalMcpClient,
@@ -190,6 +192,7 @@ const CliEnvConfig = Config.all({
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   publicUrl: Config.url("MOSS_PUBLIC_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   allowInsecureRemote: optionalBooleanEnvironmentConfig("MOSS_ALLOW_INSECURE_REMOTE"),
+  desktopPhoneAccess: optionalBooleanEnvironmentConfig("MOSS_DESKTOP_PHONE_ACCESS"),
   noBrowser: optionalBooleanEnvironmentConfig("MOSS_NO_BROWSER"),
   authToken: Config.string("MOSS_AUTH_TOKEN").pipe(
     Config.option,
@@ -378,6 +381,8 @@ const ServerConfigLive = (input: CliInput) =>
         devUrl,
         publicUrl,
         allowInsecureRemote,
+        // Only the desktop app owns a renderer on this computer to keep local.
+        desktopPhoneAccess: mode === "desktop" && env.desktopPhoneAccess === true,
         noBrowser,
         authToken,
         desktopShutdownToken,
@@ -458,6 +463,9 @@ const makeServerProgram = (input: CliInput, options: MossServerLayerOptions = {}
       );
     }
 
+    // "Allow phone connections" is off: no phone keeps the access it had while it was on.
+    yield* signOutPhonesWhilePhoneAccessOff(config, serverAuth);
+
     yield* start;
 
     const localUrl = `http://localhost:${config.port}`;
@@ -465,9 +473,16 @@ const makeServerProgram = (input: CliInput, options: MossServerLayerOptions = {}
       config.host && !isWildcardHost(config.host)
         ? `http://${formatHostForUrl(config.host)}:${config.port}`
         : localUrl;
-    const pairingBaseUrl = config.publicUrl?.origin ?? bindUrl;
+    // A wildcard listener has no single address; pair with the first address a
+    // phone on this network can reach instead of "localhost".
+    const lanOrigins = config.publicUrl
+      ? []
+      : resolveLanOrigins({ host: config.host, port: config.port });
+    const pairingBaseUrl = config.publicUrl?.origin ?? lanOrigins[0] ?? bindUrl;
+    // The desktop owner pairs a phone from Settings; a one-time owner link must
+    // not be written to the desktop's log files on every start.
     const startupPairingUrl =
-      config.publicUrl || !isLoopbackHost(config.host)
+      (config.publicUrl || !isLoopbackHost(config.host)) && !config.desktopPhoneAccess
         ? yield* serverAuth.issueStartupPairingUrl(pairingBaseUrl).pipe(
             Effect.mapError(
               (cause) =>
@@ -478,7 +493,6 @@ const makeServerProgram = (input: CliInput, options: MossServerLayerOptions = {}
             ),
           )
         : undefined;
-
     const orchestrationEngine = yield* OrchestrationEngineService;
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     // Once the server is live: give back conversations the removed age-based archiving
@@ -537,7 +551,7 @@ const makeServerProgram = (input: CliInput, options: MossServerLayerOptions = {}
         {
           pairingUrl: startupPairingUrl,
           hint:
-            isWildcardHost(config.host) && !config.publicUrl
+            isWildcardHost(config.host) && !config.publicUrl && lanOrigins.length === 0
               ? "Replace localhost in this one-time URL with the server's reachable hostname or IP."
               : "Open this one-time URL to establish the first owner session.",
         },

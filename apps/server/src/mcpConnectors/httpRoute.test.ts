@@ -48,6 +48,7 @@ async function withConnectorServer(
     const connectors: McpConnectorsShape = {
       enabled: options.enabled,
       gatewayEnabled: options.enabled,
+      listTools: () => Effect.die("unused"),
       servicePlugins: {
         list: () => Effect.succeed({ installed: [], skills: [] }),
         setInstalled: () => Effect.die("unused"),

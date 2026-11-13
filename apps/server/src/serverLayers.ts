@@ -104,6 +104,7 @@ import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/O
 import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
 import { ThreadDiagnosticsQueryLive } from "./diagnostics/Layers/ThreadDiagnosticsQuery";
 import { HtmlRenderLive } from "./htmlRender/HtmlRender";
+import { ServerBrowserServiceLive } from "./serverBrowser/ServerBrowserService";
 import { ManagedAttachmentCleanupLive } from "./managedAttachmentCleanup";
 import { PullRequestServiceLive } from "./pullRequests/Layers/PullRequestService";
 import { PullRequestAutoFixRepositoryLive } from "./persistence/Layers/PullRequestAutoFixRepository";
@@ -375,7 +376,13 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(serverSettingsLayer),
     Layer.provideMerge(providerHealthLayer),
     Layer.provideMerge(
-      Layer.mergeAll(realtimeVoiceLayer, BrowserAutomationHostLive, HtmlRenderLive),
+      Layer.mergeAll(
+        realtimeVoiceLayer,
+        BrowserAutomationHostLive,
+        HtmlRenderLive,
+        // The same instance the browser host routes to, so viewers see the agent's tabs.
+        ServerBrowserServiceLive,
+      ),
     ),
     // The gateway exposes device_* tools only where a backend can exist, but it
     // resolves the service on every platform to make that decision.

@@ -75,6 +75,7 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { runProviderRuntimeEventPump } from "../../provider/providerRuntimeEventPump.ts";
+import { SilentTurnWatchConfig, type SilentTurnWatchBounds } from "../silentTurnWatch.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -424,6 +425,7 @@ describe("ProviderRuntimeIngestion", () => {
     readonly startIngestion?: boolean;
     readonly persistedStream?: boolean;
     readonly computerManager?: ComputerManager;
+    readonly silentTurnWatch?: Partial<SilentTurnWatchBounds>;
   }) {
     const workspaceRoot = makeTempDir("moss-provider-project-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
@@ -440,6 +442,11 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(SqlitePersistenceMemory),
     );
     const layer = ProviderRuntimeIngestionLive.pipe(
+      Layer.provideMerge(
+        options?.silentTurnWatch
+          ? Layer.succeed(SilentTurnWatchConfig, options.silentTurnWatch)
+          : Layer.empty,
+      ),
       Layer.provideMerge(
         options?.computerManager
           ? Layer.succeed(ComputerService, {
@@ -570,6 +577,76 @@ describe("ProviderRuntimeIngestion", () => {
       readProjectedThread,
     };
   }
+
+  describe("silent running turns", () => {
+    const silentRecords = (thread: OrchestrationThread | undefined) =>
+      (thread?.activities ?? [])
+        .filter((activity) => activity.kind === "provider.turn.silent")
+        .map((activity) => (activity.payload as { readonly state?: string }).state);
+    const startTurn = (harness: Awaited<ReturnType<typeof createHarness>>, turnId: string) =>
+      harness.emit({
+        type: "turn.started",
+        eventId: asEventId(`${turnId}-started`),
+        provider: "claudeAgent",
+        createdAt: new Date().toISOString(),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId(turnId),
+        payload: {},
+      });
+
+    it("says a running turn went silent, clears it when the agent speaks, and never stops it", async () => {
+      const harness = await createHarness({
+        silentTurnWatch: { noticeMs: 150, openToolNoticeMs: 60_000, tickMs: 10 },
+      });
+      startTurn(harness, "silent-turn");
+      const silent = await waitForProjectedThread(
+        harness.readProjectedThread,
+        (thread) => silentRecords(thread).includes("silent"),
+        3_000,
+      );
+      const notice = silent.activities.find((activity) => activity.kind === "provider.turn.silent");
+      expect(notice).toMatchObject({ tone: "info", turnId: "silent-turn" });
+      expect(notice?.payload).toMatchObject({
+        state: "silent",
+        thresholdMs: 150,
+        openToolCalls: 0,
+      });
+      // Diagnostics only: the provider's own session state.
+      expect(notice?.payload).toMatchObject({ providerSessionStatus: "ready" });
+
+      harness.emit({
+        type: "content.delta",
+        eventId: asEventId("silent-turn-speaks"),
+        provider: "claudeAgent",
+        createdAt: new Date().toISOString(),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("silent-turn"),
+        itemId: asItemId("silent-turn-text"),
+        payload: { streamKind: "assistant_text", delta: "still here" },
+      });
+      const cleared = await waitForProjectedThread(
+        harness.readProjectedThread,
+        (thread) => silentRecords(thread).at(-1) === "cleared",
+        3_000,
+      );
+      // The notice never stops the turn: it is still the running turn.
+      expect(cleared.latestTurn).toMatchObject({ turnId: "silent-turn", state: "running" });
+      expect(cleared.session?.status).toBe("running");
+    });
+
+    it("does not call a turn silent while the server's event loop is stalled", async () => {
+      let clock = 0;
+      const harness = await createHarness({
+        silentTurnWatch: { noticeMs: 150, openToolNoticeMs: 60_000, tickMs: 10, now: () => clock },
+      });
+      startTurn(harness, "stalled-server-turn");
+      await waitForThread(harness.engine, (thread) => thread.latestTurn?.state === "running");
+      // Ten minutes pass between two ticks: the server stalled, the turn did not go silent.
+      clock += 600_000;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(silentRecords(await harness.readProjectedThread())).toEqual([]);
+    });
+  });
 
   it("replays a committed text batch exactly once after an uncertain append and ingestion restart", async () => {
     const harness = await createHarness({ startIngestion: false, persistedStream: true });

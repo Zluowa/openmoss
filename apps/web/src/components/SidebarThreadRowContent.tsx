@@ -15,6 +15,7 @@ import { useStore } from "../store";
 import {
   humanizeSubagentStatus,
   resolveSubagentPresentationForThread,
+  localizeSubagentRole,
   resolveSubagentThreadStatusKind,
   subagentStatusDotClassName,
 } from "../lib/subagentPresentation";
@@ -129,6 +130,7 @@ function renderSubagentLabel(input: {
   thread: SidebarThreadSummary;
   threads?: Parameters<typeof resolveSubagentPresentationForThread>[0]["threads"];
   roleClassName?: string | undefined;
+  locale: string;
 }) {
   const presentation = resolveSubagentPresentationForThread({
     thread: {
@@ -151,8 +153,13 @@ function renderSubagentLabel(input: {
     <span className="min-w-0 truncate">
       <span className="font-medium">{presentation.nickname ?? presentation.primaryLabel}</span>
       {supportingLabel ? (
-        <span className={cn("ml-1 text-muted-foreground/48", input.roleClassName)}>
-          {presentation.role ? `(${presentation.role})` : supportingLabel}
+        <span className={cn("text-muted-foreground/48", input.roleClassName)}>
+          {/* A real space, so copied or read-out titles do not run "draft(role)" together. */}
+          {presentation.role
+            ? input.locale === "zh-CN"
+              ? `（${localizeSubagentRole(presentation.role, input.locale)}）`
+              : ` (${presentation.role})`
+            : ` ${supportingLabel}`}
         </span>
       ) : null}
     </span>
@@ -180,6 +187,7 @@ function SidebarSubagentLabel({
   thread: SidebarThreadSummary;
   roleClassName?: string | undefined;
 }) {
+  const { locale } = useTranslation();
   const selectParentThread = useMemo(
     () => createThreadSelector(thread.parentThreadId ?? null),
     [thread.parentThreadId],
@@ -203,6 +211,7 @@ function SidebarSubagentLabel({
     thread,
     threads,
     roleClassName,
+    locale,
   });
 }
 

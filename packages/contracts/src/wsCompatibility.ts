@@ -51,6 +51,13 @@ export const WS_TURN_DISPATCH_SETTLEMENT_CAPABILITY = "orchestration.turn-dispat
 export const WS_THREAD_GOAL_VISIBLE_START_CAPABILITY = "orchestration.thread-goal-visible-start";
 export const WS_SERVER_RUNTIME_STATUS_CAPABILITY = "server.runtime-status";
 export const WS_GIT_ACTION_RECOVERY_CAPABILITY = "git.action-recovery";
+/**
+ * Advertised only by a server whose agents use its own headless browser (no
+ * desktop app hosts one). Clients then show the streamed server-browser panel
+ * instead of the desktop's native one. Not in the static list below: it
+ * depends on how the server runs, not on its build.
+ */
+export const WS_SERVER_HOSTED_BROWSER_CAPABILITY = "browser.server-hosted";
 
 // Capabilities the current client refuses to run without. Kept separate from
 // the advertised server list so a newer client can still negotiate with an

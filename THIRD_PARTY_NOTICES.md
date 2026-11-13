@@ -28,6 +28,20 @@ Moss-only adaptations, because this repository does not have the upstream pieces
 - Page links open like Moss chat links (`linkContextMenu.ts`), page images open in Moss's image viewer, and the shortcuts a page may forward are Moss's own view commands (`apps/web/src/lib/htmlRenderShortcuts.ts`), matched with Moss's key alias table in `packages/shared/src/keybindingRules.ts`.
 - Not carried over: T3's mobile, guest-sharing, MCP-app, and Antigravity ACP changes, which have no Moss counterpart, and its headless-Chrome launch reporting, since Moss previews through Playwright. Moss already hands pages sRGB theme colors (T3 #16325) and emulates the preview appearance (T3 #24521).
 
+## Server browser streaming and takeover from T3 Code
+
+Moss's server-hosted agent browser, streamed to viewers with take-over control, is adapted from T3 Code's server preview browser.
+
+- Source: https://github.com/pingdotgg/t3code at 6c9adfb2739205244b84e607736f6fd8b4611e69 (2026-11-09)
+- License: MIT. Copyright (c) 2026 T3 Tools Inc. (text below)
+
+Adapted, not copied file for file, because Moss's runtime, contracts and tools differ:
+
+- the control model (owner, generation, one action queue, reserve-then-drain handover, merged hover and wheel input) in `packages/shared/src/browserSessionControl.ts`, from `apps/server/src/preview/SessionControl.ts`. Moss adds the handoff notice the agent receives on its next call.
+- the stream protocol (JPEG frames over a WebSocket, ack-paced screencast with one frame on the wire and only the newest waiting, viewer input mapped to CDP `Input.*`) in `packages/shared/src/serverBrowserStream.ts`, `apps/server/src/serverBrowser/ServerBrowserViewers.ts` and `apps/web/src/lib/serverBrowserStream.ts`, from `apps/server/src/preview/ServerBrowserStream.ts`, `ServerBrowser.ts` and `packages/client-runtime/src/preview/serverBrowserStream.ts`.
+
+Moss-only: one Chromium process per thread, the existing `browser_*` tools served by the server browser when no desktop app hosts one, and `browser_run` executed by Betterwright on a single-tab CDP lease (`apps/server/src/serverBrowser/serverBrowserCdpLease.ts`).
+
 MIT License
 
 Copyright (c) 2026 T3 Tools Inc.

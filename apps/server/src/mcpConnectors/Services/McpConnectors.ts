@@ -9,6 +9,7 @@ import type {
   McpConnector,
   McpConnectorConnectInput,
   McpConnectorConnectResult,
+  McpConnectorListToolsResult,
   McpConnectorSetup,
   MossAppConnection,
   MossAppsConnectFieldsResult,
@@ -85,6 +86,10 @@ export interface McpConnectorsShape {
     input: McpConnectorConnectInput,
   ) => Effect.Effect<McpConnectorConnectResult, McpConnectorError>;
   readonly disconnect: (connectorId: string) => Effect.Effect<boolean, McpConnectorError>;
+  /** What a connected server offers agents, asked of the server itself. */
+  readonly listTools: (
+    connectorId: string,
+  ) => Effect.Effect<McpConnectorListToolsResult, McpConnectorError>;
   /** What a user's own OAuth app needs, such as its redirect URL. */
   readonly setup: () => Effect.Effect<McpConnectorSetup, McpConnectorError>;
   /** The OAuth redirect target; never fails, the outcome is rendered as a page. */

@@ -29,6 +29,8 @@ export type PairingBootstrapResult = "not-pairing" | "redirecting" | "failed";
 export function renderPairingFailure(locale: MossLocaleCode = resolveBootstrapLocale()): void {
   const root = document.getElementById("root");
   if (!root) return;
+  // The app never mounts on this path, so nothing else lifts the boot splash off it.
+  document.getElementById("app-boot-splash")?.remove();
 
   applyDocumentLocale(locale);
   const t = (key: Parameters<typeof translateBootstrap>[1]) => translateBootstrap(locale, key);
@@ -45,11 +47,19 @@ export function renderPairingFailure(locale: MossLocaleCode = resolveBootstrapLo
   root.querySelector<HTMLElement>("h1")?.focus();
 }
 
+/**
+ * Called as `dependencies.fetch(...)`, the bare global runs with the dependencies object
+ * as its receiver, which browsers reject with "Illegal invocation"; this keeps the
+ * window as the receiver.
+ */
+export const windowBoundFetch: typeof globalThis.fetch = (input, init) =>
+  globalThis.fetch(input, init);
+
 export async function bootstrapPairingSession(
   dependencies: PairingBootstrapDependencies = {
     location: window.location,
     history: window.history,
-    fetch: globalThis.fetch,
+    fetch: windowBoundFetch,
     renderFailure: renderPairingFailure,
   },
 ): Promise<PairingBootstrapResult> {

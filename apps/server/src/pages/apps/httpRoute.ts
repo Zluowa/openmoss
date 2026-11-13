@@ -27,7 +27,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { authErrorResponse, makeEffectAuthRequest } from "../../auth/effectHttp";
 import { ServerAuth } from "../../auth/Services/ServerAuth";
 import { ServerConfig } from "../../config";
-import { isLoopbackHost } from "../../startupAccess";
+import { isLocalOnlyAccess, requestPeer } from "../../startupAccess";
 import { readInlineVisualizationLibrary } from "../../inlineVisualizationAccess";
 import {
   isTrustedAppOrigin,
@@ -128,12 +128,9 @@ export const pageAppsApiRouteLayer = HttpRouter.add(
     // Same rule as Moss's other local routes: a loopback server without a
     // token, or the desktop's startup token, is the owner.
     const desktopTokenAuthorized =
-      (isLoopbackHost(config.host) && !config.publicUrl && configured.length === 0) ||
-      (isLoopbackHost(config.host) &&
-        !config.publicUrl &&
-        configured.length > 0 &&
-        supplied.length === configured.length &&
-        timingSafeEqual(supplied, configured));
+      isLocalOnlyAccess(config, requestPeer(request)) &&
+      (configured.length === 0 ||
+        (supplied.length === configured.length && timingSafeEqual(supplied, configured)));
     const authenticated = desktopTokenAuthorized
       ? null
       : yield* Effect.result(auth.authenticateHttpRequest(makeEffectAuthRequest(request)));

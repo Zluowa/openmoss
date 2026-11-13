@@ -1,3 +1,4 @@
+import { guardChildStdio } from "@moss/shared/jsonrpc-stdio";
 import { spawnProcess } from "@moss/shared/processRuntime";
 import { signalOwnedChildProcess } from "../platform/processTreeController";
 import * as readline from "node:readline";
@@ -251,6 +252,9 @@ export const probeGeminiCapabilities = (input: {
           env,
           stdio: ["pipe", "pipe", "pipe"],
         });
+        // A CLI that exits early breaks the pipe the probe writes to; its exit
+        // already settles the probe.
+        guardChildStdio(child);
 
         if (!child.stdin || !child.stdout || !child.stderr) {
           signalOwnedChildProcess(child, "SIGTERM");

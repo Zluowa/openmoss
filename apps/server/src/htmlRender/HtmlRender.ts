@@ -578,10 +578,34 @@ const inlineLocalImages = Effect.fn("HtmlRender.inlineLocalImages")(function* (h
   };
 });
 
-const make = Effect.gen(function* () {
-  const fileSystem = yield* FileSystem.FileSystem;
-  const config = yield* ServerConfig;
-  const previewBrowserDirectory = `${config.baseDir}/tools/html-preview-browser`;
+export interface DedicatedHeadlessShell {
+  /** The installed executable, or undefined while it is not installed. */
+  readonly executable: () => Promise<string | undefined>;
+  /** Wait for the one shared, bounded install of the shell. */
+  readonly waitForInstall: () => Promise<void>;
+}
+
+const dedicatedHeadlessShells = new Map<string, DedicatedHeadlessShell>();
+
+/**
+ * Moss's own headless Chromium shell under the server's base directory, shared
+ * by every server-side page: HTML previews and the server-hosted agent browser.
+ * Never a user-installed browser.
+ *
+ * One instance per base directory, so both callers share one installer: a
+ * first preview and a first server-browser launch wait for the same download
+ * instead of extracting into the same folder at once.
+ */
+export const makeDedicatedHeadlessShell = (baseDir: string): DedicatedHeadlessShell => {
+  const existing = dedicatedHeadlessShells.get(baseDir);
+  if (existing) return existing;
+  const shell = createDedicatedHeadlessShell(baseDir);
+  dedicatedHeadlessShells.set(baseDir, shell);
+  return shell;
+};
+
+const createDedicatedHeadlessShell = (baseDir: string): DedicatedHeadlessShell => {
+  const previewBrowserDirectory = `${baseDir}/tools/html-preview-browser`;
   let resolvingPreviewBrowserExecutable: Promise<string | undefined> | null = null;
   const runtimeRequire = createRequire(import.meta.url);
   const bundledPlaywright = () =>
@@ -602,14 +626,24 @@ const make = Effect.gen(function* () {
     },
   });
 
-  /** Returns only Moss's dedicated headless shell, never a user-installed browser. */
-  const dedicatedBrowserExecutable = async () => {
-    if (resolvingPreviewBrowserExecutable !== null) return resolvingPreviewBrowserExecutable;
-    resolvingPreviewBrowserExecutable = Promise.resolve(
-      dedicatedHeadlessShellExecutable(previewBrowserDirectory),
-    );
-    return resolvingPreviewBrowserExecutable;
+  return {
+    executable: async () => {
+      if (resolvingPreviewBrowserExecutable !== null) return resolvingPreviewBrowserExecutable;
+      resolvingPreviewBrowserExecutable = Promise.resolve(
+        dedicatedHeadlessShellExecutable(previewBrowserDirectory),
+      );
+      return resolvingPreviewBrowserExecutable;
+    },
+    waitForInstall: previewBrowserInstaller.waitForInstall,
   };
+};
+
+const make = Effect.gen(function* () {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const config = yield* ServerConfig;
+  const headlessShell = makeDedicatedHeadlessShell(config.baseDir);
+  const previewBrowserInstaller = { waitForInstall: headlessShell.waitForInstall };
+  const dedicatedBrowserExecutable = headlessShell.executable;
 
   const runPreviewPage = async <A>(input: {
     readonly html: string;

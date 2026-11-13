@@ -143,6 +143,32 @@ describe("ServerAuthLive", () => {
     );
   });
 
+  it("issues listed, revocable owner-device codes for the owner's phone", async () => {
+    await runServerAuthTest(
+      Effect.gen(function* () {
+        const serverAuth = yield* ServerAuth;
+
+        const pairingCredential = yield* serverAuth.issuePairingCredential({
+          label: "Phone",
+          access: "ownerDevice",
+        });
+        const listed = yield* serverAuth.listPairingLinks();
+        expect(listed.find((link) => link.id === pairingCredential.id)?.role).toBe("owner");
+
+        const exchanged = yield* serverAuth.exchangeBootstrapCredential(
+          pairingCredential.credential,
+          { ...requestMetadata, deviceType: "mobile" },
+        );
+        const verified = yield* serverAuth.authenticateHttpRequest(
+          makeCookieRequest(exchanged.sessionToken),
+        );
+
+        expect(verified.role).toBe("owner");
+        expect(verified.subject).toBe("owner-device");
+      }),
+    );
+  });
+
   it("issues startup pairing URLs that bootstrap owner sessions", async () => {
     await runServerAuthTest(
       Effect.gen(function* () {
@@ -357,6 +383,44 @@ describe("ServerAuthLive", () => {
 
         expect(upgraded?.role).toBe("owner");
         expect(upgraded?.subject).toBe("owner-bootstrap");
+      }),
+    );
+  });
+
+  it("signs out every paired phone and withdraws open phone codes, and nothing else", async () => {
+    await runServerAuthTest(
+      Effect.gen(function* () {
+        const serverAuth = yield* ServerAuth;
+        const phoneCode = yield* serverAuth.issuePairingCredential({ access: "ownerDevice" });
+        const phone = yield* serverAuth.exchangeBootstrapCredentialForBearerSession(
+          phoneCode.credential,
+          { ...requestMetadata, deviceType: "mobile" },
+        );
+        const openPhoneCode = yield* serverAuth.issuePairingCredential({ access: "ownerDevice" });
+        const clientCode = yield* serverAuth.issuePairingCredential({ label: "Laptop" });
+        const client = yield* serverAuth.exchangeBootstrapCredentialForBearerSession(
+          clientCode.credential,
+          requestMetadata,
+        );
+        const openClientCode = yield* serverAuth.issuePairingCredential({ label: "Tablet" });
+
+        expect(yield* serverAuth.revokeOwnerDeviceAccess()).toBe(1);
+
+        const bearer = (token: string) => ({
+          headers: { authorization: `Bearer ${token}` },
+          cookies: {},
+        });
+        const phoneAfter = yield* serverAuth
+          .authenticateHttpRequest(bearer(phone.sessionToken))
+          .pipe(Effect.result);
+        expect(phoneAfter._tag === "Failure" ? phoneAfter.failure.status : null).toBe(401);
+        const clientAfter = yield* serverAuth.authenticateHttpRequest(bearer(client.sessionToken));
+        expect(clientAfter.role).toBe("client");
+        const open = (yield* serverAuth.listPairingLinks()).map((link) => link.id);
+        expect(open).not.toContain(openPhoneCode.id);
+        expect(open).toContain(openClientCode.id);
+        // Nothing left to do the second time.
+        expect(yield* serverAuth.revokeOwnerDeviceAccess()).toBe(0);
       }),
     );
   });

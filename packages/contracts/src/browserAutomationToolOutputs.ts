@@ -52,7 +52,8 @@ export const BrowserTabSummary = closedStruct({
 
 export const BrowserStatusOutput = closedStruct({
   available: Schema.Boolean,
-  physicalScope: Schema.Literals(["visible-shared-electron-webview"]),
+  // The desktop's visible webview, or a headless browser on the server streamed to viewers.
+  physicalScope: Schema.Literals(["visible-shared-electron-webview", "server-headless-chromium"]),
   assignedTabId: Schema.NullOr(BrowserTabId),
   authorization: Schema.Literals(["not-required", "pending", "granted", "denied", "revoked"]),
 });

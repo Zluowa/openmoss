@@ -9,6 +9,8 @@ export const AUTH_SIGNED_OUT_PATH = "/signed-out";
 export function renderSignedOutScreen(locale: MossLocaleCode = resolveBootstrapLocale()): void {
   const root = document.getElementById("root");
   if (!root) return;
+  // The app never mounts on this path, so nothing else lifts the boot splash off it.
+  document.getElementById("app-boot-splash")?.remove();
 
   applyDocumentLocale(locale);
   const t = (key: Parameters<typeof translateBootstrap>[1]) => translateBootstrap(locale, key);

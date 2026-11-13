@@ -132,6 +132,8 @@ import {
   browserPanelAvailable,
   useBrowserDockIntegration,
 } from "../browser/useBrowserDockIntegration";
+import { useServerBrowserReveal } from "../browser/useServerBrowserReveal";
+import { useServerHostedBrowser } from "../browser/useServerHostedBrowser";
 import { routeSingleBrowserPanelOpenRequest } from "./browserPanelOpenRequest";
 import {
   selectFloatingBrowserRequested,
@@ -562,6 +564,17 @@ export function SingleChatSurface(props: {
 
   // The browser panel hosts every page: an HTML file the agent wrote, a dev server, a
   // link. It draws its own header row (tabs, servers, "…", expand, close).
+  // When the agent's browser runs on the server, open its pane when the agent
+  // shows a page there.
+  const serverHostedBrowser = useServerHostedBrowser();
+  useServerBrowserReveal({
+    threadId: props.threadId,
+    enabled: serverHostedBrowser,
+    showBrowserPane: () => {
+      requestImmediateDockHydration("browser");
+      openPane(props.threadId, { kind: "browser" });
+    },
+  });
   const browserDock = useBrowserDockIntegration({
     threadId: props.threadId,
     workspaceRoot,

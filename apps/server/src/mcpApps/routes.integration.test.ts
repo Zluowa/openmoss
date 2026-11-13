@@ -54,6 +54,12 @@ let scope: Scope.Closeable;
 const stateDir = mkdtempSync(path.join(os.tmpdir(), "moss-ic-routes-"));
 const service = makeMcpAppServiceState({ resultsDirectory: path.join(stateDir, "results") });
 let runtimeMode: "approval-required" | "full-access" = "approval-required";
+// Mutable so a test can turn this into a desktop that lets phones connect.
+const config = {
+  host: "127.0.0.1",
+  publicUrl: undefined,
+  authToken: TOKEN,
+} as { -readonly [K in keyof ServerConfigShape]: ServerConfigShape[K] };
 
 /** Direct loopback forward (the production proxy refuses non-public addresses by design). */
 async function forward(request: {
@@ -120,7 +126,6 @@ beforeAll(async () => {
   const snapshotQuery = {
     getThreadShellById: () => Effect.succeed(Option.some({ runtimeMode })),
   };
-  const config = { host: "127.0.0.1", publicUrl: undefined, authToken: TOKEN } as ServerConfigShape;
 
   scope = await Effect.runPromise(Scope.make("sequential"));
   const services = await Effect.runPromise(
@@ -526,5 +531,26 @@ describe("interactive connector endpoints (Moss connector, Streamable HTTP fixtu
     });
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+  });
+
+  it("refuses the desktop's startup token from another device while phones may connect", async () => {
+    Object.assign(config, { mode: "desktop", host: "0.0.0.0", desktopPhoneAccess: true });
+    try {
+      // The test listener is loopback, so a device elsewhere arrives the way a proxy on this
+      // computer relays it: with the forwarding headers that name that device.
+      const fromPhone = await post(
+        MCP_APP_TOOL_RESULT_ROUTE_PATH,
+        { threadId: THREAD, callId: CALL },
+        { "X-Forwarded-For": "192.168.1.23" },
+      );
+      expect(fromPhone.status).toBe(401);
+      const fromThisComputer = await post(MCP_APP_TOOL_RESULT_ROUTE_PATH, {
+        threadId: THREAD,
+        callId: CALL,
+      });
+      expect(fromThisComputer.status).toBe(200);
+    } finally {
+      Object.assign(config, { mode: undefined, host: "127.0.0.1", desktopPhoneAccess: undefined });
+    }
   });
 });

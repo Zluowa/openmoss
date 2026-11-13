@@ -1362,6 +1362,22 @@ export interface DesktopAudioInputDevice {
  */
 export type DesktopAudioLevelStatus = "active" | "off" | "unsupported" | "unavailable";
 
+/** "Allow phone connections" (desktop app only). */
+export interface DesktopPhoneAccessRequest {
+  readonly enabled: boolean;
+}
+
+export interface DesktopPhoneAccessState {
+  /** The stored choice. */
+  readonly enabled: boolean;
+  /** What the running background service does, which lags the choice on failure. */
+  readonly active: "off" | "lan";
+  /** Why the switch cannot be used at all in this build, if it cannot. */
+  readonly unavailableReason: "development" | null;
+  /** Why the choice is not (fully) in effect. */
+  readonly error: "port-unavailable" | "restart-failed" | null;
+}
+
 /**
  * Agent cursor colors mirrored from the renderer to the desktop main process.
  * Each channel is a `#rrggbb` string; an omitted channel keeps the driver's
@@ -1544,6 +1560,14 @@ export interface DesktopBridge {
     getState: () => Promise<DesktopCustomTitleBarState>;
     setPreference: (enabled: boolean) => Promise<DesktopCustomTitleBarState>;
     relaunch: () => Promise<void>;
+  };
+  /**
+   * "Allow phone connections", desktop app only. Changing it restarts Moss's
+   * background service; the promise settles once the service answers again.
+   */
+  phoneAccess?: {
+    getState: () => Promise<DesktopPhoneAccessState>;
+    set: (input: DesktopPhoneAccessRequest) => Promise<DesktopPhoneAccessState>;
   };
   /**
    * Live desktop frames from the native computer frame tap, desktop app only.

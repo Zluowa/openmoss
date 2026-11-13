@@ -4,14 +4,15 @@
 // Exports: CONNECTION_TABS, ConnectionTab, SSH_SETTINGS_TARGET, connectionTabFromSearch
 
 /**
- * Connections holds connections only: other devices this one controls, devices pairing
- * with this one, and SSH hosts. Controlling this computer is its own page (电脑操控);
+ * Connections holds connections only: other devices this one controls, phones that use
+ * this computer, devices pairing with this one, and SSH hosts. Controlling this computer is its own page (电脑操控);
  * the legacy `this` tab id is still accepted and resolves to that page.
  */
-export const CONNECTION_TABS = ["devices", "pairing", "ssh", "this"] as const;
+export const CONNECTION_TABS = ["devices", "phone", "pairing", "ssh", "this"] as const;
 export type ConnectionTab = (typeof CONNECTION_TABS)[number];
 export const VISIBLE_CONNECTION_TABS = [
   "devices",
+  "phone",
   "pairing",
   "ssh",
 ] as const satisfies ReadonlyArray<ConnectionTab>;

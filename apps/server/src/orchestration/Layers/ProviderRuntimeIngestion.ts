@@ -38,6 +38,14 @@ import {
 import * as Semaphore from "effect/Semaphore";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@moss/shared/DrainableWorker";
 import { isGroupContainerKind } from "@moss/shared/projectContainers";
+import { PROVIDER_TURN_SILENT_ACTIVITY_KIND } from "@moss/shared/providerDeliveryBlock";
+import { activeTimeStepMs } from "../activeTime.ts";
+import {
+  createSilentTurnWatch,
+  DEFAULT_SILENT_TURN_WATCH_BOUNDS,
+  SilentTurnWatchConfig,
+  type SilentTurnTransition,
+} from "../silentTurnWatch.ts";
 import { providerSupportsNativeTurnSteering } from "@moss/shared/providerMetadata";
 import { isProviderKind } from "@moss/shared/providerInstances";
 import {
@@ -831,6 +839,74 @@ const make = Effect.gen(function* () {
   const pendingInteractions = yield* ProjectionPendingInteractionRepository;
   const runtimeEvents = yield* ProviderRuntimeEventRepository;
   const commandReceipts = yield* OrchestrationCommandReceiptRepository;
+  const silentTurnBounds = {
+    ...DEFAULT_SILENT_TURN_WATCH_BOUNDS,
+    ...Option.getOrElse(yield* Effect.serviceOption(SilentTurnWatchConfig), () => ({})),
+  };
+  const silentTurns = createSilentTurnWatch(silentTurnBounds);
+  // Says in the transcript that a running turn has gone silent, and that it spoke again.
+  // Diagnostics stay in the payload and the log; the chat shows only Moss's own sentence.
+  const publishSilentTurnTransition = (transition: SilentTurnTransition) =>
+    Effect.gen(function* () {
+      const createdAt = new Date().toISOString();
+      const session =
+        transition.kind === "silent"
+          ? (yield* providerService.listSessions()).find(
+              (candidate) => candidate.threadId === transition.threadId,
+            )
+          : undefined;
+      const liveRuntimeTasks =
+        transition.kind === "silent" && providerService.hasLiveRuntimeTasks
+          ? yield* providerService.hasLiveRuntimeTasks({ threadId: transition.threadId })
+          : undefined;
+      const diagnostics =
+        transition.kind === "silent"
+          ? {
+              thresholdMs: transition.thresholdMs,
+              openToolCalls: transition.openToolCalls,
+              ...(session ? { providerSessionStatus: session.status } : {}),
+              ...(liveRuntimeTasks === undefined ? {} : { liveRuntimeTasks }),
+            }
+          : {};
+      yield* (transition.kind === "silent" ? Effect.logWarning : Effect.logInfo)(
+        transition.kind === "silent"
+          ? "provider turn silent: no runtime event in active time"
+          : "provider turn spoke again after a silence notice",
+        {
+          threadId: transition.threadId,
+          turnId: transition.turnId,
+          silentForMs: transition.silentForMs,
+          ...diagnostics,
+        },
+      );
+      yield* orchestrationEngine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe(`server:provider-turn-silent:${crypto.randomUUID()}`),
+        threadId: transition.threadId,
+        activity: {
+          id: EventId.makeUnsafe(crypto.randomUUID()),
+          tone: "info",
+          kind: PROVIDER_TURN_SILENT_ACTIVITY_KIND,
+          summary:
+            transition.kind === "silent"
+              ? "The agent has sent nothing for a while"
+              : "The agent is responding again",
+          payload: { state: transition.kind, silentForMs: transition.silentForMs, ...diagnostics },
+          turnId: transition.turnId,
+          createdAt,
+        },
+        createdAt,
+      });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("could not record a silent provider turn", {
+              threadId: transition.threadId,
+              cause: Cause.pretty(cause),
+            }),
+      ),
+    );
   // Throttle map for the durable last-runtime-activity timestamp: one row
   // write per thread per ~15s of observed activity instead of per event.
   const lastActivityFlushByThreadRef = yield* Ref.make(new Map<string, number>());
@@ -4258,6 +4334,8 @@ const make = Effect.gen(function* () {
           Deferred.await(startupRuntimeReplayComplete).pipe(
             Effect.andThen(
               Effect.gen(function* () {
+                const silentTransition = silentTurns.observe(persisted.event);
+                if (silentTransition) yield* publishSilentTurnTransition(silentTransition);
                 if (providerRuntimeProgressKey(persisted.event) !== undefined) {
                   const wasPending = pendingProgressFence !== 0;
                   pendingProgressFence = Math.max(pendingProgressFence, persisted.sequence);
@@ -4309,6 +4387,20 @@ const make = Effect.gen(function* () {
       yield* drainRuntimeJournal;
       yield* Deferred.succeed(startupRuntimeReplayComplete, undefined);
       yield* Effect.forkScoped(pollRuntimeJournalSafely);
+      // Silence is counted in active time, so a stalled server never calls a turn silent.
+      yield* Effect.forkScoped(
+        Effect.gen(function* () {
+          let last = silentTurnBounds.now();
+          while (true) {
+            yield* Effect.sleep(Duration.millis(silentTurnBounds.tickMs));
+            const now = silentTurnBounds.now();
+            const step = activeTimeStepMs(last, now, silentTurnBounds.tickMs);
+            last = now;
+            for (const transition of silentTurns.advance(step))
+              yield* publishSilentTurnTransition(transition);
+          }
+        }),
+      );
     }),
   ).pipe(Effect.orDie);
 

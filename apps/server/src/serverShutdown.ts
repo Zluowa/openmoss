@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { Deferred, Effect } from "effect";
 
 import type { ServerConfigShape } from "./config";
-import { isLoopbackHost } from "./startupAccess";
+import { isLocalOnlyAccess, isLoopbackPeerAddress, type RequestPeer } from "./startupAccess";
 
 export const DESKTOP_SHUTDOWN_ROUTE_PATH = "/api/desktop/shutdown";
 
@@ -51,10 +51,7 @@ export function matchesDesktopShutdownToken(expected: string, presented: string)
   return timingSafeEqual(digestToken(expected), digestToken(presented));
 }
 
-export function isDesktopShutdownLoopbackPeer(remoteAddress: string | null | undefined): boolean {
-  const normalized = remoteAddress?.trim().toLowerCase();
-  return normalized === "127.0.0.1" || normalized === "::1" || normalized === "::ffff:127.0.0.1";
-}
+export const isDesktopShutdownLoopbackPeer = isLoopbackPeerAddress;
 
 function readBearerToken(authorization: string | undefined): string | undefined {
   const match = /^Bearer ([^\s]+)$/iu.exec(authorization ?? "");
@@ -68,15 +65,22 @@ function readBearerToken(authorization: string | undefined): string | undefined 
  * response.
  */
 export function authorizeDesktopShutdown(input: {
-  readonly config: Pick<ServerConfigShape, "mode" | "host" | "publicUrl" | "desktopShutdownToken">;
+  readonly config: Pick<
+    ServerConfigShape,
+    "mode" | "host" | "publicUrl" | "desktopShutdownToken" | "desktopPhoneAccess"
+  >;
   readonly remoteAddress: string | null | undefined;
   readonly authorization: string | undefined;
+  /** Lets a phone-reachable desktop tell its own request from a proxied one. */
+  readonly headers?: RequestPeer["headers"] | undefined;
 }): DesktopShutdownAuthorization {
   const expectedToken = input.config.desktopShutdownToken;
   if (
     input.config.mode !== "desktop" ||
-    !isLoopbackHost(input.config.host) ||
-    input.config.publicUrl !== undefined ||
+    !isLocalOnlyAccess(input.config, {
+      remoteAddress: input.remoteAddress,
+      headers: input.headers ?? {},
+    }) ||
     !isDesktopShutdownLoopbackPeer(input.remoteAddress) ||
     !expectedToken?.trim()
   ) {

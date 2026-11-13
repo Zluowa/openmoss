@@ -131,8 +131,16 @@ export const AuthRevokeClientSessionInput = Schema.Struct({
 });
 export type AuthRevokeClientSessionInput = typeof AuthRevokeClientSessionInput.Type;
 
+export const AuthPairingCredentialAccess = Schema.Literals(["client", "ownerDevice"]);
+export type AuthPairingCredentialAccess = typeof AuthPairingCredentialAccess.Type;
+
 export const AuthCreatePairingCredentialInput = Schema.Struct({
   label: Schema.optionalKey(TrimmedNonEmptyString),
+  /**
+   * `ownerDevice` pairs another device of the owner (their phone) with full owner
+   * access. Only an owner session can create either kind of code.
+   */
+  access: Schema.optionalKey(AuthPairingCredentialAccess),
 });
 export type AuthCreatePairingCredentialInput = typeof AuthCreatePairingCredentialInput.Type;
 

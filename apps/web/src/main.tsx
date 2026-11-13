@@ -5,6 +5,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import "@fontsource-variable/inter/wght.css";
 import "@fontsource-variable/jetbrains-mono";
 import "./index.css";
+import "./phoneShell.css";
 
 import { appHistory } from "./appNavigation";
 import { getRouter } from "./router";

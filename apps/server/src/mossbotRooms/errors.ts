@@ -19,6 +19,7 @@ const NON_RETRYABLE = new Set([
   "turn_limit",
   "ambiguous_name",
   "room_not_found",
+  "attachment_unavailable",
 ]);
 
 /** A WsRpcError whose code is `mossbot.<code>` for a known room failure. */

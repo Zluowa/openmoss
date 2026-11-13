@@ -529,6 +529,18 @@
       "types": "./src/computerKeyNames.ts",
       "import": "./src/computerKeyNames.ts"
     },
+    "./browserSessionControl": {
+      "types": "./src/browserSessionControl.ts",
+      "import": "./src/browserSessionControl.ts"
+    },
+    "./serverBrowserStream": {
+      "types": "./src/serverBrowserStream.ts",
+      "import": "./src/serverBrowserStream.ts"
+    },
+    "./computerSessionHotkeys": {
+      "types": "./src/computerSessionHotkeys.ts",
+      "import": "./src/computerSessionHotkeys.ts"
+    },
     "./computerGrants": {
       "types": "./src/computerGrants.ts",
       "import": "./src/computerGrants.ts"

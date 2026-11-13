@@ -108,9 +108,13 @@ it("uses keyboard tabs and identifies desktop-only pairing in a browser", async 
     .toHaveAttribute("aria-selected", "true");
   await userEvent.keyboard("{ArrowRight}");
   await expect
+    .element(page.getByRole("tab", { name: "Phone", exact: true }))
+    .toHaveAttribute("aria-selected", "true");
+  await userEvent.keyboard("{ArrowRight}");
+  await expect
     .element(page.getByRole("tab", { name: "Pair a device" }))
     .toHaveAttribute("aria-selected", "true");
-  await userEvent.keyboard("{ArrowLeft}");
+  await userEvent.keyboard("{Home}");
   await expect
     .element(page.getByTestId("remote-computers-settings"))
     .toHaveTextContent("Add and connect to other devices in the Moss desktop app.");

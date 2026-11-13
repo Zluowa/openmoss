@@ -109,6 +109,29 @@ export const McpConnectorDisconnectResult = Schema.Struct({
 export type McpConnectorDisconnectResult = typeof McpConnectorDisconnectResult.Type;
 
 /**
+ * One tool a connected server offers agents, as its `tools/list` names it.
+ * Long descriptions are cut to what a list can show.
+ */
+export const McpConnectorTool = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  title: Schema.optional(TrimmedNonEmptyString),
+  description: Schema.optional(TrimmedNonEmptyString),
+});
+export type McpConnectorTool = typeof McpConnectorTool.Type;
+
+export const McpConnectorListToolsInput = Schema.Struct({
+  connectorId: McpConnectorId,
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
+export type McpConnectorListToolsInput = typeof McpConnectorListToolsInput.Type;
+
+/** `truncated` is set when the server offers more tools than Moss lists. */
+export const McpConnectorListToolsResult = Schema.Struct({
+  tools: Schema.Array(McpConnectorTool),
+  truncated: Schema.Boolean,
+});
+export type McpConnectorListToolsResult = typeof McpConnectorListToolsResult.Type;
+
+/**
  * Moss service plugins (one per mainland China service: its connector plus a
  * Moss-written skill). `installed` lists every installed plugin id: those
  * whose connector is connected, and the skill-only ones the user installed.

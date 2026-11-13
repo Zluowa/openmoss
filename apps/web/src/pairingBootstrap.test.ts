@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { bootstrapPairingSession } from "./pairingBootstrap";
+import { bootstrapPairingSession, windowBoundFetch } from "./pairingBootstrap";
 
 function makeDependencies(input: {
   readonly pathname?: string;
@@ -77,5 +77,20 @@ describe("bootstrapPairingSession", () => {
     await expect(bootstrapPairingSession(test.dependencies)).resolves.toBe("failed");
     expect(test.events).toEqual(["scrub:/pair", "failure"]);
     expect(test.fetch).not.toHaveBeenCalled();
+  });
+
+  it("calls the global fetch with the global receiver even as a method", async () => {
+    // Browsers throw "Illegal invocation" when fetch runs with another receiver, which
+    // is what `dependencies.fetch(...)` does to a bare `globalThis.fetch` reference.
+    const original = globalThis.fetch;
+    const stub = vi.fn(async () => new Response(null, { status: 204 }));
+    globalThis.fetch = stub as unknown as typeof globalThis.fetch;
+    try {
+      const dependencies = { fetch: windowBoundFetch };
+      await dependencies.fetch("/api/auth/bootstrap");
+      expect(stub.mock.contexts[0]).toBe(globalThis);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 });

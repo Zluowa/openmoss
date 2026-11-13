@@ -1,6 +1,12 @@
 import { SecretRequestActivityPayload } from "./secretRequest";
-import { Schema } from "effect";
-import { ModelSelection, OrchestrationMessage } from "./orchestration";
+import { Option, Schema, SchemaIssue } from "effect";
+import {
+  ChatFileAttachment,
+  ChatImageAttachment,
+  ModelSelection,
+  OrchestrationMessage,
+  PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
+} from "./orchestration";
 import { ProjectId, ThreadId } from "./baseSchemas";
 
 const Id = Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9_-]{1,128}$/));
@@ -36,15 +42,37 @@ export const MOSSBOT_ROOM_ERROR_CODES = [
   "ambiguous_name",
   "unavailable",
   "member_turn_failed",
+  "attachment_unavailable",
 ] as const;
 export type MossbotRoomErrorCode = (typeof MOSSBOT_ROOM_ERROR_CODES)[number];
 export const MOSSBOT_ROOM_ERROR_CODE_PREFIX = "mossbot.";
+/**
+ * A picture or file on a group post. The sender uploads it the way a thread turn's attachment
+ * is uploaded (`/api/attachments/upload`), naming the room's `projectId` as the upload's
+ * `threadId`; the room keeps it and hands each responding member its own copy.
+ */
+export const MossbotRoomAttachment = Schema.Union([ChatImageAttachment, ChatFileAttachment]);
+export type MossbotRoomAttachment = typeof MossbotRoomAttachment.Type;
+const MossbotRoomAttachmentList = Schema.Array(MossbotRoomAttachment).check(
+  Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_ATTACHMENTS),
+);
 export const MossbotRoomSendInput = Schema.Struct({
   roomId: Id,
   requestId: Id,
-  text: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(32_000)),
+  text: Schema.String.check(Schema.isMaxLength(32_000)),
   picked: Schema.optional(Schema.Array(ProjectId).check(Schema.isMaxLength(20))),
-});
+  attachments: Schema.optional(MossbotRoomAttachmentList),
+}).check(
+  Schema.makeFilter(
+    (input: { readonly text: string; readonly attachments?: ReadonlyArray<unknown> | undefined }) =>
+      input.text.length > 0 ||
+      (input.attachments?.length ?? 0) > 0 ||
+      new SchemaIssue.InvalidValue(Option.some(input.text), {
+        message: "A group post must include text or attachments.",
+      }),
+    { identifier: "MossbotRoomPostContent" },
+  ),
+);
 export type MossbotRoomSendInput = typeof MossbotRoomSendInput.Type;
 export const MossbotRoomMember = Schema.Struct({
   id: ProjectId,
@@ -61,6 +89,7 @@ export const MossbotRoomLine = Schema.Struct({
   senderId: Schema.NullOr(ProjectId),
   text: Schema.String,
   createdAt: Schema.String,
+  attachments: Schema.optional(Schema.Array(MossbotRoomAttachment)),
 });
 export const MossbotRoomDelivery = Schema.Struct({
   requestId: Schema.String,
